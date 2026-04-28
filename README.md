@@ -1,2 +1,8 @@
 # agend-wordpress-plugins
 Collection of Wordpress plugins that integrate into the Agend system
+
+## Agend Apps - Core
+The core connection to the Agend ecosystem. Contains API connection PHP global functions and AJAX requests.
+
+## Agend Apps - Shop
+Agend product, cart and shop service. Integrates with the Agend products and sync's the user's cart across your website and the Agend ecosystem.
