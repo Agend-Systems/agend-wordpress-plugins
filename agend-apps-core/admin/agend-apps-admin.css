@@ -1,0 +1,46 @@
+/**
+ * Admin styles for Agend Apps Core settings pages.
+ *
+ * @package Agend_Apps_Core
+ */
+
+.agend-apps-admin .nav-tab-wrapper {
+	margin-bottom: 1rem;
+}
+
+.agend-apps-cache-table {
+	margin-top: 1rem;
+	margin-bottom: 1.5rem;
+}
+
+.agend-apps-cache-table th,
+.agend-apps-cache-table td {
+	padding: 8px 12px;
+}
+
+.agend-apps-cache-actions {
+	margin-top: 0.5rem;
+}
+
+#agend-apps-cache-notice {
+	margin-top: 1rem;
+	padding: 8px 12px;
+}
+
+.agend-apps-verify-result {
+	margin-top: 8px;
+	padding: 8px 12px;
+	border-left: 4px solid #ccc;
+	background: #f9f9f9;
+	line-height: 1.6;
+}
+
+.agend-apps-verify-result.is-success {
+	border-left-color: #00a32a;
+	background: #f0f9f0;
+}
+
+.agend-apps-verify-result.is-error {
+	border-left-color: #d63638;
+	background: #fdf0f0;
+}

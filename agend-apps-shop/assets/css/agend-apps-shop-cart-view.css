@@ -1,0 +1,149 @@
+/* Agend Apps Shop — Cart View widget styles */
+
+/* Table */
+.agend-shop-cart-table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 1.5rem;
+}
+
+.agend-shop-cart-table th,
+.agend-shop-cart-table td {
+	padding: 0.75rem;
+	border-bottom: 1px solid #e0e0e0;
+	text-align: left;
+	vertical-align: middle;
+}
+
+.agend-shop-cart-table thead th {
+	font-weight: 600;
+}
+
+/* Cart Actions */
+.agend-shop-cart-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: 1.5rem;
+	flex-wrap: wrap;
+}
+
+.agend-shop-cart-primary-actions {
+	display: flex;
+	gap: 0.5rem;
+}
+
+/* Message */
+.agend-shop-cart-message {
+	display: none;
+	padding: 0.5rem 0.75rem;
+	border-radius: 3px;
+	font-size: 0.9em;
+	margin-top: 1rem;
+}
+
+.agend-shop-cart-message.is-success {
+	display: block;
+	color: #155724;
+	background-color: #d4edda;
+	border: 1px solid #c3e6cb;
+}
+
+.agend-shop-cart-message.is-error {
+	display: block;
+	color: #721c24;
+	background-color: #f8d7da;
+	border: 1px solid #f5c6cb;
+}
+
+/* Locked notice */
+.agend-shop-cart-locked-notice {
+	padding: 0.75rem 1rem;
+	margin-bottom: 1rem;
+	background-color: #fff3cd;
+	border: 1px solid #ffeeba;
+	border-radius: 3px;
+	color: #856404;
+}
+
+/* Testing actions — visually distinct from production UI */
+.agend-shop-cart-test-actions {
+	margin-top: 2rem;
+	padding: 1rem;
+	border: 2px dashed #aaa;
+	border-radius: 4px;
+	color: #666;
+}
+
+.agend-shop-cart-test-actions button {
+	margin-right: 0.5rem;
+}
+
+/* Quantity stepper (reuses add-to-cart stepper styles if loaded) */
+.agend-shop-cart-table .agend-shop-atc-quantity {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.agend-shop-cart-table .agend-shop-qty-input {
+	width: 3.5rem;
+	text-align: center;
+	padding: 0.25rem;
+	border: 1px solid #ccc;
+	border-radius: 3px;
+	-moz-appearance: textfield;
+}
+
+.agend-shop-cart-table .agend-shop-qty-input::-webkit-inner-spin-button,
+.agend-shop-cart-table .agend-shop-qty-input::-webkit-outer-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+/* Confirmation modal */
+.agend-shop-confirm-modal {
+	position: fixed;
+	inset: 0;
+	background-color: rgba( 0, 0, 0, 0.5 );
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 99999;
+}
+
+.agend-shop-confirm-modal[hidden] {
+	display: none;
+}
+
+.agend-shop-confirm-modal-inner {
+	background: #fff;
+	padding: 2rem;
+	border-radius: 6px;
+	max-width: 420px;
+	width: 90%;
+	text-align: center;
+	box-shadow: 0 4px 20px rgba( 0, 0, 0, 0.2 );
+}
+
+.agend-shop-confirm-modal-inner p {
+	margin-bottom: 1.5rem;
+}
+
+.agend-shop-confirm-modal-inner button {
+	margin: 0 0.5rem;
+}
+
+tr.agend-cart-row-loading {
+    opacity: 0.5;
+    animation: pulse 3s ease-in infinite;
+}
+@keyframes pulse {
+    0%, 100% {
+        background-color: unset;
+    }
+    50% {
+        background-color: #c6c6c6;
+    }
+}

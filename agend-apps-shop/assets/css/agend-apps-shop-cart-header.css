@@ -1,0 +1,43 @@
+/* Agend Apps Shop — Cart Header widget styles */
+
+.agend-apps-shop-cart-header {
+	display: inline-block;
+}
+
+.agend-shop-cart-header-link {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	text-decoration: none;
+	color: inherit;
+}
+
+.agend-shop-cart-icon {
+	display: inline-flex;
+	align-items: center;
+	font-size: 1.4em;
+}
+
+/* Badge */
+.agend-shop-cart-badge {
+	position: absolute;
+	top: -0.5em;
+	right: -0.7em;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.4em;
+	height: 1.4em;
+	padding: 0 0.2em;
+	border-radius: 999px;
+	font-size: 0.7em;
+	font-weight: 700;
+	line-height: 1;
+	text-align: center;
+	/* Colours are injected via inline style from widget settings */
+}
+
+/* Hidden attribute support */
+.agend-shop-cart-badge[hidden] {
+	display: none;
+}
