@@ -150,6 +150,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						'skip_reasons'           => $transformed['skip_reasons'],
 						'duplicate_external_ids' => $transformed['duplicate_external_ids'],
 						'dropped_fields'         => $transformed['dropped_fields'] ?? array(),
+						'dropped_field_examples' => $transformed['dropped_field_examples'] ?? array(),
 						'preview'                => array_slice( $transformed['listings'], 0, self::TRANSFORM_PREVIEW_LIMIT ),
 						'max_records'            => $max_records,
 					)
@@ -213,6 +214,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						'skip_reasons'           => $transformed['skip_reasons'],
 						'duplicate_external_ids' => $transformed['duplicate_external_ids'],
 						'dropped_fields'         => $transformed['dropped_fields'] ?? array(),
+						'dropped_field_examples' => $transformed['dropped_field_examples'] ?? array(),
 						'external_source'        => $external_source,
 						'auto_publish_approved'  => $auto_publish,
 						'max_records'            => $max_records,
@@ -498,7 +500,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			echo '</ul>';
 
 			self::render_skip_reasons( $result['skip_reasons'] ?? array() );
-			self::render_dropped_fields( $result['dropped_fields'] ?? array() );
+			self::render_dropped_fields(
+				$result['dropped_fields'] ?? array(),
+				$result['dropped_field_examples'] ?? array()
+			);
 
 			echo '<h4>' . esc_html__( 'Sample of transformed listings', 'agend-directory-sync' ) . '</h4>';
 			self::render_json_block( $preview );
@@ -527,7 +532,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			echo '</ul>';
 
 			self::render_skip_reasons( $result['skip_reasons'] ?? array() );
-			self::render_dropped_fields( $result['dropped_fields'] ?? array() );
+			self::render_dropped_fields(
+				$result['dropped_fields'] ?? array(),
+				$result['dropped_field_examples'] ?? array()
+			);
 
 			if ( empty( $send ) ) {
 				echo '<div class="notice notice-warning inline"><p>'
@@ -595,13 +603,27 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		}
 
 		/**
-		 * Render the dropped-field counters. These are rows that were
-		 * synced, but with a specific field omitted because it violated
-		 * a hard constraint (e.g. phone > 50 chars).
+		 * Render the dropped-field counters and per-reason example tables.
+		 * These are rows that were synced, but with a specific field
+		 * omitted because it violated a hard constraint (e.g. phone > 50
+		 * chars). The example tables surface uniqueid + email for the
+		 * first N affected rows so the operator can locate the source
+		 * record in Upbeat.
+		 *
+		 * @param mixed $dropped_fields  Counter map: reason => count.
+		 * @param mixed $dropped_field_examples Map: reason => list of
+		 *                                       { external_id, email }.
 		 */
-		private static function render_dropped_fields( $dropped_fields ): void {
+		private static function render_dropped_fields(
+			$dropped_fields,
+			$dropped_field_examples = array()
+		): void {
 			if ( ! is_array( $dropped_fields ) || empty( $dropped_fields ) ) {
 				return;
+			}
+
+			if ( ! is_array( $dropped_field_examples ) ) {
+				$dropped_field_examples = array();
 			}
 
 			echo '<h4>' . esc_html__( 'Dropped fields', 'agend-directory-sync' ) . '</h4>';
@@ -610,12 +632,64 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				. '</p>';
 			echo '<ul style="list-style:disc;padding-left:1.5em;">';
 			foreach ( $dropped_fields as $reason => $count ) {
+				$reason_str = (string) $reason;
+				$count_int  = (int) $count;
 				echo '<li>'
-					. '<code>' . esc_html( (string) $reason ) . '</code>: '
-					. esc_html( (string) (int) $count )
+					. '<code>' . esc_html( $reason_str ) . '</code>: '
+					. esc_html( (string) $count_int )
 					. '</li>';
 			}
 			echo '</ul>';
+
+			foreach ( $dropped_fields as $reason => $count ) {
+				$reason_str = (string) $reason;
+				$count_int  = (int) $count;
+				$examples   = isset( $dropped_field_examples[ $reason_str ] ) && is_array( $dropped_field_examples[ $reason_str ] )
+					? $dropped_field_examples[ $reason_str ]
+					: array();
+
+				if ( empty( $examples ) ) {
+					continue;
+				}
+
+				$shown      = count( $examples );
+				$summary    = $shown < $count_int
+					? sprintf(
+						// translators: 1: count shown, 2: total dropped, 3: drop reason code.
+						__( 'Affected rows for %3$s (showing %1$d of %2$d)', 'agend-directory-sync' ),
+						$shown,
+						$count_int,
+						$reason_str
+					)
+					: sprintf(
+						// translators: 1: total affected, 2: drop reason code.
+						__( 'Affected rows for %2$s (%1$d)', 'agend-directory-sync' ),
+						$count_int,
+						$reason_str
+					);
+
+				echo '<details style="margin:0 0 1em 1.5em;">';
+				echo '<summary style="cursor:pointer;font-weight:600;">'
+					. esc_html( $summary )
+					. '</summary>';
+				echo '<table class="widefat striped" style="margin-top:0.5em;max-width:720px;"><thead><tr>'
+					. '<th>' . esc_html__( 'uniqueid', 'agend-directory-sync' ) . '</th>'
+					. '<th>' . esc_html__( 'email', 'agend-directory-sync' ) . '</th>'
+					. '</tr></thead><tbody>';
+				foreach ( $examples as $example ) {
+					if ( ! is_array( $example ) ) {
+						continue;
+					}
+					$ext_id = (string) ( $example['external_id'] ?? '' );
+					$email  = (string) ( $example['email'] ?? '' );
+					echo '<tr>'
+						. '<td><code>' . esc_html( $ext_id ) . '</code></td>'
+						. '<td>' . ( '' !== $email ? esc_html( $email ) : '<em>' . esc_html__( '(no email)', 'agend-directory-sync' ) . '</em>' ) . '</td>'
+						. '</tr>';
+				}
+				echo '</tbody></table>';
+				echo '</details>';
+			}
 		}
 
 		private static function render_json_block( $value ): void {

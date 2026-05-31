@@ -63,6 +63,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		public const MAX_HERO_IMAGE_URL_LENGTH = 1000;
 
 		/**
+		 * Maximum number of identifying examples captured per drop
+		 * reason. Past this the counter still increments but no extra
+		 * example is recorded, keeping the admin-page transient bounded
+		 * on large syncs.
+		 */
+		public const MAX_DROPPED_FIELD_EXAMPLES = 50;
+
+		/**
 		 * Filter, dedupe and transform an array of Upbeat contacts.
 		 *
 		 * @param array<int, array<string, mixed>> $contacts Upbeat contact rows.
@@ -72,15 +80,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 *     skipped: int,
 		 *     skip_reasons: array<string, int>,
 		 *     duplicate_external_ids: int,
-		 *     dropped_fields: array<string, int>
+		 *     dropped_fields: array<string, int>,
+		 *     dropped_field_examples: array<string, array<int, array{external_id: string, email: string}>>
 		 * }
 		 */
 		public static function transform_all( array $contacts ): array {
-			$by_external_id = array();
-			$skipped        = 0;
-			$skip_reasons   = array();
-			$duplicates     = 0;
-			$dropped_fields = array();
+			$by_external_id         = array();
+			$skipped                = 0;
+			$skip_reasons           = array();
+			$duplicates             = 0;
+			$dropped_fields         = array();
+			$dropped_field_examples = array();
 
 			foreach ( $contacts as $contact ) {
 				if ( ! is_array( $contact ) ) {
@@ -94,7 +104,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 					continue;
 				}
 
-				$listing     = self::transform_one( $contact, $dropped_fields );
+				$listing     = self::transform_one( $contact, $dropped_fields, $dropped_field_examples );
 				$external_id = $listing['external_id'];
 
 				if ( isset( $by_external_id[ $external_id ] ) ) {
@@ -113,6 +123,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				'skip_reasons'           => $skip_reasons,
 				'duplicate_external_ids' => $duplicates,
 				'dropped_fields'         => $dropped_fields,
+				'dropped_field_examples' => $dropped_field_examples,
 			);
 		}
 
@@ -142,14 +153,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		/**
 		 * Transform a single Upbeat contact into an Agend listing payload.
 		 *
-		 * @param array<string, mixed> $contact
-		 * @param array<string, int>   $dropped_fields Mutated counter of fields
-		 *                                             dropped because they fail
-		 *                                             a length / format check.
+		 * @param array<string, mixed>                                              $contact
+		 * @param array<string, int>                                                $dropped_fields         Mutated counter of fields
+		 *                                                                                                  dropped because they fail
+		 *                                                                                                  a length / format check.
+		 * @param array<string, array<int, array{external_id: string, email: string}>> $dropped_field_examples Mutated map of identifying
+		 *                                                                                                  details for the first N rows
+		 *                                                                                                  affected by each drop reason,
+		 *                                                                                                  so a tenant admin can locate
+		 *                                                                                                  and fix the source record.
 		 *
 		 * @return array<string, mixed>
 		 */
-		private static function transform_one( array $contact, array &$dropped_fields ): array {
+		private static function transform_one(
+			array $contact,
+			array &$dropped_fields,
+			array &$dropped_field_examples
+		): array {
 			$listing = array(
 				'external_id' => self::stringy( $contact['uniqueid'] ),
 				'name'        => self::build_name( $contact ),
@@ -172,7 +192,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			}
 			if ( '' !== $phone ) {
 				if ( strlen( $phone ) > self::MAX_PHONE_LENGTH ) {
-					$dropped_fields['phone_too_long'] = ( $dropped_fields['phone_too_long'] ?? 0 ) + 1;
+					self::record_drop( $dropped_fields, $dropped_field_examples, 'phone_too_long', $contact );
 				} else {
 					$listing['phone'] = $phone;
 				}
@@ -181,9 +201,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$profile_image_url = self::stringy( $contact['profileImageUrl'] ?? '' );
 			if ( '' !== $profile_image_url ) {
 				if ( strlen( $profile_image_url ) > self::MAX_HERO_IMAGE_URL_LENGTH ) {
-					$dropped_fields['hero_image_url_too_long'] = ( $dropped_fields['hero_image_url_too_long'] ?? 0 ) + 1;
+					self::record_drop( $dropped_fields, $dropped_field_examples, 'hero_image_url_too_long', $contact );
 				} elseif ( false === filter_var( $profile_image_url, FILTER_VALIDATE_URL ) ) {
-					$dropped_fields['hero_image_url_invalid'] = ( $dropped_fields['hero_image_url_invalid'] ?? 0 ) + 1;
+					self::record_drop( $dropped_fields, $dropped_field_examples, 'hero_image_url_invalid', $contact );
 				} else {
 					$listing['hero_image_url'] = $profile_image_url;
 				}
@@ -327,6 +347,38 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				$slugs[] = $slug;
 			}
 			return $slugs;
+		}
+
+		/**
+		 * Increment the counter for a drop reason and, if there's room
+		 * under MAX_DROPPED_FIELD_EXAMPLES, record an identifying
+		 * example so the operator can find the source row in Upbeat.
+		 *
+		 * @param array<string, int>                                                $dropped_fields
+		 * @param array<string, array<int, array{external_id: string, email: string}>> $dropped_field_examples
+		 * @param string                                                            $reason
+		 * @param array<string, mixed>                                              $contact
+		 */
+		private static function record_drop(
+			array &$dropped_fields,
+			array &$dropped_field_examples,
+			string $reason,
+			array $contact
+		): void {
+			$dropped_fields[ $reason ] = ( $dropped_fields[ $reason ] ?? 0 ) + 1;
+
+			if ( ! isset( $dropped_field_examples[ $reason ] ) ) {
+				$dropped_field_examples[ $reason ] = array();
+			}
+
+			if ( count( $dropped_field_examples[ $reason ] ) >= self::MAX_DROPPED_FIELD_EXAMPLES ) {
+				return;
+			}
+
+			$dropped_field_examples[ $reason ][] = array(
+				'external_id' => self::stringy( $contact['uniqueid'] ?? '' ),
+				'email'       => self::stringy( $contact['email'] ?? '' ),
+			);
 		}
 
 		/**
