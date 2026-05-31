@@ -151,6 +151,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						'duplicate_external_ids' => $transformed['duplicate_external_ids'],
 						'dropped_fields'         => $transformed['dropped_fields'] ?? array(),
 						'dropped_field_examples' => $transformed['dropped_field_examples'] ?? array(),
+						'status_counts'          => $transformed['status_counts'] ?? array(),
 						'preview'                => array_slice( $transformed['listings'], 0, self::TRANSFORM_PREVIEW_LIMIT ),
 						'max_records'            => $max_records,
 					)
@@ -215,6 +216,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						'duplicate_external_ids' => $transformed['duplicate_external_ids'],
 						'dropped_fields'         => $transformed['dropped_fields'] ?? array(),
 						'dropped_field_examples' => $transformed['dropped_field_examples'] ?? array(),
+						'status_counts'          => $transformed['status_counts'] ?? array(),
 						'external_source'        => $external_source,
 						'auto_publish_approved'  => $auto_publish,
 						'max_records'            => $max_records,
@@ -333,7 +335,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										<?php esc_html_e( 'Set published_at on approved listings so they appear on the public directory immediately.', 'agend-directory-sync' ); ?>
 									</label>
 									<p class="description">
-										<?php esc_html_e( 'When off, listings sync with status=approved but stay hidden until an admin publishes them in the Agend dashboard. Existing already-published rows are never re-stamped on re-sync.', 'agend-directory-sync' ); ?>
+										<?php esc_html_e( 'Approved status is assigned automatically when the member is both eligible AND opted in; otherwise the listing is synced as suspended and stays hidden. When this checkbox is off, even approved listings stay invisible until an admin publishes them manually in the Agend dashboard. Already-published rows are never re-stamped on re-sync.', 'agend-directory-sync' ); ?>
 									</p>
 								</td>
 							</tr>
@@ -500,6 +502,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			echo '</ul>';
 
 			self::render_skip_reasons( $result['skip_reasons'] ?? array() );
+			self::render_status_counts( $result['status_counts'] ?? array() );
 			self::render_dropped_fields(
 				$result['dropped_fields'] ?? array(),
 				$result['dropped_field_examples'] ?? array()
@@ -532,6 +535,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			echo '</ul>';
 
 			self::render_skip_reasons( $result['skip_reasons'] ?? array() );
+			self::render_status_counts( $result['status_counts'] ?? array() );
 			self::render_dropped_fields(
 				$result['dropped_fields'] ?? array(),
 				$result['dropped_field_examples'] ?? array()
@@ -596,6 +600,34 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			foreach ( $skip_reasons as $reason => $count ) {
 				echo '<li>'
 					. '<code>' . esc_html( (string) $reason ) . '</code>: '
+					. esc_html( (string) (int) $count )
+					. '</li>';
+			}
+			echo '</ul>';
+		}
+
+		/**
+		 * Render the per-status counts (e.g. approved vs suspended).
+		 * Approved rows will appear on the public directory once the
+		 * auto-publish flag has populated their published_at; suspended
+		 * rows are preserved in the directory database but hidden until
+		 * the source eligibility / opt-in flags flip back on.
+		 *
+		 * @param mixed $status_counts Map: status string => count.
+		 */
+		private static function render_status_counts( $status_counts ): void {
+			if ( ! is_array( $status_counts ) || empty( $status_counts ) ) {
+				return;
+			}
+
+			echo '<h4>' . esc_html__( 'Listing status', 'agend-directory-sync' ) . '</h4>';
+			echo '<p class="description">'
+				. esc_html__( 'Approved rows are visible (subject to auto-publish). Suspended rows are kept in the directory database but hidden from the public site because the source member has lost eligibility or opted out.', 'agend-directory-sync' )
+				. '</p>';
+			echo '<ul style="list-style:disc;padding-left:1.5em;">';
+			foreach ( $status_counts as $status => $count ) {
+				echo '<li>'
+					. '<code>' . esc_html( (string) $status ) . '</code>: '
 					. esc_html( (string) (int) $count )
 					. '</li>';
 			}

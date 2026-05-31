@@ -14,7 +14,10 @@
  * - description  <- publishedBio (when present)
  * - email        <- email (when present)
  * - phone        <- businessPhone, falls back to homeMobile
- * - status       <- "approved" (source system is authoritative)
+ * - status       <- "approved" when both eligibleToFindAMember AND
+ *                   memberDirectoryOptIn are true, otherwise "suspended"
+ *                   (the row is preserved but hidden from the public
+ *                   directory until the source flags flip back)
  * - category_slugs <- [slug(membershipLevel)] when present
  * - tag_slugs    <- [slug(chapter)] when present
  * - badge_slugs  <- map(slug, designation) when present
@@ -39,10 +42,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 	final class Agend_Directory_Sync_Listing_Transformer {
 
 		public const SKIP_REASON_MISSING_UNIQUE_ID = 'missing_uniqueid';
-		public const SKIP_REASON_NOT_ELIGIBLE      = 'not_eligible';
-		public const SKIP_REASON_NOT_OPTED_IN      = 'not_opted_in';
 
-		public const DEFAULT_STATUS = 'approved';
+		/**
+		 * Status assigned when the member is both eligible AND has opted
+		 * in to the directory. Combined with `auto_publish_approved` on
+		 * the bulk-upsert call this makes the listing visible on the
+		 * public directory.
+		 */
+		public const STATUS_VISIBLE = 'approved';
+
+		/**
+		 * Status assigned when the member has lost eligibility OR opted
+		 * out. The row is preserved (no delete) but hidden from the
+		 * public directory because the frontend requires
+		 * `status = 'approved'`. Flips back to visible automatically on
+		 * the next sync if the source flags flip back.
+		 */
+		public const STATUS_HIDDEN = 'suspended';
 
 		/**
 		 * Maximum accepted length for the Agend `phone` field. Both the
@@ -81,7 +97,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 *     skip_reasons: array<string, int>,
 		 *     duplicate_external_ids: int,
 		 *     dropped_fields: array<string, int>,
-		 *     dropped_field_examples: array<string, array<int, array{external_id: string, fullname: string}>>
+		 *     dropped_field_examples: array<string, array<int, array{external_id: string, fullname: string}>>,
+		 *     status_counts: array<string, int>
 		 * }
 		 */
 		public static function transform_all( array $contacts ): array {
@@ -91,6 +108,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$duplicates             = 0;
 			$dropped_fields         = array();
 			$dropped_field_examples = array();
+			$status_counts          = array();
 
 			foreach ( $contacts as $contact ) {
 				if ( ! is_array( $contact ) ) {
@@ -106,6 +124,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 
 				$listing     = self::transform_one( $contact, $dropped_fields, $dropped_field_examples );
 				$external_id = $listing['external_id'];
+				$status      = (string) ( $listing['status'] ?? '' );
+
+				$status_counts[ $status ] = ( $status_counts[ $status ] ?? 0 ) + 1;
 
 				if ( isset( $by_external_id[ $external_id ] ) ) {
 					$duplicates++;
@@ -124,12 +145,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				'duplicate_external_ids' => $duplicates,
 				'dropped_fields'         => $dropped_fields,
 				'dropped_field_examples' => $dropped_field_examples,
+				'status_counts'          => $status_counts,
 			);
 		}
 
 		/**
-		 * Decide whether to skip a contact. Returns the skip reason, or null
-		 * if the contact should be synced.
+		 * Decide whether to skip a contact entirely. Eligibility and
+		 * opt-in state are NOT skip conditions any more - those are
+		 * status decisions handled by `resolve_status()` so that a member
+		 * who later regains eligibility / opts back in flips back to
+		 * visible on the next sync without a separate delete.
 		 *
 		 * @param array<string, mixed> $contact
 		 */
@@ -139,15 +164,22 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				return self::SKIP_REASON_MISSING_UNIQUE_ID;
 			}
 
-			if ( true !== ( $contact['eligibleToFindAMember'] ?? false ) ) {
-				return self::SKIP_REASON_NOT_ELIGIBLE;
-			}
-
-			if ( true !== ( $contact['memberDirectoryOptIn'] ?? false ) ) {
-				return self::SKIP_REASON_NOT_OPTED_IN;
-			}
-
 			return null;
+		}
+
+		/**
+		 * Resolve the Agend listing status for a contact based on the
+		 * two Upbeat visibility flags. Both must be true for the listing
+		 * to be publicly visible; otherwise the row is kept as `suspended`
+		 * (hidden but preserved).
+		 *
+		 * @param array<string, mixed> $contact
+		 */
+		private static function resolve_status( array $contact ): string {
+			$eligible = ( true === ( $contact['eligibleToFindAMember'] ?? false ) );
+			$opted_in = ( true === ( $contact['memberDirectoryOptIn'] ?? false ) );
+
+			return ( $eligible && $opted_in ) ? self::STATUS_VISIBLE : self::STATUS_HIDDEN;
 		}
 
 		/**
@@ -173,7 +205,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$listing = array(
 				'external_id' => self::stringy( $contact['uniqueid'] ),
 				'name'        => self::build_name( $contact ),
-				'status'      => self::DEFAULT_STATUS,
+				'status'      => self::resolve_status( $contact ),
 			);
 
 			$description = self::stringy( $contact['publishedBio'] ?? '' );

@@ -9,7 +9,10 @@ Working end-to-end as a manual sync. Not yet scheduled.
 
 - Fetches `/membershipDirectoryContacts` from Upbeat using credentials
   configured in the `iugo-membership-kiosk` plugin.
-- Filters out contacts that are not eligible OR have not opted in.
+- Syncs every Upbeat contact that has a `uniqueid`. Visibility is
+  controlled per row via `status` (see Filtering below), so a member
+  who loses eligibility or opts out is hidden automatically on the
+  next sync without a delete operation.
 - Transforms each remaining contact into the Agend bulk-upsert listing
   shape.
 - POSTs to `/v1/directory/listings/bulk-upsert` on the configured Agend
@@ -101,15 +104,32 @@ Source field (Upbeat) -> Target field (Agend listing):
   directory is professional; residential addresses are sensitive and need
   an explicit AIQS decision before being published.
 
-## Filtering
+## Filtering and visibility
 
-A contact is skipped if any of the following are true:
+A contact is **skipped entirely** only when `uniqueid` is missing
+(recorded as `missing_uniqueid`). Without a stable id there is nothing
+to upsert against.
 
-- `uniqueid` is missing (recorded as `missing_uniqueid`).
-- `eligibleToFindAMember` is not `true` (recorded as `not_eligible`).
-- `memberDirectoryOptIn` is not `true` (recorded as `not_opted_in`).
+Every other contact is **synced**, with the Agend `status` derived from
+the two Upbeat visibility flags:
 
-The admin UI reports counts per reason after each preview / send.
+| `eligibleToFindAMember` | `memberDirectoryOptIn` | Agend status |
+|-------------------------|------------------------|--------------|
+| true                    | true                   | `approved`   |
+| false OR null           | any                    | `suspended`  |
+| any                     | false OR null          | `suspended`  |
+
+Approved listings are publicly visible (subject to the auto-publish
+flag setting `published_at`). Suspended listings are preserved in the
+directory database but hidden from the public site because the public
+queries require `status = 'approved'` AND `published_at IS NOT NULL`.
+When the source member flips back to eligible + opted-in, the next sync
+re-sets status to `approved`, and if `published_at` was previously set
+the row reappears immediately; if it was never set, the auto-publish
+flag will populate it.
+
+The admin UI reports per-status counts and any skipped rows after each
+preview / send.
 
 ## Extension points
 
