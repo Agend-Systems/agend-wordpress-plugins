@@ -81,7 +81,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 *     skip_reasons: array<string, int>,
 		 *     duplicate_external_ids: int,
 		 *     dropped_fields: array<string, int>,
-		 *     dropped_field_examples: array<string, array<int, array{external_id: string, name: string}>>
+		 *     dropped_field_examples: array<string, array<int, array{external_id: string, fullname: string}>>
 		 * }
 		 */
 		public static function transform_all( array $contacts ): array {
@@ -157,11 +157,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 * @param array<string, int>                                                $dropped_fields         Mutated counter of fields
 		 *                                                                                                  dropped because they fail
 		 *                                                                                                  a length / format check.
-		 * @param array<string, array<int, array{external_id: string, name: string}>> $dropped_field_examples Mutated map of identifying
-		 *                                                                                                 details for the first N rows
-		 *                                                                                                 affected by each drop reason,
-		 *                                                                                                 so a tenant admin can locate
-		 *                                                                                                 and fix the source record.
+		 * @param array<string, array<int, array{external_id: string, fullname: string}>> $dropped_field_examples Mutated map of identifying
+		 *                                                                                                    details for the first N rows
+		 *                                                                                                    affected by each drop reason,
+		 *                                                                                                    so a tenant admin can locate
+		 *                                                                                                    and fix the source record.
 		 *
 		 * @return array<string, mixed>
 		 */
@@ -354,10 +354,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 * under MAX_DROPPED_FIELD_EXAMPLES, record an identifying
 		 * example so the operator can find the source row in Upbeat.
 		 *
-		 * @param array<string, int>                                               $dropped_fields
-		 * @param array<string, array<int, array{external_id: string, name: string}>> $dropped_field_examples
-		 * @param string                                                           $reason
-		 * @param array<string, mixed>                                             $contact
+		 * @param array<string, int>                                                  $dropped_fields
+		 * @param array<string, array<int, array{external_id: string, fullname: string}>> $dropped_field_examples
+		 * @param string                                                              $reason
+		 * @param array<string, mixed>                                                $contact
 		 */
 		private static function record_drop(
 			array &$dropped_fields,
@@ -377,7 +377,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 
 			$dropped_field_examples[ $reason ][] = array(
 				'external_id' => self::stringy( $contact['uniqueid'] ?? '' ),
-				'name'        => self::build_name( $contact ),
+				'fullname'    => self::stringy( $contact['fullname'] ?? '' ),
 			);
 		}
 

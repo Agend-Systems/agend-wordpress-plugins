@@ -606,13 +606,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		 * Render the dropped-field counters and per-reason example tables.
 		 * These are rows that were synced, but with a specific field
 		 * omitted because it violated a hard constraint (e.g. phone > 50
-		 * chars). The example tables surface uniqueid + name for the
+		 * chars). The example tables surface uniqueid + fullname for the
 		 * first N affected rows so the operator can locate the source
 		 * record in Upbeat.
 		 *
 		 * @param mixed $dropped_fields  Counter map: reason => count.
 		 * @param mixed $dropped_field_examples Map: reason => list of
-		 *                                       { external_id, name }.
+		 *                                       { external_id, fullname }.
 		 */
 		private static function render_dropped_fields(
 			$dropped_fields,
@@ -674,17 +674,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					. '</summary>';
 				echo '<table class="widefat striped" style="margin-top:0.5em;max-width:720px;"><thead><tr>'
 					. '<th>' . esc_html__( 'uniqueid', 'agend-directory-sync' ) . '</th>'
-					. '<th>' . esc_html__( 'name', 'agend-directory-sync' ) . '</th>'
+					. '<th>' . esc_html__( 'fullname', 'agend-directory-sync' ) . '</th>'
 					. '</tr></thead><tbody>';
 				foreach ( $examples as $example ) {
 					if ( ! is_array( $example ) ) {
 						continue;
 					}
-					$ext_id = (string) ( $example['external_id'] ?? '' );
-					$name   = (string) ( $example['name'] ?? '' );
+					$ext_id   = (string) ( $example['external_id'] ?? '' );
+					$fullname = (string) ( $example['fullname'] ?? '' );
 					echo '<tr>'
 						. '<td><code>' . esc_html( $ext_id ) . '</code></td>'
-						. '<td>' . ( '' !== $name ? esc_html( $name ) : '<em>' . esc_html__( '(unnamed)', 'agend-directory-sync' ) . '</em>' ) . '</td>'
+						. '<td>' . ( '' !== $fullname ? esc_html( $fullname ) : '<em>' . esc_html__( '(no fullname)', 'agend-directory-sync' ) . '</em>' ) . '</td>'
 						. '</tr>';
 				}
 				echo '</tbody></table>';

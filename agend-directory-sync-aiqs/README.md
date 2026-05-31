@@ -62,10 +62,9 @@ Both **Preview transform** and **Send to Agend** results include a
 "Dropped fields" block that lists each drop reason (e.g.
 `phone_too_long`, `hero_image_url_invalid`) with a count. Each reason is
 expandable into a table of the affected rows, identified by `uniqueid`
-and the member's `name` (firstname + lastname, falling back to
-`fullname`), capped at 50 examples per reason so the page stays
-responsive on large syncs. Use these to locate the source record in
-Upbeat and clean the data.
+and `fullname` (as returned by Upbeat), capped at 50 examples per reason
+so the page stays responsive on large syncs. Use these to locate the
+source record in Upbeat and clean the data.
 
 ## Mapping
 
