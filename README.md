@@ -9,3 +9,6 @@ Agend product, cart and shop service. Integrates with the Agend products and syn
 
 ## Agend Directory Sync (AIQS)
 Tenant-specific plugin for AIQS. Reads members from the Upbeat `/membershipDirectoryContacts` endpoint via the iugo-membership-kiosk plugin, transforms them into Agend directory listings, and pushes them to `/v1/directory/listings/bulk-upsert` on the Agend gateway in batches of 100. Lives in `agend-directory-sync-aiqs/`.
+
+## Agend Loop Sync
+Dedicated plugin to sync user roles and committee entitlements to loop through loop roles and channel access
