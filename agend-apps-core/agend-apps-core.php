@@ -66,10 +66,25 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/auth.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/crm.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/events.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/lms.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/cms.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/jobs.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/sso.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/support.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/webhooks.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/class-agend-apps-rest-controller.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/health-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cart-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/directory-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cms-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/events-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/lms-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 
 	if ( is_admin() ) {
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-admin.php';
@@ -88,6 +103,11 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_health_routes();
 	agend_apps_register_cart_routes();
 	agend_apps_register_directory_routes();
+	agend_apps_register_cms_routes();
+	agend_apps_register_jobs_routes();
+	agend_apps_register_events_routes();
+	agend_apps_register_lms_routes();
+	agend_apps_register_crm_routes();
 }
 add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
 

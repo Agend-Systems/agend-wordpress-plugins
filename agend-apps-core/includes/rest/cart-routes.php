@@ -24,7 +24,9 @@ function agend_apps_register_cart_routes(): void {
  *
  * All cart routes require a valid WordPress nonce (`wp_rest`) and are open
  * to any logged-in or anonymous visitor. Identity is derived from the
- * `X-Cart-Session` request header and, when present, the current WP user ID.
+ * `X-Cart-Session` request header (guest) and, when available, the Supabase
+ * bearer token for the logged-in member resolved via
+ * `agend_apps_get_bearer_token()`.
  *
  * Exposes:
  * - `GET    /agend-apps/v1/cart`            — retrieve cart.
@@ -32,6 +34,7 @@ function agend_apps_register_cart_routes(): void {
  * - `PUT    /agend-apps/v1/cart/items/{id}` — update item.
  * - `DELETE /agend-apps/v1/cart/items/{id}` — remove item.
  * - `DELETE /agend-apps/v1/cart`            — clear cart.
+ * - `POST   /agend-apps/v1/cart/transfer`   — merge a guest cart onto a member.
  */
 class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 
@@ -181,6 +184,18 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 				),
 			)
 		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/transfer',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'transfer_cart' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
 	}
 
 	/**
@@ -232,26 +247,27 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function get_cart( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
-		$result   = agend_apps_cart_get( $identity['cart_session'], $identity['user_id'] );
+		$result   = agend_apps_cart_get( $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}
 
 	/**
-	 * Extracts the cart identity headers from the request.
+	 * Resolves the cart identity for the current request.
+	 *
+	 * The guest cart session comes from the `X-Cart-Session` header forwarded
+	 * by the frontend. The member identity is a Supabase bearer token resolved
+	 * via `agend_apps_get_bearer_token()`; it is an empty string until the SSO
+	 * bridge supplies one, in which case the cart behaves as a guest cart.
 	 *
 	 * @param WP_REST_Request $request Current request.
 	 *
-	 * @return array { cart_session: string, user_id: string }
+	 * @return array { cart_session: string, bearer_token: string }
 	 */
 	private function get_identity( WP_REST_Request $request ): array {
-		$cart_session = (string) $request->get_header( 'X-Cart-Session' );
-		$user_id      = 'a0000000-0000-0000-0000-0000000000da'; // This will have to be synced with the Supabase user post PoC.
-//		$user_id      = '';
-
 		return array(
-			'cart_session' => $cart_session,
-			'user_id'      => $user_id,
+			'cart_session' => (string) $request->get_header( 'X-Cart-Session' ),
+			'bearer_token' => agend_apps_get_bearer_token(),
 		);
 	}
 
@@ -265,7 +281,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	public function add_cart_item( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
 		$item     = $request->get_json_params();
-		$result   = agend_apps_cart_add_item( $item, $identity['cart_session'], $identity['user_id'] );
+		$result   = agend_apps_cart_add_item( $item, $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}
@@ -280,7 +296,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	public function update_cart_item( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
 		$item     = $request->get_json_params();
-		$result   = agend_apps_cart_update_item( $item, $identity['cart_session'], $identity['user_id'] );
+		$result   = agend_apps_cart_update_item( $item, $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}
@@ -295,7 +311,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	public function remove_cart_item( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
 		$item_id  = $request->get_param( 'item_id' );
-		$result   = agend_apps_cart_remove_item( $item_id, $identity['cart_session'], $identity['user_id'] );
+		$result   = agend_apps_cart_remove_item( $item_id, $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}
@@ -309,7 +325,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function clear_cart( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
-		$result   = agend_apps_cart_clear( $identity['cart_session'], $identity['user_id'] );
+		$result   = agend_apps_cart_clear( $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}
@@ -327,7 +343,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 			'successUrl' => $request->get_param( 'successUrl' ),
 			'cancelUrl'  => $request->get_param( 'cancelUrl' ),
 		);
-		$result   = agend_apps_cart_checkout( $urls, $identity['cart_session'], $identity['user_id'] );
+		$result   = agend_apps_cart_checkout( $urls, $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}
@@ -341,7 +357,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function checkout_complete( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
-		$result   = agend_apps_cart_checkout_complete( $identity['cart_session'], $identity['user_id'] );
+		$result   = agend_apps_cart_checkout_complete( $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}
@@ -355,7 +371,36 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function checkout_cancel( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
-		$result   = agend_apps_cart_checkout_cancel( $identity['cart_session'], $identity['user_id'] );
+		$result   = agend_apps_cart_checkout_cancel( $identity['cart_session'], $identity['bearer_token'] );
+
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Merges a guest cart onto the authenticated member's account.
+	 *
+	 * Requires both a guest `X-Cart-Session` and a resolvable member bearer
+	 * token; returns a 400 error when no member identity is available.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 *
+	 * @return WP_REST_Response REST response.
+	 */
+	public function transfer_cart( WP_REST_Request $request ): WP_REST_Response {
+		$identity = $this->get_identity( $request );
+
+		if ( '' === $identity['bearer_token'] ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'agend_apps_no_member_identity',
+					'message' => __( 'A signed-in member is required to transfer a cart.', 'agend-apps-core' ),
+					'data'    => array( 'status_code' => 400 ),
+				),
+				400
+			);
+		}
+
+		$result = agend_apps_cart_transfer( $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}

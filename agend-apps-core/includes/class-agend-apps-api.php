@@ -51,7 +51,9 @@ class Agend_Apps_API {
 	 *     @type array  $query        Query string parameters appended to the URL.
 	 *     @type array  $headers      Additional headers merged on top of defaults.
 	 *     @type string $cart_session Forwarded as `X-Cart-Session` header when non-empty.
-	 *     @type string $user_id      Forwarded as `X-User-ID` header when non-empty.
+	 *     @type string $bearer_token Supabase user JWT forwarded as `Authorization: Bearer`.
+	 *                                When omitted, the value of `agend_apps_get_bearer_token()`
+	 *                                is used so a logged-in identity is attached automatically.
 	 * }
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
@@ -92,8 +94,19 @@ class Agend_Apps_API {
 		if ( ! empty( $args['cart_session'] ) ) {
 			$headers['X-Cart-Session'] = (string) $args['cart_session'];
 		}
-		if ( ! empty( $args['user_id'] ) ) {
-			$headers['X-User-ID'] = (string) $args['user_id'];
+
+		// User identity is carried by a Supabase bearer token (a verified JWT)
+		// in the Authorization header, layered on top of the X-API-Key. The
+		// legacy X-User-ID assertion header was removed from the gateway and is
+		// now rejected, so it must never be sent. When no per-request token is
+		// supplied the shared resolver is consulted so a logged-in identity is
+		// attached automatically; an empty string leaves the request unattended
+		// (guest / API-key-only).
+		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
+			? (string) $args['bearer_token']
+			: agend_apps_get_bearer_token();
+		if ( '' !== $bearer_token ) {
+			$headers['Authorization'] = 'Bearer ' . $bearer_token;
 		}
 
 		// 6. Caller-supplied header overrides.
@@ -258,4 +271,30 @@ function agend_apps_api(): Agend_Apps_API {
 	}
 
 	return $instance;
+}
+
+/**
+ * Resolves the Supabase user bearer token for the current request.
+ *
+ * Returns a verified Supabase JWT for the logged-in WordPress user so the
+ * gateway can act on their behalf (member cart, `/me` endpoints, authored
+ * mutations). Returns an empty string when no user identity is available, in
+ * which case the request proceeds unattended (API-key only) or, for the cart,
+ * as a guest keyed on `X-Cart-Session`.
+ *
+ * The token itself is not minted here. A bridge plugin (the Agend SSO
+ * integration) is expected to hook `agend_apps_bearer_token` and return the
+ * current user's JWT. Until that bridge is in place the resolver returns an
+ * empty string, which keeps every endpoint working in its unattended/guest
+ * mode.
+ *
+ * @return string Supabase bearer token, or an empty string when unavailable.
+ */
+function agend_apps_get_bearer_token(): string {
+	/**
+	 * Filters the Supabase user bearer token attached to outbound gateway requests.
+	 *
+	 * @param string $token Bearer token. Default empty string.
+	 */
+	return (string) apply_filters( 'agend_apps_bearer_token', '' );
 }

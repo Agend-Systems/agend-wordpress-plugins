@@ -87,7 +87,8 @@ class Agend_Loop_Sync_Committee_Sync {
 
 	/**
 	 * Builds committee rosters by aggregating every local member's committee
-	 * activities. Returns committee_name => [ wp_id => roster_entry ].
+	 * activities. Returns committee_name => [ wp_user_id => roster_entry ],
+	 * where the WP user id key only de-duplicates a member within a committee.
 	 *
 	 * @param array<string, mixed> $summary Run summary, by reference for counters.
 	 * @return array<string, array<int, array<string, mixed>>>
@@ -122,7 +123,18 @@ class Agend_Loop_Sync_Committee_Sync {
 				$role = method_exists( $activity, 'get_role' ) ? (string) $activity->get_role() : '';
 
 				$rosters[ $committee_name ][ (int) $user->ID ] = array(
-					'wp_id'                => (int) $user->ID,
+					// external_id is the subject the SSO assertion's NameID
+					// carries (for this site the Upbeat membership number), the
+					// value Loop stores on the user, so the gateway can resolve
+					// this roster entry to the right Loop user. (The array key
+					// stays the WP user id only to de-duplicate a member within
+					// a committee.)
+					'external_id'          => (int) $membership_number,
+					// Email is the reliable fallback the gateway uses when
+					// external_id does not resolve (the Loop user's email matches
+					// the WordPress user's email regardless of the SSO NameID
+					// format).
+					'email'                => (string) $user->user_email,
 					'channel_role'         => Agend_Loop_Sync_Role_Mapper::to_channel_role( $role ),
 					'committee_role_label' => $role,
 				);
@@ -142,10 +154,11 @@ class Agend_Loop_Sync_Committee_Sync {
 	 */
 	private function sync_committee_roster( string $committee_name, array $roster, array &$summary ): bool {
 		$payload = array(
-			'unique_id' => sanitize_title( $committee_name ),
-			'name'      => $committee_name,
-			'is_active' => true,
-			'roster'    => $roster,
+			'idp_entity_id' => Agend_Loop_Sync_Settings::idp_entity_id(),
+			'unique_id'     => sanitize_title( $committee_name ),
+			'name'          => $committee_name,
+			'is_active'     => true,
+			'roster'        => $roster,
 		);
 
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {

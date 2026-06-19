@@ -170,3 +170,232 @@ function agend_apps_directory_search( string $search_query, array $filters = arr
 	 */
 	return apply_filters( 'agend_apps_directory_search_response', $response, $search_query, $filters );
 }
+
+/**
+ * Busts every cached directory read.
+ *
+ * Listing writes can affect index, single-listing, search, and category
+ * results, so all directory caches are cleared after a successful mutation.
+ */
+function agend_apps_directory_flush_cache(): void {
+	Agend_Apps_Cache::clear( 'directory_listings' );
+	Agend_Apps_Cache::clear( 'directory_listing_single' );
+	Agend_Apps_Cache::clear( 'directory_search' );
+	Agend_Apps_Cache::clear( 'directory_categories' );
+}
+
+/**
+ * Creates a directory listing.
+ *
+ * Requires the `directory.listings.manage` scope on the API key. The cache is
+ * flushed after a successful create.
+ *
+ * @param array $listing {
+ *     Listing payload (snake_case). See the gateway `createListingSchema`.
+ *
+ *     @type string $name              Listing name. Required.
+ *     @type string $description       Optional. Long description.
+ *     @type string $short_description Optional. Summary.
+ *     @type string $email             Optional. Contact email.
+ *     @type string $phone             Optional. Contact phone.
+ *     @type string $website           Optional. Website URL.
+ *     @type array  $category_ids      Optional. Category UUIDs.
+ *     @type string $status            Optional. Listing status.
+ *     @type bool   $publish           Optional. Whether to publish immediately.
+ * }
+ * @return array|WP_Error Decoded listing on success, or WP_Error on failure.
+ */
+function agend_apps_directory_create_listing( array $listing ) {
+	/**
+	 * Filters the directory create-listing request args before the request is sent.
+	 *
+	 * @param array $args    Request args.
+	 * @param array $listing Listing payload.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_directory_create_listing_args',
+		array( 'body' => $listing ),
+		$listing
+	);
+
+	$response = agend_apps_api()->request( 'POST', '/directory/listings', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	agend_apps_directory_flush_cache();
+
+	/**
+	 * Filters the decoded create-listing response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $listing  Listing payload.
+	 */
+	return apply_filters( 'agend_apps_directory_create_listing_response', $response, $listing );
+}
+
+/**
+ * Updates an existing directory listing.
+ *
+ * Requires the `directory.listings.manage` scope on the API key. The cache is
+ * flushed after a successful update.
+ *
+ * @param string $listing_id The listing ID to update.
+ * @param array  $listing    Updated listing payload (snake_case). Partial updates are allowed.
+ * @return array|WP_Error Decoded listing on success, or WP_Error on failure.
+ */
+function agend_apps_directory_update_listing( string $listing_id, array $listing ) {
+	/**
+	 * Filters the directory update-listing request args before the request is sent.
+	 *
+	 * @param array  $args       Request args.
+	 * @param string $listing_id Listing ID.
+	 * @param array  $listing    Updated listing payload.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_directory_update_listing_args',
+		array( 'body' => $listing ),
+		$listing_id,
+		$listing
+	);
+
+	$response = agend_apps_api()->request( 'PUT', '/directory/listings/' . rawurlencode( $listing_id ), $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	agend_apps_directory_flush_cache();
+
+	/**
+	 * Filters the decoded update-listing response before it is returned.
+	 *
+	 * @param array  $response   Decoded response body.
+	 * @param string $listing_id Listing ID.
+	 * @param array  $listing    Updated listing payload.
+	 */
+	return apply_filters( 'agend_apps_directory_update_listing_response', $response, $listing_id, $listing );
+}
+
+/**
+ * Deletes a directory listing.
+ *
+ * Requires the `directory.listings.manage` scope on the API key. The cache is
+ * flushed after a successful delete.
+ *
+ * @param string $listing_id The listing ID to delete.
+ * @return array|WP_Error Decoded confirmation on success, or WP_Error on failure.
+ */
+function agend_apps_directory_delete_listing( string $listing_id ) {
+	/**
+	 * Filters the directory delete-listing request args before the request is sent.
+	 *
+	 * @param array  $args       Request args.
+	 * @param string $listing_id Listing ID.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_directory_delete_listing_args',
+		array(),
+		$listing_id
+	);
+
+	$response = agend_apps_api()->request( 'DELETE', '/directory/listings/' . rawurlencode( $listing_id ), $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	agend_apps_directory_flush_cache();
+
+	/**
+	 * Filters the decoded delete-listing response before it is returned.
+	 *
+	 * @param array  $response   Decoded response body.
+	 * @param string $listing_id Listing ID.
+	 */
+	return apply_filters( 'agend_apps_directory_delete_listing_response', $response, $listing_id );
+}
+
+/**
+ * Bulk creates or updates directory listings.
+ *
+ * Requires the `directory.listings.bulk_upsert` scope on the API key. The
+ * cache is flushed after a successful call.
+ *
+ * @param array $listings Array of listing payloads (1 to 100 items). Each item follows the gateway `bulkUpsertListingItemSchema`.
+ * @return array|WP_Error Decoded bulk-upsert result on success, or WP_Error on failure.
+ */
+function agend_apps_directory_bulk_upsert_listings( array $listings ) {
+	/**
+	 * Filters the directory bulk-upsert request args before the request is sent.
+	 *
+	 * @param array $args     Request args.
+	 * @param array $listings Listing payloads.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_directory_bulk_upsert_listings_args',
+		array( 'body' => array( 'listings' => array_values( $listings ) ) ),
+		$listings
+	);
+
+	$response = agend_apps_api()->request( 'POST', '/directory/listings/bulk-upsert', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	agend_apps_directory_flush_cache();
+
+	/**
+	 * Filters the decoded bulk-upsert response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $listings Listing payloads.
+	 */
+	return apply_filters( 'agend_apps_directory_bulk_upsert_listings_response', $response, $listings );
+}
+
+/**
+ * Submits a review for a directory listing.
+ *
+ * Requires the `directory.reviews.manage` scope on the API key. Not cached.
+ *
+ * @param array $review {
+ *     Review payload (snake_case). See the gateway `submitReviewSchema`.
+ *
+ *     @type string $listing_id     Listing UUID. Required.
+ *     @type int    $rating         Rating from 1 to 5. Required.
+ *     @type string $reviewer_name  Reviewer name (2 to 100 chars). Required.
+ *     @type string $reviewer_email Reviewer email. Required.
+ *     @type string $content        Review body (20 to 2000 chars). Required.
+ * }
+ * @return array|WP_Error Decoded review on success, or WP_Error on failure.
+ */
+function agend_apps_directory_submit_review( array $review ) {
+	/**
+	 * Filters the directory submit-review request args before the request is sent.
+	 *
+	 * @param array $args   Request args.
+	 * @param array $review Review payload.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_directory_submit_review_args',
+		array( 'body' => $review ),
+		$review
+	);
+
+	$response = agend_apps_api()->request( 'POST', '/directory/reviews', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded submit-review response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $review   Review payload.
+	 */
+	return apply_filters( 'agend_apps_directory_submit_review_response', $response, $review );
+}
