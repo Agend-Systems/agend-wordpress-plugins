@@ -48,6 +48,86 @@ class Agend_Apps_Cache {
 			'label'       => 'Directory Search',
 			'default_ttl' => 120,
 		),
+		'events_list'              => array(
+			'label'       => 'Events List',
+			'default_ttl' => 120,
+		),
+		'events_single'            => array(
+			'label'       => 'Single Event',
+			'default_ttl' => 300,
+		),
+		'events_tickets'           => array(
+			'label'       => 'Event Tickets',
+			'default_ttl' => 300,
+		),
+		'events_categories'        => array(
+			'label'       => 'Event Categories',
+			'default_ttl' => 600,
+		),
+		'events_venues'            => array(
+			'label'       => 'Event Venues',
+			'default_ttl' => 600,
+		),
+		'events_embed'             => array(
+			'label'       => 'Events Embed Feed',
+			'default_ttl' => 300,
+		),
+		'lms_courses'              => array(
+			'label'       => 'LMS Courses',
+			'default_ttl' => 300,
+		),
+		'lms_course_single'        => array(
+			'label'       => 'Single Course',
+			'default_ttl' => 300,
+		),
+		'lms_course_lessons'       => array(
+			'label'       => 'Course Lessons',
+			'default_ttl' => 300,
+		),
+		'lms_paths'                => array(
+			'label'       => 'Learning Paths',
+			'default_ttl' => 300,
+		),
+		'lms_path_single'          => array(
+			'label'       => 'Single Learning Path',
+			'default_ttl' => 300,
+		),
+		'lms_discovery'            => array(
+			'label'       => 'LMS Discovery Blocks',
+			'default_ttl' => 300,
+		),
+		'crm_tiers'                => array(
+			'label'       => 'Membership Tiers',
+			'default_ttl' => 3600,
+		),
+		'crm_tier_single'          => array(
+			'label'       => 'Single Membership Tier',
+			'default_ttl' => 3600,
+		),
+		'crm_types'                => array(
+			'label'       => 'CRM Deal Types',
+			'default_ttl' => 3600,
+		),
+		'crm_stages'               => array(
+			'label'       => 'CRM Pipeline Stages',
+			'default_ttl' => 3600,
+		),
+		'cms_content'              => array(
+			'label'       => 'CMS Content List',
+			'default_ttl' => 300,
+		),
+		'cms_content_single'       => array(
+			'label'       => 'Single CMS Content',
+			'default_ttl' => 300,
+		),
+		'jobs_list'                => array(
+			'label'       => 'Jobs List',
+			'default_ttl' => 300,
+		),
+		'jobs_single'              => array(
+			'label'       => 'Single Job',
+			'default_ttl' => 300,
+		),
 	);
 
 	/**

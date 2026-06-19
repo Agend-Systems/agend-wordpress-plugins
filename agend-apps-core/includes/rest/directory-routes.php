@@ -22,13 +22,18 @@ function agend_apps_register_directory_routes(): void {
 /**
  * REST controller for directory endpoints.
  *
- * All directory routes are publicly readable (no authentication required).
+ * Read routes are publicly readable (no authentication required). Review
+ * submission is a write and requires a valid WordPress nonce (`wp_rest`).
+ * Listing create/update/delete and bulk upsert are intentionally NOT proxied:
+ * they are administrative writes and are only available via the server-side
+ * PHP functions in `includes/api/directory.php`.
  *
  * Exposes:
- * - `GET /agend-apps/v1/directory/listings`          — paginated listing index.
- * - `GET /agend-apps/v1/directory/listings/{id}`     — single listing.
- * - `GET /agend-apps/v1/directory/categories`        — category list.
- * - `GET /agend-apps/v1/directory/search`            — search listings.
+ * - `GET  /agend-apps/v1/directory/listings`          — paginated listing index.
+ * - `GET  /agend-apps/v1/directory/listings/{id}`     — single listing.
+ * - `GET  /agend-apps/v1/directory/categories`        — category list.
+ * - `GET  /agend-apps/v1/directory/search`            — search listings.
+ * - `POST /agend-apps/v1/directory/reviews`           — submit a listing review.
  */
 class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 
@@ -136,6 +141,60 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 				),
 			)
 		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/reviews',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'submit_review' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'listing_id'     => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'rating'         => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'minimum'           => 1,
+							'maximum'           => 5,
+							'sanitize_callback' => 'absint',
+						),
+						'reviewer_name'  => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'reviewer_email' => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_email',
+						),
+						'content'        => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_textarea_field',
+						),
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Validates the WordPress REST nonce for the current request.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 *
+	 * @return bool True if the nonce is valid, false otherwise.
+	 */
+	public function nonce_check( WP_REST_Request $request ): bool {
+		$nonce = $request->get_header( 'X-WP-Nonce' );
+
+		return false !== wp_verify_nonce( $nonce, 'wp_rest' );
 	}
 
 	/**
@@ -199,7 +258,34 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			ARRAY_FILTER_USE_KEY
 		);
 
+		// The gateway filters search results by `category_ids` (canonical),
+		// not the legacy single `category` param. Translate it here so the
+		// public REST contract stays stable while the upstream call is current.
+		if ( isset( $filters['category'] ) ) {
+			$filters['category_ids'] = $filters['category'];
+			unset( $filters['category'] );
+		}
+
 		$result = agend_apps_directory_search( $search_query, $filters );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Submits a review for a directory listing.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function submit_review( WP_REST_Request $request ): WP_REST_Response {
+		$review = array(
+			'listing_id'     => $request->get_param( 'listing_id' ),
+			'rating'         => (int) $request->get_param( 'rating' ),
+			'reviewer_name'  => $request->get_param( 'reviewer_name' ),
+			'reviewer_email' => $request->get_param( 'reviewer_email' ),
+			'content'        => $request->get_param( 'content' ),
+		);
+
+		$result = agend_apps_directory_submit_review( $review );
 		return $this->prepare_api_response( $result );
 	}
 }

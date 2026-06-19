@@ -83,11 +83,27 @@ class Agend_Loop_Sync_User_Sync {
 			return false;
 		}
 
+		// external_id is the subject the SSO assertion's NameID carries: for this
+		// site the Upbeat membership number, not the WordPress user id. A user
+		// with no membership number cannot be matched to a Loop user, so skip
+		// rather than send an invalid id.
+		$membership_number = trim(
+			(string) get_user_meta( $user->ID, 'imk_membership_number', true )
+		);
+		if ( '' === $membership_number ) {
+			Agend_Loop_Sync_Logger::warning(
+				'User has no membership number; skipping Loop user sync',
+				array( 'wp_id' => (int) $user->ID )
+			);
+			return false;
+		}
+
 		$payload = array(
-			'wp_id'        => (int) $user->ID,
-			'email'        => (string) $user->user_email,
-			'display_name' => (string) $user->display_name,
-			'roles'        => array_values( (array) $user->roles ),
+			'idp_entity_id' => Agend_Loop_Sync_Settings::idp_entity_id(),
+			'external_id'   => (int) $membership_number,
+			'email'         => (string) $user->user_email,
+			'display_name'  => (string) $user->display_name,
+			'roles'         => array_values( (array) $user->roles ),
 		);
 
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {

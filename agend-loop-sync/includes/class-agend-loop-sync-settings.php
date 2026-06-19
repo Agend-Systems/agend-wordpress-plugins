@@ -64,6 +64,27 @@ class Agend_Loop_Sync_Settings {
 	}
 
 	/**
+	 * The WordPress SAML IdP entity id (Issuer) this site asserts.
+	 *
+	 * Sent as `idp_entity_id` on every Loop integration call so the gateway
+	 * resolves members strictly against this site's SSO connection
+	 * (SPEC-LOOP-002). Read from the agend-saml-idp settings, falling back to
+	 * the metadata URL the IdP defaults to when no entity id is configured, so
+	 * the value matches what the IdP asserts as its Issuer at login.
+	 *
+	 * @return string The IdP entity id.
+	 */
+	public static function idp_entity_id(): string {
+		$idp_settings = get_option( 'wp_saml_idp_settings', array() );
+
+		if ( is_array( $idp_settings ) && ! empty( $idp_settings['entity_id'] ) ) {
+			return (string) $idp_settings['entity_id'];
+		}
+
+		return site_url( '/saml/metadata' );
+	}
+
+	/**
 	 * Seeds default option values without overwriting existing ones.
 	 *
 	 * @return void
