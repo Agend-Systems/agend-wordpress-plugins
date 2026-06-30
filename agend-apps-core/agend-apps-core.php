@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name:       Agend Apps Core
- * Plugin URI:        https://agend.dev
+ * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Author:            Agend
- * Author URI:        https://agend.dev
+ * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
  * Domain Path:       /languages
  * Requires at least: 6.0
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.0.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.1.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -44,7 +44,14 @@ define( 'AGEND_APPS_CORE_URL', plugin_dir_url( __FILE__ ) );
  *
  * @var string
  */
-define( 'AGEND_APPS_API_PRODUCTION_URL', 'https://api.agend.dev' );
+define( 'AGEND_APPS_API_PRODUCTION_URL', 'https://api.agend.com.au' );
+
+/**
+ * Staging Agend Gateway API root (unversioned).
+ *
+ * @var string
+ */
+define( 'AGEND_APPS_API_STAGING_URL', 'https://api.agend.info' );
 
 /**
  * Local development Agend Gateway API root (unversioned).
@@ -139,6 +146,7 @@ function agend_apps_core_activate() {
 	add_option( 'agend_apps_environment', 'production' );
 	add_option( 'agend_apps_custom_url', '' );
 	add_option( 'agend_apps_api_key', '' );
+	add_option( 'agend_apps_vercel_bypass_token', '' );
 
 	// Ensure cache class is available during activation.
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';

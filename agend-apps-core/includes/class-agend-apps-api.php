@@ -25,18 +25,27 @@ class Agend_Apps_API {
 	private $api_key;
 
 	/**
-	 * Versioned base URL, e.g. `https://api.agend.dev/v1`.
+	 * Versioned base URL, e.g. `https://api.agend.com.au/v1`.
 	 *
 	 * @var string
 	 */
 	private $base_url;
 
 	/**
+	 * Optional Vercel deployment-protection bypass token. When non-empty it is
+	 * sent as the `x-vercel-protection-bypass` header on every request.
+	 *
+	 * @var string
+	 */
+	private $vercel_bypass_token;
+
+	/**
 	 * Initialises the client from current plugin settings.
 	 */
 	public function __construct() {
-		$this->api_key  = Agend_Apps_Settings::get_api_key();
-		$this->base_url = Agend_Apps_Settings::get_base_url();
+		$this->api_key             = Agend_Apps_Settings::get_api_key();
+		$this->base_url            = Agend_Apps_Settings::get_base_url();
+		$this->vercel_bypass_token = Agend_Apps_Settings::get_vercel_bypass_token();
 	}
 
 	/**
@@ -89,6 +98,14 @@ class Agend_Apps_API {
 			'Accept'       => 'application/json',
 			'x-api-key'    => $this->api_key,
 		);
+
+		// Optional Vercel deployment-protection bypass. Only attached when a
+		// token is configured (e.g. for the staging gateway behind Vercel
+		// protection); never sent otherwise. A caller-supplied header of the
+		// same name (step 6) still wins.
+		if ( '' !== $this->vercel_bypass_token ) {
+			$headers['x-vercel-protection-bypass'] = $this->vercel_bypass_token;
+		}
 
 		// 5. Identity headers.
 		if ( ! empty( $args['cart_session'] ) ) {
