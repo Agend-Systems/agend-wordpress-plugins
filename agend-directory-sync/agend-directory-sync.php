@@ -6,7 +6,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.1.0
+ * Version:         0.2.0
  *
  * @package         Agend_Directory_Sync
  */
@@ -44,9 +44,17 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		public const OPTION_AUTO_PUBLISH_APPROVED = 'agend_directory_sync_auto_publish_approved';
 
 		/**
-		 * Default value for external_source if the option is unset.
+		 * Default value for external_source if the option is unset. This is the
+		 * upsert key the Agend gateway matches on, alongside external_id, so it
+		 * MUST stay stable for a given directory. The default is generic; each
+		 * site should set its own value under Tools > Agend Directory Sync.
+		 *
+		 * Upgrading from a release that defaulted external_source to a fixed
+		 * tenant-specific value: pin that previous value in settings BEFORE the
+		 * first sync, or already-synced listings will be re-inserted as new
+		 * rows instead of updated in place.
 		 */
-		public const DEFAULT_EXTERNAL_SOURCE = 'aiqs-upbeat';
+		public const DEFAULT_EXTERNAL_SOURCE = 'upbeat-directory';
 
 		/**
 		 * Default for the auto-publish flag when the option has never been
@@ -62,9 +70,11 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 
 			$this->define_constants();
 
+			$this->include( 'includes/class-field-map.php' );
 			$this->include( 'includes/class-upbeat-client.php' );
 			$this->include( 'includes/class-listing-transformer.php' );
 			$this->include( 'includes/class-agend-client.php' );
+			$this->include( 'includes/class-sync-runner.php' );
 			$this->include( 'includes/class-admin-page.php' );
 
 			/**
@@ -82,6 +92,13 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 
 		public function post_include_files(): void {
 			Agend_Directory_Sync_Admin_Page::setup_hooks();
+
+			// Register the WP-CLI command for unattended / server-cron runs.
+			// Loaded only under WP-CLI so the command class never exists in a
+			// web request. The file calls WP_CLI::add_command() on load.
+			if ( defined( 'WP_CLI' ) && WP_CLI ) {
+				require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-cli-command.php';
+			}
 		}
 
 		private function define_constants(): void {

@@ -11,6 +11,9 @@
  *                            gateway in batches of 100, then render the
  *                            aggregated result.
  *
+ * Preview and Send both delegate to Agend_Directory_Sync_Runner so the manual
+ * and the scheduled (WP-CLI / server cron) paths share one pipeline.
+ *
  * A "Max records this run" cap is exposed so the operator can test with a
  * small slice before pushing the full directory.
  *
@@ -82,6 +85,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			update_option( Agend_Directory_Sync::OPTION_EXTERNAL_SOURCE, $external_source );
 			update_option( Agend_Directory_Sync::OPTION_AUTO_PUBLISH_APPROVED, $auto_publish );
 
+			// Persist the configurable field mapping. The core map arrives as
+			// an array of source-field names keyed by Agend target; the custom
+			// fields arrive as a `target = source` textarea.
+			$raw_core   = isset( $_POST['agend_field_map'] ) && is_array( $_POST['agend_field_map'] )
+				? wp_unslash( $_POST['agend_field_map'] )
+				: array();
+			$raw_custom = isset( $_POST['agend_custom_field_map'] )
+				? wp_unslash( $_POST['agend_custom_field_map'] )
+				: '';
+			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom );
+
 			wp_safe_redirect( self::redirect_url( array( 'saved' => '1' ) ) );
 			exit;
 		}
@@ -124,7 +138,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		}
 
 		/**
-		 * Fetch + transform + render. Does NOT POST anything.
+		 * Fetch + transform + render. Does NOT POST anything. Delegates to the
+		 * shared runner in dry-run mode.
 		 */
 		public static function handle_preview_transform(): void {
 			self::assert_can();
@@ -134,28 +149,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$max_records = self::read_max_records();
 
 			try {
-				$client   = new Agend_Directory_Sync_Upbeat_Client();
-				$contacts = self::cap( $client->fetch_all(), $max_records );
+				$result = Agend_Directory_Sync_Runner::run( $max_records, true );
 
-				$transformed = Agend_Directory_Sync_Listing_Transformer::transform_all( $contacts );
+				// Keep the transient small: store only a sample, not the full
+				// transformed payload.
+				$listings           = is_array( $result['listings'] ?? null ) ? $result['listings'] : array();
+				$result['preview']  = array_slice( $listings, 0, self::TRANSFORM_PREVIEW_LIMIT );
+				unset( $result['listings'] );
 
-				self::set_result(
-					$user_id,
-					array(
-						'kind'                   => 'preview',
-						'status'                 => 'ok',
-						'fetched'                => count( $contacts ),
-						'transformed'            => count( $transformed['listings'] ),
-						'skipped'                => $transformed['skipped'],
-						'skip_reasons'           => $transformed['skip_reasons'],
-						'duplicate_external_ids' => $transformed['duplicate_external_ids'],
-						'dropped_fields'         => $transformed['dropped_fields'] ?? array(),
-						'dropped_field_examples' => $transformed['dropped_field_examples'] ?? array(),
-						'status_counts'          => $transformed['status_counts'] ?? array(),
-						'preview'                => array_slice( $transformed['listings'], 0, self::TRANSFORM_PREVIEW_LIMIT ),
-						'max_records'            => $max_records,
-					)
-				);
+				self::set_result( $user_id, $result );
 			} catch ( Throwable $e ) {
 				self::set_result(
 					$user_id,
@@ -173,7 +175,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 		/**
 		 * Fetch + transform + POST to Agend. Aggregates created/updated/error
-		 * counts across all batches.
+		 * counts across all batches. Delegates to the shared runner.
 		 */
 		public static function handle_send_to_agend(): void {
 			self::assert_can();
@@ -186,43 +188,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			}
 			ignore_user_abort( true );
 
-			$user_id          = get_current_user_id();
-			$max_records      = self::read_max_records();
-			$external_source  = self::resolve_external_source();
-			$auto_publish     = self::resolve_auto_publish_approved();
+			$user_id     = get_current_user_id();
+			$max_records = self::read_max_records();
 
 			try {
-				$upbeat   = new Agend_Directory_Sync_Upbeat_Client();
-				$contacts = self::cap( $upbeat->fetch_all(), $max_records );
+				$result = Agend_Directory_Sync_Runner::run( $max_records, false );
 
-				$transformed = Agend_Directory_Sync_Listing_Transformer::transform_all( $contacts );
-				$listings    = $transformed['listings'];
+				// The full transformed payload is not needed for rendering.
+				unset( $result['listings'] );
 
-				$send_summary = array();
-				if ( ! empty( $listings ) ) {
-					$agend        = new Agend_Directory_Sync_Agend_Client();
-					$send_summary = $agend->send_listings( $listings, $external_source, $auto_publish );
-				}
-
-				self::set_result(
-					$user_id,
-					array(
-						'kind'                   => 'send',
-						'status'                 => 'ok',
-						'fetched'                => count( $contacts ),
-						'transformed'            => count( $listings ),
-						'skipped'                => $transformed['skipped'],
-						'skip_reasons'           => $transformed['skip_reasons'],
-						'duplicate_external_ids' => $transformed['duplicate_external_ids'],
-						'dropped_fields'         => $transformed['dropped_fields'] ?? array(),
-						'dropped_field_examples' => $transformed['dropped_field_examples'] ?? array(),
-						'status_counts'          => $transformed['status_counts'] ?? array(),
-						'external_source'        => $external_source,
-						'auto_publish_approved'  => $auto_publish,
-						'max_records'            => $max_records,
-						'send'                   => $send_summary,
-					)
-				);
+				self::set_result( $user_id, $result );
 			} catch ( Throwable $e ) {
 				self::set_result(
 					$user_id,
@@ -243,8 +218,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			$gateway_url     = (string) get_option( Agend_Directory_Sync::OPTION_AGEND_GATEWAY_URL, '' );
 			$api_key         = (string) get_option( Agend_Directory_Sync::OPTION_AGEND_API_KEY, '' );
-			$external_source = self::resolve_external_source();
-			$auto_publish    = self::resolve_auto_publish_approved();
+			$external_source = Agend_Directory_Sync_Runner::resolve_external_source();
+			$auto_publish    = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
+			$field_map       = Agend_Directory_Sync_Field_Map::resolve();
 
 			$action_url = esc_url( admin_url( 'admin-post.php' ) );
 			$last       = get_transient( self::transient_key( get_current_user_id() ) );
@@ -315,7 +291,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										placeholder="<?php echo esc_attr( Agend_Directory_Sync::DEFAULT_EXTERNAL_SOURCE ); ?>"
 									/>
 									<p class="description">
-										<?php esc_html_e( 'Caller identifier sent with each bulk-upsert batch. Defaults to "aiqs-upbeat" if left blank.', 'agend-directory-sync' ); ?>
+										<?php
+										printf(
+											/* translators: %s is the default external_source value. */
+											esc_html__( 'Caller identifier sent with each bulk-upsert batch, and part of the upsert key (external_source + external_id). Keep it stable for a given directory. Defaults to "%s" if left blank.', 'agend-directory-sync' ),
+											esc_html( Agend_Directory_Sync::DEFAULT_EXTERNAL_SOURCE )
+										);
+										?>
 									</p>
 								</td>
 							</tr>
@@ -336,6 +318,59 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									</label>
 									<p class="description">
 										<?php esc_html_e( 'Approved status is assigned automatically when the member is both eligible AND opted in; otherwise the listing is synced as suspended and stays hidden. When this checkbox is off, even approved listings stay invisible until an admin publishes them manually in the Agend dashboard. Already-published rows are never re-stamped on re-sync.', 'agend-directory-sync' ); ?>
+									</p>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+
+					<h2><?php esc_html_e( 'Field mapping', 'agend-directory-sync' ); ?></h2>
+					<p class="description" style="max-width:760px;">
+						<?php esc_html_e( 'Map each Agend listing field to a source field from your environment. The defaults match the standard Upbeat membership-directory shape. Leave a source blank to omit that field. Use "Preview transform" after changing the mapping to verify before sending.', 'agend-directory-sync' ); ?>
+					</p>
+
+					<table class="form-table" role="presentation">
+						<tbody>
+							<?php foreach ( Agend_Directory_Sync_Field_Map::core_targets() as $target ) : ?>
+								<?php
+								$key          = $target['key'];
+								$input_id     = 'agend_field_map_' . $key;
+								$current      = isset( $field_map['core'][ $key ] ) ? (string) $field_map['core'][ $key ] : '';
+								$default_core = Agend_Directory_Sync_Field_Map::default_core_map();
+								$placeholder  = isset( $default_core[ $key ] ) ? (string) $default_core[ $key ] : '';
+								?>
+								<tr>
+									<th scope="row">
+										<label for="<?php echo esc_attr( $input_id ); ?>"><?php echo esc_html( $target['label'] ); ?></label>
+									</th>
+									<td>
+										<input
+											name="agend_field_map[<?php echo esc_attr( $key ); ?>]"
+											id="<?php echo esc_attr( $input_id ); ?>"
+											type="text"
+											class="regular-text"
+											value="<?php echo esc_attr( $current ); ?>"
+											placeholder="<?php echo esc_attr( $placeholder ); ?>"
+											autocomplete="off"
+										/>
+										<p class="description"><?php echo esc_html( $target['description'] ); ?></p>
+									</td>
+								</tr>
+							<?php endforeach; ?>
+							<tr>
+								<th scope="row">
+									<label for="agend_custom_field_map"><?php esc_html_e( 'Custom fields', 'agend-directory-sync' ); ?></label>
+								</th>
+								<td>
+									<textarea
+										name="agend_custom_field_map"
+										id="agend_custom_field_map"
+										rows="9"
+										class="large-text code"
+										placeholder="membership_number = membershipNumber"
+									><?php echo esc_textarea( Agend_Directory_Sync_Field_Map::custom_fields_to_textarea( $field_map['custom_fields'] ) ); ?></textarea>
+									<p class="description">
+										<?php esc_html_e( 'One mapping per line, in the form custom_field_key = source_field. The key is stored under the listing custom_fields. Lines without an "=" are ignored.', 'agend-directory-sync' ); ?>
 									</p>
 								</td>
 							</tr>
@@ -638,9 +673,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		 * Render the dropped-field counters and per-reason example tables.
 		 * These are rows that were synced, but with a specific field
 		 * omitted because it violated a hard constraint (e.g. phone > 50
-		 * chars). The example tables surface uniqueid + fullname for the
+		 * chars). The example tables surface external_id + fullname for the
 		 * first N affected rows so the operator can locate the source
-		 * record in Upbeat.
+		 * record.
 		 *
 		 * @param mixed $dropped_fields  Counter map: reason => count.
 		 * @param mixed $dropped_field_examples Map: reason => list of
@@ -705,7 +740,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					. esc_html( $summary )
 					. '</summary>';
 				echo '<table class="widefat striped" style="margin-top:0.5em;max-width:720px;"><thead><tr>'
-					. '<th>' . esc_html__( 'uniqueid', 'agend-directory-sync' ) . '</th>'
+					. '<th>' . esc_html__( 'external_id', 'agend-directory-sync' ) . '</th>'
 					. '<th>' . esc_html__( 'fullname', 'agend-directory-sync' ) . '</th>'
 					. '</tr></thead><tbody>';
 				foreach ( $examples as $example ) {
@@ -753,35 +788,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			}
 			$value = (int) $raw;
 			return $value > 0 ? $value : 0;
-		}
-
-		/**
-		 * @param array<int, array<string, mixed>> $contacts
-		 *
-		 * @return array<int, array<string, mixed>>
-		 */
-		private static function cap( array $contacts, int $max_records ): array {
-			if ( $max_records <= 0 ) {
-				return $contacts;
-			}
-			return array_slice( $contacts, 0, $max_records );
-		}
-
-		private static function resolve_external_source(): string {
-			$value = trim( (string) get_option( Agend_Directory_Sync::OPTION_EXTERNAL_SOURCE, '' ) );
-			return '' !== $value ? $value : Agend_Directory_Sync::DEFAULT_EXTERNAL_SOURCE;
-		}
-
-		/**
-		 * Resolve the auto-publish setting, applying the bootstrap default
-		 * if the option has never been saved.
-		 */
-		private static function resolve_auto_publish_approved(): bool {
-			$raw = get_option( Agend_Directory_Sync::OPTION_AUTO_PUBLISH_APPROVED, null );
-			if ( null === $raw ) {
-				return Agend_Directory_Sync::DEFAULT_AUTO_PUBLISH_APPROVED;
-			}
-			return '1' === (string) $raw;
 		}
 
 		private static function set_result( int $user_id, array $payload ): void {
