@@ -163,6 +163,24 @@ class Agend_Apps_Admin {
 			'agend_apps_api_section'
 		);
 
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_vercel_bypass_token',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+				'default'           => '',
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_vercel_bypass_token',
+			__( 'Vercel Protection Bypass', 'agend-apps-core' ),
+			array( $this, 'render_vercel_bypass_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_api_section'
+		);
+
 		// Cache TTL section.
 		add_settings_section(
 			'agend_apps_cache_section',
@@ -205,10 +223,10 @@ class Agend_Apps_Admin {
 	 *
 	 * @param string $value Raw submitted value.
 	 *
-	 * @return string One of `production`, `local`, or `custom`.
+	 * @return string One of `production`, `staging`, `local`, or `custom`.
 	 */
 	public function sanitize_environment( string $value ): string {
-		$allowed = array( 'production', 'local', 'custom' );
+		$allowed = array( 'production', 'staging', 'local', 'custom' );
 
 		return in_array( $value, $allowed, true ) ? $value : 'production';
 	}
@@ -247,6 +265,7 @@ class Agend_Apps_Admin {
 		$value   = get_option( 'agend_apps_environment', 'production' );
 		$options = array(
 			'production' => __( 'Production', 'agend-apps-core' ),
+			'staging'    => __( 'Staging', 'agend-apps-core' ),
 			'local'      => __( 'Local', 'agend-apps-core' ),
 			'custom'     => __( 'Custom', 'agend-apps-core' ),
 		);
@@ -273,6 +292,22 @@ class Agend_Apps_Admin {
 			esc_attr( $value )
 		);
 		echo '<p class="description">' . esc_html__( 'Required when Environment is set to Custom.', 'agend-apps-core' ) . '</p>';
+	}
+
+	/**
+	 * Renders the optional Vercel deployment-protection bypass token field.
+	 *
+	 * When set, the value is sent as the `x-vercel-protection-bypass` header on
+	 * every outbound API request, allowing the plugin to reach a gateway
+	 * deployment protected by Vercel (typically the Staging environment).
+	 */
+	public function render_vercel_bypass_field(): void {
+		$value = get_option( 'agend_apps_vercel_bypass_token', '' );
+		printf(
+			'<input type="password" id="agend_apps_vercel_bypass_token" name="agend_apps_vercel_bypass_token" value="%s" class="regular-text" autocomplete="off" />',
+			esc_attr( $value )
+		);
+		echo '<p class="description">' . esc_html__( 'Optional. Sent as the x-vercel-protection-bypass header on all API requests. Required when the selected environment (typically Staging) sits behind Vercel deployment protection. Leave blank to omit the header.', 'agend-apps-core' ) . '</p>';
 	}
 
 	/**

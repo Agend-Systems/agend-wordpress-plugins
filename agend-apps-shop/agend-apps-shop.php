@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name:       Agend Apps Shop
- * Plugin URI:        https://agend.dev
+ * Plugin URI:        https://agend.com.au
  * Description:       Extends Agend Apps Core with Elementor cart widgets for end-user checkout flows.
  * Version:           1.0.0
  * Author:            Agend
- * Author URI:        https://agend.dev
+ * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-shop
  * Domain Path:       /languages
  * Requires at least: 6.0
