@@ -1,0 +1,240 @@
+# Agend Directory Sync
+
+WordPress plugin that ingests member directory contacts from Upbeat and
+pushes them to the Agend directory via the public bulk-upsert API. The
+field mapping is configurable, so the plugin is not tied to any one
+association's field names or environment.
+
+## Status
+
+Working end-to-end as both a manual sync and an unattended sync.
+
+- Fetches `/membershipDirectoryContacts` from Upbeat using credentials
+  configured in the `iugo-membership-kiosk` plugin.
+- Syncs every contact that has a value in the configured **External ID**
+  source. Visibility is controlled per row via `status` (see Filtering
+  below), so a member who loses eligibility or opts out is hidden
+  automatically on the next sync without a delete operation.
+- Transforms each contact into the Agend bulk-upsert listing shape using
+  the configurable field mapping.
+- POSTs to `/v1/directory/listings/bulk-upsert` on the configured Agend
+  gateway in batches of 100.
+- Aggregates created / updated / errored counts and surfaces per-row
+  errors in the admin UI (and the WP-CLI output).
+- Can run unattended from the server's cron via a WP-CLI command (see
+  Scheduling below).
+
+Not wired:
+
+- Encrypted storage for the API key. Stored as plain text in `wp_options`
+  for MVP.
+
+## Requirements
+
+- `iugo-membership-kiosk` plugin active and configured with valid Upbeat
+  API credentials.
+- For scheduled runs: WP-CLI available on the server.
+
+## Configuration
+
+Tools > Agend Directory Sync:
+
+- **Agend gateway base URL**, e.g. `http://localhost:3072` for local dev.
+- **Agend API key**. Must hold the `directory.listings.bulk_upsert` scope.
+- **external_source** string sent with each bulk-upsert batch. This is
+  part of the upsert key (`external_source` + `external_id`), so keep it
+  stable for a given directory. Defaults to `upbeat-directory` if left
+  blank.
+- **Auto-publish approved listings** (checkbox, default ON). When set,
+  the plugin sends `auto_publish_approved: true` with each batch. Agend
+  will then set `published_at` on any listing it accepted as
+  `status: 'approved'`, so the row appears on the public directory
+  immediately. Already-published rows are not re-stamped on re-sync.
+  Turn off only if you want a manual approval workflow in the dashboard.
+- **Field mapping** (see below). Map each Agend listing field to a
+  source field from your environment.
+- **Max records this run** (optional, on the actions form). Caps the
+  number of Upbeat contacts processed in a single run, applied AFTER the
+  fetch and BEFORE filtering. Useful for verifying with a small slice
+  before pushing the whole directory.
+
+## Field mapping
+
+The mapping from source (Upbeat) fields to Agend listing fields is
+configurable under Tools > Agend Directory Sync > **Field mapping**. The
+set of Agend targets is fixed; for each one you choose which source field
+feeds it. Leaving a source blank omits that field from the payload.
+
+The defaults reproduce the standard Upbeat membership-directory shape, so
+an unconfigured install behaves exactly as the original tenant-specific
+build did.
+
+### Core targets (Agend field <- default Upbeat source)
+
+| Agend target           | Default source           | Notes |
+|------------------------|--------------------------|-------|
+| `external_id`          | `uniqueid`               | Stable id and upsert key. A row with no value here is skipped. |
+| `name` (first)         | `firstname`              | Combined with last to build the name. |
+| `name` (last)          | `lastname`               | |
+| `name` (full fallback) | `fullname`               | Used when first + last are empty. |
+| `name` (number fallback) | `membershipNumber`     | Builds `Member <number>` when no name fields are present. |
+| `description`          | `publishedBio`           | Omitted when blank. |
+| `email`                | `email`                  | Omitted when blank. |
+| `phone`                | `businessPhone`          | Dropped if > 50 chars (`varchar(50)`). |
+| `phone` (fallback)     | `homeMobile`             | Used when the primary phone source is empty. |
+| `category_slugs[0]`    | `membershipLevel`        | Slugified. |
+| `tag_slugs[0]`         | `chapter`                | Slugified. |
+| `badge_slugs[]`        | `designation`            | Each slugified. Also preserved verbatim under `custom_fields.designations`. |
+| `hero_image_url`       | `profileImageUrl`        | Dropped if not a valid URL or > 1000 chars (`varchar(1000)`). |
+| eligibility flag       | `eligibleToFindAMember`  | Boolean gate for visibility. Blank = always eligible. |
+| opt-in flag            | `memberDirectoryOptIn`   | Boolean gate for visibility. Blank = always opted in. |
+
+### Custom fields
+
+A `custom_fields_key = source_field` mapping, one per line. The key is
+stored under the listing's `custom_fields`. Defaults:
+
+```
+membership_number = membershipNumber
+membership_type   = membershipType
+membership_level  = membershipLevel
+job_title         = jobTitle
+company_name      = companyName
+chapter           = chapter
+honorifics        = honorifics
+title             = title
+linkedin          = linkedIn
+```
+
+### Always set
+
+- `external_metadata.upbeat_unique_id`, `external_metadata.upbeat_date_modified`
+  (from `dateModified`), and `external_metadata.synced_at` (UTC ISO 8601).
+- `status` is derived from the two visibility flags (see Filtering).
+
+Residential address fields (`residentialStreetAddress`,
+`residentialState`, etc.) are intentionally **not** mappable through the
+UI. The directory is professional; residential addresses are sensitive
+and need an explicit operator decision before being published. (A client
+plugin can still add them via the `agend_directory_sync_listing_payload`
+filter.)
+
+## Actions
+
+- **Run Upbeat fetch** - calls Upbeat and dumps the raw first 10 rows.
+  Useful for verifying the source shape and confirming the source field
+  names to map.
+- **Preview transform** - fetches, filters, transforms; renders the first
+  5 mapped listings without POSTing anything. Use this to verify the
+  mapping before sending live data.
+- **Send to Agend** - fetches, filters, transforms, POSTs to the Agend
+  gateway. Renders aggregated created/updated/errored counts and surfaces
+  per-row errors in a table.
+
+Both **Preview transform** and **Send to Agend** results include a
+"Dropped fields" block that lists each drop reason (e.g.
+`phone_too_long`, `hero_image_url_invalid`) with a count. Each reason is
+expandable into a table of the affected rows, identified by `external_id`
+and `fullname`, capped at 50 examples per reason so the page stays
+responsive on large syncs. Use these to locate the source record in
+Upbeat and clean the data.
+
+## Scheduling (server cron)
+
+The same fetch -> transform -> send pipeline is exposed as a WP-CLI
+command so it can run unattended from the server's crontab:
+
+```bash
+wp agend-directory-sync run
+wp agend-directory-sync run --max=50 --dry-run
+```
+
+- `--max=<n>` caps the rows processed this run (after fetch, before
+  transform). Omit or `0` for all rows.
+- `--dry-run` fetches and transforms only; nothing is POSTed.
+
+Add a crontab entry that changes into the WordPress root and runs the
+command. Example, every 30 minutes, logging to a file:
+
+```cron
+*/30 * * * * cd /var/www/site && wp agend-directory-sync run --quiet >> /var/log/agend-directory-sync.log 2>&1
+```
+
+Running from real cron (rather than WP-Cron) means the sync does not
+depend on site traffic to fire. The gateway URL, API key,
+`external_source`, auto-publish flag, and field mapping all come from the
+same settings the manual UI uses, so configure once in the admin and the
+scheduled run inherits it.
+
+## Upgrading from a tenant-specific build
+
+Earlier releases defaulted `external_source` to a fixed, tenant-specific
+value. If you are upgrading a site that synced with one of those, set the
+**external_source** field in settings to that previous value **before the
+first sync on the new version**. `external_source` is part of the upsert
+key, so a changed value makes the gateway treat every listing as new and
+re-inserts the whole directory instead of updating in place.
+
+If you are unsure what the previous value was, read the `external_source`
+of any listing already in the Agend directory for this account, or check
+the value the site had saved under Tools > Agend Directory Sync before
+upgrading.
+
+## Filtering and visibility
+
+A contact is **skipped entirely** only when the configured External ID
+source is missing (recorded as `missing_external_id`). Without a stable
+id there is nothing to upsert against.
+
+Every other contact is **synced**, with the Agend `status` derived from
+the two configured visibility flag sources (eligibility + opt-in):
+
+| eligibility flag | opt-in flag | Agend status |
+|------------------|-------------|--------------|
+| true             | true        | `approved`   |
+| false OR null    | any         | `suspended`  |
+| any              | false OR null | `suspended` |
+
+A blank flag source counts as satisfied, so an environment with no
+eligibility / opt-in concept publishes everyone (subject to auto-publish).
+
+Approved listings are publicly visible (subject to the auto-publish flag
+setting `published_at`). Suspended listings are preserved in the
+directory database but hidden from the public site because the public
+queries require `status = 'approved'` AND `published_at IS NOT NULL`.
+When the source member flips back to eligible + opted-in, the next sync
+re-sets status to `approved`, and if `published_at` was previously set
+the row reappears immediately; if it was never set, the auto-publish
+flag will populate it.
+
+The admin UI reports per-status counts and any skipped rows after each
+preview / send.
+
+## Extension points
+
+- `agend_directory_sync_upbeat_endpoint` filter - override the Upbeat
+  endpoint path (defaults to `membershipDirectoryContacts`).
+- `agend_directory_sync_listing_payload` filter - applied per row, gets
+  `($listing, $contact)`. Use to extend or override the mapping in a
+  client plugin without forking, beyond what the field-mapping UI covers.
+
+## Files
+
+- `agend-directory-sync.php` - plugin bootstrap, extends
+  `Iugo_Membership_Kiosk_Plugin`, requires the kiosk plugin, registers
+  the WP-CLI command.
+- `includes/class-field-map.php` - configurable field-mapping defaults,
+  resolution, validation, and persistence.
+- `includes/class-upbeat-client.php` - thin wrapper around the kiosk
+  API's paginated GET helper.
+- `includes/class-listing-transformer.php` - pure mapping from source
+  contact rows to Agend listings (driven by the resolved field map),
+  plus the skip-reason reporting.
+- `includes/class-agend-client.php` - batched POST to the Agend gateway
+  bulk-upsert endpoint, aggregates per-row results.
+- `includes/class-sync-runner.php` - the shared fetch -> transform ->
+  send pipeline used by both the admin UI and the WP-CLI command.
+- `includes/class-cli-command.php` - the `wp agend-directory-sync run`
+  command (loaded only under WP-CLI).
+- `includes/class-admin-page.php` - Tools submenu with settings, the
+  field-mapping editor, the three action buttons, and result rendering.
