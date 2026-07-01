@@ -176,10 +176,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$custom_fields = isset( $field_map['custom_fields'] ) && is_array( $field_map['custom_fields'] )
 				? $field_map['custom_fields']
 				: $defaults['custom_fields'];
+			$locations     = isset( $field_map['locations'] ) && is_array( $field_map['locations'] )
+				? $field_map['locations']
+				: ( $defaults['locations'] ?? array() );
 
 			return array(
 				'core'          => $core,
 				'custom_fields' => $custom_fields,
+				'locations'     => $locations,
 			);
 		}
 
@@ -335,6 +339,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				$listing['custom_fields'] = $custom_fields;
 			}
 
+			$locations = self::build_locations( $contact, $field_map );
+			if ( ! empty( $locations ) ) {
+				$listing['locations'] = $locations;
+			}
+
 			$listing['external_metadata'] = array(
 				'upbeat_unique_id'     => self::source( $contact, $core, 'external_id' ),
 				'upbeat_date_modified' => self::stringy( $contact['dateModified'] ?? '' ),
@@ -398,6 +407,69 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			}
 
 			return 'Unnamed member';
+		}
+
+		/**
+		 * Build the listing `locations` array from the configured location
+		 * slots. Each slot maps address sub-fields to source fields; a slot with
+		 * any resolved address data becomes one location. The first non-empty
+		 * slot is marked primary. Empty slots are skipped, so an unconfigured
+		 * mapping produces no locations.
+		 *
+		 * @param array<string, mixed>                                                                                        $contact
+		 * @param array{core: array<string,string>, custom_fields: array<string,string>, locations: array<int, array<string,string>>} $field_map
+		 *
+		 * @return array<int, array<string, mixed>>
+		 */
+		private static function build_locations( array $contact, array $field_map ): array {
+			$slots = isset( $field_map['locations'] ) && is_array( $field_map['locations'] )
+				? $field_map['locations']
+				: array();
+
+			$locations = array();
+			foreach ( $slots as $slot ) {
+				if ( ! is_array( $slot ) ) {
+					continue;
+				}
+
+				$location = array();
+
+				foreach ( array( 'address_line_1', 'address_line_2', 'city', 'state', 'postcode', 'country' ) as $key ) {
+					$source = (string) ( $slot[ $key ] ?? '' );
+					$value  = '' !== $source ? self::stringy( $contact[ $source ] ?? '' ) : '';
+					if ( '' !== $value ) {
+						$location[ $key ] = $value;
+					}
+				}
+
+				foreach ( array( 'latitude', 'longitude' ) as $key ) {
+					$source = (string) ( $slot[ $key ] ?? '' );
+					if ( '' === $source ) {
+						continue;
+					}
+					$raw = $contact[ $source ] ?? null;
+					if ( is_numeric( $raw ) ) {
+						$location[ $key ] = (float) $raw;
+					}
+				}
+
+				// A slot that resolved no address data contributes nothing.
+				if ( empty( $location ) ) {
+					continue;
+				}
+
+				$label = self::stringy( $slot['label'] ?? '' );
+				if ( '' !== $label ) {
+					$location['name'] = $label;
+				}
+
+				// The first location that carries data is the primary.
+				$location['is_primary'] = empty( $locations );
+
+				$locations[] = $location;
+			}
+
+			return $locations;
 		}
 
 		/**

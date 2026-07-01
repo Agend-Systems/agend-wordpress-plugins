@@ -21,14 +21,16 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 	final class Agend_Directory_Sync extends Iugo_Membership_Kiosk_Plugin {
 
 		/**
-		 * Option key for the Agend gateway base URL (e.g. http://localhost:3072).
+		 * Option key for the Upbeat directory endpoint path. The path varies per
+		 * client, so it is configurable. Blank falls back to the default
+		 * `membershipDirectoryContacts`.
+		 *
+		 * The Agend gateway base URL and API key are NOT stored here: connecting
+		 * to the gateway is owned by the agend-apps-core plugin (configured under
+		 * Settings > Agend Apps), which this plugin calls via
+		 * `agend_apps_directory_bulk_upsert_listings()`.
 		 */
-		public const OPTION_AGEND_GATEWAY_URL = 'agend_directory_sync_gateway_url';
-
-		/**
-		 * Option key for the Agend public API key. Stored as plain text for MVP.
-		 */
-		public const OPTION_AGEND_API_KEY = 'agend_directory_sync_api_key';
+		public const OPTION_UPBEAT_ENDPOINT = 'agend_directory_sync_upbeat_endpoint';
 
 		/**
 		 * Option key for the external_source string sent with each batch.
@@ -67,6 +69,7 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 			parent::__construct( 'Agend Directory Sync', 'agend-directory-sync' );
 
 			$this->require_plugin( 'Agend Membership', 'iugo-membership-kiosk/membership-integration.php' );
+			$this->require_plugin( 'Agend Apps Core', 'agend-apps-core/agend-apps-core.php' );
 
 			$this->define_constants();
 
