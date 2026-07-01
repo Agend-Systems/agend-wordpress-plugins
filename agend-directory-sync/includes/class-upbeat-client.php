@@ -36,12 +36,19 @@ if ( ! class_exists( 'Agend_Directory_Sync_Upbeat_Client' ) ) :
 				throw new RuntimeException( __( 'Iugo Membership Kiosk plugin is not active.', 'agend-directory-sync' ) );
 			}
 
+			// The endpoint path varies per client, so it is configurable in the
+			// admin. Fall back to the default when unset.
+			$configured = trim( (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' ) );
+			$default    = '' !== $configured ? $configured : self::DEFAULT_ENDPOINT;
+
 			/**
-			 * Filter the Upbeat endpoint path for the membership directory.
+			 * Filter the Upbeat endpoint path for the membership directory. The
+			 * configured option value is passed as the default so a filter can
+			 * still override it in code.
 			 *
-			 * @param string $endpoint Default endpoint slug.
+			 * @param string $endpoint Configured (or default) endpoint slug.
 			 */
-			$endpoint = apply_filters( 'agend_directory_sync_upbeat_endpoint', self::DEFAULT_ENDPOINT );
+			$endpoint = apply_filters( 'agend_directory_sync_upbeat_endpoint', $default );
 
 			$api = Iugo_Membership_Kiosk_API::instance();
 

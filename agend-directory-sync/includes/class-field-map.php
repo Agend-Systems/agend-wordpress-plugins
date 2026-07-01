@@ -36,59 +36,99 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		public const OPTION_FIELD_MAP = 'agend_directory_sync_field_map';
 
 		/**
-		 * Default source field for each core Agend target. These reproduce the
-		 * plugin's original hard-coded mapping exactly.
+		 * The core Agend targets, each defaulting to an EMPTY source field. The
+		 * defaults are intentionally blank: the mapping is configured per client
+		 * under Tools > Agend Directory Sync (the previous defaults were
+		 * AIQS/Upbeat specific). The keys define the target set; a blank source
+		 * means "do not map this target".
 		 *
 		 * @return array<string, string>
 		 */
 		public static function default_core_map(): array {
 			return array(
-				'external_id'          => 'uniqueid',
-				'name_first'           => 'firstname',
-				'name_last'            => 'lastname',
-				'name_full'            => 'fullname',
-				'name_fallback_number' => 'membershipNumber',
-				'description'          => 'publishedBio',
-				'email'                => 'email',
-				'phone'                => 'businessPhone',
-				'phone_fallback'       => 'homeMobile',
-				'category'             => 'membershipLevel',
-				'tag'                  => 'chapter',
-				'badges'               => 'designation',
-				'hero_image'           => 'profileImageUrl',
-				'eligible_flag'        => 'eligibleToFindAMember',
-				'opt_in_flag'          => 'memberDirectoryOptIn',
+				'external_id'          => '',
+				'name_first'           => '',
+				'name_last'            => '',
+				'name_full'            => '',
+				'name_fallback_number' => '',
+				'description'          => '',
+				'email'                => '',
+				'phone'                => '',
+				'phone_fallback'       => '',
+				'category'             => '',
+				'tag'                  => '',
+				'badges'               => '',
+				'hero_image'           => '',
+				'eligible_flag'        => '',
+				'opt_in_flag'          => '',
 			);
 		}
 
 		/**
 		 * Default `custom_fields` map: Agend custom field key => source field.
+		 * Empty by default — configure per client.
 		 *
 		 * @return array<string, string>
 		 */
 		public static function default_custom_field_map(): array {
+			return array();
+		}
+
+		/**
+		 * Number of configurable address (location) slots exposed for mapping.
+		 * A directory listing supports multiple locations; each configured slot
+		 * that has address data becomes one listing location.
+		 */
+		public const LOCATION_SLOTS = 2;
+
+		/**
+		 * Source-mappable sub-fields of a single location. `label` is a static
+		 * name for the location (not a source field) and is handled separately.
+		 *
+		 * @return array<int, string>
+		 */
+		public static function location_field_keys(): array {
 			return array(
-				'membership_number' => 'membershipNumber',
-				'membership_type'   => 'membershipType',
-				'membership_level'  => 'membershipLevel',
-				'job_title'         => 'jobTitle',
-				'company_name'      => 'companyName',
-				'chapter'           => 'chapter',
-				'honorifics'        => 'honorifics',
-				'title'             => 'title',
-				'linkedin'          => 'linkedIn',
+				'address_line_1',
+				'address_line_2',
+				'city',
+				'state',
+				'postcode',
+				'country',
+				'latitude',
+				'longitude',
 			);
 		}
 
 		/**
-		 * The full default map (core + custom_fields).
+		 * Default (empty) location slots: each a static `label` plus a blank
+		 * source field per location_field_keys().
 		 *
-		 * @return array{core: array<string, string>, custom_fields: array<string, string>}
+		 * @return array<int, array<string, string>>
+		 */
+		public static function default_locations(): array {
+			$slot = array( 'label' => '' );
+			foreach ( self::location_field_keys() as $key ) {
+				$slot[ $key ] = '';
+			}
+
+			$locations = array();
+			for ( $i = 0; $i < self::LOCATION_SLOTS; $i++ ) {
+				$locations[] = $slot;
+			}
+			return $locations;
+		}
+
+		/**
+		 * The full default map (core + custom_fields + locations).
+		 *
+		 * @return array{core: array<string,string>, custom_fields: array<string,string>, locations: array<int, array<string,string>>}
 		 */
 		public static function defaults(): array {
 			return array(
 				'core'          => self::default_core_map(),
 				'custom_fields' => self::default_custom_field_map(),
+				'locations'     => self::default_locations(),
 			);
 		}
 
@@ -215,9 +255,24 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				}
 			}
 
+			$locations = self::default_locations();
+			if ( isset( $saved['locations'] ) && is_array( $saved['locations'] ) ) {
+				foreach ( $locations as $i => $slot ) {
+					if ( ! isset( $saved['locations'][ $i ] ) || ! is_array( $saved['locations'][ $i ] ) ) {
+						continue;
+					}
+					foreach ( $slot as $field => $default ) {
+						if ( array_key_exists( $field, $saved['locations'][ $i ] ) ) {
+							$locations[ $i ][ $field ] = (string) $saved['locations'][ $i ][ $field ];
+						}
+					}
+				}
+			}
+
 			return array(
 				'core'          => $core,
 				'custom_fields' => $custom_fields,
+				'locations'     => $locations,
 			);
 		}
 
@@ -226,19 +281,51 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 * are trimmed. Custom fields are parsed from a textarea of
 		 * `target_key = source_field` lines.
 		 *
-		 * @param array<string, mixed> $raw_core    Posted core map (key => source).
-		 * @param mixed                $raw_custom  Posted custom map (textarea string or array).
+		 * @param array<string, mixed> $raw_core      Posted core map (key => source).
+		 * @param mixed                $raw_custom    Posted custom map (textarea string or array).
+		 * @param mixed                $raw_locations Posted location slots (array of slot => field => source).
 		 *
 		 * @return void
 		 */
-		public static function save( array $raw_core, $raw_custom ): void {
+		public static function save( array $raw_core, $raw_custom, $raw_locations = array() ): void {
 			update_option(
 				self::OPTION_FIELD_MAP,
 				array(
 					'core'          => self::sanitize_core( $raw_core ),
 					'custom_fields' => self::sanitize_custom_fields( $raw_custom ),
+					'locations'     => self::sanitize_locations( $raw_locations ),
 				)
 			);
+		}
+
+		/**
+		 * Validate posted location slots against the known slot count and
+		 * field keys. `label` is free text; the address sub-fields are source
+		 * paths.
+		 *
+		 * @param mixed $raw Posted locations (array of slot index => field => value).
+		 *
+		 * @return array<int, array<string, string>>
+		 */
+		public static function sanitize_locations( $raw ): array {
+			$raw       = is_array( $raw ) ? $raw : array();
+			$locations = self::default_locations();
+
+			foreach ( $locations as $i => $slot ) {
+				$posted = isset( $raw[ $i ] ) && is_array( $raw[ $i ] ) ? $raw[ $i ] : array();
+
+				$locations[ $i ]['label'] = isset( $posted['label'] )
+					? sanitize_text_field( (string) $posted['label'] )
+					: '';
+
+				foreach ( self::location_field_keys() as $key ) {
+					$locations[ $i ][ $key ] = isset( $posted[ $key ] )
+						? self::sanitize_source_path( (string) $posted[ $key ] )
+						: '';
+				}
+			}
+
+			return $locations;
 		}
 
 		/**

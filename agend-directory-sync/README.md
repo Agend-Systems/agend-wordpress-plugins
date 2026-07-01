@@ -31,16 +31,23 @@ Not wired:
 
 ## Requirements
 
+- `agend-apps-core` plugin active and configured. It owns the Agend gateway
+  connection (base URL + API key, under Settings > Agend Apps); this plugin
+  calls it via `agend_apps_directory_bulk_upsert_listings()` and never talks
+  to the gateway directly.
 - `iugo-membership-kiosk` plugin active and configured with valid Upbeat
   API credentials.
 - For scheduled runs: WP-CLI available on the server.
 
 ## Configuration
 
+Gateway connection (base URL + API key) is NOT configured here — set it once
+in **agend-apps-core** (Settings > Agend Apps). Then, under
 Tools > Agend Directory Sync:
 
-- **Agend gateway base URL**, e.g. `http://localhost:3072` for local dev.
-- **Agend API key**. Must hold the `directory.listings.bulk_upsert` scope.
+- **Upbeat directory endpoint** — the Upbeat endpoint path for the member
+  directory. The path varies per client. Leave blank to use the default
+  `membershipDirectoryContacts`.
 - **external_source** string sent with each bulk-upsert batch. This is
   part of the upsert key (`external_source` + `external_id`), so keep it
   stable for a given directory. Defaults to `upbeat-directory` if left
@@ -65,13 +72,14 @@ configurable under Tools > Agend Directory Sync > **Field mapping**. The
 set of Agend targets is fixed; for each one you choose which source field
 feeds it. Leaving a source blank omits that field from the payload.
 
-The defaults reproduce the standard Upbeat membership-directory shape, so
-an unconfigured install behaves exactly as the original tenant-specific
-build did.
+**Defaults are intentionally blank** — the mapping must be configured per
+client (the previous defaults were AIQS/Upbeat specific). Until `external_id`
+is mapped, every row is skipped. The `source` values in the table below are
+illustrative examples of a typical Upbeat build, not defaults.
 
-### Core targets (Agend field <- default Upbeat source)
+### Core targets (Agend field <- example Upbeat source)
 
-| Agend target           | Default source           | Notes |
+| Agend target           | Example source           | Notes |
 |------------------------|--------------------------|-------|
 | `external_id`          | `uniqueid`               | Stable id and upsert key. A row with no value here is skipped. |
 | `name` (first)         | `firstname`              | Combined with last to build the name. |
@@ -89,35 +97,30 @@ build did.
 | eligibility flag       | `eligibleToFindAMember`  | Boolean gate for visibility. Blank = always eligible. |
 | opt-in flag            | `memberDirectoryOptIn`   | Boolean gate for visibility. Blank = always opted in. |
 
-### Custom fields
+A `custom_fields_key = source_field` mapping, one per line, blank by
+default. The key is stored under the listing's `custom_fields`.
 
-A `custom_fields_key = source_field` mapping, one per line. The key is
-stored under the listing's `custom_fields`. Defaults:
+### Address mapping
 
-```
-membership_number = membershipNumber
-membership_type   = membershipType
-membership_level  = membershipLevel
-job_title         = jobTitle
-company_name      = companyName
-chapter           = chapter
-honorifics        = honorifics
-title             = title
-linkedin          = linkedIn
-```
+Under Tools > Agend Directory Sync > **Address mapping** you can map one or
+more addresses to the listing. Each configured location slot has a static
+**Label** (stored as the location name) plus a source field per address
+component (`address_line_1`, `address_line_2`, `city`, `state`, `postcode`,
+`country`, `latitude`, `longitude`). A slot that resolves any address data
+becomes one listing location; the first with data is marked primary. Blank
+slots are omitted.
+
+This maps to the directory's multi-location support
+(SPEC-DIR-20260521-directory-multi-location) via the `locations[]` array on
+the bulk-upsert API. A typical Upbeat build maps a business address to
+location 1 and a residential address to location 2 — residential addresses
+are sensitive, so map them only when the directory should publish them.
 
 ### Always set
 
 - `external_metadata.upbeat_unique_id`, `external_metadata.upbeat_date_modified`
   (from `dateModified`), and `external_metadata.synced_at` (UTC ISO 8601).
 - `status` is derived from the two visibility flags (see Filtering).
-
-Residential address fields (`residentialStreetAddress`,
-`residentialState`, etc.) are intentionally **not** mappable through the
-UI. The directory is professional; residential addresses are sensitive
-and need an explicit operator decision before being published. (A client
-plugin can still add them via the `agend_directory_sync_listing_payload`
-filter.)
 
 ## Actions
 

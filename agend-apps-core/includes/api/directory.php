@@ -323,20 +323,32 @@ function agend_apps_directory_delete_listing( string $listing_id ) {
  * Requires the `directory.listings.bulk_upsert` scope on the API key. The
  * cache is flushed after a successful call.
  *
- * @param array $listings Array of listing payloads (1 to 100 items). Each item follows the gateway `bulkUpsertListingItemSchema`.
+ * @param array  $listings              Array of listing payloads (1 to 100 items). Each item follows the gateway `bulkUpsertListingItemSchema`.
+ * @param string $external_source       Caller identifier and part of the upsert key (external_source + external_id). Required by the gateway.
+ * @param bool   $auto_publish_approved Optional. When true, approved listings are published on the way through. Default false.
  * @return array|WP_Error Decoded bulk-upsert result on success, or WP_Error on failure.
  */
-function agend_apps_directory_bulk_upsert_listings( array $listings ) {
+function agend_apps_directory_bulk_upsert_listings( array $listings, string $external_source, bool $auto_publish_approved = false ) {
 	/**
 	 * Filters the directory bulk-upsert request args before the request is sent.
 	 *
-	 * @param array $args     Request args.
-	 * @param array $listings Listing payloads.
+	 * @param array  $args                  Request args.
+	 * @param array  $listings              Listing payloads.
+	 * @param string $external_source       Caller identifier.
+	 * @param bool   $auto_publish_approved Auto-publish flag.
 	 */
 	$args = (array) apply_filters(
 		'agend_apps_directory_bulk_upsert_listings_args',
-		array( 'body' => array( 'listings' => array_values( $listings ) ) ),
-		$listings
+		array(
+			'body' => array(
+				'external_source'       => $external_source,
+				'listings'              => array_values( $listings ),
+				'auto_publish_approved' => $auto_publish_approved,
+			),
+		),
+		$listings,
+		$external_source,
+		$auto_publish_approved
 	);
 
 	$response = agend_apps_api()->request( 'POST', '/directory/listings/bulk-upsert', $args );

@@ -75,26 +75,29 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			self::assert_can();
 			check_admin_referer( self::NONCE_ACTION_SETTINGS );
 
-			$gateway_url     = isset( $_POST['agend_gateway_url'] ) ? esc_url_raw( wp_unslash( $_POST['agend_gateway_url'] ) ) : '';
-			$api_key         = isset( $_POST['agend_api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_api_key'] ) ) : '';
 			$external_source = isset( $_POST['agend_external_source'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_external_source'] ) ) : '';
 			$auto_publish    = ! empty( $_POST['agend_auto_publish_approved'] ) ? '1' : '0';
+			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
 
-			update_option( Agend_Directory_Sync::OPTION_AGEND_GATEWAY_URL, untrailingslashit( $gateway_url ) );
-			update_option( Agend_Directory_Sync::OPTION_AGEND_API_KEY, $api_key );
+			// Gateway URL and API key are owned by agend-apps-core, not stored here.
 			update_option( Agend_Directory_Sync::OPTION_EXTERNAL_SOURCE, $external_source );
 			update_option( Agend_Directory_Sync::OPTION_AUTO_PUBLISH_APPROVED, $auto_publish );
+			update_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, $upbeat_endpoint );
 
-			// Persist the configurable field mapping. The core map arrives as
-			// an array of source-field names keyed by Agend target; the custom
-			// fields arrive as a `target = source` textarea.
-			$raw_core   = isset( $_POST['agend_field_map'] ) && is_array( $_POST['agend_field_map'] )
+			// Persist the configurable field mapping. The core map arrives as an
+			// array of source-field names keyed by Agend target; the custom
+			// fields arrive as a `target = source` textarea; the location slots
+			// arrive as an array of slot => field => source.
+			$raw_core      = isset( $_POST['agend_field_map'] ) && is_array( $_POST['agend_field_map'] )
 				? wp_unslash( $_POST['agend_field_map'] )
 				: array();
-			$raw_custom = isset( $_POST['agend_custom_field_map'] )
+			$raw_custom    = isset( $_POST['agend_custom_field_map'] )
 				? wp_unslash( $_POST['agend_custom_field_map'] )
 				: '';
-			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom );
+			$raw_locations = isset( $_POST['agend_location_map'] ) && is_array( $_POST['agend_location_map'] )
+				? wp_unslash( $_POST['agend_location_map'] )
+				: array();
+			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_locations );
 
 			wp_safe_redirect( self::redirect_url( array( 'saved' => '1' ) ) );
 			exit;
@@ -216,10 +219,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		public static function render_page(): void {
 			self::assert_can();
 
-			$gateway_url     = (string) get_option( Agend_Directory_Sync::OPTION_AGEND_GATEWAY_URL, '' );
-			$api_key         = (string) get_option( Agend_Directory_Sync::OPTION_AGEND_API_KEY, '' );
 			$external_source = Agend_Directory_Sync_Runner::resolve_external_source();
 			$auto_publish    = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
+			$upbeat_endpoint = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
 			$field_map       = Agend_Directory_Sync_Field_Map::resolve();
 
 			$action_url = esc_url( admin_url( 'admin-post.php' ) );
@@ -242,38 +244,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					<table class="form-table" role="presentation">
 						<tbody>
 							<tr>
-								<th scope="row">
-									<label for="agend_gateway_url"><?php esc_html_e( 'Agend gateway base URL', 'agend-directory-sync' ); ?></label>
-								</th>
-								<td>
-									<input
-										name="agend_gateway_url"
-										id="agend_gateway_url"
-										type="url"
-										class="regular-text"
-										value="<?php echo esc_attr( $gateway_url ); ?>"
-										placeholder="http://localhost:3072"
-									/>
+								<td colspan="2">
 									<p class="description">
-										<?php esc_html_e( 'Base URL of the Agend public API gateway. No trailing slash. e.g. http://localhost:3072 for local dev.', 'agend-directory-sync' ); ?>
+										<?php esc_html_e( 'Gateway connection (base URL and API key) is configured in the Agend Apps Core plugin, under Settings > Agend Apps. This plugin uses that connection.', 'agend-directory-sync' ); ?>
 									</p>
 								</td>
 							</tr>
 							<tr>
 								<th scope="row">
-									<label for="agend_api_key"><?php esc_html_e( 'Agend API key', 'agend-directory-sync' ); ?></label>
+									<label for="agend_upbeat_endpoint"><?php esc_html_e( 'Upbeat directory endpoint', 'agend-directory-sync' ); ?></label>
 								</th>
 								<td>
 									<input
-										name="agend_api_key"
-										id="agend_api_key"
+										name="agend_upbeat_endpoint"
+										id="agend_upbeat_endpoint"
 										type="text"
 										class="regular-text"
-										value="<?php echo esc_attr( $api_key ); ?>"
+										value="<?php echo esc_attr( $upbeat_endpoint ); ?>"
+										placeholder="membershipDirectoryContacts"
 										autocomplete="off"
 									/>
 									<p class="description">
-										<?php esc_html_e( 'Public API key with the directory.listings.bulk_upsert scope. Stored as plain text for MVP.', 'agend-directory-sync' ); ?>
+										<?php esc_html_e( 'Upbeat endpoint path for the member directory. Varies per client. Leave blank to use the default "membershipDirectoryContacts".', 'agend-directory-sync' ); ?>
 									</p>
 								</td>
 							</tr>
@@ -326,7 +318,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 					<h2><?php esc_html_e( 'Field mapping', 'agend-directory-sync' ); ?></h2>
 					<p class="description" style="max-width:760px;">
-						<?php esc_html_e( 'Map each Agend listing field to a source field from your environment. The defaults match the standard Upbeat membership-directory shape. Leave a source blank to omit that field. Use "Preview transform" after changing the mapping to verify before sending.', 'agend-directory-sync' ); ?>
+						<?php esc_html_e( 'Map each Agend listing field to a source field from your environment. Defaults are intentionally blank — configure the mapping for this client. Leave a source blank to omit that field. Use "Preview transform" after changing the mapping to verify before sending.', 'agend-directory-sync' ); ?>
 					</p>
 
 					<table class="form-table" role="presentation">
@@ -376,6 +368,58 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							</tr>
 						</tbody>
 					</table>
+
+					<h2><?php esc_html_e( 'Address mapping', 'agend-directory-sync' ); ?></h2>
+					<p class="description" style="max-width:760px;">
+						<?php esc_html_e( 'Map one or more addresses to the listing. Each configured location becomes a listing address; the first with data is the primary. Leave a location blank to omit it.', 'agend-directory-sync' ); ?>
+					</p>
+					<?php $als_loc_fields = Agend_Directory_Sync_Field_Map::location_field_keys(); ?>
+					<?php foreach ( ( $field_map['locations'] ?? array() ) as $loc_index => $loc_slot ) : ?>
+						<h3>
+							<?php
+							printf(
+								/* translators: %d is the location slot number. */
+								esc_html__( 'Location %d', 'agend-directory-sync' ),
+								(int) $loc_index + 1
+							);
+							?>
+							<?php if ( 0 === (int) $loc_index ) : ?>
+								<span class="description">(<?php esc_html_e( 'primary', 'agend-directory-sync' ); ?>)</span>
+							<?php endif; ?>
+						</h3>
+						<table class="form-table" role="presentation">
+							<tbody>
+								<tr>
+									<th scope="row"><?php esc_html_e( 'Label', 'agend-directory-sync' ); ?></th>
+									<td>
+										<input
+											name="agend_location_map[<?php echo (int) $loc_index; ?>][label]"
+											type="text"
+											class="regular-text"
+											value="<?php echo esc_attr( (string) ( $loc_slot['label'] ?? '' ) ); ?>"
+											placeholder="<?php esc_attr_e( 'e.g. Business, Residential', 'agend-directory-sync' ); ?>"
+											autocomplete="off"
+										/>
+										<p class="description"><?php esc_html_e( 'Static name for this address (stored as the location name). Not a source field.', 'agend-directory-sync' ); ?></p>
+									</td>
+								</tr>
+								<?php foreach ( $als_loc_fields as $loc_field ) : ?>
+									<tr>
+										<th scope="row"><?php echo esc_html( $loc_field ); ?></th>
+										<td>
+											<input
+												name="agend_location_map[<?php echo (int) $loc_index; ?>][<?php echo esc_attr( $loc_field ); ?>]"
+												type="text"
+												class="regular-text"
+												value="<?php echo esc_attr( (string) ( $loc_slot[ $loc_field ] ?? '' ) ); ?>"
+												autocomplete="off"
+											/>
+										</td>
+									</tr>
+								<?php endforeach; ?>
+							</tbody>
+						</table>
+					<?php endforeach; ?>
 
 					<?php submit_button( __( 'Save settings', 'agend-directory-sync' ) ); ?>
 				</form>
