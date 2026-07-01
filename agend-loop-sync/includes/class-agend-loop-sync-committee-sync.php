@@ -46,12 +46,17 @@ class Agend_Loop_Sync_Committee_Sync {
 	 */
 	public function run(): array {
 		$summary = array(
-			'members_scanned'    => 0,
-			'committees'         => 0,
-			'synced'             => 0,
-			'skipped_committees' => 0,
-			'errors'             => array(),
-			'dry_run'            => Agend_Loop_Sync_Settings::is_dry_run(),
+			'members_scanned'         => 0,
+			'committees'              => 0,
+			'synced'                  => 0,
+			'skipped_committees'      => 0,
+			'applied_members'         => 0,
+			'skipped_members'         => 0,
+			'removed_members'         => 0,
+			'archived'                => 0,
+			'unresolved_external_ids' => array(),
+			'errors'                  => array(),
+			'dry_run'                 => Agend_Loop_Sync_Settings::is_dry_run(),
 		);
 
 		if ( ! Agend_Loop_Sync_Settings::is_enabled() || ! Agend_Loop_Sync_Settings::is_committee_sync_enabled() ) {
@@ -79,6 +84,9 @@ class Agend_Loop_Sync_Committee_Sync {
 				++$summary['synced'];
 			}
 		}
+
+		// Archive Loop committees that no longer exist upstream (deprovisioning).
+		$this->archive_removed_committees( $index, $summary );
 
 		Agend_Loop_Sync_Logger::info( 'Committee sync run complete', $summary );
 
@@ -159,6 +167,11 @@ class Agend_Loop_Sync_Committee_Sync {
 			'name'          => $committee_name,
 			'is_active'     => true,
 			'roster'        => $roster,
+			// The roster built here is the authoritative membership for this
+			// committee, so use replace mode: a member dropped upstream is
+			// removed from the Loop channel (deprovisioning). Requires the
+			// gateway committee-sync replace mode.
+			'mode'          => 'replace',
 		);
 
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
@@ -181,15 +194,102 @@ class Agend_Loop_Sync_Committee_Sync {
 			return false;
 		}
 
+		// Read the reconciliation counts the gateway returns. The apps-core
+		// client may return the full envelope or the unwrapped data, so accept
+		// both shapes.
+		$data       = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
+		$applied    = (int) ( $data['applied'] ?? 0 );
+		$skipped    = (int) ( $data['skipped'] ?? 0 );
+		$removed    = (int) ( $data['removed'] ?? 0 );
+		$unresolved = is_array( $data['skipped_external_ids'] ?? null ) ? $data['skipped_external_ids'] : array();
+
+		$summary['applied_members'] += $applied;
+		$summary['skipped_members'] += $skipped;
+		$summary['removed_members'] += $removed;
+		foreach ( $unresolved as $ext_id ) {
+			$summary['unresolved_external_ids'][] = (int) $ext_id;
+		}
+
 		Agend_Loop_Sync_Logger::info(
 			'Committee synced',
 			array(
 				'committee' => $committee_name,
 				'members'   => count( $roster ),
+				'applied'   => $applied,
+				'skipped'   => $skipped,
+				'removed'   => $removed,
 			)
 		);
 
 		return true;
+	}
+
+	/**
+	 * Archives Loop committee channels that no longer exist upstream. Every
+	 * IMK-managed committee present in Loop whose unique_id is not among the
+	 * current Upbeat committees is archived (hidden), so a committee removed
+	 * upstream stops appearing in Loop. Skipped in dry-run (logged only).
+	 *
+	 * @param array<string, array<string, mixed>> $index   Current Upbeat committee index (keyed by name).
+	 * @param array<string, mixed>                $summary Run summary, by reference.
+	 * @return void
+	 */
+	private function archive_removed_committees( array $index, array &$summary ): void {
+		if ( ! function_exists( 'agend_apps_loop_list_committees' ) || ! function_exists( 'agend_apps_loop_archive_committee' ) ) {
+			return;
+		}
+
+		// The unique_id the sync uses for every current Upbeat committee.
+		$current = array();
+		foreach ( array_keys( $index ) as $name ) {
+			$current[] = sanitize_title( (string) $name );
+		}
+
+		$response = agend_apps_loop_list_committees( 1, 100 );
+		if ( is_wp_error( $response ) ) {
+			$summary['errors'][] = 'List committees for archive failed: ' . $response->get_error_message();
+			return;
+		}
+
+		$items = array();
+		if ( is_array( $response ) ) {
+			$items = is_array( $response['data'] ?? null ) ? $response['data'] : array();
+		}
+
+		foreach ( $items as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+			$uid = (string) ( $item['unique_id'] ?? '' );
+			if ( '' === $uid || ! empty( $item['is_archived'] ) ) {
+				continue;
+			}
+			if ( in_array( $uid, $current, true ) ) {
+				continue; // Still present upstream.
+			}
+
+			if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
+				Agend_Loop_Sync_Logger::info( 'Dry run: would archive committee removed upstream', array( 'unique_id' => $uid ) );
+				++$summary['archived'];
+				continue;
+			}
+
+			$res = agend_apps_loop_archive_committee( $uid );
+			if ( is_wp_error( $res ) ) {
+				$summary['errors'][] = sprintf( 'Archive %s: %s', $uid, $res->get_error_message() );
+				Agend_Loop_Sync_Logger::error(
+					'Committee archive failed',
+					array(
+						'unique_id' => $uid,
+						'error'     => $res->get_error_message(),
+					)
+				);
+				continue;
+			}
+
+			++$summary['archived'];
+			Agend_Loop_Sync_Logger::info( 'Committee archived (removed upstream)', array( 'unique_id' => $uid ) );
+		}
 	}
 
 	/**
@@ -257,7 +357,16 @@ class Agend_Loop_Sync_Committee_Sync {
 		$mode = Agend_Loop_Sync_Settings::get_filter_mode();
 
 		if ( 'allowlist' === $mode ) {
-			return in_array( $committee_name, Agend_Loop_Sync_Settings::get_filter_allowlist(), true );
+			// Case-insensitive match so an allow-list entry of "Executive Board"
+			// still matches an Upbeat committee returned as "executive board".
+			$needle    = strtolower( trim( $committee_name ) );
+			$allowlist = array_map(
+				static function ( $name ) {
+					return strtolower( trim( (string) $name ) );
+				},
+				Agend_Loop_Sync_Settings::get_filter_allowlist()
+			);
+			return in_array( $needle, $allowlist, true );
 		}
 
 		$meta         = $index[ $committee_name ] ?? array( 'allow_on_web' => true, 'groups' => array() );
