@@ -42,6 +42,7 @@ class Agend_Loop_Sync_Admin {
 		add_action( 'admin_post_agend_loop_sync_run_committees', array( $this, 'handle_run_committees' ) );
 		add_action( 'admin_post_agend_loop_sync_inspect_committees', array( $this, 'handle_inspect_committees' ) );
 		add_action( 'admin_post_agend_loop_sync_scan_members', array( $this, 'handle_scan_members' ) );
+		add_action( 'admin_post_agend_loop_sync_backfill_users', array( $this, 'handle_backfill_users' ) );
 	}
 
 	/**
@@ -151,6 +152,40 @@ class Agend_Loop_Sync_Admin {
 				array(
 					'page'      => 'agend-loop-sync',
 					'inspected' => 'done',
+				),
+				admin_url( 'options-general.php' )
+			)
+		);
+		exit;
+	}
+
+	/**
+	 * Handles the "Backfill all users" action: pushes every local member into
+	 * Loop via the bulk-sync endpoint. Long-running on large memberships, so the
+	 * time limit is lifted. Stores a short-lived transient for the settings page.
+	 *
+	 * @return void
+	 */
+	public function handle_backfill_users() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'agend-loop-sync' ) );
+		}
+
+		check_admin_referer( 'agend_loop_sync_backfill_users' );
+
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		ignore_user_abort( true );
+
+		$summary = Agend_Loop_Sync_User_Sync::backfill_all();
+		set_transient( 'agend_loop_sync_user_backfill', $summary, 5 * MINUTE_IN_SECONDS );
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'       => 'agend-loop-sync',
+					'backfilled' => 'done',
 				),
 				admin_url( 'options-general.php' )
 			)

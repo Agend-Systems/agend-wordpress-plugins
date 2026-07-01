@@ -23,6 +23,19 @@ $als_allowlist_text = implode( "\n", Agend_Loop_Sync_Settings::get_filter_allowl
 $als_mode           = Agend_Loop_Sync_Settings::get_filter_mode();
 $als_schedule       = Agend_Loop_Sync_Settings::get_committee_schedule();
 $als_last_sync      = (int) get_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, 0 );
+
+$als_last_summary = get_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, array() );
+$als_last_summary = is_array( $als_last_summary ) ? $als_last_summary : array();
+
+// Staleness: warn when the last committee sync is older than ~2x the schedule
+// interval, which usually means WP-Cron is not firing.
+$als_schedule_seconds = array(
+	'hourly'     => HOUR_IN_SECONDS,
+	'twicedaily' => 12 * HOUR_IN_SECONDS,
+	'daily'      => DAY_IN_SECONDS,
+);
+$als_expected = $als_schedule_seconds[ $als_schedule ] ?? DAY_IN_SECONDS;
+$als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_expected );
 ?>
 <div class="wrap">
 	<h1><?php esc_html_e( 'Agend Loop Sync', 'agend-loop-sync' ); ?></h1>
@@ -101,7 +114,7 @@ $als_last_sync      = (int) get_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC,
 							</option>
 						<?php endforeach; ?>
 					</select>
-					<p class="description"><?php esc_html_e( 'A settings change takes effect on the next scheduled run.', 'agend-loop-sync' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Changing this reschedules the cron immediately.', 'agend-loop-sync' ); ?></p>
 				</td>
 			</tr>
 			<tr>
@@ -162,11 +175,83 @@ $als_last_sync      = (int) get_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC,
 			?>
 		</p>
 	<?php endif; ?>
-	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-		<input type="hidden" name="action" value="agend_loop_sync_run_committees" />
-		<?php wp_nonce_field( 'agend_loop_sync_run_committees' ); ?>
-		<?php submit_button( __( 'Sync committees now', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
-	</form>
+
+	<?php if ( $als_is_stale ) : ?>
+		<div class="notice notice-warning inline">
+			<p><?php esc_html_e( 'The last committee sync is older than expected for the configured schedule. Check that WP-Cron is running (or trigger it from the server), or run a manual sync below.', 'agend-loop-sync' ); ?></p>
+		</div>
+	<?php endif; ?>
+
+	<?php if ( ! empty( $als_last_summary ) ) : ?>
+		<p>
+			<?php
+			printf(
+				/* translators: 1: committees synced, 2: members applied, 3: members skipped (no Loop user), 4: memberships removed, 5: committees archived. */
+				esc_html__( 'Last run: %1$d committees synced, %2$d members applied, %3$d skipped (no Loop user yet), %4$d memberships removed, %5$d committees archived.', 'agend-loop-sync' ),
+				(int) ( $als_last_summary['synced'] ?? 0 ),
+				(int) ( $als_last_summary['applied_members'] ?? 0 ),
+				(int) ( $als_last_summary['skipped_members'] ?? 0 ),
+				(int) ( $als_last_summary['removed_members'] ?? 0 ),
+				(int) ( $als_last_summary['archived'] ?? 0 )
+			);
+			?>
+			<?php
+			$als_unresolved = isset( $als_last_summary['unresolved_external_ids'] ) ? array_values( array_unique( (array) $als_last_summary['unresolved_external_ids'] ) ) : array();
+			if ( ! empty( $als_unresolved ) ) :
+				?>
+				<br />
+				<span class="description">
+					<?php
+					printf(
+						/* translators: %s: comma-separated list of membership numbers. */
+						esc_html__( 'Members not yet in Loop (they must log in / be backfilled first): %s', 'agend-loop-sync' ),
+						esc_html( implode( ', ', array_map( 'strval', $als_unresolved ) ) )
+					);
+					?>
+				</span>
+			<?php endif; ?>
+		</p>
+	<?php endif; ?>
+
+	<p style="display:flex; gap:8px; align-items:flex-start;">
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="agend_loop_sync_run_committees" />
+			<?php wp_nonce_field( 'agend_loop_sync_run_committees' ); ?>
+			<?php submit_button( __( 'Sync committees now', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
+		</form>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="agend_loop_sync_backfill_users" />
+			<?php wp_nonce_field( 'agend_loop_sync_backfill_users' ); ?>
+			<?php submit_button( __( 'Backfill all users', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
+		</form>
+	</p>
+	<p class="description">
+		<?php esc_html_e( 'Backfill pushes every local member with a membership number to Loop in one pass (batches of 100). Run this once before the first committee sync so members can be matched to Loop users. Honours dry run.', 'agend-loop-sync' ); ?>
+	</p>
+
+	<?php
+	$als_backfill = get_transient( 'agend_loop_sync_user_backfill' );
+	if ( is_array( $als_backfill ) ) :
+		?>
+		<div class="notice notice-info inline">
+			<p>
+				<?php
+				printf(
+					/* translators: 1: total members, 2: sent, 3: succeeded, 4: failed, 5: batches. */
+					esc_html__( 'User backfill: %1$d members, %2$d sent, %3$d succeeded, %4$d failed, in %5$d batch(es).', 'agend-loop-sync' ),
+					(int) ( $als_backfill['total'] ?? 0 ),
+					(int) ( $als_backfill['sent'] ?? 0 ),
+					(int) ( $als_backfill['succeeded'] ?? 0 ),
+					(int) ( $als_backfill['failed'] ?? 0 ),
+					(int) ( $als_backfill['batches'] ?? 0 )
+				);
+				?>
+				<?php if ( ! empty( $als_backfill['dry_run'] ) ) : ?>
+					<em><?php esc_html_e( '(dry run — nothing was sent)', 'agend-loop-sync' ); ?></em>
+				<?php endif; ?>
+			</p>
+		</div>
+	<?php endif; ?>
 
 	<p style="margin-top:16px;">
 		<strong><?php esc_html_e( 'Diagnostics (read-only, no gateway calls):', 'agend-loop-sync' ); ?></strong>

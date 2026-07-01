@@ -72,20 +72,30 @@ function agend_apps_loop_sync_user( array $user ) {
  * Each user is resolved and synced independently; unresolved users are
  * reported as failed in the result, not as a fatal error.
  *
- * @param array $users Array of user payloads (see agend_apps_loop_sync_user()), 1 to 100 items.
+ * @param array  $users         Array of per-user payloads (see agend_apps_loop_sync_user()),
+ *                              1 to 100 items. Each item carries external_id, email, roles, etc.
+ *                              The site is passed separately as $idp_entity_id, not per user.
+ * @param string $idp_entity_id The site's SAML IdP entity id (Issuer). Required by the gateway.
  * @return array|WP_Error Decoded bulk-sync result on success, or WP_Error on failure.
  */
-function agend_apps_loop_bulk_sync_users( array $users ) {
+function agend_apps_loop_bulk_sync_users( array $users, string $idp_entity_id ) {
 	/**
 	 * Filters the bulk-sync request args before the request is sent.
 	 *
-	 * @param array $args  Request args.
-	 * @param array $users User payloads.
+	 * @param array  $args          Request args.
+	 * @param array  $users         User payloads.
+	 * @param string $idp_entity_id Site IdP entity id.
 	 */
 	$args = (array) apply_filters(
 		'agend_apps_loop_bulk_sync_users_args',
-		array( 'body' => array( 'users' => array_values( $users ) ) ),
-		$users
+		array(
+			'body' => array(
+				'idp_entity_id' => $idp_entity_id,
+				'users'         => array_values( $users ),
+			),
+		),
+		$users,
+		$idp_entity_id
 	);
 
 	$response = agend_apps_api()->request( 'POST', '/loop/integration/users/bulk-sync', $args );

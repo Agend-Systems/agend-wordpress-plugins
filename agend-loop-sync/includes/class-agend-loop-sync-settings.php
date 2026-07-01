@@ -153,6 +153,30 @@ class Agend_Loop_Sync_Settings {
 			self::OPT_FILTER_ALLOWLIST,
 			array( 'sanitize_callback' => array( __CLASS__, 'sanitize_string_list' ) )
 		);
+
+		// Reschedule the committee cron when the schedule setting changes, so a
+		// new interval takes effect immediately rather than after the old event
+		// next fires.
+		add_action( 'update_option_' . self::OPT_SCHEDULE, array( __CLASS__, 'reschedule_committee_cron' ), 10, 0 );
+	}
+
+	/**
+	 * Clears and re-schedules the committee WP-Cron event using the current
+	 * schedule. Hooked to the schedule option changing.
+	 *
+	 * @return void
+	 */
+	public static function reschedule_committee_cron() {
+		if ( ! defined( 'AGEND_LOOP_SYNC_CRON_HOOK' ) ) {
+			return;
+		}
+
+		$timestamp = wp_next_scheduled( AGEND_LOOP_SYNC_CRON_HOOK );
+		if ( false !== $timestamp ) {
+			wp_unschedule_event( $timestamp, AGEND_LOOP_SYNC_CRON_HOOK );
+		}
+
+		wp_schedule_event( time() + MINUTE_IN_SECONDS, self::get_committee_schedule(), AGEND_LOOP_SYNC_CRON_HOOK );
 	}
 
 	/* ----------------------------------------------------------------------
