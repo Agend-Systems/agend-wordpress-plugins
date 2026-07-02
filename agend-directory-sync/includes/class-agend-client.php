@@ -33,6 +33,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		public const MAX_ERROR_EXAMPLES = 10;
 
 		/**
+		 * How the gateway applies each listing's locations[]. The sync builds the
+		 * full, authoritative set of addresses for every member on each run, so
+		 * `replace` is correct: an address removed upstream is removed in Agend.
+		 */
+		public const LOCATIONS_MODE = 'replace';
+
+		/**
 		 * POST the listings in batches (via agend-apps-core) and aggregate the
 		 * results.
 		 *
@@ -120,7 +127,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 			$response = agend_apps_directory_bulk_upsert_listings(
 				$batch,
 				$external_source,
-				$auto_publish_approved
+				$auto_publish_approved,
+				self::LOCATIONS_MODE
 			);
 
 			if ( is_wp_error( $response ) ) {

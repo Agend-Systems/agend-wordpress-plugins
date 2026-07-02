@@ -326,9 +326,10 @@ function agend_apps_directory_delete_listing( string $listing_id ) {
  * @param array  $listings              Array of listing payloads (1 to 100 items). Each item follows the gateway `bulkUpsertListingItemSchema`.
  * @param string $external_source       Caller identifier and part of the upsert key (external_source + external_id). Required by the gateway.
  * @param bool   $auto_publish_approved Optional. When true, approved listings are published on the way through. Default false.
+ * @param string $locations_mode        Optional. How a listing's locations[] is applied: 'replace' (wholesale, default) or 'merge' (update the primary in place).
  * @return array|WP_Error Decoded bulk-upsert result on success, or WP_Error on failure.
  */
-function agend_apps_directory_bulk_upsert_listings( array $listings, string $external_source, bool $auto_publish_approved = false ) {
+function agend_apps_directory_bulk_upsert_listings( array $listings, string $external_source, bool $auto_publish_approved = false, string $locations_mode = 'replace' ) {
 	/**
 	 * Filters the directory bulk-upsert request args before the request is sent.
 	 *
@@ -336,6 +337,7 @@ function agend_apps_directory_bulk_upsert_listings( array $listings, string $ext
 	 * @param array  $listings              Listing payloads.
 	 * @param string $external_source       Caller identifier.
 	 * @param bool   $auto_publish_approved Auto-publish flag.
+	 * @param string $locations_mode        Locations apply mode.
 	 */
 	$args = (array) apply_filters(
 		'agend_apps_directory_bulk_upsert_listings_args',
@@ -344,11 +346,13 @@ function agend_apps_directory_bulk_upsert_listings( array $listings, string $ext
 				'external_source'       => $external_source,
 				'listings'              => array_values( $listings ),
 				'auto_publish_approved' => $auto_publish_approved,
+				'locations_mode'        => $locations_mode,
 			),
 		),
 		$listings,
 		$external_source,
-		$auto_publish_approved
+		$auto_publish_approved,
+		$locations_mode
 	);
 
 	$response = agend_apps_api()->request( 'POST', '/directory/listings/bulk-upsert', $args );
