@@ -155,6 +155,39 @@
     return text.length <= length ? text : text.slice(0, length).replace(/\s+\S*$/, '') + '…';
   }
 
+  // Reduce (possibly HTML) rich text to plain text for card excerpts.
+  function stripHtml(html) {
+    if (!html) {
+      return '';
+    }
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
+  }
+
+  // Render semi-trusted CMS rich text (event descriptions authored by
+  // association staff) as HTML, after stripping active content: script/style/
+  // iframe/link/meta elements, inline event handlers, and javascript: URLs.
+  function setSafeHtml(node, html) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html || '';
+    var dangerous = tmp.querySelectorAll('script, style, iframe, object, embed, link, meta, form');
+    Array.prototype.forEach.call(dangerous, function (n) {
+      n.parentNode.removeChild(n);
+    });
+    var all = tmp.querySelectorAll('*');
+    Array.prototype.forEach.call(all, function (elm) {
+      Array.prototype.slice.call(elm.attributes).forEach(function (attr) {
+        var name = attr.name.toLowerCase();
+        var value = (attr.value || '').replace(/\s+/g, '').toLowerCase();
+        if (name.indexOf('on') === 0 || ((name === 'href' || name === 'src' || name === 'xlink:href') && value.indexOf('javascript:') === 0)) {
+          elm.removeAttribute(attr.name);
+        }
+      });
+    });
+    node.innerHTML = tmp.innerHTML;
+  }
+
   function dateRange(startIso, endIso) {
     if (!startIso) {
       return '';
@@ -249,7 +282,7 @@
     body.appendChild(el('div', 'agend-ev-card__location', event.venue_name || (event.venue_type === 'virtual' ? 'Online' : 'TBA')));
 
     if (cfg.card.description) {
-      var desc = event.short_description || event.description || '';
+      var desc = stripHtml(event.short_description || event.description || '');
       if (desc) {
         body.appendChild(el('p', 'agend-ev-card__desc', truncate(desc, cfg.card.excerptLength)));
       }
@@ -310,7 +343,7 @@
       var about = el('section', 'agend-ev-detail__section');
       about.appendChild(el('h3', 'agend-ev-detail__section-title', 'About This Event'));
       var para = el('div', 'agend-ev-detail__body-text');
-      para.textContent = event.description;
+      setSafeHtml(para, event.description);
       about.appendChild(para);
       main.appendChild(about);
     }

@@ -327,8 +327,38 @@
 }
 
 .agend-ev-detail__body-text {
-  white-space: pre-line;
   line-height: 1.6;
+}
+
+.agend-ev-detail__body-text p {
+  margin: 0 0 0.85rem;
+}
+
+.agend-ev-detail__body-text ul,
+.agend-ev-detail__body-text ol {
+  margin: 0 0 0.85rem;
+  padding-left: 1.25rem;
+}
+
+.agend-ev-detail__body-text li {
+  margin: 0.2rem 0;
+}
+
+.agend-ev-detail__body-text h1,
+.agend-ev-detail__body-text h2,
+.agend-ev-detail__body-text h3,
+.agend-ev-detail__body-text h4 {
+  color: var(--agend-ev-heading);
+  margin: 1rem 0 0.5rem;
+}
+
+.agend-ev-detail__body-text a {
+  color: var(--agend-ev-accent);
+}
+
+.agend-ev-detail__body-text img {
+  max-width: 100%;
+  height: auto;
 }
 
 .agend-ev-detail__sponsors {
