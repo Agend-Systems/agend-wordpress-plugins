@@ -344,11 +344,43 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	 * Registers the Style tab controls (US-EVT.8, colour subset).
 	 */
 	private function register_style_controls(): void {
+		// Typography section.
+		$this->start_controls_section(
+			'section_style_typography',
+			array(
+				'label' => __( 'Typography', 'agend-elementor' ),
+				'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+			)
+		);
+
+		$this->add_control(
+			'inherit_fonts',
+			array(
+				'label'       => __( 'Inherit site theme fonts', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SWITCHER,
+				'default'     => 'yes',
+				'description' => __( 'Pull heading and body fonts from the connected Agend account\'s site config.', 'agend-elementor' ),
+			)
+		);
+
+		$this->end_controls_section();
+
+		// Colours section.
 		$this->start_controls_section(
 			'section_style_colours',
 			array(
 				'label' => __( 'Colours', 'agend-elementor' ),
 				'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+			)
+		);
+
+		$this->add_control(
+			'inherit_colours',
+			array(
+				'label'       => __( 'Inherit site theme colours', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SWITCHER,
+				'default'     => 'yes',
+				'description' => __( 'Pull heading, body, and accent colours from the connected account\'s site config. Turn off to set them manually below.', 'agend-elementor' ),
 			)
 		);
 
@@ -444,6 +476,10 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'accent'     => (string) ( $s['accent_colour'] ?? '#FF6B55' ),
 				'button'     => (string) ( $s['button_colour'] ?? '#FF6B55' ),
 				'buttonText' => (string) ( $s['button_text_colour'] ?? '#FFFFFF' ),
+			),
+			'theme'          => array(
+				'inheritFonts'   => 'yes' === ( $s['inherit_fonts'] ?? 'yes' ),
+				'inheritColours' => 'yes' === ( $s['inherit_colours'] ?? 'yes' ),
 			),
 		);
 	}
