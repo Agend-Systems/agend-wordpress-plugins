@@ -80,6 +80,19 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
+						'category' => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'type'     => array(
+							'type'              => 'string',
+							'enum'              => array( 'physical', 'virtual', 'hybrid' ),
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'city'     => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
 						'sortBy'   => array(
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
@@ -305,7 +318,7 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_events( WP_REST_Request $request ): WP_REST_Response {
-		$allowed = array( 'page', 'limit', 'search', 'sortBy', 'sortOrder' );
+		$allowed = array( 'page', 'limit', 'search', 'category', 'type', 'city', 'sortBy', 'sortOrder' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {

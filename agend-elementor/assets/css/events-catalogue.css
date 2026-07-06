@@ -1,0 +1,254 @@
+/**
+ * Agend Events Catalogue widget styles.
+ * Colour/layout tokens are set as CSS custom properties on the container by the
+ * widget's render() output and the frontend script.
+ */
+
+.agend-events-catalogue {
+  --agend-ev-heading: #1e2a4a;
+  --agend-ev-body: #26304d;
+  --agend-ev-accent: #ff6b55;
+  --agend-ev-button: #ff6b55;
+  --agend-ev-button-text: #ffffff;
+  --agend-ev-card-radius: 10px;
+  --agend-ev-cols-desktop: 3;
+  --agend-ev-cols-tablet: 2;
+  --agend-ev-cols-mobile: 1;
+  color: var(--agend-ev-body);
+}
+
+.agend-ev-heading {
+  margin-bottom: 1.5rem;
+}
+
+.agend-ev-heading__title {
+  color: var(--agend-ev-heading);
+  margin: 0 0 0.25rem;
+}
+
+.agend-ev-heading__subtitle {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.agend-ev-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.agend-ev-search,
+.agend-ev-filter {
+  padding: 0.6rem 0.85rem;
+  border: 1px solid #d7dbe6;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: #fff;
+  color: var(--agend-ev-body);
+}
+
+.agend-ev-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.agend-ev-filter:focus,
+.agend-ev-search:focus {
+  outline: 2px solid var(--agend-ev-accent);
+  outline-offset: 1px;
+}
+
+.agend-ev-status {
+  padding: 2rem 0;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.agend-ev-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--agend-ev-cols-desktop), minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 1024px) {
+  .agend-ev-grid {
+    grid-template-columns: repeat(var(--agend-ev-cols-tablet), minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .agend-ev-grid {
+    grid-template-columns: repeat(var(--agend-ev-cols-mobile), minmax(0, 1fr));
+  }
+}
+
+.agend-ev-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #eceef4;
+  border-radius: var(--agend-ev-card-radius);
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(30, 42, 74, 0.08);
+}
+
+.agend-ev-card__media {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  background: linear-gradient(135deg, #1e2a4a, #26304d);
+}
+
+.agend-ev-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.agend-ev-card__date-badge {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.3rem 0.55rem;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.agend-ev-card__date-month {
+  color: var(--agend-ev-accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.agend-ev-card__date-day {
+  color: var(--agend-ev-heading);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.agend-ev-card__soldout {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: #d13b2f;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+}
+
+.agend-ev-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1rem;
+}
+
+.agend-ev-card__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.agend-ev-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+}
+
+.agend-ev-pill--category {
+  background: rgba(255, 107, 85, 0.12);
+  color: var(--agend-ev-accent);
+}
+
+.agend-ev-pill--type {
+  background: rgba(30, 42, 74, 0.08);
+  color: var(--agend-ev-heading);
+}
+
+.agend-ev-card__title {
+  color: var(--agend-ev-heading);
+  font-size: 1.1rem;
+  margin: 0.15rem 0 0;
+}
+
+.agend-ev-card__date,
+.agend-ev-card__location {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.agend-ev-card__desc {
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0;
+  opacity: 0.9;
+}
+
+.agend-ev-card__pricing {
+  margin-top: auto;
+  padding-top: 0.6rem;
+  border-top: 1px solid #eceef4;
+  display: flex;
+  gap: 1rem;
+}
+
+.agend-ev-price {
+  display: flex;
+  flex-direction: column;
+}
+
+.agend-ev-price__label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.65;
+}
+
+.agend-ev-price__value {
+  font-weight: 700;
+  color: var(--agend-ev-heading);
+}
+
+.agend-ev-price__value.is-free {
+  color: var(--agend-ev-accent);
+}
+
+.agend-ev-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.agend-ev-page,
+.agend-ev-loadmore {
+  border: 1px solid #d7dbe6;
+  background: #fff;
+  color: var(--agend-ev-body);
+  padding: 0.45rem 0.8rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.agend-ev-page.is-active {
+  background: var(--agend-ev-accent);
+  border-color: var(--agend-ev-accent);
+  color: #fff;
+}
+
+.agend-ev-loadmore {
+  background: var(--agend-ev-button);
+  border-color: var(--agend-ev-button);
+  color: var(--agend-ev-button-text);
+  font-weight: 600;
+}
