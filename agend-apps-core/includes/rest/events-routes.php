@@ -429,8 +429,10 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_event( WP_REST_Request $request ): WP_REST_Response {
-		$slug   = $request->get_param( 'slug' );
-		$result = agend_apps_events_get_event( $slug );
+		$slug    = $request->get_param( 'slug' );
+		$include = sanitize_text_field( (string) $request->get_param( 'include' ) );
+		$query   = '' !== $include ? array( 'include' => $include ) : array();
+		$result  = agend_apps_events_get_event( $slug, $query );
 		return $this->prepare_api_response( $result );
 	}
 

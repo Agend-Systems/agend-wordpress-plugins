@@ -252,3 +252,157 @@
   color: var(--agend-ev-button-text);
   font-weight: 600;
 }
+
+/* -- Detail view --------------------------------------------------------- */
+
+.agend-ev-detail__back {
+  background: none;
+  border: none;
+  color: var(--agend-ev-accent);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 0 1rem;
+  font-size: 0.95rem;
+}
+
+.agend-ev-detail__hero {
+  position: relative;
+  border-radius: var(--agend-ev-card-radius);
+  overflow: hidden;
+  background: linear-gradient(135deg, #1e2a4a, #26304d);
+  background-size: cover;
+  background-position: center;
+  min-height: 260px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.agend-ev-detail__hero-inner {
+  padding: 1.5rem;
+  color: #fff;
+}
+
+.agend-ev-detail__title {
+  color: #fff;
+  margin: 0.5rem 0 0.35rem;
+  font-size: 1.8rem;
+}
+
+.agend-ev-detail__meta {
+  opacity: 0.9;
+  font-size: 0.95rem;
+}
+
+.agend-ev-detail__hero .agend-ev-pill--type {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.agend-ev-detail__layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .agend-ev-detail__layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.agend-ev-detail__section {
+  margin-bottom: 1.5rem;
+}
+
+.agend-ev-detail__section-title {
+  color: var(--agend-ev-heading);
+  margin: 0 0 0.5rem;
+}
+
+.agend-ev-detail__body-text {
+  white-space: pre-line;
+  line-height: 1.6;
+}
+
+.agend-ev-detail__sponsors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.agend-ev-detail__sponsor-logo {
+  max-height: 48px;
+  max-width: 160px;
+  object-fit: contain;
+}
+
+.agend-ev-detail__panel {
+  border: 1px solid #eceef4;
+  border-radius: var(--agend-ev-card-radius);
+  padding: 1.1rem;
+  margin-bottom: 1rem;
+  background: #fff;
+}
+
+.agend-ev-detail__panel--register {
+  background: var(--agend-ev-heading);
+  color: #fff;
+  border-color: var(--agend-ev-heading);
+}
+
+.agend-ev-detail__panel-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.agend-ev-detail__panel--register .agend-ev-detail__panel-title {
+  color: #fff;
+}
+
+.agend-ev-detail__cta {
+  display: block;
+  width: 100%;
+  background: var(--agend-ev-button);
+  color: var(--agend-ev-button-text);
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agend-ev-detail__cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.agend-ev-detail__note {
+  font-size: 0.82rem;
+  opacity: 0.85;
+  margin: 0.6rem 0 0;
+}
+
+.agend-ev-detail__fact {
+  display: flex;
+  flex-direction: column;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #f0f2f7;
+}
+
+.agend-ev-detail__fact:last-child {
+  border-bottom: none;
+}
+
+.agend-ev-detail__fact-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.6;
+}
+
+.agend-ev-detail__fact-value {
+  color: var(--agend-ev-heading);
+  font-weight: 600;
+}

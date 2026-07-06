@@ -69,16 +69,22 @@ function agend_apps_events_get_events( array $query = array() ) {
  * @param string $slug Event slug.
  * @return array|WP_Error Decoded event on success, or WP_Error on failure.
  */
-function agend_apps_events_get_event( string $slug ) {
+function agend_apps_events_get_event( string $slug, array $query = array() ) {
 	/**
 	 * Filters the single-event request args before the request is sent.
 	 *
-	 * @param array  $args Request args.
-	 * @param string $slug Event slug.
+	 * @param array  $args  Request args.
+	 * @param string $slug  Event slug.
+	 * @param array  $query Query parameters (e.g. include=sponsors).
 	 */
-	$args = (array) apply_filters( 'agend_apps_events_get_event_args', array(), $slug );
+	$args = (array) apply_filters(
+		'agend_apps_events_get_event_args',
+		empty( $query ) ? array() : array( 'query' => $query ),
+		$slug,
+		$query
+	);
 
-	$cache_key = Agend_Apps_Cache::build_key( 'events_single', array( 'slug' => $slug ) );
+	$cache_key = Agend_Apps_Cache::build_key( 'events_single', array( 'slug' => $slug, 'query' => $query ) );
 	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'events_single' );
 
 	$response = agend_apps_api()->get_cached( '/events/' . rawurlencode( $slug ), $args, $cache_key, $ttl );
