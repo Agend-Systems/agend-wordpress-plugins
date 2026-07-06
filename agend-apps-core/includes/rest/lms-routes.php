@@ -361,7 +361,7 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_courses( WP_REST_Request $request ): WP_REST_Response {
-		$allowed = array( 'page', 'per_page', 'search', 'sortBy', 'sortOrder' );
+		$allowed = array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'sortBy', 'sortOrder' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {

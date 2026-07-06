@@ -104,5 +104,20 @@ function agend_elementor_enqueue_scripts(): void {
 		AGEND_ELEMENTOR_VERSION,
 		true
 	);
+
+	wp_enqueue_style(
+		'agend-elementor-courses-catalogue',
+		AGEND_ELEMENTOR_URL . 'assets/css/courses-catalogue.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-elementor-courses-catalogue',
+		AGEND_ELEMENTOR_URL . 'assets/js/courses-catalogue.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
 }
 add_action( 'wp_enqueue_scripts', 'agend_elementor_enqueue_scripts', 20 );
