@@ -80,6 +80,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/lms.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cms.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/jobs.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/sites.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sso.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/support.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/webhooks.php';
@@ -92,6 +93,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/events-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/lms-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 
 	if ( is_admin() ) {
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-admin.php';
@@ -115,6 +117,7 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_events_routes();
 	agend_apps_register_lms_routes();
 	agend_apps_register_crm_routes();
+	agend_apps_register_sites_routes();
 }
 add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
 

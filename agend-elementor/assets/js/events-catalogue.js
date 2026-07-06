@@ -73,6 +73,63 @@
     return { items: [], pagination: null };
   }
 
+  // Theme tokens in site config are either hex (#RRGGBB) or shadcn-style HSL
+  // triplets ("230 37% 16%"); normalise both to a CSS colour value.
+  function normaliseColour(value) {
+    if (typeof value !== 'string' || !value) {
+      return null;
+    }
+    if (value.charAt(0) === '#' || value.indexOf('(') !== -1) {
+      return value;
+    }
+    if (/^\d/.test(value) && value.indexOf('%') !== -1) {
+      return 'hsl(' + value + ')';
+    }
+    return value;
+  }
+
+  // Applies the connected account's published theme (fonts/colours) to the
+  // widget root when inheritance is enabled (US-EVT.8/9). Fire-and-forget: the
+  // CSS custom properties update live once the config resolves.
+  function applySiteTheme(root, cfg) {
+    if (!cfg.theme || (!cfg.theme.inheritFonts && !cfg.theme.inheritColours)) {
+      return;
+    }
+    apiGet('/sites/config', {}).then(function (body) {
+      var config = unwrapOne(body);
+      if (!config) {
+        return;
+      }
+      var theme = config.theme || {};
+      if (cfg.theme.inheritColours && theme.colors) {
+        var c = theme.colors;
+        var heading = normaliseColour(c.primary || c.navy || c.foreground);
+        var body2 = normaliseColour(c.foreground || c.body);
+        var accent = normaliseColour(c.accent || c.coral || c.ring);
+        if (heading) {
+          root.style.setProperty('--agend-ev-heading', heading);
+        }
+        if (body2) {
+          root.style.setProperty('--agend-ev-body', body2);
+        }
+        if (accent) {
+          root.style.setProperty('--agend-ev-accent', accent);
+          root.style.setProperty('--agend-ev-button', accent);
+        }
+      }
+      if (cfg.theme.inheritFonts && theme.fonts) {
+        if (theme.fonts.heading) {
+          root.style.setProperty('--agend-ev-font-heading', '"' + theme.fonts.heading + '", sans-serif');
+        }
+        if (theme.fonts.body) {
+          root.style.setProperty('--agend-ev-font-body', '"' + theme.fonts.body + '", sans-serif');
+        }
+      }
+    }).catch(function () {
+      /* site config unavailable — fall back to the editor colours */
+    });
+  }
+
   function unwrapOne(body) {
     if (body && body.data && !Array.isArray(body.data)) {
       return body.data;
@@ -444,6 +501,9 @@
     }
 
     var state = { search: '', category: '', type: '', city: '', page: 1, append: false };
+
+    // Apply inherited site theme (fonts/colours) — live via CSS custom props.
+    applySiteTheme(root, cfg);
 
     // The catalogue view is built once and cached so returning from a detail
     // view preserves the search/filter state and the rendered grid.

@@ -15,6 +15,12 @@
   --agend-ev-cols-tablet: 2;
   --agend-ev-cols-mobile: 1;
   color: var(--agend-ev-body);
+  font-family: var(--agend-ev-font-body, inherit);
+}
+
+.agend-events-catalogue h2,
+.agend-events-catalogue h3 {
+  font-family: var(--agend-ev-font-heading, inherit);
 }
 
 .agend-ev-heading {
