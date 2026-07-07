@@ -61,6 +61,27 @@ define( 'AGEND_APPS_API_STAGING_URL', 'https://api.agend.info' );
 define( 'AGEND_APPS_API_LOCAL_URL', 'http://localhost:3072' );
 
 /**
+ * Production Agend member portal root.
+ *
+ * @var string
+ */
+define( 'AGEND_APPS_PORTAL_PRODUCTION_URL', 'https://portal.agend.com.au' );
+
+/**
+ * Staging Agend member portal root.
+ *
+ * @var string
+ */
+define( 'AGEND_APPS_PORTAL_STAGING_URL', 'https://portal.agend.info' );
+
+/**
+ * Local development Agend member portal root.
+ *
+ * @var string
+ */
+define( 'AGEND_APPS_PORTAL_LOCAL_URL', 'http://localhost:3074' );
+
+/**
  * Loads all plugin includes and initialises the admin controller.
  *
  * Hooked on `plugins_loaded` so all WordPress APIs are available before
@@ -70,6 +91,9 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-settings.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-api.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
@@ -94,6 +118,12 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/lms-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
+
+	// Bearer identity for outbound gateway calls (addendum E-11): mints and
+	// caches the logged-in member's Supabase JWT, served via the
+	// `agend_apps_bearer_token` filter.
+	new Agend_Apps_Token_Worker();
 
 	if ( is_admin() ) {
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-admin.php';
@@ -118,6 +148,7 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_lms_routes();
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
+	agend_apps_register_account_link_routes();
 }
 add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
 

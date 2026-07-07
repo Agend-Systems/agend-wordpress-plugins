@@ -102,6 +102,25 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 							'enum'              => array( 'asc', 'desc' ),
 							'sanitize_callback' => 'sanitize_text_field',
 						),
+						'excludeCategories' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'excludeTags' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
+						'excludeVenueTypes' => array(
+							'type'  => 'array',
+							'items' => array(
+								'type' => 'string',
+								'enum' => array( 'physical', 'virtual', 'hybrid' ),
+							),
+						),
+						'excludeCities' => array(
+							'type'  => 'array',
+							'items' => array( 'type' => 'string' ),
+						),
 					),
 				),
 			)
@@ -219,6 +238,18 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 			)
 		);
 
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/registrations/pay',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'pay_registrations' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+
 		// Dynamic routes registered after static routes.
 
 		register_rest_route(
@@ -247,6 +278,25 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 				array(
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'get_tickets' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'slug' => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/(?P<slug>[a-zA-Z0-9_-]+)/ical',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_ical' ),
 					'permission_callback' => '__return_true',
 					'args'                => array(
 						'slug' => array(
@@ -318,7 +368,7 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_events( WP_REST_Request $request ): WP_REST_Response {
-		$allowed = array( 'page', 'limit', 'search', 'category', 'type', 'city', 'sortBy', 'sortOrder' );
+		$allowed = array( 'page', 'limit', 'search', 'category', 'type', 'city', 'sortBy', 'sortOrder', 'excludeCategories', 'excludeTags', 'excludeVenueTypes', 'excludeCities' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {
@@ -472,5 +522,49 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 		$payload = $request->get_json_params();
 		$result  = agend_apps_events_join_waitlist( $slug, $payload );
 		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Opens a checkout session for one or more pending registrations.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function pay_registrations( WP_REST_Request $request ): WP_REST_Response {
+		$payload = $request->get_json_params();
+		$result  = agend_apps_events_pay_registration( is_array( $payload ) ? $payload : array() );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Streams an event's iCal (.ics) file to the browser.
+	 *
+	 * Serves the raw ICS text with its calendar content type and attachment
+	 * disposition, bypassing the REST JSON serialiser (a calendar file must
+	 * not be JSON-encoded). Errors fall through to the normal JSON error
+	 * response.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response (errors only; success exits after streaming).
+	 */
+	public function get_ical( WP_REST_Request $request ) {
+		$slug   = $request->get_param( 'slug' );
+		$result = agend_apps_events_get_event_ical( $slug );
+
+		if ( is_wp_error( $result ) ) {
+			return $this->prepare_api_response( $result );
+		}
+
+		$content_type = ! empty( $result['content_type'] )
+			? (string) $result['content_type']
+			: 'text/calendar; charset=utf-8';
+		$disposition  = ! empty( $result['content_disposition'] )
+			? (string) $result['content_disposition']
+			: 'attachment; filename="' . sanitize_file_name( $slug ) . '.ics"';
+
+		header( 'Content-Type: ' . $content_type );
+		header( 'Content-Disposition: ' . $disposition );
+		echo (string) $result['body']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Raw ICS passthrough; not HTML.
+		exit;
 	}
 }

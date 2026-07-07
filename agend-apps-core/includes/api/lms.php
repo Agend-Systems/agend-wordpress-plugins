@@ -32,6 +32,26 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
 function agend_apps_lms_get_courses( array $query = array() ) {
+	// Array-valued parameters (the exclusion filters) are repeatable on the
+	// gateway; split them out so the client serialises them as repeated bare
+	// keys rather than PHP-style brackets.
+	$scalar = array();
+	$multi  = array();
+
+	foreach ( $query as $key => $value ) {
+		if ( is_array( $value ) ) {
+			$multi[ $key ] = array_values( $value );
+		} else {
+			$scalar[ $key ] = $value;
+		}
+	}
+
+	$request_args = array( 'query' => $scalar );
+
+	if ( $multi ) {
+		$request_args['query_multi'] = $multi;
+	}
+
 	/**
 	 * Filters the courses list request args before the request is sent.
 	 *
@@ -40,14 +60,23 @@ function agend_apps_lms_get_courses( array $query = array() ) {
 	 */
 	$args = (array) apply_filters(
 		'agend_apps_lms_get_courses_args',
-		array( 'query' => $query ),
+		$request_args,
 		$query
 	);
 
-	$cache_key = Agend_Apps_Cache::build_key( 'lms_courses', $query );
-	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'lms_courses' );
+	// A member bearer makes the response IDENTITY-SPECIFIC (Decision 2.7:
+	// items carry the member's my_enrollment summary). It must never enter
+	// the shared transient cache, where it would leak one member's completion
+	// state to every visitor — bypass the cache entirely when a bearer is
+	// attached.
+	if ( '' !== agend_apps_get_bearer_token() ) {
+		$response = agend_apps_api()->request( 'GET', '/lms/courses', $args );
+	} else {
+		$cache_key = Agend_Apps_Cache::build_key( 'lms_courses', $query );
+		$ttl       = Agend_Apps_Settings::get_cache_ttl( 'lms_courses' );
 
-	$response = agend_apps_api()->get_cached( '/lms/courses', $args, $cache_key, $ttl );
+		$response = agend_apps_api()->get_cached( '/lms/courses', $args, $cache_key, $ttl );
+	}
 
 	if ( is_wp_error( $response ) ) {
 		return $response;
@@ -78,6 +107,19 @@ function agend_apps_lms_get_course( string $id_or_slug ) {
 	 * @param string $id_or_slug Course ID or slug.
 	 */
 	$args = (array) apply_filters( 'agend_apps_lms_get_course_args', array(), $id_or_slug );
+
+	// A member bearer makes the response IDENTITY-SPECIFIC (Decision 2.7: the
+	// detail carries the member's my_enrollment progress). It must never enter
+	// the shared transient cache — bypass entirely when a bearer is attached.
+	if ( '' !== agend_apps_get_bearer_token() ) {
+		$response = agend_apps_api()->request( 'GET', '/lms/courses/' . rawurlencode( $id_or_slug ), $args );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		return apply_filters( 'agend_apps_lms_get_course_response', $response, $id_or_slug );
+	}
 
 	$cache_key = Agend_Apps_Cache::build_key( 'lms_course_single', array( 'id_or_slug' => $id_or_slug ) );
 	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'lms_course_single' );
@@ -463,6 +505,44 @@ function agend_apps_lms_get_my_enrollments( array $query = array() ) {
 	 * @param array $query    Original query parameters.
 	 */
 	return apply_filters( 'agend_apps_lms_get_my_enrollments_response', $response, $query );
+}
+
+/**
+ * Retrieves the authenticated user's enrolment for a single course.
+ *
+ * Scope: `lms.enrollments.browse`. Requires a member bearer token. Not cached
+ * (progress must be live). A 404 means "not enrolled", not an error condition,
+ * so callers should translate it rather than surface it.
+ *
+ * @param string $course_id Course UUID.
+ * @return array|WP_Error Decoded enrolment envelope on success, or WP_Error on failure (including 404 when not enrolled).
+ */
+function agend_apps_lms_get_my_course_enrollment( string $course_id ) {
+	/**
+	 * Filters the my-course-enrolment request args before the request is sent.
+	 *
+	 * @param array  $args      Request args.
+	 * @param string $course_id Course UUID.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_lms_get_my_course_enrollment_args',
+		array(),
+		$course_id
+	);
+
+	$response = agend_apps_api()->request( 'GET', '/lms/me/enrollments/' . rawurlencode( $course_id ), $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded my-course-enrolment response before it is returned.
+	 *
+	 * @param array  $response  Decoded response body.
+	 * @param string $course_id Course UUID.
+	 */
+	return apply_filters( 'agend_apps_lms_get_my_course_enrollment_response', $response, $course_id );
 }
 
 /**
