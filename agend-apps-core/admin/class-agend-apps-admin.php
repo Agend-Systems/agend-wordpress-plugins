@@ -165,6 +165,60 @@ class Agend_Apps_Admin {
 
 		register_setting(
 			self::OPTION_GROUP,
+			'agend_apps_account_slug',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+				'default'           => '',
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_account_slug',
+			__( 'Account Slug', 'agend-apps-core' ),
+			array( $this, 'render_account_slug_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_api_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_portal_url',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'esc_url_raw',
+				'default'           => '',
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_portal_url',
+			__( 'Portal URL', 'agend-apps-core' ),
+			array( $this, 'render_portal_url_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_api_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_external_id_meta_key',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_key',
+				'default'           => '',
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_external_id_meta_key',
+			__( 'Member ID Meta Key', 'agend-apps-core' ),
+			array( $this, 'render_external_id_meta_key_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_api_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
 			'agend_apps_vercel_bypass_token',
 			array(
 				'type'              => 'string',
@@ -330,6 +384,61 @@ class Agend_Apps_Admin {
 			esc_html__( 'Verify Key', 'agend-apps-core' )
 		);
 		echo '<div id="agend-apps-verify-result" class="agend-apps-verify-result" style="display:none;"></div>';
+	}
+
+	/**
+	 * Renders the account slug text field.
+	 *
+	 * The slug names the connected Agend account in browser SSO URLs
+	 * (`/api/auth/sso/{slug}/initiate`). Required for the account-link widget
+	 * to build its sign-in URL.
+	 */
+	public function render_account_slug_field(): void {
+		$value = get_option( 'agend_apps_account_slug', '' );
+		printf(
+			'<input type="text" id="agend_apps_account_slug" name="agend_apps_account_slug" value="%s" class="regular-text" autocomplete="off" />',
+			esc_attr( $value )
+		);
+		echo '<p class="description">';
+		esc_html_e( 'The Agend account slug, used to build SSO links for the account-link widget.', 'agend-apps-core' );
+		echo '</p>';
+	}
+
+	/**
+	 * Renders the portal URL text field.
+	 *
+	 * Optional. When empty the portal URL is derived from the selected
+	 * environment; set it only for associations on a custom portal domain.
+	 */
+	public function render_portal_url_field(): void {
+		$value = get_option( 'agend_apps_portal_url', '' );
+		printf(
+			'<input type="url" id="agend_apps_portal_url" name="agend_apps_portal_url" value="%s" class="regular-text" placeholder="%s" autocomplete="off" />',
+			esc_attr( $value ),
+			esc_attr__( 'Derived from environment when empty', 'agend-apps-core' )
+		);
+		echo '<p class="description">';
+		esc_html_e( 'Optional. The member portal URL the account-link widget links to. Leave empty to derive it from the environment.', 'agend-apps-core' );
+		echo '</p>';
+	}
+
+	/**
+	 * Renders the external-id meta key text field.
+	 *
+	 * The user-meta key holding each member's Agend external id (the SAML
+	 * NameID the site's IdP asserts). IdP-plugin-agnostic by design: the value
+	 * depends on which IdP plugin the site runs, so it is configuration, not
+	 * code.
+	 */
+	public function render_external_id_meta_key_field(): void {
+		$value = get_option( 'agend_apps_external_id_meta_key', '' );
+		printf(
+			'<input type="text" id="agend_apps_external_id_meta_key" name="agend_apps_external_id_meta_key" value="%s" class="regular-text" placeholder="imk_membership_number" autocomplete="off" />',
+			esc_attr( $value )
+		);
+		echo '<p class="description">';
+		esc_html_e( 'User-meta key holding each member\'s Agend external id (the SAML NameID your IdP asserts). Defaults to the Upbeat membership number.', 'agend-apps-core' );
+		echo '</p>';
 	}
 
 	/**

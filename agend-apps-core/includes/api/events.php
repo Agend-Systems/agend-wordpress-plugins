@@ -27,10 +27,32 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Scope: `events.events.browse`. Cached.
  *
- * @param array $query Optional. Query parameters (camelCase): `page`, `limit`, `search`, `sortBy`, `sortOrder`, date filters. Default empty.
+ * @param array $query Optional. Query parameters (camelCase): `page`, `limit`, `search`, `sortBy`, `sortOrder`,
+ *                     date filters, and repeatable exclusion filters (`excludeCategories`, `excludeTags`,
+ *                     `excludeVenueTypes`, `excludeCities`) supplied as arrays. Default empty.
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
 function agend_apps_events_get_events( array $query = array() ) {
+	// Array-valued parameters (the exclusion filters) are repeatable on the
+	// gateway; split them out so the client serialises them as repeated bare
+	// keys rather than PHP-style brackets.
+	$scalar = array();
+	$multi  = array();
+
+	foreach ( $query as $key => $value ) {
+		if ( is_array( $value ) ) {
+			$multi[ $key ] = array_values( $value );
+		} else {
+			$scalar[ $key ] = $value;
+		}
+	}
+
+	$request_args = array( 'query' => $scalar );
+
+	if ( $multi ) {
+		$request_args['query_multi'] = $multi;
+	}
+
 	/**
 	 * Filters the events list request args before the request is sent.
 	 *
@@ -39,7 +61,7 @@ function agend_apps_events_get_events( array $query = array() ) {
 	 */
 	$args = (array) apply_filters(
 		'agend_apps_events_get_events_args',
-		array( 'query' => $query ),
+		$request_args,
 		$query
 	);
 
@@ -100,6 +122,26 @@ function agend_apps_events_get_event( string $slug, array $query = array() ) {
 	 * @param string $slug     Event slug.
 	 */
 	return apply_filters( 'agend_apps_events_get_event_response', $response, $slug );
+}
+
+/**
+ * Retrieves an event's iCal (.ics) file.
+ *
+ * Scope: `events.events.browse`. Raw passthrough: the response is the ICS text
+ * plus its content headers, not a decoded JSON array, so no response filter is
+ * applied. Not cached (the file is small and carries a content-disposition
+ * filename that must stay in sync with the event).
+ *
+ * @param string $slug Event slug.
+ * @return array|WP_Error Array with `body` (ICS text), `content_type`, and
+ *                        `content_disposition` on success, or WP_Error on failure.
+ */
+function agend_apps_events_get_event_ical( string $slug ) {
+	return agend_apps_api()->request(
+		'GET',
+		'/events/' . rawurlencode( $slug ) . '/ical',
+		array( 'raw' => true )
+	);
 }
 
 /**

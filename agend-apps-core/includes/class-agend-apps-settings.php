@@ -27,6 +27,20 @@ class Agend_Apps_Settings {
 	}
 
 	/**
+	 * Returns the connected Agend account slug.
+	 *
+	 * Used to build browser SSO URLs on the API host, which are keyed by the
+	 * account slug (`/api/auth/sso/{slug}/initiate`). The gateway derives the
+	 * account from the API key for `/v1` calls, but the browser SSO endpoints
+	 * live outside `/v1` and need the slug in the path.
+	 *
+	 * @return string The account slug, or an empty string if not set.
+	 */
+	public static function get_account_slug(): string {
+		return (string) get_option( 'agend_apps_account_slug', '' );
+	}
+
+	/**
 	 * Returns the configured Vercel deployment-protection bypass token.
 	 *
 	 * When non-empty, the API client sends it as the
@@ -105,6 +119,59 @@ class Agend_Apps_Settings {
 		 * @param string $url The resolved root URL.
 		 */
 		return (string) apply_filters( 'agend_apps_root_url', $url );
+	}
+
+	/**
+	 * Returns the Agend member portal root URL.
+	 *
+	 * An explicit `agend_apps_portal_url` option wins (for associations on a
+	 * custom portal domain). Otherwise the URL is resolved from the same
+	 * `agend_apps_environment` option that drives the API root: production,
+	 * staging, and local map to their portal constants; `custom` derives the
+	 * portal host from the custom API URL by swapping the leading `api.`
+	 * subdomain for `portal.`, falling back to the production portal.
+	 *
+	 * Applies the `agend_apps_portal_url` filter before returning.
+	 *
+	 * @return string Portal root URL without a trailing slash.
+	 */
+	public static function get_portal_url(): string {
+		$explicit = (string) get_option( 'agend_apps_portal_url', '' );
+
+		if ( '' !== $explicit ) {
+			$url = rtrim( $explicit, '/' );
+		} else {
+			$environment = (string) get_option( 'agend_apps_environment', 'production' );
+
+			switch ( $environment ) {
+				case 'staging':
+					$url = AGEND_APPS_PORTAL_STAGING_URL;
+					break;
+
+				case 'local':
+					$url = AGEND_APPS_PORTAL_LOCAL_URL;
+					break;
+
+				case 'custom':
+					$custom = (string) get_option( 'agend_apps_custom_url', '' );
+					$url    = '' !== $custom
+						? preg_replace( '#^(https?://)api\.#', '$1portal.', rtrim( $custom, '/' ) )
+						: AGEND_APPS_PORTAL_PRODUCTION_URL;
+					break;
+
+				case 'production':
+				default:
+					$url = AGEND_APPS_PORTAL_PRODUCTION_URL;
+					break;
+			}
+		}
+
+		/**
+		 * Filters the resolved Agend member portal root URL.
+		 *
+		 * @param string $url The resolved portal URL.
+		 */
+		return (string) apply_filters( 'agend_apps_portal_url', $url );
 	}
 
 	/**

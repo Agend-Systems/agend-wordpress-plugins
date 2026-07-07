@@ -310,6 +310,27 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 			)
 		);
 
+		// GET /lms/me/enrollments/{courseId} (member-only, requires nonce_check;
+		// more specific, registered before the bare list route)
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/me/enrollments/(?P<course_id>[a-zA-Z0-9-]+)',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_my_course_enrollment' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'course_id' => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
 		// GET /lms/me/enrollments (member-only, requires nonce_check)
 		register_rest_route(
 			$this->namespace,
@@ -361,7 +382,7 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_courses( WP_REST_Request $request ): WP_REST_Response {
-		$allowed = array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'sortBy', 'sortOrder' );
+		$allowed = array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'deliveryMode', 'excludeCategories', 'excludeDifficulties', 'excludeDeliveryModes', 'sortBy', 'sortOrder' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {
@@ -499,6 +520,19 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_my_enrollments( WP_REST_Request $request ): WP_REST_Response {
+		// Without a member bearer the gateway would 401; an empty list is the
+		// correct member-facing answer for a logged-out or not-yet-linked
+		// visitor (mirrors get_my_course_enrollment).
+		if ( ! is_user_logged_in() || '' === agend_apps_get_bearer_token() ) {
+			return new WP_REST_Response(
+				array(
+					'success' => true,
+					'data'    => array(),
+				),
+				200
+			);
+		}
+
 		$allowed = array( 'page', 'per_page', 'status' );
 		$query   = array_filter(
 			$request->get_params(),
@@ -510,6 +544,75 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 
 		$result = agend_apps_lms_get_my_enrollments( $query );
 		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Returns the current member's enrolment state for a single course.
+	 *
+	 * Translates every "no enrolment" condition (logged out, no linked member
+	 * identity, gateway 404) into a normal `{ enrolled: false }` payload so the
+	 * widget renders the anonymous pricing panel instead of an error state. The
+	 * bearer token is resolved server-side by the token worker; the browser
+	 * never supplies identity.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_my_course_enrollment( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! is_user_logged_in() ) {
+			return new WP_REST_Response(
+				array(
+					'logged_in' => false,
+					'enrolled'  => false,
+				),
+				200
+			);
+		}
+
+		// Without a member bearer the gateway would 401; short-circuit so an
+		// unlinked member sees the normal not-enrolled panel.
+		if ( '' === agend_apps_get_bearer_token() ) {
+			return new WP_REST_Response(
+				array(
+					'logged_in' => true,
+					'enrolled'  => false,
+					'reason'    => 'no_member_identity',
+				),
+				200
+			);
+		}
+
+		$course_id = $request->get_param( 'course_id' );
+		$result    = agend_apps_lms_get_my_course_enrollment( $course_id );
+
+		if ( is_wp_error( $result ) ) {
+			$data        = $result->get_error_data();
+			$status_code = ( is_array( $data ) && isset( $data['status_code'] ) ) ? (int) $data['status_code'] : 0;
+
+			// 404 = not enrolled, a normal state for this surface.
+			if ( 404 === $status_code ) {
+				return new WP_REST_Response(
+					array(
+						'logged_in' => true,
+						'enrolled'  => false,
+					),
+					200
+				);
+			}
+
+			return $this->error_to_response( $result );
+		}
+
+		$enrollment = ( isset( $result['data'] ) && is_array( $result['data'] ) ) ? $result['data'] : $result;
+
+		return new WP_REST_Response(
+			array(
+				'logged_in'  => true,
+				'enrolled'   => true,
+				'enrollment' => $enrollment,
+			),
+			200
+		);
 	}
 
 	/**
