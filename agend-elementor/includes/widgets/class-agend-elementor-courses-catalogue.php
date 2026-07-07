@@ -193,12 +193,13 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 		);
 
 		foreach ( array(
-			'show_image'       => __( 'Show course image', 'agend-elementor' ),
-			'show_difficulty'  => __( 'Show difficulty badge', 'agend-elementor' ),
-			'show_category'    => __( 'Show category label', 'agend-elementor' ),
-			'show_description' => __( 'Show description excerpt', 'agend-elementor' ),
-			'show_meta'        => __( 'Show duration and module count', 'agend-elementor' ),
-			'show_price'       => __( 'Show price tag', 'agend-elementor' ),
+			'show_image'         => __( 'Show course image', 'agend-elementor' ),
+			'show_difficulty'    => __( 'Show difficulty badge', 'agend-elementor' ),
+			'show_delivery_mode' => __( 'Show delivery mode pill', 'agend-elementor' ),
+			'show_category'      => __( 'Show category label', 'agend-elementor' ),
+			'show_description'   => __( 'Show description excerpt', 'agend-elementor' ),
+			'show_meta'          => __( 'Show duration and module count', 'agend-elementor' ),
+			'show_price'         => __( 'Show price tag', 'agend-elementor' ),
 		) as $key => $label ) {
 			$this->add_control(
 				$key,
@@ -256,6 +257,77 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 				'label'   => __( 'Show difficulty filter', 'agend-elementor' ),
 				'type'    => \Elementor\Controls_Manager::SWITCHER,
 				'default' => 'yes',
+			)
+		);
+
+		$this->add_control(
+			'show_delivery_filter',
+			array(
+				'label'   => __( 'Show delivery mode filter', 'agend-elementor' ),
+				'type'    => \Elementor\Controls_Manager::SWITCHER,
+				'default' => 'yes',
+			)
+		);
+
+		$this->end_controls_section();
+
+		// Exclusions section (editor-scoped: applied to every fetch this
+		// widget instance makes).
+		$this->start_controls_section(
+			'section_exclusions',
+			array(
+				'label' => __( 'Exclusions', 'agend-elementor' ),
+				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+			)
+		);
+
+		$this->add_control(
+			'exclusions_note',
+			array(
+				'type' => \Elementor\Controls_Manager::RAW_HTML,
+				'raw'  => __( 'Excluded items never appear in this widget, and excluded values are hidden from the visitor filters.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
+			'exclude_categories',
+			array(
+				'label'       => __( 'Exclude categories', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'label_block' => true,
+				'options'     => $this->category_options(),
+			)
+		);
+
+		$this->add_control(
+			'exclude_difficulties',
+			array(
+				'label'       => __( 'Exclude difficulty levels', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'label_block' => true,
+				'options'     => array(
+					'beginner'     => __( 'Beginner', 'agend-elementor' ),
+					'intermediate' => __( 'Intermediate', 'agend-elementor' ),
+					'advanced'     => __( 'Advanced', 'agend-elementor' ),
+				),
+			)
+		);
+
+		$this->add_control(
+			'exclude_delivery_modes',
+			array(
+				'label'       => __( 'Exclude delivery modes', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'label_block' => true,
+				'options'     => array(
+					'self_paced'  => __( 'Self-paced', 'agend-elementor' ),
+					'live_online' => __( 'Live Online', 'agend-elementor' ),
+					'in_person'   => __( 'In-Person', 'agend-elementor' ),
+					'blended'     => __( 'Blended', 'agend-elementor' ),
+				),
 			)
 		);
 
@@ -392,6 +464,51 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 	 * @param array $s Settings for display.
 	 * @return array Config passed to the frontend script as JSON.
 	 */
+	/**
+	 * Builds the category exclusion options from the live catalogue.
+	 *
+	 * Course categories are free text on the course row (no categories
+	 * endpoint), so the distinct set is derived from a wide, cached list
+	 * fetch. Returns an empty list when the API is unreachable.
+	 *
+	 * @return array Options keyed by category name.
+	 */
+	private function category_options(): array {
+		if ( ! function_exists( 'agend_apps_lms_get_courses' ) ) {
+			return array();
+		}
+
+		$response = agend_apps_lms_get_courses( array( 'limit' => 100 ) );
+
+		if ( is_wp_error( $response ) || empty( $response['data'] ) || ! is_array( $response['data'] ) ) {
+			return array();
+		}
+
+		$options = array();
+
+		foreach ( $response['data'] as $course ) {
+			if ( ! empty( $course['category'] ) ) {
+				$options[ (string) $course['category'] ] = (string) $course['category'];
+			}
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Normalises a SELECT2 multiple value to a clean string list.
+	 *
+	 * @param mixed $value Raw setting value.
+	 * @return array List of non-empty strings.
+	 */
+	private function string_list( $value ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+
+		return array_values( array_filter( array_map( 'strval', $value ), 'strlen' ) );
+	}
+
 	private function build_config( array $s ): array {
 		return array(
 			'heading'    => array(
@@ -408,6 +525,7 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 			'card'       => array(
 				'image'         => 'yes' === ( $s['show_image'] ?? 'yes' ),
 				'difficulty'    => 'yes' === ( $s['show_difficulty'] ?? 'yes' ),
+				'deliveryMode'  => 'yes' === ( $s['show_delivery_mode'] ?? 'yes' ),
 				'category'      => 'yes' === ( $s['show_category'] ?? 'yes' ),
 				'description'   => 'yes' === ( $s['show_description'] ?? 'yes' ),
 				'meta'          => 'yes' === ( $s['show_meta'] ?? 'yes' ),
@@ -415,9 +533,15 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 				'excerptLength' => (int) ( $s['excerpt_length'] ?? 110 ),
 			),
 			'filters'    => array(
-				'search'     => 'yes' === ( $s['show_search'] ?? 'yes' ),
-				'category'   => 'yes' === ( $s['show_category_filter'] ?? 'yes' ),
-				'difficulty' => 'yes' === ( $s['show_difficulty_filter'] ?? 'yes' ),
+				'search'       => 'yes' === ( $s['show_search'] ?? 'yes' ),
+				'category'     => 'yes' === ( $s['show_category_filter'] ?? 'yes' ),
+				'difficulty'   => 'yes' === ( $s['show_difficulty_filter'] ?? 'yes' ),
+				'deliveryMode' => 'yes' === ( $s['show_delivery_filter'] ?? 'yes' ),
+			),
+			'exclusions' => array(
+				'categories'    => $this->string_list( $s['exclude_categories'] ?? array() ),
+				'difficulties'  => $this->string_list( $s['exclude_difficulties'] ?? array() ),
+				'deliveryModes' => $this->string_list( $s['exclude_delivery_modes'] ?? array() ),
 			),
 			'pagination' => array(
 				'style'   => (string) ( $s['pagination_style'] ?? 'numbered' ),
@@ -453,9 +577,26 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 			esc_attr( $config['colours']['buttonText'] ),
 			(int) $config['layout']['cardRadius']
 		);
+		// One complete grid row of skeleton placeholders as the initial state
+		// (3 when the layout is a single column), so no plain "Loading…" text
+		// flashes before the script takes over.
+		$columns   = max( 1, (int) $config['layout']['desktop'] );
+		$skeletons = ( 1 === $columns ) ? 3 : $columns;
 		?>
 		<div class="agend-courses-catalogue" style="<?php echo esc_attr( $style ); ?>" data-agend-courses-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
-			<div class="agend-lms-status" role="status"><?php esc_html_e( 'Loading courses…', 'agend-elementor' ); ?></div>
+			<span class="agend-visually-hidden" role="status"><?php esc_html_e( 'Loading courses…', 'agend-elementor' ); ?></span>
+			<div class="agend-lms-grid" style="--agend-lms-cols-desktop:<?php echo (int) $columns; ?>;">
+				<?php for ( $i = 0; $i < $skeletons; $i++ ) : ?>
+					<article class="agend-lms-card agend-lms-skeleton" aria-hidden="true">
+						<div class="agend-lms-card__media"></div>
+						<div class="agend-lms-card__body">
+							<div class="agend-skel-line" style="width:35%"></div>
+							<div class="agend-skel-line" style="width:85%"></div>
+							<div class="agend-skel-line" style="width:60%"></div>
+						</div>
+					</article>
+				<?php endfor; ?>
+			</div>
 		</div>
 		<?php
 	}

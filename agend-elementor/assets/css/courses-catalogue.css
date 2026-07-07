@@ -419,3 +419,217 @@
   font-weight: 600;
   text-align: right;
 }
+
+/* -- Enrolment gate ------------------------------------------------------ */
+
+.agend-lms-gate {
+  max-width: 480px;
+  margin: 1.5rem auto;
+  padding: 2rem;
+  border: 1px solid #eceef4;
+  border-radius: var(--agend-lms-card-radius);
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(30, 42, 74, 0.08);
+}
+
+.agend-lms-gate__icon {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.agend-lms-gate__title {
+  color: var(--agend-lms-heading);
+  margin: 0 0 1rem;
+  font-size: 1.35rem;
+}
+
+.agend-lms-gate__price {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #f8f9fc;
+  margin-bottom: 1rem;
+}
+
+.agend-lms-gate__price-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--agend-lms-heading);
+}
+
+.agend-lms-gate__price-value.is-free {
+  color: var(--agend-lms-accent);
+}
+
+.agend-lms-gate__text {
+  opacity: 0.85;
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+}
+
+.agend-lms-gate__cta {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
+
+/* -- Enrolment state (US-LMS.5) ------------------------------------------ */
+
+.agend-lms-detail__panel--enrollment {
+  background: #fff;
+}
+
+.agend-lms-detail__panel--enrollment.is-completed {
+  border-color: rgba(34, 139, 78, 0.35);
+}
+
+.agend-lms-enrol__bar {
+  height: 0.6rem;
+  border-radius: 999px;
+  background: #eceef4;
+  overflow: hidden;
+  margin-bottom: 0.6rem;
+}
+
+/* In-progress uses the account accent (Decision 2.13). */
+.agend-lms-enrol__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--agend-lms-accent);
+  transition: width 0.4s ease;
+}
+
+.agend-lms-enrol__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.agend-lms-enrol__pct {
+  font-weight: 700;
+  color: var(--agend-lms-heading);
+}
+
+/* Completed uses the Agend semantic green, deliberately NOT accent-driven
+   (Decision 2.13). */
+.agend-lms-enrol__completed {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agend-lms-enrol__tick {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: #228b4e;
+  color: #fff;
+  font-size: 0.95rem;
+  line-height: 1.6rem;
+  text-align: center;
+  flex: none;
+}
+
+.agend-lms-enrol__completed-text {
+  line-height: 1.45;
+}
+
+/* Delivery-mode pill: frosted translucent treatment (mockup inventory). */
+.agend-lms-mode-pill {
+  position: absolute;
+  bottom: 0.6rem;
+  left: 0.6rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.agend-lms-pill--mode {
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+/* -- Loading skeletons ----------------------------------------------------- */
+
+@keyframes agend-skel-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+.agend-skel-line,
+.agend-skel-block {
+  background: #eceef4 linear-gradient(90deg, #eceef4 0px, #f7f8fb 60px, #eceef4 120px) no-repeat -200px 0 / 200px 100%;
+  animation: agend-skel-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.agend-skel-line {
+  height: 0.85rem;
+  margin: 0.45rem 0;
+}
+
+.agend-lms-skeleton {
+  pointer-events: none;
+}
+
+.agend-lms-skeleton .agend-lms-card__media {
+  background: #eceef4;
+}
+
+.agend-lms-detail-skeleton .agend-lms-detail__hero {
+  min-height: 240px;
+}
+
+.agend-lms-detail-skeleton .agend-lms-detail__panel {
+  min-height: 120px;
+}
+
+.agend-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* -- Grid completed state (member) ---------------------------------------- */
+
+.agend-lms-card__completed {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  color: #fff;
+  background: #228b4e;
+}
+
+.agend-lms-card__completed--inline {
+  position: static;
+  align-self: flex-start;
+  margin-bottom: 0.35rem;
+}
+

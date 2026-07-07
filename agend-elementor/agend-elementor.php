@@ -90,6 +90,19 @@ function agend_elementor_enqueue_scripts(): void {
 		return;
 	}
 
+	// DOMPurify (vendored, Cure53) — the client-side HTML sanitiser used by the
+	// catalogue scripts as the final defence-in-depth layer before any
+	// gateway-supplied rich text (course/event descriptions) is written to the
+	// DOM. Registered once and declared as a dependency of the widgets that
+	// render HTML so it always loads first.
+	wp_register_script(
+		'agend-elementor-dompurify',
+		AGEND_ELEMENTOR_URL . 'assets/js/vendor/purify.min.js',
+		array(),
+		'3.3.1',
+		true
+	);
+
 	wp_enqueue_style(
 		'agend-elementor-events-catalogue',
 		AGEND_ELEMENTOR_URL . 'assets/css/events-catalogue.css',
@@ -100,7 +113,7 @@ function agend_elementor_enqueue_scripts(): void {
 	wp_enqueue_script(
 		'agend-elementor-events-catalogue',
 		AGEND_ELEMENTOR_URL . 'assets/js/events-catalogue.js',
-		array(),
+		array( 'agend-elementor-dompurify' ),
 		AGEND_ELEMENTOR_VERSION,
 		true
 	);
@@ -115,6 +128,21 @@ function agend_elementor_enqueue_scripts(): void {
 	wp_enqueue_script(
 		'agend-elementor-courses-catalogue',
 		AGEND_ELEMENTOR_URL . 'assets/js/courses-catalogue.js',
+		array( 'agend-elementor-dompurify' ),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	wp_enqueue_style(
+		'agend-elementor-account-link',
+		AGEND_ELEMENTOR_URL . 'assets/css/account-link.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-elementor-account-link',
+		AGEND_ELEMENTOR_URL . 'assets/js/account-link.js',
 		array(),
 		AGEND_ELEMENTOR_VERSION,
 		true
