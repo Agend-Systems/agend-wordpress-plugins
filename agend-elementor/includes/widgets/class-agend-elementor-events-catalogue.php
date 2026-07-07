@@ -303,6 +303,64 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 
 		$this->end_controls_section();
 
+		// Exclusions section (editor-scoped: applied to every fetch this
+		// widget instance makes, so two instances on different pages can show
+		// different slices of the catalogue).
+		$this->start_controls_section(
+			'section_exclusions',
+			array(
+				'label' => __( 'Exclusions', 'agend-elementor' ),
+				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+			)
+		);
+
+		$this->add_control(
+			'exclusions_note',
+			array(
+				'type' => \Elementor\Controls_Manager::RAW_HTML,
+				'raw'  => __( 'Excluded items never appear in this widget, and excluded categories are hidden from the visitor category filter.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
+			'exclude_categories',
+			array(
+				'label'       => __( 'Exclude categories', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'label_block' => true,
+				'options'     => $this->category_options(),
+			)
+		);
+
+		$this->add_control(
+			'exclude_venue_types',
+			array(
+				'label'       => __( 'Exclude event types', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'label_block' => true,
+				'options'     => array(
+					'physical' => __( 'In-Person', 'agend-elementor' ),
+					'virtual'  => __( 'Online', 'agend-elementor' ),
+					'hybrid'   => __( 'Hybrid', 'agend-elementor' ),
+				),
+			)
+		);
+
+		$this->add_control(
+			'exclude_cities',
+			array(
+				'label'       => __( 'Exclude cities', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'label_block' => true,
+				'options'     => $this->city_options(),
+			)
+		);
+
+		$this->end_controls_section();
+
 		// Pagination section.
 		$this->start_controls_section(
 			'section_pagination',
@@ -434,6 +492,85 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	}
 
 	/**
+	 * Builds the category exclusion options from the live catalogue.
+	 *
+	 * Uses the cached core wrapper, so editor loads do not hammer the gateway.
+	 * Returns an empty list when the API is unreachable — the control still
+	 * renders, it just has nothing to offer.
+	 *
+	 * @return array Options keyed by category id.
+	 */
+	private function category_options(): array {
+		if ( ! function_exists( 'agend_apps_events_get_categories' ) ) {
+			return array();
+		}
+
+		$response = agend_apps_events_get_categories();
+
+		if ( is_wp_error( $response ) || empty( $response['data'] ) || ! is_array( $response['data'] ) ) {
+			return array();
+		}
+
+		$options = array();
+
+		foreach ( $response['data'] as $category ) {
+			if ( ! empty( $category['id'] ) && ! empty( $category['name'] ) ) {
+				$options[ (string) $category['id'] ] = (string) $category['name'];
+			}
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Builds the city exclusion options from the venues catalogue.
+	 *
+	 * @return array Options keyed by city name (the gateway filters on the
+	 *               city string, not a venue id).
+	 */
+	private function city_options(): array {
+		if ( ! function_exists( 'agend_apps_events_get_venues' ) ) {
+			return array();
+		}
+
+		$response = agend_apps_events_get_venues( array( 'limit' => 100 ) );
+
+		if ( is_wp_error( $response ) || empty( $response['data'] ) || ! is_array( $response['data'] ) ) {
+			return array();
+		}
+
+		$options = array();
+
+		foreach ( $response['data'] as $venue ) {
+			$city = '';
+			if ( ! empty( $venue['city'] ) ) {
+				$city = (string) $venue['city'];
+			} elseif ( ! empty( $venue['venue_city'] ) ) {
+				$city = (string) $venue['venue_city'];
+			}
+			if ( '' !== $city ) {
+				$options[ $city ] = $city;
+			}
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Normalises a SELECT2 multiple value to a clean string list.
+	 *
+	 * @param mixed $value Raw setting value.
+	 * @return array List of non-empty strings.
+	 */
+	private function string_list( $value ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+
+		return array_values( array_filter( array_map( 'strval', $value ), 'strlen' ) );
+	}
+
+	/**
 	 * Builds the client-side config object from the widget settings.
 	 *
 	 * @param array $s Settings for display.
@@ -465,6 +602,11 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'category' => 'yes' === ( $s['show_category_filter'] ?? 'yes' ),
 				'type'     => 'yes' === ( $s['show_type_filter'] ?? 'yes' ),
 				'city'     => 'yes' === ( $s['show_city_filter'] ?? 'yes' ),
+			),
+			'exclusions'     => array(
+				'categories' => $this->string_list( $s['exclude_categories'] ?? array() ),
+				'venueTypes' => $this->string_list( $s['exclude_venue_types'] ?? array() ),
+				'cities'     => $this->string_list( $s['exclude_cities'] ?? array() ),
 			),
 			'pagination'     => array(
 				'style'   => (string) ( $s['pagination_style'] ?? 'numbered' ),
@@ -503,9 +645,26 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			esc_attr( $config['colours']['buttonText'] ),
 			(int) $config['layout']['cardRadius']
 		);
+		// One complete grid row of skeleton placeholders as the initial state
+		// (3 when the layout is a single column), so no plain "Loading…" text
+		// flashes before the script takes over.
+		$columns   = max( 1, (int) $config['layout']['desktop'] );
+		$skeletons = ( 1 === $columns ) ? 3 : $columns;
 		?>
 		<div class="agend-events-catalogue" style="<?php echo esc_attr( $style ); ?>" data-agend-events-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
-			<div class="agend-ev-status" role="status"><?php esc_html_e( 'Loading events…', 'agend-elementor' ); ?></div>
+			<span class="agend-visually-hidden" role="status"><?php esc_html_e( 'Loading events…', 'agend-elementor' ); ?></span>
+			<div class="agend-ev-grid" style="--agend-ev-cols-desktop:<?php echo (int) $columns; ?>;">
+				<?php for ( $i = 0; $i < $skeletons; $i++ ) : ?>
+					<article class="agend-ev-card agend-ev-skeleton" aria-hidden="true">
+						<div class="agend-ev-card__media"></div>
+						<div class="agend-ev-card__body">
+							<div class="agend-skel-line" style="width:40%"></div>
+							<div class="agend-skel-line" style="width:85%"></div>
+							<div class="agend-skel-line" style="width:60%"></div>
+						</div>
+					</article>
+				<?php endfor; ?>
+			</div>
 		</div>
 		<?php
 	}
