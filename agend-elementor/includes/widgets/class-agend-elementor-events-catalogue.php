@@ -315,6 +315,21 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'event_timeframe',
+			array(
+				'label'       => __( 'Events to show', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'options'     => array(
+					'upcoming' => __( 'Upcoming', 'agend-elementor' ),
+					'past'     => __( 'Past', 'agend-elementor' ),
+					'all'      => __( 'All', 'agend-elementor' ),
+				),
+				'default'     => 'upcoming',
+				'description' => __( 'Which events this widget lists, by time. Defaults to Upcoming.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
 			'exclusions_note',
 			array(
 				'type' => \Elementor\Controls_Manager::RAW_HTML,
@@ -608,6 +623,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'venueTypes' => $this->string_list( $s['exclude_venue_types'] ?? array() ),
 				'cities'     => $this->string_list( $s['exclude_cities'] ?? array() ),
 			),
+			'timeframe'      => (string) ( $s['event_timeframe'] ?? 'upcoming' ),
 			'pagination'     => array(
 				'style'   => (string) ( $s['pagination_style'] ?? 'numbered' ),
 				'perPage' => (int) ( $s['per_page'] ?? 9 ),
@@ -635,6 +651,19 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	protected function render(): void {
 		$settings = $this->get_settings_for_display();
 		$config   = $this->build_config( $settings );
+
+		// US-1.2: path-based detail routing. The `event` rewrite endpoint
+		// (registered in class-agend-elementor-routing.php) exposes the slug on
+		// the current page URL as /{page}/event/{slug}/. The slug is injected
+		// server-side so a direct load renders the detail with no catalogue
+		// flash; the base page path lets the script build pretty links, and it
+		// falls back to the ?agend_event= query param when pretty permalinks are
+		// off or the base path is unavailable.
+		$page_id            = get_queried_object_id();
+		$base_path          = $page_id ? get_permalink( $page_id ) : '';
+		$config['deepLink']    = sanitize_title( (string) get_query_var( 'event' ) );
+		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
+		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
 
 		$style = sprintf(
 			'--agend-ev-heading:%1$s;--agend-ev-body:%2$s;--agend-ev-accent:%3$s;--agend-ev-button:%4$s;--agend-ev-button-text:%5$s;--agend-ev-card-radius:%6$dpx;',

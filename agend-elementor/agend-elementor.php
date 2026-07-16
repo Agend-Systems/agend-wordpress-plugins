@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events and Learning data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.1.0
+ * Version:           0.2.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.1.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.2.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -38,6 +38,23 @@ define( 'AGEND_ELEMENTOR_DIR', plugin_dir_path( __FILE__ ) );
  * @var string
  */
 define( 'AGEND_ELEMENTOR_URL', plugin_dir_url( __FILE__ ) );
+
+/**
+ * Rewrite ruleset version. Bump whenever the rewrite endpoints registered in
+ * includes/class-agend-elementor-routing.php change, so the versioned
+ * auto-flush regenerates the rules on the next request after an update deploy.
+ *
+ * @var string
+ */
+define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260717-1' );
+
+// Detail-URL rewrite endpoints (SPEC-INFRA-20260717 US-1.1). Loaded
+// unconditionally so the endpoints register even when Elementor or Agend Apps
+// Core is temporarily unavailable; the widgets that consume them stay gated.
+require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-routing.php';
+
+register_activation_hook( __FILE__, 'agend_elementor_activate_rewrites' );
+register_deactivation_hook( __FILE__, 'agend_elementor_deactivate_rewrites' );
 
 /**
  * Checks required dependencies and loads the plugin's components.
