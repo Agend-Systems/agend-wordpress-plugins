@@ -1007,15 +1007,36 @@
     catalogueEl.appendChild(grid);
     catalogueEl.appendChild(pager);
 
+    // Build the canonical detail URL for a slug. Pretty path
+    // (/{page}/event/{slug}/) when permalinks are on and the host page path is
+    // known (US-1.2); otherwise the legacy ?agend_event= query param.
+    function deepLinkUrl(slug) {
+      if (cfg.prettyLinks && cfg.basePath) {
+        var base = cfg.basePath;
+        if (base.charAt(base.length - 1) !== '/') {
+          base += '/';
+        }
+        return base + 'event/' + encodeURIComponent(slug) + '/';
+      }
+      var url = new URL(window.location.href);
+      url.searchParams.set(DEEP_LINK_PARAM, slug);
+      return url.toString();
+    }
+
     function setUrlParam(slug) {
       try {
-        var url = new URL(window.location.href);
+        var target;
         if (slug) {
-          url.searchParams.set(DEEP_LINK_PARAM, slug);
+          target = deepLinkUrl(slug);
+        } else if (cfg.prettyLinks && cfg.basePath) {
+          // Returning to the catalogue: drop the /event/{slug}/ path segment.
+          target = cfg.basePath;
         } else {
+          var url = new URL(window.location.href);
           url.searchParams.delete(DEEP_LINK_PARAM);
+          target = url.toString();
         }
-        window.history.pushState({ agendEvent: slug || null }, '', url.toString());
+        window.history.pushState({ agendEvent: slug || null }, '', target);
       } catch (e) {
         /* history API unavailable — navigation still works in-page */
       }
@@ -1103,6 +1124,7 @@
         category: state.category,
         type: state.type,
         city: state.city,
+        timeframe: cfg.timeframe || 'upcoming',
         excludeCategories: exclusions.categories || [],
         excludeVenueTypes: exclusions.venueTypes || [],
         excludeCities: exclusions.cities || [],
@@ -1135,6 +1157,14 @@
     // event on initial load, and respond to browser back/forward.
     function currentDeepLink() {
       try {
+        // Pretty path form: /{page}/event/{slug}/ (US-1.2).
+        if (cfg.prettyLinks) {
+          var m = window.location.pathname.match(/\/event\/([^/]+)\/?$/);
+          if (m && m[1]) {
+            return decodeURIComponent(m[1]);
+          }
+        }
+        // Legacy fallback: ?agend_event= query param.
         return new URL(window.location.href).searchParams.get(DEEP_LINK_PARAM);
       } catch (e) {
         return null;
@@ -1158,7 +1188,9 @@
       }
     }
 
-    var deepLinkSlug = currentDeepLink();
+    // Server-injected slug (from the rewrite endpoint) wins on first load, then
+    // fall back to parsing the URL (pretty path or legacy query param).
+    var deepLinkSlug = cfg.deepLink || currentDeepLink();
     var payState = currentPayState();
     if (deepLinkSlug) {
       showDetail(deepLinkSlug, false, payState === 'success' ? 'success' : null);
