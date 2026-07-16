@@ -1,0 +1,874 @@
+/**
+ * Agend Courses (Learning Hub) widget — frontend renderer.
+ *
+ * One widget, connected client-side states (SPEC-INFRA-LMS-001):
+ *  - catalogue: searchable/filterable grid (US-LMS.1/2)
+ *  - detail:    single-course landing view (US-LMS.4)
+ * Deep linkable via ?agend_course=<slug> (US-LMS.6). Data comes from the Agend
+ * Apps Core REST proxy (/wp-json/agend-apps/v1/lms/courses...). A course
+ * enrolment grants a specific learner login-gated access, so it needs a member
+ * identity; the Enrol action opens a member sign-in gate rather than an
+ * anonymous purchase flow. Member enrolment-state sidebars (US-LMS.5) and
+ * in-widget enrolment activate once the SSO bearer worker lands (E-11).
+ */
+(function () {
+  'use strict';
+
+  var DEEP_LINK_PARAM = 'agend_course';
+
+  var DIFFICULTY_LABELS = {
+    beginner: 'Beginner',
+    intermediate: 'Intermediate',
+    advanced: 'Advanced',
+    all_levels: 'All Levels',
+  };
+
+  var DELIVERY_MODE_LABELS = {
+    self_paced: 'Self-paced',
+    live_online: 'Live Online',
+    in_person: 'In-Person',
+    blended: 'Blended',
+  };
+
+  function restBase() {
+    return (window.agendApps && window.agendApps.restUrl) || '/wp-json/agend-apps/v1/';
+  }
+
+  function nonce() {
+    return (window.agendApps && window.agendApps.nonce) || '';
+  }
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) {
+      node.className = className;
+    }
+    if (text !== undefined && text !== null) {
+      node.textContent = String(text);
+    }
+    return node;
+  }
+
+  function apiGet(path, params) {
+    var url = restBase().replace(/\/$/, '') + path;
+    var qs = [];
+    Object.keys(params || {}).forEach(function (key) {
+      var value = params[key];
+      if (value === undefined || value === null || value === '') {
+        return;
+      }
+      // Arrays serialise PHP-style (`key[]=a&key[]=b`) so the WP REST proxy
+      // parses them back into arrays before forwarding to the gateway.
+      if (Array.isArray(value)) {
+        value.forEach(function (item) {
+          if (item !== undefined && item !== null && item !== '') {
+            qs.push(encodeURIComponent(key) + '[]=' + encodeURIComponent(item));
+          }
+        });
+        return;
+      }
+      qs.push(encodeURIComponent(key) + '=' + encodeURIComponent(value));
+    });
+    if (qs.length) {
+      url += '?' + qs.join('&');
+    }
+    return fetch(url, {
+      headers: nonce() ? { 'X-WP-Nonce': nonce() } : {},
+    }).then(function (res) {
+      return res.json();
+    });
+  }
+
+  function deliveryModeLabel(value) {
+    return DELIVERY_MODE_LABELS[value] || '';
+  }
+
+  function unwrapList(body) {
+    if (body && Array.isArray(body.data)) {
+      return { items: body.data, pagination: (body.meta && body.meta.pagination) || null };
+    }
+    if (Array.isArray(body)) {
+      return { items: body, pagination: null };
+    }
+    return { items: [], pagination: null };
+  }
+
+  function unwrapOne(body) {
+    if (body && body.data && !Array.isArray(body.data)) {
+      return body.data;
+    }
+    if (body && body.success === false) {
+      return null;
+    }
+    return body || null;
+  }
+
+  function stripHtml(html) {
+    if (!html) {
+      return '';
+    }
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
+  }
+
+  // Allowlist mirrors the server-side sanitiser (@agend/lms/utils/sanitize-html
+  // + the WP proxy's wp_kses_post) so the three layers agree on what safe rich
+  // text looks like.
+  var SAFE_TAGS = [
+    'div', 'span', 'p', 'br', 'hr',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'strong', 'b', 'em', 'i', 'u', 'strike', 's', 'del', 'ins', 'mark', 'sub', 'sup', 'small',
+    'ul', 'ol', 'li',
+    'a',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
+    'blockquote', 'q', 'cite',
+    'code', 'pre', 'kbd', 'samp',
+    'img',
+    'figure', 'figcaption', 'details', 'summary',
+  ];
+  var SAFE_ATTR = [
+    'href', 'target', 'rel', 'class', 'id',
+    'colspan', 'rowspan', 'scope', 'align', 'valign',
+    'src', 'alt', 'width', 'height', 'loading',
+  ];
+
+  // Renders semi-trusted CMS rich text (association-authored course
+  // descriptions) as HTML. Defence-in-depth: even though the gateway and the
+  // WP proxy sanitise upstream, this is the final gate before innerHTML. Uses
+  // the vendored DOMPurify (Cure53); if for any reason it is unavailable, it
+  // fails CLOSED to plain text rather than trusting the input.
+  function setSafeHtml(node, html) {
+    if (!html) {
+      node.textContent = '';
+      return;
+    }
+    if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+      node.innerHTML = window.DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: SAFE_TAGS,
+        ALLOWED_ATTR: SAFE_ATTR,
+        ALLOW_DATA_ATTR: false,
+        FORBID_TAGS: ['style', 'script', 'iframe', 'form', 'input', 'button', 'object', 'embed'],
+      });
+      return;
+    }
+    // Fail closed: no sanitiser, no HTML.
+    node.textContent = stripHtml(html);
+  }
+
+  function truncate(text, length) {
+    if (!text) {
+      return '';
+    }
+    return text.length <= length ? text : text.slice(0, length).replace(/\s+\S*$/, '') + '…';
+  }
+
+  function difficultyLabel(value) {
+    return DIFFICULTY_LABELS[value] || value || '';
+  }
+
+  function formatDuration(minutes) {
+    var m = typeof minutes === 'string' ? parseInt(minutes, 10) : minutes;
+    if (!m || isNaN(m) || m <= 0) {
+      return 'Self-paced';
+    }
+    var h = Math.floor(m / 60);
+    var rem = m % 60;
+    if (h && rem) {
+      return h + 'h ' + rem + 'm';
+    }
+    return h ? h + 'h' : rem + 'm';
+  }
+
+  function priceLabel(course) {
+    if (course.is_free) {
+      return 'Free';
+    }
+    var p = course.base_price;
+    var num = typeof p === 'string' ? parseFloat(p) : p;
+    if (num === null || num === undefined || isNaN(num) || num === 0) {
+      return 'Free';
+    }
+    return '$' + num.toFixed(2);
+  }
+
+  function normaliseColour(value) {
+    if (typeof value !== 'string' || !value) {
+      return null;
+    }
+    if (value.charAt(0) === '#' || value.indexOf('(') !== -1) {
+      return value;
+    }
+    if (/^\d/.test(value) && value.indexOf('%') !== -1) {
+      return 'hsl(' + value + ')';
+    }
+    return value;
+  }
+
+  function applySiteTheme(root, cfg) {
+    if (!cfg.theme || (!cfg.theme.inheritFonts && !cfg.theme.inheritColours)) {
+      return;
+    }
+    apiGet('/sites/config', {}).then(function (body) {
+      var config = unwrapOne(body);
+      if (!config) {
+        return;
+      }
+      var theme = config.theme || {};
+      if (cfg.theme.inheritColours && theme.colors) {
+        var c = theme.colors;
+        var heading = normaliseColour(c.primary || c.navy || c.foreground);
+        var body2 = normaliseColour(c.foreground || c.body);
+        var accent = normaliseColour(c.accent || c.coral || c.ring);
+        if (heading) {
+          root.style.setProperty('--agend-lms-heading', heading);
+        }
+        if (body2) {
+          root.style.setProperty('--agend-lms-body', body2);
+        }
+        if (accent) {
+          root.style.setProperty('--agend-lms-accent', accent);
+          root.style.setProperty('--agend-lms-button', accent);
+        }
+      }
+      if (cfg.theme.inheritFonts && theme.fonts) {
+        if (theme.fonts.heading) {
+          root.style.setProperty('--agend-lms-font-heading', '"' + theme.fonts.heading + '", sans-serif');
+        }
+        if (theme.fonts.body) {
+          root.style.setProperty('--agend-lms-font-body', '"' + theme.fonts.body + '", sans-serif');
+        }
+      }
+    }).catch(function () {});
+  }
+
+  // -- Loading skeletons ------------------------------------------------------
+
+  function skeletonLine(width) {
+    var line = el('div', 'agend-skel-line');
+    line.style.width = width;
+    return line;
+  }
+
+  function skeletonCard() {
+    var card = el('article', 'agend-lms-card agend-lms-skeleton');
+    card.setAttribute('aria-hidden', 'true');
+    card.appendChild(el('div', 'agend-lms-card__media'));
+    var body = el('div', 'agend-lms-card__body');
+    body.appendChild(skeletonLine('35%'));
+    body.appendChild(skeletonLine('85%'));
+    body.appendChild(skeletonLine('60%'));
+    body.appendChild(skeletonLine('45%'));
+    card.appendChild(body);
+    return card;
+  }
+
+  // One complete grid row of placeholders (3 when the layout is a single
+  // column, i.e. list-like).
+  function skeletonCount(cfg) {
+    var cols = (cfg.layout && cfg.layout.desktop) || 3;
+    return cols === 1 ? 3 : cols;
+  }
+
+  function appendGridSkeletons(grid, cfg) {
+    for (var i = 0; i < skeletonCount(cfg); i++) {
+      grid.appendChild(skeletonCard());
+    }
+  }
+
+  function renderDetailSkeleton() {
+    var wrap = el('div', 'agend-lms-detail agend-lms-skeleton agend-lms-detail-skeleton');
+    wrap.setAttribute('role', 'status');
+    wrap.appendChild(el('span', 'agend-visually-hidden', 'Loading course…'));
+    wrap.appendChild(el('div', 'agend-lms-detail__hero agend-skel-block'));
+    var layout = el('div', 'agend-lms-detail__layout');
+    var main = el('div', 'agend-lms-detail__main');
+    ['30%', '95%', '90%', '80%', '60%'].forEach(function (w) {
+      main.appendChild(skeletonLine(w));
+    });
+    layout.appendChild(main);
+    var side = el('aside', 'agend-lms-detail__side');
+    side.appendChild(el('div', 'agend-lms-detail__panel agend-skel-block'));
+    side.appendChild(el('div', 'agend-lms-detail__panel agend-skel-block'));
+    layout.appendChild(side);
+    wrap.appendChild(layout);
+    return wrap;
+  }
+
+  // -- Catalogue ------------------------------------------------------------
+
+  function renderCard(course, cfg, onOpen) {
+    var card = el('article', 'agend-lms-card');
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.addEventListener('click', function () {
+      onOpen(course.slug);
+    });
+    card.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onOpen(course.slug);
+      }
+    });
+
+    if (cfg.card.image) {
+      var media = el('div', 'agend-lms-card__media');
+      if (course.image_url) {
+        var img = el('img', 'agend-lms-card__img');
+        img.src = course.image_url;
+        img.alt = course.title || '';
+        img.loading = 'lazy';
+        media.appendChild(img);
+      } else {
+        media.classList.add('agend-lms-card__media--placeholder');
+      }
+      if (cfg.card.difficulty && course.difficulty) {
+        var badge = el('span', 'agend-lms-badge agend-lms-badge--' + course.difficulty, difficultyLabel(course.difficulty));
+        media.appendChild(badge);
+      }
+      if (cfg.card.deliveryMode && course.delivery_mode) {
+        media.appendChild(el('span', 'agend-lms-mode-pill', deliveryModeLabel(course.delivery_mode)));
+      }
+      // Member completion on the grid (bearer-enriched list item).
+      if (course.my_enrollment && course.my_enrollment.progress && course.my_enrollment.progress.completed) {
+        media.appendChild(el('span', 'agend-lms-card__completed', '✓ Completed'));
+      }
+      card.appendChild(media);
+    }
+
+    var body = el('div', 'agend-lms-card__body');
+
+    // When the image is hidden the completion state still needs a home.
+    if (!cfg.card.image && course.my_enrollment && course.my_enrollment.progress && course.my_enrollment.progress.completed) {
+      body.appendChild(el('span', 'agend-lms-card__completed agend-lms-card__completed--inline', '✓ Completed'));
+    }
+
+    if (cfg.card.category && course.category) {
+      body.appendChild(el('span', 'agend-lms-card__category', course.category));
+    }
+
+    body.appendChild(el('h3', 'agend-lms-card__title', course.title || ''));
+
+    if (cfg.card.description) {
+      var desc = stripHtml(course.description || '');
+      if (desc) {
+        body.appendChild(el('p', 'agend-lms-card__desc', truncate(desc, cfg.card.excerptLength)));
+      }
+    }
+
+    var footer = el('div', 'agend-lms-card__footer');
+    if (cfg.card.meta) {
+      var meta = el('div', 'agend-lms-card__meta');
+      meta.appendChild(el('span', 'agend-lms-card__meta-item', formatDuration(course.total_duration_minutes)));
+      var modules = (course.lessons_count || 0) + ' ' + ((course.lessons_count === 1) ? 'module' : 'modules');
+      meta.appendChild(el('span', 'agend-lms-card__meta-item', modules));
+      footer.appendChild(meta);
+    }
+    if (cfg.card.price) {
+      var price = priceLabel(course);
+      footer.appendChild(el('span', 'agend-lms-card__price' + (price === 'Free' ? ' is-free' : ''), price));
+    }
+    body.appendChild(footer);
+
+    card.appendChild(body);
+    return card;
+  }
+
+  // -- Detail ---------------------------------------------------------------
+
+  function renderDetail(course, cfg, onBack, onEnrol) {
+    var wrap = el('div', 'agend-lms-detail');
+
+    var back = el('button', 'agend-lms-detail__back', '← Back to Learning');
+    back.addEventListener('click', onBack);
+    wrap.appendChild(back);
+
+    var hero = el('div', 'agend-lms-detail__hero');
+    if (course.image_url) {
+      hero.style.backgroundImage = 'linear-gradient(180deg, rgba(30,42,74,0.4), rgba(30,42,74,0.88)), url("' + course.image_url + '")';
+    }
+    var heroInner = el('div', 'agend-lms-detail__hero-inner');
+    var pills = el('div', 'agend-lms-card__pills');
+    if (course.category) {
+      pills.appendChild(el('span', 'agend-lms-pill agend-lms-pill--category', course.category));
+    }
+    if (course.difficulty) {
+      pills.appendChild(el('span', 'agend-lms-pill agend-lms-pill--difficulty', difficultyLabel(course.difficulty)));
+    }
+    if (course.delivery_mode) {
+      pills.appendChild(el('span', 'agend-lms-pill agend-lms-pill--mode', deliveryModeLabel(course.delivery_mode)));
+    }
+    heroInner.appendChild(pills);
+    heroInner.appendChild(el('h2', 'agend-lms-detail__title', course.title || ''));
+    var meta = [formatDuration(course.total_duration_minutes), (course.lessons_count || 0) + ' modules'];
+    if (course.instructor_name) {
+      meta.push(course.instructor_name);
+    }
+    heroInner.appendChild(el('div', 'agend-lms-detail__meta', meta.filter(Boolean).join(' · ')));
+    hero.appendChild(heroInner);
+    wrap.appendChild(hero);
+
+    var layout = el('div', 'agend-lms-detail__layout');
+    var main = el('div', 'agend-lms-detail__main');
+
+    if (course.description) {
+      var about = el('section', 'agend-lms-detail__section');
+      about.appendChild(el('h3', 'agend-lms-detail__section-title', 'About This Course'));
+      var para = el('div', 'agend-lms-detail__body-text');
+      setSafeHtml(para, course.description);
+      about.appendChild(para);
+      main.appendChild(about);
+    }
+
+    if (course.learning_outcomes && course.learning_outcomes.length) {
+      var outcomes = el('section', 'agend-lms-detail__section');
+      outcomes.appendChild(el('h3', 'agend-lms-detail__section-title', "What You'll Learn"));
+      var list = el('ul', 'agend-lms-detail__outcomes');
+      course.learning_outcomes.forEach(function (o) {
+        list.appendChild(el('li', 'agend-lms-detail__outcome', typeof o === 'string' ? o : (o && o.text) || ''));
+      });
+      outcomes.appendChild(list);
+      main.appendChild(outcomes);
+    }
+
+    layout.appendChild(main);
+
+    var side = el('aside', 'agend-lms-detail__side');
+
+    // The detail response is bearer-enriched (Decision 2.7): my_enrollment
+    // arrives WITH the course, so the sidebar is decided synchronously — an
+    // enrolled member gets their progress panel and never sees "Enrol Now"
+    // (Decision 2.9); everyone else gets the pricing panel with the CTA
+    // immediately (no loading placeholder needed).
+    if (course.my_enrollment) {
+      side.appendChild(renderEnrollmentPanel(course.my_enrollment));
+    } else {
+      var pricing = el('div', 'agend-lms-detail__panel agend-lms-detail__panel--pricing');
+      pricing.appendChild(el('h3', 'agend-lms-detail__panel-title', 'Course Pricing'));
+      var priceRow = el('div', 'agend-lms-detail__price-row');
+      priceRow.appendChild(el('span', 'agend-lms-detail__price-label', 'Price'));
+      var price = priceLabel(course);
+      priceRow.appendChild(el('span', 'agend-lms-detail__price-value' + (price === 'Free' ? ' is-free' : ''), price));
+      pricing.appendChild(priceRow);
+      var cta = el('button', 'agend-lms-detail__cta', 'Enrol Now');
+      cta.setAttribute('data-agend-course-slug', course.slug);
+      cta.addEventListener('click', function () {
+        if (typeof onEnrol === 'function') {
+          onEnrol(course);
+        }
+      });
+      pricing.appendChild(cta);
+      pricing.appendChild(el('p', 'agend-lms-detail__note', 'Sign in to enrol and track your progress.'));
+      side.appendChild(pricing);
+    }
+
+    var facts = el('div', 'agend-lms-detail__panel');
+    facts.appendChild(el('h3', 'agend-lms-detail__panel-title', 'Details'));
+    [
+      ['Level', difficultyLabel(course.difficulty)],
+      ['Format', deliveryModeLabel(course.delivery_mode)],
+      ['Duration', formatDuration(course.total_duration_minutes)],
+      ['Modules', String(course.lessons_count || 0)],
+      ['Category', course.category],
+      ['Instructor', course.instructor_name],
+    ].forEach(function (pair) {
+      if (!pair[1]) {
+        return;
+      }
+      var row = el('div', 'agend-lms-detail__fact');
+      row.appendChild(el('span', 'agend-lms-detail__fact-label', pair[0]));
+      row.appendChild(el('span', 'agend-lms-detail__fact-value', pair[1]));
+      facts.appendChild(row);
+    });
+    side.appendChild(facts);
+
+    layout.appendChild(side);
+    wrap.appendChild(layout);
+    return wrap;
+  }
+
+  function renderNotFound(onBack) {
+    var wrap = el('div', 'agend-lms-detail');
+    var back = el('button', 'agend-lms-detail__back', '← Back to Learning');
+    back.addEventListener('click', onBack);
+    wrap.appendChild(back);
+    wrap.appendChild(el('div', 'agend-lms-status', 'Course not found.'));
+    return wrap;
+  }
+
+  // -- Enrolment state (US-LMS.5) --------------------------------------------
+
+  // Builds the sidebar panel for an existing enrolment record. The pricing
+  // panel is fully suppressed for ANY enrolment record (Decision 2.9): an
+  // enrolled member sees progress (accent), a completed member sees the
+  // completed state (semantic green), and neither ever sees a price.
+  function renderEnrollmentPanel(enrollment) {
+    var panel = el('div', 'agend-lms-detail__panel agend-lms-detail__panel--enrollment');
+    var progress = enrollment.progress || {};
+
+    if (progress.completed) {
+      panel.classList.add('is-completed');
+      panel.appendChild(el('h3', 'agend-lms-detail__panel-title', 'Course Completed'));
+      var done = el('div', 'agend-lms-enrol__completed');
+      done.appendChild(el('span', 'agend-lms-enrol__tick', '✓'));
+      var when = progress.completed_at
+        ? ' on ' + new Date(progress.completed_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+        : '';
+      done.appendChild(el('span', 'agend-lms-enrol__completed-text', 'You completed this course' + when + '.'));
+      panel.appendChild(done);
+      panel.appendChild(el('p', 'agend-lms-detail__note', 'Your certificate is available in your learning portal.'));
+      return panel;
+    }
+
+    panel.appendChild(el('h3', 'agend-lms-detail__panel-title', 'Your Progress'));
+    var pct = Math.max(0, Math.min(100, Math.round(progress.percentage || 0)));
+    var bar = el('div', 'agend-lms-enrol__bar');
+    var fill = el('div', 'agend-lms-enrol__bar-fill');
+    fill.style.width = pct + '%';
+    bar.appendChild(fill);
+    panel.appendChild(bar);
+    var meta = el('div', 'agend-lms-enrol__meta');
+    meta.appendChild(el('span', 'agend-lms-enrol__lessons', (progress.lessons_completed || 0) + ' of ' + (progress.total_lessons || 0) + ' modules complete'));
+    meta.appendChild(el('span', 'agend-lms-enrol__pct', pct + '%'));
+    panel.appendChild(meta);
+    panel.appendChild(el('p', 'agend-lms-detail__note', 'Continue learning in your member portal.'));
+    return panel;
+  }
+
+  // -- Enrolment gate -------------------------------------------------------
+
+  // A course enrolment grants a specific learner login-gated access, so unlike
+  // an event ticket it cannot be completed anonymously: it needs a member
+  // identity. Until the SSO bearer worker lands (addendum E-11) the widget
+  // hands the visitor to member sign-in rather than presenting a dead-end
+  // guest form. A configured sign-in URL wins; otherwise fall back to the WP
+  // login with a return to this course's deep link.
+  function memberSignInUrl(cfg, course) {
+    if (cfg.enrol && cfg.enrol.signInUrl) {
+      return cfg.enrol.signInUrl;
+    }
+    if (window.agendApps && window.agendApps.loginUrl) {
+      return window.agendApps.loginUrl;
+    }
+    var ret = window.location.href;
+    try {
+      var u = new URL(window.location.href);
+      u.searchParams.set(DEEP_LINK_PARAM, course.slug);
+      ret = u.toString();
+    } catch (e) {
+      /* URL API unavailable — return the raw href */
+    }
+    return '/wp-login.php?redirect_to=' + encodeURIComponent(ret);
+  }
+
+  function renderEnrolGate(course, cfg, onBack) {
+    var wrap = el('div', 'agend-lms-detail');
+
+    var back = el('button', 'agend-lms-detail__back', '← Back to Course');
+    back.addEventListener('click', onBack);
+    wrap.appendChild(back);
+
+    var panel = el('div', 'agend-lms-gate');
+    panel.appendChild(el('div', 'agend-lms-gate__icon', '🔒'));
+    panel.appendChild(el('h2', 'agend-lms-gate__title', 'Enrol in ' + (course.title || 'this course')));
+
+    var price = priceLabel(course);
+    var priceRow = el('div', 'agend-lms-gate__price');
+    priceRow.appendChild(el('span', null, 'Price'));
+    priceRow.appendChild(el('span', 'agend-lms-gate__price-value' + (price === 'Free' ? ' is-free' : ''), price));
+    panel.appendChild(priceRow);
+
+    panel.appendChild(el('p', 'agend-lms-gate__text', 'Enrolment is available to members. Sign in to enrol and track your progress in your learning portal.'));
+
+    var signIn = el('a', 'agend-lms-detail__cta agend-lms-gate__cta', 'Sign in to enrol');
+    signIn.href = memberSignInUrl(cfg, course);
+    panel.appendChild(signIn);
+
+    wrap.appendChild(panel);
+    return wrap;
+  }
+
+  // -- Filters + pagination -------------------------------------------------
+
+  function buildFilterBar(root, cfg, state, reload) {
+    if (!cfg.filters.search && !cfg.filters.category && !cfg.filters.difficulty && !cfg.filters.deliveryMode) {
+      return;
+    }
+    var bar = el('div', 'agend-lms-filterbar');
+    var exclusions = cfg.exclusions || {};
+
+    if (cfg.filters.search) {
+      var search = el('input', 'agend-lms-search');
+      search.type = 'search';
+      search.placeholder = 'Search courses…';
+      var debounce;
+      search.addEventListener('input', function () {
+        window.clearTimeout(debounce);
+        debounce = window.setTimeout(function () {
+          state.search = search.value.trim();
+          state.page = 1;
+          reload();
+        }, 300);
+      });
+      bar.appendChild(search);
+    }
+
+    if (cfg.filters.category) {
+      var category = el('select', 'agend-lms-filter');
+      category.appendChild(new Option('All Categories', ''));
+      var excludedCategories = exclusions.categories || [];
+      // Course categories are free-text on the course; derive the distinct set
+      // from a wide fetch. Excluded categories can never match, so hide them.
+      apiGet('/lms/courses', { limit: 100 }).then(function (body) {
+        var seen = {};
+        unwrapList(body).items.forEach(function (course) {
+          if (course.category && !seen[course.category] && excludedCategories.indexOf(course.category) === -1) {
+            seen[course.category] = true;
+            category.appendChild(new Option(course.category, course.category));
+          }
+        });
+      });
+      category.addEventListener('change', function () {
+        state.category = category.value;
+        state.page = 1;
+        reload();
+      });
+      bar.appendChild(category);
+    }
+
+    if (cfg.filters.difficulty) {
+      var difficulty = el('select', 'agend-lms-filter');
+      var excludedDifficulties = exclusions.difficulties || [];
+      [['All Levels', ''], ['Beginner', 'beginner'], ['Intermediate', 'intermediate'], ['Advanced', 'advanced']].forEach(function (o) {
+        if (o[1] && excludedDifficulties.indexOf(o[1]) !== -1) {
+          return;
+        }
+        difficulty.appendChild(new Option(o[0], o[1]));
+      });
+      difficulty.addEventListener('change', function () {
+        state.difficulty = difficulty.value;
+        state.page = 1;
+        reload();
+      });
+      bar.appendChild(difficulty);
+    }
+
+    if (cfg.filters.deliveryMode) {
+      var mode = el('select', 'agend-lms-filter');
+      var excludedModes = exclusions.deliveryModes || [];
+      [['All Formats', ''], ['Self-paced', 'self_paced'], ['Live Online', 'live_online'], ['In-Person', 'in_person'], ['Blended', 'blended']].forEach(function (o) {
+        if (o[1] && excludedModes.indexOf(o[1]) !== -1) {
+          return;
+        }
+        mode.appendChild(new Option(o[0], o[1]));
+      });
+      mode.addEventListener('change', function () {
+        state.deliveryMode = mode.value;
+        state.page = 1;
+        reload();
+      });
+      bar.appendChild(mode);
+    }
+
+    root.appendChild(bar);
+  }
+
+  function renderPagination(root, cfg, state, pagination, reload) {
+    if (cfg.pagination.style === 'none' || !pagination) {
+      return;
+    }
+    var nav = el('div', 'agend-lms-pagination');
+    if (cfg.pagination.style === 'load_more') {
+      if (pagination.has_next) {
+        var more = el('button', 'agend-lms-loadmore', 'Load more courses');
+        more.addEventListener('click', function () {
+          state.page = (pagination.page || state.page) + 1;
+          state.append = true;
+          reload();
+        });
+        nav.appendChild(more);
+      }
+    } else {
+      for (var i = 1; i <= (pagination.total_pages || 1); i++) {
+        (function (pageNum) {
+          var btn = el('button', 'agend-lms-page' + (pageNum === pagination.page ? ' is-active' : ''), pageNum);
+          btn.addEventListener('click', function () {
+            state.page = pageNum;
+            reload();
+          });
+          nav.appendChild(btn);
+        })(i);
+      }
+    }
+    root.appendChild(nav);
+  }
+
+  // -- Widget orchestration -------------------------------------------------
+
+  function initWidget(root) {
+    var cfg;
+    try {
+      cfg = JSON.parse(root.getAttribute('data-agend-courses-config'));
+    } catch (e) {
+      return;
+    }
+
+    var state = { search: '', category: '', difficulty: '', deliveryMode: '', page: 1, append: false };
+    applySiteTheme(root, cfg);
+
+    var catalogueEl = el('div', 'agend-lms-catalogue');
+    var status = el('div', 'agend-lms-status', 'Loading courses…');
+    var grid = el('div', 'agend-lms-grid');
+    grid.style.setProperty('--agend-lms-cols-desktop', cfg.layout.desktop);
+    grid.style.setProperty('--agend-lms-cols-tablet', cfg.layout.tablet);
+    grid.style.setProperty('--agend-lms-cols-mobile', cfg.layout.mobile);
+    var pager = el('div', 'agend-lms-pager-slot');
+
+    if (cfg.heading && cfg.heading.show) {
+      var head = el('div', 'agend-lms-heading');
+      if (cfg.heading.title) {
+        head.appendChild(el('h2', 'agend-lms-heading__title', cfg.heading.title));
+      }
+      if (cfg.heading.subtitle) {
+        head.appendChild(el('p', 'agend-lms-heading__subtitle', cfg.heading.subtitle));
+      }
+      catalogueEl.appendChild(head);
+    }
+    buildFilterBar(catalogueEl, cfg, state, reloadCatalogue);
+    catalogueEl.appendChild(status);
+    catalogueEl.appendChild(grid);
+    catalogueEl.appendChild(pager);
+
+    function setUrlParam(slug) {
+      try {
+        var url = new URL(window.location.href);
+        if (slug) {
+          url.searchParams.set(DEEP_LINK_PARAM, slug);
+        } else {
+          url.searchParams.delete(DEEP_LINK_PARAM);
+        }
+        window.history.pushState({ agendCourse: slug || null }, '', url.toString());
+      } catch (e) {}
+    }
+
+    function showCatalogue(updateUrl) {
+      root.innerHTML = '';
+      root.appendChild(catalogueEl);
+      if (updateUrl) {
+        setUrlParam(null);
+      }
+    }
+
+    function showDetail(slug, updateUrl) {
+      root.innerHTML = '';
+      root.appendChild(renderDetailSkeleton());
+      if (updateUrl) {
+        setUrlParam(slug);
+      }
+      apiGet('/lms/courses/' + encodeURIComponent(slug), {}).then(function (body) {
+        var course = unwrapOne(body);
+        root.innerHTML = '';
+        if (!course || !course.slug) {
+          root.appendChild(renderNotFound(function () { showCatalogue(true); }));
+          return;
+        }
+        root.appendChild(renderDetail(
+          course,
+          cfg,
+          function () { showCatalogue(true); },
+          function (c) { showEnrolGate(c); }
+        ));
+      }).catch(function () {
+        root.innerHTML = '';
+        root.appendChild(renderNotFound(function () { showCatalogue(true); }));
+      });
+    }
+
+    function showEnrolGate(course) {
+      root.innerHTML = '';
+      root.appendChild(renderEnrolGate(course, cfg, function () { showDetail(course.slug, false); }));
+    }
+
+    function reloadCatalogue() {
+      status.style.display = 'none';
+      pager.innerHTML = '';
+      // Pending state: one complete row of card placeholders (US: no plain
+      // "Loading…" text while data loads).
+      if (!state.append) {
+        grid.innerHTML = '';
+        appendGridSkeletons(grid, cfg);
+      }
+      var exclusions = cfg.exclusions || {};
+      apiGet('/lms/courses', {
+        page: state.page,
+        limit: cfg.pagination.perPage,
+        search: state.search,
+        category: state.category,
+        difficulty: state.difficulty,
+        deliveryMode: state.deliveryMode,
+        excludeCategories: exclusions.categories || [],
+        excludeDifficulties: exclusions.difficulties || [],
+        excludeDeliveryModes: exclusions.deliveryModes || [],
+      }).then(function (body) {
+        var result = unwrapList(body);
+        status.style.display = 'none';
+        if (!state.append) {
+          grid.innerHTML = '';
+        }
+        state.append = false;
+        if (!result.items.length && !grid.childNodes.length) {
+          status.style.display = '';
+          status.textContent = 'No courses found.';
+          return;
+        }
+        result.items.forEach(function (course) {
+          grid.appendChild(renderCard(course, cfg, function (slug) { showDetail(slug, true); }));
+        });
+        renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);
+      }).catch(function () {
+        if (!state.append) {
+          grid.innerHTML = '';
+        }
+        status.style.display = '';
+        status.textContent = 'Unable to load courses.';
+      });
+    }
+
+    function currentDeepLink() {
+      try {
+        return new URL(window.location.href).searchParams.get(DEEP_LINK_PARAM);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    window.addEventListener('popstate', function () {
+      var slug = currentDeepLink();
+      if (slug) {
+        showDetail(slug, false);
+      } else {
+        showCatalogue(false);
+      }
+    });
+
+    var deepLinkSlug = currentDeepLink();
+    if (deepLinkSlug) {
+      showDetail(deepLinkSlug, false);
+      reloadCatalogue();
+    } else {
+      showCatalogue(false);
+      reloadCatalogue();
+    }
+  }
+
+  function initAll() {
+    var nodes = document.querySelectorAll('.agend-courses-catalogue[data-agend-courses-config]');
+    Array.prototype.forEach.call(nodes, initWidget);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAll);
+  } else {
+    initAll();
+  }
+})();

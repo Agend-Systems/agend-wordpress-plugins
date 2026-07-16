@@ -1,0 +1,103 @@
+/**
+ * Agend Account Link widget styles.
+ * Colour tokens are set as CSS custom properties on the container by the
+ * widget's render() output and the frontend script.
+ */
+
+.agend-account-link {
+  --agend-al-heading: #1e2a4a;
+  --agend-al-body: #26304d;
+  --agend-al-accent: #ff6b55;
+  --agend-al-button: #ff6b55;
+  --agend-al-button-text: #ffffff;
+  color: var(--agend-al-body);
+  font-family: var(--agend-al-font-body, inherit);
+}
+
+.agend-account-link h3 {
+  font-family: var(--agend-al-font-heading, inherit);
+}
+
+.agend-al-status {
+  padding: 1rem 0;
+  opacity: 0.7;
+}
+
+.agend-al-card {
+  border: 1px solid #eceef4;
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(30, 42, 74, 0.08);
+  max-width: 480px;
+}
+
+.agend-al-card.is-linked {
+  border-color: rgba(34, 139, 78, 0.35);
+}
+
+.agend-al-card__heading {
+  color: var(--agend-al-heading);
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+.agend-al-card__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.agend-al-card__tick {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: #228b4e;
+  color: #fff;
+  font-size: 0.95rem;
+  line-height: 1.6rem;
+  text-align: center;
+  flex: none;
+}
+
+.agend-al-card__badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #228b4e;
+}
+
+.agend-al-card__text {
+  margin: 0;
+  line-height: 1.55;
+  opacity: 0.9;
+}
+
+.agend-al-card__note {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.agend-al-card__button {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.7rem 1.4rem;
+  border-radius: 8px;
+  background: var(--agend-al-button);
+  color: var(--agend-al-button-text);
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.agend-al-card__button:hover {
+  filter: brightness(0.95);
+}
+
+.agend-al-card__button:focus {
+  outline: 2px solid var(--agend-al-accent);
+  outline-offset: 2px;
+}

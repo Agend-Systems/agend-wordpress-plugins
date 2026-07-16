@@ -198,3 +198,87 @@ function agend_apps_sso_delete_connection( string $id ) {
 	 */
 	return apply_filters( 'agend_apps_sso_delete_connection_response', $response, $id );
 }
+
+/**
+ * Checks whether an external identity is linked to a member on the account.
+ *
+ * Scope: `sso.identities.read`. Resolve only: the gateway mints nothing and
+ * never provisions, so an unlinked identity is a normal `{ linked: false }`
+ * result rather than an error. Administrative; not cached.
+ *
+ * @param string $idp_entity_id The SAML IdP entity id naming the connection.
+ * @param string $external_id   The member's opaque external subject (SAML NameID).
+ * @return array|WP_Error Decoded response envelope containing `data.linked` on success, or WP_Error on failure.
+ */
+function agend_apps_sso_get_link_status( string $idp_entity_id, string $external_id ) {
+	/**
+	 * Filters the link-status request args before the request is sent.
+	 *
+	 * @param array  $args          Request args.
+	 * @param string $idp_entity_id The SAML IdP entity id.
+	 * @param string $external_id   The external subject.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_sso_get_link_status_args',
+		array(
+			'query' => array(
+				'idpEntityId' => $idp_entity_id,
+				'externalId'  => $external_id,
+			),
+		),
+		$idp_entity_id,
+		$external_id
+	);
+
+	$response = agend_apps_api()->request( 'GET', '/sso/identities/status', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded link-status response before it is returned.
+	 *
+	 * @param array  $response      Decoded response body.
+	 * @param string $idp_entity_id The SAML IdP entity id.
+	 * @param string $external_id   The external subject.
+	 */
+	return apply_filters( 'agend_apps_sso_get_link_status_response', $response, $idp_entity_id, $external_id );
+}
+
+/**
+ * Mints a short-lived Supabase access token for an already-linked member.
+ *
+ * Scope: `sso.tokens.create`. Resolve only: the gateway never provisions, so
+ * an unlinked member returns a 404 `EXTERNAL_IDENTITY_NOT_FOUND` WP_Error. No
+ * refresh token is returned (the caller re-mints on expiry). The token is
+ * impersonation-grade material: never log it, never cache it in a transient,
+ * and never return it to the browser. The token worker
+ * (`Agend_Apps_Token_Worker`) is the intended caller.
+ *
+ * @param string $idp_entity_id The SAML IdP entity id naming the connection.
+ * @param string $external_id   The member's opaque external subject (SAML NameID).
+ * @return array|WP_Error Decoded response envelope containing `data.access_token`,
+ *                        `data.expires_at` (epoch seconds), `data.user_id`, and
+ *                        `data.token_type` on success, or WP_Error on failure.
+ */
+function agend_apps_sso_mint_token( string $idp_entity_id, string $external_id ) {
+	$args = array(
+		'body' => array(
+			'idp_entity_id' => $idp_entity_id,
+			'external_id'   => $external_id,
+		),
+	);
+
+	// Deliberately NO request-args filter here: the payload is an identity
+	// assertion and must not be rewritable by sibling plugins.
+	$response = agend_apps_api()->request( 'POST', '/sso/tokens', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	// Deliberately NO response filter either: the minted token must reach the
+	// worker exactly as issued.
+	return $response;
+}
