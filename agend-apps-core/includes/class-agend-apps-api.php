@@ -58,11 +58,19 @@ class Agend_Apps_API {
 	 *
 	 *     @type array  $body         Request body as a PHP array; JSON-encoded before sending.
 	 *     @type array  $query        Query string parameters appended to the URL.
+	 *     @type array  $query_multi  Repeatable query parameters, keyed by name with an array of
+	 *                                values each. Serialised as repeated bare keys
+	 *                                (`key=a&key=b`, no PHP-style brackets) because the gateway
+	 *                                reads them via `searchParams.getAll()`.
 	 *     @type array  $headers      Additional headers merged on top of defaults.
 	 *     @type string $cart_session Forwarded as `X-Cart-Session` header when non-empty.
 	 *     @type string $bearer_token Supabase user JWT forwarded as `Authorization: Bearer`.
 	 *                                When omitted, the value of `agend_apps_get_bearer_token()`
 	 *                                is used so a logged-in identity is attached automatically.
+	 *     @type bool   $raw          Optional. When true the response body is returned verbatim
+	 *                                (no JSON decoding) as an array with `body`, `status_code`,
+	 *                                `content_type`, and `content_disposition` keys. For
+	 *                                non-JSON payloads such as iCal files. Default false.
 	 * }
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
@@ -82,6 +90,26 @@ class Agend_Apps_API {
 
 		if ( ! empty( $args['query'] ) && is_array( $args['query'] ) ) {
 			$url = add_query_arg( $args['query'], $url );
+		}
+
+		// Repeatable parameters as repeated bare keys (`key=a&key=b`). PHP's
+		// bracketed array serialisation (`key[0]=a`) is NOT understood by the
+		// gateway, which reads repeats via `searchParams.getAll()`.
+		if ( ! empty( $args['query_multi'] ) && is_array( $args['query_multi'] ) ) {
+			$pairs = array();
+
+			foreach ( $args['query_multi'] as $key => $values ) {
+				foreach ( (array) $values as $value ) {
+					if ( '' === (string) $value ) {
+						continue;
+					}
+					$pairs[] = rawurlencode( (string) $key ) . '=' . rawurlencode( (string) $value );
+				}
+			}
+
+			if ( $pairs ) {
+				$url .= ( false === strpos( $url, '?' ) ? '?' : '&' ) . implode( '&', $pairs );
+			}
 		}
 
 		// 3. Allow URL override.
@@ -186,6 +214,29 @@ class Agend_Apps_API {
 		// 13. Parse the response.
 		$status_code = (int) wp_remote_retrieve_response_code( $response );
 		$body        = wp_remote_retrieve_body( $response );
+
+		// Raw passthrough (e.g. iCal downloads): no JSON handling. Errors are
+		// still surfaced as WP_Error with the upstream status so REST
+		// controllers can translate them.
+		if ( ! empty( $args['raw'] ) ) {
+			if ( $status_code < 200 || $status_code >= 300 ) {
+				return new WP_Error(
+					'agend_api_error',
+					__( 'The Agend API returned an error for this download.', 'agend-apps-core' ),
+					array(
+						'status_code' => $status_code,
+						'path'        => $path,
+					)
+				);
+			}
+
+			return array(
+				'body'                => $body,
+				'status_code'         => $status_code,
+				'content_type'        => (string) wp_remote_retrieve_header( $response, 'content-type' ),
+				'content_disposition' => (string) wp_remote_retrieve_header( $response, 'content-disposition' ),
+			);
+		}
 
 		// 204 No Content — no body to decode.
 		if ( 204 === $status_code ) {
