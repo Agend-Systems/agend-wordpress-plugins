@@ -172,16 +172,70 @@ function agend_apps_directory_search( string $search_query, array $filters = arr
 }
 
 /**
+ * Retrieves the approved reviews for a single directory listing.
+ *
+ * Read route, publicly cached. Only approved reviews are returned by the
+ * gateway; `reviewer_email` and `verification_token` are never included.
+ *
+ * @param string $listing_id The listing slug or UUID to read reviews for.
+ * @param array  $query      Optional. Query parameters (`page`, `limit`). Default empty.
+ * @return array|WP_Error Decoded reviews array on success, or WP_Error on failure.
+ */
+function agend_apps_directory_get_listing_reviews( string $listing_id, array $query = array() ) {
+	/**
+	 * Filters the directory listing-reviews request args before the request is sent.
+	 *
+	 * @param array  $args       Request args.
+	 * @param string $listing_id Listing slug or UUID.
+	 * @param array  $query      Query parameters.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_directory_get_listing_reviews_args',
+		array( 'query' => $query ),
+		$listing_id,
+		$query
+	);
+
+	$cache_key = Agend_Apps_Cache::build_key(
+		'directory_listing_reviews',
+		array_merge( array( 'id' => $listing_id ), $query )
+	);
+	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_listing_reviews' );
+
+	$response = agend_apps_api()->get_cached(
+		'/directory/listings/' . rawurlencode( $listing_id ) . '/reviews',
+		$args,
+		$cache_key,
+		$ttl
+	);
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded listing-reviews response before it is returned.
+	 *
+	 * @param array  $response   Decoded response body.
+	 * @param string $listing_id Listing slug or UUID.
+	 * @param array  $query      Query parameters.
+	 */
+	return apply_filters( 'agend_apps_directory_get_listing_reviews_response', $response, $listing_id, $query );
+}
+
+/**
  * Busts every cached directory read.
  *
- * Listing writes can affect index, single-listing, search, and category
- * results, so all directory caches are cleared after a successful mutation.
+ * Listing writes can affect index, single-listing, search, category, and
+ * review results, so all directory caches are cleared after a successful
+ * mutation.
  */
 function agend_apps_directory_flush_cache(): void {
 	Agend_Apps_Cache::clear( 'directory_listings' );
 	Agend_Apps_Cache::clear( 'directory_listing_single' );
 	Agend_Apps_Cache::clear( 'directory_search' );
 	Agend_Apps_Cache::clear( 'directory_categories' );
+	Agend_Apps_Cache::clear( 'directory_listing_reviews' );
 }
 
 /**
