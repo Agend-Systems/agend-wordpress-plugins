@@ -98,6 +98,16 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 							'enum'              => array( 'upcoming', 'past', 'all' ),
 							'sanitize_callback' => 'sanitize_text_field',
 						),
+						'categoriesMatch' => array(
+							'type'              => 'string',
+							'enum'              => array( 'any', 'all' ),
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'excludeCategoriesMatch' => array(
+							'type'              => 'string',
+							'enum'              => array( 'any', 'all' ),
+							'sanitize_callback' => 'sanitize_text_field',
+						),
 						'startAfter'  => array(
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
@@ -393,7 +403,7 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_events( WP_REST_Request $request ): WP_REST_Response {
-		$allowed = array( 'page', 'limit', 'search', 'category', 'type', 'city', 'categories', 'types', 'cities', 'timeframe', 'startAfter', 'startBefore', 'sortBy', 'sortOrder', 'excludeCategories', 'excludeTags', 'excludeVenueTypes', 'excludeCities' );
+		$allowed = array( 'page', 'limit', 'search', 'category', 'type', 'city', 'categories', 'types', 'cities', 'categoriesMatch', 'timeframe', 'startAfter', 'startBefore', 'sortBy', 'sortOrder', 'excludeCategories', 'excludeTags', 'excludeVenueTypes', 'excludeCities', 'excludeCategoriesMatch' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {

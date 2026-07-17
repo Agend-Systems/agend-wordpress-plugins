@@ -265,12 +265,31 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			)
 		);
 
+		// Search.
+		$this->add_control(
+			'heading_filter_search',
+			array(
+				'label' => __( 'Search', 'agend-elementor' ),
+				'type'  => \Elementor\Controls_Manager::HEADING,
+			)
+		);
+
 		$this->add_control(
 			'show_search',
 			array(
 				'label'   => __( 'Show search box', 'agend-elementor' ),
 				'type'    => \Elementor\Controls_Manager::SWITCHER,
 				'default' => 'yes',
+			)
+		);
+
+		// Category.
+		$this->add_control(
+			'heading_filter_category',
+			array(
+				'label'     => __( 'Category', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
 			)
 		);
 
@@ -294,6 +313,33 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'category_match_mode',
+			array(
+				'label'     => __( 'Multiple categories match', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::SELECT,
+				'options'   => array(
+					'any' => __( 'Any (in any selected category)', 'agend-elementor' ),
+					'all' => __( 'All (in every selected category)', 'agend-elementor' ),
+				),
+				'default'   => 'any',
+				'condition' => array(
+					'show_category_filter'  => 'yes',
+					'multi_category_filter' => 'yes',
+				),
+			)
+		);
+
+		// Type.
+		$this->add_control(
+			'heading_filter_type',
+			array(
+				'label'     => __( 'Type', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
+			)
+		);
+
+		$this->add_control(
 			'show_type_filter',
 			array(
 				'label'   => __( 'Show type filter', 'agend-elementor' ),
@@ -309,6 +355,16 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'type'      => \Elementor\Controls_Manager::SWITCHER,
 				'default'   => 'no',
 				'condition' => array( 'show_type_filter' => 'yes' ),
+			)
+		);
+
+		// City.
+		$this->add_control(
+			'heading_filter_city',
+			array(
+				'label'     => __( 'City', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
 			)
 		);
 
@@ -328,6 +384,16 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'type'      => \Elementor\Controls_Manager::SWITCHER,
 				'default'   => 'no',
 				'condition' => array( 'show_city_filter' => 'yes' ),
+			)
+		);
+
+		// Date.
+		$this->add_control(
+			'heading_filter_date',
+			array(
+				'label'     => __( 'Date', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
 			)
 		);
 
@@ -385,6 +451,19 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'multiple'    => true,
 				'label_block' => true,
 				'options'     => $this->category_options(),
+			)
+		);
+
+		$this->add_control(
+			'exclude_category_match_mode',
+			array(
+				'label'   => __( 'Category exclusion match', 'agend-elementor' ),
+				'type'    => \Elementor\Controls_Manager::SELECT,
+				'options' => array(
+					'any' => __( 'Any (exclude if in any selected)', 'agend-elementor' ),
+					'all' => __( 'All (exclude only if in every selected)', 'agend-elementor' ),
+				),
+				'default' => 'any',
 			)
 		);
 
@@ -661,11 +740,13 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'categoryMulti' => 'yes' === ( $s['multi_category_filter'] ?? 'no' ),
 				'typeMulti'     => 'yes' === ( $s['multi_type_filter'] ?? 'no' ),
 				'cityMulti'     => 'yes' === ( $s['multi_city_filter'] ?? 'no' ),
+				'categoryMatch' => (string) ( $s['category_match_mode'] ?? 'any' ),
 			),
 			'exclusions'     => array(
-				'categories' => $this->string_list( $s['exclude_categories'] ?? array() ),
-				'venueTypes' => $this->string_list( $s['exclude_venue_types'] ?? array() ),
-				'cities'     => $this->string_list( $s['exclude_cities'] ?? array() ),
+				'categories'    => $this->string_list( $s['exclude_categories'] ?? array() ),
+				'venueTypes'    => $this->string_list( $s['exclude_venue_types'] ?? array() ),
+				'cities'        => $this->string_list( $s['exclude_cities'] ?? array() ),
+				'categoryMatch' => (string) ( $s['exclude_category_match_mode'] ?? 'any' ),
 			),
 			'timeframe'      => (string) ( $s['event_timeframe'] ?? 'upcoming' ),
 			'pagination'     => array(
