@@ -1345,12 +1345,14 @@
         categories: state.categories,
         types: state.types,
         cities: state.cities,
+        categoriesMatch: (cfg.filters && cfg.filters.categoryMatch) || 'any',
         timeframe: cfg.timeframe || 'upcoming',
         startAfter: state.startAfter,
         startBefore: state.startBefore,
         excludeCategories: exclusions.categories || [],
         excludeVenueTypes: exclusions.venueTypes || [],
         excludeCities: exclusions.cities || [],
+        excludeCategoriesMatch: exclusions.categoryMatch || 'any',
       }).then(function (body) {
         var result = unwrapList(body);
         status.style.display = 'none';

@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events and Learning data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.4.0
+ * Version:           0.5.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.4.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.5.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
