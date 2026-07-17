@@ -638,9 +638,25 @@
   margin-bottom: 4px;
 }
 
+.agend-dir-review__name-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .agend-dir-review__name {
   color: var(--agend-dir-heading);
   font-weight: 700;
+}
+
+.agend-dir-review__verified {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22a565;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .agend-dir-review__date {
