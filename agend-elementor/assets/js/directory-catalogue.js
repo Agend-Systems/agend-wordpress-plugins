@@ -220,6 +220,7 @@
     }).join('') || '?';
   }
 
+  // Reviews are tenant-facing; DD/MM/YYYY per SPEC-INFRA-20260717 US-4.1 AC2.
   function formatDate(iso) {
     if (!iso) {
       return '';
@@ -228,7 +229,9 @@
     if (isNaN(d.getTime())) {
       return '';
     }
-    return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+    var dd = ('0' + d.getDate()).slice(-2);
+    var mm = ('0' + (d.getMonth() + 1)).slice(-2);
+    return dd + '/' + mm + '/' + d.getFullYear();
   }
 
   var DAY_LABELS = {
@@ -704,7 +707,12 @@
         result.items.forEach(function (review) {
           var item = el('div', 'agend-dir-review');
           var head = el('div', 'agend-dir-review__head');
-          head.appendChild(el('span', 'agend-dir-review__name', review.reviewer_name || 'Anonymous'));
+          var nameWrap = el('div', 'agend-dir-review__name-wrap');
+          nameWrap.appendChild(el('span', 'agend-dir-review__name', review.reviewer_name || 'Anonymous'));
+          if (review.is_verified) {
+            nameWrap.appendChild(el('span', 'agend-dir-review__verified', 'Verified'));
+          }
+          head.appendChild(nameWrap);
           head.appendChild(renderStars(review.rating, 0, false));
           item.appendChild(head);
           if (review.created_at) {
