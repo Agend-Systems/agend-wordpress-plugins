@@ -301,6 +301,16 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'show_date_filter',
+			array(
+				'label'       => __( 'Show date filter', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SWITCHER,
+				'default'     => 'yes',
+				'description' => __( 'A visitor dropdown to filter by event start date (starting after / before).', 'agend-elementor' ),
+			)
+		);
+
 		$this->end_controls_section();
 
 		// Exclusions section (editor-scoped: applied to every fetch this
@@ -617,6 +627,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'category' => 'yes' === ( $s['show_category_filter'] ?? 'yes' ),
 				'type'     => 'yes' === ( $s['show_type_filter'] ?? 'yes' ),
 				'city'     => 'yes' === ( $s['show_city_filter'] ?? 'yes' ),
+				'date'     => 'yes' === ( $s['show_date_filter'] ?? 'yes' ),
 			),
 			'exclusions'     => array(
 				'categories' => $this->string_list( $s['exclude_categories'] ?? array() ),

@@ -530,7 +530,7 @@
   // -- Filter bar + pagination ---------------------------------------------
 
   function buildFilterBar(root, cfg, state, reload) {
-    if (!cfg.filters.search && !cfg.filters.category && !cfg.filters.type && !cfg.filters.city) {
+    if (!cfg.filters.search && !cfg.filters.category && !cfg.filters.type && !cfg.filters.city && !cfg.filters.date) {
       return;
     }
     var bar = el('div', 'agend-ev-filterbar');
@@ -605,6 +605,96 @@
         reload();
       });
       bar.appendChild(city);
+    }
+
+    // Date range dropdown (US-2.4): two date fields filtering on event start
+    // date. "Starting after" sets a lower bound, "starting before" an upper
+    // bound; both together select events starting between the two dates.
+    if (cfg.filters.date) {
+      var dateWrap = el('div', 'agend-ev-datefilter');
+      var dateToggle = el('button', 'agend-ev-filter agend-ev-datefilter__toggle', 'All Dates');
+      dateToggle.type = 'button';
+      dateToggle.setAttribute('aria-expanded', 'false');
+
+      var panel = el('div', 'agend-ev-datefilter__panel');
+      panel.hidden = true;
+
+      var afterField = el('label', 'agend-ev-datefilter__field');
+      afterField.appendChild(el('span', 'agend-ev-datefilter__label', 'Starting after'));
+      var afterInput = el('input', 'agend-ev-datefilter__input');
+      afterInput.type = 'date';
+      afterField.appendChild(afterInput);
+
+      var beforeField = el('label', 'agend-ev-datefilter__field');
+      beforeField.appendChild(el('span', 'agend-ev-datefilter__label', 'Starting before'));
+      var beforeInput = el('input', 'agend-ev-datefilter__input');
+      beforeInput.type = 'date';
+      beforeField.appendChild(beforeInput);
+
+      var clearBtn = el('button', 'agend-ev-datefilter__clear', 'Clear');
+      clearBtn.type = 'button';
+
+      panel.appendChild(afterField);
+      panel.appendChild(beforeField);
+      panel.appendChild(clearBtn);
+
+      // DD/MM/YYYY for the toggle label (tenant-facing date format).
+      var fmtDate = function (d) {
+        var parts = d.split('-');
+        return parts.length === 3 ? parts[2] + '/' + parts[1] + '/' + parts[0] : d;
+      };
+      var updateLabel = function () {
+        var a = afterInput.value;
+        var b = beforeInput.value;
+        if (a && b) {
+          dateToggle.textContent = fmtDate(a) + ' – ' + fmtDate(b);
+        } else if (a) {
+          dateToggle.textContent = 'After ' + fmtDate(a);
+        } else if (b) {
+          dateToggle.textContent = 'Before ' + fmtDate(b);
+        } else {
+          dateToggle.textContent = 'All Dates';
+        }
+      };
+      var applyDates = function () {
+        // Inclusive of both selected days: after = start of day, before = end
+        // of day, so the range brackets whole days.
+        state.startAfter = afterInput.value ? afterInput.value + 'T00:00:00' : '';
+        state.startBefore = beforeInput.value ? beforeInput.value + 'T23:59:59' : '';
+        state.page = 1;
+        updateLabel();
+        reload();
+      };
+
+      afterInput.addEventListener('change', applyDates);
+      beforeInput.addEventListener('change', applyDates);
+      clearBtn.addEventListener('click', function () {
+        afterInput.value = '';
+        beforeInput.value = '';
+        applyDates();
+      });
+
+      var closePanel = function () {
+        panel.hidden = true;
+        dateToggle.setAttribute('aria-expanded', 'false');
+      };
+      dateToggle.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (panel.hidden) {
+          panel.hidden = false;
+          dateToggle.setAttribute('aria-expanded', 'true');
+        } else {
+          closePanel();
+        }
+      });
+      panel.addEventListener('click', function (e) {
+        e.stopPropagation();
+      });
+      document.addEventListener('click', closePanel);
+
+      dateWrap.appendChild(dateToggle);
+      dateWrap.appendChild(panel);
+      bar.appendChild(dateWrap);
     }
 
     root.appendChild(bar);
@@ -977,7 +1067,7 @@
       return;
     }
 
-    var state = { search: '', category: '', type: '', city: '', page: 1, append: false };
+    var state = { search: '', category: '', type: '', city: '', startAfter: '', startBefore: '', page: 1, append: false };
 
     // Apply inherited site theme (fonts/colours) — live via CSS custom props.
     applySiteTheme(root, cfg);
@@ -1125,6 +1215,8 @@
         type: state.type,
         city: state.city,
         timeframe: cfg.timeframe || 'upcoming',
+        startAfter: state.startAfter,
+        startBefore: state.startBefore,
         excludeCategories: exclusions.categories || [],
         excludeVenueTypes: exclusions.venueTypes || [],
         excludeCities: exclusions.cities || [],
