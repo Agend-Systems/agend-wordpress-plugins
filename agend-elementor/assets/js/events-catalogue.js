@@ -529,6 +529,76 @@
 
   // -- Filter bar + pagination ---------------------------------------------
 
+  // A checkbox dropdown filter (US-2.5). Renders a toggle button and a panel of
+  // checkboxes; onChange(values[]) fires whenever a checkbox is toggled. Options
+  // are added via the returned addOption (categories/cities load asynchronously).
+  function buildCheckboxFilter(allLabel, onChange) {
+    var wrap = el('div', 'agend-ev-multiselect');
+    var toggle = el('button', 'agend-ev-filter agend-ev-multiselect__toggle', allLabel);
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', 'false');
+    var panel = el('div', 'agend-ev-multiselect__panel');
+    panel.hidden = true;
+    var selected = [];
+
+    var updateLabel = function () {
+      if (!selected.length) {
+        toggle.textContent = allLabel;
+      } else if (selected.length === 1) {
+        toggle.textContent = selected[0].label;
+      } else {
+        toggle.textContent = selected.length + ' selected';
+      }
+    };
+
+    var addOption = function (value, label) {
+      var row = el('label', 'agend-ev-multiselect__option');
+      var cb = el('input', 'agend-ev-multiselect__checkbox');
+      cb.type = 'checkbox';
+      cb.value = value;
+      cb.addEventListener('change', function () {
+        if (cb.checked) {
+          selected.push({ value: value, label: label });
+        } else {
+          selected = selected.filter(function (s) {
+            return s.value !== value;
+          });
+        }
+        updateLabel();
+        onChange(
+          selected.map(function (s) {
+            return s.value;
+          }),
+        );
+      });
+      row.appendChild(cb);
+      row.appendChild(el('span', 'agend-ev-multiselect__optlabel', label));
+      panel.appendChild(row);
+    };
+
+    var closePanel = function () {
+      panel.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+    };
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (panel.hidden) {
+        panel.hidden = false;
+        toggle.setAttribute('aria-expanded', 'true');
+      } else {
+        closePanel();
+      }
+    });
+    panel.addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
+    document.addEventListener('click', closePanel);
+
+    wrap.appendChild(toggle);
+    wrap.appendChild(panel);
+    return { wrap: wrap, addOption: addOption };
+  }
+
   function buildFilterBar(root, cfg, state, reload) {
     if (!cfg.filters.search && !cfg.filters.category && !cfg.filters.type && !cfg.filters.city && !cfg.filters.date) {
       return;
@@ -551,60 +621,118 @@
       bar.appendChild(search);
     }
 
+    // Excluded categories can never match an event in this widget, so offering
+    // them in the filter would only produce empty results.
+    var excludedCategories = (cfg.exclusions && cfg.exclusions.categories) || [];
+
     if (cfg.filters.category) {
-      var category = el('select', 'agend-ev-filter');
-      category.appendChild(new Option('All Categories', ''));
-      var excludedCategories = (cfg.exclusions && cfg.exclusions.categories) || [];
-      apiGet('/events/categories', {}).then(function (body) {
-        unwrapList(body).items.forEach(function (cat) {
-          // Excluded categories can never match an event in this widget, so
-          // offering them in the filter would only produce empty results.
-          if (excludedCategories.indexOf(String(cat.id)) !== -1) {
-            return;
-          }
-          category.appendChild(new Option(cat.name, cat.id));
+      if (cfg.filters.categoryMulti) {
+        var catMulti = buildCheckboxFilter('All Categories', function (values) {
+          state.categories = values;
+          state.category = '';
+          state.page = 1;
+          reload();
         });
-      });
-      category.addEventListener('change', function () {
-        state.category = category.value;
-        state.page = 1;
-        reload();
-      });
-      bar.appendChild(category);
+        apiGet('/events/categories', {}).then(function (body) {
+          unwrapList(body).items.forEach(function (cat) {
+            if (excludedCategories.indexOf(String(cat.id)) !== -1) {
+              return;
+            }
+            catMulti.addOption(String(cat.id), cat.name);
+          });
+        });
+        bar.appendChild(catMulti.wrap);
+      } else {
+        var category = el('select', 'agend-ev-filter');
+        category.appendChild(new Option('All Categories', ''));
+        apiGet('/events/categories', {}).then(function (body) {
+          unwrapList(body).items.forEach(function (cat) {
+            if (excludedCategories.indexOf(String(cat.id)) !== -1) {
+              return;
+            }
+            category.appendChild(new Option(cat.name, cat.id));
+          });
+        });
+        category.addEventListener('change', function () {
+          state.category = category.value;
+          state.page = 1;
+          reload();
+        });
+        bar.appendChild(category);
+      }
     }
 
     if (cfg.filters.type) {
-      var type = el('select', 'agend-ev-filter');
-      [['All Types', ''], ['In-Person', 'physical'], ['Online', 'virtual'], ['Hybrid', 'hybrid']].forEach(function (o) {
-        type.appendChild(new Option(o[0], o[1]));
-      });
-      type.addEventListener('change', function () {
-        state.type = type.value;
-        state.page = 1;
-        reload();
-      });
-      bar.appendChild(type);
+      var typeOptions = [
+        ['physical', 'In-Person'],
+        ['virtual', 'Online'],
+        ['hybrid', 'Hybrid'],
+      ];
+      if (cfg.filters.typeMulti) {
+        var typeMulti = buildCheckboxFilter('All Types', function (values) {
+          state.types = values;
+          state.type = '';
+          state.page = 1;
+          reload();
+        });
+        typeOptions.forEach(function (o) {
+          typeMulti.addOption(o[0], o[1]);
+        });
+        bar.appendChild(typeMulti.wrap);
+      } else {
+        var type = el('select', 'agend-ev-filter');
+        type.appendChild(new Option('All Types', ''));
+        typeOptions.forEach(function (o) {
+          type.appendChild(new Option(o[1], o[0]));
+        });
+        type.addEventListener('change', function () {
+          state.type = type.value;
+          state.page = 1;
+          reload();
+        });
+        bar.appendChild(type);
+      }
     }
 
     if (cfg.filters.city) {
-      var city = el('select', 'agend-ev-filter');
-      city.appendChild(new Option('All Cities', ''));
-      apiGet('/events/venues', { limit: 100 }).then(function (body) {
-        var seen = {};
-        unwrapList(body).items.forEach(function (venue) {
-          var name = venue.city || venue.venue_city;
-          if (name && !seen[name]) {
-            seen[name] = true;
-            city.appendChild(new Option(name, name));
-          }
+      if (cfg.filters.cityMulti) {
+        var cityMulti = buildCheckboxFilter('All Cities', function (values) {
+          state.cities = values;
+          state.city = '';
+          state.page = 1;
+          reload();
         });
-      });
-      city.addEventListener('change', function () {
-        state.city = city.value;
-        state.page = 1;
-        reload();
-      });
-      bar.appendChild(city);
+        apiGet('/events/venues', { limit: 100 }).then(function (body) {
+          var seen = {};
+          unwrapList(body).items.forEach(function (venue) {
+            var name = venue.city || venue.venue_city;
+            if (name && !seen[name]) {
+              seen[name] = true;
+              cityMulti.addOption(name, name);
+            }
+          });
+        });
+        bar.appendChild(cityMulti.wrap);
+      } else {
+        var city = el('select', 'agend-ev-filter');
+        city.appendChild(new Option('All Cities', ''));
+        apiGet('/events/venues', { limit: 100 }).then(function (body) {
+          var seen = {};
+          unwrapList(body).items.forEach(function (venue) {
+            var name = venue.city || venue.venue_city;
+            if (name && !seen[name]) {
+              seen[name] = true;
+              city.appendChild(new Option(name, name));
+            }
+          });
+        });
+        city.addEventListener('change', function () {
+          state.city = city.value;
+          state.page = 1;
+          reload();
+        });
+        bar.appendChild(city);
+      }
     }
 
     // Date range dropdown (US-2.4): two date fields filtering on event start
@@ -1067,7 +1195,7 @@
       return;
     }
 
-    var state = { search: '', category: '', type: '', city: '', startAfter: '', startBefore: '', page: 1, append: false };
+    var state = { search: '', category: '', type: '', city: '', categories: [], types: [], cities: [], startAfter: '', startBefore: '', page: 1, append: false };
 
     // Apply inherited site theme (fonts/colours) — live via CSS custom props.
     applySiteTheme(root, cfg);
@@ -1214,6 +1342,9 @@
         category: state.category,
         type: state.type,
         city: state.city,
+        categories: state.categories,
+        types: state.types,
+        cities: state.cities,
         timeframe: cfg.timeframe || 'upcoming',
         startAfter: state.startAfter,
         startBefore: state.startBefore,

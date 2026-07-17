@@ -284,6 +284,16 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'multi_category_filter',
+			array(
+				'label'     => __( 'Allow multiple categories', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::SWITCHER,
+				'default'   => 'no',
+				'condition' => array( 'show_category_filter' => 'yes' ),
+			)
+		);
+
+		$this->add_control(
 			'show_type_filter',
 			array(
 				'label'   => __( 'Show type filter', 'agend-elementor' ),
@@ -293,11 +303,31 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'multi_type_filter',
+			array(
+				'label'     => __( 'Allow multiple types', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::SWITCHER,
+				'default'   => 'no',
+				'condition' => array( 'show_type_filter' => 'yes' ),
+			)
+		);
+
+		$this->add_control(
 			'show_city_filter',
 			array(
 				'label'   => __( 'Show city filter', 'agend-elementor' ),
 				'type'    => \Elementor\Controls_Manager::SWITCHER,
 				'default' => 'yes',
+			)
+		);
+
+		$this->add_control(
+			'multi_city_filter',
+			array(
+				'label'     => __( 'Allow multiple cities', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::SWITCHER,
+				'default'   => 'no',
+				'condition' => array( 'show_city_filter' => 'yes' ),
 			)
 		);
 
@@ -625,9 +655,12 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			'filters'        => array(
 				'search'   => 'yes' === ( $s['show_search'] ?? 'yes' ),
 				'category' => 'yes' === ( $s['show_category_filter'] ?? 'yes' ),
-				'type'     => 'yes' === ( $s['show_type_filter'] ?? 'yes' ),
-				'city'     => 'yes' === ( $s['show_city_filter'] ?? 'yes' ),
-				'date'     => 'yes' === ( $s['show_date_filter'] ?? 'yes' ),
+				'type'          => 'yes' === ( $s['show_type_filter'] ?? 'yes' ),
+				'city'          => 'yes' === ( $s['show_city_filter'] ?? 'yes' ),
+				'date'          => 'yes' === ( $s['show_date_filter'] ?? 'yes' ),
+				'categoryMulti' => 'yes' === ( $s['multi_category_filter'] ?? 'no' ),
+				'typeMulti'     => 'yes' === ( $s['multi_type_filter'] ?? 'no' ),
+				'cityMulti'     => 'yes' === ( $s['multi_city_filter'] ?? 'no' ),
 			),
 			'exclusions'     => array(
 				'categories' => $this->string_list( $s['exclude_categories'] ?? array() ),
