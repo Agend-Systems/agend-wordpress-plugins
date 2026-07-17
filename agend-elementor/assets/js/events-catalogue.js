@@ -529,6 +529,71 @@
 
   // -- Filter bar + pagination ---------------------------------------------
 
+  // Opens/closes a popover panel anchored to a toggle. The panel is
+  // position:fixed and positioned from the toggle's viewport rect, so it is
+  // never clipped by an ancestor's overflow (e.g. an Elementor section with
+  // overflow:hidden) even when the results grid is short. Caps its height to
+  // the space below the toggle so a long list scrolls inside the panel. Handles
+  // outside click, Escape, and reposition on scroll/resize.
+  function attachPopover(toggle, panel) {
+    var isOpen = false;
+
+    var position = function () {
+      var rect = toggle.getBoundingClientRect();
+      panel.style.top = Math.round(rect.bottom + 4) + 'px';
+      panel.style.left = Math.round(rect.left) + 'px';
+      panel.style.minWidth = Math.round(rect.width) + 'px';
+      var available = window.innerHeight - rect.bottom - 16;
+      panel.style.maxHeight = Math.max(160, available) + 'px';
+    };
+
+    var reposition = function () {
+      if (isOpen) {
+        position();
+      }
+    };
+
+    var close = function () {
+      if (!isOpen) {
+        return;
+      }
+      isOpen = false;
+      panel.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+
+    var open = function () {
+      isOpen = true;
+      panel.hidden = false;
+      toggle.setAttribute('aria-expanded', 'true');
+      position();
+      window.addEventListener('scroll', reposition, true);
+      window.addEventListener('resize', reposition);
+    };
+
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (isOpen) {
+        close();
+      } else {
+        open();
+      }
+    });
+    panel.addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        close();
+      }
+    });
+
+    return { close: close };
+  }
+
   // A checkbox dropdown filter (US-2.5). Renders a toggle button and a panel of
   // checkboxes; onChange(values[]) fires whenever a checkbox is toggled. Options
   // are added via the returned addOption (categories/cities load asynchronously).
@@ -576,23 +641,7 @@
       panel.appendChild(row);
     };
 
-    var closePanel = function () {
-      panel.hidden = true;
-      toggle.setAttribute('aria-expanded', 'false');
-    };
-    toggle.addEventListener('click', function (e) {
-      e.stopPropagation();
-      if (panel.hidden) {
-        panel.hidden = false;
-        toggle.setAttribute('aria-expanded', 'true');
-      } else {
-        closePanel();
-      }
-    });
-    panel.addEventListener('click', function (e) {
-      e.stopPropagation();
-    });
-    document.addEventListener('click', closePanel);
+    attachPopover(toggle, panel);
 
     wrap.appendChild(toggle);
     wrap.appendChild(panel);
@@ -802,23 +851,7 @@
         applyDates();
       });
 
-      var closePanel = function () {
-        panel.hidden = true;
-        dateToggle.setAttribute('aria-expanded', 'false');
-      };
-      dateToggle.addEventListener('click', function (e) {
-        e.stopPropagation();
-        if (panel.hidden) {
-          panel.hidden = false;
-          dateToggle.setAttribute('aria-expanded', 'true');
-        } else {
-          closePanel();
-        }
-      });
-      panel.addEventListener('click', function (e) {
-        e.stopPropagation();
-      });
-      document.addEventListener('click', closePanel);
+      attachPopover(dateToggle, panel);
 
       dateWrap.appendChild(dateToggle);
       dateWrap.appendChild(panel);
