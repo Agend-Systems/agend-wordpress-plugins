@@ -537,6 +537,7 @@
   // outside click, Escape, and reposition on scroll/resize.
   function attachPopover(toggle, panel) {
     var isOpen = false;
+    var themed = false;
 
     var position = function () {
       var rect = toggle.getBoundingClientRect();
@@ -565,6 +566,33 @@
     };
 
     var open = function () {
+      // Portal to <body> so the panel escapes any ancestor stacking context
+      // (Elementor sections use position:relative;z-index:1, which traps a
+      // fixed child so later sections paint over it) and any ancestor overflow.
+      // Copy the widget's theme custom properties over on first open so styling
+      // survives the move out of the widget subtree.
+      if (panel.parentNode !== document.body) {
+        if (!themed) {
+          var root = toggle.closest('.agend-events-catalogue');
+          if (root) {
+            [
+              '--agend-ev-heading',
+              '--agend-ev-body',
+              '--agend-ev-accent',
+              '--agend-ev-button',
+              '--agend-ev-button-text',
+              '--agend-ev-card-radius',
+            ].forEach(function (name) {
+              var val = getComputedStyle(root).getPropertyValue(name);
+              if (val) {
+                panel.style.setProperty(name, val.trim());
+              }
+            });
+          }
+          themed = true;
+        }
+        document.body.appendChild(panel);
+      }
       isOpen = true;
       panel.hidden = false;
       toggle.setAttribute('aria-expanded', 'true');
