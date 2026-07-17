@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
- * Description:       Elementor widgets that surface Agend Events and Learning data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.5.2
+ * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
+ * Version:           0.6.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.5.2' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.6.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -46,7 +46,7 @@ define( 'AGEND_ELEMENTOR_URL', plugin_dir_url( __FILE__ ) );
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260717-1' );
+define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260717-2' );
 
 // Detail-URL rewrite endpoints (SPEC-INFRA-20260717 US-1.1). Loaded
 // unconditionally so the endpoints register even when Elementor or Agend Apps
@@ -145,6 +145,21 @@ function agend_elementor_enqueue_scripts(): void {
 	wp_enqueue_script(
 		'agend-elementor-courses-catalogue',
 		AGEND_ELEMENTOR_URL . 'assets/js/courses-catalogue.js',
+		array( 'agend-elementor-dompurify' ),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	wp_enqueue_style(
+		'agend-elementor-directory-catalogue',
+		AGEND_ELEMENTOR_URL . 'assets/css/directory-catalogue.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-elementor-directory-catalogue',
+		AGEND_ELEMENTOR_URL . 'assets/js/directory-catalogue.js',
 		array( 'agend-elementor-dompurify' ),
 		AGEND_ELEMENTOR_VERSION,
 		true

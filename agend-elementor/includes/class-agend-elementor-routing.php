@@ -4,8 +4,8 @@
  *
  * Registers page-agnostic EP_PAGES endpoints so the catalogue widgets can render
  * a single item's detail view from a path segment
- * (/{page}/event/{slug}/, /{page}/course/{slug}/) instead of a query parameter.
- * See SPEC-INFRA-20260717 US-1.1.
+ * (/{page}/event/{slug}/, /{page}/course/{slug}/, /{page}/listing/{slug}/)
+ * instead of a query parameter. See SPEC-INFRA-20260717 US-1.1 and US-3.2.
  *
  * Loaded unconditionally by the main plugin file: endpoint registration is not
  * gated behind Elementor or Agend Apps Core, so the rewrite rules exist whenever
@@ -29,6 +29,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function agend_elementor_add_rewrite_endpoints(): void {
 	add_rewrite_endpoint( 'event', EP_PAGES );
 	add_rewrite_endpoint( 'course', EP_PAGES );
+	add_rewrite_endpoint( 'listing', EP_PAGES );
 }
 add_action( 'init', 'agend_elementor_add_rewrite_endpoints' );
 

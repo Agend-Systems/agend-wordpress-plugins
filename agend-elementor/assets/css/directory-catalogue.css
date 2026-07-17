@@ -1,0 +1,796 @@
+/**
+ * Agend Directory widget styles (SPEC-INFRA-20260717).
+ *
+ * Scoped under .agend-directory-catalogue. Colours and card radius come from CSS
+ * custom properties set inline by the widget (editor colours) and optionally
+ * overridden at runtime by the connected account's published theme.
+ */
+
+.agend-directory-catalogue {
+  --agend-dir-heading: #1e2a4a;
+  --agend-dir-body: #26304d;
+  --agend-dir-accent: #ff6b55;
+  --agend-dir-button: #ff6b55;
+  --agend-dir-button-text: #ffffff;
+  --agend-dir-card-radius: 10px;
+  --agend-dir-border: #e6e8ef;
+  --agend-dir-muted: #6b7280;
+  --agend-dir-surface: #ffffff;
+  --agend-dir-surface-alt: #f6f7fb;
+  --agend-dir-font-heading: inherit;
+  --agend-dir-font-body: inherit;
+  color: var(--agend-dir-body);
+  font-family: var(--agend-dir-font-body);
+}
+
+.agend-directory-catalogue *,
+.agend-dir-multiselect__panel * {
+  box-sizing: border-box;
+}
+
+.agend-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* -- Heading ------------------------------------------------------------- */
+
+.agend-dir-heading {
+  margin-bottom: 20px;
+}
+
+.agend-dir-heading__title {
+  margin: 0 0 6px;
+  color: var(--agend-dir-heading);
+  font-family: var(--agend-dir-font-heading);
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.agend-dir-heading__subtitle {
+  margin: 0;
+  color: var(--agend-dir-muted);
+  font-size: 1rem;
+}
+
+/* -- Filter bar ---------------------------------------------------------- */
+
+.agend-dir-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.agend-dir-search,
+.agend-dir-filter {
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--agend-dir-border);
+  border-radius: 8px;
+  background: var(--agend-dir-surface);
+  color: var(--agend-dir-body);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.agend-dir-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.agend-dir-filter {
+  cursor: pointer;
+}
+
+.agend-dir-clear {
+  height: 42px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: var(--agend-dir-accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Multiselect (portalled panel) */
+
+.agend-dir-multiselect {
+  position: relative;
+}
+
+.agend-dir-multiselect__toggle {
+  min-width: 160px;
+  text-align: left;
+}
+
+.agend-dir-multiselect__panel {
+  position: fixed;
+  z-index: 99999;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--agend-dir-surface, #fff);
+  border: 1px solid var(--agend-dir-border, #e6e8ef);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16);
+}
+
+.agend-dir-multiselect__option {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.agend-dir-multiselect__option:hover {
+  background: var(--agend-dir-surface-alt, #f6f7fb);
+}
+
+.agend-dir-multiselect__optlabel {
+  flex: 1;
+}
+
+/* -- Grid + cards -------------------------------------------------------- */
+
+.agend-dir-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(var(--agend-dir-cols-desktop, 3), minmax(0, 1fr));
+}
+
+.agend-dir-grid--list {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 1024px) {
+  .agend-dir-grid {
+    grid-template-columns: repeat(var(--agend-dir-cols-tablet, 2), minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .agend-dir-grid {
+    grid-template-columns: repeat(var(--agend-dir-cols-mobile, 1), minmax(0, 1fr));
+  }
+}
+
+.agend-dir-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--agend-dir-surface);
+  border: 1px solid var(--agend-dir-border);
+  border-radius: var(--agend-dir-card-radius);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.agend-dir-card:hover,
+.agend-dir-card:focus-visible {
+  box-shadow: 0 10px 28px rgba(16, 24, 40, 0.12);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.agend-dir-card.is-featured {
+  border-color: var(--agend-dir-accent);
+}
+
+.agend-dir-grid--list .agend-dir-card {
+  flex-direction: row;
+}
+
+.agend-dir-card__media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--agend-dir-surface-alt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.agend-dir-grid--list .agend-dir-card__media {
+  flex: 0 0 220px;
+  aspect-ratio: auto;
+  min-height: 100%;
+}
+
+.agend-dir-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agend-dir-card__media--placeholder {
+  background: linear-gradient(135deg, var(--agend-dir-surface-alt), #eceff5);
+}
+
+.agend-dir-card__initials {
+  color: var(--agend-dir-heading);
+  font-size: 2rem;
+  font-weight: 700;
+  opacity: 0.55;
+}
+
+.agend-dir-card__ribbon {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--agend-dir-accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agend-dir-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+
+.agend-dir-card__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agend-dir-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--agend-dir-surface-alt);
+  color: var(--agend-dir-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.agend-dir-pill--category {
+  background: rgba(255, 107, 85, 0.12);
+  color: var(--agend-dir-accent);
+}
+
+.agend-dir-card__title {
+  margin: 0;
+  color: var(--agend-dir-heading);
+  font-family: var(--agend-dir-font-heading);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.agend-dir-card__location {
+  color: var(--agend-dir-muted);
+  font-size: 0.88rem;
+}
+
+.agend-dir-card__desc {
+  margin: 0;
+  color: var(--agend-dir-body);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.agend-dir-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.agend-dir-badge {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--agend-dir-badge-colour, var(--agend-dir-surface-alt));
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* -- Stars --------------------------------------------------------------- */
+
+.agend-dir-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.agend-dir-star {
+  color: #d3d7e0;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.agend-dir-star.is-on {
+  color: var(--agend-dir-accent);
+}
+
+.agend-dir-stars__count {
+  margin-left: 6px;
+  color: var(--agend-dir-muted);
+  font-size: 0.82rem;
+}
+
+/* -- Skeletons ----------------------------------------------------------- */
+
+.agend-dir-skeleton {
+  pointer-events: none;
+}
+
+.agend-skel-line,
+.agend-skel-block {
+  background: linear-gradient(90deg, #eef0f5 25%, #e3e6ee 37%, #eef0f5 63%);
+  background-size: 400% 100%;
+  animation: agend-dir-shimmer 1.4s ease infinite;
+  border-radius: 6px;
+}
+
+.agend-skel-line {
+  height: 12px;
+  margin: 8px 0;
+}
+
+.agend-dir-card__media.agend-skel-block,
+.agend-dir-skeleton .agend-dir-card__media {
+  background: #eef0f5;
+}
+
+@keyframes agend-dir-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* -- Pagination ---------------------------------------------------------- */
+
+.agend-dir-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 26px;
+}
+
+.agend-dir-page {
+  min-width: 38px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--agend-dir-border);
+  border-radius: 8px;
+  background: var(--agend-dir-surface);
+  color: var(--agend-dir-body);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.agend-dir-page.is-active {
+  background: var(--agend-dir-button);
+  border-color: var(--agend-dir-button);
+  color: var(--agend-dir-button-text);
+}
+
+.agend-dir-loadmore {
+  display: block;
+  margin: 26px auto 0;
+  padding: 12px 26px;
+  border: none;
+  border-radius: 8px;
+  background: var(--agend-dir-button);
+  color: var(--agend-dir-button-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agend-dir-status {
+  padding: 28px 0;
+  color: var(--agend-dir-muted);
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+/* -- Detail -------------------------------------------------------------- */
+
+.agend-dir-detail__back {
+  margin-bottom: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--agend-dir-accent);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agend-dir-detail__hero {
+  position: relative;
+  min-height: 200px;
+  padding: 28px;
+  display: flex;
+  align-items: flex-end;
+  border-radius: var(--agend-dir-card-radius);
+  background: var(--agend-dir-surface-alt);
+  background-size: cover;
+  background-position: center;
+}
+
+.agend-dir-detail__hero-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agend-dir-detail__hero[style*="url"] .agend-dir-detail__title,
+.agend-dir-detail__hero[style*="url"] .agend-dir-stars__count {
+  color: #fff;
+}
+
+.agend-dir-detail__logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 10px;
+  padding: 6px;
+}
+
+.agend-dir-detail__title {
+  margin: 0;
+  color: var(--agend-dir-heading);
+  font-family: var(--agend-dir-font-heading);
+  font-size: 1.7rem;
+  font-weight: 700;
+}
+
+.agend-dir-detail__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 28px;
+  margin-top: 24px;
+}
+
+@media (max-width: 820px) {
+  .agend-dir-detail__layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.agend-dir-detail__main {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.agend-dir-detail__section-title {
+  margin: 0 0 12px;
+  color: var(--agend-dir-heading);
+  font-family: var(--agend-dir-font-heading);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.agend-dir-detail__body-text {
+  color: var(--agend-dir-body);
+  font-size: 0.98rem;
+  line-height: 1.6;
+}
+
+.agend-dir-detail__body-text img {
+  max-width: 100%;
+  height: auto;
+}
+
+.agend-dir-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.agend-dir-gallery__thumb {
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 1 / 1;
+  background: var(--agend-dir-surface-alt);
+}
+
+.agend-dir-gallery__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agend-dir-locations {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.agend-dir-location {
+  padding: 14px;
+  border: 1px solid var(--agend-dir-border);
+  border-radius: 8px;
+}
+
+.agend-dir-location__name {
+  color: var(--agend-dir-heading);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.agend-dir-location__address {
+  color: var(--agend-dir-body);
+  font-size: 0.9rem;
+}
+
+.agend-dir-location__phone {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--agend-dir-accent);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.agend-dir-hours {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agend-dir-hours__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 0.88rem;
+}
+
+.agend-dir-hours__day {
+  color: var(--agend-dir-body);
+  font-weight: 600;
+}
+
+.agend-dir-hours__value {
+  color: var(--agend-dir-muted);
+}
+
+.agend-dir-detail__side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.agend-dir-detail__panel {
+  padding: 18px;
+  border: 1px solid var(--agend-dir-border);
+  border-radius: var(--agend-dir-card-radius);
+  background: var(--agend-dir-surface);
+}
+
+.agend-dir-detail__panel-title {
+  margin: 0 0 12px;
+  color: var(--agend-dir-heading);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.agend-dir-detail__contact {
+  display: block;
+  padding: 6px 0;
+  color: var(--agend-dir-body);
+  font-size: 0.92rem;
+  text-decoration: none;
+}
+
+.agend-dir-detail__contact--link {
+  color: var(--agend-dir-accent);
+  font-weight: 600;
+}
+
+.agend-dir-detail__note {
+  margin: 0;
+  color: var(--agend-dir-muted);
+  font-size: 0.85rem;
+}
+
+/* -- Reviews ------------------------------------------------------------- */
+
+.agend-dir-reviews__summary {
+  margin-bottom: 14px;
+}
+
+.agend-dir-reviews__list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.agend-dir-review {
+  padding: 14px;
+  border: 1px solid var(--agend-dir-border);
+  border-radius: 8px;
+}
+
+.agend-dir-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.agend-dir-review__name {
+  color: var(--agend-dir-heading);
+  font-weight: 700;
+}
+
+.agend-dir-review__date {
+  color: var(--agend-dir-muted);
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+
+.agend-dir-review__content {
+  margin: 0;
+  color: var(--agend-dir-body);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.agend-dir-reviews__pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+/* Review form */
+
+.agend-dir-review-form {
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid var(--agend-dir-border);
+  border-radius: var(--agend-dir-card-radius);
+  background: var(--agend-dir-surface-alt);
+}
+
+.agend-dir-review-form__title {
+  margin: 0 0 14px;
+  color: var(--agend-dir-heading);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.agend-dir-review-form__field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.agend-dir-review-form__label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--agend-dir-body);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.agend-dir-review-form__input,
+.agend-dir-review-form__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--agend-dir-border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--agend-dir-body);
+  font-size: 0.92rem;
+  font-family: inherit;
+}
+
+.agend-dir-review-form__textarea {
+  resize: vertical;
+}
+
+.agend-dir-review-form__rating {
+  margin-bottom: 12px;
+}
+
+.agend-dir-review-form__stars {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.agend-dir-review-form__star {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #d3d7e0;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.agend-dir-review-form__star.is-on {
+  color: var(--agend-dir-accent);
+}
+
+.agend-dir-review-form__error {
+  margin-bottom: 12px;
+  color: #d1425c;
+  font-size: 0.88rem;
+}
+
+.agend-dir-review-form__submit {
+  padding: 11px 24px;
+  border: none;
+  border-radius: 8px;
+  background: var(--agend-dir-button);
+  color: var(--agend-dir-button-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agend-dir-review-form__submit:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.agend-dir-review-form__done {
+  text-align: center;
+  color: var(--agend-dir-body);
+}
+
+.agend-dir-review-form__tick {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22a565;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+/* -- Lightbox ------------------------------------------------------------ */
+
+.agend-dir-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(16, 24, 40, 0.85);
+  cursor: zoom-out;
+}
+
+.agend-dir-lightbox__img {
+  max-width: 92vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
