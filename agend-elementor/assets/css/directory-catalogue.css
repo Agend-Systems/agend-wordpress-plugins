@@ -726,17 +726,6 @@
   font-size: 0.8rem;
 }
 
-.agend-dir-cred__cpd {
-  align-self: flex-start;
-  margin-top: 2px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--agend-dir-surface-alt);
-  color: var(--agend-dir-body);
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
 .agend-dir-detail__side {
   display: flex;
   flex-direction: column;
