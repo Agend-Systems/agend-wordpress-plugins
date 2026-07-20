@@ -59,7 +59,12 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 		return;
 	}
 
-	$response = agend_apps_directory_get_listing( $slug );
+	// Request member achievements only when opted in (the gateway 403s the whole
+	// detail for keys without the directory.achievements.browse scope).
+	$listing_query = agend_elementor_show_achievements_enabled()
+		? array( 'include' => 'achievements' )
+		: array();
+	$response = agend_apps_directory_get_listing( $slug, $listing_query );
 	$item     = ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) )
 		? $response['data']
 		: null;
@@ -264,6 +269,54 @@ function agend_elementor_ssr_badges( $badges ): string {
 }
 
 /**
+ * Renders the member LMS achievements ("Badges & Credentials" section).
+ *
+ * @param mixed $achievements Array of { type, name, color, image_url, course_title, cpd_points, earned_at }, or null.
+ * @return string Section HTML, or empty string.
+ */
+function agend_elementor_ssr_achievements( $achievements ): string {
+	if ( ! is_array( $achievements ) || empty( $achievements ) ) {
+		return '';
+	}
+	$cards = '';
+	foreach ( $achievements as $achievement ) {
+		$title = ! empty( $achievement['name'] )
+			? (string) $achievement['name']
+			: (string) ( $achievement['course_title'] ?? '' );
+		if ( '' === $title ) {
+			continue;
+		}
+		$image = ! empty( $achievement['image_url'] ) ? esc_url( (string) $achievement['image_url'] ) : '';
+		$color = ! empty( $achievement['color'] ) ? esc_attr( (string) $achievement['color'] ) : '';
+		$media = '' !== $image
+			? '<img class="agend-dir-cred__img" src="' . $image . '" alt="' . esc_attr( $title ) . '" loading="lazy" />'
+			: '<span class="agend-dir-cred__icon"' . ( '' !== $color ? ' style="--agend-dir-cred-colour:' . $color . ';"' : '' ) . '>' . ( 'certificate' === ( $achievement['type'] ?? 'badge' ) ? '&#127894;' : '&#9733;' ) . '</span>';
+
+		$meta = array();
+		if ( ! empty( $achievement['course_title'] ) ) {
+			$meta[] = esc_html( (string) $achievement['course_title'] );
+		}
+		if ( ! empty( $achievement['earned_at'] ) ) {
+			$meta[] = esc_html( agend_elementor_ssr_date( (string) $achievement['earned_at'] ) );
+		}
+		$cpd = ( isset( $achievement['cpd_points'] ) && (float) $achievement['cpd_points'] > 0 )
+			? '<span class="agend-dir-cred__cpd">' . esc_html( sprintf( /* translators: %s: CPD points. */ __( '%s CPD', 'agend-elementor' ), (string) ( 0 + $achievement['cpd_points'] ) ) ) . '</span>'
+			: '';
+
+		$cards .= '<div class="agend-dir-cred">' . $media
+			. '<div class="agend-dir-cred__body"><span class="agend-dir-cred__name">' . esc_html( $title ) . '</span>'
+			. ( ! empty( $meta ) ? '<span class="agend-dir-cred__meta">' . implode( ' &middot; ', $meta ) . '</span>' : '' )
+			. $cpd . '</div></div>';
+	}
+	if ( '' === $cards ) {
+		return '';
+	}
+	return '<section class="agend-dir-detail__section"><h2 class="agend-dir-detail__section-title">'
+		. esc_html__( 'Badges & Credentials', 'agend-elementor' )
+		. '</h2><div class="agend-dir-creds">' . $cards . '</div></section>';
+}
+
+/**
  * Renders the public custom fields ("Details" section) as a label/value list.
  *
  * @param mixed $fields Array of { key, label, type, value }, or null.
@@ -398,6 +451,8 @@ function agend_elementor_render_directory_detail( array $item, string $slug, $re
 					<?php endif; ?>
 
 					<?php echo agend_elementor_ssr_custom_fields( $item['custom_fields'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+
+					<?php echo agend_elementor_ssr_achievements( $item['achievements'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 					<?php if ( ! empty( $item['gallery_images'] ) && is_array( $item['gallery_images'] ) ) : ?>
 						<section class="agend-dir-detail__section">

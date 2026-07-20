@@ -640,6 +640,73 @@
   word-break: break-word;
 }
 
+/* Badges & Credentials (member LMS achievements) */
+
+.agend-dir-creds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.agend-dir-cred {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--agend-dir-border);
+  border-radius: 10px;
+}
+
+.agend-dir-cred__img,
+.agend-dir-cred__icon {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+}
+
+.agend-dir-cred__img {
+  object-fit: contain;
+}
+
+.agend-dir-cred__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--agend-dir-surface-alt);
+  color: var(--agend-dir-cred-colour, var(--agend-dir-accent));
+  font-size: 1.3rem;
+}
+
+.agend-dir-cred__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agend-dir-cred__name {
+  color: var(--agend-dir-heading);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.agend-dir-cred__meta {
+  color: var(--agend-dir-muted);
+  font-size: 0.8rem;
+}
+
+.agend-dir-cred__cpd {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--agend-dir-surface-alt);
+  color: var(--agend-dir-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .agend-dir-detail__side {
   display: flex;
   flex-direction: column;
