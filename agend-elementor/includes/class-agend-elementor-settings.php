@@ -53,12 +53,12 @@ function agend_elementor_show_achievements_enabled(): bool {
 /**
  * Whether server-rendered detail pages are enabled.
  *
- * When enabled, a catalogue widget's detail URL (/{page}/listing/{slug}/, and in
- * future /event/ and /course/) resolves to a virtual child page of the listings
- * page: the listing name becomes the page title and the listings page its
- * parent, so any breadcrumb system natively shows Home > Listings > Item, and
- * the detail body is rendered server-side for SEO. Filterable so a site can
- * force it on/off in code.
+ * When enabled, a catalogue widget's detail URL (/{page}/listing/{slug}/,
+ * /{page}/event/{slug}/, /{page}/course/{slug}/) resolves to a virtual child
+ * page of the catalogue page: the item name becomes the page title and the
+ * catalogue page its parent, so any breadcrumb system natively shows
+ * Home > Catalogue > Item, and the detail body is rendered server-side for SEO.
+ * Filterable so a site can force it on/off in code.
  *
  * @return bool True when server-rendered detail pages are enabled.
  */
@@ -166,12 +166,12 @@ function agend_elementor_settings_field_ssr_detail(): void {
 	?>
 	<label>
 		<input type="checkbox" name="<?php echo esc_attr( AGEND_ELEMENTOR_SSR_DETAIL_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
-		<?php esc_html_e( 'Render detail views as server-side child pages of the listings page', 'agend-elementor' ); ?>
+		<?php esc_html_e( 'Render detail views as server-side child pages of the catalogue page', 'agend-elementor' ); ?>
 	</label>
 	<p class="description">
 		<?php
 		esc_html_e(
-			'When on, a listing detail URL becomes a virtual child page of the page holding the catalogue widget: the listing name is the page title and the listings page is its parent, so breadcrumbs natively show Home > Listings > Item and the detail is rendered server-side for SEO. When off, the detail is rendered client-side in place on the catalogue page. Applies to the Directory widget.',
+			'When on, an item detail URL becomes a virtual child page of the page holding the catalogue widget: the item name is the page title and the catalogue page is its parent, so breadcrumbs natively show Home > Catalogue > Item and the detail is rendered server-side for SEO. When off, the detail is rendered client-side in place on the catalogue page. Applies to the Directory, Events, and Courses widgets.',
 			'agend-elementor'
 		);
 		?>
