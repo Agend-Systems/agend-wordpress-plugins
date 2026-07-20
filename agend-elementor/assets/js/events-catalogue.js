@@ -25,6 +25,13 @@
   var DEEP_LINK_PARAM = 'agend_event';
   var PAY_PARAM = 'agend_pay';
 
+  // The organisation timezone (IANA name, from cfg.timezone). Event times are a
+  // fixed wall-clock in the event's own locale, so both the client and the
+  // server-rendered detail render them in this zone rather than the viewer's
+  // browser timezone. Empty (or an offset string Intl rejects) falls back to
+  // the viewer's local timezone.
+  var orgTimeZone = '';
+
   function restBase() {
     return (window.agendApps && window.agendApps.restUrl) || '/wp-json/agend-apps/v1/';
   }
@@ -238,16 +245,67 @@
     node.textContent = stripHtml(html);
   }
 
+  // Merges the org timezone into Intl options when one is configured.
+  function tzOpts(opts) {
+    return orgTimeZone ? Object.assign({}, opts, { timeZone: orgTimeZone }) : opts;
+  }
+
+  // Locale date/time in the org timezone, falling back to the viewer's local
+  // timezone when none is set or the configured value is not a zone Intl accepts
+  // (e.g. a manual "+10:00" offset).
+  function localeDate(iso, opts) {
+    var d = new Date(iso);
+    try {
+      return d.toLocaleDateString('en-AU', tzOpts(opts));
+    } catch (e) {
+      return d.toLocaleDateString('en-AU', opts);
+    }
+  }
+
+  function localeTime(iso, opts) {
+    var d = new Date(iso);
+    try {
+      return d.toLocaleTimeString('en-AU', tzOpts(opts));
+    } catch (e) {
+      return d.toLocaleTimeString('en-AU', opts);
+    }
+  }
+
+  // The org-timezone calendar day and month index for an ISO timestamp, for the
+  // card date badge (which indexes the MONTHS array by month).
+  function zonedDateParts(iso) {
+    var d = new Date(iso);
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', tzOpts({ day: 'numeric', month: 'numeric' })).formatToParts(d);
+      var find = function (type) {
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i].type === type) {
+            return parseInt(parts[i].value, 10);
+          }
+        }
+        return NaN;
+      };
+      var day = find('day');
+      var month = find('month');
+      if (!isNaN(day) && !isNaN(month)) {
+        return { day: day, month: month - 1 };
+      }
+    } catch (e) {
+      /* invalid timeZone — fall back to the viewer's local calendar */
+    }
+    return { day: d.getDate(), month: d.getMonth() };
+  }
+
   function dateRange(startIso, endIso) {
     if (!startIso) {
       return '';
     }
     var opts = { day: 'numeric', month: 'short', year: 'numeric' };
-    var startStr = new Date(startIso).toLocaleDateString('en-AU', opts);
+    var startStr = localeDate(startIso, opts);
     if (!endIso) {
       return startStr;
     }
-    var endStr = new Date(endIso).toLocaleDateString('en-AU', opts);
+    var endStr = localeDate(endIso, opts);
     return startStr === endStr ? startStr : startStr + ' – ' + endStr;
   }
 
@@ -257,10 +315,9 @@
     }
     var dOpts = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
     var tOpts = { hour: 'numeric', minute: '2-digit' };
-    var start = new Date(startIso);
-    var str = start.toLocaleDateString('en-AU', dOpts) + ', ' + start.toLocaleTimeString('en-AU', tOpts);
+    var str = localeDate(startIso, dOpts) + ', ' + localeTime(startIso, tOpts);
     if (endIso) {
-      str += ' – ' + new Date(endIso).toLocaleTimeString('en-AU', tOpts);
+      str += ' – ' + localeTime(endIso, tOpts);
     }
     return str;
   }
@@ -352,10 +409,10 @@
         media.classList.add('agend-ev-card__media--placeholder');
       }
       if (cfg.card.dateBadge && event.start_date) {
-        var d = new Date(event.start_date);
+        var parts = zonedDateParts(event.start_date);
         var badge = el('div', 'agend-ev-card__date-badge');
-        badge.appendChild(el('span', 'agend-ev-card__date-month', MONTHS[d.getMonth()]));
-        badge.appendChild(el('span', 'agend-ev-card__date-day', d.getDate()));
+        badge.appendChild(el('span', 'agend-ev-card__date-month', MONTHS[parts.month]));
+        badge.appendChild(el('span', 'agend-ev-card__date-day', parts.day));
         media.appendChild(badge);
       }
       if (event.sold_out) {
@@ -1251,9 +1308,12 @@
   // When the "Server-rendered detail pages" plugin setting is on, an event
   // detail is rendered server-side into a virtual child page (breadcrumb
   // parenting + SEO). The read-only detail is already in the DOM; here we only
-  // layer the interactive registration flow onto the server-rendered
-  // "Register Now" button, reusing renderRegistration/renderConfirmation.
-  function openSsrRegistration(root, detailEl, event, cfg) {
+  // layer the interactive flows (registration, post-payment confirmation) onto
+  // the server-rendered markup, reusing renderRegistration/renderConfirmation.
+
+  // Hides the read-only detail and mounts an overlay in its place. Returns the
+  // overlay node plus a restore() that removes it and shows the detail again.
+  function mountSsrOverlay(root, detailEl) {
     detailEl.style.display = 'none';
     var overlay = el('div', 'agend-ev-ssr-overlay');
     root.appendChild(overlay);
@@ -1263,25 +1323,75 @@
       }
       detailEl.style.display = '';
     }
-    overlay.appendChild(renderRegistration(
-      event,
-      cfg,
-      restore,
-      function (ev) {
-        overlay.innerHTML = '';
-        overlay.appendChild(renderConfirmation(
-          ev,
-          cfg,
-          restore,
-          function () { window.location.href = cfg.basePath || '/'; }
-        ));
-      }
-    ));
     try {
       overlay.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {
       /* scrollIntoView options unsupported — no-op */
     }
+    return { overlay: overlay, restore: restore };
+  }
+
+  function ssrPayState() {
+    try {
+      return new URL(window.location.href).searchParams.get(PAY_PARAM);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Strips the payment-return marker so a refresh does not re-open the
+  // confirmation screen.
+  function clearSsrPayParam() {
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.delete(PAY_PARAM);
+      window.history.replaceState({}, '', url.toString());
+    } catch (e) {
+      /* history API unavailable — no-op */
+    }
+  }
+
+  function openSsrRegistration(root, detailEl, event, cfg) {
+    var mount = mountSsrOverlay(root, detailEl);
+    mount.overlay.appendChild(renderRegistration(
+      event,
+      cfg,
+      mount.restore,
+      function (ev) {
+        mount.overlay.innerHTML = '';
+        mount.overlay.appendChild(renderConfirmation(
+          ev,
+          cfg,
+          mount.restore,
+          function () { window.location.href = cfg.basePath || '/'; }
+        ));
+      }
+    ));
+  }
+
+  // Post-payment return (?agend_pay=success): mirror the client catalogue's
+  // showDetail(slug, false, 'success') path so a paid registrant lands on the
+  // confirmation screen instead of the plain detail.
+  function openSsrConfirmation(root, detailEl, slug, cfg) {
+    clearSsrPayParam();
+    var mount = mountSsrOverlay(root, detailEl);
+    mount.overlay.appendChild(renderDetailSkeleton());
+    apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+      var event = unwrapOne(body);
+      mount.overlay.innerHTML = '';
+      if (!event || !event.slug) {
+        mount.restore();
+        return;
+      }
+      mount.overlay.appendChild(renderConfirmation(
+        event,
+        cfg,
+        mount.restore,
+        function () { window.location.href = cfg.basePath || '/'; }
+      ));
+    }).catch(function () {
+      mount.restore();
+    });
   }
 
   function hydrateSsrDetail(root, cfg) {
@@ -1290,25 +1400,30 @@
       return;
     }
     var btn = detailEl.querySelector('[data-agend-event-slug]');
-    if (!btn || btn.disabled) {
-      return;
-    }
-    var slug = cfg.deepLink || btn.getAttribute('data-agend-event-slug');
+    var slug = cfg.deepLink || (btn ? btn.getAttribute('data-agend-event-slug') : '');
     if (!slug) {
       return;
     }
-    btn.addEventListener('click', function () {
-      btn.disabled = true;
-      apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
-        var event = unwrapOne(body);
-        btn.disabled = false;
-        if (event && event.slug) {
-          openSsrRegistration(root, detailEl, event, cfg);
-        }
-      }).catch(function () {
-        btn.disabled = false;
+    // Wire the registration flow onto the "Register Now" button (absent/disabled
+    // for sold-out events).
+    if (btn && !btn.disabled) {
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+          var event = unwrapOne(body);
+          btn.disabled = false;
+          if (event && event.slug) {
+            openSsrRegistration(root, detailEl, event, cfg);
+          }
+        }).catch(function () {
+          btn.disabled = false;
+        });
       });
-    });
+    }
+    // Show the confirmation screen on return from a paid registration.
+    if (ssrPayState() === 'success') {
+      openSsrConfirmation(root, detailEl, slug, cfg);
+    }
   }
 
   // -- Widget orchestration -------------------------------------------------
@@ -1319,6 +1434,13 @@
       cfg = JSON.parse(root.getAttribute('data-agend-events-config'));
     } catch (e) {
       return;
+    }
+
+    // Render event times in the organisation timezone (site-wide, so the same
+    // for every widget on the page) rather than the viewer's browser timezone,
+    // matching the server-rendered detail.
+    if (cfg && typeof cfg.timezone === 'string') {
+      orgTimeZone = cfg.timezone;
     }
 
     // Server-rendered detail page: the read-only detail is already in the DOM;

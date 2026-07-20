@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.9.0
+ * Version:           0.9.1
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.9.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.9.1' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -105,6 +105,28 @@ function agend_elementor_missing_elementor_notice(): void {
 }
 
 /**
+ * Registers the vendored DOMPurify script (Cure53), once.
+ *
+ * The client-side HTML sanitiser used by the catalogue scripts as the final
+ * defence-in-depth layer before any gateway-supplied rich text (course/event
+ * descriptions) is written to the DOM. Shared by the global frontend enqueue
+ * and the SSR detail enqueue so both declare the same handle, version, and
+ * vendor path, and the scripts that render HTML can always depend on it.
+ */
+function agend_elementor_register_dompurify(): void {
+	if ( wp_script_is( 'agend-elementor-dompurify', 'registered' ) ) {
+		return;
+	}
+	wp_register_script(
+		'agend-elementor-dompurify',
+		AGEND_ELEMENTOR_URL . 'assets/js/vendor/purify.min.js',
+		array(),
+		'3.3.1',
+		true
+	);
+}
+
+/**
  * Enqueues frontend assets for the Agend Elementor widgets.
  *
  * Registered at priority 20 so `window.agendApps` from agend-apps-core (output
@@ -115,18 +137,7 @@ function agend_elementor_enqueue_scripts(): void {
 		return;
 	}
 
-	// DOMPurify (vendored, Cure53) — the client-side HTML sanitiser used by the
-	// catalogue scripts as the final defence-in-depth layer before any
-	// gateway-supplied rich text (course/event descriptions) is written to the
-	// DOM. Registered once and declared as a dependency of the widgets that
-	// render HTML so it always loads first.
-	wp_register_script(
-		'agend-elementor-dompurify',
-		AGEND_ELEMENTOR_URL . 'assets/js/vendor/purify.min.js',
-		array(),
-		'3.3.1',
-		true
-	);
+	agend_elementor_register_dompurify();
 
 	wp_enqueue_style(
 		'agend-elementor-events-catalogue',

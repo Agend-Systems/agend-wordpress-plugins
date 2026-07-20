@@ -749,6 +749,11 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'categoryMatch' => (string) ( $s['exclude_category_match_mode'] ?? 'any' ),
 			),
 			'timeframe'      => (string) ( $s['event_timeframe'] ?? 'upcoming' ),
+			// Event times are shown in the organisation timezone, not the
+			// viewer's browser timezone, so they match the server-rendered
+			// detail. An IANA name, or a manual "+hh:mm" offset the client
+			// falls back to local time for.
+			'timezone'       => wp_timezone_string(),
 			'pagination'     => array(
 				'style'   => (string) ( $s['pagination_style'] ?? 'numbered' ),
 				'perPage' => (int) ( $s['per_page'] ?? 9 ),
