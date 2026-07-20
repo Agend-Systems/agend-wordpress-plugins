@@ -50,27 +50,34 @@ function agend_apps_directory_get_listings( array $query = array() ) {
 }
 
 /**
- * Retrieves a single directory listing by ID.
+ * Retrieves a single directory listing by slug or ID.
  *
- * Results are cached per listing ID.
+ * Results are cached per listing and query combination.
  *
- * @param string $listing_id The listing ID to retrieve.
+ * @param string $listing_id The listing slug or ID to retrieve.
+ * @param array  $query      Optional. Query parameters forwarded to the gateway
+ *                           (e.g. `include` => 'achievements'). Default empty.
  * @return array|WP_Error Decoded listing array on success, or WP_Error on failure.
  */
-function agend_apps_directory_get_listing( string $listing_id ) {
+function agend_apps_directory_get_listing( string $listing_id, array $query = array() ) {
 	/**
 	 * Filters the directory single-listing request args before the request is sent.
 	 *
 	 * @param array  $args       Request args.
 	 * @param string $listing_id Listing ID.
+	 * @param array  $query      Query parameters.
 	 */
 	$args = (array) apply_filters(
 		'agend_apps_directory_get_listing_args',
-		array(),
-		$listing_id
+		empty( $query ) ? array() : array( 'query' => $query ),
+		$listing_id,
+		$query
 	);
 
-	$cache_key = Agend_Apps_Cache::build_key( 'directory_listing_single', array( 'id' => $listing_id ) );
+	$cache_key = Agend_Apps_Cache::build_key(
+		'directory_listing_single',
+		array_merge( array( 'id' => $listing_id ), $query )
+	);
 	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_listing_single' );
 
 	$response = agend_apps_api()->get_cached(
@@ -89,8 +96,9 @@ function agend_apps_directory_get_listing( string $listing_id ) {
 	 *
 	 * @param array  $response   Decoded response body.
 	 * @param string $listing_id Listing ID.
+	 * @param array  $query      Query parameters.
 	 */
-	return apply_filters( 'agend_apps_directory_get_listing_response', $response, $listing_id );
+	return apply_filters( 'agend_apps_directory_get_listing_response', $response, $listing_id, $query );
 }
 
 /**

@@ -92,6 +92,10 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
+						'include'    => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
 					),
 				),
 			)
@@ -288,7 +292,14 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function get_listing( WP_REST_Request $request ): WP_REST_Response {
 		$listing_id = $request->get_param( 'listing_id' );
-		$result     = agend_apps_directory_get_listing( $listing_id );
+
+		$query   = array();
+		$include = (string) $request->get_param( 'include' );
+		if ( '' !== $include ) {
+			$query['include'] = $include;
+		}
+
+		$result = agend_apps_directory_get_listing( $listing_id, $query );
 		return $this->prepare_api_response( $result );
 	}
 

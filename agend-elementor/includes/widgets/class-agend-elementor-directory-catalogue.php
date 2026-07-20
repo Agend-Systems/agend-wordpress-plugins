@@ -697,6 +697,10 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		// detail in client-side, so breadcrumbs and SEO resolve natively.
 		$config['ssrDetail']   = function_exists( 'agend_elementor_ssr_detail_enabled' )
 			&& agend_elementor_ssr_detail_enabled();
+		// Member LMS achievements ("Badges & Credentials") are opt-in and require
+		// the directory.achievements.browse scope on the account's API key.
+		$config['showAchievements'] = function_exists( 'agend_elementor_show_achievements_enabled' )
+			&& agend_elementor_show_achievements_enabled();
 
 		$style = sprintf(
 			'--agend-dir-heading:%1$s;--agend-dir-body:%2$s;--agend-dir-accent:%3$s;--agend-dir-button:%4$s;--agend-dir-button-text:%5$s;--agend-dir-card-radius:%6$dpx;',

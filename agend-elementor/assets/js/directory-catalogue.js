@@ -579,6 +579,56 @@
     return el('span', 'agend-dir-cf__value', String(value));
   }
 
+  // Renders the member LMS achievements as a "Badges & Credentials" section.
+  function renderAchievements(achievements) {
+    if (!Array.isArray(achievements) || !achievements.length) {
+      return null;
+    }
+    var section = el('section', 'agend-dir-detail__section');
+    section.appendChild(el('h3', 'agend-dir-detail__section-title', 'Badges & Credentials'));
+    var grid = el('div', 'agend-dir-creds');
+    achievements.forEach(function (item) {
+      var title = item.name || item.course_title || '';
+      if (!title) {
+        return;
+      }
+      var card = el('div', 'agend-dir-cred');
+      var img = safeUrl(item.image_url);
+      if (img) {
+        var pic = el('img', 'agend-dir-cred__img');
+        pic.src = img;
+        pic.alt = title;
+        pic.loading = 'lazy';
+        card.appendChild(pic);
+      } else {
+        var icon = el('span', 'agend-dir-cred__icon', item.type === 'certificate' ? '🎖' : '★');
+        if (item.color) {
+          icon.style.setProperty('--agend-dir-cred-colour', item.color);
+        }
+        card.appendChild(icon);
+      }
+      var body = el('div', 'agend-dir-cred__body');
+      body.appendChild(el('span', 'agend-dir-cred__name', title));
+      var meta = [];
+      if (item.course_title) {
+        meta.push(item.course_title);
+      }
+      if (item.earned_at) {
+        meta.push(formatDate(item.earned_at));
+      }
+      if (meta.length) {
+        body.appendChild(el('span', 'agend-dir-cred__meta', meta.join(' · ')));
+      }
+      if (typeof item.cpd_points === 'number' && item.cpd_points > 0) {
+        body.appendChild(el('span', 'agend-dir-cred__cpd', item.cpd_points + ' CPD'));
+      }
+      card.appendChild(body);
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
+    return section;
+  }
+
   // Renders the public custom fields as a "Details" section, or null if none.
   function renderCustomFields(fields) {
     if (!Array.isArray(fields) || !fields.length) {
@@ -665,6 +715,11 @@
     var detailsSection = renderCustomFields(listing.custom_fields);
     if (detailsSection) {
       main.appendChild(detailsSection);
+    }
+
+    var credentialsSection = renderAchievements(listing.achievements);
+    if (credentialsSection) {
+      main.appendChild(credentialsSection);
     }
 
     if (Array.isArray(listing.gallery_images) && listing.gallery_images.length) {
@@ -1330,7 +1385,10 @@
       if (updateUrl) {
         setUrlParam(slug);
       }
-      apiGet('/directory/listings/' + encodeURIComponent(slug), {}).then(function (body) {
+      apiGet(
+        '/directory/listings/' + encodeURIComponent(slug),
+        cfg.showAchievements ? { include: 'achievements' } : {},
+      ).then(function (body) {
         var listing = unwrapOne(body);
         root.innerHTML = '';
         if (!listing || !listing.slug) {

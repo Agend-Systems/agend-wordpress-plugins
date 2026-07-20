@@ -22,6 +22,35 @@ if ( ! defined( 'ABSPATH' ) ) {
 const AGEND_ELEMENTOR_SSR_DETAIL_OPTION = 'agend_elementor_ssr_detail';
 
 /**
+ * Option name storing the "show member badges & credentials" toggle ('1'/'').
+ *
+ * @var string
+ */
+const AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION = 'agend_elementor_show_achievements';
+
+/**
+ * Whether the Directory widget requests and renders member LMS achievements
+ * ("Badges & Credentials") on the detail view.
+ *
+ * The detail request only sends `include=achievements` when this is on, because
+ * the gateway rejects that param (403) for API keys without the
+ * `directory.achievements.browse` scope. Enable it only when the connected
+ * account's API key holds that scope. Filterable.
+ *
+ * @return bool True when member achievements are shown.
+ */
+function agend_elementor_show_achievements_enabled(): bool {
+	$enabled = '1' === get_option( AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION, '' );
+
+	/**
+	 * Filters whether member LMS achievements are shown on the detail.
+	 *
+	 * @param bool $enabled Whether the toggle is on.
+	 */
+	return (bool) apply_filters( 'agend_elementor_show_achievements_enabled', $enabled );
+}
+
+/**
  * Whether server-rendered detail pages are enabled.
  *
  * When enabled, a catalogue widget's detail URL (/{page}/listing/{slug}/, and in
@@ -69,6 +98,24 @@ function agend_elementor_settings_init(): void {
 		AGEND_ELEMENTOR_SSR_DETAIL_OPTION,
 		__( 'Server-rendered detail pages', 'agend-elementor' ),
 		'agend_elementor_settings_field_ssr_detail',
+		'agend-elementor',
+		'agend_elementor_section_detail'
+	);
+
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION,
+		array(
+			'type'              => 'string',
+			'sanitize_callback' => 'agend_elementor_sanitize_checkbox',
+			'default'           => '',
+		)
+	);
+
+	add_settings_field(
+		AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION,
+		__( 'Show member badges & credentials', 'agend-elementor' ),
+		'agend_elementor_settings_field_show_achievements',
 		'agend-elementor',
 		'agend_elementor_section_detail'
 	);
@@ -125,6 +172,27 @@ function agend_elementor_settings_field_ssr_detail(): void {
 		<?php
 		esc_html_e(
 			'When on, a listing detail URL becomes a virtual child page of the page holding the catalogue widget: the listing name is the page title and the listings page is its parent, so breadcrumbs natively show Home > Listings > Item and the detail is rendered server-side for SEO. When off, the detail is rendered client-side in place on the catalogue page. Applies to the Directory widget.',
+			'agend-elementor'
+		);
+		?>
+	</p>
+	<?php
+}
+
+/**
+ * Renders the show-member-achievements checkbox field.
+ */
+function agend_elementor_settings_field_show_achievements(): void {
+	$value = get_option( AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION, '' );
+	?>
+	<label>
+		<input type="checkbox" name="<?php echo esc_attr( AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
+		<?php esc_html_e( 'Show a member\'s LMS badges and certificates on the Directory detail view', 'agend-elementor' ); ?>
+	</label>
+	<p class="description">
+		<?php
+		esc_html_e(
+			'Adds a "Badges & Credentials" section listing the member\'s course badges and certificates. Requires the connected account\'s API key to hold the directory.achievements.browse scope; leave off if it does not, or listing detail pages will fail to load.',
 			'agend-elementor'
 		);
 		?>
