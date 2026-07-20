@@ -377,10 +377,11 @@ function agend_elementor_ssr_enqueue_events(): void {
 		);
 	}
 	if ( ! wp_script_is( 'agend-elementor-events-catalogue', 'enqueued' ) ) {
+		agend_elementor_register_dompurify();
 		wp_enqueue_script(
 			'agend-elementor-events-catalogue',
 			AGEND_ELEMENTOR_URL . 'assets/js/events-catalogue.js',
-			array(),
+			array( 'agend-elementor-dompurify' ),
 			AGEND_ELEMENTOR_VERSION,
 			true
 		);
@@ -1044,6 +1045,7 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 			'deepLink'    => $slug,
 			'prettyLinks' => (bool) get_option( 'permalink_structure' ),
 			'basePath'    => is_string( $host_url ) ? $host_url : '',
+			'timezone'    => wp_timezone_string(),
 		)
 	);
 
@@ -1212,7 +1214,9 @@ function agend_elementor_ssr_lms_price( array $course ): string {
 	if ( $num <= 0.0 ) {
 		return __( 'Free', 'agend-elementor' );
 	}
-	return '$' . number_format( $num, 2 );
+	// No thousands separator, matching the client priceLabel() (toFixed(2)) used
+	// on the catalogue cards and the client-rendered detail.
+	return '$' . number_format( $num, 2, '.', '' );
 }
 
 /**
