@@ -944,46 +944,54 @@ function agend_elementor_ssr_ev_type_label( string $type ): string {
 /**
  * Formats an event date range as "6 Jul 2026" or "6 Jul 2026 – 8 Jul 2026".
  *
- * Mirrors dateRange() in assets/js/events-catalogue.js, formatted in the site
- * timezone via wp_date().
+ * Mirrors dateRange() in assets/js/events-catalogue.js, formatted in the
+ * event's own timezone via wp_date().
  *
- * @param mixed $start ISO 8601 start datetime.
- * @param mixed $end   ISO 8601 end datetime, or empty.
+ * @param mixed             $start ISO 8601 start datetime.
+ * @param mixed             $end   ISO 8601 end datetime, or empty.
+ * @param DateTimeZone|null $tz    The event timezone (null = site timezone).
  * @return string The formatted range, or empty string.
  */
-function agend_elementor_ssr_ev_date_range( $start, $end ): string {
+function agend_elementor_ssr_ev_date_range( $start, $end, ?DateTimeZone $tz = null ): string {
 	$start_ts = strtotime( (string) $start );
 	if ( ! $start_ts ) {
 		return '';
 	}
-	$start_str = wp_date( 'j M Y', $start_ts );
+	$start_str = wp_date( 'j M Y', $start_ts, $tz );
 	$end_ts    = strtotime( (string) $end );
 	if ( ! $end_ts ) {
 		return $start_str;
 	}
-	$end_str = wp_date( 'j M Y', $end_ts );
+	$end_str = wp_date( 'j M Y', $end_ts, $tz );
 	return $start_str === $end_str ? $start_str : $start_str . ' – ' . $end_str;
 }
 
 /**
- * Formats an event date and time, e.g. "Monday, 6 July 2026, 9:00 am – 5:00 pm".
+ * Formats an event date and time, e.g. "Monday, 6 July 2026, 9:00 am – 5:00 pm
+ * AEST".
  *
- * Mirrors dateTime() in assets/js/events-catalogue.js, formatted in the site
- * timezone via wp_date().
+ * Mirrors dateTime() in assets/js/events-catalogue.js, formatted in the event's
+ * own timezone via wp_date(), with the zone abbreviation appended so a time
+ * shown in a zone other than the viewer's is unambiguous.
  *
- * @param mixed $start ISO 8601 start datetime.
- * @param mixed $end   ISO 8601 end datetime, or empty.
+ * @param mixed             $start ISO 8601 start datetime.
+ * @param mixed             $end   ISO 8601 end datetime, or empty.
+ * @param DateTimeZone|null $tz    The event timezone (null = site timezone).
  * @return string The formatted date and time, or empty string.
  */
-function agend_elementor_ssr_ev_date_time( $start, $end ): string {
+function agend_elementor_ssr_ev_date_time( $start, $end, ?DateTimeZone $tz = null ): string {
 	$start_ts = strtotime( (string) $start );
 	if ( ! $start_ts ) {
 		return '';
 	}
-	$str    = wp_date( 'l, j F Y', $start_ts ) . ', ' . wp_date( 'g:i a', $start_ts );
+	$str    = wp_date( 'l, j F Y', $start_ts, $tz ) . ', ' . wp_date( 'g:i a', $start_ts, $tz );
 	$end_ts = strtotime( (string) $end );
 	if ( $end_ts ) {
-		$str .= ' – ' . wp_date( 'g:i a', $end_ts );
+		$str .= ' – ' . wp_date( 'g:i a', $end_ts, $tz );
+	}
+	$zone_label = wp_date( 'T', $start_ts, $tz );
+	if ( '' !== (string) $zone_label ) {
+		$str .= ' ' . $zone_label;
 	}
 	return $str;
 }
@@ -1007,6 +1015,17 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 	$host_url = get_permalink( $host->ID );
 	$style    = agend_elementor_ssr_colour_style( 'agend-ev' );
 
+	// Event times display in the event's own timezone (each event carries one),
+	// falling back to the site timezone for a missing or invalid value.
+	$event_tz = wp_timezone();
+	if ( ! empty( $item['timezone'] ) ) {
+		try {
+			$event_tz = new DateTimeZone( (string) $item['timezone'] );
+		} catch ( Exception $e ) {
+			$event_tz = wp_timezone();
+		}
+	}
+
 	$cat = '';
 	if ( ! empty( $item['categories'][0]['name'] ) ) {
 		$cat = (string) $item['categories'][0]['name'];
@@ -1023,7 +1042,7 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 		: ( 'virtual' === $venue_type ? __( 'Online', 'agend-elementor' ) : __( 'TBA', 'agend-elementor' ) );
 	$meta_line = implode(
 		' · ',
-		array_filter( array( agend_elementor_ssr_ev_date_range( $item['start_date'] ?? '', $item['end_date'] ?? '' ), $venue_or_mode ) )
+		array_filter( array( agend_elementor_ssr_ev_date_range( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ), $venue_or_mode ) )
 	);
 
 	$location = implode(
@@ -1045,7 +1064,10 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 			'deepLink'    => $slug,
 			'prettyLinks' => (bool) get_option( 'permalink_structure' ),
 			'basePath'    => is_string( $host_url ) ? $host_url : '',
-			'timezone'    => wp_timezone_string(),
+			// Fallback timezone for the hydrated registration flow; the client
+			// prefers the fetched event's own timezone. This single-event page
+			// uses that event's zone, falling back to the site timezone.
+			'timezone'    => ! empty( $item['timezone'] ) ? (string) $item['timezone'] : wp_timezone_string(),
 		)
 	);
 
@@ -1113,7 +1135,7 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Details', 'agend-elementor' ); ?></h2>
 						<?php
 						$facts = array(
-							array( __( 'Date & Time', 'agend-elementor' ), agend_elementor_ssr_ev_date_time( $item['start_date'] ?? '', $item['end_date'] ?? '' ) ),
+							array( __( 'Date & Time', 'agend-elementor' ), agend_elementor_ssr_ev_date_time( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ) ),
 							array( __( 'Location', 'agend-elementor' ), $location ),
 							array( __( 'Format', 'agend-elementor' ), $type_label ),
 						);
