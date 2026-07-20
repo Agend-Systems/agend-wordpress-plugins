@@ -455,11 +455,11 @@ function agend_elementor_render_directory_detail( array $item, string $slug, $re
 		<div class="agend-dir-detail">
 			<a class="agend-dir-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Directory', 'agend-elementor' ); ?></a>
 
-			<div class="agend-dir-detail__hero"<?php echo ! empty( $item['hero_image_url'] ) ? ' style="background-image:linear-gradient(180deg, rgba(30,42,74,0.30), rgba(30,42,74,0.80)), url(\'' . esc_url( $item['hero_image_url'] ) . '\');"' : ''; ?>>
+			<div class="agend-dir-detail__hero">
+				<?php if ( ! empty( $item['logo_url'] ) ) : ?>
+					<img class="agend-dir-detail__logo" src="<?php echo esc_url( $item['logo_url'] ); ?>" alt="<?php echo esc_attr( $name ); ?>" />
+				<?php endif; ?>
 				<div class="agend-dir-detail__hero-inner">
-					<?php if ( ! empty( $item['logo_url'] ) ) : ?>
-						<img class="agend-dir-detail__logo" src="<?php echo esc_url( $item['logo_url'] ); ?>" alt="<?php echo esc_attr( $name ); ?>" />
-					<?php endif; ?>
 					<h1 class="agend-dir-detail__title"><?php echo esc_html( $name ); ?></h1>
 					<?php if ( ! empty( $item['primary_category']['name'] ) ) : ?>
 						<div class="agend-dir-card__pills"><span class="agend-dir-pill agend-dir-pill--category"><?php echo esc_html( $item['primary_category']['name'] ); ?></span></div>

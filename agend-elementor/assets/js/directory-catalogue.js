@@ -686,18 +686,14 @@
     wrap.appendChild(back);
 
     var hero = el('div', 'agend-dir-detail__hero');
-    var heroImg = safeUrl(listing.hero_image_url);
-    if (heroImg) {
-      hero.style.backgroundImage = 'linear-gradient(180deg, rgba(30,42,74,0.30), rgba(30,42,74,0.80)), url("' + heroImg + '")';
-    }
-    var heroInner = el('div', 'agend-dir-detail__hero-inner');
     var logo = safeUrl(listing.logo_url);
     if (logo) {
       var logoImg = el('img', 'agend-dir-detail__logo');
       logoImg.src = logo;
       logoImg.alt = listing.name || '';
-      heroInner.appendChild(logoImg);
+      hero.appendChild(logoImg);
     }
+    var heroInner = el('div', 'agend-dir-detail__hero-inner');
     heroInner.appendChild(el('h2', 'agend-dir-detail__title', listing.name || ''));
     if (listing.primary_category && listing.primary_category.name) {
       var heroPills = el('div', 'agend-dir-card__pills');

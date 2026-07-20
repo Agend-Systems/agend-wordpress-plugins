@@ -422,27 +422,37 @@
   cursor: pointer;
 }
 
-.agend-dir-detail__hero {
-  position: relative;
-  min-height: 200px;
-  padding: 28px;
-  display: flex;
-  align-items: flex-end;
-  border-radius: var(--agend-dir-card-radius);
+/* Detail sits on a light page, matching the directory app: white cards on a
+   subtle slate background. */
+.agend-dir-detail {
   background: var(--agend-dir-surface-alt);
-  background-size: cover;
-  background-position: center;
+  border-radius: var(--agend-dir-card-radius);
+  padding: 24px;
+}
+
+@media (max-width: 600px) {
+  .agend-dir-detail {
+    padding: 14px;
+  }
+}
+
+/* Header: a clean white card with the avatar beside the name/badges/rating,
+   not a large hero banner. */
+.agend-dir-detail__hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 24px;
+  border-radius: var(--agend-dir-card-radius);
+  background: var(--agend-dir-surface);
+  border: 1px solid var(--agend-dir-border);
 }
 
 .agend-dir-detail__hero-inner {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.agend-dir-detail__hero[style*="url"] .agend-dir-detail__title,
-.agend-dir-detail__hero[style*="url"] .agend-dir-stars__count {
-  color: #fff;
+  min-width: 0;
 }
 
 .agend-dir-detail__badges {
@@ -470,19 +480,19 @@
 }
 
 .agend-dir-detail__logo {
-  width: 120px;
-  height: 120px;
-  object-fit: contain;
-  background: #fff;
-  border-radius: 12px;
-  padding: 8px;
-  box-shadow: 0 6px 18px rgba(16, 24, 40, 0.12);
+  flex: 0 0 auto;
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  background: var(--agend-dir-surface-alt);
+  border: 1px solid var(--agend-dir-border);
+  border-radius: 14px;
 }
 
 @media (max-width: 600px) {
   .agend-dir-detail__logo {
-    width: 88px;
-    height: 88px;
+    width: 64px;
+    height: 64px;
   }
 }
 
@@ -510,14 +520,28 @@
 .agend-dir-detail__main {
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 20px;
+}
+
+/* Each main section is a white card on the light detail page. */
+.agend-dir-detail__section {
+  background: var(--agend-dir-surface);
+  border: 1px solid var(--agend-dir-border);
+  border-radius: var(--agend-dir-card-radius);
+  padding: 20px 24px;
+}
+
+@media (max-width: 600px) {
+  .agend-dir-detail__section {
+    padding: 16px;
+  }
 }
 
 .agend-dir-detail__section-title {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   color: var(--agend-dir-heading);
   font-family: var(--agend-dir-font-heading);
-  font-size: 1.2rem;
+  font-size: 1.15rem;
   font-weight: 700;
 }
 
@@ -610,9 +634,15 @@
 /* Custom fields ("Details" section) */
 
 .agend-dir-cf {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 28px;
+}
+
+@media (max-width: 600px) {
+  .agend-dir-cf {
+    grid-template-columns: 1fr;
+  }
 }
 
 .agend-dir-cf__row {
