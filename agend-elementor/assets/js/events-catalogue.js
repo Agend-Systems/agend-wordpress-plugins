@@ -1246,6 +1246,71 @@
     return wrap;
   }
 
+  // -- SSR detail hydration -------------------------------------------------
+
+  // When the "Server-rendered detail pages" plugin setting is on, an event
+  // detail is rendered server-side into a virtual child page (breadcrumb
+  // parenting + SEO). The read-only detail is already in the DOM; here we only
+  // layer the interactive registration flow onto the server-rendered
+  // "Register Now" button, reusing renderRegistration/renderConfirmation.
+  function openSsrRegistration(root, detailEl, event, cfg) {
+    detailEl.style.display = 'none';
+    var overlay = el('div', 'agend-ev-ssr-overlay');
+    root.appendChild(overlay);
+    function restore() {
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+      detailEl.style.display = '';
+    }
+    overlay.appendChild(renderRegistration(
+      event,
+      cfg,
+      restore,
+      function (ev) {
+        overlay.innerHTML = '';
+        overlay.appendChild(renderConfirmation(
+          ev,
+          cfg,
+          restore,
+          function () { window.location.href = cfg.basePath || '/'; }
+        ));
+      }
+    ));
+    try {
+      overlay.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      /* scrollIntoView options unsupported — no-op */
+    }
+  }
+
+  function hydrateSsrDetail(root, cfg) {
+    var detailEl = root.querySelector('.agend-ev-detail');
+    if (!detailEl) {
+      return;
+    }
+    var btn = detailEl.querySelector('[data-agend-event-slug]');
+    if (!btn || btn.disabled) {
+      return;
+    }
+    var slug = cfg.deepLink || btn.getAttribute('data-agend-event-slug');
+    if (!slug) {
+      return;
+    }
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+        var event = unwrapOne(body);
+        btn.disabled = false;
+        if (event && event.slug) {
+          openSsrRegistration(root, detailEl, event, cfg);
+        }
+      }).catch(function () {
+        btn.disabled = false;
+      });
+    });
+  }
+
   // -- Widget orchestration -------------------------------------------------
 
   function initWidget(root) {
@@ -1253,6 +1318,13 @@
     try {
       cfg = JSON.parse(root.getAttribute('data-agend-events-config'));
     } catch (e) {
+      return;
+    }
+
+    // Server-rendered detail page: the read-only detail is already in the DOM;
+    // only hydrate the registration flow, never build the catalogue.
+    if (cfg && cfg.ssrDetail) {
+      hydrateSsrDetail(root, cfg);
       return;
     }
 

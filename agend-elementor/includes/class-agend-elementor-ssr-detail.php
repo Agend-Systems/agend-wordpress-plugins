@@ -3,12 +3,20 @@
  * Server-rendered detail pages for the Agend catalogue widgets.
  *
  * When the "Server-rendered detail pages" setting is on, a catalogue detail URL
- * (currently the Directory widget's /{page}/listing/{slug}/) is resolved
- * server-side into a virtual child page of the listings page: the listing name
- * becomes the page title and the listings page its parent, so any breadcrumb
- * system natively renders Home > Listings > Item, and the detail body is
- * rendered server-side for SEO. Progressive enhancement (review submit, gallery
- * lightbox) is layered on by assets/js/directory-detail.js.
+ * (the Directory widget's /{page}/listing/{slug}/, the Events widget's
+ * /{page}/event/{slug}/, and the Courses widget's /{page}/course/{slug}/) is
+ * resolved server-side into a virtual child page of the page holding the
+ * catalogue widget: the item name becomes the page title and the catalogue page
+ * its parent, so any breadcrumb system natively renders Home > Catalogue > Item,
+ * and the detail body is rendered server-side for SEO. Progressive enhancement
+ * is layered on the read-only markup: directory review submit + gallery lightbox
+ * (assets/js/directory-detail.js), and the events registration flow (reusing
+ * assets/js/events-catalogue.js). Course enrolment is a member sign-in link.
+ *
+ * The virtual-page synthesis is shared by all three widgets
+ * (agend_elementor_ssr_swap_to_virtual_page); each widget contributes only a
+ * resolver (fetch + render) and an enqueue callback via the registry in
+ * agend_elementor_ssr_detail_registry().
  *
  * Loaded from the plugin bootstrap only once Agend Apps Core is available (the
  * detail is resolved through its cached REST wrappers).
@@ -21,11 +29,48 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Resolves a Directory detail request into a virtual child page.
+ * The catalogue detail types eligible for server-side rendering.
+ *
+ * Each entry maps a rewrite-endpoint query var to the proxy that must exist for
+ * the type to be available, the resolver that fetches and renders the item, the
+ * URL path segment used to build the detail permalink, and the enqueue callback
+ * that layers the type's progressive enhancement onto the read-only markup.
+ *
+ * @return array<int, array<string, string>> Ordered detail-type descriptors.
+ */
+function agend_elementor_ssr_detail_registry(): array {
+	return array(
+		array(
+			'query_var' => 'listing',
+			'available' => 'agend_apps_directory_get_listing',
+			'resolver'  => 'agend_elementor_ssr_resolve_listing',
+			'segment'   => 'listing/',
+			'enqueue'   => 'agend_elementor_ssr_enqueue_directory',
+		),
+		array(
+			'query_var' => 'event',
+			'available' => 'agend_apps_events_get_event',
+			'resolver'  => 'agend_elementor_ssr_resolve_event',
+			'segment'   => 'event/',
+			'enqueue'   => 'agend_elementor_ssr_enqueue_events',
+		),
+		array(
+			'query_var' => 'course',
+			'available' => 'agend_apps_lms_get_course',
+			'resolver'  => 'agend_elementor_ssr_resolve_course',
+			'segment'   => 'course/',
+			'enqueue'   => 'agend_elementor_ssr_enqueue_courses',
+		),
+	);
+}
+
+/**
+ * Resolves a catalogue detail request into a virtual child page.
  *
  * Runs on `wp` (after the main query is parsed, before the header renders) so
  * the synthesized queried object is in place when breadcrumbs and the document
- * title are generated.
+ * title are generated. Dispatches to the first registered detail type whose
+ * rewrite-endpoint query var is present on the current page URL.
  */
 function agend_elementor_ssr_maybe_render_detail(): void {
 	// Front-end main document requests only.
@@ -38,51 +83,68 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 	if ( ! agend_elementor_ssr_detail_enabled() ) {
 		return;
 	}
-	if ( ! function_exists( 'agend_apps_directory_get_listing' ) ) {
-		return;
-	}
-
-	$slug = sanitize_title( (string) get_query_var( 'listing' ) );
-	if ( '' === $slug ) {
-		return;
-	}
 
 	global $wp_query;
 	if ( ! $wp_query->is_main_query() ) {
 		return;
 	}
 
-	// The listings page is the page the detail endpoint hangs off; it becomes
-	// the parent crumb.
+	// The catalogue page the detail endpoint hangs off; it becomes the parent
+	// crumb.
 	$host = get_queried_object();
 	if ( ! ( $host instanceof WP_Post ) ) {
 		return;
 	}
 
-	// Request member achievements only when opted in (the gateway 403s the whole
-	// detail for keys without the directory.achievements.browse scope).
-	$listing_query = agend_elementor_show_achievements_enabled()
-		? array( 'include' => 'achievements' )
-		: array();
-	$response = agend_apps_directory_get_listing( $slug, $listing_query );
-	$item     = ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) )
-		? $response['data']
-		: null;
+	foreach ( agend_elementor_ssr_detail_registry() as $type ) {
+		if ( ! function_exists( $type['available'] ) ) {
+			continue;
+		}
+		$slug = sanitize_title( (string) get_query_var( $type['query_var'] ) );
+		if ( '' === $slug ) {
+			continue;
+		}
 
-	// Unknown listing: a real 404 (correct for SEO) rather than an empty shell.
-	if ( null === $item ) {
-		$wp_query->set_404();
-		status_header( 404 );
-		nocache_headers();
+		$resolved = call_user_func( $type['resolver'], $slug, $host );
+
+		// A recognised detail endpoint with an unknown item: a real 404 (correct
+		// for SEO) rather than an empty shell.
+		if ( null === $resolved ) {
+			$wp_query->set_404();
+			status_header( 404 );
+			nocache_headers();
+			return;
+		}
+
+		agend_elementor_ssr_swap_to_virtual_page(
+			$host,
+			$slug,
+			$resolved['title'],
+			$resolved['content'],
+			$type['segment'],
+			$type['enqueue']
+		);
 		return;
 	}
+}
+add_action( 'wp', 'agend_elementor_ssr_maybe_render_detail', 5 );
 
-	$name  = isset( $item['name'] ) ? (string) $item['name'] : __( 'Listing', 'agend-elementor' );
-	$reviews_response = function_exists( 'agend_apps_directory_get_listing_reviews' )
-		? agend_apps_directory_get_listing_reviews( $slug, array( 'limit' => 10 ) )
-		: null;
-
-	$content = agend_elementor_render_directory_detail( $item, $slug, $reviews_response, $host );
+/**
+ * Swaps the main query onto a synthetic child page rendering the given content.
+ *
+ * Shared by every catalogue detail type. The synthetic page's parent is the
+ * catalogue (host) page, so breadcrumb systems render Home > Catalogue > Item;
+ * its title is the item name; its body is the server-rendered detail.
+ *
+ * @param WP_Post  $host         The catalogue (host) page.
+ * @param string   $slug         The item slug.
+ * @param string   $title        The item name (becomes the page title).
+ * @param string   $content      The server-rendered detail HTML.
+ * @param string   $path_segment The detail URL path segment (e.g. 'event/').
+ * @param callable $enqueue_cb   Enqueues the type's progressive enhancement.
+ */
+function agend_elementor_ssr_swap_to_virtual_page( WP_Post $host, string $slug, string $title, string $content, string $path_segment, callable $enqueue_cb ): void {
+	global $wp_query, $wpdb;
 
 	// A synthetic id just above the highest real post id: high enough never to
 	// collide with a real post, but well below the very large id ranges other
@@ -92,9 +154,8 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 	// get_post()/get_post_ancestors() resolve the parent chain (host page) for
 	// breadcrumb systems that pass the id, and removed on shutdown so it cannot
 	// leak into a persistent object cache.
-	global $wpdb;
 	$max_post_id = (int) $wpdb->get_var( "SELECT MAX(ID) FROM {$wpdb->posts}" );
-	$fake_id     = $max_post_id + 1 + ( abs( crc32( 'listing:' . $slug ) ) % 20000 );
+	$fake_id     = $max_post_id + 1 + ( abs( crc32( $path_segment . $slug ) ) % 20000 );
 
 	$data = array(
 		'ID'                    => $fake_id,
@@ -102,7 +163,7 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 		'post_date'             => $host->post_date,
 		'post_date_gmt'         => $host->post_date_gmt,
 		'post_content'          => $content,
-		'post_title'            => $name,
+		'post_title'            => $title,
 		'post_excerpt'          => '',
 		'post_status'           => 'publish',
 		'comment_status'        => 'closed',
@@ -115,7 +176,7 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 		'post_modified_gmt'     => $host->post_modified_gmt,
 		'post_content_filtered' => '',
 		'post_parent'           => $host->ID,
-		'guid'                  => trailingslashit( get_permalink( $host->ID ) ) . 'listing/' . $slug . '/',
+		'guid'                  => trailingslashit( get_permalink( $host->ID ) ) . $path_segment . $slug . '/',
 		'menu_order'            => 0,
 		'post_type'             => 'page',
 		'post_mime_type'        => '',
@@ -189,31 +250,158 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 	setup_postdata( $post_obj );
 
 	// Progressive enhancement for the server-rendered detail.
-	add_action(
-		'wp_enqueue_scripts',
-		static function () {
-			if ( ! wp_script_is( 'agend-elementor-directory-catalogue', 'registered' )
-				&& ! wp_style_is( 'agend-elementor-directory-catalogue', 'enqueued' ) ) {
-				wp_enqueue_style(
-					'agend-elementor-directory-catalogue',
-					AGEND_ELEMENTOR_URL . 'assets/css/directory-catalogue.css',
-					array(),
-					AGEND_ELEMENTOR_VERSION
-				);
-			}
-			wp_enqueue_style( 'agend-elementor-directory-catalogue' );
-			wp_enqueue_script(
-				'agend-elementor-directory-detail',
-				AGEND_ELEMENTOR_URL . 'assets/js/directory-detail.js',
-				array(),
-				AGEND_ELEMENTOR_VERSION,
-				true
-			);
-		},
-		20
+	add_action( 'wp_enqueue_scripts', $enqueue_cb, 20 );
+}
+
+/**
+ * Resolves a Directory listing detail into a title + server-rendered body.
+ *
+ * @param string  $slug The listing slug.
+ * @param WP_Post $host The catalogue (host) page.
+ * @return array{title: string, content: string}|null The resolved detail, or
+ *         null when the listing does not exist.
+ */
+function agend_elementor_ssr_resolve_listing( string $slug, WP_Post $host ): ?array {
+	// Request member achievements only when opted in (the gateway 403s the whole
+	// detail for keys without the directory.achievements.browse scope).
+	$listing_query = agend_elementor_show_achievements_enabled()
+		? array( 'include' => 'achievements' )
+		: array();
+	$response = agend_apps_directory_get_listing( $slug, $listing_query );
+	$item     = ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) )
+		? $response['data']
+		: null;
+
+	if ( null === $item ) {
+		return null;
+	}
+
+	$name             = isset( $item['name'] ) ? (string) $item['name'] : __( 'Listing', 'agend-elementor' );
+	$reviews_response = function_exists( 'agend_apps_directory_get_listing_reviews' )
+		? agend_apps_directory_get_listing_reviews( $slug, array( 'limit' => 10 ) )
+		: null;
+
+	return array(
+		'title'   => $name,
+		'content' => agend_elementor_render_directory_detail( $item, $slug, $reviews_response, $host ),
 	);
 }
-add_action( 'wp', 'agend_elementor_ssr_maybe_render_detail', 5 );
+
+/**
+ * Resolves an Events event detail into a title + server-rendered body.
+ *
+ * @param string  $slug The event slug.
+ * @param WP_Post $host The catalogue (host) page.
+ * @return array{title: string, content: string}|null The resolved detail, or
+ *         null when the event does not exist.
+ */
+function agend_elementor_ssr_resolve_event( string $slug, WP_Post $host ): ?array {
+	$response = agend_apps_events_get_event( $slug, array( 'include' => 'sponsors,categories' ) );
+	$item     = ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) )
+		? $response['data']
+		: null;
+
+	if ( null === $item ) {
+		return null;
+	}
+
+	$name = isset( $item['name'] ) ? (string) $item['name'] : __( 'Event', 'agend-elementor' );
+
+	return array(
+		'title'   => $name,
+		'content' => agend_elementor_render_events_detail( $item, $slug, $host ),
+	);
+}
+
+/**
+ * Resolves a Courses course detail into a title + server-rendered body.
+ *
+ * @param string  $slug The course slug.
+ * @param WP_Post $host The catalogue (host) page.
+ * @return array{title: string, content: string}|null The resolved detail, or
+ *         null when the course does not exist.
+ */
+function agend_elementor_ssr_resolve_course( string $slug, WP_Post $host ): ?array {
+	$response = agend_apps_lms_get_course( $slug );
+	$item     = ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) )
+		? $response['data']
+		: null;
+
+	if ( null === $item ) {
+		return null;
+	}
+
+	$title = isset( $item['title'] ) ? (string) $item['title'] : __( 'Course', 'agend-elementor' );
+
+	return array(
+		'title'   => $title,
+		'content' => agend_elementor_render_courses_detail( $item, $slug, $host ),
+	);
+}
+
+/**
+ * Enqueues the Directory detail progressive enhancement (review submit + gallery
+ * lightbox).
+ */
+function agend_elementor_ssr_enqueue_directory(): void {
+	if ( ! wp_style_is( 'agend-elementor-directory-catalogue', 'enqueued' ) ) {
+		wp_enqueue_style(
+			'agend-elementor-directory-catalogue',
+			AGEND_ELEMENTOR_URL . 'assets/css/directory-catalogue.css',
+			array(),
+			AGEND_ELEMENTOR_VERSION
+		);
+	}
+	wp_enqueue_script(
+		'agend-elementor-directory-detail',
+		AGEND_ELEMENTOR_URL . 'assets/js/directory-detail.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+}
+
+/**
+ * Ensures the Events catalogue assets are present so the server-rendered detail
+ * is styled and its "Register Now" button hydrates the registration flow. The
+ * catalogue script (which owns that flow) is normally enqueued globally; this is
+ * a defensive fallback that reuses the same handles.
+ */
+function agend_elementor_ssr_enqueue_events(): void {
+	if ( ! wp_style_is( 'agend-elementor-events-catalogue', 'enqueued' ) ) {
+		wp_enqueue_style(
+			'agend-elementor-events-catalogue',
+			AGEND_ELEMENTOR_URL . 'assets/css/events-catalogue.css',
+			array(),
+			AGEND_ELEMENTOR_VERSION
+		);
+	}
+	if ( ! wp_script_is( 'agend-elementor-events-catalogue', 'enqueued' ) ) {
+		wp_enqueue_script(
+			'agend-elementor-events-catalogue',
+			AGEND_ELEMENTOR_URL . 'assets/js/events-catalogue.js',
+			array(),
+			AGEND_ELEMENTOR_VERSION,
+			true
+		);
+	}
+}
+
+/**
+ * Ensures the Courses catalogue stylesheet is present so the server-rendered
+ * detail is styled. The course enrol CTA is a plain member sign-in link, so no
+ * script hydration is required.
+ */
+function agend_elementor_ssr_enqueue_courses(): void {
+	if ( ! wp_style_is( 'agend-elementor-courses-catalogue', 'enqueued' ) ) {
+		wp_enqueue_style(
+			'agend-elementor-courses-catalogue',
+			AGEND_ELEMENTOR_URL . 'assets/css/courses-catalogue.css',
+			array(),
+			AGEND_ELEMENTOR_VERSION
+		);
+	}
+}
 
 /**
  * Renders five rating stars.
@@ -713,6 +901,458 @@ function agend_elementor_ssr_reviews_section( array $item, string $slug, $review
 			<button type="button" class="agend-dir-review-form__submit"><?php esc_html_e( 'Submit Review', 'agend-elementor' ); ?></button>
 		</div>
 	</section>
+	<?php
+	return (string) ob_get_clean();
+}
+
+/**
+ * Builds the default catalogue colour CSS variables for a server-rendered
+ * detail.
+ *
+ * The virtual detail page is not tied to a specific widget instance, so the
+ * plugin's default palette is applied. The prefix selects the widget family
+ * ('agend-ev' for Events, 'agend-lms' for Courses).
+ *
+ * @param string $prefix The CSS-variable prefix (without the leading '--').
+ * @return string The inline style declaration string.
+ */
+function agend_elementor_ssr_colour_style( string $prefix ): string {
+	return sprintf(
+		'--%1$s-heading:#1E2A4A;--%1$s-body:#26304D;--%1$s-accent:#FF6B55;--%1$s-button:#FF6B55;--%1$s-button-text:#FFFFFF;--%1$s-card-radius:10px;',
+		$prefix
+	);
+}
+
+/**
+ * Maps an event venue type to its display label.
+ *
+ * Mirrors TYPE_LABELS in assets/js/events-catalogue.js.
+ *
+ * @param string $type The venue type (physical, virtual, hybrid).
+ * @return string The display label, or the raw type when unknown.
+ */
+function agend_elementor_ssr_ev_type_label( string $type ): string {
+	$labels = array(
+		'physical' => __( 'In-Person', 'agend-elementor' ),
+		'virtual'  => __( 'Online', 'agend-elementor' ),
+		'hybrid'   => __( 'Hybrid', 'agend-elementor' ),
+	);
+	return $labels[ $type ] ?? $type;
+}
+
+/**
+ * Formats an event date range as "6 Jul 2026" or "6 Jul 2026 – 8 Jul 2026".
+ *
+ * Mirrors dateRange() in assets/js/events-catalogue.js, formatted in the site
+ * timezone via wp_date().
+ *
+ * @param mixed $start ISO 8601 start datetime.
+ * @param mixed $end   ISO 8601 end datetime, or empty.
+ * @return string The formatted range, or empty string.
+ */
+function agend_elementor_ssr_ev_date_range( $start, $end ): string {
+	$start_ts = strtotime( (string) $start );
+	if ( ! $start_ts ) {
+		return '';
+	}
+	$start_str = wp_date( 'j M Y', $start_ts );
+	$end_ts    = strtotime( (string) $end );
+	if ( ! $end_ts ) {
+		return $start_str;
+	}
+	$end_str = wp_date( 'j M Y', $end_ts );
+	return $start_str === $end_str ? $start_str : $start_str . ' – ' . $end_str;
+}
+
+/**
+ * Formats an event date and time, e.g. "Monday, 6 July 2026, 9:00 am – 5:00 pm".
+ *
+ * Mirrors dateTime() in assets/js/events-catalogue.js, formatted in the site
+ * timezone via wp_date().
+ *
+ * @param mixed $start ISO 8601 start datetime.
+ * @param mixed $end   ISO 8601 end datetime, or empty.
+ * @return string The formatted date and time, or empty string.
+ */
+function agend_elementor_ssr_ev_date_time( $start, $end ): string {
+	$start_ts = strtotime( (string) $start );
+	if ( ! $start_ts ) {
+		return '';
+	}
+	$str    = wp_date( 'l, j F Y', $start_ts ) . ', ' . wp_date( 'g:i a', $start_ts );
+	$end_ts = strtotime( (string) $end );
+	if ( $end_ts ) {
+		$str .= ' – ' . wp_date( 'g:i a', $end_ts );
+	}
+	return $str;
+}
+
+/**
+ * Renders the server-side Events event detail body.
+ *
+ * Mirrors the client-side detail (assets/js/events-catalogue.js renderDetail):
+ * hero, About, Sponsors, and a sidebar with the registration panel and details
+ * facts. The read-only markup is wrapped in a `.agend-events-catalogue` mount
+ * carrying an `ssrDetail` config so the catalogue script hydrates the
+ * "Register Now" button into the existing registration flow.
+ *
+ * @param array   $item Public event detail (gateway shape).
+ * @param string  $slug Event slug.
+ * @param WP_Post $host The catalogue (host) page.
+ * @return string Detail HTML wrapped in the widget's style scope.
+ */
+function agend_elementor_render_events_detail( array $item, string $slug, WP_Post $host ): string {
+	$name     = isset( $item['name'] ) ? (string) $item['name'] : '';
+	$host_url = get_permalink( $host->ID );
+	$style    = agend_elementor_ssr_colour_style( 'agend-ev' );
+
+	$cat = '';
+	if ( ! empty( $item['categories'][0]['name'] ) ) {
+		$cat = (string) $item['categories'][0]['name'];
+	} elseif ( ! empty( $item['category']['name'] ) ) {
+		$cat = (string) $item['category']['name'];
+	}
+
+	$venue_type = isset( $item['venue_type'] ) ? (string) $item['venue_type'] : '';
+	$type_label = agend_elementor_ssr_ev_type_label( $venue_type );
+	$sold_out   = ! empty( $item['sold_out'] );
+
+	$venue_or_mode = ! empty( $item['venue_name'] )
+		? (string) $item['venue_name']
+		: ( 'virtual' === $venue_type ? __( 'Online', 'agend-elementor' ) : __( 'TBA', 'agend-elementor' ) );
+	$meta_line = implode(
+		' · ',
+		array_filter( array( agend_elementor_ssr_ev_date_range( $item['start_date'] ?? '', $item['end_date'] ?? '' ), $venue_or_mode ) )
+	);
+
+	$location = implode(
+		', ',
+		array_filter(
+			array( $item['venue_name'] ?? '', $item['venue_address'] ?? '', $item['venue_city'] ?? '' ),
+			static fn( $part ) => '' !== (string) $part
+		)
+	);
+	if ( '' === $location ) {
+		$location = 'virtual' === $venue_type ? __( 'Online', 'agend-elementor' ) : __( 'TBA', 'agend-elementor' );
+	}
+
+	$ical_url = rest_url( 'agend-apps/v1/events/' . rawurlencode( $slug ) . '/ical' );
+
+	$config = wp_json_encode(
+		array(
+			'ssrDetail'   => true,
+			'deepLink'    => $slug,
+			'prettyLinks' => (bool) get_option( 'permalink_structure' ),
+			'basePath'    => is_string( $host_url ) ? $host_url : '',
+		)
+	);
+
+	ob_start();
+	?>
+	<div class="agend-events-catalogue agend-events-catalogue--ssr" style="<?php echo esc_attr( $style ); ?>" data-agend-events-config="<?php echo esc_attr( $config ); ?>">
+		<div class="agend-ev-detail">
+			<a class="agend-ev-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Events', 'agend-elementor' ); ?></a>
+
+			<div class="agend-ev-detail__hero"<?php echo ! empty( $item['hero_image_url'] ) ? ' style="background-image:linear-gradient(180deg, rgba(30,42,74,0.35), rgba(30,42,74,0.85)), url(\'' . esc_url( $item['hero_image_url'] ) . '\');"' : ''; ?>>
+				<div class="agend-ev-detail__hero-inner">
+					<?php if ( '' !== $cat || '' !== $type_label ) : ?>
+						<div class="agend-ev-card__pills">
+							<?php if ( '' !== $cat ) : ?>
+								<span class="agend-ev-pill agend-ev-pill--category"><?php echo esc_html( $cat ); ?></span>
+							<?php endif; ?>
+							<?php if ( '' !== $type_label ) : ?>
+								<span class="agend-ev-pill agend-ev-pill--type"><?php echo esc_html( $type_label ); ?></span>
+							<?php endif; ?>
+						</div>
+					<?php endif; ?>
+					<h1 class="agend-ev-detail__title"><?php echo esc_html( $name ); ?></h1>
+					<?php if ( '' !== $meta_line ) : ?>
+						<div class="agend-ev-detail__meta"><?php echo esc_html( $meta_line ); ?></div>
+					<?php endif; ?>
+				</div>
+			</div>
+
+			<div class="agend-ev-detail__layout">
+				<div class="agend-ev-detail__main">
+					<?php if ( ! empty( $item['description'] ) ) : ?>
+						<section class="agend-ev-detail__section">
+							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'About This Event', 'agend-elementor' ); ?></h2>
+							<div class="agend-ev-detail__body-text"><?php echo wp_kses_post( $item['description'] ); ?></div>
+						</section>
+					<?php endif; ?>
+
+					<?php if ( ! empty( $item['sponsors'] ) && is_array( $item['sponsors'] ) ) : ?>
+						<section class="agend-ev-detail__section">
+							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'Sponsors', 'agend-elementor' ); ?></h2>
+							<div class="agend-ev-detail__sponsors">
+								<?php foreach ( $item['sponsors'] as $sponsor ) : ?>
+									<?php if ( ! empty( $sponsor['logo_url'] ) ) : ?>
+										<img class="agend-ev-detail__sponsor-logo" src="<?php echo esc_url( $sponsor['logo_url'] ); ?>" alt="<?php echo esc_attr( $sponsor['name'] ?? '' ); ?>" loading="lazy" />
+									<?php elseif ( ! empty( $sponsor['name'] ) ) : ?>
+										<span class="agend-ev-detail__sponsor-name"><?php echo esc_html( $sponsor['name'] ); ?></span>
+									<?php endif; ?>
+								<?php endforeach; ?>
+							</div>
+						</section>
+					<?php endif; ?>
+				</div>
+
+				<aside class="agend-ev-detail__side">
+					<div class="agend-ev-detail__panel agend-ev-detail__panel--register">
+						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Registration', 'agend-elementor' ); ?></h2>
+						<button type="button" class="agend-ev-detail__cta" data-agend-event-slug="<?php echo esc_attr( $slug ); ?>"<?php echo $sold_out ? ' disabled' : ''; ?>>
+							<?php echo $sold_out ? esc_html__( 'Sold Out', 'agend-elementor' ) : esc_html__( 'Register Now', 'agend-elementor' ); ?>
+						</button>
+						<a class="agend-ev-detail__calendar" href="<?php echo esc_url( $ical_url ); ?>"><?php esc_html_e( 'Add to Calendar', 'agend-elementor' ); ?></a>
+						<p class="agend-ev-detail__note"><?php esc_html_e( 'Not a member? Join for discounted pricing.', 'agend-elementor' ); ?></p>
+					</div>
+
+					<div class="agend-ev-detail__panel">
+						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Details', 'agend-elementor' ); ?></h2>
+						<?php
+						$facts = array(
+							array( __( 'Date & Time', 'agend-elementor' ), agend_elementor_ssr_ev_date_time( $item['start_date'] ?? '', $item['end_date'] ?? '' ) ),
+							array( __( 'Location', 'agend-elementor' ), $location ),
+							array( __( 'Format', 'agend-elementor' ), $type_label ),
+						);
+						foreach ( $facts as $pair ) :
+							if ( '' === (string) $pair[1] ) {
+								continue;
+							}
+							?>
+							<div class="agend-ev-detail__fact">
+								<span class="agend-ev-detail__fact-label"><?php echo esc_html( $pair[0] ); ?></span>
+								<span class="agend-ev-detail__fact-value"><?php echo esc_html( $pair[1] ); ?></span>
+							</div>
+						<?php endforeach; ?>
+					</div>
+				</aside>
+			</div>
+		</div>
+	</div>
+	<?php
+	return (string) ob_get_clean();
+}
+
+/**
+ * Formats a course duration in minutes as "2h 30m" / "45m" / "Self-paced".
+ *
+ * Mirrors formatDuration() in assets/js/courses-catalogue.js.
+ *
+ * @param mixed $minutes Total duration in minutes.
+ * @return string The formatted duration.
+ */
+function agend_elementor_ssr_lms_duration( $minutes ): string {
+	$m = is_numeric( $minutes ) ? (int) $minutes : 0;
+	if ( $m <= 0 ) {
+		return __( 'Self-paced', 'agend-elementor' );
+	}
+	$hours   = intdiv( $m, 60 );
+	$remains = $m % 60;
+	if ( $hours && $remains ) {
+		return $hours . 'h ' . $remains . 'm';
+	}
+	return $hours ? $hours . 'h' : $remains . 'm';
+}
+
+/**
+ * Maps a course difficulty to its display label.
+ *
+ * Mirrors DIFFICULTY_LABELS in assets/js/courses-catalogue.js.
+ *
+ * @param string $value The difficulty value.
+ * @return string The display label, the raw value when unknown, or empty.
+ */
+function agend_elementor_ssr_lms_difficulty( string $value ): string {
+	if ( '' === $value ) {
+		return '';
+	}
+	$labels = array(
+		'beginner'     => __( 'Beginner', 'agend-elementor' ),
+		'intermediate' => __( 'Intermediate', 'agend-elementor' ),
+		'advanced'     => __( 'Advanced', 'agend-elementor' ),
+		'all_levels'   => __( 'All Levels', 'agend-elementor' ),
+	);
+	return $labels[ $value ] ?? $value;
+}
+
+/**
+ * Maps a course delivery mode to its display label.
+ *
+ * Mirrors DELIVERY_MODE_LABELS in assets/js/courses-catalogue.js (an unknown or
+ * unset mode yields an empty label).
+ *
+ * @param string $value The delivery mode value.
+ * @return string The display label, or empty string.
+ */
+function agend_elementor_ssr_lms_mode( string $value ): string {
+	$labels = array(
+		'self_paced'  => __( 'Self-paced', 'agend-elementor' ),
+		'live_online' => __( 'Live Online', 'agend-elementor' ),
+		'in_person'   => __( 'In-Person', 'agend-elementor' ),
+		'blended'     => __( 'Blended', 'agend-elementor' ),
+	);
+	return $labels[ $value ] ?? '';
+}
+
+/**
+ * Formats a course price as "$120.00" or "Free".
+ *
+ * Mirrors priceLabel() in assets/js/courses-catalogue.js.
+ *
+ * @param array $course Course detail (gateway shape).
+ * @return string The formatted price.
+ */
+function agend_elementor_ssr_lms_price( array $course ): string {
+	if ( ! empty( $course['is_free'] ) ) {
+		return __( 'Free', 'agend-elementor' );
+	}
+	$price = $course['base_price'] ?? null;
+	$num   = is_numeric( $price ) ? (float) $price : 0.0;
+	if ( $num <= 0.0 ) {
+		return __( 'Free', 'agend-elementor' );
+	}
+	return '$' . number_format( $num, 2 );
+}
+
+/**
+ * Renders the server-side Courses course detail body.
+ *
+ * Mirrors the client-side detail (assets/js/courses-catalogue.js renderDetail)
+ * anonymous view: hero, About, What You'll Learn, and a sidebar with the pricing
+ * panel and details facts. Course enrolment needs a member identity, so the
+ * "Enrol Now" CTA is a member sign-in link (the bearer-enriched member view,
+ * addendum E-11, is a future progressive enhancement).
+ *
+ * @param array   $item Public course detail (gateway shape).
+ * @param string  $slug Course slug.
+ * @param WP_Post $host The catalogue (host) page.
+ * @return string Detail HTML wrapped in the widget's style scope.
+ */
+function agend_elementor_render_courses_detail( array $item, string $slug, WP_Post $host ): string {
+	$title    = isset( $item['title'] ) ? (string) $item['title'] : '';
+	$host_url = get_permalink( $host->ID );
+	$style    = agend_elementor_ssr_colour_style( 'agend-lms' );
+
+	$difficulty = isset( $item['difficulty'] ) ? (string) $item['difficulty'] : '';
+	$mode       = isset( $item['delivery_mode'] ) ? (string) $item['delivery_mode'] : '';
+	$category   = isset( $item['category'] ) ? (string) $item['category'] : '';
+	$instructor = isset( $item['instructor_name'] ) ? (string) $item['instructor_name'] : '';
+	$duration   = agend_elementor_ssr_lms_duration( $item['total_duration_minutes'] ?? null );
+	$lessons    = (int) ( $item['lessons_count'] ?? 0 );
+	$price      = agend_elementor_ssr_lms_price( $item );
+
+	$meta_line = implode(
+		' · ',
+		array_filter(
+			array(
+				$duration,
+				$lessons . ' ' . _n( 'module', 'modules', $lessons, 'agend-elementor' ),
+				$instructor,
+			)
+		)
+	);
+
+	$detail_url  = trailingslashit( is_string( $host_url ) ? $host_url : '' ) . 'course/' . $slug . '/';
+	$sign_in_url = wp_login_url( $detail_url );
+
+	ob_start();
+	?>
+	<div class="agend-courses-catalogue agend-courses-catalogue--ssr" style="<?php echo esc_attr( $style ); ?>">
+		<div class="agend-lms-detail">
+			<a class="agend-lms-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Learning', 'agend-elementor' ); ?></a>
+
+			<div class="agend-lms-detail__hero"<?php echo ! empty( $item['image_url'] ) ? ' style="background-image:linear-gradient(180deg, rgba(30,42,74,0.4), rgba(30,42,74,0.88)), url(\'' . esc_url( $item['image_url'] ) . '\');"' : ''; ?>>
+				<div class="agend-lms-detail__hero-inner">
+					<?php if ( '' !== $category || '' !== $difficulty || '' !== $mode ) : ?>
+						<div class="agend-lms-card__pills">
+							<?php if ( '' !== $category ) : ?>
+								<span class="agend-lms-pill agend-lms-pill--category"><?php echo esc_html( $category ); ?></span>
+							<?php endif; ?>
+							<?php if ( '' !== $difficulty ) : ?>
+								<span class="agend-lms-pill agend-lms-pill--difficulty"><?php echo esc_html( agend_elementor_ssr_lms_difficulty( $difficulty ) ); ?></span>
+							<?php endif; ?>
+							<?php if ( '' !== $mode ) : ?>
+								<span class="agend-lms-pill agend-lms-pill--mode"><?php echo esc_html( agend_elementor_ssr_lms_mode( $mode ) ); ?></span>
+							<?php endif; ?>
+						</div>
+					<?php endif; ?>
+					<h1 class="agend-lms-detail__title"><?php echo esc_html( $title ); ?></h1>
+					<?php if ( '' !== $meta_line ) : ?>
+						<div class="agend-lms-detail__meta"><?php echo esc_html( $meta_line ); ?></div>
+					<?php endif; ?>
+				</div>
+			</div>
+
+			<div class="agend-lms-detail__layout">
+				<div class="agend-lms-detail__main">
+					<?php if ( ! empty( $item['description'] ) ) : ?>
+						<section class="agend-lms-detail__section">
+							<h2 class="agend-lms-detail__section-title"><?php esc_html_e( 'About This Course', 'agend-elementor' ); ?></h2>
+							<div class="agend-lms-detail__body-text"><?php echo wp_kses_post( $item['description'] ); ?></div>
+						</section>
+					<?php endif; ?>
+
+					<?php
+					$outcomes = ( ! empty( $item['learning_outcomes'] ) && is_array( $item['learning_outcomes'] ) )
+						? $item['learning_outcomes']
+						: array();
+					if ( ! empty( $outcomes ) ) :
+						?>
+						<section class="agend-lms-detail__section">
+							<h2 class="agend-lms-detail__section-title"><?php esc_html_e( "What You'll Learn", 'agend-elementor' ); ?></h2>
+							<ul class="agend-lms-detail__outcomes">
+								<?php
+								foreach ( $outcomes as $outcome ) :
+									$text = is_string( $outcome ) ? $outcome : (string) ( $outcome['text'] ?? '' );
+									if ( '' === $text ) {
+										continue;
+									}
+									?>
+									<li class="agend-lms-detail__outcome"><?php echo esc_html( $text ); ?></li>
+								<?php endforeach; ?>
+							</ul>
+						</section>
+					<?php endif; ?>
+				</div>
+
+				<aside class="agend-lms-detail__side">
+					<div class="agend-lms-detail__panel agend-lms-detail__panel--pricing">
+						<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Course Pricing', 'agend-elementor' ); ?></h2>
+						<div class="agend-lms-detail__price-row">
+							<span class="agend-lms-detail__price-label"><?php esc_html_e( 'Price', 'agend-elementor' ); ?></span>
+							<span class="agend-lms-detail__price-value<?php echo ( __( 'Free', 'agend-elementor' ) === $price ) ? ' is-free' : ''; ?>"><?php echo esc_html( $price ); ?></span>
+						</div>
+						<a class="agend-lms-detail__cta" href="<?php echo esc_url( $sign_in_url ); ?>"><?php esc_html_e( 'Enrol Now', 'agend-elementor' ); ?></a>
+						<p class="agend-lms-detail__note"><?php esc_html_e( 'Sign in to enrol and track your progress.', 'agend-elementor' ); ?></p>
+					</div>
+
+					<div class="agend-lms-detail__panel">
+						<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Details', 'agend-elementor' ); ?></h2>
+						<?php
+						$facts = array(
+							array( __( 'Level', 'agend-elementor' ), agend_elementor_ssr_lms_difficulty( $difficulty ) ),
+							array( __( 'Format', 'agend-elementor' ), agend_elementor_ssr_lms_mode( $mode ) ),
+							array( __( 'Duration', 'agend-elementor' ), $duration ),
+							array( __( 'Modules', 'agend-elementor' ), $lessons > 0 ? (string) $lessons : '' ),
+							array( __( 'Category', 'agend-elementor' ), $category ),
+							array( __( 'Instructor', 'agend-elementor' ), $instructor ),
+						);
+						foreach ( $facts as $pair ) :
+							if ( '' === (string) $pair[1] ) {
+								continue;
+							}
+							?>
+							<div class="agend-lms-detail__fact">
+								<span class="agend-lms-detail__fact-label"><?php echo esc_html( $pair[0] ); ?></span>
+								<span class="agend-lms-detail__fact-value"><?php echo esc_html( $pair[1] ); ?></span>
+							</div>
+						<?php endforeach; ?>
+					</div>
+				</aside>
+			</div>
+		</div>
+	</div>
 	<?php
 	return (string) ob_get_clean();
 }
