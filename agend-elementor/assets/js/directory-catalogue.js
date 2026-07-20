@@ -264,6 +264,29 @@
     return wrap;
   }
 
+  // Renders the rating distribution bars (5 star to 1 star), or null.
+  function renderRatingBars(breakdown, total) {
+    var count = typeof total === 'number' ? total : parseInt(total, 10) || 0;
+    if (!breakdown || count <= 0) {
+      return null;
+    }
+    var wrap = el('div', 'agend-dir-ratingbars');
+    for (var star = 5; star >= 1; star--) {
+      var n = parseInt(breakdown[String(star)], 10) || 0;
+      var pct = Math.round((n / count) * 100);
+      var row = el('div', 'agend-dir-ratingbar');
+      row.appendChild(el('span', 'agend-dir-ratingbar__label', star + (star === 1 ? ' star' : ' stars')));
+      var track = el('span', 'agend-dir-ratingbar__track');
+      var fill = el('span', 'agend-dir-ratingbar__fill');
+      fill.style.width = pct + '%';
+      track.appendChild(fill);
+      row.appendChild(track);
+      row.appendChild(el('span', 'agend-dir-ratingbar__pct', pct + '%'));
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
   // -- Loading skeletons ----------------------------------------------------
 
   function skeletonLine(width) {
@@ -812,6 +835,10 @@
 
     var summary = el('div', 'agend-dir-reviews__summary');
     summary.appendChild(renderStars(listing.average_rating, listing.review_count, true));
+    var ratingBars = renderRatingBars(listing.rating_breakdown, listing.review_count);
+    if (ratingBars) {
+      summary.appendChild(ratingBars);
+    }
     section.appendChild(summary);
 
     var list = el('div', 'agend-dir-reviews__list');
