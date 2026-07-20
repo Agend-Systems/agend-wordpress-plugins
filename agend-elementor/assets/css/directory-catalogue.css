@@ -607,6 +607,39 @@
   color: var(--agend-dir-muted);
 }
 
+/* Custom fields ("Details" section) */
+
+.agend-dir-cf {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.agend-dir-cf__row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.agend-dir-cf__label {
+  color: var(--agend-dir-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.agend-dir-cf__value {
+  color: var(--agend-dir-body);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.agend-dir-cf__link {
+  color: var(--agend-dir-accent);
+  text-decoration: none;
+  font-weight: 600;
+  word-break: break-word;
+}
+
 .agend-dir-detail__side {
   display: flex;
   flex-direction: column;

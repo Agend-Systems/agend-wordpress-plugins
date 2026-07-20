@@ -541,6 +541,70 @@
     return panel;
   }
 
+  // Renders a single public custom-field value by its type (US-4.x / Part A).
+  function renderCustomFieldValue(field) {
+    var type = field.type || 'text';
+    var value = field.value;
+    if (type === 'array' && Array.isArray(value)) {
+      var wrap = el('span', 'agend-dir-cf__value');
+      var pills = el('span', 'agend-dir-card__pills');
+      value.forEach(function (item) {
+        pills.appendChild(el('span', 'agend-dir-pill agend-dir-pill--tag', String(item)));
+      });
+      wrap.appendChild(pills);
+      return wrap;
+    }
+    if (type === 'url') {
+      var url = safeUrl(String(value));
+      if (url) {
+        var link = el('a', 'agend-dir-cf__value agend-dir-cf__link', String(value));
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        return link;
+      }
+      return el('span', 'agend-dir-cf__value', String(value));
+    }
+    if (type === 'email') {
+      var mail = el('a', 'agend-dir-cf__value agend-dir-cf__link', String(value));
+      mail.href = 'mailto:' + String(value);
+      return mail;
+    }
+    if (type === 'boolean') {
+      return el('span', 'agend-dir-cf__value', value ? 'Yes' : 'No');
+    }
+    if (type === 'date') {
+      return el('span', 'agend-dir-cf__value', formatDate(String(value)));
+    }
+    return el('span', 'agend-dir-cf__value', String(value));
+  }
+
+  // Renders the public custom fields as a "Details" section, or null if none.
+  function renderCustomFields(fields) {
+    if (!Array.isArray(fields) || !fields.length) {
+      return null;
+    }
+    var section = el('section', 'agend-dir-detail__section');
+    section.appendChild(el('h3', 'agend-dir-detail__section-title', 'Details'));
+    var list = el('div', 'agend-dir-cf');
+    var any = false;
+    fields.forEach(function (field) {
+      if (!field || !field.label) {
+        return;
+      }
+      any = true;
+      var row = el('div', 'agend-dir-cf__row');
+      row.appendChild(el('span', 'agend-dir-cf__label', field.label));
+      row.appendChild(renderCustomFieldValue(field));
+      list.appendChild(row);
+    });
+    if (!any) {
+      return null;
+    }
+    section.appendChild(list);
+    return section;
+  }
+
   function renderDetail(listing, cfg, onBack, reviewsMount) {
     var wrap = el('div', 'agend-dir-detail');
 
@@ -596,6 +660,11 @@
       setSafeHtml(para, listing.description);
       about.appendChild(para);
       main.appendChild(about);
+    }
+
+    var detailsSection = renderCustomFields(listing.custom_fields);
+    if (detailsSection) {
+      main.appendChild(detailsSection);
     }
 
     if (Array.isArray(listing.gallery_images) && listing.gallery_images.length) {
