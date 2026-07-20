@@ -299,7 +299,7 @@ function agend_elementor_ssr_rating_bars( $breakdown, int $total ): string {
 /**
  * Renders the member LMS achievements ("Badges & Credentials" section).
  *
- * @param mixed $achievements Array of { type, name, color, image_url, course_title, cpd_points, earned_at }, or null.
+ * @param mixed $achievements Array of { type, name, color, image_url, course_title, earned_at }, or null.
  * @return string Section HTML, or empty string.
  */
 function agend_elementor_ssr_achievements( $achievements ): string {
@@ -327,14 +327,11 @@ function agend_elementor_ssr_achievements( $achievements ): string {
 		if ( ! empty( $achievement['earned_at'] ) ) {
 			$meta[] = esc_html( agend_elementor_ssr_date( (string) $achievement['earned_at'] ) );
 		}
-		$cpd = ( isset( $achievement['cpd_points'] ) && (float) $achievement['cpd_points'] > 0 )
-			? '<span class="agend-dir-cred__cpd">' . esc_html( sprintf( /* translators: %s: CPD points. */ __( '%s CPD', 'agend-elementor' ), (string) ( 0 + $achievement['cpd_points'] ) ) ) . '</span>'
-			: '';
 
 		$cards .= '<div class="agend-dir-cred">' . $media
 			. '<div class="agend-dir-cred__body"><span class="agend-dir-cred__name">' . esc_html( $title ) . '</span>'
 			. ( ! empty( $meta ) ? '<span class="agend-dir-cred__meta">' . implode( ' &middot; ', $meta ) . '</span>' : '' )
-			. $cpd . '</div></div>';
+			. '</div></div>';
 	}
 	if ( '' === $cards ) {
 		return '';

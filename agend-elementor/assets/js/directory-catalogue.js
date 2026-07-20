@@ -642,9 +642,6 @@
       if (meta.length) {
         body.appendChild(el('span', 'agend-dir-cred__meta', meta.join(' · ')));
       }
-      if (typeof item.cpd_points === 'number' && item.cpd_points > 0) {
-        body.appendChild(el('span', 'agend-dir-cred__cpd', item.cpd_points + ' CPD'));
-      }
       card.appendChild(body);
       grid.appendChild(card);
     });
