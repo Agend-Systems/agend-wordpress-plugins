@@ -445,6 +445,30 @@
   color: #fff;
 }
 
+.agend-dir-detail__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agend-dir-detail__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--agend-dir-heading);
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--agend-dir-badge-colour, rgba(16, 24, 40, 0.12));
+}
+
+.agend-dir-detail__badge-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
 .agend-dir-detail__logo {
   width: 120px;
   height: 120px;

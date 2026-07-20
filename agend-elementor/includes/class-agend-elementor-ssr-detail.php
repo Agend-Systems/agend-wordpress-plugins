@@ -235,6 +235,35 @@ function agend_elementor_ssr_stars( $rating, int $review_count = 0, bool $with_c
 }
 
 /**
+ * Renders the listing's recognition badges as coloured pills (icon + name).
+ *
+ * @param mixed $badges Array of badges ({ name, icon, color }), or null.
+ * @return string Badges HTML, or empty string.
+ */
+function agend_elementor_ssr_badges( $badges ): string {
+	if ( ! is_array( $badges ) || empty( $badges ) ) {
+		return '';
+	}
+	$pills = '';
+	foreach ( $badges as $badge ) {
+		if ( empty( $badge['name'] ) ) {
+			continue;
+		}
+		$style = ! empty( $badge['color'] )
+			? ' style="--agend-dir-badge-colour:' . esc_attr( $badge['color'] ) . ';"'
+			: '';
+		$icon  = ! empty( $badge['icon'] )
+			? '<span class="agend-dir-detail__badge-icon">' . esc_html( $badge['icon'] ) . '</span>'
+			: '';
+		$pills .= '<span class="agend-dir-detail__badge"' . $style . '>' . $icon . esc_html( $badge['name'] ) . '</span>';
+	}
+	if ( '' === $pills ) {
+		return '';
+	}
+	return '<div class="agend-dir-detail__badges">' . $pills . '</div>';
+}
+
+/**
  * Formats an ISO date as DD/MM/YYYY.
  *
  * @param string $iso ISO 8601 date string.
@@ -286,6 +315,7 @@ function agend_elementor_render_directory_detail( array $item, string $slug, $re
 					<?php if ( ! empty( $item['primary_category']['name'] ) ) : ?>
 						<div class="agend-dir-card__pills"><span class="agend-dir-pill agend-dir-pill--category"><?php echo esc_html( $item['primary_category']['name'] ); ?></span></div>
 					<?php endif; ?>
+					<?php echo agend_elementor_ssr_badges( $item['badges'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					<?php echo agend_elementor_ssr_stars( $item['average_rating'] ?? null, (int) ( $item['review_count'] ?? 0 ), true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 				</div>
 			</div>

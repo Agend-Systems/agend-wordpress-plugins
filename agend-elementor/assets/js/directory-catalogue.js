@@ -567,6 +567,21 @@
       heroPills.appendChild(el('span', 'agend-dir-pill agend-dir-pill--category', listing.primary_category.name));
       heroInner.appendChild(heroPills);
     }
+    if (Array.isArray(listing.badges) && listing.badges.length) {
+      var heroBadges = el('div', 'agend-dir-detail__badges');
+      listing.badges.forEach(function (badge) {
+        var pill = el('span', 'agend-dir-detail__badge');
+        if (badge.color) {
+          pill.style.setProperty('--agend-dir-badge-colour', badge.color);
+        }
+        if (badge.icon) {
+          pill.appendChild(el('span', 'agend-dir-detail__badge-icon', badge.icon));
+        }
+        pill.appendChild(document.createTextNode(badge.name || ''));
+        heroBadges.appendChild(pill);
+      });
+      heroInner.appendChild(heroBadges);
+    }
     heroInner.appendChild(renderStars(listing.average_rating, listing.review_count, true));
     hero.appendChild(heroInner);
     wrap.appendChild(hero);
