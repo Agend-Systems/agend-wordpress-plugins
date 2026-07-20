@@ -264,6 +264,74 @@ function agend_elementor_ssr_badges( $badges ): string {
 }
 
 /**
+ * Renders the public custom fields ("Details" section) as a label/value list.
+ *
+ * @param mixed $fields Array of { key, label, type, value }, or null.
+ * @return string Section HTML, or empty string.
+ */
+function agend_elementor_ssr_custom_fields( $fields ): string {
+	if ( ! is_array( $fields ) || empty( $fields ) ) {
+		return '';
+	}
+	$rows = '';
+	foreach ( $fields as $field ) {
+		if ( empty( $field['label'] ) ) {
+			continue;
+		}
+		$rows .= '<div class="agend-dir-cf__row"><span class="agend-dir-cf__label">'
+			. esc_html( $field['label'] ) . '</span>'
+			. agend_elementor_ssr_cf_value( $field ) . '</div>';
+	}
+	if ( '' === $rows ) {
+		return '';
+	}
+	return '<section class="agend-dir-detail__section"><h2 class="agend-dir-detail__section-title">'
+		. esc_html__( 'Details', 'agend-elementor' )
+		. '</h2><div class="agend-dir-cf">' . $rows . '</div></section>';
+}
+
+/**
+ * Renders a single custom-field value by its type.
+ *
+ * @param array $field { key, label, type, value }.
+ * @return string Value HTML.
+ */
+function agend_elementor_ssr_cf_value( array $field ): string {
+	$type  = $field['type'] ?? 'text';
+	$value = $field['value'] ?? '';
+
+	switch ( $type ) {
+		case 'array':
+			if ( ! is_array( $value ) ) {
+				return '';
+			}
+			$chips = '';
+			foreach ( $value as $item ) {
+				$chips .= '<span class="agend-dir-pill agend-dir-pill--tag">' . esc_html( (string) $item ) . '</span>';
+			}
+			return '<span class="agend-dir-cf__value"><span class="agend-dir-card__pills">' . $chips . '</span></span>';
+		case 'url':
+			$url = esc_url( (string) $value );
+			return '' !== $url
+				? '<a class="agend-dir-cf__value agend-dir-cf__link" href="' . $url . '" target="_blank" rel="noopener noreferrer">' . esc_html( (string) $value ) . '</a>'
+				: '';
+		case 'email':
+			$email = sanitize_email( (string) $value );
+			return '' !== $email
+				? '<a class="agend-dir-cf__value agend-dir-cf__link" href="mailto:' . esc_attr( $email ) . '">' . esc_html( $email ) . '</a>'
+				: '';
+		case 'boolean':
+			return '<span class="agend-dir-cf__value">'
+				. ( $value ? esc_html__( 'Yes', 'agend-elementor' ) : esc_html__( 'No', 'agend-elementor' ) )
+				. '</span>';
+		case 'date':
+			return '<span class="agend-dir-cf__value">' . esc_html( agend_elementor_ssr_date( (string) $value ) ) . '</span>';
+		default:
+			return '<span class="agend-dir-cf__value">' . esc_html( (string) $value ) . '</span>';
+	}
+}
+
+/**
  * Formats an ISO date as DD/MM/YYYY.
  *
  * @param string $iso ISO 8601 date string.
@@ -328,6 +396,8 @@ function agend_elementor_render_directory_detail( array $item, string $slug, $re
 							<div class="agend-dir-detail__body-text"><?php echo wp_kses_post( $item['description'] ); ?></div>
 						</section>
 					<?php endif; ?>
+
+					<?php echo agend_elementor_ssr_custom_fields( $item['custom_fields'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 					<?php if ( ! empty( $item['gallery_images'] ) && is_array( $item['gallery_images'] ) ) : ?>
 						<section class="agend-dir-detail__section">
