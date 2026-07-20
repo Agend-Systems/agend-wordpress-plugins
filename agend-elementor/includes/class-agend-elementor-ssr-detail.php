@@ -269,6 +269,34 @@ function agend_elementor_ssr_badges( $badges ): string {
 }
 
 /**
+ * Renders the rating distribution bars (5 star to 1 star, with percentages).
+ *
+ * @param mixed $breakdown Per-star count map ({ "1": n, ... "5": n }), or null.
+ * @param int   $total     Total approved reviews.
+ * @return string Bars HTML, or empty string.
+ */
+function agend_elementor_ssr_rating_bars( $breakdown, int $total ): string {
+	if ( ! is_array( $breakdown ) || $total <= 0 ) {
+		return '';
+	}
+	$rows = '';
+	for ( $star = 5; $star >= 1; $star-- ) {
+		$count = (int) ( $breakdown[ (string) $star ] ?? 0 );
+		$pct   = (int) round( ( $count / $total ) * 100 );
+		$label = sprintf(
+			/* translators: %d: star rating. */
+			_n( '%d star', '%d stars', $star, 'agend-elementor' ),
+			$star
+		);
+		$rows .= '<div class="agend-dir-ratingbar">'
+			. '<span class="agend-dir-ratingbar__label">' . esc_html( $label ) . '</span>'
+			. '<span class="agend-dir-ratingbar__track"><span class="agend-dir-ratingbar__fill" style="width:' . $pct . '%;"></span></span>'
+			. '<span class="agend-dir-ratingbar__pct">' . $pct . '%</span></div>';
+	}
+	return '<div class="agend-dir-ratingbars">' . $rows . '</div>';
+}
+
+/**
  * Renders the member LMS achievements ("Badges & Credentials" section).
  *
  * @param mixed $achievements Array of { type, name, color, image_url, course_title, cpd_points, earned_at }, or null.
@@ -636,6 +664,7 @@ function agend_elementor_ssr_reviews_section( array $item, string $slug, $review
 		<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Reviews', 'agend-elementor' ); ?></h2>
 		<div class="agend-dir-reviews__summary">
 			<?php echo agend_elementor_ssr_stars( $item['average_rating'] ?? null, (int) ( $item['review_count'] ?? 0 ), true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			<?php echo agend_elementor_ssr_rating_bars( $item['rating_breakdown'] ?? null, (int) ( $item['review_count'] ?? 0 ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 		</div>
 		<div class="agend-dir-reviews__list">
 			<?php if ( empty( $reviews ) ) : ?>

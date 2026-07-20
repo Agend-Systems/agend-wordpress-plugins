@@ -752,6 +752,47 @@
   margin-bottom: 14px;
 }
 
+.agend-dir-ratingbars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  max-width: 320px;
+}
+
+.agend-dir-ratingbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.agend-dir-ratingbar__label {
+  flex: 0 0 52px;
+  color: var(--agend-dir-muted);
+}
+
+.agend-dir-ratingbar__track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--agend-dir-surface-alt);
+  overflow: hidden;
+}
+
+.agend-dir-ratingbar__fill {
+  display: block;
+  height: 100%;
+  background: var(--agend-dir-accent);
+  border-radius: 999px;
+}
+
+.agend-dir-ratingbar__pct {
+  flex: 0 0 36px;
+  text-align: right;
+  color: var(--agend-dir-muted);
+}
+
 .agend-dir-reviews__list {
   display: flex;
   flex-direction: column;
