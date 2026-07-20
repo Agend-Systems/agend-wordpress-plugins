@@ -446,12 +446,20 @@
 }
 
 .agend-dir-detail__logo {
-  width: 64px;
-  height: 64px;
+  width: 120px;
+  height: 120px;
   object-fit: contain;
   background: #fff;
-  border-radius: 10px;
-  padding: 6px;
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 6px 18px rgba(16, 24, 40, 0.12);
+}
+
+@media (max-width: 600px) {
+  .agend-dir-detail__logo {
+    width: 88px;
+    height: 88px;
+  }
 }
 
 .agend-dir-detail__title {
