@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.6.0
+ * Version:           0.7.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.6.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.7.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -53,6 +53,10 @@ define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260717-2' );
 // Core is temporarily unavailable; the widgets that consume them stay gated.
 require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-routing.php';
 
+// Settings (server-rendered detail toggle). Loaded unconditionally so the
+// accessor is available on the front-end `wp` hook and in the admin.
+require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-settings.php';
+
 register_activation_hook( __FILE__, 'agend_elementor_activate_rewrites' );
 register_deactivation_hook( __FILE__, 'agend_elementor_deactivate_rewrites' );
 
@@ -75,6 +79,10 @@ function agend_elementor_bootstrap(): void {
 	}
 
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor.php';
+
+	// Server-rendered detail pages (opt-in). Requires the Agend Apps Core REST
+	// wrappers, so it loads only once the core dependency check above passes.
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-ssr-detail.php';
 }
 add_action( 'plugins_loaded', 'agend_elementor_bootstrap' );
 

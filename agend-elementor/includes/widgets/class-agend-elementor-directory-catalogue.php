@@ -692,6 +692,11 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		$config['deepLink']    = sanitize_title( (string) get_query_var( 'listing' ) );
 		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
 		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
+		// When server-rendered detail pages are on, cards navigate to the
+		// server-rendered detail URL (a real child page) instead of swapping the
+		// detail in client-side, so breadcrumbs and SEO resolve natively.
+		$config['ssrDetail']   = function_exists( 'agend_elementor_ssr_detail_enabled' )
+			&& agend_elementor_ssr_detail_enabled();
 
 		$style = sprintf(
 			'--agend-dir-heading:%1$s;--agend-dir-body:%2$s;--agend-dir-accent:%3$s;--agend-dir-button:%4$s;--agend-dir-button-text:%5$s;--agend-dir-card-radius:%6$dpx;',

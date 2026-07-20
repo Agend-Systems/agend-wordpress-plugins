@@ -175,6 +175,8 @@
   border-radius: var(--agend-dir-card-radius);
   cursor: pointer;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
+  color: inherit;
+  text-decoration: none;
 }
 
 .agend-dir-card:hover,
