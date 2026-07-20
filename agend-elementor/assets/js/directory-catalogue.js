@@ -318,19 +318,26 @@
 
   // -- Catalogue card -------------------------------------------------------
 
-  function renderCard(listing, cfg, onOpen) {
-    var card = el('article', 'agend-dir-card');
-    card.setAttribute('role', 'button');
-    card.setAttribute('tabindex', '0');
-    card.addEventListener('click', function () {
-      onOpen(listing.slug);
-    });
-    card.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
+  function renderCard(listing, cfg, onOpen, hrefFor) {
+    // In server-rendered detail mode the card is a real link to the detail
+    // page (full navigation), so breadcrumbs and SEO resolve server-side.
+    var href = cfg.ssrDetail && hrefFor ? hrefFor(listing.slug) : null;
+    var card = el(href ? 'a' : 'article', 'agend-dir-card');
+    if (href) {
+      card.href = href;
+    } else {
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.addEventListener('click', function () {
         onOpen(listing.slug);
-      }
-    });
+      });
+      card.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(listing.slug);
+        }
+      });
+    }
 
     var featured = listing.is_featured || (typeof listing.sponsor_level === 'number' && listing.sponsor_level > 0);
     if (featured) {
@@ -1295,7 +1302,7 @@
           return;
         }
         result.items.forEach(function (listing) {
-          grid.appendChild(renderCard(listing, cfg, function (slug) { showDetail(slug, true); }));
+          grid.appendChild(renderCard(listing, cfg, function (slug) { showDetail(slug, true); }, deepLinkUrl));
         });
         renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);
       }).catch(function () {
@@ -1330,7 +1337,9 @@
       }
     });
 
-    var deepLinkSlug = cfg.deepLink || currentDeepLink();
+    // In server-rendered detail mode the detail is its own page, so the
+    // catalogue widget only ever renders the grid (cards are links).
+    var deepLinkSlug = cfg.ssrDetail ? '' : (cfg.deepLink || currentDeepLink());
     if (deepLinkSlug) {
       showDetail(deepLinkSlug, false);
       reloadCatalogue();
