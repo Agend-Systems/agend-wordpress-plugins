@@ -25,11 +25,12 @@
   var DEEP_LINK_PARAM = 'agend_event';
   var PAY_PARAM = 'agend_pay';
 
-  // The organisation timezone (IANA name, from cfg.timezone). Event times are a
-  // fixed wall-clock in the event's own locale, so both the client and the
-  // server-rendered detail render them in this zone rather than the viewer's
-  // browser timezone. Empty (or an offset string Intl rejects) falls back to
-  // the viewer's local timezone.
+  // The organisation timezone (IANA name, from cfg.timezone) — the FALLBACK for
+  // rendering event times when an event carries no timezone of its own. Event
+  // times are a fixed wall-clock in the event's own locale, so the event's
+  // timezone (event.timezone) is preferred; this org value, then the viewer's
+  // local timezone, apply only when it is absent or a manual offset Intl
+  // rejects.
   var orgTimeZone = '';
 
   function restBase() {
@@ -245,38 +246,67 @@
     node.textContent = stripHtml(html);
   }
 
-  // Merges the org timezone into Intl options when one is configured.
-  function tzOpts(opts) {
-    return orgTimeZone ? Object.assign({}, opts, { timeZone: orgTimeZone }) : opts;
+  // Event times are shown in the event's own timezone (event.timezone), which
+  // is the authoritative wall-clock for the event. The org timezone is the
+  // fallback, then the viewer's local timezone. Resolves to '' when neither is
+  // set so Intl uses the local timezone.
+  function eventZone(tz) {
+    return tz || orgTimeZone || '';
   }
 
-  // Locale date/time in the org timezone, falling back to the viewer's local
-  // timezone when none is set or the configured value is not a zone Intl accepts
-  // (e.g. a manual "+10:00" offset).
-  function localeDate(iso, opts) {
+  // Merges a timezone into Intl options when one is resolved.
+  function tzOpts(opts, tz) {
+    var zone = eventZone(tz);
+    return zone ? Object.assign({}, opts, { timeZone: zone }) : opts;
+  }
+
+  // Locale date/time in the given timezone, falling back to the viewer's local
+  // timezone when none resolves or the value is not a zone Intl accepts (e.g. a
+  // manual "+10:00" offset).
+  function localeDate(iso, opts, tz) {
     var d = new Date(iso);
     try {
-      return d.toLocaleDateString('en-AU', tzOpts(opts));
+      return d.toLocaleDateString('en-AU', tzOpts(opts, tz));
     } catch (e) {
       return d.toLocaleDateString('en-AU', opts);
     }
   }
 
-  function localeTime(iso, opts) {
+  function localeTime(iso, opts, tz) {
     var d = new Date(iso);
     try {
-      return d.toLocaleTimeString('en-AU', tzOpts(opts));
+      return d.toLocaleTimeString('en-AU', tzOpts(opts, tz));
     } catch (e) {
       return d.toLocaleTimeString('en-AU', opts);
     }
   }
 
-  // The org-timezone calendar day and month index for an ISO timestamp, for the
-  // card date badge (which indexes the MONTHS array by month).
-  function zonedDateParts(iso) {
+  // Short timezone abbreviation (e.g. "AEST") for the resolved zone, so times
+  // shown in a zone other than the viewer's are not ambiguous. Empty when no
+  // explicit zone resolves (the time is then in the viewer's own timezone).
+  function zoneLabel(iso, tz) {
+    if (!eventZone(tz)) {
+      return '';
+    }
+    try {
+      var parts = new Intl.DateTimeFormat('en-AU', tzOpts({ hour: 'numeric', timeZoneName: 'short' }, tz)).formatToParts(new Date(iso));
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i].type === 'timeZoneName') {
+          return parts[i].value;
+        }
+      }
+    } catch (e) {
+      /* invalid timeZone — no label */
+    }
+    return '';
+  }
+
+  // The calendar day and month index for an ISO timestamp in the given
+  // timezone, for the card date badge (which indexes the MONTHS array).
+  function zonedDateParts(iso, tz) {
     var d = new Date(iso);
     try {
-      var parts = new Intl.DateTimeFormat('en-US', tzOpts({ day: 'numeric', month: 'numeric' })).formatToParts(d);
+      var parts = new Intl.DateTimeFormat('en-US', tzOpts({ day: 'numeric', month: 'numeric' }, tz)).formatToParts(d);
       var find = function (type) {
         for (var i = 0; i < parts.length; i++) {
           if (parts[i].type === type) {
@@ -296,28 +326,32 @@
     return { day: d.getDate(), month: d.getMonth() };
   }
 
-  function dateRange(startIso, endIso) {
+  function dateRange(startIso, endIso, tz) {
     if (!startIso) {
       return '';
     }
     var opts = { day: 'numeric', month: 'short', year: 'numeric' };
-    var startStr = localeDate(startIso, opts);
+    var startStr = localeDate(startIso, opts, tz);
     if (!endIso) {
       return startStr;
     }
-    var endStr = localeDate(endIso, opts);
+    var endStr = localeDate(endIso, opts, tz);
     return startStr === endStr ? startStr : startStr + ' – ' + endStr;
   }
 
-  function dateTime(startIso, endIso) {
+  function dateTime(startIso, endIso, tz) {
     if (!startIso) {
       return '';
     }
     var dOpts = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
     var tOpts = { hour: 'numeric', minute: '2-digit' };
-    var str = localeDate(startIso, dOpts) + ', ' + localeTime(startIso, tOpts);
+    var str = localeDate(startIso, dOpts, tz) + ', ' + localeTime(startIso, tOpts, tz);
     if (endIso) {
-      str += ' – ' + localeTime(endIso, tOpts);
+      str += ' – ' + localeTime(endIso, tOpts, tz);
+    }
+    var label = zoneLabel(startIso, tz);
+    if (label) {
+      str += ' ' + label;
     }
     return str;
   }
@@ -409,7 +443,7 @@
         media.classList.add('agend-ev-card__media--placeholder');
       }
       if (cfg.card.dateBadge && event.start_date) {
-        var parts = zonedDateParts(event.start_date);
+        var parts = zonedDateParts(event.start_date, event.timezone);
         var badge = el('div', 'agend-ev-card__date-badge');
         badge.appendChild(el('span', 'agend-ev-card__date-month', MONTHS[parts.month]));
         badge.appendChild(el('span', 'agend-ev-card__date-day', parts.day));
@@ -437,7 +471,7 @@
 
     body.appendChild(el('h3', 'agend-ev-card__title', event.name || ''));
 
-    var range = dateRange(event.start_date, event.end_date);
+    var range = dateRange(event.start_date, event.end_date, event.timezone);
     if (range) {
       body.appendChild(el('div', 'agend-ev-card__date', range));
     }
@@ -494,7 +528,7 @@
     }
     heroInner.appendChild(heroPills);
     heroInner.appendChild(el('h2', 'agend-ev-detail__title', event.name || ''));
-    heroInner.appendChild(el('div', 'agend-ev-detail__meta', [dateRange(event.start_date, event.end_date), event.venue_name || (event.venue_type === 'virtual' ? 'Online' : 'TBA')].filter(Boolean).join(' · ')));
+    heroInner.appendChild(el('div', 'agend-ev-detail__meta', [dateRange(event.start_date, event.end_date, event.timezone), event.venue_name || (event.venue_type === 'virtual' ? 'Online' : 'TBA')].filter(Boolean).join(' · ')));
     hero.appendChild(heroInner);
     wrap.appendChild(hero);
 
@@ -555,7 +589,7 @@
     var facts = el('div', 'agend-ev-detail__panel');
     facts.appendChild(el('h3', 'agend-ev-detail__panel-title', 'Details'));
     [
-      ['Date & Time', dateTime(event.start_date, event.end_date)],
+      ['Date & Time', dateTime(event.start_date, event.end_date, event.timezone)],
       ['Location', [event.venue_name, event.venue_address, event.venue_city].filter(Boolean).join(', ') || (event.venue_type === 'virtual' ? 'Online' : 'TBA')],
       ['Format', tl],
     ].forEach(function (pair) {
@@ -1022,7 +1056,7 @@
     wrap.appendChild(back);
 
     wrap.appendChild(el('h2', 'agend-ev-reg__title', 'Register: ' + (event.name || '')));
-    wrap.appendChild(el('div', 'agend-ev-reg__meta', dateRange(event.start_date, event.end_date)));
+    wrap.appendChild(el('div', 'agend-ev-reg__meta', dateRange(event.start_date, event.end_date, event.timezone)));
 
     var status = el('div', 'agend-ev-status', 'Loading tickets…');
     wrap.appendChild(status);
