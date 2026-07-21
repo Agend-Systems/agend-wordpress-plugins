@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.9.2' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.9.3' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -195,6 +195,21 @@ function agend_elementor_enqueue_scripts(): void {
 		'agend-elementor-account-link',
 		AGEND_ELEMENTOR_URL . 'assets/js/account-link.js',
 		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	wp_enqueue_style(
+		'agend-elementor-memberships-catalogue',
+		AGEND_ELEMENTOR_URL . 'assets/css/memberships-catalogue.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-elementor-memberships-catalogue',
+		AGEND_ELEMENTOR_URL . 'assets/js/memberships-catalogue.js',
+		array( 'agend-elementor-dompurify' ),
 		AGEND_ELEMENTOR_VERSION,
 		true
 	);
