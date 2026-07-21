@@ -236,9 +236,9 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 				'fields'      => array(
 					array(
 						'name'        => 'tier_slug',
-						'label'       => __( 'Tier', 'agend-elementor' ),
-						'type'        => \Elementor\Controls_Manager::SELECT,
-						'options'     => $this->tier_options(),
+						'label'       => __( 'Tier slug', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::TEXT,
+						'placeholder' => 'professional',
 					),
 					array(
 						'name'    => 'tier_mode',
@@ -322,37 +322,6 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 		);
 
 		$this->end_controls_section();
-	}
-
-	/**
-	 * Builds the tier options (slug => name) for the per-tier override control,
-	 * fetched from the account's membership tiers via the Agend Apps Core client.
-	 *
-	 * Degrades to an empty list when the client is unavailable or the request
-	 * fails, so the editor still loads and the global mode remains usable.
-	 *
-	 * @return array Map of tier slug to display name.
-	 */
-	private function tier_options(): array {
-		if ( ! function_exists( 'agend_apps_crm_get_tiers' ) ) {
-			return array();
-		}
-
-		$response = agend_apps_crm_get_tiers();
-
-		if ( is_wp_error( $response ) || empty( $response['data'] ) || ! is_array( $response['data'] ) ) {
-			return array();
-		}
-
-		$options = array();
-
-		foreach ( $response['data'] as $tier ) {
-			if ( ! empty( $tier['slug'] ) && ! empty( $tier['name'] ) ) {
-				$options[ (string) $tier['slug'] ] = (string) $tier['name'];
-			}
-		}
-
-		return $options;
 	}
 
 	/**
