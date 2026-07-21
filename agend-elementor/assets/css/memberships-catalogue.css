@@ -196,6 +196,90 @@
   background: #f9f9fb;
 }
 
+/* Selected membership summary (top of the form) */
+.agend-mem-summary {
+  padding: 1.25rem 1.5rem;
+  border: 1px solid #e8eaf0;
+  border-left: 4px solid var(--agend-mem-accent);
+  border-radius: var(--agend-mem-radius);
+  background: #fff;
+}
+
+.agend-mem-summary__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.agend-mem-summary__name {
+  margin: 0;
+  color: var(--agend-mem-heading);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.agend-mem-summary__price {
+  color: var(--agend-mem-heading);
+  white-space: nowrap;
+}
+
+.agend-mem-summary__price-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.agend-mem-summary__price-period {
+  color: #6b7280;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.agend-mem-summary__description {
+  margin: 0.75rem 0 0;
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.agend-mem-summary__benefits-title {
+  margin: 1rem 0 0.5rem;
+  color: var(--agend-mem-heading);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.agend-mem-summary__benefits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agend-mem-summary__benefit {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.agend-mem-summary__benefit::before {
+  content: '✓';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: var(--agend-mem-accent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
 /* Form styles */
 .agend-mem-form {
   display: flex;

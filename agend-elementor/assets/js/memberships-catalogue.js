@@ -261,6 +261,58 @@
     /**
      * Renders the signup form after tier selection.
      */
+    /**
+     * Builds the selected-membership summary shown at the top of the form:
+     * the tier name, its price, and its benefits/entitlements. Always shown
+     * (independent of the card field toggles) so the applicant can confirm
+     * what they are signing up for.
+     */
+    function renderMembershipSummary(tier) {
+      var summary = el('div', 'agend-mem-summary');
+
+      var header = el('div', 'agend-mem-summary__header');
+      header.appendChild(el('h3', 'agend-mem-summary__name', tier.name));
+
+      if (tier.formatted_price) {
+        var price = el('div', 'agend-mem-summary__price');
+        price.appendChild(
+          el('span', 'agend-mem-summary__price-value', tier.formatted_price)
+        );
+        if (tier.billing_period) {
+          price.appendChild(
+            el('span', 'agend-mem-summary__price-period', ' / ' + tier.billing_period)
+          );
+        }
+        header.appendChild(price);
+      }
+      summary.appendChild(header);
+
+      if (tier.description) {
+        summary.appendChild(
+          el('p', 'agend-mem-summary__description', tier.description)
+        );
+      }
+
+      if (tier.benefits && Array.isArray(tier.benefits) && tier.benefits.length) {
+        var benefitsTitle = el(
+          'p',
+          'agend-mem-summary__benefits-title',
+          "What's included"
+        );
+        summary.appendChild(benefitsTitle);
+
+        var benefits = el('ul', 'agend-mem-summary__benefits');
+        tier.benefits.forEach(function (benefit) {
+          benefits.appendChild(
+            el('li', 'agend-mem-summary__benefit', benefit)
+          );
+        });
+        summary.appendChild(benefits);
+      }
+
+      return summary;
+    }
+
     function renderForm(tier, fields, cfg) {
       var formContainer = root.querySelector('.agend-mem-form-wrapper');
       if (!formContainer) {
@@ -274,6 +326,9 @@
         e.preventDefault();
         submitForm(tier, fields, cfg, form);
       });
+
+      // Selected membership summary (name, price, benefits) at the top.
+      form.appendChild(renderMembershipSummary(tier));
 
       // Personal Details section (always shown).
       var personalSection = el('fieldset', 'agend-mem-form__section');
