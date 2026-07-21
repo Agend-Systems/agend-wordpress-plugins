@@ -252,7 +252,7 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 					),
 				),
 				'default'     => array(),
-				'title_field' => '{{{ tier_slug }}}',
+				'title_field' => '{{{ "undefined" !== typeof tier_slug && tier_slug ? tier_slug : "Tier override" }}}',
 			)
 		);
 
