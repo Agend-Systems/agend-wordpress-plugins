@@ -157,6 +157,57 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 			)
 		);
 
+		// Public catalogue: membership-signup field definitions. Definitions
+		// only (never member values); powers the public Memberships widget form.
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/fields',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_fields' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'entityType' => array(
+							'type'              => 'string',
+							'enum'              => array( 'contact', 'company' ),
+							'default'           => 'contact',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		// Public signup write: create a prospect contact (nonce-gated). Used by
+		// the Memberships widget for both the direct-purchase and application
+		// paths.
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/contacts',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'create_contact' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+
+		// Public signup write: open a hosted-checkout session for a membership
+		// purchase (nonce-gated). The buyer contact_id is supplied in the body.
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/memberships/purchase',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'purchase_membership' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+
 		// Member self-service: current member profile.
 		register_rest_route(
 			$this->namespace,
@@ -346,6 +397,50 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 		);
 
 		$result = agend_apps_crm_get_memberships( $query );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Returns the public membership-signup field definitions.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_fields( WP_REST_Request $request ): WP_REST_Response {
+		$query  = array( 'entityType' => $request->get_param( 'entityType' ) );
+		$result = agend_apps_crm_get_fields( $query );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Creates a prospect contact from the public signup form. The gateway's
+	 * schema validates the forwarded body; a valid nonce is required.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function create_contact( WP_REST_Request $request ): WP_REST_Response {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$result = agend_apps_crm_create_contact( $body );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Opens a hosted-checkout session for a membership purchase. The buyer's
+	 * contact_id is supplied in the body; a valid nonce is required.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function purchase_membership( WP_REST_Request $request ): WP_REST_Response {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$result = agend_apps_crm_purchase_membership( $body );
 		return $this->prepare_api_response( $result );
 	}
 
