@@ -209,12 +209,10 @@
 
       if (cfg.fields && cfg.fields.price && tier.formatted_price) {
         var priceBlock = el('div', 'agend-mem-card__price');
+        // formatted_price already includes the billing period (e.g.
+        // "$349.00/annually"), so the period is not appended separately.
         var priceVal = el('span', 'agend-mem-card__price-value', tier.formatted_price);
         priceBlock.appendChild(priceVal);
-        if (tier.billing_period) {
-          var period = el('span', 'agend-mem-card__price-period', ' / ' + tier.billing_period);
-          priceBlock.appendChild(period);
-        }
         card.appendChild(priceBlock);
       }
 
@@ -275,14 +273,11 @@
 
       if (tier.formatted_price) {
         var price = el('div', 'agend-mem-summary__price');
+        // formatted_price already includes the billing period (e.g.
+        // "$349.00/annually"), so the period is not appended separately.
         price.appendChild(
           el('span', 'agend-mem-summary__price-value', tier.formatted_price)
         );
-        if (tier.billing_period) {
-          price.appendChild(
-            el('span', 'agend-mem-summary__price-period', ' / ' + tier.billing_period)
-          );
-        }
         header.appendChild(price);
       }
       summary.appendChild(header);
@@ -379,9 +374,11 @@
 
       // Submit button.
       var mode = resolveMode(tier, cfg);
+      // formatted_price already includes the billing period (e.g.
+      // "$349.00/annually"), so the period is not appended separately.
       var btnLabel = 'application' === mode
         ? 'Submit Application'
-        : 'Proceed to Checkout — ' + tier.formatted_price + ' / ' + tier.billing_period;
+        : 'Proceed to Checkout — ' + tier.formatted_price;
       var submitBtn = el('button', 'agend-mem-form__submit', btnLabel);
       submitBtn.type = 'submit';
       form.appendChild(submitBtn);
