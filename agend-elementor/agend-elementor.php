@@ -249,6 +249,21 @@ function agend_elementor_enqueue_scripts(): void {
 	);
 
 	wp_enqueue_style(
+		'agend-elementor-member-login',
+		AGEND_ELEMENTOR_URL . 'assets/css/member-login.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-elementor-member-login',
+		AGEND_ELEMENTOR_URL . 'assets/js/member-login.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	wp_enqueue_style(
 		'agend-elementor-memberships-catalogue',
 		AGEND_ELEMENTOR_URL . 'assets/css/memberships-catalogue.css',
 		array(),

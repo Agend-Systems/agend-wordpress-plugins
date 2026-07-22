@@ -130,6 +130,18 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 
 		register_rest_route(
 			$this->namespace,
+			'/' . $this->rest_base . '/session',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'session_status' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
 			'/' . $this->rest_base . '/logout',
 			array(
 				array(
@@ -260,6 +272,31 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 				'ok'      => true,
 				'user'    => isset( $data['user'] ) ? $data['user'] : null,
 				'contact' => isset( $data['contact'] ) ? $data['contact'] : null,
+				// Sign-in rotates the WordPress session, so the caller's REST
+				// nonce is now stale. Return a fresh one for subsequent calls
+				// (the frontend also reloads, which re-seeds window.agendApps).
+				'nonce'   => wp_create_nonce( 'wp_rest' ),
+			),
+			200
+		);
+	}
+
+	/**
+	 * Reports whether the current visitor has an active Agend member session.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function session_status( WP_REST_Request $request ): WP_REST_Response {
+		unset( $request );
+
+		$user_id   = get_current_user_id();
+		$signed_in = 0 !== $user_id && Agend_Apps_Member_Session::has_session( $user_id );
+
+		return new WP_REST_Response(
+			array(
+				'signed_in'  => $signed_in,
+				'portal_url' => $signed_in ? Agend_Apps_Settings::get_portal_url() : '',
 			),
 			200
 		);
@@ -272,16 +309,23 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function logout( WP_REST_Request $request ): WP_REST_Response {
-		$user_id = get_current_user_id();
+		$user_id     = get_current_user_id();
+		$had_session = 0 !== $user_id && Agend_Apps_Member_Session::has_session( $user_id );
 
 		// Best-effort global revoke at the gateway while the bearer is still
 		// resolvable; a failure must not stop the local session being cleared.
-		if ( 0 !== $user_id && Agend_Apps_Member_Session::has_session( $user_id ) ) {
+		if ( $had_session ) {
 			agend_apps_auth_logout();
 		}
 
 		if ( 0 !== $user_id ) {
 			Agend_Apps_Member_Session::clear( $user_id );
+		}
+
+		// End the WordPress session too, so the widget's "sign out" fully signs
+		// the member out of the site.
+		if ( $had_session ) {
+			wp_logout();
 		}
 
 		return new WP_REST_Response( array( 'ok' => true ), 200 );
