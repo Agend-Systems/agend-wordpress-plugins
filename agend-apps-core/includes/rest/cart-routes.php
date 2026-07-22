@@ -31,6 +31,7 @@ function agend_apps_register_cart_routes(): void {
  * Exposes:
  * - `GET    /agend-apps/v1/cart`            — retrieve cart.
  * - `POST   /agend-apps/v1/cart/items`      — add item.
+ * - `POST   /agend-apps/v1/cart/items/attendees` — set item attendees.
  * - `PUT    /agend-apps/v1/cart/items/{id}` — update item.
  * - `DELETE /agend-apps/v1/cart/items/{id}` — remove item.
  * - `DELETE /agend-apps/v1/cart`            — clear cart.
@@ -81,6 +82,25 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 					'callback'            => array( $this, 'add_cart_item' ),
 					'permission_callback' => array( $this, 'nonce_check' ),
 					'args'                => $this->get_item_schema_args(),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/items/attendees',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'set_cart_item_attendees' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'itemId' => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
 				),
 			)
 		);
@@ -282,6 +302,25 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 		$identity = $this->get_identity( $request );
 		$item     = $request->get_json_params();
 		$result   = agend_apps_cart_add_item( $item, $identity['cart_session'], $identity['bearer_token'] );
+
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Sets (replaces) the attendee assignments for a cart item.
+	 *
+	 * The full request body (`itemId` plus the `attendees` array) is forwarded
+	 * to the gateway, which validates each attendee against the ticket's event
+	 * attendee-field definitions.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 *
+	 * @return WP_REST_Response REST response.
+	 */
+	public function set_cart_item_attendees( WP_REST_Request $request ): WP_REST_Response {
+		$identity = $this->get_identity( $request );
+		$payload  = (array) $request->get_json_params();
+		$result   = agend_apps_cart_set_item_attendees( $payload, $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}

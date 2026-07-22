@@ -61,9 +61,14 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				}
 				const data = dataWrapper.data
 				if ( ! data ) {
+					// An empty or just-cleared cart responds with data: null.
+					maybeUpdateBadge( 0 );
 					return;
 				}
-				var itemCount = ( data.cart && data.cart.item_count ) ? parseInt( data.cart.item_count, 10 ) : 0;
+				// `GET /cart` returns the cart object directly on `data`; tolerate a
+				// nested `data.cart` shape as well.
+				var cart = ( data.cart ) || data;
+				var itemCount = ( cart && cart.item_count ) ? parseInt( cart.item_count, 10 ) : 0;
 				maybeUpdateBadge(itemCount)
 			} )
 			.catch( function () {
@@ -81,13 +86,13 @@ document.addEventListener( 'DOMContentLoaded', function () {
 	// Listen for cart changes from other widgets.
 	document.addEventListener( 'agend:cart:updated', function (e) {
 		widgets.forEach( function ( wrapper ) {
-			refreshBadge( wrapper, e.detail?.conut ?? null );
+			refreshBadge( wrapper, e.detail?.count ?? null );
 		} );
 	} );
 	// Total only event listener to prevent more widgets than necessary from updating.
 	document.addEventListener( 'agend:cart:updated:total', function (e) {
 		widgets.forEach( function ( wrapper ) {
-			refreshBadge( wrapper, e.detail.conut );
+			refreshBadge( wrapper, e.detail?.count ?? null );
 		} );
 	} );
 } );

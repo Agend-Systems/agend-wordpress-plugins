@@ -1872,6 +1872,45 @@ function agend_apps_crm_get_tiers( array $query = array() ) {
 }
 
 /**
+ * Retrieves the public membership-signup field definitions for an entity type.
+ *
+ * Returns custom-field DEFINITIONS an association marked for its public signup
+ * form (is_active AND display_on_signup); never stored member values.
+ *
+ * Scope: `crm.fields.browse`.
+ *
+ * @param array $query Query parameters (e.g. `entityType`) forwarded to the gateway.
+ * @return array|WP_Error Decoded field definitions on success, or WP_Error on failure.
+ */
+function agend_apps_crm_get_fields( array $query = array() ) {
+	/**
+	 * Filters the get-fields request args before the request is sent.
+	 *
+	 * @param array $args  Request args.
+	 * @param array $query Original query parameters.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_crm_get_fields_args',
+		array( 'query' => $query ),
+		$query
+	);
+
+	$response = agend_apps_api()->request( 'GET', '/crm/fields', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded get-fields response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $query    Original query parameters.
+	 */
+	return apply_filters( 'agend_apps_crm_get_fields_response', $response, $query );
+}
+
+/**
  * Creates a membership tier.
  *
  * Scope: `crm.tiers.create`.

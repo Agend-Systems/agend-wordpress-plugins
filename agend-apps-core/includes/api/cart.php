@@ -190,6 +190,63 @@ function agend_apps_cart_update_item( array $item, string $cart_session, string 
 }
 
 /**
+ * Sets (replaces) the attendee assignments for a cart item.
+ *
+ * Forwards the full attendee array for a line to the gateway
+ * `POST /v1/cart/items/attendees` endpoint. The supplied array is the
+ * authoritative set for the line; the gateway validates each attendee against
+ * the ticket's event attendee-field definitions. Clears any cached cart for
+ * the given identity after a successful call.
+ *
+ * @param array  $payload      Attendee payload forwarded as the request body. Expects `itemId` (string) and `attendees` (array).
+ * @param string $cart_session Cart session token forwarded as `X-Cart-Session`.
+ * @param string $bearer_token Optional. Supabase bearer token forwarded as `Authorization: Bearer`. Default empty string.
+ * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
+ */
+function agend_apps_cart_set_item_attendees( array $payload, string $cart_session, string $bearer_token = '' ) {
+	/**
+	 * Filters the cart set-attendees request args before the request is sent.
+	 *
+	 * @param array  $args         Request args.
+	 * @param array  $payload      Attendee payload.
+	 * @param string $cart_session Cart session token.
+	 * @param string $bearer_token Supabase bearer token, or empty string.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_cart_set_item_attendees_args',
+		array(
+			'body'         => $payload,
+			'cart_session' => $cart_session,
+			'bearer_token' => $bearer_token,
+		),
+		$payload,
+		$cart_session,
+		$bearer_token
+	);
+
+	$response = agend_apps_api()->request( 'POST', '/cart/items/attendees', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	$cache_key = agend_apps_cart_cache_key( $bearer_token, $cart_session );
+	delete_transient( 'agend_apps_' . $cache_key );
+
+	$item_id = isset( $payload['itemId'] ) ? (string) $payload['itemId'] : '';
+
+	/**
+	 * Filters the decoded cart set-attendees response before it is returned.
+	 *
+	 * @param array  $response     Decoded response body.
+	 * @param string $item_id      Item ID.
+	 * @param string $cart_session Cart session token.
+	 * @param string $bearer_token Supabase bearer token, or empty string.
+	 */
+	return apply_filters( 'agend_apps_cart_set_item_attendees_response', $response, $item_id, $cart_session, $bearer_token );
+}
+
+/**
  * Removes an item from the cart.
  *
  * Clears any cached cart for the given identity after a successful removal.

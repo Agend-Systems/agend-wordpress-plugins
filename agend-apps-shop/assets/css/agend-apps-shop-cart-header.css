@@ -18,6 +18,19 @@
 	font-size: 1.4em;
 }
 
+/*
+ * Size the icon explicitly. Elementor's inline-SVG icons ship without
+ * width/height attributes and rely on context-scoped rules (e.g.
+ * .elementor-button-icon .e-font-icon-svg) that do not target this widget's
+ * markup, so the SVG would otherwise collapse to 0x0 and appear invisible.
+ */
+.agend-shop-cart-icon svg,
+.agend-shop-cart-icon .e-font-icon-svg {
+	width: 1em;
+	height: 1em;
+	fill: currentColor;
+}
+
 /* Badge */
 .agend-shop-cart-badge {
 	position: absolute;

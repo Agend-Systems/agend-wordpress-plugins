@@ -48,6 +48,10 @@ class Agend_Apps_Cache {
 			'label'       => 'Directory Search',
 			'default_ttl' => 120,
 		),
+		'directory_listing_reviews' => array(
+			'label'       => 'Listing Reviews',
+			'default_ttl' => 120,
+		),
 		'events_list'              => array(
 			'label'       => 'Events List',
 			'default_ttl' => 120,
@@ -58,6 +62,10 @@ class Agend_Apps_Cache {
 		),
 		'events_tickets'           => array(
 			'label'       => 'Event Tickets',
+			'default_ttl' => 300,
+		),
+		'events_attendee_fields'   => array(
+			'label'       => 'Event Attendee Fields',
 			'default_ttl' => 300,
 		),
 		'events_categories'        => array(
