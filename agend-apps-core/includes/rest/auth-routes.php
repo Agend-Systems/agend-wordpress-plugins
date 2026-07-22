@@ -1,0 +1,336 @@
+<?php
+/**
+ * REST routes for member credential login, logout, and portal hand-off.
+ *
+ * These are the WordPress-side proxy for the Agend gateway's `/v1/auth/*`
+ * session endpoints (SPEC-CORE-20260722-wordpress-member-login US-1.3, US-1.5).
+ * The browser talks only to these nonce-gated routes; the secret API key and
+ * the member's refresh token stay server-side. The access token is stored in
+ * user meta and served to outbound gateway calls via the
+ * `agend_apps_bearer_token` filter (see Agend_Apps_Member_Session), so it is
+ * never returned to the browser.
+ *
+ * @package Agend_Apps_Core
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Registers the auth REST routes.
+ *
+ * Called from `rest_api_init` via the main plugin bootstrap.
+ */
+function agend_apps_register_auth_routes(): void {
+	$controller = new Agend_Apps_Auth_REST_Controller();
+	$controller->register_routes();
+}
+
+/**
+ * Throttles repeated login attempts per client IP and per email.
+ *
+ * The gateway's own `auth-login` bucket is per API key, so every member shares
+ * it through this single proxy origin (SPEC-CORE-20260722 OQ5). This adds a
+ * per-IP and per-email cap at the proxy edge, the correct locus, before any
+ * gateway call is made.
+ *
+ * @param string $email The submitted email (lower-cased).
+ * @param string $ip    The client IP.
+ * @return bool True when the attempt is allowed, false when it is throttled.
+ */
+function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
+	$window = 15 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Filters the login-attempt limits at the WordPress proxy edge.
+	 *
+	 * @param array $limits {
+	 *     @type int $per_ip    Max attempts per IP per window. Default 20.
+	 *     @type int $per_email Max attempts per email per window. Default 5.
+	 * }
+	 */
+	$limits = (array) apply_filters(
+		'agend_apps_auth_login_limits',
+		array(
+			'per_ip'    => 20,
+			'per_email' => 5,
+		)
+	);
+
+	$checks = array(
+		'agend_apps_login_ip_' . md5( $ip )       => (int) $limits['per_ip'],
+		'agend_apps_login_email_' . md5( $email ) => (int) $limits['per_email'],
+	);
+
+	$allowed = true;
+
+	foreach ( $checks as $key => $max ) {
+		$count = (int) get_transient( $key );
+
+		if ( $count >= $max ) {
+			$allowed = false;
+			continue;
+		}
+
+		set_transient( $key, $count + 1, $window );
+	}
+
+	return $allowed;
+}
+
+/**
+ * REST controller for member auth endpoints.
+ *
+ * Exposes, under `agend-apps/v1/auth`:
+ * - `POST /login`          — sign in with Agend credentials; stores the session
+ *                            server-side and establishes the member's identity.
+ * - `POST /logout`         — revoke the session and clear the stored tokens.
+ * - `POST /portal-handoff` — mint a single-use portal sign-in URL for the
+ *                            authenticated member.
+ *
+ * All routes are nonce-gated: they run server-side as the current visitor, so
+ * the browser never sees the API key or the refresh token.
+ */
+class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
+
+	/**
+	 * Resource base for auth routes.
+	 *
+	 * @var string
+	 */
+	protected $rest_base = 'auth';
+
+	/**
+	 * Registers the REST routes for this controller.
+	 */
+	public function register_routes(): void {
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/login',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'login' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'email'    => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_email',
+						),
+						'password' => array(
+							'required' => true,
+							'type'     => 'string',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/logout',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'logout' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/portal-handoff',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'portal_handoff' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Validates the WordPress REST nonce for the current request.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return bool True if the nonce is valid, false otherwise.
+	 */
+	public function nonce_check( WP_REST_Request $request ): bool {
+		$nonce = $request->get_header( 'X-WP-Nonce' );
+
+		return false !== wp_verify_nonce( $nonce, 'wp_rest' );
+	}
+
+	/**
+	 * Signs a member in with their Agend credentials.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function login( WP_REST_Request $request ): WP_REST_Response {
+		$email    = strtolower( (string) $request->get_param( 'email' ) );
+		$password = (string) $request->get_param( 'password' );
+
+		if ( '' === $email || '' === $password ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'missing_credentials',
+					'message' => __( 'Email and password are required.', 'agend-apps-core' ),
+				),
+				400
+			);
+		}
+
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+
+		if ( ! agend_apps_auth_login_throttle( $email, $ip ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'too_many_attempts',
+					'message' => __( 'Too many sign-in attempts. Please wait a few minutes and try again.', 'agend-apps-core' ),
+				),
+				429
+			);
+		}
+
+		$response = agend_apps_auth_login( $email, $password );
+
+		if ( is_wp_error( $response ) ) {
+			return $this->error_to_response( $response );
+		}
+
+		$data    = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+		$session = ( isset( $data['session'] ) && is_array( $data['session'] ) ) ? $data['session'] : array();
+
+		if ( empty( $session['access_token'] ) || empty( $session['refresh_token'] ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'invalid_session',
+					'message' => __( 'The sign-in did not return a usable session.', 'agend-apps-core' ),
+				),
+				502
+			);
+		}
+
+		/**
+		 * Resolves the WordPress user id the Agend session is stored against.
+		 *
+		 * Defaults to the current WordPress user, so a member already signed in
+		 * to the site has their Agend session attached. A site whose members
+		 * are not necessarily WordPress users yet resolves (find-or-create) the
+		 * user here and returns its id; returning 0 signals "no WordPress
+		 * identity" and the caller is asked to sign in to the site first. The
+		 * establishing code owns the account-matching and sign-in security
+		 * (never adopting a higher-privileged WordPress account by email).
+		 *
+		 * @param int             $user_id Current WordPress user id (0 if none).
+		 * @param string          $email   Authenticated member email.
+		 * @param array           $data    Decoded login data (user, contact, session).
+		 * @param WP_REST_Request $request Current request.
+		 */
+		$user_id = (int) apply_filters(
+			'agend_apps_member_login_user_id',
+			get_current_user_id(),
+			$email,
+			$data,
+			$request
+		);
+
+		if ( 0 === $user_id ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'wp_identity_required',
+					'message' => __( 'Sign in to this site before linking your Agend account.', 'agend-apps-core' ),
+				),
+				409
+			);
+		}
+
+		Agend_Apps_Member_Session::store( $user_id, $session );
+
+		// A credential login supersedes any negative-cached SSO mint state.
+		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
+
+		return new WP_REST_Response(
+			array(
+				'ok'      => true,
+				'user'    => isset( $data['user'] ) ? $data['user'] : null,
+				'contact' => isset( $data['contact'] ) ? $data['contact'] : null,
+			),
+			200
+		);
+	}
+
+	/**
+	 * Signs the current member out and clears the stored session.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function logout( WP_REST_Request $request ): WP_REST_Response {
+		$user_id = get_current_user_id();
+
+		// Best-effort global revoke at the gateway while the bearer is still
+		// resolvable; a failure must not stop the local session being cleared.
+		if ( 0 !== $user_id && Agend_Apps_Member_Session::has_session( $user_id ) ) {
+			agend_apps_auth_logout();
+		}
+
+		if ( 0 !== $user_id ) {
+			Agend_Apps_Member_Session::clear( $user_id );
+		}
+
+		return new WP_REST_Response( array( 'ok' => true ), 200 );
+	}
+
+	/**
+	 * Mints a single-use portal sign-in link for the current member.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function portal_handoff( WP_REST_Request $request ): WP_REST_Response {
+		$user_id = get_current_user_id();
+
+		if ( 0 === $user_id || ! Agend_Apps_Member_Session::has_session( $user_id ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'not_signed_in',
+					'message' => __( 'Sign in with your Agend account before opening the portal.', 'agend-apps-core' ),
+				),
+				401
+			);
+		}
+
+		$response = agend_apps_auth_session_handoff();
+
+		if ( is_wp_error( $response ) ) {
+			return $this->error_to_response( $response );
+		}
+
+		$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+		$url  = isset( $data['url'] ) ? (string) $data['url'] : '';
+
+		if ( '' === $url ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'no_handoff_url',
+					'message' => __( 'The portal sign-in link could not be created.', 'agend-apps-core' ),
+				),
+				502
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'ok'  => true,
+				'url' => $url,
+			),
+			200
+		);
+	}
+}

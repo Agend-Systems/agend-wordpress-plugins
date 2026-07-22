@@ -93,6 +93,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-api.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
@@ -119,11 +120,17 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';
 
 	// Bearer identity for outbound gateway calls (addendum E-11): mints and
 	// caches the logged-in member's Supabase JWT, served via the
 	// `agend_apps_bearer_token` filter.
 	new Agend_Apps_Token_Worker();
+
+	// Credential-login session (SPEC-CORE-20260722-wordpress-member-login):
+	// serves the access token from a member's stored Agend session ahead of the
+	// SSO worker, refreshing it as needed.
+	new Agend_Apps_Member_Session();
 
 	if ( is_admin() ) {
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-admin.php';
@@ -149,6 +156,7 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
+	agend_apps_register_auth_routes();
 }
 add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
 
