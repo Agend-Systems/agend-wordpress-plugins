@@ -173,6 +173,39 @@ function agend_apps_auth_logout() {
 }
 
 /**
+ * Requests a single-use portal sign-in link for the current member.
+ *
+ * Scope: `auth.sessions.handoff`. Requires a member bearer token (attached
+ * automatically from `agend_apps_get_bearer_token()`). The gateway mints a
+ * single-use magic-link for the bearer user and returns a portal
+ * `/auth/confirm` URL; following it establishes the shared Agend session and
+ * lands the member on the portal.
+ *
+ * @return array|WP_Error Decoded response with `url` on success, or WP_Error on failure.
+ */
+function agend_apps_auth_session_handoff() {
+	/**
+	 * Filters the session-handoff request args before the request is sent.
+	 *
+	 * @param array $args Request args.
+	 */
+	$args = (array) apply_filters( 'agend_apps_auth_session_handoff_args', array() );
+
+	$response = agend_apps_api()->request( 'POST', '/auth/session-handoff', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded session-handoff response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 */
+	return apply_filters( 'agend_apps_auth_session_handoff_response', $response );
+}
+
+/**
  * Initiates a forgot-password flow.
  *
  * Scope: `auth.passwords.reset`.
