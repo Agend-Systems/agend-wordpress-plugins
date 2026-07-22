@@ -340,34 +340,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			var item   = ( response && response.data ) || response || {};
 			var totals = ( response && response.meta && response.meta.totals ) || {};
 
+			// Non-event lines only: event-ticket quantity changes update the row and
+			// attendee form in place (see applyRowTotals) rather than rebuilding here.
 			var row = document.querySelector( `tr[data--item-id="${item.id}"]` );
 			if ( row ) {
-				// Preserve the attendee editor's open state across the rebuild so a
-				// quantity change re-syncs the seat forms in place (a new seat form
-				// on add, fewer on remove) without collapsing the panel
-				// (SPEC-CORE-20260721 US-5.3).
-				var oldPanel = tbodyEl.querySelector(
-					'tr.agend-shop-attendee-panel[data-item-id="' + item.id + '"]'
-				);
-				var panelWasOpen = !! ( oldPanel && ! oldPanel.hidden );
-
-				var newRow = buildItemRow( item );
-				row.replaceWith( newRow );
-
-				if ( isEventTicketWithEvent( item ) ) {
-					var newPanel = buildAttendeePanelRow( item );
-					if ( oldPanel ) {
-						oldPanel.replaceWith( newPanel );
-					} else {
-						newRow.after( newPanel );
-					}
-					if ( panelWasOpen ) {
-						var btn = newRow.querySelector( '.agend-shop-btn-attendees' );
-						openAttendeePanel( item, newPanel, btn );
-					}
-				} else if ( oldPanel ) {
-					oldPanel.remove();
-				}
+				row.replaceWith( buildItemRow( item ) );
 			}
 
 			var totalAmount = ( undefined !== totals.newTotalAmount ) ? totals.newTotalAmount : totals.newTotalAmmount;
@@ -699,25 +676,222 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
-		 * Sends an event-ticket line to a new quantity via the standard update
-		 * endpoint (used for increases — a new empty seat form appears on re-render).
+		 * PUTs a new quantity for a line and resolves with the parsed response.
+		 * Does no DOM work and does not unlock — callers own the UI update so the
+		 * open attendee form is adjusted in place rather than rebuilt.
+		 *
+		 * @param {Object} item     Cart item.
+		 * @param {number} quantity New quantity.
+		 * @return {Promise<Object>} Resolves with the update response payload.
+		 */
+		function putItemQuantity( item, quantity ) {
+			var headers = AgendCartSession.getHeaders();
+			headers[ 'Content-Type' ] = 'application/json';
+
+			return fetch( restUrl + 'cart/item/update', {
+				method: 'PUT',
+				headers: headers,
+				body: JSON.stringify( { quantity: quantity, itemId: item.id } ),
+			} ).then( function ( response ) {
+				if ( ! response.ok ) {
+					return response.json().then( function ( data ) {
+						throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
+					} );
+				}
+				return response.json();
+			} );
+		}
+
+		/**
+		 * Updates an existing row's quantity input, subtotal, and the cart total in
+		 * place from an update response, without rebuilding the row or the attendee
+		 * form (SPEC-CORE-20260721 US-5.3).
+		 *
+		 * @param {Object} item     Cart item.
+		 * @param {number} quantity New quantity.
+		 * @param {Object} data     Update response payload (for `meta.totals`).
+		 */
+		function applyRowTotals( item, quantity, data ) {
+			var row = document.querySelector( 'tr[data--item-id="' + item.id + '"]' );
+			if ( row ) {
+				var qtyInput = row.querySelector( '.agend-shop-atc-qty-input' );
+				if ( qtyInput ) {
+					qtyInput.value = quantity;
+					qtyInput.setAttribute( 'data-prev-value', quantity );
+				}
+				var subtotal = row.querySelector( 'td[data-label="Subtotal"]' );
+				if ( subtotal ) {
+					subtotal.textContent = formatCurrency( item.unit_amount * quantity, item.currency );
+				}
+			}
+
+			var totals = ( data && data.meta && data.meta.totals ) || {};
+			var totalAmount = ( undefined !== totals.newTotalAmount ) ? totals.newTotalAmount : totals.newTotalAmmount;
+			if ( totalAmountEl && undefined !== totalAmount ) {
+				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
+			}
+			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
+				detail: { count: totals.newTotalCount, amount: totalAmount },
+			} ) );
+		}
+
+		/**
+		 * Returns the live editor state for an open, rendered attendee panel, or
+		 * null when the panel is closed or not yet rendered.
+		 *
+		 * @param {string} itemId Cart item id.
+		 * @return {Object|null} Editor state or null.
+		 */
+		function getOpenEditor( itemId ) {
+			var panel = tbodyEl.querySelector(
+				'tr.agend-shop-attendee-panel[data-item-id="' + itemId + '"]'
+			);
+			if ( ! panel || panel.hidden ) {
+				return null;
+			}
+			var body = panel.querySelector( '.agend-shop-attendee-panel__body' );
+			return ( body && body._editor ) ? body._editor : null;
+		}
+
+		/**
+		 * Forces a closed panel to re-render from fresh item state the next time it
+		 * is opened (the item object is mutated in place by the quantity flows).
+		 *
+		 * @param {string} itemId Cart item id.
+		 */
+		function invalidateClosedPanel( itemId ) {
+			var panel = tbodyEl.querySelector(
+				'tr.agend-shop-attendee-panel[data-item-id="' + itemId + '"]'
+			);
+			if ( ! panel ) {
+				return;
+			}
+			var body = panel.querySelector( '.agend-shop-attendee-panel__body' );
+			if ( body ) {
+				delete body.dataset.rendered;
+				body._editor = null;
+			}
+		}
+
+		/**
+		 * Appends one empty seat form to an open editor, preserving every existing
+		 * seat's current (possibly unsaved) input.
+		 *
+		 * @param {Object} editor Open editor state.
+		 */
+		function appendEditorSeat( editor ) {
+			var index = editor.seatEls.length;
+			var seat = buildSeat( index, {}, editor.fields, false, editor.onRemoveSeat );
+			editor.seatsContainer.appendChild( seat.el );
+			editor.seatEls.push( seat.refs );
+		}
+
+		/**
+		 * Grows an open editor's seat forms to match a target count (used on
+		 * increment). Existing seat input is left untouched.
+		 *
+		 * @param {Object} editor      Open editor state.
+		 * @param {number} targetCount Desired number of seats.
+		 */
+		function growEditorSeats( editor, targetCount ) {
+			while ( editor.seatEls.length < targetCount ) {
+				appendEditorSeat( editor );
+			}
+		}
+
+		/**
+		 * Removes the dropped seats from an open editor in place (preserving the
+		 * retained seats' current input) and renumbers the remaining seats. The
+		 * seatEls array is mutated in place so captured references stay valid.
+		 *
+		 * @param {Object}   editor      Open editor state.
+		 * @param {number[]} keepIndices Old seat indices that survive.
+		 */
+		function shrinkEditorSeats( editor, keepIndices ) {
+			var keepSet = {};
+			keepIndices.forEach( function ( i ) {
+				keepSet[ i ] = true;
+			} );
+
+			var retainedRefs = [];
+			editor.seatEls.forEach( function ( refs, i ) {
+				if ( keepSet[ i ] ) {
+					retainedRefs.push( refs );
+				} else if ( refs.el && refs.el.parentNode ) {
+					refs.el.parentNode.removeChild( refs.el );
+				}
+			} );
+
+			editor.seatEls.length = 0;
+			Array.prototype.push.apply( editor.seatEls, retainedRefs );
+
+			editor.seatEls.forEach( function ( refs, i ) {
+				if ( refs.legend ) {
+					refs.legend.textContent = 'Attendee ' + ( i + 1 );
+				}
+			} );
+		}
+
+		/**
+		 * Inserts the "choose which ticket to remove" hint into an open editor once.
+		 *
+		 * @param {Object} editor Open editor state.
+		 */
+		function showRemovalHint( editor ) {
+			if ( editor.body.querySelector( '.agend-shop-attendee-panel__removal-hint' ) ) {
+				return;
+			}
+			editor.body.insertBefore( buildRemovalHint(), editor.seatsContainer );
+		}
+
+		/**
+		 * Builds the removal-hint paragraph shown when every seat is already saved.
+		 *
+		 * @return {HTMLElement} The hint element.
+		 */
+		function buildRemovalHint() {
+			var hint = document.createElement( 'p' );
+			hint.className = 'agend-shop-attendee-panel__removal-hint';
+			hint.textContent = 'Every ticket has attendee details. Use “Remove ticket” to choose which one to remove.';
+			return hint;
+		}
+
+		/**
+		 * Increases an event-ticket line's quantity: persists the new quantity,
+		 * updates the row total in place, and appends a seat form to the open editor
+		 * (a new empty entry) without rebuilding the row or form.
 		 *
 		 * @param {Object} item     Cart item.
 		 * @param {number} quantity New quantity.
 		 */
 		function changeEventQty( item, quantity ) {
 			lockInputs( item.id );
-			updateItemAttendeesThenQty( item, quantity ).catch( function ( err ) {
-				unlockInputs( item.id );
-				showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
-			} );
+			putItemQuantity( item, quantity )
+				.then( function ( data ) {
+					item.quantity = quantity;
+					applyRowTotals( item, quantity, data );
+					var editor = getOpenEditor( item.id );
+					if ( editor ) {
+						growEditorSeats( editor, quantity );
+					} else {
+						invalidateClosedPanel( item.id );
+					}
+					document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+				} )
+				.catch( function ( err ) {
+					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
+				} )
+				.finally( function () {
+					unlockInputs( item.id );
+				} );
 		}
 
 		/**
 		 * Handles a decrement on an event-ticket line. If any seat is still unset,
 		 * one unset seat is dropped automatically. If every seat has saved attendee
-		 * details, the editor is opened so the user chooses which ticket to remove
-		 * via the per-seat remove controls (SPEC-CORE-20260721 US-5.3).
+		 * details, the per-seat Remove controls are surfaced (without discarding any
+		 * unsaved input in an open form) so the user chooses which ticket to remove
+		 * (SPEC-CORE-20260721 US-5.3).
 		 *
 		 * @param {Object} item Cart item.
 		 */
@@ -747,8 +921,16 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				return;
 			}
 
-			// All seats saved: open the editor (re-rendering even if already open) and
-			// let the user pick which to remove via the per-seat Remove controls.
+			// All seats saved: reveal the per-seat Remove controls. If the editor is
+			// already open, add the hint in place (never re-render — that would drop
+			// unsaved input); otherwise open it (which renders fresh) with the hint.
+			var openEditor = getOpenEditor( item.id );
+			if ( openEditor ) {
+				showRemovalHint( openEditor );
+				openEditor.body.parentNode.scrollIntoView( { behavior: 'smooth', block: 'nearest' } );
+				return;
+			}
+
 			var panel = tbodyEl.querySelector(
 				'tr.agend-shop-attendee-panel[data-item-id="' + item.id + '"]'
 			);
@@ -756,18 +938,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				'.agend-shop-btn-attendees[data-item-id="' + item.id + '"]'
 			);
 			if ( panel ) {
-				panel.hidden = false;
-				if ( btn ) {
-					btn.setAttribute( 'aria-expanded', 'true' );
-				}
 				var body = panel.querySelector( '.agend-shop-attendee-panel__body' );
 				if ( body ) {
-					body.dataset.rendered = '1';
 					body.dataset.removalHint = '1';
-					fetchAttendeeFields( item.metadata.event_slug ).then( function ( fields ) {
-						renderAttendeeSeats( body, item, fields );
-					} );
 				}
+				openAttendeePanel( item, panel, btn );
 				panel.scrollIntoView( { behavior: 'smooth', block: 'nearest' } );
 			}
 		}
@@ -778,7 +953,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * The retained seats' attendees are written first (POST /cart/items/attendees)
 		 * and the quantity is then reduced (PUT /cart/item/update, which keeps the
 		 * leading N attendees), so the correct seats survive rather than whichever
-		 * happened to be trailing. Removing every seat deletes the line.
+		 * happened to be trailing. The row total and the open form are then updated
+		 * in place — the dropped seat forms are removed and the rest renumbered,
+		 * with no widget or form rebuild. Removing every seat deletes the line.
 		 *
 		 * @param {Object}   item        Cart item.
 		 * @param {number[]} keepIndices Seat indices to retain, in order.
@@ -813,42 +990,23 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					}
 					// Reduce the quantity; the retained attendees are already the
 					// leading N so the update's truncation is a no-op.
-					return updateItemAttendeesThenQty( item, newQty );
-				} )
-				.catch( function ( err ) {
-					unlockInputs( item.id );
-					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
-				} );
-		}
-
-		/**
-		 * Reduces an item's quantity after its retained attendees have been written,
-		 * then refreshes the row and cart total.
-		 *
-		 * @param {Object} item     Cart item.
-		 * @param {number} quantity New quantity.
-		 * @return {Promise} Resolves when the update completes.
-		 */
-		function updateItemAttendeesThenQty( item, quantity ) {
-			var headers = AgendCartSession.getHeaders();
-			headers[ 'Content-Type' ] = 'application/json';
-
-			return fetch( restUrl + 'cart/item/update', {
-				method: 'PUT',
-				headers: headers,
-				body: JSON.stringify( { quantity: quantity, itemId: item.id } ),
-			} )
-				.then( function ( response ) {
-					if ( ! response.ok ) {
-						return response.json().then( function ( data ) {
-							throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
-						} );
-					}
-					return response.json();
+					return putItemQuantity( item, newQty );
 				} )
 				.then( function ( data ) {
-					replaceItemRow( data );
+					item.quantity = newQty;
+					item.metadata = item.metadata || {};
+					item.metadata.attendees = retained;
+					applyRowTotals( item, newQty, data );
+					var editor = getOpenEditor( item.id );
+					if ( editor ) {
+						shrinkEditorSeats( editor, keepIndices );
+					} else {
+						invalidateClosedPanel( item.id );
+					}
 					document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+				} )
+				.catch( function ( err ) {
+					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
 				} )
 				.finally( function () {
 					unlockInputs( item.id );
@@ -864,25 +1022,33 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 */
 		function renderAttendeeSeats( body, item, fields ) {
 			body.textContent = '';
-			var existing = getItemAttendees( item );
 
 			var intro = document.createElement( 'p' );
 			intro.className = 'agend-shop-attendee-panel__intro';
 			intro.textContent = 'Assign attendees for each ticket. Leave a seat blank to assign it to yourself.';
 			body.appendChild( intro );
 
-			// A decrement on a fully-assigned line asks the user to choose which
-			// ticket to remove here, via the per-seat Remove controls.
-			if ( body.dataset.removalHint ) {
-				delete body.dataset.removalHint;
-				var hint = document.createElement( 'p' );
-				hint.className = 'agend-shop-attendee-panel__removal-hint';
-				hint.textContent = 'Every ticket has attendee details. Use “Remove ticket” to choose which one to remove.';
-				body.appendChild( hint );
-			}
+			var seatsContainer = document.createElement( 'div' );
+			seatsContainer.className = 'agend-shop-attendee-seats';
 
-			function onRemoveSeat( index ) {
-				var attendee = existing[ index ] || null;
+			// Live editor state, kept in sync as seats are added/removed in place so
+			// a quantity change never rebuilds the form (SPEC-CORE-20260721 US-5.3).
+			var editor = {
+				item: item,
+				fields: fields,
+				body: body,
+				seatsContainer: seatsContainer,
+				seatEls: [],
+			};
+
+			// The seat's metadata index is its current DOM position, derived at click
+			// time so it stays correct after seats are added or removed.
+			editor.onRemoveSeat = function ( seatEl ) {
+				var index = Array.prototype.indexOf.call( seatsContainer.children, seatEl );
+				if ( index < 0 ) {
+					return;
+				}
+				var attendee = getItemAttendees( item )[ index ] || null;
 				var saved = seatIsSaved( attendee );
 
 				if ( item.quantity <= 1 ) {
@@ -904,13 +1070,22 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					}
 				}
 				applyRemoval( item, keep );
+			};
+
+			// A decrement on a fully-assigned line asks the user to choose which
+			// ticket to remove here, via the per-seat Remove controls.
+			if ( body.dataset.removalHint ) {
+				delete body.dataset.removalHint;
+				body.appendChild( buildRemovalHint() );
 			}
 
-			var seatEls = [];
+			body.appendChild( seatsContainer );
+
+			var existing = getItemAttendees( item );
 			for ( var i = 0; i < item.quantity; i++ ) {
-				var seat = buildSeat( i, existing[ i ] || {}, fields, seatIsSaved( existing[ i ] || null ), onRemoveSeat );
-				seatEls.push( seat.refs );
-				body.appendChild( seat.el );
+				var seat = buildSeat( i, existing[ i ] || {}, fields, seatIsSaved( existing[ i ] || null ), editor.onRemoveSeat );
+				editor.seatEls.push( seat.refs );
+				seatsContainer.appendChild( seat.el );
 			}
 
 			var actions = document.createElement( 'div' );
@@ -925,8 +1100,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			body.appendChild( actions );
 
 			saveBtn.addEventListener( 'click', function () {
-				saveAttendees( item, seatEls, fields, saveBtn, status );
+				saveAttendees( item, editor.seatEls, fields, saveBtn, status );
 			} );
+
+			body._editor = editor;
 		}
 
 		/**
@@ -967,7 +1144,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			removeSeatBtn.className = 'agend-shop-btn-remove-seat';
 			removeSeatBtn.textContent = 'Remove ticket';
 			removeSeatBtn.addEventListener( 'click', function () {
-				onRemove( index );
+				onRemove( wrap );
 			} );
 			header.appendChild( removeSeatBtn );
 
@@ -999,7 +1176,14 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			return {
 				el: wrap,
-				refs: { nameInput: nameInput, emailInput: emailInput, fieldRefs: fieldRefs, badge: badge },
+				refs: {
+					el: wrap,
+					legend: legend,
+					nameInput: nameInput,
+					emailInput: emailInput,
+					fieldRefs: fieldRefs,
+					badge: badge,
+				},
 			};
 		}
 
