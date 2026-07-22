@@ -378,10 +378,18 @@ function agend_elementor_ssr_enqueue_events(): void {
 	}
 	if ( ! wp_script_is( 'agend-elementor-events-catalogue', 'enqueued' ) ) {
 		agend_elementor_register_dompurify();
+
+		// Match the global enqueue: depend on the shop cart-session helper when
+		// the shop is active so the hydrated registration flow can add to cart.
+		$events_deps = array( 'agend-elementor-dompurify' );
+		if ( agend_elementor_shop_cart_enabled() ) {
+			$events_deps[] = 'agend-apps-shop-cart-session';
+		}
+
 		wp_enqueue_script(
 			'agend-elementor-events-catalogue',
 			AGEND_ELEMENTOR_URL . 'assets/js/events-catalogue.js',
-			array( 'agend-elementor-dompurify' ),
+			$events_deps,
 			AGEND_ELEMENTOR_VERSION,
 			true
 		);
@@ -1068,6 +1076,10 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 			// prefers the fetched event's own timezone. This single-event page
 			// uses that event's zone, falling back to the site timezone.
 			'timezone'    => ! empty( $item['timezone'] ) ? (string) $item['timezone'] : wp_timezone_string(),
+			// Cart mode: mirror the client catalogue so the hydrated "Register
+			// Now" flow adds tickets to the shop cart when the shop is active.
+			'cartEnabled' => agend_elementor_shop_cart_enabled(),
+			'cartPageUrl' => agend_elementor_shop_cart_page_url(),
 		)
 	);
 

@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.9.2
+ * Version:           0.9.3
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -105,6 +105,45 @@ function agend_elementor_missing_elementor_notice(): void {
 }
 
 /**
+ * Determines whether the events widgets should add tickets to the shop cart
+ * instead of registering and paying immediately.
+ *
+ * Returns true when the Agend Apps Shop plugin is active (its version constant
+ * is defined). The `agend_elementor_cart_mode` filter allows a site to override
+ * the detected value, so the direct register/pay flow can be forced back on
+ * even when the shop is present, or vice versa.
+ *
+ * @return bool True when cart mode is enabled, false otherwise.
+ */
+function agend_elementor_shop_cart_enabled(): bool {
+	$enabled = defined( 'AGEND_APPS_SHOP_VERSION' );
+
+	/**
+	 * Filters whether the Agend events widgets use the shop cart flow.
+	 *
+	 * @param bool $enabled Whether cart mode is enabled (the shop plugin is active).
+	 */
+	return (bool) apply_filters( 'agend_elementor_cart_mode', $enabled );
+}
+
+/**
+ * Returns the configured shop cart page URL, or an empty string.
+ *
+ * Only meaningful when the Agend Apps Shop plugin is active; the option is
+ * seeded and managed by that plugin. Surfaced to the events widgets so the
+ * post-add confirmation can link the visitor to their cart.
+ *
+ * @return string Escaped cart page URL, or empty string when unavailable.
+ */
+function agend_elementor_shop_cart_page_url(): string {
+	if ( ! agend_elementor_shop_cart_enabled() ) {
+		return '';
+	}
+
+	return esc_url_raw( (string) get_option( 'agend_apps_shop_cart_page_url', '' ) );
+}
+
+/**
  * Registers the vendored DOMPurify script (Cure53), once.
  *
  * The client-side HTML sanitiser used by the catalogue scripts as the final
@@ -146,10 +185,20 @@ function agend_elementor_enqueue_scripts(): void {
 		AGEND_ELEMENTOR_VERSION
 	);
 
+	// When the shop is active, the events registration flow adds tickets to the
+	// cart via the shop's AgendCartSession helper (guest cart cookie + REST
+	// headers), so depend on its handle. The dependency is added only when the
+	// shop is active, otherwise the handle is unregistered and WordPress would
+	// silently drop the events script.
+	$events_deps = array( 'agend-elementor-dompurify' );
+	if ( agend_elementor_shop_cart_enabled() ) {
+		$events_deps[] = 'agend-apps-shop-cart-session';
+	}
+
 	wp_enqueue_script(
 		'agend-elementor-events-catalogue',
 		AGEND_ELEMENTOR_URL . 'assets/js/events-catalogue.js',
-		array( 'agend-elementor-dompurify' ),
+		$events_deps,
 		AGEND_ELEMENTOR_VERSION,
 		true
 	);

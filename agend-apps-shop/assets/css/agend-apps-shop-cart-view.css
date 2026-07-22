@@ -1,26 +1,197 @@
-/* Agend Apps Shop — Cart View widget styles */
+/**
+ * Agend Apps Shop — Cart View widget styles.
+ *
+ * Shares the visual language of the Agend Elementor catalogue widgets
+ * (events/courses/directory): navy headings, coral accent/CTA, rounded cards,
+ * subtle borders and shadow. Colour and font tokens default below and are
+ * overridden at runtime from the connected account's site config by
+ * agend-apps-shop-cart-view.js (matching how the catalogue widgets inherit the
+ * site theme), so the cart page tracks the same palette and typography.
+ */
 
-/* Table */
-.agend-shop-cart-table {
+.agend-apps-shop-cart-view {
+	--agend-shop-heading: #1e2a4a;
+	--agend-shop-body: #26304d;
+	--agend-shop-accent: #ff6b55;
+	--agend-shop-button: #ff6b55;
+	--agend-shop-button-text: #ffffff;
+	--agend-shop-radius: 10px;
+	--agend-shop-border: #eceef4;
+	--agend-shop-border-strong: #d7dbe6;
+	--agend-shop-muted: #f8f9fc;
+
+	max-width: 900px;
+	margin: 0 auto;
+	color: var( --agend-shop-body );
+	font-family: var( --agend-shop-font-body, inherit );
+}
+
+.agend-apps-shop-cart-view h2,
+.agend-apps-shop-cart-view h3 {
+	font-family: var( --agend-shop-font-heading, inherit );
+	color: var( --agend-shop-heading );
+}
+
+/* -- States: loading / empty ---------------------------------------------- */
+
+.agend-apps-shop-cart-view .agend-shop-cart-loading {
+	padding: 2.5rem 1rem;
+	text-align: center;
+	opacity: 0.75;
+}
+
+.agend-apps-shop-cart-view .agend-shop-cart-empty {
+	padding: 2.5rem 1.25rem;
+	text-align: center;
+	border: 1px dashed var( --agend-shop-border-strong );
+	border-radius: var( --agend-shop-radius );
+	background: var( --agend-shop-muted );
+}
+
+.agend-apps-shop-cart-view .agend-shop-cart-empty p {
+	margin: 0;
+	opacity: 0.8;
+}
+
+/* -- Locked notice -------------------------------------------------------- */
+
+.agend-apps-shop-cart-view .agend-shop-cart-locked-notice {
+	padding: 0.85rem 1rem;
+	margin-bottom: 1rem;
+	background: #fff8e6;
+	border: 1px solid #ffe2a8;
+	border-radius: var( --agend-shop-radius );
+	color: #8a6d1a;
+}
+
+.agend-apps-shop-cart-view .agend-shop-cart-locked-notice p {
+	margin: 0;
+}
+
+/* -- Cart table (card) ---------------------------------------------------- */
+
+.agend-apps-shop-cart-view .agend-shop-cart-table {
 	width: 100%;
-	border-collapse: collapse;
+	border-collapse: separate;
+	border-spacing: 0;
+	border: 1px solid var( --agend-shop-border );
+	border-radius: var( --agend-shop-radius );
+	overflow: hidden;
+	background: #fff;
+	box-shadow: 0 1px 3px rgba( 30, 42, 74, 0.08 );
 	margin-bottom: 1.5rem;
 }
 
-.agend-shop-cart-table th,
-.agend-shop-cart-table td {
-	padding: 0.75rem;
-	border-bottom: 1px solid #e0e0e0;
+.agend-apps-shop-cart-view .agend-shop-cart-table th,
+.agend-apps-shop-cart-view .agend-shop-cart-table td {
+	padding: 0.85rem 1rem;
 	text-align: left;
 	vertical-align: middle;
+	border-bottom: 1px solid var( --agend-shop-border );
 }
 
-.agend-shop-cart-table thead th {
+.agend-apps-shop-cart-view .agend-shop-cart-table thead th {
+	font-family: var( --agend-shop-font-heading, inherit );
+	font-size: 0.72rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var( --agend-shop-heading );
+	background: var( --agend-shop-muted );
+}
+
+.agend-apps-shop-cart-view .agend-shop-cart-items td:first-child {
 	font-weight: 600;
+	color: var( --agend-shop-heading );
 }
 
-/* Cart Actions */
-.agend-shop-cart-actions {
+/* -- Total row ------------------------------------------------------------ */
+
+.agend-apps-shop-cart-view .agend-shop-cart-table tfoot td {
+	border-bottom: none;
+	background: var( --agend-shop-muted );
+}
+
+.agend-apps-shop-cart-view .agend-shop-cart-total-label {
+	text-align: right;
+	font-weight: 700;
+	color: var( --agend-shop-heading );
+}
+
+.agend-apps-shop-cart-view .agend-shop-cart-total-amount {
+	font-weight: 800;
+	font-size: 1.1rem;
+	color: var( --agend-shop-heading );
+}
+
+/* -- Quantity stepper ----------------------------------------------------- */
+
+.agend-apps-shop-cart-view .agend-shop-atc-quantity {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+}
+
+.agend-apps-shop-cart-view .agend-shop-atc-qty-btn {
+	width: 2rem;
+	height: 2rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var( --agend-shop-border-strong );
+	background: #fff;
+	border-radius: 8px;
+	font-size: 1.1rem;
+	line-height: 1;
+	color: var( --agend-shop-heading );
+	cursor: pointer;
+}
+
+.agend-apps-shop-cart-view .agend-shop-atc-qty-btn:hover {
+	border-color: var( --agend-shop-accent );
+	color: var( --agend-shop-accent );
+}
+
+.agend-apps-shop-cart-view .agend-shop-qty-input {
+	width: 3rem;
+	text-align: center;
+	padding: 0.4rem;
+	border: 1px solid var( --agend-shop-border-strong );
+	border-radius: 8px;
+	color: var( --agend-shop-body );
+	-moz-appearance: textfield;
+}
+
+.agend-apps-shop-cart-view .agend-shop-qty-input:focus {
+	outline: 2px solid var( --agend-shop-accent );
+	outline-offset: 1px;
+}
+
+.agend-apps-shop-cart-view .agend-shop-qty-input::-webkit-inner-spin-button,
+.agend-apps-shop-cart-view .agend-shop-qty-input::-webkit-outer-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+/* -- Remove link ---------------------------------------------------------- */
+
+.agend-apps-shop-cart-view .agend-shop-btn-remove-item {
+	background: none;
+	border: none;
+	padding: 0.25rem 0.4rem;
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var( --agend-shop-accent );
+	cursor: pointer;
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-remove-item:hover {
+	text-decoration: underline;
+}
+
+/* -- Actions row ---------------------------------------------------------- */
+
+.agend-apps-shop-cart-view .agend-shop-cart-actions {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -29,121 +200,232 @@
 	flex-wrap: wrap;
 }
 
-.agend-shop-cart-primary-actions {
+.agend-apps-shop-cart-view .agend-shop-cart-primary-actions {
 	display: flex;
 	gap: 0.5rem;
 }
 
-/* Message */
-.agend-shop-cart-message {
+.agend-apps-shop-cart-view .agend-shop-btn-clear-cart {
+	background: #fff;
+	border: 1px solid var( --agend-shop-border-strong );
+	color: var( --agend-shop-body );
+	padding: 0.7rem 1.1rem;
+	border-radius: 8px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-clear-cart:hover {
+	border-color: var( --agend-shop-accent );
+	color: var( --agend-shop-accent );
+}
+
+/* CTA — overrides the default Elementor button chrome. */
+.agend-apps-shop-cart-view .agend-shop-btn-proceed-checkout,
+.agend-apps-shop-cart-view .agend-shop-btn-proceed-checkout.elementor-button {
+	background: var( --agend-shop-button );
+	color: var( --agend-shop-button-text );
+	border: none;
+	border-radius: 8px;
+	padding: 0.75rem 1.4rem;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-proceed-checkout:hover {
+	filter: brightness( 0.95 );
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-proceed-checkout:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+/* -- Message -------------------------------------------------------------- */
+
+.agend-apps-shop-cart-view .agend-shop-cart-message {
 	display: none;
-	padding: 0.5rem 0.75rem;
-	border-radius: 3px;
-	font-size: 0.9em;
 	margin-top: 1rem;
+	padding: 0.75rem 1rem;
+	border-radius: 8px;
+	font-size: 0.9rem;
 }
 
-.agend-shop-cart-message.is-success {
+.agend-apps-shop-cart-view .agend-shop-cart-message.is-success {
 	display: block;
-	color: #155724;
-	background-color: #d4edda;
-	border: 1px solid #c3e6cb;
+	color: #1c7a44;
+	background: #e9f7ef;
+	border: 1px solid #bfe6cf;
 }
 
-.agend-shop-cart-message.is-error {
+.agend-apps-shop-cart-view .agend-shop-cart-message.is-error {
 	display: block;
-	color: #721c24;
-	background-color: #f8d7da;
+	color: #a11a1a;
+	background: #fdecec;
 	border: 1px solid #f5c6cb;
 }
 
-/* Locked notice */
-.agend-shop-cart-locked-notice {
-	padding: 0.75rem 1rem;
-	margin-bottom: 1rem;
-	background-color: #fff3cd;
-	border: 1px solid #ffeeba;
-	border-radius: 3px;
-	color: #856404;
-}
+/* -- Testing actions (visually distinct) ---------------------------------- */
 
-/* Testing actions — visually distinct from production UI */
-.agend-shop-cart-test-actions {
+.agend-apps-shop-cart-view .agend-shop-cart-test-actions {
 	margin-top: 2rem;
-	padding: 1rem;
-	border: 2px dashed #aaa;
-	border-radius: 4px;
-	color: #666;
+	padding: 1rem 1.25rem;
+	border: 1px dashed var( --agend-shop-border-strong );
+	border-radius: var( --agend-shop-radius );
+	background: var( --agend-shop-muted );
+	color: var( --agend-shop-body );
+	opacity: 0.85;
 }
 
-.agend-shop-cart-test-actions button {
+.agend-apps-shop-cart-view .agend-shop-cart-test-actions p {
+	margin: 0 0 0.6rem;
+}
+
+.agend-apps-shop-cart-view .agend-shop-cart-test-actions button {
 	margin-right: 0.5rem;
+	background: #fff;
+	border: 1px solid var( --agend-shop-border-strong );
+	color: var( --agend-shop-body );
+	padding: 0.5rem 0.9rem;
+	border-radius: 8px;
+	cursor: pointer;
 }
 
-/* Quantity stepper (reuses add-to-cart stepper styles if loaded) */
-.agend-shop-cart-table .agend-shop-atc-quantity {
-	display: flex;
-	align-items: center;
-	gap: 0.25rem;
-}
+/* -- Confirmation modal --------------------------------------------------- */
 
-.agend-shop-cart-table .agend-shop-qty-input {
-	width: 3.5rem;
-	text-align: center;
-	padding: 0.25rem;
-	border: 1px solid #ccc;
-	border-radius: 3px;
-	-moz-appearance: textfield;
-}
-
-.agend-shop-cart-table .agend-shop-qty-input::-webkit-inner-spin-button,
-.agend-shop-cart-table .agend-shop-qty-input::-webkit-outer-spin-button {
-	-webkit-appearance: none;
-	margin: 0;
-}
-
-/* Confirmation modal */
-.agend-shop-confirm-modal {
+.agend-apps-shop-cart-view .agend-shop-confirm-modal {
 	position: fixed;
 	inset: 0;
-	background-color: rgba( 0, 0, 0, 0.5 );
+	background: rgba( 30, 42, 74, 0.5 );
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	z-index: 99999;
 }
 
-.agend-shop-confirm-modal[hidden] {
+.agend-apps-shop-cart-view .agend-shop-confirm-modal[hidden] {
 	display: none;
 }
 
-.agend-shop-confirm-modal-inner {
+.agend-apps-shop-cart-view .agend-shop-confirm-modal-inner {
 	background: #fff;
-	padding: 2rem;
-	border-radius: 6px;
+	padding: 1.75rem;
+	border-radius: var( --agend-shop-radius );
 	max-width: 420px;
 	width: 90%;
 	text-align: center;
-	box-shadow: 0 4px 20px rgba( 0, 0, 0, 0.2 );
+	box-shadow: 0 12px 32px rgba( 30, 42, 74, 0.22 );
 }
 
-.agend-shop-confirm-modal-inner p {
-	margin-bottom: 1.5rem;
+.agend-apps-shop-cart-view .agend-shop-confirm-modal-inner p {
+	margin: 0 0 1.5rem;
+	font-weight: 600;
+	color: var( --agend-shop-heading );
 }
 
-.agend-shop-confirm-modal-inner button {
-	margin: 0 0.5rem;
+.agend-apps-shop-cart-view .agend-shop-btn-confirm-yes {
+	margin: 0 0.4rem;
+	background: var( --agend-shop-button );
+	color: var( --agend-shop-button-text );
+	border: none;
+	border-radius: 8px;
+	padding: 0.6rem 1.2rem;
+	font-weight: 700;
+	cursor: pointer;
 }
 
-tr.agend-cart-row-loading {
-    opacity: 0.5;
-    animation: pulse 3s ease-in infinite;
+.agend-apps-shop-cart-view .agend-shop-btn-confirm-no {
+	margin: 0 0.4rem;
+	background: #fff;
+	border: 1px solid var( --agend-shop-border-strong );
+	color: var( --agend-shop-body );
+	border-radius: 8px;
+	padding: 0.6rem 1.2rem;
+	font-weight: 600;
+	cursor: pointer;
 }
-@keyframes pulse {
-    0%, 100% {
-        background-color: unset;
-    }
-    50% {
-        background-color: #c6c6c6;
-    }
+
+/* -- Row loading state ---------------------------------------------------- */
+
+.agend-apps-shop-cart-view tr.agend-cart-row-loading {
+	opacity: 0.55;
+	animation: agend-shop-cart-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes agend-shop-cart-pulse {
+	0%, 100% { background-color: transparent; }
+	50% { background-color: var( --agend-shop-muted ); }
+}
+
+/* -- Responsive: stack the table into labelled rows on narrow screens ----- */
+
+@media ( max-width: 640px ) {
+	.agend-apps-shop-cart-view .agend-shop-cart-table,
+	.agend-apps-shop-cart-view .agend-shop-cart-table tbody,
+	.agend-apps-shop-cart-view .agend-shop-cart-table tfoot,
+	.agend-apps-shop-cart-view .agend-shop-cart-table tr,
+	.agend-apps-shop-cart-view .agend-shop-cart-table td {
+		display: block;
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-table thead {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip: rect( 0 0 0 0 );
+		white-space: nowrap;
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-items tr {
+		padding: 0.35rem 0;
+		border-bottom: 1px solid var( --agend-shop-border );
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-table tbody td {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		border-bottom: none;
+		padding: 0.4rem 1rem;
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-table tbody td::before {
+		content: attr( data-label );
+		font-size: 0.72rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var( --agend-shop-heading );
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-table tfoot tr {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.7rem 1rem;
+		background: var( --agend-shop-muted );
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-table tfoot td {
+		padding: 0;
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-table tfoot td:empty {
+		display: none;
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-total-label {
+		text-align: left;
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-actions {
+		flex-direction: column-reverse;
+		align-items: stretch;
+	}
+
+	.agend-apps-shop-cart-view .agend-shop-cart-primary-actions,
+	.agend-apps-shop-cart-view .agend-shop-btn-proceed-checkout {
+		width: 100%;
+	}
 }
