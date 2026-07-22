@@ -309,10 +309,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				setEditControlsDisabled( false );
 			}
 
-			// Render rows.
+			// Render rows. Event-ticket lines that carry their event slug get a
+			// collapsible per-seat attendee editor row directly beneath them
+			// (SPEC-CORE-20260721 US-5.3).
 			tbodyEl.innerHTML = '';
 			items.forEach( function ( item ) {
 				tbodyEl.appendChild( buildItemRow( item, isLocked ) );
+				if ( isEventTicketWithEvent( item ) && ! isLocked ) {
+					tbodyEl.appendChild( buildAttendeePanelRow( item ) );
+				}
 			} );
 
 			// Render total.
@@ -416,6 +421,19 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			// mobile layout.
 			var tdActions = document.createElement( 'td' );
 			tdActions.dataset.label = '';
+
+			// Attendee editor toggle for event-ticket lines that carry their event
+			// slug (SPEC-CORE-20260721 US-5.3). Toggles the sibling panel row.
+			var attendeesBtn = null;
+			if ( isEventTicketWithEvent( item ) && ! isLocked ) {
+				attendeesBtn = document.createElement( 'button' );
+				attendeesBtn.className = 'agend-shop-btn-attendees';
+				attendeesBtn.dataset.itemId = item.id;
+				attendeesBtn.setAttribute( 'aria-expanded', 'false' );
+				attendeesBtn.textContent = 'Attendees';
+				tdActions.appendChild( attendeesBtn );
+			}
+
 			var removeBtn = document.createElement( 'button' );
 			removeBtn.className = 'agend-shop-btn-remove-item';
 			removeBtn.dataset.ItemId = item.id
@@ -469,7 +487,379 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				removeItem( item.id );
 			} );
 
+			if ( attendeesBtn ) {
+				attendeesBtn.addEventListener( 'click', function () {
+					toggleAttendeePanel( item, attendeesBtn );
+				} );
+			}
+
 			return tr;
+		}
+
+		// ---------------------------------------------------------------------
+		// Per-seat attendee editor (SPEC-CORE-20260721 US-5.3)
+		// ---------------------------------------------------------------------
+
+		// Attendee-field definitions are fetched once per event slug and reused
+		// across every ticket line for that event.
+		var attendeeFieldsCache = {};
+
+		/**
+		 * Whether a cart item is an event ticket that carries its event slug, and
+		 * so can host the per-seat attendee editor.
+		 *
+		 * @param {Object} item Cart item.
+		 * @return {boolean} True when the editor applies.
+		 */
+		function isEventTicketWithEvent( item ) {
+			return !! (
+				item &&
+				'event_tickets' === item.product_type &&
+				item.metadata &&
+				item.metadata.event_slug
+			);
+		}
+
+		/**
+		 * Reads the persisted attendees array off a cart item's metadata.
+		 *
+		 * @param {Object} item Cart item.
+		 * @return {Array} Attendee objects, or an empty array.
+		 */
+		function getItemAttendees( item ) {
+			return ( item && item.metadata && Array.isArray( item.metadata.attendees ) )
+				? item.metadata.attendees
+				: [];
+		}
+
+		/**
+		 * Fetches (and caches) the attendee-field definitions for an event.
+		 *
+		 * @param {string} slug Event slug.
+		 * @return {Promise<Array>} Resolves with the field definitions array.
+		 */
+		function fetchAttendeeFields( slug ) {
+			if ( attendeeFieldsCache[ slug ] ) {
+				return Promise.resolve( attendeeFieldsCache[ slug ] );
+			}
+			return fetch( restUrl + 'events/' + encodeURIComponent( slug ) + '/attendee-fields', {
+				method: 'GET',
+				headers: AgendCartSession.getHeaders(),
+			} )
+				.then( function ( res ) {
+					return res.ok ? res.json() : { data: [] };
+				} )
+				.then( function ( body ) {
+					var fields = ( body && body.data ) || [];
+					attendeeFieldsCache[ slug ] = fields;
+					return fields;
+				} )
+				.catch( function () {
+					return [];
+				} );
+		}
+
+		/**
+		 * Builds the collapsible panel row that holds the attendee editor for an
+		 * event-ticket line. The editor is rendered lazily on first expand.
+		 *
+		 * @param {Object} item Cart item.
+		 * @return {HTMLElement} A hidden <tr> element.
+		 */
+		function buildAttendeePanelRow( item ) {
+			var tr = document.createElement( 'tr' );
+			tr.className = 'agend-shop-attendee-panel';
+			tr.dataset.itemId = item.id;
+			tr.hidden = true;
+
+			var td = document.createElement( 'td' );
+			td.colSpan = 5;
+			var body = document.createElement( 'div' );
+			body.className = 'agend-shop-attendee-panel__body';
+			td.appendChild( body );
+			tr.appendChild( td );
+			return tr;
+		}
+
+		/**
+		 * Expands or collapses the attendee editor for an item, rendering the seat
+		 * editor on first expand.
+		 *
+		 * @param {Object}      item Cart item.
+		 * @param {HTMLElement} btn  The toggle button.
+		 */
+		function toggleAttendeePanel( item, btn ) {
+			var panel = tbodyEl.querySelector(
+				'tr.agend-shop-attendee-panel[data-item-id="' + item.id + '"]'
+			);
+			if ( ! panel ) {
+				return;
+			}
+			var willOpen = panel.hidden;
+			panel.hidden = ! willOpen;
+			btn.setAttribute( 'aria-expanded', willOpen ? 'true' : 'false' );
+
+			var body = panel.querySelector( '.agend-shop-attendee-panel__body' );
+			if ( willOpen && ! body.dataset.rendered ) {
+				body.dataset.rendered = '1';
+				body.textContent = 'Loading attendee details…';
+				fetchAttendeeFields( item.metadata.event_slug ).then( function ( fields ) {
+					renderAttendeeSeats( body, item, fields );
+				} );
+			}
+		}
+
+		/**
+		 * Renders one editable block per seat (item quantity) plus a Save button.
+		 *
+		 * @param {HTMLElement} body   Panel body container.
+		 * @param {Object}      item   Cart item.
+		 * @param {Array}       fields Attendee-field definitions for the event.
+		 */
+		function renderAttendeeSeats( body, item, fields ) {
+			body.textContent = '';
+			var existing = getItemAttendees( item );
+			var intro = document.createElement( 'p' );
+			intro.className = 'agend-shop-attendee-panel__intro';
+			intro.textContent = 'Assign attendees for each ticket. Leave a seat blank to assign it to yourself.';
+			body.appendChild( intro );
+
+			var seatEls = [];
+			for ( var i = 0; i < item.quantity; i++ ) {
+				var seat = buildSeat( i, existing[ i ] || {}, fields );
+				seatEls.push( seat.refs );
+				body.appendChild( seat.el );
+			}
+
+			var actions = document.createElement( 'div' );
+			actions.className = 'agend-shop-attendee-panel__actions';
+			var saveBtn = document.createElement( 'button' );
+			saveBtn.className = 'agend-shop-btn-attendees-save';
+			saveBtn.textContent = 'Save attendees';
+			var status = document.createElement( 'span' );
+			status.className = 'agend-shop-attendee-panel__status';
+			actions.appendChild( saveBtn );
+			actions.appendChild( status );
+			body.appendChild( actions );
+
+			saveBtn.addEventListener( 'click', function () {
+				saveAttendees( item, seatEls, fields, saveBtn, status );
+			} );
+		}
+
+		/**
+		 * Builds a single seat block (name, email, and custom-field inputs).
+		 *
+		 * @param {number} index    Zero-based seat index.
+		 * @param {Object} attendee Existing attendee data for this seat.
+		 * @param {Array}  fields   Attendee-field definitions.
+		 * @return {{el: HTMLElement, refs: Object}} The block and its input refs.
+		 */
+		function buildSeat( index, attendee, fields ) {
+			var wrap = document.createElement( 'fieldset' );
+			wrap.className = 'agend-shop-attendee-seat';
+			var legend = document.createElement( 'legend' );
+			legend.textContent = 'Attendee ' + ( index + 1 );
+			wrap.appendChild( legend );
+
+			var nameInput = document.createElement( 'input' );
+			nameInput.type = 'text';
+			nameInput.className = 'agend-shop-attendee-name';
+			nameInput.placeholder = 'Full name';
+			nameInput.value = attendee.beneficiary_name || '';
+			wrap.appendChild( labelled( 'Name', nameInput ) );
+
+			var emailInput = document.createElement( 'input' );
+			emailInput.type = 'email';
+			emailInput.className = 'agend-shop-attendee-email';
+			emailInput.placeholder = 'Email';
+			emailInput.value = attendee.beneficiary_email || '';
+			wrap.appendChild( labelled( 'Email', emailInput ) );
+
+			var customValues = ( attendee && attendee.custom_fields ) || {};
+			var fieldRefs = [];
+			fields.forEach( function ( field ) {
+				var input = buildFieldInput( field, customValues[ field.field_key ] );
+				fieldRefs.push( { field: field, input: input } );
+				wrap.appendChild(
+					labelled( field.name + ( field.is_required ? ' *' : '' ), input )
+				);
+			} );
+
+			return {
+				el: wrap,
+				refs: { nameInput: nameInput, emailInput: emailInput, fieldRefs: fieldRefs },
+			};
+		}
+
+		/**
+		 * Wraps a control in a labelled container.
+		 *
+		 * @param {string}      text    Label text.
+		 * @param {HTMLElement} control The form control.
+		 * @return {HTMLElement} A labelled <label> element.
+		 */
+		function labelled( text, control ) {
+			var label = document.createElement( 'label' );
+			label.className = 'agend-shop-attendee-field';
+			var span = document.createElement( 'span' );
+			span.className = 'agend-shop-attendee-field__label';
+			span.textContent = text;
+			label.appendChild( span );
+			label.appendChild( control );
+			return label;
+		}
+
+		/**
+		 * Builds a form control for an attendee custom field, honouring the
+		 * canonical @agend/custom-fields type vocabulary.
+		 *
+		 * @param {Object} field Field definition.
+		 * @param {*}      value Existing value for this field.
+		 * @return {HTMLElement} The form control.
+		 */
+		function buildFieldInput( field, value ) {
+			var options = Array.isArray( field.options ) ? field.options : [];
+			if ( 'select' === field.field_type || 'radio' === field.field_type ) {
+				var select = document.createElement( 'select' );
+				var blank = document.createElement( 'option' );
+				blank.value = '';
+				blank.textContent = '—';
+				select.appendChild( blank );
+				options.forEach( function ( opt ) {
+					var o = document.createElement( 'option' );
+					o.value = opt.value;
+					o.textContent = opt.label;
+					if ( value === opt.value ) {
+						o.selected = true;
+					}
+					select.appendChild( o );
+				} );
+				return select;
+			}
+			if ( 'toggle' === field.field_type ) {
+				var checkbox = document.createElement( 'input' );
+				checkbox.type = 'checkbox';
+				checkbox.checked = true === value || 'true' === value;
+				return checkbox;
+			}
+			if ( 'paragraph' === field.field_type ) {
+				var textarea = document.createElement( 'textarea' );
+				textarea.value = ( value === undefined || value === null ) ? '' : String( value );
+				return textarea;
+			}
+			var input = document.createElement( 'input' );
+			input.type = ( 'number' === field.field_type ) ? 'number'
+				: ( 'date' === field.field_type ) ? 'date'
+				: ( 'email' === field.field_type ) ? 'email'
+				: 'text';
+			input.value = ( value === undefined || value === null ) ? '' : String( value );
+			return input;
+		}
+
+		/**
+		 * Reads a single seat's field refs into a cart attendee object.
+		 *
+		 * A seat with a name becomes a `named` attendee (an email is required for
+		 * a named attendee by the cart schema); an empty seat is `unnamed` and
+		 * defaults to the buyer at fulfilment. Custom-field values attach to
+		 * either type.
+		 *
+		 * @param {Object} refs Seat input refs.
+		 * @return {{attendee: Object|null, error: string|null}} Result.
+		 */
+		function readSeat( refs ) {
+			var name = refs.nameInput.value.trim();
+			var email = refs.emailInput.value.trim();
+
+			var customFields = {};
+			refs.fieldRefs.forEach( function ( ref ) {
+				var control = ref.input;
+				var val;
+				if ( 'checkbox' === control.type ) {
+					val = control.checked ? true : undefined;
+				} else {
+					val = control.value.trim ? control.value.trim() : control.value;
+					if ( '' === val ) {
+						val = undefined;
+					}
+				}
+				if ( undefined !== val ) {
+					customFields[ ref.field.field_key ] = val;
+				}
+			} );
+
+			var attendee;
+			if ( name ) {
+				if ( ! email ) {
+					return { attendee: null, error: 'Enter an email for ' + name + ', or clear the name.' };
+				}
+				attendee = { beneficiary_type: 'named', beneficiary_name: name, beneficiary_email: email };
+			} else {
+				attendee = { beneficiary_type: 'unnamed' };
+			}
+			if ( Object.keys( customFields ).length ) {
+				attendee.custom_fields = customFields;
+			}
+			return { attendee: attendee, error: null };
+		}
+
+		/**
+		 * Collects every seat and persists the attendees for a line via
+		 * `POST /cart/items/attendees`.
+		 *
+		 * @param {Object}      item    Cart item.
+		 * @param {Array}       seatEls Per-seat input refs.
+		 * @param {Array}       fields  Attendee-field definitions (unused here; kept for symmetry).
+		 * @param {HTMLElement} saveBtn Save button.
+		 * @param {HTMLElement} status  Status text element.
+		 */
+		function saveAttendees( item, seatEls, fields, saveBtn, status ) {
+			var attendees = [];
+			for ( var i = 0; i < seatEls.length; i++ ) {
+				var result = readSeat( seatEls[ i ] );
+				if ( result.error ) {
+					status.className = 'agend-shop-attendee-panel__status is-error';
+					status.textContent = result.error;
+					return;
+				}
+				attendees.push( result.attendee );
+			}
+
+			saveBtn.disabled = true;
+			status.className = 'agend-shop-attendee-panel__status';
+			status.textContent = 'Saving…';
+
+			var headers = AgendCartSession.getHeaders();
+			headers[ 'Content-Type' ] = 'application/json';
+
+			fetch( restUrl + 'cart/items/attendees', {
+				method: 'POST',
+				headers: headers,
+				body: JSON.stringify( { itemId: item.id, attendees: attendees } ),
+			} )
+				.then( function ( response ) {
+					if ( ! response.ok ) {
+						return response.json().then( function ( data ) {
+							var message = ( data && data.message ) ? data.message : 'Unable to save attendees. Please try again.';
+							status.className = 'agend-shop-attendee-panel__status is-error';
+							status.textContent = message;
+						} );
+					}
+					status.className = 'agend-shop-attendee-panel__status is-success';
+					status.textContent = 'Attendees saved.';
+					// Keep the item's local copy in sync so a re-open shows the saved data.
+					item.metadata = item.metadata || {};
+					item.metadata.attendees = attendees;
+					return null;
+				} )
+				.catch( function () {
+					status.className = 'agend-shop-attendee-panel__status is-error';
+					status.textContent = 'Unable to save attendees. Please try again.';
+				} )
+				.finally( function () {
+					saveBtn.disabled = false;
+				} );
 		}
 
 		/**
