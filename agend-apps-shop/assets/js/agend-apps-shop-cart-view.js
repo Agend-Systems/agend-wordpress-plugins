@@ -142,6 +142,51 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var confirmYesBtn    = wrapper.querySelector( '.agend-shop-btn-confirm-yes' );
 		var confirmNoBtn     = wrapper.querySelector( '.agend-shop-btn-confirm-no' );
 
+		// Callback invoked when the shared confirmation modal is confirmed.
+		var pendingConfirm   = null;
+
+		/**
+		 * Shows the shared confirmation modal with a message, button labels, and a
+		 * confirm callback (a reusable replacement for window.confirm). Falls back
+		 * to window.confirm when the modal markup is not present.
+		 *
+		 * @param {Object} options { message, confirmLabel, cancelLabel, onConfirm }.
+		 */
+		function showConfirm( options ) {
+			var onConfirm = options.onConfirm || function () {};
+			if ( ! confirmModal ) {
+				if ( window.confirm( options.message ) ) {
+					onConfirm();
+				}
+				return;
+			}
+			var titleEl = confirmModal.querySelector( '.agend-shop-confirm-modal-inner p' );
+			if ( titleEl ) {
+				titleEl.textContent = options.message;
+			}
+			if ( confirmYesBtn ) {
+				confirmYesBtn.textContent = options.confirmLabel || 'Confirm';
+			}
+			if ( confirmNoBtn ) {
+				confirmNoBtn.textContent = options.cancelLabel || 'Cancel';
+			}
+			pendingConfirm = onConfirm;
+			confirmModal.removeAttribute( 'hidden' );
+			if ( confirmYesBtn ) {
+				confirmYesBtn.focus();
+			}
+		}
+
+		/**
+		 * Hides the shared confirmation modal and clears any pending callback.
+		 */
+		function hideConfirm() {
+			pendingConfirm = null;
+			if ( confirmModal ) {
+				confirmModal.setAttribute( 'hidden', '' );
+			}
+		}
+
 		/**
 		 * Shows all loading state and hides everything else.
 		 */
@@ -1057,25 +1102,37 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				var attendee = getItemAttendees( item )[ index ] || null;
 				var saved = seatIsSaved( attendee );
 
-				if ( item.quantity <= 1 ) {
-					if ( ! saved || window.confirm( 'Remove this ticket from your cart?' ) ) {
+				// Perform the actual removal (line delete when it is the last seat).
+				function doRemove() {
+					if ( item.quantity <= 1 ) {
 						removeItem( item.id );
-					}
-					return;
-				}
-				if ( saved ) {
-					var who = attendee.beneficiary_name || 'this attendee';
-					if ( ! window.confirm( 'Remove the ticket for ' + who + '? Their saved details will be discarded.' ) ) {
 						return;
 					}
-				}
-				var keep = [];
-				for ( var k = 0; k < item.quantity; k++ ) {
-					if ( k !== index ) {
-						keep.push( k );
+					var keep = [];
+					for ( var k = 0; k < item.quantity; k++ ) {
+						if ( k !== index ) {
+							keep.push( k );
+						}
 					}
+					applyRemoval( item, keep );
 				}
-				applyRemoval( item, keep );
+
+				// Only a seat with saved details needs confirming; unset seats are
+				// removed immediately.
+				if ( ! saved ) {
+					doRemove();
+					return;
+				}
+
+				var who = attendee.beneficiary_name || 'this attendee';
+				showConfirm( {
+					message: ( item.quantity <= 1 )
+						? 'Remove this ticket from your cart? ' + who + '’s saved details will be discarded.'
+						: 'Remove the ticket for ' + who + '? Their saved details will be discarded.',
+					confirmLabel: 'Remove ticket',
+					cancelLabel: 'Cancel',
+					onConfirm: doRemove,
+				} );
 			};
 
 			// A decrement on a fully-assigned line asks the user to choose which
@@ -1468,23 +1525,44 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				} );
 		}
 
-		// Clear cart — show modal first.
+		// Clear cart — reuse the shared confirmation modal.
 		if ( clearBtn ) {
 			clearBtn.addEventListener( 'click', function () {
-				confirmModal.removeAttribute( 'hidden' );
+				showConfirm( {
+					message: 'Are you sure you want to clear your cart? This cannot be undone.',
+					confirmLabel: 'Yes, clear cart',
+					cancelLabel: 'Cancel',
+					onConfirm: clearCart,
+				} );
 			} );
 		}
 
+		// Shared confirmation modal (replaces window.confirm). The Yes/No buttons
+		// are bound once and dispatch to the pending callback set by showConfirm,
+		// so any flow can raise a themed confirmation.
 		if ( confirmYesBtn ) {
 			confirmYesBtn.addEventListener( 'click', function () {
-				confirmModal.setAttribute( 'hidden', '' );
-				clearCart();
+				var cb = pendingConfirm;
+				hideConfirm();
+				if ( cb ) {
+					cb();
+				}
 			} );
 		}
-
 		if ( confirmNoBtn ) {
-			confirmNoBtn.addEventListener( 'click', function () {
-				confirmModal.setAttribute( 'hidden', '' );
+			confirmNoBtn.addEventListener( 'click', hideConfirm );
+		}
+		if ( confirmModal ) {
+			// Cancel on overlay click (outside the inner box) or Escape.
+			confirmModal.addEventListener( 'click', function ( e ) {
+				if ( e.target === confirmModal ) {
+					hideConfirm();
+				}
+			} );
+			document.addEventListener( 'keydown', function ( e ) {
+				if ( 'Escape' === e.key && ! confirmModal.hasAttribute( 'hidden' ) ) {
+					hideConfirm();
+				}
 			} );
 		}
 
