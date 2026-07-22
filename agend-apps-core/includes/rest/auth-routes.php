@@ -80,6 +80,46 @@ function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
 }
 
 /**
+ * Returns the guest cart session token when the current guest cart holds items.
+ *
+ * Reads the `agend_cart_session` cookie the shop sets for anonymous carts and
+ * fetches that cart UNATTENDED (no member bearer), so a member's own cart is
+ * never inspected here. Returns the token only when the cart has at least one
+ * item, so an empty or absent guest cart never triggers a transfer that would
+ * cancel the member's existing cart (SPEC-CORE-20260722 US-1.9). Must be called
+ * before the member session is stored, while the request is still unattended.
+ *
+ * @return string The guest cart session token to transfer, or an empty string.
+ */
+function agend_apps_login_guest_cart_with_items(): string {
+	$token = isset( $_COOKIE['agend_cart_session'] )
+		? sanitize_text_field( wp_unslash( $_COOKIE['agend_cart_session'] ) )
+		: '';
+
+	if ( '' === $token ) {
+		return '';
+	}
+
+	// Unattended fetch: pass the guest token as X-Cart-Session with no bearer.
+	$cart = agend_apps_cart_get( $token, '' );
+
+	if ( is_wp_error( $cart ) ) {
+		return '';
+	}
+
+	$data = ( isset( $cart['data'] ) && is_array( $cart['data'] ) ) ? $cart['data'] : $cart;
+
+	$count = 0;
+	if ( isset( $data['item_count'] ) ) {
+		$count = (int) $data['item_count'];
+	} elseif ( isset( $data['items'] ) && is_array( $data['items'] ) ) {
+		$count = count( $data['items'] );
+	}
+
+	return $count > 0 ? $token : '';
+}
+
+/**
  * REST controller for member auth endpoints.
  *
  * Exposes, under `agend-apps/v1/auth`:
@@ -244,6 +284,12 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		 * @param array           $data    Decoded login data (user, contact, session).
 		 * @param WP_REST_Request $request Current request.
 		 */
+		// Capture the guest cart BEFORE establishing the member identity, so the
+		// cart is inspected unattended (as the guest, not the member). Only a
+		// guest cart that holds items is transferred, so an empty guest cart
+		// never cancels the member's existing cart.
+		$guest_cart_token = agend_apps_login_guest_cart_with_items();
+
 		$user_id = (int) apply_filters(
 			'agend_apps_member_login_user_id',
 			get_current_user_id(),
@@ -267,15 +313,30 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		// A credential login supersedes any negative-cached SSO mint state.
 		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
 
+		// Transfer the guest cart onto the now-authenticated member. The gateway
+		// cancels and replaces any existing current cart the member holds. Best
+		// effort: a failure here never breaks the sign-in.
+		$cart_transferred = false;
+		if ( '' !== $guest_cart_token ) {
+			$transfer = agend_apps_cart_transfer( $guest_cart_token, agend_apps_get_bearer_token() );
+			if ( ! is_wp_error( $transfer ) ) {
+				$cart_transferred = true;
+				// Drop the guest cart cookie so the browser stops sending the old
+				// guest token; the member's cart is now resolved from the bearer.
+				setcookie( 'agend_cart_session', '', array( 'expires' => time() - HOUR_IN_SECONDS, 'path' => '/' ) );
+			}
+		}
+
 		return new WP_REST_Response(
 			array(
-				'ok'      => true,
-				'user'    => isset( $data['user'] ) ? $data['user'] : null,
-				'contact' => isset( $data['contact'] ) ? $data['contact'] : null,
+				'ok'               => true,
+				'user'             => isset( $data['user'] ) ? $data['user'] : null,
+				'contact'          => isset( $data['contact'] ) ? $data['contact'] : null,
+				'cart_transferred' => $cart_transferred,
 				// Sign-in rotates the WordPress session, so the caller's REST
 				// nonce is now stale. Return a fresh one for subsequent calls
 				// (the frontend also reloads, which re-seeds window.agendApps).
-				'nonce'   => wp_create_nonce( 'wp_rest' ),
+				'nonce'            => wp_create_nonce( 'wp_rest' ),
 			),
 			200
 		);
