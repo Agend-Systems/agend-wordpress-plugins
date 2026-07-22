@@ -57,11 +57,15 @@ class Agend_Elementor {
 	public function register_widgets( $widgets_manager ): void {
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-events-catalogue.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-courses-catalogue.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-directory-catalogue.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-account-link.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-memberships-catalogue.php';
 
 		$widgets_manager->register( new Agend_Elementor_Events_Catalogue() );
 		$widgets_manager->register( new Agend_Elementor_Courses_Catalogue() );
+		$widgets_manager->register( new Agend_Elementor_Directory_Catalogue() );
 		$widgets_manager->register( new Agend_Elementor_Account_Link() );
+		$widgets_manager->register( new Agend_Elementor_Memberships_Catalogue() );
 	}
 }
 

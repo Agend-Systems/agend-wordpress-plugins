@@ -1,0 +1,460 @@
+/**
+ * Agend Memberships Catalogue widget styles.
+ * Colour and layout tokens are set as CSS custom properties on the container
+ * by the widget's render() output.
+ */
+
+.agend-memberships {
+  --agend-mem-accent: #f76b4f;
+  --agend-mem-heading: #1e2a4a;
+  --agend-mem-body: #26304d;
+  --agend-mem-radius: 10px;
+  --agend-mem-cols-desktop: 3;
+  --agend-mem-cols-tablet: 2;
+  --agend-mem-cols-mobile: 1;
+  color: var(--agend-mem-body);
+  font-family: inherit;
+}
+
+.agend-memberships h2,
+.agend-memberships h3 {
+  color: var(--agend-mem-heading);
+  margin: 0;
+}
+
+.agend-mem-container {
+  margin: 0;
+}
+
+/* Tier grid */
+.agend-mem-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(var(--agend-mem-cols-desktop, 3), 1fr);
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 1024px) {
+  .agend-mem-grid {
+    grid-template-columns: repeat(var(--agend-mem-cols-tablet, 2), 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .agend-mem-grid {
+    grid-template-columns: repeat(var(--agend-mem-cols-mobile, 1), 1fr);
+  }
+}
+
+/* Tier card */
+.agend-mem-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 1.75rem;
+  border: 2px solid #e8eaf0;
+  border-radius: var(--agend-mem-radius);
+  background: #fff;
+  transition: all 0.2s ease;
+}
+
+.agend-mem-card:hover {
+  box-shadow: 0 8px 24px rgba(30, 42, 74, 0.12);
+}
+
+.agend-mem-card--popular {
+  border-color: var(--agend-mem-accent);
+  transform: scale(1.02);
+}
+
+.agend-mem-card--selected {
+  border-color: var(--agend-mem-accent);
+  background: rgba(247, 107, 79, 0.02);
+}
+
+.agend-mem-card--skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: agend-skel-pulse 1.5s infinite;
+  border: none;
+}
+
+@keyframes agend-skel-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.agend-mem-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.agend-mem-card__title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  flex: 1;
+}
+
+.agend-mem-card__ribbon {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  background: var(--agend-mem-accent);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.agend-mem-card__description {
+  margin: 0.75rem 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--agend-mem-body);
+}
+
+.agend-mem-card__price {
+  margin: 1rem 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--agend-mem-heading);
+}
+
+.agend-mem-card__price-value {
+  display: block;
+}
+
+.agend-mem-card__price-period {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--agend-mem-body);
+}
+
+.agend-mem-card__benefits {
+  flex: 1;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agend-mem-card__benefit {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.agend-mem-card__benefit::before {
+  content: '✓';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: var(--agend-mem-accent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.agend-mem-card__button {
+  display: block;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  margin-top: 1rem;
+  background: #f5f5f5;
+  color: var(--agend-mem-body);
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.agend-mem-card__button:hover {
+  background: #efefef;
+}
+
+.agend-mem-card--selected .agend-mem-card__button {
+  background: var(--agend-mem-accent);
+  color: #fff;
+  border-color: var(--agend-mem-accent);
+}
+
+/* Form wrapper */
+.agend-mem-form-wrapper {
+  margin-top: 2rem;
+  padding: 2rem;
+  border: 1px solid #e8eaf0;
+  border-radius: var(--agend-mem-radius);
+  background: #f9f9fb;
+}
+
+/* Selected membership summary (top of the form) */
+.agend-mem-summary {
+  padding: 1.25rem 1.5rem;
+  border: 1px solid #e8eaf0;
+  border-left: 4px solid var(--agend-mem-accent);
+  border-radius: var(--agend-mem-radius);
+  background: #fff;
+}
+
+.agend-mem-summary__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.agend-mem-summary__name {
+  margin: 0;
+  color: var(--agend-mem-heading);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.agend-mem-summary__price {
+  color: var(--agend-mem-heading);
+  white-space: nowrap;
+}
+
+.agend-mem-summary__price-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.agend-mem-summary__price-period {
+  color: #6b7280;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.agend-mem-summary__description {
+  margin: 0.75rem 0 0;
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.agend-mem-summary__benefits-title {
+  margin: 1rem 0 0.5rem;
+  color: var(--agend-mem-heading);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.agend-mem-summary__benefits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agend-mem-summary__benefit {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.agend-mem-summary__benefit::before {
+  content: '✓';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: var(--agend-mem-accent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* Form styles */
+.agend-mem-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.agend-mem-form__section {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.agend-mem-form__section-title {
+  grid-column: 1 / -1;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--agend-mem-heading);
+}
+
+@media (max-width: 640px) {
+  .agend-mem-form__section {
+    grid-template-columns: 1fr;
+  }
+}
+
+.agend-mem-form__field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.agend-mem-form__label {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--agend-mem-heading);
+}
+
+.agend-mem-form__required {
+  color: var(--agend-mem-accent);
+}
+
+.agend-mem-form__input,
+.agend-mem-form__select,
+.agend-mem-form__textarea {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #d7dbe6;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--agend-mem-body);
+  background: #fff;
+  transition: border-color 0.2s;
+}
+
+.agend-mem-form__input:focus,
+.agend-mem-form__select:focus,
+.agend-mem-form__textarea:focus {
+  outline: none;
+  border-color: var(--agend-mem-accent);
+  box-shadow: 0 0 0 3px rgba(247, 107, 79, 0.1);
+}
+
+.agend-mem-form__textarea {
+  resize: vertical;
+  min-height: 5rem;
+}
+
+.agend-mem-form__toggle {
+  width: auto;
+  cursor: pointer;
+}
+
+.agend-mem-form__checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agend-mem-form__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.agend-mem-form__checkbox {
+  width: auto;
+  cursor: pointer;
+}
+
+.agend-mem-form__help {
+  font-size: 0.85rem;
+  color: var(--agend-mem-body);
+  opacity: 0.75;
+}
+
+.agend-mem-form__submit {
+  grid-column: 1 / -1;
+  padding: 1rem 1.5rem;
+  background: var(--agend-mem-accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-top: 1rem;
+}
+
+.agend-mem-form__submit:hover {
+  background: #e8613f;
+}
+
+.agend-mem-form__submit:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* Confirmation / Notice states */
+.agend-mem-confirmation {
+  padding: 2rem;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: var(--agend-mem-radius);
+  text-align: center;
+}
+
+.agend-mem-confirmation__title {
+  color: #15803d;
+  margin-bottom: 0.5rem;
+}
+
+.agend-mem-confirmation__message {
+  color: #166534;
+  margin: 0;
+}
+
+.agend-mem-notice {
+  padding: 1.5rem;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--agend-mem-radius);
+  margin-top: 1rem;
+}
+
+.agend-mem-notice p {
+  margin: 0;
+  color: #92400e;
+}
+
+/* Skeleton loading states */
+.agend-skel-line {
+  height: 1rem;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: agend-skel-pulse 1.5s infinite;
+}
+
+/* Accessibility helpers */
+.agend-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

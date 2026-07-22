@@ -568,6 +568,17 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 		$settings = $this->get_settings_for_display();
 		$config   = $this->build_config( $settings );
 
+		// US-1.3: path-based detail routing via the `course` rewrite endpoint
+		// (/{page}/course/{slug}/). The slug is injected server-side so a direct
+		// load renders the detail with no catalogue flash; the base page path
+		// lets the script build pretty links, and it falls back to the
+		// ?agend_course= query param when pretty permalinks are off.
+		$page_id                = get_queried_object_id();
+		$base_path              = $page_id ? get_permalink( $page_id ) : '';
+		$config['deepLink']    = sanitize_title( (string) get_query_var( 'course' ) );
+		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
+		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
+
 		$style = sprintf(
 			'--agend-lms-heading:%1$s;--agend-lms-body:%2$s;--agend-lms-accent:%3$s;--agend-lms-button:%4$s;--agend-lms-button-text:%5$s;--agend-lms-card-radius:%6$dpx;',
 			esc_attr( $config['colours']['heading'] ),

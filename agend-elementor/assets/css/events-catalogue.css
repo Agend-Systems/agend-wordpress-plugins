@@ -65,6 +65,122 @@
   outline-offset: 1px;
 }
 
+/* Date range dropdown (US-2.4) */
+.agend-ev-datefilter {
+  position: relative;
+}
+
+.agend-ev-datefilter__toggle {
+  cursor: pointer;
+  min-width: 140px;
+  text-align: left;
+}
+
+.agend-ev-datefilter__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  /* Fixed so an ancestor's overflow (e.g. an Elementor section) never clips it;
+     top/left are set from the toggle rect in JS (attachPopover). */
+  position: fixed;
+  z-index: 100000;
+  min-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 0.85rem;
+  background: #fff;
+  border: 1px solid #d7dbe6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(30, 42, 74, 0.12);
+}
+
+.agend-ev-datefilter__panel[hidden] {
+  display: none;
+}
+
+.agend-ev-datefilter__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.agend-ev-datefilter__label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--agend-ev-body);
+}
+
+.agend-ev-datefilter__input {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d7dbe6;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: #fff;
+  color: var(--agend-ev-body);
+}
+
+.agend-ev-datefilter__input:focus {
+  outline: 2px solid var(--agend-ev-accent);
+  outline-offset: 1px;
+}
+
+.agend-ev-datefilter__clear {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.85rem;
+  color: var(--agend-ev-accent);
+  cursor: pointer;
+}
+
+/* Multi-select checkbox dropdown (US-2.5) */
+.agend-ev-multiselect {
+  position: relative;
+}
+
+.agend-ev-multiselect__toggle {
+  cursor: pointer;
+  min-width: 150px;
+  text-align: left;
+}
+
+.agend-ev-multiselect__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  /* Fixed so an ancestor's overflow never clips it; top/left set in JS. */
+  position: fixed;
+  z-index: 100000;
+  min-width: 200px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+  border: 1px solid #d7dbe6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(30, 42, 74, 0.12);
+}
+
+.agend-ev-multiselect__panel[hidden] {
+  display: none;
+}
+
+.agend-ev-multiselect__option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--agend-ev-body);
+  cursor: pointer;
+}
+
+.agend-ev-multiselect__checkbox {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--agend-ev-accent);
+}
+
 .agend-ev-status {
   padding: 2rem 0;
   text-align: center;

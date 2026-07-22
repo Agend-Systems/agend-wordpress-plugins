@@ -329,6 +329,43 @@ function agend_apps_events_get_tickets( string $slug ) {
 }
 
 /**
+ * Retrieves the public attendee-field definitions for an event.
+ *
+ * Proxies the gateway `GET /v1/events/{slug}/attendee-fields`. The site API
+ * key must hold the `events.attendee_fields.browse` scope. Cached under the
+ * `events_attendee_fields` TTL.
+ *
+ * @param string $slug Event slug.
+ * @return array|WP_Error Decoded attendee-field definitions on success, or WP_Error on failure.
+ */
+function agend_apps_events_get_attendee_fields( string $slug ) {
+	/**
+	 * Filters the event attendee-fields request args before the request is sent.
+	 *
+	 * @param array  $args Request args.
+	 * @param string $slug Event slug.
+	 */
+	$args = (array) apply_filters( 'agend_apps_events_get_attendee_fields_args', array(), $slug );
+
+	$cache_key = Agend_Apps_Cache::build_key( 'events_attendee_fields', array( 'slug' => $slug ) );
+	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'events_attendee_fields' );
+
+	$response = agend_apps_api()->get_cached( '/events/' . rawurlencode( $slug ) . '/attendee-fields', $args, $cache_key, $ttl );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded event attendee-fields response before it is returned.
+	 *
+	 * @param array  $response Decoded response body.
+	 * @param string $slug     Event slug.
+	 */
+	return apply_filters( 'agend_apps_events_get_attendee_fields_response', $response, $slug );
+}
+
+/**
  * Creates a ticket type for an event.
  *
  * Scope: `events.tickets.create`.

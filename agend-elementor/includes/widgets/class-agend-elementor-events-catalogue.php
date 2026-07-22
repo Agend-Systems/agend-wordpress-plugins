@@ -265,12 +265,31 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			)
 		);
 
+		// Search.
+		$this->add_control(
+			'heading_filter_search',
+			array(
+				'label' => __( 'Search', 'agend-elementor' ),
+				'type'  => \Elementor\Controls_Manager::HEADING,
+			)
+		);
+
 		$this->add_control(
 			'show_search',
 			array(
 				'label'   => __( 'Show search box', 'agend-elementor' ),
 				'type'    => \Elementor\Controls_Manager::SWITCHER,
 				'default' => 'yes',
+			)
+		);
+
+		// Category.
+		$this->add_control(
+			'heading_filter_category',
+			array(
+				'label'     => __( 'Category', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
 			)
 		);
 
@@ -284,6 +303,43 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'multi_category_filter',
+			array(
+				'label'     => __( 'Allow multiple categories', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::SWITCHER,
+				'default'   => 'no',
+				'condition' => array( 'show_category_filter' => 'yes' ),
+			)
+		);
+
+		$this->add_control(
+			'category_match_mode',
+			array(
+				'label'     => __( 'Multiple categories match', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::SELECT,
+				'options'   => array(
+					'any' => __( 'Any (in any selected category)', 'agend-elementor' ),
+					'all' => __( 'All (in every selected category)', 'agend-elementor' ),
+				),
+				'default'   => 'any',
+				'condition' => array(
+					'show_category_filter'  => 'yes',
+					'multi_category_filter' => 'yes',
+				),
+			)
+		);
+
+		// Type.
+		$this->add_control(
+			'heading_filter_type',
+			array(
+				'label'     => __( 'Type', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
+			)
+		);
+
+		$this->add_control(
 			'show_type_filter',
 			array(
 				'label'   => __( 'Show type filter', 'agend-elementor' ),
@@ -293,11 +349,61 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'multi_type_filter',
+			array(
+				'label'     => __( 'Allow multiple types', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::SWITCHER,
+				'default'   => 'no',
+				'condition' => array( 'show_type_filter' => 'yes' ),
+			)
+		);
+
+		// City.
+		$this->add_control(
+			'heading_filter_city',
+			array(
+				'label'     => __( 'City', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
+			)
+		);
+
+		$this->add_control(
 			'show_city_filter',
 			array(
 				'label'   => __( 'Show city filter', 'agend-elementor' ),
 				'type'    => \Elementor\Controls_Manager::SWITCHER,
 				'default' => 'yes',
+			)
+		);
+
+		$this->add_control(
+			'multi_city_filter',
+			array(
+				'label'     => __( 'Allow multiple cities', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::SWITCHER,
+				'default'   => 'no',
+				'condition' => array( 'show_city_filter' => 'yes' ),
+			)
+		);
+
+		// Date.
+		$this->add_control(
+			'heading_filter_date',
+			array(
+				'label'     => __( 'Date', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
+			)
+		);
+
+		$this->add_control(
+			'show_date_filter',
+			array(
+				'label'       => __( 'Show date filter', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SWITCHER,
+				'default'     => 'yes',
+				'description' => __( 'A visitor dropdown to filter by event start date (starting after / before).', 'agend-elementor' ),
 			)
 		);
 
@@ -311,6 +417,21 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			array(
 				'label' => __( 'Exclusions', 'agend-elementor' ),
 				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+			)
+		);
+
+		$this->add_control(
+			'event_timeframe',
+			array(
+				'label'       => __( 'Events to show', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'options'     => array(
+					'upcoming' => __( 'Upcoming', 'agend-elementor' ),
+					'past'     => __( 'Past', 'agend-elementor' ),
+					'all'      => __( 'All', 'agend-elementor' ),
+				),
+				'default'     => 'upcoming',
+				'description' => __( 'Which events this widget lists, by time. Defaults to Upcoming.', 'agend-elementor' ),
 			)
 		);
 
@@ -330,6 +451,19 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'multiple'    => true,
 				'label_block' => true,
 				'options'     => $this->category_options(),
+			)
+		);
+
+		$this->add_control(
+			'exclude_category_match_mode',
+			array(
+				'label'   => __( 'Category exclusion match', 'agend-elementor' ),
+				'type'    => \Elementor\Controls_Manager::SELECT,
+				'options' => array(
+					'any' => __( 'Any (exclude if in any selected)', 'agend-elementor' ),
+					'all' => __( 'All (exclude only if in every selected)', 'agend-elementor' ),
+				),
+				'default' => 'any',
 			)
 		);
 
@@ -600,14 +734,26 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			'filters'        => array(
 				'search'   => 'yes' === ( $s['show_search'] ?? 'yes' ),
 				'category' => 'yes' === ( $s['show_category_filter'] ?? 'yes' ),
-				'type'     => 'yes' === ( $s['show_type_filter'] ?? 'yes' ),
-				'city'     => 'yes' === ( $s['show_city_filter'] ?? 'yes' ),
+				'type'          => 'yes' === ( $s['show_type_filter'] ?? 'yes' ),
+				'city'          => 'yes' === ( $s['show_city_filter'] ?? 'yes' ),
+				'date'          => 'yes' === ( $s['show_date_filter'] ?? 'yes' ),
+				'categoryMulti' => 'yes' === ( $s['multi_category_filter'] ?? 'no' ),
+				'typeMulti'     => 'yes' === ( $s['multi_type_filter'] ?? 'no' ),
+				'cityMulti'     => 'yes' === ( $s['multi_city_filter'] ?? 'no' ),
+				'categoryMatch' => (string) ( $s['category_match_mode'] ?? 'any' ),
 			),
 			'exclusions'     => array(
-				'categories' => $this->string_list( $s['exclude_categories'] ?? array() ),
-				'venueTypes' => $this->string_list( $s['exclude_venue_types'] ?? array() ),
-				'cities'     => $this->string_list( $s['exclude_cities'] ?? array() ),
+				'categories'    => $this->string_list( $s['exclude_categories'] ?? array() ),
+				'venueTypes'    => $this->string_list( $s['exclude_venue_types'] ?? array() ),
+				'cities'        => $this->string_list( $s['exclude_cities'] ?? array() ),
+				'categoryMatch' => (string) ( $s['exclude_category_match_mode'] ?? 'any' ),
 			),
+			'timeframe'      => (string) ( $s['event_timeframe'] ?? 'upcoming' ),
+			// Event times are shown in the organisation timezone, not the
+			// viewer's browser timezone, so they match the server-rendered
+			// detail. An IANA name, or a manual "+hh:mm" offset the client
+			// falls back to local time for.
+			'timezone'       => wp_timezone_string(),
 			'pagination'     => array(
 				'style'   => (string) ( $s['pagination_style'] ?? 'numbered' ),
 				'perPage' => (int) ( $s['per_page'] ?? 9 ),
@@ -635,6 +781,26 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	protected function render(): void {
 		$settings = $this->get_settings_for_display();
 		$config   = $this->build_config( $settings );
+
+		// US-1.2: path-based detail routing. The `event` rewrite endpoint
+		// (registered in class-agend-elementor-routing.php) exposes the slug on
+		// the current page URL as /{page}/event/{slug}/. The slug is injected
+		// server-side so a direct load renders the detail with no catalogue
+		// flash; the base page path lets the script build pretty links, and it
+		// falls back to the ?agend_event= query param when pretty permalinks are
+		// off or the base path is unavailable.
+		$page_id            = get_queried_object_id();
+		$base_path          = $page_id ? get_permalink( $page_id ) : '';
+		$config['deepLink']    = sanitize_title( (string) get_query_var( 'event' ) );
+		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
+		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
+
+		// Cart mode: when the Agend Apps Shop plugin is active, the registration
+		// flow adds tickets to the cart instead of registering + paying straight
+		// away. The cart page URL (if configured) drives the post-add "View Cart"
+		// link on the confirmation screen.
+		$config['cartEnabled'] = agend_elementor_shop_cart_enabled();
+		$config['cartPageUrl'] = agend_elementor_shop_cart_page_url();
 
 		$style = sprintf(
 			'--agend-ev-heading:%1$s;--agend-ev-body:%2$s;--agend-ev-accent:%3$s;--agend-ev-button:%4$s;--agend-ev-button-text:%5$s;--agend-ev-card-radius:%6$dpx;',
