@@ -122,14 +122,22 @@
   // session token so an anonymous cart survives across requests. Resolves with
   // the response payload, or rejects with an Error carrying the gateway message
   // on a non-200 response.
-  function cartAddItem(productType, productId, quantity) {
+  function cartAddItem(productType, productId, quantity, attendees) {
     var headers = cartHeaders();
     headers['Content-Type'] = 'application/json';
     var url = restBase().replace(/\/$/, '') + '/cart/items';
+    var payload = { productType: productType, productId: productId, quantity: quantity };
+    // Attendee assignments are optional; only include them when at least one
+    // seat was captured. The gateway validates each attendee against the
+    // ticket's event attendee-field definitions and defaults uncaptured seats
+    // to the buyer at fulfilment.
+    if (Array.isArray(attendees) && attendees.length) {
+      payload.attendees = attendees;
+    }
     return fetch(url, {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify({ productType: productType, productId: productId, quantity: quantity }),
+      body: JSON.stringify(payload),
     }).then(function (res) {
       return res.json().then(function (body) {
         return { status: res.status, data: body && body.data };
@@ -146,6 +154,30 @@
       }
       return result.data;
     });
+  }
+
+  // Maps a registration line's per-seat rows to the cart attendee shape. A seat
+  // with both a name and email is transmitted as a `named` attendee (the cart
+  // schema requires an email or contact for a named attendee); any other seat
+  // is `unnamed` and defaults to the buyer at fulfilment. Returns undefined
+  // when no seat was named, so the line is added without attendee data.
+  function cartAttendeesForLine(line) {
+    var rows = (line && line.attendeeRows) || [];
+    var anyNamed = false;
+    var attendees = rows.map(function (row) {
+      var name = ((row && row.name) || '').trim();
+      var email = ((row && row.email) || '').trim();
+      if (name && email) {
+        anyNamed = true;
+        return {
+          beneficiary_type: 'named',
+          beneficiary_name: name,
+          beneficiary_email: email,
+        };
+      }
+      return { beneficiary_type: 'unnamed' };
+    });
+    return anyNamed ? attendees : undefined;
   }
 
   // Theme tokens in site config are either hex (#RRGGBB) or shadcn-style HSL
@@ -1261,10 +1293,10 @@
       errorBox.style.display = 'none';
 
       // Cart mode (Agend Apps Shop active): add the selected ticket lines to the
-      // shop cart instead of registering and paying immediately. Attendee and
-      // buyer details are intentionally NOT transmitted — the cart API does not
-      // accept them yet, so the details above are surfaced as a placeholder only
-      // and will be wired through once the cart supports attendee data.
+      // shop cart instead of registering and paying immediately. Any per-seat
+      // attendee details captured above are transmitted with the line; capture
+      // is optional, so seats left blank default to the buyer at fulfilment and
+      // can be completed later from the cart view (SPEC-CORE-20260721 US-5.2).
       if (cfg.cartEnabled) {
         var cartSelected = Object.keys(lines).filter(function (id) { return lines[id].qty > 0; });
         if (!cartSelected.length) {
@@ -1279,7 +1311,7 @@
         cartSelected.forEach(function (id) {
           var line = lines[id];
           addChain = addChain.then(function () {
-            return cartAddItem('event_tickets', id, line.qty);
+            return cartAddItem('event_tickets', id, line.qty, cartAttendeesForLine(line));
           });
         });
         addChain.then(function () {
