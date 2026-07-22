@@ -876,7 +876,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					} else {
 						invalidateClosedPanel( item.id );
 					}
-					document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+					// Note: do NOT dispatch 'agend:cart:updated' — the cart-view
+					// self-listens on it and reloads the whole widget, which would
+					// clobber this in-place update. applyRowTotals already fired
+					// 'agend:cart:updated:total' to refresh the header badge.
 				} )
 				.catch( function ( err ) {
 					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
@@ -1003,7 +1006,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					} else {
 						invalidateClosedPanel( item.id );
 					}
-					document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+					// Note: do NOT dispatch 'agend:cart:updated' — the cart-view
+					// self-listens on it and reloads the whole widget, which would
+					// clobber this in-place update. applyRowTotals already fired
+					// 'agend:cart:updated:total' to refresh the header badge.
 				} )
 				.catch( function ( err ) {
 					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
