@@ -542,3 +542,61 @@
 .agend-apps-shop-cart-view .agend-shop-attendee-panel__status.is-success {
 	color: #16a34a;
 }
+
+.agend-apps-shop-cart-view .agend-shop-attendee-panel__removal-hint {
+	margin: 0 0 0.75rem;
+	padding: 0.5rem 0.75rem;
+	border-radius: 0.375rem;
+	background: rgba(220, 38, 38, 0.08);
+	color: #b91c1c;
+	font-size: 0.85rem;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-seat__header {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-seat__header legend {
+	float: none;
+	width: auto;
+	padding: 0;
+	margin: 0;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-seat__badge {
+	padding: 0.1rem 0.5rem;
+	border-radius: 999px;
+	font-size: 0.72rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-seat__badge.is-saved {
+	background: rgba(22, 163, 74, 0.12);
+	color: #15803d;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-seat__badge.is-unset {
+	background: rgba(107, 114, 128, 0.14);
+	color: #4b5563;
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-remove-seat {
+	margin-left: auto;
+	padding: 0.25rem 0.6rem;
+	border: 1px solid rgba(220, 38, 38, 0.4);
+	border-radius: 0.375rem;
+	background: transparent;
+	color: #dc2626;
+	font-family: var(--agend-shop-font-body, inherit);
+	font-size: 0.78rem;
+	cursor: pointer;
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-remove-seat:hover {
+	background: rgba(220, 38, 38, 0.08);
+}
