@@ -429,3 +429,116 @@
 		width: 100%;
 	}
 }
+
+/* ---------------------------------------------------------------------------
+ * Per-seat attendee editor (SPEC-CORE-20260721 US-5.3)
+ * ------------------------------------------------------------------------- */
+
+.agend-apps-shop-cart-view .agend-shop-btn-attendees {
+	margin-right: 0.5rem;
+	padding: 0.35rem 0.75rem;
+	border: 1px solid var(--agend-shop-border-strong, #cbd5e1);
+	border-radius: 0.375rem;
+	background: transparent;
+	color: var(--agend-shop-body, #1f2937);
+	font-family: var(--agend-shop-font-body, inherit);
+	font-size: 0.85rem;
+	cursor: pointer;
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-attendees:hover {
+	border-color: var(--agend-shop-accent, #2563eb);
+	color: var(--agend-shop-accent, #2563eb);
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-panel__body {
+	padding: 1rem 1.25rem 1.25rem;
+	background: rgba(0, 0, 0, 0.02);
+	border-top: 1px solid var(--agend-shop-border, #e5e7eb);
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-panel__intro {
+	margin: 0 0 0.75rem;
+	color: var(--agend-shop-muted, #6b7280);
+	font-size: 0.85rem;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-seat {
+	margin: 0 0 0.75rem;
+	padding: 0.75rem 1rem 1rem;
+	border: 1px solid var(--agend-shop-border, #e5e7eb);
+	border-radius: 0.5rem;
+	background: #fff;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-seat legend {
+	padding: 0 0.4rem;
+	color: var(--agend-shop-heading, #111827);
+	font-family: var(--agend-shop-font-heading, inherit);
+	font-size: 0.9rem;
+	font-weight: 600;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-field {
+	display: block;
+	margin-top: 0.6rem;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-field__label {
+	display: block;
+	margin-bottom: 0.25rem;
+	color: var(--agend-shop-body, #1f2937);
+	font-size: 0.8rem;
+	font-weight: 500;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-field input[type='text'],
+.agend-apps-shop-cart-view .agend-shop-attendee-field input[type='email'],
+.agend-apps-shop-cart-view .agend-shop-attendee-field input[type='number'],
+.agend-apps-shop-cart-view .agend-shop-attendee-field input[type='date'],
+.agend-apps-shop-cart-view .agend-shop-attendee-field select,
+.agend-apps-shop-cart-view .agend-shop-attendee-field textarea {
+	width: 100%;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid var(--agend-shop-border-strong, #cbd5e1);
+	border-radius: 0.375rem;
+	font-family: var(--agend-shop-font-body, inherit);
+	font-size: 0.9rem;
+	box-sizing: border-box;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-panel__actions {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin-top: 0.5rem;
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-attendees-save {
+	padding: 0.5rem 1.1rem;
+	border: none;
+	border-radius: 0.375rem;
+	background: var(--agend-shop-button, #2563eb);
+	color: var(--agend-shop-button-text, #fff);
+	font-family: var(--agend-shop-font-body, inherit);
+	font-size: 0.9rem;
+	cursor: pointer;
+}
+
+.agend-apps-shop-cart-view .agend-shop-btn-attendees-save:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-panel__status {
+	font-size: 0.85rem;
+	color: var(--agend-shop-muted, #6b7280);
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-panel__status.is-error {
+	color: #dc2626;
+}
+
+.agend-apps-shop-cart-view .agend-shop-attendee-panel__status.is-success {
+	color: #16a34a;
+}
