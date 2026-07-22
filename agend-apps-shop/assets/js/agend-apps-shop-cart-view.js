@@ -342,7 +342,32 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			var row = document.querySelector( `tr[data--item-id="${item.id}"]` );
 			if ( row ) {
-				row.replaceWith( buildItemRow( item ) );
+				// Preserve the attendee editor's open state across the rebuild so a
+				// quantity change re-syncs the seat forms in place (a new seat form
+				// on add, fewer on remove) without collapsing the panel
+				// (SPEC-CORE-20260721 US-5.3).
+				var oldPanel = tbodyEl.querySelector(
+					'tr.agend-shop-attendee-panel[data-item-id="' + item.id + '"]'
+				);
+				var panelWasOpen = !! ( oldPanel && ! oldPanel.hidden );
+
+				var newRow = buildItemRow( item );
+				row.replaceWith( newRow );
+
+				if ( isEventTicketWithEvent( item ) ) {
+					var newPanel = buildAttendeePanelRow( item );
+					if ( oldPanel ) {
+						oldPanel.replaceWith( newPanel );
+					} else {
+						newRow.after( newPanel );
+					}
+					if ( panelWasOpen ) {
+						var btn = newRow.querySelector( '.agend-shop-btn-attendees' );
+						openAttendeePanel( item, newPanel, btn );
+					}
+				} else if ( oldPanel ) {
+					oldPanel.remove();
+				}
 			}
 
 			var totalAmount = ( undefined !== totals.newTotalAmount ) ? totals.newTotalAmount : totals.newTotalAmmount;
@@ -467,7 +492,20 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				}, 500 );
 			}
 
+			// Event-ticket quantity is managed through the attendee editor so that
+			// removals honour saved attendee details (SPEC-CORE-20260721 US-5.3):
+			// direct typing is disabled and the steppers route through the
+			// attendee-aware add/remove flows.
+			var isEventLine = isEventTicketWithEvent( item );
+			if ( isEventLine ) {
+				qtyInput.readOnly = true;
+			}
+
 			decBtn.addEventListener( 'click', function () {
+				if ( isEventLine ) {
+					handleTicketDecrement( item );
+					return;
+				}
 				var current = parseInt( qtyInput.value, 10 ) || 1;
 				if ( current > 1 ) {
 					qtyInput.value = current - 1;
@@ -476,6 +514,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} );
 
 			incBtn.addEventListener( 'click', function () {
+				if ( isEventLine ) {
+					changeEventQty( item, item.quantity + 1 );
+					return;
+				}
 				var current = parseInt( qtyInput.value, 10 ) || 1;
 				qtyInput.value = current + 1;
 				onQtyChange();
@@ -595,18 +637,222 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			if ( ! panel ) {
 				return;
 			}
-			var willOpen = panel.hidden;
-			panel.hidden = ! willOpen;
-			btn.setAttribute( 'aria-expanded', willOpen ? 'true' : 'false' );
+			if ( panel.hidden ) {
+				openAttendeePanel( item, panel, btn );
+			} else {
+				panel.hidden = true;
+				if ( btn ) {
+					btn.setAttribute( 'aria-expanded', 'false' );
+				}
+			}
+		}
 
+		/**
+		 * Opens (and lazily renders) an attendee panel for an item.
+		 *
+		 * @param {Object}      item  Cart item.
+		 * @param {HTMLElement} panel The panel <tr>.
+		 * @param {HTMLElement} btn   The toggle button (optional).
+		 */
+		function openAttendeePanel( item, panel, btn ) {
+			panel.hidden = false;
+			if ( btn ) {
+				btn.setAttribute( 'aria-expanded', 'true' );
+			}
 			var body = panel.querySelector( '.agend-shop-attendee-panel__body' );
-			if ( willOpen && ! body.dataset.rendered ) {
+			if ( ! body.dataset.rendered ) {
 				body.dataset.rendered = '1';
 				body.textContent = 'Loading attendee details…';
 				fetchAttendeeFields( item.metadata.event_slug ).then( function ( fields ) {
 					renderAttendeeSeats( body, item, fields );
 				} );
 			}
+		}
+
+		/**
+		 * Returns the persisted attendee at a seat index, or null when unset.
+		 *
+		 * @param {Object} item  Cart item.
+		 * @param {number} index Seat index.
+		 * @return {Object|null} Attendee object or null.
+		 */
+		function attendeeAt( item, index ) {
+			var attendees = getItemAttendees( item );
+			return attendees[ index ] || null;
+		}
+
+		/**
+		 * Whether a seat has meaningful saved attendee details (a named attendee,
+		 * or any custom-field values). An unnamed placeholder counts as unset.
+		 *
+		 * @param {Object|null} attendee Attendee object.
+		 * @return {boolean} True when the seat is saved.
+		 */
+		function seatIsSaved( attendee ) {
+			if ( ! attendee ) {
+				return false;
+			}
+			if ( 'named' === attendee.beneficiary_type ) {
+				return true;
+			}
+			return !! ( attendee.custom_fields && Object.keys( attendee.custom_fields ).length );
+		}
+
+		/**
+		 * Sends an event-ticket line to a new quantity via the standard update
+		 * endpoint (used for increases — a new empty seat form appears on re-render).
+		 *
+		 * @param {Object} item     Cart item.
+		 * @param {number} quantity New quantity.
+		 */
+		function changeEventQty( item, quantity ) {
+			lockInputs( item.id );
+			updateItemAttendeesThenQty( item, quantity ).catch( function ( err ) {
+				unlockInputs( item.id );
+				showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
+			} );
+		}
+
+		/**
+		 * Handles a decrement on an event-ticket line. If any seat is still unset,
+		 * one unset seat is dropped automatically. If every seat has saved attendee
+		 * details, the editor is opened so the user chooses which ticket to remove
+		 * via the per-seat remove controls (SPEC-CORE-20260721 US-5.3).
+		 *
+		 * @param {Object} item Cart item.
+		 */
+		function handleTicketDecrement( item ) {
+			if ( item.quantity <= 1 ) {
+				removeItem( item.id );
+				return;
+			}
+
+			var unsetIndex = -1;
+			for ( var i = 0; i < item.quantity; i++ ) {
+				if ( ! seatIsSaved( attendeeAt( item, i ) ) ) {
+					unsetIndex = i;
+					break;
+				}
+			}
+
+			if ( unsetIndex !== -1 ) {
+				// Default path: drop an unset seat, keeping every saved seat.
+				var keep = [];
+				for ( var j = 0; j < item.quantity; j++ ) {
+					if ( j !== unsetIndex ) {
+						keep.push( j );
+					}
+				}
+				applyRemoval( item, keep );
+				return;
+			}
+
+			// All seats saved: open the editor (re-rendering even if already open) and
+			// let the user pick which to remove via the per-seat Remove controls.
+			var panel = tbodyEl.querySelector(
+				'tr.agend-shop-attendee-panel[data-item-id="' + item.id + '"]'
+			);
+			var btn = document.querySelector(
+				'.agend-shop-btn-attendees[data-item-id="' + item.id + '"]'
+			);
+			if ( panel ) {
+				panel.hidden = false;
+				if ( btn ) {
+					btn.setAttribute( 'aria-expanded', 'true' );
+				}
+				var body = panel.querySelector( '.agend-shop-attendee-panel__body' );
+				if ( body ) {
+					body.dataset.rendered = '1';
+					body.dataset.removalHint = '1';
+					fetchAttendeeFields( item.metadata.event_slug ).then( function ( fields ) {
+						renderAttendeeSeats( body, item, fields );
+					} );
+				}
+				panel.scrollIntoView( { behavior: 'smooth', block: 'nearest' } );
+			}
+		}
+
+		/**
+		 * Removes seats from an event-ticket line, honouring saved attendee details.
+		 *
+		 * The retained seats' attendees are written first (POST /cart/items/attendees)
+		 * and the quantity is then reduced (PUT /cart/item/update, which keeps the
+		 * leading N attendees), so the correct seats survive rather than whichever
+		 * happened to be trailing. Removing every seat deletes the line.
+		 *
+		 * @param {Object}   item        Cart item.
+		 * @param {number[]} keepIndices Seat indices to retain, in order.
+		 */
+		function applyRemoval( item, keepIndices ) {
+			if ( ! keepIndices.length ) {
+				removeItem( item.id );
+				return;
+			}
+
+			var retained = keepIndices.map( function ( index ) {
+				var attendee = attendeeAt( item, index );
+				return seatIsSaved( attendee ) ? attendee : { beneficiary_type: 'unnamed' };
+			} );
+			var newQty = keepIndices.length;
+
+			lockInputs( item.id );
+
+			var headers = AgendCartSession.getHeaders();
+			headers[ 'Content-Type' ] = 'application/json';
+
+			fetch( restUrl + 'cart/items/attendees', {
+				method: 'POST',
+				headers: headers,
+				body: JSON.stringify( { itemId: item.id, attendees: retained } ),
+			} )
+				.then( function ( response ) {
+					if ( ! response.ok ) {
+						return response.json().then( function ( data ) {
+							throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
+						} );
+					}
+					// Reduce the quantity; the retained attendees are already the
+					// leading N so the update's truncation is a no-op.
+					return updateItemAttendeesThenQty( item, newQty );
+				} )
+				.catch( function ( err ) {
+					unlockInputs( item.id );
+					showMessage( ( err && err.message ) || 'Unable to update tickets. Please try again.', 'error' );
+				} );
+		}
+
+		/**
+		 * Reduces an item's quantity after its retained attendees have been written,
+		 * then refreshes the row and cart total.
+		 *
+		 * @param {Object} item     Cart item.
+		 * @param {number} quantity New quantity.
+		 * @return {Promise} Resolves when the update completes.
+		 */
+		function updateItemAttendeesThenQty( item, quantity ) {
+			var headers = AgendCartSession.getHeaders();
+			headers[ 'Content-Type' ] = 'application/json';
+
+			return fetch( restUrl + 'cart/item/update', {
+				method: 'PUT',
+				headers: headers,
+				body: JSON.stringify( { quantity: quantity, itemId: item.id } ),
+			} )
+				.then( function ( response ) {
+					if ( ! response.ok ) {
+						return response.json().then( function ( data ) {
+							throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
+						} );
+					}
+					return response.json();
+				} )
+				.then( function ( data ) {
+					replaceItemRow( data );
+					document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+				} )
+				.finally( function () {
+					unlockInputs( item.id );
+				} );
 		}
 
 		/**
@@ -619,14 +865,50 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		function renderAttendeeSeats( body, item, fields ) {
 			body.textContent = '';
 			var existing = getItemAttendees( item );
+
 			var intro = document.createElement( 'p' );
 			intro.className = 'agend-shop-attendee-panel__intro';
 			intro.textContent = 'Assign attendees for each ticket. Leave a seat blank to assign it to yourself.';
 			body.appendChild( intro );
 
+			// A decrement on a fully-assigned line asks the user to choose which
+			// ticket to remove here, via the per-seat Remove controls.
+			if ( body.dataset.removalHint ) {
+				delete body.dataset.removalHint;
+				var hint = document.createElement( 'p' );
+				hint.className = 'agend-shop-attendee-panel__removal-hint';
+				hint.textContent = 'Every ticket has attendee details. Use “Remove ticket” to choose which one to remove.';
+				body.appendChild( hint );
+			}
+
+			function onRemoveSeat( index ) {
+				var attendee = existing[ index ] || null;
+				var saved = seatIsSaved( attendee );
+
+				if ( item.quantity <= 1 ) {
+					if ( ! saved || window.confirm( 'Remove this ticket from your cart?' ) ) {
+						removeItem( item.id );
+					}
+					return;
+				}
+				if ( saved ) {
+					var who = attendee.beneficiary_name || 'this attendee';
+					if ( ! window.confirm( 'Remove the ticket for ' + who + '? Their saved details will be discarded.' ) ) {
+						return;
+					}
+				}
+				var keep = [];
+				for ( var k = 0; k < item.quantity; k++ ) {
+					if ( k !== index ) {
+						keep.push( k );
+					}
+				}
+				applyRemoval( item, keep );
+			}
+
 			var seatEls = [];
 			for ( var i = 0; i < item.quantity; i++ ) {
-				var seat = buildSeat( i, existing[ i ] || {}, fields );
+				var seat = buildSeat( i, existing[ i ] || {}, fields, seatIsSaved( existing[ i ] || null ), onRemoveSeat );
 				seatEls.push( seat.refs );
 				body.appendChild( seat.el );
 			}
@@ -648,6 +930,17 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
+		 * Sets a seat's saved/unset status badge.
+		 *
+		 * @param {HTMLElement} badge The badge element.
+		 * @param {boolean}     saved Whether the seat has saved details.
+		 */
+		function setSeatBadge( badge, saved ) {
+			badge.className = 'agend-shop-attendee-seat__badge ' + ( saved ? 'is-saved' : 'is-unset' );
+			badge.textContent = saved ? 'Saved' : 'Not set';
+		}
+
+		/**
 		 * Builds a single seat block (name, email, and custom-field inputs).
 		 *
 		 * @param {number} index    Zero-based seat index.
@@ -655,12 +948,30 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {Array}  fields   Attendee-field definitions.
 		 * @return {{el: HTMLElement, refs: Object}} The block and its input refs.
 		 */
-		function buildSeat( index, attendee, fields ) {
+		function buildSeat( index, attendee, fields, saved, onRemove ) {
 			var wrap = document.createElement( 'fieldset' );
 			wrap.className = 'agend-shop-attendee-seat';
+
+			var header = document.createElement( 'div' );
+			header.className = 'agend-shop-attendee-seat__header';
 			var legend = document.createElement( 'legend' );
 			legend.textContent = 'Attendee ' + ( index + 1 );
-			wrap.appendChild( legend );
+			header.appendChild( legend );
+
+			var badge = document.createElement( 'span' );
+			setSeatBadge( badge, saved );
+			header.appendChild( badge );
+
+			var removeSeatBtn = document.createElement( 'button' );
+			removeSeatBtn.type = 'button';
+			removeSeatBtn.className = 'agend-shop-btn-remove-seat';
+			removeSeatBtn.textContent = 'Remove ticket';
+			removeSeatBtn.addEventListener( 'click', function () {
+				onRemove( index );
+			} );
+			header.appendChild( removeSeatBtn );
+
+			wrap.appendChild( header );
 
 			var nameInput = document.createElement( 'input' );
 			nameInput.type = 'text';
@@ -688,7 +999,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			return {
 				el: wrap,
-				refs: { nameInput: nameInput, emailInput: emailInput, fieldRefs: fieldRefs },
+				refs: { nameInput: nameInput, emailInput: emailInput, fieldRefs: fieldRefs, badge: badge },
 			};
 		}
 
@@ -851,6 +1162,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					// Keep the item's local copy in sync so a re-open shows the saved data.
 					item.metadata = item.metadata || {};
 					item.metadata.attendees = attendees;
+					// Refresh each seat's saved/unset badge to reflect what was stored.
+					for ( var b = 0; b < seatEls.length; b++ ) {
+						if ( seatEls[ b ].badge ) {
+							setSeatBadge( seatEls[ b ].badge, seatIsSaved( attendees[ b ] ) );
+						}
+					}
 					return null;
 				} )
 				.catch( function () {
