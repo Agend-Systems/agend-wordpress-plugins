@@ -64,6 +64,10 @@ class Agend_Apps_Cache {
 			'label'       => 'Event Tickets',
 			'default_ttl' => 300,
 		),
+		'events_attendee_fields'   => array(
+			'label'       => 'Event Attendee Fields',
+			'default_ttl' => 300,
+		),
 		'events_categories'        => array(
 			'label'       => 'Event Categories',
 			'default_ttl' => 600,

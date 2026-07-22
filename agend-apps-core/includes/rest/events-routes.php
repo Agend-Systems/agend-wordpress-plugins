@@ -327,6 +327,25 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 
 		register_rest_route(
 			$this->namespace,
+			'/' . $this->rest_base . '/(?P<slug>[a-zA-Z0-9_-]+)/attendee-fields',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_attendee_fields' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'slug' => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
 			'/' . $this->rest_base . '/(?P<slug>[a-zA-Z0-9_-]+)/ical',
 			array(
 				array(
@@ -530,6 +549,18 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 	public function get_tickets( WP_REST_Request $request ): WP_REST_Response {
 		$slug   = $request->get_param( 'slug' );
 		$result = agend_apps_events_get_tickets( $slug );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Returns the public attendee-field definitions for an event.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_attendee_fields( WP_REST_Request $request ): WP_REST_Response {
+		$slug   = $request->get_param( 'slug' );
+		$result = agend_apps_events_get_attendee_fields( $slug );
 		return $this->prepare_api_response( $result );
 	}
 
