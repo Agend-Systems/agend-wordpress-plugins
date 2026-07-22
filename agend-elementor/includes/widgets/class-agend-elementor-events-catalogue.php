@@ -795,6 +795,13 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
 		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
 
+		// Cart mode: when the Agend Apps Shop plugin is active, the registration
+		// flow adds tickets to the cart instead of registering + paying straight
+		// away. The cart page URL (if configured) drives the post-add "View Cart"
+		// link on the confirmation screen.
+		$config['cartEnabled'] = agend_elementor_shop_cart_enabled();
+		$config['cartPageUrl'] = agend_elementor_shop_cart_page_url();
+
 		$style = sprintf(
 			'--agend-ev-heading:%1$s;--agend-ev-body:%2$s;--agend-ev-accent:%3$s;--agend-ev-button:%4$s;--agend-ev-button-text:%5$s;--agend-ev-card-radius:%6$dpx;',
 			esc_attr( $config['colours']['heading'] ),

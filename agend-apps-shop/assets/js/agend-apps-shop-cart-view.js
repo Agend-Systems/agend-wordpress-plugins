@@ -44,6 +44,84 @@ document.addEventListener( 'DOMContentLoaded', function () {
 	}
 
 	/**
+	 * Normalises a site-config colour token to a usable CSS colour.
+	 *
+	 * Tokens are either hex (`#RRGGBB`) or shadcn-style HSL triplets
+	 * (`230 37% 16%`); the latter is wrapped in `hsl()`.
+	 *
+	 * @param {string} value Raw colour token.
+	 * @return {string|null} CSS colour value, or null when unusable.
+	 */
+	function normaliseColour( value ) {
+		if ( typeof value !== 'string' || ! value ) {
+			return null;
+		}
+		if ( '#' === value.charAt( 0 ) || -1 !== value.indexOf( '(' ) ) {
+			return value;
+		}
+		if ( /^\d/.test( value ) && -1 !== value.indexOf( '%' ) ) {
+			return 'hsl(' + value + ')';
+		}
+		return value;
+	}
+
+	/**
+	 * Applies the connected account's published theme (colours and fonts) to
+	 * every cart-view widget, mirroring how the Agend Elementor catalogue
+	 * widgets inherit the site theme, so the cart page tracks the same palette
+	 * and typography. Fire-and-forget: the CSS custom properties update once the
+	 * config resolves; on failure the default palette stays in place.
+	 */
+	function applyTheme() {
+		var wrappers = document.querySelectorAll( '.agend-apps-shop-cart-view' );
+		if ( ! wrappers.length || ! restUrl ) {
+			return;
+		}
+
+		var headers = {};
+		if ( window.agendApps && window.agendApps.nonce ) {
+			headers[ 'X-WP-Nonce' ] = window.agendApps.nonce;
+		}
+
+		fetch( restUrl.replace( /\/$/, '' ) + '/sites/config', { headers: headers } )
+			.then( function ( res ) {
+				return res.json();
+			} )
+			.then( function ( body ) {
+				var config = ( body && body.data && ! Array.isArray( body.data ) ) ? body.data : body;
+				var theme  = ( config && config.theme ) || {};
+				var colors = theme.colors || {};
+				var fonts  = theme.fonts || {};
+
+				var heading    = normaliseColour( colors.primary || colors.navy || colors.foreground );
+				var bodyColour = normaliseColour( colors.foreground || colors.body );
+				var accent     = normaliseColour( colors.accent || colors.coral || colors.ring );
+
+				wrappers.forEach( function ( wrapper ) {
+					if ( heading ) {
+						wrapper.style.setProperty( '--agend-shop-heading', heading );
+					}
+					if ( bodyColour ) {
+						wrapper.style.setProperty( '--agend-shop-body', bodyColour );
+					}
+					if ( accent ) {
+						wrapper.style.setProperty( '--agend-shop-accent', accent );
+						wrapper.style.setProperty( '--agend-shop-button', accent );
+					}
+					if ( fonts.heading ) {
+						wrapper.style.setProperty( '--agend-shop-font-heading', '"' + fonts.heading + '", sans-serif' );
+					}
+					if ( fonts.body ) {
+						wrapper.style.setProperty( '--agend-shop-font-body', '"' + fonts.body + '", sans-serif' );
+					}
+				} );
+			} )
+			.catch( function () {
+				/* site config unavailable — keep the default palette */
+			} );
+	}
+
+	/**
 	 * Initialises a single Cart View widget instance.
 	 *
 	 * @param {HTMLElement} wrapper The .agend-apps-shop-cart-view element.
@@ -157,9 +235,22 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					return response.json();
 				} )
 				.then( function ( data ) {
+					// The 400 / error branches above already updated the UI and
+					// resolved to null; nothing more to do.
+					if ( ! data ) {
+						return;
+					}
 					if ( data.data ) {
 						renderCart( data.data );
+						return;
 					}
+					// An empty or just-cleared cart responds with
+					// { success: true, data: null }. Show the empty state instead
+					// of leaving the loading indicator visible.
+					loadingEl.setAttribute( 'hidden', '' );
+					contentEl.setAttribute( 'hidden', '' );
+					lockedNoticeEl.setAttribute( 'hidden', '' );
+					emptyEl.removeAttribute( 'hidden' );
 				} )
 				.catch( function () {
 					loadingEl.setAttribute( 'hidden', '' );
@@ -171,14 +262,19 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		/**
 		 * Renders cart data into the widget.
 		 *
-		 * @param {Object} data API response with `cart` and `items` properties.
+		 * Accepts either the cart object directly (the shape returned by
+		 * `GET /cart`, where the cart fields and `items` sit on the payload) or a
+		 * payload that nests the cart under a `cart` key (the shape returned by
+		 * `POST /cart/items`), so the same renderer works for both responses.
+		 *
+		 * @param {Object} data Cart object, or a wrapper with a `cart` property.
 		 */
 		function renderCart( data ) {
 			loadingEl.setAttribute( 'hidden', '' );
 			clearMessage();
 
-			var cart  = data.cart || {};
-			var items = data.cart?.items || [];
+			var cart  = ( data && data.cart ) || data || {};
+			var items = ( cart && cart.items ) || [];
 
 			// Handle terminal statuses.
 			if ( 'complete' === cart.status ) {
@@ -226,19 +322,34 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
-		 * Updates a table row for a cart item. Updates totals
+		 * Replaces a single cart item row in place and updates the cart total,
+		 * from a `PUT /cart/item/update` response.
 		 *
-		 * @param {Object}  data     Cart item object.
+		 * The updated item is returned on `response.data`, with the recalculated
+		 * totals under `response.meta.totals` (`newTotalAmount`, `newTotalCount`,
+		 * `currency`). Tolerant of a raw item object being passed directly.
+		 *
+		 * @param {Object} response Update response, or the updated item object.
 		 */
-		function replaceItemRow(data){
-			document.querySelector(`tr[data--item-id="${data.item.id}"]`).replaceWith(buildItemRow(data.item))
-			totalAmountEl.textContent = formatCurrency( data.newTotals.newTotalAmmount, data.newTotals.currency );
+		function replaceItemRow( response ) {
+			var item   = ( response && response.data ) || response || {};
+			var totals = ( response && response.meta && response.meta.totals ) || {};
+
+			var row = document.querySelector( `tr[data--item-id="${item.id}"]` );
+			if ( row ) {
+				row.replaceWith( buildItemRow( item ) );
+			}
+
+			var totalAmount = ( undefined !== totals.newTotalAmount ) ? totals.newTotalAmount : totals.newTotalAmmount;
+			if ( totalAmountEl && undefined !== totalAmount ) {
+				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
+			}
 
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
 				detail: {
-					conut: data.newTotals?.newTotalCount,
-					ammount: data.newTotals.newTotalAmmount
-				}
+					count: totals.newTotalCount,
+					amount: totalAmount,
+				},
 			} ) );
 		}
 		/**
@@ -256,14 +367,17 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			// Name cell.
 			var tdName = document.createElement( 'td' );
+			tdName.dataset.label = 'Item';
 			tdName.textContent = item.name;
 
 			// Unit price cell.
 			var tdUnit = document.createElement( 'td' );
+			tdUnit.dataset.label = 'Unit Price';
 			tdUnit.textContent = formatCurrency( item.unit_amount, item.currency );
 
 			// Quantity stepper cell.
 			var tdQty = document.createElement( 'td' );
+			tdQty.dataset.label = 'Quantity';
 			var qtyWrapper = document.createElement( 'div' );
 			qtyWrapper.className = 'agend-shop-atc-quantity';
 
@@ -295,10 +409,13 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			// Subtotal cell.
 			var tdSubtotal = document.createElement( 'td' );
+			tdSubtotal.dataset.label = 'Subtotal';
 			tdSubtotal.textContent = formatCurrency( subtotal, item.currency );
 
-			// Actions cell.
+			// Actions cell. Empty label so no header prefix shows in the stacked
+			// mobile layout.
 			var tdActions = document.createElement( 'td' );
+			tdActions.dataset.label = '';
 			var removeBtn = document.createElement( 'button' );
 			removeBtn.className = 'agend-shop-btn-remove-item';
 			removeBtn.dataset.ItemId = item.id
@@ -386,7 +503,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						} );
 					}
 					response.json().then( data => {
-						replaceItemRow(data.data);
+						replaceItemRow( data );
 					})
 					return null;
 				} )
@@ -587,5 +704,6 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		loadCart();
 	}
 
+	applyTheme();
 	document.querySelectorAll( '.agend-apps-shop-cart-view' ).forEach( initWidget );
 } );

@@ -107,6 +107,47 @@
     return { items: [], pagination: null };
   }
 
+  // Request headers for the shop cart endpoints. Prefers the shop's
+  // AgendCartSession helper (WP REST nonce + guest cart session token); falls
+  // back to the nonce alone when the shop script is somehow unavailable.
+  function cartHeaders() {
+    if (window.AgendCartSession && typeof window.AgendCartSession.getHeaders === 'function') {
+      return window.AgendCartSession.getHeaders();
+    }
+    return nonce() ? { 'X-WP-Nonce': nonce() } : {};
+  }
+
+  // Adds a single product line to the Agend Apps Shop cart, mirroring the
+  // shop's own Add to Cart widget: on success it persists any returned guest
+  // session token so an anonymous cart survives across requests. Resolves with
+  // the response payload, or rejects with an Error carrying the gateway message
+  // on a non-200 response.
+  function cartAddItem(productType, productId, quantity) {
+    var headers = cartHeaders();
+    headers['Content-Type'] = 'application/json';
+    var url = restBase().replace(/\/$/, '') + '/cart/items';
+    return fetch(url, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({ productType: productType, productId: productId, quantity: quantity }),
+    }).then(function (res) {
+      return res.json().then(function (body) {
+        return { status: res.status, data: body && body.data };
+      });
+    }).then(function (result) {
+      if (result.status !== 200) {
+        var message = (result.data && result.data.body && result.data.body.error && result.data.body.error.message)
+          ? result.data.body.error.message
+          : 'Unable to add to cart. Please try again.';
+        throw new Error(message);
+      }
+      if (result.data && result.data.guestSessionToken && window.AgendCartSession) {
+        window.AgendCartSession.setToken(result.data.guestSessionToken);
+      }
+      return result.data;
+    });
+  }
+
   // Theme tokens in site config are either hex (#RRGGBB) or shadcn-style HSL
   // triplets ("230 37% 16%"); normalise both to a CSS colour value.
   function normaliseColour(value) {
@@ -1090,7 +1131,7 @@
     errorBox.style.display = 'none';
     form.appendChild(errorBox);
 
-    var submit = el('button', 'agend-ev-detail__cta agend-ev-reg__submit', 'Confirm Registration');
+    var submit = el('button', 'agend-ev-detail__cta agend-ev-reg__submit', cfg.cartEnabled ? 'Add to Cart' : 'Confirm Registration');
     form.appendChild(submit);
 
     // ticketId -> { entry, qty, price, attendeeRows: [{name,email}] }
@@ -1122,7 +1163,7 @@
         totalRow.appendChild(el('span', null, 'Total'));
         totalRow.appendChild(el('span', null, t === 0 ? 'Free' : '$' + t.toFixed(2)));
         summary.appendChild(totalRow);
-        submit.textContent = t === 0 ? 'Confirm Registration' : 'Proceed to Payment';
+        submit.textContent = cfg.cartEnabled ? 'Add to Cart' : (t === 0 ? 'Confirm Registration' : 'Proceed to Payment');
       }
       submit.disabled = !any;
     }
@@ -1218,6 +1259,42 @@
 
     submit.addEventListener('click', function () {
       errorBox.style.display = 'none';
+
+      // Cart mode (Agend Apps Shop active): add the selected ticket lines to the
+      // shop cart instead of registering and paying immediately. Attendee and
+      // buyer details are intentionally NOT transmitted — the cart API does not
+      // accept them yet, so the details above are surfaced as a placeholder only
+      // and will be wired through once the cart supports attendee data.
+      if (cfg.cartEnabled) {
+        var cartSelected = Object.keys(lines).filter(function (id) { return lines[id].qty > 0; });
+        if (!cartSelected.length) {
+          showError('Select at least one ticket.');
+          return;
+        }
+        submit.disabled = true;
+        submit.textContent = 'Adding…';
+        // Add lines sequentially so a single guest cart session token (returned
+        // on the first add) is set before the next request reuses it.
+        var addChain = Promise.resolve();
+        cartSelected.forEach(function (id) {
+          var line = lines[id];
+          addChain = addChain.then(function () {
+            return cartAddItem('event_tickets', id, line.qty);
+          });
+        });
+        addChain.then(function () {
+          document.dispatchEvent(new CustomEvent('agend:cart:updated'));
+          if (typeof onSuccess === 'function') {
+            onSuccess(event, 'cart');
+          }
+        }).catch(function (err) {
+          submit.disabled = false;
+          refreshSummary();
+          showError((err && err.message) || 'Unable to add to cart. Please try again.');
+        });
+        return;
+      }
+
       var first = buyerFirst.value.trim();
       var email = buyerEmail.value.trim();
       if (!first || !email) {
@@ -1319,19 +1396,33 @@
     return wrap;
   }
 
-  function renderConfirmation(event, cfg, onBackToEvent, onBackToEvents) {
+  // Post-flow confirmation. `mode` is 'cart' when tickets were added to the
+  // shop cart (US: shop integration), otherwise a completed registration.
+  function renderConfirmation(event, cfg, onBackToEvent, onBackToEvents, mode) {
+    var isCart = 'cart' === mode;
     var wrap = el('div', 'agend-ev-reg');
     var panel = el('div', 'agend-ev-reg__confirm');
     panel.appendChild(el('div', 'agend-ev-reg__confirm-tick', '✓'));
-    panel.appendChild(el('h2', 'agend-ev-reg__confirm-title', 'Registration Confirmed'));
-    panel.appendChild(el('p', 'agend-ev-reg__confirm-text', 'You are registered for ' + (event.name || 'this event') + '. A confirmation email is on its way.'));
+    panel.appendChild(el('h2', 'agend-ev-reg__confirm-title', isCart ? 'Added to Cart' : 'Registration Confirmed'));
+    panel.appendChild(el('p', 'agend-ev-reg__confirm-text', isCart
+      ? 'Your tickets for ' + (event.name || 'this event') + ' have been added to your cart.'
+      : 'You are registered for ' + (event.name || 'this event') + '. A confirmation email is on its way.'));
     var actions = el('div', 'agend-ev-reg__confirm-actions');
-    var eventBtn = el('button', 'agend-ev-detail__cta', 'View Event');
-    eventBtn.addEventListener('click', onBackToEvent);
-    var listBtn = el('button', 'agend-ev-reg__link', 'Back to all events');
-    listBtn.addEventListener('click', onBackToEvents);
-    actions.appendChild(eventBtn);
-    actions.appendChild(listBtn);
+    if (isCart && cfg.cartPageUrl) {
+      var cartLink = el('a', 'agend-ev-detail__cta', 'View Cart');
+      cartLink.href = cfg.cartPageUrl;
+      actions.appendChild(cartLink);
+      var browseBtn = el('button', 'agend-ev-reg__link', 'Keep browsing events');
+      browseBtn.addEventListener('click', onBackToEvents);
+      actions.appendChild(browseBtn);
+    } else {
+      var eventBtn = el('button', 'agend-ev-detail__cta', isCart ? 'Back to Event' : 'View Event');
+      eventBtn.addEventListener('click', onBackToEvent);
+      var listBtn = el('button', 'agend-ev-reg__link', 'Back to all events');
+      listBtn.addEventListener('click', onBackToEvents);
+      actions.appendChild(eventBtn);
+      actions.appendChild(listBtn);
+    }
     panel.appendChild(actions);
     wrap.appendChild(panel);
     return wrap;
@@ -1391,13 +1482,14 @@
       event,
       cfg,
       mount.restore,
-      function (ev) {
+      function (ev, mode) {
         mount.overlay.innerHTML = '';
         mount.overlay.appendChild(renderConfirmation(
           ev,
           cfg,
           mount.restore,
-          function () { window.location.href = cfg.basePath || '/'; }
+          function () { window.location.href = cfg.basePath || '/'; },
+          mode
         ));
       }
     ));
@@ -1592,13 +1684,14 @@
         event,
         cfg,
         function () { showDetail(event.slug, false); },
-        function (ev) {
+        function (ev, mode) {
           root.innerHTML = '';
           root.appendChild(renderConfirmation(
             ev,
             cfg,
             function () { showDetail(ev.slug, false); },
-            function () { showCatalogue(true); }
+            function () { showCatalogue(true); },
+            mode
           ));
         }
       ));
