@@ -96,6 +96,33 @@
     return body || null;
   }
 
+  // DD/MM/YYYY, matching the AU date convention used across the other Agend
+  // widgets (e.g. directory-catalogue.js's review dates).
+  function formatDate(iso) {
+    if (!iso) {
+      return '';
+    }
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) {
+      return '';
+    }
+    var dd = ('0' + d.getDate()).slice(-2);
+    var mm = ('0' + (d.getMonth() + 1)).slice(-2);
+    return dd + '/' + mm + '/' + d.getFullYear();
+  }
+
+  var MEMBERSHIP_STATUS_LABELS = {
+    active: 'Active',
+    pending: 'Pending',
+    lapsed: 'Lapsed',
+    cancelled: 'Cancelled',
+    expired: 'Expired',
+    renewed: 'Renewed',
+  };
+  function membershipStatusLabel(status) {
+    return MEMBERSHIP_STATUS_LABELS[status] || status || '';
+  }
+
   /**
    * Resolves the signup mode for a tier.
    * Global signupMode can be overridden per tier (e.g. corporate always application).
@@ -253,7 +280,15 @@
         selectedCard.classList.add('agend-mem-card--selected');
       }
 
-      renderForm(tier, state.fields, cfg);
+      // Signed-in member: identity is resolved server-side from the bearer,
+      // so the guest create-contact form is skipped entirely in favour of a
+      // direct bearer-attended purchase (SPEC-CORE-20260722 US-2.5). Guests
+      // keep the existing application/direct-purchase form flow unchanged.
+      if (window.agendApps && window.agendApps.loggedIn) {
+        renderMemberPurchaseConfirm(tier, cfg);
+      } else {
+        renderForm(tier, state.fields, cfg);
+      }
     }
 
     /**
@@ -306,6 +341,65 @@
       }
 
       return summary;
+    }
+
+    /**
+     * Signed-in member tier selection (SPEC-CORE-20260722 US-2.5): shows the
+     * same membership summary as the guest form, then opens a bearer-attended
+     * purchase checkout directly — no contact_id is sent, identity resolves
+     * from the member bearer server-side.
+     */
+    function renderMemberPurchaseConfirm(tier, cfg) {
+      var formContainer = root.querySelector('.agend-mem-form-wrapper');
+      if (!formContainer) {
+        formContainer = el('div', 'agend-mem-form-wrapper');
+        container.appendChild(formContainer);
+      }
+      formContainer.innerHTML = '';
+
+      formContainer.appendChild(renderMembershipSummary(tier));
+
+      // formatted_price already includes the billing period, matching the
+      // guest form's submit button label.
+      var btnLabel = 'Proceed to Checkout — ' + tier.formatted_price;
+      var submitBtn = el('button', 'agend-mem-form__submit', btnLabel);
+      submitBtn.type = 'button';
+      submitBtn.addEventListener('click', function () {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Processing…';
+        var urls = purchaseReturnUrls(cfg);
+        apiPost('/crm/me/memberships', {
+          tier_id: tier.id,
+          success_url: urls.successUrl,
+          cancel_url: urls.cancelUrl,
+        }).then(function (body) {
+          if (!body || body.success === false) {
+            var msg = body && body.error && body.error.message
+              ? body.error.message
+              : 'Failed to create checkout session.';
+            alert('Error: ' + msg);
+            submitBtn.disabled = false;
+            submitBtn.textContent = btnLabel;
+            return;
+          }
+
+          var data = unwrapOne(body);
+          var checkoutUrl = data && (data.checkoutUrl || data.checkout_url);
+          if (!checkoutUrl) {
+            alert('Error: No checkout URL returned.');
+            submitBtn.disabled = false;
+            submitBtn.textContent = btnLabel;
+            return;
+          }
+
+          window.location.href = checkoutUrl;
+        }).catch(function (err) {
+          alert('Error processing purchase: ' + (err ? err.message : 'Unknown error'));
+          submitBtn.disabled = false;
+          submitBtn.textContent = btnLabel;
+        });
+      });
+      formContainer.appendChild(submitBtn);
     }
 
     function renderForm(tier, fields, cfg) {
@@ -635,9 +729,11 @@
     }
 
     /**
-     * Processes direct purchase: creates a checkout session and redirects.
+     * Derives the checkout success/cancel return URLs shared by every
+     * purchase/pay flow (guest direct purchase, signed-in member purchase,
+     * signed-in "Pay now").
      */
-    function processPurchase(contactId, tier, cfg) {
+    function purchaseReturnUrls(cfg) {
       var currentUrl = window.location.href;
       try {
         currentUrl = new URL(window.location.href).origin + window.location.pathname;
@@ -645,14 +741,23 @@
         // Fallback
       }
 
-      var successUrl = cfg.successUrl ? cfg.successUrl : (currentUrl + '?agend_membership=success');
-      var cancelUrl = currentUrl + '?agend_membership=cancel';
+      return {
+        successUrl: cfg.successUrl ? cfg.successUrl : (currentUrl + '?agend_membership=success'),
+        cancelUrl: currentUrl + '?agend_membership=cancel',
+      };
+    }
+
+    /**
+     * Processes direct purchase: creates a checkout session and redirects.
+     */
+    function processPurchase(contactId, tier, cfg) {
+      var urls = purchaseReturnUrls(cfg);
 
       apiPost('/crm/memberships/purchase', {
         contact_id: contactId,
         tier_id: tier.id,
-        success_url: successUrl,
-        cancel_url: cancelUrl,
+        success_url: urls.successUrl,
+        cancel_url: urls.cancelUrl,
       }).then(function (body) {
         if (!body || body.success === false) {
           var msg = body && body.error && body.error.message
@@ -719,6 +824,101 @@
     }
 
     /**
+     * Signed-in member: renders a "current membership" summary above the tier
+     * grid (SPEC-CORE-20260722 US-2.5) — tier name, status, and renewal/expiry
+     * date. `/crm/me/memberships` returns `tier_id` only (no nested tier), so
+     * the tier name is looked up from the already-loaded tier list; it has no
+     * linked order either, so an outstanding unpaid order is found separately
+     * via `/crm/me/transactions`. A progressive enhancement: any failure just
+     * leaves the tier grid as the only signup path.
+     */
+    function renderMyMembershipStatus(tiers) {
+      apiGet('/crm/me/memberships', {}).then(function (body) {
+        var memberships = unwrapList(body).items;
+        var current = memberships.filter(function (m) { return m.status === 'active'; })[0]
+          || memberships.filter(function (m) { return m.status === 'pending'; })[0];
+        if (!current) {
+          return;
+        }
+
+        var tier = tiers.filter(function (t) { return t.id === current.tier_id; })[0];
+
+        apiGet('/crm/me/transactions', {}).then(function (txBody) {
+          var transactions = unwrapList(txBody).items;
+          var unpaidOrder = transactions.filter(function (tx) {
+            return tx.membership_id === current.id && tx.payment_status && tx.payment_status !== 'paid';
+          })[0];
+          renderMembershipStatusPanel(current, tier, unpaidOrder);
+        }).catch(function () {
+          renderMembershipStatusPanel(current, tier, null);
+        });
+      }).catch(function () {
+        // Progressive enhancement only — the tier grid below still works.
+      });
+    }
+
+    /**
+     * Renders the current-membership summary panel above the tier grid, with
+     * a "Pay Now" action when an unpaid order is linked to the membership.
+     */
+    function renderMembershipStatusPanel(membership, tier, unpaidOrder) {
+      var panel = el('div', 'agend-mem-summary agend-mem-mystatus');
+
+      var header = el('div', 'agend-mem-summary__header');
+      header.appendChild(el('h3', 'agend-mem-summary__name', (tier && tier.name) || 'Your Membership'));
+      header.appendChild(el('span', 'agend-mem-mystatus__badge', membershipStatusLabel(membership.status)));
+      panel.appendChild(header);
+
+      var renewalIso = membership.renewal_date || membership.expiry_date;
+      if (renewalIso) {
+        var metaLabel = membership.renewal_date ? 'Renews' : 'Expires';
+        panel.appendChild(el('p', 'agend-mem-mystatus__meta', metaLabel + ' ' + formatDate(renewalIso)));
+      }
+
+      if (unpaidOrder) {
+        var payBtn = el('button', 'agend-mem-form__submit agend-mem-mystatus__pay', 'Pay Now');
+        payBtn.type = 'button';
+        payBtn.addEventListener('click', function () {
+          payBtn.disabled = true;
+          payBtn.textContent = 'Processing…';
+          var urls = purchaseReturnUrls(cfg);
+          apiPost('/crm/me/orders/' + encodeURIComponent(unpaidOrder.id) + '/pay', {
+            success_url: urls.successUrl,
+            cancel_url: urls.cancelUrl,
+          }).then(function (body) {
+            if (!body || body.success === false) {
+              var msg = body && body.error && body.error.message
+                ? body.error.message
+                : 'Failed to start payment.';
+              alert('Error: ' + msg);
+              payBtn.disabled = false;
+              payBtn.textContent = 'Pay Now';
+              return;
+            }
+
+            var data = unwrapOne(body);
+            var checkoutUrl = data && (data.checkoutUrl || data.checkout_url);
+            if (!checkoutUrl) {
+              alert('Error: No checkout URL returned.');
+              payBtn.disabled = false;
+              payBtn.textContent = 'Pay Now';
+              return;
+            }
+
+            window.location.href = checkoutUrl;
+          }).catch(function (err) {
+            alert('Error processing payment: ' + (err ? err.message : 'Unknown error'));
+            payBtn.disabled = false;
+            payBtn.textContent = 'Pay Now';
+          });
+        });
+        panel.appendChild(payBtn);
+      }
+
+      container.insertBefore(panel, grid);
+    }
+
+    /**
      * Initialises the widget: fetch tiers and fields, render.
      */
     function init() {
@@ -733,6 +933,10 @@
         }
 
         renderTiers(result.items);
+
+        if (window.agendApps && window.agendApps.loggedIn) {
+          renderMyMembershipStatus(result.items);
+        }
 
         apiGet('/crm/fields', { entityType: 'contact' }).then(function (fieldsBody) {
           var fieldsResult = unwrapList(fieldsBody);
