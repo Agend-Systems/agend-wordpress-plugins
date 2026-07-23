@@ -29,9 +29,45 @@ if ( ! defined( 'ABSPATH' ) ) {
 function agend_elementor_add_rewrite_endpoints(): void {
 	add_rewrite_endpoint( 'event', EP_PAGES );
 	add_rewrite_endpoint( 'course', EP_PAGES );
-	add_rewrite_endpoint( 'listing', EP_PAGES );
+
+	// Directory detail deliberately does NOT use add_rewrite_endpoint( 'listing' ).
+	// `listing` is a very common query var that directory themes/plugins register
+	// (typically via a `listing` custom post type, which claims the query var
+	// WITHOUT adding a rewrite rule, so the conflict never shows in
+	// `wp rewrite list`). When another registration owns `listing`, WordPress
+	// drops our value during request parsing, the SSR dispatch sees an empty
+	// slug, and redirect_canonical strips the /{page}/listing/{slug}/ tail — a
+	// 301 back to the catalogue page. `event`/`course` are unique words so
+	// nothing competes for them.
+	//
+	// Instead we register our own rule, at the top so it can never be shadowed,
+	// pointing the public /{page}/listing/{slug}/ path at a PRIVATE, namespaced
+	// query var (`agend_dir_listing`) that no other plugin can claim. The public
+	// URL is unchanged; only the internal query var differs.
+	add_rewrite_rule(
+		'(.?.+?)/listing(/(.*))?/?$',
+		'index.php?pagename=$matches[1]&agend_dir_listing=$matches[3]',
+		'top'
+	);
 }
 add_action( 'init', 'agend_elementor_add_rewrite_endpoints' );
+
+/**
+ * Registers the directory-detail private query var.
+ *
+ * Paired with the top-priority rewrite rule in
+ * agend_elementor_add_rewrite_endpoints(). Namespaced so no directory
+ * theme/plugin that claims the generic `listing` query var can strip the
+ * directory detail slug from the parsed request.
+ *
+ * @param string[] $vars Registered public query vars.
+ * @return string[] The query vars with `agend_dir_listing` added.
+ */
+function agend_elementor_register_query_vars( array $vars ): array {
+	$vars[] = 'agend_dir_listing';
+	return $vars;
+}
+add_filter( 'query_vars', 'agend_elementor_register_query_vars' );
 
 /**
  * Flushes rewrite rules once whenever the rewrite ruleset version changes.

@@ -46,7 +46,7 @@ define( 'AGEND_ELEMENTOR_URL', plugin_dir_url( __FILE__ ) );
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260717-2' );
+define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260723-1' );
 
 // Detail-URL rewrite endpoints (SPEC-INFRA-20260717 US-1.1). Loaded
 // unconditionally so the endpoints register even when Elementor or Agend Apps

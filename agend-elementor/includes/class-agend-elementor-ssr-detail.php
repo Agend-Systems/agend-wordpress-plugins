@@ -41,7 +41,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 function agend_elementor_ssr_detail_registry(): array {
 	return array(
 		array(
-			'query_var' => 'listing',
+			// Private, namespaced query var (see class-agend-elementor-routing.php):
+			// the public path segment stays `listing/`, but the internal query var
+			// avoids the common `listing` collision that 301s the detail page.
+			'query_var' => 'agend_dir_listing',
 			'available' => 'agend_apps_directory_get_listing',
 			'resolver'  => 'agend_elementor_ssr_resolve_listing',
 			'segment'   => 'listing/',
