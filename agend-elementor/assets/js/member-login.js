@@ -270,11 +270,141 @@
     root.appendChild(wrap);
   }
 
+  // Reads the recovery token from the URL when the page is a password-reset
+  // landing (SPEC-CORE-20260722 US-2.7). The gateway-minted reset link appends
+  // ?token_hash=<hash>&type=recovery to the configured WordPress reset page.
+  function recoveryToken() {
+    try {
+      var params = new URL(window.location.href).searchParams;
+      if (params.get('type') === 'recovery') {
+        var hash = params.get('token_hash');
+        if (hash) {
+          return hash;
+        }
+      }
+    } catch (e) {
+      /* URL API unavailable */
+    }
+    return '';
+  }
+
+  // Password-reset completion view (SPEC-CORE-20260722 US-2.7). The member
+  // re-enters their email (the gateway cross-checks it against the token) and
+  // sets a new password; the token comes from the reset link, not the browser.
+  function renderReset(root, cfg, token) {
+    root.innerHTML = '';
+    var wrap = el('div', 'agend-ml-card');
+    if (cfg.messages.resetTitle) {
+      wrap.appendChild(el('h3', 'agend-ml-card__heading', cfg.messages.resetTitle));
+    }
+    if (cfg.messages.resetIntro) {
+      wrap.appendChild(el('p', 'agend-ml-card__text', cfg.messages.resetIntro));
+    }
+
+    var form = el('form', 'agend-ml-form');
+    form.setAttribute('novalidate', 'novalidate');
+
+    var emailLabel = el('label', 'agend-ml-form__label', cfg.messages.email);
+    var email = el('input', 'agend-ml-form__input');
+    email.type = 'email';
+    email.autocomplete = 'email';
+    email.required = true;
+    emailLabel.appendChild(email);
+
+    var pwLabel = el('label', 'agend-ml-form__label', cfg.messages.newPassword);
+    var password = el('input', 'agend-ml-form__input');
+    password.type = 'password';
+    password.autocomplete = 'new-password';
+    password.required = true;
+    pwLabel.appendChild(password);
+
+    var confirmLabel = el('label', 'agend-ml-form__label', cfg.messages.confirmPassword);
+    var confirmPw = el('input', 'agend-ml-form__input');
+    confirmPw.type = 'password';
+    confirmPw.autocomplete = 'new-password';
+    confirmPw.required = true;
+    confirmLabel.appendChild(confirmPw);
+
+    var error = el('p', 'agend-ml-form__error');
+    error.setAttribute('role', 'alert');
+    error.style.display = 'none';
+
+    var done = el('p', 'agend-ml-form__notice');
+    done.setAttribute('role', 'status');
+    done.style.display = 'none';
+
+    var submit = el('button', 'agend-ml-card__button', cfg.messages.resetSubmit);
+    submit.type = 'submit';
+
+    form.appendChild(emailLabel);
+    form.appendChild(pwLabel);
+    form.appendChild(confirmLabel);
+    form.appendChild(error);
+    form.appendChild(done);
+    form.appendChild(submit);
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      error.style.display = 'none';
+      if (!email.value || !password.value) {
+        return;
+      }
+      if (password.value !== confirmPw.value) {
+        error.textContent = cfg.messages.passwordMismatch;
+        error.style.display = '';
+        return;
+      }
+      submit.disabled = true;
+      submit.textContent = cfg.messages.resetWorking;
+
+      request('POST', '/auth/reset-password', {
+        email: email.value,
+        token: token,
+        new_password: password.value,
+      }).then(function (r) {
+        if (r.ok) {
+          done.textContent = cfg.messages.resetDone;
+          done.style.display = '';
+          Array.prototype.forEach.call(form.querySelectorAll('input'), function (i) {
+            i.disabled = true;
+          });
+          submit.style.display = 'none';
+          // Offer a clean route back to sign-in without the spent token in the URL.
+          var backLink = el('a', 'agend-ml-card__link', cfg.messages.backToSignIn);
+          backLink.href = window.location.pathname;
+          form.appendChild(backLink);
+          return;
+        }
+        var data = unwrap(r.data);
+        error.textContent = data.message || cfg.messages.resetError;
+        error.style.display = '';
+        submit.disabled = false;
+        submit.textContent = cfg.messages.resetSubmit;
+      }).catch(function () {
+        error.textContent = cfg.messages.resetError;
+        error.style.display = '';
+        submit.disabled = false;
+        submit.textContent = cfg.messages.resetSubmit;
+      });
+    });
+
+    wrap.appendChild(form);
+    root.appendChild(wrap);
+  }
+
   function initWidget(root) {
     var cfg;
     try {
       cfg = JSON.parse(root.getAttribute('data-agend-member-login-config'));
     } catch (e) {
+      return;
+    }
+
+    // A password-reset landing takes precedence over the sign-in/session views:
+    // the member arrived from a reset email and must set a new password.
+    var token = recoveryToken();
+    if (token) {
+      renderReset(root, cfg, token);
       return;
     }
 
