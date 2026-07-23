@@ -1,0 +1,29 @@
+/**
+ * Editor-only badge for elements with an Agend usermeta display condition.
+ * Enqueued only inside Elementor's live preview (never on the real frontend),
+ * so an editor can see at a glance that an element is conditionally hidden
+ * without the condition ever being evaluated against the editor's own user.
+ */
+
+.agend-conditional-element {
+  position: relative;
+  outline: 1px dashed #ff6b55;
+  outline-offset: 2px;
+}
+
+.agend-conditional-element::before {
+  content: 'Agend condition: ' attr(data-agend-conditions-count) ' rule(s), match ' attr(data-agend-conditions-relation);
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  z-index: 10000;
+  transform: translateY(-100%);
+  padding: 2px 6px;
+  background: #ff6b55;
+  color: #ffffff;
+  font-size: 10px;
+  font-family: sans-serif;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
