@@ -1,0 +1,28 @@
+/**
+ * Agend header auth-link widget styles (SPEC-CORE-20260722 US-2.8).
+ * Minimal by design: the link inherits the header's typography, and the
+ * editor's text/background colour controls drive the rest.
+ */
+.agend-header-auth {
+  display: inline-flex;
+  align-items: center;
+}
+
+.agend-header-auth__link {
+  display: inline-block;
+  text-decoration: none;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.agend-header-auth__link[aria-busy='true'] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Reserve a little space before hydration so the header does not jump. */
+.agend-header-auth__placeholder {
+  display: inline-block;
+  min-width: 3rem;
+}
