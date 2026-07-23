@@ -922,7 +922,10 @@
      * Initialises the widget: fetch tiers and fields, render.
      */
     function init() {
-      apiGet('/crm/tiers', {}).then(function (body) {
+      // Server-side tier-type filter (SPEC-CORE-20260722): omit for both,
+      // otherwise pass individual|corporate so the gateway returns only that type.
+      var tiersQuery = cfg.membershipType ? { tierType: cfg.membershipType } : {};
+      apiGet('/crm/tiers', tiersQuery).then(function (body) {
         var result = unwrapList(body);
         if (!result.items.length) {
           if (status) {

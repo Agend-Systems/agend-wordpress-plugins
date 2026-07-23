@@ -356,7 +356,10 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_tiers( WP_REST_Request $request ): WP_REST_Response {
-		$allowed = array( 'page', 'per_page' );
+		// `tierType` (individual|corporate) filters the tier list server-side
+		// (SPEC-CORE-20260722); the cached wrapper keys on the full query, so
+		// each filter value caches separately.
+		$allowed = array( 'page', 'per_page', 'tierType' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {
