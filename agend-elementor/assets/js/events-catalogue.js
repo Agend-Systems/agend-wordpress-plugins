@@ -565,17 +565,23 @@
 
     if (cfg.card.pricing && event.price_summary) {
       var group = viewerGroup(event);
+      // The applicable price is the member tier for a member/corporate viewer,
+      // otherwise the non-member tier (which also covers an anonymous visitor —
+      // the price they would pay). Consistent with the detail ticket list.
+      var cardActiveIsMember = group === 'member' || group === 'corporate';
       var pricing = el('div', 'agend-ev-card__pricing');
       [
-        ['Members', event.price_summary.member_from, group === 'member' || group === 'corporate'],
-        ['Non-Members', event.price_summary.non_member_from, group === 'non_member'],
+        ['Members', event.price_summary.member_from, cardActiveIsMember],
+        ['Non-Members', event.price_summary.non_member_from, !cardActiveIsMember],
       ].forEach(function (pair) {
         var price = formatPrice(pair[1]);
         if (price === null) {
           return;
         }
+        // The applicable price is conveyed by weight + highlight colour
+        // (.is-yours), not a text suffix (SPEC-CORE-20260722 US-2.3).
         var row = el('div', 'agend-ev-price' + (pair[2] ? ' is-yours' : ''));
-        row.appendChild(el('span', 'agend-ev-price__label', pair[2] ? pair[0] + ' (your price)' : pair[0]));
+        row.appendChild(el('span', 'agend-ev-price__label', pair[0]));
         row.appendChild(el('span', 'agend-ev-price__value' + (price === 'FREE' ? ' is-free' : ''), price));
         pricing.appendChild(row);
       });
@@ -587,6 +593,58 @@
   }
 
   // -- Detail ---------------------------------------------------------------
+
+  // Raw price for a pricing tier's group key (member_price / non_member_price /
+  // corporate_price), or undefined when that group has no explicit price. Reads
+  // the ticket's first pricing tier; a flat-priced ticket has no tiers.
+  function ticketTierValue(entry, key) {
+    var tiers = (entry && entry.pricingTiers) || [];
+    if (!tiers.length) {
+      return undefined;
+    }
+    var tier = tiers[0].tier || tiers[0];
+    var v = tier[key];
+    if (v === null || v === undefined) {
+      return undefined;
+    }
+    return typeof v === 'string' ? parseFloat(v) : v;
+  }
+
+  function priceRow(label, price, isActive) {
+    var row = el('div', 'agend-ev-price' + (isActive ? ' is-yours' : ''));
+    row.appendChild(el('span', 'agend-ev-price__label', label));
+    row.appendChild(el('span', 'agend-ev-price__value' + (price === 'FREE' ? ' is-free' : ''), price));
+    return row;
+  }
+
+  // Builds the price rows for one ticket, highlighting the viewer's applicable
+  // tier via .is-yours (SPEC-CORE-20260722 US-2.3). A flat-priced ticket (no
+  // member/non-member split) shows a single highlighted price row.
+  function ticketPriceRows(entry, group) {
+    var container = el('div', 'agend-ev-detail__ticket-prices');
+    var activeIsMember = group === 'member' || group === 'corporate';
+
+    var memberVal = ticketTierValue(entry, 'member_price');
+    var nonMemberVal = ticketTierValue(entry, 'non_member_price');
+
+    if (memberVal === undefined && nonMemberVal === undefined) {
+      var flat = formatPrice(ticketTierPrice(entry, group));
+      if (flat !== null) {
+        container.appendChild(priceRow('Price', flat, true));
+      }
+      return container;
+    }
+
+    var memberPrice = formatPrice(memberVal);
+    if (memberPrice !== null) {
+      container.appendChild(priceRow('Members', memberPrice, activeIsMember));
+    }
+    var nonMemberPrice = formatPrice(nonMemberVal);
+    if (nonMemberPrice !== null) {
+      container.appendChild(priceRow('Non-Members', nonMemberPrice, !activeIsMember));
+    }
+    return container;
+  }
 
   function renderDetail(event, cfg, onBack, onRegister) {
     var wrap = el('div', 'agend-ev-detail');
@@ -684,6 +742,38 @@
       reg.appendChild(el('p', 'agend-ev-detail__note', 'Not a member? Join for discounted pricing.'));
     }
     side.appendChild(reg);
+
+    // Tickets panel: all ticket types with the viewer's applicable price
+    // highlighted (SPEC-CORE-20260722 US-2.3). Fetched async; removed if the
+    // event has no purchasable tickets or the fetch fails.
+    var ticketsPanel = el('div', 'agend-ev-detail__panel agend-ev-detail__panel--tickets');
+    ticketsPanel.appendChild(el('h3', 'agend-ev-detail__panel-title', 'Tickets'));
+    var ticketsBody = el('div', 'agend-ev-detail__tickets');
+    ticketsBody.appendChild(el('div', 'agend-ev-status', 'Loading tickets…'));
+    ticketsPanel.appendChild(ticketsBody);
+    side.appendChild(ticketsPanel);
+
+    apiGet('/events/' + encodeURIComponent(event.slug) + '/tickets', {}).then(function (body) {
+      var items = unwrapList(body).items;
+      if (!items.length) {
+        if (ticketsPanel.parentNode) {
+          ticketsPanel.parentNode.removeChild(ticketsPanel);
+        }
+        return;
+      }
+      ticketsBody.innerHTML = '';
+      items.forEach(function (entry) {
+        var ticket = entry.ticket || entry;
+        var block = el('div', 'agend-ev-detail__ticket');
+        block.appendChild(el('span', 'agend-ev-detail__ticket-name', ticket.name || 'Ticket'));
+        block.appendChild(ticketPriceRows(entry, group));
+        ticketsBody.appendChild(block);
+      });
+    }).catch(function () {
+      if (ticketsPanel.parentNode) {
+        ticketsPanel.parentNode.removeChild(ticketsPanel);
+      }
+    });
 
     var facts = el('div', 'agend-ev-detail__panel');
     facts.appendChild(el('h3', 'agend-ev-detail__panel-title', 'Details'));

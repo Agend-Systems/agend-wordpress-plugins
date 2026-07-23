@@ -307,9 +307,20 @@ function agend_elementor_ssr_resolve_event( string $slug, WP_Post $host ): ?arra
 
 	$name = isset( $item['name'] ) ? (string) $item['name'] : __( 'Event', 'agend-elementor' );
 
+	// Ticket types (public price list, cached) for the detail's Tickets panel.
+	// Which price is highlighted is decided at render time from the event's
+	// bearer-enriched viewer_price_group, not from the tickets response, so the
+	// cached ticket list is safe to share across viewers (US-2.3).
+	$tickets_response = function_exists( 'agend_apps_events_get_tickets' )
+		? agend_apps_events_get_tickets( $slug )
+		: null;
+	$tickets          = ( ! is_wp_error( $tickets_response ) && isset( $tickets_response['data'] ) && is_array( $tickets_response['data'] ) )
+		? $tickets_response['data']
+		: array();
+
 	return array(
 		'title'   => $name,
-		'content' => agend_elementor_render_events_detail( $item, $slug, $host ),
+		'content' => agend_elementor_render_events_detail( $item, $slug, $host, $tickets ),
 	);
 }
 
@@ -1026,6 +1037,99 @@ function agend_elementor_ssr_ev_date_time( $start, $end, ?DateTimeZone $tz = nul
 }
 
 /**
+ * Formats a numeric price for the Events detail Tickets panel.
+ *
+ * Mirrors formatPrice() in assets/js/events-catalogue.js: null for a
+ * non-numeric value, "FREE" for zero, "$X.XX" otherwise.
+ *
+ * @param mixed $value The raw price value (numeric or numeric string).
+ * @return string|null The formatted price, or null when not numeric.
+ */
+function agend_elementor_ssr_ev_format_price( $value ): ?string {
+	if ( null === $value || '' === $value || ! is_numeric( $value ) ) {
+		return null;
+	}
+	$num = (float) $value;
+	return 0.0 === $num ? __( 'FREE', 'agend-elementor' ) : '$' . number_format( $num, 2, '.', '' );
+}
+
+/**
+ * Reads a ticket's first pricing-tier value for a group key.
+ *
+ * Mirrors ticketTierValue() in assets/js/events-catalogue.js.
+ *
+ * @param array  $entry The ticket entry (gateway shape).
+ * @param string $key   The tier price key (member_price / non_member_price).
+ * @return float|null The price, or null when the group has no explicit price.
+ */
+function agend_elementor_ssr_ev_ticket_tier_value( array $entry, string $key ): ?float {
+	$tiers = ( isset( $entry['pricingTiers'] ) && is_array( $entry['pricingTiers'] ) ) ? $entry['pricingTiers'] : array();
+	if ( empty( $tiers ) ) {
+		return null;
+	}
+	$first = $tiers[0];
+	$tier  = ( isset( $first['tier'] ) && is_array( $first['tier'] ) ) ? $first['tier'] : $first;
+	if ( ! isset( $tier[ $key ] ) || null === $tier[ $key ] ) {
+		return null;
+	}
+	return is_numeric( $tier[ $key ] ) ? (float) $tier[ $key ] : null;
+}
+
+/**
+ * Builds a single `.agend-ev-price` row (escaped) for the Tickets panel.
+ *
+ * @param string $label     The tier label.
+ * @param string $price     The formatted price.
+ * @param bool   $is_active Whether this is the viewer's applicable price.
+ * @return string The row HTML.
+ */
+function agend_elementor_ssr_ev_price_row( string $label, string $price, bool $is_active ): string {
+	$is_free = ( __( 'FREE', 'agend-elementor' ) === $price );
+	return sprintf(
+		'<div class="agend-ev-price%1$s"><span class="agend-ev-price__label">%2$s</span><span class="agend-ev-price__value%3$s">%4$s</span></div>',
+		$is_active ? ' is-yours' : '',
+		esc_html( $label ),
+		$is_free ? ' is-free' : '',
+		esc_html( $price )
+	);
+}
+
+/**
+ * Builds the member/non-member price rows for one ticket (US-2.3).
+ *
+ * Mirrors ticketPriceRows() in assets/js/events-catalogue.js: the viewer's
+ * applicable tier is highlighted via `.is-yours`; a flat-priced ticket (no
+ * member/non-member split) shows a single highlighted price row.
+ *
+ * @param array $entry     The ticket entry (gateway shape).
+ * @param bool  $is_member Whether the viewer's applicable price is the member tier.
+ * @return string The concatenated, escaped price-row HTML (may be empty).
+ */
+function agend_elementor_ssr_ev_ticket_price_rows( array $entry, bool $is_member ): string {
+	$member_val     = agend_elementor_ssr_ev_ticket_tier_value( $entry, 'member_price' );
+	$non_member_val = agend_elementor_ssr_ev_ticket_tier_value( $entry, 'non_member_price' );
+
+	// Flat price (no tiered split): a single applicable row.
+	if ( null === $member_val && null === $non_member_val ) {
+		$ticket = ( isset( $entry['ticket'] ) && is_array( $entry['ticket'] ) ) ? $entry['ticket'] : $entry;
+		$flat   = $ticket['price'] ?? ( $ticket['base_price'] ?? null );
+		$price  = agend_elementor_ssr_ev_format_price( $flat );
+		return null === $price ? '' : agend_elementor_ssr_ev_price_row( __( 'Price', 'agend-elementor' ), $price, true );
+	}
+
+	$html          = '';
+	$member_price  = agend_elementor_ssr_ev_format_price( $member_val );
+	if ( null !== $member_price ) {
+		$html .= agend_elementor_ssr_ev_price_row( __( 'Members', 'agend-elementor' ), $member_price, $is_member );
+	}
+	$non_member_price = agend_elementor_ssr_ev_format_price( $non_member_val );
+	if ( null !== $non_member_price ) {
+		$html .= agend_elementor_ssr_ev_price_row( __( 'Non-Members', 'agend-elementor' ), $non_member_price, ! $is_member );
+	}
+	return $html;
+}
+
+/**
  * Renders the server-side Events event detail body.
  *
  * Mirrors the client-side detail (assets/js/events-catalogue.js renderDetail):
@@ -1034,12 +1138,14 @@ function agend_elementor_ssr_ev_date_time( $start, $end, ?DateTimeZone $tz = nul
  * carrying an `ssrDetail` config so the catalogue script hydrates the
  * "Register Now" button into the existing registration flow.
  *
- * @param array   $item Public event detail (gateway shape).
- * @param string  $slug Event slug.
- * @param WP_Post $host The catalogue (host) page.
+ * @param array   $item    Public event detail (gateway shape).
+ * @param string  $slug    Event slug.
+ * @param WP_Post $host    The catalogue (host) page.
+ * @param array   $tickets Ticket-type list (gateway shape) for the Tickets
+ *                         panel. Default empty.
  * @return string Detail HTML wrapped in the widget's style scope.
  */
-function agend_elementor_render_events_detail( array $item, string $slug, WP_Post $host ): string {
+function agend_elementor_render_events_detail( array $item, string $slug, WP_Post $host, array $tickets = array() ): string {
 	$name     = isset( $item['name'] ) ? (string) $item['name'] : '';
 	$host_url = get_permalink( $host->ID );
 	$style    = agend_elementor_ssr_colour_style( 'agend-ev' );
@@ -1182,6 +1288,39 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 							<p class="agend-ev-detail__note"><?php esc_html_e( 'Not a member? Join for discounted pricing.', 'agend-elementor' ); ?></p>
 						<?php endif; ?>
 					</div>
+
+					<?php
+					// Tickets panel (SPEC-CORE-20260722 US-2.3): all ticket types with
+					// the viewer's applicable price highlighted. Ticket prices are the
+					// public list; $is_member (from the event's bearer-enriched
+					// viewer_price_group) selects which row is active.
+					if ( ! empty( $tickets ) ) :
+						?>
+						<div class="agend-ev-detail__panel agend-ev-detail__panel--tickets">
+							<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Tickets', 'agend-elementor' ); ?></h2>
+							<div class="agend-ev-detail__tickets">
+								<?php
+								foreach ( $tickets as $entry ) :
+									if ( ! is_array( $entry ) ) {
+										continue;
+									}
+									$ticket      = ( isset( $entry['ticket'] ) && is_array( $entry['ticket'] ) ) ? $entry['ticket'] : $entry;
+									$ticket_name = isset( $ticket['name'] ) ? (string) $ticket['name'] : __( 'Ticket', 'agend-elementor' );
+									$rows        = agend_elementor_ssr_ev_ticket_price_rows( $entry, $is_member );
+									if ( '' === $rows ) {
+										continue;
+									}
+									?>
+									<div class="agend-ev-detail__ticket">
+										<span class="agend-ev-detail__ticket-name"><?php echo esc_html( $ticket_name ); ?></span>
+										<div class="agend-ev-detail__ticket-prices"><?php echo $rows; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Rows escaped in agend_elementor_ssr_ev_price_row(). ?></div>
+									</div>
+								<?php endforeach; ?>
+							</div>
+						</div>
+						<?php
+					endif;
+					?>
 
 					<div class="agend-ev-detail__panel">
 						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Details', 'agend-elementor' ); ?></h2>
