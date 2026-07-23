@@ -221,6 +221,16 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 				'forgotDone'   => __( 'If an account exists for that email, a password reset link has been sent. Check your inbox.', 'agend-elementor' ),
 				'forgotError'  => __( 'Could not send the reset link. Please try again.', 'agend-elementor' ),
 				'backToSignIn' => __( 'Back to sign in', 'agend-elementor' ),
+				// Password-reset completion (SPEC-CORE-20260722 US-2.7).
+				'resetTitle'       => __( 'Choose a new password', 'agend-elementor' ),
+				'resetIntro'       => __( 'Enter your account email and a new password to finish resetting it.', 'agend-elementor' ),
+				'newPassword'      => __( 'New password', 'agend-elementor' ),
+				'confirmPassword'  => __( 'Confirm new password', 'agend-elementor' ),
+				'resetSubmit'      => __( 'Update password', 'agend-elementor' ),
+				'resetWorking'     => __( 'Updating…', 'agend-elementor' ),
+				'resetDone'        => __( 'Your password has been updated. You can now sign in.', 'agend-elementor' ),
+				'resetError'       => __( 'That reset link is invalid or has expired. Request a new one.', 'agend-elementor' ),
+				'passwordMismatch' => __( 'The two passwords do not match.', 'agend-elementor' ),
 			),
 		);
 	}

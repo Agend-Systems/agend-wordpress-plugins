@@ -275,6 +275,34 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 				),
 			)
 		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/reset-password',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'reset_password' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'email'        => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_email',
+						),
+						'token'        => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'new_password' => array(
+							'required' => true,
+							'type'     => 'string',
+						),
+					),
+				),
+			)
+		);
 	}
 
 	/**
@@ -561,7 +589,20 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 			);
 		}
 
-		$response = agend_apps_auth_forgot_password( array( 'email' => $email ) );
+		$payload = array( 'email' => $email );
+
+		// Opt-in in-WordPress completion: when a reset page URL is configured,
+		// ask the gateway to land the reset link on that page (the member-login
+		// widget there reads the token and posts the new password). Left blank,
+		// the gateway defaults the reset link to the member portal
+		// (SPEC-CORE-20260722 US-2.7). The URL must also be on the API key's
+		// redirect_url_allowlist or the gateway rejects it.
+		$reset_url = Agend_Apps_Settings::get_member_reset_url();
+		if ( '' !== $reset_url ) {
+			$payload['redirect_to'] = $reset_url;
+		}
+
+		$response = agend_apps_auth_forgot_password( $payload );
 
 		// A gateway error is not surfaced verbatim: revealing "no such account"
 		// would defeat the anti-enumeration posture. Log-and-generic-confirm.
@@ -570,5 +611,67 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		return $confirmation;
+	}
+
+	/**
+	 * Completes a password reset with the recovery token and a new password.
+	 *
+	 * Used by the in-WordPress completion flow (SPEC-CORE-20260722 US-2.7): the
+	 * reset email links back to a page hosting the Agend Member Login widget,
+	 * which reads the recovery token from the URL and posts it here with the
+	 * member's email and chosen password. Unauthenticated (the member is signed
+	 * out) and nonce-gated. Unlike forgot-password this is NOT anti-enumeration:
+	 * a bad/expired token or a weak password returns a real error so the widget
+	 * can show it. Throttled per IP.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function reset_password( WP_REST_Request $request ): WP_REST_Response {
+		$email        = strtolower( (string) $request->get_param( 'email' ) );
+		$token        = (string) $request->get_param( 'token' );
+		$new_password = (string) $request->get_param( 'new_password' );
+
+		if ( '' === $email || '' === $token || '' === $new_password ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'missing_fields',
+					'message' => __( 'Email, reset token, and a new password are all required.', 'agend-apps-core' ),
+				),
+				400
+			);
+		}
+
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+
+		if ( ! agend_apps_auth_forgot_password_throttle( $email, $ip ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'too_many_requests',
+					'message' => __( 'Too many attempts. Please wait a few minutes and try again.', 'agend-apps-core' ),
+				),
+				429
+			);
+		}
+
+		$response = agend_apps_auth_reset_password(
+			array(
+				'email'        => $email,
+				'token'        => $token,
+				'new_password' => $new_password,
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $this->error_to_response( $response );
+		}
+
+		return new WP_REST_Response(
+			array(
+				'ok'      => true,
+				'message' => __( 'Your password has been updated. You can now sign in.', 'agend-apps-core' ),
+			),
+			200
+		);
 	}
 }

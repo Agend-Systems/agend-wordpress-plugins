@@ -175,6 +175,30 @@ class Agend_Apps_Settings {
 	}
 
 	/**
+	 * Returns the WordPress page URL that completes a password reset in place.
+	 *
+	 * Empty by default: the gateway then mints a reset link to the member
+	 * PORTAL recovery page (SPEC-CORE-20260722 US-2.7). Set this to the URL of a
+	 * page that hosts the Agend Member Login widget to keep the reset ON this
+	 * WordPress site — the reset email links back to that page, the widget reads
+	 * the recovery token and posts the new password to the gateway. The URL MUST
+	 * also be added to the API key's `redirect_url_allowlist` (the gateway
+	 * rejects an unlisted redirect target).
+	 *
+	 * @return string The reset page URL, or an empty string for the portal default.
+	 */
+	public static function get_member_reset_url(): string {
+		$url = (string) get_option( 'agend_apps_member_reset_url', '' );
+
+		/**
+		 * Filters the in-WordPress password-reset completion page URL.
+		 *
+		 * @param string $url The configured reset page URL ('' = portal default).
+		 */
+		return (string) apply_filters( 'agend_apps_member_reset_url', trim( $url ) );
+	}
+
+	/**
 	 * Returns the cache TTL in seconds for the given endpoint key.
 	 *
 	 * Falls back to the endpoint's default TTL if no option value is stored.
