@@ -277,5 +277,20 @@ function agend_elementor_enqueue_scripts(): void {
 		AGEND_ELEMENTOR_VERSION,
 		true
 	);
+
+	wp_enqueue_style(
+		'agend-elementor-header-auth',
+		AGEND_ELEMENTOR_URL . 'assets/css/header-auth.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-elementor-header-auth',
+		AGEND_ELEMENTOR_URL . 'assets/js/header-auth.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
 }
 add_action( 'wp_enqueue_scripts', 'agend_elementor_enqueue_scripts', 20 );
