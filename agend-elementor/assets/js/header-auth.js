@@ -97,13 +97,43 @@
     root.appendChild(link);
   }
 
-  function initAll() {
-    var nodes = document.querySelectorAll('.agend-header-auth[data-agend-header-auth-config]');
-    Array.prototype.forEach.call(nodes, render);
+  function initAll(context) {
+    var scope = context && context.querySelectorAll ? context : document;
+    var nodes = scope.querySelectorAll('.agend-header-auth[data-agend-header-auth-config]');
+    Array.prototype.forEach.call(nodes, function (node) {
+      render(node);
+    });
+  }
+
+  // Elementor renders (and re-renders) widgets dynamically in the editor and
+  // fires a per-widget "element ready" action in both the editor preview and
+  // the published frontend. Hooking it makes the button render live in the
+  // editor as its controls change, without publishing. render() is idempotent
+  // (it rebuilds the link each call), so the DOMContentLoaded fallback below is
+  // harmless when this also runs.
+  function bindElementor() {
+    if (!window.elementorFrontend || !elementorFrontend.hooks) {
+      return;
+    }
+    elementorFrontend.hooks.addAction(
+      'frontend/element_ready/agend-header-auth.default',
+      function ($scope) {
+        var el = $scope && $scope[0] ? $scope[0] : $scope;
+        if (el && el.querySelector) {
+          initAll(el);
+        }
+      },
+    );
+  }
+
+  if (window.jQuery) {
+    window.jQuery(window).on('elementor/frontend/init', bindElementor);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initAll);
+    document.addEventListener('DOMContentLoaded', function () {
+      initAll();
+    });
   } else {
     initAll();
   }
