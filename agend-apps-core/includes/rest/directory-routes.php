@@ -230,13 +230,17 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 							'maximum'           => 5,
 							'sanitize_callback' => 'absint',
 						),
+						// Optional at the proxy layer: a signed-in member's
+						// reviewer identity is derived server-side from the
+						// bearer (SPEC-CORE-20260722 US-2.2/US-2.6). The
+						// gateway still rejects guest submissions without them.
 						'reviewer_name'  => array(
-							'required'          => true,
+							'required'          => false,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
 						'reviewer_email' => array(
-							'required'          => true,
+							'required'          => false,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_email',
 						),
@@ -246,6 +250,26 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 							'sanitize_callback' => 'sanitize_textarea_field',
 						),
 					),
+				),
+			)
+		);
+
+		// Member self-service: the signed-in member's own listing
+		// (SPEC-CORE-20260722 US-2.6). Identity is derived server-side from
+		// the member bearer; no listing id is accepted from the browser.
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/me/listing',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_my_listing' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+				array(
+					'methods'             => 'PATCH',
+					'callback'            => array( $this, 'update_my_listing' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
 				),
 			)
 		);
@@ -311,6 +335,37 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function get_categories( WP_REST_Request $request ): WP_REST_Response {
 		$result = agend_apps_directory_get_categories();
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Returns the signed-in member's own listing (or null).
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_my_listing( WP_REST_Request $request ): WP_REST_Response {
+		if ( 0 === get_current_user_id() ) {
+			return new WP_REST_Response( array( 'data' => null ), 200 );
+		}
+
+		$result = agend_apps_directory_get_my_listing();
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Updates the signed-in member's own listing.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function update_my_listing( WP_REST_Request $request ): WP_REST_Response {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+
+		$result = agend_apps_directory_update_my_listing( $body );
 		return $this->prepare_api_response( $result );
 	}
 
