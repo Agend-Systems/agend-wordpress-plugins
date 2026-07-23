@@ -80,6 +80,59 @@ function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
 }
 
 /**
+ * Throttles repeated password-reset requests per client IP and per email.
+ *
+ * The gateway's own `auth-forgot-password` bucket is per API key, so every
+ * member shares it through this single proxy origin. This adds a per-IP and
+ * per-email cap at the proxy edge (SPEC-CORE-20260722 OQ5), on its own
+ * transient namespace so it never consumes the login budget. Reset emails are
+ * user-visible spam, so the caps are tighter than login.
+ *
+ * @param string $email The submitted email (lower-cased).
+ * @param string $ip    The client IP.
+ * @return bool True when the request is allowed, false when it is throttled.
+ */
+function agend_apps_auth_forgot_password_throttle( string $email, string $ip ): bool {
+	$window = 15 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Filters the password-reset-request limits at the WordPress proxy edge.
+	 *
+	 * @param array $limits {
+	 *     @type int $per_ip    Max requests per IP per window. Default 10.
+	 *     @type int $per_email Max requests per email per window. Default 3.
+	 * }
+	 */
+	$limits = (array) apply_filters(
+		'agend_apps_auth_forgot_password_limits',
+		array(
+			'per_ip'    => 10,
+			'per_email' => 3,
+		)
+	);
+
+	$checks = array(
+		'agend_apps_pwreset_ip_' . md5( $ip )       => (int) $limits['per_ip'],
+		'agend_apps_pwreset_email_' . md5( $email ) => (int) $limits['per_email'],
+	);
+
+	$allowed = true;
+
+	foreach ( $checks as $key => $max ) {
+		$count = (int) get_transient( $key );
+
+		if ( $count >= $max ) {
+			$allowed = false;
+			continue;
+		}
+
+		set_transient( $key, $count + 1, $window );
+	}
+
+	return $allowed;
+}
+
+/**
  * Returns the guest cart session token when the current guest cart holds items.
  *
  * Reads the `agend_cart_session` cookie the shop sets for anonymous carts and
@@ -200,6 +253,25 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => array( $this, 'portal_handoff' ),
 					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/forgot-password',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'forgot_password' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'email' => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_email',
+						),
+					),
 				),
 			)
 		);
@@ -437,5 +509,66 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 			),
 			200
 		);
+	}
+
+	/**
+	 * Requests a password-reset email for a member.
+	 *
+	 * Unauthenticated by design: a member who has forgotten their password
+	 * cannot be signed in. The reset link in the email is minted by the gateway
+	 * and lands on the Agend portal recovery page, where the member sets a new
+	 * password and then returns here to sign in (SPEC-CORE-20260722 US-2.7).
+	 *
+	 * The response is deliberately identical whether or not the email matches an
+	 * account, so this endpoint never discloses account existence. Throttled at
+	 * the proxy edge per IP and per email.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function forgot_password( WP_REST_Request $request ): WP_REST_Response {
+		$email = strtolower( (string) $request->get_param( 'email' ) );
+
+		// Generic confirmation, reused for every non-error outcome so the caller
+		// cannot tell whether the email matched an account.
+		$confirmation = new WP_REST_Response(
+			array(
+				'ok'      => true,
+				'message' => __( 'If an account exists for that email, a password reset link has been sent.', 'agend-apps-core' ),
+			),
+			200
+		);
+
+		if ( '' === $email || ! is_email( $email ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'invalid_email',
+					'message' => __( 'Enter a valid email address.', 'agend-apps-core' ),
+				),
+				400
+			);
+		}
+
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+
+		if ( ! agend_apps_auth_forgot_password_throttle( $email, $ip ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'too_many_requests',
+					'message' => __( 'Too many reset requests. Please wait a few minutes and try again.', 'agend-apps-core' ),
+				),
+				429
+			);
+		}
+
+		$response = agend_apps_auth_forgot_password( array( 'email' => $email ) );
+
+		// A gateway error is not surfaced verbatim: revealing "no such account"
+		// would defeat the anti-enumeration posture. Log-and-generic-confirm.
+		if ( is_wp_error( $response ) ) {
+			return $confirmation;
+		}
+
+		return $confirmation;
 	}
 }

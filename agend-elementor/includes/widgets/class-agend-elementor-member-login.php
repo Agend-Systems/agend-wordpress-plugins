@@ -212,6 +212,15 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 				'signOut'      => (string) ( $s['sign_out_label'] ?? __( 'Sign out', 'agend-elementor' ) ),
 				'error'        => __( 'Sign-in failed. Check your details and try again.', 'agend-elementor' ),
 				'working'      => __( 'Signing in…', 'agend-elementor' ),
+				// Password recovery (SPEC-CORE-20260722 US-2.7).
+				'forgot'       => __( 'Forgot your password?', 'agend-elementor' ),
+				'forgotTitle'  => __( 'Reset your password', 'agend-elementor' ),
+				'forgotIntro'  => __( 'Enter your account email and we will send you a link to reset your password.', 'agend-elementor' ),
+				'forgotSubmit' => __( 'Send reset link', 'agend-elementor' ),
+				'forgotWorking' => __( 'Sending…', 'agend-elementor' ),
+				'forgotDone'   => __( 'If an account exists for that email, a password reset link has been sent. Check your inbox.', 'agend-elementor' ),
+				'forgotError'  => __( 'Could not send the reset link. Please try again.', 'agend-elementor' ),
+				'backToSignIn' => __( 'Back to sign in', 'agend-elementor' ),
 			),
 		);
 	}
