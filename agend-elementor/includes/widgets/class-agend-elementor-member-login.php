@@ -117,6 +117,26 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'forgot_label',
+			array(
+				'label'       => __( 'Forgot-password link text', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::TEXT,
+				'default'     => __( 'Forgot your password?', 'agend-elementor' ),
+				'description' => __( 'Leave empty to hide the password-recovery link.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
+			'back_to_sign_in_label',
+			array(
+				'label'       => __( 'Return link text', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::TEXT,
+				'default'     => __( 'Back to sign in', 'agend-elementor' ),
+				'description' => __( 'Shown in the password-recovery and reset views to return to the sign-in form.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
 			'signed_in_message',
 			array(
 				'label'   => __( 'Signed-in message', 'agend-elementor' ),
@@ -200,6 +220,14 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * @return array Config passed to the frontend script as JSON.
 	 */
 	private function build_config( array $s ): array {
+		// An emptied return label falls back to the default so the recovery
+		// views never render an unlabelled control; an emptied forgot label
+		// intentionally hides the link (see the control description).
+		$back_label = trim( (string) ( $s['back_to_sign_in_label'] ?? '' ) );
+		if ( '' === $back_label ) {
+			$back_label = __( 'Back to sign in', 'agend-elementor' );
+		}
+
 		return array(
 			'messages' => array(
 				'heading'      => (string) ( $s['heading_text'] ?? '' ),
@@ -213,14 +241,14 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 				'error'        => __( 'Sign-in failed. Check your details and try again.', 'agend-elementor' ),
 				'working'      => __( 'Signing in…', 'agend-elementor' ),
 				// Password recovery (SPEC-CORE-20260722 US-2.7).
-				'forgot'       => __( 'Forgot your password?', 'agend-elementor' ),
+				'forgot'       => (string) ( $s['forgot_label'] ?? __( 'Forgot your password?', 'agend-elementor' ) ),
 				'forgotTitle'  => __( 'Reset your password', 'agend-elementor' ),
 				'forgotIntro'  => __( 'Enter your account email and we will send you a link to reset your password.', 'agend-elementor' ),
 				'forgotSubmit' => __( 'Send reset link', 'agend-elementor' ),
 				'forgotWorking' => __( 'Sending…', 'agend-elementor' ),
 				'forgotDone'   => __( 'If an account exists for that email, a password reset link has been sent. Check your inbox.', 'agend-elementor' ),
 				'forgotError'  => __( 'Could not send the reset link. Please try again.', 'agend-elementor' ),
-				'backToSignIn' => __( 'Back to sign in', 'agend-elementor' ),
+				'backToSignIn' => $back_label,
 				// Password-reset completion (SPEC-CORE-20260722 US-2.7).
 				'resetTitle'       => __( 'Choose a new password', 'agend-elementor' ),
 				'resetIntro'       => __( 'Enter your account email and a new password to finish resetting it.', 'agend-elementor' ),
