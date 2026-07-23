@@ -82,15 +82,37 @@
   cursor: default;
 }
 
-.agend-ml-card__link {
+/* Scoped to element + classes so Elementor kits' global `button` styles
+   (e.g. `.elementor-kit-N button`) cannot repaint these text links as
+   solid buttons. */
+.agend-member-login button.agend-ml-card__link,
+.agend-member-login a.agend-ml-card__link {
   align-self: flex-start;
   padding: 0;
   border: none;
+  border-radius: 0;
   background: none;
   color: var(--agend-ml-body);
   font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.4;
   text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.agend-member-login button.agend-ml-card__link:hover,
+.agend-member-login a.agend-ml-card__link:hover {
+  color: var(--agend-ml-heading);
+  background: none;
+}
+
+.agend-member-login button.agend-ml-card__link:focus-visible,
+.agend-member-login a.agend-ml-card__link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* Password recovery (SPEC-CORE-20260722 US-2.7). */
