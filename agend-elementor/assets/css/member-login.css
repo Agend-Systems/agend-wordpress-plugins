@@ -92,3 +92,20 @@
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* Password recovery (SPEC-CORE-20260722 US-2.7). */
+.agend-ml-form__forgot {
+  margin-top: 0.25rem;
+  align-self: flex-start;
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+.agend-ml-form__notice {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: rgba(46, 160, 67, 0.08);
+  color: #1a7f37;
+  font-size: 0.9375rem;
+}
