@@ -127,9 +127,89 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 		$this->start_controls_section(
 			'section_style',
 			array(
-				'label' => __( 'Style', 'agend-elementor' ),
+				'label' => __( 'Button', 'agend-elementor' ),
 				'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
 			)
+		);
+
+		$this->add_responsive_control(
+			'align',
+			array(
+				'label'     => __( 'Alignment', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::CHOOSE,
+				'options'   => array(
+					'left'   => array(
+						'title' => __( 'Left', 'agend-elementor' ),
+						'icon'  => 'eicon-text-align-left',
+					),
+					'center' => array(
+						'title' => __( 'Center', 'agend-elementor' ),
+						'icon'  => 'eicon-text-align-center',
+					),
+					'right'  => array(
+						'title' => __( 'Right', 'agend-elementor' ),
+						'icon'  => 'eicon-text-align-right',
+					),
+				),
+				'selectors' => array(
+					'{{WRAPPER}}' => 'text-align: {{VALUE}};',
+				),
+			)
+		);
+
+		$this->add_group_control(
+			\Elementor\Group_Control_Typography::get_type(),
+			array(
+				'name'     => 'typography',
+				'selector' => '{{WRAPPER}} .agend-header-auth__link',
+			)
+		);
+
+		$this->add_responsive_control(
+			'padding',
+			array(
+				'label'      => __( 'Padding', 'agend-elementor' ),
+				'type'       => \Elementor\Controls_Manager::DIMENSIONS,
+				'size_units' => array( 'px', 'em', 'rem', '%' ),
+				'selectors'  => array(
+					'{{WRAPPER}} .agend-header-auth__link' => 'padding: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};',
+				),
+			)
+		);
+
+		$this->add_group_control(
+			\Elementor\Group_Control_Border::get_type(),
+			array(
+				'name'     => 'border',
+				'selector' => '{{WRAPPER}} .agend-header-auth__link',
+			)
+		);
+
+		$this->add_responsive_control(
+			'border_radius',
+			array(
+				'label'      => __( 'Border radius', 'agend-elementor' ),
+				'type'       => \Elementor\Controls_Manager::DIMENSIONS,
+				'size_units' => array( 'px', 'em', 'rem', '%' ),
+				'selectors'  => array(
+					'{{WRAPPER}} .agend-header-auth__link' => 'border-radius: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};',
+				),
+			)
+		);
+
+		$this->add_group_control(
+			\Elementor\Group_Control_Box_Shadow::get_type(),
+			array(
+				'name'     => 'box_shadow',
+				'selector' => '{{WRAPPER}} .agend-header-auth__link',
+			)
+		);
+
+		$this->start_controls_tabs( 'colour_tabs' );
+
+		$this->start_controls_tab(
+			'tab_normal',
+			array( 'label' => __( 'Normal', 'agend-elementor' ) )
 		);
 
 		$this->add_control(
@@ -137,7 +217,6 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 			array(
 				'label'     => __( 'Text colour', 'agend-elementor' ),
 				'type'      => \Elementor\Controls_Manager::COLOR,
-				'default'   => '',
 				'selectors' => array(
 					'{{WRAPPER}} .agend-header-auth__link' => 'color: {{VALUE}};',
 				),
@@ -147,15 +226,57 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 		$this->add_control(
 			'bg_colour',
 			array(
-				'label'       => __( 'Button background', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::COLOR,
-				'default'     => '',
-				'description' => __( 'Set a background to render the link as a button. Leave blank for a plain text link.', 'agend-elementor' ),
-				'selectors'   => array(
-					'{{WRAPPER}} .agend-header-auth__link' => 'background-color: {{VALUE}}; padding: 0.5rem 1rem; border-radius: 6px;',
+				'label'     => __( 'Background', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array(
+					'{{WRAPPER}} .agend-header-auth__link' => 'background-color: {{VALUE}};',
 				),
 			)
 		);
+
+		$this->end_controls_tab();
+
+		$this->start_controls_tab(
+			'tab_hover',
+			array( 'label' => __( 'Hover', 'agend-elementor' ) )
+		);
+
+		$this->add_control(
+			'text_colour_hover',
+			array(
+				'label'     => __( 'Text colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array(
+					'{{WRAPPER}} .agend-header-auth__link:hover, {{WRAPPER}} .agend-header-auth__link:focus' => 'color: {{VALUE}};',
+				),
+			)
+		);
+
+		$this->add_control(
+			'bg_colour_hover',
+			array(
+				'label'     => __( 'Background', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array(
+					'{{WRAPPER}} .agend-header-auth__link:hover, {{WRAPPER}} .agend-header-auth__link:focus' => 'background-color: {{VALUE}};',
+				),
+			)
+		);
+
+		$this->add_control(
+			'border_colour_hover',
+			array(
+				'label'     => __( 'Border colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array(
+					'{{WRAPPER}} .agend-header-auth__link:hover, {{WRAPPER}} .agend-header-auth__link:focus' => 'border-color: {{VALUE}};',
+				),
+			)
+		);
+
+		$this->end_controls_tab();
+
+		$this->end_controls_tabs();
 
 		$this->end_controls_section();
 	}
