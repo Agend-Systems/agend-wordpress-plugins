@@ -101,3 +101,10 @@
   outline: 2px solid var(--agend-al-accent);
   outline-offset: 2px;
 }
+
+/* Credential-login connected identity (SPEC-CORE-20260722 US-2.6). */
+.agend-al-card__identity {
+  margin-top: 0.25rem;
+  color: #26304d;
+  font-size: 0.9375rem;
+}

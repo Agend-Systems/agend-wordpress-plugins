@@ -633,3 +633,8 @@
   margin-bottom: 0.35rem;
 }
 
+
+/* Member enrol CTA error text (SPEC-CORE-20260722 US-2.4). */
+.agend-lms-detail__note.is-error {
+  color: #c02b2b;
+}

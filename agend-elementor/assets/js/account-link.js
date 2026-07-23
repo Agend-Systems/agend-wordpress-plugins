@@ -123,7 +123,10 @@
     root.appendChild(wrap);
   }
 
-  function renderLinked(root, cfg, portalUrl) {
+  // `identity` (optional) is the credential-login member's name/email
+  // (SPEC-CORE-20260722 US-2.6) — shown only for the credential-login
+  // connected state; the SSO-linked state never passes it.
+  function renderLinked(root, cfg, portalUrl, identity) {
     var wrap = card(cfg);
     wrap.classList.add('is-linked');
     var row = el('div', 'agend-al-card__status');
@@ -132,6 +135,9 @@
     wrap.appendChild(row);
     if (cfg.messages.linked) {
       wrap.appendChild(el('p', 'agend-al-card__text', cfg.messages.linked));
+    }
+    if (identity) {
+      wrap.appendChild(el('p', 'agend-al-card__identity', identity));
     }
     if (portalUrl && cfg.messages.portalLink) {
       var portal = el('a', 'agend-al-card__button', cfg.messages.portalLink);
@@ -168,6 +174,26 @@
     }
 
     applySiteTheme(root, cfg);
+
+    // A WordPress credential-login session (US-1.7/US-2.1 member login) is an
+    // equivalent connection to the Agend account (SPEC-CORE-20260722 US-2.6):
+    // the member already carries a bearer via /auth/login, so there is
+    // nothing to link via SSO. Render as connected immediately rather than
+    // prompting to link, regardless of the separate SSO-link status; the
+    // status call still runs so a configured portal_url can surface.
+    if (window.agendApps && window.agendApps.loggedIn) {
+      var member = window.agendApps.member;
+      var identity = (member && (member.name || member.email)) || '';
+      apiGet('/account-link/status').then(function (body) {
+        var status = unwrapOne(body) || {};
+        root.innerHTML = '';
+        renderLinked(root, cfg, status.portal_url || '', identity);
+      }).catch(function () {
+        root.innerHTML = '';
+        renderLinked(root, cfg, '', identity);
+      });
+      return;
+    }
 
     apiGet('/account-link/status').then(function (body) {
       var status = unwrapOne(body) || {};
