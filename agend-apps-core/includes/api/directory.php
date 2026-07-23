@@ -31,6 +31,20 @@ function agend_apps_directory_get_listings( array $query = array() ) {
 		$query
 	);
 
+	// A member bearer makes list responses IDENTITY-SPECIFIC
+	// (SPEC-CORE-20260722 US-2.2: the viewer's own listing is flagged
+	// is_mine). Never let an identity-specific response into the shared
+	// transient cache — bypass when a bearer is attached.
+	if ( '' !== agend_apps_get_bearer_token() ) {
+		$response = agend_apps_api()->request( 'GET', '/directory/listings', $args );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		return apply_filters( 'agend_apps_directory_get_listings_response', $response, $query );
+	}
+
 	$cache_key = Agend_Apps_Cache::build_key( 'directory_listings', $query );
 	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_listings' );
 
@@ -73,6 +87,24 @@ function agend_apps_directory_get_listing( string $listing_id, array $query = ar
 		$listing_id,
 		$query
 	);
+
+	// A member bearer makes the response IDENTITY-SPECIFIC
+	// (SPEC-CORE-20260722 US-2.2: the viewer's own listing is flagged
+	// is_mine). Never let an identity-specific response into the shared
+	// transient cache — bypass when a bearer is attached.
+	if ( '' !== agend_apps_get_bearer_token() ) {
+		$response = agend_apps_api()->request(
+			'GET',
+			'/directory/listings/' . rawurlencode( $listing_id ),
+			$args
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		return apply_filters( 'agend_apps_directory_get_listing_response', $response, $listing_id, $query );
+	}
 
 	$cache_key = Agend_Apps_Cache::build_key(
 		'directory_listing_single',
@@ -476,4 +508,75 @@ function agend_apps_directory_submit_review( array $review ) {
 	 * @param array $review   Review payload.
 	 */
 	return apply_filters( 'agend_apps_directory_submit_review_response', $response, $review );
+}
+
+/**
+ * Returns the signed-in member's own directory listing, or null when the
+ * member has none.
+ *
+ * Scope: `directory.listings.browse`. Requires a member bearer token (attached
+ * automatically). Never cached: the response is identity-specific.
+ *
+ * @return array|WP_Error Decoded listing (data may be null) on success, or WP_Error on failure.
+ */
+function agend_apps_directory_get_my_listing() {
+	/**
+	 * Filters the my-listing request args before the request is sent.
+	 *
+	 * @param array $args Request args.
+	 */
+	$args = (array) apply_filters( 'agend_apps_directory_get_my_listing_args', array() );
+
+	$response = agend_apps_api()->request( 'GET', '/directory/me/listing', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded my-listing response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 */
+	return apply_filters( 'agend_apps_directory_get_my_listing_response', $response );
+}
+
+/**
+ * Updates the signed-in member's own directory listing.
+ *
+ * Scope: `directory.listings.self_update`. Requires a member bearer token.
+ * The listing is resolved server-side from the bearer, so no listing id is
+ * accepted. The directory cache is flushed after a successful update.
+ *
+ * @param array $listing Partial listing payload (snake_case).
+ * @return array|WP_Error Decoded listing on success, or WP_Error on failure.
+ */
+function agend_apps_directory_update_my_listing( array $listing ) {
+	/**
+	 * Filters the update-my-listing request args before the request is sent.
+	 *
+	 * @param array $args    Request args.
+	 * @param array $listing Partial listing payload.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_directory_update_my_listing_args',
+		array( 'body' => $listing ),
+		$listing
+	);
+
+	$response = agend_apps_api()->request( 'PATCH', '/directory/me/listing', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	agend_apps_directory_flush_cache();
+
+	/**
+	 * Filters the decoded update-my-listing response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $listing  Partial listing payload.
+	 */
+	return apply_filters( 'agend_apps_directory_update_my_listing_response', $response, $listing );
 }

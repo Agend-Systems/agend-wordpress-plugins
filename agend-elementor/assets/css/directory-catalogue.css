@@ -1004,3 +1004,15 @@
   object-fit: contain;
   border-radius: 8px;
 }
+
+/* Member-aware "your listing" indicator (SPEC-CORE-20260722 US-2.6). */
+.agend-dir-detail__mine {
+  display: inline-block;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: rgba(46, 160, 67, 0.12);
+  color: #1a7f37;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}

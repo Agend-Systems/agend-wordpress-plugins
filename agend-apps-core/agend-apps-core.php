@@ -168,12 +168,33 @@ add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
  * JS/Gutenberg blocks in sibling plugins can authenticate REST requests.
  */
 function agend_apps_output_config_js() {
-	$data = wp_json_encode(
-		array(
-			'restUrl' => rest_url( 'agend-apps/v1/' ),
-			'nonce'   => wp_create_nonce( 'wp_rest' ),
-		)
+	$config = array(
+		'restUrl'  => rest_url( 'agend-apps/v1/' ),
+		'nonce'    => wp_create_nonce( 'wp_rest' ),
+		'loggedIn' => false,
 	);
+
+	// Expose the Agend member-session state so every widget can render its
+	// signed-in view synchronously without a session probe request
+	// (SPEC-CORE-20260722 US-2.3/US-2.4/US-2.5/US-2.6). "Logged in" here means
+	// a member session with a bearer is available for the current WP user, not
+	// merely that some WP user is authenticated.
+	$user_id = get_current_user_id();
+	if (
+		$user_id > 0 &&
+		class_exists( 'Agend_Apps_Member_Session' ) &&
+		Agend_Apps_Member_Session::has_session( $user_id )
+	) {
+		$user                = wp_get_current_user();
+		$config['loggedIn']  = true;
+		$config['member']    = array(
+			'name'      => $user->display_name,
+			'email'     => $user->user_email,
+			'contactId' => (string) get_user_meta( $user_id, '_agend_apps_contact_id', true ),
+		);
+	}
+
+	$data = wp_json_encode( $config );
 	// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	printf( '<script id="agend-apps-config">/* <![CDATA[ */window.agendApps = %s;/* ]]> */</script>' . "\n", $data );
 }
