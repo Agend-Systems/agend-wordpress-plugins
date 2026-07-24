@@ -35,21 +35,23 @@
   }
 
   // Hand off to the member portal already signed in: mint a single-use portal
-  // sign-in URL server-side, then navigate to it. Falls back to the plain
+  // sign-in URL server-side, then navigate to it. The same proxy endpoint the
+  // member-login widget uses; the gateway derives the destination (the
+  // account portal home) from the connected account. Falls back to the plain
   // portal URL (the link's own href) if the hand-off cannot be minted.
   function goToPortal(link, fallbackUrl) {
     var url = restBase().replace(/\/$/, '') + '/auth/portal-handoff';
-    var headers = { 'Content-Type': 'application/json' };
-    if (nonce()) {
-      headers['X-WP-Nonce'] = nonce();
-    }
+    var headers = { 'X-WP-Nonce': nonce(), 'Content-Type': 'application/json' };
     fetch(url, { method: 'POST', headers: headers, body: '{}' })
       .then(function (res) {
-        return res.json();
+        return res.json().then(function (body) {
+          return { ok: res.ok, body: body };
+        });
       })
-      .then(function (body) {
-        var data = body && body.data && !Array.isArray(body.data) ? body.data : body;
-        var target = (data && data.url) || fallbackUrl;
+      .then(function (r) {
+        var data =
+          r.body && r.body.data && !Array.isArray(r.body.data) ? r.body.data : r.body;
+        var target = (r.ok && data && data.url) || fallbackUrl;
         if (target) {
           window.location.assign(target);
         } else {

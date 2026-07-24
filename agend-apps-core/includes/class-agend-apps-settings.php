@@ -175,6 +175,37 @@ class Agend_Apps_Settings {
 	}
 
 	/**
+	 * Returns the URL of the connected account's member portal home.
+	 *
+	 * Builds `{portal}/home/{slug}` from the portal root and the connected
+	 * account slug setting, so plain portal links land members on the correct
+	 * account portal rather than the generic organisation resolver. Falls back
+	 * to the portal root when no account slug is configured. The authenticated
+	 * hand-off (`/v1/auth/session-handoff`) derives the same destination
+	 * server-side from the API key's account; this helper covers the
+	 * unauthenticated fallback links.
+	 *
+	 * Applies the `agend_apps_portal_home_url` filter before returning.
+	 *
+	 * @return string Portal home URL without a trailing slash.
+	 */
+	public static function get_portal_home_url(): string {
+		$url  = self::get_portal_url();
+		$slug = self::get_account_slug();
+
+		if ( '' !== $url && '' !== $slug ) {
+			$url .= '/home/' . rawurlencode( $slug );
+		}
+
+		/**
+		 * Filters the resolved account portal home URL.
+		 *
+		 * @param string $url The resolved portal home URL.
+		 */
+		return (string) apply_filters( 'agend_apps_portal_home_url', $url );
+	}
+
+	/**
 	 * Returns the WordPress page URL that completes a password reset in place.
 	 *
 	 * Empty by default: the gateway then mints a reset link to the member

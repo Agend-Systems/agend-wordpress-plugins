@@ -293,9 +293,15 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 			$login_url = wp_login_url();
 		}
 
-		$portal_url = class_exists( 'Agend_Apps_Settings' )
-			? Agend_Apps_Settings::get_portal_url()
-			: '';
+		$portal_url = '';
+		if ( class_exists( 'Agend_Apps_Settings' ) ) {
+			// The account portal home ({portal}/home/{slug}, from the connected
+			// account slug setting) when the core plugin provides it; the portal
+			// root on older core plugin versions.
+			$portal_url = method_exists( 'Agend_Apps_Settings', 'get_portal_home_url' )
+				? Agend_Apps_Settings::get_portal_home_url()
+				: Agend_Apps_Settings::get_portal_url();
+		}
 
 		return array(
 			'loggedOutLabel' => (string) ( $s['logged_out_label'] ?? __( 'Log In', 'agend-elementor' ) ),

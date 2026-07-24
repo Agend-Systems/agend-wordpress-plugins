@@ -457,7 +457,7 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		return new WP_REST_Response(
 			array(
 				'signed_in'  => $signed_in,
-				'portal_url' => $signed_in ? Agend_Apps_Settings::get_portal_url() : '',
+				'portal_url' => $signed_in ? Agend_Apps_Settings::get_portal_home_url() : '',
 			),
 			200
 		);
