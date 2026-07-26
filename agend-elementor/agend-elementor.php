@@ -83,6 +83,10 @@ function agend_elementor_bootstrap(): void {
 	// Server-rendered detail pages (opt-in). Requires the Agend Apps Core REST
 	// wrappers, so it loads only once the core dependency check above passes.
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-ssr-detail.php';
+
+	// Usermeta-based display conditions, available on every Elementor element
+	// (not just Agend's own widgets). Only needs Elementor itself.
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-conditions.php';
 }
 add_action( 'plugins_loaded', 'agend_elementor_bootstrap' );
 
