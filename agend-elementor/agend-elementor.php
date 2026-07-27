@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.9.5
+ * Version:           0.9.6
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.9.5' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.9.6' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -57,6 +57,10 @@ require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-routing.php';
 // accessor is available on the front-end `wp` hook and in the admin.
 require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-settings.php';
 
+// Elementor element-cache guard. Loaded unconditionally so a degraded boot
+// (missing dependency) can be recorded even when the bootstrap bails below.
+require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-cache-guard.php';
+
 register_activation_hook( __FILE__, 'agend_elementor_activate_rewrites' );
 register_deactivation_hook( __FILE__, 'agend_elementor_deactivate_rewrites' );
 
@@ -69,14 +73,20 @@ register_deactivation_hook( __FILE__, 'agend_elementor_deactivate_rewrites' );
  */
 function agend_elementor_bootstrap(): void {
 	if ( ! function_exists( 'agend_apps_api' ) ) {
+		Agend_Elementor_Cache_Guard::flag_degraded();
 		add_action( 'admin_notices', 'agend_elementor_missing_core_notice' );
 		return;
 	}
 
 	if ( ! did_action( 'elementor/loaded' ) ) {
+		Agend_Elementor_Cache_Guard::flag_degraded();
 		add_action( 'admin_notices', 'agend_elementor_missing_elementor_notice' );
 		return;
 	}
+
+	// Widgets will register on this request: flush any element cache built
+	// while they were not registered (see the cache guard's class docblock).
+	Agend_Elementor_Cache_Guard::watch();
 
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor.php';
 
