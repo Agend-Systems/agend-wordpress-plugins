@@ -427,6 +427,11 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 			}
 		}
 
+		// Refresh the membership snapshot usermeta (content-restriction
+		// standing) with the fresh bearer. Best effort: a gateway hiccup here
+		// keeps the last known snapshot and never breaks the sign-in.
+		agend_apps_member_sync_membership_meta( $user_id );
+
 		return new WP_REST_Response(
 			array(
 				'ok'               => true,
