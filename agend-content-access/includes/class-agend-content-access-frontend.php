@@ -49,6 +49,10 @@ class Agend_Content_Access_Frontend {
 	 * and caching plugins get a chance to render or store anything.
 	 */
 	public function gate_request(): void {
+		if ( self::is_authoring_context() ) {
+			return;
+		}
+
 		if ( ! is_singular() || is_embed() ) {
 			return;
 		}
@@ -86,6 +90,57 @@ class Agend_Content_Access_Frontend {
 		}
 
 		$this->replace_body_with_teaser();
+	}
+
+	/**
+	 * Whether this request is somebody AUTHORING the page rather than reading it.
+	 *
+	 * Gating never applies here. An editor building a page must see every
+	 * section, including ones they have just restricted, or they cannot lay out
+	 * or edit the very content the policy protects. A page builder that hides
+	 * blocks from their author is not a security feature, it is a broken editor.
+	 *
+	 * This is safe because an authoring context requires an edit capability that
+	 * WordPress has already checked: Elementor refuses to open its editor or
+	 * preview for a user without `edit_post` on the target. So this is not a
+	 * second, weaker gate; it is a short-circuit in front of a check that would
+	 * grant anyway via `can_preview()`. It exists as an explicit early return so
+	 * the intent is legible and so no later filter can accidentally reach a
+	 * builder request.
+	 *
+	 * Note the boundary: this covers the EDITOR and its preview iframe. A public
+	 * pageload of an Elementor page is a normal frontend request and is gated
+	 * like any other, which is what `suppress_builder_data()` exists for.
+	 *
+	 * @return bool
+	 */
+	public static function is_authoring_context(): bool {
+		if ( is_admin() ) {
+			return true;
+		}
+
+		if ( ! agend_content_access_has_elementor() ) {
+			return false;
+		}
+
+		$plugin = \Elementor\Plugin::$instance;
+
+		if ( isset( $plugin->editor ) && $plugin->editor->is_edit_mode() ) {
+			return true;
+		}
+
+		// The preview iframe is a normal frontend pageload flagged with
+		// `?elementor-preview=<id>`, so `is_edit_mode()` is false there even
+		// though it is exactly where the author is looking. Elementor
+		// capability-checks the id itself.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only mode check on an Elementor-set query var.
+		$preview_id = isset( $_GET['elementor-preview'] )
+			? absint( wp_unslash( $_GET['elementor-preview'] ) )
+			: 0;
+
+		return 0 !== $preview_id
+			&& isset( $plugin->preview )
+			&& $plugin->preview->is_preview_mode( $preview_id );
 	}
 
 	/**
@@ -282,6 +337,14 @@ class Agend_Content_Access_Frontend {
 	 * @return WP_REST_Response
 	 */
 	public function filter_rest_response( $response, $post, $request ) {
+		// The block editor loads a post for EDITING through this same REST
+		// route, so stripping the body here would empty the editor. `edit` is
+		// the context WordPress uses for authoring, and reaching it already
+		// required an edit capability.
+		if ( 'edit' === $request->get_param( 'context' ) ) {
+			return $response;
+		}
+
 		$decision = Agend_Content_Access_Decision::for_post( (int) $post->ID );
 
 		if ( Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ) {
