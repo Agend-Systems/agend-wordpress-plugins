@@ -90,8 +90,10 @@ Under construction.
 | US-3.1 scaffold and dependency gate | done |
 | US-3.3 membership plan catalogue | done |
 | US-3.2 native post and page policy panel | done |
-| US-3.4 direct WordPress request gating | pending |
+| US-3.4 direct WordPress request gating | done |
 | US-3.5 source connector | pending |
 
-Policies can now be AUTHORED on posts and pages. Nothing enforces them yet:
-US-3.4 gates direct WordPress requests and US-3.5 exports policies to Agend.
+Policies are authored AND enforced on the WordPress side: a restricted
+permalink and its public REST representation both withhold the body. Still
+missing: US-3.5 exports policies to Agend, so the CMS projection has nothing to
+project yet.
