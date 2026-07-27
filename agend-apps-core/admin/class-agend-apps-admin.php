@@ -457,7 +457,7 @@ class Agend_Apps_Admin {
 		echo '<p class="description">';
 		printf(
 			/* translators: %s: the webhook receiver URL. */
-			esc_html__( 'Signing secret of the Agend webhook subscription pointed at this site. Subscribe crm.membership.* events to: %s', 'agend-apps-core' ),
+			esc_html__( 'Signing secret of the Agend webhook subscription pointed at this site. Subscribe crm.membership.* and crm.seat.* events to: %s', 'agend-apps-core' ),
 			'<code>' . esc_html( rest_url( 'agend-apps/v1/webhooks/incoming' ) ) . '</code>'
 		);
 		echo '</p>';
