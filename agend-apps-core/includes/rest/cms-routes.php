@@ -23,7 +23,9 @@ function agend_apps_register_cms_routes(): void {
  * REST controller for CMS endpoints.
  *
  * Read routes are publicly readable (no authentication required).
- * All routes are catalogue reads and are cached via the gateway.
+ * Responses are cached for anonymous callers only: a member-attached read
+ * bypasses the shared transient store (see `Agend_Apps_API::get_cached()`),
+ * because the gateway projects CMS content per member.
  *
  * Exposes:
  * - `GET  /agend-apps/v1/cms/content`              — paginated content list.
