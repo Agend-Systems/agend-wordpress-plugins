@@ -282,7 +282,12 @@
 
 .agend-lms-detail__layout {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  /*
+   * minmax(0, …) so oversized description content cannot expand the main
+   * column past its 2fr share and squash the sidebar (see the events and
+   * directory detail layouts for the same rule).
+   */
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 1.5rem;
   margin-top: 1.5rem;
 }
@@ -314,6 +319,11 @@
 .agend-lms-detail__body-text ol {
   margin: 0 0 0.85rem;
   padding-left: 1.25rem;
+}
+
+.agend-lms-detail__body-text img {
+  max-width: 100%;
+  height: auto;
 }
 
 .agend-lms-detail__outcomes {

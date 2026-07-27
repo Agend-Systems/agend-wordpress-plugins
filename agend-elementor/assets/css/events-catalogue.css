@@ -424,7 +424,16 @@
 
 .agend-ev-detail__layout {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  /*
+   * minmax(0, …) so oversized description content (e.g. an img whose
+   * width="" attribute exceeds the column, or a broken image rendering at
+   * its attribute size) cannot expand the main column past its 2fr share
+   * and squash the registration/details sidebar. Grid items otherwise
+   * refuse to shrink below their content's min-content size, and the
+   * body-text img max-width rule is ignored for min-content sizing.
+   * Mirrors the directory detail layout.
+   */
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 1.5rem;
   margin-top: 1.5rem;
 }
