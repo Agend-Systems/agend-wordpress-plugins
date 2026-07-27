@@ -201,7 +201,8 @@ class Agend_Content_Access_Frontend {
 
 		return self::render_gate(
 			self::teaser_for( $post ),
-			$this->decision['state']
+			$this->decision['state'],
+			$this->decision['policy']
 		);
 	}
 
@@ -235,13 +236,57 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
+	 * Names the plans a selected-plans policy admits.
+	 *
+	 * Returns an empty array when the catalogue is unreachable or none of the
+	 * policy's tiers resolve, so the caller falls back to generic copy. Naming
+	 * nothing is better than naming "Unknown plan".
+	 *
+	 * Disclosure was considered and is not a concern: the tier catalogue is
+	 * already served unauthenticated by Agend Apps Core at
+	 * `/agend-apps/v1/crm/tiers`, so plan names are public by a route that
+	 * predates this plugin. Withholding them here would have cost a member the
+	 * one piece of information they need to act, and protected nothing.
+	 *
+	 * @param array|null $policy Canonical policy.
+	 * @return string[] Plan names, possibly empty.
+	 */
+	public static function plan_names_for( ?array $policy ): array {
+		$tier_ids = Agend_Content_Access_Policy::tier_ids( $policy );
+
+		if ( array() === $tier_ids ) {
+			return array();
+		}
+
+		$catalogue = Agend_Content_Access_Catalogue::get();
+		$annotated = Agend_Content_Access_Catalogue::annotate_selection(
+			$tier_ids,
+			$catalogue['plans']
+		);
+
+		$names = array();
+
+		foreach ( $annotated as $entry ) {
+			// A tier the catalogue cannot name is skipped rather than rendered
+			// as a placeholder: a visitor cannot act on "Unknown plan", and it
+			// advertises that the policy is broken.
+			if ( '' !== $entry['name'] ) {
+				$names[] = $entry['name'];
+			}
+		}
+
+		return $names;
+	}
+
+	/**
 	 * Renders the gate markup.
 	 *
-	 * @param string $teaser Teaser text.
-	 * @param string $state  Decision state.
+	 * @param string     $teaser Teaser text.
+	 * @param string     $state  Decision state.
+	 * @param array|null $policy Policy, used to name the qualifying plans.
 	 * @return string
 	 */
-	public static function render_gate( string $teaser, string $state ): string {
+	public static function render_gate( string $teaser, string $state, ?array $policy = null ): string {
 		$portal = method_exists( 'Agend_Apps_Settings', 'get_portal_url' )
 			? (string) Agend_Apps_Settings::get_portal_url()
 			: '';
@@ -252,10 +297,17 @@ class Agend_Content_Access_Frontend {
 				$cta     = __( 'View membership options', 'agend-content-access' );
 				break;
 			case Agend_Content_Access_Decision::STATE_PLAN:
-				// Deliberately vague: naming the qualifying plans would publish
-				// the association's plan configuration to everybody who is not
-				// on one.
-				$message = __( 'This content is available to eligible members.', 'agend-content-access' );
+				$names = self::plan_names_for( $policy );
+
+				// Name the plans. A member on the wrong plan otherwise has no
+				// way to know what they need and ends up contacting support.
+				$message = array() === $names
+					? __( 'This content is available to members on another plan.', 'agend-content-access' )
+					: sprintf(
+						/* translators: %s: comma-separated membership plan names. */
+						__( 'This content is available to members on: %s.', 'agend-content-access' ),
+						implode( ', ', $names )
+					);
 				$cta     = __( 'View membership options', 'agend-content-access' );
 				break;
 			default:
