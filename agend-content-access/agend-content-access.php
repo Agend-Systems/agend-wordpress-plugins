@@ -80,11 +80,20 @@ function agend_content_access_bootstrap(): void {
 	// hang off it and a REST call never reaches template_redirect.
 	new Agend_Content_Access_Frontend();
 
-	// Fragment policies, only when Elementor is present. Hooked on
-	// `elementor/loaded` rather than checked inline: Elementor bootstraps at the
-	// default plugins_loaded priority, and its classes are not safe to reference
-	// before it fires.
-	add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
+	// Fragment policies, only when Elementor is present.
+	//
+	// This bootstrap runs at plugins_loaded priority 20 and Elementor fires
+	// `elementor/loaded` during its own plugins_loaded at the default priority
+	// 10, so by the time we get here that action has ALREADY fired. Hooking it
+	// unconditionally registered nothing and silently disabled every fragment
+	// policy: a restricted section rendered to anonymous visitors. Caught on a
+	// real Elementor 4.2.0 page, not by any unit test, because the failure is
+	// purely one of hook ordering.
+	if ( did_action( 'elementor/loaded' ) ) {
+		agend_content_access_bootstrap_elementor();
+	} else {
+		add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
+	}
 
 	add_action( 'rest_api_init', 'agend_content_access_bootstrap_rest' );
 
@@ -106,6 +115,34 @@ function agend_content_access_bootstrap(): void {
 	do_action( 'agend_content_access_loaded' );
 }
 add_action( 'plugins_loaded', 'agend_content_access_bootstrap', 20 );
+
+/**
+ * Clears cached page-builder markup when this plugin is activated or updated.
+ *
+ * Elementor's element cache stores one rendered blob per document in post meta,
+ * with a 24 hour TTL and no viewer dimension. A blob built BEFORE this plugin
+ * was active contains markup produced with no policy applied, and nothing about
+ * activation invalidates it, so restricted regions would keep being served until
+ * the TTL expired or an editor saved the page.
+ *
+ * Runtime protection for policy-bearing elements is handled separately, and more
+ * fundamentally, by `Agend_Content_Access_Elementor::policy_is_dynamic_content()`,
+ * which forces those elements to re-render per request. This flush only closes
+ * the window for blobs that predate the plugin.
+ */
+function agend_content_access_flush_builder_cache(): void {
+	if (
+		did_action( 'elementor/loaded' )
+		&& isset( \Elementor\Plugin::$instance->files_manager )
+	) {
+		\Elementor\Plugin::$instance->files_manager->clear_cache();
+	}
+}
+register_activation_hook( __FILE__, 'agend_content_access_flush_builder_cache' );
+
+// An upgrade replaces the files without firing the activation hook, so the same
+// stale-blob window opens on update. `upgrader_process_complete` covers it.
+add_action( 'upgrader_process_complete', 'agend_content_access_flush_builder_cache' );
 
 /**
  * Enqueues the policy panel's assets, on the post editor only.

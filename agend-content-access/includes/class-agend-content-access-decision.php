@@ -80,6 +80,18 @@ class Agend_Content_Access_Decision {
 			return $viewer;
 		}
 
+		if ( ! function_exists( 'agend_apps_crm_get_my_entitlements' ) ) {
+			// Agend Apps Core predates the resolved-standing wrapper. The
+			// visitor holds a session we cannot evaluate, so they are denied
+			// and the situation is flagged rather than guessed at. Deliberately
+			// NOT a hard dependency in the gate: an older Core still supports
+			// document policies for anonymous visitors, and refusing to load
+			// would turn a partial capability into no protection at all.
+			$viewer['degraded'] = true;
+			self::$viewer_cache = $viewer;
+			return $viewer;
+		}
+
 		$response = agend_apps_crm_get_my_entitlements();
 
 		if ( is_wp_error( $response ) ) {
