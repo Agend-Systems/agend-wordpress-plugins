@@ -57,6 +57,9 @@ class Agend_Content_Access_Elementor {
 		}
 
 		add_action( 'elementor/element/after_add_attributes', array( $this, 'maybe_mark_in_editor' ) );
+
+		// Keep policy-bearing elements out of Elementor's frozen-HTML cache.
+		add_filter( 'elementor/element/is_dynamic_content', array( $this, 'policy_is_dynamic_content' ), 10, 3 );
 	}
 
 	/**
@@ -272,6 +275,75 @@ class Agend_Content_Access_Elementor {
 		);
 
 		return Agend_Content_Access_Decision::STATE_GRANTED === $state;
+	}
+
+	/**
+	 * Treats any element carrying an access policy as dynamic content.
+	 *
+	 * This is a SECURITY control, not an optimisation, and it is the reason
+	 * `should_render` can be trusted at all under Elementor's element cache.
+	 *
+	 * That cache (`_elementor_element_cache`, on by default with a 24 hour TTL)
+	 * works by re-rendering a document once and storing the result in post meta.
+	 * During that pass Elementor asks each element whether it should be stored as
+	 * a re-expanded shortcode or baked to final HTML. `should_render_shortcode()`
+	 * answers "shortcode" only for elements that opt in or are dynamic, so a
+	 * PLAIN STATIC section is frozen as finished markup.
+	 *
+	 * Frozen markup never runs `should_render` again, and the cache has no viewer
+	 * dimension: one blob per document, shared by everybody. So whichever visitor
+	 * happens to build the cache decides what every later visitor sees. If a
+	 * member builds it, the restricted section is baked in and served to anonymous
+	 * visitors for up to 24 hours. That is a straight content leak, and it is
+	 * invisible in testing because it only appears once a member has loaded the
+	 * page before an anonymous one does.
+	 *
+	 * Declaring the element dynamic forces the shortcode path, so the element is
+	 * re-rendered per request and `should_render` is consulted every time.
+	 *
+	 * The check covers DESCENDANTS as well as the element itself. A restricted
+	 * widget inside an unrestricted static section would otherwise be frozen along
+	 * with its parent, which reintroduces the same leak one level down.
+	 *
+	 * @param bool                    $is_dynamic Elementor's decision so far.
+	 * @param array                   $raw_data   The element's raw data.
+	 * @param \Elementor\Element_Base $element    Element.
+	 * @return bool
+	 */
+	public function policy_is_dynamic_content( $is_dynamic, $raw_data, $element = null ) {
+		if ( $is_dynamic ) {
+			return $is_dynamic;
+		}
+
+		return self::subtree_carries_policy( is_array( $raw_data ) ? $raw_data : array() );
+	}
+
+	/**
+	 * Whether a raw element node, or anything beneath it, carries a policy.
+	 *
+	 * @param array $node Raw element data.
+	 * @return bool
+	 */
+	public static function subtree_carries_policy( array $node ): bool {
+		$settings = isset( $node['settings'] ) && is_array( $node['settings'] )
+			? $node['settings']
+			: array();
+
+		if ( null !== self::policy_from_settings( $settings ) ) {
+			return true;
+		}
+
+		$children = isset( $node['elements'] ) && is_array( $node['elements'] )
+			? $node['elements']
+			: array();
+
+		foreach ( $children as $child ) {
+			if ( is_array( $child ) && self::subtree_carries_policy( $child ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
