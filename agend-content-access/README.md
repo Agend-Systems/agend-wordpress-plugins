@@ -92,6 +92,7 @@ Under construction.
 | US-3.2 native post and page policy panel | done |
 | US-3.4 direct WordPress request gating | done |
 | US-3.5 source connector | done |
+| US-4.1 / US-4.2 Elementor fragment policies | done |
 
 Policies are authored and enforced on the WordPress side, and the source
 connector exposes them to Agend behind a rotatable service credential
