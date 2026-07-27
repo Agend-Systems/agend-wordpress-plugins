@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.2.3
+ * Version:           1.2.4
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.2.3' );
+define( 'AGEND_APPS_CORE_VERSION', '1.2.4' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -124,6 +124,11 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/webhook-receiver-routes.php';
+
+	// Agend-first authentication for wp-login.php and wp_signon() callers.
+	// Loaded after api/auth.php and rest/auth-routes.php, whose helpers
+	// (gateway login, proxy-edge throttle) it reuses at authenticate time.
+	require_once AGEND_APPS_CORE_DIR . 'includes/wp-login-bridge.php';
 
 	// Bearer identity for outbound gateway calls (addendum E-11): mints and
 	// caches the logged-in member's Supabase JWT, served via the

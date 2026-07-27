@@ -67,6 +67,62 @@
       });
   }
 
+  // Signs the member out via the Agend Apps Core proxy, then reloads so the
+  // fresh nonce and the signed-out markup take effect (the same flow as the
+  // member-login widget's sign-out control).
+  function signOut(button) {
+    var url = restBase().replace(/\/$/, '') + '/auth/logout';
+    var headers = { 'X-WP-Nonce': nonce(), 'Content-Type': 'application/json' };
+    fetch(url, { method: 'POST', headers: headers, body: '{}' })
+      .then(function () {
+        window.location.reload();
+      })
+      .catch(function () {
+        button.removeAttribute('aria-busy');
+      });
+  }
+
+  // Builds the sign-out dropdown revealed on hover/focus (visibility is
+  // CSS-driven via :hover / :focus-within; the listeners here only keep
+  // aria-expanded in sync for assistive tech).
+  function buildMenu(root, link, cfg) {
+    root.classList.add('agend-header-auth--has-menu');
+    link.setAttribute('aria-haspopup', 'true');
+    link.setAttribute('aria-expanded', 'false');
+
+    var menu = el('div', 'agend-header-auth__menu');
+    var item = el('button', 'agend-header-auth__menu-item', cfg.signOutLabel);
+    item.type = 'button';
+    item.addEventListener('click', function () {
+      if (item.getAttribute('aria-busy') === 'true') {
+        return;
+      }
+      item.setAttribute('aria-busy', 'true');
+      signOut(item);
+    });
+    menu.appendChild(item);
+
+    var setExpanded = function (expanded) {
+      link.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    };
+    root.addEventListener('mouseenter', function () {
+      setExpanded(true);
+    });
+    root.addEventListener('mouseleave', function () {
+      setExpanded(false);
+    });
+    root.addEventListener('focusin', function () {
+      setExpanded(true);
+    });
+    root.addEventListener('focusout', function (event) {
+      if (!root.contains(event.relatedTarget)) {
+        setExpanded(false);
+      }
+    });
+
+    return menu;
+  }
+
   function render(root) {
     var cfg;
     try {
@@ -76,6 +132,7 @@
     }
 
     root.innerHTML = '';
+    root.classList.remove('agend-header-auth--has-menu');
     var link = el('a', 'agend-header-auth__link');
 
     if (isLoggedIn()) {
@@ -97,6 +154,10 @@
     }
 
     root.appendChild(link);
+
+    if (isLoggedIn() && cfg.signOutLabel) {
+      root.appendChild(buildMenu(root, link, cfg));
+    }
   }
 
   function initAll(context) {
