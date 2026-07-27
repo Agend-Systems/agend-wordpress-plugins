@@ -91,9 +91,9 @@ Under construction.
 | US-3.3 membership plan catalogue | done |
 | US-3.2 native post and page policy panel | done |
 | US-3.4 direct WordPress request gating | done |
-| US-3.5 source connector | pending |
+| US-3.5 source connector | done |
 
-Policies are authored AND enforced on the WordPress side: a restricted
-permalink and its public REST representation both withhold the body. Still
-missing: US-3.5 exports policies to Agend, so the CMS projection has nothing to
-project yet.
+Policies are authored and enforced on the WordPress side, and the source
+connector exposes them to Agend behind a rotatable service credential
+(Settings, Agend Content Access). Still missing: US-3.6, the gateway write
+surface that receives them, so nothing is ingested yet.
