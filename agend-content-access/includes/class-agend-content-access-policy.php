@@ -218,6 +218,84 @@ class Agend_Content_Access_Policy {
 	}
 
 	/**
+	 * Fragment-only mode: defer entirely to the document.
+	 *
+	 * @var string
+	 */
+	const MODE_INHERIT = 'inherit';
+
+	/**
+	 * How restrictive a mode is, for picking the narrower of two policies.
+	 *
+	 * @param string $mode Mode.
+	 * @return int
+	 */
+	private static function restrictiveness( string $mode ): int {
+		switch ( $mode ) {
+			case self::MODE_PUBLIC:
+				return 0;
+			case self::MODE_MEMBERS:
+				return 1;
+			case self::MODE_TIERS:
+				return 2;
+			default:
+				// An unrecognised mode is treated as maximally restrictive so it
+				// can never widen anything by being unreadable.
+				return 3;
+		}
+	}
+
+	/**
+	 * The effective policy of a fragment: the INTERSECTION of its document's
+	 * policy and its own.
+	 *
+	 * A fragment may narrow its document's audience. It can never broaden it.
+	 * This mirrors `effectivePolicy()` in `@agend/cms`, which is the same rule
+	 * applied on the projection side, and the two must agree: WordPress decides
+	 * what to render locally, Agend decides what to serve through the API, and a
+	 * visitor must not see different things depending on which door they used.
+	 *
+	 * Two selected-plans policies intersect to the tiers in BOTH. A disjoint
+	 * intersection collapses to an EMPTY tier list, which nobody satisfies. That
+	 * is the honest reading of "the page allows only A, this section allows only
+	 * B": unsatisfiable, not "pick one".
+	 *
+	 * @param array|null $document Document policy, or null when none is set.
+	 * @param array|null $fragment Fragment policy, or null.
+	 * @return array|null Effective policy.
+	 */
+	public static function effective_policy( ?array $document, ?array $fragment ): ?array {
+		$fragment_mode = $fragment['mode'] ?? self::MODE_INHERIT;
+
+		if ( self::MODE_INHERIT === $fragment_mode || null === $fragment ) {
+			return $document;
+		}
+
+		// No document policy means the document is public, so any fragment
+		// policy is a narrowing and simply applies.
+		if ( null === $document ) {
+			return $fragment;
+		}
+
+		$document_mode = $document['mode'] ?? '';
+
+		if ( self::MODE_TIERS === $document_mode && self::MODE_TIERS === $fragment_mode ) {
+			$allowed = $document['tier_ids'] ?? array();
+
+			return array(
+				'mode'     => self::MODE_TIERS,
+				'tier_ids' => array_values(
+					array_intersect( $fragment['tier_ids'] ?? array(), $allowed )
+				),
+			);
+		}
+
+		return self::restrictiveness( $fragment_mode ) > self::restrictiveness( $document_mode )
+			? $fragment
+			: $document;
+	}
+
+	/**
 	 * The tier ids a policy names, or an empty list for other modes.
 	 *
 	 * @param array|null $policy Policy.

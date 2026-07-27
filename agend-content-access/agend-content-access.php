@@ -79,6 +79,12 @@ function agend_content_access_bootstrap(): void {
 	// hang off it and a REST call never reaches template_redirect.
 	new Agend_Content_Access_Frontend();
 
+	// Fragment policies, only when Elementor is present. Hooked on
+	// `elementor/loaded` rather than checked inline: Elementor bootstraps at the
+	// default plugins_loaded priority, and its classes are not safe to reference
+	// before it fires.
+	add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
+
 	add_action( 'rest_api_init', 'agend_content_access_bootstrap_rest' );
 
 	if ( is_admin() ) {
@@ -124,6 +130,15 @@ function agend_content_access_enqueue_admin_assets( string $hook ): void {
 		AGEND_CONTENT_ACCESS_VERSION,
 		true
 	);
+}
+
+/**
+ * Registers the Elementor fragment-policy integration.
+ */
+function agend_content_access_bootstrap_elementor(): void {
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-elementor.php';
+
+	new Agend_Content_Access_Elementor();
 }
 
 /**
