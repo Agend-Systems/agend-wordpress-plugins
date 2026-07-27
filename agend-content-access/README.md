@@ -64,7 +64,29 @@ A missing dependency registers nothing rather than half-registering, because a
 half-registered access-control plugin is indistinguishable from one that decided
 the visitor may proceed.
 
+## Running the tests
+
+The repository has no PHPUnit harness, so each suite runs standalone against
+stubbed WordPress functions and exits non-zero on failure:
+
+```sh
+php agend-content-access/tests/test-bootstrap-dependency-gate.php
+php agend-content-access/tests/test-plan-catalogue.php
+```
+
+A real harness is a follow-up.
+
 ## Status
 
-Under construction. Currently: the scaffold and dependency gate (US-3.1). No
-policy is authored or enforced yet.
+Under construction.
+
+| Story | State |
+| --- | --- |
+| US-3.1 scaffold and dependency gate | done |
+| US-3.3 membership plan catalogue | done |
+| US-3.2 native post and page policy panel | next |
+| US-3.4 direct WordPress request gating | pending |
+| US-3.5 source connector | pending |
+
+No policy is authored or enforced yet: the catalogue exists, the control that
+consumes it does not.

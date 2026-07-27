@@ -67,6 +67,10 @@ function agend_content_access_bootstrap(): void {
 		return;
 	}
 
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-catalogue.php';
+
+	add_action( 'rest_api_init', 'agend_content_access_bootstrap_rest' );
+
 	/**
 	 * Fires once Agend Content Access has confirmed its dependencies and is
 	 * about to register its own components.
@@ -76,6 +80,18 @@ function agend_content_access_bootstrap(): void {
 	do_action( 'agend_content_access_loaded' );
 }
 add_action( 'plugins_loaded', 'agend_content_access_bootstrap', 20 );
+
+/**
+ * Registers this plugin's REST routes.
+ *
+ * Loaded on `rest_api_init` rather than at bootstrap so the route files are
+ * only read on REST requests.
+ */
+function agend_content_access_bootstrap_rest(): void {
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/catalogue-routes.php';
+
+	agend_content_access_register_catalogue_routes();
+}
 
 /**
  * Whether Elementor is loaded and safe to integrate with.
