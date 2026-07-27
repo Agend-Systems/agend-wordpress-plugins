@@ -1,0 +1,252 @@
+<?php
+/**
+ * Access policy value object.
+ *
+ * @package Agend_Content_Access
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Parses, validates and serialises an access policy.
+ *
+ * The canonical shapes, which must stay in lockstep with the two other places
+ * the same rules are expressed:
+ *
+ *   - the `cms_content_items_access_policy_valid` CHECK constraint
+ *     (migration 20260727093300)
+ *   - `parseAccessPolicy()` in `@agend/cms` `policy/fragments.ts`
+ *
+ * Three implementations of one rule set is a real duplication risk. It is
+ * accepted because each sits on a different side of a trust boundary and none
+ * can call the others: the database must reject a bad row whatever wrote it,
+ * the gateway must not trust what it reads back, and WordPress must not send a
+ * shape the gateway will reject. If the shapes ever diverge, the database wins
+ * and the others are wrong.
+ *
+ *   {"mode":"public"}
+ *   {"mode":"active_member"}
+ *   {"mode":"selected_tiers","tier_ids":["<uuid>", ...]}   at least one
+ *
+ * Anything else is invalid. Invalid never means public: a policy we cannot read
+ * is not evidence that the content is unrestricted (Decision 2.12).
+ */
+class Agend_Content_Access_Policy {
+
+	/**
+	 * Post meta key. Underscore-prefixed so WordPress treats it as protected
+	 * and hides it from the custom-fields UI.
+	 *
+	 * @var string
+	 */
+	const META_KEY = '_agend_access_policy';
+
+	const MODE_PUBLIC   = 'public';
+	const MODE_MEMBERS  = 'active_member';
+	const MODE_TIERS    = 'selected_tiers';
+
+	/**
+	 * Accepted modes, in the order the editor presents them.
+	 *
+	 * @var string[]
+	 */
+	const MODES = array( self::MODE_PUBLIC, self::MODE_MEMBERS, self::MODE_TIERS );
+
+	/**
+	 * Canonical UUID shape. Deliberately the same expression as the database
+	 * CHECK, hex being case insensitive.
+	 *
+	 * @var string
+	 */
+	const UUID_PATTERN = '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/';
+
+	/**
+	 * Parses an arbitrary value into a valid policy, or null.
+	 *
+	 * As strict as the database CHECK, including rejecting an unrecognised
+	 * extra top-level key, so a typo or a smuggled field cannot ride along
+	 * beside a valid mode.
+	 *
+	 * @param mixed $value Candidate policy.
+	 * @return array|null Canonical policy array, or null when invalid.
+	 */
+	public static function parse( $value ): ?array {
+		if ( ! is_array( $value ) || ! isset( $value['mode'] ) ) {
+			return null;
+		}
+
+		$mode = $value['mode'];
+		$keys = array_keys( $value );
+
+		if ( self::MODE_PUBLIC === $mode || self::MODE_MEMBERS === $mode ) {
+			return array( 'mode' ) === $keys ? array( 'mode' => $mode ) : null;
+		}
+
+		if ( self::MODE_TIERS !== $mode ) {
+			return null;
+		}
+
+		sort( $keys );
+		if ( array( 'mode', 'tier_ids' ) !== $keys ) {
+			return null;
+		}
+
+		$tier_ids = $value['tier_ids'];
+
+		if ( ! is_array( $tier_ids ) || array() === $tier_ids ) {
+			return null;
+		}
+
+		// A list, not a map: json_encode would otherwise emit an object and the
+		// gateway would reject the shape.
+		if ( array_keys( $tier_ids ) !== range( 0, count( $tier_ids ) - 1 ) ) {
+			return null;
+		}
+
+		foreach ( $tier_ids as $tier_id ) {
+			if ( ! is_string( $tier_id ) || 1 !== preg_match( self::UUID_PATTERN, $tier_id ) ) {
+				return null;
+			}
+		}
+
+		return array(
+			'mode'     => self::MODE_TIERS,
+			'tier_ids' => array_values( $tier_ids ),
+		);
+	}
+
+	/**
+	 * Reads the stored policy for a post.
+	 *
+	 * A stored value that no longer parses returns null, which the editor
+	 * surfaces as "no policy set" so it can be repaired. It is never coerced
+	 * into a mode nobody chose.
+	 *
+	 * @param int $post_id Post id.
+	 * @return array|null
+	 */
+	public static function get_for_post( int $post_id ): ?array {
+		$stored = get_post_meta( $post_id, self::META_KEY, true );
+
+		return self::parse( $stored );
+	}
+
+	/**
+	 * Persists a policy for a post, or removes it.
+	 *
+	 * @param int        $post_id Post id.
+	 * @param array|null $policy  Canonical policy, or null to clear.
+	 * @return bool True when the stored value changed or was already correct.
+	 */
+	public static function save_for_post( int $post_id, ?array $policy ): bool {
+		if ( null === $policy ) {
+			return (bool) delete_post_meta( $post_id, self::META_KEY );
+		}
+
+		$parsed = self::parse( $policy );
+
+		if ( null === $parsed ) {
+			// Refuse rather than store something the gateway will reject at
+			// ingestion. The caller keeps its previous policy.
+			return false;
+		}
+
+		update_post_meta( $post_id, self::META_KEY, $parsed );
+
+		return true;
+	}
+
+	/**
+	 * Builds a policy from raw editor input.
+	 *
+	 * Returns the policy and a human-readable error, exactly one of which is
+	 * non-null. The error is what the panel shows inline; the caller must not
+	 * save when it is set (US-3.2 criterion 4).
+	 *
+	 * @param string   $mode     Submitted mode.
+	 * @param string[] $tier_ids Submitted tier ids, unfiltered.
+	 * @return array{policy: array|null, error: string|null}
+	 */
+	public static function from_input( string $mode, array $tier_ids ): array {
+		if ( ! in_array( $mode, self::MODES, true ) ) {
+			return array(
+				'policy' => null,
+				'error'  => __( 'Choose who can read this content.', 'agend-content-access' ),
+			);
+		}
+
+		if ( self::MODE_TIERS !== $mode ) {
+			return array(
+				'policy' => array( 'mode' => $mode ),
+				'error'  => null,
+			);
+		}
+
+		$clean = array();
+
+		foreach ( $tier_ids as $tier_id ) {
+			$tier_id = is_string( $tier_id ) ? trim( $tier_id ) : '';
+
+			if ( 1 === preg_match( self::UUID_PATTERN, $tier_id ) && ! in_array( $tier_id, $clean, true ) ) {
+				$clean[] = $tier_id;
+			}
+		}
+
+		if ( array() === $clean ) {
+			// Saving "selected plans" with nothing selected is the single most
+			// dangerous input this panel can receive: read charitably it means
+			// "restrict to nobody", read carelessly it becomes "restrict to
+			// nothing", which is public. Reject it and keep the old policy.
+			return array(
+				'policy' => null,
+				'error'  => __(
+					'Select at least one membership plan, or choose a different audience. Your previous setting has been kept.',
+					'agend-content-access'
+				),
+			);
+		}
+
+		return array(
+			'policy' => array(
+				'mode'     => self::MODE_TIERS,
+				'tier_ids' => $clean,
+			),
+			'error'  => null,
+		);
+	}
+
+	/**
+	 * The tier ids a policy names, or an empty list for other modes.
+	 *
+	 * @param array|null $policy Policy.
+	 * @return string[]
+	 */
+	public static function tier_ids( ?array $policy ): array {
+		if ( null === $policy || self::MODE_TIERS !== ( $policy['mode'] ?? '' ) ) {
+			return array();
+		}
+
+		return $policy['tier_ids'];
+	}
+
+	/**
+	 * Human-readable label for a mode, for the editor and for list columns.
+	 *
+	 * @param string $mode Mode.
+	 * @return string
+	 */
+	public static function label( string $mode ): string {
+		switch ( $mode ) {
+			case self::MODE_PUBLIC:
+				return __( 'Public', 'agend-content-access' );
+			case self::MODE_MEMBERS:
+				return __( 'All active members', 'agend-content-access' );
+			case self::MODE_TIERS:
+				return __( 'Selected membership plans', 'agend-content-access' );
+			default:
+				return __( 'Not set', 'agend-content-access' );
+		}
+	}
+}
