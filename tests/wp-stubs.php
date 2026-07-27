@@ -130,6 +130,29 @@ function get_option( string $key, $default = false ) {
 	return Agend_Test_WP::$options[ $key ] ?? $default;
 }
 
+/** Minimal paragraph wrapper. Enough for assertions; not WordPress's algorithm. */
+function wpautop( $text, $br = true ): string {
+	$text = trim( (string) $text );
+	return '' === $text ? '' : '<p>' . $text . '</p>';
+}
+
+function esc_url( $url ): string {
+	return htmlspecialchars( (string) $url, ENT_QUOTES );
+}
+
+function add_query_arg( ...$args ) {
+	if ( is_array( $args[0] ) && count( $args ) === 1 ) {
+		return '';
+	}
+	[ $key, $value, $url ] = array( $args[0], $args[1] ?? '', $args[2] ?? '' );
+	$sep = str_contains( (string) $url, '?' ) ? '&' : '?';
+	return $url . $sep . rawurlencode( (string) $key ) . '=' . rawurlencode( (string) $value );
+}
+
+function home_url( $path = '' ): string {
+	return 'https://example.test' . $path;
+}
+
 function esc_html( $text ): string {
 	return htmlspecialchars( (string) $text, ENT_QUOTES );
 }
