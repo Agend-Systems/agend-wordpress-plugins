@@ -68,8 +68,16 @@ function agend_content_access_bootstrap(): void {
 	}
 
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-catalogue.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-policy.php';
 
 	add_action( 'rest_api_init', 'agend_content_access_bootstrap_rest' );
+
+	if ( is_admin() ) {
+		require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
+		new Agend_Content_Access_Meta_Box();
+
+		add_action( 'admin_enqueue_scripts', 'agend_content_access_enqueue_admin_assets' );
+	}
 
 	/**
 	 * Fires once Agend Content Access has confirmed its dependencies and is
@@ -80,6 +88,32 @@ function agend_content_access_bootstrap(): void {
 	do_action( 'agend_content_access_loaded' );
 }
 add_action( 'plugins_loaded', 'agend_content_access_bootstrap', 20 );
+
+/**
+ * Enqueues the policy panel's assets, on the post editor only.
+ *
+ * @param string $hook Current admin page.
+ */
+function agend_content_access_enqueue_admin_assets( string $hook ): void {
+	if ( 'post.php' !== $hook && 'post-new.php' !== $hook ) {
+		return;
+	}
+
+	wp_enqueue_style(
+		'agend-content-access-policy-panel',
+		AGEND_CONTENT_ACCESS_URL . 'assets/css/policy-panel.css',
+		array(),
+		AGEND_CONTENT_ACCESS_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-content-access-policy-panel',
+		AGEND_CONTENT_ACCESS_URL . 'assets/js/policy-panel.js',
+		array(),
+		AGEND_CONTENT_ACCESS_VERSION,
+		true
+	);
+}
 
 /**
  * Registers this plugin's REST routes.
