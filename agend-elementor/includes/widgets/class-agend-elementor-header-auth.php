@@ -14,7 +14,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * (SPEC-CORE-20260722-wordpress-member-login US-2.8): a signed-out visitor sees
  * a "Log In" link to the configured login page; a signed-in member sees "My
  * Portal", which hands off to the member portal already authenticated (via the
- * Agend Apps Core portal-handoff proxy). Both labels are editable in Elementor.
+ * Agend Apps Core portal-handoff proxy), plus a sign-out action revealed in a
+ * dropdown on hover or keyboard focus. All labels are editable in Elementor.
  *
  * The signed-in/out decision is made client-side from the shared
  * `window.agendApps.loggedIn` signal, so a single cached header markup adapts
@@ -105,6 +106,16 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 				'type'        => \Elementor\Controls_Manager::TEXT,
 				'default'     => __( 'My Portal', 'agend-elementor' ),
 				'description' => __( 'Shown to signed-in members; opens the member portal, already signed in.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
+			'sign_out_label',
+			array(
+				'label'       => __( 'Sign-out label', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::TEXT,
+				'default'     => __( 'Sign out', 'agend-elementor' ),
+				'description' => __( 'Shown in a dropdown when a signed-in member hovers or focuses the button. Leave empty to hide the dropdown.', 'agend-elementor' ),
 			)
 		);
 
@@ -279,6 +290,60 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 		$this->end_controls_tabs();
 
 		$this->end_controls_section();
+
+		$this->start_controls_section(
+			'section_dropdown_style',
+			array(
+				'label' => __( 'Sign-out dropdown', 'agend-elementor' ),
+				'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
+			)
+		);
+
+		$this->add_control(
+			'menu_bg_colour',
+			array(
+				'label'     => __( 'Dropdown background', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array(
+					'{{WRAPPER}} .agend-header-auth__menu' => 'background-color: {{VALUE}};',
+				),
+			)
+		);
+
+		$this->add_control(
+			'menu_text_colour',
+			array(
+				'label'     => __( 'Item text colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array(
+					'{{WRAPPER}} .agend-header-auth__menu-item' => 'color: {{VALUE}};',
+				),
+			)
+		);
+
+		$this->add_control(
+			'menu_text_colour_hover',
+			array(
+				'label'     => __( 'Item text colour (hover)', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array(
+					'{{WRAPPER}} .agend-header-auth__menu-item:hover, {{WRAPPER}} .agend-header-auth__menu-item:focus' => 'color: {{VALUE}};',
+				),
+			)
+		);
+
+		$this->add_control(
+			'menu_bg_colour_hover',
+			array(
+				'label'     => __( 'Item background (hover)', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array(
+					'{{WRAPPER}} .agend-header-auth__menu-item:hover, {{WRAPPER}} .agend-header-auth__menu-item:focus' => 'background-color: {{VALUE}};',
+				),
+			)
+		);
+
+		$this->end_controls_section();
 	}
 
 	/**
@@ -306,6 +371,9 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 		return array(
 			'loggedOutLabel' => (string) ( $s['logged_out_label'] ?? __( 'Log In', 'agend-elementor' ) ),
 			'loggedInLabel'  => (string) ( $s['logged_in_label'] ?? __( 'My Portal', 'agend-elementor' ) ),
+			// An emptied label intentionally hides the sign-out dropdown (see
+			// the control description).
+			'signOutLabel'   => trim( (string) ( $s['sign_out_label'] ?? __( 'Sign out', 'agend-elementor' ) ) ),
 			'loginUrl'       => $login_url,
 			// Fallback portal URL used if the authenticated hand-off cannot be
 			// minted; the signed-in click prefers the hand-off (US-1.5).
