@@ -89,9 +89,9 @@ Under construction.
 | --- | --- |
 | US-3.1 scaffold and dependency gate | done |
 | US-3.3 membership plan catalogue | done |
-| US-3.2 native post and page policy panel | policy layer done, editor panel next |
+| US-3.2 native post and page policy panel | done |
 | US-3.4 direct WordPress request gating | pending |
 | US-3.5 source connector | pending |
 
-No policy is authored or enforced yet: the catalogue exists, the control that
-consumes it does not.
+Policies can now be AUTHORED on posts and pages. Nothing enforces them yet:
+US-3.4 gates direct WordPress requests and US-3.5 exports policies to Agend.
