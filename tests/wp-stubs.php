@@ -130,6 +130,16 @@ function get_option( string $key, $default = false ) {
 	return Agend_Test_WP::$options[ $key ] ?? $default;
 }
 
+function update_option( string $key, $value, $autoload = null ): bool {
+	Agend_Test_WP::$options[ $key ] = $value;
+	return true;
+}
+
+function delete_option( string $key ): bool {
+	unset( Agend_Test_WP::$options[ $key ] );
+	return true;
+}
+
 /** Minimal paragraph wrapper. Enough for assertions; not WordPress's algorithm. */
 function wpautop( $text, $br = true ): string {
 	$text = trim( (string) $text );

@@ -72,6 +72,8 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-credentials.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-exporter.php';
 
 	// Gating is registered on EVERY request, admin included: the REST filters
 	// hang off it and a REST call never reaches template_redirect.
@@ -80,7 +82,10 @@ function agend_content_access_bootstrap(): void {
 	add_action( 'rest_api_init', 'agend_content_access_bootstrap_rest' );
 
 	if ( is_admin() ) {
+		require_once AGEND_CONTENT_ACCESS_DIR . 'admin/class-agend-content-access-admin.php';
+
 		new Agend_Content_Access_Meta_Box();
+		new Agend_Content_Access_Admin();
 
 		add_action( 'admin_enqueue_scripts', 'agend_content_access_enqueue_admin_assets' );
 	}
@@ -129,8 +134,10 @@ function agend_content_access_enqueue_admin_assets( string $hook ): void {
  */
 function agend_content_access_bootstrap_rest(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/catalogue-routes.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/connector-routes.php';
 
 	agend_content_access_register_catalogue_routes();
+	agend_content_access_register_connector_routes();
 }
 
 /**
