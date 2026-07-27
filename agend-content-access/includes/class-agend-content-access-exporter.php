@@ -109,17 +109,36 @@ class Agend_Content_Access_Exporter {
 	/**
 	 * Ordered content fragments.
 	 *
-	 * Non-Elementor content is a single fragment carrying the whole body with
-	 * policy `inherit`, which is the same shape Agend reads a legacy blob as
-	 * (Decision 2.8). Elementor documents are decomposed by US-4.3; until that
-	 * lands they take the same single-fragment path, so the whole document is
-	 * governed by its document policy and no region is silently ungoverned.
+	 * An Elementor page is decomposed into one fragment per widget, each
+	 * carrying the policy folded down its ancestor chain (US-4.3). Anything else
+	 * is a single fragment holding the whole body with policy `inherit`, the
+	 * same shape Agend reads a legacy blob as (Decision 2.8).
+	 *
+	 * A structural parse error is thrown, not swallowed. The alternative is
+	 * shipping a document whose restricted regions were quietly dropped, which
+	 * the projection would then serve in full because it never learned they
+	 * existed.
 	 *
 	 * @param WP_Post    $post   Post.
 	 * @param array|null $policy Document policy.
 	 * @return array<int, array<string, mixed>>
+	 * @throws RuntimeException When the Elementor document cannot be parsed.
 	 */
 	public static function fragments_of( $post, ?array $policy ): array {
+		$elementor = (string) get_post_meta( (int) $post->ID, '_elementor_data', true );
+
+		if ( '' !== trim( $elementor ) ) {
+			$parsed = Agend_Content_Access_Elementor_Parser::parse( $elementor );
+
+			if ( array() !== $parsed['errors'] ) {
+				throw new RuntimeException(
+					'Elementor document could not be parsed: ' . implode( ' ', $parsed['errors'] )
+				);
+			}
+
+			return $parsed['fragments'];
+		}
+
 		return array(
 			array(
 				'id'       => 'body',
