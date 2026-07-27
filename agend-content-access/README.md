@@ -36,6 +36,34 @@ is a plain WordPress install with Elementor Pro (Decision 2.16).
 A version outside the supported range surfaces an admin notice. Support is not
 implied by the code happening to run.
 
+### What the document parser supports
+
+The connector flattens an Elementor page into one fragment per widget, folding
+each ancestor's policy down into it.
+
+| Node type | Handling |
+| --- | --- |
+| `section`, `column`, `container` | Structural. Not a fragment; its policy folds into descendants |
+| `widget` | A fragment, carrying the intersection of every policy above it |
+| anything else | **Fails the sync revision**, naming the node type |
+
+Failing is deliberate. Skipping an unknown node is how a restricted region
+silently stops being represented, after which Agend serves content it never
+learned to gate.
+
+**Editor V4 atomic widgets are a known limitation.** They extend `Widget_Base`
+rather than `Widget_Common_Base`, and use a props schema instead of
+`Controls_Manager` sections, so no per-widget Agend Access control can be
+offered on them. Document policies and suppression still apply, because
+`Atomic_Element_Base` extends `Element_Base` and the `should_render` filter
+still fires. So a V4 page is protected at the page level; only per-section
+restriction is unavailable.
+
+Widget content extraction is best-effort: a widget type whose text this does not
+recognise still produces a fragment carrying its policy, with
+`payload.extracted` false. That is a fidelity gap, never a security one. The
+region renders empty rather than to the wrong audience.
+
 ## What this plugin owns
 
 Document policies, Elementor fragment policies, the source connector, direct

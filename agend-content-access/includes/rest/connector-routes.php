@@ -211,7 +211,19 @@ function agend_content_access_connector_get( $request ) {
 		);
 	}
 
-	$response = rest_ensure_response( Agend_Content_Access_Exporter::record( $post ) );
+	try {
+		$record = Agend_Content_Access_Exporter::record( $post );
+	} catch ( RuntimeException $e ) {
+		// A document we cannot decompose is reported, never shipped partially.
+		// Agend keeps whatever revision it already holds.
+		return new WP_Error(
+			'agend_content_access_unparseable',
+			$e->getMessage(),
+			array( 'status' => 422 )
+		);
+	}
+
+	$response = rest_ensure_response( $record );
 
 	// Source material is never cacheable by anything in front of WordPress.
 	$response->header( 'Cache-Control', 'private, no-store' );
