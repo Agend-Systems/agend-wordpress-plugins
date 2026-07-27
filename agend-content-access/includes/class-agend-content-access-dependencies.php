@@ -44,7 +44,26 @@ class Agend_Content_Access_Dependencies {
 	 * @return string[] Human-readable names of missing dependencies.
 	 */
 	public static function missing(): array {
-		foreach ( self::REQUIRED_CORE_FUNCTIONS as $function ) {
+		return self::missing_from( self::REQUIRED_CORE_FUNCTIONS );
+	}
+
+	/**
+	 * The probe itself, over an explicit function list.
+	 *
+	 * Split out so the gate's behaviour is testable. `function_exists()` cannot
+	 * be un-declared once true, so a test cannot simulate Core being absent
+	 * against the real constant; it can against a list it supplies.
+	 *
+	 * This is a seam for tests, not an extension point. Production always calls
+	 * `missing()`, which passes the constant. There is deliberately no filter
+	 * here: a hook able to report dependencies as satisfied would be a hook able
+	 * to switch the access-control plugin on without its transport.
+	 *
+	 * @param string[] $functions Function names that must all exist.
+	 * @return string[] Human-readable names of missing dependencies.
+	 */
+	public static function missing_from( array $functions ): array {
+		foreach ( $functions as $function ) {
 			if ( ! function_exists( $function ) ) {
 				return array( 'Agend Apps Core' );
 			}
@@ -68,8 +87,20 @@ class Agend_Content_Access_Dependencies {
 	 * @return void
 	 */
 	public static function render_notice() {
-		$missing = self::missing();
+		self::render_notice_for( self::missing() );
+	}
 
+	/**
+	 * Renders the notice for an explicit missing list.
+	 *
+	 * Split out for the same reason as `missing_from()`: the copy is worth
+	 * asserting on, and a test cannot make `function_exists()` return false for
+	 * the real probe. A seam for tests, not an extension point.
+	 *
+	 * @param string[] $missing Human-readable names of missing dependencies.
+	 * @return void
+	 */
+	public static function render_notice_for( array $missing ) {
 		if ( array() === $missing ) {
 			return;
 		}

@@ -66,15 +66,20 @@ the visitor may proceed.
 
 ## Running the tests
 
-The repository has no PHPUnit harness, so each suite runs standalone against
-stubbed WordPress functions and exits non-zero on failure:
+From the repository root:
 
 ```sh
-php agend-content-access/tests/test-bootstrap-dependency-gate.php
-php agend-content-access/tests/test-plan-catalogue.php
+composer install
+composer test                        # the whole collection
+vendor/bin/phpunit --testsuite agend-content-access
 ```
 
-A real harness is a follow-up.
+These are UNIT tests: no database and no WordPress bootstrap. WordPress
+functions are stubbed in `tests/wp-stubs.php`, which keeps the suite fast and
+removes the wp-tests install step that usually stops WordPress plugin suites
+from being run at all. Anything needing real WordPress behaviour (hook ordering
+across plugins, actual REST dispatch, database state) belongs in an integration
+suite against a real install, which does not exist yet.
 
 ## Status
 
