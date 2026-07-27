@@ -54,6 +54,32 @@ if ( ! class_exists( 'Agend_Apps_Cache' ) ) {
 // Access dependency probe looks for.
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-api.php';
 
+if ( ! function_exists( 'agend_apps_crm_get_my_entitlements' ) ) {
+	/**
+	 * Resolved member standing double.
+	 *
+	 * Tests drive the outcome with
+	 * `Agend_Test_WP::set_filter( 'agend_apps_crm_get_my_entitlements_response', ... )`,
+	 * including returning a WP_Error to exercise an outage.
+	 *
+	 * It records a request so callers can assert on call COUNT, which is what
+	 * makes the per-request memoisation testable.
+	 *
+	 * @return mixed
+	 */
+	function agend_apps_crm_get_my_entitlements() {
+		Agend_Test_WP::$requests[] = array(
+			'url'     => '/crm/me/entitlements',
+			'headers' => array(),
+		);
+
+		return apply_filters(
+			'agend_apps_crm_get_my_entitlements_response',
+			array( 'data' => array( 'tier_ids' => array(), 'is_member' => false ) )
+		);
+	}
+}
+
 if ( ! function_exists( 'agend_apps_crm_get_tiers' ) ) {
 	/**
 	 * Tier catalogue double.

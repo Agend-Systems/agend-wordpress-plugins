@@ -69,11 +69,17 @@ function agend_content_access_bootstrap(): void {
 
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-catalogue.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-policy.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
+
+	// Gating is registered on EVERY request, admin included: the REST filters
+	// hang off it and a REST call never reaches template_redirect.
+	new Agend_Content_Access_Frontend();
 
 	add_action( 'rest_api_init', 'agend_content_access_bootstrap_rest' );
 
 	if ( is_admin() ) {
-		require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
 		new Agend_Content_Access_Meta_Box();
 
 		add_action( 'admin_enqueue_scripts', 'agend_content_access_enqueue_admin_assets' );
