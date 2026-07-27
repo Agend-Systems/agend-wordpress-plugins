@@ -299,6 +299,36 @@ class Agend_Apps_API {
 	 * Checks the transient store first; on a miss calls `request()` and caches
 	 * the successful response.
 	 *
+	 * IDENTITY BYPASS. Transients are SHARED across every visitor to the site,
+	 * so a response computed for one signed-in member must never be stored in
+	 * or served from them. When a member bearer is attached the shared cache is
+	 * skipped entirely, in both directions.
+	 *
+	 * This matters because several gateway endpoints enrich their response when
+	 * a bearer is present, and the cache key does not include the member:
+	 *
+	 *   - `/events` and `/events/{slug}` add `viewer_price_group` and
+	 *     `my_registration`, which is the caller's OWN ticket and registration
+	 *     id.
+	 *   - `/lms/courses` and `/lms/courses/{id}` add the caller's enrolment
+	 *     context.
+	 *   - `/cart` is per-identity in its entirety.
+	 *   - `/cms/content` and `/cms/content/{slug}` add the caller's access
+	 *     projection (SPEC-CMS-20260727 US-2.3).
+	 *
+	 * Without this bypass, member A loading an event page would populate a
+	 * shared transient with their registration details, and the next visitor to
+	 * that page inside the TTL would be served them.
+	 *
+	 * The bearer is resolved ONCE here and passed through in `$args`, because
+	 * the resolver reads user meta and can trigger a token refresh; letting
+	 * `request()` resolve it a second time would double that work.
+	 *
+	 * The cost is that signed-in members do not benefit from the shared cache
+	 * on catalogue reads that would in fact have been identical for them. That
+	 * is the correct trade: we cannot tell from here which endpoints vary by
+	 * identity, and guessing wrong leaks one member's data to another.
+	 *
 	 * @param string $path      Relative path, e.g. `/directory/listings`.
 	 * @param array  $args      Request args passed through to `request()`.
 	 * @param string $cache_key Unique cache identifier (without the `agend_apps_` prefix).
@@ -306,6 +336,16 @@ class Agend_Apps_API {
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
 	public function get_cached( string $path, array $args, string $cache_key, int $ttl ) {
+		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
+			? (string) $args['bearer_token']
+			: agend_apps_get_bearer_token();
+
+		if ( '' !== $bearer_token ) {
+			$args['bearer_token'] = $bearer_token;
+
+			return $this->request( 'GET', $path, $args );
+		}
+
 		$transient_name = 'agend_apps_' . $cache_key;
 		$cached         = get_transient( $transient_name );
 

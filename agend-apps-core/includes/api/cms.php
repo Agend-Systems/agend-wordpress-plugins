@@ -7,8 +7,15 @@
  * or calling `agend_apps_api()` directly, so transport and path knowledge stay
  * centralised here.
  *
- * Public catalogue reads (content list and single content) are cached.
- * Identity-specific reads and every mutation are never cached.
+ * Public catalogue reads (content list and single content) are cached for
+ * ANONYMOUS callers only. When a member bearer is attached the shared
+ * transient store is bypassed in both directions, because the gateway
+ * projects these responses per member (SPEC-CMS-20260727 US-2.3) and a shared
+ * transient would serve one member's projection to the next visitor. The
+ * bypass lives in `Agend_Apps_API::get_cached()`, so it applies to every
+ * cached endpoint, not only these two.
+ *
+ * Mutations are never cached.
  *
  * Every function returns the decoded response array on success or a WP_Error
  * on failure (transport error, non-2xx, or invalid JSON).
@@ -23,7 +30,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Lists CMS content.
  *
- * Scope: `cms.content.browse`. Cached.
+ * Scope: `cms.content.browse`. Cached for anonymous callers; bypassed when a
+ * member bearer is attached.
  *
  * @param array $query Optional. Query parameters (camelCase): `page`, `limit`, `collection`, `category`, `tag`, `language`, `sortBy`, `sortOrder`, `search`. Default empty.
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
@@ -62,7 +70,8 @@ function agend_apps_cms_get_content( array $query = array() ) {
 /**
  * Retrieves a single CMS content item by slug.
  *
- * Scope: `cms.content.browse`. Cached.
+ * Scope: `cms.content.browse`. Cached for anonymous callers; bypassed when a
+ * member bearer is attached.
  *
  * @param string $slug    Content slug.
  * @param array  $query   Optional. Query parameters (camelCase): `collection`, `language`. Default empty.
