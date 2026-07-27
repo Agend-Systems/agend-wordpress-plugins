@@ -2,12 +2,13 @@
 /**
  * REST route receiving Agend platform webhooks.
  *
- * Ingests `crm.membership.*` events from the Agend unified webhook system so
- * a member's membership snapshot usermeta stays fresh WHILE a session is
- * active (content restrictions react to renewals, lapses, and reinstatements
- * without waiting for the next login). The association subscribes its
- * account's webhook to this URL from the Agend dashboard and stores the
- * subscription's signing secret in the plugin settings.
+ * Ingests `crm.membership.*` and `crm.seat.*` events from the Agend unified
+ * webhook system so a member's membership snapshot usermeta stays fresh
+ * WHILE a session is active (content restrictions react to renewals, lapses,
+ * reinstatements, and corporate-seat changes without waiting for the next
+ * login). The association subscribes its account's webhook to this URL from
+ * the Agend dashboard and stores the subscription's signing secret in the
+ * plugin settings.
  *
  * Security model: the route is necessarily unauthenticated at the WordPress
  * layer (a server-to-server POST carries no nonce or cookie); authentication
@@ -152,7 +153,12 @@ class Agend_Apps_Webhook_Receiver_REST_Controller extends Agend_Apps_REST_Contro
 		$type   = isset( $envelope['type'] ) ? (string) $envelope['type'] : '';
 		$synced = false;
 
-		if ( 0 === strpos( $type, 'crm.membership.' ) ) {
+		// Membership lifecycle AND corporate-seat events both change a
+		// member's standing; each carries the affected contact_id.
+		if (
+			0 === strpos( $type, 'crm.membership.' ) ||
+			0 === strpos( $type, 'crm.seat.' )
+		) {
 			$synced = $this->handle_membership_event( $envelope );
 		}
 
