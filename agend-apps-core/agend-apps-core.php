@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.2.1
+ * Version:           1.2.2
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.2.1' );
+define( 'AGEND_APPS_CORE_VERSION', '1.2.2' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -95,6 +95,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-identity.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/member-membership-sync.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
@@ -122,6 +123,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/webhook-receiver-routes.php';
 
 	// Bearer identity for outbound gateway calls (addendum E-11): mints and
 	// caches the logged-in member's Supabase JWT, served via the
@@ -158,6 +160,7 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
 	agend_apps_register_auth_routes();
+	agend_apps_register_webhook_receiver_routes();
 }
 add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
 
