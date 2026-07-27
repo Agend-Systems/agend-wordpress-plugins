@@ -89,7 +89,7 @@ Under construction.
 | --- | --- |
 | US-3.1 scaffold and dependency gate | done |
 | US-3.3 membership plan catalogue | done |
-| US-3.2 native post and page policy panel | next |
+| US-3.2 native post and page policy panel | policy layer done, editor panel next |
 | US-3.4 direct WordPress request gating | pending |
 | US-3.5 source connector | pending |
 
