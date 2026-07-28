@@ -53,6 +53,7 @@ class Agend_Content_Access_Elementor {
 	const CONDITIONS_KEY         = 'agend_conditions';
 	const CONDITIONS_MATCH_KEY   = 'agend_conditions_match';
 	const CONDITIONS_INVERT_KEY  = 'agend_conditions_invert';
+	const CONDITIONS_FALLBACK_KEY = 'agend_conditions_fallback_id';
 
 	/**
 	 * Control stacks already given the section this request.
@@ -73,6 +74,11 @@ class Agend_Content_Access_Elementor {
 
 		foreach ( array( 'widget', 'section', 'column', 'container' ) as $type ) {
 			add_filter( "elementor/frontend/{$type}/should_render", array( $this, 'maybe_suppress' ), 10, 2 );
+
+			// `after_render` fires OUTSIDE Elementor's `if ( $should_render )`
+			// block, so it still runs for an element that was suppressed. That
+			// is what makes replacement content possible at all.
+			add_action( "elementor/frontend/{$type}/after_render", array( $this, 'maybe_render_fallback' ), 10, 1 );
 		}
 
 		add_action( 'elementor/element/after_add_attributes', array( $this, 'maybe_mark_in_editor' ) );
@@ -217,6 +223,22 @@ class Agend_Content_Access_Elementor {
 				'condition'    => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
 				'description'  => __(
 					'Show the element to everyone the conditions do NOT match. Use this for content aimed at signed-out visitors, or at people who are not yet members.',
+					'agend-content-access'
+				),
+			)
+		);
+
+		$element->add_control(
+			self::CONDITIONS_FALLBACK_KEY,
+			array(
+				'label'       => __( 'Show instead', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => '',
+				'options'     => Agend_Content_Access_Condition_Sets::fallback_options(),
+				'label_block' => true,
+				'condition'   => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
+				'description' => __(
+					'Optional. Content to show to visitors the conditions exclude, for example a sign-in prompt. Only public content can be chosen: anything restricted would be shown to exactly the people who were just refused.',
 					'agend-content-access'
 				),
 			)
@@ -494,6 +516,78 @@ class Agend_Content_Access_Elementor {
 		}
 
 		return (bool) $result['passes'];
+	}
+
+	/**
+	 * Renders replacement content for an element the conditions excluded.
+	 *
+	 * Fires on `after_render`, which Elementor calls outside its
+	 * `if ( $should_render )` block, so it still runs for a suppressed element.
+	 *
+	 * THE FALLBACK IS ITSELF ACCESS-CHECKED. This is the one place the
+	 * reference implementation gets dangerously wrong: it renders the chosen
+	 * post's content unconditionally. An editor who picks a members-only page
+	 * as the fallback for a members-only section therefore discloses it to
+	 * precisely the people who just failed the check, and the mistake looks
+	 * like a thoughtful "here is what you are missing" until somebody notices.
+	 *
+	 * Here the fallback is only rendered when the CURRENT visitor could have
+	 * viewed it on its own. The picker offers public content only, and this is
+	 * the enforcement behind that: a page restricted after being chosen is
+	 * silently dropped rather than leaked.
+	 *
+	 * @param \Elementor\Element_Base $element Element that just rendered, or did not.
+	 */
+	public function maybe_render_fallback( $element ): void {
+		if ( Agend_Content_Access_Frontend::is_authoring_context() ) {
+			return;
+		}
+
+		$settings = $element->get_settings_for_display();
+
+		// Only elements the CONDITIONS excluded get a fallback. An element
+		// hidden by the access policy is protected content, and offering a
+		// consolation render there would blur the two.
+		if ( self::conditions_pass( $settings ) ) {
+			return;
+		}
+
+		$fallback_id = isset( $settings[ self::CONDITIONS_FALLBACK_KEY ] )
+			? (int) $settings[ self::CONDITIONS_FALLBACK_KEY ]
+			: 0;
+
+		if ( $fallback_id <= 0 ) {
+			return;
+		}
+
+		echo self::fallback_html( $fallback_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+	}
+
+	/**
+	 * The rendered fallback, or an empty string when it may not be shown.
+	 *
+	 * @param int $fallback_id Post id chosen as the fallback.
+	 * @return string
+	 */
+	public static function fallback_html( int $fallback_id ): string {
+		$post = get_post( $fallback_id );
+
+		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
+			return '';
+		}
+
+		// The access check the reference omits. `evaluate` returns the state
+		// for THIS visitor against the fallback's own policy.
+		$state = Agend_Content_Access_Decision::evaluate(
+			Agend_Content_Access_Policy::get_for_post( $fallback_id ),
+			Agend_Content_Access_Decision::viewer()
+		);
+
+		if ( Agend_Content_Access_Decision::STATE_GRANTED !== $state ) {
+			return '';
+		}
+
+		return trim( (string) apply_filters( 'the_content', $post->post_content ) );
 	}
 
 	/**

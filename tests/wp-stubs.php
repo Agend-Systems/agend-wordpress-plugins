@@ -339,3 +339,46 @@ if ( ! function_exists( 'wp_get_current_user' ) ) {
 		return new Agend_Test_User( (array) ( $GLOBALS['agend_test_current_user_roles'] ?? array() ) );
 	}
 }
+
+if ( ! class_exists( 'WP_Post' ) ) {
+	/**
+	 * Minimal WP_Post stand-in.
+	 *
+	 * A real class rather than a stdClass cast, because production code checks
+	 * `instanceof WP_Post` before trusting a post, and a cast object would slip
+	 * past a test while failing on a real site.
+	 */
+	class WP_Post {
+		public int $ID = 0;
+		public string $post_status = 'publish';
+		public string $post_content = '';
+		public string $post_title = '';
+		public string $post_type = 'page';
+
+		public function __construct( array $fields = array() ) {
+			foreach ( $fields as $key => $value ) {
+				if ( property_exists( $this, $key ) ) {
+					$this->$key = $value;
+				}
+			}
+		}
+	}
+}
+
+if ( ! function_exists( 'get_post' ) ) {
+	/**
+	 * Post lookup stub, backed by a global registry of field arrays.
+	 *
+	 * Returns null for an unknown id, matching WordPress, so a test can cover
+	 * the missing-post path without a database.
+	 */
+	function get_post( $id = null ) {
+		$fields = $GLOBALS['agend_test_posts'][ (int) $id ] ?? null;
+
+		if ( null === $fields ) {
+			return null;
+		}
+
+		return $fields instanceof WP_Post ? $fields : new WP_Post( (array) $fields );
+	}
+}

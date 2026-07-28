@@ -24,6 +24,19 @@ abstract class TestCase extends PHPUnitTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Agend_Test_WP::reset();
+
+		// The decision layer memoises the resolved viewer for the request. In
+		// production that is right: one visitor, one answer. Across tests it
+		// leaks, so a test that ran earlier as a member silently makes the next
+		// one a member too. Cleared here rather than per suite, because the
+		// failure mode is a test that passes in isolation and fails in the run.
+		if ( class_exists( 'Agend_Content_Access_Decision' ) ) {
+			\Agend_Content_Access_Decision::reset_cache();
+		}
+
+		// Post and meta registries used by the WordPress stubs.
+		$GLOBALS['agend_test_posts']     = array();
+		$GLOBALS['agend_test_post_meta'] = array();
 	}
 
 	/**
