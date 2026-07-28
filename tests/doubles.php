@@ -94,3 +94,27 @@ if ( ! function_exists( 'agend_apps_crm_get_tiers' ) ) {
 		return Agend_Test_WP::$tiers_response;
 	}
 }
+
+if ( ! function_exists( 'agend_apps_crm_get_my_segments' ) ) {
+	/**
+	 * Member segments double.
+	 *
+	 * Tests drive the outcome with
+	 * `Agend_Test_WP::$filters['agend_apps_crm_get_my_segments_response']`,
+	 * including a WP_Error to exercise an outage. Records a request so call
+	 * COUNT is assertable, which is what makes the per-viewer cache testable.
+	 *
+	 * @return mixed
+	 */
+	function agend_apps_crm_get_my_segments() {
+		Agend_Test_WP::$requests[] = array(
+			'url'     => '/crm/me/segments',
+			'headers' => array(),
+		);
+
+		return apply_filters(
+			'agend_apps_crm_get_my_segments_response',
+			array( 'data' => array() )
+		);
+	}
+}

@@ -20,36 +20,24 @@ if ( ! defined( 'ABSPATH' ) ) {
  * | ------------------- | ---------------------------------------- |
  * | `agend_wordpress`   | current user, locally, no network         |
  * | `agend_membership`  | `GET /v1/crm/me/entitlements`, cached     |
- * | `agend_segments`    | NOT IMPLEMENTED, see below                |
+ * | `agend_segments`    | `GET /v1/crm/me/segments`, cached         |
  *
- * ## Segments are not implemented yet, and that is a denial
+ * Each API-backed family is cached PER VIEWER, never globally: both responses
+ * are entirely about who is asking, so a shared entry would hand one member's
+ * standing or segments to the next visitor.
  *
- * Segments are 54% of the conditions in real data, so this is the largest gap
- * in the feature, and it is deliberately visible rather than papered over.
- *
- * There is no member-scoped segments endpoint. Segments are DYNAMIC: a
- * `crm_segments` row carries `filter_criteria` and membership is decided by
- * running that filter, with no join table to read. Answering "is this visitor
- * in segment X" therefore needs `GET /v1/crm/me/segments` on the gateway,
- * which does not exist.
- *
- * The one thing NOT to do meanwhile is call `/v1/crm/segments/{id}/contacts`
- * and look for the visitor in the result. That pulls a tenant's entire member
- * list into WordPress to answer a boolean about one person, and it would put
- * every other member's contact record on a web server that has no business
- * holding it.
- *
- * So the segments provider returns null, the engine treats that as unknown,
- * denies, and names the provider in its report. A page whose visibility
- * depends on a segment is hidden until the endpoint exists. That is the
- * correct failure: the alternative is showing segment-restricted content to
- * everyone, which is exactly the fail-open behaviour this engine was written
- * to avoid.
+ * A source that cannot answer returns null, which the engine reads as unknown
+ * and denies on while naming the provider. The one case that answers
+ * definitively is a signed-out visitor, who certainly holds no membership and
+ * belongs to no segments; that needs no network.
  */
 class Agend_Content_Access_Condition_Runtime {
 
 	/** Cache key prefix for the per-viewer membership facts. */
 	const MEMBER_CACHE_KEY = 'agend_content_access_member_facts';
+
+	/** Cache key prefix for the per-viewer segment facts. */
+	const SEGMENT_CACHE_KEY = 'agend_content_access_segment_facts';
 
 	/**
 	 * Builds a checker bound to live sources.
@@ -131,25 +119,75 @@ class Agend_Content_Access_Condition_Runtime {
 	/**
 	 * Segment membership for the current visitor.
 	 *
-	 * Returns null unconditionally: unimplemented, pending
-	 * `GET /v1/crm/me/segments`. See the class docblock for why the existing
-	 * admin segments endpoint is not an acceptable substitute.
+	 * Reads `GET /v1/crm/me/segments`, which answers for the bearer alone. The
+	 * admin `/crm/segments/{id}/contacts` route is deliberately not used: it
+	 * lists who is in a segment, so answering a question about one visitor with
+	 * it would pull the tenant's whole member list onto this server.
 	 *
-	 * @return string[]|null
+	 * Cached per viewer for the same reason membership facts are, and a failure
+	 * returns null so the engine denies and reports rather than treating the
+	 * visitor as belonging to no segments, which is a different claim.
+	 *
+	 * @return string[]|null Segment slugs, or null when unknown.
 	 */
 	public static function segment_facts(): ?array {
 		/**
 		 * Filters segment membership for the current visitor.
 		 *
-		 * Exists so a site can supply segments from its own source before the
-		 * gateway endpoint ships. Returning an array opts in; returning null
-		 * keeps the fail-closed default.
+		 * Kept so a site can supply segments from its own source. Returning an
+		 * array short-circuits the gateway read entirely.
 		 *
 		 * @param string[]|null $segments Segment slugs the visitor belongs to.
 		 */
 		$supplied = apply_filters( 'agend_content_access_segment_facts', null );
 
-		return is_array( $supplied ) ? array_values( array_map( 'strval', $supplied ) ) : null;
+		if ( is_array( $supplied ) ) {
+			return array_values( array_map( 'strval', $supplied ) );
+		}
+
+		if ( ! is_user_logged_in() ) {
+			// Definitive: a signed-out visitor belongs to no segments. Segments
+			// are contact attributes, and there is no contact.
+			return array();
+		}
+
+		if ( ! function_exists( 'agend_apps_crm_get_my_segments' ) ) {
+			return null;
+		}
+
+		$cache_key = self::SEGMENT_CACHE_KEY . '_' . get_current_user_id();
+		$cached    = get_transient( $cache_key );
+
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$response = agend_apps_crm_get_my_segments();
+
+		if ( is_wp_error( $response ) ) {
+			// Not cached: a blip must not become a TTL-long outage.
+			return null;
+		}
+
+		$rows = isset( $response['data'] ) && is_array( $response['data'] )
+			? $response['data']
+			: $response;
+
+		if ( ! is_array( $rows ) ) {
+			return null;
+		}
+
+		$slugs = array();
+
+		foreach ( $rows as $row ) {
+			if ( is_array( $row ) && isset( $row['slug'] ) && '' !== (string) $row['slug'] ) {
+				$slugs[] = (string) $row['slug'];
+			}
+		}
+
+		set_transient( $cache_key, $slugs, self::cache_ttl() );
+
+		return $slugs;
 	}
 
 	/**
@@ -183,5 +221,6 @@ class Agend_Content_Access_Condition_Runtime {
 	 */
 	public static function flush_member_facts( int $user_id ): void {
 		delete_transient( self::MEMBER_CACHE_KEY . '_' . $user_id );
+		delete_transient( self::SEGMENT_CACHE_KEY . '_' . $user_id );
 	}
 }
