@@ -18,6 +18,7 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-elementor.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-assets.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-elementor-parser.php';
 
 /**
@@ -340,5 +341,113 @@ final class ElementorParserTest extends TestCase {
 	public function an_empty_or_invalid_document_reports_nothing(): void {
 		$this->assertSame( array(), Agend_Content_Access_Elementor_Parser::unmodelled_element_types( '' ) );
 		$this->assertSame( array(), Agend_Content_Access_Elementor_Parser::unmodelled_element_types( 'not json' ) );
+	}
+
+	/**
+	 * The cross-repo seam. Agend's ingestion links an asset by reading
+	 * `payload.asset_id`, so a protected-file widget must surface exactly that
+	 * key, carrying the fragment's own policy.
+	 */
+	#[Test]
+	public function a_protected_file_widget_emits_the_asset_id_payload(): void {
+		$result = $this->parse(
+			array(
+				$this->node(
+					'section',
+					's1',
+					array(
+						array(
+							'id'         => 'wFile',
+							'elType'     => 'widget',
+							'widgetType' => 'agend-protected-file',
+							'settings'   => array(
+								'agend_asset_id'         => '22222222-2222-2222-2222-222222222222',
+								'agend_asset_file_name'  => 'brief.pdf',
+								'agend_asset_mime_type'  => 'application/pdf',
+								'agend_asset_size_bytes' => 2048,
+								'agend_access_mode'      => 'active_member',
+							),
+						),
+					)
+				),
+			)
+		);
+
+		$fragment = $result['fragments'][0];
+
+		$this->assertSame( array(), $result['errors'] );
+		$this->assertSame(
+			'22222222-2222-2222-2222-222222222222',
+			$fragment['payload']['asset_id']
+		);
+		$this->assertSame( array( 'mode' => 'active_member' ), $fragment['policy'] );
+	}
+
+	/**
+	 * A promoted file must win over any caption on the same widget. Reporting
+	 * the text instead would store the fragment with no asset reference, and
+	 * the download would then be permanently unauthorised with nothing to
+	 * indicate why.
+	 */
+	#[Test]
+	public function an_asset_payload_takes_precedence_over_widget_text(): void {
+		$result = $this->parse(
+			array(
+				$this->node(
+					'section',
+					's1',
+					array(
+						array(
+							'id'         => 'wFile',
+							'elType'     => 'widget',
+							'widgetType' => 'agend-protected-file',
+							'settings'   => array(
+								'title'          => 'Download the briefing',
+								'agend_asset_id' => '22222222-2222-2222-2222-222222222222',
+							),
+						),
+					)
+				),
+			)
+		);
+
+		$this->assertSame(
+			'22222222-2222-2222-2222-222222222222',
+			$result['fragments'][0]['payload']['asset_id']
+		);
+	}
+
+	/**
+	 * No URL or WordPress attachment id may reach the fragment. The asset id is
+	 * safe to publish precisely because it is useless without the authorising
+	 * download endpoint; a URL would not be.
+	 */
+	#[Test]
+	public function no_wordpress_url_or_attachment_id_reaches_the_fragment(): void {
+		$result = $this->parse(
+			array(
+				$this->node(
+					'section',
+					's1',
+					array(
+						array(
+							'id'         => 'wFile',
+							'elType'     => 'widget',
+							'widgetType' => 'agend-protected-file',
+							'settings'   => array(
+								'agend_asset_id'            => '22222222-2222-2222-2222-222222222222',
+								'agend_asset_attachment_id' => 4242,
+								'url'                       => 'https://site.test/wp-content/uploads/brief.pdf',
+							),
+						),
+					)
+				),
+			)
+		);
+
+		$serialised = (string) json_encode( $result['fragments'][0] );
+
+		$this->assertStringNotContainsString( 'wp-content/uploads', $serialised );
+		$this->assertStringNotContainsString( '4242', $serialised );
 	}
 }

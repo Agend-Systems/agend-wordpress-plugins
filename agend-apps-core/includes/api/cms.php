@@ -190,3 +190,34 @@ function agend_apps_cms_upload_asset(
 	 */
 	return apply_filters( 'agend_apps_cms_upload_asset_response', $response );
 }
+
+/**
+ * Requests a short-lived signed URL for a protected asset.
+ *
+ * Scope: `cms.assets.browse`. Requires a member bearer: the gateway
+ * re-resolves the caller's membership and re-evaluates the governing content
+ * policy on every call, so an anonymous request is refused
+ * (SPEC-CMS-20260727 US-5.2).
+ *
+ * Never cached. The response carries a URL minted for one caller with a very
+ * short life, so a shared transient would both hand it to the wrong visitor
+ * and outlive it.
+ *
+ * @param string $asset_id Opaque Agend asset id.
+ * @return array|WP_Error Decoded response, or an error.
+ */
+function agend_apps_cms_get_asset_download( string $asset_id ) {
+	$asset_id = trim( $asset_id );
+
+	if ( '' === $asset_id ) {
+		return new WP_Error(
+			'agend_apps_cms_missing_asset_id',
+			__( 'An asset id is required.', 'agend-apps-core' )
+		);
+	}
+
+	return agend_apps_api()->request(
+		'GET',
+		'/cms/assets/' . rawurlencode( $asset_id )
+	);
+}

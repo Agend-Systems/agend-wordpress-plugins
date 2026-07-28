@@ -180,6 +180,16 @@ class Agend_Content_Access_Elementor_Parser {
 	 * @return array{html: string, extracted: bool}
 	 */
 	private static function payload( array $settings ): array {
+		// A promoted protected file takes precedence over any text on the same
+		// widget. `asset_id` is the key Agend's ingestion links on, and a
+		// fragment that reported its caption instead would be stored with no
+		// asset reference, leaving the download permanently unauthorised.
+		$asset = Agend_Content_Access_Assets::fragment_payload( $settings );
+
+		if ( null !== $asset ) {
+			return array_merge( $asset, array( 'html' => '', 'extracted' => true ) );
+		}
+
 		foreach ( self::TEXT_KEYS as $key ) {
 			if ( isset( $settings[ $key ] ) && is_string( $settings[ $key ] ) && '' !== trim( $settings[ $key ] ) ) {
 				return array( 'html' => (string) $settings[ $key ], 'extracted' => true );

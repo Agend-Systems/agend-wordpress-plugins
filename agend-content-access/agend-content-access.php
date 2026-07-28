@@ -67,6 +67,7 @@ function agend_content_access_bootstrap(): void {
 		return;
 	}
 
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-assets.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-catalogue.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-policy.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
@@ -94,6 +95,11 @@ function agend_content_access_bootstrap(): void {
 	} else {
 		add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
 	}
+
+	// Protected downloads (US-5.1, US-5.2).
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/download-routes.php';
+	add_action( 'rest_api_init', 'agend_content_access_register_download_routes' );
+	add_action( 'save_post', 'agend_content_access_promote_saved_assets', 20 );
 
 	// Version range and the suppression-chain probe (US-4.4 criteria 9, 10).
 	// Loaded unconditionally: it must be able to report that Elementor is
@@ -182,6 +188,16 @@ function agend_content_access_enqueue_admin_assets( string $hook ): void {
  */
 function agend_content_access_bootstrap_elementor(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-elementor.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-protected-file-widget.php';
+
+	add_action(
+		'elementor/widgets/register',
+		static function ( $widgets_manager ) {
+			$widgets_manager->register(
+				new Agend_Content_Access_Protected_File_Widget()
+			);
+		}
+	);
 
 	new Agend_Content_Access_Elementor();
 }
