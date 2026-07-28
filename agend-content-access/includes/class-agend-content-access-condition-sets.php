@@ -204,4 +204,47 @@ class Agend_Content_Access_Condition_Sets {
 
 		return $options;
 	}
+
+	/**
+	 * Pages and posts an editor may choose as replacement content.
+	 *
+	 * Offers PUBLIC content only. A restricted page chosen here would be shown
+	 * to exactly the visitors the conditions just excluded, which is the
+	 * disclosure the reference implementation walks straight into by rendering
+	 * whatever was picked.
+	 *
+	 * The picker is the first line and the render-time check is the second: a
+	 * page restricted AFTER being chosen must still not leak, and this list
+	 * cannot know about that.
+	 *
+	 * @return array<string, string>
+	 */
+	public static function fallback_options(): array {
+		$options = array( '' => __( 'Nothing', 'agend-content-access' ) );
+
+		$posts = get_posts(
+			array(
+				'post_type'      => Agend_Content_Access_Meta_Box::supported_post_types(),
+				'post_status'    => 'publish',
+				'posts_per_page' => 100,
+				'orderby'        => 'title',
+				'order'          => 'ASC',
+			)
+		);
+
+		foreach ( $posts as $post ) {
+			$policy = Agend_Content_Access_Policy::get_for_post( (int) $post->ID );
+
+			// Null means no policy, which reads as public. Anything else is a
+			// restriction and is not offered.
+			if ( null !== $policy
+				&& Agend_Content_Access_Policy::MODE_PUBLIC !== ( $policy['mode'] ?? '' ) ) {
+				continue;
+			}
+
+			$options[ (string) $post->ID ] = (string) get_the_title( $post );
+		}
+
+		return $options;
+	}
 }
