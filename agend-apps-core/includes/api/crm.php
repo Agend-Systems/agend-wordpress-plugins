@@ -2655,3 +2655,31 @@ function agend_apps_crm_get_segment_contacts( string $segment_id, array $query =
 	 */
 	return apply_filters( 'agend_apps_crm_get_segment_contacts_response', $response, $segment_id, $query );
 }
+
+/**
+ * Returns the segments the current member belongs to.
+ *
+ * Scope: `crm.segments.browse`. Requires a member bearer: the gateway resolves
+ * the caller's contact from it and answers only for that person
+ * (SPEC-CMS-20260727 US-6.1).
+ *
+ * Deliberately NOT the admin `/crm/segments/{id}/contacts` route, which lists
+ * who is in a segment. Using that to answer a question about one visitor would
+ * pull the tenant's whole member list onto this server.
+ *
+ * @return array|WP_Error Decoded response, or an error.
+ */
+function agend_apps_crm_get_my_segments() {
+	$response = agend_apps_api()->request( 'GET', '/crm/me/segments' );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded my-segments response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 */
+	return apply_filters( 'agend_apps_crm_get_my_segments_response', $response );
+}

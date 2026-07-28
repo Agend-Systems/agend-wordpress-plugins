@@ -152,18 +152,8 @@ final class ConditionRuntimeTest extends TestCase {
 	}
 
 	/**
-	 * Segments are 54% of real conditions and are not implemented. The gap must
-	 * DENY, not pass: the alternative is showing segment-restricted content to
-	 * everyone, which is the fail-open behaviour this engine exists to avoid.
-	 */
-	#[Test]
-	public function segments_are_unknown_by_default_so_they_deny(): void {
-		$this->assertNull( Runtime::segment_facts() );
-	}
-
-	/**
-	 * A site can supply segments from its own source before the gateway
-	 * endpoint ships. Opting in is explicit; the default stays fail-closed.
+	 * A site can still override the gateway with its own source. Returning an
+	 * array short-circuits the read entirely.
 	 */
 	#[Test]
 	public function a_site_may_supply_segments_through_the_filter(): void {
@@ -179,5 +169,99 @@ final class ConditionRuntimeTest extends TestCase {
 		// member keeps access for that long.
 		$this->assertLessThanOrEqual( 15 * MINUTE_IN_SECONDS, Runtime::cache_ttl() );
 		$this->assertGreaterThan( 0, Runtime::cache_ttl() );
+	}
+
+	// -----------------------------------------------------------------
+	// Segments
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function a_signed_out_visitor_belongs_to_no_segments_definitively(): void {
+		// Segments are contact attributes and there is no contact, so this is
+		// an answer rather than an absence of one. It must NOT deny.
+		$this->assertSame( array(), Runtime::segment_facts() );
+	}
+
+	#[Test]
+	public function segment_slugs_are_read_from_the_gateway(): void {
+		$this->signIn( 7 );
+
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_segments_response'] =
+			static fn( $value ) => array(
+				'data' => array(
+					array( 'id' => 'a', 'slug' => 'vic-fellows', 'name' => 'VIC Fellows' ),
+					array( 'id' => 'b', 'slug' => 'trainees', 'name' => 'Trainees' ),
+				),
+			);
+
+		$this->assertSame( array( 'vic-fellows', 'trainees' ), Runtime::segment_facts() );
+	}
+
+	/**
+	 * An outage is UNKNOWN, not "belongs to no segments". The latter is a
+	 * different claim, and on an inverted rule it would disclose rather than
+	 * deny.
+	 */
+	#[Test]
+	public function a_segments_outage_is_unknown_rather_than_an_empty_set(): void {
+		$this->signIn( 7 );
+
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_segments_response'] =
+			static fn( $value ) => new \WP_Error( 'down', 'Gateway unreachable' );
+
+		$this->assertNull( Runtime::segment_facts() );
+		$this->assertArrayNotHasKey(
+			Runtime::SEGMENT_CACHE_KEY . '_7',
+			Agend_Test_WP::$transients
+		);
+	}
+
+	#[Test]
+	public function segments_are_cached_per_viewer_and_not_refetched(): void {
+		$this->signIn( 7 );
+
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_segments_response'] =
+			static fn( $value ) => array(
+				'data' => array( array( 'id' => 'a', 'slug' => 'vic-fellows', 'name' => 'V' ) ),
+			);
+
+		Runtime::segment_facts();
+		$after = count( Agend_Test_WP::$requests );
+		Runtime::segment_facts();
+
+		$this->assertSame( $after, count( Agend_Test_WP::$requests ) );
+
+		// A different viewer must not inherit that cache entry.
+		$this->signIn( 8 );
+		Runtime::segment_facts();
+
+		$this->assertGreaterThan( $after, count( Agend_Test_WP::$requests ) );
+	}
+
+	#[Test]
+	public function flushing_clears_both_membership_and_segment_caches(): void {
+		Agend_Test_WP::$transients[ Runtime::MEMBER_CACHE_KEY . '_7' ]  = array( 'is_member' => true );
+		Agend_Test_WP::$transients[ Runtime::SEGMENT_CACHE_KEY . '_7' ] = array( 'vic' );
+
+		Runtime::flush_member_facts( 7 );
+
+		$this->assertArrayNotHasKey( Runtime::MEMBER_CACHE_KEY . '_7', Agend_Test_WP::$transients );
+		$this->assertArrayNotHasKey( Runtime::SEGMENT_CACHE_KEY . '_7', Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function a_malformed_segment_row_is_skipped_not_fatal(): void {
+		$this->signIn( 7 );
+
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_segments_response'] =
+			static fn( $value ) => array(
+				'data' => array(
+					array( 'id' => 'a', 'slug' => 'good', 'name' => 'Good' ),
+					array( 'id' => 'b', 'name' => 'No slug' ),
+					'not an array',
+				),
+			);
+
+		$this->assertSame( array( 'good' ), Runtime::segment_facts() );
 	}
 }
