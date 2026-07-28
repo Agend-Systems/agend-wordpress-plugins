@@ -95,6 +95,13 @@ function agend_content_access_bootstrap(): void {
 		add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
 	}
 
+	// Version range and the suppression-chain probe (US-4.4 criteria 9, 10).
+	// Loaded unconditionally: it must be able to report that Elementor is
+	// ABSENT or too old, which it cannot do from inside an Elementor-gated
+	// branch.
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-compat.php';
+	Agend_Content_Access_Compat::init();
+
 	add_action( 'rest_api_init', 'agend_content_access_bootstrap_rest' );
 
 	if ( is_admin() ) {

@@ -24,6 +24,17 @@ $agend_modes = array(
 ?>
 <div class="agend-access-panel">
 
+	<?php if ( ! empty( $data['unmodelled_types'] ) ) : ?>
+		<p class="agend-access-warning notice notice-info notice-alt">
+			<?php
+			esc_html_e(
+				'This page uses Elementor\'s new editor. Individual sections on it cannot be restricted separately, because those elements do not accept the Agend Access control. The setting below still applies to the WHOLE page.',
+				'agend-content-access'
+			);
+			?>
+		</p>
+	<?php endif; ?>
+
 	<?php if ( ! empty( $data['stale'] ) ) : ?>
 		<p class="agend-access-warning notice notice-warning notice-alt">
 			<?php esc_html_e( 'The plan list could not be refreshed from Agend, so it may be out of date. Your existing settings are unaffected and can still be saved.', 'agend-content-access' ); ?>

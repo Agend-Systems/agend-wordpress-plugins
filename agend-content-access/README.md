@@ -28,13 +28,52 @@ is a plain WordPress install with Elementor Pro (Decision 2.16).
 
 ### Elementor versions
 
+**Supported range: 3.0.0 up to and including 4.2.0.**
+
 - **Build target: 3.x.** Fragment work is written against the 3.x control and
   rendering APIs.
-- **Validated on: 4.x.** The first target site runs Elementor 4.2.0, so 4.x is a
-  release gate rather than an afterthought (US-4.4).
+- **Tested up to: 4.2.0.** The first target site runs Elementor 4.2.0, so 4.x is
+  a release gate rather than an afterthought (US-4.4).
 
-A version outside the supported range surfaces an admin notice. Support is not
-implied by the code happening to run.
+The range is declared in code as `Agend_Content_Access_Compat::MIN_ELEMENTOR`
+and `::MAX_TESTED_ELEMENTOR`, and enforced at runtime:
+
+| Installed | Behaviour |
+| --- | --- |
+| Below 3.0.0 | Admin warning. Per-section restrictions may not apply; page-level restrictions are unaffected |
+| 3.0.0 to 4.2.0 | Supported |
+| Above 4.2.0 | Admin warning that the combination is untested, with a prompt to verify a restricted section against a logged-out visitor |
+
+"Tested up to" means exactly that. It is not forward compatibility, and support
+is not implied by the code happening to run. Do not raise
+`MAX_TESTED_ELEMENTOR` without re-running the US-4.4 validation; a unit test
+pins the constant to the version actually validated so that bump cannot pass
+unnoticed.
+
+### Editor V4 atomic widgets: known v1 limitation
+
+Elementor's Editor V4 introduces atomic elements (`e-div-block`, `e-heading` and
+the rest). **Per-section Agend Access controls are not available on them in v1.**
+Their control stack does not accept the injected section.
+
+What still works on a V4 page, and is not a limitation:
+
+- **Document policies apply in full.** A page restricted to members is
+  restricted, whichever editor built it.
+- **Suppression still applies.** Atomic elements inherit `Element_Base`, which
+  is where the `should_render` filter fires, so an element whose effective
+  policy denies the viewer is still removed.
+
+That inheritance is the load-bearing assumption, so it is not left to trust: a
+runtime probe checks on every admin pageload that the atomic classes still
+extend `Element_Base`, and raises a non-dismissible error naming the classes if
+they do not. That state is the one in which the plugin would believe it is
+protecting content and would not be.
+
+An editor opening a V4 page sees a note in the Agend Access panel explaining
+that individual sections cannot be restricted separately and that the page-level
+setting covers the whole page. The note appears only when atomic elements are
+actually present, not on every Elementor page.
 
 ### What the document parser supports
 

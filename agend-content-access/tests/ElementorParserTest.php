@@ -270,4 +270,75 @@ final class ElementorParserTest extends TestCase {
 
 		$this->assertSame( array( 'w1', 'w2', 'w3', 'w4' ), array_column( $result['fragments'], 'id' ) );
 	}
+
+	/**
+	 * Editor V4 atomic elements cannot carry the Agend Access control, so the
+	 * post editor needs to know they are present in order to explain why no
+	 * per-section option appears (US-4.4 criterion 12).
+	 */
+	#[Test]
+	public function v4_atomic_element_types_are_reported(): void {
+		$doc = json_encode(
+			array(
+				array(
+					'id'       => 'k1',
+					'elType'   => 'e-div-block',
+					'settings' => array(),
+					'elements' => array(
+						array( 'id' => 'h1', 'elType' => 'e-heading', 'settings' => array() ),
+					),
+				),
+			)
+		);
+
+		$this->assertSame(
+			array( 'e-div-block', 'e-heading' ),
+			Agend_Content_Access_Elementor_Parser::unmodelled_element_types( (string) $doc )
+		);
+	}
+
+	/**
+	 * A classic document must NOT trigger the notice. Warning every Elementor
+	 * user about a limitation they will never hit trains them to ignore it.
+	 */
+	#[Test]
+	public function a_classic_document_reports_no_unmodelled_types(): void {
+		$doc = json_encode(
+			array(
+				$this->node(
+					'section',
+					's1',
+					array( $this->node( 'column', 'c1', array( $this->widget( 'w1', 'x' ) ) ) )
+				),
+			)
+		);
+
+		$this->assertSame(
+			array(),
+			Agend_Content_Access_Elementor_Parser::unmodelled_element_types( (string) $doc )
+		);
+	}
+
+	#[Test]
+	public function repeated_atomic_types_are_deduped_in_first_seen_order(): void {
+		$doc = json_encode(
+			array(
+				array( 'id' => 'a', 'elType' => 'e-flexbox', 'settings' => array(), 'elements' => array(
+					array( 'id' => 'b', 'elType' => 'e-heading', 'settings' => array() ),
+					array( 'id' => 'c', 'elType' => 'e-flexbox', 'settings' => array() ),
+				) ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'e-flexbox', 'e-heading' ),
+			Agend_Content_Access_Elementor_Parser::unmodelled_element_types( (string) $doc )
+		);
+	}
+
+	#[Test]
+	public function an_empty_or_invalid_document_reports_nothing(): void {
+		$this->assertSame( array(), Agend_Content_Access_Elementor_Parser::unmodelled_element_types( '' ) );
+		$this->assertSame( array(), Agend_Content_Access_Elementor_Parser::unmodelled_element_types( 'not json' ) );
+	}
 }
