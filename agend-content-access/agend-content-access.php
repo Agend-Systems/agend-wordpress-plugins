@@ -96,6 +96,10 @@ function agend_content_access_bootstrap(): void {
 		add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
 	}
 
+	// Segmented display conditions: the Agend-native ESAC engine (US-6.1).
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-conditions.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-providers.php';
+
 	// Legacy public-original audit (US-5.3) and its CLI surface. The audit is
 	// loaded always, so it is unit-testable; the command only under WP-CLI.
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-originals-audit.php';
