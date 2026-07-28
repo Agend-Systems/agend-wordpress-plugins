@@ -157,4 +157,61 @@ final class ElementorCacheExclusionTest extends TestCase {
 			)
 		);
 	}
+
+	/**
+	 * Display conditions personalise per visitor just as much as a policy
+	 * restricts per visitor, so they must leave the shared cache too.
+	 *
+	 * Missed on the first pass, because US-4.4 predates the condition control.
+	 * Found by loading a conditioned page as a member on wdaa.test and being
+	 * served the anonymous render. The reverse is the dangerous direction: a
+	 * member-warmed cache would show member-only sections to anonymous
+	 * visitors.
+	 */
+	#[Test]
+	public function an_element_with_display_conditions_is_excluded(): void {
+		$node = $this->section(
+			's1',
+			array(),
+			array(
+				'agend_conditions_enabled' => 'yes',
+				'agend_conditions'         => array( 'agend_wordpress:logged_in' ),
+			)
+		);
+
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+	}
+
+	#[Test]
+	public function conditions_switched_off_leave_the_element_cacheable(): void {
+		$node = $this->section(
+			's1',
+			array(),
+			array(
+				'agend_conditions_enabled' => '',
+				'agend_conditions'         => array( 'agend_wordpress:logged_in' ),
+			)
+		);
+
+		$this->assertFalse( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+	}
+
+	#[Test]
+	public function conditions_on_a_DESCENDANT_also_exclude_the_subtree(): void {
+		$node = $this->section(
+			's1',
+			array(
+				$this->widget( 'plain', array( 'editor' => 'public' ) ),
+				$this->widget(
+					'conditioned',
+					array(
+						'agend_conditions_enabled' => 'yes',
+						'agend_conditions'         => array( 'agend_membership:is_member' ),
+					)
+				),
+			)
+		);
+
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+	}
 }

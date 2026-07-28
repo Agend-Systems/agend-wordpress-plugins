@@ -451,6 +451,19 @@ class Agend_Content_Access_Elementor {
 			return true;
 		}
 
+		// Display conditions personalise per visitor just as much as a policy
+		// restricts per visitor, so they must leave the shared cache too.
+		//
+		// Missed on the first pass: the US-4.4 fix covered policy-bearing
+		// elements only, and the condition control arrived later. Caught by
+		// loading a conditioned page as a member and being served the
+		// anonymous render. The reverse is worse, since a member-warmed cache
+		// would then show member-only sections to anonymous visitors.
+		if ( ! empty( $settings[ self::CONDITIONS_ENABLED_KEY ] )
+			&& 'yes' === $settings[ self::CONDITIONS_ENABLED_KEY ] ) {
+			return true;
+		}
+
 		$children = isset( $node['elements'] ) && is_array( $node['elements'] )
 			? $node['elements']
 			: array();
