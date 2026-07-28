@@ -36,6 +36,25 @@ class Agend_Content_Access_Elementor {
 	const TIERS_KEY  = 'agend_access_tier_ids';
 
 	/**
+	 * Display-condition controls (US-6.1, ESAC parity).
+	 *
+	 * Kept in their own control group and evaluated separately from the access
+	 * POLICY above, because the two are different things wearing similar
+	 * clothes. The policy travels to Agend and drives the server-side
+	 * projection: it is a security boundary, enforced whether or not WordPress
+	 * renders correctly. Display conditions are evaluated HERE, in the theme,
+	 * and personalise what a page shows.
+	 *
+	 * Merging them into one control would invite an editor to treat a local
+	 * render decision as protection. They compose instead: either can hide an
+	 * element, neither can reveal one the other hid.
+	 */
+	const CONDITIONS_ENABLED_KEY = 'agend_conditions_enabled';
+	const CONDITIONS_KEY         = 'agend_conditions';
+	const CONDITIONS_MATCH_KEY   = 'agend_conditions_match';
+	const CONDITIONS_INVERT_KEY  = 'agend_conditions_invert';
+
+	/**
 	 * Control stacks already given the section this request.
 	 *
 	 * Keyed on the stack's unique name, not an object id: Elementor caches
@@ -131,6 +150,73 @@ class Agend_Content_Access_Elementor {
 				),
 				'description' => __(
 					'Members on any one of these plans can see this section. Selecting none hides it from everybody.',
+					'agend-content-access'
+				),
+			)
+		);
+
+		$element->add_control(
+			'agend_conditions_divider',
+			array(
+				'type' => \Elementor\Controls_Manager::DIVIDER,
+			)
+		);
+
+		$element->add_control(
+			self::CONDITIONS_ENABLED_KEY,
+			array(
+				'label'        => __( 'Add display conditions', 'agend-content-access' ),
+				'type'         => \Elementor\Controls_Manager::SWITCHER,
+				'default'      => '',
+				'return_value' => 'yes',
+				'description'  => __(
+					'Show or hide this element based on the visitor: their WordPress role, their membership, or a segment. This is presentation, applied by this site. For content that must be protected, use the setting above, which Agend enforces.',
+					'agend-content-access'
+				),
+			)
+		);
+
+		$element->add_control(
+			self::CONDITIONS_KEY,
+			array(
+				'label'       => __( 'Conditions', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'options'     => Agend_Content_Access_Condition_Sets::as_options(),
+				'default'     => array(),
+				'label_block' => true,
+				'condition'   => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
+				'description' => __(
+					'Choosing none shows the element to everybody.',
+					'agend-content-access'
+				),
+			)
+		);
+
+		$element->add_control(
+			self::CONDITIONS_MATCH_KEY,
+			array(
+				'label'     => __( 'Match', 'agend-content-access' ),
+				'type'      => \Elementor\Controls_Manager::SELECT,
+				'default'   => Agend_Content_Access_Conditions::MATCH_ANY,
+				'options'   => array(
+					Agend_Content_Access_Conditions::MATCH_ANY => __( 'Any of these', 'agend-content-access' ),
+					Agend_Content_Access_Conditions::MATCH_ALL => __( 'All of these', 'agend-content-access' ),
+				),
+				'condition' => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
+			)
+		);
+
+		$element->add_control(
+			self::CONDITIONS_INVERT_KEY,
+			array(
+				'label'        => __( 'Reverse the result', 'agend-content-access' ),
+				'type'         => \Elementor\Controls_Manager::SWITCHER,
+				'default'      => '',
+				'return_value' => 'yes',
+				'condition'    => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
+				'description'  => __(
+					'Show the element to everyone the conditions do NOT match. Use this for content aimed at signed-out visitors, or at people who are not yet members.',
 					'agend-content-access'
 				),
 			)
@@ -259,7 +345,17 @@ class Agend_Content_Access_Elementor {
 			return $should_render;
 		}
 
-		$fragment = self::policy_from_settings( $element->get_settings_for_display() );
+		$settings = $element->get_settings_for_display();
+
+		// Display conditions are evaluated FIRST and independently. They can
+		// only ever remove an element, so an element hidden here is hidden
+		// whatever the access policy says, and vice versa. Neither can reveal
+		// what the other hid.
+		if ( ! self::conditions_pass( $settings ) ) {
+			return false;
+		}
+
+		$fragment = self::policy_from_settings( $settings );
 
 		if ( null === $fragment ) {
 			// Inherits the page, which the page-level gate already handled.
@@ -344,6 +440,60 @@ class Agend_Content_Access_Elementor {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Do this element's display conditions admit the current visitor?
+	 *
+	 * Returns true when conditions are switched off or none are chosen, which
+	 * is the overwhelmingly common case and must cost nothing.
+	 *
+	 * An unknown provider or a malformed condition DENIES, and the reason is
+	 * logged for an administrator rather than surfaced to the visitor. The
+	 * reference implementation passes in both cases, which turns a deactivated
+	 * plugin into a silent disclosure.
+	 *
+	 * @param array $settings Element settings.
+	 * @return bool
+	 */
+	public static function conditions_pass( array $settings ): bool {
+		if ( empty( $settings[ self::CONDITIONS_ENABLED_KEY ] )
+			|| 'yes' !== $settings[ self::CONDITIONS_ENABLED_KEY ] ) {
+			return true;
+		}
+
+		$conditions = isset( $settings[ self::CONDITIONS_KEY ] ) && is_array( $settings[ self::CONDITIONS_KEY ] )
+			? $settings[ self::CONDITIONS_KEY ]
+			: array();
+
+		$match = ( isset( $settings[ self::CONDITIONS_MATCH_KEY ] )
+			&& Agend_Content_Access_Conditions::MATCH_ALL === $settings[ self::CONDITIONS_MATCH_KEY ] )
+			? Agend_Content_Access_Conditions::MATCH_ALL
+			: Agend_Content_Access_Conditions::MATCH_ANY;
+
+		$invert = ! empty( $settings[ self::CONDITIONS_INVERT_KEY ] )
+			&& 'yes' === $settings[ self::CONDITIONS_INVERT_KEY ];
+
+		$result = Agend_Content_Access_Conditions::evaluate(
+			$conditions,
+			Agend_Content_Access_Condition_Runtime::checker(),
+			$match,
+			$invert
+		);
+
+		if ( array() !== $result['unknown'] ) {
+			// Loud in the log, silent to the visitor. An administrator needs to
+			// know a rule is broken; a visitor must not learn which providers a
+			// site uses.
+			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				sprintf(
+					'[Agend Content Access] Denied an element: unrecognised display conditions (%s). A provider plugin may be inactive.',
+					implode( ', ', $result['unknown'] )
+				)
+			);
+		}
+
+		return (bool) $result['passes'];
 	}
 
 	/**

@@ -313,3 +313,29 @@ if ( ! function_exists( 'get_current_user_id' ) ) {
 		return (int) ( $GLOBALS['agend_test_current_user_id'] ?? 0 );
 	}
 }
+
+if ( ! class_exists( 'Agend_Test_User' ) ) {
+	/**
+	 * Minimal WP_User stand-in for the condition providers.
+	 *
+	 * Roles come from a global so a test can move the visitor between roles
+	 * without a user table.
+	 */
+	class Agend_Test_User {
+		public array $roles = array();
+
+		public function __construct( array $roles = array() ) {
+			$this->roles = $roles;
+		}
+
+		public function exists(): bool {
+			return ! empty( $GLOBALS['agend_test_current_user_id'] );
+		}
+	}
+}
+
+if ( ! function_exists( 'wp_get_current_user' ) ) {
+	function wp_get_current_user() {
+		return new Agend_Test_User( (array) ( $GLOBALS['agend_test_current_user_roles'] ?? array() ) );
+	}
+}

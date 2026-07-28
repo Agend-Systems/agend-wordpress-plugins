@@ -100,6 +100,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-conditions.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-providers.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-runtime.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-sets.php';
 
 	// Legacy public-original audit (US-5.3) and its CLI surface. The audit is
 	// loaded always, so it is unit-testable; the command only under WP-CLI.
