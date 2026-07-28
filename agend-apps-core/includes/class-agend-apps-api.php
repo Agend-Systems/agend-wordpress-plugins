@@ -168,6 +168,24 @@ class Agend_Apps_API {
 
 		if ( isset( $args['body'] ) && is_array( $args['body'] ) ) {
 			$request_args['body'] = wp_json_encode( $args['body'] );
+		} elseif ( isset( $args['body'] ) && is_string( $args['body'] ) ) {
+			// A pre-encoded body, for the request shapes JSON cannot express.
+			// Multipart uploads are the reason this exists: the caller builds
+			// the body and supplies the matching Content-Type through
+			// `$args['headers']`.
+			//
+			// Previously a string body was silently DROPPED here, so the
+			// request went out with no payload and the failure surfaced as a
+			// confusing validation error from the gateway rather than as
+			// anything pointing back to this line.
+			$request_args['body'] = $args['body'];
+		}
+
+		// A file upload is not a 15 second operation. The default stays put for
+		// every ordinary call; only a caller that knows it is sending bytes
+		// raises it.
+		if ( isset( $args['timeout'] ) && is_numeric( $args['timeout'] ) ) {
+			$request_args['timeout'] = (int) $args['timeout'];
 		}
 
 		// 8. Check rate limit before sending.
