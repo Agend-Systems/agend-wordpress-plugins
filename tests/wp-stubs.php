@@ -258,3 +258,36 @@ if ( ! class_exists( 'WP_Error' ) ) {
 		}
 	}
 }
+
+/**
+ * Post meta store for tests that exercise document-level promotion.
+ *
+ * Deliberately a real read/write pair rather than a no-op: the promotion walk
+ * only counts as tested if the rewritten document can be read back and
+ * asserted on.
+ */
+if ( ! isset( $GLOBALS['agend_test_post_meta'] ) ) {
+	$GLOBALS['agend_test_post_meta'] = array();
+}
+
+if ( ! function_exists( 'get_post_meta' ) ) {
+	function get_post_meta( $post_id, $key = '', $single = false ) {
+		$value = $GLOBALS['agend_test_post_meta'][ (int) $post_id ][ $key ] ?? '';
+
+		return $single ? $value : array( $value );
+	}
+}
+
+if ( ! function_exists( 'update_post_meta' ) ) {
+	function update_post_meta( $post_id, $key, $value ) {
+		$GLOBALS['agend_test_post_meta'][ (int) $post_id ][ $key ] = $value;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_slash' ) ) {
+	function wp_slash( $value ) {
+		return $value;
+	}
+}
