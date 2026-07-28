@@ -186,13 +186,71 @@ function agend_content_access_enqueue_admin_assets( string $hook ): void {
 /**
  * Registers the Elementor fragment-policy integration.
  */
+/**
+ * Promotes protected files on a saved document into Agend storage.
+ *
+ * On `save_post` rather than on upload: that is the moment the editor has
+ * committed to the choice. Promoting at upload time would move files somebody
+ * was only previewing, and doing it lazily on first view would leave the
+ * public copy in `wp-content/uploads` for however long that took.
+ *
+ * A failure is recorded and leaves the file where it is. One unreachable
+ * upload must not abort the save of an otherwise-good page.
+ *
+ * @param int $post_id Post being saved.
+ */
+function agend_content_access_promote_saved_assets( $post_id ): void {
+	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+		return;
+	}
+
+	if ( wp_is_post_revision( $post_id ) ) {
+		return;
+	}
+
+	if ( ! function_exists( 'agend_apps_cms_upload_asset' ) ) {
+		return;
+	}
+
+	$result = Agend_Content_Access_Assets::promote_document(
+		(int) $post_id,
+		static function ( int $attachment_id ) {
+			return Agend_Content_Access_Assets::promote(
+				$attachment_id,
+				array( 'Agend_Content_Access_Assets', 'attachment_meta' ),
+				'agend_apps_cms_upload_asset',
+				'wp_delete_attachment'
+			);
+		}
+	);
+
+	if ( array() !== $result['errors'] ) {
+		set_transient(
+			'agend_content_access_promote_errors_' . (int) $post_id,
+			$result['errors'],
+			5 * MINUTE_IN_SECONDS
+		);
+	}
+}
+
 function agend_content_access_bootstrap_elementor(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-elementor.php';
-	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-protected-file-widget.php';
 
+	// The widget file is required INSIDE the registration callback, not here.
+	//
+	// `elementor/loaded` fires while Elementor is still booting, before
+	// `Elementor\Widget_Base` exists, so requiring a file that extends it at
+	// this point is a fatal error on activation. `elementor/widgets/register`
+	// is the first moment the base class is guaranteed to be loaded.
+	//
+	// Found by activating the plugin on a real site. No unit test could catch
+	// it: the harness has no Elementor at all, so the class is absent there by
+	// definition and the require is never reached.
 	add_action(
 		'elementor/widgets/register',
 		static function ( $widgets_manager ) {
+			require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-protected-file-widget.php';
+
 			$widgets_manager->register(
 				new Agend_Content_Access_Protected_File_Widget()
 			);
