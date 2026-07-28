@@ -96,6 +96,14 @@ function agend_content_access_bootstrap(): void {
 		add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
 	}
 
+	// Legacy public-original audit (US-5.3) and its CLI surface. The audit is
+	// loaded always, so it is unit-testable; the command only under WP-CLI.
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-originals-audit.php';
+
+	if ( defined( 'WP_CLI' ) && WP_CLI ) {
+		require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-cli.php';
+	}
+
 	// Protected downloads (US-5.1, US-5.2).
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/download-routes.php';
 	add_action( 'rest_api_init', 'agend_content_access_register_download_routes' );
