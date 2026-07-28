@@ -83,6 +83,21 @@
     return DELIVERY_MODE_LABELS[value] || '';
   }
 
+  function apiPost(path, body) {
+    var url = restBase().replace(/\/$/, '') + path;
+    var headers = { 'Content-Type': 'application/json' };
+    if (nonce()) {
+      headers['X-WP-Nonce'] = nonce();
+    }
+    return fetch(url, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(body || {}),
+    }).then(function (res) {
+      return res.json();
+    });
+  }
+
   function unwrapList(body) {
     if (body && Array.isArray(body.data)) {
       return { items: body.data, pagination: (body.meta && body.meta.pagination) || null };
@@ -101,6 +116,51 @@
       return null;
     }
     return body || null;
+  }
+
+  // Request headers for the shop cart endpoints. Prefers the shop's
+  // AgendCartSession helper (WP REST nonce + guest cart session token); falls
+  // back to the nonce alone when the shop script is somehow unavailable.
+  function cartHeaders() {
+    if (window.AgendCartSession && typeof window.AgendCartSession.getHeaders === 'function') {
+      return window.AgendCartSession.getHeaders();
+    }
+    return nonce() ? { 'X-WP-Nonce': nonce() } : {};
+  }
+
+  // Adds a single product line to the Agend Apps Shop cart (mirrors
+  // events-catalogue.js's cartAddItem, SPEC-CORE-20260722 US-2.4). A signed-in
+  // member's identity rides the bearer the WP proxy already attaches, so no
+  // attendee/guest data is needed for a course line; the `attendees` param is
+  // kept for signature parity with the events helper and is never used here.
+  function cartAddItem(productType, productId, quantity, attendees) {
+    var headers = cartHeaders();
+    headers['Content-Type'] = 'application/json';
+    var url = restBase().replace(/\/$/, '') + '/cart/items';
+    var payload = { productType: productType, productId: productId, quantity: quantity };
+    if (Array.isArray(attendees) && attendees.length) {
+      payload.attendees = attendees;
+    }
+    return fetch(url, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(payload),
+    }).then(function (res) {
+      return res.json().then(function (body) {
+        return { status: res.status, data: body && body.data };
+      });
+    }).then(function (result) {
+      if (result.status !== 200) {
+        var message = (result.data && result.data.body && result.data.body.error && result.data.body.error.message)
+          ? result.data.body.error.message
+          : 'Unable to add to cart. Please try again.';
+        throw new Error(message);
+      }
+      if (result.data && result.data.guestSessionToken && window.AgendCartSession) {
+        window.AgendCartSession.setToken(result.data.guestSessionToken);
+      }
+      return result.data;
+    });
   }
 
   function stripHtml(html) {
@@ -450,15 +510,22 @@
       var price = priceLabel(course);
       priceRow.appendChild(el('span', 'agend-lms-detail__price-value' + (price === 'Free' ? ' is-free' : ''), price));
       pricing.appendChild(priceRow);
-      var cta = el('button', 'agend-lms-detail__cta', 'Enrol Now');
-      cta.setAttribute('data-agend-course-slug', course.slug);
-      cta.addEventListener('click', function () {
-        if (typeof onEnrol === 'function') {
-          onEnrol(course);
-        }
-      });
-      pricing.appendChild(cta);
-      pricing.appendChild(el('p', 'agend-lms-detail__note', 'Sign in to enrol and track your progress.'));
+
+      // Signed-in member, not yet enrolled: let them act in place instead of
+      // the anonymous sign-in wall (SPEC-CORE-20260722 US-2.4).
+      if (window.agendApps && window.agendApps.loggedIn) {
+        renderMemberEnrolCta(pricing, course, cfg);
+      } else {
+        var cta = el('button', 'agend-lms-detail__cta', 'Enrol Now');
+        cta.setAttribute('data-agend-course-slug', course.slug);
+        cta.addEventListener('click', function () {
+          if (typeof onEnrol === 'function') {
+            onEnrol(course);
+          }
+        });
+        pricing.appendChild(cta);
+        pricing.appendChild(el('p', 'agend-lms-detail__note', 'Sign in to enrol and track your progress.'));
+      }
       side.appendChild(pricing);
     }
 
@@ -533,6 +600,76 @@
     panel.appendChild(meta);
     panel.appendChild(el('p', 'agend-lms-detail__note', 'Continue learning in your member portal.'));
     return panel;
+  }
+
+  // Builds the signed-in, not-yet-enrolled CTA in place (SPEC-CORE-20260722
+  // US-2.4): a cart-enabled site adds the course to the shop cart; otherwise
+  // the member is handed to the portal to complete enrolment there. Appends
+  // directly to `panel` rather than returning a node, since the error text
+  // needs to sit alongside the button it belongs to.
+  function renderMemberEnrolCta(panel, course, cfg) {
+    var error = el('p', 'agend-lms-detail__note is-error');
+    error.style.display = 'none';
+
+    function showError(message) {
+      error.style.display = '';
+      error.textContent = message;
+    }
+
+    // Cart mode: same product line the shop's own Add to Cart widget uses.
+    if (cfg.cartEnabled) {
+      var addBtn = el('button', 'agend-lms-detail__cta', 'Add to Cart');
+      addBtn.addEventListener('click', function () {
+        addBtn.disabled = true;
+        addBtn.textContent = 'Adding…';
+        error.style.display = 'none';
+        cartAddItem('courses', course.id, 1).then(function () {
+          document.dispatchEvent(new CustomEvent('agend:cart:updated'));
+          addBtn.textContent = 'Added to Cart ✓';
+        }).catch(function (err) {
+          addBtn.disabled = false;
+          addBtn.textContent = 'Add to Cart';
+          showError((err && err.message) || 'Unable to add to cart. Please try again.');
+        });
+      });
+      panel.appendChild(addBtn);
+      panel.appendChild(error);
+      return;
+    }
+
+    // No shop cart: a configured "sign in" URL doubles as the member's
+    // account/enrolment link when they are already signed in.
+    var linkUrl = (cfg.enrol && cfg.enrol.signInUrl) || (window.agendApps && window.agendApps.loginUrl) || '';
+    if (linkUrl) {
+      var link = el('a', 'agend-lms-detail__cta', 'Enrol Now');
+      link.href = linkUrl;
+      panel.appendChild(link);
+      return;
+    }
+
+    // Otherwise fall back to the member portal hand-off (the same mechanism
+    // the Member Login and Account Link widgets use): mint a single-use
+    // signed-in portal link and send the member there to complete enrolment.
+    var portalBtn = el('button', 'agend-lms-detail__cta', 'Enrol Now');
+    portalBtn.addEventListener('click', function () {
+      portalBtn.disabled = true;
+      portalBtn.textContent = 'Working…';
+      error.style.display = 'none';
+      apiPost('/auth/portal-handoff', {}).then(function (body) {
+        var data = unwrapOne(body);
+        var url = data && data.url;
+        if (!url) {
+          throw new Error((data && data.message) || 'The portal sign-in link could not be created.');
+        }
+        window.location.assign(url);
+      }).catch(function (err) {
+        portalBtn.disabled = false;
+        portalBtn.textContent = 'Enrol Now';
+        showError((err && err.message) || 'Unable to open the member portal. Please try again.');
+      });
+    });
+    panel.appendChild(portalBtn);
+    panel.appendChild(error);
   }
 
   // -- Enrolment gate -------------------------------------------------------

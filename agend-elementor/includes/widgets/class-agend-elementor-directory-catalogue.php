@@ -680,16 +680,18 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		$settings = $this->get_settings_for_display();
 		$config   = $this->build_config( $settings );
 
-		// US-3.2: path-based detail routing. The `listing` rewrite endpoint
+		// US-3.2: path-based detail routing. The directory detail rule
 		// (registered in class-agend-elementor-routing.php) exposes the slug on
-		// the current page URL as /{page}/listing/{slug}/. The slug is injected
-		// server-side so a direct load renders the detail with no catalogue
-		// flash; the base page path lets the script build pretty links, and it
-		// falls back to the ?agend_listing= query param when pretty permalinks
-		// are off or the base path is unavailable.
+		// the current page URL as /{page}/listing/{slug}/ via the private
+		// `agend_dir_listing` query var (the public `listing` segment maps to it;
+		// the namespaced var avoids the common `listing` query-var collision).
+		// The slug is injected server-side so a direct load renders the detail
+		// with no catalogue flash; the base page path lets the script build
+		// pretty links, and it falls back to the ?agend_listing= query param when
+		// pretty permalinks are off or the base path is unavailable.
 		$page_id               = get_queried_object_id();
 		$base_path             = $page_id ? get_permalink( $page_id ) : '';
-		$config['deepLink']    = sanitize_title( (string) get_query_var( 'listing' ) );
+		$config['deepLink']    = sanitize_title( (string) get_query_var( 'agend_dir_listing' ) );
 		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
 		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
 		// When server-rendered detail pages are on, cards navigate to the

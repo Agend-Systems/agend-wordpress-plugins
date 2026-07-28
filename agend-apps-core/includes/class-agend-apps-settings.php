@@ -175,6 +175,61 @@ class Agend_Apps_Settings {
 	}
 
 	/**
+	 * Returns the URL of the connected account's member portal home.
+	 *
+	 * Builds `{portal}/home/{slug}` from the portal root and the connected
+	 * account slug setting, so plain portal links land members on the correct
+	 * account portal rather than the generic organisation resolver. Falls back
+	 * to the portal root when no account slug is configured. The authenticated
+	 * hand-off (`/v1/auth/session-handoff`) derives the same destination
+	 * server-side from the API key's account; this helper covers the
+	 * unauthenticated fallback links.
+	 *
+	 * Applies the `agend_apps_portal_home_url` filter before returning.
+	 *
+	 * @return string Portal home URL without a trailing slash.
+	 */
+	public static function get_portal_home_url(): string {
+		$url  = self::get_portal_url();
+		$slug = self::get_account_slug();
+
+		if ( '' !== $url && '' !== $slug ) {
+			$url .= '/home/' . rawurlencode( $slug );
+		}
+
+		/**
+		 * Filters the resolved account portal home URL.
+		 *
+		 * @param string $url The resolved portal home URL.
+		 */
+		return (string) apply_filters( 'agend_apps_portal_home_url', $url );
+	}
+
+	/**
+	 * Returns the WordPress page URL that completes a password reset in place.
+	 *
+	 * Empty by default: the gateway then mints a reset link to the member
+	 * PORTAL recovery page (SPEC-CORE-20260722 US-2.7). Set this to the URL of a
+	 * page that hosts the Agend Member Login widget to keep the reset ON this
+	 * WordPress site — the reset email links back to that page, the widget reads
+	 * the recovery token and posts the new password to the gateway. The URL MUST
+	 * also be added to the API key's `redirect_url_allowlist` (the gateway
+	 * rejects an unlisted redirect target).
+	 *
+	 * @return string The reset page URL, or an empty string for the portal default.
+	 */
+	public static function get_member_reset_url(): string {
+		$url = (string) get_option( 'agend_apps_member_reset_url', '' );
+
+		/**
+		 * Filters the in-WordPress password-reset completion page URL.
+		 *
+		 * @param string $url The configured reset page URL ('' = portal default).
+		 */
+		return (string) apply_filters( 'agend_apps_member_reset_url', trim( $url ) );
+	}
+
+	/**
 	 * Returns the cache TTL in seconds for the given endpoint key.
 	 *
 	 * Falls back to the endpoint's default TTL if no option value is stored.

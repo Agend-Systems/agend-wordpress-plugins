@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.9.4
+ * Version:           0.9.7
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.9.4' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.9.7' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -46,7 +46,7 @@ define( 'AGEND_ELEMENTOR_URL', plugin_dir_url( __FILE__ ) );
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260717-2' );
+define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260723-1' );
 
 // Detail-URL rewrite endpoints (SPEC-INFRA-20260717 US-1.1). Loaded
 // unconditionally so the endpoints register even when Elementor or Agend Apps
@@ -56,6 +56,10 @@ require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-routing.php';
 // Settings (server-rendered detail toggle). Loaded unconditionally so the
 // accessor is available on the front-end `wp` hook and in the admin.
 require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-settings.php';
+
+// Elementor element-cache guard. Loaded unconditionally so a degraded boot
+// (missing dependency) can be recorded even when the bootstrap bails below.
+require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-cache-guard.php';
 
 register_activation_hook( __FILE__, 'agend_elementor_activate_rewrites' );
 register_deactivation_hook( __FILE__, 'agend_elementor_deactivate_rewrites' );
@@ -69,20 +73,30 @@ register_deactivation_hook( __FILE__, 'agend_elementor_deactivate_rewrites' );
  */
 function agend_elementor_bootstrap(): void {
 	if ( ! function_exists( 'agend_apps_api' ) ) {
+		Agend_Elementor_Cache_Guard::flag_degraded();
 		add_action( 'admin_notices', 'agend_elementor_missing_core_notice' );
 		return;
 	}
 
 	if ( ! did_action( 'elementor/loaded' ) ) {
+		Agend_Elementor_Cache_Guard::flag_degraded();
 		add_action( 'admin_notices', 'agend_elementor_missing_elementor_notice' );
 		return;
 	}
+
+	// Widgets will register on this request: flush any element cache built
+	// while they were not registered (see the cache guard's class docblock).
+	Agend_Elementor_Cache_Guard::watch();
 
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor.php';
 
 	// Server-rendered detail pages (opt-in). Requires the Agend Apps Core REST
 	// wrappers, so it loads only once the core dependency check above passes.
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-ssr-detail.php';
+
+	// Usermeta-based display conditions, available on every Elementor element
+	// (not just Agend's own widgets). Only needs Elementor itself.
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-conditions.php';
 }
 add_action( 'plugins_loaded', 'agend_elementor_bootstrap' );
 
@@ -249,6 +263,21 @@ function agend_elementor_enqueue_scripts(): void {
 	);
 
 	wp_enqueue_style(
+		'agend-elementor-member-login',
+		AGEND_ELEMENTOR_URL . 'assets/css/member-login.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-elementor-member-login',
+		AGEND_ELEMENTOR_URL . 'assets/js/member-login.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	wp_enqueue_style(
 		'agend-elementor-memberships-catalogue',
 		AGEND_ELEMENTOR_URL . 'assets/css/memberships-catalogue.css',
 		array(),
@@ -259,6 +288,21 @@ function agend_elementor_enqueue_scripts(): void {
 		'agend-elementor-memberships-catalogue',
 		AGEND_ELEMENTOR_URL . 'assets/js/memberships-catalogue.js',
 		array( 'agend-elementor-dompurify' ),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	wp_enqueue_style(
+		'agend-elementor-header-auth',
+		AGEND_ELEMENTOR_URL . 'assets/css/header-auth.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+
+	wp_enqueue_script(
+		'agend-elementor-header-auth',
+		AGEND_ELEMENTOR_URL . 'assets/js/header-auth.js',
+		array(),
 		AGEND_ELEMENTOR_VERSION,
 		true
 	);

@@ -341,7 +341,14 @@
 
   // -- Catalogue card -------------------------------------------------------
 
-  function renderCard(listing, cfg, onOpen, hrefFor) {
+  // True when `listing` is the signed-in member's own listing
+  // (SPEC-CORE-20260722 US-2.6): either the gateway enrichment flag, or a
+  // ready-computed match against the fetched /directory/me/listing id.
+  function isMyListing(listing, myListing) {
+    return !!(listing && (listing.is_mine || (myListing && listing.id === myListing.id)));
+  }
+
+  function renderCard(listing, cfg, onOpen, hrefFor, myListing) {
     // In server-rendered detail mode the card is a real link to the detail
     // page (full navigation), so breadcrumbs and SEO resolve server-side.
     var href = cfg.ssrDetail && hrefFor ? hrefFor(listing.slug) : null;
@@ -395,6 +402,12 @@
     }
 
     body.appendChild(el('h3', 'agend-dir-card__title', listing.name || ''));
+
+    // Signed-in member viewing their own listing among the results
+    // (SPEC-CORE-20260722 US-2.6).
+    if (isMyListing(listing, myListing)) {
+      body.appendChild(el('div', 'agend-dir-card__mine', 'Your listing'));
+    }
 
     if (cfg.card.location && listing.primary_location) {
       var loc = [listing.primary_location.city, listing.primary_location.state].filter(Boolean).join(', ');
@@ -908,7 +921,13 @@
 
     load();
 
-    if (cfg.detail && cfg.detail.reviewForm) {
+    // A member reviewing their own listing sees an indicator instead of the
+    // review form (SPEC-CORE-20260722 US-2.6) — reviewing your own business
+    // does not make sense, so the form is suppressed here rather than merely
+    // hidden after submission attempts.
+    if (listing.is_mine) {
+      section.appendChild(el('p', 'agend-dir-reviews__mine', 'This is your listing.'));
+    } else if (cfg.detail && cfg.detail.reviewForm) {
       section.appendChild(renderReviewForm(listing));
     }
 
@@ -956,18 +975,27 @@
     ratingWrap.appendChild(starsRow);
     form.appendChild(ratingWrap);
 
-    var name = el('input', 'agend-dir-review-form__input');
-    name.type = 'text';
-    name.placeholder = 'Your name';
-    var email = el('input', 'agend-dir-review-form__input');
-    email.type = 'email';
-    email.placeholder = 'you@example.com';
+    // Signed-in member: identity is derived server-side from the bearer, so
+    // the name/email fields are not collected (SPEC-CORE-20260722 US-2.6).
+    // Guests keep the existing required name/email capture.
+    var isSignedIn = !!(window.agendApps && window.agendApps.loggedIn);
+
+    var name = null;
+    var email = null;
+    if (!isSignedIn) {
+      name = el('input', 'agend-dir-review-form__input');
+      name.type = 'text';
+      name.placeholder = 'Your name';
+      email = el('input', 'agend-dir-review-form__input');
+      email.type = 'email';
+      email.placeholder = 'you@example.com';
+      form.appendChild(labelledField('Name', name));
+      form.appendChild(labelledField('Email', email));
+    }
     var content = el('textarea', 'agend-dir-review-form__textarea');
     content.placeholder = 'Share your experience (at least 20 characters)…';
     content.rows = 4;
 
-    form.appendChild(labelledField('Name', name));
-    form.appendChild(labelledField('Email', email));
     form.appendChild(labelledField('Review', content));
 
     var error = el('div', 'agend-dir-review-form__error');
@@ -985,18 +1013,18 @@
 
     submit.addEventListener('click', function () {
       error.style.display = 'none';
-      var nameVal = name.value.trim();
-      var emailVal = email.value.trim();
+      var nameVal = name ? name.value.trim() : '';
+      var emailVal = email ? email.value.trim() : '';
       var contentVal = content.value.trim();
       if (!chosen) {
         showError('Select a star rating.');
         return;
       }
-      if (nameVal.length < 2) {
+      if (!isSignedIn && nameVal.length < 2) {
         showError('Enter your name.');
         return;
       }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+      if (!isSignedIn && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
         showError('Enter a valid email address.');
         return;
       }
@@ -1006,13 +1034,16 @@
       }
       submit.disabled = true;
       submit.textContent = 'Submitting…';
-      apiPost('/directory/reviews', {
+      var payload = {
         listing_id: listing.id,
         rating: chosen,
-        reviewer_name: nameVal,
-        reviewer_email: emailVal,
         content: contentVal,
-      }).then(function (res) {
+      };
+      if (!isSignedIn) {
+        payload.reviewer_name = nameVal;
+        payload.reviewer_email = emailVal;
+      }
+      apiPost('/directory/reviews', payload).then(function (res) {
         if (res && res.success === false) {
           throw new Error((res.error && res.error.message) || 'Submission failed.');
         }
@@ -1360,6 +1391,35 @@
     catalogueEl.appendChild(grid);
     catalogueEl.appendChild(pager);
 
+    // Signed-in member's own listing, if any (SPEC-CORE-20260722 US-2.6): a
+    // "Manage your listing" link near the top, plus a badge on the matching
+    // card once results load. Progressive enhancement — fetched once, best
+    // effort against the render timing of the catalogue below.
+    var myListing = null;
+
+    function renderManageMyListingLink() {
+      var existing = catalogueEl.querySelector('.agend-dir-manage-mine');
+      if (existing && existing.parentNode) {
+        existing.parentNode.removeChild(existing);
+      }
+      if (!myListing || !myListing.slug) {
+        return;
+      }
+      var link = el('a', 'agend-dir-manage-mine', 'Manage your listing');
+      link.href = deepLinkUrl(myListing.slug);
+      catalogueEl.insertBefore(link, status);
+    }
+
+    if (window.agendApps && window.agendApps.loggedIn) {
+      apiGet('/directory/me/listing', {}).then(function (body) {
+        var maybe = unwrapOne(body);
+        myListing = (maybe && maybe.id) ? maybe : null;
+        renderManageMyListingLink();
+      }).catch(function () {
+        // Progressive enhancement only — the catalogue still works without it.
+      });
+    }
+
     function deepLinkUrl(slug) {
       if (cfg.prettyLinks && cfg.basePath) {
         var base = cfg.basePath;
@@ -1464,7 +1524,7 @@
           return;
         }
         result.items.forEach(function (listing) {
-          grid.appendChild(renderCard(listing, cfg, function (slug) { showDetail(slug, true); }, deepLinkUrl));
+          grid.appendChild(renderCard(listing, cfg, function (slug) { showDetail(slug, true); }, deepLinkUrl, myListing));
         });
         renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);
       }).catch(function () {

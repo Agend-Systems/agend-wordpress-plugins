@@ -160,7 +160,7 @@ class Agend_Apps_Account_Link_REST_Controller extends Agend_Apps_REST_Controller
 				'logged_in'    => true,
 				'linked'       => $linked,
 				'initiate_url' => $linked ? '' : agend_apps_account_link_initiate_url( $request ),
-				'portal_url'   => Agend_Apps_Settings::get_portal_url(),
+				'portal_url'   => Agend_Apps_Settings::get_portal_home_url(),
 			),
 			200
 		);

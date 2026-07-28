@@ -335,9 +335,11 @@
   opacity: 0.65;
 }
 
+/* Inactive price: normal weight, normal (body) colour. The active price is
+   promoted to bold + accent by the .is-yours rule below (US-2.3 cleanup). */
 .agend-ev-price__value {
-  font-weight: 700;
-  color: var(--agend-ev-heading);
+  font-weight: 400;
+  color: var(--agend-ev-body);
 }
 
 .agend-ev-price__value.is-free {
@@ -850,4 +852,58 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Member-aware states (SPEC-CORE-20260722 US-2.3). */
+.agend-ev-card__registered,
+.agend-ev-detail__registered {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: rgba(46, 160, 67, 0.12);
+  color: #1a7f37;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.agend-ev-detail__registered {
+  display: block;
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+/* Active price (the viewer's applicable tier): bold + highlight colour, so the
+   card and detail show which price applies without a text suffix (US-2.3). */
+.agend-ev-price.is-yours .agend-ev-price__value {
+  font-weight: 700;
+  color: var(--agend-ev-accent);
+}
+
+.agend-ev-price.is-yours .agend-ev-price__label {
+  font-weight: 700;
+  color: var(--agend-ev-accent);
+  opacity: 1;
+}
+
+/* Detail ticket list: one block per ticket type with its member/non-member
+   prices, the applicable one highlighted (US-2.3). */
+.agend-ev-detail__ticket {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #eceef4;
+}
+
+.agend-ev-detail__ticket:last-child {
+  border-bottom: 0;
+}
+
+.agend-ev-detail__ticket-name {
+  display: block;
+  font-weight: 600;
+  color: var(--agend-ev-heading);
+  margin-bottom: 0.5rem;
+}
+
+.agend-ev-detail__ticket-prices {
+  display: flex;
+  gap: 1.25rem;
 }

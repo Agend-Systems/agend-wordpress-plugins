@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.2.0
+ * Version:           1.2.4
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.2.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.2.4' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -93,6 +93,9 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-api.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/member-identity.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/member-membership-sync.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
@@ -119,11 +122,23 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/webhook-receiver-routes.php';
+
+	// Agend-first authentication for wp-login.php and wp_signon() callers.
+	// Loaded after api/auth.php and rest/auth-routes.php, whose helpers
+	// (gateway login, proxy-edge throttle) it reuses at authenticate time.
+	require_once AGEND_APPS_CORE_DIR . 'includes/wp-login-bridge.php';
 
 	// Bearer identity for outbound gateway calls (addendum E-11): mints and
 	// caches the logged-in member's Supabase JWT, served via the
 	// `agend_apps_bearer_token` filter.
 	new Agend_Apps_Token_Worker();
+
+	// Credential-login session (SPEC-CORE-20260722-wordpress-member-login):
+	// serves the access token from a member's stored Agend session ahead of the
+	// SSO worker, refreshing it as needed.
+	new Agend_Apps_Member_Session();
 
 	if ( is_admin() ) {
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-admin.php';
@@ -149,6 +164,8 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
+	agend_apps_register_auth_routes();
+	agend_apps_register_webhook_receiver_routes();
 }
 add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
 
@@ -159,12 +176,33 @@ add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
  * JS/Gutenberg blocks in sibling plugins can authenticate REST requests.
  */
 function agend_apps_output_config_js() {
-	$data = wp_json_encode(
-		array(
-			'restUrl' => rest_url( 'agend-apps/v1/' ),
-			'nonce'   => wp_create_nonce( 'wp_rest' ),
-		)
+	$config = array(
+		'restUrl'  => rest_url( 'agend-apps/v1/' ),
+		'nonce'    => wp_create_nonce( 'wp_rest' ),
+		'loggedIn' => false,
 	);
+
+	// Expose the Agend member-session state so every widget can render its
+	// signed-in view synchronously without a session probe request
+	// (SPEC-CORE-20260722 US-2.3/US-2.4/US-2.5/US-2.6). "Logged in" here means
+	// a member session with a bearer is available for the current WP user, not
+	// merely that some WP user is authenticated.
+	$user_id = get_current_user_id();
+	if (
+		$user_id > 0 &&
+		class_exists( 'Agend_Apps_Member_Session' ) &&
+		Agend_Apps_Member_Session::has_session( $user_id )
+	) {
+		$user                = wp_get_current_user();
+		$config['loggedIn']  = true;
+		$config['member']    = array(
+			'name'      => $user->display_name,
+			'email'     => $user->user_email,
+			'contactId' => (string) get_user_meta( $user_id, '_agend_apps_contact_id', true ),
+		);
+	}
+
+	$data = wp_json_encode( $config );
 	// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	printf( '<script id="agend-apps-config">/* <![CDATA[ */window.agendApps = %s;/* ]]> */</script>' . "\n", $data );
 }

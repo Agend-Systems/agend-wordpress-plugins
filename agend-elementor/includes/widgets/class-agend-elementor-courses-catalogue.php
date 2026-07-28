@@ -579,6 +579,13 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
 		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
 
+		// Cart mode: mirror the Events catalogue so a signed-in member's enrol
+		// CTA adds the course to the shop cart when the Agend Apps Shop is
+		// active (SPEC-CORE-20260722 US-2.4). Runtime site state, not a widget
+		// setting, so it is injected here rather than in build_config().
+		$config['cartEnabled'] = agend_elementor_shop_cart_enabled();
+		$config['cartPageUrl'] = agend_elementor_shop_cart_page_url();
+
 		$style = sprintf(
 			'--agend-lms-heading:%1$s;--agend-lms-body:%2$s;--agend-lms-accent:%3$s;--agend-lms-button:%4$s;--agend-lms-button-text:%5$s;--agend-lms-card-radius:%6$dpx;',
 			esc_attr( $config['colours']['heading'] ),

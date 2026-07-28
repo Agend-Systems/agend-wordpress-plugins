@@ -557,14 +557,30 @@
       }
     }
 
+    // Signed-in member registered for this event: show the state on the card
+    // (list responses carry my_registration when a member bearer is present).
+    if (event.my_registration) {
+      body.appendChild(el('div', 'agend-ev-card__registered', '✓ Registered'));
+    }
+
     if (cfg.card.pricing && event.price_summary) {
+      var group = viewerGroup(event);
+      // The applicable price is the member tier for a member/corporate viewer,
+      // otherwise the non-member tier (which also covers an anonymous visitor —
+      // the price they would pay). Consistent with the detail ticket list.
+      var cardActiveIsMember = group === 'member' || group === 'corporate';
       var pricing = el('div', 'agend-ev-card__pricing');
-      [['Members', event.price_summary.member_from], ['Non-Members', event.price_summary.non_member_from]].forEach(function (pair) {
+      [
+        ['Members', event.price_summary.member_from, cardActiveIsMember],
+        ['Non-Members', event.price_summary.non_member_from, !cardActiveIsMember],
+      ].forEach(function (pair) {
         var price = formatPrice(pair[1]);
         if (price === null) {
           return;
         }
-        var row = el('div', 'agend-ev-price');
+        // The applicable price is conveyed by weight + highlight colour
+        // (.is-yours), not a text suffix (SPEC-CORE-20260722 US-2.3).
+        var row = el('div', 'agend-ev-price' + (pair[2] ? ' is-yours' : ''));
         row.appendChild(el('span', 'agend-ev-price__label', pair[0]));
         row.appendChild(el('span', 'agend-ev-price__value' + (price === 'FREE' ? ' is-free' : ''), price));
         pricing.appendChild(row);
@@ -577,6 +593,58 @@
   }
 
   // -- Detail ---------------------------------------------------------------
+
+  // Raw price for a pricing tier's group key (member_price / non_member_price /
+  // corporate_price), or undefined when that group has no explicit price. Reads
+  // the ticket's first pricing tier; a flat-priced ticket has no tiers.
+  function ticketTierValue(entry, key) {
+    var tiers = (entry && entry.pricingTiers) || [];
+    if (!tiers.length) {
+      return undefined;
+    }
+    var tier = tiers[0].tier || tiers[0];
+    var v = tier[key];
+    if (v === null || v === undefined) {
+      return undefined;
+    }
+    return typeof v === 'string' ? parseFloat(v) : v;
+  }
+
+  function priceRow(label, price, isActive) {
+    var row = el('div', 'agend-ev-price' + (isActive ? ' is-yours' : ''));
+    row.appendChild(el('span', 'agend-ev-price__label', label));
+    row.appendChild(el('span', 'agend-ev-price__value' + (price === 'FREE' ? ' is-free' : ''), price));
+    return row;
+  }
+
+  // Builds the price rows for one ticket, highlighting the viewer's applicable
+  // tier via .is-yours (SPEC-CORE-20260722 US-2.3). A flat-priced ticket (no
+  // member/non-member split) shows a single highlighted price row.
+  function ticketPriceRows(entry, group) {
+    var container = el('div', 'agend-ev-detail__ticket-prices');
+    var activeIsMember = group === 'member' || group === 'corporate';
+
+    var memberVal = ticketTierValue(entry, 'member_price');
+    var nonMemberVal = ticketTierValue(entry, 'non_member_price');
+
+    if (memberVal === undefined && nonMemberVal === undefined) {
+      var flat = formatPrice(ticketTierPrice(entry, group));
+      if (flat !== null) {
+        container.appendChild(priceRow('Price', flat, true));
+      }
+      return container;
+    }
+
+    var memberPrice = formatPrice(memberVal);
+    if (memberPrice !== null) {
+      container.appendChild(priceRow('Members', memberPrice, activeIsMember));
+    }
+    var nonMemberPrice = formatPrice(nonMemberVal);
+    if (nonMemberPrice !== null) {
+      container.appendChild(priceRow('Non-Members', nonMemberPrice, !activeIsMember));
+    }
+    return container;
+  }
 
   function renderDetail(event, cfg, onBack, onRegister) {
     var wrap = el('div', 'agend-ev-detail');
@@ -642,7 +710,18 @@
 
     var reg = el('div', 'agend-ev-detail__panel agend-ev-detail__panel--register');
     reg.appendChild(el('h3', 'agend-ev-detail__panel-title', 'Registration'));
-    var registerBtn = el('button', 'agend-ev-detail__cta', event.sold_out ? 'Sold Out' : 'Register Now');
+
+    // Signed-in member already registered: show the state and offer additional
+    // seats instead of the default CTA (SPEC-CORE-20260722 US-2.3).
+    var isRegistered = !!event.my_registration;
+    if (isRegistered) {
+      reg.appendChild(el('div', 'agend-ev-detail__registered', '✓ You’re registered for this event'));
+    }
+
+    var ctaLabel = event.sold_out
+      ? 'Sold Out'
+      : (isRegistered ? 'Register Another Attendee' : 'Register Now');
+    var registerBtn = el('button', 'agend-ev-detail__cta', ctaLabel);
     if (event.sold_out) {
       registerBtn.disabled = true;
     }
@@ -656,8 +735,45 @@
     var calendar = el('a', 'agend-ev-detail__calendar', 'Add to Calendar');
     calendar.href = restBase().replace(/\/$/, '') + '/events/' + encodeURIComponent(event.slug) + '/ical';
     reg.appendChild(calendar);
-    reg.appendChild(el('p', 'agend-ev-detail__note', 'Not a member? Join for discounted pricing.'));
+    var group = viewerGroup(event);
+    if (group === 'member' || group === 'corporate') {
+      reg.appendChild(el('p', 'agend-ev-detail__note', 'Member pricing applies to your registration.'));
+    } else {
+      reg.appendChild(el('p', 'agend-ev-detail__note', 'Not a member? Join for discounted pricing.'));
+    }
     side.appendChild(reg);
+
+    // Tickets panel: all ticket types with the viewer's applicable price
+    // highlighted (SPEC-CORE-20260722 US-2.3). Fetched async; removed if the
+    // event has no purchasable tickets or the fetch fails.
+    var ticketsPanel = el('div', 'agend-ev-detail__panel agend-ev-detail__panel--tickets');
+    ticketsPanel.appendChild(el('h3', 'agend-ev-detail__panel-title', 'Tickets'));
+    var ticketsBody = el('div', 'agend-ev-detail__tickets');
+    ticketsBody.appendChild(el('div', 'agend-ev-status', 'Loading tickets…'));
+    ticketsPanel.appendChild(ticketsBody);
+    side.appendChild(ticketsPanel);
+
+    apiGet('/events/' + encodeURIComponent(event.slug) + '/tickets', {}).then(function (body) {
+      var items = unwrapList(body).items;
+      if (!items.length) {
+        if (ticketsPanel.parentNode) {
+          ticketsPanel.parentNode.removeChild(ticketsPanel);
+        }
+        return;
+      }
+      ticketsBody.innerHTML = '';
+      items.forEach(function (entry) {
+        var ticket = entry.ticket || entry;
+        var block = el('div', 'agend-ev-detail__ticket');
+        block.appendChild(el('span', 'agend-ev-detail__ticket-name', ticket.name || 'Ticket'));
+        block.appendChild(ticketPriceRows(entry, group));
+        ticketsBody.appendChild(block);
+      });
+    }).catch(function () {
+      if (ticketsPanel.parentNode) {
+        ticketsPanel.parentNode.removeChild(ticketsPanel);
+      }
+    });
 
     var facts = el('div', 'agend-ev-detail__panel');
     facts.appendChild(el('h3', 'agend-ev-detail__panel-title', 'Details'));
@@ -1085,13 +1201,22 @@
 
   // -- Registration + payment ----------------------------------------------
 
-  // Anonymous widget visitors resolve to non-member pricing; identity-aware
-  // member pricing is gated on the SSO bearer worker (held, SPEC addendum E-11).
+  // Ticket price for the viewer's price group. Anonymous visitors resolve to
+  // non-member pricing; a signed-in member's group arrives server-resolved on
+  // the event payload as `viewer_price_group` (SPEC-CORE-20260722 US-2.1) and
+  // the gateway re-resolves it at registration time, so this is display-only.
   function ticketTierPrice(entry, group) {
     var tiers = (entry && entry.pricingTiers) || [];
     if (tiers.length) {
       var tier = tiers[0].tier || tiers[0];
-      var v = group === 'member' ? tier.member_price : tier.non_member_price;
+      var v;
+      if (group === 'corporate') {
+        v = tier.corporate_price != null ? tier.corporate_price : tier.member_price;
+      } else if (group === 'member') {
+        v = tier.member_price;
+      } else {
+        v = tier.non_member_price;
+      }
       if (v === null || v === undefined) {
         v = tier.non_member_price != null ? tier.non_member_price : tier.member_price;
       }
@@ -1100,6 +1225,12 @@
     var t = (entry && entry.ticket) || entry || {};
     var p = t.price != null ? t.price : t.base_price;
     return typeof p === 'string' ? parseFloat(p) : (p || 0);
+  }
+
+  // The viewer's server-resolved price group, or '' when signed out. Presence
+  // of the enrichment field is the signed-in signal (no extra probe request).
+  function viewerGroup(event) {
+    return (event && event.viewer_price_group) || '';
   }
 
   function labelledField(labelText, input) {
@@ -1141,6 +1272,12 @@
     var ticketsSection = el('div', 'agend-ev-reg__tickets');
     form.appendChild(ticketsSection);
 
+    // Signed-in member: identity and price group are resolved server-side
+    // from the bearer (SPEC-CORE-20260722 US-2.3), so lines are priced at the
+    // member's rate and the guest buyer capture is skipped.
+    var group = viewerGroup(event) || 'non_member';
+    var isSignedIn = !!viewerGroup(event);
+
     // Buyer (guest) details.
     var buyerSection = el('div', 'agend-ev-reg__section');
     buyerSection.appendChild(el('h3', 'agend-ev-reg__section-title', 'Your Details'));
@@ -1154,6 +1291,9 @@
     buyerGrid.appendChild(labelledField('Email', buyerEmail));
     buyerGrid.appendChild(labelledField('Phone', buyerPhone));
     buyerSection.appendChild(buyerGrid);
+    if (isSignedIn) {
+      buyerSection.style.display = 'none';
+    }
     form.appendChild(buyerSection);
 
     var summary = el('div', 'agend-ev-reg__summary');
@@ -1233,7 +1373,7 @@
       }
       items.forEach(function (entry) {
         var ticket = entry.ticket || entry;
-        var price = ticketTierPrice(entry, 'non_member');
+        var price = ticketTierPrice(entry, group);
         var cap = entry.capacityRemaining;
         var max = typeof cap === 'number' && cap >= 0 ? Math.min(cap, 20) : 20;
         var line = { entry: { ticket: ticket, pricingTiers: entry.pricingTiers }, qty: 0, price: price, attendeeRows: [] };
@@ -1329,7 +1469,7 @@
 
       var first = buyerFirst.value.trim();
       var email = buyerEmail.value.trim();
-      if (!first || !email) {
+      if (!isSignedIn && (!first || !email)) {
         showError('Enter your first name and email to continue.');
         return;
       }
@@ -1351,7 +1491,9 @@
         return;
       }
 
-      var buyer = {
+      // A signed-in member's buyer identity is derived server-side from the
+      // bearer; the guest buyer object is only sent for anonymous visitors.
+      var buyer = isSignedIn ? undefined : {
         email: email,
         first_name: first,
         last_name: buyerLast.value.trim() || undefined,
@@ -1368,7 +1510,9 @@
         chain = chain.then(function () {
           return apiPost('/events/' + encodeURIComponent(event.slug) + '/register', {
             ticket_id: id,
-            price_group: 'non_member',
+            // Display-consistent group; the gateway resolves the authoritative
+            // price group server-side whenever the buyer identity is validated.
+            price_group: group,
             beneficiaries: line.attendeeRows.map(function (a) {
               return {
                 beneficiary_type: 'named',
