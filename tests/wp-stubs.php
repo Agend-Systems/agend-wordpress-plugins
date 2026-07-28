@@ -291,3 +291,25 @@ if ( ! function_exists( 'wp_slash' ) ) {
 		return $value;
 	}
 }
+
+/**
+ * Current-user stubs for the condition runtime tests.
+ *
+ * Driven by globals so a test can move the visitor between signed-out,
+ * signed-in and a specific user without rebuilding WordPress.
+ */
+if ( ! defined( 'MINUTE_IN_SECONDS' ) ) {
+	define( 'MINUTE_IN_SECONDS', 60 );
+}
+
+if ( ! function_exists( 'is_user_logged_in' ) ) {
+	function is_user_logged_in(): bool {
+		return ! empty( $GLOBALS['agend_test_current_user_id'] );
+	}
+}
+
+if ( ! function_exists( 'get_current_user_id' ) ) {
+	function get_current_user_id(): int {
+		return (int) ( $GLOBALS['agend_test_current_user_id'] ?? 0 );
+	}
+}
