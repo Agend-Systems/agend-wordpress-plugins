@@ -188,4 +188,62 @@ class Agend_Content_Access_Elementor_Parser {
 
 		return array( 'html' => '', 'extracted' => false );
 	}
+
+	/**
+	 * Element types in a document that this parser does not model.
+	 *
+	 * Editor V4 introduces atomic elements (`e-div-block`, `e-heading` and the
+	 * rest) whose elType is none of the four classic values. They cannot carry
+	 * an Agend Access control, because the control stack they use does not
+	 * accept one, so an editor working on such a page would otherwise find no
+	 * per-section restriction and no explanation of why (US-4.4 criterion 12).
+	 *
+	 * Reported rather than guessed at: this returns what it actually found, so
+	 * the editor notice can be specific instead of warning every Elementor user
+	 * about a limitation most of them will never hit.
+	 *
+	 * @param string $raw Stored Elementor document JSON.
+	 * @return string[] Distinct unmodelled elType values, in first-seen order.
+	 */
+	public static function unmodelled_element_types( string $raw ): array {
+		$decoded = json_decode( $raw, true );
+
+		if ( ! is_array( $decoded ) ) {
+			return array();
+		}
+
+		$found = array();
+
+		self::collect_unmodelled( $decoded, $found );
+
+		return array_values( $found );
+	}
+
+	/**
+	 * Walks any node list collecting unmodelled elTypes.
+	 *
+	 * @param array $nodes Node list.
+	 * @param array $found Accumulator, keyed by type to dedupe.
+	 */
+	private static function collect_unmodelled( array $nodes, array &$found ): void {
+		foreach ( $nodes as $node ) {
+			if ( ! is_array( $node ) ) {
+				continue;
+			}
+
+			$el_type = isset( $node['elType'] ) ? (string) $node['elType'] : '';
+
+			if (
+				'' !== $el_type
+				&& 'widget' !== $el_type
+				&& ! in_array( $el_type, self::STRUCTURAL_TYPES, true )
+			) {
+				$found[ $el_type ] = $el_type;
+			}
+
+			if ( isset( $node['elements'] ) && is_array( $node['elements'] ) ) {
+				self::collect_unmodelled( $node['elements'], $found );
+			}
+		}
+	}
 }

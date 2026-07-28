@@ -143,7 +143,11 @@ class Agend_Content_Access_Meta_Box {
 	 *     unavailable_count: int
 	 * }
 	 */
-	public static function payload( ?array $policy, array $catalogue ): array {
+	public static function payload(
+		?array $policy,
+		array $catalogue,
+		array $unmodelled_types = array()
+	): array {
 		$tier_ids = Agend_Content_Access_Policy::tier_ids( $policy );
 		$selected = Agend_Content_Access_Catalogue::annotate_selection( $tier_ids, $catalogue['plans'] );
 
@@ -163,6 +167,11 @@ class Agend_Content_Access_Meta_Box {
 			'can_select'        => Agend_Content_Access_Catalogue::can_select_plans( $catalogue ),
 			'stale'             => ! empty( $catalogue['stale'] ),
 			'unavailable_count' => $unavailable,
+			// Editor V4 atomic elements cannot receive the Agend Access
+			// control, so an editor on such a page needs telling why there is
+			// no per-section option, and that the page policy still covers the
+			// whole page (US-4.4 criterion 12).
+			'unmodelled_types'  => array_values( $unmodelled_types ),
 		);
 	}
 
@@ -174,7 +183,10 @@ class Agend_Content_Access_Meta_Box {
 	public function render( $post ): void {
 		$data = self::payload(
 			Agend_Content_Access_Policy::get_for_post( (int) $post->ID ),
-			Agend_Content_Access_Catalogue::get()
+			Agend_Content_Access_Catalogue::get(),
+			Agend_Content_Access_Elementor_Parser::unmodelled_element_types(
+				(string) get_post_meta( (int) $post->ID, '_elementor_data', true )
+			)
 		);
 
 		wp_nonce_field( self::NONCE_ACTION, self::NONCE_FIELD );
