@@ -110,3 +110,83 @@ function agend_apps_cms_get_content_by_slug( string $slug, array $query = array(
 	 */
 	return apply_filters( 'agend_apps_cms_get_content_by_slug_response', $response, $slug, $query );
 }
+
+/**
+ * Uploads a protected file to Agend's private asset storage.
+ *
+ * Scope: `cms.assets.create`. Server-to-server: the bytes go from this server
+ * to the gateway, never from the browser to Agend storage
+ * (SPEC-CMS-20260727 US-5.1 criterion 3).
+ *
+ * The return carries the opaque asset id and display metadata only. There is
+ * deliberately no storage path or bucket in it, so a caller cannot persist a
+ * routable reference to the file even by accident: the id is meaningless
+ * without the authorising download endpoint, which is what makes it safe to
+ * store in WordPress and emit in a page.
+ *
+ * @param string $file_path Absolute path to a readable local file.
+ * @param string $file_name Display name to record.
+ * @param string $mime_type Content type to record.
+ * @return array|WP_Error Decoded response, or an error.
+ */
+function agend_apps_cms_upload_asset(
+	string $file_path,
+	string $file_name,
+	string $mime_type
+) {
+	if ( ! is_readable( $file_path ) ) {
+		return new WP_Error(
+			'agend_apps_cms_unreadable_file',
+			__( 'The file could not be read for upload.', 'agend-apps-core' )
+		);
+	}
+
+	$contents = file_get_contents( $file_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+	if ( false === $contents ) {
+		return new WP_Error(
+			'agend_apps_cms_unreadable_file',
+			__( 'The file could not be read for upload.', 'agend-apps-core' )
+		);
+	}
+
+	// A fresh boundary per request. Reusing one across requests would let a
+	// filename containing the boundary string from an earlier upload split the
+	// body of a later one.
+	$boundary = 'agend' . bin2hex( random_bytes( 16 ) );
+
+	// The filename is sanitised for the HEADER only, so it cannot inject CRLF
+	// and forge additional multipart headers. The DISPLAY name travels
+	// separately, as an ordinary form field, where it needs no such surgery.
+	$header_name = str_replace( array( "\r", "\n", '"' ), '', $file_name );
+
+	$body  = '--' . $boundary . "\r\n";
+	$body .= 'Content-Disposition: form-data; name="file"; filename="' . $header_name . '"' . "\r\n";
+	$body .= 'Content-Type: ' . str_replace( array( "\r", "\n" ), '', $mime_type ) . "\r\n\r\n";
+	$body .= $contents . "\r\n";
+	$body .= '--' . $boundary . "--\r\n";
+
+	$response = agend_apps_api()->request(
+		'POST',
+		'/cms/assets',
+		array(
+			'body'    => $body,
+			'headers' => array(
+				'Content-Type' => 'multipart/form-data; boundary=' . $boundary,
+			),
+			// Generous: this is bytes over the wire, not a metadata call.
+			'timeout' => 120,
+		)
+	);
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded upload response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 */
+	return apply_filters( 'agend_apps_cms_upload_asset_response', $response );
+}
