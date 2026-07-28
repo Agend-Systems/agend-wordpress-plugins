@@ -1,25 +1,52 @@
 <?php
 /**
- * Membership snapshot sync for member content restrictions.
+ * Membership snapshot sync: a PRESENTATION signal, never an authority.
  *
- * Mirrors the signed-in member's Agend membership standing into WordPress
- * usermeta so display conditions (for example the Agend Elementor usermeta
- * conditions) can gate content without a gateway call per render. The
- * snapshot is refreshed on every credential login and by the incoming
+ * THIS SNAPSHOT MUST NEVER BE READ TO DECIDE ACCESS TO PROTECTED CONTENT
+ * (SPEC-CMS-20260727 US-1.1).
+ *
+ * It mirrors the signed-in member's Agend membership standing into WordPress
+ * usermeta so the interface can SAY something about a member without a gateway
+ * call per render: greet them by plan, show a renewal prompt, badge a menu.
+ * That is its entire remit.
+ *
+ * It is unfit to authorise, by construction and not by oversight:
+ *
+ *   - It is a cache. It is refreshed on credential login and on inbound
+ *     `crm.membership.*` / `crm.seat.*` webhooks, so between those moments it
+ *     is simply stale. A lapsed membership still reads `active` until
+ *     something refreshes it.
+ *   - It FAILS OPEN. A failed gateway read deliberately does not clobber the
+ *     last known values, which is right for a display signal and catastrophic
+ *     for an access decision: an outage would leave the last good standing in
+ *     place indefinitely.
+ *   - It keys on mutable tier SLUGS, which an administrator can rename at any
+ *     time, silently breaking any rule written against them.
+ *   - It is ordinary usermeta, writable by anything on the site with the
+ *     capability to edit a user.
+ *
+ * The authority is the Agend entitlement engine, reached per request. Content
+ * gating goes through Agend Content Access, whose typed policies resolve tier
+ * UUIDs server-side and fail CLOSED. The usermeta display conditions that used
+ * to read these keys were removed for exactly this reason; the `_display`
+ * suffix on every key below is there so a future reader cannot mistake the
+ * snapshot for an entitlement.
+ *
+ * The snapshot is refreshed on every credential login and by the incoming
  * webhook receiver when a `crm.membership.*` event arrives for a member
  * with an active session.
  *
  * Meta written (all underscore-prefixed, hidden from the profile UI):
- * - `_agend_apps_membership_status`     Aggregate standing: `active`,
+ * - `_agend_apps_membership_status_display`     Aggregate standing: `active`,
  *                                        `pending`, the most recent
  *                                        membership's status, or `none`.
- * - `_agend_apps_membership_tier_slugs` Comma-separated tier slugs held with
+ * - `_agend_apps_membership_tier_slugs_display` Comma-separated tier slugs held with
  *                                        active/pending standing.
- * - `_agend_apps_membership_tier_names` Comma-separated tier display names
+ * - `_agend_apps_membership_tier_names_display` Comma-separated tier display names
  *                                        for the same memberships.
- * - `_agend_apps_membership_expiry`     Latest expiry date (Y-m-d) among
+ * - `_agend_apps_membership_expiry_display`     Latest expiry date (Y-m-d) among
  *                                        active/pending memberships, or ''.
- * - `_agend_apps_membership_synced_at`  ISO 8601 UTC timestamp of the sync.
+ * - `_agend_apps_membership_synced_at_display`  ISO 8601 UTC timestamp of the sync.
  *
  * A failed gateway read never clobbers the last known snapshot: the meta is
  * only rewritten after a successful fetch.
@@ -76,11 +103,11 @@ function agend_apps_member_sync_membership_meta( int $user_id ): bool {
 	$tier_map = agend_apps_member_tier_map( $tiers );
 	$snapshot = agend_apps_member_build_membership_snapshot( $rows, $tier_map );
 
-	update_user_meta( $user_id, '_agend_apps_membership_status', $snapshot['status'] );
-	update_user_meta( $user_id, '_agend_apps_membership_tier_slugs', $snapshot['tier_slugs'] );
-	update_user_meta( $user_id, '_agend_apps_membership_tier_names', $snapshot['tier_names'] );
-	update_user_meta( $user_id, '_agend_apps_membership_expiry', $snapshot['expiry'] );
-	update_user_meta( $user_id, '_agend_apps_membership_synced_at', gmdate( 'c' ) );
+	update_user_meta( $user_id, '_agend_apps_membership_status_display', $snapshot['status'] );
+	update_user_meta( $user_id, '_agend_apps_membership_tier_slugs_display', $snapshot['tier_slugs'] );
+	update_user_meta( $user_id, '_agend_apps_membership_tier_names_display', $snapshot['tier_names'] );
+	update_user_meta( $user_id, '_agend_apps_membership_expiry_display', $snapshot['expiry'] );
+	update_user_meta( $user_id, '_agend_apps_membership_synced_at_display', gmdate( 'c' ) );
 
 	/**
 	 * Fires after a member's membership snapshot usermeta has been refreshed.
@@ -212,3 +239,37 @@ function agend_apps_member_build_membership_snapshot( array $rows, array $tier_m
 		'expiry'     => $expiry,
 	);
 }
+
+/**
+ * Removes the pre-`_display` snapshot meta, once.
+ *
+ * The rename in SPEC-CMS-20260727 US-1.1 orphans whatever was stored under the
+ * old keys. Leaving those rows behind is the dangerous option rather than the
+ * tidy one: nothing refreshes them any more, so any leftover rule or bespoke
+ * theme code still reading `_agend_apps_membership_status` would read a value
+ * frozen at the moment of upgrade, forever. On a lapsed member that value says
+ * `active`. Deleting them turns a silent wrong answer into an obvious absent
+ * one, which is the failure mode we can live with.
+ */
+function agend_apps_purge_legacy_membership_snapshot_meta(): void {
+	if ( get_option( 'agend_apps_membership_snapshot_legacy_purged' ) ) {
+		return;
+	}
+
+	global $wpdb;
+
+	$legacy_keys = array(
+		'_agend_apps_membership_status',
+		'_agend_apps_membership_tier_slugs',
+		'_agend_apps_membership_tier_names',
+		'_agend_apps_membership_expiry',
+		'_agend_apps_membership_synced_at',
+	);
+
+	foreach ( $legacy_keys as $key ) {
+		$wpdb->delete( $wpdb->usermeta, array( 'meta_key' => $key ), array( '%s' ) );
+	}
+
+	update_option( 'agend_apps_membership_snapshot_legacy_purged', true, false );
+}
+add_action( 'admin_init', 'agend_apps_purge_legacy_membership_snapshot_meta' );
