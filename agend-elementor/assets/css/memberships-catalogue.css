@@ -458,3 +458,28 @@
   white-space: nowrap;
   border-width: 0;
 }
+
+/* Signed-in member current-membership status (SPEC-CORE-20260722 US-2.5). */
+.agend-mem-mystatus {
+  margin-bottom: 1.5rem;
+}
+
+.agend-mem-mystatus__badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: rgba(46, 160, 67, 0.12);
+  color: #1a7f37;
+}
+
+.agend-mem-mystatus__meta {
+  margin-top: 0.5rem;
+  color: #26304d;
+  font-size: 0.9375rem;
+}
+
+.agend-mem-mystatus__pay {
+  margin-top: 0.75rem;
+}

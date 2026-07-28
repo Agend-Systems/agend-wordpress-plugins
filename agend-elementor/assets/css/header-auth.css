@@ -1,0 +1,101 @@
+/**
+ * Agend header auth-link widget styles (SPEC-CORE-20260722 US-2.8).
+ * Minimal by design: the link inherits the header's typography, and the
+ * editor's text/background colour controls drive the rest.
+ */
+.agend-header-auth {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+
+.agend-header-auth__link {
+  display: inline-block;
+  text-decoration: none;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.agend-header-auth__link[aria-busy='true'] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Reserve a little space before hydration so the header does not jump. */
+.agend-header-auth__placeholder {
+  display: inline-block;
+  min-width: 3rem;
+}
+
+/*
+ * Sign-out dropdown, revealed on hover or keyboard focus for signed-in
+ * members. Visibility is CSS-driven (:hover / :focus-within); the script
+ * only mirrors it onto aria-expanded. The menu abuts the button (top: 100%,
+ * no gap) so the pointer never crosses a dead zone on the way down.
+ */
+.agend-header-auth__menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 100%;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  padding: 0.25rem 0;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    visibility 0.15s ease;
+  z-index: 1000;
+}
+
+.agend-header-auth--has-menu:hover .agend-header-auth__menu,
+.agend-header-auth--has-menu:focus-within .agend-header-auth__menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/*
+ * Doubled class specificity (0,2,0) so Elementor's kit-level global button
+ * styling (`.elementor-kit-N button`, 0,1,1) cannot restyle the menu item
+ * into a themed pill button.
+ */
+.agend-header-auth .agend-header-auth__menu-item {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  color: #26304d;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.agend-header-auth .agend-header-auth__menu-item:hover,
+.agend-header-auth .agend-header-auth__menu-item:focus {
+  color: #26304d;
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.agend-header-auth .agend-header-auth__menu-item[aria-busy='true'] {
+  opacity: 0.6;
+  pointer-events: none;
+}

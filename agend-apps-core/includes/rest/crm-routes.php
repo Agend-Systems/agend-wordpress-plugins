@@ -221,7 +221,10 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 			)
 		);
 
-		// Member self-service: my memberships.
+		// Member self-service: my memberships. GET lists the member's own
+		// memberships; POST opens a bearer-attended purchase checkout for the
+		// signed-in member (identity derived server-side from the bearer,
+		// SPEC-CORE-20260722 US-2.5).
 		register_rest_route(
 			$this->namespace,
 			'/' . $this->rest_base . '/me/memberships',
@@ -243,6 +246,26 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 							'sanitize_callback' => 'absint',
 						),
 					),
+				),
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'purchase_my_membership' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+
+		// Member self-service: pay an outstanding order (e.g. a renewal
+		// invoice) via the checkout session the gateway returns
+		// (SPEC-CORE-20260722 US-2.5).
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/me/orders/(?P<id>[a-zA-Z0-9_-]+)/pay',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'pay_my_order' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
 				),
 			)
 		);
@@ -333,7 +356,10 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_tiers( WP_REST_Request $request ): WP_REST_Response {
-		$allowed = array( 'page', 'per_page' );
+		// `tierType` (individual|corporate) filters the tier list server-side
+		// (SPEC-CORE-20260722); the cached wrapper keys on the full query, so
+		// each filter value caches separately.
+		$allowed = array( 'page', 'per_page', 'tierType' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {
@@ -472,6 +498,46 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 		);
 
 		$result = agend_apps_crm_get_my_memberships( $query );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Opens a bearer-attended membership purchase checkout for the signed-in
+	 * member. Identity is derived server-side from the member bearer; the body
+	 * carries the tier selection only.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function purchase_my_membership( WP_REST_Request $request ): WP_REST_Response {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$result = agend_apps_crm_purchase_my_membership( $body );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Opens a checkout session to pay one of the member's outstanding orders.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function pay_my_order( WP_REST_Request $request ): WP_REST_Response {
+		$order_id = sanitize_text_field( (string) $request->get_param( 'id' ) );
+
+		if ( '' === $order_id ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'missing_order',
+					'message' => __( 'An order id is required.', 'agend-apps-core' ),
+				),
+				400
+			);
+		}
+
+		$result = agend_apps_crm_pay_my_order( $order_id );
 		return $this->prepare_api_response( $result );
 	}
 

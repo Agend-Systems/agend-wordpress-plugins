@@ -103,6 +103,21 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'membership_type',
+			array(
+				'label'       => __( 'Membership types to show', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'options'     => array(
+					''           => __( 'Individual & corporate', 'agend-elementor' ),
+					'individual' => __( 'Individual only', 'agend-elementor' ),
+					'corporate'  => __( 'Corporate only', 'agend-elementor' ),
+				),
+				'default'     => '',
+				'description' => __( 'Filters the tiers server-side by type.', 'agend-elementor' ),
+			)
+		);
+
 		$this->end_controls_section();
 
 		// Layout section.
@@ -356,6 +371,9 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 
 		return array(
 			'heading'          => (string) ( $s['heading_text'] ?? '' ),
+			// '' (both), 'individual', or 'corporate' — forwarded to the tiers
+			// API as the tierType query param (SPEC-CORE-20260722).
+			'membershipType'   => (string) ( $s['membership_type'] ?? '' ),
 			'columns'          => array(
 				'desktop' => (int) ( $s['columns_desktop'] ?? 3 ),
 				'tablet'  => (int) ( $s['columns_tablet'] ?? 2 ),

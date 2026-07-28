@@ -509,7 +509,11 @@ function agend_apps_cart_transfer( string $cart_session, string $bearer_token ) 
 	$args = (array) apply_filters(
 		'agend_apps_cart_transfer_args',
 		array(
-			'cart_session' => $cart_session,
+			// The gateway resolves the destination member from the bearer token
+			// and reads the guest cart to transfer from the body. X-Cart-Session
+			// is deliberately NOT sent: it would resolve a guest identity and the
+			// route requires an authenticated contact.
+			'body'         => array( 'guestSessionToken' => $cart_session ),
 			'bearer_token' => $bearer_token,
 		),
 		$cart_session,

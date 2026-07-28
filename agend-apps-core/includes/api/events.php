@@ -65,6 +65,20 @@ function agend_apps_events_get_events( array $query = array() ) {
 		$query
 	);
 
+	// A member bearer makes list responses IDENTITY-SPECIFIC
+	// (SPEC-CORE-20260722 US-2.1: cards carry viewer_price_group and
+	// my_registration). Never let an identity-specific response into the shared
+	// transient cache — bypass when a bearer is attached.
+	if ( '' !== agend_apps_get_bearer_token() ) {
+		$response = agend_apps_api()->request( 'GET', '/events', $args );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		return apply_filters( 'agend_apps_events_get_events_response', $response, $query );
+	}
+
 	$cache_key = Agend_Apps_Cache::build_key( 'events_list', $query );
 	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'events_list' );
 
@@ -105,6 +119,21 @@ function agend_apps_events_get_event( string $slug, array $query = array() ) {
 		$slug,
 		$query
 	);
+
+	// A member bearer makes the response IDENTITY-SPECIFIC
+	// (SPEC-CORE-20260722 US-2.1: the detail carries the viewer's
+	// viewer_price_group and my_registration). It must never enter the shared
+	// transient cache — bypass entirely when a bearer is attached, mirroring
+	// the LMS single-course wrapper.
+	if ( '' !== agend_apps_get_bearer_token() ) {
+		$response = agend_apps_api()->request( 'GET', '/events/' . rawurlencode( $slug ), $args );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		return apply_filters( 'agend_apps_events_get_event_response', $response, $slug );
+	}
 
 	$cache_key = Agend_Apps_Cache::build_key( 'events_single', array( 'slug' => $slug, 'query' => $query ) );
 	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'events_single' );

@@ -219,6 +219,24 @@ class Agend_Apps_Admin {
 
 		register_setting(
 			self::OPTION_GROUP,
+			'agend_apps_webhook_secret',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+				'default'           => '',
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_webhook_secret',
+			__( 'Webhook Signing Secret', 'agend-apps-core' ),
+			array( $this, 'render_webhook_secret_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_api_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
 			'agend_apps_vercel_bypass_token',
 			array(
 				'type'              => 'string',
@@ -419,6 +437,29 @@ class Agend_Apps_Admin {
 		);
 		echo '<p class="description">';
 		esc_html_e( 'Optional. The member portal URL the account-link widget links to. Leave empty to derive it from the environment.', 'agend-apps-core' );
+		echo '</p>';
+	}
+
+	/**
+	 * Renders the webhook signing secret field.
+	 *
+	 * The secret shown once when the Agend webhook subscription is created in
+	 * the dashboard. It authenticates deliveries to the incoming webhook
+	 * endpoint, which keeps signed-in members' membership snapshot usermeta
+	 * fresh for content restrictions.
+	 */
+	public function render_webhook_secret_field(): void {
+		$value = get_option( 'agend_apps_webhook_secret', '' );
+		printf(
+			'<input type="password" id="agend_apps_webhook_secret" name="agend_apps_webhook_secret" value="%s" class="regular-text" autocomplete="off" />',
+			esc_attr( $value )
+		);
+		echo '<p class="description">';
+		printf(
+			/* translators: %s: the webhook receiver URL. */
+			esc_html__( 'Signing secret of the Agend webhook subscription pointed at this site. Subscribe crm.membership.* and crm.seat.* events to: %s', 'agend-apps-core' ),
+			'<code>' . esc_html( rest_url( 'agend-apps/v1/webhooks/incoming' ) ) . '</code>'
+		);
 		echo '</p>';
 	}
 
