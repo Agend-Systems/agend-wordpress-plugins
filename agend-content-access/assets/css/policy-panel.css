@@ -1,0 +1,33 @@
+.agend-access-panel .agend-access-mode {
+	margin: 0 0 12px;
+}
+
+.agend-access-panel .agend-access-mode .description {
+	display: block;
+	margin-left: 24px;
+}
+
+.agend-access-panel .agend-access-warning {
+	margin: 0 0 12px;
+	padding: 8px 10px;
+}
+
+.agend-access-plan-list {
+	margin: 0;
+	max-height: 220px;
+	overflow-y: auto;
+}
+
+.agend-access-plan {
+	margin: 0 0 4px;
+}
+
+.agend-access-plan--unavailable .agend-access-plan-name {
+	text-decoration: line-through;
+}
+
+.agend-access-plan-flag {
+	color: #b32d2e;
+	font-size: 11px;
+	text-transform: uppercase;
+}

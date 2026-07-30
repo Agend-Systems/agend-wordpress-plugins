@@ -392,6 +392,52 @@ function agend_apps_crm_verify_team_invitation( string $token ) {
 }
 
 /**
+ * Retrieves the current member's RESOLVED standing.
+ *
+ * Returns the membership tier ids the caller currently holds, computed by
+ * Agend's single shared member definition: an active individual membership OR
+ * an active corporate seat on an active corporate membership, within each
+ * tier's grace period.
+ *
+ * Use this, NOT `agend_apps_crm_get_my_memberships()`, to decide access. That
+ * function returns raw individual membership rows: it omits corporate seat
+ * holders entirely and leaves grace-period arithmetic to the caller, so
+ * deciding access from it means reimplementing the member definition in PHP and
+ * getting a different answer from the rest of the platform.
+ *
+ * Never cached: standing changes the moment a membership lapses or a seat is
+ * revoked, and the answer is specific to the caller.
+ *
+ * Scope: `crm.memberships.browse`. Requires a member bearer token.
+ *
+ * @return array|WP_Error Decoded response with `tier_ids` and `is_member`, or WP_Error on failure.
+ */
+function agend_apps_crm_get_my_entitlements() {
+	/**
+	 * Filters the get-my-entitlements request args before the request is sent.
+	 *
+	 * @param array $args Request args.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_crm_get_my_entitlements_args',
+		array()
+	);
+
+	$response = agend_apps_api()->request( 'GET', '/crm/me/entitlements', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded entitlements response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 */
+	return apply_filters( 'agend_apps_crm_get_my_entitlements_response', $response );
+}
+
+/**
  * Lists the current member's memberships.
  *
  * Scope: `crm.memberships.browse`. Requires a member bearer token.
@@ -2608,4 +2654,32 @@ function agend_apps_crm_get_segment_contacts( string $segment_id, array $query =
 	 * @param array  $query      Original query parameters.
 	 */
 	return apply_filters( 'agend_apps_crm_get_segment_contacts_response', $response, $segment_id, $query );
+}
+
+/**
+ * Returns the segments the current member belongs to.
+ *
+ * Scope: `crm.segments.browse`. Requires a member bearer: the gateway resolves
+ * the caller's contact from it and answers only for that person
+ * (SPEC-CMS-20260727 US-6.1).
+ *
+ * Deliberately NOT the admin `/crm/segments/{id}/contacts` route, which lists
+ * who is in a segment. Using that to answer a question about one visitor would
+ * pull the tenant's whole member list onto this server.
+ *
+ * @return array|WP_Error Decoded response, or an error.
+ */
+function agend_apps_crm_get_my_segments() {
+	$response = agend_apps_api()->request( 'GET', '/crm/me/segments' );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded my-segments response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 */
+	return apply_filters( 'agend_apps_crm_get_my_segments_response', $response );
 }
