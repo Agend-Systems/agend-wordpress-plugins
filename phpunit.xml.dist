@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Unit-test configuration for the Agend WordPress plugin collection.
+
+  These are UNIT tests: no database, no WordPress bootstrap. WordPress
+  functions are stubbed in tests/bootstrap.php, which keeps the suite fast
+  enough to run on every save and removes the wp-tests install step that
+  usually stops WordPress plugin suites from being run at all.
+
+  Anything needing real WordPress behaviour (hook ordering across plugins,
+  actual REST dispatch, database state) is out of scope here and belongs in an
+  integration suite against a real install.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnNotice="true"
+         failOnRisky="true"
+         beStrictAboutOutputDuringTests="true">
+  <testsuites>
+    <testsuite name="agend-apps-core">
+      <directory suffix="Test.php">agend-apps-core/tests</directory>
+    </testsuite>
+    <testsuite name="agend-content-access">
+      <directory suffix="Test.php">agend-content-access/tests</directory>
+    </testsuite>
+  </testsuites>
+  <source>
+    <include>
+      <directory suffix=".php">agend-apps-core/includes</directory>
+      <directory suffix=".php">agend-content-access/includes</directory>
+    </include>
+  </source>
+</phpunit>
