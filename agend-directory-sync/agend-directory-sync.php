@@ -6,7 +6,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.2.0
+ * Version:         0.3.0
  *
  * @package         Agend_Directory_Sync
  */
