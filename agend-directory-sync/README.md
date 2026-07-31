@@ -1,9 +1,11 @@
 # Agend Directory Sync
 
-WordPress plugin that ingests member directory contacts from Upbeat and
-pushes them to the Agend directory via the public bulk-upsert API. The
-field mapping is configurable, so the plugin is not tied to any one
-association's field names or environment.
+WordPress plugin that ingests directory records from a pluggable data
+source (Upbeat, or any JSON API via the built-in Custom HTTP API source)
+and pushes them to the Agend directory via the public bulk-upsert API.
+The data source, response model, and field mapping are all configurable,
+so the plugin is not tied to any one association's field names,
+environment, or upstream API shape.
 
 ## Status
 
@@ -35,8 +37,10 @@ Not wired:
   connection (base URL + API key, under Settings > Agend Apps); this plugin
   calls it via `agend_apps_directory_bulk_upsert_listings()` and never talks
   to the gateway directly.
-- `iugo-membership-kiosk` plugin active and configured with valid Upbeat
-  API credentials.
+- `iugo-membership-kiosk` plugin active. Upbeat API credentials are only
+  needed when the Upbeat data source is selected; the Custom HTTP API
+  source does not use them (the kiosk plugin itself is still a structural
+  dependency of this plugin's bootstrap).
 - For scheduled runs: WP-CLI available on the server.
 
 ## Configuration
@@ -45,9 +49,13 @@ Gateway connection (base URL + API key) is NOT configured here — set it once
 in **agend-apps-core** (Settings > Agend Apps). Then, under
 Tools > Agend Directory Sync:
 
-- **Upbeat directory endpoint** — the Upbeat endpoint path for the member
-  directory. The path varies per client. Leave blank to use the default
-  `membershipDirectoryContacts`.
+- **Data source** — which system the sync fetches records from. Built in:
+  `Upbeat (membership kiosk)` (the default) and `Custom HTTP API`. Other
+  plugins can register sources via the `agend_directory_sync_sources`
+  filter. Settings below the selector apply only to the selected source.
+- **Upbeat directory endpoint** (Upbeat source) — the Upbeat endpoint path
+  for the member directory. The path varies per client. Leave blank to use
+  the default `membershipDirectoryContacts`.
 - **external_source** string sent with each bulk-upsert batch. This is
   part of the upsert key (`external_source` + `external_id`), so keep it
   stable for a given directory. Defaults to `upbeat-directory` if left
@@ -64,6 +72,51 @@ Tools > Agend Directory Sync:
   number of Upbeat contacts processed in a single run, applied AFTER the
   fetch and BEFORE filtering. Useful for verifying with a small slice
   before pushing the whole directory.
+
+
+## Custom HTTP API source
+
+Select **Custom HTTP API** as the data source to sync from any JSON API
+without code. Everything about the upstream API is configuration:
+
+- **URL** — the absolute HTTPS endpoint that returns the records. Plain
+  HTTP is accepted only when `WP_ENVIRONMENT_TYPE` is `local` or
+  `development`.
+- **Response data path** — a dot-path through the response model to the
+  array of records, e.g. `data.results` for
+  `{"data": {"results": [...]}}`. Leave blank when the response root is
+  itself the array. A purely numeric segment indexes into a list
+  (`data.0.items`). A path that does not resolve to an array fails the
+  run loudly, naming the deepest segment that did resolve and the keys
+  available there — use **Run source fetch** to preview the raw envelope
+  beside what your configured path extracts, and iterate the path until
+  it resolves, before any sync runs.
+- **Authentication** — `none`, `static token header`, or
+  `OAuth 2.0 client credentials`. Secrets are never stored in the
+  database: define them as constants in `wp-config.php`.
+  - Static token: the token comes from `AGEND_DIRECTORY_SYNC_HTTP_TOKEN`;
+    the header name (default `Authorization`) and value template (default
+    `Bearer %s`) are settings.
+  - OAuth client credentials: the token endpoint URL, client id, and
+    optional scope are settings; the client secret comes from
+    `AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET`. The access token is
+    cached in a transient until shortly before expiry; a 401 on a data
+    request re-acquires once, then fails.
+- **Pagination** — `none`, `page` (incrementing page-number parameter),
+  or `offset` (offset/limit parameters). Parameter names, page size, and
+  the first page number are settings. Iteration stops on an empty page,
+  a short page, or when the optional **has-more path** (another dot-path,
+  resolved against each page's response) is `false`. A 500-page safety
+  cap aborts the run rather than returning a truncated set.
+
+Rows resolved from the data path that are not JSON objects are skipped
+and reported in the run summary as the `row_not_an_object` skip reason.
+
+Field mapping applies to the selected source's rows either way — and
+source field names accept the same dot-path syntax (e.g. `contact.email`,
+`addresses.0.suburb`), so nested response models map without code. An
+exact top-level key match always wins before dot-path traversal, so a
+source field whose literal name contains a dot keeps working.
 
 ## Field mapping
 
