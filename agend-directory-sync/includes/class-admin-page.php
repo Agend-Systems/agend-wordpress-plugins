@@ -78,10 +78,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$external_source = isset( $_POST['agend_external_source'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_external_source'] ) ) : '';
 			$auto_publish    = ! empty( $_POST['agend_auto_publish_approved'] ) ? '1' : '0';
 			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
+			$posted_source   = isset( $_POST['agend_directory_sync_source'] ) ? sanitize_key( wp_unslash( $_POST['agend_directory_sync_source'] ) ) : '';
 
-			// Gateway URL and API key are owned by agend-apps-core, not stored here.
+			// external_source is the upsert identity key and is never
+			// defaulted per source: changing the data source never touches
+			// it (SPEC-DIR-20260731 US-1.2 business rule).
 			update_option( Agend_Directory_Sync::OPTION_EXTERNAL_SOURCE, $external_source );
 			update_option( Agend_Directory_Sync::OPTION_AUTO_PUBLISH_APPROVED, $auto_publish );
+
+			// Only persist a source key that is actually registered; an
+			// unknown or blank posted value is dropped so the registry's
+			// unset/unknown fallback (`upbeat`) applies (US-1.1 criterion 2).
+			$registered_sources = Agend_Directory_Sync_Source_Registry::all();
+			if ( isset( $registered_sources[ $posted_source ] ) ) {
+				update_option( Agend_Directory_Sync::OPTION_SOURCE, $posted_source );
+			}
+
+			// Gateway URL and API key are owned by agend-apps-core, not stored here.
 			update_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, $upbeat_endpoint );
 
 			// Persist the configurable field mapping. The core map arrives as an
@@ -104,7 +117,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		}
 
 		/**
-		 * Fetch from Upbeat and stash a preview of the raw response.
+		 * Fetch from the active source and stash a preview of the raw
+		 * response. Works against whichever source is selected
+		 * (SPEC-DIR-20260731 US-1.2 criterion 4).
 		 */
 		public static function handle_run_fetch(): void {
 			self::assert_can();
@@ -113,14 +128,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$user_id = get_current_user_id();
 
 			try {
-				$client  = new Agend_Directory_Sync_Upbeat_Client();
-				$results = $client->fetch_all();
+				$source = Agend_Directory_Sync_Source_Registry::active();
+
+				if ( ! $source->is_available() ) {
+					throw new RuntimeException( $source->get_unavailable_reason() );
+				}
+
+				$results = $source->fetch_all();
 
 				self::set_result(
 					$user_id,
 					array(
 						'kind'    => 'fetch',
 						'status'  => 'ok',
+						'source'  => $source->get_key(),
 						'fetched' => count( $results ),
 						'preview' => array_slice( $results, 0, self::FETCH_PREVIEW_LIMIT ),
 					)
@@ -224,6 +245,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$upbeat_endpoint = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
 			$field_map       = Agend_Directory_Sync_Field_Map::resolve();
 
+			$registered_sources = Agend_Directory_Sync_Source_Registry::all();
+			$active_source      = Agend_Directory_Sync_Source_Registry::active();
+			$active_source_key  = $active_source->get_key();
+			$source_unavailable = ! $active_source->is_available();
+
 			$action_url = esc_url( admin_url( 'admin-post.php' ) );
 			$last       = get_transient( self::transient_key( get_current_user_id() ) );
 			?>
@@ -252,23 +278,79 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							</tr>
 							<tr>
 								<th scope="row">
-									<label for="agend_upbeat_endpoint"><?php esc_html_e( 'Upbeat directory endpoint', 'agend-directory-sync' ); ?></label>
+									<label for="agend_directory_sync_source"><?php esc_html_e( 'Data source', 'agend-directory-sync' ); ?></label>
 								</th>
 								<td>
-									<input
-										name="agend_upbeat_endpoint"
-										id="agend_upbeat_endpoint"
-										type="text"
-										class="regular-text"
-										value="<?php echo esc_attr( $upbeat_endpoint ); ?>"
-										placeholder="membershipDirectoryContacts"
-										autocomplete="off"
-									/>
+									<select name="agend_directory_sync_source" id="agend_directory_sync_source">
+										<?php foreach ( $registered_sources as $source_key => $source ) : ?>
+											<option value="<?php echo esc_attr( $source_key ); ?>" <?php selected( $active_source_key, $source_key ); ?>>
+												<?php echo esc_html( $source->get_label() ); ?>
+											</option>
+										<?php endforeach; ?>
+									</select>
 									<p class="description">
-										<?php esc_html_e( 'Upbeat endpoint path for the member directory. Varies per client. Leave blank to use the default "membershipDirectoryContacts".', 'agend-directory-sync' ); ?>
+										<?php esc_html_e( 'Which system the sync fetches directory contacts from. Settings below apply only to the selected source.', 'agend-directory-sync' ); ?>
 									</p>
+									<?php if ( $source_unavailable ) : ?>
+										<p class="description" style="color:#b32d2e;">
+											<?php
+											printf(
+												/* translators: %s is the reason the source is unavailable. */
+												esc_html__( 'Unavailable: %s Fix this before running a sync — the "Run source fetch" and "Send to Agend" actions are disabled until then.', 'agend-directory-sync' ),
+												esc_html( $active_source->get_unavailable_reason() )
+											);
+											?>
+										</p>
+									<?php endif; ?>
 								</td>
 							</tr>
+						</tbody>
+					</table>
+
+					<?php foreach ( $registered_sources as $source_key => $source ) : ?>
+						<div
+							class="agend-directory-sync-source-section"
+							data-agend-source-key="<?php echo esc_attr( $source_key ); ?>"
+							style="<?php echo esc_attr( $source_key === $active_source_key ? '' : 'display:none;' ); ?>"
+						>
+							<h2><?php echo esc_html( $source->get_label() ); ?></h2>
+
+							<?php if ( ! $source->is_available() ) : ?>
+								<div class="notice notice-warning inline">
+									<p><?php echo esc_html( $source->get_unavailable_reason() ); ?></p>
+								</div>
+							<?php endif; ?>
+
+							<?php if ( Agend_Directory_Sync_Upbeat_Client::SOURCE_KEY === $source_key ) : ?>
+								<table class="form-table" role="presentation">
+									<tbody>
+										<tr>
+											<th scope="row">
+												<label for="agend_upbeat_endpoint"><?php esc_html_e( 'Upbeat directory endpoint', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_upbeat_endpoint"
+													id="agend_upbeat_endpoint"
+													type="text"
+													class="regular-text"
+													value="<?php echo esc_attr( $upbeat_endpoint ); ?>"
+													placeholder="membershipDirectoryContacts"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'Upbeat endpoint path for the member directory. Varies per client. Leave blank to use the default "membershipDirectoryContacts".', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+									</tbody>
+								</table>
+							<?php endif; ?>
+						</div>
+					<?php endforeach; ?>
+
+					<table class="form-table" role="presentation">
+						<tbody>
 							<tr>
 								<th scope="row">
 									<label for="agend_external_source"><?php esc_html_e( 'external_source', 'agend-directory-sync' ); ?></label>
@@ -319,6 +401,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					<h2><?php esc_html_e( 'Field mapping', 'agend-directory-sync' ); ?></h2>
 					<p class="description" style="max-width:760px;">
 						<?php esc_html_e( 'Map each Agend listing field to a source field from your environment. Defaults are intentionally blank — configure the mapping for this client. Leave a source blank to omit that field. Use "Preview transform" after changing the mapping to verify before sending.', 'agend-directory-sync' ); ?>
+					</p>
+					<p class="description" style="max-width:760px;">
+						<?php
+						esc_html_e(
+							'A source field can be a nested path: separate each level with a dot, for example "contact.email" or "addresses.0.suburb" (a purely numeric segment indexes a list item). If your source has a field whose literal name already contains a dot, an exact match on that full name is tried first, so an existing mapping keeps working unchanged.',
+							'agend-directory-sync'
+						);
+						?>
 					</p>
 
 					<table class="form-table" role="presentation">
@@ -450,18 +540,32 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									placeholder="all"
 								/>
 								<p class="description">
-									<?php esc_html_e( 'Optional cap, applied after fetching from Upbeat but before transforming. Leave blank to process all records.', 'agend-directory-sync' ); ?>
+									<?php esc_html_e( 'Optional cap, applied after fetching from the selected source but before transforming. Leave blank to process all records.', 'agend-directory-sync' ); ?>
 								</p>
 							</td>
 						</tr>
 					</tbody>
 				</table>
 
+				<?php if ( $source_unavailable ) : ?>
+					<div class="notice notice-warning inline">
+						<p>
+							<?php
+							printf(
+								/* translators: %s is the reason the active source is unavailable. */
+								esc_html__( 'The selected data source is unavailable: %s "Run source fetch" and "Send to Agend" are disabled until this is fixed.', 'agend-directory-sync' ),
+								esc_html( $active_source->get_unavailable_reason() )
+							);
+							?>
+						</p>
+					</div>
+				<?php endif; ?>
+
 				<div id="agend-directory-sync-actions" style="display:flex;flex-wrap:wrap;gap:1em;align-items:flex-start;">
 					<form method="post" action="<?php echo $action_url; ?>" style="margin:0;">
 						<input type="hidden" name="action" value="agend_directory_sync_run_sync" />
 						<?php wp_nonce_field( self::NONCE_ACTION_FETCH ); ?>
-						<?php submit_button( __( 'Run Upbeat fetch', 'agend-directory-sync' ), 'secondary', 'submit', false ); ?>
+						<?php submit_button( __( 'Run source fetch', 'agend-directory-sync' ), 'secondary', 'submit', false, $source_unavailable ? array( 'disabled' => 'disabled' ) : array() ); ?>
 					</form>
 
 					<form method="post" action="<?php echo $action_url; ?>" style="margin:0;">
@@ -475,7 +579,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						<input type="hidden" name="action" value="agend_directory_sync_send_to_agend" />
 						<input type="hidden" name="agend_max_records" id="agend_max_records_send" value="" />
 						<?php wp_nonce_field( self::NONCE_ACTION_SEND ); ?>
-						<?php submit_button( __( 'Send to Agend', 'agend-directory-sync' ), 'primary', 'submit', false ); ?>
+						<?php submit_button( __( 'Send to Agend', 'agend-directory-sync' ), 'primary', 'submit', false, $source_unavailable ? array( 'disabled' => 'disabled' ) : array() ); ?>
 					</form>
 				</div>
 
@@ -486,13 +590,29 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							document.getElementById('agend_max_records_preview'),
 							document.getElementById('agend_max_records_send')
 						];
-						if (!input) return;
-						function syncMirrors() {
-							mirrors.forEach(function (m) { if (m) { m.value = input.value; } });
+						if (input) {
+							function syncMirrors() {
+								mirrors.forEach(function (m) { if (m) { m.value = input.value; } });
+							}
+							input.addEventListener('input', syncMirrors);
+							input.addEventListener('change', syncMirrors);
+							syncMirrors();
 						}
-						input.addEventListener('input', syncMirrors);
-						input.addEventListener('change', syncMirrors);
-						syncMirrors();
+
+						// Show only the settings section matching the selected data
+						// source (US-1.2 criterion 2). The initial section visibility
+						// is already correct server-side; this only keeps it in sync
+						// when the admin changes the select before saving.
+						var sourceSelect = document.getElementById('agend_directory_sync_source');
+						var sections = document.querySelectorAll('[data-agend-source-key]');
+						if (sourceSelect && sections.length) {
+							function syncSections() {
+								sections.forEach(function (section) {
+									section.style.display = section.getAttribute('data-agend-source-key') === sourceSelect.value ? '' : 'none';
+								});
+							}
+							sourceSelect.addEventListener('change', syncSections);
+						}
 					})();
 				</script>
 
@@ -550,8 +670,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					sprintf(
 						// translators: 1: total fetched count, 2: preview count.
 						_n(
-							'Fetched %1$d contact from Upbeat. Showing the first %2$d below.',
-							'Fetched %1$d contacts from Upbeat. Showing the first %2$d below.',
+							'Fetched %1$d contact from the source. Showing the first %2$d below.',
+							'Fetched %1$d contacts from the source. Showing the first %2$d below.',
 							$fetched,
 							'agend-directory-sync'
 						),
@@ -813,7 +933,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		private static function result_heading( string $kind ): string {
 			switch ( $kind ) {
 				case 'fetch':
-					return __( 'Last Upbeat fetch', 'agend-directory-sync' );
+					return __( 'Last source fetch', 'agend-directory-sync' );
 				case 'preview':
 					return __( 'Last transform preview', 'agend-directory-sync' );
 				case 'send':
