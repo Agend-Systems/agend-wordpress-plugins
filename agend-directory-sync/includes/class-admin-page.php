@@ -79,6 +79,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$auto_publish    = ! empty( $_POST['agend_auto_publish_approved'] ) ? '1' : '0';
 			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
 			$posted_source   = isset( $_POST['agend_directory_sync_source'] ) ? sanitize_key( wp_unslash( $_POST['agend_directory_sync_source'] ) ) : '';
+			$raw_http_api    = isset( $_POST['agend_http_api'] ) && is_array( $_POST['agend_http_api'] )
+				? wp_unslash( $_POST['agend_http_api'] )
+				: array();
 
 			// external_source is the upsert identity key and is never
 			// defaulted per source: changing the data source never touches
@@ -96,6 +99,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			// Gateway URL and API key are owned by agend-apps-core, not stored here.
 			update_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, $upbeat_endpoint );
+
+			// Custom HTTP API settings are sanitised as a single unit by the
+			// source itself (SPEC-DIR-20260731 US-2.4 criterion 2); secrets
+			// are never part of this array (Decision 2.4).
+			update_option(
+				Agend_Directory_Sync::OPTION_HTTP_API,
+				Agend_Directory_Sync_Http_Api_Source::sanitize_settings( $raw_http_api )
+			);
 
 			// Persist the configurable field mapping. The core map arrives as an
 			// array of source-field names keyed by Agend target; the custom
@@ -134,18 +145,40 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					throw new RuntimeException( $source->get_unavailable_reason() );
 				}
 
-				$results = $source->fetch_all();
+				// The Custom HTTP API source gets a dedicated first-page-only
+				// response-model preview (raw envelope + resolved path) rather
+				// than the generic fetch-everything preview below (US-2.4):
+				// iterating a response data path against a live, possibly
+				// multi-hundred-page API should not require a full fetch_all()
+				// on every attempt.
+				if ( $source instanceof Agend_Directory_Sync_Http_Api_Source ) {
+					$preview = $source->preview_first_page();
 
-				self::set_result(
-					$user_id,
-					array(
-						'kind'    => 'fetch',
-						'status'  => 'ok',
-						'source'  => $source->get_key(),
-						'fetched' => count( $results ),
-						'preview' => array_slice( $results, 0, self::FETCH_PREVIEW_LIMIT ),
-					)
-				);
+					self::set_result(
+						$user_id,
+						array_merge(
+							array(
+								'kind'   => 'fetch',
+								'status' => 'ok',
+								'source' => $source->get_key(),
+							),
+							$preview
+						)
+					);
+				} else {
+					$results = $source->fetch_all();
+
+					self::set_result(
+						$user_id,
+						array(
+							'kind'    => 'fetch',
+							'status'  => 'ok',
+							'source'  => $source->get_key(),
+							'fetched' => count( $results ),
+							'preview' => array_slice( $results, 0, self::FETCH_PREVIEW_LIMIT ),
+						)
+					);
+				}
 			} catch ( Throwable $e ) {
 				self::set_result(
 					$user_id,
@@ -240,10 +273,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		public static function render_page(): void {
 			self::assert_can();
 
-			$external_source = Agend_Directory_Sync_Runner::resolve_external_source();
-			$auto_publish    = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
-			$upbeat_endpoint = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
-			$field_map       = Agend_Directory_Sync_Field_Map::resolve();
+			$external_source      = Agend_Directory_Sync_Runner::resolve_external_source();
+			$auto_publish         = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
+			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
+			$http_api             = Agend_Directory_Sync_Http_Api_Source::resolve_settings();
+			$http_token_defined   = defined( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' );
+			$oauth_secret_defined = defined( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' );
+			$field_map            = Agend_Directory_Sync_Field_Map::resolve();
 
 			$registered_sources = Agend_Directory_Sync_Source_Registry::all();
 			$active_source      = Agend_Directory_Sync_Source_Registry::active();
@@ -340,6 +376,258 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 												/>
 												<p class="description">
 													<?php esc_html_e( 'Upbeat endpoint path for the member directory. Varies per client. Leave blank to use the default "membershipDirectoryContacts".', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+									</tbody>
+								</table>
+							<?php elseif ( Agend_Directory_Sync_Http_Api_Source::SOURCE_KEY === $source_key ) : ?>
+								<table class="form-table" role="presentation">
+									<tbody>
+										<tr>
+											<th scope="row">
+												<label for="agend_http_api_url"><?php esc_html_e( 'URL', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_http_api[url]"
+													id="agend_http_api_url"
+													type="text"
+													class="regular-text code"
+													value="<?php echo esc_attr( $http_api['url'] ); ?>"
+													placeholder="https://api.example.com/v1/directory"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'Absolute HTTPS URL fetched with wp_remote_get(). HTTP (non-TLS) URLs are rejected on save unless this site\'s environment type is local or development.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_http_api_timeout"><?php esc_html_e( 'Request timeout (seconds)', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_http_api[timeout]"
+													id="agend_http_api_timeout"
+													type="number"
+													min="<?php echo esc_attr( (string) Agend_Directory_Sync_Http_Api_Source::MIN_TIMEOUT ); ?>"
+													max="<?php echo esc_attr( (string) Agend_Directory_Sync_Http_Api_Source::MAX_TIMEOUT ); ?>"
+													step="1"
+													class="small-text"
+													value="<?php echo esc_attr( (string) $http_api['timeout'] ); ?>"
+												/>
+												<p class="description">
+													<?php
+													printf(
+														/* translators: 1: minimum allowed timeout, 2: maximum allowed timeout, 3: default timeout. */
+														esc_html__( 'How long to wait for each request before failing. Clamped between %1$d and %2$d seconds. Defaults to %3$d.', 'agend-directory-sync' ),
+														(int) Agend_Directory_Sync_Http_Api_Source::MIN_TIMEOUT,
+														(int) Agend_Directory_Sync_Http_Api_Source::MAX_TIMEOUT,
+														(int) Agend_Directory_Sync_Http_Api_Source::DEFAULT_TIMEOUT
+													);
+													?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_http_api_data_path"><?php esc_html_e( 'Response data path', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_http_api[data_path]"
+													id="agend_http_api_data_path"
+													type="text"
+													class="regular-text code"
+													value="<?php echo esc_attr( $http_api['data_path'] ); ?>"
+													placeholder="data.results"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'Dot-path to the records array within each page\'s decoded JSON response, e.g. "data.results". Leave blank when the response root itself is the array. Use the raw fetch below to check this against the live API before running a sync.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_http_api_auth_mode"><?php esc_html_e( 'Authentication', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<select name="agend_http_api[auth_mode]" id="agend_http_api_auth_mode">
+													<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::AUTH_NONE ); ?>" <?php selected( $http_api['auth_mode'], Agend_Directory_Sync_Http_Api_Source::AUTH_NONE ); ?>><?php esc_html_e( 'None', 'agend-directory-sync' ); ?></option>
+													<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::AUTH_TOKEN ); ?>" <?php selected( $http_api['auth_mode'], Agend_Directory_Sync_Http_Api_Source::AUTH_TOKEN ); ?>><?php esc_html_e( 'Static token header', 'agend-directory-sync' ); ?></option>
+													<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::AUTH_OAUTH ); ?>" <?php selected( $http_api['auth_mode'], Agend_Directory_Sync_Http_Api_Source::AUTH_OAUTH ); ?>><?php esc_html_e( 'OAuth 2.0 client credentials', 'agend-directory-sync' ); ?></option>
+												</select>
+												<p class="description">
+													<?php esc_html_e( 'How the sync authenticates to the URL above. Secrets are never stored here — see the wp-config.php constants named below.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Static token settings', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_http_api_token_header"><?php esc_html_e( 'Header name', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_http_api[token_header]"
+														id="agend_http_api_token_header"
+														type="text"
+														class="regular-text"
+														value="<?php echo esc_attr( $http_api['token_header'] ); ?>"
+														placeholder="Authorization"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_http_api_token_template"><?php esc_html_e( 'Header value template', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_http_api[token_template]"
+														id="agend_http_api_token_template"
+														type="text"
+														class="regular-text code"
+														value="<?php echo esc_attr( $http_api['token_template'] ); ?>"
+														placeholder="Bearer %s"
+														autocomplete="off"
+													/>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Used only in "Static token header" mode. The "%s" in the header value template above is replaced with the token value. The token value itself comes only from the wp-config.php constant AGEND_DIRECTORY_SYNC_HTTP_TOKEN.', 'agend-directory-sync' ); ?>
+												</p>
+												<p class="description">
+													<?php echo esc_html__( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN constant:', 'agend-directory-sync' ) . ' '; ?>
+													<?php if ( $http_token_defined ) : ?>
+														<strong><?php esc_html_e( 'defined', 'agend-directory-sync' ); ?></strong>
+													<?php else : ?>
+														<strong style="color:#b32d2e;"><?php esc_html_e( 'not defined', 'agend-directory-sync' ); ?></strong>
+													<?php endif; ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'OAuth client credentials settings', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_http_api_oauth_token_url"><?php esc_html_e( 'Token endpoint URL', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_http_api[oauth_token_url]"
+														id="agend_http_api_oauth_token_url"
+														type="text"
+														class="regular-text code"
+														value="<?php echo esc_attr( $http_api['oauth_token_url'] ); ?>"
+														placeholder="https://api.example.com/oauth/token"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_http_api_oauth_client_id"><?php esc_html_e( 'Client ID', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_http_api[oauth_client_id]"
+														id="agend_http_api_oauth_client_id"
+														type="text"
+														class="regular-text"
+														value="<?php echo esc_attr( $http_api['oauth_client_id'] ); ?>"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_http_api_oauth_scope"><?php esc_html_e( 'Scope (optional)', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_http_api[oauth_scope]"
+														id="agend_http_api_oauth_scope"
+														type="text"
+														class="regular-text"
+														value="<?php echo esc_attr( $http_api['oauth_scope'] ); ?>"
+														autocomplete="off"
+													/>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Used only in "OAuth 2.0 client credentials" mode. A client_credentials token request is made with HTTP Basic auth (client ID + secret); scope is sent only when non-blank. The access token is cached until shortly before it expires.', 'agend-directory-sync' ); ?>
+												</p>
+												<p class="description">
+													<?php echo esc_html__( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET constant:', 'agend-directory-sync' ) . ' '; ?>
+													<?php if ( $oauth_secret_defined ) : ?>
+														<strong><?php esc_html_e( 'defined', 'agend-directory-sync' ); ?></strong>
+													<?php else : ?>
+														<strong style="color:#b32d2e;"><?php esc_html_e( 'not defined', 'agend-directory-sync' ); ?></strong>
+													<?php endif; ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_http_api_pagination_mode"><?php esc_html_e( 'Pagination', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<select name="agend_http_api[pagination_mode]" id="agend_http_api_pagination_mode">
+													<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_NONE ); ?>" <?php selected( $http_api['pagination_mode'], Agend_Directory_Sync_Http_Api_Source::PAGINATION_NONE ); ?>><?php esc_html_e( 'None (single request)', 'agend-directory-sync' ); ?></option>
+													<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_PAGE ); ?>" <?php selected( $http_api['pagination_mode'], Agend_Directory_Sync_Http_Api_Source::PAGINATION_PAGE ); ?>><?php esc_html_e( 'Page number', 'agend-directory-sync' ); ?></option>
+													<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_OFFSET ); ?>" <?php selected( $http_api['pagination_mode'], Agend_Directory_Sync_Http_Api_Source::PAGINATION_OFFSET ); ?>><?php esc_html_e( 'Offset / limit', 'agend-directory-sync' ); ?></option>
+												</select>
+												<p class="description">
+													<?php
+													printf(
+														/* translators: %d: the hard page-count safety cap. */
+														esc_html__( 'How the API pages results. Fetching stops on an empty page, a short page, or the has-more path below resolving to false. Reaching %d pages without stopping fails the run rather than returning a truncated set.', 'agend-directory-sync' ),
+														(int) Agend_Directory_Sync_Http_Api_Source::MAX_PAGES
+													);
+													?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Page-number pagination settings', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_http_api_page_param"><?php esc_html_e( 'Page parameter name', 'agend-directory-sync' ); ?></label>
+													<input name="agend_http_api[page_param]" id="agend_http_api_page_param" type="text" class="small-text" value="<?php echo esc_attr( $http_api['page_param'] ); ?>" placeholder="page" autocomplete="off" />
+												</p>
+												<p>
+													<label for="agend_http_api_page_size_param"><?php esc_html_e( 'Page-size parameter name', 'agend-directory-sync' ); ?></label>
+													<input name="agend_http_api[page_size_param]" id="agend_http_api_page_size_param" type="text" class="small-text" value="<?php echo esc_attr( $http_api['page_size_param'] ); ?>" placeholder="per_page" autocomplete="off" />
+												</p>
+												<p>
+													<label for="agend_http_api_page_size"><?php esc_html_e( 'Page size', 'agend-directory-sync' ); ?></label>
+													<input name="agend_http_api[page_size]" id="agend_http_api_page_size" type="number" min="<?php echo esc_attr( (string) Agend_Directory_Sync_Http_Api_Source::MIN_PAGE_SIZE ); ?>" max="<?php echo esc_attr( (string) Agend_Directory_Sync_Http_Api_Source::MAX_PAGE_SIZE ); ?>" class="small-text" value="<?php echo esc_attr( (string) $http_api['page_size'] ); ?>" />
+												</p>
+												<p>
+													<label for="agend_http_api_first_page"><?php esc_html_e( 'First page number', 'agend-directory-sync' ); ?></label>
+													<input name="agend_http_api[first_page]" id="agend_http_api_first_page" type="number" min="0" class="small-text" value="<?php echo esc_attr( (string) $http_api['first_page'] ); ?>" />
+												</p>
+												<p class="description"><?php esc_html_e( 'Used only in "Page number" pagination mode.', 'agend-directory-sync' ); ?></p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Offset / limit pagination settings', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_http_api_offset_param"><?php esc_html_e( 'Offset parameter name', 'agend-directory-sync' ); ?></label>
+													<input name="agend_http_api[offset_param]" id="agend_http_api_offset_param" type="text" class="small-text" value="<?php echo esc_attr( $http_api['offset_param'] ); ?>" placeholder="offset" autocomplete="off" />
+												</p>
+												<p>
+													<label for="agend_http_api_limit_param"><?php esc_html_e( 'Limit parameter name', 'agend-directory-sync' ); ?></label>
+													<input name="agend_http_api[limit_param]" id="agend_http_api_limit_param" type="text" class="small-text" value="<?php echo esc_attr( $http_api['limit_param'] ); ?>" placeholder="limit" autocomplete="off" />
+												</p>
+												<p class="description"><?php esc_html_e( 'Used only in "Offset / limit" pagination mode. The same page size setting above is sent as the limit.', 'agend-directory-sync' ); ?></p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_http_api_has_more_path"><?php esc_html_e( 'Has-more path (optional)', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_http_api[has_more_path]"
+													id="agend_http_api_has_more_path"
+													type="text"
+													class="regular-text code"
+													value="<?php echo esc_attr( $http_api['has_more_path'] ); ?>"
+													placeholder="meta.has_more"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'Optional dot-path resolved against each page\'s response; pagination stops early when this resolves to boolean false. Leave blank if the API has no such flag (the empty/short-page checks still apply).', 'agend-directory-sync' ); ?>
 												</p>
 											</td>
 										</tr>
@@ -662,6 +950,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		}
 
 		private static function render_fetch_result( array $result ): void {
+			// The Custom HTTP API first-page preview has a distinct shape
+			// (US-2.4): the presence of 'data_path' marks it, set only by
+			// Agend_Directory_Sync_Http_Api_Source::preview_first_page().
+			if ( array_key_exists( 'data_path', $result ) ) {
+				self::render_http_api_preview_result( $result );
+				return;
+			}
+
 			$fetched = (int) ( $result['fetched'] ?? 0 );
 			$preview = is_array( $result['preview'] ?? null ) ? $result['preview'] : array();
 
@@ -682,6 +978,93 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				. '</p>';
 
 			self::render_json_block( $preview );
+		}
+
+		/**
+		 * Render the Custom HTTP API first-page response-model preview
+		 * (US-2.4 criterion 3): HTTP status, the raw decoded envelope
+		 * (truncated at 100 KB), the configured path, and either the
+		 * resolved records (first 5, with a resolved-count line) or, when
+		 * the path failed to resolve, the deepest-resolvable-segment key
+		 * listing (criterion 4). Never renders secrets or request headers
+		 * (criterion 5) — nothing here echoes the auth settings at all.
+		 *
+		 * @param array<string, mixed> $result
+		 */
+		private static function render_http_api_preview_result( array $result ): void {
+			$status    = (int) ( $result['http_status'] ?? 0 );
+			$decoded   = is_array( $result['decoded'] ?? null ) ? $result['decoded'] : array();
+			$data_path = (string) ( $result['data_path'] ?? '' );
+
+			echo '<p>'
+				. esc_html(
+					sprintf(
+						/* translators: %d: HTTP status code from the first-page fetch. */
+						__( 'HTTP status: %d', 'agend-directory-sync' ),
+						$status
+					)
+				)
+				. '</p>';
+
+			echo '<h4>' . esc_html__( 'Raw response envelope', 'agend-directory-sync' ) . '</h4>';
+			self::render_json_block_truncated( $decoded );
+
+			echo '<p>'
+				. esc_html(
+					sprintf(
+						/* translators: %s: the configured response data path, or "(root)" when blank. */
+						__( 'Configured response data path: %s', 'agend-directory-sync' ),
+						'' !== $data_path ? $data_path : __( '(root)', 'agend-directory-sync' )
+					)
+				)
+				. '</p>';
+
+			if ( empty( $result['path_resolved'] ) ) {
+				$failed_at      = (string) ( $result['failed_at'] ?? '' );
+				$available_keys = is_array( $result['available_keys'] ?? null ) ? $result['available_keys'] : array();
+
+				echo '<div class="notice notice-warning inline"><p>'
+					. esc_html(
+						sprintf(
+							/* translators: 1: deepest path segment that resolved, 2: comma-separated keys available there. */
+							__( 'The configured path did not resolve to an array. Resolution failed at "%1$s". Keys available there: %2$s.', 'agend-directory-sync' ),
+							$failed_at,
+							! empty( $available_keys ) ? implode( ', ', $available_keys ) : __( '(none)', 'agend-directory-sync' )
+						)
+					)
+					. '</p></div>';
+				return;
+			}
+
+			$resolved_count = (int) ( $result['resolved_count'] ?? 0 );
+			$records        = is_array( $result['resolved_records'] ?? null ) ? $result['resolved_records'] : array();
+			$skipped        = (int) ( $result['skipped_non_associative'] ?? 0 );
+
+			echo '<p>'
+				. esc_html(
+					sprintf(
+						/* translators: 1: total records resolved, 2: rows rendered below. */
+						__( 'Resolved %1$d record(s). Showing the first %2$d.', 'agend-directory-sync' ),
+						$resolved_count,
+						count( $records )
+					)
+				)
+				. '</p>';
+
+			if ( $skipped > 0 ) {
+				echo '<p class="description">'
+					. esc_html(
+						sprintf(
+							/* translators: %d: rows skipped because they were not a JSON object. */
+							__( '%d row(s) skipped: not a JSON object.', 'agend-directory-sync' ),
+							$skipped
+						)
+					)
+					. '</p>';
+			}
+
+			echo '<h4>' . esc_html__( 'Resolved records (first 5)', 'agend-directory-sync' ) . '</h4>';
+			self::render_json_block( $records );
 		}
 
 		private static function render_preview_result( array $result ): void {
@@ -927,6 +1310,34 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$json = wp_json_encode( $value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
 			echo '<pre style="background:#f6f7f7;border:1px solid #c3c4c7;padding:1em;max-height:600px;overflow:auto;">'
 				. esc_html( (string) $json )
+				. '</pre>';
+		}
+
+		/**
+		 * Maximum bytes of pretty-printed JSON rendered by
+		 * render_json_block_truncated() before truncation (US-2.4 criterion
+		 * 3): the raw response envelope in the Custom HTTP API preview can
+		 * be arbitrarily large.
+		 */
+		private const JSON_BLOCK_TRUNCATE_BYTES = 102400;
+
+		/**
+		 * Like render_json_block(), but truncates at 100 KB with a
+		 * truncation notice (US-2.4 criterion 3), for rendering an
+		 * arbitrarily large raw API response.
+		 *
+		 * @param mixed $value
+		 */
+		private static function render_json_block_truncated( $value ): void {
+			$json = (string) wp_json_encode( $value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+
+			if ( strlen( $json ) > self::JSON_BLOCK_TRUNCATE_BYTES ) {
+				$json = substr( $json, 0, self::JSON_BLOCK_TRUNCATE_BYTES );
+				echo '<p class="description">' . esc_html__( 'Truncated at 100 KB.', 'agend-directory-sync' ) . '</p>';
+			}
+
+			echo '<pre style="background:#f6f7f7;border:1px solid #c3c4c7;padding:1em;max-height:600px;overflow:auto;">'
+				. esc_html( $json )
 				. '</pre>';
 		}
 
