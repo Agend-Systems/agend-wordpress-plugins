@@ -33,6 +33,15 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		public const OPTION_UPBEAT_ENDPOINT = 'agend_directory_sync_upbeat_endpoint';
 
 		/**
+		 * Option key for the active data source key (e.g. `upbeat`,
+		 * `http_api`), resolved by Agend_Directory_Sync_Source_Registry. An
+		 * unset or unknown value falls back to `upbeat`, so an existing
+		 * install never changes source on upgrade (SPEC-DIR-20260731
+		 * Decision 2.1).
+		 */
+		public const OPTION_SOURCE = 'agend_directory_sync_source';
+
+		/**
 		 * Option key for the external_source string sent with each batch.
 		 */
 		public const OPTION_EXTERNAL_SOURCE = 'agend_directory_sync_external_source';
@@ -74,8 +83,11 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 			$this->define_constants();
 
 			$this->include( 'includes/class-field-map.php' );
+			$this->include( 'includes/interface-source.php' );
+			$this->include( 'includes/class-path-resolver.php' );
 			$this->include( 'includes/class-upbeat-client.php' );
 			$this->include( 'includes/class-listing-transformer.php' );
+			$this->include( 'includes/class-source-registry.php' );
 			$this->include( 'includes/class-agend-client.php' );
 			$this->include( 'includes/class-sync-runner.php' );
 			$this->include( 'includes/class-admin-page.php' );
@@ -94,6 +106,13 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		}
 
 		public function post_include_files(): void {
+			// Seed the source registry now: all files are included and every
+			// other plugin's add_filter() calls have already run by this
+			// point (this fires on the `iugo_membership_kiosk_loaded` action,
+			// itself hooked to `setup_theme`), so the
+			// `agend_directory_sync_sources` filter sees every registration.
+			Agend_Directory_Sync_Source_Registry::register_defaults();
+
 			Agend_Directory_Sync_Admin_Page::setup_hooks();
 
 			// Register the WP-CLI command for unattended / server-cron runs.
