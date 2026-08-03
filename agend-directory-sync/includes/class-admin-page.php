@@ -488,7 +488,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 												</p>
 											</td>
 										</tr>
-										<tr>
+										<tr data-agend-http-auth="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::AUTH_TOKEN ); ?>" style="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::AUTH_TOKEN === $http_api['auth_mode'] ? '' : 'display:none;' ); ?>">
 											<th scope="row"><?php esc_html_e( 'Static token settings', 'agend-directory-sync' ); ?></th>
 											<td>
 												<p>
@@ -528,7 +528,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 												</p>
 											</td>
 										</tr>
-										<tr>
+										<tr data-agend-http-auth="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::AUTH_OAUTH ); ?>" style="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::AUTH_OAUTH === $http_api['auth_mode'] ? '' : 'display:none;' ); ?>">
 											<th scope="row"><?php esc_html_e( 'OAuth client credentials settings', 'agend-directory-sync' ); ?></th>
 											<td>
 												<p>
@@ -606,7 +606,18 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 												</p>
 											</td>
 										</tr>
-										<tr>
+										<tr data-agend-http-pagination="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_PAGE . ' ' . Agend_Directory_Sync_Http_Api_Source::PAGINATION_OFFSET ); ?>" style="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_NONE === $http_api['pagination_mode'] ? 'display:none;' : '' ); ?>">
+											<th scope="row">
+												<label for="agend_http_api_page_size"><?php esc_html_e( 'Page size', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input name="agend_http_api[page_size]" id="agend_http_api_page_size" type="number" min="<?php echo esc_attr( (string) Agend_Directory_Sync_Http_Api_Source::MIN_PAGE_SIZE ); ?>" max="<?php echo esc_attr( (string) Agend_Directory_Sync_Http_Api_Source::MAX_PAGE_SIZE ); ?>" class="small-text" value="<?php echo esc_attr( (string) $http_api['page_size'] ); ?>" />
+												<p class="description">
+													<?php esc_html_e( 'Records requested per page: sent as the page-size parameter (page mode) or the limit parameter (offset mode), and used for the short-page stop condition.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr data-agend-http-pagination="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_PAGE ); ?>" style="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_PAGE === $http_api['pagination_mode'] ? '' : 'display:none;' ); ?>">
 											<th scope="row"><?php esc_html_e( 'Page-number pagination settings', 'agend-directory-sync' ); ?></th>
 											<td>
 												<p>
@@ -618,17 +629,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 													<input name="agend_http_api[page_size_param]" id="agend_http_api_page_size_param" type="text" class="small-text" value="<?php echo esc_attr( $http_api['page_size_param'] ); ?>" placeholder="per_page" autocomplete="off" />
 												</p>
 												<p>
-													<label for="agend_http_api_page_size"><?php esc_html_e( 'Page size', 'agend-directory-sync' ); ?></label>
-													<input name="agend_http_api[page_size]" id="agend_http_api_page_size" type="number" min="<?php echo esc_attr( (string) Agend_Directory_Sync_Http_Api_Source::MIN_PAGE_SIZE ); ?>" max="<?php echo esc_attr( (string) Agend_Directory_Sync_Http_Api_Source::MAX_PAGE_SIZE ); ?>" class="small-text" value="<?php echo esc_attr( (string) $http_api['page_size'] ); ?>" />
-												</p>
-												<p>
 													<label for="agend_http_api_first_page"><?php esc_html_e( 'First page number', 'agend-directory-sync' ); ?></label>
 													<input name="agend_http_api[first_page]" id="agend_http_api_first_page" type="number" min="0" class="small-text" value="<?php echo esc_attr( (string) $http_api['first_page'] ); ?>" />
 												</p>
 												<p class="description"><?php esc_html_e( 'Used only in "Page number" pagination mode.', 'agend-directory-sync' ); ?></p>
 											</td>
 										</tr>
-										<tr>
+										<tr data-agend-http-pagination="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_OFFSET ); ?>" style="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_OFFSET === $http_api['pagination_mode'] ? '' : 'display:none;' ); ?>">
 											<th scope="row"><?php esc_html_e( 'Offset / limit pagination settings', 'agend-directory-sync' ); ?></th>
 											<td>
 												<p>
@@ -639,10 +646,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 													<label for="agend_http_api_limit_param"><?php esc_html_e( 'Limit parameter name', 'agend-directory-sync' ); ?></label>
 													<input name="agend_http_api[limit_param]" id="agend_http_api_limit_param" type="text" class="small-text" value="<?php echo esc_attr( $http_api['limit_param'] ); ?>" placeholder="limit" autocomplete="off" />
 												</p>
-												<p class="description"><?php esc_html_e( 'Used only in "Offset / limit" pagination mode. The same page size setting above is sent as the limit.', 'agend-directory-sync' ); ?></p>
+												<p class="description"><?php esc_html_e( 'Used only in "Offset / limit" pagination mode. The shared Page size setting above is sent as the limit parameter.', 'agend-directory-sync' ); ?></p>
 											</td>
 										</tr>
-										<tr>
+										<tr data-agend-http-pagination="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_PAGE . ' ' . Agend_Directory_Sync_Http_Api_Source::PAGINATION_OFFSET ); ?>" style="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::PAGINATION_NONE === $http_api['pagination_mode'] ? 'display:none;' : '' ); ?>">
 											<th scope="row">
 												<label for="agend_http_api_has_more_path"><?php esc_html_e( 'Has-more path (optional)', 'agend-directory-sync' ); ?></label>
 											</th>
@@ -931,6 +938,29 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							}
 							sourceSelect.addEventListener('change', syncSections);
 						}
+
+						// Hide settings rows that do not apply to the selected
+						// authentication / pagination mode (US-2.4). Initial
+						// visibility is rendered server-side; this keeps it in
+						// sync as the admin changes a mode select before saving.
+						// The attribute value is a space-separated list of the
+						// modes the row applies to.
+						function bindModeRows(selectId, attr) {
+							var select = document.getElementById(selectId);
+							var rows = document.querySelectorAll('[' + attr + ']');
+							if (!select || !rows.length) {
+								return;
+							}
+							function sync() {
+								rows.forEach(function (row) {
+									var modes = row.getAttribute(attr).split(' ');
+									row.style.display = modes.indexOf(select.value) !== -1 ? '' : 'none';
+								});
+							}
+							select.addEventListener('change', sync);
+						}
+						bindModeRows('agend_http_api_auth_mode', 'data-agend-http-auth');
+						bindModeRows('agend_http_api_pagination_mode', 'data-agend-http-pagination');
 					})();
 				</script>
 
