@@ -399,7 +399,30 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 													autocomplete="off"
 												/>
 												<p class="description">
-													<?php esc_html_e( 'Absolute HTTPS URL fetched with wp_remote_get(). HTTP (non-TLS) URLs are rejected on save unless this site\'s environment type is local or development.', 'agend-directory-sync' ); ?>
+													<?php esc_html_e( 'Absolute HTTPS URL fetched with wp_remote_get(). HTTP (non-TLS) URLs are rejected on save unless this site\'s environment type is local or development. May contain {name} placeholders resolved from the Connection variables below.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_http_api_variables"><?php esc_html_e( 'Connection variables', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<textarea
+													name="agend_http_api[variables]"
+													id="agend_http_api_variables"
+													class="large-text code"
+													rows="4"
+													placeholder="tenant_id = 00000000-0000-0000-0000-000000000000&#10;org = https://example.org"
+												><?php
+												$variable_lines = array();
+												foreach ( $http_api['variables'] as $variable_name => $variable_value ) {
+													$variable_lines[] = $variable_name . ' = ' . $variable_value;
+												}
+												echo esc_textarea( implode( "\n", $variable_lines ) );
+												?></textarea>
+												<p class="description">
+													<?php esc_html_e( 'One "name = value" per line. A {name} placeholder in the URL, the token endpoint URL, or the scope is replaced with the value at run time; an unresolved placeholder fails the run naming it. Values are stored in the database — never put a secret here. Secrets belong in the wp-config.php constants.', 'agend-directory-sync' ); ?>
 												</p>
 											</td>
 										</tr>
@@ -542,8 +565,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 														autocomplete="off"
 													/>
 												</p>
+												<p>
+													<label for="agend_http_api_oauth_client_auth"><?php esc_html_e( 'Client authentication', 'agend-directory-sync' ); ?></label><br />
+													<select name="agend_http_api[oauth_client_auth]" id="agend_http_api_oauth_client_auth">
+														<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::CLIENT_AUTH_BASIC ); ?>" <?php selected( $http_api['oauth_client_auth'], Agend_Directory_Sync_Http_Api_Source::CLIENT_AUTH_BASIC ); ?>><?php esc_html_e( 'HTTP Basic header', 'agend-directory-sync' ); ?></option>
+														<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::CLIENT_AUTH_BODY ); ?>" <?php selected( $http_api['oauth_client_auth'], Agend_Directory_Sync_Http_Api_Source::CLIENT_AUTH_BODY ); ?>><?php esc_html_e( 'Request body (client_secret_post)', 'agend-directory-sync' ); ?></option>
+													</select>
+												</p>
 												<p class="description">
-													<?php esc_html_e( 'Used only in "OAuth 2.0 client credentials" mode. A client_credentials token request is made with HTTP Basic auth (client ID + secret); scope is sent only when non-blank. The access token is cached until shortly before it expires.', 'agend-directory-sync' ); ?>
+													<?php esc_html_e( 'Used only in "OAuth 2.0 client credentials" mode. The token request carries the client ID and secret either as an HTTP Basic header or as form-encoded body fields (client_secret_post — what Azure AD / Microsoft Entra collections typically use); scope is sent only when non-blank. The token endpoint URL and scope may contain {name} placeholders resolved from the Connection variables above, e.g. https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token with scope {org}/.default. The access token is cached until shortly before it expires.', 'agend-directory-sync' ); ?>
 												</p>
 												<p class="description">
 													<?php echo esc_html__( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET constant:', 'agend-directory-sync' ) . ' '; ?>

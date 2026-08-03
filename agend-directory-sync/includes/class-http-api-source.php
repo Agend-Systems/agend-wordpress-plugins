@@ -42,6 +42,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 		public const PAGINATION_PAGE   = 'page';
 		public const PAGINATION_OFFSET = 'offset';
 
+		public const CLIENT_AUTH_BASIC = 'basic';
+		public const CLIENT_AUTH_BODY  = 'body';
+
 		public const DEFAULT_TIMEOUT = 30;
 		public const MIN_TIMEOUT     = 5;
 		public const MAX_TIMEOUT     = 120;
@@ -136,7 +139,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 				throw new RuntimeException( $this->get_unavailable_reason() );
 			}
 
-			$settings = self::resolve_settings();
+			$settings = $this->runtime_settings();
 			$this->assert_url_allowed( $settings['url'] );
 
 			$this->skipped_non_associative_count = 0;
@@ -220,7 +223,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 				throw new RuntimeException( $this->get_unavailable_reason() );
 			}
 
-			$settings = self::resolve_settings();
+			$settings = $this->runtime_settings();
 			$this->assert_url_allowed( $settings['url'] );
 
 			$this->skipped_non_associative_count = 0;
@@ -308,6 +311,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 				'oauth_token_url' => (string) ( $saved['oauth_token_url'] ?? '' ),
 				'oauth_client_id' => (string) ( $saved['oauth_client_id'] ?? '' ),
 				'oauth_scope'     => trim( (string) ( $saved['oauth_scope'] ?? '' ) ),
+				'oauth_client_auth' => self::sanitize_client_auth( (string) ( $saved['oauth_client_auth'] ?? self::CLIENT_AUTH_BASIC ) ),
+				'variables'       => self::sanitize_variables( $saved['variables'] ?? array() ),
 				'pagination_mode' => self::sanitize_pagination_mode( (string) ( $saved['pagination_mode'] ?? self::PAGINATION_NONE ) ),
 				'page_param'      => self::non_blank( $saved['page_param'] ?? '', 'page' ),
 				'page_size_param' => self::non_blank( $saved['page_size_param'] ?? '', 'per_page' ),
@@ -316,6 +321,81 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 				'offset_param'    => self::non_blank( $saved['offset_param'] ?? '', 'offset' ),
 				'limit_param'     => self::non_blank( $saved['limit_param'] ?? '', 'limit' ),
 				'has_more_path'   => trim( (string) ( $saved['has_more_path'] ?? '' ) ),
+			);
+		}
+
+		/**
+		 * The resolved settings with connection variables substituted into
+		 * the data URL, the OAuth token endpoint URL, and the OAuth scope
+		 * (SPEC-DIR-20260731 v1.1 US-2.5, Decision 2.9). A `{name}`
+		 * placeholder that remains unresolved after substitution fails loudly
+		 * naming the placeholder, rather than sending a literal `{name}` to
+		 * the remote API. Substitution happens here, at run time, so the
+		 * stored settings remain templates and a variables edit takes effect
+		 * without re-saving the URLs.
+		 *
+		 * @return array<string, mixed>
+		 *
+		 * @throws RuntimeException When a placeholder cannot be resolved from
+		 *                          the configured variables.
+		 */
+		private function runtime_settings(): array {
+			$settings = self::resolve_settings();
+
+			$settings['url'] = self::substitute_variables( $settings['url'], $settings['variables'] );
+			self::assert_no_unresolved_placeholders( $settings['url'], __( 'URL', 'agend-directory-sync' ) );
+
+			if ( self::AUTH_OAUTH === $settings['auth_mode'] ) {
+				$settings['oauth_token_url'] = self::substitute_variables( $settings['oauth_token_url'], $settings['variables'] );
+				self::assert_no_unresolved_placeholders( $settings['oauth_token_url'], __( 'Token endpoint URL', 'agend-directory-sync' ) );
+
+				$settings['oauth_scope'] = self::substitute_variables( $settings['oauth_scope'], $settings['variables'] );
+				self::assert_no_unresolved_placeholders( $settings['oauth_scope'], __( 'Scope', 'agend-directory-sync' ) );
+			}
+
+			return $settings;
+		}
+
+		/**
+		 * Replace `{name}` placeholders in a setting value with the
+		 * configured connection variables (Decision 2.9). Unknown
+		 * placeholders are left in place for
+		 * `assert_no_unresolved_placeholders()` to report.
+		 *
+		 * @param array<string, string> $variables
+		 */
+		public static function substitute_variables( string $value, array $variables ): string {
+			if ( '' === $value || false === strpos( $value, '{' ) ) {
+				return $value;
+			}
+
+			foreach ( $variables as $name => $variable_value ) {
+				$value = str_replace( '{' . $name . '}', $variable_value, $value );
+			}
+
+			return $value;
+		}
+
+		/**
+		 * Fail loudly when a `{name}` placeholder survives substitution
+		 * (US-2.5 criterion 3), naming the placeholder and the setting it
+		 * sits in, so a missing variable is a configuration message rather
+		 * than a literal `{name}` sent to the remote API.
+		 *
+		 * @throws RuntimeException When an unresolved placeholder remains.
+		 */
+		public static function assert_no_unresolved_placeholders( string $value, string $setting_label ): void {
+			if ( ! preg_match_all( '/\{[A-Za-z0-9_]+\}/', $value, $matches ) ) {
+				return;
+			}
+
+			throw new RuntimeException(
+				sprintf(
+					/* translators: 1: setting label, 2: comma-separated unresolved placeholders. */
+					__( 'The %1$s setting contains unresolved placeholders: %2$s. Define them under Connection variables.', 'agend-directory-sync' ),
+					$setting_label,
+					implode( ', ', array_unique( $matches[0] ) )
+				)
 			);
 		}
 
@@ -343,6 +423,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 				'oauth_token_url' => self::sanitize_url_setting( isset( $raw['oauth_token_url'] ) ? (string) $raw['oauth_token_url'] : '' ),
 				'oauth_client_id' => sanitize_text_field( isset( $raw['oauth_client_id'] ) ? (string) $raw['oauth_client_id'] : '' ),
 				'oauth_scope'     => sanitize_text_field( isset( $raw['oauth_scope'] ) ? (string) $raw['oauth_scope'] : '' ),
+				'oauth_client_auth' => self::sanitize_client_auth( isset( $raw['oauth_client_auth'] ) ? (string) $raw['oauth_client_auth'] : self::CLIENT_AUTH_BASIC ),
+				'variables'       => self::sanitize_variables( $raw['variables'] ?? array() ),
 				'pagination_mode' => self::sanitize_pagination_mode( isset( $raw['pagination_mode'] ) ? (string) $raw['pagination_mode'] : self::PAGINATION_NONE ),
 				'page_param'      => self::sanitize_param_name( isset( $raw['page_param'] ) ? (string) $raw['page_param'] : '', 'page' ),
 				'page_size_param' => self::sanitize_param_name( isset( $raw['page_size_param'] ) ? (string) $raw['page_size_param'] : '', 'per_page' ),
@@ -545,6 +627,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 					$settings['oauth_token_url'],
 					$settings['oauth_client_id'],
 					$settings['oauth_scope'],
+					$settings['oauth_client_auth'],
 					$force_fresh_token
 				);
 
@@ -693,9 +776,79 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 				return '';
 			}
 
+			// A URL containing a `{name}` placeholder is stored as a template
+			// (US-2.5 criterion 7): esc_url_raw() strips braces, which would
+			// silently corrupt it. The scheme must still be literal at save
+			// time; full HTTPS validation runs against the substituted result
+			// at run time (assert_url_allowed()).
+			if ( false !== strpos( $value, '{' ) ) {
+				$value = sanitize_text_field( $value );
+
+				$allowed = 0 === strpos( $value, 'https://' )
+					|| ( 0 === strpos( $value, 'http://' ) && self::is_local_or_development_environment() );
+
+				return $allowed ? $value : '';
+			}
+
 			$value = (string) esc_url_raw( $value );
 
 			return self::is_https_url( $value ) ? $value : '';
+		}
+
+		/**
+		 * Sanitise the OAuth client authentication method (Decision 2.10):
+		 * `basic` (HTTP Basic header) or `body` (form-encoded client
+		 * credentials). Anything else falls back to `basic`.
+		 */
+		private static function sanitize_client_auth( string $value ): string {
+			$value = trim( $value );
+			return in_array( $value, array( self::CLIENT_AUTH_BASIC, self::CLIENT_AUTH_BODY ), true ) ? $value : self::CLIENT_AUTH_BASIC;
+		}
+
+		/**
+		 * Sanitise the connection variables map (Decision 2.9). Accepts
+		 * either the saved map (array) or the posted textarea (one
+		 * `name = value` per line). Names are restricted to `[A-Za-z0-9_]+`;
+		 * values are plain sanitised text. Variables are stored in
+		 * `wp_options`, so they must never hold secrets — the help text says
+		 * so, and secrets stay in the wp-config.php constants.
+		 *
+		 * @param mixed $raw
+		 *
+		 * @return array<string, string>
+		 */
+		private static function sanitize_variables( $raw ): array {
+			$pairs = array();
+
+			if ( is_array( $raw ) ) {
+				foreach ( $raw as $name => $value ) {
+					$pairs[] = array( (string) $name, (string) $value );
+				}
+			} elseif ( is_string( $raw ) ) {
+				foreach ( preg_split( '/\r\n|\r|\n/', $raw ) as $line ) {
+					$line = trim( (string) $line );
+					if ( '' === $line || false === strpos( $line, '=' ) ) {
+						continue;
+					}
+					list( $name, $value ) = array_map( 'trim', explode( '=', $line, 2 ) );
+					$pairs[]              = array( $name, $value );
+				}
+			}
+
+			$variables = array();
+			foreach ( $pairs as $pair ) {
+				list( $name, $value ) = $pair;
+				if ( '' === $name || ! preg_match( '/^[A-Za-z0-9_]+$/', $name ) ) {
+					continue;
+				}
+				$value = sanitize_text_field( $value );
+				if ( '' === $value ) {
+					continue;
+				}
+				$variables[ $name ] = $value;
+			}
+
+			return $variables;
 		}
 
 		/**

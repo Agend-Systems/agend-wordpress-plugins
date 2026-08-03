@@ -91,6 +91,14 @@ without code. Everything about the upstream API is configuration:
   available there — use **Run source fetch** to preview the raw envelope
   beside what your configured path extracts, and iterate the path until
   it resolves, before any sync runs.
+- **Connection variables** — one `name = value` per line. A `{name}`
+  placeholder in the URL, the token endpoint URL, or the scope is
+  replaced with the value at run time; an unresolved placeholder fails
+  the run naming it. Values live in the database, so never put a secret
+  here — secrets stay in the `wp-config.php` constants. Example (Azure
+  AD / Microsoft Entra): variables `tenant_id` and `org`, token endpoint
+  `https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token`,
+  scope `{org}/.default`.
 - **Authentication** — `none`, `static token header`, or
   `OAuth 2.0 client credentials`. Secrets are never stored in the
   database: define them as constants in `wp-config.php`.
@@ -99,9 +107,11 @@ without code. Everything about the upstream API is configuration:
     `Bearer %s`) are settings.
   - OAuth client credentials: the token endpoint URL, client id, and
     optional scope are settings; the client secret comes from
-    `AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET`. The access token is
-    cached in a transient until shortly before expiry; a 401 on a data
-    request re-acquires once, then fails.
+    `AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET`. Client authentication is
+    selectable: `HTTP Basic header` (default) or
+    `Request body (client_secret_post)`, the style Azure AD uses. The
+    access token is cached in a transient until shortly before expiry; a
+    401 on a data request re-acquires once, then fails.
 - **Pagination** — `none`, `page` (incrementing page-number parameter),
   or `offset` (offset/limit parameters). Parameter names, page size, and
   the first page number are settings. Iteration stops on an empty page,
