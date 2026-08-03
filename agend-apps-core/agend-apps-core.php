@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.2.4
+ * Version:           1.3.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -88,6 +88,7 @@ define( 'AGEND_APPS_PORTAL_LOCAL_URL', 'http://localhost:3074' );
  * any include is executed.
  */
 function agend_apps_core_bootstrap() {
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-secret-store.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-settings.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-api.php';
@@ -217,7 +218,6 @@ add_action( 'admin_head', 'agend_apps_output_config_js', 1 );
 function agend_apps_core_activate() {
 	add_option( 'agend_apps_environment', 'production' );
 	add_option( 'agend_apps_custom_url', '' );
-	add_option( 'agend_apps_api_key', '' );
 	add_option( 'agend_apps_vercel_bypass_token', '' );
 
 	// Ensure cache class is available during activation.
