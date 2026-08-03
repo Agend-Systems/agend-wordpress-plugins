@@ -6,7 +6,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.5.0
+ * Version:         0.5.1
  *
  * @package         Agend_Directory_Sync
  */
@@ -138,6 +138,23 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		}
 
 		public function post_include_files(): void {
+			// The secret store subclasses agend-apps-core's
+			// Agend_Apps_Secret_Store (>= 1.3.0). Against an older apps-core
+			// the subclass never defines, and running any admin/CLI path
+			// would fatal on the missing class — so degrade to an admin
+			// notice and register nothing instead.
+			if ( ! class_exists( 'Agend_Directory_Sync_Secret_Store' ) ) {
+				add_action(
+					'admin_notices',
+					static function (): void {
+						echo '<div class="notice notice-error"><p>';
+						esc_html_e( 'Agend Directory Sync requires Agend Apps Core 1.3.0 or newer (its encrypted secret store is missing). Update the Agend Apps Core plugin.', 'agend-directory-sync' );
+						echo '</p></div>';
+					}
+				);
+				return;
+			}
+
 			// Seed the source registry now: all files are included and every
 			// other plugin's add_filter() calls have already run by this
 			// point (this fires on the `iugo_membership_kiosk_loaded` action,

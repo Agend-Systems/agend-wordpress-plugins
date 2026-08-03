@@ -20,10 +20,32 @@ class Agend_Apps_Settings {
 	/**
 	 * Returns the configured API key.
 	 *
+	 * Resolution order: the optional `AGEND_APPS_API_KEY` wp-config.php
+	 * constant, then the encrypted secret store. A key still sitting in the
+	 * legacy plaintext `agend_apps_api_key` option (pre-1.3.0 installs) is
+	 * migrated on first read: encrypted into the store and deleted from the
+	 * plaintext option, so it stops appearing in database backups. The
+	 * migration is one-way — rolling the plugin back past 1.3.0 after it has
+	 * run means re-entering the key.
+	 *
 	 * @return string The raw API key string, or an empty string if not set.
 	 */
 	public static function get_api_key(): string {
-		return (string) get_option( 'agend_apps_api_key', '' );
+		$key = Agend_Apps_Secret_Store::resolve( Agend_Apps_Secret_Store::KEY_API_KEY, 'AGEND_APPS_API_KEY' );
+		if ( '' !== $key ) {
+			return $key;
+		}
+
+		$legacy = (string) get_option( 'agend_apps_api_key', '' );
+		if ( '' === $legacy ) {
+			return '';
+		}
+
+		if ( Agend_Apps_Secret_Store::set( Agend_Apps_Secret_Store::KEY_API_KEY, $legacy ) ) {
+			delete_option( 'agend_apps_api_key' );
+		}
+
+		return $legacy;
 	}
 
 	/**
