@@ -132,11 +132,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 		 *                          responds non-2xx, or the body is not JSON.
 		 */
 		private static function acquire_token( string $token_url, string $client_id, string $scope, string $client_auth ): array {
-			if ( ! defined( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' ) ) {
-				throw new RuntimeException( __( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET is not defined in wp-config.php.', 'agend-directory-sync' ) );
-			}
+			$client_secret = Agend_Directory_Sync_Secret_Store::resolve(
+				Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET,
+				'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET'
+			);
 
-			$client_secret = (string) constant( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' );
+			if ( '' === $client_secret ) {
+				throw new RuntimeException( __( 'No client secret is set. Enter it under OAuth client credentials settings (stored encrypted), or define AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET in wp-config.php.', 'agend-directory-sync' ) );
+			}
 
 			$body = array( 'grant_type' => 'client_credentials' );
 			if ( '' !== trim( $scope ) ) {
