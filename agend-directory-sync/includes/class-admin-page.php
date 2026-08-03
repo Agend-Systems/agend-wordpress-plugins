@@ -108,6 +108,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				Agend_Directory_Sync_Http_Api_Source::sanitize_settings( $raw_http_api )
 			);
 
+			// Connection secrets ride separate write-only POST fields, never
+			// the settings array, and land in the encrypted secret store
+			// (Decision 2.11). A blank field means "keep the stored value";
+			// the explicit clear checkbox removes it. Secrets get wp_unslash
+			// + trim only — sanitize_text_field() could corrupt a secret
+			// containing characters it strips.
+			$secret_fields = array(
+				Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN          => 'agend_http_api_secret_token',
+				Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET => 'agend_http_api_secret_oauth',
+			);
+			foreach ( $secret_fields as $store_key => $post_key ) {
+				if ( ! empty( $_POST[ $post_key . '_clear' ] ) ) {
+					Agend_Directory_Sync_Secret_Store::delete( $store_key );
+					continue;
+				}
+				// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- write-only secret, encrypted at rest, never rendered; sanitize_text_field would corrupt it.
+				$posted_secret = isset( $_POST[ $post_key ] ) ? trim( (string) wp_unslash( $_POST[ $post_key ] ) ) : '';
+				if ( '' !== $posted_secret ) {
+					Agend_Directory_Sync_Secret_Store::set( $store_key, $posted_secret );
+				}
+			}
+
 			// Persist the configurable field mapping. The core map arrives as an
 			// array of source-field names keyed by Agend target; the custom
 			// fields arrive as a `target = source` textarea; the location slots
@@ -277,8 +299,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$auto_publish         = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
 			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
 			$http_api             = Agend_Directory_Sync_Http_Api_Source::resolve_settings();
-			$http_token_defined   = defined( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' );
-			$oauth_secret_defined = defined( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' );
+			$http_token_source   = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN, 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' );
+			$oauth_secret_source = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET, 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' );
 			$field_map            = Agend_Directory_Sync_Field_Map::resolve();
 
 			$registered_sources = Agend_Directory_Sync_Source_Registry::all();
@@ -484,7 +506,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 													<option value="<?php echo esc_attr( Agend_Directory_Sync_Http_Api_Source::AUTH_OAUTH ); ?>" <?php selected( $http_api['auth_mode'], Agend_Directory_Sync_Http_Api_Source::AUTH_OAUTH ); ?>><?php esc_html_e( 'OAuth 2.0 client credentials', 'agend-directory-sync' ); ?></option>
 												</select>
 												<p class="description">
-													<?php esc_html_e( 'How the sync authenticates to the URL above. Secrets are never stored here — see the wp-config.php constants named below.', 'agend-directory-sync' ); ?>
+													<?php esc_html_e( 'How the sync authenticates to the URL above. Secrets are entered in write-only fields below and stored encrypted; they are never shown again after saving.', 'agend-directory-sync' ); ?>
 												</p>
 											</td>
 										</tr>
@@ -516,14 +538,34 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 													/>
 												</p>
 												<p class="description">
-													<?php esc_html_e( 'Used only in "Static token header" mode. The "%s" in the header value template above is replaced with the token value. The token value itself comes only from the wp-config.php constant AGEND_DIRECTORY_SYNC_HTTP_TOKEN.', 'agend-directory-sync' ); ?>
+													<?php esc_html_e( 'Used only in "Static token header" mode. The "%s" in the header value template above is replaced with the token value. Enter the token below: it is stored encrypted (a database backup alone cannot reveal it) and is never shown again. Leave the field blank on save to keep the stored value. Defining the AGEND_DIRECTORY_SYNC_HTTP_TOKEN constant in wp-config.php overrides it.', 'agend-directory-sync' ); ?>
+												</p>
+												<p>
+													<label for="agend_http_api_secret_token"><?php esc_html_e( 'API token', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_http_api_secret_token"
+														id="agend_http_api_secret_token"
+														type="password"
+														class="regular-text"
+														value=""
+														placeholder="<?php echo esc_attr( '' !== $http_token_source ? '********' : '' ); ?>"
+														autocomplete="new-password"
+													/>
+													<?php if ( 'stored' === $http_token_source ) : ?>
+														<br /><label>
+															<input type="checkbox" name="agend_http_api_secret_token_clear" value="1" />
+															<?php esc_html_e( 'Clear the stored value on save', 'agend-directory-sync' ); ?>
+														</label>
+													<?php endif; ?>
 												</p>
 												<p class="description">
-													<?php echo esc_html__( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN constant:', 'agend-directory-sync' ) . ' '; ?>
-													<?php if ( $http_token_defined ) : ?>
-														<strong><?php esc_html_e( 'defined', 'agend-directory-sync' ); ?></strong>
+													<?php echo esc_html__( 'Token status:', 'agend-directory-sync' ) . ' '; ?>
+													<?php if ( 'constant' === $http_token_source ) : ?>
+														<strong><?php esc_html_e( 'set via wp-config.php constant (overrides the field above)', 'agend-directory-sync' ); ?></strong>
+													<?php elseif ( 'stored' === $http_token_source ) : ?>
+														<strong><?php esc_html_e( 'set (stored encrypted)', 'agend-directory-sync' ); ?></strong>
 													<?php else : ?>
-														<strong style="color:#b32d2e;"><?php esc_html_e( 'not defined', 'agend-directory-sync' ); ?></strong>
+														<strong style="color:#b32d2e;"><?php esc_html_e( 'not set', 'agend-directory-sync' ); ?></strong>
 													<?php endif; ?>
 												</p>
 											</td>
@@ -573,14 +615,34 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 													</select>
 												</p>
 												<p class="description">
-													<?php esc_html_e( 'Used only in "OAuth 2.0 client credentials" mode. The token request carries the client ID and secret either as an HTTP Basic header or as form-encoded body fields (client_secret_post — what Azure AD / Microsoft Entra collections typically use); scope is sent only when non-blank. The token endpoint URL and scope may contain {name} placeholders resolved from the Connection variables above, e.g. https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token with scope {org}/.default. The access token is cached until shortly before it expires.', 'agend-directory-sync' ); ?>
+													<?php esc_html_e( 'Used only in "OAuth 2.0 client credentials" mode. The token request carries the client ID and secret either as an HTTP Basic header or as form-encoded body fields (client_secret_post — what Azure AD / Microsoft Entra collections typically use); scope is sent only when non-blank. Enter the client secret below: it is stored encrypted (a database backup alone cannot reveal it) and is never shown again; leave it blank on save to keep the stored value (the AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET wp-config.php constant overrides it). The token endpoint URL and scope may contain {name} placeholders resolved from the Connection variables above, e.g. https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token with scope {org}/.default. The access token is cached until shortly before it expires.', 'agend-directory-sync' ); ?>
+												</p>
+												<p>
+													<label for="agend_http_api_secret_oauth"><?php esc_html_e( 'Client secret', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_http_api_secret_oauth"
+														id="agend_http_api_secret_oauth"
+														type="password"
+														class="regular-text"
+														value=""
+														placeholder="<?php echo esc_attr( '' !== $oauth_secret_source ? '********' : '' ); ?>"
+														autocomplete="new-password"
+													/>
+													<?php if ( 'stored' === $oauth_secret_source ) : ?>
+														<br /><label>
+															<input type="checkbox" name="agend_http_api_secret_oauth_clear" value="1" />
+															<?php esc_html_e( 'Clear the stored value on save', 'agend-directory-sync' ); ?>
+														</label>
+													<?php endif; ?>
 												</p>
 												<p class="description">
-													<?php echo esc_html__( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET constant:', 'agend-directory-sync' ) . ' '; ?>
-													<?php if ( $oauth_secret_defined ) : ?>
-														<strong><?php esc_html_e( 'defined', 'agend-directory-sync' ); ?></strong>
+													<?php echo esc_html__( 'Client secret status:', 'agend-directory-sync' ) . ' '; ?>
+													<?php if ( 'constant' === $oauth_secret_source ) : ?>
+														<strong><?php esc_html_e( 'set via wp-config.php constant (overrides the field above)', 'agend-directory-sync' ); ?></strong>
+													<?php elseif ( 'stored' === $oauth_secret_source ) : ?>
+														<strong><?php esc_html_e( 'set (stored encrypted)', 'agend-directory-sync' ); ?></strong>
 													<?php else : ?>
-														<strong style="color:#b32d2e;"><?php esc_html_e( 'not defined', 'agend-directory-sync' ); ?></strong>
+														<strong style="color:#b32d2e;"><?php esc_html_e( 'not set', 'agend-directory-sync' ); ?></strong>
 													<?php endif; ?>
 												</p>
 											</td>

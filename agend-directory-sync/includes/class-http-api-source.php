@@ -484,12 +484,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 		}
 
 		private static function auth_unavailable_reason( string $auth_mode ): string {
-			if ( self::AUTH_TOKEN === $auth_mode && ! defined( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' ) ) {
-				return __( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN is not defined in wp-config.php.', 'agend-directory-sync' );
+			if ( self::AUTH_TOKEN === $auth_mode
+				&& '' === Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN, 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' )
+			) {
+				return __( 'No API token is set. Enter it under Static token settings (stored encrypted), or define AGEND_DIRECTORY_SYNC_HTTP_TOKEN in wp-config.php.', 'agend-directory-sync' );
 			}
 
-			if ( self::AUTH_OAUTH === $auth_mode && ! defined( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' ) ) {
-				return __( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET is not defined in wp-config.php.', 'agend-directory-sync' );
+			if ( self::AUTH_OAUTH === $auth_mode
+				&& '' === Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET, 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' )
+			) {
+				return __( 'No client secret is set. Enter it under OAuth client credentials settings (stored encrypted), or define AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET in wp-config.php.', 'agend-directory-sync' );
 			}
 
 			return '';
@@ -613,11 +617,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 		 */
 		private function build_auth_headers( array $settings, bool $force_fresh_token ): array {
 			if ( self::AUTH_TOKEN === $settings['auth_mode'] ) {
-				if ( ! defined( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' ) ) {
-					throw new RuntimeException( __( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN is not defined in wp-config.php.', 'agend-directory-sync' ) );
-				}
+				$token = Agend_Directory_Sync_Secret_Store::resolve(
+					Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN,
+					'AGEND_DIRECTORY_SYNC_HTTP_TOKEN'
+				);
 
-				$token = (string) constant( 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' );
+				if ( '' === $token ) {
+					throw new RuntimeException( __( 'No API token is set. Enter it under Static token settings (stored encrypted), or define AGEND_DIRECTORY_SYNC_HTTP_TOKEN in wp-config.php.', 'agend-directory-sync' ) );
+				}
 
 				return array( $settings['token_header'] => sprintf( $settings['token_template'], $token ) );
 			}

@@ -6,7 +6,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.4.1
+ * Version:         0.5.0
  *
  * @package         Agend_Directory_Sync
  */
@@ -93,6 +93,7 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 
 			$this->define_constants();
 
+			$this->include( 'includes/class-secret-store.php' );
 			$this->include( 'includes/class-field-map.php' );
 			$this->include( 'includes/interface-source.php' );
 			$this->include( 'includes/class-path-resolver.php' );

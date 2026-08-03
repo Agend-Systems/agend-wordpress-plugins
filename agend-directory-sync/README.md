@@ -95,23 +95,28 @@ without code. Everything about the upstream API is configuration:
   placeholder in the URL, the token endpoint URL, or the scope is
   replaced with the value at run time; an unresolved placeholder fails
   the run naming it. Values live in the database, so never put a secret
-  here — secrets stay in the `wp-config.php` constants. Example (Azure
+  here — enter secrets in their own encrypted fields. Example (Azure
   AD / Microsoft Entra): variables `tenant_id` and `org`, token endpoint
   `https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token`,
   scope `{org}/.default`.
 - **Authentication** — `none`, `static token header`, or
-  `OAuth 2.0 client credentials`. Secrets are never stored in the
-  database: define them as constants in `wp-config.php`.
-  - Static token: the token comes from `AGEND_DIRECTORY_SYNC_HTTP_TOKEN`;
-    the header name (default `Authorization`) and value template (default
-    `Bearer %s`) are settings.
+  `OAuth 2.0 client credentials`. Secrets are entered in write-only
+  password fields on the settings page and stored ENCRYPTED (libsodium,
+  key derived from the site's WordPress auth salts) — a database backup
+  alone cannot reveal them, and the value is never shown again after
+  saving. A blank field on save keeps the stored value; a checkbox clears
+  it. Optionally, the constants `AGEND_DIRECTORY_SYNC_HTTP_TOKEN` /
+  `AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET` in `wp-config.php` override
+  the stored values for installs that prefer file-based secrets. Note:
+  rotating the WordPress salts invalidates stored secrets — re-enter them.
+  - Static token: the header name (default `Authorization`) and value
+    template (default `Bearer %s`) are settings.
   - OAuth client credentials: the token endpoint URL, client id, and
-    optional scope are settings; the client secret comes from
-    `AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET`. Client authentication is
-    selectable: `HTTP Basic header` (default) or
-    `Request body (client_secret_post)`, the style Azure AD uses. The
-    access token is cached in a transient until shortly before expiry; a
-    401 on a data request re-acquires once, then fails.
+    optional scope are settings. Client authentication is selectable:
+    `HTTP Basic header` (default) or `Request body (client_secret_post)`,
+    the style Azure AD uses. The access token is cached in a transient
+    until shortly before expiry; a 401 on a data request re-acquires
+    once, then fails.
 - **Pagination** — `none`, `page` (incrementing page-number parameter),
   or `offset` (offset/limit parameters). Parameter names, page size, and
   the first page number are settings. Iteration stops on an empty page,
