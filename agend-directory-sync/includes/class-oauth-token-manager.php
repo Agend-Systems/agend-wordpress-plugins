@@ -46,6 +46,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 		 * Get a valid access token, from the transient cache unless
 		 * `$force_refresh` is true (used by the caller's 401 retry).
 		 *
+		 * @param string $client_auth How the token request authenticates the
+		 *                            client (SPEC-DIR-20260731 v1.1 Decision
+		 *                            2.10): `basic` (HTTP Basic header) or
+		 *                            `body` (form-encoded client_id +
+		 *                            client_secret, RFC 6749
+		 *                            client_secret_post). Anything else is
+		 *                            treated as `basic`.
+		 *
 		 * @throws RuntimeException When the token request fails, or the
 		 *                          client secret constant is undefined.
 		 */
@@ -53,6 +61,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 			string $token_url,
 			string $client_id,
 			string $scope,
+			string $client_auth = 'basic',
 			bool $force_refresh = false
 		): string {
 			$key = self::transient_key( $token_url, $client_id );
@@ -64,7 +73,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 				}
 			}
 
-			$token_data   = self::acquire_token( $token_url, $client_id, $scope );
+			$token_data   = self::acquire_token( $token_url, $client_id, $scope, $client_auth );
 			$access_token = (string) ( $token_data['access_token'] ?? '' );
 
 			if ( '' === $access_token ) {
@@ -106,11 +115,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 		}
 
 		/**
-		 * POST the client-credentials grant. HTTP Basic auth carries the
-		 * client id + secret (US-2.2 criterion 3); the secret is read from
-		 * the constant here and nowhere else. Failure messages report only
-		 * the HTTP status and the OAuth `error` code, never the response's
-		 * token fields (US-2.2 criterion 7).
+		 * POST the client-credentials grant. Client authentication follows
+		 * `$client_auth` (Decision 2.10): `basic` sends HTTP Basic (client
+		 * id + secret in the Authorization header); `body` sends
+		 * `client_id` + `client_secret` as form-encoded body fields
+		 * (client_secret_post — the style Azure AD collections commonly
+		 * use). In both, the secret is read from the constant here and
+		 * nowhere else. Failure messages report only the HTTP status and
+		 * the OAuth `error` code, never the response's token fields
+		 * (US-2.2 criterion 7).
 		 *
 		 * @return array<string, mixed>
 		 *
@@ -118,7 +131,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 		 *                          request transport-fails, the endpoint
 		 *                          responds non-2xx, or the body is not JSON.
 		 */
-		private static function acquire_token( string $token_url, string $client_id, string $scope ): array {
+		private static function acquire_token( string $token_url, string $client_id, string $scope, string $client_auth ): array {
 			if ( ! defined( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' ) ) {
 				throw new RuntimeException( __( 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET is not defined in wp-config.php.', 'agend-directory-sync' ) );
 			}
@@ -129,6 +142,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 			if ( '' !== trim( $scope ) ) {
 				$body['scope'] = $scope;
 			}
+
+			$use_body_auth = 'body' === $client_auth;
 
 			/**
 			 * Filter the OAuth token request args before the request is
@@ -149,9 +164,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 				)
 			);
 
-			// The Authorization header always wins over anything a filter
-			// set, so a filter can never accidentally drop client auth.
-			$args['headers']['Authorization'] = 'Basic ' . base64_encode( $client_id . ':' . $client_secret );
+			// The credential carrier is applied AFTER the filter, so the
+			// filter never sees the secret and can never accidentally drop
+			// client auth. Basic mode: the Authorization header always wins
+			// over anything a filter set. Body mode (US-2.5 criterion 5):
+			// the pre-filter body plus the credentials always wins, and no
+			// Authorization header is sent.
+			if ( $use_body_auth ) {
+				$body['client_id']     = $client_id;
+				$body['client_secret'] = $client_secret;
+				$args['body']          = $body;
+				unset( $args['headers']['Authorization'] );
+			} else {
+				$args['headers']['Authorization'] = 'Basic ' . base64_encode( $client_id . ':' . $client_secret );
+			}
 
 			$response = wp_remote_post( $token_url, $args );
 
