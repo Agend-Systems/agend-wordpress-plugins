@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.3.0
+ * Version:           1.3.1
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
