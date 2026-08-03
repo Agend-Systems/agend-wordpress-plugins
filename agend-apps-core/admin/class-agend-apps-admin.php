@@ -437,6 +437,11 @@ class Agend_Apps_Admin {
 			esc_html__( 'Verify Key', 'agend-apps-core' )
 		);
 
+		// The verify JS dereferences this panel unconditionally before it
+		// fires the request — omitting it kills the button (regression found
+		// 2026-08-03 after the write-only field rewrite dropped it).
+		echo '<div id="agend-apps-verify-result" class="agend-apps-verify-result" style="display:none;"></div>';
+
 		echo '<p class="description">';
 		echo esc_html__( 'Status:', 'agend-apps-core' ) . ' ';
 		if ( 'constant' === $source ) {
