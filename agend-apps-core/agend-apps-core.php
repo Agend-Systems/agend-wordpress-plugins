@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.3.1
+ * Version:           1.4.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.2.4' );
+define( 'AGEND_APPS_CORE_VERSION', '1.4.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -98,6 +98,9 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-identity.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-membership-sync.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/entitlement-mirror/class-entitlement-collector.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/entitlement-mirror/class-contact-resolver.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/entitlement-mirror/class-entitlement-sync.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
@@ -140,6 +143,17 @@ function agend_apps_core_bootstrap() {
 	// serves the access token from a member's stored Agend session ahead of the
 	// SSO worker, refreshing it as needed.
 	new Agend_Apps_Member_Session();
+
+	// Upbeat entitlement mirror (SPEC-AMS-20260804-upbeat-entitlement-mirror):
+	// subscribes to the kiosk's existing webhook actions and wp_login. No-ops
+	// silently when the module is disabled or the kiosk plugin is absent.
+	Agend_Entitlement_Sync::register();
+
+	// WP-CLI entitlement mirror sweep (US-2.5): loaded only under WP-CLI so the
+	// command class is never defined in a web request.
+	if ( defined( 'WP_CLI' ) && WP_CLI ) {
+		require_once AGEND_APPS_CORE_DIR . 'includes/entitlement-mirror/class-cli-command.php';
+	}
 
 	if ( is_admin() ) {
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-admin.php';
