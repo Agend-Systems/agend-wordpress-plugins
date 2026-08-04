@@ -12,7 +12,7 @@
  * This class NEVER reimplements validity or inheritance -- that logic stays in
  * the kiosk plugin, which is never modified (Decision 2.5).
  *
- * @package Agend_Apps_Core
+ * @package Agend_Entitlement_Mirror
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -88,7 +88,7 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 				}
 			}
 
-			$allowed_categories = Agend_Apps_Settings::get_entitlement_mirror_categories();
+			$allowed_categories = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_categories();
 			$rows                = array();
 
 			foreach ( $entitlements as $entitlement ) {
@@ -207,8 +207,8 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 		 * `Agend_Listing_Transformer::slugify()` (Decision 2.7: the slug
 		 * convention is a cross-plugin, cross-repo contract). That method is
 		 * private, and agend-directory-sync is not a guaranteed-active dependency
-		 * of agend-apps-core, so this class carries its own copy of the identical
-		 * algorithm rather than reaching into a sibling plugin.
+		 * of agend-entitlement-mirror, so this class carries its own copy of the
+		 * identical algorithm rather than reaching into a sibling plugin.
 		 *
 		 * @param string $value Raw value.
 		 * @return string Kebab-case lowercase ASCII slug, or '' when nothing survives.

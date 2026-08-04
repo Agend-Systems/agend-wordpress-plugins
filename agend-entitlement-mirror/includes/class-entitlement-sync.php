@@ -13,7 +13,7 @@
  * The kiosk plugin itself is never modified (Decision 2.5) -- this class only
  * subscribes to hooks the kiosk already fires.
  *
- * @package Agend_Apps_Core
+ * @package Agend_Entitlement_Mirror
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -94,7 +94,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		 * opted in.
 		 */
 		public static function register(): void {
-			if ( ! Agend_Apps_Settings::is_entitlement_mirror_enabled() ) {
+			if ( ! Agend_Entitlement_Mirror_Settings::is_entitlement_mirror_enabled() ) {
 				return;
 			}
 
@@ -188,7 +188,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 				return;
 			}
 
-			set_transient( $throttle_key, 1, Agend_Apps_Settings::get_entitlement_mirror_login_throttle() );
+			set_transient( $throttle_key, 1, Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_login_throttle() );
 
 			// Non-blocking (AC2): any Throwable is caught and logged here so a
 			// mirror failure can never delay or break authentication or the SSO
@@ -260,7 +260,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 							$resolution['contact_id'],
 							array(
 								'custom_fields' => array(
-									Agend_Apps_Settings::get_entitlement_mirror_field_key() => $slugs,
+									Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key() => $slugs,
 								),
 							)
 						);
@@ -307,7 +307,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		 * @return mixed The callback's return value.
 		 */
 		private static function with_suppression( callable $callback ) {
-			$suppress = Agend_Apps_Settings::is_entitlement_mirror_webhook_suppression_enabled();
+			$suppress = Agend_Entitlement_Mirror_Settings::is_entitlement_mirror_webhook_suppression_enabled();
 
 			if ( $suppress ) {
 				add_filter( 'agend_apps_crm_create_contact_args', array( __CLASS__, 'inject_suppression_header' ) );
@@ -459,7 +459,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 				return array();
 			}
 
-			$allowed_categories = Agend_Apps_Settings::get_entitlement_mirror_categories();
+			$allowed_categories = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_categories();
 			$rows                = array();
 
 			foreach ( $types as $type ) {
@@ -509,7 +509,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 			if ( empty( $entries ) ) {
 				return new WP_Error(
 					'agend_entitlement_mirror_no_entries',
-					__( 'No mirrorable entitlement types were found to sync.', 'agend-apps-core' )
+					__( 'No mirrorable entitlement types were found to sync.', 'agend-entitlement-mirror' )
 				);
 			}
 
@@ -535,7 +535,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 			}
 
 			$payload = array(
-				'field_key' => Agend_Apps_Settings::get_entitlement_mirror_field_key(),
+				'field_key' => Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key(),
 				'entries'   => array_map(
 					function ( array $entry ) {
 						return array(

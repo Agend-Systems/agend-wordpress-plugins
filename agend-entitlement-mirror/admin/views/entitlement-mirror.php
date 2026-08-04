@@ -7,10 +7,10 @@
  * mapped slugs, the last catalogue sync outcome, and the last per-member
  * sync/error, plus the manual "Sync Entitlement Catalogue" action.
  *
- * Included by admin/views/settings.php when the active tab is
- * `entitlement-mirror`.
+ * Included by Agend_Entitlement_Mirror_Admin_Page::render_page() (Tools >
+ * Agend Entitlement Mirror).
  *
- * @package Agend_Apps_Core
+ * @package Agend_Entitlement_Mirror
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -25,40 +25,41 @@ $last_error        = get_option( Agend_Entitlement_Sync::LAST_ERROR_OPTION, null
 $nonce             = wp_create_nonce( 'agend_apps_sync_entitlement_catalogue' );
 $ajax_url          = admin_url( 'admin-ajax.php' );
 ?>
-<div class="agend-apps-entitlement-mirror">
+<div class="wrap agend-apps-entitlement-mirror">
+	<h1><?php esc_html_e( 'Agend Entitlement Mirror', 'agend-entitlement-mirror' ); ?></h1>
 
 	<?php if ( ! $kiosk_available ) : ?>
 		<div class="notice notice-warning inline">
-			<p><?php esc_html_e( 'The iugo-membership-kiosk plugin is not active. The entitlement mirror is inert until it is.', 'agend-apps-core' ); ?></p>
+			<p><?php esc_html_e( 'The iugo-membership-kiosk plugin is not active. The entitlement mirror is inert until it is.', 'agend-entitlement-mirror' ); ?></p>
 		</div>
 	<?php endif; ?>
 
 	<form method="post" action="options.php">
 		<?php
-		settings_fields( Agend_Apps_Admin::OPTION_GROUP );
-		do_settings_sections( Agend_Apps_Admin::ENTITLEMENT_MIRROR_PAGE );
+		settings_fields( Agend_Entitlement_Mirror_Admin_Page::OPTION_GROUP );
+		do_settings_sections( Agend_Entitlement_Mirror_Admin_Page::MENU_SLUG );
 		submit_button();
 		?>
 	</form>
 
 	<hr />
 
-	<h2><?php esc_html_e( 'Entitlement Catalogue', 'agend-apps-core' ); ?></h2>
+	<h2><?php esc_html_e( 'Entitlement Catalogue', 'agend-entitlement-mirror' ); ?></h2>
 	<p class="description">
-		<?php esc_html_e( 'The categories and types the collector currently sees from Upbeat, and the slug each maps to (Decision 2.7). Syncing pushes this full list to Agend as the multi_select field options and one audience segment per type.', 'agend-apps-core' ); ?>
+		<?php esc_html_e( 'The categories and types the collector currently sees from Upbeat, and the slug each maps to (Decision 2.7). Syncing pushes this full list to Agend as the multi_select field options and one audience segment per type.', 'agend-entitlement-mirror' ); ?>
 	</p>
 
 	<table class="widefat striped agend-apps-entitlement-mirror-table">
 		<thead>
 			<tr>
-				<th><?php esc_html_e( 'Slug', 'agend-apps-core' ); ?></th>
-				<th><?php esc_html_e( 'Label', 'agend-apps-core' ); ?></th>
+				<th><?php esc_html_e( 'Slug', 'agend-entitlement-mirror' ); ?></th>
+				<th><?php esc_html_e( 'Label', 'agend-entitlement-mirror' ); ?></th>
 			</tr>
 		</thead>
 		<tbody>
 			<?php if ( empty( $catalogue_entries ) ) : ?>
 				<tr>
-					<td colspan="2"><?php esc_html_e( 'No mirrorable entitlement types found.', 'agend-apps-core' ); ?></td>
+					<td colspan="2"><?php esc_html_e( 'No mirrorable entitlement types found.', 'agend-entitlement-mirror' ); ?></td>
 				</tr>
 			<?php else : ?>
 				<?php foreach ( $catalogue_entries as $entry ) : ?>
@@ -78,25 +79,25 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 		        data-nonce="<?php echo esc_attr( $nonce ); ?>"
 		        data-ajax-url="<?php echo esc_attr( $ajax_url ); ?>"
 		        <?php disabled( empty( $catalogue_entries ) ); ?>>
-			<?php esc_html_e( 'Sync Entitlement Catalogue', 'agend-apps-core' ); ?>
+			<?php esc_html_e( 'Sync Entitlement Catalogue', 'agend-entitlement-mirror' ); ?>
 		</button>
 	</p>
 
 	<div id="agend-apps-catalogue-sync-result" class="notice" style="display:none;"></div>
 
-	<h3><?php esc_html_e( 'Last Catalogue Sync', 'agend-apps-core' ); ?></h3>
+	<h3><?php esc_html_e( 'Last Catalogue Sync', 'agend-entitlement-mirror' ); ?></h3>
 	<?php if ( empty( $last_catalogue ) ) : ?>
-		<p><?php esc_html_e( 'Never run.', 'agend-apps-core' ); ?></p>
+		<p><?php esc_html_e( 'Never run.', 'agend-entitlement-mirror' ); ?></p>
 	<?php else : ?>
 		<p>
 			<?php
 			printf(
 				/* translators: 1: ISO timestamp, 2: success/failure. */
-				esc_html__( '%1$s -- %2$s', 'agend-apps-core' ),
+				esc_html__( '%1$s -- %2$s', 'agend-entitlement-mirror' ),
 				esc_html( (string) ( $last_catalogue['at'] ?? '' ) ),
 				! empty( $last_catalogue['success'] )
-					? esc_html__( 'succeeded', 'agend-apps-core' )
-					: esc_html( sprintf( /* translators: %s: error message. */ __( 'failed: %s', 'agend-apps-core' ), (string) ( $last_catalogue['error'] ?? '' ) ) )
+					? esc_html__( 'succeeded', 'agend-entitlement-mirror' )
+					: esc_html( sprintf( /* translators: %s: error message. */ __( 'failed: %s', 'agend-entitlement-mirror' ), (string) ( $last_catalogue['error'] ?? '' ) ) )
 			);
 			?>
 		</p>
@@ -104,9 +105,9 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 			<table class="widefat striped agend-apps-entitlement-mirror-table">
 				<thead>
 					<tr>
-						<th><?php esc_html_e( 'Slug', 'agend-apps-core' ); ?></th>
-						<th><?php esc_html_e( 'Label', 'agend-apps-core' ); ?></th>
-						<th><?php esc_html_e( 'Status', 'agend-apps-core' ); ?></th>
+						<th><?php esc_html_e( 'Slug', 'agend-entitlement-mirror' ); ?></th>
+						<th><?php esc_html_e( 'Label', 'agend-entitlement-mirror' ); ?></th>
+						<th><?php esc_html_e( 'Status', 'agend-entitlement-mirror' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
@@ -122,32 +123,32 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 		<?php endif; ?>
 	<?php endif; ?>
 
-	<h3><?php esc_html_e( 'Last Member Sync', 'agend-apps-core' ); ?></h3>
+	<h3><?php esc_html_e( 'Last Member Sync', 'agend-entitlement-mirror' ); ?></h3>
 	<?php if ( empty( $last_sync ) ) : ?>
-		<p><?php esc_html_e( 'None yet.', 'agend-apps-core' ); ?></p>
+		<p><?php esc_html_e( 'None yet.', 'agend-entitlement-mirror' ); ?></p>
 	<?php else : ?>
 		<p>
 			<?php
 			printf(
 				/* translators: 1: member id, 2: ISO timestamp, 3: created/updated. */
-				esc_html__( 'Member %1$s at %2$s (%3$s)', 'agend-apps-core' ),
+				esc_html__( 'Member %1$s at %2$s (%3$s)', 'agend-entitlement-mirror' ),
 				esc_html( (string) ( $last_sync['member_id'] ?? '' ) ),
 				esc_html( (string) ( $last_sync['at'] ?? '' ) ),
-				! empty( $last_sync['created'] ) ? esc_html__( 'contact created', 'agend-apps-core' ) : esc_html__( 'contact updated', 'agend-apps-core' )
+				! empty( $last_sync['created'] ) ? esc_html__( 'contact created', 'agend-entitlement-mirror' ) : esc_html__( 'contact updated', 'agend-entitlement-mirror' )
 			);
 			?>
 		</p>
 	<?php endif; ?>
 
-	<h3><?php esc_html_e( 'Last Sync Error', 'agend-apps-core' ); ?></h3>
+	<h3><?php esc_html_e( 'Last Sync Error', 'agend-entitlement-mirror' ); ?></h3>
 	<?php if ( empty( $last_error ) ) : ?>
-		<p><?php esc_html_e( 'None.', 'agend-apps-core' ); ?></p>
+		<p><?php esc_html_e( 'None.', 'agend-entitlement-mirror' ); ?></p>
 	<?php else : ?>
 		<p>
 			<?php
 			printf(
 				/* translators: 1: member id, 2: HTTP status code, 3: ISO timestamp. */
-				esc_html__( 'Member %1$s -- HTTP %2$d at %3$s', 'agend-apps-core' ),
+				esc_html__( 'Member %1$s -- HTTP %2$d at %3$s', 'agend-entitlement-mirror' ),
 				esc_html( (string) ( $last_error['member_id'] ?? '' ) ),
 				(int) ( $last_error['status_code'] ?? 0 ),
 				esc_html( (string) ( $last_error['at'] ?? '' ) )
@@ -186,13 +187,13 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 		.then( function( data ) {
 			notice.className     = 'notice ' + ( data.success ? 'notice-success' : 'notice-error' );
 			notice.textContent   = data.success
-				? <?php echo wp_json_encode( __( 'Catalogue synced. Reload this page to see the result table.', 'agend-apps-core' ) ); ?>
+				? <?php echo wp_json_encode( __( 'Catalogue synced. Reload this page to see the result table.', 'agend-entitlement-mirror' ) ); ?>
 				: ( data.data && data.data.message ? data.data.message : '' );
 			notice.style.display = 'block';
 		} )
 		.catch( function() {
 			notice.className      = 'notice notice-error';
-			notice.textContent    = <?php echo wp_json_encode( __( 'An unexpected error occurred.', 'agend-apps-core' ) ); ?>;
+			notice.textContent    = <?php echo wp_json_encode( __( 'An unexpected error occurred.', 'agend-entitlement-mirror' ) ); ?>;
 			notice.style.display  = 'block';
 		} )
 		.finally( function() {

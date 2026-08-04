@@ -15,7 +15,7 @@
  * This file is only loaded under WP-CLI; the command class is never defined
  * in a web request.
  *
- * @package Agend_Apps_Core
+ * @package Agend_Entitlement_Mirror
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -64,8 +64,8 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 		public function sweep( $args, $assoc_args ): void {
 			unset( $args );
 
-			if ( ! Agend_Apps_Settings::is_entitlement_mirror_enabled() ) {
-				WP_CLI::error( 'The entitlement mirror is not enabled (Settings > Agend Apps > Entitlement Mirror).' );
+			if ( ! Agend_Entitlement_Mirror_Settings::is_entitlement_mirror_enabled() ) {
+				WP_CLI::error( 'The entitlement mirror is not enabled (Tools > Agend Entitlement Mirror).' );
 				return;
 			}
 
@@ -175,7 +175,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 					$contact_id,
 					array(
 						'custom_fields' => array(
-							Agend_Apps_Settings::get_entitlement_mirror_field_key() => $desired,
+							Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key() => $desired,
 						),
 					)
 				);
@@ -254,7 +254,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 				return $response;
 			}
 
-			$field_key = Agend_Apps_Settings::get_entitlement_mirror_field_key();
+			$field_key = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key();
 			$values    = $response['data']['custom_fields'][ $field_key ] ?? array();
 
 			if ( ! is_array( $values ) ) {

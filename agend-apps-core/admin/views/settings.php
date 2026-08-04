@@ -24,18 +24,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 		   class="nav-tab<?php echo 'cache' === $active_tab ? ' nav-tab-active' : ''; ?>">
 			<?php esc_html_e( 'Cache', 'agend-apps-core' ); ?>
 		</a>
-		<a href="<?php echo esc_url( admin_url( 'options-general.php?page=' . Agend_Apps_Admin::PAGE_SLUG . '&tab=entitlement-mirror' ) ); ?>"
-		   class="nav-tab<?php echo 'entitlement-mirror' === $active_tab ? ' nav-tab-active' : ''; ?>">
-			<?php esc_html_e( 'Entitlement Mirror', 'agend-apps-core' ); ?>
-		</a>
 	</nav>
 	<?php if ( 'cache' === $active_tab ) : ?>
 
 		<?php require_once AGEND_APPS_CORE_DIR . 'admin/views/cache.php'; ?>
-
-	<?php elseif ( 'entitlement-mirror' === $active_tab ) : ?>
-
-		<?php require_once AGEND_APPS_CORE_DIR . 'admin/views/entitlement-mirror.php'; ?>
 
 	<?php else : ?>
 

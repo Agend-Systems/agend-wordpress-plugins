@@ -37,7 +37,7 @@
  * field, which is the best available approximation of "exact-email lookup"
  * against the current contract.
  *
- * @package Agend_Apps_Core
+ * @package Agend_Entitlement_Mirror
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -95,7 +95,7 @@ if ( ! class_exists( 'Agend_Entitlement_Contact_Resolver' ) ) :
 				);
 			}
 
-			$external_source = Agend_Apps_Settings::get_entitlement_mirror_external_source();
+			$external_source = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_external_source();
 
 			return self::create( $member_id, $external_source, $profile, $slugs );
 		}
@@ -113,7 +113,7 @@ if ( ! class_exists( 'Agend_Entitlement_Contact_Resolver' ) ) :
 		 * @return string|null|WP_Error Contact id, null when not found, or WP_Error on transport failure.
 		 */
 		public static function find_only( string $member_id, string $email ) {
-			$external_source = Agend_Apps_Settings::get_entitlement_mirror_external_source();
+			$external_source = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_external_source();
 
 			if ( '' !== $external_source ) {
 				$found = self::find_by_external_id( $external_source, $member_id );
@@ -222,7 +222,7 @@ if ( ! class_exists( 'Agend_Entitlement_Contact_Resolver' ) ) :
 				'first_name'    => $first_name,
 				'last_name'     => $last_name,
 				'custom_fields' => array(
-					Agend_Apps_Settings::get_entitlement_mirror_field_key() => $slugs,
+					Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key() => $slugs,
 				),
 			);
 
@@ -248,7 +248,7 @@ if ( ! class_exists( 'Agend_Entitlement_Contact_Resolver' ) ) :
 			if ( '' === $contact_id ) {
 				return new WP_Error(
 					'agend_entitlement_mirror_create_failed',
-					__( 'The Agend API did not return a contact id after creation.', 'agend-apps-core' )
+					__( 'The Agend API did not return a contact id after creation.', 'agend-entitlement-mirror' )
 				);
 			}
 
