@@ -420,11 +420,21 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 
 			foreach ( $entries as $entry ) {
 				if ( ! in_array( $entry['slug'], $known, true ) ) {
-					// Sync the FULL discovered catalogue, not just the new
-					// entries: the endpoint is idempotent (US-1.2 AC5), so this
-					// costs nothing extra and keeps every type's segment current
-					// in one call.
-					self::sync_catalogue();
+					// Sync the discovered catalogue MERGED with this member's
+					// own observed entries. A live grant can reference a type
+					// the kiosk's get_entitlement_types() does not list (found
+					// against the PCA sandbox, 2026-08-04: Electronic Downloads
+					// grants whose types are absent from the types endpoint) --
+					// syncing discovery alone would never create those
+					// segments AND would re-fire this check on every sync
+					// because the slugs stay unknown. The endpoint is
+					// idempotent (US-1.2 AC5), so the merge costs nothing.
+					$discovered = self::discover_catalogue_entries();
+					$by_slug    = array();
+					foreach ( array_merge( $discovered, $entries ) as $candidate ) {
+						$by_slug[ $candidate['slug'] ] = $candidate;
+					}
+					self::sync_catalogue( array_values( $by_slug ) );
 					return;
 				}
 			}
@@ -501,6 +511,27 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 					'agend_entitlement_mirror_no_entries',
 					__( 'No mirrorable entitlement types were found to sync.', 'agend-apps-core' )
 				);
+			}
+
+			// The gateway caps a catalogue request at 200 entries. A large
+			// category (the PCA sandbox's Electronic Downloads is a 335-type
+			// document library) must chunk, or the whole sync 400s and no
+			// segment is ever created (found live, 2026-08-04). Each chunk is
+			// independently idempotent, so partial failure leaves earlier
+			// chunks correct and the next sync retries the remainder.
+			if ( count( $entries ) > 200 ) {
+				$last = null;
+				foreach ( array_chunk( $entries, 200 ) as $chunk ) {
+					$last = self::sync_catalogue( $chunk );
+					if ( is_wp_error( $last ) ) {
+						return $last;
+					}
+				}
+				// The per-chunk recursion has already cached each chunk's
+				// slugs; re-cache the FULL list so the known-catalogue check
+				// sees every slug.
+				update_option( self::KNOWN_CATALOGUE_OPTION, wp_list_pluck( $entries, 'slug' ), false );
+				return $last;
 			}
 
 			$payload = array(
