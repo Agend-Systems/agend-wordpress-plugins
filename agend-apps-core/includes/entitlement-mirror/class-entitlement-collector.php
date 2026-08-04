@@ -44,24 +44,48 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 		 *                          produced by an error path (AC4).
 		 */
 		public static function collect( string $member_id ): array {
-			if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
-				throw new RuntimeException( 'The iugo-membership-kiosk plugin is not available.' );
-			}
+			/**
+			 * Short-circuit the kiosk read for one member (SPEC-AMS-20260804
+			 * US-3.1's stub seam: no live Upbeat credentials in any test path).
+			 * Return an array of raw kiosk-shaped entitlement rows to use it,
+			 * or null (the default) to read the kiosk normally. The category
+			 * filter, slugging, dedupe, and sort below still apply, so a stub
+			 * exercises everything except the HTTP call itself.
+			 *
+			 * @param array<int, mixed>|null $entitlements Raw rows, or null.
+			 * @param string                 $member_id    Kiosk membership number.
+			 */
+			$stubbed = apply_filters(
+				'agend_entitlement_mirror_raw_entitlements',
+				null,
+				$member_id
+			);
 
-			try {
-				$entitlements = Iugo_Membership_Kiosk_API::instance()->get_all_member_entitlements( $member_id );
-			} catch ( Throwable $e ) {
-				// get_all_member_entitlements() has no try/catch around its own
-				// entitlement-fetch loop: a genuine API failure there
-				// (get_entitlements_for_id() returning false into array_merge())
-				// surfaces as an uncaught Throwable. "Member not found" returns
-				// array() cleanly and never reaches this catch -- that is the
-				// valid empty state AC4 requires never come from an error path.
-				throw new RuntimeException( 'Failed to retrieve entitlements from the membership kiosk: ' . $e->getMessage(), 0, $e );
-			}
+			if ( null !== $stubbed ) {
+				if ( ! is_array( $stubbed ) ) {
+					throw new RuntimeException( 'Stubbed entitlement rows must be an array.' );
+				}
+				$entitlements = $stubbed;
+			} else {
+				if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
+					throw new RuntimeException( 'The iugo-membership-kiosk plugin is not available.' );
+				}
 
-			if ( ! is_array( $entitlements ) ) {
-				throw new RuntimeException( 'Unexpected response retrieving entitlements from the membership kiosk.' );
+				try {
+					$entitlements = Iugo_Membership_Kiosk_API::instance()->get_all_member_entitlements( $member_id );
+				} catch ( Throwable $e ) {
+					// get_all_member_entitlements() has no try/catch around its own
+					// entitlement-fetch loop: a genuine API failure there
+					// (get_entitlements_for_id() returning false into array_merge())
+					// surfaces as an uncaught Throwable. "Member not found" returns
+					// array() cleanly and never reaches this catch -- that is the
+					// valid empty state AC4 requires never come from an error path.
+					throw new RuntimeException( 'Failed to retrieve entitlements from the membership kiosk: ' . $e->getMessage(), 0, $e );
+				}
+
+				if ( ! is_array( $entitlements ) ) {
+					throw new RuntimeException( 'Unexpected response retrieving entitlements from the membership kiosk.' );
+				}
 			}
 
 			$allowed_categories = Agend_Apps_Settings::get_entitlement_mirror_categories();
