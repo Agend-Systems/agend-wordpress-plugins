@@ -2688,7 +2688,7 @@ function agend_apps_crm_get_my_segments() {
  * Idempotently syncs the entitlement catalogue.
  *
  * SPEC-AMS-20260804-upbeat-entitlement-mirror US-1.2/US-2.4. Ensures the
- * `upbeat_entitlements` (or caller-named) contact field definition and one
+ * `member_entitlements` (or caller-named) contact field definition and one
  * `is_system` audience segment per submitted entitlement type. The gateway
  * builds segment `filter_criteria` server-side (Decision 2.2) -- this
  * function sends only `slug` + `label` per entry, never criteria JSON.
@@ -2698,7 +2698,7 @@ function agend_apps_crm_get_my_segments() {
  * @param array $payload {
  *     Catalogue payload.
  *
- *     @type string $field_key Optional. Defaults to `upbeat_entitlements` gateway-side.
+ *     @type string $field_key Optional. Defaults to `member_entitlements` gateway-side.
  *     @type array  $entries   List of `{ slug, label }` entries.
  * }
  * @return array|WP_Error Decoded response array (`field`, `entries`) on success, or WP_Error on failure.
