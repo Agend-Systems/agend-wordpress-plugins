@@ -38,7 +38,7 @@ class Agend_Entitlement_Mirror_Settings {
 	 *
 	 * @var string
 	 */
-	const ENTITLEMENT_MIRROR_DEFAULT_FIELD_KEY = 'upbeat_entitlements';
+	const ENTITLEMENT_MIRROR_DEFAULT_FIELD_KEY = 'member_entitlements';
 
 	/**
 	 * Default login-reconciliation throttle in seconds (US-2.3 AC1).

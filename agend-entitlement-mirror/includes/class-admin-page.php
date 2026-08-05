@@ -205,7 +205,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 		 * Renders the Entitlement Mirror settings section description.
 		 */
 		public static function render_entitlement_mirror_section(): void {
-			echo '<p>' . esc_html__( 'Mirrors Upbeat entitlements into the Agend upbeat_entitlements contact flag (SPEC-AMS-20260804-upbeat-entitlement-mirror). Requires the iugo-membership-kiosk plugin. Off by default: enable only after the Contact External Source below is confirmed for this install.', 'agend-entitlement-mirror' ) . '</p>';
+			echo '<p>' . esc_html__( 'Mirrors Upbeat entitlements into the Agend member_entitlements contact flag (SPEC-AMS-20260804-upbeat-entitlement-mirror). Requires the iugo-membership-kiosk plugin. Off by default: enable only after the Contact External Source below is confirmed for this install.', 'agend-entitlement-mirror' ) . '</p>';
 		}
 
 		/**

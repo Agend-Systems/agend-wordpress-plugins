@@ -2,7 +2,7 @@
 
 Mirrors Upbeat entitlements (typed grants such as
 `{ entitlementCategory, entitlementType }`) into the Agend
-`upbeat_entitlements` contact custom field, so the directory's entitlement
+`member_entitlements` contact custom field, so the directory's entitlement
 gating segments react to standing granted or revoked in Upbeat.
 
 Extracted from `agend-apps-core` on 2026-08-04
@@ -31,7 +31,7 @@ Tools > Agend Entitlement Mirror:
   Only entitlements in these categories are mirrored.
 - **Contact Field Key** — the `multi_select` contact custom field the
   mirror writes the entitlement slug list to. Defaults to
-  `upbeat_entitlements`; must match the gateway catalogue endpoint's
+  `member_entitlements`; must match the gateway catalogue endpoint's
   `field_key`.
 - **Contact External Source** — the `external_source` value used to
   resolve and create contacts by `(external_source, external_id)`. Must
