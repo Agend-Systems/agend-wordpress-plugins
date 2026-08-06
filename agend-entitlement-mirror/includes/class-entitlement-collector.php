@@ -2,12 +2,14 @@
 /**
  * Entitlement collector.
  *
- * SPEC-AMS-20260804-upbeat-entitlement-mirror US-2.1. Produces the current
+ * SPEC-AMS-20260804-upbeat-entitlement-mirror US-2.1 /
+ * SPEC-CRM-20260805-member-entitlement-grants US-5.1. Produces the current
  * mirrorable entitlement state for a member: the kiosk's
  * `get_all_member_entitlements()` (which already merges the member -> account
  * -> ultimate-parent inheritance chain and filters to currently-valid grants),
- * filtered to the configured category allow-list, shaped into the slug
- * convention that is the contract with the gateway (Decision 2.7).
+ * filtered to the configured category allow-list, shaped into the platform
+ * grants contract `{ gate_key, name, starts_at, expires_at, quantity_allowed,
+ * quantity_remaining }` (Decision 2.7).
  *
  * This class NEVER reimplements validity or inheritance -- that logic stays in
  * the kiosk plugin, which is never modified (Decision 2.5).
@@ -58,13 +60,13 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 		 * Returns the member's current mirrorable entitlement set.
 		 *
 		 * Calls the kiosk's `get_all_member_entitlements()` (AC1), filters to the
-		 * configured category allow-list (AC2), and shapes each surviving row into
-		 * `{ slug, label }` (AC3). The result is deterministic: de-duplicated by
-		 * slug and sorted ascending, so two calls against the same underlying
-		 * state always produce byte-identical output (AC4).
+		 * configured category allow-list (AC2), and shapes each surviving row
+		 * into the platform grants contract (AC3). The result is deterministic:
+		 * de-duplicated by `gate_key` and sorted ascending, so two calls against
+		 * the same underlying state always produce byte-identical output (AC4).
 		 *
 		 * @param string $member_id Kiosk membership number.
-		 * @return array<int, array{slug: string, label: string}> Deterministic, deduplicated, sorted entries.
+		 * @return array<int, array{gate_key: string, name: string, starts_at: string|null, expires_at: string|null, quantity_allowed: int|null, quantity_remaining: int|null}> Deterministic, deduplicated, sorted entries.
 		 *
 		 * @throws RuntimeException When the kiosk plugin is unavailable or the
 		 *                          underlying API call fails. An empty array is a
@@ -77,8 +79,8 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 			 * US-3.1's stub seam: no live Upbeat credentials in any test path).
 			 * Return an array of raw kiosk-shaped entitlement rows to use it,
 			 * or null (the default) to read the kiosk normally. The category
-			 * filter, slugging, dedupe, and sort below still apply, so a stub
-			 * exercises everything except the HTTP call itself.
+			 * filter, gate-key conversion, dedupe, and sort below still apply, so
+			 * a stub exercises everything except the HTTP call itself.
 			 *
 			 * @param array<int, mixed>|null $entitlements Raw rows, or null.
 			 * @param string                 $member_id    Kiosk membership number.
@@ -135,12 +137,13 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 		}
 
 		/**
-		 * Shapes a single kiosk entitlement into a mirror entry, or null when its
-		 * category is not in the allow-list or it slugifies to nothing.
+		 * Shapes a single kiosk entitlement into a platform grant entry, or null
+		 * when its category is not in the allow-list or it converts to no valid
+		 * `gate_key`.
 		 *
 		 * @param Iugo_Membership_Kiosk_API_Entitlement $entitlement        Source entitlement.
 		 * @param array<int, string>                    $allowed_categories Configured category allow-list.
-		 * @return array{slug: string, label: string}|null
+		 * @return array{gate_key: string, name: string, starts_at: string|null, expires_at: string|null, quantity_allowed: int|null, quantity_remaining: int|null}|null
 		 */
 		public static function to_mirror_entry( Iugo_Membership_Kiosk_API_Entitlement $entitlement, array $allowed_categories ): ?array {
 			$category = (string) $entitlement->get_entitlement_category();
@@ -151,23 +154,61 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 
 			$type = (string) $entitlement->get_entitlement_type();
 
-			$category_slug = self::slugify( $category );
-			$type_slug     = self::slugify( $type );
+			$gate_key = self::gate_key( $category, $type );
 
-			if ( '' === $category_slug || '' === $type_slug ) {
+			if ( '' === $gate_key ) {
 				return null;
 			}
 
-			$label = $entitlement->get_entitlement_display_name();
+			$name = $entitlement->get_entitlement_display_name();
 
-			if ( empty( $label ) ) {
-				$label = $type;
+			if ( empty( $name ) ) {
+				$name = $type;
 			}
 
 			return array(
-				'slug'  => $category_slug . '/' . $type_slug,
-				'label' => (string) $label,
+				'gate_key'           => $gate_key,
+				'name'               => (string) $name,
+				'starts_at'          => self::to_utc_rfc3339( $entitlement->get_the_start_date() ),
+				'expires_at'         => self::to_utc_rfc3339( $entitlement->get_the_end_date() ),
+				'quantity_allowed'   => self::to_nonnegative_int( $entitlement->get_quantity_allowed() ),
+				'quantity_remaining' => self::to_nonnegative_int( $entitlement->get_quantity_remaining() ),
 			);
+		}
+
+		/**
+		 * Converts a kiosk entitlement date (already wp_timezone-adjusted) into
+		 * the UTC RFC3339 string the gateway's `z.string().datetime()` accepts.
+		 *
+		 * @param DateTime|null $date Kiosk-provided date, or null when unset.
+		 * @return string|null
+		 */
+		private static function to_utc_rfc3339( ?DateTime $date ): ?string {
+			if ( null === $date ) {
+				return null;
+			}
+
+			$utc = clone $date;
+			$utc->setTimezone( new DateTimeZone( 'UTC' ) );
+
+			return $utc->format( 'Y-m-d\TH:i:s\Z' );
+		}
+
+		/**
+		 * Casts a kiosk quantity string to a non-negative int, or null when it is
+		 * not a valid non-negative number.
+		 *
+		 * @param string|null $value Kiosk-provided quantity string, or null when unset.
+		 * @return int|null
+		 */
+		private static function to_nonnegative_int( ?string $value ): ?int {
+			if ( null === $value || ! is_numeric( $value ) ) {
+				return null;
+			}
+
+			$int = (int) $value;
+
+			return $int >= 0 ? $int : null;
 		}
 
 		/**
@@ -189,84 +230,35 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 		}
 
 		/**
-		 * De-duplicates entries by slug (first label wins) and sorts by slug
-		 * ascending, so two calls against the same underlying set always produce
-		 * byte-identical output (AC4).
+		 * De-duplicates entries by `gate_key` (first entry wins) and sorts by
+		 * `gate_key` ascending, so two calls against the same underlying set
+		 * always produce byte-identical output (AC4).
 		 *
-		 * @param array<int, array{slug: string, label: string}> $rows Unsorted, possibly duplicate entries.
-		 * @return array<int, array{slug: string, label: string}>
+		 * @param array<int, array{gate_key: string}> $rows Unsorted, possibly duplicate entries.
+		 * @return array<int, array{gate_key: string}>
 		 */
 		public static function deduplicate_and_sort( array $rows ): array {
-			$by_slug = array();
+			$by_key = array();
 
 			foreach ( $rows as $row ) {
-				if ( ! isset( $by_slug[ $row['slug'] ] ) ) {
-					$by_slug[ $row['slug'] ] = $row;
+				if ( ! isset( $by_key[ $row['gate_key'] ] ) ) {
+					$by_key[ $row['gate_key'] ] = $row;
 				}
 			}
 
-			ksort( $by_slug, SORT_STRING );
+			ksort( $by_key, SORT_STRING );
 
-			return array_values( $by_slug );
-		}
-
-		/**
-		 * Returns only the slug values from `collect()`, for callers that need
-		 * the flag's value list without the labels (the contact PATCH payload).
-		 *
-		 * @param array<int, array{slug: string, label: string}> $entries Collector output.
-		 * @return array<int, string>
-		 */
-		public static function slugs_only( array $entries ): array {
-			return array_values(
-				array_map(
-					function ( array $entry ) {
-						return $entry['slug'];
-					},
-					$entries
-				)
-			);
-		}
-
-		/**
-		 * Kebab-case lowercase ASCII slugifier.
-		 *
-		 * Byte-identical to agend-directory-sync's
-		 * `Agend_Listing_Transformer::slugify()` (Decision 2.7: the slug
-		 * convention is a cross-plugin, cross-repo contract). That method is
-		 * private, and agend-directory-sync is not a guaranteed-active dependency
-		 * of agend-entitlement-mirror, so this class carries its own copy of the
-		 * identical algorithm rather than reaching into a sibling plugin.
-		 *
-		 * @param string $value Raw value.
-		 * @return string Kebab-case lowercase ASCII slug, or '' when nothing survives.
-		 */
-		public static function slugify( string $value ): string {
-			$value = strtolower( trim( $value ) );
-
-			if ( '' === $value ) {
-				return '';
-			}
-
-			// Replace non-ASCII chars first via WP's sanitize_title, which
-			// handles transliteration in WP environments.
-			if ( function_exists( 'sanitize_title' ) ) {
-				$value = sanitize_title( $value );
-			} else {
-				$value = preg_replace( '/[^a-z0-9]+/', '-', $value );
-				$value = trim( (string) $value, '-' );
-			}
-
-			return (string) $value;
+			return array_values( $by_key );
 		}
 
 		/**
 		 * Underscore-segment slugifier for the platform `gate_key()` convention.
 		 *
-		 * Same transliteration path as {@see slugify()} (WP's `sanitize_title()`
-		 * when available, otherwise the ASCII fallback), but joins words with
-		 * underscores rather than hyphens, since `gate_key()` reserves the dot for
-		 * the category/type separator.
+		 * Byte-identical transliteration path to agend-directory-sync's
+		 * `Agend_Listing_Transformer::slugify()` (Decision 2.7: the slug
+		 * convention is a cross-plugin, cross-repo contract), but joins words
+		 * with underscores rather than hyphens, since `gate_key()` reserves the
+		 * dot for the category/type separator.
 		 *
 		 * @param string $value Raw value.
 		 * @return string Underscore-separated lowercase ASCII segment, or '' when nothing survives.

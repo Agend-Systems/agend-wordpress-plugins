@@ -2,13 +2,15 @@
 /**
  * Entitlement sync.
  *
- * SPEC-AMS-20260804-upbeat-entitlement-mirror US-2.2/US-2.3/US-2.4. Listens on
- * the kiosk's existing webhook actions and the WordPress login hook, and
- * pushes the affected member's FULL current entitlement state to Agend
- * (Decision 2.3 -- never a delta). Also owns the entitlement-type catalogue
- * sync (US-2.4) that keeps `POST /v1/crm/entitlements/catalogue` current, so a
- * brand-new entitlement type gets its segment before (or with) the first
- * contact carrying it (US-2.2 AC5).
+ * SPEC-AMS-20260804-upbeat-entitlement-mirror US-2.2/US-2.3/US-2.4 /
+ * SPEC-CRM-20260805-member-entitlement-grants US-5.1. Listens on the kiosk's
+ * existing webhook actions and the WordPress login hook, and pushes the
+ * affected member's FULL current entitlement state to Agend (Decision 2.3 --
+ * never a delta) via the platform's entitlement-types + entitlement-grants
+ * endpoints. Also owns the entitlement-type declaration sync (US-2.4/US-5.1)
+ * that keeps `POST /v1/crm/entitlements/types` current, so a brand-new
+ * entitlement type gets its `gate_key` before (or with) the first grant
+ * carrying it (US-2.2 AC5).
  *
  * The kiosk plugin itself is never modified (Decision 2.5) -- this class only
  * subscribes to hooks the kiosk already fires.
@@ -54,20 +56,20 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		const RETRY_HOOK = 'agend_entitlement_mirror_retry_sync_member';
 
 		/**
-		 * Option holding the cached catalogue slugs known to this WordPress
-		 * install, refreshed on every successful catalogue sync (US-2.4 AC3).
+		 * Option holding the cached `gate_key`s known to this WordPress install,
+		 * refreshed on every successful types sync (US-2.4 AC3 / US-5.1).
 		 *
 		 * @var string
 		 */
-		const KNOWN_CATALOGUE_OPTION = 'agend_entitlement_mirror_known_catalogue';
+		const KNOWN_TYPES_OPTION = 'agend_entitlement_mirror_known_types';
 
 		/**
-		 * Option holding the outcome of the last catalogue sync, for the admin
-		 * status panel (US-2.4 AC1).
+		 * Option holding the outcome of the last entitlement-types sync, for the
+		 * admin status panel (US-2.4 AC1 / US-5.1).
 		 *
 		 * @var string
 		 */
-		const LAST_CATALOGUE_SYNC_OPTION = 'agend_entitlement_mirror_last_catalogue_sync';
+		const LAST_TYPES_SYNC_OPTION = 'agend_entitlement_mirror_last_types_sync';
 
 		/**
 		 * Option holding the outcome of the last per-member sync, for the admin
@@ -210,12 +212,11 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		}
 
 		/**
-		 * Runs a full-state sync for one member: collect -> maybe sync the
-		 * catalogue for new slugs -> resolve/create the contact -> write the
-		 * full value list (Decision 2.3).
+		 * Runs a full-state sync for one member: collect -> reconcile -> record
+		 * the outcome for the admin status panel.
 		 *
 		 * @param string $member_id Kiosk membership number.
-		 * @return bool True when the sync completed (including a coalesced skip), false on failure.
+		 * @return bool True when the sync completed (including a coalesced skip or a deliberate no-op skip), false on failure.
 		 */
 		public static function sync_member( string $member_id ): bool {
 			$lock_key = 'agend_ent_mirror_lock_' . md5( $member_id );
@@ -234,53 +235,30 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 				return false;
 			}
 
-			self::maybe_sync_catalogue_for_new_slugs( $entries );
+			$result = self::reconcile_member( $member_id, $entries, self::member_profile( $member_id ) );
 
-			$slugs   = Agend_Entitlement_Collector::slugs_only( $entries );
-			$profile = self::member_profile( $member_id );
-
-			$resolution = self::with_suppression(
-				function () use ( $member_id, $profile, $slugs ) {
-					return Agend_Entitlement_Contact_Resolver::resolve_or_create( $member_id, $profile, $slugs );
-				}
-			);
-
-			if ( is_wp_error( $resolution ) ) {
-				self::handle_write_failure( $member_id, $resolution );
+			if ( is_wp_error( $result ) ) {
+				self::handle_write_failure( $member_id, $result );
 				return false;
 			}
 
-			// A newly created contact already carries the flag values from the
-			// same create call (Decision 2.4); only an EXISTING contact needs
-			// the separate full-state PATCH.
-			if ( ! $resolution['created'] ) {
-				$patch = self::with_suppression(
-					function () use ( $resolution, $slugs ) {
-						return agend_apps_crm_update_contact(
-							$resolution['contact_id'],
-							array(
-								'custom_fields' => array(
-									Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key() => $slugs,
-								),
-							)
-						);
-					}
-				);
-
-				if ( is_wp_error( $patch ) ) {
-					self::handle_write_failure( $member_id, $patch );
-					return false;
-				}
+			if ( true === $result ) {
+				return true;
 			}
+
+			$data = isset( $result['data'] ) && is_array( $result['data'] ) ? $result['data'] : array();
 
 			update_option(
 				self::LAST_SYNC_OPTION,
 				array(
-					'member_id'  => $member_id,
-					'contact_id' => $resolution['contact_id'],
-					'created'    => $resolution['created'],
-					'slugs'      => $slugs,
-					'at'         => gmdate( 'c' ),
+					'member_id'       => $member_id,
+					'contact_id'      => (string) ( $data['contact_id'] ?? '' ),
+					'contact_created' => ! empty( $data['contact_created'] ),
+					'granted'         => count( (array) ( $data['granted'] ?? array() ) ),
+					'refreshed'       => count( (array) ( $data['refreshed'] ?? array() ) ),
+					'unchanged'       => count( (array) ( $data['unchanged'] ?? array() ) ),
+					'revoked'         => count( (array) ( $data['revoked'] ?? array() ) ),
+					'at'              => gmdate( 'c' ),
 				),
 				false
 			);
@@ -289,55 +267,119 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		}
 
 		/**
-		 * Runs `$callback` with the webhook-suppression header temporarily
-		 * attached to `agend_apps_crm_create_contact()` /
-		 * `agend_apps_crm_update_contact()` calls made inside it, when the
-		 * setting is enabled (US-2.2 business rule: OFF by default, opt-in per
-		 * install so other subscribers still receive `contact_updated` events
-		 * unless this install explicitly wants to suppress them).
+		 * Reconciles one member's entitlement grants: declares any newly
+		 * observed `gate_key`s, skips the reconcile when there is genuinely
+		 * nothing to do, and otherwise calls the grants endpoint with the
+		 * create-on-miss identity fields the gateway schema actually accepts.
 		 *
-		 * The create/update helpers in `includes/api/crm.php` only accept
-		 * `(id, payload)` -- there is no third "request args" parameter to pass
-		 * headers through directly. Each helper does expose an `*_args` filter
-		 * before it sends the request, so this method attaches a scoped filter
-		 * for the duration of the call and always removes it afterwards, even
-		 * if the callback throws.
+		 * Shared by {@see sync_member()} (webhook/login/retry) and the CLI
+		 * sweep's real-run path, so a payload-shape fix (empty-profile-field
+		 * omission, the empty-entries skip, the types pre-declaration) lands
+		 * once for every caller rather than being re-derived per caller.
 		 *
-		 * @param callable $callback Zero-arg callback making the create/update-contact call.
-		 * @return mixed The callback's return value.
+		 * @param string                                                                                                                                        $member_id Kiosk membership number.
+		 * @param array<int, array{gate_key: string, name: string, starts_at: string|null, expires_at: string|null, quantity_allowed: int|null, quantity_remaining: int|null}> $entries   Collector output for this member.
+		 * @param array{email: string, first_name: string, last_name: string}                                                                                  $profile   Create-on-miss identity fields; empty strings are omitted from the payload.
+		 * @return array|true|WP_Error Decoded gateway response on a real call, `true` for a deliberate skip (nothing to grant and no contact exists), or WP_Error on failure.
 		 */
-		private static function with_suppression( callable $callback ) {
-			$suppress = Agend_Entitlement_Mirror_Settings::is_entitlement_mirror_webhook_suppression_enabled();
+		public static function reconcile_member( string $member_id, array $entries, array $profile ) {
+			self::maybe_sync_types_for_new_keys( $entries );
 
-			if ( $suppress ) {
-				add_filter( 'agend_apps_crm_create_contact_args', array( __CLASS__, 'inject_suppression_header' ) );
-				add_filter( 'agend_apps_crm_update_contact_args', array( __CLASS__, 'inject_suppression_header' ) );
-			}
+			$external_source = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_external_source();
 
-			try {
-				return $callback();
-			} finally {
-				if ( $suppress ) {
-					remove_filter( 'agend_apps_crm_create_contact_args', array( __CLASS__, 'inject_suppression_header' ) );
-					remove_filter( 'agend_apps_crm_update_contact_args', array( __CLASS__, 'inject_suppression_header' ) );
+			// A member with nothing to grant AND no Agend contact needs no
+			// reconcile: there is nothing to revoke, and the endpoint's
+			// create-on-miss would otherwise materialise a placeholder contact
+			// for every unentitled member the nightly sweep touches. A lookup
+			// failure aborts rather than proceeds, so a transport blip can
+			// never fall through to a contact-creating call.
+			if ( empty( $entries ) ) {
+				$existing = self::find_contact_id( $external_source, $member_id );
+
+				if ( is_wp_error( $existing ) ) {
+					return $existing;
+				}
+
+				if ( null === $existing ) {
+					self::log( 'Skipping reconcile: member holds nothing and no contact exists.', array( 'member_id' => $member_id ) );
+					return true;
 				}
 			}
+
+			$payload = array(
+				'external_source' => $external_source,
+				'external_id'     => $member_id,
+				'source_key'      => Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_source_key(),
+				// An empty array here is the positively-established "this source
+				// now grants this member nothing" state (AC12): the caller's
+				// collector failing is what must (and does) abort before
+				// reaching this call, never an empty result reaching it by
+				// mistake.
+				'entries'         => self::to_grant_entries( $entries ),
+			);
+
+			// Create-on-miss identity, used server-side only when no contact
+			// matches the external pair. The gateway rejects empty strings
+			// (first_name/last_name min length 1, email must parse), so absent
+			// profile fields are omitted rather than sent empty.
+			foreach ( $profile as $field => $value ) {
+				if ( '' !== $value ) {
+					$payload[ $field ] = $value;
+				}
+			}
+
+			return agend_apps_crm_reconcile_entitlement_grants( $payload );
 		}
 
 		/**
-		 * Filter callback: merges the webhook-suppression header into a
-		 * create/update-contact request args array.
+		 * Maps collector entries onto the grants-endpoint entry shape, omitting
+		 * any key whose value is null rather than sending an explicit null.
 		 *
-		 * @param array $args Request args.
-		 * @return array
+		 * @param array<int, array{gate_key: string, starts_at: string|null, expires_at: string|null, quantity_allowed: int|null, quantity_remaining: int|null}> $entries Collector output.
+		 * @return array<int, array{gate_key: string}>
 		 */
-		public static function inject_suppression_header( array $args ): array {
-			$args['headers'] = array_merge(
-				is_array( $args['headers'] ?? null ) ? $args['headers'] : array(),
-				array( 'X-Agend-Suppress-Webhooks' => 'true' )
+		public static function to_grant_entries( array $entries ): array {
+			return array_map(
+				function ( array $entry ): array {
+					$row = array( 'gate_key' => $entry['gate_key'] );
+
+					foreach ( array( 'starts_at', 'expires_at', 'quantity_allowed', 'quantity_remaining' ) as $key ) {
+						if ( null !== ( $entry[ $key ] ?? null ) ) {
+							$row[ $key ] = $entry[ $key ];
+						}
+					}
+
+					return $row;
+				},
+				$entries
+			);
+		}
+
+		/**
+		 * Looks up a contact by `(external_source, external_id)`, for the
+		 * empty-entries skip: reconciling nothing against a member with no
+		 * contact would only exercise the endpoint's create-on-miss.
+		 *
+		 * @param string $external_source Configured external identity source.
+		 * @param string $member_id       Kiosk membership number.
+		 * @return string|null|WP_Error Contact id, null when not found, or WP_Error on transport failure.
+		 */
+		private static function find_contact_id( string $external_source, string $member_id ) {
+			$response = agend_apps_crm_get_contacts(
+				array(
+					'externalSource' => $external_source,
+					'externalId'     => $member_id,
+					'limit'          => 1,
+				)
 			);
 
-			return $args;
+			if ( is_wp_error( $response ) ) {
+				return $response;
+			}
+
+			$rows = isset( $response['data'] ) && is_array( $response['data'] ) ? $response['data'] : array();
+
+			return isset( $rows[0]['id'] ) ? (string) $rows[0]['id'] : null;
 		}
 
 		/**
@@ -380,7 +422,8 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 
 		/**
 		 * Resolves a member's profile (email, first/last name) from the kiosk,
-		 * for use only if a contact must be created.
+		 * used only if a contact must be created by the grants endpoint's
+		 * create-on-miss path.
 		 *
 		 * @param string $member_id Kiosk membership number.
 		 * @return array{email: string, first_name: string, last_name: string}
@@ -410,45 +453,64 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		}
 
 		/**
-		 * Triggers a catalogue sync when the collector observes a slug not yet
-		 * in the cached known-catalogue option (US-2.2 AC5).
+		 * Triggers a types sync when the collector observes a `gate_key` not yet
+		 * in the cached known-types option (US-2.2 AC5 / US-5.1).
 		 *
-		 * @param array<int, array{slug: string, label: string}> $entries Collector output for one member.
+		 * @param array<int, array{gate_key: string, name: string}> $entries Collector output for one member.
 		 */
-		private static function maybe_sync_catalogue_for_new_slugs( array $entries ): void {
-			$known = (array) get_option( self::KNOWN_CATALOGUE_OPTION, array() );
+		private static function maybe_sync_types_for_new_keys( array $entries ): void {
+			$known = (array) get_option( self::KNOWN_TYPES_OPTION, array() );
 
 			foreach ( $entries as $entry ) {
-				if ( ! in_array( $entry['slug'], $known, true ) ) {
-					// Sync the discovered catalogue MERGED with this member's
-					// own observed entries. A live grant can reference a type
-					// the kiosk's get_entitlement_types() does not list (found
+				if ( ! in_array( $entry['gate_key'], $known, true ) ) {
+					// Sync the discovered types MERGED with this member's own
+					// observed entries. A live grant can reference a type the
+					// kiosk's get_entitlement_types() does not list (found
 					// against the PCA sandbox, 2026-08-04: Electronic Downloads
 					// grants whose types are absent from the types endpoint) --
-					// syncing discovery alone would never create those
-					// segments AND would re-fire this check on every sync
-					// because the slugs stay unknown. The endpoint is
-					// idempotent (US-1.2 AC5), so the merge costs nothing.
-					$discovered = self::discover_catalogue_entries();
-					$by_slug    = array();
-					foreach ( array_merge( $discovered, $entries ) as $candidate ) {
-						$by_slug[ $candidate['slug'] ] = $candidate;
+					// syncing discovery alone would never declare those types
+					// AND would re-fire this check on every sync because the
+					// keys stay unknown. The endpoint is idempotent (US-5.1),
+					// so the merge costs nothing.
+					$discovered = self::discover_type_entries();
+					$by_key     = array();
+					foreach ( array_merge( $discovered, self::to_type_entries( $entries ) ) as $candidate ) {
+						$by_key[ $candidate['gate_key'] ] = $candidate;
 					}
-					self::sync_catalogue( array_values( $by_slug ) );
+					self::sync_types( array_values( $by_key ) );
 					return;
 				}
 			}
 		}
 
 		/**
-		 * Discovers the current mirrorable entitlement-type catalogue from the
-		 * kiosk: `get_entitlement_types()` filtered to the configured category
-		 * allow-list, shaped and deduplicated with the same rules as the
-		 * per-member collector (US-2.4 AC1).
+		 * Maps collector entries onto the `{ gate_key, name }` shape the types
+		 * endpoint takes.
 		 *
-		 * @return array<int, array{slug: string, label: string}>
+		 * @param array<int, array{gate_key: string, name: string}> $entries Collector output.
+		 * @return array<int, array{gate_key: string, name: string}>
 		 */
-		public static function discover_catalogue_entries(): array {
+		private static function to_type_entries( array $entries ): array {
+			return array_map(
+				function ( array $entry ): array {
+					return array(
+						'gate_key' => $entry['gate_key'],
+						'name'     => $entry['name'],
+					);
+				},
+				$entries
+			);
+		}
+
+		/**
+		 * Discovers the current mirrorable entitlement-type declarations from
+		 * the kiosk: `get_entitlement_types()` filtered to the configured
+		 * category allow-list, converted to `gate_key`s and deduplicated with the
+		 * same rules as the per-member collector (US-2.4 AC1 / US-5.1).
+		 *
+		 * @return array<int, array{gate_key: string, name: string}>
+		 */
+		public static function discover_type_entries(): array {
 			if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
 				return array();
 			}
@@ -475,19 +537,15 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 
 				$type_name = (string) $type->get_type();
 
-				$category_slug = Agend_Entitlement_Collector::slugify( $category );
-				$type_slug     = Agend_Entitlement_Collector::slugify( $type_name );
+				$gate_key = Agend_Entitlement_Collector::gate_key( $category, $type_name );
 
-				if ( '' === $category_slug || '' === $type_slug ) {
+				if ( '' === $gate_key ) {
 					continue;
 				}
 
-				// The type catalogue carries no display name (unlike a
-				// per-member entitlement grant) -- fall back to the raw type
-				// name, matching the collector's own fallback (US-2.1 AC3).
 				$rows[] = array(
-					'slug'  => $category_slug . '/' . $type_slug,
-					'label' => $type_name,
+					'gate_key' => $gate_key,
+					'name'     => $type_name,
 				);
 			}
 
@@ -495,15 +553,15 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		}
 
 		/**
-		 * Pushes the entitlement-type catalogue to the gateway (US-2.4 AC2) and
-		 * refreshes the cached known-slugs option on success (AC3).
+		 * Pushes the entitlement-type declarations to the gateway (US-2.4 AC2 /
+		 * US-5.1) and refreshes the cached known-keys option on success (AC3).
 		 *
-		 * @param array<int, array{slug: string, label: string}>|null $entries Optional. Defaults to `discover_catalogue_entries()`.
+		 * @param array<int, array{gate_key: string, name: string}>|null $entries Optional. Defaults to `discover_type_entries()`.
 		 * @return array|WP_Error Decoded gateway response, or WP_Error on failure.
 		 */
-		public static function sync_catalogue( ?array $entries = null ) {
+		public static function sync_types( ?array $entries = null ) {
 			if ( null === $entries ) {
-				$entries = self::discover_catalogue_entries();
+				$entries = self::discover_type_entries();
 			}
 
 			if ( empty( $entries ) ) {
@@ -513,45 +571,44 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 				);
 			}
 
-			// The gateway caps a catalogue request at 200 entries. A large
-			// category (the PCA sandbox's Electronic Downloads is a 335-type
-			// document library) must chunk, or the whole sync 400s and no
-			// segment is ever created (found live, 2026-08-04). Each chunk is
-			// independently idempotent, so partial failure leaves earlier
-			// chunks correct and the next sync retries the remainder.
+			// The gateway caps a types request at 200 entries. A large category
+			// (the PCA sandbox's Electronic Downloads is a 335-type document
+			// library) must chunk, or the whole sync 400s and no type is ever
+			// declared (found live, 2026-08-04). Each chunk is independently
+			// idempotent, so partial failure leaves earlier chunks correct and
+			// the next sync retries the remainder.
 			if ( count( $entries ) > 200 ) {
 				$last = null;
 				foreach ( array_chunk( $entries, 200 ) as $chunk ) {
-					$last = self::sync_catalogue( $chunk );
+					$last = self::sync_types( $chunk );
 					if ( is_wp_error( $last ) ) {
 						return $last;
 					}
 				}
-				// The per-chunk recursion has already cached each chunk's
-				// slugs; re-cache the FULL list so the known-catalogue check
-				// sees every slug.
-				update_option( self::KNOWN_CATALOGUE_OPTION, wp_list_pluck( $entries, 'slug' ), false );
+				// The per-chunk recursion has already cached each chunk's keys;
+				// re-cache the FULL list so the known-types check sees every key.
+				update_option( self::KNOWN_TYPES_OPTION, wp_list_pluck( $entries, 'gate_key' ), false );
 				return $last;
 			}
 
 			$payload = array(
-				'field_key' => Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key(),
-				'entries'   => array_map(
+				'source_key' => Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_source_key(),
+				'entries'    => array_map(
 					function ( array $entry ) {
 						return array(
-							'slug'  => $entry['slug'],
-							'label' => $entry['label'],
+							'gate_key' => $entry['gate_key'],
+							'name'     => $entry['name'],
 						);
 					},
 					$entries
 				),
 			);
 
-			$response = agend_apps_crm_sync_entitlement_catalogue( $payload );
+			$response = agend_apps_crm_sync_entitlement_types( $payload );
 
 			if ( is_wp_error( $response ) ) {
 				update_option(
-					self::LAST_CATALOGUE_SYNC_OPTION,
+					self::LAST_TYPES_SYNC_OPTION,
 					array(
 						'at'      => gmdate( 'c' ),
 						'success' => false,
@@ -560,19 +617,19 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 					false
 				);
 
-				self::log( 'Catalogue sync failed: ' . $response->get_error_message() );
+				self::log( 'Types sync failed: ' . $response->get_error_message() );
 
 				return $response;
 			}
 
-			update_option( self::KNOWN_CATALOGUE_OPTION, wp_list_pluck( $entries, 'slug' ), false );
+			update_option( self::KNOWN_TYPES_OPTION, wp_list_pluck( $entries, 'gate_key' ), false );
 
-			$results = isset( $response['data']['entries'] ) && is_array( $response['data']['entries'] )
-				? $response['data']['entries']
+			$results = isset( $response['data']['types'] ) && is_array( $response['data']['types'] )
+				? $response['data']['types']
 				: array();
 
 			update_option(
-				self::LAST_CATALOGUE_SYNC_OPTION,
+				self::LAST_TYPES_SYNC_OPTION,
 				array(
 					'at'      => gmdate( 'c' ),
 					'success' => true,

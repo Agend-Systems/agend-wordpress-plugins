@@ -2685,53 +2685,6 @@ function agend_apps_crm_get_my_segments() {
 }
 
 /**
- * Idempotently syncs the entitlement catalogue.
- *
- * SPEC-AMS-20260804-upbeat-entitlement-mirror US-1.2/US-2.4. Ensures the
- * `member_entitlements` (or caller-named) contact field definition and one
- * `is_system` audience segment per submitted entitlement type. The gateway
- * builds segment `filter_criteria` server-side (Decision 2.2) -- this
- * function sends only `slug` + `label` per entry, never criteria JSON.
- *
- * Scope: `crm.entitlements.sync`.
- *
- * @param array $payload {
- *     Catalogue payload.
- *
- *     @type string $field_key Optional. Defaults to `member_entitlements` gateway-side.
- *     @type array  $entries   List of `{ slug, label }` entries.
- * }
- * @return array|WP_Error Decoded response array (`field`, `entries`) on success, or WP_Error on failure.
- */
-function agend_apps_crm_sync_entitlement_catalogue( array $payload ) {
-	/**
-	 * Filters the sync-entitlement-catalogue request args before the request is sent.
-	 *
-	 * @param array $args    Request args.
-	 * @param array $payload Catalogue payload.
-	 */
-	$args = (array) apply_filters(
-		'agend_apps_crm_sync_entitlement_catalogue_args',
-		array( 'body' => $payload ),
-		$payload
-	);
-
-	$response = agend_apps_api()->request( 'POST', '/crm/entitlements/catalogue', $args );
-
-	if ( is_wp_error( $response ) ) {
-		return $response;
-	}
-
-	/**
-	 * Filters the decoded sync-entitlement-catalogue response before it is returned.
-	 *
-	 * @param array $response Decoded response body.
-	 * @param array $payload  Catalogue payload.
-	 */
-	return apply_filters( 'agend_apps_crm_sync_entitlement_catalogue_response', $response, $payload );
-}
-
-/**
  * Idempotently declares entitlement types under a source key.
  *
  * SPEC-CRM-20260805-member-entitlement-grants US-2.1/US-5.1. Upserts
