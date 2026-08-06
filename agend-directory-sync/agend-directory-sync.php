@@ -6,7 +6,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.2.0
+ * Version:         0.5.1
  *
  * @package         Agend_Directory_Sync
  */
@@ -31,6 +31,26 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		 * `agend_apps_directory_bulk_upsert_listings()`.
 		 */
 		public const OPTION_UPBEAT_ENDPOINT = 'agend_directory_sync_upbeat_endpoint';
+
+		/**
+		 * Option key for the active data source key (e.g. `upbeat`,
+		 * `http_api`), resolved by Agend_Directory_Sync_Source_Registry. An
+		 * unset or unknown value falls back to `upbeat`, so an existing
+		 * install never changes source on upgrade (SPEC-DIR-20260731
+		 * Decision 2.1).
+		 */
+		public const OPTION_SOURCE = 'agend_directory_sync_source';
+
+		/**
+		 * Option key for the Custom HTTP API source's settings (URL,
+		 * timeout, response data path, auth mode + non-secret auth
+		 * settings, pagination mode + params). One array option, sanitised
+		 * as a whole (SPEC-DIR-20260731 US-2.4 criterion 2). The secrets
+		 * themselves are never stored here — see
+		 * AGEND_DIRECTORY_SYNC_HTTP_TOKEN and
+		 * AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET (Decision 2.4).
+		 */
+		public const OPTION_HTTP_API = 'agend_directory_sync_http_api';
 
 		/**
 		 * Option key for the external_source string sent with each batch.
@@ -73,12 +93,36 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 
 			$this->define_constants();
 
+			$this->include( 'includes/class-secret-store.php' );
 			$this->include( 'includes/class-field-map.php' );
+			$this->include( 'includes/interface-source.php' );
+			$this->include( 'includes/class-path-resolver.php' );
 			$this->include( 'includes/class-upbeat-client.php' );
+			$this->include( 'includes/class-oauth-token-manager.php' );
+			$this->include( 'includes/class-http-api-source.php' );
 			$this->include( 'includes/class-listing-transformer.php' );
+			$this->include( 'includes/class-source-registry.php' );
 			$this->include( 'includes/class-agend-client.php' );
 			$this->include( 'includes/class-sync-runner.php' );
 			$this->include( 'includes/class-admin-page.php' );
+
+			// The generic HTTP API source ships with this plugin, but
+			// registers through the same `agend_directory_sync_sources`
+			// filter a client source would use (SPEC-DIR-20260731 US-2.1),
+			// rather than a second hard-coded entry in
+			// Agend_Directory_Sync_Source_Registry::register_defaults() —
+			// that file is untouched by this story. add_filter() here runs
+			// synchronously in the constructor, well before
+			// register_defaults() applies the filter from
+			// post_include_files().
+			add_filter(
+				'agend_directory_sync_sources',
+				static function ( array $sources ): array {
+					$http_api                        = new Agend_Directory_Sync_Http_Api_Source();
+					$sources[ $http_api->get_key() ] = $http_api;
+					return $sources;
+				}
+			);
 
 			/**
 			 * Hook in after the kiosk plugin has loaded so its API class is available.
@@ -94,6 +138,30 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		}
 
 		public function post_include_files(): void {
+			// The secret store subclasses agend-apps-core's
+			// Agend_Apps_Secret_Store (>= 1.3.0). Against an older apps-core
+			// the subclass never defines, and running any admin/CLI path
+			// would fatal on the missing class — so degrade to an admin
+			// notice and register nothing instead.
+			if ( ! class_exists( 'Agend_Directory_Sync_Secret_Store' ) ) {
+				add_action(
+					'admin_notices',
+					static function (): void {
+						echo '<div class="notice notice-error"><p>';
+						esc_html_e( 'Agend Directory Sync requires Agend Apps Core 1.3.0 or newer (its encrypted secret store is missing). Update the Agend Apps Core plugin.', 'agend-directory-sync' );
+						echo '</p></div>';
+					}
+				);
+				return;
+			}
+
+			// Seed the source registry now: all files are included and every
+			// other plugin's add_filter() calls have already run by this
+			// point (this fires on the `iugo_membership_kiosk_loaded` action,
+			// itself hooked to `setup_theme`), so the
+			// `agend_directory_sync_sources` filter sees every registration.
+			Agend_Directory_Sync_Source_Registry::register_defaults();
+
 			Agend_Directory_Sync_Admin_Page::setup_hooks();
 
 			// Register the WP-CLI command for unattended / server-cron runs.

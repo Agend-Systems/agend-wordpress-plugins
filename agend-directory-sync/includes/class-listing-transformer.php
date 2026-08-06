@@ -30,7 +30,19 @@
  * - hero_image_url <- map[hero_image] (when present, valid URL, <=1000 chars)
  * - custom_fields  <- the resolved custom_fields map, plus designations from
  *                    the badges source
- * - external_metadata <- upbeat_unique_id, upbeat_date_modified, synced_at
+ * - external_metadata <- contributed by the active source (Decision 2.7); when
+ *                    no source is supplied (a direct caller), falls back to
+ *                    the original Upbeat keys (upbeat_unique_id,
+ *                    upbeat_date_modified, synced_at), still resolved through
+ *                    the field map and path resolver rather than a hardcoded
+ *                    `dateModified` read.
+ *
+ * Every source-field lookup (`source()`, `raw_value()`, `flag()`, the
+ * location slot sub-fields, and the `date_modified` metadata source) resolves
+ * through Agend_Directory_Sync_Path_Resolver, so a nested source field such as
+ * `contact.email` or `addresses.0.suburb` maps without code
+ * (SPEC-DIR-20260731 US-3.1). The transformer stays pure: no I/O, no option
+ * reads; the resolver is a pure function over the data already passed in.
  *
  * Residential address fields are intentionally NOT mapped. The directory is
  * professional; residential addresses are sensitive and would need an
@@ -93,6 +105,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 *
 		 * @param array<int, array<string, mixed>>                                $contacts  Source contact rows.
 		 * @param array{core: array<string,string>, custom_fields: array<string,string>}|null $field_map Resolved field map; defaults applied when null.
+		 * @param Agend_Directory_Sync_Source|null                                $source    Active source, for its external_metadata contribution
+		 *                                                                                    (Decision 2.7). Null falls back to the original Upbeat
+		 *                                                                                    keys for direct callers (back-compat).
 		 *
 		 * @return array{
 		 *     listings: array<int, array<string, mixed>>,
@@ -104,7 +119,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 *     status_counts: array<string, int>
 		 * }
 		 */
-		public static function transform_all( array $contacts, ?array $field_map = null ): array {
+		public static function transform_all( array $contacts, ?array $field_map = null, ?Agend_Directory_Sync_Source $source = null ): array {
 			$field_map              = self::normalise_map( $field_map );
 			$by_external_id         = array();
 			$skipped                = 0;
@@ -126,7 +141,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 					continue;
 				}
 
-				$listing     = self::transform_one( $contact, $field_map, $dropped_fields, $dropped_field_examples );
+				$listing     = self::transform_one( $contact, $field_map, $dropped_fields, $dropped_field_examples, $source );
 				$external_id = $listing['external_id'];
 				$status      = (string) ( $listing['status'] ?? '' );
 
@@ -188,19 +203,38 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		}
 
 		/**
-		 * Read a source field from a contact using the configured source name.
-		 * A blank source name yields '' so the target is omitted.
+		 * Read a source field from a contact using the configured source name
+		 * (a plain field name or a dot-path, resolved via
+		 * Agend_Directory_Sync_Path_Resolver). A blank source name yields ''
+		 * so the target is omitted.
 		 *
-		 * @param array<string, mixed>     $contact
-		 * @param array<string, string>    $core
-		 * @param string                   $key
+		 * Public so a source's `get_external_metadata()` implementation
+		 * (e.g. Agend_Directory_Sync_Upbeat_Client) can resolve a field-map
+		 * source the same way the transformer does, without a duplicate
+		 * implementation (SPEC-DIR-20260731 Decision 2.3, US-1.1 criterion 8).
+		 *
+		 * @param array<string, mixed>  $contact
+		 * @param array<string, string> $core
+		 * @param string                $key
 		 */
-		private static function source( array $contact, array $core, string $key ): string {
+		public static function resolve_source_field( array $contact, array $core, string $key ): string {
 			$field = (string) ( $core[ $key ] ?? '' );
 			if ( '' === $field ) {
 				return '';
 			}
-			return self::stringy( $contact[ $field ] ?? '' );
+			return self::stringy( Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field ) );
+		}
+
+		/**
+		 * Alias of resolve_source_field() kept for readability at call sites
+		 * within this class.
+		 *
+		 * @param array<string, mixed>  $contact
+		 * @param array<string, string> $core
+		 * @param string                $key
+		 */
+		private static function source( array $contact, array $core, string $key ): string {
+			return self::resolve_source_field( $contact, $core, $key );
 		}
 
 		/**
@@ -239,9 +273,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		}
 
 		/**
-		 * Read a boolean flag source. A blank source name counts as true (the
-		 * environment has no such gate); otherwise the source value must be
-		 * boolean true.
+		 * Read a boolean flag source, resolved via the path resolver. A blank
+		 * source name counts as true (the environment has no such gate);
+		 * otherwise the source value must be boolean true. A path that fails
+		 * to resolve behaves identically to a missing flat field (resolves to
+		 * null, so the strict `true ===` check is false) — the blank-source
+		 * true rule is unaffected (SPEC-DIR-20260731 US-3.1 criterion 4).
 		 *
 		 * @param array<string, mixed>  $contact
 		 * @param array<string, string> $core
@@ -252,7 +289,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			if ( '' === $field ) {
 				return true;
 			}
-			return true === ( $contact[ $field ] ?? false );
+			return true === Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field );
 		}
 
 		/**
@@ -266,6 +303,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 * @param array<string, array<int, array{external_id: string, fullname: string}>> $dropped_field_examples Mutated map of identifying
 		 *                                                                                                    details for the first N rows
 		 *                                                                                                    affected by each drop reason.
+		 * @param Agend_Directory_Sync_Source|null                                  $source                 Active source, for its
+		 *                                                                                                    external_metadata contribution.
+		 *                                                                                                    Null falls back to the original
+		 *                                                                                                    Upbeat keys (back-compat).
 		 *
 		 * @return array<string, mixed>
 		 */
@@ -273,7 +314,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			array $contact,
 			array $field_map,
 			array &$dropped_fields,
-			array &$dropped_field_examples
+			array &$dropped_field_examples,
+			?Agend_Directory_Sync_Source $source = null
 		): array {
 			$core = $field_map['core'];
 
@@ -344,11 +386,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				$listing['locations'] = $locations;
 			}
 
-			$listing['external_metadata'] = array(
-				'upbeat_unique_id'     => self::source( $contact, $core, 'external_id' ),
-				'upbeat_date_modified' => self::stringy( $contact['dateModified'] ?? '' ),
-				'synced_at'            => gmdate( 'c' ),
-			);
+			// The external_metadata block is contributed by the active source
+			// (Decision 2.7), so the transformer stays source-neutral. A
+			// direct caller passing no source (back-compat) gets the
+			// original Upbeat keys, still resolved through the field map and
+			// path resolver rather than a hardcoded `dateModified` read
+			// (US-3.1 criterion 5) — identical output to
+			// Agend_Directory_Sync_Upbeat_Client::get_external_metadata().
+			$listing['external_metadata'] = null !== $source
+				? $source->get_external_metadata( $contact, $core )
+				: array(
+					'upbeat_unique_id'     => self::source( $contact, $core, 'external_id' ),
+					'upbeat_date_modified' => self::source( $contact, $core, 'date_modified' ),
+					'synced_at'            => gmdate( 'c' ),
+				);
 
 			/**
 			 * Filter the transformed Agend listing payload for a single source
@@ -362,9 +413,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		}
 
 		/**
-		 * Return a source value verbatim (not stringified), so array-shaped
-		 * sources such as the badges list survive. A blank source name yields
-		 * null.
+		 * Return a source value verbatim (not stringified), resolved via the
+		 * path resolver, so array-shaped sources such as the badges list
+		 * survive. A blank source name, or a path that fails to resolve,
+		 * yields null.
 		 *
 		 * @param array<string, mixed>  $contact
 		 * @param array<string, string> $core
@@ -377,7 +429,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			if ( '' === $field ) {
 				return null;
 			}
-			return $contact[ $field ] ?? null;
+			return Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field );
 		}
 
 		/**
@@ -436,7 +488,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 
 				foreach ( array( 'address_line_1', 'address_line_2', 'city', 'state', 'postcode', 'country' ) as $key ) {
 					$source = (string) ( $slot[ $key ] ?? '' );
-					$value  = '' !== $source ? self::stringy( $contact[ $source ] ?? '' ) : '';
+					$value  = '' !== $source ? self::stringy( Agend_Directory_Sync_Path_Resolver::resolve( $contact, $source ) ) : '';
 					if ( '' !== $value ) {
 						$location[ $key ] = $value;
 					}
@@ -447,7 +499,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 					if ( '' === $source ) {
 						continue;
 					}
-					$raw = $contact[ $source ] ?? null;
+					$raw = Agend_Directory_Sync_Path_Resolver::resolve( $contact, $source );
 					if ( is_numeric( $raw ) ) {
 						$location[ $key ] = (float) $raw;
 					}
@@ -487,7 +539,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$custom_fields = array();
 
 			foreach ( $field_map['custom_fields'] as $target => $source ) {
-				$value = self::stringy( $contact[ $source ] ?? '' );
+				$value = self::stringy( Agend_Directory_Sync_Path_Resolver::resolve( $contact, $source ) );
 				if ( '' !== $value ) {
 					$custom_fields[ $target ] = $value;
 				}
