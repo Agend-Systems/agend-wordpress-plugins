@@ -146,6 +146,38 @@ function wpautop( $text, $br = true ): string {
 	return '' === $text ? '' : '<p>' . $text . '</p>';
 }
 
+/**
+ * Minimal `sanitize_title()` stand-in: transliterates common Latin-1
+ * accented characters to their ASCII base letter, then applies WordPress's
+ * lowercase-hyphenate-collapse-trim algorithm.
+ *
+ * A byte-stripping fallback (drop anything non-ASCII) would make an
+ * accented entitlement name slugify to nothing, which is exactly the
+ * "transliterates rather than drops" behaviour the gate-key conversion
+ * needs to be exercised against. Not WordPress's full transliteration
+ * table -- just enough Latin-1 coverage for the entitlement names this
+ * plugin actually sees.
+ */
+function sanitize_title( $title, $fallback_title = '', $context = 'save' ): string {
+	$title = (string) $title;
+
+	$accents = array(
+		'á' => 'a', 'à' => 'a', 'â' => 'a', 'ä' => 'a', 'ã' => 'a', 'å' => 'a',
+		'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+		'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+		'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'ö' => 'o', 'õ' => 'o', 'ø' => 'o',
+		'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+		'ý' => 'y', 'ÿ' => 'y',
+		'ñ' => 'n', 'ç' => 'c', 'ß' => 'ss', 'æ' => 'ae', 'œ' => 'oe',
+	);
+
+	$title = strtr( strtolower( $title ), $accents );
+	$title = preg_replace( '/[^a-z0-9]+/', '-', $title );
+	$title = trim( (string) $title, '-' );
+
+	return $title;
+}
+
 function esc_url( $url ): string {
 	return htmlspecialchars( (string) $url, ENT_QUOTES );
 }
