@@ -44,15 +44,19 @@ final class Agend_Test_WP {
 	/** @var mixed Value the next agend_apps_crm_get_tiers() call returns. */
 	public static $tiers_response = array();
 
+	/** @var array<int, array{timestamp: int, hook: string, args: array<int, mixed>}> WP-Cron events scheduled via wp_schedule_single_event(). */
+	public static array $scheduled_events = array();
+
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
-		self::$transients     = array();
-		self::$actions        = array();
-		self::$did_action     = array();
-		self::$filters        = array();
-		self::$options        = array();
-		self::$requests       = array();
-		self::$tiers_response = array();
+		self::$transients      = array();
+		self::$actions         = array();
+		self::$did_action      = array();
+		self::$filters         = array();
+		self::$options         = array();
+		self::$requests        = array();
+		self::$tiers_response  = array();
+		self::$scheduled_events = array();
 	}
 
 	/**
@@ -211,6 +215,26 @@ function wp_json_encode( $data ) {
 	return json_encode( $data );
 }
 
+/**
+ * Minimal `wp_list_pluck()` stand-in: extracts one column from a list of
+ * arrays or objects, keyed by the source array's own numeric position.
+ *
+ * @param array<int, mixed> $list        List of arrays/objects.
+ * @param int|string        $field       Field to pluck.
+ * @param int|string|null   $index_key   Ignored; the entitlement mirror never re-indexes.
+ * @return array<int, mixed>
+ */
+function wp_list_pluck( array $list, $field, $index_key = null ): array {
+	unset( $index_key );
+
+	return array_map(
+		static function ( $item ) use ( $field ) {
+			return is_array( $item ) ? ( $item[ $field ] ?? null ) : ( $item->$field ?? null );
+		},
+		$list
+	);
+}
+
 function plugin_dir_path( string $file ): string {
 	return dirname( $file ) . '/';
 }
@@ -275,10 +299,12 @@ if ( ! class_exists( 'WP_Error' ) ) {
 	class WP_Error {
 		private string $code;
 		private string $message;
+		private array $data;
 
-		public function __construct( string $code = '', string $message = '' ) {
+		public function __construct( string $code = '', string $message = '', $data = array() ) {
 			$this->code    = $code;
 			$this->message = $message;
+			$this->data    = is_array( $data ) ? $data : array( $data );
 		}
 
 		public function get_error_code(): string {
@@ -288,6 +314,53 @@ if ( ! class_exists( 'WP_Error' ) ) {
 		public function get_error_message(): string {
 			return $this->message;
 		}
+
+		public function get_error_data() {
+			return $this->data;
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WP-Cron
+// ---------------------------------------------------------------------------
+
+if ( ! function_exists( 'wp_next_scheduled' ) ) {
+	/**
+	 * Reports whether an event with the given hook + args is already scheduled.
+	 *
+	 * @param string             $hook Cron hook name.
+	 * @param array<int, mixed>  $args Cron event args.
+	 * @return int|false Timestamp of the scheduled event, or false when none is scheduled.
+	 */
+	function wp_next_scheduled( string $hook, array $args = array() ) {
+		foreach ( Agend_Test_WP::$scheduled_events as $event ) {
+			if ( $event['hook'] === $hook && $event['args'] === $args ) {
+				return $event['timestamp'];
+			}
+		}
+
+		return false;
+	}
+}
+
+if ( ! function_exists( 'wp_schedule_single_event' ) ) {
+	/**
+	 * Records a single scheduled cron event.
+	 *
+	 * @param int                $timestamp Unix timestamp for the event.
+	 * @param string             $hook      Cron hook name.
+	 * @param array<int, mixed>  $args      Cron event args.
+	 * @return bool
+	 */
+	function wp_schedule_single_event( int $timestamp, string $hook, array $args = array() ): bool {
+		Agend_Test_WP::$scheduled_events[] = array(
+			'timestamp' => $timestamp,
+			'hook'      => $hook,
+			'args'      => $args,
+		);
+
+		return true;
 	}
 }
 
