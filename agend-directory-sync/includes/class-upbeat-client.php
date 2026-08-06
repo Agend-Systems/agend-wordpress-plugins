@@ -1,10 +1,14 @@
 <?php
 /**
- * Upbeat client wrapper for the membership directory contacts endpoint.
+ * Upbeat source: the membership directory contacts endpoint.
  *
  * Delegates auth, base URI resolution, pagination and the Upbeat response
  * envelope handling to the kiosk plugin's API class. This is intentionally
  * thin: it adds a single endpoint and exposes the parsed Results array.
+ *
+ * Implements Agend_Directory_Sync_Source (key `upbeat`) so the runner
+ * resolves it via the registry rather than constructing it directly
+ * (SPEC-DIR-20260731 US-1.1).
  *
  * @package Agend_Directory_Sync
  */
@@ -14,13 +18,37 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! class_exists( 'Agend_Directory_Sync_Upbeat_Client' ) ) :
-	final class Agend_Directory_Sync_Upbeat_Client {
+	final class Agend_Directory_Sync_Upbeat_Client implements Agend_Directory_Sync_Source {
+
+		/**
+		 * Stable registry key for this source.
+		 */
+		public const SOURCE_KEY = 'upbeat';
 
 		/**
 		 * Default Upbeat endpoint path. Filterable so a client can override
 		 * without editing this file.
 		 */
 		public const DEFAULT_ENDPOINT = 'membershipDirectoryContacts';
+
+		public function get_key(): string {
+			return self::SOURCE_KEY;
+		}
+
+		public function get_label(): string {
+			return __( 'Upbeat (membership kiosk)', 'agend-directory-sync' );
+		}
+
+		public function is_available(): bool {
+			return '' === $this->get_unavailable_reason();
+		}
+
+		public function get_unavailable_reason(): string {
+			if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
+				return __( 'Iugo Membership Kiosk plugin is not active.', 'agend-directory-sync' );
+			}
+			return '';
+		}
 
 		/**
 		 * Fetch every membership directory contact, paginating via the kiosk
@@ -32,8 +60,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Upbeat_Client' ) ) :
 		 * @throws RuntimeException When the kiosk API class is unavailable or the request fails.
 		 */
 		public function fetch_all(): array {
-			if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
-				throw new RuntimeException( __( 'Iugo Membership Kiosk plugin is not active.', 'agend-directory-sync' ) );
+			if ( ! $this->is_available() ) {
+				throw new RuntimeException( $this->get_unavailable_reason() );
 			}
 
 			// The endpoint path varies per client, so it is configurable in the
@@ -74,6 +102,25 @@ if ( ! class_exists( 'Agend_Directory_Sync_Upbeat_Client' ) ) :
 					return json_decode( wp_json_encode( $row ), true );
 				},
 				$results
+			);
+		}
+
+		/**
+		 * Upbeat's external_metadata contribution: unchanged from the
+		 * pre-US-1.1 hardcoded keys, so existing rows keep the same metadata
+		 * shape byte-for-byte (SPEC-DIR-20260731 Decision 2.7, US-1.1
+		 * criterion 8).
+		 *
+		 * @param array<string, mixed>  $contact
+		 * @param array<string, string> $core_map
+		 *
+		 * @return array<string, mixed>
+		 */
+		public function get_external_metadata( array $contact, array $core_map ): array {
+			return array(
+				'upbeat_unique_id'     => Agend_Directory_Sync_Listing_Transformer::resolve_source_field( $contact, $core_map, 'external_id' ),
+				'upbeat_date_modified' => Agend_Directory_Sync_Listing_Transformer::resolve_source_field( $contact, $core_map, 'date_modified' ),
+				'synced_at'            => gmdate( 'c' ),
 			);
 		}
 	}

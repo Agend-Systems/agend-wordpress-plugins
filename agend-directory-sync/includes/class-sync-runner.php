@@ -2,14 +2,18 @@
 /**
  * Shared sync pipeline for Agend Directory Sync.
  *
- * One place that fetches from the source, transforms with the resolved field
- * map, and (unless dry-run) POSTs to the Agend gateway. Both the admin "Send
- * to Agend" action and the WP-CLI command call this, so the manual and
- * scheduled paths can never drift.
+ * One place that resolves the active source from the registry, fetches from
+ * it, transforms with the resolved field map, and (unless dry-run) POSTs to
+ * the Agend gateway. Both the admin "Send to Agend" action and the WP-CLI
+ * command call this, so the manual and scheduled paths can never drift.
+ *
+ * No concrete source class is named here (SPEC-DIR-20260731 US-1.1 criterion
+ * 5): the source is resolved via Agend_Directory_Sync_Source_Registry, so
+ * adding a client source never requires touching this file.
  *
  * Pure orchestration: it owns no I/O of its own beyond delegating to the
- * Upbeat and Agend clients, so it is safe to call from a request, from cron,
- * or from the CLI.
+ * resolved source and the Agend client, so it is safe to call from a
+ * request, from cron, or from the CLI.
  *
  * @package Agend_Directory_Sync
  */
@@ -34,6 +38,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 		 *     kind: string,
 		 *     status: string,
 		 *     dry_run: bool,
+		 *     source: string,
 		 *     fetched: int,
 		 *     transformed: int,
 		 *     skipped: int,
@@ -49,18 +54,44 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 		 *     send: array<string, mixed>
 		 * }
 		 *
-		 * @throws RuntimeException When the source fetch or the send fails.
+		 * @throws RuntimeException When the active source is unavailable, the fetch fails, or the send fails.
 		 */
 		public static function run( int $max_records = 0, bool $dry_run = false ): array {
 			$external_source = self::resolve_external_source();
 			$auto_publish    = self::resolve_auto_publish_approved();
 			$field_map       = Agend_Directory_Sync_Field_Map::resolve();
 
-			$upbeat   = new Agend_Directory_Sync_Upbeat_Client();
-			$contacts = self::cap( $upbeat->fetch_all(), $max_records );
+			$source = Agend_Directory_Sync_Source_Registry::active();
 
-			$transformed = Agend_Directory_Sync_Listing_Transformer::transform_all( $contacts, $field_map );
+			if ( ! $source->is_available() ) {
+				throw new RuntimeException( $source->get_unavailable_reason() );
+			}
+
+			$contacts = self::cap( $source->fetch_all(), $max_records );
+
+			$transformed = Agend_Directory_Sync_Listing_Transformer::transform_all( $contacts, $field_map, $source );
 			$listings    = $transformed['listings'];
+
+			// Rows the source itself dropped before the transformer saw them
+			// (e.g. non-JSON-object rows resolved from the Custom HTTP API
+			// data path) were still fetched-and-skipped work, so they surface
+			// in the run summary as a skip reason (SPEC-DIR-20260731 US-2.1
+			// criterion 4). Duck-typed via method_exists so the runner still
+			// names no concrete source class (US-1.1 criterion 5); a source
+			// without the accessor simply contributes nothing here.
+			$fetched      = count( $contacts );
+			$skipped      = $transformed['skipped'];
+			$skip_reasons = $transformed['skip_reasons'];
+
+			$source_row_skips = method_exists( $source, 'get_skipped_non_associative_count' )
+				? (int) $source->get_skipped_non_associative_count()
+				: 0;
+
+			if ( $source_row_skips > 0 ) {
+				$fetched                            += $source_row_skips;
+				$skipped                            += $source_row_skips;
+				$skip_reasons['row_not_an_object']   = ( $skip_reasons['row_not_an_object'] ?? 0 ) + $source_row_skips;
+			}
 
 			$send_summary = array();
 			if ( ! $dry_run && ! empty( $listings ) ) {
@@ -72,10 +103,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 				'kind'                   => $dry_run ? 'preview' : 'send',
 				'status'                 => 'ok',
 				'dry_run'                => $dry_run,
-				'fetched'                => count( $contacts ),
+				'source'                 => $source->get_key(),
+				'fetched'                => $fetched,
 				'transformed'            => count( $listings ),
-				'skipped'                => $transformed['skipped'],
-				'skip_reasons'           => $transformed['skip_reasons'],
+				'skipped'                => $skipped,
+				'skip_reasons'           => $skip_reasons,
 				'duplicate_external_ids' => $transformed['duplicate_external_ids'],
 				'dropped_fields'         => $transformed['dropped_fields'] ?? array(),
 				'dropped_field_examples' => $transformed['dropped_field_examples'] ?? array(),
