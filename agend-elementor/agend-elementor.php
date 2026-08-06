@@ -94,9 +94,17 @@ function agend_elementor_bootstrap(): void {
 	// wrappers, so it loads only once the core dependency check above passes.
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-ssr-detail.php';
 
-	// Usermeta-based display conditions, available on every Elementor element
-	// (not just Agend's own widgets). Only needs Elementor itself.
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-conditions.php';
+	// The usermeta display conditions that used to load here are RETIRED
+	// (SPEC-CMS-20260727 US-1.1). They were a second entitlement authority that
+	// read arbitrary user metadata and failed OPEN, so an enabled condition
+	// with no rules rendered the element to everybody. Typed, fail-closed
+	// policies live in Agend Content Access instead.
+	//
+	// What remains is the upgrade notice: removing the class is silent, so any
+	// element that WAS conditioned now renders for every visitor, and an
+	// administrator needs to be told which pages those are.
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-retired-conditions-notice.php';
+	Agend_Elementor_Retired_Conditions_Notice::init();
 }
 add_action( 'plugins_loaded', 'agend_elementor_bootstrap' );
 

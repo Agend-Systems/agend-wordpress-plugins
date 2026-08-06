@@ -61,6 +61,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				'hero_image'           => '',
 				'eligible_flag'        => '',
 				'opt_in_flag'          => '',
+				// The one core target with a non-blank default (SPEC-DIR-20260731
+				// US-3.1 criterion 5): it replaces the transformer's previous
+				// hardcoded `$contact['dateModified']` read, so defaulting it to
+				// 'dateModified' keeps every existing Upbeat install's synced
+				// metadata byte-identical without any settings migration.
+				'date_modified'        => 'dateModified',
 			);
 		}
 
@@ -215,6 +221,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 					'key'         => 'opt_in_flag',
 					'label'       => __( 'Opt-in flag', 'agend-directory-sync' ),
 					'description' => __( 'Boolean source gating public visibility. Blank means "always opted in" in this environment.', 'agend-directory-sync' ),
+				),
+				array(
+					'key'         => 'date_modified',
+					'label'       => __( 'Date modified', 'agend-directory-sync' ),
+					'description' => __( 'Source last-modified timestamp, recorded in external_metadata. Defaults to "dateModified" (the Upbeat field) so existing installs are unchanged.', 'agend-directory-sync' ),
 				),
 			);
 		}
@@ -400,8 +411,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		/**
 		 * Sanitize a source-field path. Source fields are simple attribute
 		 * names from the upstream payload; allow word characters, dots, and
-		 * hyphens so nested paths remain expressible if a future reader needs
-		 * them, but strip anything exotic.
+		 * hyphens so nested dot-paths (e.g. `contact.email`,
+		 * `addresses.0.suburb`) are expressible (SPEC-DIR-20260731 US-3.1),
+		 * but strip anything exotic. Resolution semantics live in
+		 * Agend_Directory_Sync_Path_Resolver: a purely numeric segment
+		 * indexes a list, and an exact top-level key match wins before
+		 * dot-path traversal so a saved source name that literally contains a
+		 * dot keeps resolving as before.
 		 */
 		private static function sanitize_source_path( string $value ): string {
 			$value = trim( $value );

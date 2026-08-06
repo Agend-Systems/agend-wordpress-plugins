@@ -150,7 +150,12 @@ class Agend_Apps_Admin {
 			'agend_apps_api_key',
 			array(
 				'type'              => 'string',
-				'sanitize_callback' => 'sanitize_text_field',
+				// Write-only interception: a posted key is routed into the
+				// encrypted secret store and NEVER persisted in this plain
+				// option (the callback always returns ''). See
+				// sanitize_api_key_setting() for the blank-keeps / explicit
+				// clear semantics.
+				'sanitize_callback' => array( $this, 'sanitize_api_key_setting' ),
 				'default'           => '',
 			)
 		);
@@ -383,17 +388,47 @@ class Agend_Apps_Admin {
 	}
 
 	/**
-	 * Renders the API key password field with an inline verify button.
+	 * Settings-API interceptor for the API key field: routes a posted key
+	 * into the encrypted secret store and returns '' so nothing lands in the
+	 * plain `agend_apps_api_key` option. A blank submit keeps the stored
+	 * value; the explicit clear checkbox (read from the same options.php
+	 * POST) removes it. The value is trimmed but never content-sanitised —
+	 * a key is opaque and sanitize_text_field() could corrupt it.
 	 *
-	 * The button triggers an AJAX call to `agend_apps_verify_api_key` and
-	 * displays the returned scopes and app IDs (or an error message) in a
-	 * result panel below the field without a page reload.
+	 * @param mixed $value The posted field value.
+	 * @return string Always '' — the plain option never holds the key.
+	 */
+	public function sanitize_api_key_setting( $value ): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- options.php has already verified the settings nonce before sanitize callbacks run.
+		if ( ! empty( $_POST['agend_apps_api_key_clear'] ) ) {
+			Agend_Apps_Secret_Store::delete( Agend_Apps_Secret_Store::KEY_API_KEY );
+			return '';
+		}
+
+		$posted = trim( (string) $value );
+		if ( '' !== $posted ) {
+			Agend_Apps_Secret_Store::set( Agend_Apps_Secret_Store::KEY_API_KEY, $posted );
+		}
+
+		return '';
+	}
+
+	/**
+	 * Renders the write-only API key field with an inline verify button.
+	 *
+	 * The stored key is never rendered (it is encrypted at rest and shown
+	 * only as a set / not-set status). The verify button triggers an AJAX
+	 * call to `agend_apps_verify_api_key`, which reads the SAVED key
+	 * server-side, and displays the returned scopes and app IDs (or an
+	 * error message) in a result panel below the field without a page
+	 * reload — so save first, then verify.
 	 */
 	public function render_api_key_field(): void {
-		$value = get_option( 'agend_apps_api_key', '' );
+		$source = Agend_Apps_Secret_Store::source_of( Agend_Apps_Secret_Store::KEY_API_KEY, 'AGEND_APPS_API_KEY' );
+
 		printf(
-			'<input type="password" id="agend_apps_api_key" name="agend_apps_api_key" value="%s" class="regular-text" autocomplete="off" />',
-			esc_attr( $value )
+			'<input type="password" id="agend_apps_api_key" name="agend_apps_api_key" value="" placeholder="%s" class="regular-text" autocomplete="new-password" />',
+			esc_attr( '' !== $source ? '********' : '' )
 		);
 		printf(
 			'<button type="button" id="agend-apps-verify-key-btn" class="button" style="margin-left:8px;" data-nonce="%s" data-ajax-url="%s">%s</button>',
@@ -401,7 +436,33 @@ class Agend_Apps_Admin {
 			esc_attr( admin_url( 'admin-ajax.php' ) ),
 			esc_html__( 'Verify Key', 'agend-apps-core' )
 		);
+
+		// The verify JS dereferences this panel unconditionally before it
+		// fires the request — omitting it kills the button (regression found
+		// 2026-08-03 after the write-only field rewrite dropped it).
 		echo '<div id="agend-apps-verify-result" class="agend-apps-verify-result" style="display:none;"></div>';
+
+		echo '<p class="description">';
+		echo esc_html__( 'Status:', 'agend-apps-core' ) . ' ';
+		if ( 'constant' === $source ) {
+			echo '<strong>' . esc_html__( 'set via the AGEND_APPS_API_KEY wp-config.php constant (overrides the field above)', 'agend-apps-core' ) . '</strong>';
+		} elseif ( 'stored' === $source ) {
+			echo '<strong>' . esc_html__( 'set (stored encrypted)', 'agend-apps-core' ) . '</strong>';
+		} else {
+			echo '<strong style="color:#b32d2e;">' . esc_html__( 'not set', 'agend-apps-core' ) . '</strong>';
+		}
+		echo '</p>';
+
+		echo '<p class="description">';
+		esc_html_e( 'The key is stored encrypted and never shown again after saving. Leave the field blank on save to keep the stored value. Save before using Verify Key. Note: rotating the WordPress salts invalidates the stored key — re-enter it if that happens.', 'agend-apps-core' );
+		echo '</p>';
+
+		if ( 'stored' === $source ) {
+			echo '<p><label>';
+			echo '<input type="checkbox" name="agend_apps_api_key_clear" value="1" /> ';
+			esc_html_e( 'Clear the stored key on save', 'agend-apps-core' );
+			echo '</label></p>';
+		}
 	}
 
 	/**
@@ -498,6 +559,20 @@ class Agend_Apps_Admin {
 			esc_attr( $option_name ),
 			$value
 		);
+	}
+
+	/**
+	 * Sanitizes a Settings API checkbox: present in `$_POST` (any truthy
+	 * string) means checked/true; absent means false. WordPress does not post
+	 * an unchecked checkbox at all, so the sanitize callback receives no
+	 * argument in that case -- `register_setting()`'s boolean type coercion
+	 * then needs an explicit false rather than the field being skipped.
+	 *
+	 * @param mixed $value The posted field value, or null when unchecked.
+	 * @return bool
+	 */
+	public function sanitize_checkbox( $value ): bool {
+		return ! empty( $value );
 	}
 
 	/**
