@@ -88,16 +88,34 @@ class Agend_Entitlement_Mirror_Settings {
 	}
 
 	/**
+	 * Regex the stored `source_key` option must match to be used as-is
+	 * (SPEC-CRM-20260805-member-entitlement-grants US-5.1 AC8): lowercase
+	 * letters/digits/underscores/dots, 3-64 chars, starting and ending on a
+	 * letter/digit.
+	 *
+	 * @var string
+	 */
+	const ENTITLEMENT_MIRROR_SOURCE_KEY_PATTERN = '/^[a-z][a-z0-9_.]{1,62}[a-z0-9]$/';
+
+	/**
 	 * Returns the stable `source_key` the mirror declares entitlement types
 	 * and reconciles grants under (SPEC-CRM-20260805-member-entitlement-grants
-	 * US-5.1). Never `manual` -- that value is reserved for staff-made grants.
+	 * US-5.1). Falls back to the default whenever the stored option is absent,
+	 * malformed, or the literal `manual` -- `manual` is the platform's
+	 * reserved key for staff-made grants, the reconcile RPC raises on it
+	 * server-side, and a sync silently writing to it would be exactly the
+	 * cross-source data-loss defect (AC8) the platform guards against.
 	 *
 	 * @return string
 	 */
 	public static function get_entitlement_mirror_source_key(): string {
 		$value = trim( (string) get_option( 'agend_entitlement_mirror_source_key', self::ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY ) );
 
-		return '' !== $value ? $value : self::ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY;
+		if ( 'manual' === $value || 1 !== preg_match( self::ENTITLEMENT_MIRROR_SOURCE_KEY_PATTERN, $value ) ) {
+			return self::ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY;
+		}
+
+		return $value;
 	}
 
 	/**

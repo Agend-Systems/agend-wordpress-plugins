@@ -140,6 +140,51 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 				self::MENU_SLUG,
 				'agend_entitlement_mirror_section'
 			);
+
+			register_setting(
+				self::OPTION_GROUP,
+				'agend_entitlement_mirror_source_key',
+				array(
+					'type'              => 'string',
+					'sanitize_callback' => array( __CLASS__, 'sanitize_source_key' ),
+					'default'           => Agend_Entitlement_Mirror_Settings::ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY,
+				)
+			);
+			add_settings_field(
+				'agend_entitlement_mirror_source_key',
+				__( 'Source Key', 'agend-entitlement-mirror' ),
+				array( __CLASS__, 'render_entitlement_mirror_source_key_field' ),
+				self::MENU_SLUG,
+				'agend_entitlement_mirror_section'
+			);
+		}
+
+		/**
+		 * Sanitizes the `source_key` field (US-5.1 AC8): lowercase + trim, then
+		 * reject (keep the prior stored value, with an admin notice) when the
+		 * result is malformed or the reserved literal `manual`. Silently
+		 * coercing an invalid value to the default would let an operator save a
+		 * value that only LOOKS like their intended key while the mirror keeps
+		 * running under the default -- the settings error makes the rejection
+		 * visible instead.
+		 *
+		 * @param mixed $value The posted field value.
+		 * @return string
+		 */
+		public static function sanitize_source_key( $value ): string {
+			$candidate = strtolower( trim( (string) $value ) );
+
+			if ( 'manual' === $candidate || 1 !== preg_match( Agend_Entitlement_Mirror_Settings::ENTITLEMENT_MIRROR_SOURCE_KEY_PATTERN, $candidate ) ) {
+				add_settings_error(
+					'agend_entitlement_mirror_source_key',
+					'agend_entitlement_mirror_source_key_invalid',
+					__( 'Source Key was not saved: it must be lowercase letters/digits/underscores/dots, 3-64 characters, and cannot be "manual" (reserved). The previous value was kept.', 'agend-entitlement-mirror' )
+				);
+
+				return (string) get_option( 'agend_entitlement_mirror_source_key', Agend_Entitlement_Mirror_Settings::ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY );
+			}
+
+			return $candidate;
 		}
 
 		/**
@@ -228,6 +273,21 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 			);
 			echo '<p class="description">';
 			esc_html_e( 'Minimum seconds between login-triggered reconciliation syncs for the same member (default 900 = 15 minutes).', 'agend-entitlement-mirror' );
+			echo '</p>';
+		}
+
+		/**
+		 * Renders the `source_key` text field.
+		 */
+		public static function render_entitlement_mirror_source_key_field(): void {
+			$value = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_source_key();
+			printf(
+				'<input type="text" id="agend_entitlement_mirror_source_key" name="agend_entitlement_mirror_source_key" value="%s" class="regular-text" placeholder="%s" />',
+				esc_attr( $value ),
+				esc_attr( Agend_Entitlement_Mirror_Settings::ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY )
+			);
+			echo '<p class="description">';
+			esc_html_e( 'The stable identifier Agend uses for this upstream system\'s entitlement types and grants. Lowercase letters, digits, underscores, and dots only, 3-64 characters. "manual" is reserved for staff-made grants and cannot be used. Set this once before the first sync: changing it later strands grants made under the old key -- they stay granted under that old source until revoked there, they do not move.', 'agend-entitlement-mirror' );
 			echo '</p>';
 		}
 

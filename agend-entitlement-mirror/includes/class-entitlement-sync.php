@@ -385,8 +385,12 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		/**
 		 * Handles a gateway write failure: logs member id + HTTP status only
 		 * (never the API key or payload PII beyond the membership number, per
-		 * AC3), records it for the admin status panel, and schedules exactly one
-		 * WP-Cron retry.
+		 * AC3), records it for the admin status panel, and schedules a WP-Cron
+		 * retry -- except for a 401/403, which is a configuration error (bad or
+		 * under-scoped API key), not a transient one, and retrying it on the
+		 * same broken credential would just repeat the failure every 5 minutes
+		 * until an operator intervenes anyway (SPEC-CRM-20260805-member-entitlement-grants
+		 * US-5.1 AC7).
 		 *
 		 * @param string   $member_id Kiosk membership number.
 		 * @param WP_Error $error     The failure.
@@ -394,24 +398,44 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		private static function handle_write_failure( string $member_id, WP_Error $error ): void {
 			$data        = $error->get_error_data();
 			$status_code = ( is_array( $data ) && isset( $data['status_code'] ) ) ? (int) $data['status_code'] : 0;
+			$is_config   = in_array( $status_code, array( 401, 403 ), true );
+			$kind        = $is_config ? 'configuration' : 'transient';
 
-			self::log(
-				sprintf( 'Gateway write failed (status %d).', $status_code ),
-				array(
-					'member_id'   => $member_id,
-					'status_code' => $status_code,
-				)
-			);
+			if ( $is_config ) {
+				self::log(
+					sprintf( 'Gateway write failed (status %d): configuration error, not retrying.', $status_code ),
+					array(
+						'member_id'   => $member_id,
+						'status_code' => $status_code,
+					)
+				);
+			} else {
+				self::log(
+					sprintf( 'Gateway write failed (status %d).', $status_code ),
+					array(
+						'member_id'   => $member_id,
+						'status_code' => $status_code,
+					)
+				);
+			}
 
 			update_option(
 				self::LAST_ERROR_OPTION,
 				array(
 					'member_id'   => $member_id,
 					'status_code' => $status_code,
+					'kind'        => $kind,
+					'message'     => $is_config
+						? __( 'Check that the Agend API key configured for this site is valid and has been granted the crm.entitlements.sync scope. This scope is not implied by any other CRM scope and must be granted explicitly.', 'agend-entitlement-mirror' )
+						: '',
 					'at'          => gmdate( 'c' ),
 				),
 				false
 			);
+
+			if ( $is_config ) {
+				return;
+			}
 
 			// ONE retry via WP-Cron (AC3). A second failure is left to the login
 			// hook and the nightly sweep to reconcile.
