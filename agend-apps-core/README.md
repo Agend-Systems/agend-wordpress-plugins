@@ -77,3 +77,17 @@ Never read it to decide access to protected content. Content gating goes
 through Agend Content Access, whose typed policies resolve tier UUIDs
 server-side and fail closed. See the file-level docblock in
 `includes/member-membership-sync.php` for the full reasoning.
+
+## Upbeat entitlement mirror
+
+The Upbeat entitlement mirror (SPEC-AMS-20260804-upbeat-entitlement-mirror)
+moved out to its own plugin, `agend-entitlement-mirror`, on 2026-08-04
+(operator decision: this plugin carries connection details and generic
+gateway API bindings only; Upbeat/kiosk-coupled logic lives in its own
+plugin so non-Pro installs never carry it). See that plugin's README for
+settings, triggers, and the WP-CLI sweep command.
+
+This plugin still owns the thin gateway binding the mirror calls,
+`agend_apps_crm_sync_entitlement_catalogue()` in `includes/api/crm.php` —
+consistent with every other endpoint wrapper in that file, it carries no
+Upbeat-specific knowledge.

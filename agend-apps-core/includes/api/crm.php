@@ -2683,3 +2683,107 @@ function agend_apps_crm_get_my_segments() {
 	 */
 	return apply_filters( 'agend_apps_crm_get_my_segments_response', $response );
 }
+
+/**
+ * Idempotently declares entitlement types under a source key.
+ *
+ * SPEC-CRM-20260805-member-entitlement-grants US-2.1/US-5.1. Upserts
+ * `crm_benefits` rows keyed on `gate_key` and marks them managed by the
+ * source. The gateway refuses a `gate_key` that is a reserved platform
+ * capability, a repeated `gate_key` within one request, and more than 200
+ * entries — chunking and de-duplication are the caller's responsibility.
+ *
+ * Scope: `crm.entitlements.sync`.
+ *
+ * @param array $payload {
+ *     Type-declaration payload.
+ *
+ *     @type string $source_key Stable source identifier, e.g. `upbeat`. Never `manual`.
+ *     @type array  $entries    1-200 `{ gate_key, name, description? }` entries.
+ * }
+ * @return array|WP_Error Decoded response (`data.source_id`, `data.types`) on success, or WP_Error on failure.
+ */
+function agend_apps_crm_sync_entitlement_types( array $payload ) {
+	/**
+	 * Filters the sync-entitlement-types request args before the request is sent.
+	 *
+	 * @param array $args    Request args.
+	 * @param array $payload Type-declaration payload.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_crm_sync_entitlement_types_args',
+		array( 'body' => $payload ),
+		$payload
+	);
+
+	$response = agend_apps_api()->request( 'POST', '/crm/entitlements/types', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded sync-entitlement-types response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $payload  Type-declaration payload.
+	 */
+	return apply_filters( 'agend_apps_crm_sync_entitlement_types_response', $response, $payload );
+}
+
+/**
+ * Reconciles one member's entitlement grants for a source, full state.
+ *
+ * SPEC-CRM-20260805-member-entitlement-grants US-2.2/US-5.1. The gateway
+ * settles ONLY the named source's grants: entries present are granted or
+ * refreshed, entries absent are revoked, and grants owned by any other
+ * source (including staff-made `manual` grants) are untouched.
+ *
+ * DESTRUCTIVE CONTRACT: an empty `entries` array means "this source now
+ * grants this member nothing" and revokes everything the source granted.
+ * Never call this with an empty array unless the upstream read positively
+ * succeeded and returned empty (US-5.1 AC12).
+ *
+ * Scope: `crm.entitlements.sync`.
+ *
+ * @param array $payload {
+ *     Reconciliation payload.
+ *
+ *     @type string $contact_id      Optional. Member by CRM contact id. Mutually exclusive with the external pair.
+ *     @type string $external_source Optional. With `external_id`, resolves (or creates) the member by external identity.
+ *     @type string $external_id     Optional. Membership number under `external_source`.
+ *     @type string $first_name      Optional. Used only when create-on-miss fires.
+ *     @type string $last_name       Optional. Used only when create-on-miss fires.
+ *     @type string $email           Optional. Used only when create-on-miss fires.
+ *     @type string $source_key      Stable source identifier, e.g. `upbeat`. Never `manual`.
+ *     @type array  $entries         0-200 `{ gate_key, starts_at?, expires_at?, quantity_allowed?, quantity_remaining?, external_ref? }` entries.
+ * }
+ * @return array|WP_Error Decoded response (`data.contact_id`, `data.granted`, `data.refreshed`, `data.unchanged`, `data.revoked`) on success, or WP_Error on failure.
+ */
+function agend_apps_crm_reconcile_entitlement_grants( array $payload ) {
+	/**
+	 * Filters the reconcile-entitlement-grants request args before the request is sent.
+	 *
+	 * @param array $args    Request args.
+	 * @param array $payload Reconciliation payload.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_crm_reconcile_entitlement_grants_args',
+		array( 'body' => $payload ),
+		$payload
+	);
+
+	$response = agend_apps_api()->request( 'POST', '/crm/entitlements/grants', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded reconcile-entitlement-grants response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $payload  Reconciliation payload.
+	 */
+	return apply_filters( 'agend_apps_crm_reconcile_entitlement_grants_response', $response, $payload );
+}
