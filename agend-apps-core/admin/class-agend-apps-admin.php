@@ -562,6 +562,20 @@ class Agend_Apps_Admin {
 	}
 
 	/**
+	 * Sanitizes a Settings API checkbox: present in `$_POST` (any truthy
+	 * string) means checked/true; absent means false. WordPress does not post
+	 * an unchecked checkbox at all, so the sanitize callback receives no
+	 * argument in that case -- `register_setting()`'s boolean type coercion
+	 * then needs an explicit false rather than the field being skipped.
+	 *
+	 * @param mixed $value The posted field value, or null when unchecked.
+	 * @return bool
+	 */
+	public function sanitize_checkbox( $value ): bool {
+		return ! empty( $value );
+	}
+
+	/**
 	 * Handles the AJAX request to verify the configured API key.
 	 *
 	 * Calls `agend_apps_verify_api_key()` and returns a JSON payload

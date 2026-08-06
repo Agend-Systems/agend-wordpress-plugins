@@ -44,15 +44,19 @@ final class Agend_Test_WP {
 	/** @var mixed Value the next agend_apps_crm_get_tiers() call returns. */
 	public static $tiers_response = array();
 
+	/** @var array<int, array{timestamp: int, hook: string, args: array<int, mixed>}> WP-Cron events scheduled via wp_schedule_single_event(). */
+	public static array $scheduled_events = array();
+
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
-		self::$transients     = array();
-		self::$actions        = array();
-		self::$did_action     = array();
-		self::$filters        = array();
-		self::$options        = array();
-		self::$requests       = array();
-		self::$tiers_response = array();
+		self::$transients      = array();
+		self::$actions         = array();
+		self::$did_action      = array();
+		self::$filters         = array();
+		self::$options         = array();
+		self::$requests        = array();
+		self::$tiers_response  = array();
+		self::$scheduled_events = array();
 	}
 
 	/**
@@ -146,6 +150,38 @@ function wpautop( $text, $br = true ): string {
 	return '' === $text ? '' : '<p>' . $text . '</p>';
 }
 
+/**
+ * Minimal `sanitize_title()` stand-in: transliterates common Latin-1
+ * accented characters to their ASCII base letter, then applies WordPress's
+ * lowercase-hyphenate-collapse-trim algorithm.
+ *
+ * A byte-stripping fallback (drop anything non-ASCII) would make an
+ * accented entitlement name slugify to nothing, which is exactly the
+ * "transliterates rather than drops" behaviour the gate-key conversion
+ * needs to be exercised against. Not WordPress's full transliteration
+ * table -- just enough Latin-1 coverage for the entitlement names this
+ * plugin actually sees.
+ */
+function sanitize_title( $title, $fallback_title = '', $context = 'save' ): string {
+	$title = (string) $title;
+
+	$accents = array(
+		'á' => 'a', 'à' => 'a', 'â' => 'a', 'ä' => 'a', 'ã' => 'a', 'å' => 'a',
+		'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+		'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+		'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'ö' => 'o', 'õ' => 'o', 'ø' => 'o',
+		'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+		'ý' => 'y', 'ÿ' => 'y',
+		'ñ' => 'n', 'ç' => 'c', 'ß' => 'ss', 'æ' => 'ae', 'œ' => 'oe',
+	);
+
+	$title = strtr( strtolower( $title ), $accents );
+	$title = preg_replace( '/[^a-z0-9]+/', '-', $title );
+	$title = trim( (string) $title, '-' );
+
+	return $title;
+}
+
 function esc_url( $url ): string {
 	return htmlspecialchars( (string) $url, ENT_QUOTES );
 }
@@ -177,6 +213,26 @@ function __( $text, $domain = null ): string {
 
 function wp_json_encode( $data ) {
 	return json_encode( $data );
+}
+
+/**
+ * Minimal `wp_list_pluck()` stand-in: extracts one column from a list of
+ * arrays or objects, keyed by the source array's own numeric position.
+ *
+ * @param array<int, mixed> $list        List of arrays/objects.
+ * @param int|string        $field       Field to pluck.
+ * @param int|string|null   $index_key   Ignored; the entitlement mirror never re-indexes.
+ * @return array<int, mixed>
+ */
+function wp_list_pluck( array $list, $field, $index_key = null ): array {
+	unset( $index_key );
+
+	return array_map(
+		static function ( $item ) use ( $field ) {
+			return is_array( $item ) ? ( $item[ $field ] ?? null ) : ( $item->$field ?? null );
+		},
+		$list
+	);
 }
 
 function plugin_dir_path( string $file ): string {
@@ -243,10 +299,12 @@ if ( ! class_exists( 'WP_Error' ) ) {
 	class WP_Error {
 		private string $code;
 		private string $message;
+		private array $data;
 
-		public function __construct( string $code = '', string $message = '' ) {
+		public function __construct( string $code = '', string $message = '', $data = array() ) {
 			$this->code    = $code;
 			$this->message = $message;
+			$this->data    = is_array( $data ) ? $data : array( $data );
 		}
 
 		public function get_error_code(): string {
@@ -256,6 +314,53 @@ if ( ! class_exists( 'WP_Error' ) ) {
 		public function get_error_message(): string {
 			return $this->message;
 		}
+
+		public function get_error_data() {
+			return $this->data;
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WP-Cron
+// ---------------------------------------------------------------------------
+
+if ( ! function_exists( 'wp_next_scheduled' ) ) {
+	/**
+	 * Reports whether an event with the given hook + args is already scheduled.
+	 *
+	 * @param string             $hook Cron hook name.
+	 * @param array<int, mixed>  $args Cron event args.
+	 * @return int|false Timestamp of the scheduled event, or false when none is scheduled.
+	 */
+	function wp_next_scheduled( string $hook, array $args = array() ) {
+		foreach ( Agend_Test_WP::$scheduled_events as $event ) {
+			if ( $event['hook'] === $hook && $event['args'] === $args ) {
+				return $event['timestamp'];
+			}
+		}
+
+		return false;
+	}
+}
+
+if ( ! function_exists( 'wp_schedule_single_event' ) ) {
+	/**
+	 * Records a single scheduled cron event.
+	 *
+	 * @param int                $timestamp Unix timestamp for the event.
+	 * @param string             $hook      Cron hook name.
+	 * @param array<int, mixed>  $args      Cron event args.
+	 * @return bool
+	 */
+	function wp_schedule_single_event( int $timestamp, string $hook, array $args = array() ): bool {
+		Agend_Test_WP::$scheduled_events[] = array(
+			'timestamp' => $timestamp,
+			'hook'      => $hook,
+			'args'      => $args,
+		);
+
+		return true;
 	}
 }
 

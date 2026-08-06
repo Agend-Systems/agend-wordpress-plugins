@@ -25,6 +25,10 @@ abstract class TestCase extends PHPUnitTestCase {
 		parent::setUp();
 		Agend_Test_WP::reset();
 
+		if ( class_exists( 'Agend_Test_Mirror_Gateway' ) ) {
+			\Agend_Test_Mirror_Gateway::reset();
+		}
+
 		// The decision layer memoises the resolved viewer for the request. In
 		// production that is right: one visitor, one answer. Across tests it
 		// leaks, so a test that ran earlier as a member silently makes the next
