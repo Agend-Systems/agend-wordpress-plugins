@@ -4,9 +4,10 @@
  *
  * A Tools submenu page (matching the agend-directory-sync precedent for a
  * standalone sibling plugin), registering the same Settings API
- * section/fields and catalogue-sync AJAX action the module used when it
- * lived inside agend-apps-core (SPEC-AMS-20260804-upbeat-entitlement-mirror
- * US-2.1/US-2.2/US-2.3/US-2.4).
+ * section/fields and types-sync AJAX action the module used when it lived
+ * inside agend-apps-core (SPEC-AMS-20260804-upbeat-entitlement-mirror
+ * US-2.1/US-2.2/US-2.3/US-2.4, SPEC-CRM-20260805-member-entitlement-grants
+ * US-5.1).
  *
  * @package Agend_Entitlement_Mirror
  */
@@ -43,7 +44,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 		public static function setup_hooks(): void {
 			add_action( 'admin_menu', array( __CLASS__, 'register_menu' ) );
 			add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
-			add_action( 'wp_ajax_agend_apps_sync_entitlement_catalogue', array( __CLASS__, 'handle_sync_entitlement_catalogue' ) );
+			add_action( 'wp_ajax_agend_apps_sync_entitlement_types', array( __CLASS__, 'handle_sync_entitlement_types' ) );
 		}
 
 		/**
@@ -108,23 +109,6 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 
 			register_setting(
 				self::OPTION_GROUP,
-				'agend_entitlement_mirror_field_key',
-				array(
-					'type'              => 'string',
-					'sanitize_callback' => 'sanitize_key',
-					'default'           => Agend_Entitlement_Mirror_Settings::ENTITLEMENT_MIRROR_DEFAULT_FIELD_KEY,
-				)
-			);
-			add_settings_field(
-				'agend_entitlement_mirror_field_key',
-				__( 'Contact Field Key', 'agend-entitlement-mirror' ),
-				array( __CLASS__, 'render_entitlement_mirror_field_key_field' ),
-				self::MENU_SLUG,
-				'agend_entitlement_mirror_section'
-			);
-
-			register_setting(
-				self::OPTION_GROUP,
 				'agend_entitlement_mirror_external_source',
 				array(
 					'type'              => 'string',
@@ -153,23 +137,6 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 				'agend_entitlement_mirror_login_throttle',
 				__( 'Login Reconciliation Throttle (seconds)', 'agend-entitlement-mirror' ),
 				array( __CLASS__, 'render_entitlement_mirror_login_throttle_field' ),
-				self::MENU_SLUG,
-				'agend_entitlement_mirror_section'
-			);
-
-			register_setting(
-				self::OPTION_GROUP,
-				'agend_entitlement_mirror_suppress_webhooks',
-				array(
-					'type'              => 'boolean',
-					'sanitize_callback' => array( __CLASS__, 'sanitize_checkbox' ),
-					'default'           => false,
-				)
-			);
-			add_settings_field(
-				'agend_entitlement_mirror_suppress_webhooks',
-				__( 'Suppress Agend Webhooks on Mirror Writes', 'agend-entitlement-mirror' ),
-				array( __CLASS__, 'render_entitlement_mirror_suppress_webhooks_field' ),
 				self::MENU_SLUG,
 				'agend_entitlement_mirror_section'
 			);
@@ -205,7 +172,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 		 * Renders the Entitlement Mirror settings section description.
 		 */
 		public static function render_entitlement_mirror_section(): void {
-			echo '<p>' . esc_html__( 'Mirrors Upbeat entitlements into the Agend member_entitlements contact flag (SPEC-AMS-20260804-upbeat-entitlement-mirror). Requires the iugo-membership-kiosk plugin. Off by default: enable only after the Contact External Source below is confirmed for this install.', 'agend-entitlement-mirror' ) . '</p>';
+			echo '<p>' . esc_html__( 'Mirrors Upbeat entitlements into Agend CRM entitlement grants (SPEC-CRM-20260805-member-entitlement-grants). Requires the iugo-membership-kiosk plugin. Off by default: enable only after the Contact External Source below is confirmed for this install.', 'agend-entitlement-mirror' ) . '</p>';
 		}
 
 		/**
@@ -216,7 +183,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 			printf(
 				'<label><input type="checkbox" id="agend_entitlement_mirror_enabled" name="agend_entitlement_mirror_enabled" value="1"%s /> %s</label>',
 				checked( $checked, true, false ),
-				esc_html__( 'Sync Upbeat entitlements to the Agend contact flag on webhook, login, and sweep.', 'agend-entitlement-mirror' )
+				esc_html__( 'Sync Upbeat entitlements to Agend CRM entitlement grants on webhook, login, and sweep.', 'agend-entitlement-mirror' )
 			);
 		}
 
@@ -232,21 +199,6 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 			);
 			echo '<p class="description">';
 			esc_html_e( 'One Upbeat entitlement category per line. Only entitlements in these categories are mirrored (Decision 2.5).', 'agend-entitlement-mirror' );
-			echo '</p>';
-		}
-
-		/**
-		 * Renders the contact custom-field key text field.
-		 */
-		public static function render_entitlement_mirror_field_key_field(): void {
-			$value = get_option( 'agend_entitlement_mirror_field_key', Agend_Entitlement_Mirror_Settings::ENTITLEMENT_MIRROR_DEFAULT_FIELD_KEY );
-			printf(
-				'<input type="text" id="agend_entitlement_mirror_field_key" name="agend_entitlement_mirror_field_key" value="%s" class="regular-text" placeholder="%s" />',
-				esc_attr( $value ),
-				esc_attr( Agend_Entitlement_Mirror_Settings::ENTITLEMENT_MIRROR_DEFAULT_FIELD_KEY )
-			);
-			echo '<p class="description">';
-			esc_html_e( 'The multi_select contact custom field the mirror writes the entitlement slug list to. Must match the gateway catalogue field_key.', 'agend-entitlement-mirror' );
 			echo '</p>';
 		}
 
@@ -280,28 +232,14 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 		}
 
 		/**
-		 * Renders the webhook-suppression checkbox.
-		 */
-		public static function render_entitlement_mirror_suppress_webhooks_field(): void {
-			$checked = Agend_Entitlement_Mirror_Settings::is_entitlement_mirror_webhook_suppression_enabled();
-			printf(
-				'<label><input type="checkbox" id="agend_entitlement_mirror_suppress_webhooks" name="agend_entitlement_mirror_suppress_webhooks" value="1"%s /> %s</label>',
-				checked( $checked, true, false ),
-				esc_html__( 'Send X-Agend-Suppress-Webhooks on mirror writes.', 'agend-entitlement-mirror' )
-			);
-			echo '<p class="description">';
-			esc_html_e( 'Off by default: other Agend subscribers may legitimately want the resulting contact_updated events. Enable only if this install\'s own automation would otherwise loop on its own mirror writes.', 'agend-entitlement-mirror' );
-			echo '</p>';
-		}
-
-		/**
-		 * Handles the AJAX request to sync the entitlement catalogue (US-2.4 AC2).
+		 * Handles the AJAX request to sync the entitlement type declarations
+		 * (US-2.4 AC2 / US-5.1).
 		 *
-		 * Renders the per-entry created/existing outcome on success, or the
-		 * gateway error verbatim (no secret material) on failure.
+		 * Renders the per-entry created/updated/existing outcome on success, or
+		 * the gateway error verbatim (no secret material) on failure.
 		 */
-		public static function handle_sync_entitlement_catalogue(): void {
-			check_ajax_referer( 'agend_apps_sync_entitlement_catalogue', '_ajax_nonce' );
+		public static function handle_sync_entitlement_types(): void {
+			check_ajax_referer( 'agend_apps_sync_entitlement_types', '_ajax_nonce' );
 
 			if ( ! current_user_can( 'manage_options' ) ) {
 				wp_send_json_error( array( 'message' => __( 'Insufficient permissions.', 'agend-entitlement-mirror' ) ), 403 );
@@ -311,7 +249,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 				wp_send_json_error( array( 'message' => __( 'The entitlement mirror module is not loaded.', 'agend-entitlement-mirror' ) ) );
 			}
 
-			$result = Agend_Entitlement_Sync::sync_catalogue();
+			$result = Agend_Entitlement_Sync::sync_types();
 
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );

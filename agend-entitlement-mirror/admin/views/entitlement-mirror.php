@@ -2,10 +2,11 @@
 /**
  * Admin Entitlement Mirror view.
  *
- * SPEC-AMS-20260804-upbeat-entitlement-mirror US-2.4. Renders the mirror's
- * settings, the currently-discovered category/type catalogue with its
- * mapped slugs, the last catalogue sync outcome, and the last per-member
- * sync/error, plus the manual "Sync Entitlement Catalogue" action.
+ * SPEC-AMS-20260804-upbeat-entitlement-mirror US-2.4 /
+ * SPEC-CRM-20260805-member-entitlement-grants US-5.1. Renders the mirror's
+ * settings, the currently-discovered category/type declarations with their
+ * mapped `gate_key`s, the last types sync outcome, and the last per-member
+ * sync/error, plus the manual "Sync Entitlement Types" action.
  *
  * Included by Agend_Entitlement_Mirror_Admin_Page::render_page() (Tools >
  * Agend Entitlement Mirror).
@@ -17,13 +18,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-$kiosk_available   = class_exists( 'Iugo_Membership_Kiosk_API' );
-$catalogue_entries = $kiosk_available ? Agend_Entitlement_Sync::discover_catalogue_entries() : array();
-$last_catalogue    = get_option( Agend_Entitlement_Sync::LAST_CATALOGUE_SYNC_OPTION, null );
-$last_sync         = get_option( Agend_Entitlement_Sync::LAST_SYNC_OPTION, null );
-$last_error        = get_option( Agend_Entitlement_Sync::LAST_ERROR_OPTION, null );
-$nonce             = wp_create_nonce( 'agend_apps_sync_entitlement_catalogue' );
-$ajax_url          = admin_url( 'admin-ajax.php' );
+$kiosk_available = class_exists( 'Iugo_Membership_Kiosk_API' );
+$type_entries    = $kiosk_available ? Agend_Entitlement_Sync::discover_type_entries() : array();
+$last_types_sync = get_option( Agend_Entitlement_Sync::LAST_TYPES_SYNC_OPTION, null );
+$last_sync       = get_option( Agend_Entitlement_Sync::LAST_SYNC_OPTION, null );
+$last_error      = get_option( Agend_Entitlement_Sync::LAST_ERROR_OPTION, null );
+$nonce           = wp_create_nonce( 'agend_apps_sync_entitlement_types' );
+$ajax_url        = admin_url( 'admin-ajax.php' );
 ?>
 <div class="wrap agend-apps-entitlement-mirror">
 	<h1><?php esc_html_e( 'Agend Entitlement Mirror', 'agend-entitlement-mirror' ); ?></h1>
@@ -44,28 +45,28 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 
 	<hr />
 
-	<h2><?php esc_html_e( 'Entitlement Catalogue', 'agend-entitlement-mirror' ); ?></h2>
+	<h2><?php esc_html_e( 'Entitlement Types', 'agend-entitlement-mirror' ); ?></h2>
 	<p class="description">
-		<?php esc_html_e( 'The categories and types the collector currently sees from Upbeat, and the slug each maps to (Decision 2.7). Syncing pushes this full list to Agend as the multi_select field options and one audience segment per type.', 'agend-entitlement-mirror' ); ?>
+		<?php esc_html_e( 'The categories and types the collector currently sees from Upbeat, and the gate_key each maps to (Decision 2.7). Syncing declares this full list to Agend as crm_benefits rows under this install\'s source key.', 'agend-entitlement-mirror' ); ?>
 	</p>
 
 	<table class="widefat striped agend-apps-entitlement-mirror-table">
 		<thead>
 			<tr>
-				<th><?php esc_html_e( 'Slug', 'agend-entitlement-mirror' ); ?></th>
-				<th><?php esc_html_e( 'Label', 'agend-entitlement-mirror' ); ?></th>
+				<th><?php esc_html_e( 'Gate Key', 'agend-entitlement-mirror' ); ?></th>
+				<th><?php esc_html_e( 'Name', 'agend-entitlement-mirror' ); ?></th>
 			</tr>
 		</thead>
 		<tbody>
-			<?php if ( empty( $catalogue_entries ) ) : ?>
+			<?php if ( empty( $type_entries ) ) : ?>
 				<tr>
 					<td colspan="2"><?php esc_html_e( 'No mirrorable entitlement types found.', 'agend-entitlement-mirror' ); ?></td>
 				</tr>
 			<?php else : ?>
-				<?php foreach ( $catalogue_entries as $entry ) : ?>
+				<?php foreach ( $type_entries as $entry ) : ?>
 					<tr>
-						<td><code><?php echo esc_html( $entry['slug'] ); ?></code></td>
-						<td><?php echo esc_html( $entry['label'] ); ?></td>
+						<td><code><?php echo esc_html( $entry['gate_key'] ); ?></code></td>
+						<td><?php echo esc_html( $entry['name'] ); ?></td>
 					</tr>
 				<?php endforeach; ?>
 			<?php endif; ?>
@@ -74,19 +75,19 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 
 	<p>
 		<button type="button"
-		        id="agend-apps-sync-catalogue-btn"
+		        id="agend-apps-sync-types-btn"
 		        class="button button-primary"
 		        data-nonce="<?php echo esc_attr( $nonce ); ?>"
 		        data-ajax-url="<?php echo esc_attr( $ajax_url ); ?>"
-		        <?php disabled( empty( $catalogue_entries ) ); ?>>
-			<?php esc_html_e( 'Sync Entitlement Catalogue', 'agend-entitlement-mirror' ); ?>
+		        <?php disabled( empty( $type_entries ) ); ?>>
+			<?php esc_html_e( 'Sync Entitlement Types', 'agend-entitlement-mirror' ); ?>
 		</button>
 	</p>
 
-	<div id="agend-apps-catalogue-sync-result" class="notice" style="display:none;"></div>
+	<div id="agend-apps-types-sync-result" class="notice" style="display:none;"></div>
 
-	<h3><?php esc_html_e( 'Last Catalogue Sync', 'agend-entitlement-mirror' ); ?></h3>
-	<?php if ( empty( $last_catalogue ) ) : ?>
+	<h3><?php esc_html_e( 'Last Types Sync', 'agend-entitlement-mirror' ); ?></h3>
+	<?php if ( empty( $last_types_sync ) ) : ?>
 		<p><?php esc_html_e( 'Never run.', 'agend-entitlement-mirror' ); ?></p>
 	<?php else : ?>
 		<p>
@@ -94,27 +95,27 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 			printf(
 				/* translators: 1: ISO timestamp, 2: success/failure. */
 				esc_html__( '%1$s -- %2$s', 'agend-entitlement-mirror' ),
-				esc_html( (string) ( $last_catalogue['at'] ?? '' ) ),
-				! empty( $last_catalogue['success'] )
+				esc_html( (string) ( $last_types_sync['at'] ?? '' ) ),
+				! empty( $last_types_sync['success'] )
 					? esc_html__( 'succeeded', 'agend-entitlement-mirror' )
-					: esc_html( sprintf( /* translators: %s: error message. */ __( 'failed: %s', 'agend-entitlement-mirror' ), (string) ( $last_catalogue['error'] ?? '' ) ) )
+					: esc_html( sprintf( /* translators: %s: error message. */ __( 'failed: %s', 'agend-entitlement-mirror' ), (string) ( $last_types_sync['error'] ?? '' ) ) )
 			);
 			?>
 		</p>
-		<?php if ( ! empty( $last_catalogue['results'] ) && is_array( $last_catalogue['results'] ) ) : ?>
+		<?php if ( ! empty( $last_types_sync['results'] ) && is_array( $last_types_sync['results'] ) ) : ?>
 			<table class="widefat striped agend-apps-entitlement-mirror-table">
 				<thead>
 					<tr>
-						<th><?php esc_html_e( 'Slug', 'agend-entitlement-mirror' ); ?></th>
-						<th><?php esc_html_e( 'Label', 'agend-entitlement-mirror' ); ?></th>
+						<th><?php esc_html_e( 'Gate Key', 'agend-entitlement-mirror' ); ?></th>
+						<th><?php esc_html_e( 'Name', 'agend-entitlement-mirror' ); ?></th>
 						<th><?php esc_html_e( 'Status', 'agend-entitlement-mirror' ); ?></th>
 					</tr>
 				</thead>
 				<tbody>
-					<?php foreach ( $last_catalogue['results'] as $row ) : ?>
+					<?php foreach ( $last_types_sync['results'] as $row ) : ?>
 						<tr>
-							<td><code><?php echo esc_html( (string) ( $row['slug'] ?? '' ) ); ?></code></td>
-							<td><?php echo esc_html( (string) ( $row['label'] ?? '' ) ); ?></td>
+							<td><code><?php echo esc_html( (string) ( $row['gate_key'] ?? '' ) ); ?></code></td>
+							<td><?php echo esc_html( (string) ( $row['name'] ?? '' ) ); ?></td>
 							<td><?php echo esc_html( (string) ( $row['status'] ?? '' ) ); ?></td>
 						</tr>
 					<?php endforeach; ?>
@@ -130,11 +131,15 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 		<p>
 			<?php
 			printf(
-				/* translators: 1: member id, 2: ISO timestamp, 3: created/updated. */
-				esc_html__( 'Member %1$s at %2$s (%3$s)', 'agend-entitlement-mirror' ),
+				/* translators: 1: member id, 2: ISO timestamp, 3: contact created/adopted, 4: granted count, 5: refreshed count, 6: unchanged count, 7: revoked count. */
+				esc_html__( 'Member %1$s at %2$s (%3$s) -- granted %4$d, refreshed %5$d, unchanged %6$d, revoked %7$d', 'agend-entitlement-mirror' ),
 				esc_html( (string) ( $last_sync['member_id'] ?? '' ) ),
 				esc_html( (string) ( $last_sync['at'] ?? '' ) ),
-				! empty( $last_sync['created'] ) ? esc_html__( 'contact created', 'agend-entitlement-mirror' ) : esc_html__( 'contact updated', 'agend-entitlement-mirror' )
+				! empty( $last_sync['contact_created'] ) ? esc_html__( 'contact created', 'agend-entitlement-mirror' ) : esc_html__( 'contact adopted', 'agend-entitlement-mirror' ),
+				(int) ( $last_sync['granted'] ?? 0 ),
+				(int) ( $last_sync['refreshed'] ?? 0 ),
+				(int) ( $last_sync['unchanged'] ?? 0 ),
+				(int) ( $last_sync['revoked'] ?? 0 )
 			);
 			?>
 		</p>
@@ -161,7 +166,7 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 
 <script>
 ( function() {
-	var btn = document.getElementById( 'agend-apps-sync-catalogue-btn' );
+	var btn = document.getElementById( 'agend-apps-sync-types-btn' );
 	if ( ! btn ) {
 		return;
 	}
@@ -169,12 +174,12 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 	btn.addEventListener( 'click', function() {
 		var nonce   = btn.dataset.nonce;
 		var ajaxUrl = btn.dataset.ajaxUrl;
-		var notice  = document.getElementById( 'agend-apps-catalogue-sync-result' );
+		var notice  = document.getElementById( 'agend-apps-types-sync-result' );
 
 		btn.disabled = true;
 
 		var body = new URLSearchParams( {
-			action:      'agend_apps_sync_entitlement_catalogue',
+			action:      'agend_apps_sync_entitlement_types',
 			_ajax_nonce: nonce,
 		} );
 
@@ -187,7 +192,7 @@ $ajax_url          = admin_url( 'admin-ajax.php' );
 		.then( function( data ) {
 			notice.className     = 'notice ' + ( data.success ? 'notice-success' : 'notice-error' );
 			notice.textContent   = data.success
-				? <?php echo wp_json_encode( __( 'Catalogue synced. Reload this page to see the result table.', 'agend-entitlement-mirror' ) ); ?>
+				? <?php echo wp_json_encode( __( 'Types synced. Reload this page to see the result table.', 'agend-entitlement-mirror' ) ); ?>
 				: ( data.data && data.data.message ? data.data.message : '' );
 			notice.style.display = 'block';
 		} )

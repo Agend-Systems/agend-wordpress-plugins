@@ -3,8 +3,10 @@
  * WP-CLI command for the Upbeat entitlement mirror.
  *
  * SPEC-AMS-20260804-upbeat-entitlement-mirror US-2.5. The recovery path for
- * missed webhooks: enumerates every kiosk member, runs the collector, and
- * writes only CHANGED states -- a quiet directory costs reads, not writes.
+ * missed webhooks: enumerates every kiosk member and reconciles their
+ * entitlement grants (SPEC-CRM-20260805-member-entitlement-grants US-5.1) --
+ * the grants endpoint is itself idempotent, so a quiet member costs one
+ * network round trip, not a write.
  *
  *   wp agend-apps entitlement-mirror sweep
  *   wp agend-apps entitlement-mirror sweep --max=50 --dry-run
@@ -41,7 +43,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 		const PAGE_SIZE = 100;
 
 		/**
-		 * Reconciles every kiosk member's entitlement state to Agend.
+		 * Reconciles every kiosk member's entitlement grants with Agend.
 		 *
 		 * ## OPTIONS
 		 *
@@ -50,8 +52,8 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 		 *   process all members.
 		 *
 		 * [--dry-run]
-		 * : Report the would-change set (member, before, after) without writing
-		 *   anything.
+		 * : Report the would-sync set (member, gate keys) without calling the
+		 *   grants endpoint.
 		 *
 		 * ## EXAMPLES
 		 *
@@ -78,7 +80,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 			$dry_run = isset( $assoc_args['dry-run'] );
 
 			if ( $dry_run ) {
-				WP_CLI::log( 'Dry run: reporting the would-change set only, nothing will be written.' );
+				WP_CLI::log( 'Dry run: reporting the would-sync set only, the grants endpoint will not be called.' );
 			}
 
 			$checked = 0;
@@ -100,89 +102,53 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 					continue;
 				}
 
-				$desired = Agend_Entitlement_Collector::slugs_only( $entries );
-				$email   = (string) $member->get_email();
+				$gate_keys = wp_list_pluck( $entries, 'gate_key' );
 
-				$contact_id = Agend_Entitlement_Contact_Resolver::find_only( $member_id, $email );
-
-				if ( is_wp_error( $contact_id ) ) {
-					++$errors;
-					WP_CLI::warning( sprintf( 'Member %s: lookup failed: %s', $member_id, $contact_id->get_error_message() ) );
-					continue;
-				}
-
-				if ( null === $contact_id ) {
-					if ( empty( $desired ) ) {
-						// Nothing to mirror and no existing contact -- skip. The
-						// sweep never creates an Agend contact solely to record
-						// zero entitlements.
+				if ( $dry_run ) {
+					if ( empty( $gate_keys ) ) {
 						++$skipped;
 						continue;
 					}
 
-					if ( $dry_run ) {
-						WP_CLI::log( sprintf( 'Member %s: would CREATE contact with %s', $member_id, wp_json_encode( $desired ) ) );
-						++$changed;
-						continue;
-					}
-
-					$profile = array(
-						'email'      => $email,
-						'first_name' => (string) $member->get_first_name(),
-						'last_name'  => (string) $member->get_last_name(),
-					);
-
-					$result = Agend_Entitlement_Contact_Resolver::resolve_or_create( $member_id, $profile, $desired );
-
-					if ( is_wp_error( $result ) ) {
-						++$errors;
-						WP_CLI::warning( sprintf( 'Member %s: create failed: %s', $member_id, $result->get_error_message() ) );
-						continue;
-					}
-
-					++$created;
+					WP_CLI::log( sprintf( 'Member %s: would reconcile grants %s', $member_id, wp_json_encode( $gate_keys ) ) );
 					++$changed;
 					continue;
 				}
 
-				$current = $this->current_flag_values( $contact_id );
+				// Delegates to the same reconcile flow sync_member() uses (types
+				// pre-declaration, the empty-entries/no-contact skip, and the
+				// empty-profile-field omission the gateway schema requires),
+				// rather than re-deriving the payload here.
+				$profile = array(
+					'email'      => (string) $member->get_email(),
+					'first_name' => (string) $member->get_first_name(),
+					'last_name'  => (string) $member->get_last_name(),
+				);
 
-				if ( is_wp_error( $current ) ) {
+				$result = Agend_Entitlement_Sync::reconcile_member( $member_id, $entries, $profile );
+
+				if ( is_wp_error( $result ) ) {
 					++$errors;
-					WP_CLI::warning( sprintf( 'Member %s: read failed: %s', $member_id, $current->get_error_message() ) );
+					WP_CLI::warning( sprintf( 'Member %s: sync failed: %s', $member_id, $result->get_error_message() ) );
 					continue;
 				}
 
-				if ( $this->slugs_equal( $current, $desired ) ) {
+				if ( true === $result ) {
 					++$skipped;
 					continue;
 				}
 
-				if ( $dry_run ) {
-					WP_CLI::log(
-						sprintf(
-							'Member %s: would CHANGE %s -> %s',
-							$member_id,
-							wp_json_encode( $current ),
-							wp_json_encode( $desired )
-						)
-					);
-					++$changed;
-					continue;
+				$data      = isset( $result['data'] ) && is_array( $result['data'] ) ? $result['data'] : array();
+				$granted   = (array) ( $data['granted'] ?? array() );
+				$refreshed = (array) ( $data['refreshed'] ?? array() );
+				$revoked   = (array) ( $data['revoked'] ?? array() );
+
+				if ( ! empty( $data['contact_created'] ) ) {
+					++$created;
 				}
 
-				$patch = agend_apps_crm_update_contact(
-					$contact_id,
-					array(
-						'custom_fields' => array(
-							Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key() => $desired,
-						),
-					)
-				);
-
-				if ( is_wp_error( $patch ) ) {
-					++$errors;
-					WP_CLI::warning( sprintf( 'Member %s: write failed: %s', $member_id, $patch->get_error_message() ) );
+				if ( empty( $granted ) && empty( $refreshed ) && empty( $revoked ) ) {
+					++$skipped;
 					continue;
 				}
 
@@ -238,50 +204,6 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 
 				++$page;
 			} while ( $api->has_more_pages( 'Iugo_Membership_Kiosk_API_MemberDetail' ) && ! empty( $members ) );
-		}
-
-		/**
-		 * Reads a contact's current mirrored entitlement value list from the
-		 * gateway.
-		 *
-		 * @param string $contact_id Agend contact id.
-		 * @return array<int, string>|WP_Error
-		 */
-		private function current_flag_values( string $contact_id ) {
-			$response = agend_apps_crm_get_contact( $contact_id );
-
-			if ( is_wp_error( $response ) ) {
-				return $response;
-			}
-
-			$field_key = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_field_key();
-			$values    = $response['data']['custom_fields'][ $field_key ] ?? array();
-
-			if ( ! is_array( $values ) ) {
-				return array();
-			}
-
-			$values = array_values( array_map( 'strval', $values ) );
-			sort( $values, SORT_STRING );
-
-			return $values;
-		}
-
-		/**
-		 * Whether two slug lists are equal regardless of order (both are
-		 * expected pre-sorted, but this compares defensively).
-		 *
-		 * @param array<int, string> $current Current value list.
-		 * @param array<int, string> $desired Desired value list.
-		 * @return bool
-		 */
-		private function slugs_equal( array $current, array $desired ): bool {
-			$a = $current;
-			$b = $desired;
-			sort( $a, SORT_STRING );
-			sort( $b, SORT_STRING );
-
-			return $a === $b;
 		}
 	}
 

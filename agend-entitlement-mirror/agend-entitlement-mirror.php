@@ -2,7 +2,7 @@
 /**
  * Plugin Name:     Agend Entitlement Mirror
  * Plugin URI:      https://www.agend.com.au
- * Description:     Mirrors Upbeat entitlements into the Agend member_entitlements contact flag, so directory/content gating segments react to standing granted or revoked in Upbeat.
+ * Description:     Mirrors Upbeat entitlements into Agend CRM entitlement grants, so directory/content gating segments react to standing granted or revoked in Upbeat.
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-entitlement-mirror
@@ -38,7 +38,6 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror' ) ) :
 			// call Agend_Entitlement_Mirror_Settings:: at runtime.
 			$this->include( 'includes/class-entitlement-mirror-settings.php' );
 			$this->include( 'includes/class-entitlement-collector.php' );
-			$this->include( 'includes/class-contact-resolver.php' );
 			$this->include( 'includes/class-entitlement-sync.php' );
 			$this->include( 'includes/class-admin-page.php' );
 

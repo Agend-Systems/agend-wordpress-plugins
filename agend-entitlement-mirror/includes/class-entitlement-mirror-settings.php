@@ -33,12 +33,12 @@ class Agend_Entitlement_Mirror_Settings {
 	const ENTITLEMENT_MIRROR_DEFAULT_CATEGORY = 'Web Personalisation';
 
 	/**
-	 * Default multi_select contact field key the mirror writes (Decision 2.7 /
-	 * US-1.2 AC1).
+	 * Default source key the mirror declares entitlement types and reconciles
+	 * grants under (SPEC-CRM-20260805-member-entitlement-grants US-5.1).
 	 *
 	 * @var string
 	 */
-	const ENTITLEMENT_MIRROR_DEFAULT_FIELD_KEY = 'member_entitlements';
+	const ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY = 'upbeat';
 
 	/**
 	 * Default login-reconciliation throttle in seconds (US-2.3 AC1).
@@ -88,16 +88,16 @@ class Agend_Entitlement_Mirror_Settings {
 	}
 
 	/**
-	 * Returns the contact custom-field key the mirror writes the entitlement
-	 * slug list to. Matches the gateway catalogue endpoint's `field_key`
-	 * default (US-1.2 AC1).
+	 * Returns the stable `source_key` the mirror declares entitlement types
+	 * and reconciles grants under (SPEC-CRM-20260805-member-entitlement-grants
+	 * US-5.1). Never `manual` -- that value is reserved for staff-made grants.
 	 *
 	 * @return string
 	 */
-	public static function get_entitlement_mirror_field_key(): string {
-		$value = (string) get_option( 'agend_entitlement_mirror_field_key', self::ENTITLEMENT_MIRROR_DEFAULT_FIELD_KEY );
+	public static function get_entitlement_mirror_source_key(): string {
+		$value = trim( (string) get_option( 'agend_entitlement_mirror_source_key', self::ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY ) );
 
-		return '' !== trim( $value ) ? trim( $value ) : self::ENTITLEMENT_MIRROR_DEFAULT_FIELD_KEY;
+		return '' !== $value ? $value : self::ENTITLEMENT_MIRROR_DEFAULT_SOURCE_KEY;
 	}
 
 	/**
@@ -134,17 +134,5 @@ class Agend_Entitlement_Mirror_Settings {
 		$value = (int) get_option( 'agend_entitlement_mirror_login_throttle', self::ENTITLEMENT_MIRROR_DEFAULT_LOGIN_THROTTLE );
 
 		return $value > 0 ? $value : self::ENTITLEMENT_MIRROR_DEFAULT_LOGIN_THROTTLE;
-	}
-
-	/**
-	 * Whether the mirror's gateway writes should send the webhook-suppression
-	 * header. Defaults OFF (US-2.2 business rule): other subscribers may
-	 * legitimately want the resulting `contact_updated` events, so suppression
-	 * is opt-in per install.
-	 *
-	 * @return bool
-	 */
-	public static function is_entitlement_mirror_webhook_suppression_enabled(): bool {
-		return '1' === (string) get_option( 'agend_entitlement_mirror_suppress_webhooks', '0' );
 	}
 }
