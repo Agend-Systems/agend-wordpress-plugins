@@ -148,6 +148,22 @@ $ajax_url        = admin_url( 'admin-ajax.php' );
 	<h3><?php esc_html_e( 'Last Sync Error', 'agend-entitlement-mirror' ); ?></h3>
 	<?php if ( empty( $last_error ) ) : ?>
 		<p><?php esc_html_e( 'None.', 'agend-entitlement-mirror' ); ?></p>
+	<?php elseif ( 'configuration' === ( $last_error['kind'] ?? '' ) ) : ?>
+		<div class="notice notice-error inline">
+			<p>
+				<strong><?php esc_html_e( 'Configuration error -- not retried automatically.', 'agend-entitlement-mirror' ); ?></strong>
+				<?php
+				printf(
+					/* translators: 1: member id, 2: HTTP status code, 3: ISO timestamp. */
+					esc_html__( ' Member %1$s -- HTTP %2$d at %3$s', 'agend-entitlement-mirror' ),
+					esc_html( (string) ( $last_error['member_id'] ?? '' ) ),
+					(int) ( $last_error['status_code'] ?? 0 ),
+					esc_html( (string) ( $last_error['at'] ?? '' ) )
+				);
+				?>
+			</p>
+			<p><?php echo esc_html( (string) ( $last_error['message'] ?? '' ) ); ?></p>
+		</div>
 	<?php else : ?>
 		<p>
 			<?php
