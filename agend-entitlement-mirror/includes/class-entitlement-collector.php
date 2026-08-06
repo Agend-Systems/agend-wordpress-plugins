@@ -27,6 +27,34 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 	class Agend_Entitlement_Collector {
 
 		/**
+		 * Platform-owned gate keys the `gate_key()` conversion must never emit.
+		 *
+		 * Mirrors the code-owned `MEMBER_GATES` registry in
+		 * `packages/@agend/member-gates` on the Agend platform monorepo. The
+		 * platform's entitlement-types endpoint refuses any of these server-side
+		 * with a 400 (SPEC-CRM-20260805-member-entitlement-grants US-5.1 AC9), so
+		 * `gate_key()` must reject them here rather than let a whole sync batch
+		 * fail on one collision. Kept as an explicit list, not a call into the
+		 * platform, because this plugin has no dependency on that package; the
+		 * test suite asserts against the full list so registry growth on the
+		 * platform side is caught here by updating both together.
+		 *
+		 * @var array<int, string>
+		 */
+		const RESERVED_PLATFORM_GATE_KEYS = array(
+			'api.access',
+			'community.forum',
+			'content.sponsored',
+			'directory.access',
+			'events.discount',
+			'jobs.board',
+			'lms.certifications',
+			'lms.courses',
+			'mentorship.program',
+			'resources.library',
+		);
+
+		/**
 		 * Returns the member's current mirrorable entitlement set.
 		 *
 		 * Calls the kiosk's `get_all_member_entitlements()` (AC1), filters to the
@@ -230,6 +258,87 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 			}
 
 			return (string) $value;
+		}
+
+		/**
+		 * Underscore-segment slugifier for the platform `gate_key()` convention.
+		 *
+		 * Same transliteration path as {@see slugify()} (WP's `sanitize_title()`
+		 * when available, otherwise the ASCII fallback), but joins words with
+		 * underscores rather than hyphens, since `gate_key()` reserves the dot for
+		 * the category/type separator.
+		 *
+		 * @param string $value Raw value.
+		 * @return string Underscore-separated lowercase ASCII segment, or '' when nothing survives.
+		 */
+		public static function slugify_segment( string $value ): string {
+			$value = strtolower( trim( $value ) );
+
+			if ( '' === $value ) {
+				return '';
+			}
+
+			if ( function_exists( 'sanitize_title' ) ) {
+				$value = sanitize_title( $value );
+			} else {
+				$value = preg_replace( '/[^a-z0-9]+/', '-', $value );
+				$value = trim( (string) $value, '-' );
+			}
+
+			$value = str_replace( '-', '_', (string) $value );
+			$value = preg_replace( '/_+/', '_', $value );
+			$value = trim( (string) $value, '_' );
+
+			return (string) $value;
+		}
+
+		/**
+		 * Converts an Upbeat category/type pair into a platform `gate_key`.
+		 *
+		 * The result is the entitlement's identity on the platform side across
+		 * every sync, so the SAME (category, type) input must always produce the
+		 * SAME output (SPEC-CRM-20260805-member-entitlement-grants US-5.1 AC1).
+		 * Never emits a key from {@see RESERVED_PLATFORM_GATE_KEYS} (AC9); the
+		 * caller is expected to log and skip when this returns ''.
+		 *
+		 * @param string $category Upbeat entitlement category.
+		 * @param string $type     Upbeat entitlement type.
+		 * @return string Dot-separated `gate_key`, or '' when no valid key can be derived.
+		 */
+		public static function gate_key( string $category, string $type ): string {
+			$category_segment = self::slugify_segment( $category );
+			$type_segment      = self::slugify_segment( $type );
+
+			if ( '' === $category_segment || '' === $type_segment ) {
+				return '';
+			}
+
+			$key = $category_segment . '.' . $type_segment;
+
+			// The database CHECK requires the key to start with a lowercase
+			// letter. A digit-led category (e.g. "2026 Life Member") would
+			// otherwise produce an invalid key, so prefix deterministically
+			// rather than drop the entitlement.
+			if ( ! preg_match( '/^[a-z]/', $key ) ) {
+				$key = 'k' . $key;
+			}
+
+			if ( strlen( $key ) > 64 ) {
+				$key = substr( $key, 0, 64 );
+				$key = rtrim( $key, '_.' );
+			}
+
+			if ( ! preg_match( '/^[a-z][a-z0-9_.]{1,62}[a-z0-9]$/', $key ) ) {
+				return '';
+			}
+
+			// The platform refuses these server-side (AC9): emitting one here
+			// would fail the whole sync batch rather than just this entitlement.
+			if ( in_array( $key, self::RESERVED_PLATFORM_GATE_KEYS, true ) ) {
+				return '';
+			}
+
+			return $key;
 		}
 	}
 
