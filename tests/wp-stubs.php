@@ -445,6 +445,44 @@ if ( ! function_exists( 'wp_get_current_user' ) ) {
 	}
 }
 
+if ( ! class_exists( 'WP_User' ) ) {
+	/**
+	 * Minimal WP_User stand-in.
+	 *
+	 * A real class rather than a stdClass cast, because production code
+	 * type-hints `WP_User` (e.g. the `wp_login` and
+	 * `wp_saml_idp_user_attributes_lightsaml` handlers), and a cast object
+	 * would fail that type check on a real site while slipping past a test.
+	 */
+	class WP_User {
+		public int $ID;
+
+		public function __construct( int $id = 0 ) {
+			$this->ID = $id;
+		}
+	}
+}
+
+if ( ! function_exists( 'get_user_meta' ) ) {
+	/**
+	 * User meta stub, backed by a global registry keyed by user id then meta
+	 * key. Mirrors {@see get_post_meta()}'s `$single` contract.
+	 */
+	function get_user_meta( int $user_id, string $key = '', bool $single = false ) {
+		$value = $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] ?? '';
+
+		return $single ? $value : array( $value );
+	}
+}
+
+if ( ! function_exists( 'update_user_meta' ) ) {
+	function update_user_meta( int $user_id, string $key, $value ) {
+		$GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] = $value;
+
+		return true;
+	}
+}
+
 if ( ! class_exists( 'WP_Post' ) ) {
 	/**
 	 * Minimal WP_Post stand-in.

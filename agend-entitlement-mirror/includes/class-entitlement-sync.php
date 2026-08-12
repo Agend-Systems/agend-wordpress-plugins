@@ -108,6 +108,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 			add_action( 'agend_webhook_entitlement_updated', array( __CLASS__, 'handle_entitlement_webhook' ), 10, 2 );
 			add_action( 'agend_webhook_contact_updated', array( __CLASS__, 'handle_contact_webhook' ), 10, 2 );
 			add_action( 'wp_login', array( __CLASS__, 'handle_login' ), 10, 2 );
+			add_filter( 'wp_saml_idp_user_attributes_lightsaml', array( __CLASS__, 'handle_sso_attributes' ), 10, 3 );
 			add_action( self::RETRY_HOOK, array( __CLASS__, 'handle_retry' ), 10, 1 );
 		}
 
@@ -200,6 +201,54 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 			} catch ( Throwable $e ) {
 				self::log( 'Login reconciliation failed: ' . $e->getMessage(), array( 'member_id' => $member_id ) );
 			}
+		}
+
+		/**
+		 * Handles agend-saml-idp's `wp_saml_idp_user_attributes_lightsaml` filter
+		 * (the sole path every SAML response is built through), fired
+		 * immediately before the assertion is signed and sent.
+		 *
+		 * A member already logged into WordPress who follows an Agend SSO link
+		 * gets JIT-provisioned in Agend with no prior mirror run: `wp_login`
+		 * never fires for that session, so the login safety-net reconcile never
+		 * runs either, and the member's grants only appear after a subsequent
+		 * WordPress logout/login. Running the reconcile here -- synchronously,
+		 * before the assertion leaves -- means a freshly-provisioned contact's
+		 * grants exist before the member's first Agend page load.
+		 *
+		 * Non-blocking, mirroring {@see handle_login()}: any Throwable is caught
+		 * and logged so a mirror failure can never delay or break the SSO
+		 * response. Deliberately skips the `wp_login` throttle transient -- SSO
+		 * is exactly the moment freshness matters most, and {@see sync_member()}'s
+		 * own coalesce lock already de-dupes a login immediately followed by SSO.
+		 *
+		 * Always returns `$attributes` unchanged: this filter is used purely for
+		 * its side effect.
+		 *
+		 * @param array   $attributes   The attributes agend-saml-idp is about to sign and send.
+		 * @param WP_User $user         The user the assertion is being issued for.
+		 * @param string  $sp_entity_id Unused; required by the filter's signature.
+		 * @return array The unchanged `$attributes`.
+		 */
+		public static function handle_sso_attributes( array $attributes, WP_User $user, string $sp_entity_id ): array {
+			unset( $sp_entity_id );
+
+			$member_id = (string) get_user_meta( $user->ID, agend_apps_external_id_meta_key(), true );
+
+			if ( '' === $member_id ) {
+				return $attributes;
+			}
+
+			// Non-blocking (mirrors handle_login()'s AC2 contract): any Throwable
+			// is caught and logged here so a mirror failure can never delay or
+			// break the SAML response.
+			try {
+				self::sync_member( $member_id );
+			} catch ( Throwable $e ) {
+				self::log( 'SSO-time reconciliation failed: ' . $e->getMessage(), array( 'member_id' => $member_id ) );
+			}
+
+			return $attributes;
 		}
 
 		/**
