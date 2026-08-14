@@ -68,19 +68,21 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 		 * @param string $member_id Kiosk membership number.
 		 * @return array<int, array{gate_key: string, name: string, starts_at: string|null, expires_at: string|null, quantity_allowed: int|null, quantity_remaining: int|null}> Deterministic, deduplicated, sorted entries.
 		 *
-		 * @throws RuntimeException When the kiosk plugin is unavailable or the
-		 *                          underlying API call fails. An empty array is a
+		 * @throws RuntimeException When the active source is unavailable or the
+		 *                          underlying fetch fails. An empty array is a
 		 *                          VALID state (no entitlements) and must never be
 		 *                          produced by an error path (AC4).
 		 */
 		public static function collect( string $member_id ): array {
 			/**
-			 * Short-circuit the kiosk read for one member (SPEC-AMS-20260804
-			 * US-3.1's stub seam: no live Upbeat credentials in any test path).
-			 * Return an array of raw kiosk-shaped entitlement rows to use it,
-			 * or null (the default) to read the kiosk normally. The category
-			 * filter, gate-key conversion, dedupe, and sort below still apply, so
-			 * a stub exercises everything except the HTTP call itself.
+			 * Short-circuit the source read for one member (no live Upbeat
+			 * credentials in any test path). Return an array of raw
+			 * source-shaped entitlement rows (the plain-array shape
+			 * Agend_Entitlement_Mirror_Source::fetch_member_entitlements()
+			 * returns) to use it, or null (the default) to read the active
+			 * source normally. The category filter, gate-key conversion,
+			 * dedupe, and sort below still apply, so a stub exercises
+			 * everything except the fetch itself.
 			 *
 			 * @param array<int, mixed>|null $entitlements Raw rows, or null.
 			 * @param string                 $member_id    Kiosk membership number.
@@ -97,32 +99,14 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 				}
 				$entitlements = $stubbed;
 			} else {
-				if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
-					throw new RuntimeException( 'The iugo-membership-kiosk plugin is not available.' );
-				}
-
-				try {
-					$entitlements = Iugo_Membership_Kiosk_API::instance()->get_all_member_entitlements( $member_id );
-				} catch ( Throwable $e ) {
-					// get_all_member_entitlements() has no try/catch around its own
-					// entitlement-fetch loop: a genuine API failure there
-					// (get_entitlements_for_id() returning false into array_merge())
-					// surfaces as an uncaught Throwable. "Member not found" returns
-					// array() cleanly and never reaches this catch -- that is the
-					// valid empty state AC4 requires never come from an error path.
-					throw new RuntimeException( 'Failed to retrieve entitlements from the membership kiosk: ' . $e->getMessage(), 0, $e );
-				}
-
-				if ( ! is_array( $entitlements ) ) {
-					throw new RuntimeException( 'Unexpected response retrieving entitlements from the membership kiosk.' );
-				}
+				$entitlements = Agend_Entitlement_Mirror_Source_Registry::active()->fetch_member_entitlements( $member_id );
 			}
 
 			$allowed_categories = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_categories();
 			$rows                = array();
 
 			foreach ( $entitlements as $entitlement ) {
-				if ( ! $entitlement instanceof Iugo_Membership_Kiosk_API_Entitlement ) {
+				if ( ! is_array( $entitlement ) ) {
 					continue;
 				}
 
@@ -137,22 +121,22 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 		}
 
 		/**
-		 * Shapes a single kiosk entitlement into a platform grant entry, or null
-		 * when its category is not in the allow-list or it converts to no valid
-		 * `gate_key`.
+		 * Shapes a single source-provided entitlement row into a platform grant
+		 * entry, or null when its category is not in the allow-list or it
+		 * converts to no valid `gate_key`.
 		 *
-		 * @param Iugo_Membership_Kiosk_API_Entitlement $entitlement        Source entitlement.
-		 * @param array<int, string>                    $allowed_categories Configured category allow-list.
+		 * @param array{category: string, type: string, name: string, starts_at: ?DateTime, expires_at: ?DateTime, quantity_allowed: ?string, quantity_remaining: ?string} $entitlement Source entitlement row (Agend_Entitlement_Mirror_Source::fetch_member_entitlements() shape).
+		 * @param array<int, string> $allowed_categories Configured category allow-list.
 		 * @return array{gate_key: string, name: string, starts_at: string|null, expires_at: string|null, quantity_allowed: int|null, quantity_remaining: int|null}|null
 		 */
-		public static function to_mirror_entry( Iugo_Membership_Kiosk_API_Entitlement $entitlement, array $allowed_categories ): ?array {
-			$category = (string) $entitlement->get_entitlement_category();
+		public static function to_mirror_entry( array $entitlement, array $allowed_categories ): ?array {
+			$category = (string) ( $entitlement['category'] ?? '' );
 
 			if ( ! self::category_allowed( $category, $allowed_categories ) ) {
 				return null;
 			}
 
-			$type = (string) $entitlement->get_entitlement_type();
+			$type = (string) ( $entitlement['type'] ?? '' );
 
 			$gate_key = self::gate_key( $category, $type );
 
@@ -160,7 +144,7 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 				return null;
 			}
 
-			$name = $entitlement->get_entitlement_display_name();
+			$name = (string) ( $entitlement['name'] ?? '' );
 
 			if ( empty( $name ) ) {
 				$name = $type;
@@ -169,10 +153,10 @@ if ( ! class_exists( 'Agend_Entitlement_Collector' ) ) :
 			return array(
 				'gate_key'           => $gate_key,
 				'name'               => (string) $name,
-				'starts_at'          => self::to_utc_rfc3339( $entitlement->get_the_start_date() ),
-				'expires_at'         => self::to_utc_rfc3339( $entitlement->get_the_end_date() ),
-				'quantity_allowed'   => self::to_nonnegative_int( $entitlement->get_quantity_allowed() ),
-				'quantity_remaining' => self::to_nonnegative_int( $entitlement->get_quantity_remaining() ),
+				'starts_at'          => self::to_utc_rfc3339( $entitlement['starts_at'] ?? null ),
+				'expires_at'         => self::to_utc_rfc3339( $entitlement['expires_at'] ?? null ),
+				'quantity_allowed'   => self::to_nonnegative_int( $entitlement['quantity_allowed'] ?? null ),
+				'quantity_remaining' => self::to_nonnegative_int( $entitlement['quantity_remaining'] ?? null ),
 			);
 		}
 
