@@ -81,6 +81,22 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		}
 
 		/**
+		 * Default `flags` map: per-flag invert setting. Most eligibility /
+		 * opt-in sources are true-means-visible; a source that is instead
+		 * true-means-hide (e.g. an "opted out" or "excluded" flag) sets its
+		 * invert to true rather than requiring the client to negate the
+		 * source data itself.
+		 *
+		 * @return array<string, bool>
+		 */
+		public static function default_flags(): array {
+			return array(
+				'eligible_flag_invert' => false,
+				'opt_in_flag_invert'   => false,
+			);
+		}
+
+		/**
 		 * Number of configurable address (location) slots exposed for mapping.
 		 * A directory listing supports multiple locations; each configured slot
 		 * that has address data becomes one listing location.
@@ -126,15 +142,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		}
 
 		/**
-		 * The full default map (core + custom_fields + locations).
+		 * The full default map (core + custom_fields + locations + flags).
 		 *
-		 * @return array{core: array<string,string>, custom_fields: array<string,string>, locations: array<int, array<string,string>>}
+		 * @return array{core: array<string,string>, custom_fields: array<string,string>, locations: array<int, array<string,string>>, flags: array<string,bool>}
 		 */
 		public static function defaults(): array {
 			return array(
 				'core'          => self::default_core_map(),
 				'custom_fields' => self::default_custom_field_map(),
 				'locations'     => self::default_locations(),
+				'flags'         => self::default_flags(),
 			);
 		}
 
@@ -215,12 +232,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				array(
 					'key'         => 'eligible_flag',
 					'label'       => __( 'Eligibility flag', 'agend-directory-sync' ),
-					'description' => __( 'Boolean source gating public visibility. Blank means "always eligible" in this environment.', 'agend-directory-sync' ),
+					'description' => __( 'Source gating public visibility. Truthy/falsey values are accepted (1/0, "true"/"false", "yes"/"no", on/off), not only a strict boolean. Blank means "always eligible" in this environment. Use "Invert this flag" below when the source is true-means-hide rather than true-means-show.', 'agend-directory-sync' ),
 				),
 				array(
 					'key'         => 'opt_in_flag',
 					'label'       => __( 'Opt-in flag', 'agend-directory-sync' ),
-					'description' => __( 'Boolean source gating public visibility. Blank means "always opted in" in this environment.', 'agend-directory-sync' ),
+					'description' => __( 'Source gating public visibility. Truthy/falsey values are accepted (1/0, "true"/"false", "yes"/"no", on/off), not only a strict boolean. Blank means "always opted in" in this environment. Use "Invert this flag" below when the source is true-means-hide rather than true-means-show.', 'agend-directory-sync' ),
 				),
 				array(
 					'key'         => 'date_modified',
@@ -234,9 +251,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 * Resolve the effective field map: the saved option merged over the
 		 * defaults. A core key absent from the saved map falls back to its
 		 * default; a key saved as an empty string is respected as an explicit
-		 * "do not map" instruction.
+		 * "do not map" instruction. An install saved before `flags` existed
+		 * has no `flags` key at all, and resolves to the non-inverted
+		 * defaults rather than an error.
 		 *
-		 * @return array{core: array<string, string>, custom_fields: array<string, string>}
+		 * @return array{core: array<string, string>, custom_fields: array<string, string>, locations: array<int, array<string,string>>, flags: array<string, bool>}
 		 */
 		public static function resolve(): array {
 			$saved = get_option( self::OPTION_FIELD_MAP, null );
@@ -280,10 +299,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				}
 			}
 
+			$flags = self::default_flags();
+			if ( isset( $saved['flags'] ) && is_array( $saved['flags'] ) ) {
+				foreach ( $flags as $key => $default ) {
+					if ( array_key_exists( $key, $saved['flags'] ) ) {
+						$flags[ $key ] = (bool) $saved['flags'][ $key ];
+					}
+				}
+			}
+
 			return array(
 				'core'          => $core,
 				'custom_fields' => $custom_fields,
 				'locations'     => $locations,
+				'flags'         => $flags,
 			);
 		}
 
@@ -295,18 +324,39 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 * @param array<string, mixed> $raw_core      Posted core map (key => source).
 		 * @param mixed                $raw_custom    Posted custom map (textarea string or array).
 		 * @param mixed                $raw_locations Posted location slots (array of slot => field => source).
+		 * @param mixed                $raw_flags     Posted flag invert checkboxes (key => '1' when checked).
 		 *
 		 * @return void
 		 */
-		public static function save( array $raw_core, $raw_custom, $raw_locations = array() ): void {
+		public static function save( array $raw_core, $raw_custom, $raw_locations = array(), $raw_flags = array() ): void {
 			update_option(
 				self::OPTION_FIELD_MAP,
 				array(
 					'core'          => self::sanitize_core( $raw_core ),
 					'custom_fields' => self::sanitize_custom_fields( $raw_custom ),
 					'locations'     => self::sanitize_locations( $raw_locations ),
+					'flags'         => self::sanitize_flags( $raw_flags ),
 				)
 			);
+		}
+
+		/**
+		 * Validate posted flag-invert checkboxes against the known flag keys.
+		 * An HTML checkbox omits its field entirely when unchecked, so
+		 * presence (any truthy value, conventionally '1') means true and
+		 * absence means false — there is no third state.
+		 *
+		 * @param mixed $raw Posted flags (key => '1' when checked).
+		 *
+		 * @return array<string, bool>
+		 */
+		public static function sanitize_flags( $raw ): array {
+			$raw   = is_array( $raw ) ? $raw : array();
+			$flags = array();
+			foreach ( array_keys( self::default_flags() ) as $key ) {
+				$flags[ $key ] = ! empty( $raw[ $key ] );
+			}
+			return $flags;
 		}
 
 		/**
@@ -418,13 +468,36 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 * indexes a list, and an exact top-level key match wins before
 		 * dot-path traversal so a saved source name that literally contains a
 		 * dot keeps resolving as before.
+		 *
+		 * A value containing `{` is a concatenation template (US-3.2) rather
+		 * than a plain path, so it is sanitised on a wider, still
+		 * conservative allow-list that keeps braces, spaces, and common
+		 * separators a template's literal text needs (e.g. `{a} {b}`,
+		 * `{a}/{b}`, `{a}, {b}`) instead of the strict plain-path charset,
+		 * which would otherwise strip the template apart.
+		 *
+		 * `@` is allowed in both charsets: OData-style APIs (e.g. Dynamics)
+		 * annotate a field with a literal key such as
+		 * `pca_state@OData.Community.Display.V1.FormattedValue`. The path
+		 * resolver's exact top-level key match wins before dot-path
+		 * traversal, so that whole literal key resolves correctly once it
+		 * survives sanitisation intact.
 		 */
 		private static function sanitize_source_path( string $value ): string {
 			$value = trim( $value );
 			if ( '' === $value ) {
 				return '';
 			}
-			$value = preg_replace( '/[^A-Za-z0-9_.\-]/', '', $value );
+
+			if ( Agend_Directory_Sync_Path_Resolver::is_template( $value ) ) {
+				$value = function_exists( 'sanitize_text_field' )
+					? sanitize_text_field( $value )
+					: preg_replace( '/[\x00-\x1F\x7F]/', '', $value );
+				$value = preg_replace( '/[^A-Za-z0-9_.\-{}\/,()&:\'+@ ]/', '', (string) $value );
+				return trim( (string) $value );
+			}
+
+			$value = preg_replace( '/[^A-Za-z0-9_.\-@]/', '', $value );
 			return (string) $value;
 		}
 

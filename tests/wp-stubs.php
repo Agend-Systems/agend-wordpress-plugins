@@ -182,6 +182,19 @@ function sanitize_title( $title, $fallback_title = '', $context = 'save' ): stri
 	return $title;
 }
 
+/**
+ * Minimal stand-in for WordPress's sanitize_text_field(): strips tags,
+ * collapses line breaks and extra whitespace to a single space, trims. Not a
+ * full re-implementation (WP's version also strips %-encoded octets) --
+ * enough for the plain single-line settings values this test suite
+ * exercises.
+ */
+function sanitize_text_field( $value ): string {
+	$value = strip_tags( (string) $value );
+	$value = preg_replace( '/[\r\n\t ]+/', ' ', $value );
+	return trim( (string) $value );
+}
+
 function esc_url( $url ): string {
 	return htmlspecialchars( (string) $url, ENT_QUOTES );
 }

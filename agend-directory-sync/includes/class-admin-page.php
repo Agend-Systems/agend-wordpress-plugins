@@ -143,7 +143,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$raw_locations = isset( $_POST['agend_location_map'] ) && is_array( $_POST['agend_location_map'] )
 				? wp_unslash( $_POST['agend_location_map'] )
 				: array();
-			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_locations );
+			$raw_flags     = isset( $_POST['agend_field_map_flags'] ) && is_array( $_POST['agend_field_map_flags'] )
+				? wp_unslash( $_POST['agend_field_map_flags'] )
+				: array();
+			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_locations, $raw_flags );
 
 			wp_safe_redirect( self::redirect_url( array( 'saved' => '1' ) ) );
 			exit;
@@ -445,6 +448,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 												?></textarea>
 												<p class="description">
 													<?php esc_html_e( 'One "name = value" per line. A {name} placeholder in the URL, the token endpoint URL, or the scope is replaced with the value at run time; an unresolved placeholder fails the run naming it. Values are stored in the database — never put a secret here. Secrets belong in the wp-config.php constants.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_http_api_headers"><?php esc_html_e( 'Request headers', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<textarea
+													name="agend_http_api[headers]"
+													id="agend_http_api_headers"
+													class="large-text code"
+													rows="4"
+													placeholder="Prefer: odata.include-annotations=&quot;*&quot;"
+												><?php echo esc_textarea( Agend_Directory_Sync_Http_Api_Source::headers_to_textarea( $http_api['headers'] ) ); ?></textarea>
+												<p class="description">
+													<?php esc_html_e( 'One "Header-Name: value" per line. Sent with every data request. Values may contain {name} placeholders resolved from the Connection variables above; an unresolved placeholder fails the run naming it. Values are stored in the database — never put a secret here. Secrets belong in the wp-config.php constants. Example for Dynamics/OData formatted values: Prefer: odata.include-annotations="*"', 'agend-directory-sync' ); ?>
 												</p>
 											</td>
 										</tr>
@@ -797,16 +817,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						);
 						?>
 					</p>
+					<p class="description" style="max-width:760px;">
+						<?php
+						esc_html_e(
+							'A source can also be a template combining several fields, for example "{name_first} {name_last}": each "{path}" resolves like a normal source field, a missing value becomes blank, and a row where every placeholder is blank omits the field entirely.',
+							'agend-directory-sync'
+						);
+						?>
+					</p>
 
 					<table class="form-table" role="presentation">
 						<tbody>
 							<?php foreach ( Agend_Directory_Sync_Field_Map::core_targets() as $target ) : ?>
 								<?php
-								$key          = $target['key'];
-								$input_id     = 'agend_field_map_' . $key;
-								$current      = isset( $field_map['core'][ $key ] ) ? (string) $field_map['core'][ $key ] : '';
-								$default_core = Agend_Directory_Sync_Field_Map::default_core_map();
-								$placeholder  = isset( $default_core[ $key ] ) ? (string) $default_core[ $key ] : '';
+								$key           = $target['key'];
+								$input_id      = 'agend_field_map_' . $key;
+								$current       = isset( $field_map['core'][ $key ] ) ? (string) $field_map['core'][ $key ] : '';
+								$default_core  = Agend_Directory_Sync_Field_Map::default_core_map();
+								$placeholder   = isset( $default_core[ $key ] ) ? (string) $default_core[ $key ] : '';
+								$invert_key    = $key . '_invert';
+								$is_flag       = in_array( $key, array( 'eligible_flag', 'opt_in_flag' ), true );
+								$invert_id     = 'agend_field_map_flags_' . $invert_key;
+								$invert_value  = ! empty( $field_map['flags'][ $invert_key ] );
 								?>
 								<tr>
 									<th scope="row">
@@ -823,6 +855,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 											autocomplete="off"
 										/>
 										<p class="description"><?php echo esc_html( $target['description'] ); ?></p>
+										<?php if ( $is_flag ) : ?>
+											<p>
+												<label for="<?php echo esc_attr( $invert_id ); ?>">
+													<input
+														name="agend_field_map_flags[<?php echo esc_attr( $invert_key ); ?>]"
+														id="<?php echo esc_attr( $invert_id ); ?>"
+														type="checkbox"
+														value="1"
+														<?php checked( $invert_value ); ?>
+													/>
+													<?php esc_html_e( 'Invert this flag (source value means hide/exclude)', 'agend-directory-sync' ); ?>
+												</label>
+											</p>
+											<p class="description">
+												<?php esc_html_e( 'Off (default): a truthy source value means visible. On: a truthy source value means hidden, and a blank/unresolved source still means visible (there is no gate to flip).', 'agend-directory-sync' ); ?>
+											</p>
+										<?php endif; ?>
 									</td>
 								</tr>
 							<?php endforeach; ?>
@@ -839,7 +888,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										placeholder="membership_number = membershipNumber"
 									><?php echo esc_textarea( Agend_Directory_Sync_Field_Map::custom_fields_to_textarea( $field_map['custom_fields'] ) ); ?></textarea>
 									<p class="description">
-										<?php esc_html_e( 'One mapping per line, in the form custom_field_key = source_field. The key is stored under the listing custom_fields. Lines without an "=" are ignored.', 'agend-directory-sync' ); ?>
+										<?php esc_html_e( 'One mapping per line, in the form custom_field_key = source_field. The key is stored under the listing custom_fields. Lines without an "=" are ignored. A source may also be a template combining several fields, for example "{name_first} {name_last}"; each "{path}" resolves like a normal source field, missing values become blank, and a row where every placeholder is blank omits the field.', 'agend-directory-sync' ); ?>
 									</p>
 								</td>
 							</tr>

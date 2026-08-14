@@ -15,6 +15,14 @@
  * wp-config.php constants at call time only (Decision 2.4), delegating OAuth
  * token acquisition and caching to Agend_Directory_Sync_Oauth_Token_Manager.
  *
+ * Custom request headers (a `headers` name => value map, admin-configured)
+ * are sent with every DATA request — never the OAuth token request — merged
+ * so an auth-mode header always wins over a same-named custom header
+ * (`merge_request_headers()`). Values may contain `{name}` placeholders
+ * resolved from Connection variables at run time. The motivating case is
+ * Dynamics/OData, which needs `Prefer: odata.include-annotations="*"` for
+ * the `@OData...FormattedValue` annotation fields to appear in the response.
+ *
  * Non-associative-array rows (i.e. not JSON objects) resolved from the data
  * path are skipped rather than passed through to the transformer, and the
  * count is accumulated on the instance (`get_skipped_non_associative_count()`).
@@ -313,6 +321,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 				'oauth_scope'     => trim( (string) ( $saved['oauth_scope'] ?? '' ) ),
 				'oauth_client_auth' => self::sanitize_client_auth( (string) ( $saved['oauth_client_auth'] ?? self::CLIENT_AUTH_BASIC ) ),
 				'variables'       => self::sanitize_variables( $saved['variables'] ?? array() ),
+				'headers'         => self::sanitize_headers( $saved['headers'] ?? array() ),
 				'pagination_mode' => self::sanitize_pagination_mode( (string) ( $saved['pagination_mode'] ?? self::PAGINATION_NONE ) ),
 				'page_param'      => self::non_blank( $saved['page_param'] ?? '', 'page' ),
 				'page_size_param' => self::non_blank( $saved['page_size_param'] ?? '', 'per_page' ),
@@ -326,13 +335,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 
 		/**
 		 * The resolved settings with connection variables substituted into
-		 * the data URL, the OAuth token endpoint URL, and the OAuth scope
-		 * (SPEC-DIR-20260731 v1.1 US-2.5, Decision 2.9). A `{name}`
-		 * placeholder that remains unresolved after substitution fails loudly
-		 * naming the placeholder, rather than sending a literal `{name}` to
-		 * the remote API. Substitution happens here, at run time, so the
-		 * stored settings remain templates and a variables edit takes effect
-		 * without re-saving the URLs.
+		 * the data URL, the OAuth token endpoint URL, the OAuth scope, and
+		 * every custom request header value (SPEC-DIR-20260731 v1.1 US-2.5,
+		 * Decision 2.9; custom headers added for OData/Dynamics support). A
+		 * `{name}` placeholder that remains unresolved after substitution
+		 * fails loudly naming the placeholder (a header names itself as
+		 * `Header "<name>"`), rather than sending a literal `{name}` to the
+		 * remote API. Substitution happens here, at run time, so the stored
+		 * settings remain templates and a variables edit takes effect
+		 * without re-saving the URLs or headers.
 		 *
 		 * @return array<string, mixed>
 		 *
@@ -351,6 +362,19 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 
 				$settings['oauth_scope'] = self::substitute_variables( $settings['oauth_scope'], $settings['variables'] );
 				self::assert_no_unresolved_placeholders( $settings['oauth_scope'], __( 'Scope', 'agend-directory-sync' ) );
+			}
+
+			foreach ( $settings['headers'] as $header_name => $header_value ) {
+				$header_value                     = self::substitute_variables( $header_value, $settings['variables'] );
+				self::assert_no_unresolved_placeholders(
+					$header_value,
+					sprintf(
+						/* translators: %s: the custom request header name. */
+						__( 'Header "%s"', 'agend-directory-sync' ),
+						$header_name
+					)
+				);
+				$settings['headers'][ $header_name ] = $header_value;
 			}
 
 			return $settings;
@@ -425,6 +449,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 				'oauth_scope'     => sanitize_text_field( isset( $raw['oauth_scope'] ) ? (string) $raw['oauth_scope'] : '' ),
 				'oauth_client_auth' => self::sanitize_client_auth( isset( $raw['oauth_client_auth'] ) ? (string) $raw['oauth_client_auth'] : self::CLIENT_AUTH_BASIC ),
 				'variables'       => self::sanitize_variables( $raw['variables'] ?? array() ),
+				'headers'         => self::sanitize_headers( $raw['headers'] ?? array() ),
 				'pagination_mode' => self::sanitize_pagination_mode( isset( $raw['pagination_mode'] ) ? (string) $raw['pagination_mode'] : self::PAGINATION_NONE ),
 				'page_param'      => self::sanitize_param_name( isset( $raw['page_param'] ) ? (string) $raw['page_param'] : '', 'page' ),
 				'page_size_param' => self::sanitize_param_name( isset( $raw['page_size_param'] ) ? (string) $raw['page_size_param'] : '', 'per_page' ),
@@ -578,7 +603,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 		 *                          token request failure).
 		 */
 		private function perform_get( string $url, array $settings, bool $force_fresh_token ): array {
-			$headers = $this->build_auth_headers( $settings, $force_fresh_token );
+			$auth_headers = $this->build_auth_headers( $settings, $force_fresh_token );
+			$headers      = self::merge_request_headers( $settings['headers'], $auth_headers );
 
 			$response = wp_remote_get(
 				$url,
@@ -642,6 +668,24 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 			}
 
 			return array();
+		}
+
+		/**
+		 * Merge the admin-configured custom request headers with the
+		 * computed auth-mode headers for the DATA request only (never the
+		 * OAuth token request). Auth headers always win: a custom header
+		 * with the same name (e.g. an operator accidentally naming a custom
+		 * header `Authorization`) must never silently override the
+		 * Authorization/token header the configured auth mode sets. Pure,
+		 * no I/O, so it is unit-testable without a request.
+		 *
+		 * @param array<string, string> $custom Sanitised custom headers (name => value).
+		 * @param array<string, string> $auth   Headers built by build_auth_headers().
+		 *
+		 * @return array<string, string>
+		 */
+		public static function merge_request_headers( array $custom, array $auth ): array {
+			return array_merge( $custom, $auth );
 		}
 
 		/**
@@ -856,6 +900,80 @@ if ( ! class_exists( 'Agend_Directory_Sync_Http_Api_Source' ) ) :
 			}
 
 			return $variables;
+		}
+
+		/**
+		 * Sanitise the custom request headers map (added for OData/Dynamics
+		 * support, e.g. `Prefer: odata.include-annotations="*"` to make the
+		 * `@OData...FormattedValue` annotation fields appear in the
+		 * response). Accepts either the saved map (array) or the posted
+		 * textarea (one `Header-Name: value` per line — a colon, NOT `=`,
+		 * because a header value such as the OData Prefer example
+		 * legitimately contains `=` and quotes).
+		 *
+		 * The header NAME is restricted to HTTP token characters
+		 * (`[A-Za-z0-9_\-]`); a line with an empty/invalid name, or with no
+		 * colon, is dropped. The header VALUE is trimmed and has every
+		 * CR/LF and control character stripped (a header-injection guard —
+		 * a literal newline in a header value can smuggle a second header
+		 * into the request) but is otherwise preserved verbatim: quotes,
+		 * `=`, `*`, and `{name}` placeholders all survive, unlike
+		 * `sanitize_text_field()`, which would corrupt them.
+		 *
+		 * Header values are stored in `wp_options` like the connection
+		 * variables, so they must never hold a secret.
+		 *
+		 * @param mixed $raw
+		 *
+		 * @return array<string, string>
+		 */
+		private static function sanitize_headers( $raw ): array {
+			$pairs = array();
+
+			if ( is_array( $raw ) ) {
+				foreach ( $raw as $name => $value ) {
+					$pairs[] = array( (string) $name, (string) $value );
+				}
+			} elseif ( is_string( $raw ) ) {
+				foreach ( preg_split( '/\r\n|\r|\n/', $raw ) as $line ) {
+					$line = trim( (string) $line );
+					if ( '' === $line || false === strpos( $line, ':' ) ) {
+						continue;
+					}
+					list( $name, $value ) = array_map( 'trim', explode( ':', $line, 2 ) );
+					$pairs[]              = array( $name, $value );
+				}
+			}
+
+			$headers = array();
+			foreach ( $pairs as $pair ) {
+				list( $name, $value ) = $pair;
+				if ( '' === $name || ! preg_match( '/^[A-Za-z0-9_\-]+$/', $name ) ) {
+					continue;
+				}
+				$value = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', $value ) );
+				if ( '' === $value ) {
+					continue;
+				}
+				$headers[ $name ] = $value;
+			}
+
+			return $headers;
+		}
+
+		/**
+		 * Render the custom headers map as a `Header-Name: value` textarea
+		 * body, one header per line, mirroring
+		 * Agend_Directory_Sync_Field_Map::custom_fields_to_textarea().
+		 *
+		 * @param array<string, string> $headers
+		 */
+		public static function headers_to_textarea( array $headers ): string {
+			$lines = array();
+			foreach ( $headers as $name => $value ) {
+				$lines[] = $name . ': ' . $value;
+			}
+			return implode( "\n", $lines );
 		}
 
 		/**

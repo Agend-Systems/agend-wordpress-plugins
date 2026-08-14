@@ -30,12 +30,16 @@
     <testsuite name="agend-entitlement-mirror">
       <directory suffix="Test.php">agend-entitlement-mirror/tests</directory>
     </testsuite>
+    <testsuite name="agend-directory-sync">
+      <directory suffix="Test.php">agend-directory-sync/tests</directory>
+    </testsuite>
   </testsuites>
   <source>
     <include>
       <directory suffix=".php">agend-apps-core/includes</directory>
       <directory suffix=".php">agend-content-access/includes</directory>
       <directory suffix=".php">agend-entitlement-mirror/includes</directory>
+      <directory suffix=".php">agend-directory-sync/includes</directory>
     </include>
   </source>
 </phpunit>
