@@ -44,6 +44,13 @@
  * (SPEC-DIR-20260731 US-3.1). The transformer stays pure: no I/O, no option
  * reads; the resolver is a pure function over the data already passed in.
  *
+ * A configured source may also be a concatenation template, e.g.
+ * `{name_first} {name_last}` or `{addresses.0.unit}/{addresses.0.street}`
+ * (US-3.2). Every target that reads a string source — core fields, custom
+ * fields, and the string location sub-fields — resolves templates through
+ * `resolve_configured()`. `flag()` stays path-only: a boolean gate has no
+ * sensible template meaning.
+ *
  * Residential address fields are intentionally NOT mapped. The directory is
  * professional; residential addresses are sensitive and would need an
  * explicit operator decision before being published.
@@ -194,11 +201,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$locations     = isset( $field_map['locations'] ) && is_array( $field_map['locations'] )
 				? $field_map['locations']
 				: ( $defaults['locations'] ?? array() );
+			$flags         = isset( $field_map['flags'] ) && is_array( $field_map['flags'] )
+				? $field_map['flags']
+				: ( $defaults['flags'] ?? array() );
 
 			return array(
 				'core'          => $core,
 				'custom_fields' => $custom_fields,
 				'locations'     => $locations,
+				'flags'         => $flags,
 			);
 		}
 
@@ -222,7 +233,26 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			if ( '' === $field ) {
 				return '';
 			}
-			return self::stringy( Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field ) );
+			return self::stringy( self::resolve_configured( $contact, $field ) );
+		}
+
+		/**
+		 * Resolve a configured source value, which is either a plain source
+		 * field / dot-path or a concatenation template (US-3.2). A blank
+		 * field yields ''.
+		 *
+		 * @param array<string, mixed> $contact
+		 *
+		 * @return mixed
+		 */
+		private static function resolve_configured( array $contact, string $field ) {
+			if ( '' === $field ) {
+				return '';
+			}
+			if ( Agend_Directory_Sync_Path_Resolver::is_template( $field ) ) {
+				return Agend_Directory_Sync_Path_Resolver::resolve_template( $contact, $field );
+			}
+			return Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field );
 		}
 
 		/**
@@ -260,36 +290,92 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 * sources. Both must be true for the listing to be publicly visible;
 		 * otherwise the row is kept as `suspended` (hidden but preserved). A
 		 * blank flag source is treated as true, so an environment without an
-		 * eligibility / opt-in concept publishes everyone.
+		 * eligibility / opt-in concept publishes everyone. Each flag reads
+		 * its own per-flag invert setting (SPEC-DIR-20260731 US-3.3) for
+		 * sources that are true-means-hide rather than true-means-show.
 		 *
-		 * @param array<string, mixed>                                  $contact
-		 * @param array{core: array<string,string>, custom_fields: array<string,string>} $field_map
+		 * @param array<string, mixed>                                                                                        $contact
+		 * @param array{core: array<string,string>, custom_fields: array<string,string>, flags: array<string,bool>} $field_map
 		 */
 		private static function resolve_status( array $contact, array $field_map ): string {
-			$eligible = self::flag( $contact, $field_map['core'], 'eligible_flag' );
-			$opted_in = self::flag( $contact, $field_map['core'], 'opt_in_flag' );
+			$flags    = $field_map['flags'] ?? array();
+			$eligible = self::flag( $contact, $field_map['core'], 'eligible_flag', ! empty( $flags['eligible_flag_invert'] ) );
+			$opted_in = self::flag( $contact, $field_map['core'], 'opt_in_flag', ! empty( $flags['opt_in_flag_invert'] ) );
 
 			return ( $eligible && $opted_in ) ? self::STATUS_VISIBLE : self::STATUS_HIDDEN;
 		}
 
 		/**
-		 * Read a boolean flag source, resolved via the path resolver. A blank
-		 * source name counts as true (the environment has no such gate);
-		 * otherwise the source value must be boolean true. A path that fails
-		 * to resolve behaves identically to a missing flat field (resolves to
-		 * null, so the strict `true ===` check is false) — the blank-source
-		 * true rule is unaffected (SPEC-DIR-20260731 US-3.1 criterion 4).
+		 * Read a truthy/falsey flag source, resolved via the path resolver
+		 * and coerced with `truthy()`. A blank source name counts as true
+		 * (the environment has no such gate) and `$invert` is NOT applied to
+		 * that short-circuit — there is no gate to flip. Otherwise the
+		 * resolved value is coerced and, when `$invert` is true, negated.
+		 *
+		 * With invert on, an unresolved/missing flag coerces to false and
+		 * then inverts to true (visible): correct for a hide-when-true
+		 * source, where a missing flag means "nothing says to hide this
+		 * row". Path-only, deliberately: a concatenation template
+		 * (US-3.2) always yields a string, and while `truthy()` can coerce a
+		 * string, templating a flag source composed of several fields has no
+		 * sensible meaning and is not supported.
 		 *
 		 * @param array<string, mixed>  $contact
 		 * @param array<string, string> $core
 		 * @param string                $key
 		 */
-		private static function flag( array $contact, array $core, string $key ): bool {
+		private static function flag( array $contact, array $core, string $key, bool $invert = false ): bool {
 			$field = (string) ( $core[ $key ] ?? '' );
 			if ( '' === $field ) {
 				return true;
 			}
-			return true === Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field );
+
+			$value = self::truthy( Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field ) );
+			return $invert ? ! $value : $value;
+		}
+
+		/**
+		 * Coerce a resolved flag value to a boolean using truthy/falsey
+		 * semantics rather than a strict `true ===` check (SPEC-DIR-20260731
+		 * US-3.3), so a source that stores "true"/"false", "yes"/"no",
+		 * "1"/"0", or on/off strings gates visibility without the client
+		 * having to normalise it upstream.
+		 *
+		 * - bool: itself.
+		 * - null / array / any other non-scalar (including an unresolved
+		 *   path, which resolves to null): false.
+		 * - case-insensitive string tokens 'false', 'no', 'n', 'off', '0', ''
+		 *   (after trim): false.
+		 * - numeric value: false only for zero (0, 0.0, '0'); any other
+		 *   number is true.
+		 * - any other non-empty scalar string: true (PHP-style truthiness,
+		 *   so '1', 'true', 'yes', 'y', 'on' are all true without needing an
+		 *   allow-list of their own).
+		 *
+		 * @param mixed $value
+		 */
+		private static function truthy( $value ): bool {
+			if ( is_bool( $value ) ) {
+				return $value;
+			}
+
+			if ( ! is_scalar( $value ) ) {
+				return false;
+			}
+
+			if ( is_string( $value ) ) {
+				$trimmed = trim( $value );
+				if ( in_array( strtolower( $trimmed ), array( 'false', 'no', 'n', 'off', '0', '' ), true ) ) {
+					return false;
+				}
+				if ( is_numeric( $trimmed ) ) {
+					return 0.0 !== (float) $trimmed;
+				}
+				return true;
+			}
+
+			// int|float.
+			return 0.0 !== (float) $value;
 		}
 
 		/**
@@ -414,9 +500,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 
 		/**
 		 * Return a source value verbatim (not stringified), resolved via the
-		 * path resolver, so array-shaped sources such as the badges list
-		 * survive. A blank source name, or a path that fails to resolve,
-		 * yields null.
+		 * path resolver (or the template resolver — US-3.2), so array-shaped
+		 * sources such as the badges list survive. A blank source name, or a
+		 * path that fails to resolve, yields null. A template source always
+		 * yields a string, so a template used for `badges` resolves no badge
+		 * slugs (badges expects an array) — this is a known, acceptable
+		 * consequence of allowing templates on every source, not a bug.
 		 *
 		 * @param array<string, mixed>  $contact
 		 * @param array<string, string> $core
@@ -429,7 +518,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			if ( '' === $field ) {
 				return null;
 			}
-			return Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field );
+			return self::resolve_configured( $contact, $field );
 		}
 
 		/**
@@ -488,7 +577,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 
 				foreach ( array( 'address_line_1', 'address_line_2', 'city', 'state', 'postcode', 'country' ) as $key ) {
 					$source = (string) ( $slot[ $key ] ?? '' );
-					$value  = '' !== $source ? self::stringy( Agend_Directory_Sync_Path_Resolver::resolve( $contact, $source ) ) : '';
+					$value  = '' !== $source ? self::stringy( self::resolve_configured( $contact, $source ) ) : '';
 					if ( '' !== $value ) {
 						$location[ $key ] = $value;
 					}
@@ -499,7 +588,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 					if ( '' === $source ) {
 						continue;
 					}
-					$raw = Agend_Directory_Sync_Path_Resolver::resolve( $contact, $source );
+					$raw = self::resolve_configured( $contact, $source );
 					if ( is_numeric( $raw ) ) {
 						$location[ $key ] = (float) $raw;
 					}
@@ -539,7 +628,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$custom_fields = array();
 
 			foreach ( $field_map['custom_fields'] as $target => $source ) {
-				$value = self::stringy( Agend_Directory_Sync_Path_Resolver::resolve( $contact, $source ) );
+				$value = self::stringy( self::resolve_configured( $contact, $source ) );
 				if ( '' !== $value ) {
 					$custom_fields[ $target ] = $value;
 				}
