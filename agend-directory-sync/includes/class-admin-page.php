@@ -32,6 +32,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		public const NONCE_ACTION_SETTINGS = 'agend_directory_sync_save_settings';
 		public const NONCE_ACTION_FETCH    = 'agend_directory_sync_run_sync';
 		public const NONCE_ACTION_PREVIEW  = 'agend_directory_sync_preview_transform';
+		/**
+		 * Retained as the action name the job endpoints nonce against; the
+		 * synchronous send handler it used to guard is gone. Uploading now runs
+		 * as a stepped job (Agend_Directory_Sync_Job), because doing every batch
+		 * in the one admin-post request meant the web server returned a 504 while
+		 * PHP kept working behind it — a completed sync the operator saw as a
+		 * failure, and pressed again.
+		 */
 		public const NONCE_ACTION_SEND     = 'agend_directory_sync_send_to_agend';
 
 		public const CAPABILITY = 'manage_options';
@@ -57,7 +65,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			add_action( 'admin_post_agend_directory_sync_save_settings', array( __CLASS__, 'handle_save_settings' ) );
 			add_action( 'admin_post_agend_directory_sync_run_sync', array( __CLASS__, 'handle_run_fetch' ) );
 			add_action( 'admin_post_agend_directory_sync_preview_transform', array( __CLASS__, 'handle_preview_transform' ) );
-			add_action( 'admin_post_agend_directory_sync_send_to_agend', array( __CLASS__, 'handle_send_to_agend' ) );
 		}
 
 		public static function register_menu(): void {
@@ -259,46 +266,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					$user_id,
 					array(
 						'kind'    => 'preview',
-						'status'  => 'error',
-						'message' => $e->getMessage(),
-					)
-				);
-			}
-
-			wp_safe_redirect( self::redirect_url() );
-			exit;
-		}
-
-		/**
-		 * Fetch + transform + POST to Agend. Aggregates created/updated/error
-		 * counts across all batches. Delegates to the shared runner.
-		 */
-		public static function handle_send_to_agend(): void {
-			self::assert_can();
-			check_admin_referer( self::NONCE_ACTION_SEND );
-
-			// Long-running operation; large directories can require ~30+
-			// sequential batches at ~2s each.
-			if ( function_exists( 'set_time_limit' ) ) {
-				@set_time_limit( 0 );
-			}
-			ignore_user_abort( true );
-
-			$user_id     = get_current_user_id();
-			$max_records = self::read_max_records();
-
-			try {
-				$result = Agend_Directory_Sync_Runner::run( $max_records, false );
-
-				// The full transformed payload is not needed for rendering.
-				unset( $result['listings'] );
-
-				self::set_result( $user_id, $result );
-			} catch ( Throwable $e ) {
-				self::set_result(
-					$user_id,
-					array(
-						'kind'    => 'send',
 						'status'  => 'error',
 						'message' => $e->getMessage(),
 					)
@@ -1310,13 +1277,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						<?php submit_button( __( 'Preview transform', 'agend-directory-sync' ), 'secondary', 'submit', false ); ?>
 					</form>
 
-					<form method="post" action="<?php echo $action_url; ?>" style="margin:0;" onsubmit="return confirm('<?php echo esc_js( __( 'This will POST to the configured Agend gateway. Continue?', 'agend-directory-sync' ) ); ?>');">
-						<input type="hidden" name="action" value="agend_directory_sync_send_to_agend" />
-						<input type="hidden" name="agend_max_records" id="agend_max_records_send" value="" />
-						<?php wp_nonce_field( self::NONCE_ACTION_SEND ); ?>
-						<?php submit_button( __( 'Send to Agend', 'agend-directory-sync' ), 'primary', 'submit', false, $source_unavailable ? array( 'disabled' => 'disabled' ) : array() ); ?>
-					</form>
+					<p style="margin:0;">
+						<button
+							type="button"
+							class="button button-primary"
+							id="agend-directory-sync-send"
+							<?php disabled( $source_unavailable ); ?>
+						><?php esc_html_e( 'Send to Agend', 'agend-directory-sync' ); ?></button>
+					</p>
 				</div>
+
+				<?php self::render_job_panel(); ?>
 
 				<script>
 					(function () {
@@ -1371,12 +1342,270 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						}
 						bindModeRows('agend_http_api_auth_mode', 'data-agend-http-auth');
 						bindModeRows('agend_http_api_pagination_mode', 'data-agend-http-pagination');
+
+						// Upload stepper. The send is one short request per batch
+						// rather than one long request for the whole directory,
+						// which is what keeps it under the web server's timeout;
+						// this loop is what walks it.
+						var jobConfig = <?php echo wp_json_encode(
+							array(
+								'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
+								'nonce'    => wp_create_nonce( Agend_Directory_Sync_Job_Controller::NONCE_ACTION ),
+								'confirm'  => __( 'This will upload to the configured Agend gateway. Continue?', 'agend-directory-sync' ),
+								'stages'   => array(
+									'pending'   => __( 'Fetching and transforming records…', 'agend-directory-sync' ),
+									'done'      => __( 'Upload complete.', 'agend-directory-sync' ),
+									'cancelled' => __( 'Cancelled. Batches already uploaded were kept; running again completes the rest.', 'agend-directory-sync' ),
+								),
+								'strings'  => array(
+									'uploading' => __( 'Uploading… batch %1$s of %2$s', 'agend-directory-sync' ),
+									'counts'    => __( '%1$s of %2$s listings — created %3$s, updated %4$s, errors %5$s', 'agend-directory-sync' ),
+									'failed'    => __( 'Failed: %1$s', 'agend-directory-sync' ),
+									'busy'      => __( 'Another tab is running a step; waiting…', 'agend-directory-sync' ),
+									'resume'    => __( 'A previous upload is unfinished. Resume it to continue where it stopped.', 'agend-directory-sync' ),
+								),
+							)
+						); ?>;
+
+						var panel = document.getElementById('agend-directory-sync-job');
+						if (panel) {
+							var stageEl = document.getElementById('agend-dsj-stage');
+							var barEl = document.getElementById('agend-dsj-bar');
+							var countsEl = document.getElementById('agend-dsj-counts');
+							var pauseBtn = document.getElementById('agend-dsj-pause');
+							var resumeBtn = document.getElementById('agend-dsj-resume');
+							var cancelBtn = document.getElementById('agend-dsj-cancel');
+							var dismissBtn = document.getElementById('agend-dsj-dismiss');
+							var sendBtn = document.getElementById('agend-directory-sync-send');
+							var maxInput = document.getElementById('agend_max_records');
+							var running = false;
+
+							function format(template, values) {
+								return template.replace(/%(\d+)\$s/g, function (m, i) { return values[i - 1]; });
+							}
+
+							function post(action, extra) {
+								var body = new URLSearchParams();
+								body.set('action', action);
+								body.set('nonce', jobConfig.nonce);
+								Object.keys(extra || {}).forEach(function (k) { body.set(k, extra[k]); });
+								return fetch(jobConfig.ajaxUrl, {
+									method: 'POST',
+									credentials: 'same-origin',
+									headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+									body: body.toString()
+								}).then(function (r) { return r.json(); });
+							}
+
+							function paint(job, note) {
+								panel.style.display = '';
+								var label = '';
+								if (note) {
+									label = note;
+								} else if (job.stage === 'sending') {
+									label = format(jobConfig.strings.uploading, [job.batches_done, job.batches_total]);
+								} else if (job.stage === 'failed') {
+									label = format(jobConfig.strings.failed, [job.message]);
+								} else {
+									label = jobConfig.stages[job.stage] || '';
+								}
+								stageEl.textContent = label;
+								barEl.style.width = (job.percent === null ? 0 : job.percent) + '%';
+								countsEl.textContent = job.listing_count
+									? format(jobConfig.strings.counts, [job.listings_sent, job.listing_count, job.created, job.updated, job.errored])
+									: '';
+
+								var active = job.active;
+								pauseBtn.style.display = active && running ? '' : 'none';
+								resumeBtn.style.display = active && !running ? '' : 'none';
+								cancelBtn.style.display = active ? '' : 'none';
+								dismissBtn.style.display = active ? 'none' : '';
+								if (sendBtn) { sendBtn.disabled = active; }
+							}
+
+							function loop() {
+								if (!running) { return; }
+								post('agend_directory_sync_job_step').then(function (res) {
+									if (!res || !res.success) {
+										running = false;
+										stageEl.textContent = (res && res.data && res.data.message) || 'Request failed.';
+										return;
+									}
+									var job = res.data.job;
+									if (res.data.busy) {
+										paint(job, jobConfig.strings.busy);
+										// Another tab holds the step lock. Back off
+										// rather than spinning against it.
+										window.setTimeout(loop, 3000);
+										return;
+									}
+									paint(job);
+									if (job.active) {
+										window.setTimeout(loop, 0);
+									} else {
+										running = false;
+										paint(job);
+										// The finished summary is rendered
+										// server-side, so reload to show it.
+										window.location.reload();
+									}
+								}).catch(function (e) {
+									running = false;
+									stageEl.textContent = String(e);
+								});
+							}
+
+							function begin() {
+								running = true;
+								loop();
+							}
+
+							if (sendBtn) {
+								sendBtn.addEventListener('click', function () {
+									if (!window.confirm(jobConfig.confirm)) { return; }
+									post('agend_directory_sync_job_start', { max_records: maxInput ? maxInput.value : '' }).then(function (res) {
+										if (!res || !res.success) {
+											window.alert((res && res.data && res.data.message) || 'Could not start the sync.');
+											return;
+										}
+										paint(res.data.job);
+										begin();
+									});
+								});
+							}
+
+							pauseBtn.addEventListener('click', function () {
+								running = false;
+								post('agend_directory_sync_job_status').then(function (res) {
+									if (res && res.success && res.data.job) { paint(res.data.job); }
+								});
+							});
+
+							resumeBtn.addEventListener('click', begin);
+
+							cancelBtn.addEventListener('click', function () {
+								running = false;
+								post('agend_directory_sync_job_cancel').then(function (res) {
+									if (res && res.success && res.data.job) { paint(res.data.job); }
+								});
+							});
+
+							dismissBtn.addEventListener('click', function () {
+								post('agend_directory_sync_job_clear').then(function () {
+									panel.style.display = 'none';
+									if (sendBtn) { sendBtn.disabled = false; }
+								});
+							});
+
+							// A page loaded onto an unfinished job waits for the
+							// operator rather than resuming by itself: an upload
+							// should not restart because someone opened a tab.
+							post('agend_directory_sync_job_status').then(function (res) {
+								if (res && res.success && res.data.job) {
+									paint(res.data.job, res.data.job.active ? jobConfig.strings.resume : null);
+								}
+							});
+						}
 					})();
 				</script>
 
 				<?php self::render_result( $last ); ?>
 			</div>
 			<?php
+		}
+
+		/**
+		 * The upload progress panel. Server-rendered so a page reloaded onto a
+		 * job in flight shows its state before any script runs, then kept live by
+		 * the stepper below.
+		 */
+		private static function render_job_panel(): void {
+			$job      = Agend_Directory_Sync_Job::current();
+			$progress = null !== $job ? Agend_Directory_Sync_Job::progress( $job ) : null;
+			$visible  = null !== $progress;
+			?>
+			<div
+				id="agend-directory-sync-job"
+				class="card"
+				style="<?php echo esc_attr( $visible ? 'max-width:640px;margin-top:1.5em;' : 'display:none;max-width:640px;margin-top:1.5em;' ); ?>"
+			>
+				<h3 style="margin-top:0;"><?php esc_html_e( 'Upload progress', 'agend-directory-sync' ); ?></h3>
+
+				<p id="agend-dsj-stage" style="margin:0 0 .5em;">
+					<?php echo esc_html( null !== $progress ? self::job_stage_label( $progress ) : '' ); ?>
+				</p>
+
+				<div style="background:#f0f0f1;border-radius:3px;height:18px;overflow:hidden;">
+					<div
+						id="agend-dsj-bar"
+						style="background:#2271b1;height:100%;width:<?php echo esc_attr( null !== $progress && null !== $progress['percent'] ? (int) $progress['percent'] . '%' : '0%' ); ?>;transition:width .2s;"
+					></div>
+				</div>
+
+				<p id="agend-dsj-counts" class="description" style="margin:.5em 0 1em;">
+					<?php echo esc_html( null !== $progress ? self::job_counts_label( $progress ) : '' ); ?>
+				</p>
+
+				<p style="margin:0;">
+					<button type="button" class="button" id="agend-dsj-pause"><?php esc_html_e( 'Pause', 'agend-directory-sync' ); ?></button>
+					<button type="button" class="button" id="agend-dsj-resume" style="display:none;"><?php esc_html_e( 'Resume', 'agend-directory-sync' ); ?></button>
+					<button type="button" class="button" id="agend-dsj-cancel"><?php esc_html_e( 'Cancel', 'agend-directory-sync' ); ?></button>
+					<button type="button" class="button" id="agend-dsj-dismiss" style="display:none;"><?php esc_html_e( 'Dismiss', 'agend-directory-sync' ); ?></button>
+				</p>
+
+				<p class="description" style="margin:.75em 0 0;">
+					<?php esc_html_e( 'The upload runs one batch per request, so it cannot hit the page timeout. Leave this tab open: closing it pauses the run, and reopening this page offers to resume it.', 'agend-directory-sync' ); ?>
+				</p>
+			</div>
+			<?php
+		}
+
+		/**
+		 * @param array<string, mixed> $progress
+		 */
+		private static function job_stage_label( array $progress ): string {
+			switch ( (string) $progress['stage'] ) {
+				case Agend_Directory_Sync_Job::STAGE_PENDING:
+					return __( 'Fetching and transforming records…', 'agend-directory-sync' );
+				case Agend_Directory_Sync_Job::STAGE_SENDING:
+					return sprintf(
+						/* translators: 1: batches uploaded, 2: total batches. */
+						__( 'Uploading… batch %1$d of %2$d', 'agend-directory-sync' ),
+						(int) $progress['batches_done'],
+						(int) $progress['batches_total']
+					);
+				case Agend_Directory_Sync_Job::STAGE_DONE:
+					return __( 'Upload complete.', 'agend-directory-sync' );
+				case Agend_Directory_Sync_Job::STAGE_CANCELLED:
+					return __( 'Cancelled. Batches already uploaded were kept; running again completes the rest.', 'agend-directory-sync' );
+				case Agend_Directory_Sync_Job::STAGE_FAILED:
+					return sprintf(
+						/* translators: %s: the failure message. */
+						__( 'Failed: %s', 'agend-directory-sync' ),
+						(string) $progress['message']
+					);
+			}
+
+			return '';
+		}
+
+		/**
+		 * @param array<string, mixed> $progress
+		 */
+		private static function job_counts_label( array $progress ): string {
+			if ( 0 === (int) $progress['listing_count'] && Agend_Directory_Sync_Job::STAGE_PENDING === (string) $progress['stage'] ) {
+				return '';
+			}
+
+			return sprintf(
+				/* translators: 1: listings uploaded, 2: listings total, 3: created count, 4: updated count, 5: error count. */
+				__( '%1$d of %2$d listings — created %3$d, updated %4$d, errors %5$d', 'agend-directory-sync' ),
+				(int) $progress['listings_sent'],
+				(int) $progress['listing_count'],
+				(int) $progress['created'],
+				(int) $progress['updated'],
+				(int) $progress['errored']
+			);
 		}
 
 		/**

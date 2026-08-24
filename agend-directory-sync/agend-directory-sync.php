@@ -6,7 +6,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.6.0
+ * Version:         0.7.0
  *
  * @package         Agend_Directory_Sync
  */
@@ -131,7 +131,9 @@ function agend_directory_sync_bootstrap() {
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-source-registry.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-agend-client.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-sync-runner.php';
+	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-sync-job.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-admin-page.php';
+	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-job-controller.php';
 
 	// The generic HTTP API and Dataverse sources ship with this plugin, but
 	// register through the same `agend_directory_sync_sources` filter a client
@@ -173,6 +175,7 @@ function agend_directory_sync_bootstrap() {
 	Agend_Directory_Sync_Source_Registry::register_defaults();
 
 	Agend_Directory_Sync_Admin_Page::setup_hooks();
+	Agend_Directory_Sync_Job_Controller::setup_hooks();
 
 	// Register the WP-CLI command for unattended / server-cron runs. Loaded
 	// only under WP-CLI so the command class never exists in a web request.
