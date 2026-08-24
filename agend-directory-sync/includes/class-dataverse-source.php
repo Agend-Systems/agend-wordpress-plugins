@@ -243,7 +243,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 					? self::extract_paging_cookie( $response['decoded'] )
 					: '';
 
-				$page++;
+				// With a cookie in hand, the page it belongs to is the server's
+				// to state; the server rejects a pair it thinks disagrees.
+				$next_page = '' !== $cookie ? self::extract_next_page_number( $response['decoded'] ) : null;
+				$page      = null !== $next_page ? $next_page : $page + 1;
 			}
 
 			return $records;
@@ -522,25 +525,135 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		 * Decode the paging cookie from a page's response into the form the
 		 * next request's `paging-cookie` attribute takes.
 		 *
-		 * Dataverse returns the cookie as URL-encoded XML. Once decoded it is a
-		 * `<cookie>...</cookie>` fragment that has to travel back as an
-		 * ATTRIBUTE VALUE, so the XML writer escapes it on the way out
-		 * (`build_page_fetch_xml`) and the server unescapes it on the way in,
-		 * arriving byte-identical to what was issued. Do not "simplify" this by
-		 * escaping here as well: escaping twice sends a cookie the server reads
-		 * as literal text, and it responds by silently restarting at page 1 —
-		 * a sync that loops over the first page forever.
+		 * The Web API does not hand back the cookie directly. It hands back a
+		 * WRAPPER element carrying the real cookie in an attribute, itself
+		 * URL-encoded twice:
+		 *
+		 *     <cookie pagenumber="2"
+		 *             pagingcookie="%253ccookie%2520page%253d%25221%2522%253e..."
+		 *             istracking="False" />
+		 *
+		 * What belongs in `paging-cookie` is the INNER fragment, i.e.
+		 * `<cookie page="1"><pca_assetid last="{...}" first="{...}" /></cookie>`.
+		 * Sending the wrapper instead earns HTTP 400 `0x80041129`, "Paging
+		 * Cookie And Query Do Not Match" — which is what the PCA staging
+		 * environment returned on page two before this handled the wrapper.
+		 *
+		 * The inner fragment then travels as an ATTRIBUTE VALUE, so the XML
+		 * writer escapes it on the way out (`build_page_fetch_xml`) and the
+		 * server unescapes it on the way in. Do not escape it here as well:
+		 * escaping twice sends a cookie the server reads as literal text, and it
+		 * responds by silently restarting at page 1 — a sync that loops over the
+		 * first page forever.
+		 *
+		 * An annotation that is already a bare `<cookie>` fragment (the shape
+		 * the SDK produces) is passed through, decoded if it arrived encoded.
 		 *
 		 * @param array<string, mixed> $decoded
 		 */
 		public static function extract_paging_cookie( array $decoded ): string {
-			$raw = (string) ( $decoded[ self::ANNOTATION_PAGING_COOKIE ] ?? '' );
+			$raw = trim( (string) ( $decoded[ self::ANNOTATION_PAGING_COOKIE ] ?? '' ) );
 
 			if ( '' === $raw ) {
 				return '';
 			}
 
-			return urldecode( $raw );
+			$wrapper = self::parse_cookie_wrapper( $raw );
+
+			if ( null !== $wrapper && '' !== $wrapper['cookie'] ) {
+				return $wrapper['cookie'];
+			}
+
+			return self::url_decode_until_plain( $raw );
+		}
+
+		/**
+		 * The page number the wrapper says its cookie is for.
+		 *
+		 * Preferred over incrementing locally: the error this replaced was the
+		 * server rejecting a cookie/page pair it considered mismatched, so where
+		 * Dataverse states the pairing, use its number rather than a second
+		 * opinion. Null when the annotation is absent or carries no
+		 * `pagenumber`, in which case the caller increments.
+		 *
+		 * @param array<string, mixed> $decoded
+		 */
+		public static function extract_next_page_number( array $decoded ): ?int {
+			$raw = trim( (string) ( $decoded[ self::ANNOTATION_PAGING_COOKIE ] ?? '' ) );
+
+			if ( '' === $raw ) {
+				return null;
+			}
+
+			$wrapper = self::parse_cookie_wrapper( $raw );
+
+			return null !== $wrapper ? $wrapper['page'] : null;
+		}
+
+		/**
+		 * Pull the inner cookie and the page number out of the Web API wrapper.
+		 * Returns null when the annotation is not that wrapper, so the caller
+		 * can fall back rather than fail: a malformed cookie should cost the run
+		 * its paging efficiency, not the run itself.
+		 *
+		 * @return array{cookie: string, page: int|null}|null
+		 */
+		private static function parse_cookie_wrapper( string $raw ): ?array {
+			if ( false === strpos( $raw, 'pagingcookie' ) || ! class_exists( 'DOMDocument' ) ) {
+				return null;
+			}
+
+			$previous = libxml_use_internal_errors( true );
+			libxml_clear_errors();
+
+			$doc    = new DOMDocument();
+			$loaded = $doc->loadXML( $raw, LIBXML_NONET );
+
+			libxml_clear_errors();
+			libxml_use_internal_errors( $previous );
+
+			if ( ! $loaded || ! $doc->documentElement instanceof DOMElement ) {
+				return null;
+			}
+
+			$root = $doc->documentElement;
+
+			if ( ! $root->hasAttribute( 'pagingcookie' ) ) {
+				return null;
+			}
+
+			$page = $root->hasAttribute( 'pagenumber' ) ? (int) $root->getAttribute( 'pagenumber' ) : 0;
+
+			return array(
+				'cookie' => self::url_decode_until_plain( $root->getAttribute( 'pagingcookie' ) ),
+				'page'   => $page > 0 ? $page : null,
+			);
+		}
+
+		/**
+		 * URL-decode until no percent escapes remain. The Web API encodes the
+		 * inner cookie twice and the SDK encodes it once, so the number of
+		 * passes is a property of the response rather than something to
+		 * hardcode. Stopping on "no `%XX` left" cannot over-decode a fragment
+		 * that is already plain, and the bound stops a pathological value from
+		 * looping.
+		 */
+		private static function url_decode_until_plain( string $value ): string {
+			for ( $pass = 0; $pass < 3; $pass++ ) {
+				if ( ! preg_match( '/%[0-9A-Fa-f]{2}/', $value ) ) {
+					break;
+				}
+
+				$decoded = urldecode( $value );
+
+				if ( $decoded === $value ) {
+					break;
+				}
+
+				$value = $decoded;
+			}
+
+			return $value;
 		}
 
 		/**
@@ -723,14 +836,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			}
 
 			if ( $response['status'] < 200 || $response['status'] >= 300 ) {
-				throw new RuntimeException(
-					sprintf(
-						/* translators: 1: HTTP status code, 2: first 500 characters of the response body. */
-						__( 'Dataverse request failed with HTTP %1$d: %2$s', 'agend-directory-sync' ),
-						$response['status'],
-						Agend_Directory_Sync_Config::excerpt( $response['body'], self::RESPONSE_EXCERPT_LENGTH )
-					)
-				);
+				throw new RuntimeException( self::format_http_failure_message( $response['status'], $response['body'] ) );
 			}
 
 			$decoded = json_decode( $response['body'], true );
@@ -838,6 +944,54 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			}
 
 			return $records;
+		}
+
+		/**
+		 * Report a failed request as the diagnosis Dataverse actually sent.
+		 *
+		 * A Dataverse error body puts a usable sentence in `error.message` and a
+		 * searchable code in `error.code`, then follows them with several
+		 * hundred bytes of plugin-trace keys. Excerpting the raw body therefore
+		 * truncates mid-key and buries the sentence: the first report of the
+		 * paging-cookie bug arrived as a message cut off inside
+		 * `@Microsoft.PowerApps.CDS.ErrorDetails`. Surface the message whole and
+		 * fall back to an excerpt only when the body is not a Dataverse error.
+		 */
+		public static function format_http_failure_message( int $status, string $body ): string {
+			$decoded = json_decode( $body, true );
+			$error   = is_array( $decoded ) && isset( $decoded['error'] ) && is_array( $decoded['error'] )
+				? $decoded['error']
+				: null;
+
+			$message = null !== $error ? trim( (string) ( $error['message'] ?? '' ) ) : '';
+
+			if ( '' === $message ) {
+				return sprintf(
+					/* translators: 1: HTTP status code, 2: first 500 characters of the response body. */
+					__( 'Dataverse request failed with HTTP %1$d: %2$s', 'agend-directory-sync' ),
+					$status,
+					Agend_Directory_Sync_Config::excerpt( $body, self::RESPONSE_EXCERPT_LENGTH )
+				);
+			}
+
+			$code = trim( (string) ( $error['code'] ?? '' ) );
+
+			if ( '' === $code ) {
+				return sprintf(
+					/* translators: 1: HTTP status code, 2: the Dataverse error message. */
+					__( 'Dataverse request failed with HTTP %1$d: %2$s', 'agend-directory-sync' ),
+					$status,
+					$message
+				);
+			}
+
+			return sprintf(
+				/* translators: 1: HTTP status code, 2: the Dataverse error message, 3: the Dataverse error code. */
+				__( 'Dataverse request failed with HTTP %1$d: %2$s (Dataverse code %3$s)', 'agend-directory-sync' ),
+				$status,
+				$message,
+				$code
+			);
 		}
 
 		/**

@@ -247,4 +247,107 @@ final class DataverseFetchXmlTest extends TestCase {
 		$this->assertSame( 'odata.include-annotations="*"', $wide['Prefer'] );
 		$this->assertSame( '4.0', $wide['OData-Version'] );
 	}
+
+	/**
+	 * The shape the Web API actually returns, captured from the PCA staging
+	 * environment: a wrapper element whose `pagingcookie` attribute holds the
+	 * real cookie, URL-encoded twice. Sending the wrapper back earns HTTP 400
+	 * "Paging Cookie And Query Do Not Match", which is the bug this covers.
+	 */
+	private const WEB_API_COOKIE_ANNOTATION = '<cookie pagenumber="2" pagingcookie="%253ccookie%2520page%253d%25221%2522%253e%253cpca_assetid%2520last%253d%2522%257b7A1B0000-0000-0000-0000-000000000001%257d%2522%2520first%253d%2522%257b7A1B0000-0000-0000-0000-000000000002%257d%2522%2520%252f%253e%253c%252fcookie%253e" istracking="False" />';
+
+	#[Test]
+	public function it_should_unwrap_the_cookie_the_web_api_returns(): void {
+		$cookie = Agend_Directory_Sync_Dataverse_Source::extract_paging_cookie(
+			array( Agend_Directory_Sync_Dataverse_Source::ANNOTATION_PAGING_COOKIE => self::WEB_API_COOKIE_ANNOTATION )
+		);
+
+		$this->assertSame(
+			'<cookie page="1"><pca_assetid last="{7A1B0000-0000-0000-0000-000000000001}" first="{7A1B0000-0000-0000-0000-000000000002}" /></cookie>',
+			$cookie
+		);
+	}
+
+	#[Test]
+	public function it_should_not_send_the_wrapper_element_as_the_cookie(): void {
+		$cookie = Agend_Directory_Sync_Dataverse_Source::extract_paging_cookie(
+			array( Agend_Directory_Sync_Dataverse_Source::ANNOTATION_PAGING_COOKIE => self::WEB_API_COOKIE_ANNOTATION )
+		);
+
+		$this->assertStringNotContainsString( 'pagenumber', $cookie );
+		$this->assertStringNotContainsString( 'istracking', $cookie );
+		$this->assertStringNotContainsString( '%', $cookie );
+	}
+
+	#[Test]
+	public function it_should_report_the_next_page_number_the_wrapper_states(): void {
+		$this->assertSame(
+			2,
+			Agend_Directory_Sync_Dataverse_Source::extract_next_page_number(
+				array( Agend_Directory_Sync_Dataverse_Source::ANNOTATION_PAGING_COOKIE => self::WEB_API_COOKIE_ANNOTATION )
+			)
+		);
+	}
+
+	#[Test]
+	public function it_should_report_no_next_page_number_without_the_annotation(): void {
+		$this->assertNull( Agend_Directory_Sync_Dataverse_Source::extract_next_page_number( array( 'value' => array() ) ) );
+	}
+
+	#[Test]
+	public function it_should_pass_through_a_cookie_that_is_already_a_plain_fragment(): void {
+		$plain = '<cookie page="3"><pca_assetid last="{A}" first="{B}" /></cookie>';
+
+		$this->assertSame(
+			$plain,
+			Agend_Directory_Sync_Dataverse_Source::extract_paging_cookie(
+				array( Agend_Directory_Sync_Dataverse_Source::ANNOTATION_PAGING_COOKIE => $plain )
+			)
+		);
+	}
+
+	/**
+	 * The unwrapped cookie has to survive the trip back out through the XML
+	 * writer, which is the whole round trip the server checks.
+	 */
+	#[Test]
+	public function it_should_round_trip_an_unwrapped_cookie_into_the_next_request(): void {
+		$decoded = array( Agend_Directory_Sync_Dataverse_Source::ANNOTATION_PAGING_COOKIE => self::WEB_API_COOKIE_ANNOTATION );
+
+		$cookie = Agend_Directory_Sync_Dataverse_Source::extract_paging_cookie( $decoded );
+		$page   = Agend_Directory_Sync_Dataverse_Source::extract_next_page_number( $decoded );
+		$xml    = Agend_Directory_Sync_Dataverse_Source::build_page_fetch_xml( self::QUERY, (int) $page, 5, $cookie );
+
+		$parsed = simplexml_load_string( $xml );
+		$this->assertNotFalse( $parsed );
+		$this->assertSame( $cookie, (string) $parsed['paging-cookie'] );
+		$this->assertSame( '2', (string) $parsed['page'] );
+	}
+
+	#[Test]
+	public function it_should_report_the_dataverse_error_message_and_code_on_a_failure(): void {
+		$body = wp_json_encode(
+			array(
+				'error' => array(
+					'code'    => '0x80041129',
+					'message' => 'Paging Cookie And Query Do Not Match. The counts are not equal.',
+					'@Microsoft.PowerApps.CDS.ErrorDetails.ApiExceptionSourceKey' => str_repeat( 'x', 600 ),
+				),
+			)
+		);
+
+		$message = Agend_Directory_Sync_Dataverse_Source::format_http_failure_message( 400, $body );
+
+		$this->assertStringContainsString( 'Paging Cookie And Query Do Not Match. The counts are not equal.', $message );
+		$this->assertStringContainsString( '0x80041129', $message );
+		$this->assertStringNotContainsString( 'ApiExceptionSourceKey', $message );
+	}
+
+	#[Test]
+	public function it_should_fall_back_to_a_body_excerpt_when_the_failure_is_not_a_dataverse_error(): void {
+		$message = Agend_Directory_Sync_Dataverse_Source::format_http_failure_message( 502, '<html>gateway down</html>' );
+
+		$this->assertStringContainsString( '502', $message );
+		$this->assertStringContainsString( 'gateway down', $message );
+	}
 }
