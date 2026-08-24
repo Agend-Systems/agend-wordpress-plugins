@@ -319,6 +319,47 @@ and `fullname`, capped at 50 examples per reason so the page stays
 responsive on large syncs. Use these to locate the source record in
 Upbeat and clean the data.
 
+## How the upload runs
+
+**Send to Agend** runs as a stepped job, not as one long request.
+
+The pipeline used to run end to end inside the single admin-post request. That
+is fine under WP-CLI, which has no request timeout, and the CLI still works that
+way. In a browser it failed at scale in a way that looked worse than it was: the
+web server returned a **504** while PHP carried on to completion behind it, so
+the sync finished but the operator saw an error and no report, and the natural
+response was to press the button again and start a second concurrent run.
+
+Now the button creates a job and returns immediately. The page then advances it
+one step per request: one step fetches and transforms, then one step per upload
+batch of 100. Each request is short, so nothing approaches the timeout however
+large the directory, and a progress bar reports batches, listings, and running
+created / updated / error counts.
+
+- **Leave the tab open.** Stepping is driven by the page. Closing it pauses the
+  job rather than losing it; reopening Tools > Agend Directory Sync shows the
+  unfinished run and offers **Resume**. It never resumes on its own, so opening
+  a tab cannot restart an upload.
+- **Pause / Resume / Cancel** are all available mid-run. Cancelling keeps the
+  batches already uploaded: the bulk-upsert is idempotent on
+  (`external_source`, `external_id`), so a cancelled run is a partial sync that
+  a later run completes, not something to undo.
+- **One at a time.** Starting a second sync while one is in flight is refused,
+  and two open tabs cannot advance the same job at once (a step takes a
+  database-enforced lock).
+- The finished summary is the same panel a one-request run produced, written to
+  the same 30-minute result transient. It is stored when the job ends, so it
+  survives a reload.
+
+Unattended runs are unaffected and remain the better choice for very large
+directories: `wp agend-directory-sync run` has no request timeout and does not
+need a browser open (see Scheduling below).
+
+Note the fetch-and-transform step is still a single request. It has never been
+the step that timed out, and for a paged source it is a handful of API calls,
+but a directory large enough to make fetching itself slow would need that step
+chunked too.
+
 ## Scheduling (server cron)
 
 The same fetch -> transform -> send pipeline is exposed as a WP-CLI
@@ -424,7 +465,12 @@ preview / send.
 - `includes/class-agend-client.php` - batched POST to the Agend gateway
   bulk-upsert endpoint, aggregates per-row results.
 - `includes/class-sync-runner.php` - the shared fetch -> transform ->
-  send pipeline used by both the admin UI and the WP-CLI command.
+  send pipeline, used by the WP-CLI command and (in dry-run mode) as the
+  fetch-and-transform stage of a stepped job.
+- `includes/class-sync-job.php` - the resumable send job: job state, one
+  step per upload batch, per-batch payload storage, progress.
+- `includes/class-job-controller.php` - the admin-ajax endpoints the
+  progress panel calls to start, step, pause, cancel, and clear a job.
 - `includes/class-cli-command.php` - the `wp agend-directory-sync run`
   command (loaded only under WP-CLI).
 - `includes/class-admin-page.php` - Tools submenu with settings, the
