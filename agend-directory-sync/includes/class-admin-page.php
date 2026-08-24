@@ -82,6 +82,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$raw_http_api    = isset( $_POST['agend_http_api'] ) && is_array( $_POST['agend_http_api'] )
 				? wp_unslash( $_POST['agend_http_api'] )
 				: array();
+			// The FetchXML query is XML and must survive wp_unslash() without
+			// any further filtering; the source's sanitiser validates it as
+			// XML instead.
+			$raw_dataverse   = isset( $_POST['agend_dataverse'] ) && is_array( $_POST['agend_dataverse'] )
+				? wp_unslash( $_POST['agend_dataverse'] )
+				: array();
 
 			// external_source is the upsert identity key and is never
 			// defaulted per source: changing the data source never touches
@@ -108,6 +114,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				Agend_Directory_Sync_Http_Api_Source::sanitize_settings( $raw_http_api )
 			);
 
+			update_option(
+				Agend_Directory_Sync::OPTION_DATAVERSE,
+				Agend_Directory_Sync_Dataverse_Source::sanitize_settings( $raw_dataverse )
+			);
+
 			// Connection secrets ride separate write-only POST fields, never
 			// the settings array, and land in the encrypted secret store
 			// (Decision 2.11). A blank field means "keep the stored value";
@@ -117,6 +128,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$secret_fields = array(
 				Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN          => 'agend_http_api_secret_token',
 				Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET => 'agend_http_api_secret_oauth',
+				Agend_Directory_Sync_Secret_Store::KEY_DATAVERSE_CLIENT_SECRET => 'agend_dataverse_secret_client',
 			);
 			foreach ( $secret_fields as $store_key => $post_key ) {
 				if ( ! empty( $_POST[ $post_key . '_clear' ] ) ) {
@@ -170,13 +182,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					throw new RuntimeException( $source->get_unavailable_reason() );
 				}
 
-				// The Custom HTTP API source gets a dedicated first-page-only
+				// A configurable source gets a dedicated first-page-only
 				// response-model preview (raw envelope + resolved path) rather
 				// than the generic fetch-everything preview below (US-2.4):
-				// iterating a response data path against a live, possibly
-				// multi-hundred-page API should not require a full fetch_all()
-				// on every attempt.
-				if ( $source instanceof Agend_Directory_Sync_Http_Api_Source ) {
+				// iterating a response data path or a FetchXML query against a
+				// live, possibly multi-hundred-page API should not require a
+				// full fetch_all() on every attempt. Duck-typed rather than
+				// tested against each concrete class, so a client source can
+				// offer the same preview without this file naming it.
+				if ( method_exists( $source, 'preview_first_page' ) ) {
 					$preview = $source->preview_first_page();
 
 					self::set_result(
@@ -302,8 +316,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$auto_publish         = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
 			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
 			$http_api             = Agend_Directory_Sync_Http_Api_Source::resolve_settings();
+			$dataverse            = Agend_Directory_Sync_Dataverse_Source::resolve_settings();
 			$http_token_source   = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN, 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' );
 			$oauth_secret_source = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET, 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' );
+			$dataverse_secret_source = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_DATAVERSE_CLIENT_SECRET, 'AGEND_DIRECTORY_SYNC_DATAVERSE_CLIENT_SECRET' );
 			$field_map            = Agend_Directory_Sync_Field_Map::resolve();
 
 			$registered_sources = Agend_Directory_Sync_Source_Registry::all();
@@ -752,6 +768,289 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										</tr>
 									</tbody>
 								</table>
+							<?php elseif ( Agend_Directory_Sync_Dataverse_Source::SOURCE_KEY === $source_key ) : ?>
+								<p class="description" style="max-width:760px;">
+									<?php esc_html_e( 'Reads records from a Dynamics 365 / Dataverse environment through the Web API\'s FetchXML interface. Columns, filters and sort order are whatever your FetchXML says; the page number, page size and paging cookie are set by this plugin on every request, so paging is explicit rather than a chain of opaque next links.', 'agend-directory-sync' ); ?>
+								</p>
+								<table class="form-table" role="presentation">
+									<tbody>
+										<tr>
+											<th scope="row">
+												<label for="agend_dataverse_environment_url"><?php esc_html_e( 'Environment URL', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_dataverse[environment_url]"
+													id="agend_dataverse_environment_url"
+													type="text"
+													class="large-text code"
+													value="<?php echo esc_attr( $dataverse['environment_url'] ); ?>"
+													placeholder="https://yourorg.crm6.dynamics.com"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'The environment origin only, with no API path. Must be HTTPS. This also derives the OAuth scope, so it must match the environment the app registration was granted access to.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_dataverse_entity_set"><?php esc_html_e( 'Entity set name', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_dataverse[entity_set]"
+													id="agend_dataverse_entity_set"
+													type="text"
+													class="regular-text code"
+													value="<?php echo esc_attr( $dataverse['entity_set'] ); ?>"
+													placeholder="contacts"
+													autocomplete="off"
+												/>
+												<label for="agend_dataverse_api_version" style="margin-left:1em;"><?php esc_html_e( 'API version', 'agend-directory-sync' ); ?></label>
+												<input
+													name="agend_dataverse[api_version]"
+													id="agend_dataverse_api_version"
+													type="text"
+													class="small-text code"
+													value="<?php echo esc_attr( $dataverse['api_version'] ); ?>"
+													placeholder="<?php echo esc_attr( Agend_Directory_Sync_Dataverse_Source::DEFAULT_API_VERSION ); ?>"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'The plural entity set the query runs against (for example "contacts", "accounts", or a custom table\'s set name). Together these build /api/data/v{version}/{entity set}.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_dataverse_fetch_xml"><?php esc_html_e( 'FetchXML query', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<textarea
+													name="agend_dataverse[fetch_xml]"
+													id="agend_dataverse_fetch_xml"
+													rows="12"
+													class="large-text code"
+													spellcheck="false"
+												><?php echo esc_textarea( $dataverse['fetch_xml'] ); ?></textarea>
+												<p class="description">
+													<?php esc_html_e( 'Name one <attribute> per field you want returned — that is the field selection. Filters, orders and link-entities are all allowed. Any page, count or paging-cookie attribute you put on <fetch> is overwritten by the paging settings below. The query must be valid XML with a <fetch> root, or it is not saved. Connection variables ({name}) are substituted at run time.', 'agend-directory-sync' ); ?>
+												</p>
+												<p class="description">
+													<code>&lt;fetch&gt;&lt;entity name="contact"&gt;&lt;attribute name="contactid" /&gt;&lt;attribute name="fullname" /&gt;&lt;attribute name="emailaddress1" /&gt;&lt;order attribute="contactid" /&gt;&lt;/entity&gt;&lt;/fetch&gt;</code>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Include an <order> on a stable column. Paging a query with no deterministic order can return the same row on two pages and miss another entirely.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Paging', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_dataverse_page_size"><?php esc_html_e( 'Page size', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_dataverse[page_size]"
+														id="agend_dataverse_page_size"
+														type="number"
+														min="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MIN_PAGE_SIZE ); ?>"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MAX_PAGE_SIZE ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $dataverse['page_size'] ); ?>"
+													/>
+													<label for="agend_dataverse_start_page" style="margin-left:1em;"><?php esc_html_e( 'Start page', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_dataverse[start_page]"
+														id="agend_dataverse_start_page"
+														type="number"
+														min="1"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $dataverse['start_page'] ); ?>"
+													/>
+													<label for="agend_dataverse_max_pages" style="margin-left:1em;"><?php esc_html_e( 'Max pages', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_dataverse[max_pages]"
+														id="agend_dataverse_max_pages"
+														type="number"
+														min="0"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MAX_PAGES ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $dataverse['max_pages'] ); ?>"
+													/>
+												</p>
+												<p class="description">
+													<?php
+													printf(
+														/* translators: 1: maximum page size Dataverse accepts, 2: hard page cap per run. */
+														esc_html__( 'Page size is the FetchXML count attribute (1-%1$d). Start page and max pages define the window this run fetches: start page 3 with max pages 1 fetches page 3 alone, which is how you re-run one page after a failure or test a slice without touching the rest. Max pages 0 means "keep going until Dataverse reports no more records", still bounded by a %2$d page safety cap that aborts rather than returning a partial set.', 'agend-directory-sync' ),
+														(int) Agend_Directory_Sync_Dataverse_Source::MAX_PAGE_SIZE,
+														(int) Agend_Directory_Sync_Dataverse_Source::MAX_PAGES
+													);
+													?>
+												</p>
+												<p>
+													<label for="agend_dataverse_use_paging_cookie">
+														<input
+															name="agend_dataverse[use_paging_cookie]"
+															id="agend_dataverse_use_paging_cookie"
+															type="checkbox"
+															value="1"
+															<?php checked( ! empty( $dataverse['use_paging_cookie'] ) ); ?>
+														/>
+														<?php esc_html_e( 'Use the paging cookie Dataverse returns for the next page', 'agend-directory-sync' ); ?>
+													</label>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Leave this on. Without the cookie, Dataverse has to re-walk every earlier row to reach the requested page, which gets slow quickly and is capped at 50,000 rows. Turn it off only to diagnose a paging problem: a start page above 1 always begins without a cookie, since there is no earlier response to take one from.', 'agend-directory-sync' ); ?>
+												</p>
+												<p>
+													<label for="agend_dataverse_include_annotations">
+														<input
+															name="agend_dataverse[include_annotations]"
+															id="agend_dataverse_include_annotations"
+															type="checkbox"
+															value="1"
+															<?php checked( ! empty( $dataverse['include_annotations'] ) ); ?>
+														/>
+														<?php esc_html_e( 'Request formatted values and lookup labels (all OData annotations)', 'agend-directory-sync' ); ?>
+													</label>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'On: the response carries the @OData...FormattedValue fields, so an option-set or lookup column can be mapped to its label rather than its numeric or GUID value. Off: only the two paging annotations are requested, giving a smaller response. Paging works either way.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Entra ID app registration', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_dataverse_tenant_id"><?php esc_html_e( 'Directory (tenant) ID', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse[tenant_id]"
+														id="agend_dataverse_tenant_id"
+														type="text"
+														class="regular-text code"
+														value="<?php echo esc_attr( $dataverse['tenant_id'] ); ?>"
+														placeholder="00000000-0000-0000-0000-000000000000"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_dataverse_client_id"><?php esc_html_e( 'Application (client) ID', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse[client_id]"
+														id="agend_dataverse_client_id"
+														type="text"
+														class="regular-text code"
+														value="<?php echo esc_attr( $dataverse['client_id'] ); ?>"
+														placeholder="00000000-0000-0000-0000-000000000000"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_dataverse_secret_client"><?php esc_html_e( 'Client secret', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse_secret_client"
+														id="agend_dataverse_secret_client"
+														type="password"
+														class="regular-text"
+														value=""
+														placeholder="<?php echo esc_attr( '' !== $dataverse_secret_source ? '********' : '' ); ?>"
+														autocomplete="new-password"
+													/>
+													<?php if ( 'stored' === $dataverse_secret_source ) : ?>
+														<br /><label>
+															<input type="checkbox" name="agend_dataverse_secret_client_clear" value="1" />
+															<?php esc_html_e( 'Clear the stored value on save', 'agend-directory-sync' ); ?>
+														</label>
+													<?php endif; ?>
+												</p>
+												<p class="description">
+													<?php echo esc_html__( 'Client secret status:', 'agend-directory-sync' ) . ' '; ?>
+													<?php if ( 'constant' === $dataverse_secret_source ) : ?>
+														<strong><?php esc_html_e( 'set via wp-config.php constant (overrides the field above)', 'agend-directory-sync' ); ?></strong>
+													<?php elseif ( 'stored' === $dataverse_secret_source ) : ?>
+														<strong><?php esc_html_e( 'set (stored encrypted)', 'agend-directory-sync' ); ?></strong>
+													<?php else : ?>
+														<strong style="color:#b32d2e;"><?php esc_html_e( 'not set', 'agend-directory-sync' ); ?></strong>
+													<?php endif; ?>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Client-credentials authentication against Microsoft Entra ID. The app registration needs an application user in the Dataverse environment with read access to the table you are querying. The secret is stored encrypted and never shown again; leave the field blank on save to keep the stored value, or define AGEND_DIRECTORY_SYNC_DATAVERSE_CLIENT_SECRET in wp-config.php to override it.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Advanced', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_dataverse_token_url"><?php esc_html_e( 'Token endpoint URL (optional)', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse[token_url]"
+														id="agend_dataverse_token_url"
+														type="text"
+														class="large-text code"
+														value="<?php echo esc_attr( $dataverse['token_url'] ); ?>"
+														placeholder="<?php echo esc_attr( sprintf( Agend_Directory_Sync_Dataverse_Source::TOKEN_URL_TEMPLATE, '{tenant}' ) ); ?>"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_dataverse_scope"><?php esc_html_e( 'Scope (optional)', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse[scope]"
+														id="agend_dataverse_scope"
+														type="text"
+														class="large-text code"
+														value="<?php echo esc_attr( $dataverse['scope'] ); ?>"
+														placeholder="<?php echo esc_attr( '' !== $dataverse['environment_url'] ? rtrim( $dataverse['environment_url'], '/' ) . Agend_Directory_Sync_Dataverse_Source::SCOPE_SUFFIX : 'https://yourorg.crm6.dynamics.com/.default' ); ?>"
+														autocomplete="off"
+													/>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Both are derived from the tenant ID and environment URL when left blank, which is right for a standard commercial tenant. Set them for a sovereign or government cloud, where the login host and audience differ.', 'agend-directory-sync' ); ?>
+												</p>
+												<p>
+													<label for="agend_dataverse_timeout"><?php esc_html_e( 'Request timeout (seconds)', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_dataverse[timeout]"
+														id="agend_dataverse_timeout"
+														type="number"
+														min="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MIN_TIMEOUT ); ?>"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MAX_TIMEOUT ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $dataverse['timeout'] ); ?>"
+													/>
+												</p>
+												<p>
+													<label for="agend_dataverse_variables"><?php esc_html_e( 'Connection variables', 'agend-directory-sync' ); ?></label><br />
+													<textarea
+														name="agend_dataverse[variables]"
+														id="agend_dataverse_variables"
+														rows="4"
+														class="large-text code"
+													><?php echo esc_textarea( Agend_Directory_Sync_Config::variables_to_textarea( $dataverse['variables'] ) ); ?></textarea>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'One "name = value" per line. Any {name} in the environment URL, tenant or client ID, scope, FetchXML query, or a request header below is replaced with its value at run time. Stored as plain text in the database, so never put a secret here.', 'agend-directory-sync' ); ?>
+												</p>
+												<p>
+													<label for="agend_dataverse_headers"><?php esc_html_e( 'Extra request headers', 'agend-directory-sync' ); ?></label><br />
+													<textarea
+														name="agend_dataverse[headers]"
+														id="agend_dataverse_headers"
+														rows="3"
+														class="large-text code"
+													><?php echo esc_textarea( Agend_Directory_Sync_Config::headers_to_textarea( $dataverse['headers'] ) ); ?></textarea>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'One "Header-Name: value" per line. The OData version headers, the annotation preference and the Authorization header are always sent and cannot be overridden here.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+									</tbody>
+								</table>
 							<?php endif; ?>
 						</div>
 					<?php endforeach; ?>
@@ -1177,6 +1476,29 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				)
 				. '</p>';
 
+			// The Dataverse source reports the query it actually sent, paging
+			// attributes included. Debugging a FetchXML page window without it
+			// means guessing what the plugin overwrote.
+			if ( array_key_exists( 'fetch_xml', $result ) ) {
+				echo '<p>'
+					. esc_html(
+						sprintf(
+							/* translators: 1: page number requested, 2: page size, 3: "yes"/"no" for whether more pages remain, 4: "yes"/"no" for whether a paging cookie came back. */
+							__( 'Requested page %1$d at %2$d rows per page. More records after this page: %3$s. Paging cookie returned: %4$s.', 'agend-directory-sync' ),
+							(int) ( $result['page'] ?? 0 ),
+							(int) ( $result['page_size'] ?? 0 ),
+							! empty( $result['more_records'] ) ? __( 'yes', 'agend-directory-sync' ) : __( 'no', 'agend-directory-sync' ),
+							! empty( $result['paging_cookie'] ) ? __( 'yes', 'agend-directory-sync' ) : __( 'no', 'agend-directory-sync' )
+						)
+					)
+					. '</p>';
+
+				echo '<h4>' . esc_html__( 'FetchXML sent', 'agend-directory-sync' ) . '</h4>';
+				echo '<pre style="max-height:18em;overflow:auto;background:#f6f7f7;padding:1em;">'
+					. esc_html( (string) $result['fetch_xml'] )
+					. '</pre>';
+			}
+
 			echo '<h4>' . esc_html__( 'Raw response envelope', 'agend-directory-sync' ) . '</h4>';
 			self::render_json_block_truncated( $decoded );
 
@@ -1238,7 +1560,32 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			self::render_json_block( $records );
 		}
 
+		/**
+		 * Warn when a paged source stopped at its configured page window with
+		 * records still unfetched. Without this the counts below read as the
+		 * whole directory, and a send would look like a complete sync.
+		 *
+		 * @param array<string, mixed> $result
+		 */
+		private static function render_page_window_notice( array $result ): void {
+			if ( empty( $result['page_window_truncated'] ) ) {
+				return;
+			}
+
+			echo '<div class="notice notice-warning inline"><p>'
+				. esc_html(
+					sprintf(
+						/* translators: %d: pages fetched before the configured window ended. */
+						__( 'Partial fetch: stopped after %d page(s) because of the configured page window, and the source reported more records available. The counts below describe that slice only.', 'agend-directory-sync' ),
+						(int) ( $result['pages_fetched'] ?? 0 )
+					)
+				)
+				. '</p></div>';
+		}
+
 		private static function render_preview_result( array $result ): void {
+			self::render_page_window_notice( $result );
+
 			$fetched     = (int) ( $result['fetched'] ?? 0 );
 			$transformed = (int) ( $result['transformed'] ?? 0 );
 			$skipped     = (int) ( $result['skipped'] ?? 0 );
@@ -1266,6 +1613,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		}
 
 		private static function render_send_result( array $result ): void {
+			self::render_page_window_notice( $result );
+
 			$fetched     = (int) ( $result['fetched'] ?? 0 );
 			$transformed = (int) ( $result['transformed'] ?? 0 );
 			$skipped     = (int) ( $result['skipped'] ?? 0 );

@@ -2,11 +2,11 @@
 /**
  * Plugin Name:     Agend Directory Sync
  * Plugin URI:      https://www.agend.com.au
- * Description:     Sync Upbeat membership directory contacts to the Agend directory via the bulk-upsert API.
+ * Description:     Sync directory records from Upbeat, any JSON API, or Microsoft Dataverse to the Agend directory via the bulk-upsert API.
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.5.1
+ * Version:         0.6.0
  *
  * @package         Agend_Directory_Sync
  */
@@ -65,6 +65,16 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		public const OPTION_HTTP_API = 'agend_directory_sync_http_api';
 
 		/**
+		 * Option key for the Microsoft Dataverse source's settings
+		 * (environment URL, entity set, FetchXML query, paging window, Entra
+		 * ID app registration, headers and variables). One array option,
+		 * sanitised as a whole by the source. The client secret is never
+		 * stored here — it lives in the encrypted secret store, or in
+		 * AGEND_DIRECTORY_SYNC_DATAVERSE_CLIENT_SECRET.
+		 */
+		public const OPTION_DATAVERSE = 'agend_directory_sync_dataverse';
+
+		/**
 		 * Option key for the external_source string sent with each batch.
 		 */
 		public const OPTION_EXTERNAL_SOURCE = 'agend_directory_sync_external_source';
@@ -109,28 +119,32 @@ endif;
  */
 function agend_directory_sync_bootstrap() {
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-secret-store.php';
+	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-config.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-field-map.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/interface-source.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-path-resolver.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-upbeat-client.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-oauth-token-manager.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-http-api-source.php';
+	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-dataverse-source.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-listing-transformer.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-source-registry.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-agend-client.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-sync-runner.php';
 	require_once AGEND_DIRECTORY_SYNC_DIR . '/includes/class-admin-page.php';
 
-	// The generic HTTP API source ships with this plugin, but registers
-	// through the same `agend_directory_sync_sources` filter a client source
-	// would use (SPEC-DIR-20260731 US-2.1), rather than a second hard-coded
-	// entry in Agend_Directory_Sync_Source_Registry::register_defaults() —
-	// that file is untouched by this story.
+	// The generic HTTP API and Dataverse sources ship with this plugin, but
+	// register through the same `agend_directory_sync_sources` filter a client
+	// source would use (SPEC-DIR-20260731 US-2.1), rather than further
+	// hard-coded entries in
+	// Agend_Directory_Sync_Source_Registry::register_defaults().
 	add_filter(
 		'agend_directory_sync_sources',
 		static function ( array $sources ): array {
-			$http_api                        = new Agend_Directory_Sync_Http_Api_Source();
-			$sources[ $http_api->get_key() ] = $http_api;
+			$http_api                         = new Agend_Directory_Sync_Http_Api_Source();
+			$sources[ $http_api->get_key() ]  = $http_api;
+			$dataverse                        = new Agend_Directory_Sync_Dataverse_Source();
+			$sources[ $dataverse->get_key() ] = $dataverse;
 			return $sources;
 		}
 	);
