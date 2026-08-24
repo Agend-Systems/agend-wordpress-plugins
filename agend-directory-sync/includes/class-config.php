@@ -241,19 +241,36 @@ if ( ! class_exists( 'Agend_Directory_Sync_Config' ) ) :
 		}
 
 		/**
-		 * Merge admin-configured custom request headers with the computed
-		 * auth-mode headers for a DATA request (never a token request). Auth
-		 * headers always win: a custom header with the same name (e.g. an
-		 * operator accidentally naming one `Authorization`) must never
-		 * silently override the header the configured auth mode sets.
+		 * Merge admin-configured custom request headers with the headers the
+		 * source computes for a DATA request (never a token request). The
+		 * computed headers always win: a custom header with the same name — an
+		 * operator naming one `Authorization`, or a `prefer` left over from a
+		 * hand-built OData connection — must never override what the source
+		 * set.
+		 *
+		 * Matched case-insensitively, because HTTP header names are. A plain
+		 * `array_merge` kept BOTH `prefer` and `Prefer` and sent two of the
+		 * same header, which is how the PCA Dataverse migration found this: the
+		 * override the contract promised did not happen for any name whose case
+		 * differed.
 		 *
 		 * @param array<string, string> $custom
-		 * @param array<string, string> $auth
+		 * @param array<string, string> $computed
 		 *
 		 * @return array<string, string>
 		 */
-		public static function merge_request_headers( array $custom, array $auth ): array {
-			return array_merge( $custom, $auth );
+		public static function merge_request_headers( array $custom, array $computed ): array {
+			$reserved = array_map( 'strtolower', array_keys( $computed ) );
+
+			$merged = array();
+			foreach ( $custom as $name => $value ) {
+				if ( in_array( strtolower( (string) $name ), $reserved, true ) ) {
+					continue;
+				}
+				$merged[ $name ] = $value;
+			}
+
+			return array_merge( $merged, $computed );
 		}
 
 		/**
