@@ -72,6 +72,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 				return;
 			}
 
+			if ( ! empty( $summary['page_window_truncated'] ) ) {
+				WP_CLI::warning(
+					sprintf(
+						'Partial fetch: stopped after %d page(s) because of the configured page window, with more records available at the source.',
+						(int) ( $summary['pages_fetched'] ?? 0 )
+					)
+				);
+			}
+
 			WP_CLI::log( sprintf( 'Fetched: %d', (int) $summary['fetched'] ) );
 			WP_CLI::log( sprintf( 'Transformed: %d', (int) $summary['transformed'] ) );
 			WP_CLI::log( sprintf( 'Skipped: %d', (int) $summary['skipped'] ) );

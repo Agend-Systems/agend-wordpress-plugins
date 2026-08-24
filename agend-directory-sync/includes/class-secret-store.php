@@ -29,9 +29,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Secret_Store' ) && class_exists( 'Age
 		public const OPTION_SECRETS = 'agend_directory_sync_secrets';
 
 		/**
-		 * Store keys for the two connection secrets.
+		 * Store keys for the connection secrets. The Dataverse client secret
+		 * has its own key rather than reusing the Custom HTTP API source's:
+		 * the two sources are configured independently and typically point at
+		 * different tenants, so one value shared between them would mean
+		 * re-credentialing one source silently broke the other.
 		 */
-		public const KEY_HTTP_TOKEN          = 'http_token';
-		public const KEY_OAUTH_CLIENT_SECRET = 'oauth_client_secret';
+		public const KEY_HTTP_TOKEN              = 'http_token';
+		public const KEY_OAUTH_CLIENT_SECRET     = 'oauth_client_secret';
+		public const KEY_DATAVERSE_CLIENT_SECRET = 'dataverse_client_secret';
 	}
 endif;
