@@ -136,6 +136,30 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_force_defined_choices_when_values_cannot_be_listed(): void {
+		$config = agend_elementor_filter_config(
+			'listing',
+			'tag',
+			array(
+				'values_mode' => 'all',
+				'choices'     => array( array( 'choice_label' => 'Sponsor', 'choice_value' => 'tag-uuid-1,tag-uuid-2' ) ),
+			)
+		);
+
+		$this->assertTrue( $config['choicesOnly'] );
+		$this->assertSame( 'tag_ids', $config['state'] );
+		$this->assertSame( array( 'tag-uuid-1', 'tag-uuid-2' ), $config['values'][0]['value'] );
+	}
+
+	#[Test]
+	public function should_offer_a_featured_only_toggle_for_listings(): void {
+		$config = agend_elementor_filter_config( 'listing', 'featured', array() );
+
+		$this->assertSame( 'featured', $config['state'] );
+		$this->assertSame( array( array( 'label' => 'Featured only', 'value' => array( '1' ) ) ), $config['values'] );
+	}
+
+	#[Test]
 	public function should_mark_course_categories_approximate_because_they_cannot_be_enumerated(): void {
 		$descriptor = agend_elementor_filter_descriptor( 'course', 'category' );
 

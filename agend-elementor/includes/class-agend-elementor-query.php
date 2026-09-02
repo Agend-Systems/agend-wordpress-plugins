@@ -32,7 +32,7 @@ const AGEND_ELEMENTOR_FRAGMENT_MAX_LIMIT = 100;
  */
 function agend_elementor_fragment_allowed_params( string $type ): array {
 	if ( 'listing' === $type ) {
-		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories' );
+		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'sponsor_level', 'lat', 'lng', 'radius', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories' );
 	}
 	if ( 'course' === $type ) {
 		return array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'deliveryMode', 'excludeCategories', 'excludeDifficulties', 'excludeDeliveryModes', 'sortBy', 'sortOrder' );
@@ -173,7 +173,11 @@ function agend_elementor_listings_list_args( array $config, int $page = 1, array
 		'search'            => (string) ( $state['search'] ?? '' ),
 		'category'          => ! empty( $categories ) ? implode( ',', $categories ) : (string) ( $state['category'] ?? '' ),
 		'rating'            => (string) ( $state['rating'] ?? '' ),
-		'featured'          => ! empty( $exclusions['featured'] ) ? 'true' : '',
+		// The widget-level "featured only" setting is a floor; a visitor filter
+		// can turn it on but never off.
+		'featured'          => ( ! empty( $exclusions['featured'] ) || ! empty( $state['featured'] ) ) ? 'true' : '',
+		'tag_ids'           => implode( ',', (array) ( $state['tag_ids'] ?? array() ) ),
+		'badge_ids'         => implode( ',', (array) ( $state['badge_ids'] ?? array() ) ),
 		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
 		'sortBy'            => 'relevance',
 		'sortOrder'         => 'desc',

@@ -130,6 +130,29 @@ final class ListingFieldsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_map_tag_badge_and_featured_filter_state_to_query_params(): void {
+		$args = agend_elementor_listings_list_args(
+			array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() ),
+			1,
+			array( 'tag_ids' => array( 't1', 't2' ), 'badge_ids' => array( 'b1' ), 'featured' => '1' )
+		);
+
+		$this->assertSame( 't1,t2', $args['tag_ids'] );
+		$this->assertSame( 'b1', $args['badge_ids'] );
+		$this->assertSame( 'true', $args['featured'] );
+	}
+
+	#[Test]
+	public function should_keep_the_widget_featured_floor_when_no_visitor_filter_is_set(): void {
+		$args = agend_elementor_listings_list_args(
+			array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array( 'featured' => true ) ),
+			1
+		);
+
+		$this->assertSame( 'true', $args['featured'] );
+	}
+
+	#[Test]
 	public function should_drop_unknown_params_from_a_listing_fragment_request(): void {
 		$out = agend_elementor_fragment_query_args( array( 'rating' => 4, 'timeframe' => 'upcoming', 'template' => 9, 'difficulty' => 'x' ), 'listing' );
 

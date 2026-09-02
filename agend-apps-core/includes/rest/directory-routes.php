@@ -204,6 +204,42 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
+						// Comma-separated ids, forwarded verbatim: the gateway
+						// search decoder splits them itself.
+						'tag_ids'           => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'badge_ids'         => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'sponsor_level'     => array(
+							'type'              => 'integer',
+							'minimum'           => 0,
+							'maximum'           => 3,
+							'sanitize_callback' => 'absint',
+						),
+						// Proximity search: the gateway applies it only when all
+						// three arrive together.
+						'lat'               => array(
+							'type'              => 'number',
+							'minimum'           => -90,
+							'maximum'           => 90,
+							'sanitize_callback' => 'floatval',
+						),
+						'lng'               => array(
+							'type'              => 'number',
+							'minimum'           => -180,
+							'maximum'           => 180,
+							'sanitize_callback' => 'floatval',
+						),
+						'radius'            => array(
+							'type'              => 'number',
+							'minimum'           => 1,
+							'maximum'           => 1000,
+							'sanitize_callback' => 'floatval',
+						),
 					),
 				),
 			)
@@ -387,6 +423,12 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			'limit',
 			'per_page',
 			'category',
+			'tag_ids',
+			'badge_ids',
+			'sponsor_level',
+			'lat',
+			'lng',
+			'radius',
 			'rating',
 			'featured',
 			'sortBy',
