@@ -43,13 +43,21 @@ const AGEND_ELEMENTOR_EVENTS_PAGE_OPTION = 'agend_elementor_events_page_id';
 const AGEND_ELEMENTOR_COURSES_PAGE_OPTION = 'agend_elementor_courses_page_id';
 
 /**
+ * Option name storing the configured Directory catalogue/detail page id (0 = unset).
+ *
+ * @var string
+ */
+const AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION = 'agend_elementor_directory_page_id';
+
+/**
  * Option names storing the Elementor template used for a type's detail page
  * (elementor_library post id, 0 = built-in layout).
  *
  * @var string
  */
 const AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION  = 'agend_elementor_event_detail_template';
-const AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION = 'agend_elementor_course_detail_template';
+const AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION  = 'agend_elementor_course_detail_template';
+const AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION = 'agend_elementor_listing_detail_template';
 
 /**
  * Whether the Directory widget requests and renders member LMS achievements
@@ -146,9 +154,28 @@ function agend_elementor_settings_init(): void {
 		'agend_elementor_section_pages'
 	);
 
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION,
+		array(
+			'type'              => 'integer',
+			'sanitize_callback' => 'absint',
+			'default'           => 0,
+		)
+	);
+
+	add_settings_field(
+		AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION,
+		__( 'Directory page', 'agend-elementor' ),
+		'agend_elementor_settings_field_directory_page',
+		'agend-elementor',
+		'agend_elementor_section_pages'
+	);
+
 	foreach ( array(
-		AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION  => array( __( 'Event detail template', 'agend-elementor' ), 'agend_elementor_settings_field_event_detail_template' ),
-		AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION => array( __( 'Course detail template', 'agend-elementor' ), 'agend_elementor_settings_field_course_detail_template' ),
+		AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION   => array( __( 'Event detail template', 'agend-elementor' ), 'agend_elementor_settings_field_event_detail_template' ),
+		AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION  => array( __( 'Course detail template', 'agend-elementor' ), 'agend_elementor_settings_field_course_detail_template' ),
+		AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION => array( __( 'Listing detail template', 'agend-elementor' ), 'agend_elementor_settings_field_listing_detail_template' ),
 	) as $option => $field ) {
 		register_setting(
 			'agend_elementor_settings',
@@ -347,6 +374,33 @@ function agend_elementor_settings_field_event_detail_template(): void {
 }
 
 /**
+ * Renders the Directory page picker.
+ */
+function agend_elementor_settings_field_directory_page(): void {
+	$selected = absint( get_option( AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION, 0 ) );
+	wp_dropdown_pages(
+		array(
+			'name'              => AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION,
+			'show_option_none'  => __( 'Select a page', 'agend-elementor' ),
+			'option_none_value' => '0',
+			'selected'          => $selected,
+		)
+	);
+	agend_elementor_settings_widget_advisory(
+		$selected,
+		'agend-directory-catalogue',
+		__( 'This page does not appear to contain the Directory Catalogue widget.', 'agend-elementor' )
+	);
+}
+
+/**
+ * Renders the Listing detail template picker.
+ */
+function agend_elementor_settings_field_listing_detail_template(): void {
+	agend_elementor_settings_template_select( AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION, AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION );
+}
+
+/**
  * Renders the Course detail template picker.
  */
 function agend_elementor_settings_field_course_detail_template(): void {
@@ -370,6 +424,9 @@ function agend_elementor_template_post_states( array $states, $post ): array {
 	}
 	if ( $post->ID === absint( get_option( AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION, 0 ) ) ) {
 		$states['agend_course_detail'] = __( 'Agend Course detail template', 'agend-elementor' );
+	}
+	if ( $post->ID === absint( get_option( AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION, 0 ) ) ) {
+		$states['agend_listing_detail'] = __( 'Agend Listing detail template', 'agend-elementor' );
 	}
 	return $states;
 }

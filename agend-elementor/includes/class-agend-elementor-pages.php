@@ -48,6 +48,15 @@ class Agend_Elementor_Pages {
 				'query_var' => 'course',
 				'legacy'    => 'agend_course',
 			),
+			// The directory detail path is /{page}/listing/{slug}/ like the
+			// others, but the slug arrives on a namespaced private query var
+			// (see class-agend-elementor-routing.php).
+			'listing' => array(
+				'option'    => AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION,
+				'segment'   => 'listing/',
+				'query_var' => 'agend_dir_listing',
+				'legacy'    => 'agend_listing',
+			),
 		);
 	}
 
@@ -218,7 +227,7 @@ class Agend_Elementor_Pages {
 	 * @return int The template post id, or 0.
 	 */
 	public static function detail_template_id( string $type ): int {
-		if ( 'event' !== $type && 'course' !== $type ) {
+		if ( ! isset( self::types()[ $type ] ) ) {
 			return 0;
 		}
 		return absint( get_option( 'agend_elementor_' . $type . '_detail_template', 0 ) );

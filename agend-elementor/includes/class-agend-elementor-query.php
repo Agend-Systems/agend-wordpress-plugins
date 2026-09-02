@@ -31,6 +31,9 @@ const AGEND_ELEMENTOR_FRAGMENT_MAX_LIMIT = 100;
  * @return string[]
  */
 function agend_elementor_fragment_allowed_params( string $type ): array {
+	if ( 'listing' === $type ) {
+		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories' );
+	}
 	if ( 'course' === $type ) {
 		return array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'deliveryMode', 'excludeCategories', 'excludeDifficulties', 'excludeDeliveryModes', 'sortBy', 'sortOrder' );
 	}
@@ -145,6 +148,70 @@ function agend_elementor_courses_list_args( array $config, int $page = 1, array 
 	);
 
 	return agend_elementor_fragment_query_args( $args, 'course' );
+}
+
+/**
+ * The listings query for a widget config, matching reloadCatalogue() in
+ * assets/js/directory-catalogue.js key for key.
+ *
+ * The directory takes comma-joined strings where the other catalogues take
+ * repeatable arrays, so the exclusion list is joined here rather than passed
+ * through as an array.
+ *
+ * @param array $config The widget's build_config() output.
+ * @param int   $page   Page number.
+ * @param array $state  Visitor filter state (search, category, categories, rating).
+ * @return array
+ */
+function agend_elementor_listings_list_args( array $config, int $page = 1, array $state = array() ): array {
+	$exclusions = isset( $config['exclusions'] ) && is_array( $config['exclusions'] ) ? $config['exclusions'] : array();
+	$categories = (array) ( $state['categories'] ?? array() );
+
+	$args = array(
+		'page'              => max( 1, $page ),
+		'limit'             => (int) ( $config['pagination']['perPage'] ?? 12 ),
+		'search'            => (string) ( $state['search'] ?? '' ),
+		'category'          => ! empty( $categories ) ? implode( ',', $categories ) : (string) ( $state['category'] ?? '' ),
+		'rating'            => (string) ( $state['rating'] ?? '' ),
+		'featured'          => ! empty( $exclusions['featured'] ) ? 'true' : '',
+		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
+		'sortBy'            => 'relevance',
+		'sortOrder'         => 'desc',
+	);
+
+	return agend_elementor_fragment_query_args( $args, 'listing' );
+}
+
+/**
+ * Fetches a page of records for a catalogue type through the Agend Apps Core
+ * wrapper, so the server-rendered first page and the REST fragments call the
+ * same thing the browser would.
+ *
+ * The directory takes its search term as a separate argument and translates
+ * `category` to the gateway's canonical `category_ids`, mirroring
+ * Agend_Apps_Directory_REST_Controller::search().
+ *
+ * @param string $type  'event', 'course' or 'listing'.
+ * @param array  $query Allow-listed query parameters.
+ * @return mixed Wrapper response, WP_Error, or null when unavailable.
+ */
+function agend_elementor_fetch_list( string $type, array $query ) {
+	if ( 'listing' === $type ) {
+		if ( ! function_exists( 'agend_apps_directory_search' ) ) {
+			return null;
+		}
+		$term = (string) ( $query['q'] ?? $query['search'] ?? '' );
+		unset( $query['q'], $query['search'] );
+		if ( isset( $query['category'] ) ) {
+			$query['category_ids'] = $query['category'];
+			unset( $query['category'] );
+		}
+		return agend_apps_directory_search( $term, $query );
+	}
+	if ( 'course' === $type ) {
+		return function_exists( 'agend_apps_lms_get_courses' ) ? agend_apps_lms_get_courses( $query ) : null;
+	}
+	return function_exists( 'agend_apps_events_get_events' ) ? agend_apps_events_get_events( $query ) : null;
 }
 
 /**

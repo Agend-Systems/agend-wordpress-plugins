@@ -85,7 +85,8 @@ function agend_elementor_render_cards( string $type, int $template_id, array $re
  * @return string
  */
 function agend_elementor_wrap_card( string $type, string $slug, string $url, string $inner, bool $whole_link ): string {
-	$family  = 'course' === $type ? 'agend-lms' : 'agend-ev';
+	$families = array( 'course' => 'agend-lms', 'listing' => 'agend-dir', 'event' => 'agend-ev' );
+	$family   = $families[ $type ] ?? 'agend-ev';
 	$classes = 'agend-card-link ' . $family . '-card-link';
 
 	if ( $whole_link && '' !== $url ) {

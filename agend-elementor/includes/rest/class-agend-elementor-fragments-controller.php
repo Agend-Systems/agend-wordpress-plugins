@@ -32,7 +32,7 @@ class Agend_Elementor_Fragments_Controller {
 	 * Registers the two routes.
 	 */
 	public function register_routes(): void {
-		foreach ( array( 'events' => 'event', 'courses' => 'course' ) as $segment => $type ) {
+		foreach ( array( 'events' => 'event', 'courses' => 'course', 'listings' => 'listing' ) as $segment => $type ) {
 			register_rest_route(
 				self::NAMESPACE,
 				'/cards/' . $segment,
@@ -93,13 +93,11 @@ class Agend_Elementor_Fragments_Controller {
 			return new WP_Error( 'agend_elementor_invalid_template', __( 'The card template does not exist or is not published.', 'agend-elementor' ), array( 'status' => 400 ) );
 		}
 
-		$fetch = 'course' === $type ? 'agend_apps_lms_get_courses' : 'agend_apps_events_get_events';
-		if ( ! function_exists( $fetch ) ) {
+		$query    = agend_elementor_fragment_query_args( $request->get_params(), $type );
+		$response = agend_elementor_fetch_list( $type, $query );
+		if ( null === $response ) {
 			return new WP_Error( 'agend_elementor_unavailable', __( 'Agend Apps Core is not available.', 'agend-elementor' ), array( 'status' => 503 ) );
 		}
-
-		$query    = agend_elementor_fragment_query_args( $request->get_params(), $type );
-		$response = $fetch( $query );
 		if ( is_wp_error( $response ) ) {
 			$status = (int) ( $response->get_error_data()['status'] ?? 502 );
 			return new WP_Error( $response->get_error_code(), $response->get_error_message(), array( 'status' => $status > 0 ? $status : 502 ) );
