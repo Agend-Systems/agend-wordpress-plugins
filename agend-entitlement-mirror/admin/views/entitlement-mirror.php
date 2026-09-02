@@ -18,8 +18,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-$kiosk_available = class_exists( 'Iugo_Membership_Kiosk_API' );
-$type_entries    = $kiosk_available ? Agend_Entitlement_Sync::discover_type_entries() : array();
+$active_source   = Agend_Entitlement_Mirror_Source_Registry::active();
+$source_available = $active_source->is_available();
+$type_entries    = $source_available ? Agend_Entitlement_Sync::discover_type_entries() : array();
 $last_types_sync = get_option( Agend_Entitlement_Sync::LAST_TYPES_SYNC_OPTION, null );
 $last_sync       = get_option( Agend_Entitlement_Sync::LAST_SYNC_OPTION, null );
 $last_error      = get_option( Agend_Entitlement_Sync::LAST_ERROR_OPTION, null );
@@ -29,9 +30,18 @@ $ajax_url        = admin_url( 'admin-ajax.php' );
 <div class="wrap agend-apps-entitlement-mirror">
 	<h1><?php esc_html_e( 'Agend Entitlement Mirror', 'agend-entitlement-mirror' ); ?></h1>
 
-	<?php if ( ! $kiosk_available ) : ?>
+	<?php if ( ! $source_available ) : ?>
 		<div class="notice notice-warning inline">
-			<p><?php esc_html_e( 'The iugo-membership-kiosk plugin is not active. The entitlement mirror is inert until it is.', 'agend-entitlement-mirror' ); ?></p>
+			<p>
+				<?php
+				printf(
+					/* translators: 1: active data source label, 2: reason it is unavailable. */
+					esc_html__( 'The configured data source (%1$s) is unavailable: %2$s The entitlement mirror is inert until it is.', 'agend-entitlement-mirror' ),
+					esc_html( $active_source->get_label() ),
+					esc_html( $active_source->get_unavailable_reason() )
+				);
+				?>
+			</p>
 		</div>
 	<?php endif; ?>
 
@@ -47,7 +57,7 @@ $ajax_url        = admin_url( 'admin-ajax.php' );
 
 	<h2><?php esc_html_e( 'Entitlement Types', 'agend-entitlement-mirror' ); ?></h2>
 	<p class="description">
-		<?php esc_html_e( 'The categories and types the collector currently sees from Upbeat, and the gate_key each maps to (Decision 2.7). Syncing declares this full list to Agend as crm_benefits rows under this install\'s source key.', 'agend-entitlement-mirror' ); ?>
+		<?php esc_html_e( 'The categories and types the collector currently sees from the configured data source, and the gate_key each maps to (Decision 2.7). Syncing declares this full list to Agend as crm_benefits rows under this install\'s source key.', 'agend-entitlement-mirror' ); ?>
 	</p>
 
 	<table class="widefat striped agend-apps-entitlement-mirror-table">
