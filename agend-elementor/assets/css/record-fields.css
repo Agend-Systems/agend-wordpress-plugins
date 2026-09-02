@@ -94,3 +94,23 @@
 .agend-record-block > * {
   margin-top: 0;
 }
+
+/* Agend Pills: one pill per term, count driven by the record. */
+.agend-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.agend-pill {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+a.agend-pill:hover,
+a.agend-pill:focus {
+  filter: brightness(0.95);
+}

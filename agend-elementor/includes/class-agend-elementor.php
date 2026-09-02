@@ -66,6 +66,7 @@ class Agend_Elementor {
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-record-image.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-record-link.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-record-block.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-record-pills.php';
 
 		$widgets_manager->register( new Agend_Elementor_Events_Catalogue() );
 		$widgets_manager->register( new Agend_Elementor_Courses_Catalogue() );
@@ -78,6 +79,7 @@ class Agend_Elementor {
 		$widgets_manager->register( new Agend_Elementor_Record_Image() );
 		$widgets_manager->register( new Agend_Elementor_Record_Link() );
 		$widgets_manager->register( new Agend_Elementor_Record_Block() );
+		$widgets_manager->register( new Agend_Elementor_Record_Pills() );
 	}
 }
 
