@@ -66,6 +66,9 @@ function agend_elementor_record_category( array $record ): string {
 			return $first;
 		}
 	}
+	if ( ! empty( $record['primary_category']['name'] ) ) {
+		return (string) $record['primary_category']['name'];
+	}
 	if ( isset( $record['category'] ) ) {
 		if ( is_array( $record['category'] ) ) {
 			return isset( $record['category']['name'] ) ? (string) $record['category']['name'] : '';
@@ -147,6 +150,112 @@ function agend_elementor_record_event_location( array $record ): string {
 }
 
 /**
+ * Names from a list of term objects or strings on a record.
+ *
+ * @param array  $record The record.
+ * @param string $key    The record key holding the list.
+ * @return string[]
+ */
+function agend_elementor_record_names( array $record, string $key ): array {
+	$names = array();
+	if ( empty( $record[ $key ] ) || ! is_array( $record[ $key ] ) ) {
+		return $names;
+	}
+	foreach ( $record[ $key ] as $entry ) {
+		if ( is_array( $entry ) && ! empty( $entry['name'] ) ) {
+			$names[] = (string) $entry['name'];
+		} elseif ( is_string( $entry ) && '' !== $entry ) {
+			$names[] = $entry;
+		}
+	}
+	return $names;
+}
+
+/**
+ * A listing's location as "City, STATE", from the card payload's
+ * primary_location or the detail payload's locations list.
+ *
+ * @param array $record The listing record.
+ * @return string
+ */
+function agend_elementor_record_listing_location( array $record ): string {
+	$source = array();
+	if ( ! empty( $record['primary_location'] ) && is_array( $record['primary_location'] ) ) {
+		$source = $record['primary_location'];
+	} elseif ( ! empty( $record['locations'][0] ) && is_array( $record['locations'][0] ) ) {
+		$source = $record['locations'][0];
+	}
+	$parts = array_filter(
+		array(
+			isset( $source['city'] ) ? trim( (string) $source['city'] ) : '',
+			isset( $source['state'] ) ? trim( (string) $source['state'] ) : '',
+		),
+		'strlen'
+	);
+	return implode( ', ', $parts );
+}
+
+/**
+ * One part of a listing's location.
+ *
+ * @param array  $record The listing record.
+ * @param string $part   'city', 'state', 'postcode' or 'country'.
+ * @return string
+ */
+function agend_elementor_record_listing_location_part( array $record, string $part ): string {
+	$value = agend_elementor_record_path( $record, array( 'primary_location.' . $part, 'locations.0.' . $part ) );
+	return is_scalar( $value ) ? trim( (string) $value ) : '';
+}
+
+/**
+ * A single custom-field value from a record, by its key.
+ *
+ * `custom_fields` is a list of `{key,label,type,value}`. Which entries the
+ * gateway returns depends on the signed-in member's entitlements, so a key
+ * present for one viewer can be absent for the next; a missing key renders as
+ * empty rather than warning.
+ *
+ * @param array  $record The record.
+ * @param string $key    The custom-field key.
+ * @return string The value, or ''.
+ */
+function agend_elementor_record_custom_field( array $record, string $key ): string {
+	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
+		return '';
+	}
+	foreach ( $record['custom_fields'] as $entry ) {
+		if ( ! is_array( $entry ) || ( $entry['key'] ?? '' ) !== $key ) {
+			continue;
+		}
+		$value = $entry['value'] ?? '';
+		if ( is_array( $value ) ) {
+			return implode( ', ', array_map( 'strval', array_filter( $value, 'is_scalar' ) ) );
+		}
+		return is_scalar( $value ) ? trim( (string) $value ) : '';
+	}
+	return '';
+}
+
+/**
+ * The label the gateway gave a custom field, by its key.
+ *
+ * @param array  $record The record.
+ * @param string $key    The custom-field key.
+ * @return string The label, or ''.
+ */
+function agend_elementor_record_custom_field_label( array $record, string $key ): string {
+	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
+		return '';
+	}
+	foreach ( $record['custom_fields'] as $entry ) {
+		if ( is_array( $entry ) && ( $entry['key'] ?? '' ) === $key ) {
+			return isset( $entry['label'] ) ? (string) $entry['label'] : '';
+		}
+	}
+	return '';
+}
+
+/**
  * Whether the viewer of an event record is on member pricing.
  *
  * @param array $record The event record (bearer-enriched when signed in).
@@ -223,10 +332,12 @@ function agend_elementor_field_registry(): array {
 
 	$event_group   = __( 'Event', 'agend-elementor' );
 	$course_group  = __( 'Course', 'agend-elementor' );
-	$common_group  = __( 'Common (event or course)', 'agend-elementor' );
+	$listing_group = __( 'Directory listing', 'agend-elementor' );
+	$common_group  = __( 'Common (any record)', 'agend-elementor' );
 	$event_types   = array( 'event' );
 	$course_types  = array( 'course' );
-	$both_types    = array( 'event', 'course' );
+	$listing_types = array( 'listing' );
+	$all_types     = array( 'event', 'course', 'listing' );
 
 	$event = array(
 		'event:name'                  => array( 'label' => __( 'Name', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'name' ) ),
@@ -340,21 +451,88 @@ function agend_elementor_field_registry(): array {
 		'course:is_enrolled'            => array( 'label' => __( 'Viewer is enrolled', 'agend-elementor' ), 'kind' => 'bool', 'get' => $flag( 'my_enrollment' ) ),
 	);
 
+	$listing = array(
+		'listing:name'              => array( 'label' => __( 'Name', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'name' ) ),
+		'listing:short_description' => array( 'label' => __( 'Short description', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'short_description' ) ),
+		'listing:description'       => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $text( 'description' ) ),
+		'listing:excerpt'           => array( 'label' => __( 'Excerpt', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_excerpt' ),
+		'listing:logo_url'          => array( 'label' => __( 'Logo', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'logo_url' ) ),
+		'listing:hero_image_url'    => array( 'label' => __( 'Hero image', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'hero_image_url', 'logo_url' ) ),
+		'listing:category'          => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
+		'listing:categories'        => array( 'label' => __( 'All categories', 'agend-elementor' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_elementor_record_categories' ),
+		'listing:tags'              => array( 'label' => __( 'Tags', 'agend-elementor' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_elementor_record_tags' ),
+		'listing:badges'            => array(
+			'label' => __( 'Badges', 'agend-elementor' ),
+			'kind'  => 'list',
+			'pill'  => true,
+			'get'   => static function ( array $record ) {
+				return agend_elementor_record_names( $record, 'badges' );
+			},
+		),
+		'listing:location'          => array( 'label' => __( 'Location (city, state)', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_listing_location' ),
+		'listing:city'              => array(
+			'label' => __( 'City', 'agend-elementor' ),
+			'kind'  => 'text',
+			'get'   => static function ( array $record ) {
+				return agend_elementor_record_listing_location_part( $record, 'city' );
+			},
+		),
+		'listing:state'             => array(
+			'label' => __( 'State', 'agend-elementor' ),
+			'kind'  => 'text',
+			'pill'  => true,
+			'get'   => static function ( array $record ) {
+				return agend_elementor_record_listing_location_part( $record, 'state' );
+			},
+		),
+		'listing:rating'            => array( 'label' => __( 'Average rating', 'agend-elementor' ), 'kind' => 'number', 'get' => $num( 'average_rating' ) ),
+		'listing:review_count'      => array( 'label' => __( 'Review count', 'agend-elementor' ), 'kind' => 'number', 'get' => $num( 'review_count' ) ),
+		'listing:is_featured'       => array( 'label' => __( 'Featured', 'agend-elementor' ), 'kind' => 'bool', 'get' => $flag( 'is_featured' ) ),
+		'listing:phone'             => array( 'label' => __( 'Phone', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'phone' ) ),
+		'listing:website'           => array( 'label' => __( 'Website', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'website' ) ),
+		'listing:linkedin_url'      => array( 'label' => __( 'LinkedIn', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'linkedin_url' ) ),
+		'listing:facebook_url'      => array( 'label' => __( 'Facebook', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'facebook_url' ) ),
+		'listing:instagram_url'     => array( 'label' => __( 'Instagram', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'instagram_url' ) ),
+		'listing:twitter_url'       => array( 'label' => __( 'X (Twitter)', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'twitter_url' ) ),
+		'listing:youtube_url'       => array( 'label' => __( 'YouTube', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'youtube_url' ) ),
+	);
+
 	// Common aliases resolve to the per-type field so one template can serve
-	// both record types.
-	$alias = static function ( string $event_key, string $course_key ): callable {
-		return static function ( array $record, string $type, array $extra ) use ( $event_key, $course_key ) {
-			return agend_elementor_field_value( 'course' === $type ? $course_key : $event_key, $type, $record, $extra );
+	// any record type.
+	$alias = static function ( string $event_key, string $course_key, string $listing_key = '' ): callable {
+		return static function ( array $record, string $type, array $extra ) use ( $event_key, $course_key, $listing_key ) {
+			if ( 'course' === $type ) {
+				$key = $course_key;
+			} elseif ( 'listing' === $type ) {
+				$key = '' !== $listing_key ? $listing_key : $event_key;
+			} else {
+				$key = $event_key;
+			}
+			return agend_elementor_field_value( $key, $type, $record, $extra );
 		};
 	};
 	$common = array(
-		'common:title'       => array( 'label' => __( 'Title', 'agend-elementor' ), 'kind' => 'text', 'get' => $alias( 'event:name', 'course:title' ) ),
-		'common:description' => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $alias( 'event:description', 'course:description' ) ),
+		'common:title'       => array( 'label' => __( 'Title', 'agend-elementor' ), 'kind' => 'text', 'get' => $alias( 'event:name', 'course:title', 'listing:name' ) ),
+		'common:description' => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $alias( 'event:description', 'course:description', 'listing:description' ) ),
 		'common:excerpt'     => array( 'label' => __( 'Excerpt', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_excerpt' ),
-		'common:image'       => array( 'label' => __( 'Image', 'agend-elementor' ), 'kind' => 'url', 'get' => $alias( 'event:hero_image_url', 'course:image_url' ) ),
+		'common:image'       => array( 'label' => __( 'Image', 'agend-elementor' ), 'kind' => 'url', 'get' => $alias( 'event:hero_image_url', 'course:image_url', 'listing:hero_image_url' ) ),
 		'common:category'    => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
-		'common:price_from'  => array( 'label' => __( 'Price from', 'agend-elementor' ), 'kind' => 'price', 'get' => $alias( 'event:price_from', 'course:price' ) ),
-		'common:slug'        => array( 'label' => __( 'Slug', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'slug' ) ),
+		'common:price_from'  => array( 'label' => __( 'Price from', 'agend-elementor' ), 'kind' => 'price', 'types' => array( 'event', 'course' ), 'get' => $alias( 'event:price_from', 'course:price' ) ),
+		'common:slug'         => array( 'label' => __( 'Slug', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'slug' ) ),
+		'common:custom_field' => array(
+			'label' => __( 'Custom field (by key)', 'agend-elementor' ),
+			'kind'  => 'text',
+			'get'   => static function ( array $record, string $type, array $extra ) {
+				return agend_elementor_record_custom_field( $record, (string) ( $extra['custom_field_key'] ?? '' ) );
+			},
+		),
+		'common:custom_field_label' => array(
+			'label' => __( 'Custom field label (by key)', 'agend-elementor' ),
+			'kind'  => 'text',
+			'get'   => static function ( array $record, string $type, array $extra ) {
+				return agend_elementor_record_custom_field_label( $record, (string) ( $extra['custom_field_key'] ?? '' ) );
+			},
+		),
 		'common:detail_url'  => array(
 			'label' => __( 'Detail URL', 'agend-elementor' ),
 			'kind'  => 'url',
@@ -373,7 +551,10 @@ function agend_elementor_field_registry(): array {
 
 	$registry = array();
 	foreach ( $common as $key => $descriptor ) {
-		$registry[ $key ] = $descriptor + array( 'group' => $common_group, 'types' => $both_types );
+		$registry[ $key ] = $descriptor + array( 'group' => $common_group, 'types' => $all_types );
+	}
+	foreach ( $listing as $key => $descriptor ) {
+		$registry[ $key ] = $descriptor + array( 'group' => $listing_group, 'types' => $listing_types );
 	}
 	foreach ( $event as $key => $descriptor ) {
 		$registry[ $key ] = $descriptor + array( 'group' => $event_group, 'types' => $event_types );

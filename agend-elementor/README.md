@@ -4,9 +4,9 @@ Elementor widgets that surface Agend Events, Learning and Directory data inside 
 
 ## Dedicated catalogue pages
 
-Settings > Agend Widgets > Catalogue Pages lets a site nominate one **Events page** and one **Courses page**. With a page set:
+Settings > Agend Widgets > Catalogue Pages lets a site nominate one **Events page**, one **Courses page** and one **Directory page**. With a page set:
 
-- every Events or Courses Catalogue widget, wherever it sits, links items to `{page}/event/{slug}/` or `{page}/course/{slug}/` (or the `?agend_event=` / `?agend_course=` form without pretty permalinks);
+- every Events, Courses or Directory Catalogue widget, wherever it sits, links items to `{page}/event/{slug}/`, `{page}/course/{slug}/` or `{page}/listing/{slug}/` (or the `?agend_event=` / `?agend_course=` / `?agend_listing=` form without pretty permalinks);
 - a widget on any other page (a homepage CTA, for example) navigates to the dedicated page instead of opening the detail in place;
 - a detail URL requested on any other page is redirected (301) to the dedicated page;
 - the server-rendered detail only ever replaces the dedicated page.
@@ -15,7 +15,7 @@ With no page set, behaviour is unchanged: the page hosting the widget acts as it
 
 ## Card and detail templates
 
-Cards and detail pages can be designed as ordinary Elementor saved templates (Templates > Saved Templates, type Section, Container or Page) built from four widgets in the Agend Apps category:
+Cards and detail pages for events, courses and directory listings can be designed as ordinary Elementor saved templates (Templates > Saved Templates, type Section, Container or Page) built from five widgets in the Agend Apps category:
 
 | Widget | Purpose |
 | --- | --- |
@@ -25,9 +25,9 @@ Cards and detail pages can be designed as ordinary Elementor saved templates (Te
 | Agend Link / Button | Open detail, back to catalogue, register (events), enrol (courses), add to calendar (events), or a custom URL with `{slug}` and `{title}` tokens. |
 | Agend Content Block | The built-in detail panels as reusable blocks: event facts, registration, tickets, sponsors; course details, learning outcomes, pricing and enrolment. |
 
-Fields marked Common work in both event and course templates. In the editor the widgets show the first upcoming event or first course as preview data.
+Fields marked Common work in any template, resolving to that record type's equivalent. `Custom field (by key)` reads an Agend custom field by its key; which custom fields a visitor receives depends on their entitlements, so it renders empty for a visitor who is not entitled to that field. In the editor the widgets show the first upcoming event or first course as preview data.
 
-- **Card template**: chosen per catalogue widget (Content > Card Template). The first page is rendered server-side, one template render per record; filtering and pagination fetch rendered fragments from `GET /wp-json/agend-elementor/v1/cards/events` and `/cards/courses`. "Whole card links to the event" wraps each card in one anchor; turn it off to let only Agend Link widgets navigate.
+- **Card template**: chosen per catalogue widget (Content > Card Template). The first page is rendered server-side, one template render per record; filtering and pagination fetch rendered fragments from `GET /wp-json/agend-elementor/v1/cards/events`, `/cards/courses` and `/cards/listings`. "Whole card links to the event" wraps each card in one anchor; turn it off to let only Agend Link widgets navigate.
 - **Detail template**: chosen once per type in Settings > Agend Widgets, beside the dedicated page. A configured detail template is always server-rendered on the dedicated page, whatever the legacy "Server-rendered detail pages" toggle says.
 
 Choosing no template keeps the built-in card and detail layouts.
@@ -37,6 +37,8 @@ Choosing no template keeps the built-in card and detail layouts.
 - Elementor's element cache is keyed by document only, so the renderer disables it for the duration of each template render. Do not remove that filter: every card would show the first record.
 - A catalogue widget cannot be placed inside a card or detail template (it renders nothing on the live site and a notice in the editor).
 - Record images are remote URLs, not media-library attachments; WordPress image sizes do not apply.
+- Directory `custom_fields` are returned on the single-listing payload only, not on the search payload the catalogue reads, so a custom field placed on a card renders empty until the search endpoint returns them.
+- Responses for a signed-in member bypass the shared transient cache centrally in `Agend_Apps_API::get_cached()`, so entitlement-shaped fields are never served to the next visitor.
 
 ## Manual QA checklist
 

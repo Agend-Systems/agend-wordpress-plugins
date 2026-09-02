@@ -49,7 +49,7 @@ function agend_elementor_ssr_detail_registry(): array {
 			'resolver'  => 'agend_elementor_ssr_resolve_listing',
 			'segment'   => 'listing/',
 			'enqueue'   => 'agend_elementor_ssr_enqueue_directory',
-			'type'      => '',
+			'type'      => 'listing',
 		),
 		array(
 			'query_var' => 'event',
@@ -84,7 +84,12 @@ function agend_elementor_ssr_detail_registry(): array {
  * @return bool
  */
 function agend_elementor_ssr_any_detail_template(): bool {
-	return Agend_Elementor_Pages::detail_template_id( 'event' ) > 0 || Agend_Elementor_Pages::detail_template_id( 'course' ) > 0;
+	foreach ( array_keys( Agend_Elementor_Pages::types() ) as $type ) {
+		if ( Agend_Elementor_Pages::detail_template_id( $type ) > 0 ) {
+			return true;
+		}
+	}
+	return false;
 }
 
 function agend_elementor_ssr_maybe_render_detail(): void {
@@ -315,6 +320,29 @@ function agend_elementor_ssr_resolve_listing( string $slug, WP_Post $host ): ?ar
 	$reviews_response = function_exists( 'agend_apps_directory_get_listing_reviews' )
 		? agend_apps_directory_get_listing_reviews( $slug, array( 'limit' => 10 ) )
 		: null;
+
+	$template_id = Agend_Elementor_Pages::detail_template_id( 'listing' );
+	if ( $template_id > 0 && class_exists( 'Agend_Elementor_Template_Renderer' ) ) {
+		$html = Agend_Elementor_Template_Renderer::render(
+			$template_id,
+			'listing',
+			$item,
+			array(
+				'slug'         => $slug,
+				'reviews'      => $reviews_response,
+				'detail_url'   => Agend_Elementor_Pages::detail_url( 'listing', $slug, (int) $host->ID ),
+				'is_detail'    => true,
+				'host_page_id' => (int) $host->ID,
+				'host'         => $host,
+			)
+		);
+		if ( '' !== trim( $html ) ) {
+			return array(
+				'title'   => $name,
+				'content' => '<div class="agend-directory-catalogue agend-directory-catalogue--ssr agend-directory-catalogue--templated-detail" style="' . esc_attr( agend_elementor_ssr_colour_style( 'agend-dir' ) ) . '"><div class="agend-dir-detail agend-dir-detail--templated">' . $html . '</div></div>',
+			);
+		}
+	}
 
 	return array(
 		'title'   => $name,

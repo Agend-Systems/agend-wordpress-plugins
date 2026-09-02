@@ -67,6 +67,17 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'custom_field_key',
+			array(
+				'label'       => __( 'Custom field key', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::TEXT,
+				'default'     => '',
+				'description' => __( 'The key as configured in Agend, for example education_level. Which custom fields a visitor receives depends on their entitlements, so this renders empty for a visitor who is not entitled to it.', 'agend-elementor' ),
+				'condition'   => array( 'field' => array( 'common:custom_field', 'common:custom_field_label' ) ),
+			)
+		);
+
+		$this->add_control(
 			'html_tag',
 			array(
 				'label'   => __( 'HTML tag', 'agend-elementor' ),
@@ -328,7 +339,10 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 			return;
 		}
 
-		$html = agend_elementor_render_field( $key, $ctx['type'], $ctx['record'], $ctx['extra'], $this->format_options( $s ) );
+		$extra = $ctx['extra'];
+		$extra['custom_field_key'] = (string) ( $s['custom_field_key'] ?? '' );
+
+		$html = agend_elementor_render_field( $key, $ctx['type'], $ctx['record'], $extra, $this->format_options( $s ) );
 		if ( '' === $html ) {
 			$fallback = trim( (string) ( $s['fallback_text'] ?? '' ) );
 			if ( '' === $fallback ) {
@@ -346,8 +360,8 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 		}
 
 		// A card that is already one big link cannot contain another anchor.
-		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $ctx['extra']['in_card_link'] ) )
-			? (string) agend_elementor_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] )
+		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $extra['in_card_link'] ) )
+			? (string) agend_elementor_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $extra )
 			: '';
 		if ( '' !== $link && '#' !== $link ) {
 			$inner = '<a class="agend-field__link" href="' . esc_url( $link ) . '">' . $inner . '</a>';
