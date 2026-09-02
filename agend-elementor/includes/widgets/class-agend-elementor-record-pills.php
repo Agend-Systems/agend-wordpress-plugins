@@ -12,9 +12,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * The pill count follows the record, so an event with three tags renders three
- * pills from one widget. A record with no terms renders nothing at all, rather
- * than an empty styled pill, which is why this is a widget of its own rather
- * than an Agend Field styled to look like one.
+ * pills from one widget. An Agend Field styled to look like a pill cannot do
+ * that: it renders one element holding a joined list, so three tags become one
+ * wide chip reading "a, b, c".
+ *
+ * Elementor omits a widget entirely when its render produces no output, so a
+ * record with no terms leaves nothing behind either way.
  */
 class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 

@@ -91,6 +91,14 @@ function agend_elementor_filter_static_values( string $set ): array {
 			);
 		case 'featured':
 			return array( '1' => __( 'Featured only', 'agend-elementor' ) );
+		case 'listing_sort':
+			return array(
+				'relevance'  => __( 'Most relevant', 'agend-elementor' ),
+				'name'       => __( 'Name', 'agend-elementor' ),
+				'rating'     => __( 'Highest rated', 'agend-elementor' ),
+				'created_at' => __( 'Newest', 'agend-elementor' ),
+				'view_count' => __( 'Most viewed', 'agend-elementor' ),
+			);
 		case 'rating':
 			return array(
 				'4' => __( '4 stars and up', 'agend-elementor' ),
@@ -124,6 +132,14 @@ function agend_elementor_filter_registry(): array {
 		return $registry;
 	}
 
+	$reset = array(
+		'label'    => __( 'Clear filters', 'agend-elementor' ),
+		'state'    => '',
+		'mode'     => 'scalar',
+		'controls' => array( 'reset' ),
+		'source'   => null,
+	);
+
 	$search = array(
 		'label'    => __( 'Search', 'agend-elementor' ),
 		'state'    => 'search',
@@ -135,6 +151,7 @@ function agend_elementor_filter_registry(): array {
 	$registry = array(
 		'event'   => array(
 			'search'     => $search,
+			'reset'      => $reset,
 			'category'   => array(
 				'label'    => __( 'Category', 'agend-elementor' ),
 				'state'    => 'categories',
@@ -173,6 +190,7 @@ function agend_elementor_filter_registry(): array {
 		),
 		'course'  => array(
 			'search'        => $search,
+			'reset'         => $reset,
 			'category'      => array(
 				'label'       => __( 'Category', 'agend-elementor' ),
 				'state'       => 'category',
@@ -203,6 +221,7 @@ function agend_elementor_filter_registry(): array {
 		),
 		'listing' => array(
 			'search'   => $search,
+			'reset'    => $reset,
 			'category' => array(
 				'label'    => __( 'Category', 'agend-elementor' ),
 				'state'    => 'categories',
@@ -216,6 +235,13 @@ function agend_elementor_filter_registry(): array {
 				'mode'     => 'scalar',
 				'controls' => array( 'select', 'buttons' ),
 				'source'   => array( 'static' => 'rating' ),
+			),
+			'sort'     => array(
+				'label'    => __( 'Sort by', 'agend-elementor' ),
+				'state'    => 'sortBy',
+				'mode'     => 'scalar',
+				'controls' => array( 'select', 'buttons' ),
+				'source'   => array( 'static' => 'listing_sort' ),
 			),
 			'featured' => array(
 				'label'    => __( 'Featured', 'agend-elementor' ),

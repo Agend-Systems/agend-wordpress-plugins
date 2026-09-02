@@ -21,7 +21,7 @@ Cards and detail pages for events, courses and directory listings can be designe
 | --- | --- |
 | Agend Field | One value from the current record: title, dates, price, venue, category, level, duration, and so on, with per-kind formatting (date format, list separator, free label, yes/no text, truncation). |
 | Agend Image | The record image as an `img` (aspect ratio, object fit) or as a background. Background placement `fill` stretches behind the sibling widgets of the container it is dropped into; `parent` paints the image onto the parent container; `block` is a sized box. |
-| Agend Pills | A record's categories, tags or other terms, one styled pill per term. The pill count follows the record, and a record with no terms renders nothing rather than an empty pill. |
+| Agend Pills | A record's categories, tags or other terms, one styled pill per term. The pill count follows the record, where a styled Agend Field would render one chip holding a joined list. |
 | Agend Link / Button | Open detail, back to catalogue, register (events), enrol (courses), add to calendar (events), or a custom URL with `{slug}` and `{title}` tokens. |
 | Agend Content Block | The built-in detail panels as reusable blocks: event facts, registration, tickets, sponsors; course details, learning outcomes, pricing and enrolment; listing about, contact, categories, tags, gallery, locations, hours, custom fields, badges and reviews. |
 | Agend Filter | One catalogue filter control. Filter widgets go in a filter template that a catalogue widget is pointed at, so the controls survive the move between the listing and detail views. Each filter either lists every value of a field or sends author-defined choices, where one choice can stand for several values. |
@@ -54,10 +54,6 @@ Deferred deliberately, in rough order:
    endpoint exists.
 2. **Export reports.** Make the directory export reports interactive. Not started, and a separate
    surface from card and detail templating.
-4. **Empty styled wrappers.** A widget that renders nothing still leaves its Elementor wrapper, so
-   a styled chip (the events "Sold Out" badge, for example) shows as an empty pill. Agend Pills
-   solves this for terms by rendering nothing at all; the same treatment would suit any
-   conditionally-empty styled field.
 
 ## Manual QA checklist
 

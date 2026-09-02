@@ -179,8 +179,10 @@ function agend_elementor_listings_list_args( array $config, int $page = 1, array
 		'tag_ids'           => implode( ',', (array) ( $state['tag_ids'] ?? array() ) ),
 		'badge_ids'         => implode( ',', (array) ( $state['badge_ids'] ?? array() ) ),
 		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
-		'sortBy'            => 'relevance',
-		'sortOrder'         => 'desc',
+		// Relevance unless a Sort filter says otherwise; name reads better
+		// ascending, everything else descending.
+		'sortBy'            => '' !== (string) ( $state['sortBy'] ?? '' ) ? (string) $state['sortBy'] : 'relevance',
+		'sortOrder'         => 'name' === (string) ( $state['sortBy'] ?? '' ) ? 'asc' : 'desc',
 	);
 
 	return agend_elementor_fragment_query_args( $args, 'listing' );

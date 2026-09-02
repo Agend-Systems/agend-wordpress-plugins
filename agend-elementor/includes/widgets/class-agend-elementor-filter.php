@@ -82,6 +82,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 					'checkboxes' => __( 'Checkboxes', 'agend-elementor' ),
 					'buttons'    => __( 'Buttons', 'agend-elementor' ),
 					'date'       => __( 'Date', 'agend-elementor' ),
+					'reset'      => __( 'Clear button', 'agend-elementor' ),
 				),
 				'description' => __( 'Presentations the chosen filter does not support fall back to its default.', 'agend-elementor' ),
 			)
@@ -112,7 +113,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 				'label'     => __( 'Placeholder', 'agend-elementor' ),
 				'type'      => \Elementor\Controls_Manager::TEXT,
 				'default'   => '',
-				'condition' => array( 'control' => array( '', 'search', 'date' ) ),
+				'condition' => array( 'control' => array( '', 'search', 'date', 'reset' ) ),
 			)
 		);
 
@@ -134,7 +135,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 			array(
 				'label'     => __( 'Values', 'agend-elementor' ),
 				'tab'       => \Elementor\Controls_Manager::TAB_CONTENT,
-				'condition' => array( 'control!' => array( 'search', 'date' ) ),
+				'condition' => array( 'control!' => array( 'search', 'date', 'reset' ) ),
 			)
 		);
 
