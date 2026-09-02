@@ -224,6 +224,26 @@ function __( $text, $domain = null ): string {
 	return (string) $text;
 }
 
+/**
+ * The site timezone, fixed to UTC for deterministic test fixtures.
+ */
+function wp_timezone(): DateTimeZone {
+	return new DateTimeZone( 'UTC' );
+}
+
+/**
+ * Formats a timestamp in a given (or the site) timezone, mirroring wp_date()
+ * closely enough for the date-formatting unit tests: no WP_Locale month/day
+ * translation, since the format strings under test do not need it.
+ */
+function wp_date( string $format, ?int $timestamp = null, ?DateTimeZone $timezone = null ): string|false {
+	$timestamp = $timestamp ?? time();
+	$timezone  = $timezone ?? wp_timezone();
+	$datetime  = new DateTime( '@' . $timestamp );
+	$datetime->setTimezone( $timezone );
+	return $datetime->format( $format );
+}
+
 function wp_json_encode( $data ) {
 	return json_encode( $data );
 }

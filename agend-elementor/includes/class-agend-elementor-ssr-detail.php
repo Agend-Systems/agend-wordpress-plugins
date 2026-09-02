@@ -966,189 +966,6 @@ function agend_elementor_ssr_reviews_section( array $item, string $slug, $review
 }
 
 /**
- * Builds the default catalogue colour CSS variables for a server-rendered
- * detail.
- *
- * The virtual detail page is not tied to a specific widget instance, so the
- * plugin's default palette is applied. The prefix selects the widget family
- * ('agend-ev' for Events, 'agend-lms' for Courses).
- *
- * @param string $prefix The CSS-variable prefix (without the leading '--').
- * @return string The inline style declaration string.
- */
-function agend_elementor_ssr_colour_style( string $prefix ): string {
-	return sprintf(
-		'--%1$s-heading:#1E2A4A;--%1$s-body:#26304D;--%1$s-accent:#FF6B55;--%1$s-button:#FF6B55;--%1$s-button-text:#FFFFFF;--%1$s-card-radius:10px;',
-		$prefix
-	);
-}
-
-/**
- * Maps an event venue type to its display label.
- *
- * Mirrors TYPE_LABELS in assets/js/events-catalogue.js.
- *
- * @param string $type The venue type (physical, virtual, hybrid).
- * @return string The display label, or the raw type when unknown.
- */
-function agend_elementor_ssr_ev_type_label( string $type ): string {
-	$labels = array(
-		'physical' => __( 'In-Person', 'agend-elementor' ),
-		'virtual'  => __( 'Online', 'agend-elementor' ),
-		'hybrid'   => __( 'Hybrid', 'agend-elementor' ),
-	);
-	return $labels[ $type ] ?? $type;
-}
-
-/**
- * Formats an event date range as "6 Jul 2026" or "6 Jul 2026 – 8 Jul 2026".
- *
- * Mirrors dateRange() in assets/js/events-catalogue.js, formatted in the
- * event's own timezone via wp_date().
- *
- * @param mixed             $start ISO 8601 start datetime.
- * @param mixed             $end   ISO 8601 end datetime, or empty.
- * @param DateTimeZone|null $tz    The event timezone (null = site timezone).
- * @return string The formatted range, or empty string.
- */
-function agend_elementor_ssr_ev_date_range( $start, $end, ?DateTimeZone $tz = null ): string {
-	$start_ts = strtotime( (string) $start );
-	if ( ! $start_ts ) {
-		return '';
-	}
-	$start_str = wp_date( 'j M Y', $start_ts, $tz );
-	$end_ts    = strtotime( (string) $end );
-	if ( ! $end_ts ) {
-		return $start_str;
-	}
-	$end_str = wp_date( 'j M Y', $end_ts, $tz );
-	return $start_str === $end_str ? $start_str : $start_str . ' – ' . $end_str;
-}
-
-/**
- * Formats an event date and time, e.g. "Monday, 6 July 2026, 9:00 am – 5:00 pm
- * AEST".
- *
- * Mirrors dateTime() in assets/js/events-catalogue.js, formatted in the event's
- * own timezone via wp_date(), with the zone abbreviation appended so a time
- * shown in a zone other than the viewer's is unambiguous.
- *
- * @param mixed             $start ISO 8601 start datetime.
- * @param mixed             $end   ISO 8601 end datetime, or empty.
- * @param DateTimeZone|null $tz    The event timezone (null = site timezone).
- * @return string The formatted date and time, or empty string.
- */
-function agend_elementor_ssr_ev_date_time( $start, $end, ?DateTimeZone $tz = null ): string {
-	$start_ts = strtotime( (string) $start );
-	if ( ! $start_ts ) {
-		return '';
-	}
-	$str    = wp_date( 'l, j F Y', $start_ts, $tz ) . ', ' . wp_date( 'g:i a', $start_ts, $tz );
-	$end_ts = strtotime( (string) $end );
-	if ( $end_ts ) {
-		$str .= ' – ' . wp_date( 'g:i a', $end_ts, $tz );
-	}
-	$zone_label = wp_date( 'T', $start_ts, $tz );
-	if ( '' !== (string) $zone_label ) {
-		$str .= ' ' . $zone_label;
-	}
-	return $str;
-}
-
-/**
- * Formats a numeric price for the Events detail Tickets panel.
- *
- * Mirrors formatPrice() in assets/js/events-catalogue.js: null for a
- * non-numeric value, "FREE" for zero, "$X.XX" otherwise.
- *
- * @param mixed $value The raw price value (numeric or numeric string).
- * @return string|null The formatted price, or null when not numeric.
- */
-function agend_elementor_ssr_ev_format_price( $value ): ?string {
-	if ( null === $value || '' === $value || ! is_numeric( $value ) ) {
-		return null;
-	}
-	$num = (float) $value;
-	return 0.0 === $num ? __( 'FREE', 'agend-elementor' ) : '$' . number_format( $num, 2, '.', '' );
-}
-
-/**
- * Reads a ticket's first pricing-tier value for a group key.
- *
- * Mirrors ticketTierValue() in assets/js/events-catalogue.js.
- *
- * @param array  $entry The ticket entry (gateway shape).
- * @param string $key   The tier price key (member_price / non_member_price).
- * @return float|null The price, or null when the group has no explicit price.
- */
-function agend_elementor_ssr_ev_ticket_tier_value( array $entry, string $key ): ?float {
-	$tiers = ( isset( $entry['pricingTiers'] ) && is_array( $entry['pricingTiers'] ) ) ? $entry['pricingTiers'] : array();
-	if ( empty( $tiers ) ) {
-		return null;
-	}
-	$first = $tiers[0];
-	$tier  = ( isset( $first['tier'] ) && is_array( $first['tier'] ) ) ? $first['tier'] : $first;
-	if ( ! isset( $tier[ $key ] ) || null === $tier[ $key ] ) {
-		return null;
-	}
-	return is_numeric( $tier[ $key ] ) ? (float) $tier[ $key ] : null;
-}
-
-/**
- * Builds a single `.agend-ev-price` row (escaped) for the Tickets panel.
- *
- * @param string $label     The tier label.
- * @param string $price     The formatted price.
- * @param bool   $is_active Whether this is the viewer's applicable price.
- * @return string The row HTML.
- */
-function agend_elementor_ssr_ev_price_row( string $label, string $price, bool $is_active ): string {
-	$is_free = ( __( 'FREE', 'agend-elementor' ) === $price );
-	return sprintf(
-		'<div class="agend-ev-price%1$s"><span class="agend-ev-price__label">%2$s</span><span class="agend-ev-price__value%3$s">%4$s</span></div>',
-		$is_active ? ' is-yours' : '',
-		esc_html( $label ),
-		$is_free ? ' is-free' : '',
-		esc_html( $price )
-	);
-}
-
-/**
- * Builds the member/non-member price rows for one ticket (US-2.3).
- *
- * Mirrors ticketPriceRows() in assets/js/events-catalogue.js: the viewer's
- * applicable tier is highlighted via `.is-yours`; a flat-priced ticket (no
- * member/non-member split) shows a single highlighted price row.
- *
- * @param array $entry     The ticket entry (gateway shape).
- * @param bool  $is_member Whether the viewer's applicable price is the member tier.
- * @return string The concatenated, escaped price-row HTML (may be empty).
- */
-function agend_elementor_ssr_ev_ticket_price_rows( array $entry, bool $is_member ): string {
-	$member_val     = agend_elementor_ssr_ev_ticket_tier_value( $entry, 'member_price' );
-	$non_member_val = agend_elementor_ssr_ev_ticket_tier_value( $entry, 'non_member_price' );
-
-	// Flat price (no tiered split): a single applicable row.
-	if ( null === $member_val && null === $non_member_val ) {
-		$ticket = ( isset( $entry['ticket'] ) && is_array( $entry['ticket'] ) ) ? $entry['ticket'] : $entry;
-		$flat   = $ticket['price'] ?? ( $ticket['base_price'] ?? null );
-		$price  = agend_elementor_ssr_ev_format_price( $flat );
-		return null === $price ? '' : agend_elementor_ssr_ev_price_row( __( 'Price', 'agend-elementor' ), $price, true );
-	}
-
-	$html          = '';
-	$member_price  = agend_elementor_ssr_ev_format_price( $member_val );
-	if ( null !== $member_price ) {
-		$html .= agend_elementor_ssr_ev_price_row( __( 'Members', 'agend-elementor' ), $member_price, $is_member );
-	}
-	$non_member_price = agend_elementor_ssr_ev_format_price( $non_member_val );
-	if ( null !== $non_member_price ) {
-		$html .= agend_elementor_ssr_ev_price_row( __( 'Non-Members', 'agend-elementor' ), $non_member_price, ! $is_member );
-	}
-	return $html;
-}
-
-/**
  * Renders the server-side Events event detail body.
  *
  * Mirrors the client-side detail (assets/js/events-catalogue.js renderDetail):
@@ -1171,14 +988,7 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 
 	// Event times display in the event's own timezone (each event carries one),
 	// falling back to the site timezone for a missing or invalid value.
-	$event_tz = wp_timezone();
-	if ( ! empty( $item['timezone'] ) ) {
-		try {
-			$event_tz = new DateTimeZone( (string) $item['timezone'] );
-		} catch ( Exception $e ) {
-			$event_tz = wp_timezone();
-		}
-	}
+	$event_tz = agend_elementor_record_timezone( $item );
 
 	$cat = '';
 	if ( ! empty( $item['categories'][0]['name'] ) ) {
@@ -1189,7 +999,6 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 
 	$venue_type = isset( $item['venue_type'] ) ? (string) $item['venue_type'] : '';
 	$type_label = agend_elementor_ssr_ev_type_label( $venue_type );
-	$sold_out   = ! empty( $item['sold_out'] );
 
 	$venue_or_mode = ! empty( $item['venue_name'] )
 		? (string) $item['venue_name']
@@ -1198,19 +1007,6 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 		' · ',
 		array_filter( array( agend_elementor_ssr_ev_date_range( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ), $venue_or_mode ) )
 	);
-
-	$location = implode(
-		', ',
-		array_filter(
-			array( $item['venue_name'] ?? '', $item['venue_address'] ?? '', $item['venue_city'] ?? '' ),
-			static fn( $part ) => '' !== (string) $part
-		)
-	);
-	if ( '' === $location ) {
-		$location = 'virtual' === $venue_type ? __( 'Online', 'agend-elementor' ) : __( 'TBA', 'agend-elementor' );
-	}
-
-	$ical_url = rest_url( 'agend-apps/v1/events/' . rawurlencode( $slug ) . '/ical' );
 
 	$config = wp_json_encode(
 		array(
@@ -1263,261 +1059,18 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 						</section>
 					<?php endif; ?>
 
-					<?php if ( ! empty( $item['sponsors'] ) && is_array( $item['sponsors'] ) ) : ?>
-						<section class="agend-ev-detail__section">
-							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'Sponsors', 'agend-elementor' ); ?></h2>
-							<div class="agend-ev-detail__sponsors">
-								<?php foreach ( $item['sponsors'] as $sponsor ) : ?>
-									<?php if ( ! empty( $sponsor['logo_url'] ) ) : ?>
-										<img class="agend-ev-detail__sponsor-logo" src="<?php echo esc_url( $sponsor['logo_url'] ); ?>" alt="<?php echo esc_attr( $sponsor['name'] ?? '' ); ?>" loading="lazy" />
-									<?php elseif ( ! empty( $sponsor['name'] ) ) : ?>
-										<span class="agend-ev-detail__sponsor-name"><?php echo esc_html( $sponsor['name'] ); ?></span>
-									<?php endif; ?>
-								<?php endforeach; ?>
-							</div>
-						</section>
-					<?php endif; ?>
+					<?php echo agend_elementor_fragment_event_sponsors( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 				</div>
 
 				<aside class="agend-ev-detail__side">
-					<div class="agend-ev-detail__panel agend-ev-detail__panel--register">
-						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Registration', 'agend-elementor' ); ?></h2>
-						<?php
-						// Member enrichment (SPEC-CORE-20260722 US-2.3): the fetch is
-						// bearer-attended and cache-bypassed for signed-in members, so
-						// the viewer's registration state and price group arrive on
-						// $item. Absent fields resolve to the anonymous baseline.
-						$viewer_group   = isset( $item['viewer_price_group'] ) ? (string) $item['viewer_price_group'] : '';
-						$is_member      = ( 'member' === $viewer_group || 'corporate' === $viewer_group );
-						$is_registered  = ! empty( $item['my_registration'] );
-						$register_label = $sold_out
-							? __( 'Sold Out', 'agend-elementor' )
-							: ( $is_registered ? __( 'Register Another Attendee', 'agend-elementor' ) : __( 'Register Now', 'agend-elementor' ) );
-						?>
-						<?php if ( $is_registered ) : ?>
-							<div class="agend-ev-detail__registered"><?php esc_html_e( '✓ You’re registered for this event', 'agend-elementor' ); ?></div>
-						<?php endif; ?>
-						<button type="button" class="agend-ev-detail__cta" data-agend-event-slug="<?php echo esc_attr( $slug ); ?>"<?php echo $sold_out ? ' disabled' : ''; ?>>
-							<?php echo esc_html( $register_label ); ?>
-						</button>
-						<a class="agend-ev-detail__calendar" href="<?php echo esc_url( $ical_url ); ?>"><?php esc_html_e( 'Add to Calendar', 'agend-elementor' ); ?></a>
-						<?php if ( $is_member ) : ?>
-							<p class="agend-ev-detail__note"><?php esc_html_e( 'Member pricing applies to your registration.', 'agend-elementor' ); ?></p>
-						<?php else : ?>
-							<p class="agend-ev-detail__note"><?php esc_html_e( 'Not a member? Join for discounted pricing.', 'agend-elementor' ); ?></p>
-						<?php endif; ?>
-					</div>
+					<?php echo agend_elementor_fragment_event_registration( $item, $slug ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 
-					<?php
-					// Tickets panel (SPEC-CORE-20260722 US-2.3): all ticket types with
-					// the viewer's applicable price highlighted. Ticket prices are the
-					// public list; $is_member (from the event's bearer-enriched
-					// viewer_price_group) selects which row is active.
-					if ( ! empty( $tickets ) ) :
-						?>
-						<div class="agend-ev-detail__panel agend-ev-detail__panel--tickets">
-							<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Tickets', 'agend-elementor' ); ?></h2>
-							<div class="agend-ev-detail__tickets">
-								<?php
-								foreach ( $tickets as $entry ) :
-									if ( ! is_array( $entry ) ) {
-										continue;
-									}
-									$ticket      = ( isset( $entry['ticket'] ) && is_array( $entry['ticket'] ) ) ? $entry['ticket'] : $entry;
-									$ticket_name = isset( $ticket['name'] ) ? (string) $ticket['name'] : __( 'Ticket', 'agend-elementor' );
-									$rows        = agend_elementor_ssr_ev_ticket_price_rows( $entry, $is_member );
-									if ( '' === $rows ) {
-										continue;
-									}
-									?>
-									<div class="agend-ev-detail__ticket">
-										<span class="agend-ev-detail__ticket-name"><?php echo esc_html( $ticket_name ); ?></span>
-										<div class="agend-ev-detail__ticket-prices"><?php echo $rows; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Rows escaped in agend_elementor_ssr_ev_price_row(). ?></div>
-									</div>
-								<?php endforeach; ?>
-							</div>
-						</div>
-						<?php
-					endif;
-					?>
+					<?php echo agend_elementor_fragment_event_tickets( $item, $tickets ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 
-					<div class="agend-ev-detail__panel">
-						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Details', 'agend-elementor' ); ?></h2>
-						<?php
-						$facts = array(
-							array( __( 'Date & Time', 'agend-elementor' ), agend_elementor_ssr_ev_date_time( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ) ),
-							array( __( 'Location', 'agend-elementor' ), $location ),
-							array( __( 'Format', 'agend-elementor' ), $type_label ),
-						);
-						foreach ( $facts as $pair ) :
-							if ( '' === (string) $pair[1] ) {
-								continue;
-							}
-							?>
-							<div class="agend-ev-detail__fact">
-								<span class="agend-ev-detail__fact-label"><?php echo esc_html( $pair[0] ); ?></span>
-								<span class="agend-ev-detail__fact-value"><?php echo esc_html( $pair[1] ); ?></span>
-							</div>
-						<?php endforeach; ?>
-					</div>
+					<?php echo agend_elementor_fragment_event_facts( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 				</aside>
 			</div>
 		</div>
-	</div>
-	<?php
-	return (string) ob_get_clean();
-}
-
-/**
- * Formats a course duration in minutes as "2h 30m" / "45m" / "Self-paced".
- *
- * Mirrors formatDuration() in assets/js/courses-catalogue.js.
- *
- * @param mixed $minutes Total duration in minutes.
- * @return string The formatted duration.
- */
-function agend_elementor_ssr_lms_duration( $minutes ): string {
-	$m = is_numeric( $minutes ) ? (int) $minutes : 0;
-	if ( $m <= 0 ) {
-		return __( 'Self-paced', 'agend-elementor' );
-	}
-	$hours   = intdiv( $m, 60 );
-	$remains = $m % 60;
-	if ( $hours && $remains ) {
-		return $hours . 'h ' . $remains . 'm';
-	}
-	return $hours ? $hours . 'h' : $remains . 'm';
-}
-
-/**
- * Maps a course difficulty to its display label.
- *
- * Mirrors DIFFICULTY_LABELS in assets/js/courses-catalogue.js.
- *
- * @param string $value The difficulty value.
- * @return string The display label, the raw value when unknown, or empty.
- */
-function agend_elementor_ssr_lms_difficulty( string $value ): string {
-	if ( '' === $value ) {
-		return '';
-	}
-	$labels = array(
-		'beginner'     => __( 'Beginner', 'agend-elementor' ),
-		'intermediate' => __( 'Intermediate', 'agend-elementor' ),
-		'advanced'     => __( 'Advanced', 'agend-elementor' ),
-		'all_levels'   => __( 'All Levels', 'agend-elementor' ),
-	);
-	return $labels[ $value ] ?? $value;
-}
-
-/**
- * Maps a course delivery mode to its display label.
- *
- * Mirrors DELIVERY_MODE_LABELS in assets/js/courses-catalogue.js (an unknown or
- * unset mode yields an empty label).
- *
- * @param string $value The delivery mode value.
- * @return string The display label, or empty string.
- */
-function agend_elementor_ssr_lms_mode( string $value ): string {
-	$labels = array(
-		'self_paced'  => __( 'Self-paced', 'agend-elementor' ),
-		'live_online' => __( 'Live Online', 'agend-elementor' ),
-		'in_person'   => __( 'In-Person', 'agend-elementor' ),
-		'blended'     => __( 'Blended', 'agend-elementor' ),
-	);
-	return $labels[ $value ] ?? '';
-}
-
-/**
- * Formats a course price as "$120.00" or "Free".
- *
- * Mirrors priceLabel() in assets/js/courses-catalogue.js.
- *
- * @param array $course Course detail (gateway shape).
- * @return string The formatted price.
- */
-function agend_elementor_ssr_lms_price( array $course ): string {
-	if ( ! empty( $course['is_free'] ) ) {
-		return __( 'Free', 'agend-elementor' );
-	}
-	$price = $course['base_price'] ?? null;
-	$num   = is_numeric( $price ) ? (float) $price : 0.0;
-	if ( $num <= 0.0 ) {
-		return __( 'Free', 'agend-elementor' );
-	}
-	// No thousands separator, matching the client priceLabel() (toFixed(2)) used
-	// on the catalogue cards and the client-rendered detail.
-	return '$' . number_format( $num, 2, '.', '' );
-}
-
-/**
- * Renders the sidebar enrolment panel for a signed-in member's course.
- *
- * Mirrors renderEnrollmentPanel() in assets/js/courses-catalogue.js: a
- * completed enrolment shows the completed state (semantic green), an in-progress
- * enrolment shows a progress bar, and neither ever shows a price
- * (SPEC-CORE-20260722 US-2.4, Decision 2.9).
- *
- * @param array $enrollment The viewer's my_enrollment record (gateway shape).
- * @return string Panel HTML with all dynamic values escaped.
- */
-function agend_elementor_ssr_lms_enrollment_panel( array $enrollment ): string {
-	$progress = ( ! empty( $enrollment['progress'] ) && is_array( $enrollment['progress'] ) )
-		? $enrollment['progress']
-		: array();
-
-	ob_start();
-
-	if ( ! empty( $progress['completed'] ) ) {
-		$when = '';
-		if ( ! empty( $progress['completed_at'] ) ) {
-			$ts = strtotime( (string) $progress['completed_at'] );
-			if ( false !== $ts ) {
-				$when = ' ' . sprintf(
-					/* translators: %s: completion date. */
-					__( 'on %s', 'agend-elementor' ),
-					wp_date( (string) get_option( 'date_format', 'j M Y' ), $ts )
-				);
-			}
-		}
-		?>
-		<div class="agend-lms-detail__panel agend-lms-detail__panel--enrollment is-completed">
-			<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Course Completed', 'agend-elementor' ); ?></h2>
-			<div class="agend-lms-enrol__completed">
-				<span class="agend-lms-enrol__tick">&#10003;</span>
-				<span class="agend-lms-enrol__completed-text">
-					<?php
-					/* translators: %s: optional " on <date>" suffix. */
-					echo esc_html( sprintf( __( 'You completed this course%s.', 'agend-elementor' ), $when ) );
-					?>
-				</span>
-			</div>
-			<p class="agend-lms-detail__note"><?php esc_html_e( 'Your certificate is available in your learning portal.', 'agend-elementor' ); ?></p>
-		</div>
-		<?php
-		return (string) ob_get_clean();
-	}
-
-	$pct       = max( 0, min( 100, (int) round( (float) ( $progress['percentage'] ?? 0 ) ) ) );
-	$done      = (int) ( $progress['lessons_completed'] ?? 0 );
-	$total     = (int) ( $progress['total_lessons'] ?? 0 );
-	?>
-	<div class="agend-lms-detail__panel agend-lms-detail__panel--enrollment">
-		<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Your Progress', 'agend-elementor' ); ?></h2>
-		<div class="agend-lms-enrol__bar">
-			<div class="agend-lms-enrol__bar-fill" style="width:<?php echo esc_attr( $pct ); ?>%;"></div>
-		</div>
-		<div class="agend-lms-enrol__meta">
-			<span class="agend-lms-enrol__lessons">
-				<?php
-				/* translators: 1: completed module count, 2: total module count. */
-				echo esc_html( sprintf( __( '%1$d of %2$d modules complete', 'agend-elementor' ), $done, $total ) );
-				?>
-			</span>
-			<span class="agend-lms-enrol__pct"><?php echo esc_html( $pct . '%' ); ?></span>
-		</div>
-		<p class="agend-lms-detail__note"><?php esc_html_e( 'Continue learning in your member portal.', 'agend-elementor' ); ?></p>
 	</div>
 	<?php
 	return (string) ob_get_clean();
@@ -1548,7 +1101,6 @@ function agend_elementor_render_courses_detail( array $item, string $slug, WP_Po
 	$instructor = isset( $item['instructor_name'] ) ? (string) $item['instructor_name'] : '';
 	$duration   = agend_elementor_ssr_lms_duration( $item['total_duration_minutes'] ?? null );
 	$lessons    = (int) ( $item['lessons_count'] ?? 0 );
-	$price      = agend_elementor_ssr_lms_price( $item );
 
 	$meta_line = implode(
 		' · ',
@@ -1560,9 +1112,6 @@ function agend_elementor_render_courses_detail( array $item, string $slug, WP_Po
 			)
 		)
 	);
-
-	$detail_url  = trailingslashit( is_string( $host_url ) ? $host_url : '' ) . 'course/' . $slug . '/';
-	$sign_in_url = wp_login_url( $detail_url );
 
 	ob_start();
 	?>
@@ -1601,80 +1150,13 @@ function agend_elementor_render_courses_detail( array $item, string $slug, WP_Po
 						</section>
 					<?php endif; ?>
 
-					<?php
-					$outcomes = ( ! empty( $item['learning_outcomes'] ) && is_array( $item['learning_outcomes'] ) )
-						? $item['learning_outcomes']
-						: array();
-					if ( ! empty( $outcomes ) ) :
-						?>
-						<section class="agend-lms-detail__section">
-							<h2 class="agend-lms-detail__section-title"><?php esc_html_e( "What You'll Learn", 'agend-elementor' ); ?></h2>
-							<ul class="agend-lms-detail__outcomes">
-								<?php
-								foreach ( $outcomes as $outcome ) :
-									$text = is_string( $outcome ) ? $outcome : (string) ( $outcome['text'] ?? '' );
-									if ( '' === $text ) {
-										continue;
-									}
-									?>
-									<li class="agend-lms-detail__outcome"><?php echo esc_html( $text ); ?></li>
-								<?php endforeach; ?>
-							</ul>
-						</section>
-					<?php endif; ?>
+					<?php echo agend_elementor_fragment_course_outcomes( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 				</div>
 
 				<aside class="agend-lms-detail__side">
-					<?php
-					// Member enrichment (SPEC-CORE-20260722 US-2.4): the LMS
-					// single-course fetch bypasses the shared cache for a signed-in
-					// member, so my_enrollment arrives on $item. An enrolled member
-					// gets their progress panel and never the "Sign in to enrol"
-					// pricing shell (Decision 2.9); everyone else keeps the
-					// anonymous pricing panel and the client hydrates the
-					// identity-aware CTA.
-					$enrollment = ( ! empty( $item['my_enrollment'] ) && is_array( $item['my_enrollment'] ) )
-						? $item['my_enrollment']
-						: null;
-					if ( null !== $enrollment ) {
-						echo agend_elementor_ssr_lms_enrollment_panel( $enrollment ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Panel escapes internally.
-					} else {
-						?>
-						<div class="agend-lms-detail__panel agend-lms-detail__panel--pricing">
-							<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Course Pricing', 'agend-elementor' ); ?></h2>
-							<div class="agend-lms-detail__price-row">
-								<span class="agend-lms-detail__price-label"><?php esc_html_e( 'Price', 'agend-elementor' ); ?></span>
-								<span class="agend-lms-detail__price-value<?php echo ( __( 'Free', 'agend-elementor' ) === $price ) ? ' is-free' : ''; ?>"><?php echo esc_html( $price ); ?></span>
-							</div>
-							<a class="agend-lms-detail__cta" href="<?php echo esc_url( $sign_in_url ); ?>"><?php esc_html_e( 'Enrol Now', 'agend-elementor' ); ?></a>
-							<p class="agend-lms-detail__note"><?php esc_html_e( 'Sign in to enrol and track your progress.', 'agend-elementor' ); ?></p>
-						</div>
-						<?php
-					}
-					?>
+					<?php echo agend_elementor_fragment_course_enrolment( $item, $slug, array( 'host' => $host ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 
-					<div class="agend-lms-detail__panel">
-						<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Details', 'agend-elementor' ); ?></h2>
-						<?php
-						$facts = array(
-							array( __( 'Level', 'agend-elementor' ), agend_elementor_ssr_lms_difficulty( $difficulty ) ),
-							array( __( 'Format', 'agend-elementor' ), agend_elementor_ssr_lms_mode( $mode ) ),
-							array( __( 'Duration', 'agend-elementor' ), $duration ),
-							array( __( 'Modules', 'agend-elementor' ), $lessons > 0 ? (string) $lessons : '' ),
-							array( __( 'Category', 'agend-elementor' ), $category ),
-							array( __( 'Instructor', 'agend-elementor' ), $instructor ),
-						);
-						foreach ( $facts as $pair ) :
-							if ( '' === (string) $pair[1] ) {
-								continue;
-							}
-							?>
-							<div class="agend-lms-detail__fact">
-								<span class="agend-lms-detail__fact-label"><?php echo esc_html( $pair[0] ); ?></span>
-								<span class="agend-lms-detail__fact-value"><?php echo esc_html( $pair[1] ); ?></span>
-							</div>
-						<?php endforeach; ?>
-					</div>
+					<?php echo agend_elementor_fragment_course_meta( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 				</aside>
 			</div>
 		</div>
