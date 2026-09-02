@@ -40,6 +40,29 @@ Choosing no template keeps the built-in card and detail layouts.
 - Directory `custom_fields` are returned on the single-listing payload only, not on the search payload the catalogue reads, so a custom field placed on a card renders empty until the search endpoint returns them.
 - Responses for a signed-in member bypass the shared transient cache centrally in `Agend_Apps_API::get_cached()`, so entitlement-shaped fields are never served to the next visitor.
 
+## Next follow-ups
+
+Deferred deliberately, in rough order:
+
+1. **Filter widget.** Split each catalogue's filter bar into a dedicated Elementor filter widget,
+   placed in a saved template that the catalogue widget is pointed at. Filters either enumerate
+   every value of a field (categories, tags, badges, custom fields) or send an author-defined
+   selection ("Between 50 and 100", "All States"). The API work this needs is written up in the
+   dashboard repo at `.docs/reports/elementor-filter-widget-api-requirements.md`; the WordPress
+   half includes forwarding `tag_ids`, `badge_ids`, `location` and `sponsor_level` through the
+   Agend Apps Core directory proxy, which currently drops them.
+2. **Directory content blocks.** Events and courses expose their built-in detail panels as Agend
+   Content Block options; the directory does not, so a listing detail template composes from
+   fields and pills only. Extract the reviews, gallery, contact, badges and custom-field panels
+   from `agend_elementor_render_directory_detail()` the same way the events and course fragments
+   were extracted.
+3. **Export reports.** Make the directory export reports interactive. Not started, and a separate
+   surface from card and detail templating.
+4. **Empty styled wrappers.** A widget that renders nothing still leaves its Elementor wrapper, so
+   a styled chip (the events "Sold Out" badge, for example) shows as an empty pill. Agend Pills
+   solves this for terms by rendering nothing at all; the same treatment would suit any
+   conditionally-empty styled field.
+
 ## Manual QA checklist
 
 The PHPUnit suite (`composer test`, suite `agend-elementor`) covers the pure pieces: URL resolution, redirect decision, record context, field values and formatting, template options, query builders. The following needs a WordPress site with Elementor.
