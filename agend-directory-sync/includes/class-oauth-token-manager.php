@@ -1,13 +1,15 @@
 <?php
 /**
- * OAuth 2.0 client-credentials token acquisition for the Custom HTTP API
- * source.
+ * OAuth 2.0 client-credentials token acquisition, shared by every source that
+ * authenticates that way (the Custom HTTP API source, and the Dataverse source
+ * against Microsoft Entra ID).
  *
  * Acquires an access token via the `client_credentials` grant, authenticating
  * to the token endpoint with HTTP Basic (client id + secret) per US-2.2
- * criterion 3. The client secret is read from the
- * `AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET` constant at call time only; it is
- * never copied into an option or any serialisable object state
+ * criterion 3, or with form-encoded credentials when the caller asks. The
+ * client secret is read from the caller's nominated encrypted store key (or
+ * wp-config.php constant) at call time only; it is never copied into an option
+ * or any serialisable object state
  * (SPEC-DIR-20260731 Decision 2.4). The acquired access token is cached in a
  * transient keyed on the token endpoint + client id, expiring 60 seconds
  * before the token response's `expires_in` (US-2.2 criterion 4); the transient
@@ -22,6 +24,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 	final class Agend_Directory_Sync_Oauth_Token_Manager {
+
+		/**
+		 * How the token request authenticates the client: HTTP Basic header,
+		 * or form-encoded credentials in the body (RFC 6749
+		 * client_secret_post, the style Microsoft Entra ID and other Azure AD
+		 * collections use).
+		 */
+		public const CLIENT_AUTH_BASIC = 'basic';
+		public const CLIENT_AUTH_BODY  = 'body';
 
 		/**
 		 * Assumed token lifetime when the token response omits `expires_in`.
@@ -53,16 +64,26 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 		 *                            client_secret, RFC 6749
 		 *                            client_secret_post). Anything else is
 		 *                            treated as `basic`.
+		 * @param string|null $secret_store_key Which encrypted secret holds
+		 *                            this caller's client secret, and
+		 *                            $secret_constant the wp-config.php
+		 *                            constant that overrides it. Both default
+		 *                            to the Custom HTTP API source's pair, so
+		 *                            a source with its own credentials (the
+		 *                            Dataverse source) reads its own secret
+		 *                            without the two sharing one value.
 		 *
-		 * @throws RuntimeException When the token request fails, or the
-		 *                          client secret constant is undefined.
+		 * @throws RuntimeException When the token request fails, or no client
+		 *                          secret is set.
 		 */
 		public static function get_access_token(
 			string $token_url,
 			string $client_id,
 			string $scope,
 			string $client_auth = 'basic',
-			bool $force_refresh = false
+			bool $force_refresh = false,
+			?string $secret_store_key = null,
+			?string $secret_constant = null
 		): string {
 			$key = self::transient_key( $token_url, $client_id );
 
@@ -73,7 +94,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 				}
 			}
 
-			$token_data   = self::acquire_token( $token_url, $client_id, $scope, $client_auth );
+			$token_data   = self::acquire_token( $token_url, $client_id, $scope, $client_auth, $secret_store_key, $secret_constant );
 			$access_token = (string) ( $token_data['access_token'] ?? '' );
 
 			if ( '' === $access_token ) {
@@ -131,14 +152,27 @@ if ( ! class_exists( 'Agend_Directory_Sync_Oauth_Token_Manager' ) ) :
 		 *                          request transport-fails, the endpoint
 		 *                          responds non-2xx, or the body is not JSON.
 		 */
-		private static function acquire_token( string $token_url, string $client_id, string $scope, string $client_auth ): array {
-			$client_secret = Agend_Directory_Sync_Secret_Store::resolve(
-				Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET,
-				'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET'
-			);
+		private static function acquire_token(
+			string $token_url,
+			string $client_id,
+			string $scope,
+			string $client_auth,
+			?string $secret_store_key = null,
+			?string $secret_constant = null
+		): array {
+			$store_key = $secret_store_key ?? Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET;
+			$constant  = $secret_constant ?? 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET';
+
+			$client_secret = Agend_Directory_Sync_Secret_Store::resolve( $store_key, $constant );
 
 			if ( '' === $client_secret ) {
-				throw new RuntimeException( __( 'No client secret is set. Enter it under OAuth client credentials settings (stored encrypted), or define AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET in wp-config.php.', 'agend-directory-sync' ) );
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the wp-config.php constant that can hold the client secret. */
+						__( 'No client secret is set. Enter it under the connection settings (stored encrypted), or define %s in wp-config.php.', 'agend-directory-sync' ),
+						$constant
+					)
+				);
 			}
 
 			$body = array( 'grant_type' => 'client_credentials' );

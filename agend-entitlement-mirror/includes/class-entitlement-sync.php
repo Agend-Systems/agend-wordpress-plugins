@@ -90,17 +90,20 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		/**
 		 * Registers the webhook listeners, the login hook, and the retry hook.
 		 *
-		 * Guarded behind the enable toggle AND kiosk availability, degrading
-		 * silently (no notices spam) when either is absent -- the module is only
-		 * meaningful on a site running the kiosk, and only when an operator has
-		 * opted in.
+		 * Guarded behind the enable toggle AND the active source's
+		 * availability, degrading silently (no notices spam) when either is
+		 * absent -- the module is only meaningful when a data source is
+		 * actually usable, and only when an operator has opted in. The
+		 * webhook actions this subscribes to are fired by the kiosk plugin
+		 * specifically; a site running a non-Upbeat source still benefits
+		 * from the login/SSO reconciliation paths, which are source-neutral.
 		 */
 		public static function register(): void {
 			if ( ! Agend_Entitlement_Mirror_Settings::is_entitlement_mirror_enabled() ) {
 				return;
 			}
 
-			if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
+			if ( ! Agend_Entitlement_Mirror_Source_Registry::active()->is_available() ) {
 				return;
 			}
 
@@ -494,35 +497,15 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		}
 
 		/**
-		 * Resolves a member's profile (email, first/last name) from the kiosk,
-		 * used only if a contact must be created by the grants endpoint's
-		 * create-on-miss path.
+		 * Resolves a member's profile (email, first/last name) from the active
+		 * source, used only if a contact must be created by the grants
+		 * endpoint's create-on-miss path.
 		 *
 		 * @param string $member_id Kiosk membership number.
 		 * @return array{email: string, first_name: string, last_name: string}
 		 */
 		public static function member_profile( string $member_id ): array {
-			$profile = array(
-				'email'      => '',
-				'first_name' => '',
-				'last_name'  => '',
-			);
-
-			if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
-				return $profile;
-			}
-
-			$member = Iugo_Membership_Kiosk_API::instance()->get_member_details_by_id( $member_id );
-
-			if ( ! ( $member instanceof Iugo_Membership_Kiosk_API_MemberDetail ) ) {
-				return $profile;
-			}
-
-			$profile['email']      = (string) $member->get_email();
-			$profile['first_name'] = (string) $member->get_first_name();
-			$profile['last_name']  = (string) $member->get_last_name();
-
-			return $profile;
+			return Agend_Entitlement_Mirror_Source_Registry::active()->fetch_member_profile( $member_id );
 		}
 
 		/**
@@ -577,20 +560,23 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 
 		/**
 		 * Discovers the current mirrorable entitlement-type declarations from
-		 * the kiosk: `get_entitlement_types()` filtered to the configured
-		 * category allow-list, converted to `gate_key`s and deduplicated with the
-		 * same rules as the per-member collector (US-2.4 AC1 / US-5.1).
+		 * the active source: `fetch_entitlement_types()` filtered to the
+		 * configured category allow-list, converted to `gate_key`s and
+		 * deduplicated with the same rules as the per-member collector
+		 * (US-2.4 AC1 / US-5.1).
 		 *
 		 * @return array<int, array{gate_key: string, name: string}>
 		 */
 		public static function discover_type_entries(): array {
-			if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
+			$source = Agend_Entitlement_Mirror_Source_Registry::active();
+
+			if ( ! $source->is_available() ) {
 				return array();
 			}
 
-			$types = Iugo_Membership_Kiosk_API::instance()->get_entitlement_types();
-
-			if ( ! is_array( $types ) ) {
+			try {
+				$types = $source->fetch_entitlement_types();
+			} catch ( Throwable $e ) {
 				return array();
 			}
 
@@ -598,17 +584,17 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 			$rows                = array();
 
 			foreach ( $types as $type ) {
-				if ( ! $type instanceof Iugo_Membership_Kiosk_API_Entitlement_Type ) {
+				if ( ! is_array( $type ) ) {
 					continue;
 				}
 
-				$category = (string) $type->get_category();
+				$category = (string) ( $type['category'] ?? '' );
 
 				if ( ! Agend_Entitlement_Collector::category_allowed( $category, $allowed_categories ) ) {
 					continue;
 				}
 
-				$type_name = (string) $type->get_type();
+				$type_name = (string) ( $type['type'] ?? '' );
 
 				$gate_key = Agend_Entitlement_Collector::gate_key( $category, $type_name );
 

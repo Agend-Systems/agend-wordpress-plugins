@@ -50,6 +50,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 		 *     external_source: string,
 		 *     auto_publish_approved: bool,
 		 *     max_records: int,
+		 *     pages_fetched: int,
+		 *     page_window_truncated: bool,
 		 *     listings: array<int, array<string, mixed>>,
 		 *     send: array<string, mixed>
 		 * }
@@ -93,6 +95,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 				$skip_reasons['row_not_an_object']   = ( $skip_reasons['row_not_an_object'] ?? 0 ) + $source_row_skips;
 			}
 
+			// A paged source can be configured to fetch only part of the set (a
+			// FetchXML page window). Surfaced because every downstream count
+			// then describes a slice, not the directory: an operator reading
+			// "fetched 500" without it would conclude the source had 500 rows.
+			$page_window_truncated = method_exists( $source, 'stopped_at_page_limit' )
+				&& $source->stopped_at_page_limit();
+			$pages_fetched         = method_exists( $source, 'get_pages_fetched' )
+				? (int) $source->get_pages_fetched()
+				: 0;
+
 			$send_summary = array();
 			if ( ! $dry_run && ! empty( $listings ) ) {
 				$agend        = new Agend_Directory_Sync_Agend_Client();
@@ -115,6 +127,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 				'external_source'        => $external_source,
 				'auto_publish_approved'  => $auto_publish,
 				'max_records'            => $max_records,
+				'pages_fetched'          => $pages_fetched,
+				'page_window_truncated'  => $page_window_truncated,
 				'listings'               => $listings,
 				'send'                   => $send_summary,
 			);

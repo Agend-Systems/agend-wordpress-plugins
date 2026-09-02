@@ -157,6 +157,59 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 				self::MENU_SLUG,
 				'agend_entitlement_mirror_section'
 			);
+
+			register_setting(
+				self::OPTION_GROUP,
+				Agend_Entitlement_Mirror_Source_Registry::OPTION_DATA_SOURCE,
+				array(
+					'type'              => 'string',
+					'sanitize_callback' => array( __CLASS__, 'sanitize_data_source' ),
+					'default'           => Agend_Entitlement_Mirror_Source_Registry::DEFAULT_SOURCE_KEY,
+				)
+			);
+			add_settings_field(
+				Agend_Entitlement_Mirror_Source_Registry::OPTION_DATA_SOURCE,
+				__( 'Data Source', 'agend-entitlement-mirror' ),
+				array( __CLASS__, 'render_entitlement_mirror_data_source_field' ),
+				self::MENU_SLUG,
+				'agend_entitlement_mirror_section'
+			);
+
+			register_setting(
+				self::OPTION_GROUP,
+				Agend_Entitlement_Mirror_Http_Api_Source::OPTION_SETTINGS,
+				array(
+					'type'              => 'array',
+					'sanitize_callback' => array( 'Agend_Entitlement_Mirror_Http_Api_Source', 'sanitize_settings' ),
+					'default'           => array(),
+				)
+			);
+			add_settings_field(
+				Agend_Entitlement_Mirror_Http_Api_Source::OPTION_SETTINGS,
+				__( 'Custom HTTP API Settings', 'agend-entitlement-mirror' ),
+				array( __CLASS__, 'render_entitlement_mirror_http_api_field' ),
+				self::MENU_SLUG,
+				'agend_entitlement_mirror_section'
+			);
+		}
+
+		/**
+		 * Sanitizes the data-source field: only a key registered in
+		 * Agend_Entitlement_Mirror_Source_Registry is accepted, otherwise the
+		 * default (`upbeat`) is stored -- an unrecognised value would silently
+		 * resolve to `upbeat` anyway at read time
+		 * (Agend_Entitlement_Mirror_Source_Registry::active()), so rejecting it
+		 * at save time keeps the stored option consistent with what actually
+		 * runs.
+		 *
+		 * @param mixed $value The posted field value.
+		 * @return string
+		 */
+		public static function sanitize_data_source( $value ): string {
+			$candidate = trim( (string) $value );
+			$sources   = Agend_Entitlement_Mirror_Source_Registry::all();
+
+			return isset( $sources[ $candidate ] ) ? $candidate : Agend_Entitlement_Mirror_Source_Registry::DEFAULT_SOURCE_KEY;
 		}
 
 		/**
@@ -217,7 +270,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 		 * Renders the Entitlement Mirror settings section description.
 		 */
 		public static function render_entitlement_mirror_section(): void {
-			echo '<p>' . esc_html__( 'Mirrors Upbeat entitlements into Agend CRM entitlement grants (SPEC-CRM-20260805-member-entitlement-grants). Requires the iugo-membership-kiosk plugin. Off by default: enable only after the Contact External Source below is confirmed for this install.', 'agend-entitlement-mirror' ) . '</p>';
+			echo '<p>' . esc_html__( 'Mirrors member entitlements from the configured Data Source into Agend CRM entitlement grants. Off by default: enable only after the Contact External Source below is confirmed for this install.', 'agend-entitlement-mirror' ) . '</p>';
 		}
 
 		/**
@@ -288,6 +341,88 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 			);
 			echo '<p class="description">';
 			esc_html_e( 'The stable identifier Agend uses for this upstream system\'s entitlement types and grants. Lowercase letters, digits, underscores, and dots only, 3-64 characters. "manual" is reserved for staff-made grants and cannot be used. Set this once before the first sync: changing it later strands grants made under the old key -- they stay granted under that old source until revoked there, they do not move.', 'agend-entitlement-mirror' );
+			echo '</p>';
+		}
+
+		/**
+		 * Renders the data-source `<select>`, listing every source registered
+		 * in Agend_Entitlement_Mirror_Source_Registry (built-ins plus anything
+		 * added via the `agend_entitlement_mirror_sources` filter), each
+		 * annotated with its current availability.
+		 */
+		public static function render_entitlement_mirror_data_source_field(): void {
+			$sources     = Agend_Entitlement_Mirror_Source_Registry::all();
+			$active_key  = Agend_Entitlement_Mirror_Source_Registry::active()->get_key();
+
+			echo '<select id="' . esc_attr( Agend_Entitlement_Mirror_Source_Registry::OPTION_DATA_SOURCE ) . '" name="' . esc_attr( Agend_Entitlement_Mirror_Source_Registry::OPTION_DATA_SOURCE ) . '">';
+			foreach ( $sources as $key => $source ) {
+				printf(
+					'<option value="%s"%s>%s%s</option>',
+					esc_attr( $key ),
+					selected( $active_key, $key, false ),
+					esc_html( $source->get_label() ),
+					$source->is_available() ? '' : ' ' . esc_html__( '(unavailable)', 'agend-entitlement-mirror' )
+				);
+			}
+			echo '</select>';
+
+			$active_source = $sources[ $active_key ] ?? null;
+			if ( $active_source && ! $active_source->is_available() ) {
+				echo '<p class="description" style="color:#b32d2e;">' . esc_html( $active_source->get_unavailable_reason() ) . '</p>';
+			}
+
+			echo '<p class="description">';
+			esc_html_e( 'Which system the mirror reads member entitlements, member profiles, the entitlement-type catalogue, and the member list from.', 'agend-entitlement-mirror' );
+			echo '</p>';
+		}
+
+		/**
+		 * Renders the Custom HTTP API source's settings (base URL, timeout,
+		 * endpoint paths, member-list page size). Shown regardless of which
+		 * source is currently active -- kept simple rather than JS-toggled,
+		 * since it is only consulted when Data Source above is set to Custom
+		 * HTTP API. The bearer token itself is never rendered or stored here:
+		 * see AGEND_ENTITLEMENT_MIRROR_HTTP_TOKEN in wp-config.php.
+		 */
+		public static function render_entitlement_mirror_http_api_field(): void {
+			$settings = Agend_Entitlement_Mirror_Http_Api_Source::resolve_settings();
+			$prefix   = Agend_Entitlement_Mirror_Http_Api_Source::OPTION_SETTINGS;
+
+			printf(
+				'<p><label>%s<br /><input type="url" name="%s[base_url]" value="%s" class="regular-text" placeholder="https://example.test/api" /></label></p>',
+				esc_html__( 'Base URL', 'agend-entitlement-mirror' ),
+				esc_attr( $prefix ),
+				esc_attr( $settings['base_url'] )
+			);
+
+			foreach (
+				array(
+					'entitlements_path' => __( 'Member Entitlements Path', 'agend-entitlement-mirror' ),
+					'profile_path'      => __( 'Member Profile Path', 'agend-entitlement-mirror' ),
+					'types_path'        => __( 'Entitlement Types Path', 'agend-entitlement-mirror' ),
+					'members_path'      => __( 'Member List Path', 'agend-entitlement-mirror' ),
+				) as $field => $label
+			) {
+				printf(
+					'<p><label>%s<br /><input type="text" name="%s[%s]" value="%s" class="regular-text" /></label></p>',
+					esc_html( $label ),
+					esc_attr( $prefix ),
+					esc_attr( $field ),
+					esc_attr( $settings[ $field ] )
+				);
+			}
+
+			printf(
+				'<p><label>%s<br /><input type="number" name="%s[page_size]" value="%d" min="%d" max="%d" class="small-text" /></label></p>',
+				esc_html__( 'Member List Page Size', 'agend-entitlement-mirror' ),
+				esc_attr( $prefix ),
+				(int) $settings['page_size'],
+				Agend_Entitlement_Mirror_Http_Api_Source::MIN_PAGE_SIZE,
+				Agend_Entitlement_Mirror_Http_Api_Source::MAX_PAGE_SIZE
+			);
+
+			echo '<p class="description">';
+			esc_html_e( 'Entitlements/profile paths accept a {member_id} placeholder. Optional bearer token: define AGEND_ENTITLEMENT_MIRROR_HTTP_TOKEN in wp-config.php (never stored in the database).', 'agend-entitlement-mirror' );
 			echo '</p>';
 		}
 

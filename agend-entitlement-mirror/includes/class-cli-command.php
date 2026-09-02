@@ -1,12 +1,13 @@
 <?php
 /**
- * WP-CLI command for the Upbeat entitlement mirror.
+ * WP-CLI command for the entitlement mirror.
  *
  * SPEC-AMS-20260804-upbeat-entitlement-mirror US-2.5. The recovery path for
- * missed webhooks: enumerates every kiosk member and reconciles their
- * entitlement grants (SPEC-CRM-20260805-member-entitlement-grants US-5.1) --
- * the grants endpoint is itself idempotent, so a quiet member costs one
- * network round trip, not a write.
+ * missed webhooks: enumerates every member from the currently configured
+ * source (Agend_Entitlement_Mirror_Source_Registry::active()) and reconciles
+ * their entitlement grants (SPEC-CRM-20260805-member-entitlement-grants
+ * US-5.1) -- the grants endpoint is itself idempotent, so a quiet member
+ * costs one network round trip, not a write.
  *
  *   wp agend-apps entitlement-mirror sweep
  *   wp agend-apps entitlement-mirror sweep --max=50 --dry-run
@@ -36,14 +37,8 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 	final class Agend_Entitlement_Mirror_CLI_Command {
 
 		/**
-		 * Page size used when enumerating kiosk members.
-		 *
-		 * @var int
-		 */
-		const PAGE_SIZE = 100;
-
-		/**
-		 * Reconciles every kiosk member's entitlement grants with Agend.
+		 * Reconciles every member's entitlement grants with Agend, using
+		 * whichever data source is currently configured.
 		 *
 		 * ## OPTIONS
 		 *
@@ -71,8 +66,10 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 				return;
 			}
 
-			if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
-				WP_CLI::error( 'The iugo-membership-kiosk plugin is not available.' );
+			$source = Agend_Entitlement_Mirror_Source_Registry::active();
+
+			if ( ! $source->is_available() ) {
+				WP_CLI::error( sprintf( 'The configured entitlement mirror source ("%s") is unavailable: %s', $source->get_label(), $source->get_unavailable_reason() ) );
 				return;
 			}
 
@@ -89,10 +86,10 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 			$skipped = 0;
 			$errors  = 0;
 
-			foreach ( $this->enumerate_members( $max ) as $member ) {
+			foreach ( $source->enumerate_members( $max ) as $member ) {
 				++$checked;
 
-				$member_id = (string) $member->get_membership_number();
+				$member_id = (string) $member['member_id'];
 
 				try {
 					$entries = Agend_Entitlement_Collector::collect( $member_id );
@@ -120,9 +117,9 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 				// empty-profile-field omission the gateway schema requires),
 				// rather than re-deriving the payload here.
 				$profile = array(
-					'email'      => (string) $member->get_email(),
-					'first_name' => (string) $member->get_first_name(),
-					'last_name'  => (string) $member->get_last_name(),
+					'email'      => (string) $member['email'],
+					'first_name' => (string) $member['first_name'],
+					'last_name'  => (string) $member['last_name'],
 				);
 
 				$result = Agend_Entitlement_Sync::reconcile_member( $member_id, $entries, $profile );
@@ -168,42 +165,6 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 			}
 
 			WP_CLI::success( $dry_run ? 'Dry run complete.' : 'Sweep complete.' );
-		}
-
-		/**
-		 * Yields kiosk members, paginating via `get_members()`, capped at `$max`
-		 * when non-zero.
-		 *
-		 * @param int $max Maximum members to yield (0 = unbounded).
-		 * @return \Generator<Iugo_Membership_Kiosk_API_MemberDetail>
-		 */
-		private function enumerate_members( int $max ) {
-			$api      = Iugo_Membership_Kiosk_API::instance();
-			$page     = 1;
-			$yielded  = 0;
-
-			do {
-				$members = $api->get_members( '', (string) self::PAGE_SIZE, (string) $page );
-
-				if ( ! is_array( $members ) ) {
-					return;
-				}
-
-				foreach ( $members as $member ) {
-					if ( ! ( $member instanceof Iugo_Membership_Kiosk_API_MemberDetail ) ) {
-						continue;
-					}
-
-					yield $member;
-					++$yielded;
-
-					if ( $max > 0 && $yielded >= $max ) {
-						return;
-					}
-				}
-
-				++$page;
-			} while ( $api->has_more_pages( 'Iugo_Membership_Kiosk_API_MemberDetail' ) && ! empty( $members ) );
 		}
 	}
 

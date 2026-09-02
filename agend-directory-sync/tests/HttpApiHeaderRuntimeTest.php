@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
 require_once AGEND_TESTS_ROOT . '/agend-directory-sync/includes/interface-source.php';
+require_once AGEND_TESTS_ROOT . '/agend-directory-sync/includes/class-config.php';
 require_once AGEND_TESTS_ROOT . '/agend-directory-sync/includes/class-http-api-source.php';
 
 /**
