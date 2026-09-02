@@ -538,3 +538,48 @@ if ( ! function_exists( 'get_post' ) ) {
 		return $fields instanceof WP_Post ? $fields : new WP_Post( (array) $fields );
 	}
 }
+
+if ( ! function_exists( 'get_permalink' ) ) {
+	/**
+	 * Permalink stub: one distinguishable URL per known post id, built from
+	 * the id alone (the stub `WP_Post` carries no `post_name`, so this does
+	 * not attempt to mirror WordPress's slug-based permalink structure).
+	 *
+	 * @param int|WP_Post $post Post id, or a post object.
+	 * @return string|false The permalink, or false when the post is unknown.
+	 */
+	function get_permalink( $post = 0 ) {
+		$id       = is_object( $post ) ? (int) ( $post->ID ?? 0 ) : (int) $post;
+		$post_obj = get_post( $id );
+
+		if ( ! ( $post_obj instanceof WP_Post ) ) {
+			return false;
+		}
+
+		return 'https://example.test/page-' . $post_obj->ID . '/';
+	}
+}
+
+if ( ! function_exists( 'trailingslashit' ) ) {
+	/**
+	 * Ensures a single trailing slash, matching WordPress's helper.
+	 *
+	 * @param string $value The string to slash.
+	 * @return string
+	 */
+	function trailingslashit( string $value ): string {
+		return rtrim( $value, '/\\' ) . '/';
+	}
+}
+
+if ( ! function_exists( 'absint' ) ) {
+	/**
+	 * Absolute integer cast, matching WordPress's helper.
+	 *
+	 * @param mixed $value The value to cast.
+	 * @return int
+	 */
+	function absint( $value ): int {
+		return abs( (int) $value );
+	}
+}

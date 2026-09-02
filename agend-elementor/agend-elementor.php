@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.9.8
+ * Version:           0.9.9
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.9.8' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.9.9' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -56,6 +56,12 @@ require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-routing.php';
 // Settings (server-rendered detail toggle). Loaded unconditionally so the
 // accessor is available on the front-end `wp` hook and in the admin.
 require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-settings.php';
+
+// Dedicated catalogue pages (fixes the host-page hijack: a catalogue used as
+// a homepage CTA no longer turns the homepage into the detail page). Loaded
+// unconditionally, like settings, so the wp:4 redirect and the widgets'
+// page_url()/detail_url() calls work even before Elementor/core bootstrap.
+require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-pages.php';
 
 // Elementor element-cache guard. Loaded unconditionally so a degraded boot
 // (missing dependency) can be recorded even when the bootstrap bails below.

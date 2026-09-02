@@ -795,6 +795,18 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
 		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
 
+		// Dedicated Events page (fixes the host-page hijack): with one
+		// configured, a catalogue elsewhere never opens a detail in place:
+		// deepLink is only honoured on the dedicated page, or, with no
+		// dedicated page configured, on whatever page hosts the widget
+		// (unchanged from before this setting existed).
+		$config['detailBase']   = Agend_Elementor_Pages::page_url( 'event' );
+		$config['onDetailPage'] = '' === $config['detailBase']
+			|| Agend_Elementor_Pages::is_dedicated_page( 'event', $page_id );
+		if ( ! $config['onDetailPage'] ) {
+			$config['deepLink'] = '';
+		}
+
 		// Cart mode: when the Agend Apps Shop plugin is active, the registration
 		// flow adds tickets to the cart instead of registering + paying straight
 		// away. The cart page URL (if configured) drives the post-add "View Cart"

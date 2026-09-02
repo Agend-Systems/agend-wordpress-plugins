@@ -49,6 +49,7 @@ function agend_elementor_ssr_detail_registry(): array {
 			'resolver'  => 'agend_elementor_ssr_resolve_listing',
 			'segment'   => 'listing/',
 			'enqueue'   => 'agend_elementor_ssr_enqueue_directory',
+			'type'      => '',
 		),
 		array(
 			'query_var' => 'event',
@@ -56,6 +57,7 @@ function agend_elementor_ssr_detail_registry(): array {
 			'resolver'  => 'agend_elementor_ssr_resolve_event',
 			'segment'   => 'event/',
 			'enqueue'   => 'agend_elementor_ssr_enqueue_events',
+			'type'      => 'event',
 		),
 		array(
 			'query_var' => 'course',
@@ -63,6 +65,7 @@ function agend_elementor_ssr_detail_registry(): array {
 			'resolver'  => 'agend_elementor_ssr_resolve_course',
 			'segment'   => 'course/',
 			'enqueue'   => 'agend_elementor_ssr_enqueue_courses',
+			'type'      => 'course',
 		),
 	);
 }
@@ -103,6 +106,19 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 		if ( ! function_exists( $type['available'] ) ) {
 			continue;
 		}
+
+		// The wp:4 redirect (class-agend-elementor-pages.php) normally sends a
+		// request for this type to its dedicated page before this hook (wp:5)
+		// runs; this is the fallback for a request that reached this page some
+		// other way (a hard-coded old link, a cached page). Directory has no
+		// dedicated page ('type' => '') so keeps any-page behaviour.
+		if ( '' !== $type['type'] ) {
+			$dedicated_id = Agend_Elementor_Pages::page_id( $type['type'] );
+			if ( 0 !== $dedicated_id && $dedicated_id !== $host->ID ) {
+				continue;
+			}
+		}
+
 		$slug = sanitize_title( (string) get_query_var( $type['query_var'] ) );
 		if ( '' === $slug ) {
 			continue;
