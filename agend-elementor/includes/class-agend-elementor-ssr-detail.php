@@ -747,117 +747,26 @@ function agend_elementor_render_directory_detail( array $item, string $slug, $re
 
 			<div class="agend-dir-detail__layout">
 				<div class="agend-dir-detail__main">
-					<?php if ( ! empty( $item['description'] ) ) : ?>
-						<section class="agend-dir-detail__section">
-							<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'About', 'agend-elementor' ); ?></h2>
-							<div class="agend-dir-detail__body-text"><?php echo wp_kses_post( $item['description'] ); ?></div>
-						</section>
-					<?php endif; ?>
+					<?php echo agend_elementor_fragment_listing_about( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 					<?php echo agend_elementor_ssr_custom_fields( $item['custom_fields'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 					<?php echo agend_elementor_ssr_achievements( $item['achievements'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php if ( ! empty( $item['gallery_images'] ) && is_array( $item['gallery_images'] ) ) : ?>
-						<section class="agend-dir-detail__section">
-							<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Gallery', 'agend-elementor' ); ?></h2>
-							<div class="agend-dir-gallery">
-								<?php foreach ( $item['gallery_images'] as $image ) : ?>
-									<?php if ( is_string( $image ) && '' !== $image ) : ?>
-										<button type="button" class="agend-dir-gallery__thumb" data-agend-lightbox="<?php echo esc_url( $image ); ?>">
-											<img class="agend-dir-gallery__img" src="<?php echo esc_url( $image ); ?>" alt="<?php echo esc_attr( $name ); ?>" loading="lazy" />
-										</button>
-									<?php endif; ?>
-								<?php endforeach; ?>
-							</div>
-						</section>
-					<?php endif; ?>
+					<?php echo agend_elementor_fragment_listing_gallery( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php if ( ! empty( $item['locations'] ) && is_array( $item['locations'] ) ) : ?>
-						<section class="agend-dir-detail__section">
-							<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Locations', 'agend-elementor' ); ?></h2>
-							<div class="agend-dir-locations">
-								<?php foreach ( $item['locations'] as $location ) : ?>
-									<div class="agend-dir-location">
-										<?php if ( ! empty( $location['name'] ) ) : ?>
-											<div class="agend-dir-location__name"><?php echo esc_html( $location['name'] ); ?></div>
-										<?php endif; ?>
-										<?php
-										$address = array_filter(
-											array(
-												$location['address_line_1'] ?? '',
-												$location['address_line_2'] ?? '',
-												$location['city'] ?? '',
-												$location['state'] ?? '',
-												$location['postcode'] ?? '',
-											),
-											static fn( $part ) => '' !== (string) $part
-										);
-										?>
-										<?php if ( ! empty( $address ) ) : ?>
-											<div class="agend-dir-location__address"><?php echo esc_html( implode( ', ', $address ) ); ?></div>
-										<?php endif; ?>
-										<?php if ( ! empty( $location['phone'] ) ) : ?>
-											<a class="agend-dir-location__phone" href="tel:<?php echo esc_attr( preg_replace( '/[^+\d]/', '', (string) $location['phone'] ) ); ?>"><?php echo esc_html( $location['phone'] ); ?></a>
-										<?php endif; ?>
-										<?php echo agend_elementor_ssr_hours( $location['hours'] ?? null ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-									</div>
-								<?php endforeach; ?>
-							</div>
-						</section>
-					<?php endif; ?>
+					<?php echo agend_elementor_fragment_listing_locations( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 					<?php echo agend_elementor_ssr_hours_section( $item['business_hours'] ?? null ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php if ( ! empty( $item['tags'] ) && is_array( $item['tags'] ) ) : ?>
-						<section class="agend-dir-detail__section">
-							<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Tags', 'agend-elementor' ); ?></h2>
-							<div class="agend-dir-card__pills">
-								<?php foreach ( $item['tags'] as $tag ) : ?>
-									<span class="agend-dir-pill agend-dir-pill--tag"><?php echo esc_html( $tag['name'] ?? '' ); ?></span>
-								<?php endforeach; ?>
-							</div>
-						</section>
-					<?php endif; ?>
+					<?php echo agend_elementor_fragment_listing_tags( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 					<?php echo agend_elementor_ssr_reviews_section( $item, $slug, $reviews_response ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 				</div>
 
 				<aside class="agend-dir-detail__side">
-					<div class="agend-dir-detail__panel">
-						<h2 class="agend-dir-detail__panel-title"><?php esc_html_e( 'Contact', 'agend-elementor' ); ?></h2>
-						<?php
-						$has_contact = false;
-						if ( ! empty( $item['phone'] ) ) :
-							$has_contact = true;
-							?>
-							<a class="agend-dir-detail__contact" href="tel:<?php echo esc_attr( preg_replace( '/[^+\d]/', '', (string) $item['phone'] ) ); ?>"><?php echo esc_html( $item['phone'] ); ?></a>
-						<?php endif; ?>
-						<?php
-						foreach ( $socials as $field => $label ) :
-							$url = isset( $item[ $field ] ) ? esc_url_raw( (string) $item[ $field ] ) : '';
-							if ( '' === $url || ! preg_match( '#^https?://#i', $url ) ) {
-								continue;
-							}
-							$has_contact = true;
-							?>
-							<a class="agend-dir-detail__contact agend-dir-detail__contact--link" href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $label ); ?></a>
-						<?php endforeach; ?>
-						<?php if ( ! $has_contact ) : ?>
-							<p class="agend-dir-detail__note"><?php esc_html_e( 'No contact details provided.', 'agend-elementor' ); ?></p>
-						<?php endif; ?>
-					</div>
-
-					<?php if ( ! empty( $item['categories'] ) && is_array( $item['categories'] ) ) : ?>
-						<div class="agend-dir-detail__panel">
-							<h2 class="agend-dir-detail__panel-title"><?php esc_html_e( 'Categories', 'agend-elementor' ); ?></h2>
-							<div class="agend-dir-card__pills">
-								<?php foreach ( $item['categories'] as $category ) : ?>
-									<span class="agend-dir-pill agend-dir-pill--category"><?php echo esc_html( $category['name'] ?? '' ); ?></span>
-								<?php endforeach; ?>
-							</div>
-						</div>
-					<?php endif; ?>
+					<?php echo agend_elementor_fragment_listing_contact( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_elementor_fragment_listing_categories( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 				</aside>
 			</div>
 		</div>
