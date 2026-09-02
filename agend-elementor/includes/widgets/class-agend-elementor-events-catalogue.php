@@ -188,12 +188,47 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 
 		$this->end_controls_section();
 
-		// Card fields section.
+		// Card template section.
+		$this->start_controls_section(
+			'section_card_template',
+			array(
+				'label' => __( 'Card Template', 'agend-elementor' ),
+				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+			)
+		);
+
+		$this->add_control(
+			'card_template',
+			array(
+				'label'       => __( 'Card template', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => '',
+				'options'     => Agend_Elementor_Templates::options( __( 'Built-in card', 'agend-elementor' ) ),
+				'label_block' => true,
+				'description' => __( 'A saved Elementor template (Templates > Saved Templates) rendered once per event. Build it from the Agend Field, Agend Image and Agend Link widgets. The built-in card options below apply only when no template is chosen.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
+			'card_link_whole',
+			array(
+				'label'       => __( 'Whole card links to the event', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SWITCHER,
+				'default'     => 'yes',
+				'description' => __( 'Off: only Agend Link widgets inside the template navigate.', 'agend-elementor' ),
+				'condition'   => array( 'card_template!' => '' ),
+			)
+		);
+
+		$this->end_controls_section();
+
+		// Card fields section (built-in card only).
 		$this->start_controls_section(
 			'section_card_fields',
 			array(
-				'label' => __( 'Card Fields', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+				'label'     => __( 'Card Fields', 'agend-elementor' ),
+				'tab'       => \Elementor\Controls_Manager::TAB_CONTENT,
+				'condition' => array( 'card_template' => '' ),
 			)
 		);
 
@@ -779,6 +814,15 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	 * assets/js/events-catalogue.js.
 	 */
 	protected function render(): void {
+		// A catalogue inside a card template would fetch the list once per
+		// card; nothing sensible can come of it.
+		if ( class_exists( 'Agend_Elementor_Record_Context' ) && Agend_Elementor_Record_Context::has() ) {
+			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
+				echo '<div class="elementor-alert elementor-alert-warning">' . esc_html__( 'An Events Catalogue cannot be placed inside a card or detail template.', 'agend-elementor' ) . '</div>';
+			}
+			return;
+		}
+
 		$settings = $this->get_settings_for_display();
 		$config   = $this->build_config( $settings );
 
@@ -814,19 +858,28 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		$config['cartEnabled'] = agend_elementor_shop_cart_enabled();
 		$config['cartPageUrl'] = agend_elementor_shop_cart_page_url();
 
-		$style = sprintf(
-			'--agend-ev-heading:%1$s;--agend-ev-body:%2$s;--agend-ev-accent:%3$s;--agend-ev-button:%4$s;--agend-ev-button-text:%5$s;--agend-ev-card-radius:%6$dpx;',
-			esc_attr( $config['colours']['heading'] ),
-			esc_attr( $config['colours']['body'] ),
-			esc_attr( $config['colours']['accent'] ),
-			esc_attr( $config['colours']['button'] ),
-			esc_attr( $config['colours']['buttonText'] ),
-			(int) $config['layout']['cardRadius']
-		);
+		$style   = $this->inline_style( $config );
+		$columns = max( 1, (int) $config['layout']['desktop'] );
+
+		// Card template mode: the first page is rendered here through the
+		// template and later pages arrive as fragments from
+		// /agend-elementor/v1/cards/events.
+		$template_id = (int) ( $settings['card_template'] ?? 0 );
+		if ( $template_id > 0 && Agend_Elementor_Template_Renderer::is_valid_template( $template_id ) ) {
+			$config['cardMode']      = 'template';
+			$config['cardTemplate']  = $template_id;
+			$config['cardLinkWhole'] = 'yes' === ( $settings['card_link_whole'] ?? 'yes' );
+			$config['hostPageId']    = (int) $page_id;
+			$config['restBase']      = esc_url_raw( rest_url( 'agend-elementor/v1' ) );
+			$config['fragmentPath']  = '/cards/events';
+			$this->render_templated( $config, $template_id, $style, $columns );
+			return;
+		}
+		$config['cardMode'] = 'legacy';
+
 		// One complete grid row of skeleton placeholders as the initial state
 		// (3 when the layout is a single column), so no plain "Loading…" text
 		// flashes before the script takes over.
-		$columns   = max( 1, (int) $config['layout']['desktop'] );
 		$skeletons = ( 1 === $columns ) ? 3 : $columns;
 		?>
 		<div class="agend-events-catalogue" style="<?php echo esc_attr( $style ); ?>" data-agend-events-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
@@ -843,6 +896,81 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 					</article>
 				<?php endfor; ?>
 			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * The colour and radius CSS variables the catalogue styles read.
+	 *
+	 * @param array $config The widget config.
+	 * @return string
+	 */
+	private function inline_style( array $config ): string {
+		return sprintf(
+			'--agend-ev-heading:%1$s;--agend-ev-body:%2$s;--agend-ev-accent:%3$s;--agend-ev-button:%4$s;--agend-ev-button-text:%5$s;--agend-ev-card-radius:%6$dpx;',
+			esc_attr( $config['colours']['heading'] ),
+			esc_attr( $config['colours']['body'] ),
+			esc_attr( $config['colours']['accent'] ),
+			esc_attr( $config['colours']['button'] ),
+			esc_attr( $config['colours']['buttonText'] ),
+			(int) $config['layout']['cardRadius']
+		);
+	}
+
+	/**
+	 * Renders the first page of cards through the card template.
+	 *
+	 * The filter bar and pagination stay script-built (they need the category
+	 * and venue lists), so the markup leaves a slot for each; the script adopts
+	 * this DOM instead of rebuilding it.
+	 *
+	 * @param array  $config      The widget config (with card template keys).
+	 * @param int    $template_id The card template id.
+	 * @param string $style       Inline CSS variables.
+	 * @param int    $columns     Desktop column count.
+	 */
+	private function render_templated( array $config, int $template_id, string $style, int $columns ): void {
+		$list = agend_elementor_unwrap_list(
+			function_exists( 'agend_apps_events_get_events' )
+				? agend_apps_events_get_events( agend_elementor_events_list_args( $config, 1 ) )
+				: null
+		);
+		$cards = agend_elementor_render_cards(
+			'event',
+			$template_id,
+			$list['items'],
+			array(
+				'card_link_whole' => $config['cardLinkWhole'],
+				'host_page_id'    => $config['hostPageId'],
+			)
+		);
+		$config['initialPagination'] = $list['pagination'];
+		$config['initialError']      = $list['error'];
+		?>
+		<div class="agend-events-catalogue agend-events-catalogue--templated" style="<?php echo esc_attr( $style ); ?>" data-agend-events-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
+			<?php if ( ! empty( $config['heading']['show'] ) && ( '' !== $config['heading']['title'] || '' !== $config['heading']['subtitle'] ) ) : ?>
+				<div class="agend-ev-heading">
+					<?php if ( '' !== $config['heading']['title'] ) : ?>
+						<h2 class="agend-ev-heading__title"><?php echo esc_html( $config['heading']['title'] ); ?></h2>
+					<?php endif; ?>
+					<?php if ( '' !== $config['heading']['subtitle'] ) : ?>
+						<p class="agend-ev-heading__subtitle"><?php echo esc_html( $config['heading']['subtitle'] ); ?></p>
+					<?php endif; ?>
+				</div>
+			<?php endif; ?>
+			<div class="agend-ev-filter-slot"></div>
+			<div class="agend-ev-status" <?php echo ( empty( $cards ) ) ? '' : 'style="display:none"'; ?>>
+				<?php echo $list['error'] ? esc_html__( 'Unable to load events.', 'agend-elementor' ) : esc_html__( 'No events found.', 'agend-elementor' ); ?>
+			</div>
+			<div class="agend-ev-grid agend-ev-grid--templated" style="--agend-ev-cols-desktop:<?php echo (int) $columns; ?>;--agend-ev-cols-tablet:<?php echo (int) $config['layout']['tablet']; ?>;--agend-ev-cols-mobile:<?php echo (int) $config['layout']['mobile']; ?>;">
+				<?php
+				foreach ( $cards as $card ) {
+					echo $card['html']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Template output; record values escaped by the field widgets.
+				}
+				?>
+			</div>
+			<div class="agend-ev-pager-slot"></div>
 		</div>
 		<?php
 	}

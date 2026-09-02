@@ -112,6 +112,15 @@ function agend_elementor_bootstrap(): void {
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-preview-records.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-template-renderer.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-query.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-cards.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/rest/class-agend-elementor-fragments-controller.php';
+	add_action(
+		'rest_api_init',
+		static function () {
+			( new Agend_Elementor_Fragments_Controller() )->register_routes();
+		}
+	);
 
 	// The usermeta display conditions that used to load here are RETIRED
 	// (SPEC-CMS-20260727 US-1.1). They were a second entitlement authority that
