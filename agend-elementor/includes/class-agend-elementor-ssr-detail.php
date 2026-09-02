@@ -78,6 +78,15 @@ function agend_elementor_ssr_detail_registry(): array {
  * title are generated. Dispatches to the first registered detail type whose
  * rewrite-endpoint query var is present on the current page URL.
  */
+/**
+ * Whether any catalogue type has a detail template configured.
+ *
+ * @return bool
+ */
+function agend_elementor_ssr_any_detail_template(): bool {
+	return Agend_Elementor_Pages::detail_template_id( 'event' ) > 0 || Agend_Elementor_Pages::detail_template_id( 'course' ) > 0;
+}
+
 function agend_elementor_ssr_maybe_render_detail(): void {
 	// Front-end main document requests only.
 	if ( is_admin() || wp_doing_ajax() || is_feed() || is_embed() ) {
@@ -86,7 +95,11 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 	if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
 		return;
 	}
-	if ( ! agend_elementor_ssr_detail_enabled() ) {
+	// A configured detail template implies server rendering for that type,
+	// whatever the legacy toggle says: an Elementor template has no
+	// client-rendered form.
+	$ssr_enabled = agend_elementor_ssr_detail_enabled();
+	if ( ! $ssr_enabled && ! agend_elementor_ssr_any_detail_template() ) {
 		return;
 	}
 
@@ -104,6 +117,9 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 
 	foreach ( agend_elementor_ssr_detail_registry() as $type ) {
 		if ( ! function_exists( $type['available'] ) ) {
+			continue;
+		}
+		if ( ! $ssr_enabled && ( '' === $type['type'] || 0 === Agend_Elementor_Pages::detail_template_id( $type['type'] ) ) ) {
 			continue;
 		}
 
@@ -339,7 +355,7 @@ function agend_elementor_ssr_resolve_event( string $slug, WP_Post $host ): ?arra
 
 	return array(
 		'title'   => $name,
-		'content' => agend_elementor_render_events_detail( $item, $slug, $host, $tickets ),
+		'content' => agend_elementor_ssr_event_content( $item, $slug, $host, $tickets ),
 	);
 }
 
@@ -365,7 +381,7 @@ function agend_elementor_ssr_resolve_course( string $slug, WP_Post $host ): ?arr
 
 	return array(
 		'title'   => $title,
-		'content' => agend_elementor_render_courses_detail( $item, $slug, $host ),
+		'content' => agend_elementor_ssr_course_content( $item, $slug, $host ),
 	);
 }
 
@@ -981,6 +997,101 @@ function agend_elementor_ssr_reviews_section( array $item, string $slug, $review
  *                         panel. Default empty.
  * @return string Detail HTML wrapped in the widget's style scope.
  */
+/**
+ * The script config for a server-rendered event detail: puts the events
+ * script into hydrate-only mode for the registration flow.
+ *
+ * @param array   $item Event detail.
+ * @param string  $slug Event slug.
+ * @param WP_Post $host The catalogue (host) page.
+ * @return array
+ */
+function agend_elementor_ssr_events_config( array $item, string $slug, WP_Post $host ): array {
+	$host_url = get_permalink( $host->ID );
+	return array(
+		'ssrDetail'   => true,
+		'deepLink'    => $slug,
+		'prettyLinks' => (bool) get_option( 'permalink_structure' ),
+		'basePath'    => is_string( $host_url ) ? $host_url : '',
+		// Fallback timezone for the hydrated registration flow; the client
+		// prefers the fetched event's own timezone. This single-event page
+		// uses that event's zone, falling back to the site timezone.
+		'timezone'    => ! empty( $item['timezone'] ) ? (string) $item['timezone'] : wp_timezone_string(),
+		// Cart mode: mirror the client catalogue so the hydrated "Register
+		// Now" flow adds tickets to the shop cart when the shop is active.
+		'cartEnabled' => agend_elementor_shop_cart_enabled(),
+		'cartPageUrl' => agend_elementor_shop_cart_page_url(),
+	);
+}
+
+/**
+ * Event detail body: the configured detail template when one is set and
+ * renders, otherwise the built-in layout.
+ *
+ * The template output sits in the same shell as the built-in detail so the
+ * events script's hydrate-only mode finds its config and the Register button.
+ *
+ * @param array   $item    Event detail.
+ * @param string  $slug    Event slug.
+ * @param WP_Post $host    The catalogue (host) page.
+ * @param array   $tickets Ticket types.
+ * @return string
+ */
+function agend_elementor_ssr_event_content( array $item, string $slug, WP_Post $host, array $tickets ): string {
+	$template_id = Agend_Elementor_Pages::detail_template_id( 'event' );
+	if ( $template_id > 0 && class_exists( 'Agend_Elementor_Template_Renderer' ) ) {
+		$html = Agend_Elementor_Template_Renderer::render(
+			$template_id,
+			'event',
+			$item,
+			array(
+				'slug'         => $slug,
+				'tickets'      => $tickets,
+				'detail_url'   => Agend_Elementor_Pages::detail_url( 'event', $slug, (int) $host->ID ),
+				'is_detail'    => true,
+				'host_page_id' => (int) $host->ID,
+				'host'         => $host,
+			)
+		);
+		if ( '' !== trim( $html ) ) {
+			$config = wp_json_encode( agend_elementor_ssr_events_config( $item, $slug, $host ) );
+			return '<div class="agend-events-catalogue agend-events-catalogue--ssr agend-events-catalogue--templated-detail" style="' . esc_attr( agend_elementor_ssr_colour_style( 'agend-ev' ) ) . '" data-agend-events-config="' . esc_attr( $config ) . '"><div class="agend-ev-detail agend-ev-detail--templated">' . $html . '</div></div>';
+		}
+	}
+	return agend_elementor_render_events_detail( $item, $slug, $host, $tickets );
+}
+
+/**
+ * Course detail body: the configured detail template when one is set and
+ * renders, otherwise the built-in layout.
+ *
+ * @param array   $item Course detail.
+ * @param string  $slug Course slug.
+ * @param WP_Post $host The catalogue (host) page.
+ * @return string
+ */
+function agend_elementor_ssr_course_content( array $item, string $slug, WP_Post $host ): string {
+	$template_id = Agend_Elementor_Pages::detail_template_id( 'course' );
+	if ( $template_id > 0 && class_exists( 'Agend_Elementor_Template_Renderer' ) ) {
+		$html = Agend_Elementor_Template_Renderer::render(
+			$template_id,
+			'course',
+			$item,
+			array(
+				'slug'         => $slug,
+				'detail_url'   => Agend_Elementor_Pages::detail_url( 'course', $slug, (int) $host->ID ),
+				'is_detail'    => true,
+				'host_page_id' => (int) $host->ID,
+				'host'         => $host,
+			)
+		);
+		if ( '' !== trim( $html ) ) {
+			return '<div class="agend-courses-catalogue agend-courses-catalogue--ssr agend-courses-catalogue--templated-detail" style="' . esc_attr( agend_elementor_ssr_colour_style( 'agend-lms' ) ) . '"><div class="agend-lms-detail agend-lms-detail--templated">' . $html . '</div></div>';
+		}
+	}
+	return agend_elementor_render_courses_detail( $item, $slug, $host );
+}
+
 function agend_elementor_render_events_detail( array $item, string $slug, WP_Post $host, array $tickets = array() ): string {
 	$name     = isset( $item['name'] ) ? (string) $item['name'] : '';
 	$host_url = get_permalink( $host->ID );
@@ -1008,22 +1119,7 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 		array_filter( array( agend_elementor_ssr_ev_date_range( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ), $venue_or_mode ) )
 	);
 
-	$config = wp_json_encode(
-		array(
-			'ssrDetail'   => true,
-			'deepLink'    => $slug,
-			'prettyLinks' => (bool) get_option( 'permalink_structure' ),
-			'basePath'    => is_string( $host_url ) ? $host_url : '',
-			// Fallback timezone for the hydrated registration flow; the client
-			// prefers the fetched event's own timezone. This single-event page
-			// uses that event's zone, falling back to the site timezone.
-			'timezone'    => ! empty( $item['timezone'] ) ? (string) $item['timezone'] : wp_timezone_string(),
-			// Cart mode: mirror the client catalogue so the hydrated "Register
-			// Now" flow adds tickets to the shop cart when the shop is active.
-			'cartEnabled' => agend_elementor_shop_cart_enabled(),
-			'cartPageUrl' => agend_elementor_shop_cart_page_url(),
-		)
-	);
+	$config = wp_json_encode( agend_elementor_ssr_events_config( $item, $slug, $host ) );
 
 	ob_start();
 	?>
