@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.12.0
+ * Version:           0.13.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.12.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.13.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -112,6 +112,7 @@ function agend_elementor_bootstrap(): void {
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-preview-records.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-template-renderer.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-filters.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-query.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-cards.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/rest/class-agend-elementor-fragments-controller.php';
@@ -241,6 +242,21 @@ function agend_elementor_enqueue_scripts(): void {
 	wp_enqueue_script(
 		'agend-elementor-record-fields',
 		AGEND_ELEMENTOR_URL . 'assets/js/record-fields.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	// Filter controls for Agend Filter widgets placed in a filter template.
+	wp_enqueue_style(
+		'agend-elementor-filters',
+		AGEND_ELEMENTOR_URL . 'assets/css/filters.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+	wp_enqueue_script(
+		'agend-elementor-filters',
+		AGEND_ELEMENTOR_URL . 'assets/js/filters.js',
 		array(),
 		AGEND_ELEMENTOR_VERSION,
 		true

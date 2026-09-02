@@ -220,6 +220,18 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'filter_template',
+			array(
+				'label'       => __( 'Filter template', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => '',
+				'options'     => Agend_Elementor_Templates::options( __( 'Built-in filter bar', 'agend-elementor' ) ),
+				'label_block' => true,
+				'description' => __( 'A saved Elementor template built from Agend Filter widgets. Chosen here, it replaces the built-in filter bar and keeps working across the listing and detail views.', 'agend-elementor' ),
+			)
+		);
+
 		$this->end_controls_section();
 
 		// Card fields section (built-in card only).
@@ -867,6 +879,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		$template_id = (int) ( $settings['card_template'] ?? 0 );
 		if ( $template_id > 0 && Agend_Elementor_Template_Renderer::is_valid_template( $template_id ) ) {
 			$config['cardMode']      = 'template';
+			$config['filterTemplate'] = $this->filter_template_id( $settings );
 			$config['cardTemplate']  = $template_id;
 			$config['cardLinkWhole'] = 'yes' === ( $settings['card_link_whole'] ?? 'yes' );
 			$config['hostPageId']    = (int) $page_id;
@@ -876,6 +889,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			return;
 		}
 		$config['cardMode'] = 'legacy';
+		$config['filterTemplate'] = $this->filter_template_id( $settings );
 
 		// One complete grid row of skeleton placeholders as the initial state
 		// (3 when the layout is a single column), so no plain "Loading…" text
@@ -884,6 +898,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		?>
 		<div class="agend-events-catalogue" style="<?php echo esc_attr( $style ); ?>" data-agend-events-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<span class="agend-visually-hidden" role="status"><?php esc_html_e( 'Loading events…', 'agend-elementor' ); ?></span>
+			<div class="agend-ev-filter-slot"><?php echo $this->render_filters( (int) $config['filterTemplate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Elementor template output. ?></div>
 			<div class="agend-ev-grid" style="--agend-ev-cols-desktop:<?php echo (int) $columns; ?>;">
 				<?php for ( $i = 0; $i < $skeletons; $i++ ) : ?>
 					<article class="agend-ev-card agend-ev-skeleton" aria-hidden="true">
@@ -898,6 +913,36 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * The configured filter template id, or 0.
+	 *
+	 * @param array $settings Widget settings.
+	 * @return int
+	 */
+	private function filter_template_id( array $settings ): int {
+		$id = (int) ( $settings['filter_template'] ?? 0 );
+		return ( $id > 0 && Agend_Elementor_Template_Renderer::is_valid_template( $id ) ) ? $id : 0;
+	}
+
+	/**
+	 * Renders the filter template, with the record type in scope so the filter
+	 * widgets inside know which catalogue they drive.
+	 *
+	 * @param int $template_id The filter template id.
+	 * @return string
+	 */
+	private function render_filters( int $template_id ): string {
+		if ( 0 === $template_id ) {
+			return '';
+		}
+		Agend_Elementor_Filter_Context::set( 'event' );
+		try {
+			return Agend_Elementor_Template_Renderer::render_plain( $template_id );
+		} finally {
+			Agend_Elementor_Filter_Context::reset();
+		}
 	}
 
 	/**
@@ -959,7 +1004,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 					<?php endif; ?>
 				</div>
 			<?php endif; ?>
-			<div class="agend-ev-filter-slot"></div>
+			<div class="agend-ev-filter-slot"><?php echo $this->render_filters( (int) $config['filterTemplate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Elementor template output. ?></div>
 			<div class="agend-ev-status" <?php echo ( empty( $cards ) ) ? '' : 'style="display:none"'; ?>>
 				<?php echo $list['error'] ? esc_html__( 'Unable to load events.', 'agend-elementor' ) : esc_html__( 'No events found.', 'agend-elementor' ); ?>
 			</div>
