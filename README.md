@@ -12,7 +12,7 @@ Agend product, cart and shop service built on Core. Provides Elementor cart widg
 
 ## Agend Elementor (`agend-elementor/`)
 
-Elementor widget pack surfacing Agend data natively in WordPress pages: Events Catalogue (with server-rendered detail pages), Courses/Learning Hub Catalogue, Directory Catalogue (detail pages, reviews, ratings, badges, custom fields), Memberships Catalogue (signup with live tier summary), Account Link, Member Login (with password recovery) and Header Auth (login/My Portal with sign-out dropdown). Widgets are member-aware via the Core session contract, support visitor-facing category/type/city/date filters, inherit theming from the account's site configuration, and guard against stale Elementor element caches after deploys.
+Elementor widget pack surfacing Agend data natively in WordPress pages: Events Catalogue (with server-rendered detail pages), Courses/Learning Hub Catalogue, Directory Catalogue (detail pages, reviews, ratings, badges, custom fields), Memberships Catalogue (signup with live tier summary), Account Link, Member Login (with password recovery) and Header Auth (login/My Portal with sign-out dropdown). Widgets are member-aware via the Core session contract, support visitor-facing category/type/city/date filters, inherit theming from the account's site configuration, and guard against stale Elementor element caches after deploys. Sites can nominate a dedicated Events page and Courses page so a catalogue used elsewhere (a homepage CTA) links there instead of taking over its own page, and can design cards and detail pages as Elementor saved templates built from the Agend Field, Image, Link and Content Block widgets. See `agend-elementor/README.md`.
 
 ## Agend Embed (`agend-embed/`)
 
