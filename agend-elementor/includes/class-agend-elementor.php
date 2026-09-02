@@ -62,6 +62,10 @@ class Agend_Elementor {
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-member-login.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-memberships-catalogue.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-header-auth.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-record-field.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-record-image.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-record-link.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-record-block.php';
 
 		$widgets_manager->register( new Agend_Elementor_Events_Catalogue() );
 		$widgets_manager->register( new Agend_Elementor_Courses_Catalogue() );
@@ -70,6 +74,10 @@ class Agend_Elementor {
 		$widgets_manager->register( new Agend_Elementor_Member_Login() );
 		$widgets_manager->register( new Agend_Elementor_Memberships_Catalogue() );
 		$widgets_manager->register( new Agend_Elementor_Header_Auth() );
+		$widgets_manager->register( new Agend_Elementor_Record_Field() );
+		$widgets_manager->register( new Agend_Elementor_Record_Image() );
+		$widgets_manager->register( new Agend_Elementor_Record_Link() );
+		$widgets_manager->register( new Agend_Elementor_Record_Block() );
 	}
 }
 
