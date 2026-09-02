@@ -116,4 +116,13 @@ final class PagesTest extends TestCase {
 
 		$this->assertSame( 'https://example.test/custom-override/', $url );
 	}
+
+	#[Test]
+	public function should_read_detail_template_option_and_return_zero_for_unknown_type(): void {
+		Agend_Test_WP::$options['agend_elementor_event_detail_template'] = '77';
+
+		$this->assertSame( 77, Agend_Elementor_Pages::detail_template_id( 'event' ) );
+		$this->assertSame( 0, Agend_Elementor_Pages::detail_template_id( 'course' ) );
+		$this->assertSame( 0, Agend_Elementor_Pages::detail_template_id( 'listing' ) );
+	}
 }

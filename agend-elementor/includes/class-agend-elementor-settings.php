@@ -43,6 +43,15 @@ const AGEND_ELEMENTOR_EVENTS_PAGE_OPTION = 'agend_elementor_events_page_id';
 const AGEND_ELEMENTOR_COURSES_PAGE_OPTION = 'agend_elementor_courses_page_id';
 
 /**
+ * Option names storing the Elementor template used for a type's detail page
+ * (elementor_library post id, 0 = built-in layout).
+ *
+ * @var string
+ */
+const AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION  = 'agend_elementor_event_detail_template';
+const AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION = 'agend_elementor_course_detail_template';
+
+/**
  * Whether the Directory widget requests and renders member LMS achievements
  * ("Badges & Credentials") on the detail view.
  *
@@ -136,6 +145,22 @@ function agend_elementor_settings_init(): void {
 		'agend-elementor',
 		'agend_elementor_section_pages'
 	);
+
+	foreach ( array(
+		AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION  => array( __( 'Event detail template', 'agend-elementor' ), 'agend_elementor_settings_field_event_detail_template' ),
+		AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION => array( __( 'Course detail template', 'agend-elementor' ), 'agend_elementor_settings_field_course_detail_template' ),
+	) as $option => $field ) {
+		register_setting(
+			'agend_elementor_settings',
+			$option,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => 'absint',
+				'default'           => 0,
+			)
+		);
+		add_settings_field( $option, $field[0], $field[1], 'agend-elementor', 'agend_elementor_section_pages' );
+	}
 
 	register_setting(
 		'agend_elementor_settings',
@@ -285,6 +310,72 @@ function agend_elementor_settings_field_courses_page(): void {
 }
 
 /**
+ * Renders a detail template picker for a type.
+ *
+ * Disabled until the type's dedicated page is chosen: the template renders
+ * the detail on that page, so without one it has nowhere to show.
+ *
+ * @param string $option      The template option name.
+ * @param string $page_option The dedicated page option name.
+ */
+function agend_elementor_settings_template_select( string $option, string $page_option ): void {
+	$selected = absint( get_option( $option, 0 ) );
+	$has_page = absint( get_option( $page_option, 0 ) ) > 0;
+	$options  = class_exists( 'Agend_Elementor_Templates' )
+		? Agend_Elementor_Templates::options( __( 'Built-in detail layout', 'agend-elementor' ) )
+		: array( '' => __( 'Built-in detail layout', 'agend-elementor' ) );
+
+	echo '<select name="' . esc_attr( $option ) . '"' . ( $has_page ? '' : ' disabled' ) . '>';
+	foreach ( $options as $value => $label ) {
+		echo '<option value="' . esc_attr( (string) $value ) . '"' . selected( $selected, (int) $value, false ) . '>' . esc_html( $label ) . '</option>';
+	}
+	echo '</select>';
+	echo '<p class="description">';
+	if ( $has_page ) {
+		esc_html_e( 'A saved Elementor template built from the Agend Field, Image, Link and Content Block widgets. Rendered server-side on the dedicated page for every item.', 'agend-elementor' );
+	} else {
+		esc_html_e( 'Choose the dedicated page above first.', 'agend-elementor' );
+	}
+	echo '</p>';
+}
+
+/**
+ * Renders the Event detail template picker.
+ */
+function agend_elementor_settings_field_event_detail_template(): void {
+	agend_elementor_settings_template_select( AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION, AGEND_ELEMENTOR_EVENTS_PAGE_OPTION );
+}
+
+/**
+ * Renders the Course detail template picker.
+ */
+function agend_elementor_settings_field_course_detail_template(): void {
+	agend_elementor_settings_template_select( AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION, AGEND_ELEMENTOR_COURSES_PAGE_OPTION );
+}
+
+/**
+ * Marks the templates in use as detail layouts in the Saved Templates list,
+ * so nobody deletes the live detail layout by accident.
+ *
+ * @param array   $states Post states.
+ * @param WP_Post $post   The list row's post.
+ * @return array
+ */
+function agend_elementor_template_post_states( array $states, $post ): array {
+	if ( ! ( $post instanceof WP_Post ) || 'elementor_library' !== $post->post_type ) {
+		return $states;
+	}
+	if ( $post->ID === absint( get_option( AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION, 0 ) ) ) {
+		$states['agend_event_detail'] = __( 'Agend Event detail template', 'agend-elementor' );
+	}
+	if ( $post->ID === absint( get_option( AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION, 0 ) ) ) {
+		$states['agend_course_detail'] = __( 'Agend Course detail template', 'agend-elementor' );
+	}
+	return $states;
+}
+add_filter( 'display_post_states', 'agend_elementor_template_post_states', 10, 2 );
+
+/**
  * Renders the Detail Pages settings section description.
  */
 function agend_elementor_settings_section_detail(): void {
@@ -309,7 +400,7 @@ function agend_elementor_settings_field_ssr_detail(): void {
 	<p class="description">
 		<?php
 		esc_html_e(
-			'When on, an item detail URL becomes a virtual child page of the page holding the catalogue widget: the item name is the page title and the catalogue page is its parent, so breadcrumbs natively show Home > Catalogue > Item and the detail is rendered server-side for SEO. When off, the detail is rendered client-side in place on the catalogue page. Applies to the Directory, Events, and Courses widgets.',
+			'When on, an item detail URL becomes a virtual child page of the page holding the catalogue widget: the item name is the page title and the catalogue page is its parent, so breadcrumbs natively show Home > Catalogue > Item and the detail is rendered server-side for SEO. When off, the detail is rendered client-side in place on the catalogue page. Applies to the Directory, Events, and Courses widgets. Types with a detail template selected above are always server-rendered.',
 			'agend-elementor'
 		);
 		?>
