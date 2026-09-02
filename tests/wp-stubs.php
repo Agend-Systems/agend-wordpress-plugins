@@ -603,3 +603,36 @@ if ( ! function_exists( 'absint' ) ) {
 		return abs( (int) $value );
 	}
 }
+
+if ( ! function_exists( 'wp_kses_post' ) ) {
+	/**
+	 * Post-content sanitiser stub: strips everything but a basic allow-list.
+	 * Tests assert the allow-list boundary (script gone, strong kept), not
+	 * WordPress's full kses ruleset.
+	 *
+	 * @param string $content The HTML.
+	 * @return string
+	 */
+	function wp_kses_post( $content ): string {
+		return strip_tags( (string) $content, '<p><a><strong><em><b><i><ul><ol><li><br><h1><h2><h3><h4><h5><h6><blockquote><span><div><img>' );
+	}
+}
+
+if ( ! function_exists( 'number_format_i18n' ) ) {
+	/**
+	 * Locale-agnostic number formatter, matching the en_AU result.
+	 *
+	 * @param float $number   The number.
+	 * @param int   $decimals Decimal places.
+	 * @return string
+	 */
+	function number_format_i18n( $number, $decimals = 0 ): string {
+		return number_format( (float) $number, (int) $decimals, '.', ',' );
+	}
+}
+
+if ( ! function_exists( 'esc_attr' ) ) {
+	function esc_attr( $text ): string {
+		return htmlspecialchars( (string) $text, ENT_QUOTES );
+	}
+}
