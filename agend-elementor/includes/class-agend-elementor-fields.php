@@ -104,6 +104,25 @@ function agend_elementor_record_categories( array $record ): array {
 }
 
 /**
+ * The card location line: the venue name when there is one, otherwise Online
+ * for a virtual event and TBA for anything else.
+ *
+ * Mirrors renderCard() in assets/js/events-catalogue.js, so a card template
+ * can show the same line the built-in card shows.
+ *
+ * @param array $record The event record.
+ * @return string
+ */
+function agend_elementor_record_event_location( array $record ): string {
+	$venue = agend_elementor_record_path( $record, array( 'venue_name' ) );
+	if ( is_string( $venue ) && '' !== trim( $venue ) ) {
+		return trim( $venue );
+	}
+	$type = isset( $record['venue_type'] ) ? (string) $record['venue_type'] : '';
+	return 'virtual' === $type ? __( 'Online', 'agend-elementor' ) : __( 'TBA', 'agend-elementor' );
+}
+
+/**
  * Whether the viewer of an event record is on member pricing.
  *
  * @param array $record The event record (bearer-enriched when signed in).
@@ -219,6 +238,7 @@ function agend_elementor_field_registry(): array {
 				return '' === $type ? '' : agend_elementor_ssr_ev_type_label( $type );
 			},
 		),
+		'event:location'              => array( 'label' => __( 'Location (venue, or Online)', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_event_location' ),
 		'event:category'              => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_category' ),
 		'event:categories'            => array( 'label' => __( 'All categories', 'agend-elementor' ), 'kind' => 'list', 'get' => 'agend_elementor_record_categories' ),
 		'event:price_from'            => array( 'label' => __( 'Price from (viewer)', 'agend-elementor' ), 'kind' => 'price', 'get' => 'agend_elementor_record_event_price_from' ),
