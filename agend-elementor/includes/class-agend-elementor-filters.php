@@ -89,6 +89,8 @@ function agend_elementor_filter_static_values( string $set ): array {
 				'in_person'   => __( 'In Person', 'agend-elementor' ),
 				'blended'     => __( 'Blended', 'agend-elementor' ),
 			);
+		case 'featured':
+			return array( '1' => __( 'Featured only', 'agend-elementor' ) );
 		case 'rating':
 			return array(
 				'4' => __( '4 stars and up', 'agend-elementor' ),
@@ -215,6 +217,32 @@ function agend_elementor_filter_registry(): array {
 				'controls' => array( 'select', 'buttons' ),
 				'source'   => array( 'static' => 'rating' ),
 			),
+			'featured' => array(
+				'label'    => __( 'Featured', 'agend-elementor' ),
+				'state'    => 'featured',
+				'mode'     => 'scalar',
+				'controls' => array( 'buttons', 'select' ),
+				'source'   => array( 'static' => 'featured' ),
+			),
+			// The gateway filters on tag and badge ids, but nothing can list
+			// them yet, so these carry author-defined choices only. They pick
+			// up "every value" automatically once a list endpoint exists.
+			'tag'      => array(
+				'label'        => __( 'Tag', 'agend-elementor' ),
+				'state'        => 'tag_ids',
+				'mode'         => 'array',
+				'controls'     => array( 'buttons', 'checkboxes', 'select' ),
+				'source'       => null,
+				'choices_only' => true,
+			),
+			'badge'    => array(
+				'label'        => __( 'Badge', 'agend-elementor' ),
+				'state'        => 'badge_ids',
+				'mode'         => 'array',
+				'controls'     => array( 'buttons', 'checkboxes', 'select' ),
+				'source'       => null,
+				'choices_only' => true,
+			),
 		),
 	);
 
@@ -287,6 +315,7 @@ function agend_elementor_filter_config( string $type, string $key, array $settin
 	}
 
 	$config = array(
+		'choicesOnly' => ! empty( $descriptor['choices_only'] ),
 		'type'        => $type,
 		'filter'      => $key,
 		'state'       => $descriptor['state'],
@@ -300,7 +329,14 @@ function agend_elementor_filter_config( string $type, string $key, array $settin
 		'source'      => null,
 	);
 
-	if ( 'choices' === (string) ( $settings['values_mode'] ?? 'all' ) ) {
+	// A filter whose values cannot be enumerated yet only ever carries author
+	// defined choices, whatever the widget's own mode says.
+	$values_mode = (string) ( $settings['values_mode'] ?? 'all' );
+	if ( ! empty( $descriptor['choices_only'] ) ) {
+		$values_mode = 'choices';
+	}
+
+	if ( 'choices' === $values_mode ) {
 		// Author-defined selections: each choice sends a fixed set of values,
 		// which is how "All States" or "Between 50 and 100" are expressed
 		// without the API having to describe them.

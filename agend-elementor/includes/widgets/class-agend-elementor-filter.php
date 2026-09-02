@@ -148,7 +148,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 					'all'     => __( 'Every value that exists', 'agend-elementor' ),
 					'choices' => __( 'Choices I define', 'agend-elementor' ),
 				),
-				'description' => __( 'Defined choices each send a fixed selection, so one choice can stand for several values, for example "All States".', 'agend-elementor' ),
+				'description' => __( 'Defined choices each send a fixed selection, so one choice can stand for several values, for example "All States". Tag and badge filters always use defined choices, because the API cannot list their values yet.', 'agend-elementor' ),
 			)
 		);
 
@@ -269,6 +269,11 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 
 		$config = agend_elementor_filter_config( $type, $key, $s );
 		if ( null === $config ) {
+			return;
+		}
+
+		if ( ! empty( $config['choicesOnly'] ) && empty( $config['values'] ) ) {
+			$this->render_editor_notice( __( 'This filter needs the choices you define: its values cannot be listed from the API yet. Add choices under Values.', 'agend-elementor' ) );
 			return;
 		}
 
