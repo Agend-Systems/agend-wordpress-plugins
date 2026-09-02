@@ -1,0 +1,54 @@
+/* Agend Filter: minimal structure only. Typography, spacing, borders and
+   colours are left to Elementor's own controls on the widget. */
+
+.agend-filter {
+  display: block;
+}
+
+.agend-filter__label {
+  display: block;
+  font-weight: 600;
+}
+
+.agend-filter__control input[type='search'],
+.agend-filter__control input[type='date'],
+.agend-filter__control select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.agend-filter__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.agend-filter--checkboxes .agend-filter__options {
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.agend-filter__option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.agend-filter__button {
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.25em 0.85em;
+}
+
+.agend-filter__button.is-active {
+  background: currentColor;
+}
+
+.agend-filter__button.is-active > * {
+  color: #fff;
+}

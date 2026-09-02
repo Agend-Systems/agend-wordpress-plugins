@@ -172,6 +172,44 @@ final class Agend_Elementor_Template_Renderer {
 	}
 
 	/**
+	 * Renders a template with no record in scope.
+	 *
+	 * Filter templates describe controls rather than a record, so they get the
+	 * same recursion guard and element-cache handling without a context push.
+	 *
+	 * @param int  $template_id The elementor_library post id.
+	 * @param bool $with_css    Whether to inline the template's CSS.
+	 * @return string Rendered HTML, or ''.
+	 */
+	public static function render_plain( int $template_id, bool $with_css = false ): string {
+		if ( ! self::is_valid_template( $template_id ) ) {
+			return '';
+		}
+
+		$depth = self::$in_flight[ $template_id ] ?? 0;
+		if ( $depth >= self::MAX_DEPTH ) {
+			return '';
+		}
+		self::$in_flight[ $template_id ] = $depth + 1;
+
+		add_filter( 'pre_option_elementor_element_cache_ttl', array( __CLASS__, 'disable_element_cache' ) );
+		self::ensure_styles( $template_id );
+
+		try {
+			$html = \Elementor\Plugin::$instance->frontend->get_builder_content_for_display( $template_id, $with_css );
+		} finally {
+			remove_filter( 'pre_option_elementor_element_cache_ttl', array( __CLASS__, 'disable_element_cache' ) );
+			if ( 1 === self::$in_flight[ $template_id ] ) {
+				unset( self::$in_flight[ $template_id ] );
+			} else {
+				self::$in_flight[ $template_id ]--;
+			}
+		}
+
+		return (string) $html;
+	}
+
+	/**
 	 * Filter callback: forces get_option( 'elementor_element_cache_ttl' ) to
 	 * report 'disable' for the duration of a render() call.
 	 *

@@ -1761,6 +1761,18 @@
     var state = { search: '', category: '', type: '', city: '', categories: [], types: [], cities: [], startAfter: '', startBefore: '', page: 1, append: false };
 
     // Apply inherited site theme (fonts/colours) — live via CSS custom props.
+    // The filter template is rendered server-side inside the widget; take it
+    // out of the root before the catalogue view replaces the markup, so the
+    // same controls survive both the listing and the detail view.
+    var serverFilters = root.querySelector('.agend-ev-filter-slot');
+    var hasTemplatedFilters = !!(cfg.filterTemplate && serverFilters && serverFilters.querySelector('[data-agend-filter]'));
+    // In card-template mode the slot is adopted with the rest of the
+    // server markup and is already in the right place; in legacy mode the
+    // catalogue view replaces the root, so detach it first.
+    if (hasTemplatedFilters && cfg.cardMode !== 'template' && serverFilters.parentNode) {
+      serverFilters.parentNode.removeChild(serverFilters);
+    }
+
     applySiteTheme(root, cfg);
 
     // Card template mode: the first page arrived server-rendered, so adopt
@@ -1776,7 +1788,7 @@
       status = catalogueEl.querySelector('.agend-ev-status') || el('div', 'agend-ev-status');
       grid = catalogueEl.querySelector('.agend-ev-grid') || el('div', 'agend-ev-grid');
       pager = catalogueEl.querySelector('.agend-ev-pager-slot') || el('div', 'agend-ev-pager-slot');
-      buildFilterBar(catalogueEl.querySelector('.agend-ev-filter-slot') || catalogueEl, cfg, state, reloadCatalogue);
+      mountFilters(catalogueEl.querySelector('.agend-ev-filter-slot') || catalogueEl);
       grid.addEventListener('click', onTemplatedCardClick);
     } else {
 
@@ -1800,7 +1812,7 @@
       }
       catalogueEl.appendChild(head);
     }
-    buildFilterBar(catalogueEl, cfg, state, reloadCatalogue);
+    mountFilters(catalogueEl);
     catalogueEl.appendChild(status);
     catalogueEl.appendChild(grid);
     catalogueEl.appendChild(pager);
@@ -1838,6 +1850,21 @@
 
     // Opens an item: in place when the widget is on the detail page (or no
     // dedicated page is configured), otherwise navigates there.
+    function mountFilters(target) {
+      if (hasTemplatedFilters && window.agendFilters && window.agendFilters.build) {
+        if (!target.contains(serverFilters)) {
+          target.appendChild(serverFilters);
+        }
+        window.agendFilters.build(serverFilters, {
+          state: state,
+          reload: reloadCatalogue,
+          apiGet: apiGet,
+        });
+        return;
+      }
+      buildFilterBar(target, cfg, state, reloadCatalogue);
+    }
+
     function openItem(slug) {
       if (cfg.onDetailPage) {
         showDetail(slug, true);
