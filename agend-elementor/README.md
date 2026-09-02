@@ -21,6 +21,7 @@ Cards and detail pages can be designed as ordinary Elementor saved templates (Te
 | --- | --- |
 | Agend Field | One value from the current record: title, dates, price, venue, category, level, duration, and so on, with per-kind formatting (date format, list separator, free label, yes/no text, truncation). |
 | Agend Image | The record image as an `img` (aspect ratio, object fit) or as a background. Background placement `fill` stretches behind the sibling widgets of the container it is dropped into; `parent` paints the image onto the parent container; `block` is a sized box. |
+| Agend Pills | A record's categories, tags or other terms, one styled pill per term. The pill count follows the record, and a record with no terms renders nothing rather than an empty pill. |
 | Agend Link / Button | Open detail, back to catalogue, register (events), enrol (courses), add to calendar (events), or a custom URL with `{slug}` and `{title}` tokens. |
 | Agend Content Block | The built-in detail panels as reusable blocks: event facts, registration, tickets, sponsors; course details, learning outcomes, pricing and enrolment. |
 

@@ -104,6 +104,30 @@ function agend_elementor_record_categories( array $record ): array {
 }
 
 /**
+ * All tag names on a record, in order.
+ *
+ * Tags arrive as objects on the list payload and are absent from the single
+ * item payload, so a detail template shows nothing rather than warning.
+ *
+ * @param array $record The record.
+ * @return string[]
+ */
+function agend_elementor_record_tags( array $record ): array {
+	$names = array();
+	if ( empty( $record['tags'] ) || ! is_array( $record['tags'] ) ) {
+		return $names;
+	}
+	foreach ( $record['tags'] as $entry ) {
+		if ( is_array( $entry ) && ! empty( $entry['name'] ) ) {
+			$names[] = (string) $entry['name'];
+		} elseif ( is_string( $entry ) && '' !== $entry ) {
+			$names[] = $entry;
+		}
+	}
+	return $names;
+}
+
+/**
  * The card location line: the venue name when there is one, otherwise Online
  * for a virtual event and TBA for anything else.
  *
@@ -233,14 +257,16 @@ function agend_elementor_field_registry(): array {
 		'event:venue_type'            => array(
 			'label' => __( 'Format (In-Person, Online, Hybrid)', 'agend-elementor' ),
 			'kind'  => 'text',
+			'pill'  => true,
 			'get'   => static function ( array $record ) {
 				$type = isset( $record['venue_type'] ) ? (string) $record['venue_type'] : '';
 				return '' === $type ? '' : agend_elementor_ssr_ev_type_label( $type );
 			},
 		),
 		'event:location'              => array( 'label' => __( 'Location (venue, or Online)', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_event_location' ),
-		'event:category'              => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_category' ),
-		'event:categories'            => array( 'label' => __( 'All categories', 'agend-elementor' ), 'kind' => 'list', 'get' => 'agend_elementor_record_categories' ),
+		'event:category'              => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
+		'event:categories'            => array( 'label' => __( 'All categories', 'agend-elementor' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_elementor_record_categories' ),
+		'event:tags'                  => array( 'label' => __( 'Tags', 'agend-elementor' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_elementor_record_tags' ),
 		'event:price_from'            => array( 'label' => __( 'Price from (viewer)', 'agend-elementor' ), 'kind' => 'price', 'get' => 'agend_elementor_record_event_price_from' ),
 		'event:price_member_from'     => array( 'label' => __( 'Member price from', 'agend-elementor' ), 'kind' => 'price', 'get' => $num( 'price_summary.member_from' ) ),
 		'event:price_non_member_from' => array( 'label' => __( 'Non-member price from', 'agend-elementor' ), 'kind' => 'price', 'get' => $num( 'price_summary.non_member_from' ) ),
@@ -254,10 +280,11 @@ function agend_elementor_field_registry(): array {
 		'course:description'            => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $text( 'description' ) ),
 		'course:excerpt'                => array( 'label' => __( 'Excerpt', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_excerpt' ),
 		'course:image_url'              => array( 'label' => __( 'Image', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'image_url', 'hero_image_url' ) ),
-		'course:category'               => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_category' ),
+		'course:category'               => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
 		'course:difficulty'             => array(
 			'label' => __( 'Level', 'agend-elementor' ),
 			'kind'  => 'text',
+			'pill'  => true,
 			'get'   => static function ( array $record ) {
 				$value = isset( $record['difficulty'] ) ? (string) $record['difficulty'] : '';
 				return '' === $value ? '' : agend_elementor_ssr_lms_difficulty( $value );
@@ -266,6 +293,7 @@ function agend_elementor_field_registry(): array {
 		'course:delivery_mode'          => array(
 			'label' => __( 'Delivery mode', 'agend-elementor' ),
 			'kind'  => 'text',
+			'pill'  => true,
 			'get'   => static function ( array $record ) {
 				$value = isset( $record['delivery_mode'] ) ? (string) $record['delivery_mode'] : '';
 				return '' === $value ? '' : agend_elementor_ssr_lms_mode( $value );
@@ -324,7 +352,7 @@ function agend_elementor_field_registry(): array {
 		'common:description' => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $alias( 'event:description', 'course:description' ) ),
 		'common:excerpt'     => array( 'label' => __( 'Excerpt', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_excerpt' ),
 		'common:image'       => array( 'label' => __( 'Image', 'agend-elementor' ), 'kind' => 'url', 'get' => $alias( 'event:hero_image_url', 'course:image_url' ) ),
-		'common:category'    => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_category' ),
+		'common:category'    => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
 		'common:price_from'  => array( 'label' => __( 'Price from', 'agend-elementor' ), 'kind' => 'price', 'get' => $alias( 'event:price_from', 'course:price' ) ),
 		'common:slug'        => array( 'label' => __( 'Slug', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'slug' ) ),
 		'common:detail_url'  => array(
@@ -399,6 +427,53 @@ function agend_elementor_field_value( string $key, string $type, array $record, 
 	$registry = agend_elementor_field_registry();
 	$value    = call_user_func( $registry[ $key ]['get'], $record, $type, $extra );
 	return ( '' === $value ) ? null : $value;
+}
+
+/**
+ * A field's value as a list of terms, for rendering one pill per term.
+ *
+ * A list field yields its items; a single-value text field yields one item, so
+ * one pill widget can render "all categories" or just the primary one.
+ *
+ * @param string $key    Field key.
+ * @param string $type   Record type.
+ * @param array  $record The record.
+ * @param array  $extra  Render context.
+ * @return string[]
+ */
+function agend_elementor_field_terms( string $key, string $type, array $record, array $extra = array() ): array {
+	$value = agend_elementor_field_value( $key, $type, $record, $extra );
+	if ( null === $value ) {
+		return array();
+	}
+	if ( is_array( $value ) ) {
+		$terms = array_map( 'strval', array_filter( $value, 'is_scalar' ) );
+	} elseif ( is_scalar( $value ) ) {
+		$terms = array( (string) $value );
+	} else {
+		return array();
+	}
+	return array_values( array_filter( array_map( 'trim', $terms ), 'strlen' ) );
+}
+
+/**
+ * Picker options for fields that make sense rendered as pills.
+ *
+ * @return array<int, array{label: string, options: array<string, string>}>
+ */
+function agend_elementor_pill_field_options(): array {
+	$groups = array();
+	foreach ( agend_elementor_field_registry() as $key => $descriptor ) {
+		if ( empty( $descriptor['pill'] ) ) {
+			continue;
+		}
+		$group = (string) $descriptor['group'];
+		if ( ! isset( $groups[ $group ] ) ) {
+			$groups[ $group ] = array( 'label' => $group, 'options' => array() );
+		}
+		$groups[ $group ]['options'][ $key ] = (string) $descriptor['label'];
+	}
+	return array_values( $groups );
 }
 
 /**
