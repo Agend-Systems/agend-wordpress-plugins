@@ -153,6 +153,20 @@ final class ListingFieldsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_apply_a_chosen_sort_and_default_to_relevance(): void {
+		$config = array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() );
+
+		$default = agend_elementor_listings_list_args( $config, 1 );
+		$rating  = agend_elementor_listings_list_args( $config, 1, array( 'sortBy' => 'rating' ) );
+		$name    = agend_elementor_listings_list_args( $config, 1, array( 'sortBy' => 'name' ) );
+
+		$this->assertSame( 'relevance', $default['sortBy'] );
+		$this->assertSame( 'rating', $rating['sortBy'] );
+		$this->assertSame( 'desc', $rating['sortOrder'] );
+		$this->assertSame( 'asc', $name['sortOrder'], 'names read better ascending' );
+	}
+
+	#[Test]
 	public function should_drop_unknown_params_from_a_listing_fragment_request(): void {
 		$out = agend_elementor_fragment_query_args( array( 'rating' => 4, 'timeframe' => 'upcoming', 'template' => 9, 'difficulty' => 'x' ), 'listing' );
 

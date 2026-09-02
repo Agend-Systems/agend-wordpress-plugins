@@ -186,7 +186,38 @@
     });
   }
 
-  function buildOne(shell, ctx) {
+  // Clearing every filter in the template: each shell knows the state key it
+  // writes, so the reset button can undo all of them without being told.
+  function resetAll(scope, ctx) {
+    var shells = scope.querySelectorAll('[data-agend-filter]');
+    Array.prototype.forEach.call(shells, function (shell) {
+      var cfg;
+      try {
+        cfg = JSON.parse(shell.getAttribute('data-agend-filter'));
+      } catch (e) {
+        return;
+      }
+      if (!cfg || !cfg.state) {
+        return;
+      }
+      ctx.state[cfg.state] = cfg.mode === 'array' ? [] : '';
+      shell.removeAttribute('data-agend-filter-ready');
+    });
+    ctx.state.page = 1;
+    build(scope, ctx);
+    ctx.reload();
+  }
+
+  function buildReset(shell, cfg, ctx, scope) {
+    var button = el('button', 'agend-filter__button agend-filter__reset', cfg.label || 'Clear filters');
+    button.type = 'button';
+    button.addEventListener('click', function () {
+      resetAll(scope, ctx);
+    });
+    shell.appendChild(button);
+  }
+
+  function buildOne(shell, ctx, scope) {
     var cfg;
     try {
       cfg = JSON.parse(shell.getAttribute('data-agend-filter'));
@@ -201,6 +232,10 @@
     var slot = shell.querySelector('.agend-filter__control') || shell;
     slot.innerHTML = '';
 
+    if (cfg.control === 'reset') {
+      buildReset(slot, cfg, ctx, scope || document);
+      return;
+    }
     if (cfg.control === 'search') {
       buildSearch(slot, cfg, ctx);
       return;
@@ -239,7 +274,7 @@
     }
     var shells = scope.querySelectorAll('[data-agend-filter]');
     Array.prototype.forEach.call(shells, function (shell) {
-      buildOne(shell, options);
+      buildOne(shell, options, scope);
     });
     return shells.length;
   }

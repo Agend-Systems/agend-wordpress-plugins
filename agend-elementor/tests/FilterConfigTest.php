@@ -160,6 +160,26 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_offer_a_clear_button_on_every_catalogue(): void {
+		foreach ( array( 'event', 'course', 'listing' ) as $type ) {
+			$config = agend_elementor_filter_config( $type, 'reset', array() );
+			$this->assertSame( 'reset', $config['control'], $type );
+			$this->assertSame( '', $config['state'], $type );
+		}
+	}
+
+	#[Test]
+	public function should_offer_sort_for_the_directory_only(): void {
+		$this->assertNotNull( agend_elementor_filter_descriptor( 'listing', 'sort' ) );
+		$this->assertNull( agend_elementor_filter_descriptor( 'event', 'sort' ), 'the events list endpoint has no sort parameter' );
+		$this->assertNull( agend_elementor_filter_descriptor( 'course', 'sort' ) );
+
+		$config = agend_elementor_filter_config( 'listing', 'sort', array() );
+		$this->assertSame( 'sortBy', $config['state'] );
+		$this->assertContains( 'Highest rated', array_column( $config['values'], 'label' ) );
+	}
+
+	#[Test]
 	public function should_mark_course_categories_approximate_because_they_cannot_be_enumerated(): void {
 		$descriptor = agend_elementor_filter_descriptor( 'course', 'category' );
 
