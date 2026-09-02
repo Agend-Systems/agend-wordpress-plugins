@@ -97,6 +97,13 @@ final class FieldValueTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_use_venue_name_for_location_and_fall_back_by_venue_type(): void {
+		$this->assertSame( 'Sydney Town Hall', agend_elementor_field_value( 'event:location', 'event', array( 'venue_name' => 'Sydney Town Hall', 'venue_type' => 'physical' ) ) );
+		$this->assertSame( 'Online', agend_elementor_field_value( 'event:location', 'event', array( 'venue_name' => null, 'venue_type' => 'virtual' ) ) );
+		$this->assertSame( 'TBA', agend_elementor_field_value( 'event:location', 'event', array( 'venue_type' => 'physical' ) ) );
+	}
+
+	#[Test]
 	public function should_map_venue_type_to_label(): void {
 		$this->assertSame( 'In-Person', agend_elementor_field_value( 'event:venue_type', 'event', array( 'venue_type' => 'physical' ) ) );
 	}
