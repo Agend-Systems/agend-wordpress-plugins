@@ -98,6 +98,10 @@ function agend_elementor_bootstrap(): void {
 
 	// Server-rendered detail pages (opt-in). Requires the Agend Apps Core REST
 	// wrappers, so it loads only once the core dependency check above passes.
+	// The format/fragments helpers are split out so Elementor "field" widgets
+	// can reuse them without pulling in the whole SSR detail machinery.
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-format.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-fragments.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-ssr-detail.php';
 
 	// The usermeta display conditions that used to load here are RETIRED
