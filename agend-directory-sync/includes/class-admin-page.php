@@ -32,6 +32,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		public const NONCE_ACTION_SETTINGS = 'agend_directory_sync_save_settings';
 		public const NONCE_ACTION_FETCH    = 'agend_directory_sync_run_sync';
 		public const NONCE_ACTION_PREVIEW  = 'agend_directory_sync_preview_transform';
+		/**
+		 * Retained as the action name the job endpoints nonce against; the
+		 * synchronous send handler it used to guard is gone. Uploading now runs
+		 * as a stepped job (Agend_Directory_Sync_Job), because doing every batch
+		 * in the one admin-post request meant the web server returned a 504 while
+		 * PHP kept working behind it — a completed sync the operator saw as a
+		 * failure, and pressed again.
+		 */
 		public const NONCE_ACTION_SEND     = 'agend_directory_sync_send_to_agend';
 
 		public const CAPABILITY = 'manage_options';
@@ -57,7 +65,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			add_action( 'admin_post_agend_directory_sync_save_settings', array( __CLASS__, 'handle_save_settings' ) );
 			add_action( 'admin_post_agend_directory_sync_run_sync', array( __CLASS__, 'handle_run_fetch' ) );
 			add_action( 'admin_post_agend_directory_sync_preview_transform', array( __CLASS__, 'handle_preview_transform' ) );
-			add_action( 'admin_post_agend_directory_sync_send_to_agend', array( __CLASS__, 'handle_send_to_agend' ) );
 		}
 
 		public static function register_menu(): void {
@@ -81,6 +88,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$posted_source   = isset( $_POST['agend_directory_sync_source'] ) ? sanitize_key( wp_unslash( $_POST['agend_directory_sync_source'] ) ) : '';
 			$raw_http_api    = isset( $_POST['agend_http_api'] ) && is_array( $_POST['agend_http_api'] )
 				? wp_unslash( $_POST['agend_http_api'] )
+				: array();
+			// The FetchXML query is XML and must survive wp_unslash() without
+			// any further filtering; the source's sanitiser validates it as
+			// XML instead.
+			$raw_dataverse   = isset( $_POST['agend_dataverse'] ) && is_array( $_POST['agend_dataverse'] )
+				? wp_unslash( $_POST['agend_dataverse'] )
 				: array();
 
 			// external_source is the upsert identity key and is never
@@ -108,6 +121,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				Agend_Directory_Sync_Http_Api_Source::sanitize_settings( $raw_http_api )
 			);
 
+			update_option(
+				Agend_Directory_Sync::OPTION_DATAVERSE,
+				Agend_Directory_Sync_Dataverse_Source::sanitize_settings( $raw_dataverse )
+			);
+
 			// Connection secrets ride separate write-only POST fields, never
 			// the settings array, and land in the encrypted secret store
 			// (Decision 2.11). A blank field means "keep the stored value";
@@ -117,6 +135,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$secret_fields = array(
 				Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN          => 'agend_http_api_secret_token',
 				Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET => 'agend_http_api_secret_oauth',
+				Agend_Directory_Sync_Secret_Store::KEY_DATAVERSE_CLIENT_SECRET => 'agend_dataverse_secret_client',
 			);
 			foreach ( $secret_fields as $store_key => $post_key ) {
 				if ( ! empty( $_POST[ $post_key . '_clear' ] ) ) {
@@ -170,13 +189,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					throw new RuntimeException( $source->get_unavailable_reason() );
 				}
 
-				// The Custom HTTP API source gets a dedicated first-page-only
+				// A configurable source gets a dedicated first-page-only
 				// response-model preview (raw envelope + resolved path) rather
 				// than the generic fetch-everything preview below (US-2.4):
-				// iterating a response data path against a live, possibly
-				// multi-hundred-page API should not require a full fetch_all()
-				// on every attempt.
-				if ( $source instanceof Agend_Directory_Sync_Http_Api_Source ) {
+				// iterating a response data path or a FetchXML query against a
+				// live, possibly multi-hundred-page API should not require a
+				// full fetch_all() on every attempt. Duck-typed rather than
+				// tested against each concrete class, so a client source can
+				// offer the same preview without this file naming it.
+				if ( method_exists( $source, 'preview_first_page' ) ) {
 					$preview = $source->preview_first_page();
 
 					self::set_result(
@@ -255,46 +276,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			exit;
 		}
 
-		/**
-		 * Fetch + transform + POST to Agend. Aggregates created/updated/error
-		 * counts across all batches. Delegates to the shared runner.
-		 */
-		public static function handle_send_to_agend(): void {
-			self::assert_can();
-			check_admin_referer( self::NONCE_ACTION_SEND );
-
-			// Long-running operation; large directories can require ~30+
-			// sequential batches at ~2s each.
-			if ( function_exists( 'set_time_limit' ) ) {
-				@set_time_limit( 0 );
-			}
-			ignore_user_abort( true );
-
-			$user_id     = get_current_user_id();
-			$max_records = self::read_max_records();
-
-			try {
-				$result = Agend_Directory_Sync_Runner::run( $max_records, false );
-
-				// The full transformed payload is not needed for rendering.
-				unset( $result['listings'] );
-
-				self::set_result( $user_id, $result );
-			} catch ( Throwable $e ) {
-				self::set_result(
-					$user_id,
-					array(
-						'kind'    => 'send',
-						'status'  => 'error',
-						'message' => $e->getMessage(),
-					)
-				);
-			}
-
-			wp_safe_redirect( self::redirect_url() );
-			exit;
-		}
-
 		public static function render_page(): void {
 			self::assert_can();
 
@@ -302,8 +283,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$auto_publish         = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
 			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
 			$http_api             = Agend_Directory_Sync_Http_Api_Source::resolve_settings();
+			$dataverse            = Agend_Directory_Sync_Dataverse_Source::resolve_settings();
 			$http_token_source   = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN, 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' );
 			$oauth_secret_source = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_OAUTH_CLIENT_SECRET, 'AGEND_DIRECTORY_SYNC_OAUTH_CLIENT_SECRET' );
+			$dataverse_secret_source = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_DATAVERSE_CLIENT_SECRET, 'AGEND_DIRECTORY_SYNC_DATAVERSE_CLIENT_SECRET' );
 			$field_map            = Agend_Directory_Sync_Field_Map::resolve();
 
 			$registered_sources = Agend_Directory_Sync_Source_Registry::all();
@@ -752,6 +735,289 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										</tr>
 									</tbody>
 								</table>
+							<?php elseif ( Agend_Directory_Sync_Dataverse_Source::SOURCE_KEY === $source_key ) : ?>
+								<p class="description" style="max-width:760px;">
+									<?php esc_html_e( 'Reads records from a Dynamics 365 / Dataverse environment through the Web API\'s FetchXML interface. Columns, filters and sort order are whatever your FetchXML says; the page number, page size and paging cookie are set by this plugin on every request, so paging is explicit rather than a chain of opaque next links.', 'agend-directory-sync' ); ?>
+								</p>
+								<table class="form-table" role="presentation">
+									<tbody>
+										<tr>
+											<th scope="row">
+												<label for="agend_dataverse_environment_url"><?php esc_html_e( 'Environment URL', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_dataverse[environment_url]"
+													id="agend_dataverse_environment_url"
+													type="text"
+													class="large-text code"
+													value="<?php echo esc_attr( $dataverse['environment_url'] ); ?>"
+													placeholder="https://yourorg.crm6.dynamics.com"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'The environment origin only, with no API path. Must be HTTPS. This also derives the OAuth scope, so it must match the environment the app registration was granted access to.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_dataverse_entity_set"><?php esc_html_e( 'Entity set name', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_dataverse[entity_set]"
+													id="agend_dataverse_entity_set"
+													type="text"
+													class="regular-text code"
+													value="<?php echo esc_attr( $dataverse['entity_set'] ); ?>"
+													placeholder="contacts"
+													autocomplete="off"
+												/>
+												<label for="agend_dataverse_api_version" style="margin-left:1em;"><?php esc_html_e( 'API version', 'agend-directory-sync' ); ?></label>
+												<input
+													name="agend_dataverse[api_version]"
+													id="agend_dataverse_api_version"
+													type="text"
+													class="small-text code"
+													value="<?php echo esc_attr( $dataverse['api_version'] ); ?>"
+													placeholder="<?php echo esc_attr( Agend_Directory_Sync_Dataverse_Source::DEFAULT_API_VERSION ); ?>"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'The plural entity set the query runs against (for example "contacts", "accounts", or a custom table\'s set name). Together these build /api/data/v{version}/{entity set}.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row">
+												<label for="agend_dataverse_fetch_xml"><?php esc_html_e( 'FetchXML query', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<textarea
+													name="agend_dataverse[fetch_xml]"
+													id="agend_dataverse_fetch_xml"
+													rows="12"
+													class="large-text code"
+													spellcheck="false"
+												><?php echo esc_textarea( $dataverse['fetch_xml'] ); ?></textarea>
+												<p class="description">
+													<?php esc_html_e( 'Name one <attribute> per field you want returned — that is the field selection. Filters, orders and link-entities are all allowed. Any page, count or paging-cookie attribute you put on <fetch> is overwritten by the paging settings below. The query must be valid XML with a <fetch> root, or it is not saved. Connection variables ({name}) are substituted at run time.', 'agend-directory-sync' ); ?>
+												</p>
+												<p class="description">
+													<code>&lt;fetch&gt;&lt;entity name="contact"&gt;&lt;attribute name="contactid" /&gt;&lt;attribute name="fullname" /&gt;&lt;attribute name="emailaddress1" /&gt;&lt;order attribute="contactid" /&gt;&lt;/entity&gt;&lt;/fetch&gt;</code>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Include an <order> on a stable column. Paging a query with no deterministic order can return the same row on two pages and miss another entirely.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Paging', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_dataverse_page_size"><?php esc_html_e( 'Page size', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_dataverse[page_size]"
+														id="agend_dataverse_page_size"
+														type="number"
+														min="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MIN_PAGE_SIZE ); ?>"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MAX_PAGE_SIZE ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $dataverse['page_size'] ); ?>"
+													/>
+													<label for="agend_dataverse_start_page" style="margin-left:1em;"><?php esc_html_e( 'Start page', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_dataverse[start_page]"
+														id="agend_dataverse_start_page"
+														type="number"
+														min="1"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $dataverse['start_page'] ); ?>"
+													/>
+													<label for="agend_dataverse_max_pages" style="margin-left:1em;"><?php esc_html_e( 'Max pages', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_dataverse[max_pages]"
+														id="agend_dataverse_max_pages"
+														type="number"
+														min="0"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MAX_PAGES ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $dataverse['max_pages'] ); ?>"
+													/>
+												</p>
+												<p class="description">
+													<?php
+													printf(
+														/* translators: 1: maximum page size Dataverse accepts, 2: hard page cap per run. */
+														esc_html__( 'Page size is the FetchXML count attribute (1-%1$d). Start page and max pages define the window this run fetches: start page 3 with max pages 1 fetches page 3 alone, which is how you re-run one page after a failure or test a slice without touching the rest. Max pages 0 means "keep going until Dataverse reports no more records", still bounded by a %2$d page safety cap that aborts rather than returning a partial set.', 'agend-directory-sync' ),
+														(int) Agend_Directory_Sync_Dataverse_Source::MAX_PAGE_SIZE,
+														(int) Agend_Directory_Sync_Dataverse_Source::MAX_PAGES
+													);
+													?>
+												</p>
+												<p>
+													<label for="agend_dataverse_use_paging_cookie">
+														<input
+															name="agend_dataverse[use_paging_cookie]"
+															id="agend_dataverse_use_paging_cookie"
+															type="checkbox"
+															value="1"
+															<?php checked( ! empty( $dataverse['use_paging_cookie'] ) ); ?>
+														/>
+														<?php esc_html_e( 'Use the paging cookie Dataverse returns for the next page', 'agend-directory-sync' ); ?>
+													</label>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Leave this on. Without the cookie, Dataverse has to re-walk every earlier row to reach the requested page, which gets slow quickly and is capped at 50,000 rows. Turn it off only to diagnose a paging problem: a start page above 1 always begins without a cookie, since there is no earlier response to take one from.', 'agend-directory-sync' ); ?>
+												</p>
+												<p>
+													<label for="agend_dataverse_include_annotations">
+														<input
+															name="agend_dataverse[include_annotations]"
+															id="agend_dataverse_include_annotations"
+															type="checkbox"
+															value="1"
+															<?php checked( ! empty( $dataverse['include_annotations'] ) ); ?>
+														/>
+														<?php esc_html_e( 'Request formatted values and lookup labels (all OData annotations)', 'agend-directory-sync' ); ?>
+													</label>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'On: the response carries the @OData...FormattedValue fields, so an option-set or lookup column can be mapped to its label rather than its numeric or GUID value. Off: only the two paging annotations are requested, giving a smaller response. Paging works either way.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Entra ID app registration', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_dataverse_tenant_id"><?php esc_html_e( 'Directory (tenant) ID', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse[tenant_id]"
+														id="agend_dataverse_tenant_id"
+														type="text"
+														class="regular-text code"
+														value="<?php echo esc_attr( $dataverse['tenant_id'] ); ?>"
+														placeholder="00000000-0000-0000-0000-000000000000"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_dataverse_client_id"><?php esc_html_e( 'Application (client) ID', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse[client_id]"
+														id="agend_dataverse_client_id"
+														type="text"
+														class="regular-text code"
+														value="<?php echo esc_attr( $dataverse['client_id'] ); ?>"
+														placeholder="00000000-0000-0000-0000-000000000000"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_dataverse_secret_client"><?php esc_html_e( 'Client secret', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse_secret_client"
+														id="agend_dataverse_secret_client"
+														type="password"
+														class="regular-text"
+														value=""
+														placeholder="<?php echo esc_attr( '' !== $dataverse_secret_source ? '********' : '' ); ?>"
+														autocomplete="new-password"
+													/>
+													<?php if ( 'stored' === $dataverse_secret_source ) : ?>
+														<br /><label>
+															<input type="checkbox" name="agend_dataverse_secret_client_clear" value="1" />
+															<?php esc_html_e( 'Clear the stored value on save', 'agend-directory-sync' ); ?>
+														</label>
+													<?php endif; ?>
+												</p>
+												<p class="description">
+													<?php echo esc_html__( 'Client secret status:', 'agend-directory-sync' ) . ' '; ?>
+													<?php if ( 'constant' === $dataverse_secret_source ) : ?>
+														<strong><?php esc_html_e( 'set via wp-config.php constant (overrides the field above)', 'agend-directory-sync' ); ?></strong>
+													<?php elseif ( 'stored' === $dataverse_secret_source ) : ?>
+														<strong><?php esc_html_e( 'set (stored encrypted)', 'agend-directory-sync' ); ?></strong>
+													<?php else : ?>
+														<strong style="color:#b32d2e;"><?php esc_html_e( 'not set', 'agend-directory-sync' ); ?></strong>
+													<?php endif; ?>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Client-credentials authentication against Microsoft Entra ID. The app registration needs an application user in the Dataverse environment with read access to the table you are querying. The secret is stored encrypted and never shown again; leave the field blank on save to keep the stored value, or define AGEND_DIRECTORY_SYNC_DATAVERSE_CLIENT_SECRET in wp-config.php to override it.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Advanced', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_dataverse_token_url"><?php esc_html_e( 'Token endpoint URL (optional)', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse[token_url]"
+														id="agend_dataverse_token_url"
+														type="text"
+														class="large-text code"
+														value="<?php echo esc_attr( $dataverse['token_url'] ); ?>"
+														placeholder="<?php echo esc_attr( sprintf( Agend_Directory_Sync_Dataverse_Source::TOKEN_URL_TEMPLATE, '{tenant}' ) ); ?>"
+														autocomplete="off"
+													/>
+												</p>
+												<p>
+													<label for="agend_dataverse_scope"><?php esc_html_e( 'Scope (optional)', 'agend-directory-sync' ); ?></label><br />
+													<input
+														name="agend_dataverse[scope]"
+														id="agend_dataverse_scope"
+														type="text"
+														class="large-text code"
+														value="<?php echo esc_attr( $dataverse['scope'] ); ?>"
+														placeholder="<?php echo esc_attr( '' !== $dataverse['environment_url'] ? rtrim( $dataverse['environment_url'], '/' ) . Agend_Directory_Sync_Dataverse_Source::SCOPE_SUFFIX : 'https://yourorg.crm6.dynamics.com/.default' ); ?>"
+														autocomplete="off"
+													/>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Both are derived from the tenant ID and environment URL when left blank, which is right for a standard commercial tenant. Set them for a sovereign or government cloud, where the login host and audience differ.', 'agend-directory-sync' ); ?>
+												</p>
+												<p>
+													<label for="agend_dataverse_timeout"><?php esc_html_e( 'Request timeout (seconds)', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_dataverse[timeout]"
+														id="agend_dataverse_timeout"
+														type="number"
+														min="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MIN_TIMEOUT ); ?>"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Dataverse_Source::MAX_TIMEOUT ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $dataverse['timeout'] ); ?>"
+													/>
+												</p>
+												<p>
+													<label for="agend_dataverse_variables"><?php esc_html_e( 'Connection variables', 'agend-directory-sync' ); ?></label><br />
+													<textarea
+														name="agend_dataverse[variables]"
+														id="agend_dataverse_variables"
+														rows="4"
+														class="large-text code"
+													><?php echo esc_textarea( Agend_Directory_Sync_Config::variables_to_textarea( $dataverse['variables'] ) ); ?></textarea>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'One "name = value" per line. Any {name} in the environment URL, tenant or client ID, scope, FetchXML query, or a request header below is replaced with its value at run time. Stored as plain text in the database, so never put a secret here.', 'agend-directory-sync' ); ?>
+												</p>
+												<p>
+													<label for="agend_dataverse_headers"><?php esc_html_e( 'Extra request headers', 'agend-directory-sync' ); ?></label><br />
+													<textarea
+														name="agend_dataverse[headers]"
+														id="agend_dataverse_headers"
+														rows="3"
+														class="large-text code"
+													><?php echo esc_textarea( Agend_Directory_Sync_Config::headers_to_textarea( $dataverse['headers'] ) ); ?></textarea>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'One "Header-Name: value" per line. The OData version headers, the annotation preference and the Authorization header are always sent and cannot be overridden here.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+									</tbody>
+								</table>
 							<?php endif; ?>
 						</div>
 					<?php endforeach; ?>
@@ -1011,13 +1277,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						<?php submit_button( __( 'Preview transform', 'agend-directory-sync' ), 'secondary', 'submit', false ); ?>
 					</form>
 
-					<form method="post" action="<?php echo $action_url; ?>" style="margin:0;" onsubmit="return confirm('<?php echo esc_js( __( 'This will POST to the configured Agend gateway. Continue?', 'agend-directory-sync' ) ); ?>');">
-						<input type="hidden" name="action" value="agend_directory_sync_send_to_agend" />
-						<input type="hidden" name="agend_max_records" id="agend_max_records_send" value="" />
-						<?php wp_nonce_field( self::NONCE_ACTION_SEND ); ?>
-						<?php submit_button( __( 'Send to Agend', 'agend-directory-sync' ), 'primary', 'submit', false, $source_unavailable ? array( 'disabled' => 'disabled' ) : array() ); ?>
-					</form>
+					<p style="margin:0;">
+						<button
+							type="button"
+							class="button button-primary"
+							id="agend-directory-sync-send"
+							<?php disabled( $source_unavailable ); ?>
+						><?php esc_html_e( 'Send to Agend', 'agend-directory-sync' ); ?></button>
+					</p>
 				</div>
+
+				<?php self::render_job_panel(); ?>
 
 				<script>
 					(function () {
@@ -1072,12 +1342,270 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						}
 						bindModeRows('agend_http_api_auth_mode', 'data-agend-http-auth');
 						bindModeRows('agend_http_api_pagination_mode', 'data-agend-http-pagination');
+
+						// Upload stepper. The send is one short request per batch
+						// rather than one long request for the whole directory,
+						// which is what keeps it under the web server's timeout;
+						// this loop is what walks it.
+						var jobConfig = <?php echo wp_json_encode(
+							array(
+								'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
+								'nonce'    => wp_create_nonce( Agend_Directory_Sync_Job_Controller::NONCE_ACTION ),
+								'confirm'  => __( 'This will upload to the configured Agend gateway. Continue?', 'agend-directory-sync' ),
+								'stages'   => array(
+									'pending'   => __( 'Fetching and transforming records…', 'agend-directory-sync' ),
+									'done'      => __( 'Upload complete.', 'agend-directory-sync' ),
+									'cancelled' => __( 'Cancelled. Batches already uploaded were kept; running again completes the rest.', 'agend-directory-sync' ),
+								),
+								'strings'  => array(
+									'uploading' => __( 'Uploading… batch %1$s of %2$s', 'agend-directory-sync' ),
+									'counts'    => __( '%1$s of %2$s listings — created %3$s, updated %4$s, errors %5$s', 'agend-directory-sync' ),
+									'failed'    => __( 'Failed: %1$s', 'agend-directory-sync' ),
+									'busy'      => __( 'Another tab is running a step; waiting…', 'agend-directory-sync' ),
+									'resume'    => __( 'A previous upload is unfinished. Resume it to continue where it stopped.', 'agend-directory-sync' ),
+								),
+							)
+						); ?>;
+
+						var panel = document.getElementById('agend-directory-sync-job');
+						if (panel) {
+							var stageEl = document.getElementById('agend-dsj-stage');
+							var barEl = document.getElementById('agend-dsj-bar');
+							var countsEl = document.getElementById('agend-dsj-counts');
+							var pauseBtn = document.getElementById('agend-dsj-pause');
+							var resumeBtn = document.getElementById('agend-dsj-resume');
+							var cancelBtn = document.getElementById('agend-dsj-cancel');
+							var dismissBtn = document.getElementById('agend-dsj-dismiss');
+							var sendBtn = document.getElementById('agend-directory-sync-send');
+							var maxInput = document.getElementById('agend_max_records');
+							var running = false;
+
+							function format(template, values) {
+								return template.replace(/%(\d+)\$s/g, function (m, i) { return values[i - 1]; });
+							}
+
+							function post(action, extra) {
+								var body = new URLSearchParams();
+								body.set('action', action);
+								body.set('nonce', jobConfig.nonce);
+								Object.keys(extra || {}).forEach(function (k) { body.set(k, extra[k]); });
+								return fetch(jobConfig.ajaxUrl, {
+									method: 'POST',
+									credentials: 'same-origin',
+									headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+									body: body.toString()
+								}).then(function (r) { return r.json(); });
+							}
+
+							function paint(job, note) {
+								panel.style.display = '';
+								var label = '';
+								if (note) {
+									label = note;
+								} else if (job.stage === 'sending') {
+									label = format(jobConfig.strings.uploading, [job.batches_done, job.batches_total]);
+								} else if (job.stage === 'failed') {
+									label = format(jobConfig.strings.failed, [job.message]);
+								} else {
+									label = jobConfig.stages[job.stage] || '';
+								}
+								stageEl.textContent = label;
+								barEl.style.width = (job.percent === null ? 0 : job.percent) + '%';
+								countsEl.textContent = job.listing_count
+									? format(jobConfig.strings.counts, [job.listings_sent, job.listing_count, job.created, job.updated, job.errored])
+									: '';
+
+								var active = job.active;
+								pauseBtn.style.display = active && running ? '' : 'none';
+								resumeBtn.style.display = active && !running ? '' : 'none';
+								cancelBtn.style.display = active ? '' : 'none';
+								dismissBtn.style.display = active ? 'none' : '';
+								if (sendBtn) { sendBtn.disabled = active; }
+							}
+
+							function loop() {
+								if (!running) { return; }
+								post('agend_directory_sync_job_step').then(function (res) {
+									if (!res || !res.success) {
+										running = false;
+										stageEl.textContent = (res && res.data && res.data.message) || 'Request failed.';
+										return;
+									}
+									var job = res.data.job;
+									if (res.data.busy) {
+										paint(job, jobConfig.strings.busy);
+										// Another tab holds the step lock. Back off
+										// rather than spinning against it.
+										window.setTimeout(loop, 3000);
+										return;
+									}
+									paint(job);
+									if (job.active) {
+										window.setTimeout(loop, 0);
+									} else {
+										running = false;
+										paint(job);
+										// The finished summary is rendered
+										// server-side, so reload to show it.
+										window.location.reload();
+									}
+								}).catch(function (e) {
+									running = false;
+									stageEl.textContent = String(e);
+								});
+							}
+
+							function begin() {
+								running = true;
+								loop();
+							}
+
+							if (sendBtn) {
+								sendBtn.addEventListener('click', function () {
+									if (!window.confirm(jobConfig.confirm)) { return; }
+									post('agend_directory_sync_job_start', { max_records: maxInput ? maxInput.value : '' }).then(function (res) {
+										if (!res || !res.success) {
+											window.alert((res && res.data && res.data.message) || 'Could not start the sync.');
+											return;
+										}
+										paint(res.data.job);
+										begin();
+									});
+								});
+							}
+
+							pauseBtn.addEventListener('click', function () {
+								running = false;
+								post('agend_directory_sync_job_status').then(function (res) {
+									if (res && res.success && res.data.job) { paint(res.data.job); }
+								});
+							});
+
+							resumeBtn.addEventListener('click', begin);
+
+							cancelBtn.addEventListener('click', function () {
+								running = false;
+								post('agend_directory_sync_job_cancel').then(function (res) {
+									if (res && res.success && res.data.job) { paint(res.data.job); }
+								});
+							});
+
+							dismissBtn.addEventListener('click', function () {
+								post('agend_directory_sync_job_clear').then(function () {
+									panel.style.display = 'none';
+									if (sendBtn) { sendBtn.disabled = false; }
+								});
+							});
+
+							// A page loaded onto an unfinished job waits for the
+							// operator rather than resuming by itself: an upload
+							// should not restart because someone opened a tab.
+							post('agend_directory_sync_job_status').then(function (res) {
+								if (res && res.success && res.data.job) {
+									paint(res.data.job, res.data.job.active ? jobConfig.strings.resume : null);
+								}
+							});
+						}
 					})();
 				</script>
 
 				<?php self::render_result( $last ); ?>
 			</div>
 			<?php
+		}
+
+		/**
+		 * The upload progress panel. Server-rendered so a page reloaded onto a
+		 * job in flight shows its state before any script runs, then kept live by
+		 * the stepper below.
+		 */
+		private static function render_job_panel(): void {
+			$job      = Agend_Directory_Sync_Job::current();
+			$progress = null !== $job ? Agend_Directory_Sync_Job::progress( $job ) : null;
+			$visible  = null !== $progress;
+			?>
+			<div
+				id="agend-directory-sync-job"
+				class="card"
+				style="<?php echo esc_attr( $visible ? 'max-width:640px;margin-top:1.5em;' : 'display:none;max-width:640px;margin-top:1.5em;' ); ?>"
+			>
+				<h3 style="margin-top:0;"><?php esc_html_e( 'Upload progress', 'agend-directory-sync' ); ?></h3>
+
+				<p id="agend-dsj-stage" style="margin:0 0 .5em;">
+					<?php echo esc_html( null !== $progress ? self::job_stage_label( $progress ) : '' ); ?>
+				</p>
+
+				<div style="background:#f0f0f1;border-radius:3px;height:18px;overflow:hidden;">
+					<div
+						id="agend-dsj-bar"
+						style="background:#2271b1;height:100%;width:<?php echo esc_attr( null !== $progress && null !== $progress['percent'] ? (int) $progress['percent'] . '%' : '0%' ); ?>;transition:width .2s;"
+					></div>
+				</div>
+
+				<p id="agend-dsj-counts" class="description" style="margin:.5em 0 1em;">
+					<?php echo esc_html( null !== $progress ? self::job_counts_label( $progress ) : '' ); ?>
+				</p>
+
+				<p style="margin:0;">
+					<button type="button" class="button" id="agend-dsj-pause"><?php esc_html_e( 'Pause', 'agend-directory-sync' ); ?></button>
+					<button type="button" class="button" id="agend-dsj-resume" style="display:none;"><?php esc_html_e( 'Resume', 'agend-directory-sync' ); ?></button>
+					<button type="button" class="button" id="agend-dsj-cancel"><?php esc_html_e( 'Cancel', 'agend-directory-sync' ); ?></button>
+					<button type="button" class="button" id="agend-dsj-dismiss" style="display:none;"><?php esc_html_e( 'Dismiss', 'agend-directory-sync' ); ?></button>
+				</p>
+
+				<p class="description" style="margin:.75em 0 0;">
+					<?php esc_html_e( 'The upload runs one batch per request, so it cannot hit the page timeout. Leave this tab open: closing it pauses the run, and reopening this page offers to resume it.', 'agend-directory-sync' ); ?>
+				</p>
+			</div>
+			<?php
+		}
+
+		/**
+		 * @param array<string, mixed> $progress
+		 */
+		private static function job_stage_label( array $progress ): string {
+			switch ( (string) $progress['stage'] ) {
+				case Agend_Directory_Sync_Job::STAGE_PENDING:
+					return __( 'Fetching and transforming records…', 'agend-directory-sync' );
+				case Agend_Directory_Sync_Job::STAGE_SENDING:
+					return sprintf(
+						/* translators: 1: batches uploaded, 2: total batches. */
+						__( 'Uploading… batch %1$d of %2$d', 'agend-directory-sync' ),
+						(int) $progress['batches_done'],
+						(int) $progress['batches_total']
+					);
+				case Agend_Directory_Sync_Job::STAGE_DONE:
+					return __( 'Upload complete.', 'agend-directory-sync' );
+				case Agend_Directory_Sync_Job::STAGE_CANCELLED:
+					return __( 'Cancelled. Batches already uploaded were kept; running again completes the rest.', 'agend-directory-sync' );
+				case Agend_Directory_Sync_Job::STAGE_FAILED:
+					return sprintf(
+						/* translators: %s: the failure message. */
+						__( 'Failed: %s', 'agend-directory-sync' ),
+						(string) $progress['message']
+					);
+			}
+
+			return '';
+		}
+
+		/**
+		 * @param array<string, mixed> $progress
+		 */
+		private static function job_counts_label( array $progress ): string {
+			if ( 0 === (int) $progress['listing_count'] && Agend_Directory_Sync_Job::STAGE_PENDING === (string) $progress['stage'] ) {
+				return '';
+			}
+
+			return sprintf(
+				/* translators: 1: listings uploaded, 2: listings total, 3: created count, 4: updated count, 5: error count. */
+				__( '%1$d of %2$d listings — created %3$d, updated %4$d, errors %5$d', 'agend-directory-sync' ),
+				(int) $progress['listings_sent'],
+				(int) $progress['listing_count'],
+				(int) $progress['created'],
+				(int) $progress['updated'],
+				(int) $progress['errored']
+			);
 		}
 
 		/**
@@ -1177,6 +1705,29 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				)
 				. '</p>';
 
+			// The Dataverse source reports the query it actually sent, paging
+			// attributes included. Debugging a FetchXML page window without it
+			// means guessing what the plugin overwrote.
+			if ( array_key_exists( 'fetch_xml', $result ) ) {
+				echo '<p>'
+					. esc_html(
+						sprintf(
+							/* translators: 1: page number requested, 2: page size, 3: "yes"/"no" for whether more pages remain, 4: "yes"/"no" for whether a paging cookie came back. */
+							__( 'Requested page %1$d at %2$d rows per page. More records after this page: %3$s. Paging cookie returned: %4$s.', 'agend-directory-sync' ),
+							(int) ( $result['page'] ?? 0 ),
+							(int) ( $result['page_size'] ?? 0 ),
+							! empty( $result['more_records'] ) ? __( 'yes', 'agend-directory-sync' ) : __( 'no', 'agend-directory-sync' ),
+							! empty( $result['paging_cookie'] ) ? __( 'yes', 'agend-directory-sync' ) : __( 'no', 'agend-directory-sync' )
+						)
+					)
+					. '</p>';
+
+				echo '<h4>' . esc_html__( 'FetchXML sent', 'agend-directory-sync' ) . '</h4>';
+				echo '<pre style="max-height:18em;overflow:auto;background:#f6f7f7;padding:1em;">'
+					. esc_html( (string) $result['fetch_xml'] )
+					. '</pre>';
+			}
+
 			echo '<h4>' . esc_html__( 'Raw response envelope', 'agend-directory-sync' ) . '</h4>';
 			self::render_json_block_truncated( $decoded );
 
@@ -1238,7 +1789,32 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			self::render_json_block( $records );
 		}
 
+		/**
+		 * Warn when a paged source stopped at its configured page window with
+		 * records still unfetched. Without this the counts below read as the
+		 * whole directory, and a send would look like a complete sync.
+		 *
+		 * @param array<string, mixed> $result
+		 */
+		private static function render_page_window_notice( array $result ): void {
+			if ( empty( $result['page_window_truncated'] ) ) {
+				return;
+			}
+
+			echo '<div class="notice notice-warning inline"><p>'
+				. esc_html(
+					sprintf(
+						/* translators: %d: pages fetched before the configured window ended. */
+						__( 'Partial fetch: stopped after %d page(s) because of the configured page window, and the source reported more records available. The counts below describe that slice only.', 'agend-directory-sync' ),
+						(int) ( $result['pages_fetched'] ?? 0 )
+					)
+				)
+				. '</p></div>';
+		}
+
 		private static function render_preview_result( array $result ): void {
+			self::render_page_window_notice( $result );
+
 			$fetched     = (int) ( $result['fetched'] ?? 0 );
 			$transformed = (int) ( $result['transformed'] ?? 0 );
 			$skipped     = (int) ( $result['skipped'] ?? 0 );
@@ -1266,6 +1842,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		}
 
 		private static function render_send_result( array $result ): void {
+			self::render_page_window_notice( $result );
+
 			$fetched     = (int) ( $result['fetched'] ?? 0 );
 			$transformed = (int) ( $result['transformed'] ?? 0 );
 			$skipped     = (int) ( $result['skipped'] ?? 0 );

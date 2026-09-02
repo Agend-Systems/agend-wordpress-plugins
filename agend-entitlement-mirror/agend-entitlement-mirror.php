@@ -15,69 +15,68 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-if ( ! class_exists( 'Agend_Entitlement_Mirror' ) ) :
-	require_once WP_PLUGIN_DIR . '/iugo-membership-kiosk/includes/abstract/class-imk-plugin.php';
+define( 'AGEND_ENTITLEMENT_MIRROR_DIR', rtrim( plugin_dir_path( __FILE__ ), '/' ) );
+define( 'AGEND_ENTITLEMENT_MIRROR_URL', esc_url( rtrim( plugin_dir_url( __FILE__ ), '/' ) ) );
 
-	/**
-	 * Extracted from agend-apps-core (SPEC-AMS-20260804-upbeat-entitlement-mirror,
-	 * operator decision 2026-08-04): agend-apps-core carries connection details
-	 * and generic gateway API bindings only; Upbeat/kiosk-coupled (Pro-client)
-	 * logic lives in this standalone plugin so non-Pro installs never carry it.
-	 */
-	final class Agend_Entitlement_Mirror extends Iugo_Membership_Kiosk_Plugin {
+/**
+ * Loads includes and registers hooks. Hooked on `plugins_loaded`, matching
+ * agend-apps-core's and agend-loop-sync's own bootstrap (and
+ * agend-directory-sync's, after the same conversion). There is deliberately
+ * no plugin class extending iugo-membership-kiosk's Iugo_Membership_Kiosk_Plugin
+ * here: that base class's run()/check_requirements() only loaded a plugin's
+ * own files once the kiosk plugin was ACTIVE, which meant this plugin's
+ * admin page, settings, and CLI command could never register at all on a
+ * site without the kiosk active -- regardless of which entitlement data
+ * source is configured. Only the Upbeat source
+ * (Agend_Entitlement_Mirror_Upbeat_Source::is_available()) gates on the
+ * kiosk now, at the point it is actually asked for data.
+ *
+ * Extracted from agend-apps-core (operator decision 2026-08-04): agend-apps-core
+ * carries connection details and generic gateway API bindings only;
+ * Upbeat/kiosk-coupled (Pro-client) logic lives in this standalone plugin so
+ * non-Pro installs never carry it.
+ */
+function agend_entitlement_mirror_bootstrap() {
+	// Settings first: the collector/resolver/sync/CLI classes below all call
+	// Agend_Entitlement_Mirror_Settings:: at runtime.
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-entitlement-mirror-settings.php';
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/interface-source.php';
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-upbeat-source.php';
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-http-api-source.php';
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-source-registry.php';
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-entitlement-collector.php';
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-entitlement-sync.php';
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-admin-page.php';
 
-		public function __construct() {
-			parent::__construct( 'Agend Entitlement Mirror', 'agend-entitlement-mirror' );
-
-			$this->require_plugin( 'Agend Membership', 'iugo-membership-kiosk/membership-integration.php' );
-			$this->require_plugin( 'Agend Apps Core', 'agend-apps-core/agend-apps-core.php' );
-
-			$this->define_constants();
-
-			// Settings first: the collector/resolver/sync/CLI classes below all
-			// call Agend_Entitlement_Mirror_Settings:: at runtime.
-			$this->include( 'includes/class-entitlement-mirror-settings.php' );
-			$this->include( 'includes/class-entitlement-collector.php' );
-			$this->include( 'includes/class-entitlement-sync.php' );
-			$this->include( 'includes/class-admin-page.php' );
-
-			/**
-			 * Hook in after the kiosk plugin has loaded so its API class is available.
-			 *
-			 * @see Iugo_Membership_Kiosk_Plugin::run()
-			 */
-			add_action(
-				'setup_theme',
-				function () {
-					$this->run( 'iugo_membership_kiosk' );
-				}
-			);
+	// The generic HTTP API source ships with this plugin, but registers
+	// through the same `agend_entitlement_mirror_sources` filter a client
+	// source would use, rather than a second hard-coded entry in
+	// Agend_Entitlement_Mirror_Source_Registry::register_defaults().
+	add_filter(
+		'agend_entitlement_mirror_sources',
+		static function ( array $sources ): array {
+			$http_api                        = new Agend_Entitlement_Mirror_Http_Api_Source();
+			$sources[ $http_api->get_key() ] = $http_api;
+			return $sources;
 		}
+	);
 
-		public function post_include_files(): void {
-			Agend_Entitlement_Mirror_Admin_Page::setup_hooks();
+	Agend_Entitlement_Mirror_Source_Registry::register_defaults();
 
-			// Subscribes to the kiosk's existing webhook actions and wp_login.
-			// No-ops silently when the module is disabled (the enable option is
-			// read here, once, at boot time) -- turning the option on within the
-			// same request does NOT retroactively register the listeners; the
-			// change takes effect from the next request onward (known caveat,
-			// carried over unchanged from the agend-apps-core module).
-			Agend_Entitlement_Sync::register();
+	Agend_Entitlement_Mirror_Admin_Page::setup_hooks();
 
-			// WP-CLI entitlement mirror sweep (US-2.5): loaded only under WP-CLI
-			// so the command class is never defined in a web request.
-			if ( defined( 'WP_CLI' ) && WP_CLI ) {
-				require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-cli-command.php';
-			}
-		}
+	// Subscribes to the kiosk's existing webhook actions and wp_login. No-ops
+	// silently when the module is disabled (the enable option is read here,
+	// once, at boot time) -- turning the option on within the same request
+	// does NOT retroactively register the listeners; the change takes effect
+	// from the next request onward (known caveat, carried over unchanged
+	// from the agend-apps-core module).
+	Agend_Entitlement_Sync::register();
 
-		private function define_constants(): void {
-			define( 'AGEND_ENTITLEMENT_MIRROR_DIR', $this->get_plugin_directory() );
-			define( 'AGEND_ENTITLEMENT_MIRROR_URL', esc_url( rtrim( plugin_dir_url( __FILE__ ), '/' ) ) );
-		}
+	// WP-CLI entitlement mirror sweep (US-2.5): loaded only under WP-CLI so
+	// the command class is never defined in a web request.
+	if ( defined( 'WP_CLI' ) && WP_CLI ) {
+		require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-cli-command.php';
 	}
-
-endif;
-
-$GLOBALS['Agend_Entitlement_Mirror'] = Agend_Entitlement_Mirror::instance();
+}
+add_action( 'plugins_loaded', 'agend_entitlement_mirror_bootstrap' );
