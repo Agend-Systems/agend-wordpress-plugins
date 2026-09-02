@@ -199,6 +199,27 @@ function esc_url( $url ): string {
 	return htmlspecialchars( (string) $url, ENT_QUOTES );
 }
 
+if ( ! function_exists( 'esc_url_raw' ) ) {
+	/** Minimal stand-in: trims only, no kses/scheme allow-listing. */
+	function esc_url_raw( $url ): string {
+		return trim( (string) $url );
+	}
+}
+
+if ( ! function_exists( 'wp_parse_url' ) ) {
+	/** Thin wrapper over PHP's parse_url(), matching WP's own fallback shape. */
+	function wp_parse_url( string $url ) {
+		return parse_url( $url );
+	}
+}
+
+if ( ! function_exists( 'wp_get_environment_type' ) ) {
+	/** Defaults to 'production' -- the strictest/safest value, matching WP's own default. */
+	function wp_get_environment_type(): string {
+		return (string) ( $GLOBALS['agend_test_environment_type'] ?? 'production' );
+	}
+}
+
 function add_query_arg( ...$args ) {
 	if ( is_array( $args[0] ) && count( $args ) === 1 ) {
 		return '';

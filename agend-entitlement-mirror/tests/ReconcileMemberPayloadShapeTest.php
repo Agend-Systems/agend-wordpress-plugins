@@ -11,7 +11,6 @@ use Agend_Entitlement_Collector;
 use Agend_Entitlement_Sync;
 use Agend_Test_Mirror_Gateway;
 use Agend_Test_WP;
-use Iugo_Membership_Kiosk_API_Entitlement;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -45,31 +44,33 @@ final class ReconcileMemberPayloadShapeTest extends TestCase {
 	/**
 	 * Builds two collector entries: one carrying every optional field, one
 	 * carrying none, so the omission behaviour is exercised on the same
-	 * payload rather than needing a separate test per field.
+	 * payload rather than needing a separate test per field. Built as plain
+	 * arrays in the Agend_Entitlement_Mirror_Source::fetch_member_entitlements()
+	 * shape, since to_mirror_entry() is source-neutral.
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
 	private function twoEntries(): array {
 		$allowed = array( 'Membership' );
 
-		$full = new Iugo_Membership_Kiosk_API_Entitlement(
-			'Membership',
-			'Gold Tier',
-			'Gold Tier Access',
-			new \DateTime( '2026-01-01 00:00:00', new \DateTimeZone( 'Australia/Sydney' ) ),
-			new \DateTime( '2026-12-31 13:00:00', new \DateTimeZone( 'UTC' ) ),
-			'10',
-			'7'
+		$full = array(
+			'category'           => 'Membership',
+			'type'               => 'Gold Tier',
+			'name'               => 'Gold Tier Access',
+			'starts_at'          => new \DateTime( '2026-01-01 00:00:00', new \DateTimeZone( 'Australia/Sydney' ) ),
+			'expires_at'         => new \DateTime( '2026-12-31 13:00:00', new \DateTimeZone( 'UTC' ) ),
+			'quantity_allowed'   => '10',
+			'quantity_remaining' => '7',
 		);
 
-		$sparse = new Iugo_Membership_Kiosk_API_Entitlement(
-			'Membership',
-			'Bronze Tier',
-			'',
-			null,
-			null,
-			null,
-			null
+		$sparse = array(
+			'category'           => 'Membership',
+			'type'               => 'Bronze Tier',
+			'name'               => '',
+			'starts_at'          => null,
+			'expires_at'         => null,
+			'quantity_allowed'   => null,
+			'quantity_remaining' => null,
 		);
 
 		$rows = array(
