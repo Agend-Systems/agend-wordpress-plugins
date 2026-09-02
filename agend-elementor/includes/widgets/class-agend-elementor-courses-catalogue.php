@@ -579,6 +579,18 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
 		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
 
+		// Dedicated Courses page (fixes the host-page hijack): with one
+		// configured, a catalogue elsewhere never opens a detail in place:
+		// deepLink is only honoured on the dedicated page, or, with no
+		// dedicated page configured, on whatever page hosts the widget
+		// (unchanged from before this setting existed).
+		$config['detailBase']   = Agend_Elementor_Pages::page_url( 'course' );
+		$config['onDetailPage'] = '' === $config['detailBase']
+			|| Agend_Elementor_Pages::is_dedicated_page( 'course', $page_id );
+		if ( ! $config['onDetailPage'] ) {
+			$config['deepLink'] = '';
+		}
+
 		// Cart mode: mirror the Events catalogue so a signed-in member's enrol
 		// CTA adds the course to the shop cart when the Agend Apps Shop is
 		// active (SPEC-CORE-20260722 US-2.4). Runtime site state, not a widget

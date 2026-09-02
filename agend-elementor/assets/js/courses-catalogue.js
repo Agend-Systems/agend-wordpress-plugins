@@ -876,10 +876,24 @@
     catalogueEl.appendChild(grid);
     catalogueEl.appendChild(pager);
 
-    // Build the canonical detail URL for a slug. Pretty path
-    // (/{page}/course/{slug}/) when permalinks are on and the host page path is
-    // known (US-1.3); otherwise the legacy ?agend_course= query param.
+    // Build the canonical detail URL for a slug. The dedicated Courses page
+    // (cfg.detailBase) takes priority over everything else: pretty path
+    // (/{page}/course/{slug}/) when permalinks are on, else the legacy
+    // ?agend_course= query param on that page. With no dedicated page
+    // configured, falls back to the host page path (US-1.3), and finally to
+    // the legacy query param on the current URL.
     function deepLinkUrl(slug) {
+      if (cfg.detailBase) {
+        var detailBase = cfg.detailBase;
+        if (detailBase.charAt(detailBase.length - 1) !== '/') {
+          detailBase += '/';
+        }
+        if (cfg.prettyLinks) {
+          return detailBase + 'course/' + encodeURIComponent(slug) + '/';
+        }
+        var sep = detailBase.indexOf('?') === -1 ? '?' : '&';
+        return detailBase + sep + DEEP_LINK_PARAM + '=' + encodeURIComponent(slug);
+      }
       if (cfg.prettyLinks && cfg.basePath) {
         var base = cfg.basePath;
         if (base.charAt(base.length - 1) !== '/') {
@@ -890,6 +904,16 @@
       var u = new URL(window.location.href);
       u.searchParams.set(DEEP_LINK_PARAM, slug);
       return u.toString();
+    }
+
+    // Opens an item: in place when the widget is on the detail page (or no
+    // dedicated page is configured), otherwise navigates there.
+    function openItem(slug) {
+      if (cfg.onDetailPage) {
+        showDetail(slug, true);
+        return;
+      }
+      window.location.assign(deepLinkUrl(slug));
     }
 
     function setUrlParam(slug) {
@@ -980,7 +1004,7 @@
           return;
         }
         result.items.forEach(function (course) {
-          grid.appendChild(renderCard(course, cfg, function (slug) { showDetail(slug, true); }));
+          grid.appendChild(renderCard(course, cfg, function (slug) { openItem(slug); }));
         });
         renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);
       }).catch(function () {

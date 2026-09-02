@@ -29,6 +29,20 @@ const AGEND_ELEMENTOR_SSR_DETAIL_OPTION = 'agend_elementor_ssr_detail';
 const AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION = 'agend_elementor_show_achievements';
 
 /**
+ * Option name storing the configured Events catalogue/detail page id (0 = unset).
+ *
+ * @var string
+ */
+const AGEND_ELEMENTOR_EVENTS_PAGE_OPTION = 'agend_elementor_events_page_id';
+
+/**
+ * Option name storing the configured Courses catalogue/detail page id (0 = unset).
+ *
+ * @var string
+ */
+const AGEND_ELEMENTOR_COURSES_PAGE_OPTION = 'agend_elementor_courses_page_id';
+
+/**
  * Whether the Directory widget requests and renders member LMS achievements
  * ("Badges & Credentials") on the detail view.
  *
@@ -77,6 +91,52 @@ function agend_elementor_ssr_detail_enabled(): bool {
  * Registers the settings, option, and admin page.
  */
 function agend_elementor_settings_init(): void {
+	// Registered before "Detail Pages" so it renders first: choosing the
+	// catalogue pages is the setting a new site configures before anything
+	// else here matters.
+	add_settings_section(
+		'agend_elementor_section_pages',
+		__( 'Catalogue Pages', 'agend-elementor' ),
+		'agend_elementor_settings_section_pages',
+		'agend-elementor'
+	);
+
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_ELEMENTOR_EVENTS_PAGE_OPTION,
+		array(
+			'type'              => 'integer',
+			'sanitize_callback' => 'absint',
+			'default'           => 0,
+		)
+	);
+
+	add_settings_field(
+		AGEND_ELEMENTOR_EVENTS_PAGE_OPTION,
+		__( 'Events page', 'agend-elementor' ),
+		'agend_elementor_settings_field_events_page',
+		'agend-elementor',
+		'agend_elementor_section_pages'
+	);
+
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_ELEMENTOR_COURSES_PAGE_OPTION,
+		array(
+			'type'              => 'integer',
+			'sanitize_callback' => 'absint',
+			'default'           => 0,
+		)
+	);
+
+	add_settings_field(
+		AGEND_ELEMENTOR_COURSES_PAGE_OPTION,
+		__( 'Courses page', 'agend-elementor' ),
+		'agend_elementor_settings_field_courses_page',
+		'agend-elementor',
+		'agend_elementor_section_pages'
+	);
+
 	register_setting(
 		'agend_elementor_settings',
 		AGEND_ELEMENTOR_SSR_DETAIL_OPTION,
@@ -145,6 +205,84 @@ function agend_elementor_settings_menu(): void {
 	);
 }
 add_action( 'admin_menu', 'agend_elementor_settings_menu' );
+
+/**
+ * Renders the Catalogue Pages settings section description.
+ */
+function agend_elementor_settings_section_pages(): void {
+	echo '<p>';
+	esc_html_e(
+		'The page that shows the full catalogue and item detail pages. A widget placed on any other page links visitors here instead of taking over its own page. Leave unset to keep current behaviour.',
+		'agend-elementor'
+	);
+	echo '</p>';
+}
+
+/**
+ * Renders a widget-presence advisory when the selected page's Elementor
+ * content does not appear to contain the expected catalogue widget.
+ *
+ * `_elementor_data` is the raw JSON Elementor stores for the page; matching
+ * the widget type string directly is a cheap heuristic (no JSON parse) and is
+ * advisory only, so a false negative (e.g. the widget nested unusually) never
+ * blocks saving the setting.
+ *
+ * @param int    $page_id     The selected page id (0 = none selected).
+ * @param string $widget_type The expected widgetType value, e.g. 'agend-events-catalogue'.
+ * @param string $message     The advisory message to show when the widget is not found.
+ */
+function agend_elementor_settings_widget_advisory( int $page_id, string $widget_type, string $message ): void {
+	if ( 0 === $page_id ) {
+		return;
+	}
+
+	$data = get_post_meta( $page_id, '_elementor_data', true );
+	if ( false !== strpos( (string) $data, '"widgetType":"' . $widget_type . '"' ) ) {
+		return;
+	}
+
+	echo '<p class="description notice-warning">' . esc_html( $message ) . '</p>';
+}
+
+/**
+ * Renders the Events page picker.
+ */
+function agend_elementor_settings_field_events_page(): void {
+	$selected = absint( get_option( AGEND_ELEMENTOR_EVENTS_PAGE_OPTION, 0 ) );
+	wp_dropdown_pages(
+		array(
+			'name'              => AGEND_ELEMENTOR_EVENTS_PAGE_OPTION,
+			'show_option_none'  => __( 'Select a page', 'agend-elementor' ),
+			'option_none_value' => '0',
+			'selected'          => $selected,
+		)
+	);
+	agend_elementor_settings_widget_advisory(
+		$selected,
+		'agend-events-catalogue',
+		__( 'This page does not appear to contain the Events Catalogue widget.', 'agend-elementor' )
+	);
+}
+
+/**
+ * Renders the Courses page picker.
+ */
+function agend_elementor_settings_field_courses_page(): void {
+	$selected = absint( get_option( AGEND_ELEMENTOR_COURSES_PAGE_OPTION, 0 ) );
+	wp_dropdown_pages(
+		array(
+			'name'              => AGEND_ELEMENTOR_COURSES_PAGE_OPTION,
+			'show_option_none'  => __( 'Select a page', 'agend-elementor' ),
+			'option_none_value' => '0',
+			'selected'          => $selected,
+		)
+	);
+	agend_elementor_settings_widget_advisory(
+		$selected,
+		'agend-courses-catalogue',
+		__( 'This page does not appear to contain the Courses Catalogue widget.', 'agend-elementor' )
+	);
+}
 
 /**
  * Renders the Detail Pages settings section description.
