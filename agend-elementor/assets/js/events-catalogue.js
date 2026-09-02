@@ -53,7 +53,13 @@
   }
 
   function apiGet(path, params) {
-    var url = restBase().replace(/\/$/, '') + path;
+    return apiGetFrom(restBase(), path, params);
+  }
+
+  // Same query serialisation against another REST base (the plugin's own
+  // card-fragment namespace).
+  function apiGetFrom(base, path, params) {
+    var url = String(base || '').replace(/\/$/, '') + path;
     var qs = [];
     Object.keys(params || {}).forEach(function (key) {
       var value = params[key];
@@ -1757,6 +1763,23 @@
     // Apply inherited site theme (fonts/colours) — live via CSS custom props.
     applySiteTheme(root, cfg);
 
+    // Card template mode: the first page arrived server-rendered, so adopt
+    // that markup (grid, pager, filter slot) instead of rebuilding it, and
+    // fetch later pages as rendered fragments.
+    var templated = cfg.cardMode === 'template';
+    var catalogueEl, status, grid, pager;
+    if (templated) {
+      catalogueEl = el('div', 'agend-ev-catalogue');
+      while (root.firstChild) {
+        catalogueEl.appendChild(root.firstChild);
+      }
+      status = catalogueEl.querySelector('.agend-ev-status') || el('div', 'agend-ev-status');
+      grid = catalogueEl.querySelector('.agend-ev-grid') || el('div', 'agend-ev-grid');
+      pager = catalogueEl.querySelector('.agend-ev-pager-slot') || el('div', 'agend-ev-pager-slot');
+      buildFilterBar(catalogueEl.querySelector('.agend-ev-filter-slot') || catalogueEl, cfg, state, reloadCatalogue);
+      grid.addEventListener('click', onTemplatedCardClick);
+    } else {
+
     // The catalogue view is built once and cached so returning from a detail
     // view preserves the search/filter state and the rendered grid.
     var catalogueEl = el('div', 'agend-ev-catalogue');
@@ -1781,6 +1804,7 @@
     catalogueEl.appendChild(status);
     catalogueEl.appendChild(grid);
     catalogueEl.appendChild(pager);
+    }
 
     // Build the canonical detail URL for a slug. The dedicated Events page
     // (cfg.detailBase) takes priority over everything else: pretty path
@@ -1820,6 +1844,52 @@
         return;
       }
       window.location.assign(deepLinkUrl(slug));
+    }
+
+    // Templated cards are raw HTML, so clicks are delegated from the grid. A
+    // register button inside a card also opens the detail, where the
+    // registration flow lives.
+    function onTemplatedCardClick(e) {
+      var card = e.target.closest ? e.target.closest('[data-agend-slug]') : null;
+      if (!card || !grid.contains(card)) {
+        return;
+      }
+      var slug = card.getAttribute('data-agend-slug');
+      if (!slug) {
+        return;
+      }
+      // Off the dedicated page the anchor navigates natively, so middle-click
+      // and open-in-new-tab keep working.
+      if (!cfg.onDetailPage && card.tagName === 'A') {
+        return;
+      }
+      e.preventDefault();
+      openItem(slug);
+    }
+
+    function fragmentGet(params) {
+      var query = { template: cfg.cardTemplate, detail_page: cfg.hostPageId || 0, card_link_whole: cfg.cardLinkWhole ? 1 : 0 };
+      Object.keys(params || {}).forEach(function (key) {
+        query[key] = params[key];
+      });
+      return apiGetFrom(cfg.restBase || '', cfg.fragmentPath, query);
+    }
+
+    // Fragments are this plugin's own PHP output with every record value
+    // escaped server-side by the field widgets, so they are inserted as-is:
+    // the DOMPurify pass used for gateway rich text would strip Elementor's
+    // inline styles and data attributes.
+    function insertFragments(cards) {
+      cards.forEach(function (card) {
+        var wrap = document.createElement('div');
+        wrap.innerHTML = card.html || '';
+        while (wrap.firstChild) {
+          grid.appendChild(wrap.firstChild);
+        }
+      });
+      if (window.agendRecordFields && window.agendRecordFields.apply) {
+        window.agendRecordFields.apply(grid);
+      }
     }
 
     function setUrlParam(slug) {
@@ -1917,7 +1987,7 @@
         appendGridSkeletons(grid, cfg);
       }
       var exclusions = cfg.exclusions || {};
-      apiGet('/events', {
+      var params = {
         page: state.page,
         limit: cfg.pagination.perPage,
         search: state.search,
@@ -1935,8 +2005,11 @@
         excludeVenueTypes: exclusions.venueTypes || [],
         excludeCities: exclusions.cities || [],
         excludeCategoriesMatch: exclusions.categoryMatch || 'any',
-      }).then(function (body) {
-        var result = unwrapList(body);
+      };
+      (templated ? fragmentGet(params) : apiGet('/events', params)).then(function (body) {
+        var result = templated
+          ? { items: (body && body.cards) || [], pagination: (body && body.meta && body.meta.pagination) || null }
+          : unwrapList(body);
         status.style.display = 'none';
         if (!state.append) {
           grid.innerHTML = '';
@@ -1947,9 +2020,13 @@
           status.textContent = 'No events found.';
           return;
         }
-        result.items.forEach(function (event) {
-          grid.appendChild(renderCard(event, cfg, function (slug) { openItem(slug); }));
-        });
+        if (templated) {
+          insertFragments(result.items);
+        } else {
+          result.items.forEach(function (event) {
+            grid.appendChild(renderCard(event, cfg, function (slug) { openItem(slug); }));
+          });
+        }
         renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);
       }).catch(function () {
         if (!state.append) {
@@ -1999,7 +2076,19 @@
     // fall back to parsing the URL (pretty path or legacy query param).
     var deepLinkSlug = cfg.deepLink || currentDeepLink();
     var payState = currentPayState();
-    if (deepLinkSlug) {
+    if (templated) {
+      // The first page is already in the DOM; only wire pagination, and
+      // refetch when the server-side fetch failed.
+      renderPagination(pager, cfg, state, cfg.initialPagination || null, reloadCatalogue);
+      if (deepLinkSlug) {
+        showDetail(deepLinkSlug, false, payState === 'success' ? 'success' : null);
+      } else {
+        showCatalogue(false);
+      }
+      if (cfg.initialError) {
+        reloadCatalogue();
+      }
+    } else if (deepLinkSlug) {
       showDetail(deepLinkSlug, false, payState === 'success' ? 'success' : null);
       reloadCatalogue(); // warm the cached catalogue for a snappy Back
     } else {
