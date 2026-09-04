@@ -97,7 +97,62 @@ Upbeat-specific knowledge.
 The CSS/JS behind the Agend Elementor catalogue widgets lives in
 `assets/` here, not in the Elementor plugin: none of it is Elementor-specific,
 it only talks to the rendered DOM and the REST fragments API. This plugin
-registers every `agend-elementor-*` handle on `wp_enqueue_scripts` at priority
+registers every `agend-apps-records-*` handle on `wp_enqueue_scripts` at priority
 5 (`includes/records/assets.php`), ahead of any consumer's own
 `wp_enqueue_scripts` hook. Sibling plugins enqueue these by handle only; they
 do not register them again.
+
+## Deprecated names (removed in the release after 1.8.0)
+
+The page-builder-agnostic record layer under `includes/records/` shipped
+under the Elementor plugin's `agend_elementor_*` / `Agend_Elementor_*` prefix
+before it moved here. `includes/records/deprecated.php` keeps every name
+below resolving, with a deprecation notice, for one release.
+
+| Old name | New name |
+| :--- | :--- |
+| `agend_elementor_courses_list_args()` | `agend_apps_records_courses_list_args()` |
+| `agend_elementor_detail_template_labels()` | `agend_apps_records_detail_template_labels()` |
+| `agend_elementor_events_list_args()` | `agend_apps_records_events_list_args()` |
+| `agend_elementor_fetch_list()` | `agend_apps_records_fetch_list()` |
+| `agend_elementor_field_applies()` | `agend_apps_records_field_applies()` |
+| `agend_elementor_field_kind()` | `agend_apps_records_field_kind()` |
+| `agend_elementor_field_options()` | `agend_apps_records_field_options()` |
+| `agend_elementor_field_terms()` | `agend_apps_records_field_terms()` |
+| `agend_elementor_field_value()` | `agend_apps_records_field_value()` |
+| `agend_elementor_filter_config()` | `agend_apps_records_filter_config()` |
+| `agend_elementor_filter_options()` | `agend_apps_records_filter_options()` |
+| `agend_elementor_filter_registry()` | `agend_apps_records_filter_registry()` |
+| `agend_elementor_format_field()` | `agend_apps_records_format_field()` |
+| `agend_elementor_listings_list_args()` | `agend_apps_records_listings_list_args()` |
+| `agend_elementor_pill_field_options()` | `agend_apps_records_pill_field_options()` |
+| `agend_elementor_preview_record()` | `agend_apps_records_preview_record()` |
+| `agend_elementor_render_cards()` | `agend_apps_records_render_cards()` |
+| `agend_elementor_render_field()` | `agend_apps_records_render_field()` |
+| `agend_elementor_shop_cart_enabled()` | `agend_apps_records_shop_cart_enabled()` |
+| `agend_elementor_shop_cart_page_url()` | `agend_apps_records_shop_cart_page_url()` |
+| `agend_elementor_show_achievements_enabled()` | `agend_apps_records_show_achievements_enabled()` |
+| `agend_elementor_ssr_colour_style()` | `agend_apps_records_ssr_colour_style()` |
+| `agend_elementor_ssr_detail_enabled()` | `agend_apps_records_ssr_detail_enabled()` |
+| `agend_elementor_unwrap_list()` | `agend_apps_records_unwrap_list()` |
+| `agend_elementor_asset_url()` | `agend_apps_records_asset_url()` |
+| `agend_elementor_asset_version()` | `agend_apps_records_asset_version()` |
+| `agend_elementor_register_dompurify()` | `agend_apps_records_register_dompurify()` |
+| `Agend_Elementor_Pages` | `Agend_Apps_Records_Pages` |
+| `Agend_Elementor_Fragments_Controller` | `Agend_Apps_Records_Fragments_Controller` |
+| `Agend_Elementor_Record_Context` | `Agend_Apps_Records_Record_Context` |
+| `Agend_Elementor_Filter_Context` | `Agend_Apps_Records_Filter_Context` |
+| `agend_elementor_cart_mode` (filter) | `agend_apps_records_cart_mode` |
+| `agend_elementor_dedicated_page_id` (filter) | `agend_apps_records_dedicated_page_id` |
+| `agend_elementor_detail_url` (filter) | `agend_apps_records_detail_url` |
+| `agend_elementor_filter_registry` (filter) | `agend_apps_records_filter_registry` |
+| `agend_elementor_show_achievements_enabled` (filter) | `agend_apps_records_show_achievements_enabled` |
+| `agend_elementor_ssr_detail_enabled` (filter) | `agend_apps_records_ssr_detail_enabled` |
+| `agend-elementor-*` enqueue handles (see above) | `agend-apps-records-*` |
+| `agend-elementor/v1` REST namespace | `agend-apps/v1` |
+
+The ten `AGEND_ELEMENTOR_*` option/kind/limit constants keep resolving too
+(defined to their `AGEND_APPS_RECORDS_*` value), and the class aliases above
+resolve via `class_alias()`. The stored option names themselves
+(`agend_elementor_events_page_id` and friends) are unchanged and are not
+deprecated: they are live site data, not a code-facing name.

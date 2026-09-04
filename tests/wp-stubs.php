@@ -126,6 +126,26 @@ function add_filter( string $hook, $callback, int $priority = 10, int $args = 1 
 	return true;
 }
 
+/**
+ * Deprecated-hook variant of {@see apply_filters()}: runs the same filter
+ * machinery against `$args[0]` under the OLD hook name, so a test (or a
+ * site's real `add_filter()`) registered on the pre-rename name still
+ * changes the result.
+ *
+ * @param string $hook        The deprecated hook name.
+ * @param array  $args        `array( $value, ...$extra )`.
+ * @param string $version     Unused; kept for signature parity with WordPress.
+ * @param string $replacement Unused; kept for signature parity with WordPress.
+ */
+function apply_filters_deprecated( string $hook, array $args, string $version = '', string $replacement = '' ) {
+	$value = array_shift( $args );
+
+	return apply_filters( $hook, $value, ...$args );
+}
+
+/** No-op: the stub harness does not assert on deprecation notices. */
+function _deprecated_function( string $function, string $version, string $replacement = '' ): void {}
+
 // ---------------------------------------------------------------------------
 // Options, escaping, i18n
 // ---------------------------------------------------------------------------

@@ -3,8 +3,8 @@
  * Dedicated Events/Courses catalogue pages.
  *
  * A catalogue widget's detail routing has always resolved against whatever
- * page hosts the widget instance (see class-agend-elementor-routing.php and
- * class-agend-elementor-ssr-detail.php), so a catalogue placed as a homepage
+ * page hosts the widget instance (see routing.php and
+ * ssr-detail.php), so a catalogue placed as a homepage
  * CTA turns the homepage into the detail page for whatever item a visitor
  * opens. This class lets a site nominate one dedicated page per catalogue
  * type; every widget instance then links back to that page instead of taking
@@ -15,7 +15,7 @@
  * so the wp:4 redirect below and the widgets' page_url()/detail_url() calls
  * work even before Elementor or Agend Apps Core finish bootstrapping.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Static accessor for the dedicated catalogue pages (Events, Courses).
  */
-class Agend_Elementor_Pages {
+class Agend_Apps_Records_Pages {
 
 	/**
 	 * Per-type configuration: the option storing the configured page id, the
@@ -37,22 +37,22 @@ class Agend_Elementor_Pages {
 	public static function types(): array {
 		return array(
 			'event'  => array(
-				'option'    => AGEND_ELEMENTOR_EVENTS_PAGE_OPTION,
+				'option'    => AGEND_APPS_RECORDS_EVENTS_PAGE_OPTION,
 				'segment'   => 'event/',
 				'query_var' => 'event',
 				'legacy'    => 'agend_event',
 			),
 			'course' => array(
-				'option'    => AGEND_ELEMENTOR_COURSES_PAGE_OPTION,
+				'option'    => AGEND_APPS_RECORDS_COURSES_PAGE_OPTION,
 				'segment'   => 'course/',
 				'query_var' => 'course',
 				'legacy'    => 'agend_course',
 			),
 			// The directory detail path is /{page}/listing/{slug}/ like the
 			// others, but the slug arrives on a namespaced private query var
-			// (see class-agend-elementor-routing.php).
+			// (see routing.php).
 			'listing' => array(
-				'option'    => AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION,
+				'option'    => AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION,
 				'segment'   => 'listing/',
 				'query_var' => 'agend_dir_listing',
 				'legacy'    => 'agend_listing',
@@ -97,7 +97,11 @@ class Agend_Elementor_Pages {
 		 * @param int    $id   The validated dedicated page id.
 		 * @param string $type 'event' or 'course'.
 		 */
-		return absint( apply_filters( 'agend_elementor_dedicated_page_id', $id, $type ) );
+		$id = absint( apply_filters( 'agend_apps_records_dedicated_page_id', $id, $type ) );
+
+		// A site's existing add_filter() on the pre-rename hook name still
+		// applies for one release.
+		return absint( apply_filters_deprecated( 'agend_elementor_dedicated_page_id', array( $id, $type ), '1.8.0', 'agend_apps_records_dedicated_page_id' ) );
 	}
 
 	/**
@@ -177,7 +181,11 @@ class Agend_Elementor_Pages {
 		 * @param string $slug    The item slug.
 		 * @param int    $page_id The host page id the URL was built against (0 when unresolved).
 		 */
-		return (string) apply_filters( 'agend_elementor_detail_url', $url, $type, $slug, $page_id );
+		$url = (string) apply_filters( 'agend_apps_records_detail_url', $url, $type, $slug, $page_id );
+
+		// A site's existing add_filter() on the pre-rename hook name still
+		// applies for one release.
+		return (string) apply_filters_deprecated( 'agend_elementor_detail_url', array( $url, $type, $slug, $page_id ), '1.8.0', 'agend_apps_records_detail_url' );
 	}
 
 	/**
@@ -238,12 +246,12 @@ class Agend_Elementor_Pages {
  * Redirects a catalogue detail request to its dedicated page.
  *
  * Runs on `wp` at priority 4, before the SSR virtual-page swap at priority 5
- * (class-agend-elementor-ssr-detail.php), so a request that lands on a
+ * (ssr-detail.php), so a request that lands on a
  * non-dedicated page with an item slug is sent to the dedicated page before
  * anything renders there. GET requests only, and only for the main query on
  * a normal front-end document request.
  */
-function agend_elementor_maybe_redirect_to_dedicated_page(): void {
+function agend_apps_records_maybe_redirect_to_dedicated_page(): void {
 	if ( is_admin() || wp_doing_ajax() || is_feed() || is_embed() ) {
 		return;
 	}
@@ -261,10 +269,10 @@ function agend_elementor_maybe_redirect_to_dedicated_page(): void {
 
 	$current_page_id = get_queried_object_id();
 
-	foreach ( Agend_Elementor_Pages::types() as $type => $cfg ) {
+	foreach ( Agend_Apps_Records_Pages::types() as $type => $cfg ) {
 		// The pretty path sets the rewrite-endpoint query var directly; the
 		// legacy ?agend_event=/?agend_course= form arrives as a public query
-		// var too (registered in class-agend-elementor-routing.php), so both
+		// var too (registered in routing.php), so both
 		// forms are visible the same way here.
 		$slug = sanitize_title( (string) get_query_var( $cfg['query_var'] ) );
 		if ( '' === $slug ) {
@@ -274,7 +282,7 @@ function agend_elementor_maybe_redirect_to_dedicated_page(): void {
 			continue;
 		}
 
-		$target = Agend_Elementor_Pages::redirect_target( $type, $slug, $current_page_id );
+		$target = Agend_Apps_Records_Pages::redirect_target( $type, $slug, $current_page_id );
 		if ( '' === $target ) {
 			continue;
 		}
@@ -283,4 +291,4 @@ function agend_elementor_maybe_redirect_to_dedicated_page(): void {
 		exit;
 	}
 }
-add_action( 'wp', 'agend_elementor_maybe_redirect_to_dedicated_page', 4 );
+add_action( 'wp', 'agend_apps_records_maybe_redirect_to_dedicated_page', 4 );

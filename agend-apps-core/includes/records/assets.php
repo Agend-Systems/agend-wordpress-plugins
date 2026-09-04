@@ -2,10 +2,9 @@
 /**
  * Shared front-end assets for the Agend catalogue widgets.
  *
- * The CSS/JS behind the Agend Elementor widgets is page-builder-agnostic (it
+ * The CSS/JS behind the Agend catalogue widgets is page-builder-agnostic (it
  * only talks to the rendered DOM and the REST fragments API), so it is hosted
- * here rather than in the Elementor plugin. Handles keep their
- * `agend-elementor-*` names: renaming them is a later phase.
+ * here rather than in the Elementor plugin.
  *
  * @package Agend_Apps_Core
  */
@@ -20,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @param string $relative Asset path relative to the assets directory.
  * @return string Full asset URL.
  */
-function agend_elementor_asset_url( string $relative ): string {
+function agend_apps_records_asset_url( string $relative ): string {
 	return AGEND_APPS_CORE_URL . 'assets/' . $relative;
 }
 
@@ -29,7 +28,7 @@ function agend_elementor_asset_url( string $relative ): string {
  *
  * @return string Asset version string.
  */
-function agend_elementor_asset_version(): string {
+function agend_apps_records_asset_version(): string {
 	return AGEND_APPS_CORE_VERSION;
 }
 
@@ -38,13 +37,13 @@ function agend_elementor_asset_version(): string {
  * instead of registering and paying immediately.
  *
  * Returns true when the Agend Apps Shop plugin is active (its version constant
- * is defined). The `agend_elementor_cart_mode` filter allows a site to override
- * the detected value, so the direct register/pay flow can be forced back on
- * even when the shop is present, or vice versa.
+ * is defined). The `agend_apps_records_cart_mode` filter allows a site to
+ * override the detected value, so the direct register/pay flow can be forced
+ * back on even when the shop is present, or vice versa.
  *
  * @return bool True when cart mode is enabled, false otherwise.
  */
-function agend_elementor_shop_cart_enabled(): bool {
+function agend_apps_records_shop_cart_enabled(): bool {
 	$enabled = defined( 'AGEND_APPS_SHOP_VERSION' );
 
 	/**
@@ -52,7 +51,11 @@ function agend_elementor_shop_cart_enabled(): bool {
 	 *
 	 * @param bool $enabled Whether cart mode is enabled (the shop plugin is active).
 	 */
-	return (bool) apply_filters( 'agend_elementor_cart_mode', $enabled );
+	$enabled = (bool) apply_filters( 'agend_apps_records_cart_mode', $enabled );
+
+	// A site's existing add_filter() on the pre-rename hook name still applies
+	// for one release.
+	return (bool) apply_filters_deprecated( 'agend_elementor_cart_mode', array( $enabled ), '1.8.0', 'agend_apps_records_cart_mode' );
 }
 
 /**
@@ -64,8 +67,8 @@ function agend_elementor_shop_cart_enabled(): bool {
  *
  * @return string Escaped cart page URL, or empty string when unavailable.
  */
-function agend_elementor_shop_cart_page_url(): string {
-	if ( ! agend_elementor_shop_cart_enabled() ) {
+function agend_apps_records_shop_cart_page_url(): string {
+	if ( ! agend_apps_records_shop_cart_enabled() ) {
 		return '';
 	}
 
@@ -80,13 +83,13 @@ function agend_elementor_shop_cart_page_url(): string {
  * descriptions) is written to the DOM. Shared by every enqueue path so they all
  * depend on the same handle, version, and vendor path.
  */
-function agend_elementor_register_dompurify(): void {
-	if ( wp_script_is( 'agend-elementor-dompurify', 'registered' ) ) {
+function agend_apps_records_register_dompurify(): void {
+	if ( wp_script_is( 'agend-apps-records-dompurify', 'registered' ) ) {
 		return;
 	}
 	wp_register_script(
-		'agend-elementor-dompurify',
-		agend_elementor_asset_url( 'js/vendor/purify.min.js' ),
+		'agend-apps-records-dompurify',
+		agend_apps_records_asset_url( 'js/vendor/purify.min.js' ),
 		array(),
 		'3.3.1',
 		true
@@ -94,49 +97,49 @@ function agend_elementor_register_dompurify(): void {
 }
 
 /**
- * Registers every shared `agend-elementor-*` handle so sibling plugins can
+ * Registers every shared `agend-apps-records-*` handle so sibling plugins can
  * enqueue them by handle alone.
  *
  * Priority 5, ahead of the Elementor plugin's global enqueue and the SSR
  * detail enqueue (both priority 20), so registration is always in place before
  * either runs.
  */
-function agend_elementor_register_assets(): void {
-	agend_elementor_register_dompurify();
+function agend_apps_records_register_assets(): void {
+	agend_apps_records_register_dompurify();
 
 	wp_register_style(
-		'agend-elementor-filters',
-		agend_elementor_asset_url( 'css/filters.css' ),
+		'agend-apps-records-filters',
+		agend_apps_records_asset_url( 'css/filters.css' ),
 		array(),
-		agend_elementor_asset_version()
+		agend_apps_records_asset_version()
 	);
 	wp_register_script(
-		'agend-elementor-filters',
-		agend_elementor_asset_url( 'js/filters.js' ),
+		'agend-apps-records-filters',
+		agend_apps_records_asset_url( 'js/filters.js' ),
 		array(),
-		agend_elementor_asset_version(),
+		agend_apps_records_asset_version(),
 		true
 	);
 
 	wp_register_style(
-		'agend-elementor-export-reports',
-		agend_elementor_asset_url( 'css/export-reports.css' ),
+		'agend-apps-records-export-reports',
+		agend_apps_records_asset_url( 'css/export-reports.css' ),
 		array(),
-		agend_elementor_asset_version()
+		agend_apps_records_asset_version()
 	);
 	wp_register_script(
-		'agend-elementor-export-reports',
-		agend_elementor_asset_url( 'js/export-reports.js' ),
+		'agend-apps-records-export-reports',
+		agend_apps_records_asset_url( 'js/export-reports.js' ),
 		array(),
-		agend_elementor_asset_version(),
+		agend_apps_records_asset_version(),
 		true
 	);
 
 	wp_register_style(
-		'agend-elementor-events-catalogue',
-		agend_elementor_asset_url( 'css/events-catalogue.css' ),
+		'agend-apps-records-events-catalogue',
+		agend_apps_records_asset_url( 'css/events-catalogue.css' ),
 		array(),
-		agend_elementor_asset_version()
+		agend_apps_records_asset_version()
 	);
 
 	// When the shop is active, the events registration flow adds tickets to the
@@ -144,108 +147,108 @@ function agend_elementor_register_assets(): void {
 	// headers), so depend on its handle. The dependency is added only when the
 	// shop is active, otherwise the handle is unregistered and WordPress would
 	// silently drop the events script.
-	$events_deps = array( 'agend-elementor-dompurify' );
-	if ( agend_elementor_shop_cart_enabled() ) {
+	$events_deps = array( 'agend-apps-records-dompurify' );
+	if ( agend_apps_records_shop_cart_enabled() ) {
 		$events_deps[] = 'agend-apps-shop-cart-session';
 	}
 
 	wp_register_script(
-		'agend-elementor-events-catalogue',
-		agend_elementor_asset_url( 'js/events-catalogue.js' ),
+		'agend-apps-records-events-catalogue',
+		agend_apps_records_asset_url( 'js/events-catalogue.js' ),
 		$events_deps,
-		agend_elementor_asset_version(),
+		agend_apps_records_asset_version(),
 		true
 	);
 
 	wp_register_style(
-		'agend-elementor-courses-catalogue',
-		agend_elementor_asset_url( 'css/courses-catalogue.css' ),
+		'agend-apps-records-courses-catalogue',
+		agend_apps_records_asset_url( 'css/courses-catalogue.css' ),
 		array(),
-		agend_elementor_asset_version()
+		agend_apps_records_asset_version()
 	);
 	wp_register_script(
-		'agend-elementor-courses-catalogue',
-		agend_elementor_asset_url( 'js/courses-catalogue.js' ),
-		array( 'agend-elementor-dompurify' ),
-		agend_elementor_asset_version(),
+		'agend-apps-records-courses-catalogue',
+		agend_apps_records_asset_url( 'js/courses-catalogue.js' ),
+		array( 'agend-apps-records-dompurify' ),
+		agend_apps_records_asset_version(),
 		true
 	);
 
 	wp_register_style(
-		'agend-elementor-directory-catalogue',
-		agend_elementor_asset_url( 'css/directory-catalogue.css' ),
+		'agend-apps-records-directory-catalogue',
+		agend_apps_records_asset_url( 'css/directory-catalogue.css' ),
 		array(),
-		agend_elementor_asset_version()
+		agend_apps_records_asset_version()
 	);
 	wp_register_script(
-		'agend-elementor-directory-catalogue',
-		agend_elementor_asset_url( 'js/directory-catalogue.js' ),
-		array( 'agend-elementor-dompurify' ),
-		agend_elementor_asset_version(),
+		'agend-apps-records-directory-catalogue',
+		agend_apps_records_asset_url( 'js/directory-catalogue.js' ),
+		array( 'agend-apps-records-dompurify' ),
+		agend_apps_records_asset_version(),
 		true
 	);
 	wp_register_script(
-		'agend-elementor-directory-detail',
-		agend_elementor_asset_url( 'js/directory-detail.js' ),
+		'agend-apps-records-directory-detail',
+		agend_apps_records_asset_url( 'js/directory-detail.js' ),
 		array(),
-		agend_elementor_asset_version(),
-		true
-	);
-
-	wp_register_style(
-		'agend-elementor-account-link',
-		agend_elementor_asset_url( 'css/account-link.css' ),
-		array(),
-		agend_elementor_asset_version()
-	);
-	wp_register_script(
-		'agend-elementor-account-link',
-		agend_elementor_asset_url( 'js/account-link.js' ),
-		array(),
-		agend_elementor_asset_version(),
+		agend_apps_records_asset_version(),
 		true
 	);
 
 	wp_register_style(
-		'agend-elementor-member-login',
-		agend_elementor_asset_url( 'css/member-login.css' ),
+		'agend-apps-records-account-link',
+		agend_apps_records_asset_url( 'css/account-link.css' ),
 		array(),
-		agend_elementor_asset_version()
+		agend_apps_records_asset_version()
 	);
 	wp_register_script(
-		'agend-elementor-member-login',
-		agend_elementor_asset_url( 'js/member-login.js' ),
+		'agend-apps-records-account-link',
+		agend_apps_records_asset_url( 'js/account-link.js' ),
 		array(),
-		agend_elementor_asset_version(),
+		agend_apps_records_asset_version(),
 		true
 	);
 
 	wp_register_style(
-		'agend-elementor-memberships-catalogue',
-		agend_elementor_asset_url( 'css/memberships-catalogue.css' ),
+		'agend-apps-records-member-login',
+		agend_apps_records_asset_url( 'css/member-login.css' ),
 		array(),
-		agend_elementor_asset_version()
+		agend_apps_records_asset_version()
 	);
 	wp_register_script(
-		'agend-elementor-memberships-catalogue',
-		agend_elementor_asset_url( 'js/memberships-catalogue.js' ),
-		array( 'agend-elementor-dompurify' ),
-		agend_elementor_asset_version(),
+		'agend-apps-records-member-login',
+		agend_apps_records_asset_url( 'js/member-login.js' ),
+		array(),
+		agend_apps_records_asset_version(),
 		true
 	);
 
 	wp_register_style(
-		'agend-elementor-header-auth',
-		agend_elementor_asset_url( 'css/header-auth.css' ),
+		'agend-apps-records-memberships-catalogue',
+		agend_apps_records_asset_url( 'css/memberships-catalogue.css' ),
 		array(),
-		agend_elementor_asset_version()
+		agend_apps_records_asset_version()
 	);
 	wp_register_script(
-		'agend-elementor-header-auth',
-		agend_elementor_asset_url( 'js/header-auth.js' ),
+		'agend-apps-records-memberships-catalogue',
+		agend_apps_records_asset_url( 'js/memberships-catalogue.js' ),
+		array( 'agend-apps-records-dompurify' ),
+		agend_apps_records_asset_version(),
+		true
+	);
+
+	wp_register_style(
+		'agend-apps-records-header-auth',
+		agend_apps_records_asset_url( 'css/header-auth.css' ),
 		array(),
-		agend_elementor_asset_version(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-header-auth',
+		agend_apps_records_asset_url( 'js/header-auth.js' ),
+		array(),
+		agend_apps_records_asset_version(),
 		true
 	);
 }
-add_action( 'wp_enqueue_scripts', 'agend_elementor_register_assets', 5 );
+add_action( 'wp_enqueue_scripts', 'agend_apps_records_register_assets', 5 );

@@ -10,10 +10,10 @@ namespace Agend\Tests\Elementor;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-query.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/query.php';
 
 /**
- * agend_elementor_fragment_query_args(): the REST fragment endpoint forwards
+ * agend_apps_records_fragment_query_args(): the REST fragment endpoint forwards
  * exactly what the Agend Apps Core proxy would, and nothing else.
  */
 final class FragmentQueryArgsTest extends TestCase {
@@ -31,7 +31,7 @@ final class FragmentQueryArgsTest extends TestCase {
 			'apiKey'      => 'leak',
 		);
 
-		$this->assertSame( array( 'page' => 2, 'limit' => 9, 'search' => 'gala' ), agend_elementor_fragment_query_args( $params, 'event' ) );
+		$this->assertSame( array( 'page' => 2, 'limit' => 9, 'search' => 'gala' ), agend_apps_records_fragment_query_args( $params, 'event' ) );
 	}
 
 	#[Test]
@@ -45,7 +45,7 @@ final class FragmentQueryArgsTest extends TestCase {
 
 		$this->assertSame(
 			array( 'excludeCategories' => array( 'a', 'b' ), 'type' => 'virtual' ),
-			agend_elementor_fragment_query_args( $params, 'event' )
+			agend_apps_records_fragment_query_args( $params, 'event' )
 		);
 	}
 
@@ -55,13 +55,13 @@ final class FragmentQueryArgsTest extends TestCase {
 
 		$this->assertSame(
 			array( 'deliveryMode' => 'self_paced', 'excludeDifficulties' => array( 'advanced' ) ),
-			agend_elementor_fragment_query_args( $params, 'course' )
+			agend_apps_records_fragment_query_args( $params, 'course' )
 		);
 	}
 
 	#[Test]
 	public function should_clamp_limit_and_page_when_out_of_range(): void {
-		$out = agend_elementor_fragment_query_args( array( 'limit' => 500, 'page' => 0, 'per_page' => -3 ), 'course' );
+		$out = agend_apps_records_fragment_query_args( array( 'limit' => 500, 'page' => 0, 'per_page' => -3 ), 'course' );
 
 		$this->assertSame( 100, $out['limit'] );
 		$this->assertSame( 1, $out['page'] );
@@ -70,11 +70,11 @@ final class FragmentQueryArgsTest extends TestCase {
 
 	#[Test]
 	public function should_unwrap_gateway_list_shape_and_errors(): void {
-		$list = agend_elementor_unwrap_list( array( 'data' => array( array( 'slug' => 'a' ), 'junk' ), 'meta' => array( 'pagination' => array( 'page' => 1 ) ) ) );
+		$list = agend_apps_records_unwrap_list( array( 'data' => array( array( 'slug' => 'a' ), 'junk' ), 'meta' => array( 'pagination' => array( 'page' => 1 ) ) ) );
 
 		$this->assertSame( array( array( 'slug' => 'a' ) ), $list['items'] );
 		$this->assertSame( array( 'page' => 1 ), $list['pagination'] );
 		$this->assertFalse( $list['error'] );
-		$this->assertTrue( agend_elementor_unwrap_list( new \WP_Error( 'x', 'y' ) )['error'] );
+		$this->assertTrue( agend_apps_records_unwrap_list( new \WP_Error( 'x', 'y' ) )['error'] );
 	}
 }

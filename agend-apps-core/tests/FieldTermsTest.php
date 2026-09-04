@@ -10,8 +10,8 @@ namespace Agend\Tests\Elementor;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-format.php';
-require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-fields.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/format.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/fields.php';
 
 /**
  * Terms feed the Agend Pills widget: one pill per returned item.
@@ -24,20 +24,20 @@ final class FieldTermsTest extends TestCase {
 
 		$this->assertSame(
 			array( 'Beginner Friendly', 'Recording Available' ),
-			agend_elementor_field_terms( 'event:tags', 'event', $record )
+			agend_apps_records_field_terms( 'event:tags', 'event', $record )
 		);
 	}
 
 	#[Test]
 	public function should_return_empty_when_tags_absent_from_the_payload(): void {
-		$this->assertSame( array(), agend_elementor_field_terms( 'event:tags', 'event', array( 'name' => 'Gala' ) ) );
+		$this->assertSame( array(), agend_apps_records_field_terms( 'event:tags', 'event', array( 'name' => 'Gala' ) ) );
 	}
 
 	#[Test]
 	public function should_wrap_a_single_value_field_as_one_term(): void {
 		$record = array( 'category' => array( 'name' => 'Professional Development' ) );
 
-		$this->assertSame( array( 'Professional Development' ), agend_elementor_field_terms( 'event:category', 'event', $record ) );
+		$this->assertSame( array( 'Professional Development' ), agend_apps_records_field_terms( 'event:category', 'event', $record ) );
 	}
 
 	#[Test]
@@ -46,7 +46,7 @@ final class FieldTermsTest extends TestCase {
 
 		$this->assertSame(
 			array( 'Webinars', 'Professional Development' ),
-			agend_elementor_field_terms( 'event:categories', 'event', $record )
+			agend_apps_records_field_terms( 'event:categories', 'event', $record )
 		);
 	}
 
@@ -54,18 +54,18 @@ final class FieldTermsTest extends TestCase {
 	public function should_drop_blank_terms_and_trim_whitespace(): void {
 		$record = array( 'tags' => array( array( 'name' => '  Spaced  ' ), array( 'name' => '' ), 'Plain' ) );
 
-		$this->assertSame( array( 'Spaced', 'Plain' ), agend_elementor_field_terms( 'event:tags', 'event', $record ) );
+		$this->assertSame( array( 'Spaced', 'Plain' ), agend_apps_records_field_terms( 'event:tags', 'event', $record ) );
 	}
 
 	#[Test]
 	public function should_return_empty_when_the_field_does_not_apply_to_the_record_type(): void {
-		$this->assertSame( array(), agend_elementor_field_terms( 'event:tags', 'course', array( 'tags' => array( 'x' ) ) ) );
+		$this->assertSame( array(), agend_apps_records_field_terms( 'event:tags', 'course', array( 'tags' => array( 'x' ) ) ) );
 	}
 
 	#[Test]
 	public function should_offer_only_pill_marked_fields_in_the_pill_picker(): void {
-		$groups   = agend_elementor_pill_field_options();
-		$registry = agend_elementor_field_registry();
+		$groups   = agend_apps_records_pill_field_options();
+		$registry = agend_apps_records_field_registry();
 		$keys     = array();
 		foreach ( $groups as $group ) {
 			$keys = array_merge( $keys, array_keys( $group['options'] ) );

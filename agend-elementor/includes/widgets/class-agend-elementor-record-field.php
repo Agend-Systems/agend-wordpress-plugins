@@ -60,7 +60,7 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 				'label'       => __( 'Field', 'agend-elementor' ),
 				'type'        => \Elementor\Controls_Manager::SELECT,
 				'default'     => 'common:title',
-				'groups'      => agend_elementor_field_options(),
+				'groups'      => agend_apps_records_field_options(),
 				'label_block' => true,
 				'description' => __( 'Common fields work in both event and course templates. Event and Course fields render only inside a template of that type.', 'agend-elementor' ),
 			)
@@ -295,7 +295,7 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Formatting options for agend_elementor_format_field() from the controls.
+	 * Formatting options for agend_apps_records_format_field() from the controls.
 	 *
 	 * @param array $s Widget settings.
 	 * @return array
@@ -330,11 +330,11 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 		}
 
 		$key  = (string) ( $s['field'] ?? 'common:title' );
-		$kind = agend_elementor_field_kind( $key );
+		$kind = agend_apps_records_field_kind( $key );
 		if ( '' === $kind ) {
 			return;
 		}
-		if ( ! agend_elementor_field_applies( $key, $ctx['type'] ) ) {
+		if ( ! agend_apps_records_field_applies( $key, $ctx['type'] ) ) {
 			$this->render_editor_notice( __( 'This field does not exist on the record type this template renders.', 'agend-elementor' ) );
 			return;
 		}
@@ -342,7 +342,7 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 		$extra = $ctx['extra'];
 		$extra['custom_field_key'] = (string) ( $s['custom_field_key'] ?? '' );
 
-		$html = agend_elementor_render_field( $key, $ctx['type'], $ctx['record'], $extra, $this->format_options( $s ) );
+		$html = agend_apps_records_render_field( $key, $ctx['type'], $ctx['record'], $extra, $this->format_options( $s ) );
 		if ( '' === $html ) {
 			$fallback = trim( (string) ( $s['fallback_text'] ?? '' ) );
 			if ( '' === $fallback ) {
@@ -361,7 +361,7 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 
 		// A card that is already one big link cannot contain another anchor.
 		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $extra['in_card_link'] ) )
-			? (string) agend_elementor_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $extra )
+			? (string) agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $extra )
 			: '';
 		if ( '' !== $link && '#' !== $link ) {
 			$inner = '<a class="agend-field__link" href="' . esc_url( $link ) . '">' . $inner . '</a>';
@@ -377,6 +377,6 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 			$classes[] = 'agend-field--preview';
 		}
 
-		echo '<' . $tag . ' class="' . esc_attr( implode( ' ', $classes ) ) . '">' . $inner . '</' . $tag . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $inner is escaped by agend_elementor_format_field().
+		echo '<' . $tag . ' class="' . esc_attr( implode( ' ', $classes ) ) . '">' . $inner . '</' . $tag . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $inner is escaped by agend_apps_records_format_field().
 	}
 }

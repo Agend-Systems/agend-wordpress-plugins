@@ -4,11 +4,11 @@
  * "field" widgets.
  *
  * Every function here takes scalars or arrays and returns a formatted string
- * (or, for agend_elementor_record_timezone(), a DateTimeZone); none of them
+ * (or, for agend_apps_records_record_timezone(), a DateTimeZone); none of them
  * echo or assemble a whole panel. Composite HTML fragments live in
- * class-agend-elementor-fragments.php.
+ * fragments.php.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @param array $record Catalogue record carrying an optional `timezone` field.
  * @return DateTimeZone The record's timezone, or the site timezone.
  */
-function agend_elementor_record_timezone( array $record ): DateTimeZone {
+function agend_apps_records_record_timezone( array $record ): DateTimeZone {
 	if ( empty( $record['timezone'] ) ) {
 		return wp_timezone();
 	}
@@ -46,7 +46,7 @@ function agend_elementor_record_timezone( array $record ): DateTimeZone {
  * @param string $prefix The CSS-variable prefix (without the leading '--').
  * @return string The inline style declaration string.
  */
-function agend_elementor_ssr_colour_style( string $prefix ): string {
+function agend_apps_records_ssr_colour_style( string $prefix ): string {
 	return sprintf(
 		'--%1$s-heading:#1E2A4A;--%1$s-body:#26304D;--%1$s-accent:#FF6B55;--%1$s-button:#FF6B55;--%1$s-button-text:#FFFFFF;--%1$s-card-radius:10px;',
 		$prefix
@@ -61,11 +61,11 @@ function agend_elementor_ssr_colour_style( string $prefix ): string {
  * @param string $type The venue type (physical, virtual, hybrid).
  * @return string The display label, or the raw type when unknown.
  */
-function agend_elementor_ssr_ev_type_label( string $type ): string {
+function agend_apps_records_ssr_ev_type_label( string $type ): string {
 	$labels = array(
-		'physical' => __( 'In-Person', 'agend-elementor' ),
-		'virtual'  => __( 'Online', 'agend-elementor' ),
-		'hybrid'   => __( 'Hybrid', 'agend-elementor' ),
+		'physical' => __( 'In-Person', 'agend-apps-core' ),
+		'virtual'  => __( 'Online', 'agend-apps-core' ),
+		'hybrid'   => __( 'Hybrid', 'agend-apps-core' ),
 	);
 	return $labels[ $type ] ?? $type;
 }
@@ -81,7 +81,7 @@ function agend_elementor_ssr_ev_type_label( string $type ): string {
  * @param DateTimeZone|null $tz    The event timezone (null = site timezone).
  * @return string The formatted range, or empty string.
  */
-function agend_elementor_ssr_ev_date_range( $start, $end, ?DateTimeZone $tz = null ): string {
+function agend_apps_records_ssr_ev_date_range( $start, $end, ?DateTimeZone $tz = null ): string {
 	$start_ts = strtotime( (string) $start );
 	if ( ! $start_ts ) {
 		return '';
@@ -108,7 +108,7 @@ function agend_elementor_ssr_ev_date_range( $start, $end, ?DateTimeZone $tz = nu
  * @param DateTimeZone|null $tz    The event timezone (null = site timezone).
  * @return string The formatted date and time, or empty string.
  */
-function agend_elementor_ssr_ev_date_time( $start, $end, ?DateTimeZone $tz = null ): string {
+function agend_apps_records_ssr_ev_date_time( $start, $end, ?DateTimeZone $tz = null ): string {
 	$start_ts = strtotime( (string) $start );
 	if ( ! $start_ts ) {
 		return '';
@@ -134,12 +134,12 @@ function agend_elementor_ssr_ev_date_time( $start, $end, ?DateTimeZone $tz = nul
  * @param mixed $value The raw price value (numeric or numeric string).
  * @return string|null The formatted price, or null when not numeric.
  */
-function agend_elementor_ssr_ev_format_price( $value ): ?string {
+function agend_apps_records_ssr_ev_format_price( $value ): ?string {
 	if ( null === $value || '' === $value || ! is_numeric( $value ) ) {
 		return null;
 	}
 	$num = (float) $value;
-	return 0.0 === $num ? __( 'FREE', 'agend-elementor' ) : '$' . number_format( $num, 2, '.', '' );
+	return 0.0 === $num ? __( 'FREE', 'agend-apps-core' ) : '$' . number_format( $num, 2, '.', '' );
 }
 
 /**
@@ -150,10 +150,10 @@ function agend_elementor_ssr_ev_format_price( $value ): ?string {
  * @param mixed $minutes Total duration in minutes.
  * @return string The formatted duration.
  */
-function agend_elementor_ssr_lms_duration( $minutes ): string {
+function agend_apps_records_ssr_lms_duration( $minutes ): string {
 	$m = is_numeric( $minutes ) ? (int) $minutes : 0;
 	if ( $m <= 0 ) {
-		return __( 'Self-paced', 'agend-elementor' );
+		return __( 'Self-paced', 'agend-apps-core' );
 	}
 	$hours   = intdiv( $m, 60 );
 	$remains = $m % 60;
@@ -171,15 +171,15 @@ function agend_elementor_ssr_lms_duration( $minutes ): string {
  * @param string $value The difficulty value.
  * @return string The display label, the raw value when unknown, or empty.
  */
-function agend_elementor_ssr_lms_difficulty( string $value ): string {
+function agend_apps_records_ssr_lms_difficulty( string $value ): string {
 	if ( '' === $value ) {
 		return '';
 	}
 	$labels = array(
-		'beginner'     => __( 'Beginner', 'agend-elementor' ),
-		'intermediate' => __( 'Intermediate', 'agend-elementor' ),
-		'advanced'     => __( 'Advanced', 'agend-elementor' ),
-		'all_levels'   => __( 'All Levels', 'agend-elementor' ),
+		'beginner'     => __( 'Beginner', 'agend-apps-core' ),
+		'intermediate' => __( 'Intermediate', 'agend-apps-core' ),
+		'advanced'     => __( 'Advanced', 'agend-apps-core' ),
+		'all_levels'   => __( 'All Levels', 'agend-apps-core' ),
 	);
 	return $labels[ $value ] ?? $value;
 }
@@ -193,12 +193,12 @@ function agend_elementor_ssr_lms_difficulty( string $value ): string {
  * @param string $value The delivery mode value.
  * @return string The display label, or empty string.
  */
-function agend_elementor_ssr_lms_mode( string $value ): string {
+function agend_apps_records_ssr_lms_mode( string $value ): string {
 	$labels = array(
-		'self_paced'  => __( 'Self-paced', 'agend-elementor' ),
-		'live_online' => __( 'Live Online', 'agend-elementor' ),
-		'in_person'   => __( 'In-Person', 'agend-elementor' ),
-		'blended'     => __( 'Blended', 'agend-elementor' ),
+		'self_paced'  => __( 'Self-paced', 'agend-apps-core' ),
+		'live_online' => __( 'Live Online', 'agend-apps-core' ),
+		'in_person'   => __( 'In-Person', 'agend-apps-core' ),
+		'blended'     => __( 'Blended', 'agend-apps-core' ),
 	);
 	return $labels[ $value ] ?? '';
 }
@@ -211,14 +211,14 @@ function agend_elementor_ssr_lms_mode( string $value ): string {
  * @param array $course Course detail (gateway shape).
  * @return string The formatted price.
  */
-function agend_elementor_ssr_lms_price( array $course ): string {
+function agend_apps_records_ssr_lms_price( array $course ): string {
 	if ( ! empty( $course['is_free'] ) ) {
-		return __( 'Free', 'agend-elementor' );
+		return __( 'Free', 'agend-apps-core' );
 	}
 	$price = $course['base_price'] ?? null;
 	$num   = is_numeric( $price ) ? (float) $price : 0.0;
 	if ( $num <= 0.0 ) {
-		return __( 'Free', 'agend-elementor' );
+		return __( 'Free', 'agend-apps-core' );
 	}
 	// No thousands separator, matching the client priceLabel() (toFixed(2)) used
 	// on the catalogue cards and the client-rendered detail.

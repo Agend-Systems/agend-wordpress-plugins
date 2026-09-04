@@ -70,7 +70,7 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 				'label'       => __( 'Image field', 'agend-elementor' ),
 				'type'        => \Elementor\Controls_Manager::SELECT,
 				'default'     => 'common:image',
-				'groups'      => agend_elementor_field_options( array( 'url' ) ),
+				'groups'      => agend_apps_records_field_options( array( 'url' ) ),
 				'label_block' => true,
 			)
 		);
@@ -239,7 +239,7 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 	 */
 	private function image_url( array $s, array $ctx ): string {
 		$key = (string) ( $s['field'] ?? 'common:image' );
-		$url = agend_elementor_field_value( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
+		$url = agend_apps_records_field_value( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
 		$url = is_string( $url ) ? $url : '';
 		if ( '' === $url && ! empty( $s['fallback_image']['url'] ) ) {
 			$url = (string) $s['fallback_image']['url'];
@@ -285,7 +285,7 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 			return;
 		}
 
-		$title = (string) ( agend_elementor_field_value( 'common:title', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
+		$title = (string) ( agend_apps_records_field_value( 'common:title', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
 
 		if ( 'background' === ( $s['mode'] ?? 'img' ) ) {
 			$placement = (string) ( $s['placement'] ?? 'fill' );
@@ -336,7 +336,7 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 		$img = '<img ' . $this->get_render_attribute_string( 'image' ) . ' />';
 
 		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $ctx['extra']['in_card_link'] ) )
-			? (string) ( agend_elementor_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
+			? (string) ( agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
 			: '';
 		if ( '' !== $link && '#' !== $link ) {
 			$img = '<a class="agend-record-image__link" href="' . esc_url( $link ) . '">' . $img . '</a>';

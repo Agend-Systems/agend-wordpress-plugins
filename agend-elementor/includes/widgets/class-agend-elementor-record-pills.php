@@ -64,7 +64,7 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 				'label'       => __( 'Terms', 'agend-elementor' ),
 				'type'        => \Elementor\Controls_Manager::SELECT,
 				'default'     => 'common:category',
-				'groups'      => agend_elementor_pill_field_options(),
+				'groups'      => agend_apps_records_pill_field_options(),
 				'label_block' => true,
 				'description' => __( 'A list field renders one pill per term. A single-value field renders one pill.', 'agend-elementor' ),
 			)
@@ -201,12 +201,12 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 		}
 
 		$key = (string) ( $s['field'] ?? 'common:category' );
-		if ( ! agend_elementor_field_applies( $key, $ctx['type'] ) ) {
+		if ( ! agend_apps_records_field_applies( $key, $ctx['type'] ) ) {
 			$this->render_editor_notice( __( 'These terms do not exist on the record type this template renders.', 'agend-elementor' ) );
 			return;
 		}
 
-		$terms = agend_elementor_field_terms( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
+		$terms = agend_apps_records_field_terms( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
 		$max   = (int) ( $s['max_items'] ?? 0 );
 		if ( $max > 0 ) {
 			$terms = array_slice( $terms, 0, $max );
@@ -218,7 +218,7 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 		}
 
 		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $ctx['extra']['in_card_link'] ) )
-			? (string) ( agend_elementor_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
+			? (string) ( agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
 			: '';
 
 		echo '<div class="agend-pills">';

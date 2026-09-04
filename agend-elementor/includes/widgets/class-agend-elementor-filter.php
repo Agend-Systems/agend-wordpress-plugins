@@ -45,7 +45,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-filters' );
+		return array( 'agend-apps-records-filters' );
 	}
 
 	protected function register_controls(): void {
@@ -63,7 +63,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 				'label'       => __( 'Filter', 'agend-elementor' ),
 				'type'        => \Elementor\Controls_Manager::SELECT,
 				'default'     => 'event:search',
-				'groups'      => agend_elementor_filter_options(),
+				'groups'      => agend_apps_records_filter_options(),
 				'label_block' => true,
 				'description' => __( 'Choose the filter for the catalogue this template belongs to. A filter from another catalogue renders nothing.', 'agend-elementor' ),
 			)
@@ -262,7 +262,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 		}
 		list( $type, $key ) = explode( ':', $selected, 2 );
 
-		$context = Agend_Elementor_Filter_Context::type();
+		$context = Agend_Apps_Records_Filter_Context::type();
 
 		// Outside a catalogue's filter template there is no record type in
 		// scope. In the editor the widget still draws itself, using its own
@@ -276,7 +276,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 			return;
 		}
 
-		$config = agend_elementor_filter_config( $type, $key, $s );
+		$config = agend_apps_records_filter_config( $type, $key, $s );
 		if ( null === $config ) {
 			$this->render_editor_notice( __( 'This filter is not configured yet. A custom field filter needs its field key.', 'agend-elementor' ) );
 			return;

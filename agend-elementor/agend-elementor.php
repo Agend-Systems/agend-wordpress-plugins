@@ -62,7 +62,7 @@ function agend_elementor_bootstrap(): void {
 	// loads from Agend Apps Core 1.8.0 and newer. An Agend Apps
 	// Core predating that move has no such function, so bail rather than fatal
 	// on the classes this bootstrap assumes are already loaded.
-	if ( ! function_exists( 'agend_elementor_ssr_detail_enabled' ) ) {
+	if ( ! function_exists( 'agend_apps_records_ssr_detail_enabled' ) ) {
 		Agend_Elementor_Cache_Guard::flag_degraded();
 		add_action( 'admin_notices', 'agend_elementor_outdated_core_notice' );
 		return;
@@ -160,7 +160,7 @@ function agend_elementor_enqueue_scripts(): void {
 	// This function is hooked at top level and runs even when the bootstrap
 	// above bailed (missing/outdated core, missing Elementor), so guard
 	// against calling a handle registrar that was never loaded.
-	if ( ! function_exists( 'agend_elementor_register_assets' ) ) {
+	if ( ! function_exists( 'agend_apps_records_register_assets' ) ) {
 		return;
 	}
 
@@ -183,33 +183,33 @@ function agend_elementor_enqueue_scripts(): void {
 	);
 
 	// Filter controls for Agend Filter widgets placed in a filter template.
-	wp_enqueue_style( 'agend-elementor-filters' );
-	wp_enqueue_script( 'agend-elementor-filters' );
+	wp_enqueue_style( 'agend-apps-records-filters' );
+	wp_enqueue_script( 'agend-apps-records-filters' );
 
 	// Directory export reports: the list is per-visitor, so it is fetched at
 	// view time rather than rendered into a cacheable page.
-	wp_enqueue_style( 'agend-elementor-export-reports' );
-	wp_enqueue_script( 'agend-elementor-export-reports' );
+	wp_enqueue_style( 'agend-apps-records-export-reports' );
+	wp_enqueue_script( 'agend-apps-records-export-reports' );
 
-	wp_enqueue_style( 'agend-elementor-events-catalogue' );
-	wp_enqueue_script( 'agend-elementor-events-catalogue' );
+	wp_enqueue_style( 'agend-apps-records-events-catalogue' );
+	wp_enqueue_script( 'agend-apps-records-events-catalogue' );
 
-	wp_enqueue_style( 'agend-elementor-courses-catalogue' );
-	wp_enqueue_script( 'agend-elementor-courses-catalogue' );
+	wp_enqueue_style( 'agend-apps-records-courses-catalogue' );
+	wp_enqueue_script( 'agend-apps-records-courses-catalogue' );
 
-	wp_enqueue_style( 'agend-elementor-directory-catalogue' );
-	wp_enqueue_script( 'agend-elementor-directory-catalogue' );
+	wp_enqueue_style( 'agend-apps-records-directory-catalogue' );
+	wp_enqueue_script( 'agend-apps-records-directory-catalogue' );
 
-	wp_enqueue_style( 'agend-elementor-account-link' );
-	wp_enqueue_script( 'agend-elementor-account-link' );
+	wp_enqueue_style( 'agend-apps-records-account-link' );
+	wp_enqueue_script( 'agend-apps-records-account-link' );
 
-	wp_enqueue_style( 'agend-elementor-member-login' );
-	wp_enqueue_script( 'agend-elementor-member-login' );
+	wp_enqueue_style( 'agend-apps-records-member-login' );
+	wp_enqueue_script( 'agend-apps-records-member-login' );
 
-	wp_enqueue_style( 'agend-elementor-memberships-catalogue' );
-	wp_enqueue_script( 'agend-elementor-memberships-catalogue' );
+	wp_enqueue_style( 'agend-apps-records-memberships-catalogue' );
+	wp_enqueue_script( 'agend-apps-records-memberships-catalogue' );
 
-	wp_enqueue_style( 'agend-elementor-header-auth' );
-	wp_enqueue_script( 'agend-elementor-header-auth' );
+	wp_enqueue_style( 'agend-apps-records-header-auth' );
+	wp_enqueue_script( 'agend-apps-records-header-auth' );
 }
 add_action( 'wp_enqueue_scripts', 'agend_elementor_enqueue_scripts', 20 );
