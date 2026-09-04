@@ -96,19 +96,25 @@
   grid-column: 1;
 }
 
-/* The filter column spans the full height beside the results. */
+/* The filter column has to SPAN the rows the results occupy, or the results
+   are pushed to the row beneath it. The span is a count rather than `/ -1`:
+   with no explicit rows declared, -1 resolves to the first line of the
+   explicit grid, which makes the slot one row tall. Ten covers the heading,
+   status, grid and pager with room to spare, and empty rows have no height.
+   The start row is left to auto-placement, so the filters begin level with
+   the results whether or not the catalogue has a heading. */
 .agend-filters-left > .agend-ev-filter-slot,
 .agend-filters-left > .agend-lms-filter-slot,
 .agend-filters-left > .agend-dir-filter-slot {
   grid-column: 1;
-  grid-row: 2 / -1;
+  grid-row: span 10;
 }
 
 .agend-filters-right > .agend-ev-filter-slot,
 .agend-filters-right > .agend-lms-filter-slot,
 .agend-filters-right > .agend-dir-filter-slot {
   grid-column: 2;
-  grid-row: 2 / -1;
+  grid-row: span 10;
 }
 
 /* A heading stays full width above both columns. */
