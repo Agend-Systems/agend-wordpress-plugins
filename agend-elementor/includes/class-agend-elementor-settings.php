@@ -348,8 +348,8 @@ function agend_elementor_settings_field_courses_page(): void {
 function agend_elementor_settings_template_select( string $option, string $page_option ): void {
 	$selected = absint( get_option( $option, 0 ) );
 	$has_page = absint( get_option( $page_option, 0 ) ) > 0;
-	$options  = class_exists( 'Agend_Elementor_Templates' )
-		? Agend_Elementor_Templates::options( __( 'Built-in detail layout', 'agend-elementor' ) )
+	$options  = class_exists( 'Agend_Apps_Templates' )
+		? Agend_Apps_Templates::options( __( 'Built-in detail layout', 'agend-elementor' ) )
 		: array( '' => __( 'Built-in detail layout', 'agend-elementor' ) );
 
 	echo '<select name="' . esc_attr( $option ) . '"' . ( $has_page ? '' : ' disabled' ) . '>';

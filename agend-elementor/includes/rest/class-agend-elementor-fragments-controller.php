@@ -89,7 +89,7 @@ class Agend_Elementor_Fragments_Controller {
 	 */
 	public function get_cards( WP_REST_Request $request, string $type ) {
 		$template_id = (int) $request->get_param( 'template' );
-		if ( ! Agend_Elementor_Template_Renderer::is_valid_template( $template_id ) ) {
+		if ( ! Agend_Apps_Templates::is_valid_template( $template_id ) ) {
 			return new WP_Error( 'agend_elementor_invalid_template', __( 'The card template does not exist or is not published.', 'agend-elementor' ), array( 'status' => 400 ) );
 		}
 

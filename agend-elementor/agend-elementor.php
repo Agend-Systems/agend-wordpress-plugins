@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.18.2
+ * Version:           0.19.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.18.2' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.19.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -111,6 +111,19 @@ function agend_elementor_bootstrap(): void {
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-templates.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-preview-records.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-template-renderer.php';
+
+	// Register this plugin's implementation of the Agend Apps Core template
+	// contracts so the framework-agnostic call sites (cards, SSR detail,
+	// settings, fragments REST) never call Elementor's classes directly.
+	// Guarded so an older Agend Apps Core without the registry cannot fatal
+	// the site; the two plugins are updated independently on live sites.
+	if ( class_exists( 'Agend_Apps_Templates' ) ) {
+		require_once AGEND_ELEMENTOR_DIR . 'includes/adapters/class-agend-elementor-template-renderer-adapter.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/adapters/class-agend-elementor-template-source-adapter.php';
+		Agend_Apps_Templates::set_renderer( new Agend_Elementor_Template_Renderer_Adapter() );
+		Agend_Apps_Templates::set_source( new Agend_Elementor_Template_Source_Adapter() );
+	}
+
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-filters.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-query.php';
