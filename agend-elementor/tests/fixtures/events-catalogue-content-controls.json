@@ -1,0 +1,487 @@
+{
+    "sections": [
+        {
+            "id": "section_heading",
+            "args": {
+                "label": "Heading",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "show_heading",
+                    "args": {
+                        "label": "Show heading block",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "heading_text",
+                    "args": {
+                        "label": "Heading",
+                        "type": "text",
+                        "default": "Upcoming Events",
+                        "condition": {
+                            "show_heading": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "subheading_text",
+                    "args": {
+                        "label": "Subheading",
+                        "type": "textarea",
+                        "default": "Conferences, workshops, and networking events across Australia.",
+                        "condition": {
+                            "show_heading": "yes"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_layout",
+            "args": {
+                "label": "Layout",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "columns_desktop",
+                    "args": {
+                        "label": "Columns (Desktop)",
+                        "type": "select",
+                        "options": {
+                            "2": "2",
+                            "3": "3",
+                            "4": "4"
+                        },
+                        "default": "3"
+                    }
+                },
+                {
+                    "id": "columns_tablet",
+                    "args": {
+                        "label": "Columns (Tablet)",
+                        "type": "select",
+                        "options": {
+                            "1": "1",
+                            "2": "2"
+                        },
+                        "default": "2"
+                    }
+                },
+                {
+                    "id": "columns_mobile",
+                    "args": {
+                        "label": "Columns (Mobile)",
+                        "type": "select",
+                        "options": {
+                            "1": "1",
+                            "2": "2"
+                        },
+                        "default": "1"
+                    }
+                },
+                {
+                    "id": "card_radius",
+                    "args": {
+                        "label": "Card Corner Radius (px)",
+                        "type": "number",
+                        "default": 10,
+                        "min": 0,
+                        "max": 48
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_card_template",
+            "args": {
+                "label": "Card Template",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "card_template",
+                    "args": {
+                        "label": "Card template",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Built-in card",
+                            "101": "Event card",
+                            "102": "Event filter bar"
+                        },
+                        "label_block": true,
+                        "description": "A saved template (Templates > Saved Templates) rendered once per event. Build it from the Agend Field, Agend Image and Agend Link widgets. The built-in card options below apply only when no template is chosen."
+                    }
+                },
+                {
+                    "id": "card_link_whole",
+                    "args": {
+                        "label": "Whole card links to the event",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Off: only Agend Link widgets inside the template navigate.",
+                        "condition": {
+                            "card_template!": ""
+                        }
+                    }
+                },
+                {
+                    "id": "filter_template",
+                    "args": {
+                        "label": "Filter template",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Built-in filter bar",
+                            "101": "Event card",
+                            "102": "Event filter bar"
+                        },
+                        "label_block": true,
+                        "description": "A saved template built from Agend Filter widgets. Chosen here, it replaces the built-in filter bar and keeps working across the listing and detail views."
+                    }
+                },
+                {
+                    "id": "filter_position",
+                    "args": {
+                        "label": "Filter position",
+                        "type": "select",
+                        "default": "top",
+                        "options": {
+                            "top": "Across the top",
+                            "left": "Down the left",
+                            "right": "Down the right"
+                        },
+                        "description": "A side position puts the filters in their own column beside the results. Set the column width on the filter template itself.",
+                        "condition": {
+                            "filter_template!": ""
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_card_fields",
+            "args": {
+                "label": "Card Fields",
+                "tab": "content",
+                "condition": {
+                    "card_template": ""
+                }
+            },
+            "controls": [
+                {
+                    "id": "show_image",
+                    "args": {
+                        "label": "Show event image",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_date_badge",
+                    "args": {
+                        "label": "Show date badge",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_pills",
+                    "args": {
+                        "label": "Show category / type pills",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_description",
+                    "args": {
+                        "label": "Show description excerpt",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "excerpt_length",
+                    "args": {
+                        "label": "Excerpt length (characters)",
+                        "type": "number",
+                        "default": 110,
+                        "min": 20,
+                        "max": 400,
+                        "condition": {
+                            "show_description": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "show_pricing",
+                    "args": {
+                        "label": "Show Member / Non-Member pricing",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_filters",
+            "args": {
+                "label": "Visitor Filter Bar",
+                "tab": "content",
+                "condition": {
+                    "filter_template": ""
+                }
+            },
+            "controls": [
+                {
+                    "id": "heading_filter_search",
+                    "args": {
+                        "label": "Search",
+                        "type": "heading"
+                    }
+                },
+                {
+                    "id": "show_search",
+                    "args": {
+                        "label": "Show search box",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "heading_filter_category",
+                    "args": {
+                        "label": "Category",
+                        "type": "heading",
+                        "separator": "before"
+                    }
+                },
+                {
+                    "id": "show_category_filter",
+                    "args": {
+                        "label": "Show category filter",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "multi_category_filter",
+                    "args": {
+                        "label": "Allow multiple categories",
+                        "type": "switcher",
+                        "default": "no",
+                        "condition": {
+                            "show_category_filter": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "category_match_mode",
+                    "args": {
+                        "label": "Multiple categories match",
+                        "type": "select",
+                        "options": {
+                            "any": "Any (in any selected category)",
+                            "all": "All (in every selected category)"
+                        },
+                        "default": "any",
+                        "condition": {
+                            "show_category_filter": "yes",
+                            "multi_category_filter": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "heading_filter_type",
+                    "args": {
+                        "label": "Type",
+                        "type": "heading",
+                        "separator": "before"
+                    }
+                },
+                {
+                    "id": "show_type_filter",
+                    "args": {
+                        "label": "Show type filter",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "multi_type_filter",
+                    "args": {
+                        "label": "Allow multiple types",
+                        "type": "switcher",
+                        "default": "no",
+                        "condition": {
+                            "show_type_filter": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "heading_filter_city",
+                    "args": {
+                        "label": "City",
+                        "type": "heading",
+                        "separator": "before"
+                    }
+                },
+                {
+                    "id": "show_city_filter",
+                    "args": {
+                        "label": "Show city filter",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "multi_city_filter",
+                    "args": {
+                        "label": "Allow multiple cities",
+                        "type": "switcher",
+                        "default": "no",
+                        "condition": {
+                            "show_city_filter": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "heading_filter_date",
+                    "args": {
+                        "label": "Date",
+                        "type": "heading",
+                        "separator": "before"
+                    }
+                },
+                {
+                    "id": "show_date_filter",
+                    "args": {
+                        "label": "Show date filter",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "A visitor dropdown to filter by event start date (starting after / before)."
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_exclusions",
+            "args": {
+                "label": "Exclusions",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "event_timeframe",
+                    "args": {
+                        "label": "Events to show",
+                        "type": "select",
+                        "options": {
+                            "upcoming": "Upcoming",
+                            "past": "Past",
+                            "all": "All"
+                        },
+                        "default": "upcoming",
+                        "description": "Which events this widget lists, by time. Defaults to Upcoming."
+                    }
+                },
+                {
+                    "id": "exclusions_note",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "Excluded items never appear in this widget, and excluded categories are hidden from the visitor category filter."
+                    }
+                },
+                {
+                    "id": "exclude_categories",
+                    "args": {
+                        "label": "Exclude categories",
+                        "type": "select2",
+                        "multiple": true,
+                        "label_block": true,
+                        "options": {
+                            "1": "Conferences",
+                            "2": "Workshops"
+                        }
+                    }
+                },
+                {
+                    "id": "exclude_category_match_mode",
+                    "args": {
+                        "label": "Category exclusion match",
+                        "type": "select",
+                        "options": {
+                            "any": "Any (exclude if in any selected)",
+                            "all": "All (exclude only if in every selected)"
+                        },
+                        "default": "any"
+                    }
+                },
+                {
+                    "id": "exclude_venue_types",
+                    "args": {
+                        "label": "Exclude event types",
+                        "type": "select2",
+                        "multiple": true,
+                        "label_block": true,
+                        "options": {
+                            "physical": "In-Person",
+                            "virtual": "Online",
+                            "hybrid": "Hybrid"
+                        }
+                    }
+                },
+                {
+                    "id": "exclude_cities",
+                    "args": {
+                        "label": "Exclude cities",
+                        "type": "select2",
+                        "multiple": true,
+                        "label_block": true,
+                        "options": {
+                            "Sydney": "Sydney",
+                            "Melbourne": "Melbourne"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_pagination",
+            "args": {
+                "label": "Pagination",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "pagination_style",
+                    "args": {
+                        "label": "Pagination style",
+                        "type": "select",
+                        "options": {
+                            "numbered": "Numbered pages",
+                            "load_more": "Load more button",
+                            "none": "None (show all fetched)"
+                        },
+                        "default": "numbered"
+                    }
+                },
+                {
+                    "id": "per_page",
+                    "args": {
+                        "label": "Events per page",
+                        "type": "number",
+                        "default": 9,
+                        "min": 1,
+                        "max": 100
+                    }
+                }
+            ]
+        }
+    ]
+}
