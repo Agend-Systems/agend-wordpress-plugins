@@ -115,6 +115,17 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_fall_back_to_the_filters_own_name_when_the_label_is_blank(): void {
+		$blank    = agend_elementor_filter_config( 'event', 'category', array( 'label' => '' ) );
+		$spaces   = agend_elementor_filter_config( 'event', 'category', array( 'label' => '   ' ) );
+		$explicit = agend_elementor_filter_config( 'event', 'category', array( 'label' => 'Topic' ) );
+
+		$this->assertSame( 'Category', $blank['label'], 'an unset Elementor text control is an empty string' );
+		$this->assertSame( 'Category', $spaces['label'] );
+		$this->assertSame( 'Topic', $explicit['label'] );
+	}
+
+	#[Test]
 	public function should_group_picker_options_by_catalogue(): void {
 		$groups = agend_elementor_filter_options();
 		$labels = array_column( $groups, 'label' );
