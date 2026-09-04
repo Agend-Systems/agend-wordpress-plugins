@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Shop
  * Plugin URI:        https://agend.com.au
  * Description:       Extends Agend Apps Core with Elementor cart widgets for end-user checkout flows.
- * Version:           1.0.3
+ * Version:           1.0.4
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-shop
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_SHOP_VERSION', '1.0.3' );
+define( 'AGEND_APPS_SHOP_VERSION', '1.0.4' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -81,13 +81,7 @@ function agend_apps_shop_enqueue_scripts(): void {
 		return;
 	}
 
-	wp_enqueue_script(
-		'agend-apps-shop-cart-session',
-		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-cart-session.js',
-		array(),
-		AGEND_APPS_SHOP_VERSION,
-		true
-	);
+	wp_enqueue_script( 'agend-apps-shop-cart-session' );
 
 	wp_enqueue_script(
 		'agend-apps-shop-add-to-cart',
@@ -155,6 +149,26 @@ function agend_apps_shop_enqueue_scripts(): void {
 	);
 }
 add_action( 'wp_enqueue_scripts', 'agend_apps_shop_enqueue_scripts', 20 );
+
+/**
+ * Registers the cart-session helper on every request, Elementor or not.
+ *
+ * The Agend Apps Core catalogue scripts depend on this handle whenever the
+ * shop is active. A dependency that is never registered makes WordPress drop
+ * the dependent script silently, which is what happened to the events
+ * catalogue block on a site without Elementor while registration lived inside
+ * the Elementor-gated enqueue above.
+ */
+function agend_apps_shop_register_cart_session(): void {
+	wp_register_script(
+		'agend-apps-shop-cart-session',
+		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-cart-session.js',
+		array(),
+		AGEND_APPS_SHOP_VERSION,
+		true
+	);
+}
+add_action( 'init', 'agend_apps_shop_register_cart_session', 5 );
 
 /**
  * Seeds default option values on plugin activation.
