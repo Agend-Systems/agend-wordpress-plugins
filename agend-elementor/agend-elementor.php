@@ -120,8 +120,8 @@ function agend_elementor_bootstrap(): void {
 	if ( class_exists( 'Agend_Apps_Templates' ) ) {
 		require_once AGEND_ELEMENTOR_DIR . 'includes/adapters/class-agend-elementor-template-renderer-adapter.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/adapters/class-agend-elementor-template-source-adapter.php';
-		Agend_Apps_Templates::set_renderer( new Agend_Elementor_Template_Renderer_Adapter() );
-		Agend_Apps_Templates::set_source( new Agend_Elementor_Template_Source_Adapter() );
+		Agend_Apps_Templates::register_renderer( new Agend_Elementor_Template_Renderer_Adapter() );
+		Agend_Apps_Templates::register_source( new Agend_Elementor_Template_Source_Adapter() );
 	}
 
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
