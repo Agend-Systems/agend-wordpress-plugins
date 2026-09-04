@@ -62,8 +62,12 @@ Deferred deliberately, in rough order:
    and course categories still cannot be enumerated, and course categories are still derived from
    the distinct values of one page of courses. The facet response shape is deliberately
    record-type-neutral, so adopting it for the other two is additive on both sides.
-3. **Export reports.** Make the directory export reports interactive. Not started, and a separate
-   surface from card and detail templating.
+3. **Export execution returns 500.** The Agend Export Report widget is built, and the list half
+   works: reports, their audience and their parameters all come back. Every execution of a report
+   fails with an internal error from the gateway, for every report and every shape tried, so no
+   file is ever produced. Isolated to the gateway route: the underlying RPC returns rows when
+   called directly as the anon role with the same arguments, grants are correct and the column
+   tokens are valid. Reported to the API side.
 
 ## Export report parameters
 
