@@ -11,7 +11,7 @@ use Agend_Elementor_Filter_Context;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-filters.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-filters.php';
 
 /**
  * The filter registry and the config each Agend Filter widget hands to the

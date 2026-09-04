@@ -12,7 +12,7 @@ use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-record-context.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-record-context.php';
 
 /**
  * `Agend_Elementor_Record_Context`: the static stack that lets a field widget

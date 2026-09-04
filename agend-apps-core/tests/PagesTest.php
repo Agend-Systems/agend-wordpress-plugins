@@ -13,8 +13,8 @@ use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-settings.php';
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-pages.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-settings.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-pages.php';
 
 /**
  * `Agend_Elementor_Pages`: the dedicated Events/Courses page resolution that

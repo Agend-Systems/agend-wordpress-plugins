@@ -16,9 +16,9 @@ use PHPUnit\Framework\Attributes\Test;
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/interface-agend-apps-template-renderer.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/interface-agend-apps-template-source.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/class-agend-apps-templates.php';
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-settings.php';
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-pages.php';
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-cards.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-settings.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-pages.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-cards.php';
 
 /**
  * A stub {@see Agend_Apps_Template_Renderer} with no Elementor class in

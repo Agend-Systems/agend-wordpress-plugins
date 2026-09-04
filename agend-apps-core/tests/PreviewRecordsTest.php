@@ -11,7 +11,7 @@ use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversFunction;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-preview-records.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-preview-records.php';
 
 /**
  * `agend_elementor_preview_record()` / `agend_elementor_preview_placeholder_record()`:

@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.19.0
+ * Version:           0.20.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.19.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.20.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -39,48 +39,32 @@ define( 'AGEND_ELEMENTOR_DIR', plugin_dir_path( __FILE__ ) );
  */
 define( 'AGEND_ELEMENTOR_URL', plugin_dir_url( __FILE__ ) );
 
-/**
- * Rewrite ruleset version. Bump whenever the rewrite endpoints registered in
- * includes/class-agend-elementor-routing.php change, so the versioned
- * auto-flush regenerates the rules on the next request after an update deploy.
- *
- * @var string
- */
-define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260723-1' );
-
-// Detail-URL rewrite endpoints (SPEC-INFRA-20260717 US-1.1). Loaded
-// unconditionally so the endpoints register even when Elementor or Agend Apps
-// Core is temporarily unavailable; the widgets that consume them stay gated.
-require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-routing.php';
-
-// Settings (server-rendered detail toggle). Loaded unconditionally so the
-// accessor is available on the front-end `wp` hook and in the admin.
-require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-settings.php';
-
-// Dedicated catalogue pages (fixes the host-page hijack: a catalogue used as
-// a homepage CTA no longer turns the homepage into the detail page). Loaded
-// unconditionally, like settings, so the wp:4 redirect and the widgets'
-// page_url()/detail_url() calls work even before Elementor/core bootstrap.
-require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-pages.php';
-
 // Elementor element-cache guard. Loaded unconditionally so a degraded boot
 // (missing dependency) can be recorded even when the bootstrap bails below.
 require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-cache-guard.php';
 
-register_activation_hook( __FILE__, 'agend_elementor_activate_rewrites' );
-register_deactivation_hook( __FILE__, 'agend_elementor_deactivate_rewrites' );
-
 /**
  * Checks required dependencies and loads the plugin's components.
  *
- * Requires both the Agend Apps Core plugin (for the API client and REST proxy)
- * and Elementor. Displays an admin notice and exits early if either is missing.
- * Hooked on `plugins_loaded` so all WordPress APIs are available.
+ * Requires the Agend Apps Core plugin (for the API client, REST proxy, and the
+ * record layer it now hosts) at a version carrying that layer, and Elementor.
+ * Displays an admin notice and exits early if any is missing. Hooked on
+ * `plugins_loaded` so all WordPress APIs are available.
  */
 function agend_elementor_bootstrap(): void {
 	if ( ! function_exists( 'agend_apps_api' ) ) {
 		Agend_Elementor_Cache_Guard::flag_degraded();
 		add_action( 'admin_notices', 'agend_elementor_missing_core_notice' );
+		return;
+	}
+
+	// The record layer (field registry, cards, SSR detail, settings, pages) now
+	// loads from Agend Apps Core 1.8.0 and newer. An Agend Apps
+	// Core predating that move has no such function, so bail rather than fatal
+	// on the classes this bootstrap assumes are already loaded.
+	if ( ! function_exists( 'agend_elementor_ssr_detail_enabled' ) ) {
+		Agend_Elementor_Cache_Guard::flag_degraded();
+		add_action( 'admin_notices', 'agend_elementor_outdated_core_notice' );
 		return;
 	}
 
@@ -96,20 +80,7 @@ function agend_elementor_bootstrap(): void {
 
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor.php';
 
-	// Server-rendered detail pages (opt-in). Requires the Agend Apps Core REST
-	// wrappers, so it loads only once the core dependency check above passes.
-	// The format/fragments helpers are split out so Elementor "field" widgets
-	// can reuse them without pulling in the whole SSR detail machinery.
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-format.php';
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-fragments.php';
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-ssr-detail.php';
-
-	// Template-driven cards and detail pages: the record context the field
-	// widgets read, the field registry, the template picker and renderer.
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-record-context.php';
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-fields.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-templates.php';
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-preview-records.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-template-renderer.php';
 
 	// Register this plugin's implementation of the Agend Apps Core template
@@ -129,16 +100,6 @@ function agend_elementor_bootstrap(): void {
 	require_once AGEND_ELEMENTOR_DIR . 'includes/adapters/template-post-states.php';
 
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-filters.php';
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-query.php';
-	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-cards.php';
-	require_once AGEND_ELEMENTOR_DIR . 'includes/rest/class-agend-elementor-fragments-controller.php';
-	add_action(
-		'rest_api_init',
-		static function () {
-			( new Agend_Elementor_Fragments_Controller() )->register_routes();
-		}
-	);
 
 	// The usermeta display conditions that used to load here are RETIRED
 	// (SPEC-CMS-20260727 US-1.1). They were a second entitlement authority that
@@ -152,7 +113,10 @@ function agend_elementor_bootstrap(): void {
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-retired-conditions-notice.php';
 	Agend_Elementor_Retired_Conditions_Notice::init();
 }
-add_action( 'plugins_loaded', 'agend_elementor_bootstrap' );
+// Priority 20: the record layer this bootstrap depends on loads from Agend
+// Apps Core at the default `plugins_loaded` priority (10), and alphabetical
+// plugin load order must not be what makes that ordering hold.
+add_action( 'plugins_loaded', 'agend_elementor_bootstrap', 20 );
 
 /**
  * Displays an admin notice when Agend Apps Core is not active.
@@ -160,6 +124,16 @@ add_action( 'plugins_loaded', 'agend_elementor_bootstrap' );
 function agend_elementor_missing_core_notice(): void {
 	echo '<div class="notice notice-error"><p>';
 	echo esc_html__( 'Agend Elementor Widgets requires the Agend Apps Core plugin to be installed and active.', 'agend-elementor' );
+	echo '</p></div>';
+}
+
+/**
+ * Displays an admin notice when Agend Apps Core is active but predates the
+ * record layer this plugin now depends on.
+ */
+function agend_elementor_outdated_core_notice(): void {
+	echo '<div class="notice notice-error"><p>';
+	echo esc_html__( 'Agend Elementor Widgets requires Agend Apps Core 1.8.0 or newer.', 'agend-elementor' );
 	echo '</p></div>';
 }
 

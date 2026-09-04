@@ -10,8 +10,8 @@ namespace Agend\Tests\Elementor;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-format.php';
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-fields.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-format.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-fields.php';
 
 /**
  * Terms feed the Agend Pills widget: one pill per returned item.

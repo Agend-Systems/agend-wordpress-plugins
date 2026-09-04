@@ -12,8 +12,8 @@ use Agend\Tests\TestCase;
 use DateTimeZone;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-format.php';
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-fields.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-format.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-fields.php';
 
 /**
  * agend_elementor_format_field(): the escaping and formatting contract every
