@@ -11,7 +11,7 @@
  * gated behind Elementor or Agend Apps Core, so the rewrite rules exist whenever
  * this plugin is active.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * endpoint also registers a query var of the same name (`event`, `course`),
  * which the widgets read server-side to resolve the initial detail slug.
  */
-function agend_elementor_add_rewrite_endpoints(): void {
+function agend_apps_records_add_rewrite_endpoints(): void {
 	add_rewrite_endpoint( 'event', EP_PAGES );
 	add_rewrite_endpoint( 'course', EP_PAGES );
 
@@ -50,30 +50,30 @@ function agend_elementor_add_rewrite_endpoints(): void {
 		'top'
 	);
 }
-add_action( 'init', 'agend_elementor_add_rewrite_endpoints' );
+add_action( 'init', 'agend_apps_records_add_rewrite_endpoints' );
 
 /**
  * Registers the directory-detail private query var.
  *
  * Paired with the top-priority rewrite rule in
- * agend_elementor_add_rewrite_endpoints(). Namespaced so no directory
+ * agend_apps_records_add_rewrite_endpoints(). Namespaced so no directory
  * theme/plugin that claims the generic `listing` query var can strip the
  * directory detail slug from the parsed request.
  *
  * @param string[] $vars Registered public query vars.
  * @return string[] The query vars with `agend_dir_listing` added.
  */
-function agend_elementor_register_query_vars( array $vars ): array {
+function agend_apps_records_register_query_vars( array $vars ): array {
 	$vars[] = 'agend_dir_listing';
 
 	// Legacy (non-pretty) deep-link query params for the dedicated-page
-	// redirect (class-agend-elementor-pages.php) to see on the request.
+	// redirect (pages.php) to see on the request.
 	$vars[] = 'agend_event';
 	$vars[] = 'agend_course';
 
 	return $vars;
 }
-add_filter( 'query_vars', 'agend_elementor_register_query_vars' );
+add_filter( 'query_vars', 'agend_apps_records_register_query_vars' );
 
 /**
  * Flushes rewrite rules once whenever the rewrite ruleset version changes.
@@ -81,37 +81,37 @@ add_filter( 'query_vars', 'agend_elementor_register_query_vars' );
  * A plugin update performed with `wp plugin install --force` does not run the
  * activation hook, so an activation-only flush would leave detail paths
  * returning 404 after an update deploy. This compares a stored option against
- * the AGEND_ELEMENTOR_REWRITE_VERSION constant and flushes once when they
+ * the AGEND_APPS_RECORDS_REWRITE_VERSION constant and flushes once when they
  * differ, so the rules regenerate on the first request after an update. The
  * endpoints are already registered by the `init` hook above (priority 10) when
  * this runs (priority 11), so the flush picks them up.
  */
-function agend_elementor_maybe_flush_rewrite_rules(): void {
-	if ( get_option( 'agend_elementor_rewrite_version' ) === AGEND_ELEMENTOR_REWRITE_VERSION ) {
+function agend_apps_records_maybe_flush_rewrite_rules(): void {
+	if ( get_option( 'agend_elementor_rewrite_version' ) === AGEND_APPS_RECORDS_REWRITE_VERSION ) {
 		return;
 	}
 
 	flush_rewrite_rules();
-	update_option( 'agend_elementor_rewrite_version', AGEND_ELEMENTOR_REWRITE_VERSION );
+	update_option( 'agend_elementor_rewrite_version', AGEND_APPS_RECORDS_REWRITE_VERSION );
 }
-add_action( 'init', 'agend_elementor_maybe_flush_rewrite_rules', 11 );
+add_action( 'init', 'agend_apps_records_maybe_flush_rewrite_rules', 11 );
 
 /**
  * Activation: register the endpoints then flush so detail paths resolve
  * immediately, and stamp the rewrite version so the versioned auto-flush does
  * not fire redundantly on the next request.
  */
-function agend_elementor_activate_rewrites(): void {
-	agend_elementor_add_rewrite_endpoints();
+function agend_apps_records_activate_rewrites(): void {
+	agend_apps_records_add_rewrite_endpoints();
 	flush_rewrite_rules();
-	update_option( 'agend_elementor_rewrite_version', AGEND_ELEMENTOR_REWRITE_VERSION );
+	update_option( 'agend_elementor_rewrite_version', AGEND_APPS_RECORDS_REWRITE_VERSION );
 }
 
 /**
  * Deactivation: flush so the plugin's endpoints are removed from the rewrite
  * rules, and clear the version stamp so a later reactivation re-flushes.
  */
-function agend_elementor_deactivate_rewrites(): void {
+function agend_apps_records_deactivate_rewrites(): void {
 	flush_rewrite_rules();
 	delete_option( 'agend_elementor_rewrite_version' );
 }

@@ -3,7 +3,7 @@
  * Editor preview records for the Agend field widgets.
  *
  * A field widget rendered inside a card/detail template has no
- * {@see Agend_Elementor_Record_Context} frame while it is being edited in
+ * {@see Agend_Apps_Records_Record_Context} frame while it is being edited in
  * Elementor (the widget preview panel calls `render()` directly, outside any
  * catalogue or SSR detail render), so it needs a real-shaped record to preview
  * against. This file resolves one: the first upcoming event, or the first
@@ -11,7 +11,7 @@
  * host wrappers nor the gateway are available (a fresh install, or the
  * plugin activated without Agend Apps Core).
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -44,7 +44,7 @@ if ( ! defined( 'MINUTE_IN_SECONDS' ) ) {
  * @return array<string, mixed> The placeholder record. Empty array for an
  *                               unknown type.
  */
-function agend_elementor_preview_placeholder_record( string $type ): array {
+function agend_apps_records_preview_placeholder_record( string $type ): array {
 	if ( 'event' === $type ) {
 		return array(
 			'_agend_preview_placeholder' => true,
@@ -107,7 +107,7 @@ function agend_elementor_preview_placeholder_record( string $type ): array {
  * @return array<string, mixed> The record, or the synthetic placeholder when
  *                               no real record can be resolved.
  */
-function agend_elementor_preview_record( string $type ): array {
+function agend_apps_records_preview_record( string $type ): array {
 	if ( 'event' !== $type && 'course' !== $type ) {
 		return array();
 	}
@@ -119,11 +119,11 @@ function agend_elementor_preview_record( string $type ): array {
 	}
 
 	$record = 'event' === $type
-		? agend_elementor_fetch_preview_event()
-		: agend_elementor_fetch_preview_course();
+		? agend_apps_records_fetch_preview_event()
+		: agend_apps_records_fetch_preview_course();
 
 	if ( array() === $record ) {
-		$record = agend_elementor_preview_placeholder_record( $type );
+		$record = agend_apps_records_preview_placeholder_record( $type );
 	}
 
 	set_transient( $cache_key, $record, 10 * MINUTE_IN_SECONDS );
@@ -138,7 +138,7 @@ function agend_elementor_preview_record( string $type ): array {
  * @return array<string, mixed> The event record, or an empty array when the
  *                               wrapper is unavailable or nothing is found.
  */
-function agend_elementor_fetch_preview_event(): array {
+function agend_apps_records_fetch_preview_event(): array {
 	if ( ! function_exists( 'agend_apps_events_get_events' ) ) {
 		return array();
 	}
@@ -150,7 +150,7 @@ function agend_elementor_fetch_preview_event(): array {
 		)
 	);
 
-	$item = agend_elementor_first_response_item( $response );
+	$item = agend_apps_records_first_response_item( $response );
 	if ( array() !== $item ) {
 		return $item;
 	}
@@ -162,7 +162,7 @@ function agend_elementor_fetch_preview_event(): array {
 		)
 	);
 
-	return agend_elementor_first_response_item( $response );
+	return agend_apps_records_first_response_item( $response );
 }
 
 /**
@@ -171,14 +171,14 @@ function agend_elementor_fetch_preview_event(): array {
  * @return array<string, mixed> The course record, or an empty array when the
  *                               wrapper is unavailable or nothing is found.
  */
-function agend_elementor_fetch_preview_course(): array {
+function agend_apps_records_fetch_preview_course(): array {
 	if ( ! function_exists( 'agend_apps_lms_get_courses' ) ) {
 		return array();
 	}
 
 	$response = agend_apps_lms_get_courses( array( 'limit' => 1 ) );
 
-	return agend_elementor_first_response_item( $response );
+	return agend_apps_records_first_response_item( $response );
 }
 
 /**
@@ -188,7 +188,7 @@ function agend_elementor_fetch_preview_course(): array {
  * @return array<string, mixed> The first item, or an empty array when the
  *                               response is an error, empty, or malformed.
  */
-function agend_elementor_first_response_item( $response ): array {
+function agend_apps_records_first_response_item( $response ): array {
 	if ( is_wp_error( $response ) ) {
 		return array();
 	}

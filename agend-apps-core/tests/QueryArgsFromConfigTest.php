@@ -10,7 +10,7 @@ namespace Agend\Tests\Elementor;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-query.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/query.php';
 
 /**
  * The server-rendered first page asks the gateway the same question the
@@ -37,13 +37,13 @@ final class QueryArgsFromConfigTest extends TestCase {
 				'excludeVenueTypes'      => array( 'virtual' ),
 				'excludeCategoriesMatch' => 'any',
 			),
-			agend_elementor_events_list_args( $config, 1 )
+			agend_apps_records_events_list_args( $config, 1 )
 		);
 	}
 
 	#[Test]
 	public function should_include_visitor_filter_state_when_given(): void {
-		$out = agend_elementor_events_list_args( array( 'pagination' => array( 'perPage' => 9 ) ), 3, array( 'search' => 'gala', 'cities' => array( 'Sydney' ) ) );
+		$out = agend_apps_records_events_list_args( array( 'pagination' => array( 'perPage' => 9 ) ), 3, array( 'search' => 'gala', 'cities' => array( 'Sydney' ) ) );
 
 		$this->assertSame( 3, $out['page'] );
 		$this->assertSame( 'gala', $out['search'] );
@@ -64,12 +64,12 @@ final class QueryArgsFromConfigTest extends TestCase {
 				'excludeDifficulties'  => array( 'advanced' ),
 				'excludeDeliveryModes' => array( 'in_person' ),
 			),
-			agend_elementor_courses_list_args( $config, 1 )
+			agend_apps_records_courses_list_args( $config, 1 )
 		);
 	}
 
 	#[Test]
 	public function should_default_page_size_when_config_is_missing_pagination(): void {
-		$this->assertSame( 9, agend_elementor_events_list_args( array(), 1 )['limit'] );
+		$this->assertSame( 9, agend_apps_records_events_list_args( array(), 1 )['limit'] );
 	}
 }

@@ -25,7 +25,7 @@
  * Pure PHP over arrays, no WordPress calls, so it runs unmodified in the
  * stub test harness.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -35,7 +35,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Static LIFO stack of the record currently being rendered.
  */
-final class Agend_Elementor_Record_Context {
+final class Agend_Apps_Records_Record_Context {
 
 	/**
 	 * @var array<int, array{type: string, record: array<string, mixed>, extra: array<string, mixed>}>

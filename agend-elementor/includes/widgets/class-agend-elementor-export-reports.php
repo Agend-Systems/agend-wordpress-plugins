@@ -53,11 +53,11 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 	}
 
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-export-reports' );
+		return array( 'agend-apps-records-export-reports' );
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-export-reports' );
+		return array( 'agend-apps-records-export-reports' );
 	}
 
 	/**
@@ -101,8 +101,8 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 	private function catalogue_source_options(): array {
 		$options = array( '' => __( 'Select a filter', 'agend-elementor' ) );
 
-		if ( function_exists( 'agend_elementor_filter_registry' ) ) {
-			$registry = agend_elementor_filter_registry();
+		if ( function_exists( 'agend_apps_records_filter_registry' ) ) {
+			$registry = agend_apps_records_filter_registry();
 			foreach ( $registry['listing'] ?? array() as $key => $descriptor ) {
 				if ( in_array( $key, array( 'reset', 'sort' ), true ) ) {
 					continue;

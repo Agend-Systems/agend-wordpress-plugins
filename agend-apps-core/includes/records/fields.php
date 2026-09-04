@@ -13,7 +13,7 @@
  * object, or a `categories` array), and a missing field must render as empty
  * rather than warn.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -21,9 +21,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Field kinds. `agend_elementor_format_field()` switches on these.
+ * Field kinds. `agend_apps_records_format_field()` switches on these.
  */
-const AGEND_ELEMENTOR_FIELD_KINDS = array( 'text', 'html', 'url', 'date', 'date_range', 'date_time', 'price', 'list', 'bool', 'number' );
+const AGEND_APPS_RECORDS_FIELD_KINDS = array( 'text', 'html', 'url', 'date', 'date_range', 'date_time', 'price', 'list', 'bool', 'number' );
 
 /**
  * Reads the first non-empty string at the given paths of a record.
@@ -32,7 +32,7 @@ const AGEND_ELEMENTOR_FIELD_KINDS = array( 'text', 'html', 'url', 'date', 'date_
  * @param string[] $paths  Dot paths, e.g. 'price_summary.member_from'.
  * @return mixed|null The first value found, or null.
  */
-function agend_elementor_record_path( array $record, array $paths ) {
+function agend_apps_records_record_path( array $record, array $paths ) {
 	foreach ( $paths as $path ) {
 		$cursor = $record;
 		$found  = true;
@@ -56,7 +56,7 @@ function agend_elementor_record_path( array $record, array $paths ) {
  * @param array $record The record.
  * @return string The category name, or ''.
  */
-function agend_elementor_record_category( array $record ): string {
+function agend_apps_records_record_category( array $record ): string {
 	if ( ! empty( $record['categories'] ) && is_array( $record['categories'] ) ) {
 		$first = reset( $record['categories'] );
 		if ( is_array( $first ) && ! empty( $first['name'] ) ) {
@@ -86,7 +86,7 @@ function agend_elementor_record_category( array $record ): string {
  * @param array $record The record.
  * @return string[]
  */
-function agend_elementor_record_categories( array $record ): array {
+function agend_apps_records_record_categories( array $record ): array {
 	$names = array();
 	if ( ! empty( $record['categories'] ) && is_array( $record['categories'] ) ) {
 		foreach ( $record['categories'] as $entry ) {
@@ -98,7 +98,7 @@ function agend_elementor_record_categories( array $record ): array {
 		}
 	}
 	if ( empty( $names ) ) {
-		$single = agend_elementor_record_category( $record );
+		$single = agend_apps_records_record_category( $record );
 		if ( '' !== $single ) {
 			$names[] = $single;
 		}
@@ -115,7 +115,7 @@ function agend_elementor_record_categories( array $record ): array {
  * @param array $record The record.
  * @return string[]
  */
-function agend_elementor_record_tags( array $record ): array {
+function agend_apps_records_record_tags( array $record ): array {
 	$names = array();
 	if ( empty( $record['tags'] ) || ! is_array( $record['tags'] ) ) {
 		return $names;
@@ -140,13 +140,13 @@ function agend_elementor_record_tags( array $record ): array {
  * @param array $record The event record.
  * @return string
  */
-function agend_elementor_record_event_location( array $record ): string {
-	$venue = agend_elementor_record_path( $record, array( 'venue_name' ) );
+function agend_apps_records_record_event_location( array $record ): string {
+	$venue = agend_apps_records_record_path( $record, array( 'venue_name' ) );
 	if ( is_string( $venue ) && '' !== trim( $venue ) ) {
 		return trim( $venue );
 	}
 	$type = isset( $record['venue_type'] ) ? (string) $record['venue_type'] : '';
-	return 'virtual' === $type ? __( 'Online', 'agend-elementor' ) : __( 'TBA', 'agend-elementor' );
+	return 'virtual' === $type ? __( 'Online', 'agend-apps-core' ) : __( 'TBA', 'agend-apps-core' );
 }
 
 /**
@@ -156,7 +156,7 @@ function agend_elementor_record_event_location( array $record ): string {
  * @param string $key    The record key holding the list.
  * @return string[]
  */
-function agend_elementor_record_names( array $record, string $key ): array {
+function agend_apps_records_record_names( array $record, string $key ): array {
 	$names = array();
 	if ( empty( $record[ $key ] ) || ! is_array( $record[ $key ] ) ) {
 		return $names;
@@ -178,7 +178,7 @@ function agend_elementor_record_names( array $record, string $key ): array {
  * @param array $record The listing record.
  * @return string
  */
-function agend_elementor_record_listing_location( array $record ): string {
+function agend_apps_records_record_listing_location( array $record ): string {
 	$source = array();
 	if ( ! empty( $record['primary_location'] ) && is_array( $record['primary_location'] ) ) {
 		$source = $record['primary_location'];
@@ -202,8 +202,8 @@ function agend_elementor_record_listing_location( array $record ): string {
  * @param string $part   'city', 'state', 'postcode' or 'country'.
  * @return string
  */
-function agend_elementor_record_listing_location_part( array $record, string $part ): string {
-	$value = agend_elementor_record_path( $record, array( 'primary_location.' . $part, 'locations.0.' . $part ) );
+function agend_apps_records_record_listing_location_part( array $record, string $part ): string {
+	$value = agend_apps_records_record_path( $record, array( 'primary_location.' . $part, 'locations.0.' . $part ) );
 	return is_scalar( $value ) ? trim( (string) $value ) : '';
 }
 
@@ -219,7 +219,7 @@ function agend_elementor_record_listing_location_part( array $record, string $pa
  * @param string $key    The custom-field key.
  * @return string The value, or ''.
  */
-function agend_elementor_record_custom_field( array $record, string $key ): string {
+function agend_apps_records_record_custom_field( array $record, string $key ): string {
 	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
 		return '';
 	}
@@ -243,7 +243,7 @@ function agend_elementor_record_custom_field( array $record, string $key ): stri
  * @param string $key    The custom-field key.
  * @return string The label, or ''.
  */
-function agend_elementor_record_custom_field_label( array $record, string $key ): string {
+function agend_apps_records_record_custom_field_label( array $record, string $key ): string {
 	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
 		return '';
 	}
@@ -261,7 +261,7 @@ function agend_elementor_record_custom_field_label( array $record, string $key )
  * @param array $record The event record (bearer-enriched when signed in).
  * @return bool
  */
-function agend_elementor_record_is_member( array $record ): bool {
+function agend_apps_records_record_is_member( array $record ): bool {
 	$group = isset( $record['viewer_price_group'] ) ? (string) $record['viewer_price_group'] : '';
 	return 'member' === $group || 'corporate' === $group;
 }
@@ -272,11 +272,11 @@ function agend_elementor_record_is_member( array $record ): bool {
  * @param array $record The event record.
  * @return mixed|null Numeric price, or null when the record carries none.
  */
-function agend_elementor_record_event_price_from( array $record ) {
-	$paths = agend_elementor_record_is_member( $record )
+function agend_apps_records_record_event_price_from( array $record ) {
+	$paths = agend_apps_records_record_is_member( $record )
 		? array( 'price_summary.member_from', 'price_summary.non_member_from' )
 		: array( 'price_summary.non_member_from', 'price_summary.member_from' );
-	$value = agend_elementor_record_path( $record, $paths );
+	$value = agend_apps_records_record_path( $record, $paths );
 	return is_numeric( $value ) ? $value : null;
 }
 
@@ -287,12 +287,12 @@ function agend_elementor_record_event_price_from( array $record ) {
  * @param array $record The record.
  * @return string
  */
-function agend_elementor_record_excerpt( array $record ): string {
-	$short = agend_elementor_record_path( $record, array( 'short_description' ) );
+function agend_apps_records_record_excerpt( array $record ): string {
+	$short = agend_apps_records_record_path( $record, array( 'short_description' ) );
 	if ( is_string( $short ) && '' !== trim( $short ) ) {
 		return trim( $short );
 	}
-	$long = agend_elementor_record_path( $record, array( 'description' ) );
+	$long = agend_apps_records_record_path( $record, array( 'description' ) );
 	return is_string( $long ) ? trim( preg_replace( '/\s+/', ' ', strip_tags( $long ) ) ) : '';
 }
 
@@ -300,13 +300,13 @@ function agend_elementor_record_excerpt( array $record ): string {
  * The registry: field key => descriptor.
  *
  * Descriptor keys: `label`, `group` (picker group label), `kind` (one of
- * AGEND_ELEMENTOR_FIELD_KINDS), `types` (record types the field applies to;
+ * AGEND_APPS_RECORDS_FIELD_KINDS), `types` (record types the field applies to;
  * `common:*` fields apply to both and resolve per type), `get` (callable
  * `( array $record, string $type, array $extra )` returning the raw value).
  *
  * @return array<string, array<string, mixed>>
  */
-function agend_elementor_field_registry(): array {
+function agend_apps_records_field_registry(): array {
 	static $registry = null;
 	if ( null !== $registry ) {
 		return $registry;
@@ -314,126 +314,126 @@ function agend_elementor_field_registry(): array {
 
 	$text = static function ( string ...$paths ): callable {
 		return static function ( array $record ) use ( $paths ) {
-			$value = agend_elementor_record_path( $record, $paths );
+			$value = agend_apps_records_record_path( $record, $paths );
 			return is_scalar( $value ) ? (string) $value : '';
 		};
 	};
 	$num  = static function ( string ...$paths ): callable {
 		return static function ( array $record ) use ( $paths ) {
-			$value = agend_elementor_record_path( $record, $paths );
+			$value = agend_apps_records_record_path( $record, $paths );
 			return is_numeric( $value ) ? $value : null;
 		};
 	};
 	$flag = static function ( string $path ): callable {
 		return static function ( array $record ) use ( $path ) {
-			return ! empty( agend_elementor_record_path( $record, array( $path ) ) );
+			return ! empty( agend_apps_records_record_path( $record, array( $path ) ) );
 		};
 	};
 
-	$event_group   = __( 'Event', 'agend-elementor' );
-	$course_group  = __( 'Course', 'agend-elementor' );
-	$listing_group = __( 'Directory listing', 'agend-elementor' );
-	$common_group  = __( 'Common (any record)', 'agend-elementor' );
+	$event_group   = __( 'Event', 'agend-apps-core' );
+	$course_group  = __( 'Course', 'agend-apps-core' );
+	$listing_group = __( 'Directory listing', 'agend-apps-core' );
+	$common_group  = __( 'Common (any record)', 'agend-apps-core' );
 	$event_types   = array( 'event' );
 	$course_types  = array( 'course' );
 	$listing_types = array( 'listing' );
 	$all_types     = array( 'event', 'course', 'listing' );
 
 	$event = array(
-		'event:name'                  => array( 'label' => __( 'Name', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'name' ) ),
-		'event:short_description'     => array( 'label' => __( 'Short description', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'short_description' ) ),
-		'event:description'           => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $text( 'description' ) ),
-		'event:excerpt'               => array( 'label' => __( 'Excerpt', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_excerpt' ),
-		'event:hero_image_url'        => array( 'label' => __( 'Hero image', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'hero_image_url', 'image_url' ) ),
-		'event:start_date'            => array( 'label' => __( 'Start date', 'agend-elementor' ), 'kind' => 'date', 'get' => $text( 'start_date' ) ),
-		'event:end_date'              => array( 'label' => __( 'End date', 'agend-elementor' ), 'kind' => 'date', 'get' => $text( 'end_date' ) ),
+		'event:name'                  => array( 'label' => __( 'Name', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'name' ) ),
+		'event:short_description'     => array( 'label' => __( 'Short description', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'short_description' ) ),
+		'event:description'           => array( 'label' => __( 'Description (HTML)', 'agend-apps-core' ), 'kind' => 'html', 'get' => $text( 'description' ) ),
+		'event:excerpt'               => array( 'label' => __( 'Excerpt', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_excerpt' ),
+		'event:hero_image_url'        => array( 'label' => __( 'Hero image', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'hero_image_url', 'image_url' ) ),
+		'event:start_date'            => array( 'label' => __( 'Start date', 'agend-apps-core' ), 'kind' => 'date', 'get' => $text( 'start_date' ) ),
+		'event:end_date'              => array( 'label' => __( 'End date', 'agend-apps-core' ), 'kind' => 'date', 'get' => $text( 'end_date' ) ),
 		'event:date_range'            => array(
-			'label' => __( 'Date range', 'agend-elementor' ),
+			'label' => __( 'Date range', 'agend-apps-core' ),
 			'kind'  => 'date_range',
 			'get'   => static function ( array $record ) {
 				return array( 'start' => $record['start_date'] ?? '', 'end' => $record['end_date'] ?? '' );
 			},
 		),
 		'event:date_time'             => array(
-			'label' => __( 'Date and time', 'agend-elementor' ),
+			'label' => __( 'Date and time', 'agend-apps-core' ),
 			'kind'  => 'date_time',
 			'get'   => static function ( array $record ) {
 				return array( 'start' => $record['start_date'] ?? '', 'end' => $record['end_date'] ?? '' );
 			},
 		),
-		'event:timezone'              => array( 'label' => __( 'Timezone', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'timezone' ) ),
-		'event:venue_name'            => array( 'label' => __( 'Venue name', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'venue_name' ) ),
-		'event:venue_address'         => array( 'label' => __( 'Venue address', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'venue_address' ) ),
-		'event:venue_city'            => array( 'label' => __( 'Venue city', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'venue_city' ) ),
+		'event:timezone'              => array( 'label' => __( 'Timezone', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'timezone' ) ),
+		'event:venue_name'            => array( 'label' => __( 'Venue name', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'venue_name' ) ),
+		'event:venue_address'         => array( 'label' => __( 'Venue address', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'venue_address' ) ),
+		'event:venue_city'            => array( 'label' => __( 'Venue city', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'venue_city' ) ),
 		'event:venue_type'            => array(
-			'label' => __( 'Format (In-Person, Online, Hybrid)', 'agend-elementor' ),
+			'label' => __( 'Format (In-Person, Online, Hybrid)', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'pill'  => true,
 			'get'   => static function ( array $record ) {
 				$type = isset( $record['venue_type'] ) ? (string) $record['venue_type'] : '';
-				return '' === $type ? '' : agend_elementor_ssr_ev_type_label( $type );
+				return '' === $type ? '' : agend_apps_records_ssr_ev_type_label( $type );
 			},
 		),
-		'event:location'              => array( 'label' => __( 'Location (venue, or Online)', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_event_location' ),
-		'event:category'              => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
-		'event:categories'            => array( 'label' => __( 'All categories', 'agend-elementor' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_elementor_record_categories' ),
-		'event:tags'                  => array( 'label' => __( 'Tags', 'agend-elementor' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_elementor_record_tags' ),
-		'event:price_from'            => array( 'label' => __( 'Price from (viewer)', 'agend-elementor' ), 'kind' => 'price', 'get' => 'agend_elementor_record_event_price_from' ),
-		'event:price_member_from'     => array( 'label' => __( 'Member price from', 'agend-elementor' ), 'kind' => 'price', 'get' => $num( 'price_summary.member_from' ) ),
-		'event:price_non_member_from' => array( 'label' => __( 'Non-member price from', 'agend-elementor' ), 'kind' => 'price', 'get' => $num( 'price_summary.non_member_from' ) ),
-		'event:sold_out'              => array( 'label' => __( 'Sold out', 'agend-elementor' ), 'kind' => 'bool', 'get' => $flag( 'sold_out' ) ),
-		'event:is_registered'         => array( 'label' => __( 'Viewer is registered', 'agend-elementor' ), 'kind' => 'bool', 'get' => $flag( 'my_registration' ) ),
-		'event:viewer_price_group'    => array( 'label' => __( 'Viewer price group', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'viewer_price_group' ) ),
+		'event:location'              => array( 'label' => __( 'Location (venue, or Online)', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_event_location' ),
+		'event:category'              => array( 'label' => __( 'Category', 'agend-apps-core' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_apps_records_record_category' ),
+		'event:categories'            => array( 'label' => __( 'All categories', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_categories' ),
+		'event:tags'                  => array( 'label' => __( 'Tags', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_tags' ),
+		'event:price_from'            => array( 'label' => __( 'Price from (viewer)', 'agend-apps-core' ), 'kind' => 'price', 'get' => 'agend_apps_records_record_event_price_from' ),
+		'event:price_member_from'     => array( 'label' => __( 'Member price from', 'agend-apps-core' ), 'kind' => 'price', 'get' => $num( 'price_summary.member_from' ) ),
+		'event:price_non_member_from' => array( 'label' => __( 'Non-member price from', 'agend-apps-core' ), 'kind' => 'price', 'get' => $num( 'price_summary.non_member_from' ) ),
+		'event:sold_out'              => array( 'label' => __( 'Sold out', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'sold_out' ) ),
+		'event:is_registered'         => array( 'label' => __( 'Viewer is registered', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'my_registration' ) ),
+		'event:viewer_price_group'    => array( 'label' => __( 'Viewer price group', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'viewer_price_group' ) ),
 	);
 
 	$course = array(
-		'course:title'                  => array( 'label' => __( 'Title', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'title', 'name' ) ),
-		'course:description'            => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $text( 'description' ) ),
-		'course:excerpt'                => array( 'label' => __( 'Excerpt', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_excerpt' ),
-		'course:image_url'              => array( 'label' => __( 'Image', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'image_url', 'hero_image_url' ) ),
-		'course:category'               => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
+		'course:title'                  => array( 'label' => __( 'Title', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'title', 'name' ) ),
+		'course:description'            => array( 'label' => __( 'Description (HTML)', 'agend-apps-core' ), 'kind' => 'html', 'get' => $text( 'description' ) ),
+		'course:excerpt'                => array( 'label' => __( 'Excerpt', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_excerpt' ),
+		'course:image_url'              => array( 'label' => __( 'Image', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'image_url', 'hero_image_url' ) ),
+		'course:category'               => array( 'label' => __( 'Category', 'agend-apps-core' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_apps_records_record_category' ),
 		'course:difficulty'             => array(
-			'label' => __( 'Level', 'agend-elementor' ),
+			'label' => __( 'Level', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'pill'  => true,
 			'get'   => static function ( array $record ) {
 				$value = isset( $record['difficulty'] ) ? (string) $record['difficulty'] : '';
-				return '' === $value ? '' : agend_elementor_ssr_lms_difficulty( $value );
+				return '' === $value ? '' : agend_apps_records_ssr_lms_difficulty( $value );
 			},
 		),
 		'course:delivery_mode'          => array(
-			'label' => __( 'Delivery mode', 'agend-elementor' ),
+			'label' => __( 'Delivery mode', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'pill'  => true,
 			'get'   => static function ( array $record ) {
 				$value = isset( $record['delivery_mode'] ) ? (string) $record['delivery_mode'] : '';
-				return '' === $value ? '' : agend_elementor_ssr_lms_mode( $value );
+				return '' === $value ? '' : agend_apps_records_ssr_lms_mode( $value );
 			},
 		),
 		'course:duration'               => array(
-			'label' => __( 'Duration', 'agend-elementor' ),
+			'label' => __( 'Duration', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'get'   => static function ( array $record ) {
-				return agend_elementor_ssr_lms_duration( $record['total_duration_minutes'] ?? 0 );
+				return agend_apps_records_ssr_lms_duration( $record['total_duration_minutes'] ?? 0 );
 			},
 		),
-		'course:total_duration_minutes' => array( 'label' => __( 'Duration (minutes)', 'agend-elementor' ), 'kind' => 'number', 'get' => $num( 'total_duration_minutes' ) ),
-		'course:lessons_count'          => array( 'label' => __( 'Lessons', 'agend-elementor' ), 'kind' => 'number', 'get' => $num( 'lessons_count' ) ),
+		'course:total_duration_minutes' => array( 'label' => __( 'Duration (minutes)', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'total_duration_minutes' ) ),
+		'course:lessons_count'          => array( 'label' => __( 'Lessons', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'lessons_count' ) ),
 		'course:price'                  => array(
-			'label' => __( 'Price', 'agend-elementor' ),
+			'label' => __( 'Price', 'agend-apps-core' ),
 			'kind'  => 'price',
 			'get'   => static function ( array $record ) {
 				if ( ! empty( $record['is_free'] ) ) {
 					return 0;
 				}
-				$value = agend_elementor_record_path( $record, array( 'base_price', 'price' ) );
+				$value = agend_apps_records_record_path( $record, array( 'base_price', 'price' ) );
 				return is_numeric( $value ) ? $value : null;
 			},
 		),
-		'course:is_free'                => array( 'label' => __( 'Is free', 'agend-elementor' ), 'kind' => 'bool', 'get' => $flag( 'is_free' ) ),
-		'course:instructor_name'        => array( 'label' => __( 'Instructor', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'instructor_name' ) ),
+		'course:is_free'                => array( 'label' => __( 'Is free', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'is_free' ) ),
+		'course:instructor_name'        => array( 'label' => __( 'Instructor', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'instructor_name' ) ),
 		'course:learning_outcomes'      => array(
-			'label' => __( 'Learning outcomes', 'agend-elementor' ),
+			'label' => __( 'Learning outcomes', 'agend-apps-core' ),
 			'kind'  => 'list',
 			'get'   => static function ( array $record ) {
 				$outcomes = $record['learning_outcomes'] ?? array();
@@ -441,60 +441,60 @@ function agend_elementor_field_registry(): array {
 			},
 		),
 		'course:progress_percent'       => array(
-			'label' => __( 'Progress (%)', 'agend-elementor' ),
+			'label' => __( 'Progress (%)', 'agend-apps-core' ),
 			'kind'  => 'number',
 			'get'   => static function ( array $record ) {
-				$value = agend_elementor_record_path( $record, array( 'my_enrollment.progress.percentage', 'my_enrollment.progress.percent' ) );
+				$value = agend_apps_records_record_path( $record, array( 'my_enrollment.progress.percentage', 'my_enrollment.progress.percent' ) );
 				return is_numeric( $value ) ? (float) $value : 0;
 			},
 		),
-		'course:is_enrolled'            => array( 'label' => __( 'Viewer is enrolled', 'agend-elementor' ), 'kind' => 'bool', 'get' => $flag( 'my_enrollment' ) ),
+		'course:is_enrolled'            => array( 'label' => __( 'Viewer is enrolled', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'my_enrollment' ) ),
 	);
 
 	$listing = array(
-		'listing:name'              => array( 'label' => __( 'Name', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'name' ) ),
-		'listing:short_description' => array( 'label' => __( 'Short description', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'short_description' ) ),
-		'listing:description'       => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $text( 'description' ) ),
-		'listing:excerpt'           => array( 'label' => __( 'Excerpt', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_excerpt' ),
-		'listing:logo_url'          => array( 'label' => __( 'Logo', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'logo_url' ) ),
-		'listing:hero_image_url'    => array( 'label' => __( 'Hero image', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'hero_image_url', 'logo_url' ) ),
-		'listing:category'          => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
-		'listing:categories'        => array( 'label' => __( 'All categories', 'agend-elementor' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_elementor_record_categories' ),
-		'listing:tags'              => array( 'label' => __( 'Tags', 'agend-elementor' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_elementor_record_tags' ),
+		'listing:name'              => array( 'label' => __( 'Name', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'name' ) ),
+		'listing:short_description' => array( 'label' => __( 'Short description', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'short_description' ) ),
+		'listing:description'       => array( 'label' => __( 'Description (HTML)', 'agend-apps-core' ), 'kind' => 'html', 'get' => $text( 'description' ) ),
+		'listing:excerpt'           => array( 'label' => __( 'Excerpt', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_excerpt' ),
+		'listing:logo_url'          => array( 'label' => __( 'Logo', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'logo_url' ) ),
+		'listing:hero_image_url'    => array( 'label' => __( 'Hero image', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'hero_image_url', 'logo_url' ) ),
+		'listing:category'          => array( 'label' => __( 'Category', 'agend-apps-core' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_apps_records_record_category' ),
+		'listing:categories'        => array( 'label' => __( 'All categories', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_categories' ),
+		'listing:tags'              => array( 'label' => __( 'Tags', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_tags' ),
 		'listing:badges'            => array(
-			'label' => __( 'Badges', 'agend-elementor' ),
+			'label' => __( 'Badges', 'agend-apps-core' ),
 			'kind'  => 'list',
 			'pill'  => true,
 			'get'   => static function ( array $record ) {
-				return agend_elementor_record_names( $record, 'badges' );
+				return agend_apps_records_record_names( $record, 'badges' );
 			},
 		),
-		'listing:location'          => array( 'label' => __( 'Location (city, state)', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_listing_location' ),
+		'listing:location'          => array( 'label' => __( 'Location (city, state)', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_listing_location' ),
 		'listing:city'              => array(
-			'label' => __( 'City', 'agend-elementor' ),
+			'label' => __( 'City', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'get'   => static function ( array $record ) {
-				return agend_elementor_record_listing_location_part( $record, 'city' );
+				return agend_apps_records_record_listing_location_part( $record, 'city' );
 			},
 		),
 		'listing:state'             => array(
-			'label' => __( 'State', 'agend-elementor' ),
+			'label' => __( 'State', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'pill'  => true,
 			'get'   => static function ( array $record ) {
-				return agend_elementor_record_listing_location_part( $record, 'state' );
+				return agend_apps_records_record_listing_location_part( $record, 'state' );
 			},
 		),
-		'listing:rating'            => array( 'label' => __( 'Average rating', 'agend-elementor' ), 'kind' => 'number', 'get' => $num( 'average_rating' ) ),
-		'listing:review_count'      => array( 'label' => __( 'Review count', 'agend-elementor' ), 'kind' => 'number', 'get' => $num( 'review_count' ) ),
-		'listing:is_featured'       => array( 'label' => __( 'Featured', 'agend-elementor' ), 'kind' => 'bool', 'get' => $flag( 'is_featured' ) ),
-		'listing:phone'             => array( 'label' => __( 'Phone', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'phone' ) ),
-		'listing:website'           => array( 'label' => __( 'Website', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'website' ) ),
-		'listing:linkedin_url'      => array( 'label' => __( 'LinkedIn', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'linkedin_url' ) ),
-		'listing:facebook_url'      => array( 'label' => __( 'Facebook', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'facebook_url' ) ),
-		'listing:instagram_url'     => array( 'label' => __( 'Instagram', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'instagram_url' ) ),
-		'listing:twitter_url'       => array( 'label' => __( 'X (Twitter)', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'twitter_url' ) ),
-		'listing:youtube_url'       => array( 'label' => __( 'YouTube', 'agend-elementor' ), 'kind' => 'url', 'get' => $text( 'youtube_url' ) ),
+		'listing:rating'            => array( 'label' => __( 'Average rating', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'average_rating' ) ),
+		'listing:review_count'      => array( 'label' => __( 'Review count', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'review_count' ) ),
+		'listing:is_featured'       => array( 'label' => __( 'Featured', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'is_featured' ) ),
+		'listing:phone'             => array( 'label' => __( 'Phone', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'phone' ) ),
+		'listing:website'           => array( 'label' => __( 'Website', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'website' ) ),
+		'listing:linkedin_url'      => array( 'label' => __( 'LinkedIn', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'linkedin_url' ) ),
+		'listing:facebook_url'      => array( 'label' => __( 'Facebook', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'facebook_url' ) ),
+		'listing:instagram_url'     => array( 'label' => __( 'Instagram', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'instagram_url' ) ),
+		'listing:twitter_url'       => array( 'label' => __( 'X (Twitter)', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'twitter_url' ) ),
+		'listing:youtube_url'       => array( 'label' => __( 'YouTube', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'youtube_url' ) ),
 	);
 
 	// Common aliases resolve to the per-type field so one template can serve
@@ -508,43 +508,43 @@ function agend_elementor_field_registry(): array {
 			} else {
 				$key = $event_key;
 			}
-			return agend_elementor_field_value( $key, $type, $record, $extra );
+			return agend_apps_records_field_value( $key, $type, $record, $extra );
 		};
 	};
 	$common = array(
-		'common:title'       => array( 'label' => __( 'Title', 'agend-elementor' ), 'kind' => 'text', 'get' => $alias( 'event:name', 'course:title', 'listing:name' ) ),
-		'common:description' => array( 'label' => __( 'Description (HTML)', 'agend-elementor' ), 'kind' => 'html', 'get' => $alias( 'event:description', 'course:description', 'listing:description' ) ),
-		'common:excerpt'     => array( 'label' => __( 'Excerpt', 'agend-elementor' ), 'kind' => 'text', 'get' => 'agend_elementor_record_excerpt' ),
-		'common:image'       => array( 'label' => __( 'Image', 'agend-elementor' ), 'kind' => 'url', 'get' => $alias( 'event:hero_image_url', 'course:image_url', 'listing:hero_image_url' ) ),
-		'common:category'    => array( 'label' => __( 'Category', 'agend-elementor' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_elementor_record_category' ),
-		'common:price_from'  => array( 'label' => __( 'Price from', 'agend-elementor' ), 'kind' => 'price', 'types' => array( 'event', 'course' ), 'get' => $alias( 'event:price_from', 'course:price' ) ),
-		'common:slug'         => array( 'label' => __( 'Slug', 'agend-elementor' ), 'kind' => 'text', 'get' => $text( 'slug' ) ),
+		'common:title'       => array( 'label' => __( 'Title', 'agend-apps-core' ), 'kind' => 'text', 'get' => $alias( 'event:name', 'course:title', 'listing:name' ) ),
+		'common:description' => array( 'label' => __( 'Description (HTML)', 'agend-apps-core' ), 'kind' => 'html', 'get' => $alias( 'event:description', 'course:description', 'listing:description' ) ),
+		'common:excerpt'     => array( 'label' => __( 'Excerpt', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_excerpt' ),
+		'common:image'       => array( 'label' => __( 'Image', 'agend-apps-core' ), 'kind' => 'url', 'get' => $alias( 'event:hero_image_url', 'course:image_url', 'listing:hero_image_url' ) ),
+		'common:category'    => array( 'label' => __( 'Category', 'agend-apps-core' ), 'kind' => 'text', 'pill' => true, 'get' => 'agend_apps_records_record_category' ),
+		'common:price_from'  => array( 'label' => __( 'Price from', 'agend-apps-core' ), 'kind' => 'price', 'types' => array( 'event', 'course' ), 'get' => $alias( 'event:price_from', 'course:price' ) ),
+		'common:slug'         => array( 'label' => __( 'Slug', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'slug' ) ),
 		'common:custom_field' => array(
-			'label' => __( 'Custom field (by key)', 'agend-elementor' ),
+			'label' => __( 'Custom field (by key)', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'get'   => static function ( array $record, string $type, array $extra ) {
-				return agend_elementor_record_custom_field( $record, (string) ( $extra['custom_field_key'] ?? '' ) );
+				return agend_apps_records_record_custom_field( $record, (string) ( $extra['custom_field_key'] ?? '' ) );
 			},
 		),
 		'common:custom_field_label' => array(
-			'label' => __( 'Custom field label (by key)', 'agend-elementor' ),
+			'label' => __( 'Custom field label (by key)', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'get'   => static function ( array $record, string $type, array $extra ) {
-				return agend_elementor_record_custom_field_label( $record, (string) ( $extra['custom_field_key'] ?? '' ) );
+				return agend_apps_records_record_custom_field_label( $record, (string) ( $extra['custom_field_key'] ?? '' ) );
 			},
 		),
 		'common:detail_url'  => array(
-			'label' => __( 'Detail URL', 'agend-elementor' ),
+			'label' => __( 'Detail URL', 'agend-apps-core' ),
 			'kind'  => 'url',
 			'get'   => static function ( array $record, string $type, array $extra ) {
 				if ( ! empty( $extra['detail_url'] ) ) {
 					return (string) $extra['detail_url'];
 				}
 				$slug = isset( $record['slug'] ) ? (string) $record['slug'] : '';
-				if ( '' === $slug || ! class_exists( 'Agend_Elementor_Pages' ) ) {
+				if ( '' === $slug || ! class_exists( 'Agend_Apps_Records_Pages' ) ) {
 					return '';
 				}
-				return Agend_Elementor_Pages::detail_url( $type, $slug, (int) ( $extra['host_page_id'] ?? 0 ) );
+				return Agend_Apps_Records_Pages::detail_url( $type, $slug, (int) ( $extra['host_page_id'] ?? 0 ) );
 			},
 		),
 	);
@@ -572,8 +572,8 @@ function agend_elementor_field_registry(): array {
  * @param string $key Field key.
  * @return string
  */
-function agend_elementor_field_kind( string $key ): string {
-	$registry = agend_elementor_field_registry();
+function agend_apps_records_field_kind( string $key ): string {
+	$registry = agend_apps_records_field_registry();
 	return isset( $registry[ $key ] ) ? (string) $registry[ $key ]['kind'] : '';
 }
 
@@ -584,8 +584,8 @@ function agend_elementor_field_kind( string $key ): string {
  * @param string $type Record type.
  * @return bool
  */
-function agend_elementor_field_applies( string $key, string $type ): bool {
-	$registry = agend_elementor_field_registry();
+function agend_apps_records_field_applies( string $key, string $type ): bool {
+	$registry = agend_apps_records_field_registry();
 	return isset( $registry[ $key ] ) && in_array( $type, $registry[ $key ]['types'], true );
 }
 
@@ -601,11 +601,11 @@ function agend_elementor_field_applies( string $key, string $type ): bool {
  * @param array  $extra  Render context (slug, detail_url, host_page_id ...).
  * @return mixed|null
  */
-function agend_elementor_field_value( string $key, string $type, array $record, array $extra = array() ) {
-	if ( ! agend_elementor_field_applies( $key, $type ) ) {
+function agend_apps_records_field_value( string $key, string $type, array $record, array $extra = array() ) {
+	if ( ! agend_apps_records_field_applies( $key, $type ) ) {
 		return null;
 	}
-	$registry = agend_elementor_field_registry();
+	$registry = agend_apps_records_field_registry();
 	$value    = call_user_func( $registry[ $key ]['get'], $record, $type, $extra );
 	return ( '' === $value ) ? null : $value;
 }
@@ -622,8 +622,8 @@ function agend_elementor_field_value( string $key, string $type, array $record, 
  * @param array  $extra  Render context.
  * @return string[]
  */
-function agend_elementor_field_terms( string $key, string $type, array $record, array $extra = array() ): array {
-	$value = agend_elementor_field_value( $key, $type, $record, $extra );
+function agend_apps_records_field_terms( string $key, string $type, array $record, array $extra = array() ): array {
+	$value = agend_apps_records_field_value( $key, $type, $record, $extra );
 	if ( null === $value ) {
 		return array();
 	}
@@ -642,9 +642,9 @@ function agend_elementor_field_terms( string $key, string $type, array $record, 
  *
  * @return array<int, array{label: string, options: array<string, string>}>
  */
-function agend_elementor_pill_field_options(): array {
+function agend_apps_records_pill_field_options(): array {
 	$groups = array();
-	foreach ( agend_elementor_field_registry() as $key => $descriptor ) {
+	foreach ( agend_apps_records_field_registry() as $key => $descriptor ) {
 		if ( empty( $descriptor['pill'] ) ) {
 			continue;
 		}
@@ -664,9 +664,9 @@ function agend_elementor_pill_field_options(): array {
  *                             the image widget); null for all.
  * @return array<int, array{label: string, options: array<string, string>}>
  */
-function agend_elementor_field_options( ?array $kinds = null ): array {
+function agend_apps_records_field_options( ?array $kinds = null ): array {
 	$groups = array();
-	foreach ( agend_elementor_field_registry() as $key => $descriptor ) {
+	foreach ( agend_apps_records_field_registry() as $key => $descriptor ) {
 		if ( null !== $kinds && ! in_array( $descriptor['kind'], $kinds, true ) ) {
 			continue;
 		}
@@ -688,12 +688,12 @@ function agend_elementor_field_options( ?array $kinds = null ): array {
  * `bool_true` / `bool_false` (default 'Yes' / ''), `number_suffix`,
  * `truncate` (characters, 0 = off; applies to text and stripped html).
  *
- * @param mixed  $value The raw value from agend_elementor_field_value().
+ * @param mixed  $value The raw value from agend_apps_records_field_value().
  * @param string $kind  The field kind.
  * @param array  $opts  Formatting options.
  * @return string Escaped HTML, or '' when the value is empty.
  */
-function agend_elementor_format_field( $value, string $kind, array $opts = array() ): string {
+function agend_apps_records_format_field( $value, string $kind, array $opts = array() ): string {
 	if ( null === $value || '' === $value || ( is_array( $value ) && 'date_range' !== $kind && 'date_time' !== $kind && empty( $value ) ) ) {
 		return 'bool' === $kind ? esc_html( (string) ( $opts['bool_false'] ?? '' ) ) : '';
 	}
@@ -704,7 +704,7 @@ function agend_elementor_format_field( $value, string $kind, array $opts = array
 	switch ( $kind ) {
 		case 'html':
 			if ( $truncate > 0 ) {
-				return esc_html( agend_elementor_truncate_text( trim( preg_replace( '/\s+/', ' ', strip_tags( (string) $value ) ) ), $truncate ) );
+				return esc_html( agend_apps_records_truncate_text( trim( preg_replace( '/\s+/', ' ', strip_tags( (string) $value ) ) ), $truncate ) );
 			}
 			return wp_kses_post( (string) $value );
 
@@ -724,12 +724,12 @@ function agend_elementor_format_field( $value, string $kind, array $opts = array
 		case 'date_range':
 			$start = is_array( $value ) ? ( $value['start'] ?? '' ) : $value;
 			$end   = is_array( $value ) ? ( $value['end'] ?? '' ) : '';
-			return esc_html( agend_elementor_ssr_ev_date_range( $start, $end, $tz ) );
+			return esc_html( agend_apps_records_ssr_ev_date_range( $start, $end, $tz ) );
 
 		case 'date_time':
 			$start = is_array( $value ) ? ( $value['start'] ?? '' ) : $value;
 			$end   = is_array( $value ) ? ( $value['end'] ?? '' ) : '';
-			return esc_html( agend_elementor_ssr_ev_date_time( $start, $end, $tz ) );
+			return esc_html( agend_apps_records_ssr_ev_date_time( $start, $end, $tz ) );
 
 		case 'price':
 			if ( ! is_numeric( $value ) ) {
@@ -737,7 +737,7 @@ function agend_elementor_format_field( $value, string $kind, array $opts = array
 			}
 			$num = (float) $value;
 			if ( 0.0 === $num ) {
-				return esc_html( (string) ( $opts['price_free_label'] ?? __( 'Free', 'agend-elementor' ) ) );
+				return esc_html( (string) ( $opts['price_free_label'] ?? __( 'Free', 'agend-apps-core' ) ) );
 			}
 			return esc_html( (string) ( $opts['price_prefix'] ?? '' ) . '$' . number_format( $num, 2, '.', '' ) );
 
@@ -750,7 +750,7 @@ function agend_elementor_format_field( $value, string $kind, array $opts = array
 			return implode( esc_html( (string) ( $opts['list_separator'] ?? ', ' ) ), array_map( 'esc_html', $items ) );
 
 		case 'bool':
-			return esc_html( (string) ( $value ? ( $opts['bool_true'] ?? __( 'Yes', 'agend-elementor' ) ) : ( $opts['bool_false'] ?? '' ) ) );
+			return esc_html( (string) ( $value ? ( $opts['bool_true'] ?? __( 'Yes', 'agend-apps-core' ) ) : ( $opts['bool_false'] ?? '' ) ) );
 
 		case 'number':
 			if ( ! is_numeric( $value ) ) {
@@ -764,7 +764,7 @@ function agend_elementor_format_field( $value, string $kind, array $opts = array
 		default:
 			$text = is_scalar( $value ) ? (string) $value : '';
 			if ( $truncate > 0 ) {
-				$text = agend_elementor_truncate_text( $text, $truncate );
+				$text = agend_apps_records_truncate_text( $text, $truncate );
 			}
 			return esc_html( $text );
 	}
@@ -777,7 +777,7 @@ function agend_elementor_format_field( $value, string $kind, array $opts = array
  * @param int    $limit Maximum characters (excluding the ellipsis).
  * @return string
  */
-function agend_elementor_truncate_text( string $text, int $limit ): string {
+function agend_apps_records_truncate_text( string $text, int $limit ): string {
 	if ( $limit <= 0 || mb_strlen( $text ) <= $limit ) {
 		return $text;
 	}
@@ -798,16 +798,16 @@ function agend_elementor_truncate_text( string $text, int $limit ): string {
  * @param string $type   Record type.
  * @param array  $record The record.
  * @param array  $extra  Render context.
- * @param array  $opts   Formatting options for agend_elementor_format_field().
+ * @param array  $opts   Formatting options for agend_apps_records_format_field().
  * @return string Escaped HTML, or ''.
  */
-function agend_elementor_render_field( string $key, string $type, array $record, array $extra = array(), array $opts = array() ): string {
-	$kind = agend_elementor_field_kind( $key );
+function agend_apps_records_render_field( string $key, string $type, array $record, array $extra = array(), array $opts = array() ): string {
+	$kind = agend_apps_records_field_kind( $key );
 	if ( '' === $kind ) {
 		return '';
 	}
 	if ( ! isset( $opts['timezone'] ) && in_array( $kind, array( 'date', 'date_range', 'date_time' ), true ) ) {
-		$opts['timezone'] = agend_elementor_record_timezone( $record );
+		$opts['timezone'] = agend_apps_records_record_timezone( $record );
 	}
-	return agend_elementor_format_field( agend_elementor_field_value( $key, $type, $record, $extra ), $kind, $opts );
+	return agend_apps_records_format_field( agend_apps_records_field_value( $key, $type, $record, $extra ), $kind, $opts );
 }

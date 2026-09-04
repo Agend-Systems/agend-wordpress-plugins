@@ -83,37 +83,32 @@ define( 'AGEND_APPS_PORTAL_LOCAL_URL', 'http://localhost:3074' );
 
 /**
  * Rewrite ruleset version. Bump whenever the rewrite endpoints registered in
- * includes/records/class-agend-elementor-routing.php change, so the versioned
- * auto-flush regenerates the rules on the next request after an update deploy.
- *
- * Guarded so an Agend Elementor Widgets install predating this move, which
- * still defines the same constant itself, cannot fatal the site.
+ * includes/records/routing.php change, so the versioned auto-flush
+ * regenerates the rules on the next request after an update deploy.
  *
  * @var string
  */
-if ( ! defined( 'AGEND_ELEMENTOR_REWRITE_VERSION' ) ) {
-	define( 'AGEND_ELEMENTOR_REWRITE_VERSION', '20260723-1' );
-}
+define( 'AGEND_APPS_RECORDS_REWRITE_VERSION', '20260723-1' );
 
 // Detail-URL rewrite endpoints (SPEC-INFRA-20260717 US-1.1). Loaded
 // unconditionally so the endpoints register even when a page-builder plugin
 // consuming them is temporarily unavailable; the widgets that consume them
 // stay gated.
-require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-routing.php';
+require_once AGEND_APPS_CORE_DIR . 'includes/records/routing.php';
 
 // Settings (server-rendered detail toggle). Loaded unconditionally so the
 // accessor is available on the front-end `wp` hook and in the admin.
-require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-settings.php';
+require_once AGEND_APPS_CORE_DIR . 'includes/records/settings.php';
 
 // Dedicated catalogue pages (fixes the host-page hijack: a catalogue used as
 // a homepage CTA no longer turns the homepage into the detail page). Loaded
 // unconditionally, like settings, so the wp:4 redirect and the widgets'
 // page_url()/detail_url() calls work even before this plugin's own bootstrap
 // runs.
-require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-pages.php';
+require_once AGEND_APPS_CORE_DIR . 'includes/records/pages.php';
 
-register_activation_hook( __FILE__, 'agend_elementor_activate_rewrites' );
-register_deactivation_hook( __FILE__, 'agend_elementor_deactivate_rewrites' );
+register_activation_hook( __FILE__, 'agend_apps_records_activate_rewrites' );
+register_deactivation_hook( __FILE__, 'agend_apps_records_deactivate_rewrites' );
 
 /**
  * Loads all plugin includes and initialises the admin controller.
@@ -133,23 +128,28 @@ function agend_apps_core_bootstrap() {
 	// Server-rendered detail pages (opt-in). The format/fragments helpers are
 	// split out so field widgets can reuse them without pulling in the whole
 	// SSR detail machinery.
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-format.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-fragments.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-ssr-detail.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/format.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/fragments.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/ssr-detail.php';
 
 	// Template-driven cards and detail pages: the record context the field
 	// widgets read, the field registry, and the editor preview records.
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-record-context.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-fields.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-preview-records.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-filters.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-query.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/class-agend-elementor-cards.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/records/rest/class-agend-elementor-fragments-controller.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/record-context.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/fields.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/preview-records.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/filters.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/query.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/cards.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/rest/fragments-controller.php';
+
+	// Deprecated pre-rename names. Last among the records requires: it aliases
+	// classes and constants those files define.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/deprecated.php';
+
 	add_action(
 		'rest_api_init',
 		static function () {
-			( new Agend_Elementor_Fragments_Controller() )->register_routes();
+			( new Agend_Apps_Records_Fragments_Controller() )->register_routes();
 		}
 	);
 

@@ -64,7 +64,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-directory-catalogue' );
+		return array( 'agend-apps-records-directory-catalogue' );
 	}
 
 	/**
@@ -73,7 +73,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-directory-catalogue' );
+		return array( 'agend-apps-records-directory-catalogue' );
 	}
 
 	/**
@@ -746,7 +746,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 	protected function render(): void {
 		// A catalogue inside a card template would fetch the list once per
 		// card; nothing sensible can come of it.
-		if ( class_exists( 'Agend_Elementor_Record_Context' ) && Agend_Elementor_Record_Context::has() ) {
+		if ( class_exists( 'Agend_Apps_Records_Record_Context' ) && Agend_Apps_Records_Record_Context::has() ) {
 			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
 				echo '<div class="elementor-alert elementor-alert-warning">' . esc_html__( 'A Directory Catalogue cannot be placed inside a card or detail template.', 'agend-elementor' ) . '</div>';
 			}
@@ -757,7 +757,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		$config   = $this->build_config( $settings );
 
 		// US-3.2: path-based detail routing. The directory detail rule
-		// (registered in class-agend-elementor-routing.php) exposes the slug on
+		// (registered in routing.php) exposes the slug on
 		// the current page URL as /{page}/listing/{slug}/ via the private
 		// `agend_dir_listing` query var (the public `listing` segment maps to it;
 		// the namespaced var avoids the common `listing` query-var collision).
@@ -773,19 +773,19 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		// When server-rendered detail pages are on, cards navigate to the
 		// server-rendered detail URL (a real child page) instead of swapping the
 		// detail in client-side, so breadcrumbs and SEO resolve natively.
-		$config['ssrDetail']   = function_exists( 'agend_elementor_ssr_detail_enabled' )
-			&& agend_elementor_ssr_detail_enabled();
+		$config['ssrDetail']   = function_exists( 'agend_apps_records_ssr_detail_enabled' )
+			&& agend_apps_records_ssr_detail_enabled();
 		// Member LMS achievements ("Badges & Credentials") are opt-in and require
 		// the directory.achievements.browse scope on the account's API key.
-		$config['showAchievements'] = function_exists( 'agend_elementor_show_achievements_enabled' )
-			&& agend_elementor_show_achievements_enabled();
+		$config['showAchievements'] = function_exists( 'agend_apps_records_show_achievements_enabled' )
+			&& agend_apps_records_show_achievements_enabled();
 
 		// Dedicated Directory page: with one configured, a catalogue elsewhere
 		// never opens a detail in place, and deepLink is only honoured on that
 		// page (unchanged behaviour when no page is set).
-		$config['detailBase']   = Agend_Elementor_Pages::page_url( 'listing' );
+		$config['detailBase']   = Agend_Apps_Records_Pages::page_url( 'listing' );
 		$config['onDetailPage'] = '' === $config['detailBase']
-			|| Agend_Elementor_Pages::is_dedicated_page( 'listing', $page_id );
+			|| Agend_Apps_Records_Pages::is_dedicated_page( 'listing', $page_id );
 		if ( ! $config['onDetailPage'] ) {
 			$config['deepLink'] = '';
 		}
@@ -795,7 +795,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 
 		// Card template mode: the first page is rendered here through the
 		// template and later pages arrive as fragments from
-		// /agend-elementor/v1/cards/listings.
+		// /agend-apps/v1/cards/listings.
 		$template_id = (int) ( $settings['card_template'] ?? 0 );
 		if ( $template_id > 0 && Agend_Elementor_Template_Renderer::is_valid_template( $template_id ) ) {
 			$config['cardMode']      = 'template';
@@ -804,7 +804,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 			$config['cardTemplate']  = $template_id;
 			$config['cardLinkWhole'] = 'yes' === ( $settings['card_link_whole'] ?? 'yes' );
 			$config['hostPageId']    = (int) $page_id;
-			$config['restBase']      = esc_url_raw( rest_url( 'agend-elementor/v1' ) );
+			$config['restBase']      = esc_url_raw( rest_url( 'agend-apps/v1' ) );
 			$config['fragmentPath']  = '/cards/listings';
 			$this->render_templated( $config, $template_id, $style, $columns );
 			return;
@@ -859,11 +859,11 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		if ( 0 === $template_id ) {
 			return '';
 		}
-		Agend_Elementor_Filter_Context::set( 'listing' );
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
 		try {
 			return Agend_Elementor_Template_Renderer::render_plain( $template_id );
 		} finally {
-			Agend_Elementor_Filter_Context::reset();
+			Agend_Apps_Records_Filter_Context::reset();
 		}
 	}
 
@@ -897,8 +897,8 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 	 * @param int    $columns     Desktop column count.
 	 */
 	private function render_templated( array $config, int $template_id, string $style, int $columns ): void {
-		$list  = agend_elementor_unwrap_list( agend_elementor_fetch_list( 'listing', agend_elementor_listings_list_args( $config, 1 ) ) );
-		$cards = agend_elementor_render_cards(
+		$list  = agend_apps_records_unwrap_list( agend_apps_records_fetch_list( 'listing', agend_apps_records_listings_list_args( $config, 1 ) ) );
+		$cards = agend_apps_records_render_cards(
 			'listing',
 			$template_id,
 			$list['items'],

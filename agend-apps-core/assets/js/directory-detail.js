@@ -2,7 +2,7 @@
  * Agend Directory — server-rendered detail enhancement.
  *
  * Progressive enhancement for the SSR detail page produced by the
- * "Server-rendered detail pages" setting (class-agend-elementor-ssr-detail.php).
+ * "Server-rendered detail pages" setting (includes/records/ssr-detail.php in Agend Apps Core).
  * The detail body is already in the HTML; this only wires the interactive bits:
  * the review submission form (posted via the Agend Apps Core REST proxy) and the
  * gallery lightbox. It never renders content, so search engines and no-JS

@@ -27,12 +27,12 @@ function agend_elementor_template_post_states( array $states, $post ): array {
 	}
 
 	$keys = array(
-		AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION   => 'agend_event_detail',
-		AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION  => 'agend_course_detail',
-		AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION => 'agend_listing_detail',
+		AGEND_APPS_RECORDS_EVENT_DETAIL_TEMPLATE_OPTION   => 'agend_event_detail',
+		AGEND_APPS_RECORDS_COURSE_DETAIL_TEMPLATE_OPTION  => 'agend_course_detail',
+		AGEND_APPS_RECORDS_LISTING_DETAIL_TEMPLATE_OPTION => 'agend_listing_detail',
 	);
 
-	foreach ( agend_elementor_detail_template_labels() as $option => $label ) {
+	foreach ( agend_apps_records_detail_template_labels() as $option => $label ) {
 		if ( $post->ID === absint( get_option( $option, 0 ) ) ) {
 			$states[ $keys[ $option ] ] = $label;
 		}

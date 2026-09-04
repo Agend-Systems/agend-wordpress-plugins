@@ -29,7 +29,7 @@ Cards and detail pages for events, courses and directory listings can be designe
 
 Fields marked Common work in any template, resolving to that record type's equivalent. `Custom field (by key)` reads an Agend custom field by its key; which custom fields a visitor receives depends on their entitlements, so it renders empty for a visitor who is not entitled to that field. In the editor the widgets show the first upcoming event or first course as preview data.
 
-- **Card template**: chosen per catalogue widget (Content > Card Template). The first page is rendered server-side, one template render per record; filtering and pagination fetch rendered fragments from `GET /wp-json/agend-elementor/v1/cards/events`, `/cards/courses` and `/cards/listings`. "Whole card links to the event" wraps each card in one anchor; turn it off to let only Agend Link widgets navigate.
+- **Card template**: chosen per catalogue widget (Content > Card Template). The first page is rendered server-side, one template render per record; filtering and pagination fetch rendered fragments from `GET /wp-json/agend-apps/v1/cards/events`, `/cards/courses` and `/cards/listings`. "Whole card links to the event" wraps each card in one anchor; turn it off to let only Agend Link widgets navigate.
 - **Filter template**: chosen per catalogue widget, alongside a Filter position of across the top,
   down the left or down the right. A side position puts the filters in their own column beside the
   results, collapsing to a stack under 768px; set the column width and the stacking direction on

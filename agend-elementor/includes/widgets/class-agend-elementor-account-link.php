@@ -64,7 +64,7 @@ class Agend_Elementor_Account_Link extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-account-link' );
+		return array( 'agend-apps-records-account-link' );
 	}
 
 	/**
@@ -73,7 +73,7 @@ class Agend_Elementor_Account_Link extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-account-link' );
+		return array( 'agend-apps-records-account-link' );
 	}
 
 	/**

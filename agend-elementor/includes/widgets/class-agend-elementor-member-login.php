@@ -65,7 +65,7 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-member-login' );
+		return array( 'agend-apps-records-member-login' );
 	}
 
 	/**
@@ -74,7 +74,7 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-member-login' );
+		return array( 'agend-apps-records-member-login' );
 	}
 
 	/**

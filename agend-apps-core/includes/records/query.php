@@ -9,7 +9,7 @@
  * already send to the Agend Apps Core proxy, and the allow-lists mirror the
  * proxy controllers in agend-apps-core/includes/rest/.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Upper bound on a page size requested over REST.
  */
-const AGEND_ELEMENTOR_FRAGMENT_MAX_LIMIT = 100;
+const AGEND_APPS_RECORDS_FRAGMENT_MAX_LIMIT = 100;
 
 /**
  * Query parameters the fragment endpoint forwards to the gateway for a type.
@@ -30,7 +30,7 @@ const AGEND_ELEMENTOR_FRAGMENT_MAX_LIMIT = 100;
  * @param string $type 'event' or 'course'.
  * @return string[]
  */
-function agend_elementor_fragment_allowed_params( string $type ): array {
+function agend_apps_records_fragment_allowed_params( string $type ): array {
 	if ( 'listing' === $type ) {
 		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories' );
 	}
@@ -52,8 +52,8 @@ function agend_elementor_fragment_allowed_params( string $type ): array {
  * @param string $type   'event' or 'course'.
  * @return array
  */
-function agend_elementor_fragment_query_args( array $params, string $type ): array {
-	$allowed = agend_elementor_fragment_allowed_params( $type );
+function agend_apps_records_fragment_query_args( array $params, string $type ): array {
+	$allowed = agend_apps_records_fragment_allowed_params( $type );
 	$query   = array();
 
 	foreach ( $params as $key => $value ) {
@@ -64,7 +64,7 @@ function agend_elementor_fragment_query_args( array $params, string $type ): arr
 			// A map of field key => matching values or bounds, not a list, so
 			// it passes through as-is for add_query_arg() to encode as
 			// custom_fields[key] and custom_fields[key][min].
-			$map = agend_elementor_custom_field_filters( $value );
+			$map = agend_apps_records_custom_field_filters( $value );
 			if ( ! empty( $map ) ) {
 				$query[ $key ] = $map;
 			}
@@ -85,7 +85,7 @@ function agend_elementor_fragment_query_args( array $params, string $type ): arr
 
 	foreach ( array( 'limit', 'per_page' ) as $size_key ) {
 		if ( isset( $query[ $size_key ] ) ) {
-			$query[ $size_key ] = max( 1, min( AGEND_ELEMENTOR_FRAGMENT_MAX_LIMIT, (int) $query[ $size_key ] ) );
+			$query[ $size_key ] = max( 1, min( AGEND_APPS_RECORDS_FRAGMENT_MAX_LIMIT, (int) $query[ $size_key ] ) );
 		}
 	}
 	if ( isset( $query['page'] ) ) {
@@ -105,7 +105,7 @@ function agend_elementor_fragment_query_args( array $params, string $type ): arr
  *                      categories, types, cities, startAfter, startBefore).
  * @return array
  */
-function agend_elementor_events_list_args( array $config, int $page = 1, array $state = array() ): array {
+function agend_apps_records_events_list_args( array $config, int $page = 1, array $state = array() ): array {
 	$exclusions = isset( $config['exclusions'] ) && is_array( $config['exclusions'] ) ? $config['exclusions'] : array();
 	$filters    = isset( $config['filters'] ) && is_array( $config['filters'] ) ? $config['filters'] : array();
 
@@ -129,7 +129,7 @@ function agend_elementor_events_list_args( array $config, int $page = 1, array $
 		'excludeCategoriesMatch' => (string) ( $exclusions['categoryMatch'] ?? 'any' ),
 	);
 
-	return agend_elementor_fragment_query_args( $args, 'event' );
+	return agend_apps_records_fragment_query_args( $args, 'event' );
 }
 
 /**
@@ -142,7 +142,7 @@ function agend_elementor_events_list_args( array $config, int $page = 1, array $
  *                      deliveryMode).
  * @return array
  */
-function agend_elementor_courses_list_args( array $config, int $page = 1, array $state = array() ): array {
+function agend_apps_records_courses_list_args( array $config, int $page = 1, array $state = array() ): array {
 	$exclusions = isset( $config['exclusions'] ) && is_array( $config['exclusions'] ) ? $config['exclusions'] : array();
 
 	$args = array(
@@ -157,7 +157,7 @@ function agend_elementor_courses_list_args( array $config, int $page = 1, array 
 		'excludeDeliveryModes' => (array) ( $exclusions['deliveryModes'] ?? array() ),
 	);
 
-	return agend_elementor_fragment_query_args( $args, 'course' );
+	return agend_apps_records_fragment_query_args( $args, 'course' );
 }
 
 /**
@@ -173,7 +173,7 @@ function agend_elementor_courses_list_args( array $config, int $page = 1, array 
  * @param array $state  Visitor filter state (search, category, categories, rating).
  * @return array
  */
-function agend_elementor_listings_list_args( array $config, int $page = 1, array $state = array() ): array {
+function agend_apps_records_listings_list_args( array $config, int $page = 1, array $state = array() ): array {
 	$exclusions = isset( $config['exclusions'] ) && is_array( $config['exclusions'] ) ? $config['exclusions'] : array();
 	$categories = (array) ( $state['categories'] ?? array() );
 
@@ -188,7 +188,7 @@ function agend_elementor_listings_list_args( array $config, int $page = 1, array
 		'featured'          => ( ! empty( $exclusions['featured'] ) || ! empty( $state['featured'] ) ) ? 'true' : '',
 		'tag_ids'           => implode( ',', (array) ( $state['tag_ids'] ?? array() ) ),
 		'badge_ids'         => implode( ',', (array) ( $state['badge_ids'] ?? array() ) ),
-		'custom_fields'     => agend_elementor_custom_field_filters( $state['custom_fields'] ?? array() ),
+		'custom_fields'     => agend_apps_records_custom_field_filters( $state['custom_fields'] ?? array() ),
 		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
 		// Relevance unless a Sort filter says otherwise; name reads better
 		// ascending, everything else descending.
@@ -196,7 +196,7 @@ function agend_elementor_listings_list_args( array $config, int $page = 1, array
 		'sortOrder'         => 'name' === (string) ( $state['sortBy'] ?? '' ) ? 'asc' : 'desc',
 	);
 
-	return agend_elementor_fragment_query_args( $args, 'listing' );
+	return agend_apps_records_fragment_query_args( $args, 'listing' );
 }
 
 /**
@@ -212,7 +212,7 @@ function agend_elementor_listings_list_args( array $config, int $page = 1, array
  * @param array  $query Allow-listed query parameters.
  * @return mixed Wrapper response, WP_Error, or null when unavailable.
  */
-function agend_elementor_fetch_list( string $type, array $query ) {
+function agend_apps_records_fetch_list( string $type, array $query ) {
 	if ( 'listing' === $type ) {
 		if ( ! function_exists( 'agend_apps_directory_search' ) ) {
 			return null;
@@ -241,7 +241,7 @@ function agend_elementor_fetch_list( string $type, array $query ) {
  * @param mixed $state The `custom_fields` slice of the catalogue state.
  * @return array<string, mixed>
  */
-function agend_elementor_custom_field_filters( $state ): array {
+function agend_apps_records_custom_field_filters( $state ): array {
 	if ( ! is_array( $state ) ) {
 		return array();
 	}
@@ -278,7 +278,7 @@ function agend_elementor_custom_field_filters( $state ): array {
  * @param mixed $response Wrapper response (array) or WP_Error.
  * @return array{items: array, pagination: array|null, error: bool}
  */
-function agend_elementor_unwrap_list( $response ): array {
+function agend_apps_records_unwrap_list( $response ): array {
 	if ( is_wp_error( $response ) || ! is_array( $response ) ) {
 		return array( 'items' => array(), 'pagination' => null, 'error' => true );
 	}

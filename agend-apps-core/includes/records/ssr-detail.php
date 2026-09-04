@@ -14,14 +14,14 @@
  * assets/js/events-catalogue.js). Course enrolment is a member sign-in link.
  *
  * The virtual-page synthesis is shared by all three widgets
- * (agend_elementor_ssr_swap_to_virtual_page); each widget contributes only a
+ * (agend_apps_records_ssr_swap_to_virtual_page); each widget contributes only a
  * resolver (fetch + render) and an enqueue callback via the registry in
- * agend_elementor_ssr_detail_registry().
+ * agend_apps_records_ssr_detail_registry().
  *
  * Loaded from the plugin bootstrap only once Agend Apps Core is available (the
  * detail is resolved through its cached REST wrappers).
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -38,33 +38,33 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @return array<int, array<string, string>> Ordered detail-type descriptors.
  */
-function agend_elementor_ssr_detail_registry(): array {
+function agend_apps_records_ssr_detail_registry(): array {
 	return array(
 		array(
-			// Private, namespaced query var (see class-agend-elementor-routing.php):
+			// Private, namespaced query var (see routing.php):
 			// the public path segment stays `listing/`, but the internal query var
 			// avoids the common `listing` collision that 301s the detail page.
 			'query_var' => 'agend_dir_listing',
 			'available' => 'agend_apps_directory_get_listing',
-			'resolver'  => 'agend_elementor_ssr_resolve_listing',
+			'resolver'  => 'agend_apps_records_ssr_resolve_listing',
 			'segment'   => 'listing/',
-			'enqueue'   => 'agend_elementor_ssr_enqueue_directory',
+			'enqueue'   => 'agend_apps_records_ssr_enqueue_directory',
 			'type'      => 'listing',
 		),
 		array(
 			'query_var' => 'event',
 			'available' => 'agend_apps_events_get_event',
-			'resolver'  => 'agend_elementor_ssr_resolve_event',
+			'resolver'  => 'agend_apps_records_ssr_resolve_event',
 			'segment'   => 'event/',
-			'enqueue'   => 'agend_elementor_ssr_enqueue_events',
+			'enqueue'   => 'agend_apps_records_ssr_enqueue_events',
 			'type'      => 'event',
 		),
 		array(
 			'query_var' => 'course',
 			'available' => 'agend_apps_lms_get_course',
-			'resolver'  => 'agend_elementor_ssr_resolve_course',
+			'resolver'  => 'agend_apps_records_ssr_resolve_course',
 			'segment'   => 'course/',
-			'enqueue'   => 'agend_elementor_ssr_enqueue_courses',
+			'enqueue'   => 'agend_apps_records_ssr_enqueue_courses',
 			'type'      => 'course',
 		),
 	);
@@ -83,16 +83,16 @@ function agend_elementor_ssr_detail_registry(): array {
  *
  * @return bool
  */
-function agend_elementor_ssr_any_detail_template(): bool {
-	foreach ( array_keys( Agend_Elementor_Pages::types() ) as $type ) {
-		if ( Agend_Elementor_Pages::detail_template_id( $type ) > 0 ) {
+function agend_apps_records_ssr_any_detail_template(): bool {
+	foreach ( array_keys( Agend_Apps_Records_Pages::types() ) as $type ) {
+		if ( Agend_Apps_Records_Pages::detail_template_id( $type ) > 0 ) {
 			return true;
 		}
 	}
 	return false;
 }
 
-function agend_elementor_ssr_maybe_render_detail(): void {
+function agend_apps_records_ssr_maybe_render_detail(): void {
 	// Front-end main document requests only.
 	if ( is_admin() || wp_doing_ajax() || is_feed() || is_embed() ) {
 		return;
@@ -103,8 +103,8 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 	// A configured detail template implies server rendering for that type,
 	// whatever the legacy toggle says: an Elementor template has no
 	// client-rendered form.
-	$ssr_enabled = agend_elementor_ssr_detail_enabled();
-	if ( ! $ssr_enabled && ! agend_elementor_ssr_any_detail_template() ) {
+	$ssr_enabled = agend_apps_records_ssr_detail_enabled();
+	if ( ! $ssr_enabled && ! agend_apps_records_ssr_any_detail_template() ) {
 		return;
 	}
 
@@ -120,21 +120,21 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 		return;
 	}
 
-	foreach ( agend_elementor_ssr_detail_registry() as $type ) {
+	foreach ( agend_apps_records_ssr_detail_registry() as $type ) {
 		if ( ! function_exists( $type['available'] ) ) {
 			continue;
 		}
-		if ( ! $ssr_enabled && ( '' === $type['type'] || 0 === Agend_Elementor_Pages::detail_template_id( $type['type'] ) ) ) {
+		if ( ! $ssr_enabled && ( '' === $type['type'] || 0 === Agend_Apps_Records_Pages::detail_template_id( $type['type'] ) ) ) {
 			continue;
 		}
 
-		// The wp:4 redirect (class-agend-elementor-pages.php) normally sends a
+		// The wp:4 redirect (pages.php) normally sends a
 		// request for this type to its dedicated page before this hook (wp:5)
 		// runs; this is the fallback for a request that reached this page some
 		// other way (a hard-coded old link, a cached page). Directory has no
 		// dedicated page ('type' => '') so keeps any-page behaviour.
 		if ( '' !== $type['type'] ) {
-			$dedicated_id = Agend_Elementor_Pages::page_id( $type['type'] );
+			$dedicated_id = Agend_Apps_Records_Pages::page_id( $type['type'] );
 			if ( 0 !== $dedicated_id && $dedicated_id !== $host->ID ) {
 				continue;
 			}
@@ -156,7 +156,7 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 			return;
 		}
 
-		agend_elementor_ssr_swap_to_virtual_page(
+		agend_apps_records_ssr_swap_to_virtual_page(
 			$host,
 			$slug,
 			$resolved['title'],
@@ -167,7 +167,7 @@ function agend_elementor_ssr_maybe_render_detail(): void {
 		return;
 	}
 }
-add_action( 'wp', 'agend_elementor_ssr_maybe_render_detail', 5 );
+add_action( 'wp', 'agend_apps_records_ssr_maybe_render_detail', 5 );
 
 /**
  * Swaps the main query onto a synthetic child page rendering the given content.
@@ -183,7 +183,7 @@ add_action( 'wp', 'agend_elementor_ssr_maybe_render_detail', 5 );
  * @param string   $path_segment The detail URL path segment (e.g. 'event/').
  * @param callable $enqueue_cb   Enqueues the type's progressive enhancement.
  */
-function agend_elementor_ssr_swap_to_virtual_page( WP_Post $host, string $slug, string $title, string $content, string $path_segment, callable $enqueue_cb ): void {
+function agend_apps_records_ssr_swap_to_virtual_page( WP_Post $host, string $slug, string $title, string $content, string $path_segment, callable $enqueue_cb ): void {
 	global $wp_query, $wpdb;
 
 	// A synthetic id just above the highest real post id: high enough never to
@@ -301,10 +301,10 @@ function agend_elementor_ssr_swap_to_virtual_page( WP_Post $host, string $slug, 
  * @return array{title: string, content: string}|null The resolved detail, or
  *         null when the listing does not exist.
  */
-function agend_elementor_ssr_resolve_listing( string $slug, WP_Post $host ): ?array {
+function agend_apps_records_ssr_resolve_listing( string $slug, WP_Post $host ): ?array {
 	// Request member achievements only when opted in (the gateway 403s the whole
 	// detail for keys without the directory.achievements.browse scope).
-	$listing_query = agend_elementor_show_achievements_enabled()
+	$listing_query = agend_apps_records_show_achievements_enabled()
 		? array( 'include' => 'achievements' )
 		: array();
 	$response = agend_apps_directory_get_listing( $slug, $listing_query );
@@ -316,12 +316,12 @@ function agend_elementor_ssr_resolve_listing( string $slug, WP_Post $host ): ?ar
 		return null;
 	}
 
-	$name             = isset( $item['name'] ) ? (string) $item['name'] : __( 'Listing', 'agend-elementor' );
+	$name             = isset( $item['name'] ) ? (string) $item['name'] : __( 'Listing', 'agend-apps-core' );
 	$reviews_response = function_exists( 'agend_apps_directory_get_listing_reviews' )
 		? agend_apps_directory_get_listing_reviews( $slug, array( 'limit' => 10 ) )
 		: null;
 
-	$template_id = Agend_Elementor_Pages::detail_template_id( 'listing' );
+	$template_id = Agend_Apps_Records_Pages::detail_template_id( 'listing' );
 	if ( $template_id > 0 && class_exists( 'Agend_Apps_Templates' ) ) {
 		$html = Agend_Apps_Templates::render(
 			$template_id,
@@ -330,7 +330,7 @@ function agend_elementor_ssr_resolve_listing( string $slug, WP_Post $host ): ?ar
 			array(
 				'slug'         => $slug,
 				'reviews'      => $reviews_response,
-				'detail_url'   => Agend_Elementor_Pages::detail_url( 'listing', $slug, (int) $host->ID ),
+				'detail_url'   => Agend_Apps_Records_Pages::detail_url( 'listing', $slug, (int) $host->ID ),
 				'is_detail'    => true,
 				'host_page_id' => (int) $host->ID,
 				'host'         => $host,
@@ -339,14 +339,14 @@ function agend_elementor_ssr_resolve_listing( string $slug, WP_Post $host ): ?ar
 		if ( '' !== trim( $html ) ) {
 			return array(
 				'title'   => $name,
-				'content' => '<div class="agend-directory-catalogue agend-directory-catalogue--ssr agend-directory-catalogue--templated-detail" style="' . esc_attr( agend_elementor_ssr_colour_style( 'agend-dir' ) ) . '"><div class="agend-dir-detail agend-dir-detail--templated">' . $html . '</div></div>',
+				'content' => '<div class="agend-directory-catalogue agend-directory-catalogue--ssr agend-directory-catalogue--templated-detail" style="' . esc_attr( agend_apps_records_ssr_colour_style( 'agend-dir' ) ) . '"><div class="agend-dir-detail agend-dir-detail--templated">' . $html . '</div></div>',
 			);
 		}
 	}
 
 	return array(
 		'title'   => $name,
-		'content' => agend_elementor_render_directory_detail( $item, $slug, $reviews_response, $host ),
+		'content' => agend_apps_records_render_directory_detail( $item, $slug, $reviews_response, $host ),
 	);
 }
 
@@ -358,7 +358,7 @@ function agend_elementor_ssr_resolve_listing( string $slug, WP_Post $host ): ?ar
  * @return array{title: string, content: string}|null The resolved detail, or
  *         null when the event does not exist.
  */
-function agend_elementor_ssr_resolve_event( string $slug, WP_Post $host ): ?array {
+function agend_apps_records_ssr_resolve_event( string $slug, WP_Post $host ): ?array {
 	$response = agend_apps_events_get_event( $slug, array( 'include' => 'sponsors,categories' ) );
 	$item     = ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) )
 		? $response['data']
@@ -368,7 +368,7 @@ function agend_elementor_ssr_resolve_event( string $slug, WP_Post $host ): ?arra
 		return null;
 	}
 
-	$name = isset( $item['name'] ) ? (string) $item['name'] : __( 'Event', 'agend-elementor' );
+	$name = isset( $item['name'] ) ? (string) $item['name'] : __( 'Event', 'agend-apps-core' );
 
 	// Ticket types (public price list, cached) for the detail's Tickets panel.
 	// Which price is highlighted is decided at render time from the event's
@@ -383,7 +383,7 @@ function agend_elementor_ssr_resolve_event( string $slug, WP_Post $host ): ?arra
 
 	return array(
 		'title'   => $name,
-		'content' => agend_elementor_ssr_event_content( $item, $slug, $host, $tickets ),
+		'content' => agend_apps_records_ssr_event_content( $item, $slug, $host, $tickets ),
 	);
 }
 
@@ -395,7 +395,7 @@ function agend_elementor_ssr_resolve_event( string $slug, WP_Post $host ): ?arra
  * @return array{title: string, content: string}|null The resolved detail, or
  *         null when the course does not exist.
  */
-function agend_elementor_ssr_resolve_course( string $slug, WP_Post $host ): ?array {
+function agend_apps_records_ssr_resolve_course( string $slug, WP_Post $host ): ?array {
 	$response = agend_apps_lms_get_course( $slug );
 	$item     = ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) )
 		? $response['data']
@@ -405,11 +405,11 @@ function agend_elementor_ssr_resolve_course( string $slug, WP_Post $host ): ?arr
 		return null;
 	}
 
-	$title = isset( $item['title'] ) ? (string) $item['title'] : __( 'Course', 'agend-elementor' );
+	$title = isset( $item['title'] ) ? (string) $item['title'] : __( 'Course', 'agend-apps-core' );
 
 	return array(
 		'title'   => $title,
-		'content' => agend_elementor_ssr_course_content( $item, $slug, $host ),
+		'content' => agend_apps_records_ssr_course_content( $item, $slug, $host ),
 	);
 }
 
@@ -417,11 +417,11 @@ function agend_elementor_ssr_resolve_course( string $slug, WP_Post $host ): ?arr
  * Enqueues the Directory detail progressive enhancement (review submit + gallery
  * lightbox).
  */
-function agend_elementor_ssr_enqueue_directory(): void {
-	if ( ! wp_style_is( 'agend-elementor-directory-catalogue', 'enqueued' ) ) {
-		wp_enqueue_style( 'agend-elementor-directory-catalogue' );
+function agend_apps_records_ssr_enqueue_directory(): void {
+	if ( ! wp_style_is( 'agend-apps-records-directory-catalogue', 'enqueued' ) ) {
+		wp_enqueue_style( 'agend-apps-records-directory-catalogue' );
 	}
-	wp_enqueue_script( 'agend-elementor-directory-detail' );
+	wp_enqueue_script( 'agend-apps-records-directory-detail' );
 }
 
 /**
@@ -430,12 +430,12 @@ function agend_elementor_ssr_enqueue_directory(): void {
  * catalogue script (which owns that flow) is normally enqueued globally; this is
  * a defensive fallback that reuses the same handles.
  */
-function agend_elementor_ssr_enqueue_events(): void {
-	if ( ! wp_style_is( 'agend-elementor-events-catalogue', 'enqueued' ) ) {
-		wp_enqueue_style( 'agend-elementor-events-catalogue' );
+function agend_apps_records_ssr_enqueue_events(): void {
+	if ( ! wp_style_is( 'agend-apps-records-events-catalogue', 'enqueued' ) ) {
+		wp_enqueue_style( 'agend-apps-records-events-catalogue' );
 	}
-	if ( ! wp_script_is( 'agend-elementor-events-catalogue', 'enqueued' ) ) {
-		wp_enqueue_script( 'agend-elementor-events-catalogue' );
+	if ( ! wp_script_is( 'agend-apps-records-events-catalogue', 'enqueued' ) ) {
+		wp_enqueue_script( 'agend-apps-records-events-catalogue' );
 	}
 }
 
@@ -444,9 +444,9 @@ function agend_elementor_ssr_enqueue_events(): void {
  * detail is styled. The course enrol CTA is a plain member sign-in link, so no
  * script hydration is required.
  */
-function agend_elementor_ssr_enqueue_courses(): void {
-	if ( ! wp_style_is( 'agend-elementor-courses-catalogue', 'enqueued' ) ) {
-		wp_enqueue_style( 'agend-elementor-courses-catalogue' );
+function agend_apps_records_ssr_enqueue_courses(): void {
+	if ( ! wp_style_is( 'agend-apps-records-courses-catalogue', 'enqueued' ) ) {
+		wp_enqueue_style( 'agend-apps-records-courses-catalogue' );
 	}
 }
 
@@ -458,7 +458,7 @@ function agend_elementor_ssr_enqueue_courses(): void {
  * @param bool  $with_count   Whether to append the numeric summary.
  * @return string Stars HTML.
  */
-function agend_elementor_ssr_stars( $rating, int $review_count = 0, bool $with_count = false ): string {
+function agend_apps_records_ssr_stars( $rating, int $review_count = 0, bool $with_count = false ): string {
 	$value   = is_numeric( $rating ) ? (float) $rating : 0.0;
 	$rounded = (int) round( $value );
 	$html    = '<div class="agend-dir-stars">';
@@ -467,7 +467,7 @@ function agend_elementor_ssr_stars( $rating, int $review_count = 0, bool $with_c
 	}
 	if ( $with_count ) {
 		$label = ( ! is_numeric( $rating ) || 0 === $review_count )
-			? __( 'No reviews yet', 'agend-elementor' )
+			? __( 'No reviews yet', 'agend-apps-core' )
 			: sprintf( '%s (%d)', number_format_i18n( $value, 1 ), $review_count );
 		$html .= '<span class="agend-dir-stars__count">' . esc_html( $label ) . '</span>';
 	}
@@ -480,7 +480,7 @@ function agend_elementor_ssr_stars( $rating, int $review_count = 0, bool $with_c
  * @param mixed $badges Array of badges ({ name, icon, color }), or null.
  * @return string Badges HTML, or empty string.
  */
-function agend_elementor_ssr_badges( $badges ): string {
+function agend_apps_records_ssr_badges( $badges ): string {
 	if ( ! is_array( $badges ) || empty( $badges ) ) {
 		return '';
 	}
@@ -510,7 +510,7 @@ function agend_elementor_ssr_badges( $badges ): string {
  * @param int   $total     Total approved reviews.
  * @return string Bars HTML, or empty string.
  */
-function agend_elementor_ssr_rating_bars( $breakdown, int $total ): string {
+function agend_apps_records_ssr_rating_bars( $breakdown, int $total ): string {
 	if ( ! is_array( $breakdown ) || $total <= 0 ) {
 		return '';
 	}
@@ -520,7 +520,7 @@ function agend_elementor_ssr_rating_bars( $breakdown, int $total ): string {
 		$pct   = (int) round( ( $count / $total ) * 100 );
 		$label = sprintf(
 			/* translators: %d: star rating. */
-			_n( '%d star', '%d stars', $star, 'agend-elementor' ),
+			_n( '%d star', '%d stars', $star, 'agend-apps-core' ),
 			$star
 		);
 		$rows .= '<div class="agend-dir-ratingbar">'
@@ -537,7 +537,7 @@ function agend_elementor_ssr_rating_bars( $breakdown, int $total ): string {
  * @param mixed $achievements Array of { type, name, color, image_url, course_title, earned_at }, or null.
  * @return string Section HTML, or empty string.
  */
-function agend_elementor_ssr_achievements( $achievements ): string {
+function agend_apps_records_ssr_achievements( $achievements ): string {
 	if ( ! is_array( $achievements ) || empty( $achievements ) ) {
 		return '';
 	}
@@ -560,7 +560,7 @@ function agend_elementor_ssr_achievements( $achievements ): string {
 			$meta[] = esc_html( (string) $achievement['course_title'] );
 		}
 		if ( ! empty( $achievement['earned_at'] ) ) {
-			$meta[] = esc_html( agend_elementor_ssr_date( (string) $achievement['earned_at'] ) );
+			$meta[] = esc_html( agend_apps_records_ssr_date( (string) $achievement['earned_at'] ) );
 		}
 
 		$cards .= '<div class="agend-dir-cred">' . $media
@@ -572,7 +572,7 @@ function agend_elementor_ssr_achievements( $achievements ): string {
 		return '';
 	}
 	return '<section class="agend-dir-detail__section"><h2 class="agend-dir-detail__section-title">'
-		. esc_html__( 'Badges & Credentials', 'agend-elementor' )
+		. esc_html__( 'Badges & Credentials', 'agend-apps-core' )
 		. '</h2><div class="agend-dir-creds">' . $cards . '</div></section>';
 }
 
@@ -582,7 +582,7 @@ function agend_elementor_ssr_achievements( $achievements ): string {
  * @param mixed $fields Array of { key, label, type, value }, or null.
  * @return string Section HTML, or empty string.
  */
-function agend_elementor_ssr_custom_fields( $fields ): string {
+function agend_apps_records_ssr_custom_fields( $fields ): string {
 	if ( ! is_array( $fields ) || empty( $fields ) ) {
 		return '';
 	}
@@ -593,13 +593,13 @@ function agend_elementor_ssr_custom_fields( $fields ): string {
 		}
 		$rows .= '<div class="agend-dir-cf__row"><span class="agend-dir-cf__label">'
 			. esc_html( $field['label'] ) . '</span>'
-			. agend_elementor_ssr_cf_value( $field ) . '</div>';
+			. agend_apps_records_ssr_cf_value( $field ) . '</div>';
 	}
 	if ( '' === $rows ) {
 		return '';
 	}
 	return '<section class="agend-dir-detail__section"><h2 class="agend-dir-detail__section-title">'
-		. esc_html__( 'Details', 'agend-elementor' )
+		. esc_html__( 'Details', 'agend-apps-core' )
 		. '</h2><div class="agend-dir-cf">' . $rows . '</div></section>';
 }
 
@@ -609,7 +609,7 @@ function agend_elementor_ssr_custom_fields( $fields ): string {
  * @param array $field { key, label, type, value }.
  * @return string Value HTML.
  */
-function agend_elementor_ssr_cf_value( array $field ): string {
+function agend_apps_records_ssr_cf_value( array $field ): string {
 	$type  = $field['type'] ?? 'text';
 	$value = $field['value'] ?? '';
 
@@ -635,10 +635,10 @@ function agend_elementor_ssr_cf_value( array $field ): string {
 				: '';
 		case 'boolean':
 			return '<span class="agend-dir-cf__value">'
-				. ( $value ? esc_html__( 'Yes', 'agend-elementor' ) : esc_html__( 'No', 'agend-elementor' ) )
+				. ( $value ? esc_html__( 'Yes', 'agend-apps-core' ) : esc_html__( 'No', 'agend-apps-core' ) )
 				. '</span>';
 		case 'date':
-			return '<span class="agend-dir-cf__value">' . esc_html( agend_elementor_ssr_date( (string) $value ) ) . '</span>';
+			return '<span class="agend-dir-cf__value">' . esc_html( agend_apps_records_ssr_date( (string) $value ) ) . '</span>';
 		default:
 			return '<span class="agend-dir-cf__value">' . esc_html( (string) $value ) . '</span>';
 	}
@@ -650,7 +650,7 @@ function agend_elementor_ssr_cf_value( array $field ): string {
  * @param string $iso ISO 8601 date string.
  * @return string Formatted date, or empty string.
  */
-function agend_elementor_ssr_date( string $iso ): string {
+function agend_apps_records_ssr_date( string $iso ): string {
 	$ts = strtotime( $iso );
 	return $ts ? gmdate( 'd/m/Y', $ts ) : '';
 }
@@ -668,24 +668,24 @@ function agend_elementor_ssr_date( string $iso ): string {
  * @param WP_Post      $host             The listings (host) page.
  * @return string Detail HTML wrapped in the widget's style scope.
  */
-function agend_elementor_render_directory_detail( array $item, string $slug, $reviews_response, WP_Post $host ): string {
+function agend_apps_records_render_directory_detail( array $item, string $slug, $reviews_response, WP_Post $host ): string {
 	$name     = isset( $item['name'] ) ? (string) $item['name'] : '';
 	$host_url = get_permalink( $host->ID );
 
 	$socials = array(
-		'website'       => __( 'Website', 'agend-elementor' ),
-		'facebook_url'  => __( 'Facebook', 'agend-elementor' ),
-		'instagram_url' => __( 'Instagram', 'agend-elementor' ),
-		'twitter_url'   => __( 'Twitter', 'agend-elementor' ),
-		'linkedin_url'  => __( 'LinkedIn', 'agend-elementor' ),
-		'youtube_url'   => __( 'YouTube', 'agend-elementor' ),
+		'website'       => __( 'Website', 'agend-apps-core' ),
+		'facebook_url'  => __( 'Facebook', 'agend-apps-core' ),
+		'instagram_url' => __( 'Instagram', 'agend-apps-core' ),
+		'twitter_url'   => __( 'Twitter', 'agend-apps-core' ),
+		'linkedin_url'  => __( 'LinkedIn', 'agend-apps-core' ),
+		'youtube_url'   => __( 'YouTube', 'agend-apps-core' ),
 	);
 
 	ob_start();
 	?>
 	<div class="agend-directory-catalogue agend-directory-catalogue--ssr">
 		<div class="agend-dir-detail">
-			<a class="agend-dir-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Directory', 'agend-elementor' ); ?></a>
+			<a class="agend-dir-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Directory', 'agend-apps-core' ); ?></a>
 
 			<div class="agend-dir-detail__hero">
 				<?php if ( ! empty( $item['logo_url'] ) ) : ?>
@@ -699,38 +699,38 @@ function agend_elementor_render_directory_detail( array $item, string $slug, $re
 						// is_mine flags the viewer's own listing. Absent resolves false.
 						if ( ! empty( $item['is_mine'] ) ) :
 							?>
-							<div class="agend-dir-detail__mine"><?php esc_html_e( 'This is your listing', 'agend-elementor' ); ?></div>
+							<div class="agend-dir-detail__mine"><?php esc_html_e( 'This is your listing', 'agend-apps-core' ); ?></div>
 						<?php endif; ?>
 					<?php if ( ! empty( $item['primary_category']['name'] ) ) : ?>
 						<div class="agend-dir-card__pills"><span class="agend-dir-pill agend-dir-pill--category"><?php echo esc_html( $item['primary_category']['name'] ); ?></span></div>
 					<?php endif; ?>
-					<?php echo agend_elementor_ssr_badges( $item['badges'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-					<?php echo agend_elementor_ssr_stars( $item['average_rating'] ?? null, (int) ( $item['review_count'] ?? 0 ), true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_ssr_badges( $item['badges'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_ssr_stars( $item['average_rating'] ?? null, (int) ( $item['review_count'] ?? 0 ), true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 				</div>
 			</div>
 
 			<div class="agend-dir-detail__layout">
 				<div class="agend-dir-detail__main">
-					<?php echo agend_elementor_fragment_listing_about( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_fragment_listing_about( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php echo agend_elementor_ssr_custom_fields( $item['custom_fields'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_ssr_custom_fields( $item['custom_fields'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php echo agend_elementor_ssr_achievements( $item['achievements'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_ssr_achievements( $item['achievements'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php echo agend_elementor_fragment_listing_gallery( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_fragment_listing_gallery( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php echo agend_elementor_fragment_listing_locations( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_fragment_listing_locations( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php echo agend_elementor_ssr_hours_section( $item['business_hours'] ?? null ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_ssr_hours_section( $item['business_hours'] ?? null ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php echo agend_elementor_fragment_listing_tags( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_fragment_listing_tags( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php echo agend_elementor_ssr_reviews_section( $item, $slug, $reviews_response ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_ssr_reviews_section( $item, $slug, $reviews_response ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 				</div>
 
 				<aside class="agend-dir-detail__side">
-					<?php echo agend_elementor_fragment_listing_contact( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-					<?php echo agend_elementor_fragment_listing_categories( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_fragment_listing_contact( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_fragment_listing_categories( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 				</aside>
 			</div>
 		</div>
@@ -745,18 +745,18 @@ function agend_elementor_render_directory_detail( array $item, string $slug, $re
  * @param mixed $hours Hours map, or null.
  * @return string Hours HTML, or empty string.
  */
-function agend_elementor_ssr_hours( $hours ): string {
+function agend_apps_records_ssr_hours( $hours ): string {
 	if ( ! is_array( $hours ) || empty( $hours ) ) {
 		return '';
 	}
 	$days = array(
-		'monday'    => __( 'Monday', 'agend-elementor' ),
-		'tuesday'   => __( 'Tuesday', 'agend-elementor' ),
-		'wednesday' => __( 'Wednesday', 'agend-elementor' ),
-		'thursday'  => __( 'Thursday', 'agend-elementor' ),
-		'friday'    => __( 'Friday', 'agend-elementor' ),
-		'saturday'  => __( 'Saturday', 'agend-elementor' ),
-		'sunday'    => __( 'Sunday', 'agend-elementor' ),
+		'monday'    => __( 'Monday', 'agend-apps-core' ),
+		'tuesday'   => __( 'Tuesday', 'agend-apps-core' ),
+		'wednesday' => __( 'Wednesday', 'agend-apps-core' ),
+		'thursday'  => __( 'Thursday', 'agend-apps-core' ),
+		'friday'    => __( 'Friday', 'agend-apps-core' ),
+		'saturday'  => __( 'Saturday', 'agend-apps-core' ),
+		'sunday'    => __( 'Sunday', 'agend-apps-core' ),
 	);
 	$rows = '';
 	foreach ( $days as $key => $label ) {
@@ -765,10 +765,10 @@ function agend_elementor_ssr_hours( $hours ): string {
 		}
 		$entry = $hours[ $key ];
 		if ( ! empty( $entry['closed'] ) ) {
-			$value = __( 'Closed', 'agend-elementor' );
+			$value = __( 'Closed', 'agend-apps-core' );
 		} else {
 			$parts = array_filter( array( $entry['open'] ?? '', $entry['close'] ?? '' ), static fn( $p ) => '' !== (string) $p );
-			$value = ! empty( $parts ) ? implode( ' &ndash; ', array_map( 'esc_html', $parts ) ) : __( 'Closed', 'agend-elementor' );
+			$value = ! empty( $parts ) ? implode( ' &ndash; ', array_map( 'esc_html', $parts ) ) : __( 'Closed', 'agend-apps-core' );
 		}
 		$rows .= '<div class="agend-dir-hours__row"><span class="agend-dir-hours__day">' . esc_html( $label ) . '</span><span class="agend-dir-hours__value">' . $value . '</span></div>';
 	}
@@ -784,13 +784,13 @@ function agend_elementor_ssr_hours( $hours ): string {
  * @param mixed $hours Hours map, or null.
  * @return string Section HTML, or empty string.
  */
-function agend_elementor_ssr_hours_section( $hours ): string {
-	$hours_html = agend_elementor_ssr_hours( $hours );
+function agend_apps_records_ssr_hours_section( $hours ): string {
+	$hours_html = agend_apps_records_ssr_hours( $hours );
 	if ( '' === $hours_html ) {
 		return '';
 	}
 	return '<section class="agend-dir-detail__section"><h2 class="agend-dir-detail__section-title">'
-		. esc_html__( 'Opening Hours', 'agend-elementor' )
+		. esc_html__( 'Opening Hours', 'agend-apps-core' )
 		. '</h2>' . $hours_html . '</section>';
 }
 
@@ -802,7 +802,7 @@ function agend_elementor_ssr_hours_section( $hours ): string {
  * @param array|null $reviews_response Decoded reviews response, or null.
  * @return string Reviews section HTML.
  */
-function agend_elementor_ssr_reviews_section( array $item, string $slug, $reviews_response ): string {
+function agend_apps_records_ssr_reviews_section( array $item, string $slug, $reviews_response ): string {
 	$reviews = ( is_array( $reviews_response ) && ! empty( $reviews_response['data'] ) && is_array( $reviews_response['data'] ) )
 		? $reviews_response['data']
 		: array();
@@ -810,28 +810,28 @@ function agend_elementor_ssr_reviews_section( array $item, string $slug, $review
 	ob_start();
 	?>
 	<section class="agend-dir-detail__section agend-dir-reviews">
-		<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Reviews', 'agend-elementor' ); ?></h2>
+		<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Reviews', 'agend-apps-core' ); ?></h2>
 		<div class="agend-dir-reviews__summary">
-			<?php echo agend_elementor_ssr_stars( $item['average_rating'] ?? null, (int) ( $item['review_count'] ?? 0 ), true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
-			<?php echo agend_elementor_ssr_rating_bars( $item['rating_breakdown'] ?? null, (int) ( $item['review_count'] ?? 0 ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			<?php echo agend_apps_records_ssr_stars( $item['average_rating'] ?? null, (int) ( $item['review_count'] ?? 0 ), true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			<?php echo agend_apps_records_ssr_rating_bars( $item['rating_breakdown'] ?? null, (int) ( $item['review_count'] ?? 0 ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 		</div>
 		<div class="agend-dir-reviews__list">
 			<?php if ( empty( $reviews ) ) : ?>
-				<div class="agend-dir-status"><?php esc_html_e( 'No reviews yet. Be the first to review.', 'agend-elementor' ); ?></div>
+				<div class="agend-dir-status"><?php esc_html_e( 'No reviews yet. Be the first to review.', 'agend-apps-core' ); ?></div>
 			<?php else : ?>
 				<?php foreach ( $reviews as $review ) : ?>
 					<div class="agend-dir-review">
 						<div class="agend-dir-review__head">
 							<div class="agend-dir-review__name-wrap">
-								<span class="agend-dir-review__name"><?php echo esc_html( $review['reviewer_name'] ?? __( 'Anonymous', 'agend-elementor' ) ); ?></span>
+								<span class="agend-dir-review__name"><?php echo esc_html( $review['reviewer_name'] ?? __( 'Anonymous', 'agend-apps-core' ) ); ?></span>
 								<?php if ( ! empty( $review['is_verified'] ) ) : ?>
-									<span class="agend-dir-review__verified"><?php esc_html_e( 'Verified', 'agend-elementor' ); ?></span>
+									<span class="agend-dir-review__verified"><?php esc_html_e( 'Verified', 'agend-apps-core' ); ?></span>
 								<?php endif; ?>
 							</div>
-							<?php echo agend_elementor_ssr_stars( $review['rating'] ?? 0, 0, false ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+							<?php echo agend_apps_records_ssr_stars( $review['rating'] ?? 0, 0, false ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 						</div>
 						<?php if ( ! empty( $review['created_at'] ) ) : ?>
-							<div class="agend-dir-review__date"><?php echo esc_html( agend_elementor_ssr_date( (string) $review['created_at'] ) ); ?></div>
+							<div class="agend-dir-review__date"><?php echo esc_html( agend_apps_records_ssr_date( (string) $review['created_at'] ) ); ?></div>
 						<?php endif; ?>
 						<p class="agend-dir-review__content"><?php echo esc_html( $review['content'] ?? '' ); ?></p>
 					</div>
@@ -851,31 +851,31 @@ function agend_elementor_ssr_reviews_section( array $item, string $slug, $review
 		);
 		?>
 		<div class="agend-dir-review-form" data-agend-listing-id="<?php echo esc_attr( $item['id'] ?? '' ); ?>" data-agend-member="<?php echo $member_logged_in ? '1' : '0'; ?>">
-			<h3 class="agend-dir-review-form__title"><?php esc_html_e( 'Write a Review', 'agend-elementor' ); ?></h3>
+			<h3 class="agend-dir-review-form__title"><?php esc_html_e( 'Write a Review', 'agend-apps-core' ); ?></h3>
 			<div class="agend-dir-review-form__rating">
-				<span class="agend-dir-review-form__label"><?php esc_html_e( 'Your rating', 'agend-elementor' ); ?></span>
+				<span class="agend-dir-review-form__label"><?php esc_html_e( 'Your rating', 'agend-apps-core' ); ?></span>
 				<div class="agend-dir-review-form__stars">
 					<?php for ( $i = 1; $i <= 5; $i++ ) : ?>
-						<button type="button" class="agend-dir-review-form__star" data-value="<?php echo (int) $i; ?>" aria-label="<?php echo esc_attr( sprintf( _n( '%d star', '%d stars', $i, 'agend-elementor' ), $i ) ); ?>">&#9733;</button>
+						<button type="button" class="agend-dir-review-form__star" data-value="<?php echo (int) $i; ?>" aria-label="<?php echo esc_attr( sprintf( _n( '%d star', '%d stars', $i, 'agend-apps-core' ), $i ) ); ?>">&#9733;</button>
 					<?php endfor; ?>
 				</div>
 			</div>
 			<?php if ( ! $member_logged_in ) : ?>
 				<label class="agend-dir-review-form__field">
-					<span class="agend-dir-review-form__label"><?php esc_html_e( 'Name', 'agend-elementor' ); ?></span>
-					<input type="text" class="agend-dir-review-form__input" data-field="name" placeholder="<?php esc_attr_e( 'Your name', 'agend-elementor' ); ?>" />
+					<span class="agend-dir-review-form__label"><?php esc_html_e( 'Name', 'agend-apps-core' ); ?></span>
+					<input type="text" class="agend-dir-review-form__input" data-field="name" placeholder="<?php esc_attr_e( 'Your name', 'agend-apps-core' ); ?>" />
 				</label>
 				<label class="agend-dir-review-form__field">
-					<span class="agend-dir-review-form__label"><?php esc_html_e( 'Email', 'agend-elementor' ); ?></span>
+					<span class="agend-dir-review-form__label"><?php esc_html_e( 'Email', 'agend-apps-core' ); ?></span>
 					<input type="email" class="agend-dir-review-form__input" data-field="email" placeholder="you@example.com" />
 				</label>
 			<?php endif; ?>
 			<label class="agend-dir-review-form__field">
-				<span class="agend-dir-review-form__label"><?php esc_html_e( 'Review', 'agend-elementor' ); ?></span>
-				<textarea class="agend-dir-review-form__textarea" data-field="content" rows="4" placeholder="<?php esc_attr_e( 'Share your experience (at least 20 characters)…', 'agend-elementor' ); ?>"></textarea>
+				<span class="agend-dir-review-form__label"><?php esc_html_e( 'Review', 'agend-apps-core' ); ?></span>
+				<textarea class="agend-dir-review-form__textarea" data-field="content" rows="4" placeholder="<?php esc_attr_e( 'Share your experience (at least 20 characters)…', 'agend-apps-core' ); ?>"></textarea>
 			</label>
 			<div class="agend-dir-review-form__error" style="display:none;"></div>
-			<button type="button" class="agend-dir-review-form__submit"><?php esc_html_e( 'Submit Review', 'agend-elementor' ); ?></button>
+			<button type="button" class="agend-dir-review-form__submit"><?php esc_html_e( 'Submit Review', 'agend-apps-core' ); ?></button>
 		</div>
 	</section>
 	<?php
@@ -907,7 +907,7 @@ function agend_elementor_ssr_reviews_section( array $item, string $slug, $review
  * @param WP_Post $host The catalogue (host) page.
  * @return array
  */
-function agend_elementor_ssr_events_config( array $item, string $slug, WP_Post $host ): array {
+function agend_apps_records_ssr_events_config( array $item, string $slug, WP_Post $host ): array {
 	$host_url = get_permalink( $host->ID );
 	return array(
 		'ssrDetail'   => true,
@@ -920,8 +920,8 @@ function agend_elementor_ssr_events_config( array $item, string $slug, WP_Post $
 		'timezone'    => ! empty( $item['timezone'] ) ? (string) $item['timezone'] : wp_timezone_string(),
 		// Cart mode: mirror the client catalogue so the hydrated "Register
 		// Now" flow adds tickets to the shop cart when the shop is active.
-		'cartEnabled' => agend_elementor_shop_cart_enabled(),
-		'cartPageUrl' => agend_elementor_shop_cart_page_url(),
+		'cartEnabled' => agend_apps_records_shop_cart_enabled(),
+		'cartPageUrl' => agend_apps_records_shop_cart_page_url(),
 	);
 }
 
@@ -938,8 +938,8 @@ function agend_elementor_ssr_events_config( array $item, string $slug, WP_Post $
  * @param array   $tickets Ticket types.
  * @return string
  */
-function agend_elementor_ssr_event_content( array $item, string $slug, WP_Post $host, array $tickets ): string {
-	$template_id = Agend_Elementor_Pages::detail_template_id( 'event' );
+function agend_apps_records_ssr_event_content( array $item, string $slug, WP_Post $host, array $tickets ): string {
+	$template_id = Agend_Apps_Records_Pages::detail_template_id( 'event' );
 	if ( $template_id > 0 && class_exists( 'Agend_Apps_Templates' ) ) {
 		$html = Agend_Apps_Templates::render(
 			$template_id,
@@ -948,18 +948,18 @@ function agend_elementor_ssr_event_content( array $item, string $slug, WP_Post $
 			array(
 				'slug'         => $slug,
 				'tickets'      => $tickets,
-				'detail_url'   => Agend_Elementor_Pages::detail_url( 'event', $slug, (int) $host->ID ),
+				'detail_url'   => Agend_Apps_Records_Pages::detail_url( 'event', $slug, (int) $host->ID ),
 				'is_detail'    => true,
 				'host_page_id' => (int) $host->ID,
 				'host'         => $host,
 			)
 		);
 		if ( '' !== trim( $html ) ) {
-			$config = wp_json_encode( agend_elementor_ssr_events_config( $item, $slug, $host ) );
-			return '<div class="agend-events-catalogue agend-events-catalogue--ssr agend-events-catalogue--templated-detail" style="' . esc_attr( agend_elementor_ssr_colour_style( 'agend-ev' ) ) . '" data-agend-events-config="' . esc_attr( $config ) . '"><div class="agend-ev-detail agend-ev-detail--templated">' . $html . '</div></div>';
+			$config = wp_json_encode( agend_apps_records_ssr_events_config( $item, $slug, $host ) );
+			return '<div class="agend-events-catalogue agend-events-catalogue--ssr agend-events-catalogue--templated-detail" style="' . esc_attr( agend_apps_records_ssr_colour_style( 'agend-ev' ) ) . '" data-agend-events-config="' . esc_attr( $config ) . '"><div class="agend-ev-detail agend-ev-detail--templated">' . $html . '</div></div>';
 		}
 	}
-	return agend_elementor_render_events_detail( $item, $slug, $host, $tickets );
+	return agend_apps_records_render_events_detail( $item, $slug, $host, $tickets );
 }
 
 /**
@@ -971,8 +971,8 @@ function agend_elementor_ssr_event_content( array $item, string $slug, WP_Post $
  * @param WP_Post $host The catalogue (host) page.
  * @return string
  */
-function agend_elementor_ssr_course_content( array $item, string $slug, WP_Post $host ): string {
-	$template_id = Agend_Elementor_Pages::detail_template_id( 'course' );
+function agend_apps_records_ssr_course_content( array $item, string $slug, WP_Post $host ): string {
+	$template_id = Agend_Apps_Records_Pages::detail_template_id( 'course' );
 	if ( $template_id > 0 && class_exists( 'Agend_Apps_Templates' ) ) {
 		$html = Agend_Apps_Templates::render(
 			$template_id,
@@ -980,27 +980,27 @@ function agend_elementor_ssr_course_content( array $item, string $slug, WP_Post 
 			$item,
 			array(
 				'slug'         => $slug,
-				'detail_url'   => Agend_Elementor_Pages::detail_url( 'course', $slug, (int) $host->ID ),
+				'detail_url'   => Agend_Apps_Records_Pages::detail_url( 'course', $slug, (int) $host->ID ),
 				'is_detail'    => true,
 				'host_page_id' => (int) $host->ID,
 				'host'         => $host,
 			)
 		);
 		if ( '' !== trim( $html ) ) {
-			return '<div class="agend-courses-catalogue agend-courses-catalogue--ssr agend-courses-catalogue--templated-detail" style="' . esc_attr( agend_elementor_ssr_colour_style( 'agend-lms' ) ) . '"><div class="agend-lms-detail agend-lms-detail--templated">' . $html . '</div></div>';
+			return '<div class="agend-courses-catalogue agend-courses-catalogue--ssr agend-courses-catalogue--templated-detail" style="' . esc_attr( agend_apps_records_ssr_colour_style( 'agend-lms' ) ) . '"><div class="agend-lms-detail agend-lms-detail--templated">' . $html . '</div></div>';
 		}
 	}
-	return agend_elementor_render_courses_detail( $item, $slug, $host );
+	return agend_apps_records_render_courses_detail( $item, $slug, $host );
 }
 
-function agend_elementor_render_events_detail( array $item, string $slug, WP_Post $host, array $tickets = array() ): string {
+function agend_apps_records_render_events_detail( array $item, string $slug, WP_Post $host, array $tickets = array() ): string {
 	$name     = isset( $item['name'] ) ? (string) $item['name'] : '';
 	$host_url = get_permalink( $host->ID );
-	$style    = agend_elementor_ssr_colour_style( 'agend-ev' );
+	$style    = agend_apps_records_ssr_colour_style( 'agend-ev' );
 
 	// Event times display in the event's own timezone (each event carries one),
 	// falling back to the site timezone for a missing or invalid value.
-	$event_tz = agend_elementor_record_timezone( $item );
+	$event_tz = agend_apps_records_record_timezone( $item );
 
 	$cat = '';
 	if ( ! empty( $item['categories'][0]['name'] ) ) {
@@ -1010,23 +1010,23 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 	}
 
 	$venue_type = isset( $item['venue_type'] ) ? (string) $item['venue_type'] : '';
-	$type_label = agend_elementor_ssr_ev_type_label( $venue_type );
+	$type_label = agend_apps_records_ssr_ev_type_label( $venue_type );
 
 	$venue_or_mode = ! empty( $item['venue_name'] )
 		? (string) $item['venue_name']
-		: ( 'virtual' === $venue_type ? __( 'Online', 'agend-elementor' ) : __( 'TBA', 'agend-elementor' ) );
+		: ( 'virtual' === $venue_type ? __( 'Online', 'agend-apps-core' ) : __( 'TBA', 'agend-apps-core' ) );
 	$meta_line = implode(
 		' · ',
-		array_filter( array( agend_elementor_ssr_ev_date_range( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ), $venue_or_mode ) )
+		array_filter( array( agend_apps_records_ssr_ev_date_range( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ), $venue_or_mode ) )
 	);
 
-	$config = wp_json_encode( agend_elementor_ssr_events_config( $item, $slug, $host ) );
+	$config = wp_json_encode( agend_apps_records_ssr_events_config( $item, $slug, $host ) );
 
 	ob_start();
 	?>
 	<div class="agend-events-catalogue agend-events-catalogue--ssr" style="<?php echo esc_attr( $style ); ?>" data-agend-events-config="<?php echo esc_attr( $config ); ?>">
 		<div class="agend-ev-detail">
-			<a class="agend-ev-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Events', 'agend-elementor' ); ?></a>
+			<a class="agend-ev-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Events', 'agend-apps-core' ); ?></a>
 
 			<div class="agend-ev-detail__hero"<?php echo ! empty( $item['hero_image_url'] ) ? ' style="background-image:linear-gradient(180deg, rgba(30,42,74,0.35), rgba(30,42,74,0.85)), url(\'' . esc_url( $item['hero_image_url'] ) . '\');"' : ''; ?>>
 				<div class="agend-ev-detail__hero-inner">
@@ -1051,20 +1051,20 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
 				<div class="agend-ev-detail__main">
 					<?php if ( ! empty( $item['description'] ) ) : ?>
 						<section class="agend-ev-detail__section">
-							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'About This Event', 'agend-elementor' ); ?></h2>
+							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'About This Event', 'agend-apps-core' ); ?></h2>
 							<div class="agend-ev-detail__body-text"><?php echo wp_kses_post( $item['description'] ); ?></div>
 						</section>
 					<?php endif; ?>
 
-					<?php echo agend_elementor_fragment_event_sponsors( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
+					<?php echo agend_apps_records_fragment_event_sponsors( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 				</div>
 
 				<aside class="agend-ev-detail__side">
-					<?php echo agend_elementor_fragment_event_registration( $item, $slug ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
+					<?php echo agend_apps_records_fragment_event_registration( $item, $slug ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 
-					<?php echo agend_elementor_fragment_event_tickets( $item, $tickets ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
+					<?php echo agend_apps_records_fragment_event_tickets( $item, $tickets ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 
-					<?php echo agend_elementor_fragment_event_facts( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
+					<?php echo agend_apps_records_fragment_event_facts( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 				</aside>
 			</div>
 		</div>
@@ -1087,16 +1087,16 @@ function agend_elementor_render_events_detail( array $item, string $slug, WP_Pos
  * @param WP_Post $host The catalogue (host) page.
  * @return string Detail HTML wrapped in the widget's style scope.
  */
-function agend_elementor_render_courses_detail( array $item, string $slug, WP_Post $host ): string {
+function agend_apps_records_render_courses_detail( array $item, string $slug, WP_Post $host ): string {
 	$title    = isset( $item['title'] ) ? (string) $item['title'] : '';
 	$host_url = get_permalink( $host->ID );
-	$style    = agend_elementor_ssr_colour_style( 'agend-lms' );
+	$style    = agend_apps_records_ssr_colour_style( 'agend-lms' );
 
 	$difficulty = isset( $item['difficulty'] ) ? (string) $item['difficulty'] : '';
 	$mode       = isset( $item['delivery_mode'] ) ? (string) $item['delivery_mode'] : '';
 	$category   = isset( $item['category'] ) ? (string) $item['category'] : '';
 	$instructor = isset( $item['instructor_name'] ) ? (string) $item['instructor_name'] : '';
-	$duration   = agend_elementor_ssr_lms_duration( $item['total_duration_minutes'] ?? null );
+	$duration   = agend_apps_records_ssr_lms_duration( $item['total_duration_minutes'] ?? null );
 	$lessons    = (int) ( $item['lessons_count'] ?? 0 );
 
 	$meta_line = implode(
@@ -1104,7 +1104,7 @@ function agend_elementor_render_courses_detail( array $item, string $slug, WP_Po
 		array_filter(
 			array(
 				$duration,
-				$lessons . ' ' . _n( 'module', 'modules', $lessons, 'agend-elementor' ),
+				$lessons . ' ' . _n( 'module', 'modules', $lessons, 'agend-apps-core' ),
 				$instructor,
 			)
 		)
@@ -1114,7 +1114,7 @@ function agend_elementor_render_courses_detail( array $item, string $slug, WP_Po
 	?>
 	<div class="agend-courses-catalogue agend-courses-catalogue--ssr" style="<?php echo esc_attr( $style ); ?>">
 		<div class="agend-lms-detail">
-			<a class="agend-lms-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Learning', 'agend-elementor' ); ?></a>
+			<a class="agend-lms-detail__back" href="<?php echo esc_url( $host_url ); ?>">&larr; <?php esc_html_e( 'Back to Learning', 'agend-apps-core' ); ?></a>
 
 			<div class="agend-lms-detail__hero"<?php echo ! empty( $item['image_url'] ) ? ' style="background-image:linear-gradient(180deg, rgba(30,42,74,0.4), rgba(30,42,74,0.88)), url(\'' . esc_url( $item['image_url'] ) . '\');"' : ''; ?>>
 				<div class="agend-lms-detail__hero-inner">
@@ -1124,10 +1124,10 @@ function agend_elementor_render_courses_detail( array $item, string $slug, WP_Po
 								<span class="agend-lms-pill agend-lms-pill--category"><?php echo esc_html( $category ); ?></span>
 							<?php endif; ?>
 							<?php if ( '' !== $difficulty ) : ?>
-								<span class="agend-lms-pill agend-lms-pill--difficulty"><?php echo esc_html( agend_elementor_ssr_lms_difficulty( $difficulty ) ); ?></span>
+								<span class="agend-lms-pill agend-lms-pill--difficulty"><?php echo esc_html( agend_apps_records_ssr_lms_difficulty( $difficulty ) ); ?></span>
 							<?php endif; ?>
 							<?php if ( '' !== $mode ) : ?>
-								<span class="agend-lms-pill agend-lms-pill--mode"><?php echo esc_html( agend_elementor_ssr_lms_mode( $mode ) ); ?></span>
+								<span class="agend-lms-pill agend-lms-pill--mode"><?php echo esc_html( agend_apps_records_ssr_lms_mode( $mode ) ); ?></span>
 							<?php endif; ?>
 						</div>
 					<?php endif; ?>
@@ -1142,18 +1142,18 @@ function agend_elementor_render_courses_detail( array $item, string $slug, WP_Po
 				<div class="agend-lms-detail__main">
 					<?php if ( ! empty( $item['description'] ) ) : ?>
 						<section class="agend-lms-detail__section">
-							<h2 class="agend-lms-detail__section-title"><?php esc_html_e( 'About This Course', 'agend-elementor' ); ?></h2>
+							<h2 class="agend-lms-detail__section-title"><?php esc_html_e( 'About This Course', 'agend-apps-core' ); ?></h2>
 							<div class="agend-lms-detail__body-text"><?php echo wp_kses_post( $item['description'] ); ?></div>
 						</section>
 					<?php endif; ?>
 
-					<?php echo agend_elementor_fragment_course_outcomes( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
+					<?php echo agend_apps_records_fragment_course_outcomes( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 				</div>
 
 				<aside class="agend-lms-detail__side">
-					<?php echo agend_elementor_fragment_course_enrolment( $item, $slug, array( 'host' => $host ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
+					<?php echo agend_apps_records_fragment_course_enrolment( $item, $slug, array( 'host' => $host ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 
-					<?php echo agend_elementor_fragment_course_meta( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
+					<?php echo agend_apps_records_fragment_course_meta( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragment escapes internally. ?>
 				</aside>
 			</div>
 		</div>

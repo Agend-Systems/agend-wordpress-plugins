@@ -16,9 +16,9 @@ use PHPUnit\Framework\Attributes\Test;
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/interface-agend-apps-template-renderer.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/interface-agend-apps-template-source.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/class-agend-apps-templates.php';
-require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-settings.php';
-require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-pages.php';
-require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-cards.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/settings.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/pages.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/cards.php';
 
 /**
  * A stub {@see Agend_Apps_Template_Renderer} with no Elementor class in
@@ -56,12 +56,12 @@ final class Cards_Agnostic_Test_Renderer implements Agend_Apps_Template_Renderer
 }
 
 /**
- * `agend_elementor_render_cards()` proves the framework-agnostic call site
+ * `agend_apps_records_render_cards()` proves the framework-agnostic call site
  * reaches a template renderer purely through the {@see Agend_Apps_Templates}
  * contract: this stub registers no Elementor class at all, which is exactly
  * what makes the seam real rather than aspirational.
  */
-#[CoversFunction( 'agend_elementor_render_cards' )]
+#[CoversFunction( 'agend_apps_records_render_cards' )]
 final class CardsAgnosticTest extends TestCase {
 
 	private Cards_Agnostic_Test_Renderer $renderer;
@@ -90,7 +90,7 @@ final class CardsAgnosticTest extends TestCase {
 
 	#[Test]
 	public function should_return_two_cards_in_order_with_the_right_slug_and_html(): void {
-		$cards = agend_elementor_render_cards( 'event', 5, $this->records() );
+		$cards = agend_apps_records_render_cards( 'event', 5, $this->records() );
 
 		$this->assertCount( 2, $cards );
 		$this->assertSame( 'alpha', $cards[0]['slug'] );
@@ -111,7 +111,7 @@ final class CardsAgnosticTest extends TestCase {
 	public function should_wrap_the_card_in_a_whole_link_anchor_when_card_link_whole_is_true(): void {
 		$this->seedHostPage( 9 );
 
-		$cards = agend_elementor_render_cards( 'event', 5, $this->records(), array( 'card_link_whole' => true, 'host_page_id' => 9 ) );
+		$cards = agend_apps_records_render_cards( 'event', 5, $this->records(), array( 'card_link_whole' => true, 'host_page_id' => 9 ) );
 
 		$this->assertStringStartsWith( '<a ', $cards[0]['html'] );
 	}
@@ -120,14 +120,14 @@ final class CardsAgnosticTest extends TestCase {
 	public function should_wrap_the_card_in_a_div_when_card_link_whole_is_false(): void {
 		$this->seedHostPage( 9 );
 
-		$cards = agend_elementor_render_cards( 'event', 5, $this->records(), array( 'card_link_whole' => false, 'host_page_id' => 9 ) );
+		$cards = agend_apps_records_render_cards( 'event', 5, $this->records(), array( 'card_link_whole' => false, 'host_page_id' => 9 ) );
 
 		$this->assertStringStartsWith( '<div ', $cards[0]['html'] );
 	}
 
 	#[Test]
 	public function should_pass_the_correct_per_record_extra_context_to_the_renderer(): void {
-		agend_elementor_render_cards( 'event', 5, $this->records(), array( 'card_link_whole' => false ) );
+		agend_apps_records_render_cards( 'event', 5, $this->records(), array( 'card_link_whole' => false ) );
 
 		$this->assertCount( 2, $this->renderer->render_calls );
 
@@ -146,7 +146,7 @@ final class CardsAgnosticTest extends TestCase {
 
 	#[Test]
 	public function should_call_ensure_styles_exactly_once_for_the_whole_batch(): void {
-		agend_elementor_render_cards( 'event', 5, $this->records() );
+		agend_apps_records_render_cards( 'event', 5, $this->records() );
 
 		$this->assertSame( array( 5 ), $this->renderer->ensure_styles_calls );
 	}

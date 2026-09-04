@@ -273,7 +273,7 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 	 * @return string
 	 */
 	private function detail_url( array $ctx ): string {
-		return (string) ( agend_elementor_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
+		return (string) ( agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
 	}
 
 	/**
@@ -283,7 +283,7 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 	 * @return string
 	 */
 	private function catalogue_url( array $ctx ): string {
-		$url = Agend_Elementor_Pages::page_url( $ctx['type'] );
+		$url = Agend_Apps_Records_Pages::page_url( $ctx['type'] );
 		if ( '' === $url && ! empty( $ctx['extra']['host_page_id'] ) ) {
 			$permalink = get_permalink( (int) $ctx['extra']['host_page_id'] );
 			$url       = is_string( $permalink ) ? $permalink : '';
@@ -350,7 +350,7 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 
 		$record = $ctx['record'];
 		$slug   = isset( $record['slug'] ) ? (string) $record['slug'] : (string) ( $ctx['extra']['slug'] ?? '' );
-		$title  = (string) ( agend_elementor_field_value( 'common:title', $ctx['type'], $record, $ctx['extra'] ) ?? '' );
+		$title  = (string) ( agend_apps_records_field_value( 'common:title', $ctx['type'], $record, $ctx['extra'] ) ?? '' );
 		$text   = trim( (string) ( $s['text'] ?? '' ) );
 		$action = (string) ( $s['action'] ?? 'detail' );
 

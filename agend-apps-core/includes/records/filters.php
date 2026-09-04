@@ -9,10 +9,10 @@
  *
  * A filter's `state` key is the contract with the catalogue scripts: the
  * runtime writes `state[<key>]` and calls reload, and the query builders in
- * class-agend-elementor-query.php already map those keys to gateway
+ * query.php already map those keys to gateway
  * parameters. Nothing else couples the widget to a particular catalogue.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * filter widgets inside it know which catalogue they belong to without the
  * author having to say so on every widget.
  */
-final class Agend_Elementor_Filter_Context {
+final class Agend_Apps_Records_Filter_Context {
 
 	/**
 	 * Current record type, or ''.
@@ -67,44 +67,44 @@ final class Agend_Elementor_Filter_Context {
  * @param string $set The value set name.
  * @return array<string, string> Value => label.
  */
-function agend_elementor_filter_static_values( string $set ): array {
+function agend_apps_records_filter_static_values( string $set ): array {
 	switch ( $set ) {
 		case 'venue_type':
 			return array(
-				'physical' => __( 'In-Person', 'agend-elementor' ),
-				'virtual'  => __( 'Online', 'agend-elementor' ),
-				'hybrid'   => __( 'Hybrid', 'agend-elementor' ),
+				'physical' => __( 'In-Person', 'agend-apps-core' ),
+				'virtual'  => __( 'Online', 'agend-apps-core' ),
+				'hybrid'   => __( 'Hybrid', 'agend-apps-core' ),
 			);
 		case 'difficulty':
 			return array(
-				'beginner'     => __( 'Beginner', 'agend-elementor' ),
-				'intermediate' => __( 'Intermediate', 'agend-elementor' ),
-				'advanced'     => __( 'Advanced', 'agend-elementor' ),
-				'all_levels'   => __( 'All Levels', 'agend-elementor' ),
+				'beginner'     => __( 'Beginner', 'agend-apps-core' ),
+				'intermediate' => __( 'Intermediate', 'agend-apps-core' ),
+				'advanced'     => __( 'Advanced', 'agend-apps-core' ),
+				'all_levels'   => __( 'All Levels', 'agend-apps-core' ),
 			);
 		case 'delivery_mode':
 			return array(
-				'self_paced'  => __( 'Self-paced', 'agend-elementor' ),
-				'live_online' => __( 'Live Online', 'agend-elementor' ),
-				'in_person'   => __( 'In Person', 'agend-elementor' ),
-				'blended'     => __( 'Blended', 'agend-elementor' ),
+				'self_paced'  => __( 'Self-paced', 'agend-apps-core' ),
+				'live_online' => __( 'Live Online', 'agend-apps-core' ),
+				'in_person'   => __( 'In Person', 'agend-apps-core' ),
+				'blended'     => __( 'Blended', 'agend-apps-core' ),
 			);
 		case 'featured':
-			return array( '1' => __( 'Featured only', 'agend-elementor' ) );
+			return array( '1' => __( 'Featured only', 'agend-apps-core' ) );
 		case 'listing_sort':
 			return array(
-				'relevance'  => __( 'Most relevant', 'agend-elementor' ),
-				'name'       => __( 'Name', 'agend-elementor' ),
-				'rating'     => __( 'Highest rated', 'agend-elementor' ),
-				'created_at' => __( 'Newest', 'agend-elementor' ),
-				'view_count' => __( 'Most viewed', 'agend-elementor' ),
+				'relevance'  => __( 'Most relevant', 'agend-apps-core' ),
+				'name'       => __( 'Name', 'agend-apps-core' ),
+				'rating'     => __( 'Highest rated', 'agend-apps-core' ),
+				'created_at' => __( 'Newest', 'agend-apps-core' ),
+				'view_count' => __( 'Most viewed', 'agend-apps-core' ),
 			);
 		case 'rating':
 			return array(
-				'4' => __( '4 stars and up', 'agend-elementor' ),
-				'3' => __( '3 stars and up', 'agend-elementor' ),
-				'2' => __( '2 stars and up', 'agend-elementor' ),
-				'1' => __( '1 star and up', 'agend-elementor' ),
+				'4' => __( '4 stars and up', 'agend-apps-core' ),
+				'3' => __( '3 stars and up', 'agend-apps-core' ),
+				'2' => __( '2 stars and up', 'agend-apps-core' ),
+				'1' => __( '1 star and up', 'agend-apps-core' ),
 			);
 	}
 	return array();
@@ -128,14 +128,14 @@ function agend_elementor_filter_static_values( string $set ): array {
  *
  * @return array<string, array<string, array<string, mixed>>>
  */
-function agend_elementor_filter_registry(): array {
+function agend_apps_records_filter_registry(): array {
 	static $registry = null;
 	if ( null !== $registry ) {
 		return $registry;
 	}
 
 	$reset = array(
-		'label'    => __( 'Clear filters', 'agend-elementor' ),
+		'label'    => __( 'Clear filters', 'agend-apps-core' ),
 		'state'    => '',
 		'mode'     => 'scalar',
 		'controls' => array( 'reset' ),
@@ -143,7 +143,7 @@ function agend_elementor_filter_registry(): array {
 	);
 
 	$search = array(
-		'label'    => __( 'Search', 'agend-elementor' ),
+		'label'    => __( 'Search', 'agend-apps-core' ),
 		'state'    => 'search',
 		'mode'     => 'scalar',
 		'controls' => array( 'search' ),
@@ -155,35 +155,35 @@ function agend_elementor_filter_registry(): array {
 			'search'     => $search,
 			'reset'      => $reset,
 			'category'   => array(
-				'label'    => __( 'Category', 'agend-elementor' ),
+				'label'    => __( 'Category', 'agend-apps-core' ),
 				'state'    => 'categories',
 				'mode'     => 'array',
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
 				'source'   => array( 'endpoint' => '/events/categories', 'value' => 'id', 'label' => 'name' ),
 			),
 			'venue_type' => array(
-				'label'    => __( 'Format', 'agend-elementor' ),
+				'label'    => __( 'Format', 'agend-apps-core' ),
 				'state'    => 'types',
 				'mode'     => 'array',
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
 				'source'   => array( 'static' => 'venue_type' ),
 			),
 			'city'       => array(
-				'label'    => __( 'City', 'agend-elementor' ),
+				'label'    => __( 'City', 'agend-apps-core' ),
 				'state'    => 'cities',
 				'mode'     => 'array',
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
 				'source'   => array( 'endpoint' => '/events/venues', 'value' => 'city', 'label' => 'city', 'distinct' => true ),
 			),
 			'date_from'  => array(
-				'label'    => __( 'Starting from', 'agend-elementor' ),
+				'label'    => __( 'Starting from', 'agend-apps-core' ),
 				'state'    => 'startAfter',
 				'mode'     => 'scalar',
 				'controls' => array( 'date' ),
 				'source'   => null,
 			),
 			'date_to'    => array(
-				'label'    => __( 'Starting before', 'agend-elementor' ),
+				'label'    => __( 'Starting before', 'agend-apps-core' ),
 				'state'    => 'startBefore',
 				'mode'     => 'scalar',
 				'controls' => array( 'date' ),
@@ -194,7 +194,7 @@ function agend_elementor_filter_registry(): array {
 			'search'        => $search,
 			'reset'         => $reset,
 			'category'      => array(
-				'label'       => __( 'Category', 'agend-elementor' ),
+				'label'       => __( 'Category', 'agend-apps-core' ),
 				'state'       => 'category',
 				'mode'        => 'scalar',
 				'controls'    => array( 'select', 'buttons' ),
@@ -207,14 +207,14 @@ function agend_elementor_filter_registry(): array {
 				'approximate' => true,
 			),
 			'difficulty'    => array(
-				'label'    => __( 'Level', 'agend-elementor' ),
+				'label'    => __( 'Level', 'agend-apps-core' ),
 				'state'    => 'difficulty',
 				'mode'     => 'scalar',
 				'controls' => array( 'select', 'buttons' ),
 				'source'   => array( 'static' => 'difficulty' ),
 			),
 			'delivery_mode' => array(
-				'label'    => __( 'Delivery mode', 'agend-elementor' ),
+				'label'    => __( 'Delivery mode', 'agend-apps-core' ),
 				'state'    => 'deliveryMode',
 				'mode'     => 'scalar',
 				'controls' => array( 'select', 'buttons' ),
@@ -225,42 +225,42 @@ function agend_elementor_filter_registry(): array {
 			'search'   => $search,
 			'reset'    => $reset,
 			'category' => array(
-				'label'    => __( 'Category', 'agend-elementor' ),
+				'label'    => __( 'Category', 'agend-apps-core' ),
 				'state'    => 'categories',
 				'mode'     => 'array',
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
 				'source'   => array( 'endpoint' => '/directory/categories', 'value' => 'id', 'label' => 'name' ),
 			),
 			'rating'   => array(
-				'label'    => __( 'Minimum rating', 'agend-elementor' ),
+				'label'    => __( 'Minimum rating', 'agend-apps-core' ),
 				'state'    => 'rating',
 				'mode'     => 'scalar',
 				'controls' => array( 'select', 'buttons' ),
 				'source'   => array( 'static' => 'rating' ),
 			),
 			'sort'     => array(
-				'label'    => __( 'Sort by', 'agend-elementor' ),
+				'label'    => __( 'Sort by', 'agend-apps-core' ),
 				'state'    => 'sortBy',
 				'mode'     => 'scalar',
 				'controls' => array( 'select', 'buttons' ),
 				'source'   => array( 'static' => 'listing_sort' ),
 			),
 			'featured' => array(
-				'label'    => __( 'Featured', 'agend-elementor' ),
+				'label'    => __( 'Featured', 'agend-apps-core' ),
 				'state'    => 'featured',
 				'mode'     => 'scalar',
 				'controls' => array( 'buttons', 'select' ),
 				'source'   => array( 'static' => 'featured' ),
 			),
 			'tag'      => array(
-				'label'    => __( 'Tag', 'agend-elementor' ),
+				'label'    => __( 'Tag', 'agend-apps-core' ),
 				'state'    => 'tag_ids',
 				'mode'     => 'array',
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
 				'source'   => array( 'facet' => 'tags' ),
 			),
 			'badge'    => array(
-				'label'    => __( 'Badge', 'agend-elementor' ),
+				'label'    => __( 'Badge', 'agend-apps-core' ),
 				'state'    => 'badge_ids',
 				'mode'     => 'array',
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
@@ -270,7 +270,7 @@ function agend_elementor_filter_registry(): array {
 			// every field an account has configured as a filter. The facet
 			// endpoint decides which keys this viewer may see at all.
 			'custom_field' => array(
-				'label'      => __( 'Custom field', 'agend-elementor' ),
+				'label'      => __( 'Custom field', 'agend-apps-core' ),
 				'state'      => 'custom_fields',
 				'mode'       => 'map',
 				'controls'   => array( 'checkboxes', 'select', 'buttons', 'range' ),
@@ -288,7 +288,11 @@ function agend_elementor_filter_registry(): array {
 	 *
 	 * @param array $registry Filters keyed by record type then filter key.
 	 */
-	return (array) apply_filters( 'agend_elementor_filter_registry', $registry );
+	$registry = (array) apply_filters( 'agend_apps_records_filter_registry', $registry );
+
+	// A site's existing add_filter() on the pre-rename hook name still applies
+	// for one release.
+	return (array) apply_filters_deprecated( 'agend_elementor_filter_registry', array( $registry ), '1.8.0', 'agend_apps_records_filter_registry' );
 }
 
 /**
@@ -298,8 +302,8 @@ function agend_elementor_filter_registry(): array {
  * @param string $key  Filter key.
  * @return array<string, mixed>|null
  */
-function agend_elementor_filter_descriptor( string $type, string $key ): ?array {
-	$registry = agend_elementor_filter_registry();
+function agend_apps_records_filter_descriptor( string $type, string $key ): ?array {
+	$registry = agend_apps_records_filter_registry();
 	return $registry[ $type ][ $key ] ?? null;
 }
 
@@ -308,14 +312,14 @@ function agend_elementor_filter_descriptor( string $type, string $key ): ?array 
  *
  * @return array<int, array{label: string, options: array<string, string>}>
  */
-function agend_elementor_filter_options(): array {
+function agend_apps_records_filter_options(): array {
 	$labels = array(
-		'event'   => __( 'Events', 'agend-elementor' ),
-		'course'  => __( 'Courses', 'agend-elementor' ),
-		'listing' => __( 'Directory', 'agend-elementor' ),
+		'event'   => __( 'Events', 'agend-apps-core' ),
+		'course'  => __( 'Courses', 'agend-apps-core' ),
+		'listing' => __( 'Directory', 'agend-apps-core' ),
 	);
 	$groups = array();
-	foreach ( agend_elementor_filter_registry() as $type => $filters ) {
+	foreach ( agend_apps_records_filter_registry() as $type => $filters ) {
 		$options = array();
 		foreach ( $filters as $key => $descriptor ) {
 			$options[ $type . ':' . $key ] = (string) $descriptor['label'];
@@ -337,8 +341,8 @@ function agend_elementor_filter_options(): array {
  * @param array  $settings Widget settings.
  * @return array<string, mixed>|null Config, or null when the filter is unknown.
  */
-function agend_elementor_filter_config( string $type, string $key, array $settings ): ?array {
-	$descriptor = agend_elementor_filter_descriptor( $type, $key );
+function agend_apps_records_filter_config( string $type, string $key, array $settings ): ?array {
+	$descriptor = agend_apps_records_filter_descriptor( $type, $key );
 	if ( null === $descriptor ) {
 		return null;
 	}
@@ -410,7 +414,7 @@ function agend_elementor_filter_config( string $type, string $key, array $settin
 		return $config;
 	}
 	if ( is_array( $source ) && isset( $source['static'] ) ) {
-		foreach ( agend_elementor_filter_static_values( (string) $source['static'] ) as $value => $label ) {
+		foreach ( agend_apps_records_filter_static_values( (string) $source['static'] ) as $value => $label ) {
 			$config['values'][] = array( 'label' => $label, 'value' => array( (string) $value ) );
 		}
 		return $config;

@@ -62,7 +62,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-events-catalogue' );
+		return array( 'agend-apps-records-events-catalogue' );
 	}
 
 	/**
@@ -71,7 +71,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-events-catalogue' );
+		return array( 'agend-apps-records-events-catalogue' );
 	}
 
 	/**
@@ -847,7 +847,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	protected function render(): void {
 		// A catalogue inside a card template would fetch the list once per
 		// card; nothing sensible can come of it.
-		if ( class_exists( 'Agend_Elementor_Record_Context' ) && Agend_Elementor_Record_Context::has() ) {
+		if ( class_exists( 'Agend_Apps_Records_Record_Context' ) && Agend_Apps_Records_Record_Context::has() ) {
 			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
 				echo '<div class="elementor-alert elementor-alert-warning">' . esc_html__( 'An Events Catalogue cannot be placed inside a card or detail template.', 'agend-elementor' ) . '</div>';
 			}
@@ -858,7 +858,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		$config   = $this->build_config( $settings );
 
 		// US-1.2: path-based detail routing. The `event` rewrite endpoint
-		// (registered in class-agend-elementor-routing.php) exposes the slug on
+		// (registered in routing.php) exposes the slug on
 		// the current page URL as /{page}/event/{slug}/. The slug is injected
 		// server-side so a direct load renders the detail with no catalogue
 		// flash; the base page path lets the script build pretty links, and it
@@ -875,9 +875,9 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		// deepLink is only honoured on the dedicated page, or, with no
 		// dedicated page configured, on whatever page hosts the widget
 		// (unchanged from before this setting existed).
-		$config['detailBase']   = Agend_Elementor_Pages::page_url( 'event' );
+		$config['detailBase']   = Agend_Apps_Records_Pages::page_url( 'event' );
 		$config['onDetailPage'] = '' === $config['detailBase']
-			|| Agend_Elementor_Pages::is_dedicated_page( 'event', $page_id );
+			|| Agend_Apps_Records_Pages::is_dedicated_page( 'event', $page_id );
 		if ( ! $config['onDetailPage'] ) {
 			$config['deepLink'] = '';
 		}
@@ -886,15 +886,15 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		// flow adds tickets to the cart instead of registering + paying straight
 		// away. The cart page URL (if configured) drives the post-add "View Cart"
 		// link on the confirmation screen.
-		$config['cartEnabled'] = agend_elementor_shop_cart_enabled();
-		$config['cartPageUrl'] = agend_elementor_shop_cart_page_url();
+		$config['cartEnabled'] = agend_apps_records_shop_cart_enabled();
+		$config['cartPageUrl'] = agend_apps_records_shop_cart_page_url();
 
 		$style   = $this->inline_style( $config );
 		$columns = max( 1, (int) $config['layout']['desktop'] );
 
 		// Card template mode: the first page is rendered here through the
 		// template and later pages arrive as fragments from
-		// /agend-elementor/v1/cards/events.
+		// /agend-apps/v1/cards/events.
 		$template_id = (int) ( $settings['card_template'] ?? 0 );
 		if ( $template_id > 0 && Agend_Elementor_Template_Renderer::is_valid_template( $template_id ) ) {
 			$config['cardMode']      = 'template';
@@ -903,7 +903,7 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 			$config['cardTemplate']  = $template_id;
 			$config['cardLinkWhole'] = 'yes' === ( $settings['card_link_whole'] ?? 'yes' );
 			$config['hostPageId']    = (int) $page_id;
-			$config['restBase']      = esc_url_raw( rest_url( 'agend-elementor/v1' ) );
+			$config['restBase']      = esc_url_raw( rest_url( 'agend-apps/v1' ) );
 			$config['fragmentPath']  = '/cards/events';
 			$this->render_templated( $config, $template_id, $style, $columns );
 			return;
@@ -958,11 +958,11 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 		if ( 0 === $template_id ) {
 			return '';
 		}
-		Agend_Elementor_Filter_Context::set( 'event' );
+		Agend_Apps_Records_Filter_Context::set( 'event' );
 		try {
 			return Agend_Elementor_Template_Renderer::render_plain( $template_id );
 		} finally {
-			Agend_Elementor_Filter_Context::reset();
+			Agend_Apps_Records_Filter_Context::reset();
 		}
 	}
 
@@ -997,12 +997,12 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	 * @param int    $columns     Desktop column count.
 	 */
 	private function render_templated( array $config, int $template_id, string $style, int $columns ): void {
-		$list = agend_elementor_unwrap_list(
+		$list = agend_apps_records_unwrap_list(
 			function_exists( 'agend_apps_events_get_events' )
-				? agend_apps_events_get_events( agend_elementor_events_list_args( $config, 1 ) )
+				? agend_apps_events_get_events( agend_apps_records_events_list_args( $config, 1 ) )
 				: null
 		);
-		$cards = agend_elementor_render_cards(
+		$cards = agend_apps_records_render_cards(
 			'event',
 			$template_id,
 			$list['items'],

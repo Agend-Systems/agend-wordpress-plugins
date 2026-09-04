@@ -5,7 +5,7 @@
  * Used by the catalogue widgets for the first page and by the REST fragment
  * endpoint for every page after that, so both produce the same markup.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -27,7 +27,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @param array  $opts        Options.
  * @return array<int, array{slug: string, url: string, html: string}>
  */
-function agend_elementor_render_cards( string $type, int $template_id, array $records, array $opts = array() ): array {
+function agend_apps_records_render_cards( string $type, int $template_id, array $records, array $opts = array() ): array {
 	$whole_link   = ! isset( $opts['card_link_whole'] ) || (bool) $opts['card_link_whole'];
 	$host_page_id = (int) ( $opts['host_page_id'] ?? 0 );
 	$with_css     = ! empty( $opts['with_css'] );
@@ -40,7 +40,7 @@ function agend_elementor_render_cards( string $type, int $template_id, array $re
 			continue;
 		}
 		$slug = isset( $record['slug'] ) ? (string) $record['slug'] : '';
-		$url  = '' !== $slug ? Agend_Elementor_Pages::detail_url( $type, $slug, $host_page_id ) : '';
+		$url  = '' !== $slug ? Agend_Apps_Records_Pages::detail_url( $type, $slug, $host_page_id ) : '';
 
 		$extra = array(
 			'slug'         => $slug,
@@ -55,7 +55,7 @@ function agend_elementor_render_cards( string $type, int $template_id, array $re
 			$inner = Agend_Apps_Templates::render( $template_id, $type, $record, $extra, $with_css && 0 === $index );
 		} catch ( \Throwable $e ) {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				error_log( sprintf( 'Agend Elementor: card render failed for template %d (%s): %s', $template_id, $slug, $e->getMessage() ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				error_log( sprintf( 'Agend Apps: card render failed for template %d (%s): %s', $template_id, $slug, $e->getMessage() ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			}
 			$inner = '';
 		}
@@ -63,7 +63,7 @@ function agend_elementor_render_cards( string $type, int $template_id, array $re
 		$cards[] = array(
 			'slug' => $slug,
 			'url'  => $url,
-			'html' => agend_elementor_wrap_card( $type, $slug, $url, $inner, $whole_link ),
+			'html' => agend_apps_records_wrap_card( $type, $slug, $url, $inner, $whole_link ),
 		);
 	}
 
@@ -84,7 +84,7 @@ function agend_elementor_render_cards( string $type, int $template_id, array $re
  * @param bool   $whole_link Whether the card is one anchor.
  * @return string
  */
-function agend_elementor_wrap_card( string $type, string $slug, string $url, string $inner, bool $whole_link ): string {
+function agend_apps_records_wrap_card( string $type, string $slug, string $url, string $inner, bool $whole_link ): string {
 	$families = array( 'course' => 'agend-lms', 'listing' => 'agend-dir', 'event' => 'agend-ev' );
 	$family   = $families[ $type ] ?? 'agend-ev';
 	$classes = 'agend-card-link ' . $family . '-card-link';

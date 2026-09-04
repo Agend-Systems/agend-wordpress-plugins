@@ -1,53 +1,57 @@
 <?php
 /**
- * Settings for Agend Elementor Widgets.
+ * Settings for the Agend record layer.
  *
  * Registers a small options page (Settings > Agend Widgets) exposing the
  * server-rendered detail-pages toggle. Loaded unconditionally so the accessor
  * is available on the front-end `wp` hook (before the page-builder plugins
  * bootstrap) and in the admin.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The stored option names keep the pre-rename `agend_elementor_*` prefix on
+// purpose: they are live site data, and renaming them would strand every
+// existing install's configuration under a key nothing reads any more.
+
 /**
  * Option name storing the server-rendered detail toggle ('1' or '').
  *
  * @var string
  */
-const AGEND_ELEMENTOR_SSR_DETAIL_OPTION = 'agend_elementor_ssr_detail';
+const AGEND_APPS_RECORDS_SSR_DETAIL_OPTION = 'agend_elementor_ssr_detail';
 
 /**
  * Option name storing the "show member badges & credentials" toggle ('1'/'').
  *
  * @var string
  */
-const AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION = 'agend_elementor_show_achievements';
+const AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION = 'agend_elementor_show_achievements';
 
 /**
  * Option name storing the configured Events catalogue/detail page id (0 = unset).
  *
  * @var string
  */
-const AGEND_ELEMENTOR_EVENTS_PAGE_OPTION = 'agend_elementor_events_page_id';
+const AGEND_APPS_RECORDS_EVENTS_PAGE_OPTION = 'agend_elementor_events_page_id';
 
 /**
  * Option name storing the configured Courses catalogue/detail page id (0 = unset).
  *
  * @var string
  */
-const AGEND_ELEMENTOR_COURSES_PAGE_OPTION = 'agend_elementor_courses_page_id';
+const AGEND_APPS_RECORDS_COURSES_PAGE_OPTION = 'agend_elementor_courses_page_id';
 
 /**
  * Option name storing the configured Directory catalogue/detail page id (0 = unset).
  *
  * @var string
  */
-const AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION = 'agend_elementor_directory_page_id';
+const AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION = 'agend_elementor_directory_page_id';
 
 /**
  * Option names storing the saved template used for a type's detail page
@@ -55,9 +59,9 @@ const AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION = 'agend_elementor_directory_page_id
  *
  * @var string
  */
-const AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION  = 'agend_elementor_event_detail_template';
-const AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION  = 'agend_elementor_course_detail_template';
-const AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION = 'agend_elementor_listing_detail_template';
+const AGEND_APPS_RECORDS_EVENT_DETAIL_TEMPLATE_OPTION  = 'agend_elementor_event_detail_template';
+const AGEND_APPS_RECORDS_COURSE_DETAIL_TEMPLATE_OPTION  = 'agend_elementor_course_detail_template';
+const AGEND_APPS_RECORDS_LISTING_DETAIL_TEMPLATE_OPTION = 'agend_elementor_listing_detail_template';
 
 /**
  * Whether the Directory widget requests and renders member LMS achievements
@@ -70,15 +74,19 @@ const AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION = 'agend_elementor_listing_
  *
  * @return bool True when member achievements are shown.
  */
-function agend_elementor_show_achievements_enabled(): bool {
-	$enabled = '1' === get_option( AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION, '' );
+function agend_apps_records_show_achievements_enabled(): bool {
+	$enabled = '1' === get_option( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION, '' );
 
 	/**
 	 * Filters whether member LMS achievements are shown on the detail.
 	 *
 	 * @param bool $enabled Whether the toggle is on.
 	 */
-	return (bool) apply_filters( 'agend_elementor_show_achievements_enabled', $enabled );
+	$enabled = (bool) apply_filters( 'agend_apps_records_show_achievements_enabled', $enabled );
+
+	// A site's existing add_filter() on the pre-rename hook name still applies
+	// for one release.
+	return (bool) apply_filters_deprecated( 'agend_elementor_show_achievements_enabled', array( $enabled ), '1.8.0', 'agend_apps_records_show_achievements_enabled' );
 }
 
 /**
@@ -93,34 +101,38 @@ function agend_elementor_show_achievements_enabled(): bool {
  *
  * @return bool True when server-rendered detail pages are enabled.
  */
-function agend_elementor_ssr_detail_enabled(): bool {
-	$enabled = '1' === get_option( AGEND_ELEMENTOR_SSR_DETAIL_OPTION, '' );
+function agend_apps_records_ssr_detail_enabled(): bool {
+	$enabled = '1' === get_option( AGEND_APPS_RECORDS_SSR_DETAIL_OPTION, '' );
 
 	/**
 	 * Filters whether server-rendered detail pages are enabled.
 	 *
 	 * @param bool $enabled Whether the toggle is on.
 	 */
-	return (bool) apply_filters( 'agend_elementor_ssr_detail_enabled', $enabled );
+	$enabled = (bool) apply_filters( 'agend_apps_records_ssr_detail_enabled', $enabled );
+
+	// A site's existing add_filter() on the pre-rename hook name still applies
+	// for one release.
+	return (bool) apply_filters_deprecated( 'agend_elementor_ssr_detail_enabled', array( $enabled ), '1.8.0', 'agend_apps_records_ssr_detail_enabled' );
 }
 
 /**
  * Registers the settings, option, and admin page.
  */
-function agend_elementor_settings_init(): void {
+function agend_apps_records_settings_init(): void {
 	// Registered before "Detail Pages" so it renders first: choosing the
 	// catalogue pages is the setting a new site configures before anything
 	// else here matters.
 	add_settings_section(
 		'agend_elementor_section_pages',
-		__( 'Catalogue Pages', 'agend-elementor' ),
-		'agend_elementor_settings_section_pages',
+		__( 'Catalogue Pages', 'agend-apps-core' ),
+		'agend_apps_records_settings_section_pages',
 		'agend-elementor'
 	);
 
 	register_setting(
 		'agend_elementor_settings',
-		AGEND_ELEMENTOR_EVENTS_PAGE_OPTION,
+		AGEND_APPS_RECORDS_EVENTS_PAGE_OPTION,
 		array(
 			'type'              => 'integer',
 			'sanitize_callback' => 'absint',
@@ -129,16 +141,16 @@ function agend_elementor_settings_init(): void {
 	);
 
 	add_settings_field(
-		AGEND_ELEMENTOR_EVENTS_PAGE_OPTION,
-		__( 'Events page', 'agend-elementor' ),
-		'agend_elementor_settings_field_events_page',
+		AGEND_APPS_RECORDS_EVENTS_PAGE_OPTION,
+		__( 'Events page', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_events_page',
 		'agend-elementor',
 		'agend_elementor_section_pages'
 	);
 
 	register_setting(
 		'agend_elementor_settings',
-		AGEND_ELEMENTOR_COURSES_PAGE_OPTION,
+		AGEND_APPS_RECORDS_COURSES_PAGE_OPTION,
 		array(
 			'type'              => 'integer',
 			'sanitize_callback' => 'absint',
@@ -147,16 +159,16 @@ function agend_elementor_settings_init(): void {
 	);
 
 	add_settings_field(
-		AGEND_ELEMENTOR_COURSES_PAGE_OPTION,
-		__( 'Courses page', 'agend-elementor' ),
-		'agend_elementor_settings_field_courses_page',
+		AGEND_APPS_RECORDS_COURSES_PAGE_OPTION,
+		__( 'Courses page', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_courses_page',
 		'agend-elementor',
 		'agend_elementor_section_pages'
 	);
 
 	register_setting(
 		'agend_elementor_settings',
-		AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION,
+		AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION,
 		array(
 			'type'              => 'integer',
 			'sanitize_callback' => 'absint',
@@ -165,17 +177,17 @@ function agend_elementor_settings_init(): void {
 	);
 
 	add_settings_field(
-		AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION,
-		__( 'Directory page', 'agend-elementor' ),
-		'agend_elementor_settings_field_directory_page',
+		AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION,
+		__( 'Directory page', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_directory_page',
 		'agend-elementor',
 		'agend_elementor_section_pages'
 	);
 
 	foreach ( array(
-		AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION   => array( __( 'Event detail template', 'agend-elementor' ), 'agend_elementor_settings_field_event_detail_template' ),
-		AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION  => array( __( 'Course detail template', 'agend-elementor' ), 'agend_elementor_settings_field_course_detail_template' ),
-		AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION => array( __( 'Listing detail template', 'agend-elementor' ), 'agend_elementor_settings_field_listing_detail_template' ),
+		AGEND_APPS_RECORDS_EVENT_DETAIL_TEMPLATE_OPTION   => array( __( 'Event detail template', 'agend-apps-core' ), 'agend_apps_records_settings_field_event_detail_template' ),
+		AGEND_APPS_RECORDS_COURSE_DETAIL_TEMPLATE_OPTION  => array( __( 'Course detail template', 'agend-apps-core' ), 'agend_apps_records_settings_field_course_detail_template' ),
+		AGEND_APPS_RECORDS_LISTING_DETAIL_TEMPLATE_OPTION => array( __( 'Listing detail template', 'agend-apps-core' ), 'agend_apps_records_settings_field_listing_detail_template' ),
 	) as $option => $field ) {
 		register_setting(
 			'agend_elementor_settings',
@@ -191,48 +203,48 @@ function agend_elementor_settings_init(): void {
 
 	register_setting(
 		'agend_elementor_settings',
-		AGEND_ELEMENTOR_SSR_DETAIL_OPTION,
+		AGEND_APPS_RECORDS_SSR_DETAIL_OPTION,
 		array(
 			'type'              => 'string',
-			'sanitize_callback' => 'agend_elementor_sanitize_checkbox',
+			'sanitize_callback' => 'agend_apps_records_sanitize_checkbox',
 			'default'           => '',
 		)
 	);
 
 	add_settings_section(
 		'agend_elementor_section_detail',
-		__( 'Detail Pages', 'agend-elementor' ),
-		'agend_elementor_settings_section_detail',
+		__( 'Detail Pages', 'agend-apps-core' ),
+		'agend_apps_records_settings_section_detail',
 		'agend-elementor'
 	);
 
 	add_settings_field(
-		AGEND_ELEMENTOR_SSR_DETAIL_OPTION,
-		__( 'Server-rendered detail pages', 'agend-elementor' ),
-		'agend_elementor_settings_field_ssr_detail',
+		AGEND_APPS_RECORDS_SSR_DETAIL_OPTION,
+		__( 'Server-rendered detail pages', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_ssr_detail',
 		'agend-elementor',
 		'agend_elementor_section_detail'
 	);
 
 	register_setting(
 		'agend_elementor_settings',
-		AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION,
+		AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION,
 		array(
 			'type'              => 'string',
-			'sanitize_callback' => 'agend_elementor_sanitize_checkbox',
+			'sanitize_callback' => 'agend_apps_records_sanitize_checkbox',
 			'default'           => '',
 		)
 	);
 
 	add_settings_field(
-		AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION,
-		__( 'Show member badges & credentials', 'agend-elementor' ),
-		'agend_elementor_settings_field_show_achievements',
+		AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION,
+		__( 'Show member badges & credentials', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_show_achievements',
 		'agend-elementor',
 		'agend_elementor_section_detail'
 	);
 }
-add_action( 'admin_init', 'agend_elementor_settings_init' );
+add_action( 'admin_init', 'agend_apps_records_settings_init' );
 
 /**
  * Normalises a checkbox option to '1' or ''.
@@ -240,32 +252,32 @@ add_action( 'admin_init', 'agend_elementor_settings_init' );
  * @param mixed $value Raw submitted value.
  * @return string '1' when checked, '' otherwise.
  */
-function agend_elementor_sanitize_checkbox( $value ): string {
+function agend_apps_records_sanitize_checkbox( $value ): string {
 	return ! empty( $value ) ? '1' : '';
 }
 
 /**
  * Registers the options page under the Settings menu.
  */
-function agend_elementor_settings_menu(): void {
+function agend_apps_records_settings_menu(): void {
 	add_options_page(
-		__( 'Agend Widgets', 'agend-elementor' ),
-		__( 'Agend Widgets', 'agend-elementor' ),
+		__( 'Agend Widgets', 'agend-apps-core' ),
+		__( 'Agend Widgets', 'agend-apps-core' ),
 		'manage_options',
 		'agend-elementor',
-		'agend_elementor_settings_page'
+		'agend_apps_records_settings_page'
 	);
 }
-add_action( 'admin_menu', 'agend_elementor_settings_menu' );
+add_action( 'admin_menu', 'agend_apps_records_settings_menu' );
 
 /**
  * Renders the Catalogue Pages settings section description.
  */
-function agend_elementor_settings_section_pages(): void {
+function agend_apps_records_settings_section_pages(): void {
 	echo '<p>';
 	esc_html_e(
 		'The page that shows the full catalogue and item detail pages. A widget placed on any other page links visitors here instead of taking over its own page. Leave unset to keep current behaviour.',
-		'agend-elementor'
+		'agend-apps-core'
 	);
 	echo '</p>';
 }
@@ -282,7 +294,7 @@ function agend_elementor_settings_section_pages(): void {
  * @param string $surface Agnostic surface kind, e.g. 'events-catalogue'.
  * @param string $message The advisory message to show when the surface is not found.
  */
-function agend_elementor_settings_widget_advisory( int $page_id, string $surface, string $message ): void {
+function agend_apps_records_settings_widget_advisory( int $page_id, string $surface, string $message ): void {
 	if ( 0 === $page_id || ! class_exists( 'Agend_Apps_Templates' ) ) {
 		return;
 	}
@@ -297,40 +309,40 @@ function agend_elementor_settings_widget_advisory( int $page_id, string $surface
 /**
  * Renders the Events page picker.
  */
-function agend_elementor_settings_field_events_page(): void {
-	$selected = absint( get_option( AGEND_ELEMENTOR_EVENTS_PAGE_OPTION, 0 ) );
+function agend_apps_records_settings_field_events_page(): void {
+	$selected = absint( get_option( AGEND_APPS_RECORDS_EVENTS_PAGE_OPTION, 0 ) );
 	wp_dropdown_pages(
 		array(
-			'name'              => AGEND_ELEMENTOR_EVENTS_PAGE_OPTION,
-			'show_option_none'  => __( 'Select a page', 'agend-elementor' ),
+			'name'              => AGEND_APPS_RECORDS_EVENTS_PAGE_OPTION,
+			'show_option_none'  => __( 'Select a page', 'agend-apps-core' ),
 			'option_none_value' => '0',
 			'selected'          => $selected,
 		)
 	);
-	agend_elementor_settings_widget_advisory(
+	agend_apps_records_settings_widget_advisory(
 		$selected,
 		'events-catalogue',
-		__( 'This page does not appear to contain an Events Catalogue.', 'agend-elementor' )
+		__( 'This page does not appear to contain an Events Catalogue.', 'agend-apps-core' )
 	);
 }
 
 /**
  * Renders the Courses page picker.
  */
-function agend_elementor_settings_field_courses_page(): void {
-	$selected = absint( get_option( AGEND_ELEMENTOR_COURSES_PAGE_OPTION, 0 ) );
+function agend_apps_records_settings_field_courses_page(): void {
+	$selected = absint( get_option( AGEND_APPS_RECORDS_COURSES_PAGE_OPTION, 0 ) );
 	wp_dropdown_pages(
 		array(
-			'name'              => AGEND_ELEMENTOR_COURSES_PAGE_OPTION,
-			'show_option_none'  => __( 'Select a page', 'agend-elementor' ),
+			'name'              => AGEND_APPS_RECORDS_COURSES_PAGE_OPTION,
+			'show_option_none'  => __( 'Select a page', 'agend-apps-core' ),
 			'option_none_value' => '0',
 			'selected'          => $selected,
 		)
 	);
-	agend_elementor_settings_widget_advisory(
+	agend_apps_records_settings_widget_advisory(
 		$selected,
 		'courses-catalogue',
-		__( 'This page does not appear to contain a Courses Catalogue.', 'agend-elementor' )
+		__( 'This page does not appear to contain a Courses Catalogue.', 'agend-apps-core' )
 	);
 }
 
@@ -343,12 +355,12 @@ function agend_elementor_settings_field_courses_page(): void {
  * @param string $option      The template option name.
  * @param string $page_option The dedicated page option name.
  */
-function agend_elementor_settings_template_select( string $option, string $page_option ): void {
+function agend_apps_records_settings_template_select( string $option, string $page_option ): void {
 	$selected = absint( get_option( $option, 0 ) );
 	$has_page = absint( get_option( $page_option, 0 ) ) > 0;
 	$options  = class_exists( 'Agend_Apps_Templates' )
-		? Agend_Apps_Templates::options( __( 'Built-in detail layout', 'agend-elementor' ) )
-		: array( '' => __( 'Built-in detail layout', 'agend-elementor' ) );
+		? Agend_Apps_Templates::options( __( 'Built-in detail layout', 'agend-apps-core' ) )
+		: array( '' => __( 'Built-in detail layout', 'agend-apps-core' ) );
 
 	echo '<select name="' . esc_attr( $option ) . '"' . ( $has_page ? '' : ' disabled' ) . '>';
 	foreach ( $options as $value => $label ) {
@@ -357,9 +369,9 @@ function agend_elementor_settings_template_select( string $option, string $page_
 	echo '</select>';
 	echo '<p class="description">';
 	if ( $has_page ) {
-		esc_html_e( 'A saved template built from the Agend Field, Image, Link and Content Block elements. Rendered server-side on the dedicated page for every item.', 'agend-elementor' );
+		esc_html_e( 'A saved template built from the Agend Field, Image, Link and Content Block elements. Rendered server-side on the dedicated page for every item.', 'agend-apps-core' );
 	} else {
-		esc_html_e( 'Choose the dedicated page above first.', 'agend-elementor' );
+		esc_html_e( 'Choose the dedicated page above first.', 'agend-apps-core' );
 	}
 	echo '</p>';
 }
@@ -367,42 +379,42 @@ function agend_elementor_settings_template_select( string $option, string $page_
 /**
  * Renders the Event detail template picker.
  */
-function agend_elementor_settings_field_event_detail_template(): void {
-	agend_elementor_settings_template_select( AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION, AGEND_ELEMENTOR_EVENTS_PAGE_OPTION );
+function agend_apps_records_settings_field_event_detail_template(): void {
+	agend_apps_records_settings_template_select( AGEND_APPS_RECORDS_EVENT_DETAIL_TEMPLATE_OPTION, AGEND_APPS_RECORDS_EVENTS_PAGE_OPTION );
 }
 
 /**
  * Renders the Directory page picker.
  */
-function agend_elementor_settings_field_directory_page(): void {
-	$selected = absint( get_option( AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION, 0 ) );
+function agend_apps_records_settings_field_directory_page(): void {
+	$selected = absint( get_option( AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION, 0 ) );
 	wp_dropdown_pages(
 		array(
-			'name'              => AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION,
-			'show_option_none'  => __( 'Select a page', 'agend-elementor' ),
+			'name'              => AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION,
+			'show_option_none'  => __( 'Select a page', 'agend-apps-core' ),
 			'option_none_value' => '0',
 			'selected'          => $selected,
 		)
 	);
-	agend_elementor_settings_widget_advisory(
+	agend_apps_records_settings_widget_advisory(
 		$selected,
 		'directory-catalogue',
-		__( 'This page does not appear to contain a Directory Catalogue.', 'agend-elementor' )
+		__( 'This page does not appear to contain a Directory Catalogue.', 'agend-apps-core' )
 	);
 }
 
 /**
  * Renders the Listing detail template picker.
  */
-function agend_elementor_settings_field_listing_detail_template(): void {
-	agend_elementor_settings_template_select( AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION, AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION );
+function agend_apps_records_settings_field_listing_detail_template(): void {
+	agend_apps_records_settings_template_select( AGEND_APPS_RECORDS_LISTING_DETAIL_TEMPLATE_OPTION, AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION );
 }
 
 /**
  * Renders the Course detail template picker.
  */
-function agend_elementor_settings_field_course_detail_template(): void {
-	agend_elementor_settings_template_select( AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION, AGEND_ELEMENTOR_COURSES_PAGE_OPTION );
+function agend_apps_records_settings_field_course_detail_template(): void {
+	agend_apps_records_settings_template_select( AGEND_APPS_RECORDS_COURSE_DETAIL_TEMPLATE_OPTION, AGEND_APPS_RECORDS_COURSES_PAGE_OPTION );
 }
 
 /**
@@ -414,22 +426,22 @@ function agend_elementor_settings_field_course_detail_template(): void {
  *
  * @return array<string, string> Option name => label.
  */
-function agend_elementor_detail_template_labels(): array {
+function agend_apps_records_detail_template_labels(): array {
 	return array(
-		AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION   => __( 'Agend Event detail template', 'agend-elementor' ),
-		AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION  => __( 'Agend Course detail template', 'agend-elementor' ),
-		AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION => __( 'Agend Listing detail template', 'agend-elementor' ),
+		AGEND_APPS_RECORDS_EVENT_DETAIL_TEMPLATE_OPTION   => __( 'Agend Event detail template', 'agend-apps-core' ),
+		AGEND_APPS_RECORDS_COURSE_DETAIL_TEMPLATE_OPTION  => __( 'Agend Course detail template', 'agend-apps-core' ),
+		AGEND_APPS_RECORDS_LISTING_DETAIL_TEMPLATE_OPTION => __( 'Agend Listing detail template', 'agend-apps-core' ),
 	);
 }
 
 /**
  * Renders the Detail Pages settings section description.
  */
-function agend_elementor_settings_section_detail(): void {
+function agend_apps_records_settings_section_detail(): void {
 	echo '<p>';
 	esc_html_e(
 		'Controls how the Agend catalogue widgets present a single item\'s detail view.',
-		'agend-elementor'
+		'agend-apps-core'
 	);
 	echo '</p>';
 }
@@ -437,18 +449,18 @@ function agend_elementor_settings_section_detail(): void {
 /**
  * Renders the server-rendered detail checkbox field.
  */
-function agend_elementor_settings_field_ssr_detail(): void {
-	$value = get_option( AGEND_ELEMENTOR_SSR_DETAIL_OPTION, '' );
+function agend_apps_records_settings_field_ssr_detail(): void {
+	$value = get_option( AGEND_APPS_RECORDS_SSR_DETAIL_OPTION, '' );
 	?>
 	<label>
-		<input type="checkbox" name="<?php echo esc_attr( AGEND_ELEMENTOR_SSR_DETAIL_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
-		<?php esc_html_e( 'Render detail views as server-side child pages of the catalogue page', 'agend-elementor' ); ?>
+		<input type="checkbox" name="<?php echo esc_attr( AGEND_APPS_RECORDS_SSR_DETAIL_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
+		<?php esc_html_e( 'Render detail views as server-side child pages of the catalogue page', 'agend-apps-core' ); ?>
 	</label>
 	<p class="description">
 		<?php
 		esc_html_e(
 			'When on, an item detail URL becomes a virtual child page of the page holding the catalogue widget: the item name is the page title and the catalogue page is its parent, so breadcrumbs natively show Home > Catalogue > Item and the detail is rendered server-side for SEO. When off, the detail is rendered client-side in place on the catalogue page. Applies to the Directory, Events, and Courses widgets. Types with a detail template selected above are always server-rendered.',
-			'agend-elementor'
+			'agend-apps-core'
 		);
 		?>
 	</p>
@@ -458,18 +470,18 @@ function agend_elementor_settings_field_ssr_detail(): void {
 /**
  * Renders the show-member-achievements checkbox field.
  */
-function agend_elementor_settings_field_show_achievements(): void {
-	$value = get_option( AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION, '' );
+function agend_apps_records_settings_field_show_achievements(): void {
+	$value = get_option( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION, '' );
 	?>
 	<label>
-		<input type="checkbox" name="<?php echo esc_attr( AGEND_ELEMENTOR_SHOW_ACHIEVEMENTS_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
-		<?php esc_html_e( 'Show a member\'s LMS badges and certificates on the Directory detail view', 'agend-elementor' ); ?>
+		<input type="checkbox" name="<?php echo esc_attr( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
+		<?php esc_html_e( 'Show a member\'s LMS badges and certificates on the Directory detail view', 'agend-apps-core' ); ?>
 	</label>
 	<p class="description">
 		<?php
 		esc_html_e(
 			'Adds a "Badges & Credentials" section listing the member\'s course badges and certificates. Requires the connected account\'s API key to hold the directory.achievements.browse scope; leave off if it does not, or listing detail pages will fail to load.',
-			'agend-elementor'
+			'agend-apps-core'
 		);
 		?>
 	</p>
@@ -479,7 +491,7 @@ function agend_elementor_settings_field_show_achievements(): void {
 /**
  * Renders the options page.
  */
-function agend_elementor_settings_page(): void {
+function agend_apps_records_settings_page(): void {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
 	}

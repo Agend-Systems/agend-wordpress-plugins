@@ -6,9 +6,9 @@
  * Each fragment function renders one panel or section of the Events or
  * Courses detail (Tickets, Sponsors, Facts, Registration, Course Outcomes,
  * Course Meta, Course Enrolment) and returns it as a string. Pure value
- * formatters live in class-agend-elementor-format.php.
+ * formatters live in format.php.
  *
- * @package Agend_Elementor
+ * @package Agend_Apps_Core
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @param string $key   The tier price key (member_price / non_member_price).
  * @return float|null The price, or null when the group has no explicit price.
  */
-function agend_elementor_ssr_ev_ticket_tier_value( array $entry, string $key ): ?float {
+function agend_apps_records_ssr_ev_ticket_tier_value( array $entry, string $key ): ?float {
 	$tiers = ( isset( $entry['pricingTiers'] ) && is_array( $entry['pricingTiers'] ) ) ? $entry['pricingTiers'] : array();
 	if ( empty( $tiers ) ) {
 		return null;
@@ -45,8 +45,8 @@ function agend_elementor_ssr_ev_ticket_tier_value( array $entry, string $key ): 
  * @param bool   $is_active Whether this is the viewer's applicable price.
  * @return string The row HTML.
  */
-function agend_elementor_ssr_ev_price_row( string $label, string $price, bool $is_active ): string {
-	$is_free = ( __( 'FREE', 'agend-elementor' ) === $price );
+function agend_apps_records_ssr_ev_price_row( string $label, string $price, bool $is_active ): string {
+	$is_free = ( __( 'FREE', 'agend-apps-core' ) === $price );
 	return sprintf(
 		'<div class="agend-ev-price%1$s"><span class="agend-ev-price__label">%2$s</span><span class="agend-ev-price__value%3$s">%4$s</span></div>',
 		$is_active ? ' is-yours' : '',
@@ -67,26 +67,26 @@ function agend_elementor_ssr_ev_price_row( string $label, string $price, bool $i
  * @param bool  $is_member Whether the viewer's applicable price is the member tier.
  * @return string The concatenated, escaped price-row HTML (may be empty).
  */
-function agend_elementor_ssr_ev_ticket_price_rows( array $entry, bool $is_member ): string {
-	$member_val     = agend_elementor_ssr_ev_ticket_tier_value( $entry, 'member_price' );
-	$non_member_val = agend_elementor_ssr_ev_ticket_tier_value( $entry, 'non_member_price' );
+function agend_apps_records_ssr_ev_ticket_price_rows( array $entry, bool $is_member ): string {
+	$member_val     = agend_apps_records_ssr_ev_ticket_tier_value( $entry, 'member_price' );
+	$non_member_val = agend_apps_records_ssr_ev_ticket_tier_value( $entry, 'non_member_price' );
 
 	// Flat price (no tiered split): a single applicable row.
 	if ( null === $member_val && null === $non_member_val ) {
 		$ticket = ( isset( $entry['ticket'] ) && is_array( $entry['ticket'] ) ) ? $entry['ticket'] : $entry;
 		$flat   = $ticket['price'] ?? ( $ticket['base_price'] ?? null );
-		$price  = agend_elementor_ssr_ev_format_price( $flat );
-		return null === $price ? '' : agend_elementor_ssr_ev_price_row( __( 'Price', 'agend-elementor' ), $price, true );
+		$price  = agend_apps_records_ssr_ev_format_price( $flat );
+		return null === $price ? '' : agend_apps_records_ssr_ev_price_row( __( 'Price', 'agend-apps-core' ), $price, true );
 	}
 
 	$html          = '';
-	$member_price  = agend_elementor_ssr_ev_format_price( $member_val );
+	$member_price  = agend_apps_records_ssr_ev_format_price( $member_val );
 	if ( null !== $member_price ) {
-		$html .= agend_elementor_ssr_ev_price_row( __( 'Members', 'agend-elementor' ), $member_price, $is_member );
+		$html .= agend_apps_records_ssr_ev_price_row( __( 'Members', 'agend-apps-core' ), $member_price, $is_member );
 	}
-	$non_member_price = agend_elementor_ssr_ev_format_price( $non_member_val );
+	$non_member_price = agend_apps_records_ssr_ev_format_price( $non_member_val );
 	if ( null !== $non_member_price ) {
-		$html .= agend_elementor_ssr_ev_price_row( __( 'Non-Members', 'agend-elementor' ), $non_member_price, ! $is_member );
+		$html .= agend_apps_records_ssr_ev_price_row( __( 'Non-Members', 'agend-apps-core' ), $non_member_price, ! $is_member );
 	}
 	return $html;
 }
@@ -102,7 +102,7 @@ function agend_elementor_ssr_ev_ticket_price_rows( array $entry, bool $is_member
  * @param array $enrollment The viewer's my_enrollment record (gateway shape).
  * @return string Panel HTML with all dynamic values escaped.
  */
-function agend_elementor_ssr_lms_enrollment_panel( array $enrollment ): string {
+function agend_apps_records_ssr_lms_enrollment_panel( array $enrollment ): string {
 	$progress = ( ! empty( $enrollment['progress'] ) && is_array( $enrollment['progress'] ) )
 		? $enrollment['progress']
 		: array();
@@ -116,24 +116,24 @@ function agend_elementor_ssr_lms_enrollment_panel( array $enrollment ): string {
 			if ( false !== $ts ) {
 				$when = ' ' . sprintf(
 					/* translators: %s: completion date. */
-					__( 'on %s', 'agend-elementor' ),
+					__( 'on %s', 'agend-apps-core' ),
 					wp_date( (string) get_option( 'date_format', 'j M Y' ), $ts )
 				);
 			}
 		}
 		?>
 		<div class="agend-lms-detail__panel agend-lms-detail__panel--enrollment is-completed">
-			<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Course Completed', 'agend-elementor' ); ?></h2>
+			<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Course Completed', 'agend-apps-core' ); ?></h2>
 			<div class="agend-lms-enrol__completed">
 				<span class="agend-lms-enrol__tick">&#10003;</span>
 				<span class="agend-lms-enrol__completed-text">
 					<?php
 					/* translators: %s: optional " on <date>" suffix. */
-					echo esc_html( sprintf( __( 'You completed this course%s.', 'agend-elementor' ), $when ) );
+					echo esc_html( sprintf( __( 'You completed this course%s.', 'agend-apps-core' ), $when ) );
 					?>
 				</span>
 			</div>
-			<p class="agend-lms-detail__note"><?php esc_html_e( 'Your certificate is available in your learning portal.', 'agend-elementor' ); ?></p>
+			<p class="agend-lms-detail__note"><?php esc_html_e( 'Your certificate is available in your learning portal.', 'agend-apps-core' ); ?></p>
 		</div>
 		<?php
 		return (string) ob_get_clean();
@@ -144,7 +144,7 @@ function agend_elementor_ssr_lms_enrollment_panel( array $enrollment ): string {
 	$total     = (int) ( $progress['total_lessons'] ?? 0 );
 	?>
 	<div class="agend-lms-detail__panel agend-lms-detail__panel--enrollment">
-		<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Your Progress', 'agend-elementor' ); ?></h2>
+		<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Your Progress', 'agend-apps-core' ); ?></h2>
 		<div class="agend-lms-enrol__bar">
 			<div class="agend-lms-enrol__bar-fill" style="width:<?php echo esc_attr( $pct ); ?>%;"></div>
 		</div>
@@ -152,12 +152,12 @@ function agend_elementor_ssr_lms_enrollment_panel( array $enrollment ): string {
 			<span class="agend-lms-enrol__lessons">
 				<?php
 				/* translators: 1: completed module count, 2: total module count. */
-				echo esc_html( sprintf( __( '%1$d of %2$d modules complete', 'agend-elementor' ), $done, $total ) );
+				echo esc_html( sprintf( __( '%1$d of %2$d modules complete', 'agend-apps-core' ), $done, $total ) );
 				?>
 			</span>
 			<span class="agend-lms-enrol__pct"><?php echo esc_html( $pct . '%' ); ?></span>
 		</div>
-		<p class="agend-lms-detail__note"><?php esc_html_e( 'Continue learning in your member portal.', 'agend-elementor' ); ?></p>
+		<p class="agend-lms-detail__note"><?php esc_html_e( 'Continue learning in your member portal.', 'agend-apps-core' ); ?></p>
 	</div>
 	<?php
 	return (string) ob_get_clean();
@@ -169,12 +169,12 @@ function agend_elementor_ssr_lms_enrollment_panel( array $enrollment ): string {
  * @param array $item Public event detail (gateway shape).
  * @return string Section HTML, or empty string when the event has no sponsors.
  */
-function agend_elementor_fragment_event_sponsors( array $item ): string {
+function agend_apps_records_fragment_event_sponsors( array $item ): string {
 	ob_start();
 	?>
 					<?php if ( ! empty( $item['sponsors'] ) && is_array( $item['sponsors'] ) ) : ?>
 						<section class="agend-ev-detail__section">
-							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'Sponsors', 'agend-elementor' ); ?></h2>
+							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'Sponsors', 'agend-apps-core' ); ?></h2>
 							<div class="agend-ev-detail__sponsors">
 								<?php foreach ( $item['sponsors'] as $sponsor ) : ?>
 									<?php if ( ! empty( $sponsor['logo_url'] ) ) : ?>
@@ -199,14 +199,14 @@ function agend_elementor_fragment_event_sponsors( array $item ): string {
  * @param array  $extra Unused; reserved for future pass-through context.
  * @return string Panel HTML.
  */
-function agend_elementor_fragment_event_registration( array $item, string $slug, array $extra = array() ): string {
+function agend_apps_records_fragment_event_registration( array $item, string $slug, array $extra = array() ): string {
 	$sold_out = ! empty( $item['sold_out'] );
 	$ical_url = rest_url( 'agend-apps/v1/events/' . rawurlencode( $slug ) . '/ical' );
 
 	ob_start();
 	?>
 					<div class="agend-ev-detail__panel agend-ev-detail__panel--register">
-						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Registration', 'agend-elementor' ); ?></h2>
+						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Registration', 'agend-apps-core' ); ?></h2>
 						<?php
 						// Member enrichment (SPEC-CORE-20260722 US-2.3): the fetch is
 						// bearer-attended and cache-bypassed for signed-in members, so
@@ -216,20 +216,20 @@ function agend_elementor_fragment_event_registration( array $item, string $slug,
 						$is_member      = ( 'member' === $viewer_group || 'corporate' === $viewer_group );
 						$is_registered  = ! empty( $item['my_registration'] );
 						$register_label = $sold_out
-							? __( 'Sold Out', 'agend-elementor' )
-							: ( $is_registered ? __( 'Register Another Attendee', 'agend-elementor' ) : __( 'Register Now', 'agend-elementor' ) );
+							? __( 'Sold Out', 'agend-apps-core' )
+							: ( $is_registered ? __( 'Register Another Attendee', 'agend-apps-core' ) : __( 'Register Now', 'agend-apps-core' ) );
 						?>
 						<?php if ( $is_registered ) : ?>
-							<div class="agend-ev-detail__registered"><?php esc_html_e( '✓ You’re registered for this event', 'agend-elementor' ); ?></div>
+							<div class="agend-ev-detail__registered"><?php esc_html_e( '✓ You’re registered for this event', 'agend-apps-core' ); ?></div>
 						<?php endif; ?>
 						<button type="button" class="agend-ev-detail__cta" data-agend-event-slug="<?php echo esc_attr( $slug ); ?>"<?php echo $sold_out ? ' disabled' : ''; ?>>
 							<?php echo esc_html( $register_label ); ?>
 						</button>
-						<a class="agend-ev-detail__calendar" href="<?php echo esc_url( $ical_url ); ?>"><?php esc_html_e( 'Add to Calendar', 'agend-elementor' ); ?></a>
+						<a class="agend-ev-detail__calendar" href="<?php echo esc_url( $ical_url ); ?>"><?php esc_html_e( 'Add to Calendar', 'agend-apps-core' ); ?></a>
 						<?php if ( $is_member ) : ?>
-							<p class="agend-ev-detail__note"><?php esc_html_e( 'Member pricing applies to your registration.', 'agend-elementor' ); ?></p>
+							<p class="agend-ev-detail__note"><?php esc_html_e( 'Member pricing applies to your registration.', 'agend-apps-core' ); ?></p>
 						<?php else : ?>
-							<p class="agend-ev-detail__note"><?php esc_html_e( 'Not a member? Join for discounted pricing.', 'agend-elementor' ); ?></p>
+							<p class="agend-ev-detail__note"><?php esc_html_e( 'Not a member? Join for discounted pricing.', 'agend-apps-core' ); ?></p>
 						<?php endif; ?>
 					</div>
 
@@ -245,7 +245,7 @@ function agend_elementor_fragment_event_registration( array $item, string $slug,
  * @param array $tickets Ticket-type list (gateway shape).
  * @return string Panel HTML, or empty string when there are no priced tickets.
  */
-function agend_elementor_fragment_event_tickets( array $item, array $tickets ): string {
+function agend_apps_records_fragment_event_tickets( array $item, array $tickets ): string {
 	$viewer_group = isset( $item['viewer_price_group'] ) ? (string) $item['viewer_price_group'] : '';
 	$is_member    = ( 'member' === $viewer_group || 'corporate' === $viewer_group );
 
@@ -259,7 +259,7 @@ function agend_elementor_fragment_event_tickets( array $item, array $tickets ): 
 					if ( ! empty( $tickets ) ) :
 						?>
 						<div class="agend-ev-detail__panel agend-ev-detail__panel--tickets">
-							<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Tickets', 'agend-elementor' ); ?></h2>
+							<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Tickets', 'agend-apps-core' ); ?></h2>
 							<div class="agend-ev-detail__tickets">
 								<?php
 								foreach ( $tickets as $entry ) :
@@ -267,15 +267,15 @@ function agend_elementor_fragment_event_tickets( array $item, array $tickets ): 
 										continue;
 									}
 									$ticket      = ( isset( $entry['ticket'] ) && is_array( $entry['ticket'] ) ) ? $entry['ticket'] : $entry;
-									$ticket_name = isset( $ticket['name'] ) ? (string) $ticket['name'] : __( 'Ticket', 'agend-elementor' );
-									$rows        = agend_elementor_ssr_ev_ticket_price_rows( $entry, $is_member );
+									$ticket_name = isset( $ticket['name'] ) ? (string) $ticket['name'] : __( 'Ticket', 'agend-apps-core' );
+									$rows        = agend_apps_records_ssr_ev_ticket_price_rows( $entry, $is_member );
 									if ( '' === $rows ) {
 										continue;
 									}
 									?>
 									<div class="agend-ev-detail__ticket">
 										<span class="agend-ev-detail__ticket-name"><?php echo esc_html( $ticket_name ); ?></span>
-										<div class="agend-ev-detail__ticket-prices"><?php echo $rows; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Rows escaped in agend_elementor_ssr_ev_price_row(). ?></div>
+										<div class="agend-ev-detail__ticket-prices"><?php echo $rows; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Rows escaped in agend_apps_records_ssr_ev_price_row(). ?></div>
 									</div>
 								<?php endforeach; ?>
 							</div>
@@ -295,10 +295,10 @@ function agend_elementor_fragment_event_tickets( array $item, array $tickets ): 
  * @param array $item Public event detail (gateway shape).
  * @return string Panel HTML.
  */
-function agend_elementor_fragment_event_facts( array $item ): string {
-	$event_tz   = agend_elementor_record_timezone( $item );
+function agend_apps_records_fragment_event_facts( array $item ): string {
+	$event_tz   = agend_apps_records_record_timezone( $item );
 	$venue_type = isset( $item['venue_type'] ) ? (string) $item['venue_type'] : '';
-	$type_label = agend_elementor_ssr_ev_type_label( $venue_type );
+	$type_label = agend_apps_records_ssr_ev_type_label( $venue_type );
 
 	$location = implode(
 		', ',
@@ -308,18 +308,18 @@ function agend_elementor_fragment_event_facts( array $item ): string {
 		)
 	);
 	if ( '' === $location ) {
-		$location = 'virtual' === $venue_type ? __( 'Online', 'agend-elementor' ) : __( 'TBA', 'agend-elementor' );
+		$location = 'virtual' === $venue_type ? __( 'Online', 'agend-apps-core' ) : __( 'TBA', 'agend-apps-core' );
 	}
 
 	ob_start();
 	?>
 					<div class="agend-ev-detail__panel">
-						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Details', 'agend-elementor' ); ?></h2>
+						<h2 class="agend-ev-detail__panel-title"><?php esc_html_e( 'Details', 'agend-apps-core' ); ?></h2>
 						<?php
 						$facts = array(
-							array( __( 'Date & Time', 'agend-elementor' ), agend_elementor_ssr_ev_date_time( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ) ),
-							array( __( 'Location', 'agend-elementor' ), $location ),
-							array( __( 'Format', 'agend-elementor' ), $type_label ),
+							array( __( 'Date & Time', 'agend-apps-core' ), agend_apps_records_ssr_ev_date_time( $item['start_date'] ?? '', $item['end_date'] ?? '', $event_tz ) ),
+							array( __( 'Location', 'agend-apps-core' ), $location ),
+							array( __( 'Format', 'agend-apps-core' ), $type_label ),
 						);
 						foreach ( $facts as $pair ) :
 							if ( '' === (string) $pair[1] ) {
@@ -344,7 +344,7 @@ function agend_elementor_fragment_event_facts( array $item ): string {
  * @return string Section HTML, or empty string when the course has no
  *                learning outcomes.
  */
-function agend_elementor_fragment_course_outcomes( array $item ): string {
+function agend_apps_records_fragment_course_outcomes( array $item ): string {
 	ob_start();
 	?>
 					<?php
@@ -354,7 +354,7 @@ function agend_elementor_fragment_course_outcomes( array $item ): string {
 					if ( ! empty( $outcomes ) ) :
 						?>
 						<section class="agend-lms-detail__section">
-							<h2 class="agend-lms-detail__section-title"><?php esc_html_e( "What You'll Learn", 'agend-elementor' ); ?></h2>
+							<h2 class="agend-lms-detail__section-title"><?php esc_html_e( "What You'll Learn", 'agend-apps-core' ); ?></h2>
 							<ul class="agend-lms-detail__outcomes">
 								<?php
 								foreach ( $outcomes as $outcome ) :
@@ -384,8 +384,8 @@ function agend_elementor_fragment_course_outcomes( array $item ): string {
  *                       sign-in redirect URL.
  * @return string Panel HTML.
  */
-function agend_elementor_fragment_course_enrolment( array $item, string $slug, array $extra = array() ): string {
-	$price       = agend_elementor_ssr_lms_price( $item );
+function agend_apps_records_fragment_course_enrolment( array $item, string $slug, array $extra = array() ): string {
+	$price       = agend_apps_records_ssr_lms_price( $item );
 	$host        = ( isset( $extra['host'] ) && $extra['host'] instanceof WP_Post ) ? $extra['host'] : null;
 	$host_url    = $host instanceof WP_Post ? get_permalink( $host->ID ) : '';
 	$detail_url  = trailingslashit( is_string( $host_url ) ? $host_url : '' ) . 'course/' . $slug . '/';
@@ -405,17 +405,17 @@ function agend_elementor_fragment_course_enrolment( array $item, string $slug, a
 						? $item['my_enrollment']
 						: null;
 					if ( null !== $enrollment ) {
-						echo agend_elementor_ssr_lms_enrollment_panel( $enrollment ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Panel escapes internally.
+						echo agend_apps_records_ssr_lms_enrollment_panel( $enrollment ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Panel escapes internally.
 					} else {
 						?>
 						<div class="agend-lms-detail__panel agend-lms-detail__panel--pricing">
-							<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Course Pricing', 'agend-elementor' ); ?></h2>
+							<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Course Pricing', 'agend-apps-core' ); ?></h2>
 							<div class="agend-lms-detail__price-row">
-								<span class="agend-lms-detail__price-label"><?php esc_html_e( 'Price', 'agend-elementor' ); ?></span>
-								<span class="agend-lms-detail__price-value<?php echo ( __( 'Free', 'agend-elementor' ) === $price ) ? ' is-free' : ''; ?>"><?php echo esc_html( $price ); ?></span>
+								<span class="agend-lms-detail__price-label"><?php esc_html_e( 'Price', 'agend-apps-core' ); ?></span>
+								<span class="agend-lms-detail__price-value<?php echo ( __( 'Free', 'agend-apps-core' ) === $price ) ? ' is-free' : ''; ?>"><?php echo esc_html( $price ); ?></span>
 							</div>
-							<a class="agend-lms-detail__cta" href="<?php echo esc_url( $sign_in_url ); ?>"><?php esc_html_e( 'Enrol Now', 'agend-elementor' ); ?></a>
-							<p class="agend-lms-detail__note"><?php esc_html_e( 'Sign in to enrol and track your progress.', 'agend-elementor' ); ?></p>
+							<a class="agend-lms-detail__cta" href="<?php echo esc_url( $sign_in_url ); ?>"><?php esc_html_e( 'Enrol Now', 'agend-apps-core' ); ?></a>
+							<p class="agend-lms-detail__note"><?php esc_html_e( 'Sign in to enrol and track your progress.', 'agend-apps-core' ); ?></p>
 						</div>
 						<?php
 					}
@@ -432,26 +432,26 @@ function agend_elementor_fragment_course_enrolment( array $item, string $slug, a
  * @param array $item Course detail (gateway shape).
  * @return string Panel HTML.
  */
-function agend_elementor_fragment_course_meta( array $item ): string {
+function agend_apps_records_fragment_course_meta( array $item ): string {
 	$difficulty = isset( $item['difficulty'] ) ? (string) $item['difficulty'] : '';
 	$mode       = isset( $item['delivery_mode'] ) ? (string) $item['delivery_mode'] : '';
 	$category   = isset( $item['category'] ) ? (string) $item['category'] : '';
 	$instructor = isset( $item['instructor_name'] ) ? (string) $item['instructor_name'] : '';
-	$duration   = agend_elementor_ssr_lms_duration( $item['total_duration_minutes'] ?? null );
+	$duration   = agend_apps_records_ssr_lms_duration( $item['total_duration_minutes'] ?? null );
 	$lessons    = (int) ( $item['lessons_count'] ?? 0 );
 
 	ob_start();
 	?>
 					<div class="agend-lms-detail__panel">
-						<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Details', 'agend-elementor' ); ?></h2>
+						<h2 class="agend-lms-detail__panel-title"><?php esc_html_e( 'Details', 'agend-apps-core' ); ?></h2>
 						<?php
 						$facts = array(
-							array( __( 'Level', 'agend-elementor' ), agend_elementor_ssr_lms_difficulty( $difficulty ) ),
-							array( __( 'Format', 'agend-elementor' ), agend_elementor_ssr_lms_mode( $mode ) ),
-							array( __( 'Duration', 'agend-elementor' ), $duration ),
-							array( __( 'Modules', 'agend-elementor' ), $lessons > 0 ? (string) $lessons : '' ),
-							array( __( 'Category', 'agend-elementor' ), $category ),
-							array( __( 'Instructor', 'agend-elementor' ), $instructor ),
+							array( __( 'Level', 'agend-apps-core' ), agend_apps_records_ssr_lms_difficulty( $difficulty ) ),
+							array( __( 'Format', 'agend-apps-core' ), agend_apps_records_ssr_lms_mode( $mode ) ),
+							array( __( 'Duration', 'agend-apps-core' ), $duration ),
+							array( __( 'Modules', 'agend-apps-core' ), $lessons > 0 ? (string) $lessons : '' ),
+							array( __( 'Category', 'agend-apps-core' ), $category ),
+							array( __( 'Instructor', 'agend-apps-core' ), $instructor ),
 						);
 						foreach ( $facts as $pair ) :
 							if ( '' === (string) $pair[1] ) {
@@ -474,12 +474,12 @@ function agend_elementor_fragment_course_meta( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Section HTML, or empty string when the listing has none.
  */
-function agend_elementor_fragment_listing_about( array $item ): string {
+function agend_apps_records_fragment_listing_about( array $item ): string {
 	ob_start();
 	?>
 	<?php if ( ! empty( $item['description'] ) ) : ?>
 		<section class="agend-dir-detail__section">
-			<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'About', 'agend-elementor' ); ?></h2>
+			<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'About', 'agend-apps-core' ); ?></h2>
 			<div class="agend-dir-detail__body-text"><?php echo wp_kses_post( $item['description'] ); ?></div>
 		</section>
 	<?php endif; ?>
@@ -493,13 +493,13 @@ function agend_elementor_fragment_listing_about( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Section HTML, or empty string when the listing has none.
  */
-function agend_elementor_fragment_listing_gallery( array $item ): string {
+function agend_apps_records_fragment_listing_gallery( array $item ): string {
 	$name = isset( $item['name'] ) ? (string) $item['name'] : '';
 	ob_start();
 	?>
 	<?php if ( ! empty( $item['gallery_images'] ) && is_array( $item['gallery_images'] ) ) : ?>
 		<section class="agend-dir-detail__section">
-			<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Gallery', 'agend-elementor' ); ?></h2>
+			<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Gallery', 'agend-apps-core' ); ?></h2>
 			<div class="agend-dir-gallery">
 				<?php foreach ( $item['gallery_images'] as $image ) : ?>
 					<?php if ( is_string( $image ) && '' !== $image ) : ?>
@@ -521,12 +521,12 @@ function agend_elementor_fragment_listing_gallery( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Section HTML, or empty string when the listing has none.
  */
-function agend_elementor_fragment_listing_locations( array $item ): string {
+function agend_apps_records_fragment_listing_locations( array $item ): string {
 	ob_start();
 	?>
 	<?php if ( ! empty( $item['locations'] ) && is_array( $item['locations'] ) ) : ?>
 		<section class="agend-dir-detail__section">
-			<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Locations', 'agend-elementor' ); ?></h2>
+			<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Locations', 'agend-apps-core' ); ?></h2>
 			<div class="agend-dir-locations">
 				<?php foreach ( $item['locations'] as $location ) : ?>
 					<div class="agend-dir-location">
@@ -551,7 +551,7 @@ function agend_elementor_fragment_listing_locations( array $item ): string {
 						<?php if ( ! empty( $location['phone'] ) ) : ?>
 							<a class="agend-dir-location__phone" href="tel:<?php echo esc_attr( preg_replace( '/[^+\d]/', '', (string) $location['phone'] ) ); ?>"><?php echo esc_html( $location['phone'] ); ?></a>
 						<?php endif; ?>
-						<?php echo agend_elementor_ssr_hours( $location['hours'] ?? null ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+						<?php echo agend_apps_records_ssr_hours( $location['hours'] ?? null ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					</div>
 				<?php endforeach; ?>
 			</div>
@@ -567,12 +567,12 @@ function agend_elementor_fragment_listing_locations( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Section HTML, or empty string when the listing has none.
  */
-function agend_elementor_fragment_listing_tags( array $item ): string {
+function agend_apps_records_fragment_listing_tags( array $item ): string {
 	ob_start();
 	?>
 	<?php if ( ! empty( $item['tags'] ) && is_array( $item['tags'] ) ) : ?>
 		<section class="agend-dir-detail__section">
-			<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Tags', 'agend-elementor' ); ?></h2>
+			<h2 class="agend-dir-detail__section-title"><?php esc_html_e( 'Tags', 'agend-apps-core' ); ?></h2>
 			<div class="agend-dir-card__pills">
 				<?php foreach ( $item['tags'] as $tag ) : ?>
 					<span class="agend-dir-pill agend-dir-pill--tag"><?php echo esc_html( $tag['name'] ?? '' ); ?></span>
@@ -590,14 +590,14 @@ function agend_elementor_fragment_listing_tags( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Panel HTML.
  */
-function agend_elementor_fragment_listing_contact( array $item ): string {
+function agend_apps_records_fragment_listing_contact( array $item ): string {
 	$socials = array(
-		'website'       => __( 'Website', 'agend-elementor' ),
-		'facebook_url'  => __( 'Facebook', 'agend-elementor' ),
-		'instagram_url' => __( 'Instagram', 'agend-elementor' ),
-		'twitter_url'   => __( 'X (Twitter)', 'agend-elementor' ),
-		'linkedin_url'  => __( 'LinkedIn', 'agend-elementor' ),
-		'youtube_url'   => __( 'YouTube', 'agend-elementor' ),
+		'website'       => __( 'Website', 'agend-apps-core' ),
+		'facebook_url'  => __( 'Facebook', 'agend-apps-core' ),
+		'instagram_url' => __( 'Instagram', 'agend-apps-core' ),
+		'twitter_url'   => __( 'X (Twitter)', 'agend-apps-core' ),
+		'linkedin_url'  => __( 'LinkedIn', 'agend-apps-core' ),
+		'youtube_url'   => __( 'YouTube', 'agend-apps-core' ),
 	);
 
 	$rows = '';
@@ -612,11 +612,11 @@ function agend_elementor_fragment_listing_contact( array $item ): string {
 		$rows .= '<a class="agend-dir-detail__contact agend-dir-detail__contact--link" href="' . esc_url( $url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html( $label ) . '</a>';
 	}
 	if ( '' === $rows ) {
-		$rows = '<p class="agend-dir-detail__note">' . esc_html__( 'No contact details provided.', 'agend-elementor' ) . '</p>';
+		$rows = '<p class="agend-dir-detail__note">' . esc_html__( 'No contact details provided.', 'agend-apps-core' ) . '</p>';
 	}
 
 	return '<div class="agend-dir-detail__panel"><h2 class="agend-dir-detail__panel-title">'
-		. esc_html__( 'Contact', 'agend-elementor' ) . '</h2>' . $rows . '</div>';
+		. esc_html__( 'Contact', 'agend-apps-core' ) . '</h2>' . $rows . '</div>';
 }
 
 /**
@@ -625,7 +625,7 @@ function agend_elementor_fragment_listing_contact( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Panel HTML, or empty string.
  */
-function agend_elementor_fragment_listing_categories( array $item ): string {
+function agend_apps_records_fragment_listing_categories( array $item ): string {
 	if ( empty( $item['categories'] ) || ! is_array( $item['categories'] ) ) {
 		return '';
 	}
@@ -634,7 +634,7 @@ function agend_elementor_fragment_listing_categories( array $item ): string {
 		$pills .= '<span class="agend-dir-pill agend-dir-pill--category">' . esc_html( $category['name'] ?? '' ) . '</span>';
 	}
 	return '<div class="agend-dir-detail__panel"><h2 class="agend-dir-detail__panel-title">'
-		. esc_html__( 'Categories', 'agend-elementor' ) . '</h2><div class="agend-dir-card__pills">' . $pills . '</div></div>';
+		. esc_html__( 'Categories', 'agend-apps-core' ) . '</h2><div class="agend-dir-card__pills">' . $pills . '</div></div>';
 }
 
 /**
@@ -643,8 +643,8 @@ function agend_elementor_fragment_listing_categories( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Section HTML, or empty string.
  */
-function agend_elementor_fragment_listing_achievements( array $item ): string {
-	return agend_elementor_ssr_achievements( $item['achievements'] ?? array() );
+function agend_apps_records_fragment_listing_achievements( array $item ): string {
+	return agend_apps_records_ssr_achievements( $item['achievements'] ?? array() );
 }
 
 /**
@@ -656,8 +656,8 @@ function agend_elementor_fragment_listing_achievements( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Section HTML, or empty string.
  */
-function agend_elementor_fragment_listing_custom_fields( array $item ): string {
-	return agend_elementor_ssr_custom_fields( $item['custom_fields'] ?? array() );
+function agend_apps_records_fragment_listing_custom_fields( array $item ): string {
+	return agend_apps_records_ssr_custom_fields( $item['custom_fields'] ?? array() );
 }
 
 /**
@@ -666,8 +666,8 @@ function agend_elementor_fragment_listing_custom_fields( array $item ): string {
  * @param array $item Listing detail (gateway shape).
  * @return string Section HTML, or empty string.
  */
-function agend_elementor_fragment_listing_hours( array $item ): string {
-	return agend_elementor_ssr_hours_section( $item['business_hours'] ?? null );
+function agend_apps_records_fragment_listing_hours( array $item ): string {
+	return agend_apps_records_ssr_hours_section( $item['business_hours'] ?? null );
 }
 
 /**
@@ -678,10 +678,10 @@ function agend_elementor_fragment_listing_hours( array $item ): string {
  * @param array  $extra Render context; `reviews` carries a preloaded response.
  * @return string Section HTML, or empty string.
  */
-function agend_elementor_fragment_listing_reviews( array $item, string $slug, array $extra = array() ): string {
+function agend_apps_records_fragment_listing_reviews( array $item, string $slug, array $extra = array() ): string {
 	$reviews = $extra['reviews'] ?? null;
 	if ( null === $reviews && '' !== $slug && function_exists( 'agend_apps_directory_get_listing_reviews' ) ) {
 		$reviews = agend_apps_directory_get_listing_reviews( $slug, array( 'limit' => 10 ) );
 	}
-	return agend_elementor_ssr_reviews_section( $item, $slug, $reviews );
+	return agend_apps_records_ssr_reviews_section( $item, $slug, $reviews );
 }
