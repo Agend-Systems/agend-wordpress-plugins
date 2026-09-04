@@ -12,8 +12,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Two shapes, chosen per instance: a button that downloads one nominated
- * report, or a dropdown offering a set the designer chose, with one download
- * button beside it.
+ * report, or a menu whose trigger opens a list of reports where choosing one
+ * downloads it. The output format is the designer's choice, not the
+ * visitor's: a visitor picking between CSV and Excel is a decision they have
+ * no basis to make.
  *
  * A report's parameters are supplied by mapping rows keyed on the parameter's
  * FIELD rather than on its condition id. A report declares its parameters as
@@ -129,7 +131,7 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 				'default' => 'button',
 				'options' => array(
 					'button'   => __( 'Button for one report', 'agend-elementor' ),
-					'dropdown' => __( 'Dropdown of several reports', 'agend-elementor' ),
+					'dropdown' => __( 'Menu of several reports', 'agend-elementor' ),
 				),
 			)
 		);
@@ -172,7 +174,7 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 		$this->add_control(
 			'reports',
 			array(
-				'label'       => __( 'Reports offered', 'agend-elementor' ),
+				'label'       => __( 'Reports in the menu', 'agend-elementor' ),
 				'type'        => \Elementor\Controls_Manager::REPEATER,
 				'fields'      => $chosen->get_controls(),
 				'title_field' => '{{{ report_label }}}',
@@ -195,43 +197,24 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 		$this->add_control(
 			'button_text',
 			array(
-				'label'   => __( 'Button text', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXT,
-				'default' => __( 'Download', 'agend-elementor' ),
+				'label'       => __( 'Button text', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::TEXT,
+				'default'     => __( 'Export', 'agend-elementor' ),
+				'description' => __( 'In menu mode this is the trigger that opens the list.', 'agend-elementor' ),
 			)
 		);
 
 		$this->add_control(
-			'formats',
+			'format',
 			array(
-				'label'   => __( 'Format', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'default' => 'csv',
-				'options' => array(
+				'label'       => __( 'Format', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => 'csv',
+				'options'     => array(
 					'csv'  => __( 'CSV', 'agend-elementor' ),
 					'xlsx' => __( 'Excel', 'agend-elementor' ),
-					'both' => __( 'Let the visitor choose', 'agend-elementor' ),
 				),
-			)
-		);
-
-		$this->add_control(
-			'show_label',
-			array(
-				'label'     => __( 'Show a label above the dropdown', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::SWITCHER,
-				'default'   => 'yes',
-				'condition' => array( 'mode' => 'dropdown' ),
-			)
-		);
-
-		$this->add_control(
-			'label',
-			array(
-				'label'     => __( 'Label', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::TEXT,
-				'default'   => __( 'Report', 'agend-elementor' ),
-				'condition' => array( 'mode' => 'dropdown', 'show_label' => 'yes' ),
+				'description' => __( 'Every download from this widget uses this format.', 'agend-elementor' ),
 			)
 		);
 
@@ -376,6 +359,35 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'menu_background',
+			array(
+				'label'     => __( 'Menu background', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array( '{{WRAPPER}} .agend-export__menu' => 'background-color: {{VALUE}};' ),
+				'condition' => array( 'mode' => 'dropdown' ),
+			)
+		);
+
+		$this->add_control(
+			'menu_item_colour',
+			array(
+				'label'     => __( 'Menu item text', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array( '{{WRAPPER}} .agend-export__item' => 'color: {{VALUE}};' ),
+				'condition' => array( 'mode' => 'dropdown' ),
+			)
+		);
+
+		$this->add_group_control(
+			\Elementor\Group_Control_Typography::get_type(),
+			array(
+				'name'      => 'menu_item_typography',
+				'selector'  => '{{WRAPPER}} .agend-export__item',
+				'condition' => array( 'mode' => 'dropdown' ),
+			)
+		);
+
+		$this->add_control(
 			'full_width',
 			array(
 				'label'   => __( 'Full width', 'agend-elementor' ),
@@ -442,7 +454,7 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 		if ( empty( $reports ) ) {
 			$this->render_editor_notice(
 				'dropdown' === $mode
-					? __( 'Add the reports this dropdown should offer.', 'agend-elementor' )
+					? __( 'Add the reports this menu should offer.', 'agend-elementor' )
 					: __( 'Choose the report this button downloads.', 'agend-elementor' )
 			);
 			return;
@@ -452,13 +464,11 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 			'restBase'   => esc_url_raw( rest_url( 'agend-apps/v1' ) ),
 			'mode'       => $mode,
 			'reports'    => $reports,
-			'formats'    => (string) ( $s['formats'] ?? 'csv' ),
+			'format'     => 'xlsx' === ( $s['format'] ?? 'csv' ) ? 'xlsx' : 'csv',
 			'parameters' => $this->parameter_map( $s ),
 			'labels'     => array(
 				'working' => __( 'Preparing…', 'agend-elementor' ),
 				'failed'  => __( 'That report could not be produced. Try again shortly.', 'agend-elementor' ),
-				'csv'     => __( 'CSV', 'agend-elementor' ),
-				'xlsx'    => __( 'Excel', 'agend-elementor' ),
 			),
 		);
 
@@ -467,33 +477,35 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 			$classes .= ' agend-export-report--full';
 		}
 
+		$trigger_text = (string) ( $s['button_text'] ?? __( 'Export', 'agend-elementor' ) );
+
 		echo '<div class="' . esc_attr( $classes ) . '" data-agend-export-config="' . esc_attr( (string) wp_json_encode( $config ) ) . '">';
 
-		if ( 'dropdown' === $mode && 'yes' === ( $s['show_label'] ?? 'yes' ) && '' !== trim( (string) ( $s['label'] ?? '' ) ) ) {
-			echo '<span class="agend-export__label">' . esc_html( (string) $s['label'] ) . '</span>';
+		if ( 'button' === $mode ) {
+			echo '<button type="button" class="agend-export__submit" data-agend-export-submit data-report-id="' . esc_attr( $reports[0]['id'] ) . '">' . esc_html( $trigger_text ) . '</button>';
+			echo '</div>';
+			return;
 		}
 
-		echo '<div class="agend-export__controls">';
+		$menu_id = 'agend-export-menu-' . esc_attr( $this->get_id() );
 
-		if ( 'dropdown' === $mode ) {
-			// Names are resolved client-side unless the designer set one, so a
-			// report renamed in Agend does not go stale in a saved template.
-			echo '<select class="agend-export__select" data-agend-export-select>';
-			foreach ( $reports as $report ) {
-				echo '<option value="' . esc_attr( $report['id'] ) . '">' . esc_html( '' !== $report['label'] ? $report['label'] : $report['id'] ) . '</option>';
-			}
-			echo '</select>';
+		echo '<button type="button" class="agend-export__submit agend-export__trigger" data-agend-export-trigger aria-haspopup="true" aria-expanded="false" aria-controls="' . $menu_id . '">';
+		echo esc_html( $trigger_text );
+		echo '<span class="agend-export__caret" aria-hidden="true"></span>';
+		echo '</button>';
+
+		// Choosing a report IS the action, so each entry is a button rather
+		// than a value to be confirmed with a second click.
+		echo '<ul class="agend-export__menu" id="' . $menu_id . '" data-agend-export-menu hidden>';
+		foreach ( $reports as $report ) {
+			echo '<li class="agend-export__menu-item">';
+			echo '<button type="button" class="agend-export__item" data-agend-export-submit data-report-id="' . esc_attr( $report['id'] ) . '">';
+			// A blank label is filled in with the report's current name at view
+			// time, so a rename in Agend does not go stale in a saved template.
+			echo esc_html( '' !== $report['label'] ? $report['label'] : $report['id'] );
+			echo '</button></li>';
 		}
-
-		if ( 'both' === $config['formats'] ) {
-			echo '<select class="agend-export__format" data-agend-export-format>';
-			echo '<option value="csv">' . esc_html( $config['labels']['csv'] ) . '</option>';
-			echo '<option value="xlsx">' . esc_html( $config['labels']['xlsx'] ) . '</option>';
-			echo '</select>';
-		}
-
-		echo '<button type="button" class="agend-export__submit" data-agend-export-submit>' . esc_html( (string) ( $s['button_text'] ?? __( 'Download', 'agend-elementor' ) ) ) . '</button>';
-		echo '</div>';
+		echo '</ul>';
 		echo '</div>';
 	}
 }
