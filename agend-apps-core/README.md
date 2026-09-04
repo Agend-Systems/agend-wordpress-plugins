@@ -91,3 +91,13 @@ This plugin still owns the thin gateway binding the mirror calls,
 `agend_apps_crm_sync_entitlement_catalogue()` in `includes/api/crm.php` —
 consistent with every other endpoint wrapper in that file, it carries no
 Upbeat-specific knowledge.
+
+## Shared front-end assets
+
+The CSS/JS behind the Agend Elementor catalogue widgets lives in
+`assets/` here, not in the Elementor plugin: none of it is Elementor-specific,
+it only talks to the rendered DOM and the REST fragments API. This plugin
+registers every `agend-elementor-*` handle on `wp_enqueue_scripts` at priority
+5 (`includes/records/assets.php`), ahead of any consumer's own
+`wp_enqueue_scripts` hook. Sibling plugins enqueue these by handle only; they
+do not register them again.
