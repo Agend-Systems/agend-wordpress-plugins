@@ -263,19 +263,15 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 		list( $type, $key ) = explode( ':', $selected, 2 );
 
 		$context = Agend_Elementor_Filter_Context::type();
-		if ( '' === $context ) {
-			// Not inside a catalogue's filter template: the editor shows what
-			// the control will be, the live site shows nothing.
-			$this->render_editor_notice(
-				sprintf(
-					/* translators: %s: the filter's label. */
-					__( 'Agend Filter (%s). This renders once the template is selected as a catalogue\'s filter template.', 'agend-elementor' ),
-					(string) ( $s['label'] ?? $key )
-				)
-			);
+
+		// Outside a catalogue's filter template there is no record type in
+		// scope. In the editor the widget still draws itself, using its own
+		// declared type, so a designer can see and style the real control; on
+		// the live site it renders nothing.
+		if ( '' === $context && ! $this->is_editor() ) {
 			return;
 		}
-		if ( $context !== $type ) {
+		if ( '' !== $context && $context !== $type ) {
 			$this->render_editor_notice( __( 'This filter belongs to a different catalogue, so it renders nothing here.', 'agend-elementor' ) );
 			return;
 		}
@@ -297,11 +293,113 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 		}
 
 		$classes = 'agend-filter agend-filter--' . sanitize_html_class( $config['control'] ) . ' agend-filter--' . sanitize_html_class( $key );
+		if ( $this->is_editor() ) {
+			$classes .= ' agend-filter--preview';
+		}
+
 		echo '<div class="' . esc_attr( $classes ) . '" data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '">';
 		if ( $config['showLabel'] && '' !== $config['label'] ) {
 			echo '<span class="agend-filter__label">' . esc_html( $config['label'] ) . '</span>';
 		}
-		echo '<div class="agend-filter__control"></div>';
+		echo '<div class="agend-filter__control">';
+		if ( $this->is_editor() ) {
+			// The live control is built by assets/js/filters.js once a
+			// catalogue drives it. Nothing does that in the editor, so the
+			// same markup is drawn here instead: a designer styles and
+			// positions exactly what a visitor will see.
+			$this->render_preview_control( $config );
+		}
 		echo '</div>';
+		echo '</div>';
+	}
+
+	/**
+	 * Stand-in values for a control whose real list is fetched at render time.
+	 *
+	 * A facet or endpoint-backed filter has no values until a visitor loads
+	 * the page, so the editor shows plausible ones at a realistic width.
+	 *
+	 * @param array $config The filter config.
+	 * @return array<int, string> Option labels.
+	 */
+	private function preview_values( array $config ): array {
+		if ( ! empty( $config['values'] ) ) {
+			return array_map(
+				static function ( $entry ) {
+					return (string) $entry['label'];
+				},
+				$config['values']
+			);
+		}
+
+		$label = '' !== $config['label'] ? $config['label'] : __( 'Value', 'agend-elementor' );
+		return array(
+			/* translators: %s: the filter's label, e.g. Category. */
+			sprintf( __( 'Example %s one', 'agend-elementor' ), strtolower( $label ) ),
+			sprintf( __( 'Example %s two', 'agend-elementor' ), strtolower( $label ) ),
+			sprintf( __( 'Example %s three', 'agend-elementor' ), strtolower( $label ) ),
+		);
+	}
+
+	/**
+	 * Draws the control the runtime would build, for the editor only.
+	 *
+	 * Mirrors the markup in assets/js/filters.js element for element and class
+	 * for class, so every style control on this widget lands on the same nodes
+	 * in the editor as on the live page.
+	 *
+	 * @param array $config The filter config.
+	 */
+	private function render_preview_control( array $config ): void {
+		$any = '' !== $config['anyLabel']
+			? $config['anyLabel']
+			/* translators: %s: the filter's label, e.g. Category. "Any" rather
+			than "All" so a singular label still reads correctly. */
+			: sprintf( __( 'Any %s', 'agend-elementor' ), $config['label'] );
+
+		switch ( $config['control'] ) {
+			case 'search':
+				printf(
+					'<input type="search" placeholder="%s" />',
+					esc_attr( '' !== $config['placeholder'] ? $config['placeholder'] : $config['label'] )
+				);
+				return;
+
+			case 'date':
+				echo '<input type="date" />';
+				return;
+
+			case 'range':
+				echo '<div class="agend-filter__range"><input type="number" placeholder="' . esc_attr__( 'Min', 'agend-elementor' ) . '" /><input type="number" placeholder="' . esc_attr__( 'Max', 'agend-elementor' ) . '" /></div>';
+				return;
+
+			case 'reset':
+				echo '<button type="button" class="agend-filter__button agend-filter__reset">' . esc_html( '' !== $config['label'] ? $config['label'] : __( 'Clear filters', 'agend-elementor' ) ) . '</button>';
+				return;
+
+			case 'checkboxes':
+				echo '<div class="agend-filter__options">';
+				foreach ( $this->preview_values( $config ) as $value ) {
+					echo '<label class="agend-filter__option"><input type="checkbox" /><span>' . esc_html( $value ) . '</span></label>';
+				}
+				echo '</div>';
+				return;
+
+			case 'buttons':
+				echo '<div class="agend-filter__options">';
+				echo '<button type="button" class="agend-filter__button is-active" aria-pressed="true">' . esc_html( $any ) . '</button>';
+				foreach ( $this->preview_values( $config ) as $value ) {
+					echo '<button type="button" class="agend-filter__button" aria-pressed="false">' . esc_html( $value ) . '</button>';
+				}
+				echo '</div>';
+				return;
+
+			default:
+				echo '<select><option>' . esc_html( $any ) . '</option>';
+				foreach ( $this->preview_values( $config ) as $value ) {
+					echo '<option>' . esc_html( $value ) . '</option>';
+				}
+				echo '</select>';
+		}
 	}
 }

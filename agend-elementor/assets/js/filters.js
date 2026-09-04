@@ -45,6 +45,12 @@
     state.page = 1;
   }
 
+  // "Any" rather than "All" so a singular label still reads correctly, and
+  // matching the editor preview the widget draws server-side.
+  function anyLabel(cfg) {
+    return cfg.anyLabel || ('Any ' + (cfg.label || ''));
+  }
+
   function sameSelection(a, b) {
     return a.length === b.length && a.every(function (v, i) { return v === b[i]; });
   }
@@ -124,7 +130,7 @@
 
   function buildSelect(shell, cfg, ctx, values) {
     var select = el('select');
-    select.appendChild(new Option(cfg.anyLabel || ('All ' + (cfg.label || '')), ''));
+    select.appendChild(new Option(anyLabel(cfg), ''));
     values.forEach(function (entry, index) {
       select.appendChild(new Option(entry.label, String(index)));
     });
@@ -172,7 +178,7 @@
       });
     }
 
-    var any = el('button', 'agend-filter__button', cfg.anyLabel || ('All ' + (cfg.label || '')));
+    var any = el('button', 'agend-filter__button', anyLabel(cfg));
     any.type = 'button';
     buttons.push({ node: any, value: [] });
     list.appendChild(any);

@@ -361,7 +361,11 @@ function agend_elementor_filter_config( string $type, string $key, array $settin
 		'state'       => $descriptor['state'],
 		'mode'        => $descriptor['mode'],
 		'control'     => $control,
-		'label'       => (string) ( $settings['label'] ?? $descriptor['label'] ),
+		// An unset Elementor text control is an empty string, not null, so the
+		// filter's own name has to be restored explicitly.
+		'label'       => '' !== trim( (string) ( $settings['label'] ?? '' ) )
+			? trim( (string) $settings['label'] )
+			: (string) $descriptor['label'],
 		'showLabel'   => 'yes' === ( $settings['show_label'] ?? 'yes' ),
 		'placeholder' => (string) ( $settings['placeholder'] ?? '' ),
 		'anyLabel'    => (string) ( $settings['any_label'] ?? '' ),
