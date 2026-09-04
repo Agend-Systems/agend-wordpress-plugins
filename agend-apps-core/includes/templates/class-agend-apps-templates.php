@@ -191,6 +191,33 @@ final class Agend_Apps_Templates {
 	}
 
 	/**
+	 * Whether the page contains any registered source's surface of the given
+	 * kind. `true` if any source says so; else `false` if any source said
+	 * `false`; else `null` when no source could tell (or none is registered).
+	 *
+	 * @param int    $page_id The page to inspect.
+	 * @param string $surface Agnostic surface kind, e.g. 'events-catalogue'.
+	 * @return bool|null
+	 */
+	public static function page_contains_surface( int $page_id, string $surface ): ?bool {
+		$found_false = false;
+
+		foreach ( self::$sources as $source ) {
+			$result = $source->page_contains_surface( $page_id, $surface );
+
+			if ( true === $result ) {
+				return true;
+			}
+
+			if ( false === $result ) {
+				$found_false = true;
+			}
+		}
+
+		return $found_false ? false : null;
+	}
+
+	/**
 	 * The full SELECT options array: one placeholder, then every registered
 	 * source's templates.
 	 *

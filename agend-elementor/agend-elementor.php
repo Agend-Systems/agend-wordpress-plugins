@@ -124,6 +124,10 @@ function agend_elementor_bootstrap(): void {
 		Agend_Apps_Templates::register_source( new Agend_Elementor_Template_Source_Adapter() );
 	}
 
+	// Elementor-only: labels the live detail templates in the Saved Templates
+	// list. Independent of the registry, so it is not inside the guard above.
+	require_once AGEND_ELEMENTOR_DIR . 'includes/adapters/template-post-states.php';
+
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-filters.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-query.php';

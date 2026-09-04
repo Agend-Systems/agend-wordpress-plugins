@@ -54,7 +54,11 @@ final class Template_Registry_Test_Renderer implements Agend_Apps_Template_Rende
 final class Template_Registry_Test_Source implements Agend_Apps_Template_Source {
 
 	/** @param array<string, string> $templates */
-	public function __construct( private string $label = 'Stub', private array $templates = array() ) {}
+	public function __construct(
+		private string $label = 'Stub',
+		private array $templates = array(),
+		private ?bool $page_surface_result = null
+	) {}
 
 	public function label(): string {
 		return $this->label;
@@ -62,6 +66,10 @@ final class Template_Registry_Test_Source implements Agend_Apps_Template_Source 
 
 	public function templates(): array {
 		return $this->templates;
+	}
+
+	public function page_contains_surface( int $page_id, string $surface ): ?bool {
+		return $this->page_surface_result;
 	}
 }
 

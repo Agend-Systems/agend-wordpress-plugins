@@ -4,8 +4,8 @@
  *
  * Registers a small options page (Settings > Agend Widgets) exposing the
  * server-rendered detail-pages toggle. Loaded unconditionally so the accessor
- * is available on the front-end `wp` hook (before Elementor/core bootstrap) and
- * in the admin.
+ * is available on the front-end `wp` hook (before the page-builder plugins
+ * bootstrap) and in the admin.
  *
  * @package Agend_Elementor
  */
@@ -50,8 +50,8 @@ const AGEND_ELEMENTOR_COURSES_PAGE_OPTION = 'agend_elementor_courses_page_id';
 const AGEND_ELEMENTOR_DIRECTORY_PAGE_OPTION = 'agend_elementor_directory_page_id';
 
 /**
- * Option names storing the Elementor template used for a type's detail page
- * (elementor_library post id, 0 = built-in layout).
+ * Option names storing the saved template used for a type's detail page
+ * (template post id, 0 = built-in layout).
  *
  * @var string
  */
@@ -271,25 +271,23 @@ function agend_elementor_settings_section_pages(): void {
 }
 
 /**
- * Renders a widget-presence advisory when the selected page's Elementor
- * content does not appear to contain the expected catalogue widget.
+ * Renders a widget-presence advisory when the selected page does not appear
+ * to contain the expected catalogue surface.
  *
- * `_elementor_data` is the raw JSON Elementor stores for the page; matching
- * the widget type string directly is a cheap heuristic (no JSON parse) and is
- * advisory only, so a false negative (e.g. the widget nested unusually) never
- * blocks saving the setting.
+ * The answer comes from every registered {@see Agend_Apps_Template_Source},
+ * so the advisory renders only when a source can tell AND says the surface is
+ * absent; a source that cannot tell (`null`) never triggers a false warning.
  *
- * @param int    $page_id     The selected page id (0 = none selected).
- * @param string $widget_type The expected widgetType value, e.g. 'agend-events-catalogue'.
- * @param string $message     The advisory message to show when the widget is not found.
+ * @param int    $page_id The selected page id (0 = none selected).
+ * @param string $surface Agnostic surface kind, e.g. 'events-catalogue'.
+ * @param string $message The advisory message to show when the surface is not found.
  */
-function agend_elementor_settings_widget_advisory( int $page_id, string $widget_type, string $message ): void {
-	if ( 0 === $page_id ) {
+function agend_elementor_settings_widget_advisory( int $page_id, string $surface, string $message ): void {
+	if ( 0 === $page_id || ! class_exists( 'Agend_Apps_Templates' ) ) {
 		return;
 	}
 
-	$data = get_post_meta( $page_id, '_elementor_data', true );
-	if ( false !== strpos( (string) $data, '"widgetType":"' . $widget_type . '"' ) ) {
+	if ( false !== Agend_Apps_Templates::page_contains_surface( $page_id, $surface ) ) {
 		return;
 	}
 
@@ -311,8 +309,8 @@ function agend_elementor_settings_field_events_page(): void {
 	);
 	agend_elementor_settings_widget_advisory(
 		$selected,
-		'agend-events-catalogue',
-		__( 'This page does not appear to contain the Events Catalogue widget.', 'agend-elementor' )
+		'events-catalogue',
+		__( 'This page does not appear to contain an Events Catalogue.', 'agend-elementor' )
 	);
 }
 
@@ -331,8 +329,8 @@ function agend_elementor_settings_field_courses_page(): void {
 	);
 	agend_elementor_settings_widget_advisory(
 		$selected,
-		'agend-courses-catalogue',
-		__( 'This page does not appear to contain the Courses Catalogue widget.', 'agend-elementor' )
+		'courses-catalogue',
+		__( 'This page does not appear to contain a Courses Catalogue.', 'agend-elementor' )
 	);
 }
 
@@ -359,7 +357,7 @@ function agend_elementor_settings_template_select( string $option, string $page_
 	echo '</select>';
 	echo '<p class="description">';
 	if ( $has_page ) {
-		esc_html_e( 'A saved Elementor template built from the Agend Field, Image, Link and Content Block widgets. Rendered server-side on the dedicated page for every item.', 'agend-elementor' );
+		esc_html_e( 'A saved template built from the Agend Field, Image, Link and Content Block elements. Rendered server-side on the dedicated page for every item.', 'agend-elementor' );
 	} else {
 		esc_html_e( 'Choose the dedicated page above first.', 'agend-elementor' );
 	}
@@ -388,8 +386,8 @@ function agend_elementor_settings_field_directory_page(): void {
 	);
 	agend_elementor_settings_widget_advisory(
 		$selected,
-		'agend-directory-catalogue',
-		__( 'This page does not appear to contain the Directory Catalogue widget.', 'agend-elementor' )
+		'directory-catalogue',
+		__( 'This page does not appear to contain a Directory Catalogue.', 'agend-elementor' )
 	);
 }
 
@@ -408,29 +406,21 @@ function agend_elementor_settings_field_course_detail_template(): void {
 }
 
 /**
- * Marks the templates in use as detail layouts in the Saved Templates list,
- * so nobody deletes the live detail layout by accident.
+ * The three detail-template options, keyed to their admin label.
  *
- * @param array   $states Post states.
- * @param WP_Post $post   The list row's post.
- * @return array
+ * Framework-agnostic: consumed by the builder-specific post-states adapter
+ * (adapters/template-post-states.php in the Elementor plugin)
+ * so it does not have to know the option names' labels itself.
+ *
+ * @return array<string, string> Option name => label.
  */
-function agend_elementor_template_post_states( array $states, $post ): array {
-	if ( ! ( $post instanceof WP_Post ) || 'elementor_library' !== $post->post_type ) {
-		return $states;
-	}
-	if ( $post->ID === absint( get_option( AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION, 0 ) ) ) {
-		$states['agend_event_detail'] = __( 'Agend Event detail template', 'agend-elementor' );
-	}
-	if ( $post->ID === absint( get_option( AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION, 0 ) ) ) {
-		$states['agend_course_detail'] = __( 'Agend Course detail template', 'agend-elementor' );
-	}
-	if ( $post->ID === absint( get_option( AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION, 0 ) ) ) {
-		$states['agend_listing_detail'] = __( 'Agend Listing detail template', 'agend-elementor' );
-	}
-	return $states;
+function agend_elementor_detail_template_labels(): array {
+	return array(
+		AGEND_ELEMENTOR_EVENT_DETAIL_TEMPLATE_OPTION   => __( 'Agend Event detail template', 'agend-elementor' ),
+		AGEND_ELEMENTOR_COURSE_DETAIL_TEMPLATE_OPTION  => __( 'Agend Course detail template', 'agend-elementor' ),
+		AGEND_ELEMENTOR_LISTING_DETAIL_TEMPLATE_OPTION => __( 'Agend Listing detail template', 'agend-elementor' ),
+	);
 }
-add_filter( 'display_post_states', 'agend_elementor_template_post_states', 10, 2 );
 
 /**
  * Renders the Detail Pages settings section description.
