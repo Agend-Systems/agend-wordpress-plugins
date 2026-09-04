@@ -1042,3 +1042,17 @@
   color: #1a7f37;
   font-weight: 600;
 }
+
+/* Card template mode: each card is the template output inside one clickable
+   shell; the shell must not restyle the template. */
+.agend-dir-grid--templated > .agend-card-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.agend-dir-filter-slot:empty {
+  display: none;
+}

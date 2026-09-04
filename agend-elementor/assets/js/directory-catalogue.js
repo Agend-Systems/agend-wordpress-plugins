@@ -34,7 +34,13 @@
   }
 
   function apiGet(path, params) {
-    var url = restBase().replace(/\/$/, '') + path;
+    return apiGetFrom(restBase(), path, params);
+  }
+
+  // Same query serialisation against another REST base (the plugin's own
+  // card-fragment namespace).
+  function apiGetFrom(base, path, params) {
+    var url = String(base || '').replace(/\/$/, '') + path;
     var qs = [];
     Object.keys(params || {}).forEach(function (key) {
       var value = params[key];
@@ -1366,15 +1372,51 @@
       append: false,
     };
 
+    // The filter template is rendered server-side inside the widget; take it
+    // out of the root before the catalogue view replaces the markup, so the
+    // same controls survive both the listing and the detail view.
+    var serverFilters = root.querySelector('.agend-dir-filter-slot');
+    var hasTemplatedFilters = !!(cfg.filterTemplate && serverFilters && serverFilters.querySelector('[data-agend-filter]'));
+    // In card-template mode the slot is adopted with the rest of the
+    // server markup and is already in the right place; in legacy mode the
+    // catalogue view replaces the root, so detach it first.
+    if (hasTemplatedFilters && cfg.cardMode !== 'template' && serverFilters.parentNode) {
+      serverFilters.parentNode.removeChild(serverFilters);
+    }
+
     applySiteTheme(root, cfg);
 
-    var catalogueEl = el('div', 'agend-dir-catalogue');
-    var status = el('div', 'agend-dir-status', 'Loading listings…');
-    var grid = el('div', 'agend-dir-grid agend-dir-grid--' + (cfg.layout.style || 'grid'));
+    // Publish the live filter state so an Agend Export Report widget on the
+    // same page can export whatever the visitor has narrowed this catalogue
+    // down to. The same object reference is kept, so it stays current as the
+    // filters write to it. Several catalogues on one page: the last to
+    // initialise is the one an export reads.
+    window.agendCatalogues = window.agendCatalogues || {};
+    window.agendCatalogues.listing = { state: state, config: cfg, root: root };
+
+    // Card template mode: the first page arrived server-rendered, so adopt
+    // that markup (grid, pager, filter slot) instead of rebuilding it, and
+    // fetch later pages as rendered fragments.
+    var templated = cfg.cardMode === 'template';
+    var catalogueEl, status, grid, pager;
+    if (templated) {
+      catalogueEl = el('div', 'agend-dir-catalogue');
+      while (root.firstChild) {
+        catalogueEl.appendChild(root.firstChild);
+      }
+      status = catalogueEl.querySelector('.agend-dir-status') || el('div', 'agend-dir-status');
+      grid = catalogueEl.querySelector('.agend-dir-grid') || el('div', 'agend-dir-grid');
+      pager = catalogueEl.querySelector('.agend-dir-pager-slot') || el('div', 'agend-dir-pager-slot');
+      mountFilters(catalogueEl.querySelector('.agend-dir-filter-slot') || catalogueEl);
+      grid.addEventListener('click', onTemplatedCardClick);
+    } else {
+    catalogueEl = el('div', 'agend-dir-catalogue');
+    status = el('div', 'agend-dir-status', 'Loading listings…');
+    grid = el('div', 'agend-dir-grid agend-dir-grid--' + (cfg.layout.style || 'grid'));
     grid.style.setProperty('--agend-dir-cols-desktop', cfg.layout.style === 'list' ? 1 : cfg.layout.desktop);
     grid.style.setProperty('--agend-dir-cols-tablet', cfg.layout.style === 'list' ? 1 : cfg.layout.tablet);
     grid.style.setProperty('--agend-dir-cols-mobile', cfg.layout.mobile);
-    var pager = el('div', 'agend-dir-pager-slot');
+    pager = el('div', 'agend-dir-pager-slot');
 
     if (cfg.heading && cfg.heading.show) {
       var head = el('div', 'agend-dir-heading');
@@ -1386,10 +1428,11 @@
       }
       catalogueEl.appendChild(head);
     }
-    buildFilterBar(catalogueEl, cfg, state, reloadCatalogue);
+    mountFilters(catalogueEl);
     catalogueEl.appendChild(status);
     catalogueEl.appendChild(grid);
     catalogueEl.appendChild(pager);
+    }
 
     // Signed-in member's own listing, if any (SPEC-CORE-20260722 US-2.6): a
     // "Manage your listing" link near the top, plus a badge on the matching
@@ -1421,6 +1464,18 @@
     }
 
     function deepLinkUrl(slug) {
+      // The dedicated Directory page wins over the host page when configured.
+      if (cfg.detailBase) {
+        var detailBase = cfg.detailBase;
+        if (detailBase.charAt(detailBase.length - 1) !== '/') {
+          detailBase += '/';
+        }
+        if (cfg.prettyLinks) {
+          return detailBase + 'listing/' + encodeURIComponent(slug) + '/';
+        }
+        var sep = detailBase.indexOf('?') === -1 ? '?' : '&';
+        return detailBase + sep + DEEP_LINK_PARAM + '=' + encodeURIComponent(slug);
+      }
       if (cfg.prettyLinks && cfg.basePath) {
         var base = cfg.basePath;
         if (base.charAt(base.length - 1) !== '/') {
@@ -1456,6 +1511,82 @@
       root.appendChild(catalogueEl);
       if (updateUrl) {
         setUrlParam(null);
+      }
+    }
+
+    // Opens a listing: in place when this widget is on the detail page (or no
+    // dedicated Directory page is configured), otherwise navigates there.
+    function mountFilters(target) {
+      if (hasTemplatedFilters && window.agendFilters && window.agendFilters.build) {
+        // Side placement is a grid on whichever element holds the filter slot
+        // and the results. The server put that class on the root, but the
+        // catalogue view has since moved those children into catalogueEl, so
+        // the class moves with them or the root is left as a grid of one.
+        var posClass = 'agend-filters-' + (cfg.filterPosition || 'top');
+        root.classList.remove(posClass);
+        catalogueEl.classList.add(posClass);
+        if (!target.contains(serverFilters)) {
+          target.appendChild(serverFilters);
+        }
+        window.agendFilters.build(serverFilters, {
+          state: state,
+          reload: reloadCatalogue,
+          apiGet: apiGet,
+        });
+        return;
+      }
+      buildFilterBar(target, cfg, state, reloadCatalogue);
+    }
+
+    function openItem(slug) {
+      if (cfg.onDetailPage === false || cfg.ssrDetail) {
+        window.location.assign(deepLinkUrl(slug));
+        return;
+      }
+      showDetail(slug, true);
+    }
+
+    // Templated cards are raw HTML, so clicks are delegated from the grid.
+    function onTemplatedCardClick(e) {
+      var card = e.target.closest ? e.target.closest('[data-agend-slug]') : null;
+      if (!card || !grid.contains(card)) {
+        return;
+      }
+      var slug = card.getAttribute('data-agend-slug');
+      if (!slug) {
+        return;
+      }
+      // Off the dedicated page the anchor navigates natively, so middle-click
+      // and open-in-new-tab keep working.
+      if ((cfg.onDetailPage === false || cfg.ssrDetail) && card.tagName === 'A') {
+        return;
+      }
+      e.preventDefault();
+      openItem(slug);
+    }
+
+    function fragmentGet(params) {
+      var query = { template: cfg.cardTemplate, detail_page: cfg.hostPageId || 0, card_link_whole: cfg.cardLinkWhole ? 1 : 0 };
+      Object.keys(params || {}).forEach(function (key) {
+        query[key] = params[key];
+      });
+      return apiGetFrom(cfg.restBase || '', cfg.fragmentPath, query);
+    }
+
+    // Fragments are this plugin's own PHP output with every record value
+    // escaped server-side by the field widgets, so they are inserted as-is:
+    // the DOMPurify pass used for gateway rich text would strip Elementor's
+    // inline styles and data attributes.
+    function insertFragments(cards) {
+      cards.forEach(function (card) {
+        var wrap = document.createElement('div');
+        wrap.innerHTML = card.html || '';
+        while (wrap.firstChild) {
+          grid.appendChild(wrap.firstChild);
+        }
+      });
+      if (window.agendRecordFields && window.agendRecordFields.apply) {
+        window.agendRecordFields.apply(grid);
       }
     }
 
@@ -1501,7 +1632,7 @@
       var categoryParam = state.categories && state.categories.length
         ? state.categories.join(',')
         : state.category;
-      apiGet('/directory/search', {
+      var params = {
         page: state.page,
         limit: cfg.pagination.perPage,
         search: state.search,
@@ -1511,8 +1642,11 @@
         excludeCategories: (exclusions.categories || []).join(','),
         sortBy: 'relevance',
         sortOrder: 'desc',
-      }).then(function (body) {
-        var result = unwrapList(body);
+      };
+      (templated ? fragmentGet(params) : apiGet('/directory/search', params)).then(function (body) {
+        var result = templated
+          ? { items: (body && body.cards) || [], pagination: (body && body.meta && body.meta.pagination) || null }
+          : unwrapList(body);
         status.style.display = 'none';
         if (!state.append) {
           grid.innerHTML = '';
@@ -1523,9 +1657,13 @@
           status.textContent = 'No listings found.';
           return;
         }
-        result.items.forEach(function (listing) {
-          grid.appendChild(renderCard(listing, cfg, function (slug) { showDetail(slug, true); }, deepLinkUrl, myListing));
-        });
+        if (templated) {
+          insertFragments(result.items);
+        } else {
+          result.items.forEach(function (listing) {
+            grid.appendChild(renderCard(listing, cfg, function (slug) { openItem(slug); }, deepLinkUrl, myListing));
+          });
+        }
         renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);
       }).catch(function () {
         if (!state.append) {
@@ -1562,7 +1700,19 @@
     // In server-rendered detail mode the detail is its own page, so the
     // catalogue widget only ever renders the grid (cards are links).
     var deepLinkSlug = cfg.ssrDetail ? '' : (cfg.deepLink || currentDeepLink());
-    if (deepLinkSlug) {
+    if (templated) {
+      // The first page is already in the DOM; only wire pagination, and
+      // refetch when the server-side fetch failed.
+      renderPagination(pager, cfg, state, cfg.initialPagination || null, reloadCatalogue);
+      if (deepLinkSlug) {
+        showDetail(deepLinkSlug, false);
+      } else {
+        showCatalogue(false);
+      }
+      if (cfg.initialError) {
+        reloadCatalogue();
+      }
+    } else if (deepLinkSlug) {
       showDetail(deepLinkSlug, false);
       reloadCatalogue();
     } else {

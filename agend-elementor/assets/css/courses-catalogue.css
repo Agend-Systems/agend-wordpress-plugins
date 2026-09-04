@@ -648,3 +648,17 @@
 .agend-lms-detail__note.is-error {
   color: #c02b2b;
 }
+
+/* Card template mode: each card is the template output inside one clickable
+   shell; the shell must not restyle the template. */
+.agend-lms-grid--templated > .agend-card-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.agend-lms-filter-slot:empty {
+  display: none;
+}
