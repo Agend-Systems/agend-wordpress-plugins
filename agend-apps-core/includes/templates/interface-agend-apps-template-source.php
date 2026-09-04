@@ -39,4 +39,15 @@ interface Agend_Apps_Template_Source {
 	 * @return array<string, string> Template ids => titles. No placeholder entry.
 	 */
 	public function templates(): array;
+
+	/**
+	 * Whether the page contains this builder's surface of the given kind.
+	 * `null` means this builder cannot tell (it does not own the page's content),
+	 * so an advisory that depends on the answer simply does not render.
+	 *
+	 * @param int    $page_id The page to inspect.
+	 * @param string $surface Agnostic surface kind: 'events-catalogue', 'courses-catalogue' or 'directory-catalogue'.
+	 * @return bool|null
+	 */
+	public function page_contains_surface( int $page_id, string $surface ): ?bool;
 }
