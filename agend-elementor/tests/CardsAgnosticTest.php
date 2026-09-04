@@ -70,7 +70,7 @@ final class CardsAgnosticTest extends TestCase {
 		parent::setUp();
 		Agend_Apps_Templates::reset();
 		$this->renderer = new Cards_Agnostic_Test_Renderer();
-		Agend_Apps_Templates::set_renderer( $this->renderer );
+		Agend_Apps_Templates::register_renderer( $this->renderer );
 	}
 
 	protected function tearDown(): void {

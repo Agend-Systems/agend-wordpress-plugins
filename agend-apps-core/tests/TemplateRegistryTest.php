@@ -19,47 +19,55 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/interface-a
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/class-agend-apps-templates.php';
 
 /**
- * Stub renderer recording every call it receives.
+ * Stub renderer claiming a fixed set of template ids and recording its calls.
  */
 final class Template_Registry_Test_Renderer implements Agend_Apps_Template_Renderer {
 
 	/** @var array<int, array<string, mixed>> */
-	public array $render_calls = array();
+	public array $calls = array();
 
-	public bool $valid = true;
+	/** @param int[] $owns Template ids this renderer claims. */
+	public function __construct( private array $owns = array(), private string $name = 'stub' ) {}
 
 	public function is_valid_template( int $template_id ): bool {
-		return $this->valid;
+		return in_array( $template_id, $this->owns, true );
 	}
 
 	public function ensure_styles( int $template_id ): void {
-		$this->render_calls[] = array( 'method' => 'ensure_styles', 'template_id' => $template_id );
+		$this->calls[] = array( 'method' => 'ensure_styles', 'template_id' => $template_id );
 	}
 
 	public function render( int $template_id, string $type, array $record, array $extra = array(), bool $with_css = false ): string {
-		$this->render_calls[] = array( 'method' => 'render', 'template_id' => $template_id );
-		return 'rendered:' . $template_id;
+		$this->calls[] = array( 'method' => 'render', 'template_id' => $template_id );
+		return $this->name . ':rendered:' . $template_id;
 	}
 
 	public function render_plain( int $template_id, bool $with_css = false ): string {
-		$this->render_calls[] = array( 'method' => 'render_plain', 'template_id' => $template_id );
-		return 'plain:' . $template_id;
+		$this->calls[] = array( 'method' => 'render_plain', 'template_id' => $template_id );
+		return $this->name . ':plain:' . $template_id;
 	}
 }
 
 /**
- * Stub source recording the placeholder it was asked for.
+ * Stub source offering a fixed template map under a fixed builder label.
  */
 final class Template_Registry_Test_Source implements Agend_Apps_Template_Source {
 
-	public function options( string $placeholder = '' ): array {
-		return array( '' => $placeholder, '12' => 'Card A' );
+	/** @param array<string, string> $templates */
+	public function __construct( private string $label = 'Stub', private array $templates = array() ) {}
+
+	public function label(): string {
+		return $this->label;
+	}
+
+	public function templates(): array {
+		return $this->templates;
 	}
 }
 
 /**
  * `Agend_Apps_Templates`: the renderer/source registry the framework-agnostic
- * layer depends on instead of a concrete page-builder plugin's classes.
+ * record layer depends on instead of a concrete page-builder plugin's classes.
  */
 #[CoversClass( Agend_Apps_Templates::class )]
 final class TemplateRegistryTest extends TestCase {
@@ -75,54 +83,91 @@ final class TemplateRegistryTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_delegate_is_valid_template_to_the_registered_renderer(): void {
-		$renderer         = new Template_Registry_Test_Renderer();
-		$renderer->valid = false;
-		Agend_Apps_Templates::set_renderer( $renderer );
+	public function should_report_a_template_valid_when_a_registered_renderer_claims_it(): void {
+		Agend_Apps_Templates::register_renderer( new Template_Registry_Test_Renderer( array( 5 ) ) );
 
-		$this->assertFalse( Agend_Apps_Templates::is_valid_template( 5 ) );
+		$this->assertTrue( Agend_Apps_Templates::is_valid_template( 5 ) );
 	}
 
 	#[Test]
-	public function should_delegate_ensure_styles_to_the_registered_renderer(): void {
-		$renderer = new Template_Registry_Test_Renderer();
-		Agend_Apps_Templates::set_renderer( $renderer );
+	public function should_report_a_template_invalid_when_no_registered_renderer_claims_it(): void {
+		Agend_Apps_Templates::register_renderer( new Template_Registry_Test_Renderer( array( 5 ) ) );
 
-		Agend_Apps_Templates::ensure_styles( 5 );
+		$this->assertFalse( Agend_Apps_Templates::is_valid_template( 99 ) );
+	}
 
+	#[Test]
+	public function should_route_a_render_to_the_renderer_that_claims_the_template(): void {
+		$blocks = new Template_Registry_Test_Renderer( array( 5 ), 'blocks' );
+		$elementor = new Template_Registry_Test_Renderer( array( 12 ), 'elementor' );
+		Agend_Apps_Templates::register_renderer( $blocks );
+		Agend_Apps_Templates::register_renderer( $elementor );
+
+		$this->assertSame( 'blocks:rendered:5', Agend_Apps_Templates::render( 5, 'event', array() ) );
+		$this->assertSame( 'elementor:rendered:12', Agend_Apps_Templates::render( 12, 'event', array() ) );
+	}
+
+	#[Test]
+	public function should_route_ensure_styles_only_to_the_renderer_that_claims_the_template(): void {
+		$blocks = new Template_Registry_Test_Renderer( array( 5 ), 'blocks' );
+		$elementor = new Template_Registry_Test_Renderer( array( 12 ), 'elementor' );
+		Agend_Apps_Templates::register_renderer( $blocks );
+		Agend_Apps_Templates::register_renderer( $elementor );
+
+		Agend_Apps_Templates::ensure_styles( 12 );
+
+		$this->assertSame( array(), $blocks->calls );
 		$this->assertSame(
-			array( array( 'method' => 'ensure_styles', 'template_id' => 5 ) ),
-			$renderer->render_calls
+			array( array( 'method' => 'ensure_styles', 'template_id' => 12 ) ),
+			$elementor->calls
 		);
 	}
 
 	#[Test]
-	public function should_delegate_render_to_the_registered_renderer(): void {
-		$renderer = new Template_Registry_Test_Renderer();
-		Agend_Apps_Templates::set_renderer( $renderer );
+	public function should_route_render_plain_to_the_renderer_that_claims_the_template(): void {
+		Agend_Apps_Templates::register_renderer( new Template_Registry_Test_Renderer( array( 5 ), 'blocks' ) );
+		Agend_Apps_Templates::register_renderer( new Template_Registry_Test_Renderer( array( 12 ), 'elementor' ) );
 
-		$html = Agend_Apps_Templates::render( 5, 'event', array( 'id' => 1 ) );
-
-		$this->assertSame( 'rendered:5', $html );
+		$this->assertSame( 'elementor:plain:12', Agend_Apps_Templates::render_plain( 12 ) );
 	}
 
 	#[Test]
-	public function should_delegate_render_plain_to_the_registered_renderer(): void {
-		$renderer = new Template_Registry_Test_Renderer();
-		Agend_Apps_Templates::set_renderer( $renderer );
+	public function should_resolve_to_the_first_registered_renderer_when_two_claim_the_same_template(): void {
+		Agend_Apps_Templates::register_renderer( new Template_Registry_Test_Renderer( array( 5 ), 'first' ) );
+		Agend_Apps_Templates::register_renderer( new Template_Registry_Test_Renderer( array( 5 ), 'second' ) );
 
-		$html = Agend_Apps_Templates::render_plain( 5 );
-
-		$this->assertSame( 'plain:5', $html );
+		$this->assertSame( 'first:rendered:5', Agend_Apps_Templates::render( 5, 'event', array() ) );
 	}
 
 	#[Test]
-	public function should_delegate_options_to_the_registered_source(): void {
-		Agend_Apps_Templates::set_source( new Template_Registry_Test_Source() );
+	public function should_list_one_sources_templates_unqualified_when_it_is_the_only_source(): void {
+		Agend_Apps_Templates::register_source(
+			new Template_Registry_Test_Source( 'Block editor', array( '5' => 'Event card' ) )
+		);
 
-		$options = Agend_Apps_Templates::options( 'Pick one' );
+		$this->assertSame(
+			array( '' => 'Pick one', '5' => 'Event card' ),
+			Agend_Apps_Templates::options( 'Pick one' )
+		);
+	}
 
-		$this->assertSame( array( '' => 'Pick one', '12' => 'Card A' ), $options );
+	#[Test]
+	public function should_merge_and_label_every_sources_templates_when_more_than_one_is_registered(): void {
+		Agend_Apps_Templates::register_source(
+			new Template_Registry_Test_Source( 'Block editor', array( '5' => 'Event card' ) )
+		);
+		Agend_Apps_Templates::register_source(
+			new Template_Registry_Test_Source( 'Elementor', array( '12' => 'Event card' ) )
+		);
+
+		$this->assertSame(
+			array(
+				''   => 'Pick one',
+				'5'  => 'Event card (Block editor)',
+				'12' => 'Event card (Elementor)',
+			),
+			Agend_Apps_Templates::options( 'Pick one' )
+		);
 	}
 
 	#[Test]
@@ -153,15 +198,16 @@ final class TemplateRegistryTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_have_no_renderer_or_source_after_reset(): void {
-		Agend_Apps_Templates::set_renderer( new Template_Registry_Test_Renderer() );
-		Agend_Apps_Templates::set_source( new Template_Registry_Test_Source() );
+	public function should_hold_no_renderers_or_sources_after_reset(): void {
+		Agend_Apps_Templates::register_renderer( new Template_Registry_Test_Renderer( array( 5 ) ) );
+		Agend_Apps_Templates::register_source( new Template_Registry_Test_Source() );
 
 		Agend_Apps_Templates::reset();
 
 		$this->assertFalse( Agend_Apps_Templates::has_renderer() );
 		$this->assertFalse( Agend_Apps_Templates::has_source() );
-		$this->assertNull( Agend_Apps_Templates::renderer() );
-		$this->assertNull( Agend_Apps_Templates::source() );
+		$this->assertSame( array(), Agend_Apps_Templates::renderers() );
+		$this->assertSame( array(), Agend_Apps_Templates::sources() );
+		$this->assertNull( Agend_Apps_Templates::renderer_for( 5 ) );
 	}
 }

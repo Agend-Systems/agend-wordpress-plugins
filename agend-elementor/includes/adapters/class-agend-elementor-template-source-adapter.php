@@ -15,7 +15,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Agend_Elementor_Template_Source_Adapter implements Agend_Apps_Template_Source {
 
-	public function options( string $placeholder = '' ): array {
-		return Agend_Elementor_Templates::options( $placeholder );
+	public function label(): string {
+		return __( 'Elementor', 'agend-elementor' );
+	}
+
+	public function templates(): array {
+		return Agend_Elementor_Templates::map();
 	}
 }
