@@ -70,6 +70,17 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'custom_field_key',
+			array(
+				'label'       => __( 'Custom field key', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::TEXT,
+				'default'     => '',
+				'description' => __( 'The key as configured in Agend, for example education_level. The field must be configured as a search filter on the account, and a visitor who is not entitled to read it never sees this control.', 'agend-elementor' ),
+				'condition'   => array( 'filter' => 'listing:custom_field' ),
+			)
+		);
+
+		$this->add_control(
 			'control',
 			array(
 				'label'       => __( 'Presentation', 'agend-elementor' ),
@@ -82,6 +93,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 					'checkboxes' => __( 'Checkboxes', 'agend-elementor' ),
 					'buttons'    => __( 'Buttons', 'agend-elementor' ),
 					'date'       => __( 'Date', 'agend-elementor' ),
+					'range'      => __( 'Number range', 'agend-elementor' ),
 					'reset'      => __( 'Clear button', 'agend-elementor' ),
 				),
 				'description' => __( 'Presentations the chosen filter does not support fall back to its default.', 'agend-elementor' ),
@@ -135,7 +147,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 			array(
 				'label'     => __( 'Values', 'agend-elementor' ),
 				'tab'       => \Elementor\Controls_Manager::TAB_CONTENT,
-				'condition' => array( 'control!' => array( 'search', 'date', 'reset' ) ),
+				'condition' => array( 'control!' => array( 'search', 'date', 'reset', 'range' ) ),
 			)
 		);
 
@@ -270,6 +282,12 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 
 		$config = agend_elementor_filter_config( $type, $key, $s );
 		if ( null === $config ) {
+			$this->render_editor_notice( __( 'This filter is not configured yet. A custom field filter needs its field key.', 'agend-elementor' ) );
+			return;
+		}
+
+		if ( ! empty( $config['needsKey'] ) && '' === $config['fieldKey'] ) {
+			$this->render_editor_notice( __( 'Enter the custom field key this filter targets.', 'agend-elementor' ) );
 			return;
 		}
 

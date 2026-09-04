@@ -167,6 +167,44 @@ final class ListingFieldsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_send_custom_field_filters_as_values_and_bounds(): void {
+		$args = agend_elementor_listings_list_args(
+			array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() ),
+			1,
+			array(
+				'custom_fields' => array(
+					'education_level'  => array( 'masters', 'phd' ),
+					'years_experience' => array( 'min' => '5', 'max' => '10' ),
+					'ignored'          => array(),
+					''                 => array( 'x' ),
+				),
+			)
+		);
+
+		$this->assertSame( 'masters,phd', $args['custom_fields']['education_level'] );
+		$this->assertSame( array( 'min' => '5', 'max' => '10' ), $args['custom_fields']['years_experience'] );
+		$this->assertArrayNotHasKey( 'ignored', $args['custom_fields'], 'an untouched filter contributes nothing' );
+		$this->assertArrayNotHasKey( '', $args['custom_fields'] );
+	}
+
+	#[Test]
+	public function should_keep_only_the_bound_that_was_set(): void {
+		$out = agend_elementor_custom_field_filters( array( 'years' => array( 'min' => '5', 'max' => '' ) ) );
+
+		$this->assertSame( array( 'years' => array( 'min' => '5' ) ), $out );
+	}
+
+	#[Test]
+	public function should_carry_custom_fields_through_a_fragment_request(): void {
+		$out = agend_elementor_fragment_query_args(
+			array( 'custom_fields' => array( 'education_level' => array( 'masters' ) ), 'difficulty' => 'x' ),
+			'listing'
+		);
+
+		$this->assertSame( array( 'custom_fields' => array( 'education_level' => 'masters' ) ), $out );
+	}
+
+	#[Test]
 	public function should_drop_unknown_params_from_a_listing_fragment_request(): void {
 		$out = agend_elementor_fragment_query_args( array( 'rating' => 4, 'timeframe' => 'upcoming', 'template' => 9, 'difficulty' => 'x' ), 'listing' );
 

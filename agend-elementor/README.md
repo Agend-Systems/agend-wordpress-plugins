@@ -24,7 +24,7 @@ Cards and detail pages for events, courses and directory listings can be designe
 | Agend Pills | A record's categories, tags or other terms, one styled pill per term. The pill count follows the record, where a styled Agend Field would render one chip holding a joined list. |
 | Agend Link / Button | Open detail, back to catalogue, register (events), enrol (courses), add to calendar (events), or a custom URL with `{slug}` and `{title}` tokens. |
 | Agend Content Block | The built-in detail panels as reusable blocks: event facts, registration, tickets, sponsors; course details, learning outcomes, pricing and enrolment; listing about, contact, categories, tags, gallery, locations, hours, custom fields, badges and reviews. |
-| Agend Filter | One catalogue filter control. Filter widgets go in a filter template that a catalogue widget is pointed at, so the controls survive the move between the listing and detail views. Each filter either lists every value of a field or sends author-defined choices, where one choice can stand for several values. |
+| Agend Filter | One catalogue filter control. Directory tag, badge and custom field values come from `GET /v1/directory/facets`, entitlement-scoped, so a visitor never sees a value they may not read. Filter widgets go in a filter template that a catalogue widget is pointed at, so the controls survive the move between the listing and detail views. Each filter either lists every value of a field or sends author-defined choices, where one choice can stand for several values. |
 
 Fields marked Common work in any template, resolving to that record type's equivalent. `Custom field (by key)` reads an Agend custom field by its key; which custom fields a visitor receives depends on their entitlements, so it renders empty for a visitor who is not entitled to that field. In the editor the widgets show the first upcoming event or first course as preview data.
 
@@ -45,14 +45,18 @@ Choosing no template keeps the built-in card and detail layouts.
 
 Deferred deliberately, in rough order:
 
-1. **Filter widget: the blocked half.** The widget ships, but custom field, tag and badge filters
-   cannot list their values, and no catalogue can filter on a custom field at all. The API work
-   is written up in the dashboard repo at
-   `.docs/reports/elementor-filter-widget-api-requirements.md`. The registry takes those filters
-   additively through `agend_elementor_filter_registry` once the API lands. Course categories are
-   enumerable only approximately (distinct values of one page of courses) until a categories
-   endpoint exists.
-2. **Export reports.** Make the directory export reports interactive. Not started, and a separate
+1. **Custom field filtering does not filter.** The directory tag, badge and custom field filters
+   are wired to the facets endpoint and send correctly encoded, validated parameters, but a
+   `custom_fields[...]` filter returns the full result set for an anonymous caller: three
+   mutually exclusive education values each returned all 20 listings. Tag filtering on the same
+   request path works (20 to 16), so the plugin side is sound. Reported to the API side; likely
+   the search RPC skipping the custom-field predicate when the caller holds no viewer field
+   grant for it.
+2. **Events and courses facets.** The facet endpoint exists for the directory only. Events tags
+   and course categories still cannot be enumerated, and course categories are still derived from
+   the distinct values of one page of courses. The facet response shape is deliberately
+   record-type-neutral, so adopting it for the other two is additive on both sides.
+3. **Export reports.** Make the directory export reports interactive. Not started, and a separate
    surface from card and detail templating.
 
 ## Manual QA checklist

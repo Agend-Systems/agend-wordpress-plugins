@@ -32,7 +32,7 @@ const AGEND_ELEMENTOR_FRAGMENT_MAX_LIMIT = 100;
  */
 function agend_elementor_fragment_allowed_params( string $type ): array {
 	if ( 'listing' === $type ) {
-		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'sponsor_level', 'lat', 'lng', 'radius', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories' );
+		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories' );
 	}
 	if ( 'course' === $type ) {
 		return array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'deliveryMode', 'excludeCategories', 'excludeDifficulties', 'excludeDeliveryModes', 'sortBy', 'sortOrder' );
@@ -58,6 +58,16 @@ function agend_elementor_fragment_query_args( array $params, string $type ): arr
 
 	foreach ( $params as $key => $value ) {
 		if ( ! in_array( (string) $key, $allowed, true ) ) {
+			continue;
+		}
+		if ( 'custom_fields' === $key ) {
+			// A map of field key => matching values or bounds, not a list, so
+			// it passes through as-is for add_query_arg() to encode as
+			// custom_fields[key] and custom_fields[key][min].
+			$map = agend_elementor_custom_field_filters( $value );
+			if ( ! empty( $map ) ) {
+				$query[ $key ] = $map;
+			}
 			continue;
 		}
 		if ( is_array( $value ) ) {
@@ -178,6 +188,7 @@ function agend_elementor_listings_list_args( array $config, int $page = 1, array
 		'featured'          => ( ! empty( $exclusions['featured'] ) || ! empty( $state['featured'] ) ) ? 'true' : '',
 		'tag_ids'           => implode( ',', (array) ( $state['tag_ids'] ?? array() ) ),
 		'badge_ids'         => implode( ',', (array) ( $state['badge_ids'] ?? array() ) ),
+		'custom_fields'     => agend_elementor_custom_field_filters( $state['custom_fields'] ?? array() ),
 		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
 		// Relevance unless a Sort filter says otherwise; name reads better
 		// ascending, everything else descending.
@@ -218,6 +229,46 @@ function agend_elementor_fetch_list( string $type, array $query ) {
 		return function_exists( 'agend_apps_lms_get_courses' ) ? agend_apps_lms_get_courses( $query ) : null;
 	}
 	return function_exists( 'agend_apps_events_get_events' ) ? agend_apps_events_get_events( $query ) : null;
+}
+
+/**
+ * Normalises custom field filter state into the gateway's wire format.
+ *
+ * A key holding a list becomes a comma-joined string matching values, and a
+ * key holding min/max becomes a bounds map. Empty keys are dropped so an
+ * untouched filter contributes nothing to the query.
+ *
+ * @param mixed $state The `custom_fields` slice of the catalogue state.
+ * @return array<string, mixed>
+ */
+function agend_elementor_custom_field_filters( $state ): array {
+	if ( ! is_array( $state ) ) {
+		return array();
+	}
+	$out = array();
+	foreach ( $state as $key => $value ) {
+		$key = trim( (string) $key );
+		if ( '' === $key ) {
+			continue;
+		}
+		if ( is_array( $value ) && ( isset( $value['min'] ) || isset( $value['max'] ) ) ) {
+			$bounds = array();
+			foreach ( array( 'min', 'max' ) as $bound ) {
+				if ( isset( $value[ $bound ] ) && '' !== $value[ $bound ] ) {
+					$bounds[ $bound ] = (string) $value[ $bound ];
+				}
+			}
+			if ( ! empty( $bounds ) ) {
+				$out[ $key ] = $bounds;
+			}
+			continue;
+		}
+		$values = array_values( array_filter( array_map( 'trim', array_map( 'strval', (array) $value ) ), 'strlen' ) );
+		if ( ! empty( $values ) ) {
+			$out[ $key ] = implode( ',', $values );
+		}
+	}
+	return $out;
 }
 
 /**

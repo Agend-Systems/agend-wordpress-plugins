@@ -136,19 +136,44 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_force_defined_choices_when_values_cannot_be_listed(): void {
+	public function should_name_the_facet_for_tag_and_badge_values(): void {
+		$tag   = agend_elementor_filter_config( 'listing', 'tag', array() );
+		$badge = agend_elementor_filter_config( 'listing', 'badge', array() );
+
+		$this->assertSame( 'tags', $tag['source']['facet'] );
+		$this->assertSame( 'tag_ids', $tag['state'] );
+		$this->assertSame( 'badges', $badge['source']['facet'] );
+		$this->assertSame( 'badge_ids', $badge['state'] );
+	}
+
+	#[Test]
+	public function should_still_honour_defined_choices_over_a_facet(): void {
 		$config = agend_elementor_filter_config(
 			'listing',
 			'tag',
 			array(
-				'values_mode' => 'all',
+				'values_mode' => 'choices',
 				'choices'     => array( array( 'choice_label' => 'Sponsor', 'choice_value' => 'tag-uuid-1,tag-uuid-2' ) ),
 			)
 		);
 
-		$this->assertTrue( $config['choicesOnly'] );
-		$this->assertSame( 'tag_ids', $config['state'] );
+		$this->assertNull( $config['source'], 'defined choices never fetch a value list' );
 		$this->assertSame( array( 'tag-uuid-1', 'tag-uuid-2' ), $config['values'][0]['value'] );
+	}
+
+	#[Test]
+	public function should_address_a_custom_field_facet_by_its_key(): void {
+		$config = agend_elementor_filter_config( 'listing', 'custom_field', array( 'custom_field_key' => 'education_level' ) );
+
+		$this->assertSame( 'custom.education_level', $config['source']['facet'] );
+		$this->assertSame( 'custom_fields', $config['state'] );
+		$this->assertSame( 'map', $config['mode'] );
+		$this->assertSame( 'education_level', $config['fieldKey'] );
+	}
+
+	#[Test]
+	public function should_render_nothing_for_a_custom_field_filter_with_no_key(): void {
+		$this->assertNull( agend_elementor_filter_config( 'listing', 'custom_field', array( 'custom_field_key' => '  ' ) ) );
 	}
 
 	#[Test]
