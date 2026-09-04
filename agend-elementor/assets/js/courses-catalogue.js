@@ -946,6 +946,13 @@
     // dedicated page is configured), otherwise navigates there.
     function mountFilters(target) {
       if (hasTemplatedFilters && window.agendFilters && window.agendFilters.build) {
+        // Side placement is a grid on whichever element holds the filter slot
+        // and the results. The server put that class on the root, but the
+        // catalogue view has since moved those children into catalogueEl, so
+        // the class moves with them or the root is left as a grid of one.
+        var posClass = 'agend-filters-' + (cfg.filterPosition || 'top');
+        root.classList.remove(posClass);
+        catalogueEl.classList.add(posClass);
         if (!target.contains(serverFilters)) {
           target.appendChild(serverFilters);
         }

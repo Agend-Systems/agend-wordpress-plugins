@@ -63,3 +63,67 @@
   min-width: 0;
   box-sizing: border-box;
 }
+
+/* Filter placement. The modifier sits on whichever element holds both the
+   filter slot and the results, so the same rules serve the server-rendered
+   and the script-built layouts. */
+.agend-filters-left,
+.agend-filters-right {
+  display: grid;
+  column-gap: 1.5rem;
+  row-gap: 1rem;
+  align-items: start;
+}
+
+.agend-filters-left {
+  grid-template-columns: var(--agend-filter-column, 260px) minmax(0, 1fr);
+}
+
+.agend-filters-right {
+  grid-template-columns: minmax(0, 1fr) var(--agend-filter-column, 260px);
+}
+
+.agend-filters-left > *,
+.agend-filters-right > * {
+  min-width: 0;
+}
+
+.agend-filters-left > * {
+  grid-column: 2;
+}
+
+.agend-filters-right > * {
+  grid-column: 1;
+}
+
+/* The filter column spans the full height beside the results. */
+.agend-filters-left > .agend-ev-filter-slot,
+.agend-filters-left > .agend-lms-filter-slot,
+.agend-filters-left > .agend-dir-filter-slot {
+  grid-column: 1;
+  grid-row: 2 / -1;
+}
+
+.agend-filters-right > .agend-ev-filter-slot,
+.agend-filters-right > .agend-lms-filter-slot,
+.agend-filters-right > .agend-dir-filter-slot {
+  grid-column: 2;
+  grid-row: 2 / -1;
+}
+
+/* A heading stays full width above both columns. */
+.agend-filters-left > .agend-ev-heading,
+.agend-filters-left > .agend-lms-heading,
+.agend-filters-left > .agend-dir-heading,
+.agend-filters-right > .agend-ev-heading,
+.agend-filters-right > .agend-lms-heading,
+.agend-filters-right > .agend-dir-heading {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 767px) {
+  .agend-filters-left,
+  .agend-filters-right {
+    display: block;
+  }
+}
