@@ -231,3 +231,19 @@ When a Content-tab control genuinely has no schema equivalent, it becomes an
 `adapter` field rather than forcing a bad fit into the vocabulary; the
 vocabulary itself is extended (as `heading` was) only when the control is in
 fact generic across page builders and not an Elementor-specific concept.
+
+## Catalogue renderers (page-builder-agnostic)
+
+The events, courses, directory and memberships catalogues are rendered by core,
+not by the editor that placed them: `agend_apps_records_render_<surface>_catalogue( array $settings ): string`
+in `includes/records/render/` takes the surface's settings (the keys declared
+by its schema, with Elementor-shaped values: toggles are `'yes'` or `''`) and
+returns the markup plus the `data-agend-*-config` JSON the front-end script
+reads. An adapter echoes the result; the Elementor widgets do exactly that.
+
+Fidelity is pinned by `tests/fixtures/<surface>-catalogue-render.json`, HTML
+recorded from the widgets before the render moved. `CatalogueRenderTest`
+requires both the core function and the delegating widget to reproduce those
+fixtures byte for byte. Change a renderer deliberately, re-record the fixture in
+the same commit, and say so.
+

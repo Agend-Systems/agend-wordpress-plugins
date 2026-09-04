@@ -286,7 +286,8 @@ function agend_apps_records_unwrap_list( $response ): array {
 		$pagination = ( isset( $response['meta']['pagination'] ) && is_array( $response['meta']['pagination'] ) ) ? $response['meta']['pagination'] : null;
 		return array( 'items' => array_values( array_filter( $response['data'], 'is_array' ) ), 'pagination' => $pagination, 'error' => false );
 	}
-	if ( array_is_list( $response ) ) {
+	// array_is_list() is PHP 8.1+ and the plugin targets 7.4.
+	if ( array() === $response || array_keys( $response ) === range( 0, count( $response ) - 1 ) ) {
 		return array( 'items' => array_values( array_filter( $response, 'is_array' ) ), 'pagination' => null, 'error' => false );
 	}
 	return array( 'items' => array(), 'pagination' => null, 'error' => false );
