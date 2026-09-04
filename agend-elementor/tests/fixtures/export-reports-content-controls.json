@@ -1,0 +1,187 @@
+{
+    "sections": [
+        {
+            "id": "section_report",
+            "args": {
+                "label": "Report",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "mode",
+                    "args": {
+                        "label": "Mode",
+                        "type": "select",
+                        "default": "button",
+                        "options": {
+                            "button": "Button for one report",
+                            "dropdown": "Menu of several reports"
+                        }
+                    }
+                },
+                {
+                    "id": "report",
+                    "args": {
+                        "label": "Report",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Select a report"
+                        },
+                        "label_block": true,
+                        "condition": {
+                            "mode": "button"
+                        }
+                    }
+                },
+                {
+                    "id": "reports",
+                    "args": {
+                        "label": "Reports in the menu",
+                        "type": "repeater",
+                        "fields": [
+                            {
+                                "label": "Report",
+                                "type": "select",
+                                "default": "",
+                                "options": {
+                                    "": "Select a report"
+                                },
+                                "label_block": true,
+                                "name": "report_id"
+                            },
+                            {
+                                "label": "Label",
+                                "type": "text",
+                                "default": "",
+                                "description": "Leave empty to use the report's own name.",
+                                "name": "report_label"
+                            }
+                        ],
+                        "title_field": "{{{ report_label }}}",
+                        "default": [],
+                        "condition": {
+                            "mode": "dropdown"
+                        }
+                    }
+                },
+                {
+                    "id": "reports_unavailable",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published.",
+                        "content_classes": "elementor-panel-alert elementor-panel-alert-warning"
+                    }
+                },
+                {
+                    "id": "button_text",
+                    "args": {
+                        "label": "Button text",
+                        "type": "text",
+                        "default": "Export",
+                        "description": "In menu mode this is the trigger that opens the list."
+                    }
+                },
+                {
+                    "id": "format",
+                    "args": {
+                        "label": "Format",
+                        "type": "select",
+                        "default": "csv",
+                        "options": {
+                            "csv": "CSV",
+                            "xlsx": "Excel"
+                        },
+                        "description": "Every download from this widget uses this format."
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_parameters",
+            "args": {
+                "label": "Parameters",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "parameters_note",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "A report can accept parameters that narrow what it exports. Match a row to the field the parameter filters on, for example keyword or custom.education_level. A report that declares no parameters ignores these rows.",
+                        "content_classes": "elementor-descriptor"
+                    }
+                },
+                {
+                    "id": "parameters",
+                    "args": {
+                        "label": "Parameter mapping",
+                        "type": "repeater",
+                        "fields": [
+                            {
+                                "label": "Parameter field",
+                                "type": "text",
+                                "default": "",
+                                "placeholder": "keyword",
+                                "description": "The field the report parameter filters on.",
+                                "name": "param_field"
+                            },
+                            {
+                                "label": "Value from",
+                                "type": "select",
+                                "default": "manual",
+                                "options": {
+                                    "manual": "A value I set here",
+                                    "catalogue": "The Directory Catalogue on this page"
+                                },
+                                "name": "param_source"
+                            },
+                            {
+                                "label": "Value",
+                                "type": "text",
+                                "default": "",
+                                "condition": {
+                                    "param_source": "manual"
+                                },
+                                "name": "param_value"
+                            },
+                            {
+                                "label": "Read from filter",
+                                "type": "select",
+                                "default": "",
+                                "options": {
+                                    "": "Select a filter",
+                                    "search": "Search",
+                                    "category": "Category",
+                                    "rating": "Minimum rating",
+                                    "featured": "Featured",
+                                    "tag": "Tag",
+                                    "badge": "Badge",
+                                    "custom_field": "Custom field"
+                                },
+                                "description": "Takes whatever the visitor has this filter set to when they press the button.",
+                                "condition": {
+                                    "param_source": "catalogue"
+                                },
+                                "name": "param_catalogue_filter"
+                            },
+                            {
+                                "label": "Custom field key",
+                                "type": "text",
+                                "default": "",
+                                "condition": {
+                                    "param_source": "catalogue",
+                                    "param_catalogue_filter": "custom_field"
+                                },
+                                "description": "Which custom field the catalogue filter targets.",
+                                "name": "param_custom_key"
+                            }
+                        ],
+                        "title_field": "{{{ param_field }}}",
+                        "default": []
+                    }
+                }
+            ]
+        }
+    ]
+}

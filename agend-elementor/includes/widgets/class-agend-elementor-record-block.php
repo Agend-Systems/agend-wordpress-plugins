@@ -46,6 +46,11 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 	/**
 	 * Block key => [ label, record type, fragment function ].
 	 *
+	 * Kept here (not in the schema) because the record type and fragment
+	 * function are render-time concerns; the schema's `block` field lists the
+	 * same keys and labels as a plain option array (see
+	 * agend_apps_records_schema_record_block()).
+	 *
 	 * @return array<string, array{0: string, 1: string, 2: string}>
 	 */
 	private function blocks(): array {
@@ -71,34 +76,7 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 	}
 
 	protected function register_controls(): void {
-		$this->start_controls_section(
-			'section_block',
-			array(
-				'label' => __( 'Block', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->record_type_control();
-
-		$options = array();
-		foreach ( $this->blocks() as $key => $block ) {
-			$options[ $key ] = $block[0];
-		}
-
-		$this->add_control(
-			'block',
-			array(
-				'label'       => __( 'Block', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'event_facts',
-				'options'     => $options,
-				'label_block' => true,
-				'description' => __( 'Intended for detail templates. The tickets block loads the ticket list per event, so avoid it on cards.', 'agend-elementor' ),
-			)
-		);
-
-		$this->end_controls_section();
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'record-block' ) );
 	}
 
 	/**

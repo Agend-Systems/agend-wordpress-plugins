@@ -48,49 +48,7 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 	}
 
 	protected function register_controls(): void {
-		$this->start_controls_section(
-			'section_pills',
-			array(
-				'label' => __( 'Pills', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->record_type_control();
-
-		$this->add_control(
-			'field',
-			array(
-				'label'       => __( 'Terms', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'common:category',
-				'groups'      => agend_apps_records_pill_field_options(),
-				'label_block' => true,
-				'description' => __( 'A list field renders one pill per term. A single-value field renders one pill.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'max_items',
-			array(
-				'label'       => __( 'Maximum pills', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::NUMBER,
-				'default'     => 0,
-				'min'         => 0,
-				'description' => __( '0 shows every term.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'link_to_detail',
-			array(
-				'label'   => __( 'Link pills to the detail page', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SWITCHER,
-				'default' => '',
-			)
-		);
-
-		$this->end_controls_section();
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'record-pills' ) );
 
 		$this->start_controls_section(
 			'section_pill_style',

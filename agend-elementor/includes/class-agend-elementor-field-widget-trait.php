@@ -36,36 +36,6 @@ trait Agend_Elementor_Field_Widget_Trait {
 	}
 
 	/**
-	 * Adds the shared "record_type" control every field widget exposes.
-	 *
-	 * 'auto' (the default) takes whatever type the surrounding template is
-	 * being rendered for; a widget only needs an explicit type when it is
-	 * meant to reject a template it was dropped into by mistake (see
-	 * resolve_context()'s mismatch flag).
-	 *
-	 * @param string $section_id_hint Reserved for a future per-widget section
-	 *                                id; unused while every field widget adds
-	 *                                this control to its own first section.
-	 * @return void
-	 */
-	protected function record_type_control( string $section_id_hint = '' ): void {
-		$this->add_control(
-			'record_type',
-			array(
-				'label'       => __( 'Record type', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'auto',
-				'options'     => array(
-					'auto'   => __( 'Auto', 'agend-elementor' ),
-					'event'  => __( 'Event', 'agend-elementor' ),
-					'course' => __( 'Course', 'agend-elementor' ),
-				),
-				'description' => __( 'Auto uses whatever record the surrounding template is rendering.', 'agend-elementor' ),
-			)
-		);
-	}
-
-	/**
 	 * Resolves the record this widget should render against.
 	 *
 	 * @return array{type: string, record: array, extra: array, is_preview: bool, mismatch: bool}

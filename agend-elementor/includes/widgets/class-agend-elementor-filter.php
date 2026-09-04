@@ -48,122 +48,17 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 		return array( 'agend-apps-records-filters' );
 	}
 
-	protected function register_controls(): void {
-		$this->start_controls_section(
-			'section_filter',
-			array(
-				'label' => __( 'Filter', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'filter',
-			array(
-				'label'       => __( 'Filter', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'event:search',
-				'groups'      => agend_apps_records_filter_options(),
-				'label_block' => true,
-				'description' => __( 'Choose the filter for the catalogue this template belongs to. A filter from another catalogue renders nothing.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'custom_field_key',
-			array(
-				'label'       => __( 'Custom field key', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => '',
-				'description' => __( 'The key as configured in Agend, for example education_level. The field must be configured as a search filter on the account, and a visitor who is not entitled to read it never sees this control.', 'agend-elementor' ),
-				'condition'   => array( 'filter' => 'listing:custom_field' ),
-			)
-		);
-
-		$this->add_control(
-			'control',
-			array(
-				'label'       => __( 'Presentation', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => '',
-				'options'     => array(
-					''           => __( 'Default for this filter', 'agend-elementor' ),
-					'search'     => __( 'Search box', 'agend-elementor' ),
-					'select'     => __( 'Dropdown', 'agend-elementor' ),
-					'checkboxes' => __( 'Checkboxes', 'agend-elementor' ),
-					'buttons'    => __( 'Buttons', 'agend-elementor' ),
-					'date'       => __( 'Date', 'agend-elementor' ),
-					'range'      => __( 'Number range', 'agend-elementor' ),
-					'reset'      => __( 'Clear button', 'agend-elementor' ),
-				),
-				'description' => __( 'Presentations the chosen filter does not support fall back to its default.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'show_label',
-			array(
-				'label'   => __( 'Show label', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SWITCHER,
-				'default' => 'yes',
-			)
-		);
-
-		$this->add_control(
-			'label',
-			array(
-				'label'       => __( 'Label', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => '',
-				'description' => __( 'Leave empty for the filter\'s own name.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'placeholder',
-			array(
-				'label'     => __( 'Placeholder', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::TEXT,
-				'default'   => '',
-				'condition' => array( 'control' => array( '', 'search', 'date', 'reset' ) ),
-			)
-		);
-
-		$this->add_control(
-			'any_label',
-			array(
-				'label'       => __( '"Any" option label', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => '',
-				'description' => __( 'The option that clears this filter, for example "All Categories".', 'agend-elementor' ),
-				'condition'   => array( 'control!' => array( 'search', 'date' ) ),
-			)
-		);
-
-		$this->end_controls_section();
-
-		$this->start_controls_section(
-			'section_values',
-			array(
-				'label'     => __( 'Values', 'agend-elementor' ),
-				'tab'       => \Elementor\Controls_Manager::TAB_CONTENT,
-				'condition' => array( 'control!' => array( 'search', 'date', 'reset', 'range' ) ),
-			)
-		);
-
-		$this->add_control(
-			'values_mode',
-			array(
-				'label'       => __( 'Values', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'all',
-				'options'     => array(
-					'all'     => __( 'Every value that exists', 'agend-elementor' ),
-					'choices' => __( 'Choices I define', 'agend-elementor' ),
-				),
-				'description' => __( 'Defined choices each send a fixed selection, so one choice can stand for several values, for example "All States". Tag and badge filters always use defined choices, because the API cannot list their values yet.', 'agend-elementor' ),
-			)
-		);
+	/**
+	 * Registers a Content-tab control this widget declares itself because the
+	 * shared schema vocabulary cannot describe it.
+	 *
+	 * @param string $name Schema field name.
+	 * @return void
+	 */
+	public function register_adapter_control( string $name ): void {
+		if ( 'choices' !== $name ) {
+			return;
+		}
 
 		$choices = new \Elementor\Repeater();
 		$choices->add_control(
@@ -195,8 +90,10 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 				'condition'   => array( 'values_mode' => 'choices' ),
 			)
 		);
+	}
 
-		$this->end_controls_section();
+	protected function register_controls(): void {
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'filter' ) );
 
 		$this->start_controls_section(
 			'section_style',

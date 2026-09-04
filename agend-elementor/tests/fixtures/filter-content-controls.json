@@ -1,0 +1,197 @@
+{
+    "sections": [
+        {
+            "id": "section_filter",
+            "args": {
+                "label": "Filter",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "filter",
+                    "args": {
+                        "label": "Filter",
+                        "type": "select",
+                        "default": "event:search",
+                        "groups": [
+                            {
+                                "label": "Events",
+                                "options": {
+                                    "event:search": "Search",
+                                    "event:reset": "Clear filters",
+                                    "event:category": "Category",
+                                    "event:venue_type": "Format",
+                                    "event:city": "City",
+                                    "event:date_from": "Starting from",
+                                    "event:date_to": "Starting before"
+                                }
+                            },
+                            {
+                                "label": "Courses",
+                                "options": {
+                                    "course:search": "Search",
+                                    "course:reset": "Clear filters",
+                                    "course:category": "Category",
+                                    "course:difficulty": "Level",
+                                    "course:delivery_mode": "Delivery mode"
+                                }
+                            },
+                            {
+                                "label": "Directory",
+                                "options": {
+                                    "listing:search": "Search",
+                                    "listing:reset": "Clear filters",
+                                    "listing:category": "Category",
+                                    "listing:rating": "Minimum rating",
+                                    "listing:sort": "Sort by",
+                                    "listing:featured": "Featured",
+                                    "listing:tag": "Tag",
+                                    "listing:badge": "Badge",
+                                    "listing:custom_field": "Custom field"
+                                }
+                            }
+                        ],
+                        "label_block": true,
+                        "description": "Choose the filter for the catalogue this template belongs to. A filter from another catalogue renders nothing."
+                    }
+                },
+                {
+                    "id": "custom_field_key",
+                    "args": {
+                        "label": "Custom field key",
+                        "type": "text",
+                        "default": "",
+                        "description": "The key as configured in Agend, for example education_level. The field must be configured as a search filter on the account, and a visitor who is not entitled to read it never sees this control.",
+                        "condition": {
+                            "filter": "listing:custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "control",
+                    "args": {
+                        "label": "Presentation",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Default for this filter",
+                            "search": "Search box",
+                            "select": "Dropdown",
+                            "checkboxes": "Checkboxes",
+                            "buttons": "Buttons",
+                            "date": "Date",
+                            "range": "Number range",
+                            "reset": "Clear button"
+                        },
+                        "description": "Presentations the chosen filter does not support fall back to its default."
+                    }
+                },
+                {
+                    "id": "show_label",
+                    "args": {
+                        "label": "Show label",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "label",
+                    "args": {
+                        "label": "Label",
+                        "type": "text",
+                        "default": "",
+                        "description": "Leave empty for the filter's own name."
+                    }
+                },
+                {
+                    "id": "placeholder",
+                    "args": {
+                        "label": "Placeholder",
+                        "type": "text",
+                        "default": "",
+                        "condition": {
+                            "control": [
+                                "",
+                                "search",
+                                "date",
+                                "reset"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "id": "any_label",
+                    "args": {
+                        "label": "\"Any\" option label",
+                        "type": "text",
+                        "default": "",
+                        "description": "The option that clears this filter, for example \"All Categories\".",
+                        "condition": {
+                            "control!": [
+                                "search",
+                                "date"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_values",
+            "args": {
+                "label": "Values",
+                "tab": "content",
+                "condition": {
+                    "control!": [
+                        "search",
+                        "date",
+                        "reset",
+                        "range"
+                    ]
+                }
+            },
+            "controls": [
+                {
+                    "id": "values_mode",
+                    "args": {
+                        "label": "Values",
+                        "type": "select",
+                        "default": "all",
+                        "options": {
+                            "all": "Every value that exists",
+                            "choices": "Choices I define"
+                        },
+                        "description": "Defined choices each send a fixed selection, so one choice can stand for several values, for example \"All States\". Tag and badge filters always use defined choices, because the API cannot list their values yet."
+                    }
+                },
+                {
+                    "id": "choices",
+                    "args": {
+                        "label": "Choices",
+                        "type": "repeater",
+                        "fields": [
+                            {
+                                "label": "Label",
+                                "type": "text",
+                                "default": "",
+                                "name": "choice_label"
+                            },
+                            {
+                                "label": "Sends",
+                                "type": "text",
+                                "default": "",
+                                "description": "One value, or several separated by commas. Several values match any of them.",
+                                "name": "choice_value"
+                            }
+                        ],
+                        "title_field": "{{{ choice_label }}}",
+                        "default": [],
+                        "condition": {
+                            "values_mode": "choices"
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}
