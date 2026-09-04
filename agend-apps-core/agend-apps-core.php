@@ -145,6 +145,12 @@ function agend_apps_core_bootstrap() {
 	// controls from, instead of each hand-declaring the same settings.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/schema.php';
 
+	// Server renders of the catalogue surfaces, shared by every editor adapter.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/cards.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/rest/fragments-controller.php';
 
