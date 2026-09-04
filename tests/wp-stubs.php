@@ -47,8 +47,14 @@ final class Agend_Test_WP {
 	/** @var array<int, array{timestamp: int, hook: string, args: array<int, mixed>}> WP-Cron events scheduled via wp_schedule_single_event(). */
 	public static array $scheduled_events = array();
 
+	public static int $queried_object_id = 0;
+
+	public static array $query_vars = array();
+
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
+		self::$queried_object_id = 0;
+		self::$query_vars        = array();
 		self::$transients      = array();
 		self::$actions         = array();
 		self::$did_action      = array();
@@ -676,4 +682,28 @@ if ( ! function_exists( 'esc_attr' ) ) {
 	function esc_attr( $text ): string {
 		return htmlspecialchars( (string) $text, ENT_QUOTES );
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Front-end render context (queried page, permalinks, REST, escaping)
+// ---------------------------------------------------------------------------
+
+function esc_html_e( string $text, string $domain = 'default' ): void {
+	echo esc_html( $text );
+}
+
+function rest_url( string $path = '' ): string {
+	return 'https://example.test/wp-json/' . ltrim( $path, '/' );
+}
+
+function get_queried_object_id(): int {
+	return Agend_Test_WP::$queried_object_id;
+}
+
+function get_query_var( string $var, $default = '' ) {
+	return Agend_Test_WP::$query_vars[ $var ] ?? $default;
+}
+
+function wp_timezone_string(): string {
+	return 'Australia/Sydney';
 }
