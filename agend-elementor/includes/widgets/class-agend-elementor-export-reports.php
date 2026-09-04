@@ -61,248 +61,148 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Report options for the editor's pickers.
+	 * Registers a Content-tab control this widget declares itself because the
+	 * shared schema vocabulary cannot describe it (two REPEATER controls, and
+	 * a notice conditionally registered on live account data rather than on
+	 * another field's value).
 	 *
-	 * Fetched at edit time so a designer picks a real report by name. The
-	 * editor is authenticated as an administrator, so this is the account's
-	 * anonymous-audience set at minimum; a report restricted to members still
-	 * appears here and simply renders nothing for a visitor who cannot reach
-	 * it, which is the same rule the live widget follows.
-	 *
-	 * @return array<string, string> Report id => name.
+	 * @param string $name Schema field name.
+	 * @return void
 	 */
-	private function report_options(): array {
-		if ( ! function_exists( 'agend_apps_directory_get_export_reports' ) ) {
-			return array();
-		}
+	public function register_adapter_control( string $name ): void {
+		switch ( $name ) {
+			case 'parameters_note':
+				$this->add_control(
+					'parameters_note',
+					array(
+						'type'            => \Elementor\Controls_Manager::RAW_HTML,
+						'raw'             => esc_html__( 'A report can accept parameters that narrow what it exports. Match a row to the field the parameter filters on, for example keyword or custom.education_level. A report that declares no parameters ignores these rows.', 'agend-elementor' ),
+						'content_classes' => 'elementor-descriptor',
+					)
+				);
+				break;
 
-		$response = agend_apps_directory_get_export_reports();
-		if ( is_wp_error( $response ) || empty( $response['data'] ) || ! is_array( $response['data'] ) ) {
-			return array();
-		}
+			case 'reports':
+				$reports = agend_apps_records_export_reports_report_options();
+				$chosen  = new \Elementor\Repeater();
+				$chosen->add_control(
+					'report_id',
+					array(
+						'label'       => __( 'Report', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::SELECT,
+						'default'     => '',
+						'options'     => $reports,
+						'label_block' => true,
+					)
+				);
+				$chosen->add_control(
+					'report_label',
+					array(
+						'label'       => __( 'Label', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::TEXT,
+						'default'     => '',
+						'description' => __( 'Leave empty to use the report\'s own name.', 'agend-elementor' ),
+					)
+				);
+				$this->add_control(
+					'reports',
+					array(
+						'label'       => __( 'Reports in the menu', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::REPEATER,
+						'fields'      => $chosen->get_controls(),
+						'title_field' => '{{{ report_label }}}',
+						'default'     => array(),
+						'condition'   => array( 'mode' => 'dropdown' ),
+					)
+				);
+				break;
 
-		$options = array();
-		foreach ( $response['data'] as $report ) {
-			if ( ! empty( $report['id'] ) && ! empty( $report['name'] ) ) {
-				$options[ (string) $report['id'] ] = (string) $report['name'];
-			}
-		}
-		return $options;
-	}
-
-	/**
-	 * The Directory Catalogue filters a mapping row can read a value from.
-	 *
-	 * Built from the filter registry so the two stay in step: a filter added
-	 * there becomes selectable here without a second list to maintain.
-	 *
-	 * @return array<string, string>
-	 */
-	private function catalogue_source_options(): array {
-		$options = array( '' => __( 'Select a filter', 'agend-elementor' ) );
-
-		if ( function_exists( 'agend_apps_records_filter_registry' ) ) {
-			$registry = agend_apps_records_filter_registry();
-			foreach ( $registry['listing'] ?? array() as $key => $descriptor ) {
-				if ( in_array( $key, array( 'reset', 'sort' ), true ) ) {
-					continue;
+			case 'reports_unavailable':
+				// The report list has only the "Select a report" placeholder
+				// when the account has none; count() > 1 is the "has real
+				// reports" test both call sites use.
+				if ( count( agend_apps_records_export_reports_report_options() ) <= 1 ) {
+					$this->add_control(
+						'reports_unavailable',
+						array(
+							'type'            => \Elementor\Controls_Manager::RAW_HTML,
+							'raw'             => esc_html__( 'No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published.', 'agend-elementor' ),
+							'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
+						)
+					);
 				}
-				$options[ $key ] = (string) $descriptor['label'];
-			}
-		}
+				break;
 
-		return $options;
+			case 'parameters':
+				$parameters = new \Elementor\Repeater();
+				$parameters->add_control(
+					'param_field',
+					array(
+						'label'       => __( 'Parameter field', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::TEXT,
+						'default'     => '',
+						'placeholder' => 'keyword',
+						'description' => __( 'The field the report parameter filters on.', 'agend-elementor' ),
+					)
+				);
+				$parameters->add_control(
+					'param_source',
+					array(
+						'label'   => __( 'Value from', 'agend-elementor' ),
+						'type'    => \Elementor\Controls_Manager::SELECT,
+						'default' => 'manual',
+						'options' => array(
+							'manual'    => __( 'A value I set here', 'agend-elementor' ),
+							'catalogue' => __( 'The Directory Catalogue on this page', 'agend-elementor' ),
+						),
+					)
+				);
+				$parameters->add_control(
+					'param_value',
+					array(
+						'label'     => __( 'Value', 'agend-elementor' ),
+						'type'      => \Elementor\Controls_Manager::TEXT,
+						'default'   => '',
+						'condition' => array( 'param_source' => 'manual' ),
+					)
+				);
+				$parameters->add_control(
+					'param_catalogue_filter',
+					array(
+						'label'       => __( 'Read from filter', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::SELECT,
+						'default'     => '',
+						'options'     => agend_apps_records_export_reports_catalogue_source_options(),
+						'description' => __( 'Takes whatever the visitor has this filter set to when they press the button.', 'agend-elementor' ),
+						'condition'   => array( 'param_source' => 'catalogue' ),
+					)
+				);
+				$parameters->add_control(
+					'param_custom_key',
+					array(
+						'label'       => __( 'Custom field key', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::TEXT,
+						'default'     => '',
+						'condition'   => array( 'param_source' => 'catalogue', 'param_catalogue_filter' => 'custom_field' ),
+						'description' => __( 'Which custom field the catalogue filter targets.', 'agend-elementor' ),
+					)
+				);
+				$this->add_control(
+					'parameters',
+					array(
+						'label'       => __( 'Parameter mapping', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::REPEATER,
+						'fields'      => $parameters->get_controls(),
+						'title_field' => '{{{ param_field }}}',
+						'default'     => array(),
+					)
+				);
+				break;
+		}
 	}
 
 	protected function register_controls(): void {
-		$this->start_controls_section(
-			'section_report',
-			array(
-				'label' => __( 'Report', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'mode',
-			array(
-				'label'   => __( 'Mode', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'default' => 'button',
-				'options' => array(
-					'button'   => __( 'Button for one report', 'agend-elementor' ),
-					'dropdown' => __( 'Menu of several reports', 'agend-elementor' ),
-				),
-			)
-		);
-
-		$reports = $this->report_options();
-
-		$this->add_control(
-			'report',
-			array(
-				'label'       => __( 'Report', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => '',
-				'options'     => array( '' => __( 'Select a report', 'agend-elementor' ) ) + $reports,
-				'label_block' => true,
-				'condition'   => array( 'mode' => 'button' ),
-			)
-		);
-
-		$chosen = new \Elementor\Repeater();
-		$chosen->add_control(
-			'report_id',
-			array(
-				'label'       => __( 'Report', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => '',
-				'options'     => array( '' => __( 'Select a report', 'agend-elementor' ) ) + $reports,
-				'label_block' => true,
-			)
-		);
-		$chosen->add_control(
-			'report_label',
-			array(
-				'label'       => __( 'Label', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => '',
-				'description' => __( 'Leave empty to use the report\'s own name.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'reports',
-			array(
-				'label'       => __( 'Reports in the menu', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::REPEATER,
-				'fields'      => $chosen->get_controls(),
-				'title_field' => '{{{ report_label }}}',
-				'default'     => array(),
-				'condition'   => array( 'mode' => 'dropdown' ),
-			)
-		);
-
-		if ( empty( $reports ) ) {
-			$this->add_control(
-				'reports_unavailable',
-				array(
-					'type'            => \Elementor\Controls_Manager::RAW_HTML,
-					'raw'             => esc_html__( 'No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published.', 'agend-elementor' ),
-					'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
-				)
-			);
-		}
-
-		$this->add_control(
-			'button_text',
-			array(
-				'label'       => __( 'Button text', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => __( 'Export', 'agend-elementor' ),
-				'description' => __( 'In menu mode this is the trigger that opens the list.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'format',
-			array(
-				'label'       => __( 'Format', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'csv',
-				'options'     => array(
-					'csv'  => __( 'CSV', 'agend-elementor' ),
-					'xlsx' => __( 'Excel', 'agend-elementor' ),
-				),
-				'description' => __( 'Every download from this widget uses this format.', 'agend-elementor' ),
-			)
-		);
-
-		$this->end_controls_section();
-
-		$this->start_controls_section(
-			'section_parameters',
-			array(
-				'label' => __( 'Parameters', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'parameters_note',
-			array(
-				'type'            => \Elementor\Controls_Manager::RAW_HTML,
-				'raw'             => esc_html__( 'A report can accept parameters that narrow what it exports. Match a row to the field the parameter filters on, for example keyword or custom.education_level. A report that declares no parameters ignores these rows.', 'agend-elementor' ),
-				'content_classes' => 'elementor-descriptor',
-			)
-		);
-
-		$parameters = new \Elementor\Repeater();
-		$parameters->add_control(
-			'param_field',
-			array(
-				'label'       => __( 'Parameter field', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => '',
-				'placeholder' => 'keyword',
-				'description' => __( 'The field the report parameter filters on.', 'agend-elementor' ),
-			)
-		);
-		$parameters->add_control(
-			'param_source',
-			array(
-				'label'   => __( 'Value from', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'default' => 'manual',
-				'options' => array(
-					'manual'    => __( 'A value I set here', 'agend-elementor' ),
-					'catalogue' => __( 'The Directory Catalogue on this page', 'agend-elementor' ),
-				),
-			)
-		);
-		$parameters->add_control(
-			'param_value',
-			array(
-				'label'     => __( 'Value', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::TEXT,
-				'default'   => '',
-				'condition' => array( 'param_source' => 'manual' ),
-			)
-		);
-		$parameters->add_control(
-			'param_catalogue_filter',
-			array(
-				'label'       => __( 'Read from filter', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => '',
-				'options'     => $this->catalogue_source_options(),
-				'description' => __( 'Takes whatever the visitor has this filter set to when they press the button.', 'agend-elementor' ),
-				'condition'   => array( 'param_source' => 'catalogue' ),
-			)
-		);
-		$parameters->add_control(
-			'param_custom_key',
-			array(
-				'label'       => __( 'Custom field key', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => '',
-				'condition'   => array( 'param_source' => 'catalogue', 'param_catalogue_filter' => 'custom_field' ),
-				'description' => __( 'Which custom field the catalogue filter targets.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'parameters',
-			array(
-				'label'       => __( 'Parameter mapping', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::REPEATER,
-				'fields'      => $parameters->get_controls(),
-				'title_field' => '{{{ param_field }}}',
-				'default'     => array(),
-			)
-		);
-
-		$this->end_controls_section();
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'export-reports' ) );
 
 		$this->start_controls_section(
 			'section_style',

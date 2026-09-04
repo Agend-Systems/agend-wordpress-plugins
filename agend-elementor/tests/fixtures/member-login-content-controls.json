@@ -1,0 +1,80 @@
+{
+    "sections": [
+        {
+            "id": "section_content",
+            "args": {
+                "label": "Content",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "heading_text",
+                    "args": {
+                        "label": "Heading",
+                        "type": "text",
+                        "default": "Sign in"
+                    }
+                },
+                {
+                    "id": "intro_text",
+                    "args": {
+                        "label": "Intro text",
+                        "type": "textarea",
+                        "default": "Sign in with your Agend member account."
+                    }
+                },
+                {
+                    "id": "submit_label",
+                    "args": {
+                        "label": "Sign-in button label",
+                        "type": "text",
+                        "default": "Sign in"
+                    }
+                },
+                {
+                    "id": "forgot_label",
+                    "args": {
+                        "label": "Forgot-password link text",
+                        "type": "text",
+                        "default": "Forgot your password?",
+                        "description": "Leave empty to hide the password-recovery link."
+                    }
+                },
+                {
+                    "id": "back_to_sign_in_label",
+                    "args": {
+                        "label": "Return link text",
+                        "type": "text",
+                        "default": "Back to sign in",
+                        "description": "Shown in the password-recovery and reset views to return to the sign-in form."
+                    }
+                },
+                {
+                    "id": "signed_in_message",
+                    "args": {
+                        "label": "Signed-in message",
+                        "type": "textarea",
+                        "default": "You are signed in to your Agend account."
+                    }
+                },
+                {
+                    "id": "portal_button_label",
+                    "args": {
+                        "label": "Portal button label",
+                        "type": "text",
+                        "default": "Go to my account",
+                        "description": "Opens the member portal, already signed in. Leave empty to hide."
+                    }
+                },
+                {
+                    "id": "sign_out_label",
+                    "args": {
+                        "label": "Sign-out label",
+                        "type": "text",
+                        "default": "Sign out"
+                    }
+                }
+            ]
+        }
+    ]
+}

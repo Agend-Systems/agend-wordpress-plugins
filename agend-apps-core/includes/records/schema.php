@@ -46,6 +46,13 @@
  *   section. `name` for stability only (no value is stored); `label`;
  *   optional `separator` (`'before'`/`'after'`/`'none'`, passed through
  *   as-is); optional `condition`.
+ * - `adapter`: a builder-specific control the vocabulary cannot describe (a
+ *   repeater, a media picker, a URL field, a colour, or a control that needs
+ *   a builder-specific key like `selectors`). The schema records only its
+ *   `name` and position so the section keeps its order; the widget supplies
+ *   the control's own declaration for that name via
+ *   `register_adapter_control( string $name ): void`. Optional `label` and
+ *   `description` are for documentation only and are not rendered.
  *
  * Condition = Elementor's `condition` array shape:
  * `array( 'other_field' => $value )`, or `array( 'other_field!' => $value )`
@@ -84,4 +91,41 @@ function agend_apps_records_surface_schema( string $surface ): array {
 	return apply_filters( 'agend_apps_records_surface_schema', $schema, $surface );
 }
 
+/**
+ * The `record_type` select every field widget (Agend Field, Agend Image,
+ * Agend Link, Agend Content Block, Agend Pills) exposes as the first field of
+ * its first section.
+ *
+ * Transcribed verbatim from the shared field-widget trait's former record_type_control() method.
+ *
+ * @return array
+ */
+function agend_apps_records_schema_record_type_field(): array {
+	return array(
+		'name'        => 'record_type',
+		'label'       => __( 'Record type', 'agend-apps-core' ),
+		'type'        => 'select',
+		'default'     => 'auto',
+		'options'     => array(
+			'auto'   => __( 'Auto', 'agend-apps-core' ),
+			'event'  => __( 'Event', 'agend-apps-core' ),
+			'course' => __( 'Course', 'agend-apps-core' ),
+		),
+		'description' => __( 'Auto uses whatever record the surrounding template is rendering.', 'agend-apps-core' ),
+	);
+}
+
 require_once __DIR__ . '/schema/events-catalogue.php';
+require_once __DIR__ . '/schema/record-block.php';
+require_once __DIR__ . '/schema/record-pills.php';
+require_once __DIR__ . '/schema/account-link.php';
+require_once __DIR__ . '/schema/header-auth.php';
+require_once __DIR__ . '/schema/member-login.php';
+require_once __DIR__ . '/schema/record-link.php';
+require_once __DIR__ . '/schema/record-image.php';
+require_once __DIR__ . '/schema/record-field.php';
+require_once __DIR__ . '/schema/filter.php';
+require_once __DIR__ . '/schema/memberships-catalogue.php';
+require_once __DIR__ . '/schema/export-reports.php';
+require_once __DIR__ . '/schema/courses-catalogue.php';
+require_once __DIR__ . '/schema/directory-catalogue.php';

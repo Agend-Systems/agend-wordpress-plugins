@@ -1,0 +1,249 @@
+{
+    "sections": [
+        {
+            "id": "section_image",
+            "args": {
+                "label": "Image",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "record_type",
+                    "args": {
+                        "label": "Record type",
+                        "type": "select",
+                        "default": "auto",
+                        "options": {
+                            "auto": "Auto",
+                            "event": "Event",
+                            "course": "Course"
+                        },
+                        "description": "Auto uses whatever record the surrounding template is rendering."
+                    }
+                },
+                {
+                    "id": "field",
+                    "args": {
+                        "label": "Image field",
+                        "type": "select",
+                        "default": "common:image",
+                        "groups": [
+                            {
+                                "label": "Common (any record)",
+                                "options": {
+                                    "common:image": "Image",
+                                    "common:detail_url": "Detail URL"
+                                }
+                            },
+                            {
+                                "label": "Directory listing",
+                                "options": {
+                                    "listing:logo_url": "Logo",
+                                    "listing:hero_image_url": "Hero image",
+                                    "listing:website": "Website",
+                                    "listing:linkedin_url": "LinkedIn",
+                                    "listing:facebook_url": "Facebook",
+                                    "listing:instagram_url": "Instagram",
+                                    "listing:twitter_url": "X (Twitter)",
+                                    "listing:youtube_url": "YouTube"
+                                }
+                            },
+                            {
+                                "label": "Event",
+                                "options": {
+                                    "event:hero_image_url": "Hero image"
+                                }
+                            },
+                            {
+                                "label": "Course",
+                                "options": {
+                                    "course:image_url": "Image"
+                                }
+                            }
+                        ],
+                        "label_block": true
+                    }
+                },
+                {
+                    "id": "fallback_image",
+                    "args": {
+                        "label": "Fallback image",
+                        "type": "media",
+                        "description": "Used when the record has no image."
+                    }
+                },
+                {
+                    "id": "mode",
+                    "args": {
+                        "label": "Render as",
+                        "type": "select",
+                        "default": "img",
+                        "options": {
+                            "img": "Image",
+                            "background": "Background"
+                        }
+                    }
+                },
+                {
+                    "id": "link_to_detail",
+                    "args": {
+                        "label": "Link to detail page",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Ignored when the whole card is already a link.",
+                        "condition": {
+                            "mode": "img"
+                        }
+                    }
+                },
+                {
+                    "id": "aspect_ratio",
+                    "args": {
+                        "label": "Aspect ratio",
+                        "type": "select",
+                        "default": "16 \/ 9",
+                        "options": {
+                            "": "Original",
+                            "1 \/ 1": "1:1",
+                            "4 \/ 3": "4:3",
+                            "3 \/ 2": "3:2",
+                            "16 \/ 9": "16:9",
+                            "21 \/ 9": "21:9"
+                        },
+                        "selectors": {
+                            "{{WRAPPER}} .agend-record-image--img": "aspect-ratio: {{VALUE}};"
+                        },
+                        "condition": {
+                            "mode": "img"
+                        }
+                    }
+                },
+                {
+                    "id": "object_fit",
+                    "args": {
+                        "label": "Object fit",
+                        "type": "select",
+                        "default": "cover",
+                        "options": {
+                            "cover": "Cover",
+                            "contain": "Contain",
+                            "fill": "Fill",
+                            "none": "None"
+                        },
+                        "selectors": {
+                            "{{WRAPPER}} .agend-record-image--img": "object-fit: {{VALUE}};"
+                        },
+                        "condition": {
+                            "mode": "img"
+                        }
+                    }
+                },
+                {
+                    "id": "placement",
+                    "args": {
+                        "label": "Placement",
+                        "type": "select",
+                        "default": "fill",
+                        "options": {
+                            "fill": "Fill the container behind other widgets",
+                            "parent": "Paint onto the parent container",
+                            "block": "Sized block"
+                        },
+                        "description": "Fill: drop this widget into a container as its first child and it becomes that container's background. Parent: the image is applied to the parent container's own background. Block: a box of the height set below.",
+                        "condition": {
+                            "mode": "background"
+                        }
+                    }
+                },
+                {
+                    "id": "min_height",
+                    "args": {
+                        "label": "Minimum height",
+                        "type": "slider",
+                        "size_units": [
+                            "px",
+                            "vh",
+                            "em"
+                        ],
+                        "range": {
+                            "px": {
+                                "min": 0,
+                                "max": 1000
+                            }
+                        },
+                        "default": {
+                            "size": 240,
+                            "unit": "px"
+                        },
+                        "selectors": {
+                            "{{WRAPPER}} .agend-record-image--block": "min-height: {{SIZE}}{{UNIT}};"
+                        },
+                        "condition": {
+                            "mode": "background",
+                            "placement": "block"
+                        }
+                    },
+                    "method": "add_responsive_control"
+                },
+                {
+                    "id": "background_size",
+                    "args": {
+                        "label": "Background size",
+                        "type": "select",
+                        "default": "cover",
+                        "options": {
+                            "cover": "Cover",
+                            "contain": "Contain",
+                            "auto": "Auto"
+                        },
+                        "condition": {
+                            "mode": "background"
+                        }
+                    }
+                },
+                {
+                    "id": "background_position",
+                    "args": {
+                        "label": "Background position",
+                        "type": "select",
+                        "default": "center center",
+                        "options": {
+                            "center center": "Centre",
+                            "center top": "Top",
+                            "center bottom": "Bottom",
+                            "left center": "Left",
+                            "right center": "Right"
+                        },
+                        "condition": {
+                            "mode": "background"
+                        }
+                    }
+                },
+                {
+                    "id": "overlay_colour",
+                    "args": {
+                        "label": "Overlay colour",
+                        "type": "color",
+                        "default": "",
+                        "description": "A translucent colour layered over the image, for legible text.",
+                        "condition": {
+                            "mode": "background"
+                        }
+                    }
+                },
+                {
+                    "id": "overlay_gradient",
+                    "args": {
+                        "label": "Darken towards the bottom",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Adds the same top-to-bottom darkening the built-in detail hero uses.",
+                        "condition": {
+                            "mode": "background"
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}

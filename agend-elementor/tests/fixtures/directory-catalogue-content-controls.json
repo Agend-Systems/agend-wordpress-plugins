@@ -1,0 +1,424 @@
+{
+    "sections": [
+        {
+            "id": "section_heading",
+            "args": {
+                "label": "Heading",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "show_heading",
+                    "args": {
+                        "label": "Show heading block",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "heading_text",
+                    "args": {
+                        "label": "Heading",
+                        "type": "text",
+                        "default": "Business Directory",
+                        "condition": {
+                            "show_heading": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "subheading_text",
+                    "args": {
+                        "label": "Subheading",
+                        "type": "textarea",
+                        "default": "Find member businesses across our community.",
+                        "condition": {
+                            "show_heading": "yes"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_layout",
+            "args": {
+                "label": "Layout",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "layout_style",
+                    "args": {
+                        "label": "Layout style",
+                        "type": "select",
+                        "options": {
+                            "grid": "Grid",
+                            "list": "List"
+                        },
+                        "default": "grid"
+                    }
+                },
+                {
+                    "id": "columns_desktop",
+                    "args": {
+                        "label": "Columns (Desktop)",
+                        "type": "select",
+                        "options": {
+                            "2": "2",
+                            "3": "3",
+                            "4": "4"
+                        },
+                        "default": "3",
+                        "condition": {
+                            "layout_style": "grid"
+                        }
+                    }
+                },
+                {
+                    "id": "columns_tablet",
+                    "args": {
+                        "label": "Columns (Tablet)",
+                        "type": "select",
+                        "options": {
+                            "1": "1",
+                            "2": "2"
+                        },
+                        "default": "2",
+                        "condition": {
+                            "layout_style": "grid"
+                        }
+                    }
+                },
+                {
+                    "id": "columns_mobile",
+                    "args": {
+                        "label": "Columns (Mobile)",
+                        "type": "select",
+                        "options": {
+                            "1": "1",
+                            "2": "2"
+                        },
+                        "default": "1",
+                        "condition": {
+                            "layout_style": "grid"
+                        }
+                    }
+                },
+                {
+                    "id": "card_radius",
+                    "args": {
+                        "label": "Card Corner Radius (px)",
+                        "type": "number",
+                        "default": 10,
+                        "min": 0,
+                        "max": 48
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_card_template",
+            "args": {
+                "label": "Card Template",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "card_template",
+                    "args": {
+                        "label": "Card template",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Built-in card"
+                        },
+                        "label_block": true,
+                        "description": "A saved template (Templates > Saved Templates) rendered once per listing. Build it from the Agend Field, Agend Image, Agend Pills and Agend Link widgets. The built-in card options below apply only when no template is chosen."
+                    }
+                },
+                {
+                    "id": "card_link_whole",
+                    "args": {
+                        "label": "Whole card links to the listing",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Off: only Agend Link widgets inside the template navigate.",
+                        "condition": {
+                            "card_template!": ""
+                        }
+                    }
+                },
+                {
+                    "id": "filter_template",
+                    "args": {
+                        "label": "Filter template",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Built-in filter bar"
+                        },
+                        "label_block": true,
+                        "description": "A saved template built from Agend Filter widgets. Chosen here, it replaces the built-in filter bar and keeps working across the listing and detail views."
+                    }
+                },
+                {
+                    "id": "filter_position",
+                    "args": {
+                        "label": "Filter position",
+                        "type": "select",
+                        "default": "top",
+                        "options": {
+                            "top": "Across the top",
+                            "left": "Down the left",
+                            "right": "Down the right"
+                        },
+                        "description": "A side position puts the filters in their own column beside the results. Set the column width on the filter template itself.",
+                        "condition": {
+                            "filter_template!": ""
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_card_fields",
+            "args": {
+                "label": "Card Fields",
+                "tab": "content",
+                "condition": {
+                    "card_template": ""
+                }
+            },
+            "controls": [
+                {
+                    "id": "show_logo",
+                    "args": {
+                        "label": "Show logo",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_rating",
+                    "args": {
+                        "label": "Show rating summary",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_category",
+                    "args": {
+                        "label": "Show primary category",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_location",
+                    "args": {
+                        "label": "Show location (city, state)",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_badges",
+                    "args": {
+                        "label": "Show badges",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_description",
+                    "args": {
+                        "label": "Show description excerpt",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "excerpt_length",
+                    "args": {
+                        "label": "Excerpt length (characters)",
+                        "type": "number",
+                        "default": 110,
+                        "min": 20,
+                        "max": 400,
+                        "condition": {
+                            "show_description": "yes"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_filters",
+            "args": {
+                "label": "Visitor Filter Bar",
+                "tab": "content",
+                "condition": {
+                    "filter_template": ""
+                }
+            },
+            "controls": [
+                {
+                    "id": "heading_filter_search",
+                    "args": {
+                        "label": "Search",
+                        "type": "heading"
+                    }
+                },
+                {
+                    "id": "show_search",
+                    "args": {
+                        "label": "Show search box",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "heading_filter_category",
+                    "args": {
+                        "label": "Category",
+                        "type": "heading",
+                        "separator": "before"
+                    }
+                },
+                {
+                    "id": "show_category_filter",
+                    "args": {
+                        "label": "Show category filter",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "multi_category_filter",
+                    "args": {
+                        "label": "Allow multiple categories",
+                        "type": "switcher",
+                        "default": "no",
+                        "condition": {
+                            "show_category_filter": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "heading_filter_rating",
+                    "args": {
+                        "label": "Rating",
+                        "type": "heading",
+                        "separator": "before"
+                    }
+                },
+                {
+                    "id": "show_rating_filter",
+                    "args": {
+                        "label": "Show minimum-rating filter",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_exclusions",
+            "args": {
+                "label": "Exclusions",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "featured_only",
+                    "args": {
+                        "label": "Featured listings only",
+                        "type": "switcher",
+                        "default": "no",
+                        "description": "Limit this widget to featured listings."
+                    }
+                },
+                {
+                    "id": "exclusions_note",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "Excluded categories never appear in this widget, and are hidden from the visitor category filter."
+                    }
+                },
+                {
+                    "id": "exclude_categories",
+                    "args": {
+                        "label": "Exclude categories",
+                        "type": "select2",
+                        "multiple": true,
+                        "label_block": true,
+                        "options": []
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_detail",
+            "args": {
+                "label": "Detail View",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "show_reviews",
+                    "args": {
+                        "label": "Show reviews",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Show the rating summary and approved reviews on the listing detail view."
+                    }
+                },
+                {
+                    "id": "show_review_form",
+                    "args": {
+                        "label": "Show review submission form",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Let visitors submit a review. New reviews are held for moderation before publishing.",
+                        "condition": {
+                            "show_reviews": "yes"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_pagination",
+            "args": {
+                "label": "Pagination",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "pagination_style",
+                    "args": {
+                        "label": "Pagination style",
+                        "type": "select",
+                        "options": {
+                            "numbered": "Numbered pages",
+                            "load_more": "Load more button",
+                            "none": "None (show all fetched)"
+                        },
+                        "default": "numbered"
+                    }
+                },
+                {
+                    "id": "per_page",
+                    "args": {
+                        "label": "Listings per page",
+                        "type": "number",
+                        "default": 12,
+                        "min": 1,
+                        "max": 100
+                    }
+                }
+            ]
+        }
+    ]
+}

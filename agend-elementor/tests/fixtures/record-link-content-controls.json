@@ -1,0 +1,135 @@
+{
+    "sections": [
+        {
+            "id": "section_link",
+            "args": {
+                "label": "Link",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "record_type",
+                    "args": {
+                        "label": "Record type",
+                        "type": "select",
+                        "default": "auto",
+                        "options": {
+                            "auto": "Auto",
+                            "event": "Event",
+                            "course": "Course"
+                        },
+                        "description": "Auto uses whatever record the surrounding template is rendering."
+                    }
+                },
+                {
+                    "id": "action",
+                    "args": {
+                        "label": "Action",
+                        "type": "select",
+                        "default": "detail",
+                        "options": {
+                            "detail": "Open detail page",
+                            "catalogue": "Back to catalogue",
+                            "register": "Register (events)",
+                            "enrol": "Enrol (courses)",
+                            "ical": "Add to calendar (events)",
+                            "custom": "Custom URL"
+                        }
+                    }
+                },
+                {
+                    "id": "custom_url",
+                    "args": {
+                        "label": "URL",
+                        "type": "text",
+                        "default": "",
+                        "label_block": true,
+                        "description": "Use {slug} and {title} as placeholders for the record values.",
+                        "condition": {
+                            "action": "custom"
+                        }
+                    }
+                },
+                {
+                    "id": "text",
+                    "args": {
+                        "label": "Text",
+                        "type": "text",
+                        "default": "",
+                        "description": "Leave empty for the default label of the chosen action."
+                    }
+                },
+                {
+                    "id": "style_as",
+                    "args": {
+                        "label": "Appearance",
+                        "type": "select",
+                        "default": "button",
+                        "options": {
+                            "button": "Button",
+                            "link": "Text link"
+                        }
+                    }
+                },
+                {
+                    "id": "full_width",
+                    "args": {
+                        "label": "Full width",
+                        "type": "switcher",
+                        "default": "",
+                        "condition": {
+                            "style_as": "button"
+                        }
+                    }
+                },
+                {
+                    "id": "new_tab",
+                    "args": {
+                        "label": "Open in new tab",
+                        "type": "switcher",
+                        "default": "",
+                        "condition": {
+                            "action": [
+                                "custom",
+                                "ical"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "id": "disabled_when_sold_out",
+                    "args": {
+                        "label": "Disable when sold out",
+                        "type": "switcher",
+                        "default": "yes",
+                        "condition": {
+                            "action": "register"
+                        }
+                    }
+                },
+                {
+                    "id": "hide_when_registered",
+                    "args": {
+                        "label": "Hide when the viewer is already registered",
+                        "type": "switcher",
+                        "default": "",
+                        "condition": {
+                            "action": "register"
+                        }
+                    }
+                },
+                {
+                    "id": "hide_when_enrolled",
+                    "args": {
+                        "label": "Hide when the viewer is already enrolled",
+                        "type": "switcher",
+                        "default": "yes",
+                        "condition": {
+                            "action": "enrol"
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}

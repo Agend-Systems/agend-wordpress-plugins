@@ -42,6 +42,12 @@ final class Agend_Elementor_Schema_Controls {
 			$widget->start_controls_section( $section['id'], $section_args );
 
 			foreach ( $section['fields'] ?? array() as $field ) {
+				if ( 'adapter' === ( $field['type'] ?? '' ) ) {
+					if ( method_exists( $widget, 'register_adapter_control' ) ) {
+						$widget->register_adapter_control( $field['name'] );
+					}
+					continue;
+				}
 				$widget->add_control( $field['name'], self::control_args( $field ) );
 			}
 
@@ -95,15 +101,6 @@ final class Agend_Elementor_Schema_Controls {
 				if ( isset( $field['options'] ) ) {
 					$args['options'] = $field['options'];
 				}
-				if ( isset( $field['label_block'] ) ) {
-					$args['label_block'] = $field['label_block'];
-				}
-				if ( isset( $field['description'] ) ) {
-					$args['description'] = $field['description'];
-				}
-				if ( isset( $field['condition'] ) ) {
-					$args['condition'] = $field['condition'];
-				}
 				if ( isset( $field['min'] ) ) {
 					$args['min'] = $field['min'];
 				}
@@ -113,7 +110,7 @@ final class Agend_Elementor_Schema_Controls {
 				if ( isset( $field['step'] ) ) {
 					$args['step'] = $field['step'];
 				}
-				return $args;
+				break;
 
 			case 'select':
 				$args['type']    = \Elementor\Controls_Manager::SELECT;

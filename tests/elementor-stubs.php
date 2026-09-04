@@ -100,6 +100,19 @@ namespace Elementor {
 				$this->recordings[] = array( 'method' => 'end_controls_section' );
 			}
 
+			// Style-tab-only tabbed-control grouping (Normal/Hover). Never
+			// entered while reducing to Content-tab recordings, so a no-op is
+			// enough to let a widget's register_controls() run to completion.
+			public function start_controls_tabs( string $id, array $args = array() ): void {}
+
+			public function start_controls_tab( string $id, array $args = array() ): void {}
+
+			public function end_controls_tab(): void {}
+
+			public function end_controls_tabs(): void {}
+
+			public function add_render_attribute( $element, $key = null, $value = null ): void {}
+
 			/**
 			 * @param string|null $key Single setting key, or null for all settings.
 			 * @return mixed
@@ -118,6 +131,58 @@ namespace Elementor {
 
 			public function get_name(): string {
 				return 'test-widget';
+			}
+		}
+
+		if ( ! class_exists( '\\Elementor\\Repeater' ) ) {
+			/**
+			 * Recording double for `\Elementor\Repeater`: enough of the real
+			 * class for a widget's `register_controls()` to build one up with
+			 * `add_control()` and read it back with `get_controls()`, in the
+			 * same shape Elementor's `Repeater::get_controls()` returns.
+			 */
+			class Repeater {
+				/** @var array<int, array<string, mixed>> */
+				private array $controls = array();
+
+				public function add_control( string $id, array $args ): void {
+					$args['name'] = $id;
+					$this->controls[] = $args;
+				}
+
+				/**
+				 * @return array<int, array<string, mixed>>
+				 */
+				public function get_controls(): array {
+					return $this->controls;
+				}
+			}
+		}
+
+		if ( ! class_exists( '\\Elementor\\Group_Control_Typography' ) ) {
+			/** Group control double: only `get_type()` is ever called on these in the widgets under test. */
+			final class Group_Control_Typography {
+				public static function get_type(): string {
+					return 'typography';
+				}
+			}
+		}
+
+		if ( ! class_exists( '\\Elementor\\Group_Control_Border' ) ) {
+			/** @see Group_Control_Typography */
+			final class Group_Control_Border {
+				public static function get_type(): string {
+					return 'border';
+				}
+			}
+		}
+
+		if ( ! class_exists( '\\Elementor\\Group_Control_Box_Shadow' ) ) {
+			/** @see Group_Control_Typography */
+			final class Group_Control_Box_Shadow {
+				public static function get_type(): string {
+					return 'box_shadow';
+				}
 			}
 		}
 	}

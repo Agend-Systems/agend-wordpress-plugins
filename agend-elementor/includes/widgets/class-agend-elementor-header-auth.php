@@ -80,60 +80,33 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	/**
 	 * Registers all Elementor controls for this widget.
 	 */
+	/**
+	 * Registers a Content-tab control this widget declares itself because the
+	 * shared schema vocabulary cannot describe it.
+	 *
+	 * @param string $name Schema field name.
+	 * @return void
+	 */
+	public function register_adapter_control( string $name ): void {
+		if ( 'login_url' === $name ) {
+			$this->add_control(
+				'login_url',
+				array(
+					'label'         => __( 'Login page', 'agend-elementor' ),
+					'type'          => \Elementor\Controls_Manager::URL,
+					'description'   => __( 'Where signed-out visitors go. Leave blank to use the WordPress login page.', 'agend-elementor' ),
+					'placeholder'   => home_url( '/login/' ),
+					'show_external' => false,
+					'default'       => array(
+						'url' => '',
+					),
+				)
+			);
+		}
+	}
+
 	protected function register_controls(): void {
-		$this->start_controls_section(
-			'section_content',
-			array(
-				'label' => __( 'Content', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'logged_out_label',
-			array(
-				'label'       => __( 'Logged-out label', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => __( 'Log In', 'agend-elementor' ),
-				'description' => __( 'Shown to signed-out visitors; links to the login page.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'logged_in_label',
-			array(
-				'label'       => __( 'Logged-in label', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => __( 'My Portal', 'agend-elementor' ),
-				'description' => __( 'Shown to signed-in members; opens the member portal, already signed in.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'sign_out_label',
-			array(
-				'label'       => __( 'Sign-out label', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => __( 'Sign out', 'agend-elementor' ),
-				'description' => __( 'Shown in a dropdown when a signed-in member hovers or focuses the button. Leave empty to hide the dropdown.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'login_url',
-			array(
-				'label'         => __( 'Login page', 'agend-elementor' ),
-				'type'          => \Elementor\Controls_Manager::URL,
-				'description'   => __( 'Where signed-out visitors go. Leave blank to use the WordPress login page.', 'agend-elementor' ),
-				'placeholder'   => home_url( '/login/' ),
-				'show_external' => false,
-				'default'       => array(
-					'url' => '',
-				),
-			)
-		);
-
-		$this->end_controls_section();
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'header-auth' ) );
 
 		$this->start_controls_section(
 			'section_style',

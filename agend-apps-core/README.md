@@ -167,6 +167,16 @@ settings a second time. Elementor's adapter is
 `Agend_Elementor_Schema_Controls` in the Agend Elementor plugin; the future
 block editor surface gets its own.
 
+All 14 Elementor widgets now read their Content-tab settings from a core
+schema: `events-catalogue`, `courses-catalogue`, `directory-catalogue`,
+`memberships-catalogue`, `export-reports`, `filter`, `header-auth`,
+`member-login`, `account-link`, `record-block`, `record-field`,
+`record-image`, `record-link`, `record-pills`. Each schema is guarded by a
+fidelity test (`agend-elementor/tests/*ControlsTest.php`) against a fixture
+recorded from the pre-conversion widget, so a schema or adapter change that
+drifts from the original controls fails the test rather than silently
+changing what a saved page renders.
+
 Fetch a surface's schema with `agend_apps_records_surface_schema( string
 $surface ): array` (e.g. `'events-catalogue'`). It runs the result through the
 `agend_apps_records_surface_schema` filter, so a site can add or amend a field
@@ -189,6 +199,7 @@ plus optionally `description`, `condition`, `label_block`.
 | `template` | `placeholder` (the "no template" entry's label) | string, `''` |
 | `note` | `content` | none (no persisted value) |
 | `heading` | `separator` (`'before'`/`'after'`/`'none'`), optional | none (no persisted value) |
+| `adapter` | none read by the vocabulary; `label`/`description` are documentation only | n/a — the widget declares its own control |
 
 `condition` is Elementor's own shape (`array( 'other_field' => $value )`, or
 `array( 'other_field!' => $value )` for not-equal) kept as-is, since it is
@@ -198,7 +209,25 @@ simple and every adapter can evaluate it directly.
 setting under. Renaming one orphans every page that already set it; add a new
 field and migrate instead.
 
-When a Content-tab control genuinely has no schema equivalent, it stays
-hand-declared in the adapter's widget rather than forcing a bad fit into the
-vocabulary; the vocabulary is extended (as `heading` was) when the control is
-in fact generic across page builders and not an Elementor-specific concept.
+**`adapter`** is the escape hatch for a control the shared vocabulary cannot
+describe: a repeater, a media picker, a URL field, a colour, or a control that
+needs a builder-specific key such as `selectors`. The schema records only the
+field's `name` (so the section keeps its order); the widget itself supplies a
+`public function register_adapter_control( string $name ): void` with a
+`switch` on the name that runs its original `add_control()` /
+`add_responsive_control()` call verbatim, including any surrounding
+conditional logic (the Export Report widget's "no reports configured" notice
+registers only when the account has none, which is a runtime check, not a
+field-value `condition`). `Agend_Elementor_Schema_Controls::register()` calls
+it when a field's type is `adapter`, guarded with `method_exists` so a widget
+without one is skipped rather than fatal.
+
+The shared `record_type` select every field widget (Agend Field, Agend Image,
+Agend Link, Agend Content Block, Agend Pills) exposes is a single fragment,
+`agend_apps_records_schema_record_type_field(): array`, included as the first
+field of each widget's first section rather than five separate declarations.
+
+When a Content-tab control genuinely has no schema equivalent, it becomes an
+`adapter` field rather than forcing a bad fit into the vocabulary; the
+vocabulary itself is extended (as `heading` was) only when the control is in
+fact generic across page builders and not an Elementor-specific concept.
