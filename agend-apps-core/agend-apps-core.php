@@ -126,6 +126,10 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/interface-agend-apps-template-source.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/class-agend-apps-templates.php';
 
+	// Shared front-end assets: the CSS/JS behind the catalogue widgets, and the
+	// handful of helpers (shop cart detection, DOMPurify) they depend on.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/assets.php';
+
 	// Server-rendered detail pages (opt-in). The format/fragments helpers are
 	// split out so field widgets can reuse them without pulling in the whole
 	// SSR detail machinery.
