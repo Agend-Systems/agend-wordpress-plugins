@@ -139,6 +139,12 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/preview-records.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/filters.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/query.php';
+
+	// Content-settings schema: the page-builder-agnostic declaration every
+	// presentation adapter (Elementor, later the block editor) renders its
+	// controls from, instead of each hand-declaring the same settings.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/schema.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/cards.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/rest/fragments-controller.php';
 

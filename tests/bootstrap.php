@@ -17,5 +17,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 require_once AGEND_TESTS_ROOT . '/vendor/autoload.php';
 require_once __DIR__ . '/wp-stubs.php';
+require_once __DIR__ . '/elementor-stubs.php';
 require_once __DIR__ . '/doubles.php';
 require_once __DIR__ . '/TestCase.php';

@@ -156,3 +156,49 @@ The ten `AGEND_ELEMENTOR_*` option/kind/limit constants keep resolving too
 resolve via `class_alias()`. The stored option names themselves
 (`agend_elementor_events_page_id` and friends) are unchanged and are not
 deprecated: they are live site data, not a code-facing name.
+
+## Content-settings schema (page-builder-agnostic)
+
+A record surface (events catalogue, courses catalogue, and so on) declares its
+Content-tab settings ONCE, as plain PHP data, in
+`includes/records/schema/<surface>.php`. Every presentation adapter renders its
+own controls from that same declaration instead of hand-declaring the same
+settings a second time. Elementor's adapter is
+`Agend_Elementor_Schema_Controls` in the Agend Elementor plugin; the future
+block editor surface gets its own.
+
+Fetch a surface's schema with `agend_apps_records_surface_schema( string
+$surface ): array` (e.g. `'events-catalogue'`). It runs the result through the
+`agend_apps_records_surface_schema` filter, so a site can add or amend a field
+once and have it appear in every adapter's editor.
+
+### Vocabulary
+
+Schema = `array( 'sections' => Section[] )`. Section = `array( 'id', 'label',
+'condition'?, 'fields' => Field[] )`. Every field carries `name` (the setting
+key, PERSISTED in saved pages — never change one), `label`, `type`, `default`,
+plus optionally `description`, `condition`, `label_block`.
+
+| Type | Extra keys | Default shape |
+| :--- | :--- | :--- |
+| `toggle` | — | boolean |
+| `text` / `textarea` | — | string |
+| `number` | `min`, `max`, `step` | numeric |
+| `select` | `options` (array, or a callable string resolved at render time) or `groups` | string |
+| `multiselect` | `options` (same shape as `select`) | array, optional — omit for no default |
+| `template` | `placeholder` (the "no template" entry's label) | string, `''` |
+| `note` | `content` | none (no persisted value) |
+| `heading` | `separator` (`'before'`/`'after'`/`'none'`), optional | none (no persisted value) |
+
+`condition` is Elementor's own shape (`array( 'other_field' => $value )`, or
+`array( 'other_field!' => $value )` for not-equal) kept as-is, since it is
+simple and every adapter can evaluate it directly.
+
+**`name` is a contract, not a label.** It is the key a saved page stores the
+setting under. Renaming one orphans every page that already set it; add a new
+field and migrate instead.
+
+When a Content-tab control genuinely has no schema equivalent, it stays
+hand-declared in the adapter's widget rather than forcing a bad fit into the
+vocabulary; the vocabulary is extended (as `heading` was) when the control is
+in fact generic across page builders and not an Elementor-specific concept.
