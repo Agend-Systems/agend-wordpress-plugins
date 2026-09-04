@@ -168,6 +168,42 @@
       });
   }
 
+  // Dismissal is bound once for the whole document, on the CAPTURE phase and
+  // on pointerdown rather than click. A bubble-phase click listener is at the
+  // mercy of anything upstream calling stopPropagation, which the Elementor
+  // editor canvas does to intercept widget selection: the menu would then only
+  // close by pressing its own trigger again. Capture reaches us first
+  // regardless.
+  var dismissBound = false;
+
+  function bindDismissal() {
+    if (dismissBound) {
+      return;
+    }
+    dismissBound = true;
+
+    document.addEventListener('pointerdown', function (e) {
+      Array.prototype.forEach.call(document.querySelectorAll('.agend-export-report.is-open'), function (open) {
+        if (!open.contains(e.target)) {
+          closeMenu(open);
+        }
+      });
+    }, true);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') {
+        return;
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('.agend-export-report.is-open'), function (open) {
+        closeMenu(open);
+        var trigger = open.querySelector('[data-agend-export-trigger]');
+        if (trigger) {
+          trigger.focus();
+        }
+      });
+    }, true);
+  }
+
   function closeMenu(root) {
     var trigger = root.querySelector('[data-agend-export-trigger]');
     var menu = root.querySelector('[data-agend-export-menu]');
@@ -203,9 +239,10 @@
     } catch (e) {
       return;
     }
-    if (!cfg || !cfg.reports || !cfg.reports.length) {
+    if (!cfg || !cfg.reports || !cfg.reports.length || root.getAttribute('data-agend-export-ready') === '1') {
       return;
     }
+    root.setAttribute('data-agend-export-ready', '1');
 
     // Fill in any entry the designer left unlabelled with the report's current
     // name, so a rename in Agend reaches a saved template.
@@ -237,25 +274,14 @@
 
     var trigger = root.querySelector('[data-agend-export-trigger]');
     if (trigger) {
-      trigger.addEventListener('click', function (e) {
-        e.stopPropagation();
+      trigger.addEventListener('click', function () {
         if (root.classList.contains('is-open')) {
           closeMenu(root);
         } else {
           openMenu(root);
         }
       });
-      root.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && root.classList.contains('is-open')) {
-          closeMenu(root);
-          trigger.focus();
-        }
-      });
-      document.addEventListener('click', function (e) {
-        if (root.classList.contains('is-open') && !root.contains(e.target)) {
-          closeMenu(root);
-        }
-      });
+      bindDismissal();
     }
   }
 
@@ -268,5 +294,20 @@
     document.addEventListener('DOMContentLoaded', initAll);
   } else {
     initAll();
+  }
+
+  // The editor re-renders a widget on every settings change, replacing its
+  // DOM, so the fresh copy needs wiring up again.
+  if (window.jQuery) {
+    window.jQuery(window).on('elementor/frontend/init', function () {
+      if (window.elementorFrontend && window.elementorFrontend.hooks) {
+        window.elementorFrontend.hooks.addAction('frontend/element_ready/agend-export-reports.default', function ($scope) {
+          var node = $scope && $scope[0] ? $scope[0].querySelector('.agend-export-report[data-agend-export-config]') : null;
+          if (node) {
+            initWidget(node);
+          }
+        });
+      }
+    });
   }
 })();
