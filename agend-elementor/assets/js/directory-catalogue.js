@@ -1386,6 +1386,14 @@
 
     applySiteTheme(root, cfg);
 
+    // Publish the live filter state so an Agend Export Report widget on the
+    // same page can export whatever the visitor has narrowed this catalogue
+    // down to. The same object reference is kept, so it stays current as the
+    // filters write to it. Several catalogues on one page: the last to
+    // initialise is the one an export reads.
+    window.agendCatalogues = window.agendCatalogues || {};
+    window.agendCatalogues.listing = { state: state, config: cfg, root: root };
+
     // Card template mode: the first page arrived server-rendered, so adopt
     // that markup (grid, pager, filter slot) instead of rebuilding it, and
     // fetch later pages as rendered fragments.

@@ -1,0 +1,52 @@
+/* Agend Export Report: structure only, so Elementor's own controls style it. */
+
+.agend-export-report {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.agend-export-report--full,
+.agend-export-report--full .agend-export__controls,
+.agend-export-report--full .agend-export__submit {
+  width: 100%;
+}
+
+.agend-export__label {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.agend-export__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agend-export__select,
+.agend-export__format {
+  font: inherit;
+}
+
+.agend-export__submit {
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.6em 1.2em;
+  background: #ff6b55;
+  color: #fff;
+}
+
+.agend-export__submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.agend-export__error {
+  margin: 0.25rem 0 0;
+  color: #d13b2f;
+  font-size: 0.9rem;
+}
