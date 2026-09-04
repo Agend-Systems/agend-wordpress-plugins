@@ -251,6 +251,22 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'filter_position',
+			array(
+				'label'       => __( 'Filter position', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => 'top',
+				'options'     => array(
+					'top'   => __( 'Across the top', 'agend-elementor' ),
+					'left'  => __( 'Down the left', 'agend-elementor' ),
+					'right' => __( 'Down the right', 'agend-elementor' ),
+				),
+				'description' => __( 'A side position puts the filters in their own column beside the results. Set the column width on the filter template itself.', 'agend-elementor' ),
+				'condition'   => array( 'filter_template!' => '' ),
+			)
+		);
+
 		$this->end_controls_section();
 
 		// Card fields section (built-in card only).
@@ -335,8 +351,11 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		$this->start_controls_section(
 			'section_filters',
 			array(
-				'label' => __( 'Visitor Filter Bar', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+				'label'     => __( 'Visitor Filter Bar', 'agend-elementor' ),
+				'tab'       => \Elementor\Controls_Manager::TAB_CONTENT,
+				// Inert once a filter template drives the filters, so it only
+				// appears while the built-in bar is what renders.
+				'condition' => array( 'filter_template' => '' ),
 			)
 		);
 
@@ -781,6 +800,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		if ( $template_id > 0 && Agend_Elementor_Template_Renderer::is_valid_template( $template_id ) ) {
 			$config['cardMode']      = 'template';
 			$config['filterTemplate'] = $this->filter_template_id( $settings );
+			$config['filterPosition'] = (string) ( $settings['filter_position'] ?? 'top' );
 			$config['cardTemplate']  = $template_id;
 			$config['cardLinkWhole'] = 'yes' === ( $settings['card_link_whole'] ?? 'yes' );
 			$config['hostPageId']    = (int) $page_id;
@@ -791,6 +811,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		}
 		$config['cardMode'] = 'legacy';
 		$config['filterTemplate'] = $this->filter_template_id( $settings );
+		$config['filterPosition'] = (string) ( $settings['filter_position'] ?? 'top' );
 
 		// One complete grid row of skeleton placeholders as the initial state
 		// (3 when the layout is a single column or list), so no plain "Loading…"
@@ -889,7 +910,7 @@ class Agend_Elementor_Directory_Catalogue extends \Elementor\Widget_Base {
 		$config['initialPagination'] = $list['pagination'];
 		$config['initialError']      = $list['error'];
 		?>
-		<div class="agend-directory-catalogue agend-directory-catalogue--templated" style="<?php echo esc_attr( $style ); ?>" data-agend-directory-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
+		<div class="agend-directory-catalogue agend-directory-catalogue--templated agend-filters-<?php echo esc_attr( $config['filterPosition'] ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-directory-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<?php if ( ! empty( $config['heading']['show'] ) && ( '' !== $config['heading']['title'] || '' !== $config['heading']['subtitle'] ) ) : ?>
 				<div class="agend-dir-heading">
 					<?php if ( '' !== $config['heading']['title'] ) : ?>
