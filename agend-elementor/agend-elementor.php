@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.9.8
+ * Version:           0.18.2
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.9.8' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.18.2' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -56,6 +56,12 @@ require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-routing.php';
 // Settings (server-rendered detail toggle). Loaded unconditionally so the
 // accessor is available on the front-end `wp` hook and in the admin.
 require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-settings.php';
+
+// Dedicated catalogue pages (fixes the host-page hijack: a catalogue used as
+// a homepage CTA no longer turns the homepage into the detail page). Loaded
+// unconditionally, like settings, so the wp:4 redirect and the widgets'
+// page_url()/detail_url() calls work even before Elementor/core bootstrap.
+require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-pages.php';
 
 // Elementor element-cache guard. Loaded unconditionally so a degraded boot
 // (missing dependency) can be recorded even when the bootstrap bails below.
@@ -92,7 +98,30 @@ function agend_elementor_bootstrap(): void {
 
 	// Server-rendered detail pages (opt-in). Requires the Agend Apps Core REST
 	// wrappers, so it loads only once the core dependency check above passes.
+	// The format/fragments helpers are split out so Elementor "field" widgets
+	// can reuse them without pulling in the whole SSR detail machinery.
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-format.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-fragments.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-ssr-detail.php';
+
+	// Template-driven cards and detail pages: the record context the field
+	// widgets read, the field registry, the template picker and renderer.
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-record-context.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-fields.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-templates.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-preview-records.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-template-renderer.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-filters.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-query.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-cards.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/rest/class-agend-elementor-fragments-controller.php';
+	add_action(
+		'rest_api_init',
+		static function () {
+			( new Agend_Elementor_Fragments_Controller() )->register_routes();
+		}
+	);
 
 	// The usermeta display conditions that used to load here are RETIRED
 	// (SPEC-CMS-20260727 US-1.1). They were a second entitlement authority that
@@ -199,6 +228,55 @@ function agend_elementor_enqueue_scripts(): void {
 	}
 
 	agend_elementor_register_dompurify();
+
+	// Template widgets (Agend Field / Image / Link / Content Block). Enqueued
+	// unconditionally like the catalogue assets: REST-rendered card fragments
+	// arrive after the page has loaded, so the host page must already carry
+	// these.
+	wp_enqueue_style(
+		'agend-elementor-record-fields',
+		AGEND_ELEMENTOR_URL . 'assets/css/record-fields.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+	wp_enqueue_script(
+		'agend-elementor-record-fields',
+		AGEND_ELEMENTOR_URL . 'assets/js/record-fields.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	// Filter controls for Agend Filter widgets placed in a filter template.
+	wp_enqueue_style(
+		'agend-elementor-filters',
+		AGEND_ELEMENTOR_URL . 'assets/css/filters.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+	wp_enqueue_script(
+		'agend-elementor-filters',
+		AGEND_ELEMENTOR_URL . 'assets/js/filters.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	// Directory export reports: the list is per-visitor, so it is fetched at
+	// view time rather than rendered into a cacheable page.
+	wp_enqueue_style(
+		'agend-elementor-export-reports',
+		AGEND_ELEMENTOR_URL . 'assets/css/export-reports.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+	wp_enqueue_script(
+		'agend-elementor-export-reports',
+		AGEND_ELEMENTOR_URL . 'assets/js/export-reports.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
 
 	wp_enqueue_style(
 		'agend-elementor-events-catalogue',

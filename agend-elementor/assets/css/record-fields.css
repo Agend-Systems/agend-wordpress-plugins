@@ -1,0 +1,116 @@
+/* Agend template widgets: Field, Image, Link, Content Block. */
+
+.agend-field {
+  margin: 0;
+}
+
+.agend-field--preview {
+  outline: 1px dashed rgba(0, 0, 0, 0.15);
+  outline-offset: 2px;
+}
+
+.agend-field__link,
+.agend-record-image__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.agend-record-image--img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.agend-record-image--bg {
+  background-repeat: no-repeat;
+}
+
+.agend-record-image--block {
+  width: 100%;
+  min-height: 240px;
+}
+
+/* Fill placement: the widget wrapper stops being a positioned ancestor so the
+   inner box stretches to the container the widget sits in. */
+.elementor-widget.agend-record-image-host--fill {
+  position: static;
+  margin: 0;
+}
+
+.agend-record-image--fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Parent placement: once record-fields.js has painted the parent, the
+   placeholder box collapses. */
+.agend-record-image--parent {
+  display: none;
+}
+
+.agend-record-link {
+  display: inline-block;
+  text-decoration: none;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.agend-record-link--button {
+  padding: 0.75em 1.25em;
+  border: 0;
+  border-radius: 8px;
+  background: var(--agend-ev-button, #ff6b55);
+  color: var(--agend-ev-button-text, #fff);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+}
+
+.agend-record-link--button:hover,
+.agend-record-link--button:focus {
+  filter: brightness(0.95);
+}
+
+.agend-record-link--button:disabled,
+.agend-record-link--button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.agend-record-link--full {
+  display: block;
+  width: 100%;
+}
+
+.agend-record-link--text {
+  background: none;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.agend-record-block > * {
+  margin-top: 0;
+}
+
+/* Agend Pills: one pill per term, count driven by the record. */
+.agend-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.agend-pill {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+a.agend-pill:hover,
+a.agend-pill:focus {
+  filter: brightness(0.95);
+}

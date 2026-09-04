@@ -245,6 +245,26 @@ function __( $text, $domain = null ): string {
 	return (string) $text;
 }
 
+/**
+ * The site timezone, fixed to UTC for deterministic test fixtures.
+ */
+function wp_timezone(): DateTimeZone {
+	return new DateTimeZone( 'UTC' );
+}
+
+/**
+ * Formats a timestamp in a given (or the site) timezone, mirroring wp_date()
+ * closely enough for the date-formatting unit tests: no WP_Locale month/day
+ * translation, since the format strings under test do not need it.
+ */
+function wp_date( string $format, ?int $timestamp = null, ?DateTimeZone $timezone = null ): string|false {
+	$timestamp = $timestamp ?? time();
+	$timezone  = $timezone ?? wp_timezone();
+	$datetime  = new DateTime( '@' . $timestamp );
+	$datetime->setTimezone( $timezone );
+	return $datetime->format( $format );
+}
+
 function wp_json_encode( $data ) {
 	return json_encode( $data );
 }
@@ -557,5 +577,83 @@ if ( ! function_exists( 'get_post' ) ) {
 		}
 
 		return $fields instanceof WP_Post ? $fields : new WP_Post( (array) $fields );
+	}
+}
+
+if ( ! function_exists( 'get_permalink' ) ) {
+	/**
+	 * Permalink stub: one distinguishable URL per known post id, built from
+	 * the id alone (the stub `WP_Post` carries no `post_name`, so this does
+	 * not attempt to mirror WordPress's slug-based permalink structure).
+	 *
+	 * @param int|WP_Post $post Post id, or a post object.
+	 * @return string|false The permalink, or false when the post is unknown.
+	 */
+	function get_permalink( $post = 0 ) {
+		$id       = is_object( $post ) ? (int) ( $post->ID ?? 0 ) : (int) $post;
+		$post_obj = get_post( $id );
+
+		if ( ! ( $post_obj instanceof WP_Post ) ) {
+			return false;
+		}
+
+		return 'https://example.test/page-' . $post_obj->ID . '/';
+	}
+}
+
+if ( ! function_exists( 'trailingslashit' ) ) {
+	/**
+	 * Ensures a single trailing slash, matching WordPress's helper.
+	 *
+	 * @param string $value The string to slash.
+	 * @return string
+	 */
+	function trailingslashit( string $value ): string {
+		return rtrim( $value, '/\\' ) . '/';
+	}
+}
+
+if ( ! function_exists( 'absint' ) ) {
+	/**
+	 * Absolute integer cast, matching WordPress's helper.
+	 *
+	 * @param mixed $value The value to cast.
+	 * @return int
+	 */
+	function absint( $value ): int {
+		return abs( (int) $value );
+	}
+}
+
+if ( ! function_exists( 'wp_kses_post' ) ) {
+	/**
+	 * Post-content sanitiser stub: strips everything but a basic allow-list.
+	 * Tests assert the allow-list boundary (script gone, strong kept), not
+	 * WordPress's full kses ruleset.
+	 *
+	 * @param string $content The HTML.
+	 * @return string
+	 */
+	function wp_kses_post( $content ): string {
+		return strip_tags( (string) $content, '<p><a><strong><em><b><i><ul><ol><li><br><h1><h2><h3><h4><h5><h6><blockquote><span><div><img>' );
+	}
+}
+
+if ( ! function_exists( 'number_format_i18n' ) ) {
+	/**
+	 * Locale-agnostic number formatter, matching the en_AU result.
+	 *
+	 * @param float $number   The number.
+	 * @param int   $decimals Decimal places.
+	 * @return string
+	 */
+	function number_format_i18n( $number, $decimals = 0 ): string {
+		return number_format( (float) $number, (int) $decimals, '.', ',' );
+	}
+}
+
+if ( ! function_exists( 'esc_attr' ) ) {
+	function esc_attr( $text ): string {
+		return htmlspecialchars( (string) $text, ENT_QUOTES );
 	}
 }

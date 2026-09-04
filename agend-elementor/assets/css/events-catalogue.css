@@ -916,3 +916,17 @@
   display: flex;
   gap: 1.25rem;
 }
+
+/* Card template mode: each card is the template output inside one clickable
+   shell; the shell must not restyle the template. */
+.agend-ev-grid--templated > .agend-card-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.agend-ev-filter-slot:empty {
+  display: none;
+}

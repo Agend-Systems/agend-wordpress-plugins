@@ -65,6 +65,12 @@ add_action( 'init', 'agend_elementor_add_rewrite_endpoints' );
  */
 function agend_elementor_register_query_vars( array $vars ): array {
 	$vars[] = 'agend_dir_listing';
+
+	// Legacy (non-pretty) deep-link query params for the dedicated-page
+	// redirect (class-agend-elementor-pages.php) to see on the request.
+	$vars[] = 'agend_event';
+	$vars[] = 'agend_course';
+
 	return $vars;
 }
 add_filter( 'query_vars', 'agend_elementor_register_query_vars' );

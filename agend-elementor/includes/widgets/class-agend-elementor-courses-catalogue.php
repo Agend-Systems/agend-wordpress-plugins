@@ -184,11 +184,75 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 
 		$this->end_controls_section();
 
+		// Card template section.
+		$this->start_controls_section(
+			'section_card_template',
+			array(
+				'label' => __( 'Card Template', 'agend-elementor' ),
+				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+			)
+		);
+
+		$this->add_control(
+			'card_template',
+			array(
+				'label'       => __( 'Card template', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => '',
+				'options'     => Agend_Elementor_Templates::options( __( 'Built-in card', 'agend-elementor' ) ),
+				'label_block' => true,
+				'description' => __( 'A saved Elementor template (Templates > Saved Templates) rendered once per course. Build it from the Agend Field, Agend Image and Agend Link widgets. The built-in card options below apply only when no template is chosen.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
+			'card_link_whole',
+			array(
+				'label'       => __( 'Whole card links to the course', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SWITCHER,
+				'default'     => 'yes',
+				'description' => __( 'Off: only Agend Link widgets inside the template navigate.', 'agend-elementor' ),
+				'condition'   => array( 'card_template!' => '' ),
+			)
+		);
+
+		$this->add_control(
+			'filter_template',
+			array(
+				'label'       => __( 'Filter template', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => '',
+				'options'     => Agend_Elementor_Templates::options( __( 'Built-in filter bar', 'agend-elementor' ) ),
+				'label_block' => true,
+				'description' => __( 'A saved Elementor template built from Agend Filter widgets. Chosen here, it replaces the built-in filter bar and keeps working across the listing and detail views.', 'agend-elementor' ),
+			)
+		);
+
+		$this->add_control(
+			'filter_position',
+			array(
+				'label'       => __( 'Filter position', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => 'top',
+				'options'     => array(
+					'top'   => __( 'Across the top', 'agend-elementor' ),
+					'left'  => __( 'Down the left', 'agend-elementor' ),
+					'right' => __( 'Down the right', 'agend-elementor' ),
+				),
+				'description' => __( 'A side position puts the filters in their own column beside the results. Set the column width on the filter template itself.', 'agend-elementor' ),
+				'condition'   => array( 'filter_template!' => '' ),
+			)
+		);
+
+		$this->end_controls_section();
+
+		// Card fields section (built-in card only).
 		$this->start_controls_section(
 			'section_card_fields',
 			array(
-				'label' => __( 'Card Fields', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+				'label'     => __( 'Card Fields', 'agend-elementor' ),
+				'tab'       => \Elementor\Controls_Manager::TAB_CONTENT,
+				'condition' => array( 'card_template' => '' ),
 			)
 		);
 
@@ -228,8 +292,11 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 		$this->start_controls_section(
 			'section_filters',
 			array(
-				'label' => __( 'Visitor Filter Bar', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+				'label'     => __( 'Visitor Filter Bar', 'agend-elementor' ),
+				'tab'       => \Elementor\Controls_Manager::TAB_CONTENT,
+				// Inert once a filter template drives the filters, so it only
+				// appears while the built-in bar is what renders.
+				'condition' => array( 'filter_template' => '' ),
 			)
 		);
 
@@ -565,6 +632,15 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 	 * Renders the widget container on the frontend.
 	 */
 	protected function render(): void {
+		// A catalogue inside a card template would fetch the list once per
+		// card; nothing sensible can come of it.
+		if ( class_exists( 'Agend_Elementor_Record_Context' ) && Agend_Elementor_Record_Context::has() ) {
+			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
+				echo '<div class="elementor-alert elementor-alert-warning">' . esc_html__( 'A Courses Catalogue cannot be placed inside a card or detail template.', 'agend-elementor' ) . '</div>';
+			}
+			return;
+		}
+
 		$settings = $this->get_settings_for_display();
 		$config   = $this->build_config( $settings );
 
@@ -579,6 +655,18 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 		$config['prettyLinks'] = (bool) get_option( 'permalink_structure' );
 		$config['basePath']    = is_string( $base_path ) ? $base_path : '';
 
+		// Dedicated Courses page (fixes the host-page hijack): with one
+		// configured, a catalogue elsewhere never opens a detail in place:
+		// deepLink is only honoured on the dedicated page, or, with no
+		// dedicated page configured, on whatever page hosts the widget
+		// (unchanged from before this setting existed).
+		$config['detailBase']   = Agend_Elementor_Pages::page_url( 'course' );
+		$config['onDetailPage'] = '' === $config['detailBase']
+			|| Agend_Elementor_Pages::is_dedicated_page( 'course', $page_id );
+		if ( ! $config['onDetailPage'] ) {
+			$config['deepLink'] = '';
+		}
+
 		// Cart mode: mirror the Events catalogue so a signed-in member's enrol
 		// CTA adds the course to the shop cart when the Agend Apps Shop is
 		// active (SPEC-CORE-20260722 US-2.4). Runtime site state, not a widget
@@ -586,23 +674,37 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 		$config['cartEnabled'] = agend_elementor_shop_cart_enabled();
 		$config['cartPageUrl'] = agend_elementor_shop_cart_page_url();
 
-		$style = sprintf(
-			'--agend-lms-heading:%1$s;--agend-lms-body:%2$s;--agend-lms-accent:%3$s;--agend-lms-button:%4$s;--agend-lms-button-text:%5$s;--agend-lms-card-radius:%6$dpx;',
-			esc_attr( $config['colours']['heading'] ),
-			esc_attr( $config['colours']['body'] ),
-			esc_attr( $config['colours']['accent'] ),
-			esc_attr( $config['colours']['button'] ),
-			esc_attr( $config['colours']['buttonText'] ),
-			(int) $config['layout']['cardRadius']
-		);
+		$style   = $this->inline_style( $config );
+		$columns = max( 1, (int) $config['layout']['desktop'] );
+
+		// Card template mode: the first page is rendered here through the
+		// template and later pages arrive as fragments from
+		// /agend-elementor/v1/cards/courses.
+		$template_id = (int) ( $settings['card_template'] ?? 0 );
+		if ( $template_id > 0 && Agend_Elementor_Template_Renderer::is_valid_template( $template_id ) ) {
+			$config['cardMode']      = 'template';
+			$config['filterTemplate'] = $this->filter_template_id( $settings );
+			$config['filterPosition'] = (string) ( $settings['filter_position'] ?? 'top' );
+			$config['cardTemplate']  = $template_id;
+			$config['cardLinkWhole'] = 'yes' === ( $settings['card_link_whole'] ?? 'yes' );
+			$config['hostPageId']    = (int) $page_id;
+			$config['restBase']      = esc_url_raw( rest_url( 'agend-elementor/v1' ) );
+			$config['fragmentPath']  = '/cards/courses';
+			$this->render_templated( $config, $template_id, $style, $columns );
+			return;
+		}
+		$config['cardMode'] = 'legacy';
+		$config['filterTemplate'] = $this->filter_template_id( $settings );
+		$config['filterPosition'] = (string) ( $settings['filter_position'] ?? 'top' );
+
 		// One complete grid row of skeleton placeholders as the initial state
 		// (3 when the layout is a single column), so no plain "Loading…" text
 		// flashes before the script takes over.
-		$columns   = max( 1, (int) $config['layout']['desktop'] );
 		$skeletons = ( 1 === $columns ) ? 3 : $columns;
 		?>
 		<div class="agend-courses-catalogue" style="<?php echo esc_attr( $style ); ?>" data-agend-courses-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<span class="agend-visually-hidden" role="status"><?php esc_html_e( 'Loading courses…', 'agend-elementor' ); ?></span>
+			<div class="agend-lms-filter-slot"><?php echo $this->render_filters( (int) $config['filterTemplate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Elementor template output. ?></div>
 			<div class="agend-lms-grid" style="--agend-lms-cols-desktop:<?php echo (int) $columns; ?>;">
 				<?php for ( $i = 0; $i < $skeletons; $i++ ) : ?>
 					<article class="agend-lms-card agend-lms-skeleton" aria-hidden="true">
@@ -615,6 +717,110 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 					</article>
 				<?php endfor; ?>
 			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * The configured filter template id, or 0.
+	 *
+	 * @param array $settings Widget settings.
+	 * @return int
+	 */
+	private function filter_template_id( array $settings ): int {
+		$id = (int) ( $settings['filter_template'] ?? 0 );
+		return ( $id > 0 && Agend_Elementor_Template_Renderer::is_valid_template( $id ) ) ? $id : 0;
+	}
+
+	/**
+	 * Renders the filter template, with the record type in scope so the filter
+	 * widgets inside know which catalogue they drive.
+	 *
+	 * @param int $template_id The filter template id.
+	 * @return string
+	 */
+	private function render_filters( int $template_id ): string {
+		if ( 0 === $template_id ) {
+			return '';
+		}
+		Agend_Elementor_Filter_Context::set( 'course' );
+		try {
+			return Agend_Elementor_Template_Renderer::render_plain( $template_id );
+		} finally {
+			Agend_Elementor_Filter_Context::reset();
+		}
+	}
+
+	/**
+	 * The colour and radius CSS variables the catalogue styles read.
+	 *
+	 * @param array $config The widget config.
+	 * @return string
+	 */
+	private function inline_style( array $config ): string {
+		return sprintf(
+			'--agend-lms-heading:%1$s;--agend-lms-body:%2$s;--agend-lms-accent:%3$s;--agend-lms-button:%4$s;--agend-lms-button-text:%5$s;--agend-lms-card-radius:%6$dpx;',
+			esc_attr( $config['colours']['heading'] ),
+			esc_attr( $config['colours']['body'] ),
+			esc_attr( $config['colours']['accent'] ),
+			esc_attr( $config['colours']['button'] ),
+			esc_attr( $config['colours']['buttonText'] ),
+			(int) $config['layout']['cardRadius']
+		);
+	}
+
+	/**
+	 * Renders the first page of cards through the card template.
+	 *
+	 * The filter bar and pagination stay script-built, so the markup leaves a
+	 * slot for each; the script adopts this DOM instead of rebuilding it.
+	 *
+	 * @param array  $config      The widget config (with card template keys).
+	 * @param int    $template_id The card template id.
+	 * @param string $style       Inline CSS variables.
+	 * @param int    $columns     Desktop column count.
+	 */
+	private function render_templated( array $config, int $template_id, string $style, int $columns ): void {
+		$list = agend_elementor_unwrap_list(
+			function_exists( 'agend_apps_lms_get_courses' )
+				? agend_apps_lms_get_courses( agend_elementor_courses_list_args( $config, 1 ) )
+				: null
+		);
+		$cards = agend_elementor_render_cards(
+			'course',
+			$template_id,
+			$list['items'],
+			array(
+				'card_link_whole' => $config['cardLinkWhole'],
+				'host_page_id'    => $config['hostPageId'],
+			)
+		);
+		$config['initialPagination'] = $list['pagination'];
+		$config['initialError']      = $list['error'];
+		?>
+		<div class="agend-courses-catalogue agend-courses-catalogue--templated agend-filters-<?php echo esc_attr( $config['filterPosition'] ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-courses-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
+			<?php if ( ! empty( $config['heading']['show'] ) && ( '' !== $config['heading']['title'] || '' !== $config['heading']['subtitle'] ) ) : ?>
+				<div class="agend-lms-heading">
+					<?php if ( '' !== $config['heading']['title'] ) : ?>
+						<h2 class="agend-lms-heading__title"><?php echo esc_html( $config['heading']['title'] ); ?></h2>
+					<?php endif; ?>
+					<?php if ( '' !== $config['heading']['subtitle'] ) : ?>
+						<p class="agend-lms-heading__subtitle"><?php echo esc_html( $config['heading']['subtitle'] ); ?></p>
+					<?php endif; ?>
+				</div>
+			<?php endif; ?>
+			<div class="agend-lms-filter-slot"><?php echo $this->render_filters( (int) $config['filterTemplate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Elementor template output. ?></div>
+			<div class="agend-lms-status" <?php echo ( empty( $cards ) ) ? '' : 'style="display:none"'; ?>>
+				<?php echo $list['error'] ? esc_html__( 'Unable to load courses.', 'agend-elementor' ) : esc_html__( 'No courses found.', 'agend-elementor' ); ?>
+			</div>
+			<div class="agend-lms-grid agend-lms-grid--templated" style="--agend-lms-cols-desktop:<?php echo (int) $columns; ?>;--agend-lms-cols-tablet:<?php echo (int) $config['layout']['tablet']; ?>;--agend-lms-cols-mobile:<?php echo (int) $config['layout']['mobile']; ?>;">
+				<?php
+				foreach ( $cards as $card ) {
+					echo $card['html']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Template output; record values escaped by the field widgets.
+				}
+				?>
+			</div>
+			<div class="agend-lms-pager-slot"></div>
 		</div>
 		<?php
 	}
