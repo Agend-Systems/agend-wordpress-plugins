@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * that did not carry the stylesheet).
  *
  * @param string $type        'event' or 'course'.
- * @param int    $template_id The card template (elementor_library post id).
+ * @param int    $template_id The card template (a registered {@see Agend_Apps_Template_Renderer} template id).
  * @param array  $records     Records from the list endpoint.
  * @param array  $opts        Options.
  * @return array<int, array{slug: string, url: string, html: string}>
@@ -33,7 +33,7 @@ function agend_elementor_render_cards( string $type, int $template_id, array $re
 	$with_css     = ! empty( $opts['with_css'] );
 	$cards        = array();
 
-	Agend_Elementor_Template_Renderer::ensure_styles( $template_id );
+	Agend_Apps_Templates::ensure_styles( $template_id );
 
 	foreach ( array_values( $records ) as $index => $record ) {
 		if ( ! is_array( $record ) ) {
@@ -52,7 +52,7 @@ function agend_elementor_render_cards( string $type, int $template_id, array $re
 		);
 
 		try {
-			$inner = Agend_Elementor_Template_Renderer::render( $template_id, $type, $record, $extra, $with_css && 0 === $index );
+			$inner = Agend_Apps_Templates::render( $template_id, $type, $record, $extra, $with_css && 0 === $index );
 		} catch ( \Throwable $e ) {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				error_log( sprintf( 'Agend Elementor: card render failed for template %d (%s): %s', $template_id, $slug, $e->getMessage() ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log

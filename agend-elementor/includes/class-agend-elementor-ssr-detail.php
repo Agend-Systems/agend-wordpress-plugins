@@ -322,8 +322,8 @@ function agend_elementor_ssr_resolve_listing( string $slug, WP_Post $host ): ?ar
 		: null;
 
 	$template_id = Agend_Elementor_Pages::detail_template_id( 'listing' );
-	if ( $template_id > 0 && class_exists( 'Agend_Elementor_Template_Renderer' ) ) {
-		$html = Agend_Elementor_Template_Renderer::render(
+	if ( $template_id > 0 && class_exists( 'Agend_Apps_Templates' ) ) {
+		$html = Agend_Apps_Templates::render(
 			$template_id,
 			'listing',
 			$item,
@@ -976,8 +976,8 @@ function agend_elementor_ssr_events_config( array $item, string $slug, WP_Post $
  */
 function agend_elementor_ssr_event_content( array $item, string $slug, WP_Post $host, array $tickets ): string {
 	$template_id = Agend_Elementor_Pages::detail_template_id( 'event' );
-	if ( $template_id > 0 && class_exists( 'Agend_Elementor_Template_Renderer' ) ) {
-		$html = Agend_Elementor_Template_Renderer::render(
+	if ( $template_id > 0 && class_exists( 'Agend_Apps_Templates' ) ) {
+		$html = Agend_Apps_Templates::render(
 			$template_id,
 			'event',
 			$item,
@@ -1009,8 +1009,8 @@ function agend_elementor_ssr_event_content( array $item, string $slug, WP_Post $
  */
 function agend_elementor_ssr_course_content( array $item, string $slug, WP_Post $host ): string {
 	$template_id = Agend_Elementor_Pages::detail_template_id( 'course' );
-	if ( $template_id > 0 && class_exists( 'Agend_Elementor_Template_Renderer' ) ) {
-		$html = Agend_Elementor_Template_Renderer::render(
+	if ( $template_id > 0 && class_exists( 'Agend_Apps_Templates' ) ) {
+		$html = Agend_Apps_Templates::render(
 			$template_id,
 			'course',
 			$item,

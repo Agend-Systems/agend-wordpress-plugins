@@ -2,14 +2,14 @@
 /**
  * Per-render record context for templated field widgets.
  *
- * A card or detail template is rendered by
- * `Agend_Elementor_Template_Renderer` around a specific event/course record;
- * the field widgets nested inside that template (Agend Field, Agend Image,
- * Agend Link) have no other way to know which record they are rendering
- * against, since Elementor gives a widget's `render()` no argument beyond its
- * own settings. This stack is that channel: the renderer pushes the record
- * before calling into Elementor and pops it after, and a nested widget reads
- * the top of the stack.
+ * A card or detail template is rendered by the registered
+ * `Agend_Apps_Template_Renderer` around a specific event/course record; the
+ * field widgets nested inside that template (Agend Field, Agend Image, Agend
+ * Link) have no other way to know which record they are rendering against,
+ * because no page builder passes a per-record argument down to a nested
+ * element's own render call. This stack is that channel: the renderer pushes
+ * the record before calling into the builder and pops it after, and a nested
+ * widget reads the top of the stack.
  *
  * The stack (not a single slot) exists because a card template can itself
  * contain another templated catalogue (Phase 3 renders nothing on the
