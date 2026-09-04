@@ -10,7 +10,7 @@ namespace Agend\Tests\Elementor;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-query.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/class-agend-elementor-query.php';
 
 /**
  * The server-rendered first page asks the gateway the same question the

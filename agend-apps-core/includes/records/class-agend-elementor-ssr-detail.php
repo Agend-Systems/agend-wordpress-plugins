@@ -29,6 +29,30 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * URL of a shared front-end asset. The files still live in the Elementor
+ * plugin until the asset move lands, so this resolves there when that
+ * plugin is present and to this plugin's own assets directory otherwise.
+ *
+ * @param string $relative Asset path relative to the assets directory.
+ * @return string Full asset URL.
+ */
+function agend_elementor_asset_url( string $relative ): string {
+	return defined( 'AGEND_ELEMENTOR_URL' )
+		? AGEND_ELEMENTOR_URL . 'assets/' . $relative
+		: AGEND_APPS_CORE_URL . 'assets/' . $relative;
+}
+
+/**
+ * Cache-busting version to enqueue shared front-end assets with, matching
+ * whichever plugin currently serves them (see agend_elementor_asset_url()).
+ *
+ * @return string Asset version string.
+ */
+function agend_elementor_asset_version(): string {
+	return defined( 'AGEND_ELEMENTOR_VERSION' ) ? AGEND_ELEMENTOR_VERSION : AGEND_APPS_CORE_VERSION;
+}
+
+/**
  * The catalogue detail types eligible for server-side rendering.
  *
  * Each entry maps a rewrite-endpoint query var to the proxy that must exist for
@@ -421,16 +445,16 @@ function agend_elementor_ssr_enqueue_directory(): void {
 	if ( ! wp_style_is( 'agend-elementor-directory-catalogue', 'enqueued' ) ) {
 		wp_enqueue_style(
 			'agend-elementor-directory-catalogue',
-			AGEND_ELEMENTOR_URL . 'assets/css/directory-catalogue.css',
+			agend_elementor_asset_url( 'css/directory-catalogue.css' ),
 			array(),
-			AGEND_ELEMENTOR_VERSION
+			agend_elementor_asset_version()
 		);
 	}
 	wp_enqueue_script(
 		'agend-elementor-directory-detail',
-		AGEND_ELEMENTOR_URL . 'assets/js/directory-detail.js',
+		agend_elementor_asset_url( 'js/directory-detail.js' ),
 		array(),
-		AGEND_ELEMENTOR_VERSION,
+		agend_elementor_asset_version(),
 		true
 	);
 }
@@ -445,9 +469,9 @@ function agend_elementor_ssr_enqueue_events(): void {
 	if ( ! wp_style_is( 'agend-elementor-events-catalogue', 'enqueued' ) ) {
 		wp_enqueue_style(
 			'agend-elementor-events-catalogue',
-			AGEND_ELEMENTOR_URL . 'assets/css/events-catalogue.css',
+			agend_elementor_asset_url( 'css/events-catalogue.css' ),
 			array(),
-			AGEND_ELEMENTOR_VERSION
+			agend_elementor_asset_version()
 		);
 	}
 	if ( ! wp_script_is( 'agend-elementor-events-catalogue', 'enqueued' ) ) {
@@ -462,9 +486,9 @@ function agend_elementor_ssr_enqueue_events(): void {
 
 		wp_enqueue_script(
 			'agend-elementor-events-catalogue',
-			AGEND_ELEMENTOR_URL . 'assets/js/events-catalogue.js',
+			agend_elementor_asset_url( 'js/events-catalogue.js' ),
 			$events_deps,
-			AGEND_ELEMENTOR_VERSION,
+			agend_elementor_asset_version(),
 			true
 		);
 	}
@@ -479,9 +503,9 @@ function agend_elementor_ssr_enqueue_courses(): void {
 	if ( ! wp_style_is( 'agend-elementor-courses-catalogue', 'enqueued' ) ) {
 		wp_enqueue_style(
 			'agend-elementor-courses-catalogue',
-			AGEND_ELEMENTOR_URL . 'assets/css/courses-catalogue.css',
+			agend_elementor_asset_url( 'css/courses-catalogue.css' ),
 			array(),
-			AGEND_ELEMENTOR_VERSION
+			agend_elementor_asset_version()
 		);
 	}
 }
