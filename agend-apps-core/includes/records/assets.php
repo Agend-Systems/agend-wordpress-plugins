@@ -100,9 +100,9 @@ function agend_apps_records_register_dompurify(): void {
  * Registers every shared `agend-apps-records-*` handle so sibling plugins can
  * enqueue them by handle alone.
  *
- * Priority 5, ahead of the Elementor plugin's global enqueue and the SSR
- * detail enqueue (both priority 20), so registration is always in place before
- * either runs.
+ * Registered on init so the handles exist for the front-end enqueues (the
+ * Elementor plugin's and the SSR detail's, both on wp_enqueue_scripts) and for
+ * the block editor alike.
  */
 function agend_apps_records_register_assets(): void {
 	agend_apps_records_register_dompurify();
@@ -251,4 +251,7 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 }
-add_action( 'wp_enqueue_scripts', 'agend_apps_records_register_assets', 5 );
+// On init rather than wp_enqueue_scripts: a block's viewScript and style
+// name these handles, and the block editor resolves them outside the
+// front-end enqueue hook.
+add_action( 'init', 'agend_apps_records_register_assets', 5 );

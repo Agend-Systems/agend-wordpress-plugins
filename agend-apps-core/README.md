@@ -247,3 +247,25 @@ requires both the core function and the delegating widget to reproduce those
 fixtures byte for byte. Change a renderer deliberately, re-record the fixture in
 the same commit, and say so.
 
+## Block editor surface
+
+`includes/records/blocks.php` registers one block per catalogue surface
+(`agend-apps/events-catalogue` today) as a thin adapter over the two seams
+above: its attributes are derived from the surface schema
+(`agend_apps_records_block_attributes()`), and its render callback is the
+surface's core renderer, fed the attributes converted to Elementor-shaped
+settings (`agend_apps_records_settings_from_attributes()`). The block inspector
+fetches the schema from `GET /agend-apps/v1/surfaces/<surface>/schema`
+(editors only, option lists resolved) and renders it with
+`src/blocks/shared/schema-inspector.js`, so a setting added to a schema appears
+in the block editor and in Elementor from the same line.
+
+Source lives in `src/blocks/<surface>/`; the compiled block directory in
+`build/blocks/<surface>/` is COMMITTED because deployment copies files without a
+build step. After changing anything under `src/`, run `npm run build` at the
+repo root and commit the output; the `Block build matches source` CI job fails
+when the committed output is stale. `npm start` watches during development.
+
+`BlockSurfaceTest` proves a block left at its defaults renders exactly what the
+Elementor widget renders at its control defaults.
+

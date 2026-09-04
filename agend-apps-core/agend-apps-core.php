@@ -151,6 +151,9 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
 
+	// The block editor surface: attributes from the schemas, output from the renderers.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/cards.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/rest/fragments-controller.php';
 
