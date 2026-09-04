@@ -1,10 +1,10 @@
 /**
  * Agend Export Report widget.
  *
- * A button that downloads one report, or a dropdown of several with one button
- * beside it. Parameters are resolved when the visitor presses the button, so a
- * row reading from the Directory Catalogue picks up whatever they have
- * filtered it down to by then.
+ * A button that downloads one report, or a menu whose trigger opens a list of
+ * reports where choosing one downloads it. Parameters are resolved at the
+ * moment of the click, so a row reading from the Directory Catalogue picks up
+ * whatever the visitor has filtered it down to by then.
  *
  * The download goes through the Agend Apps Core proxy: the API key and the
  * member's bearer stay on the server, and the gateway decides whether this
@@ -107,15 +107,11 @@
     return out;
   }
 
-  function download(root, cfg) {
-    var button = root.querySelector('[data-agend-export-submit]');
-    var select = root.querySelector('[data-agend-export-select]');
-    var formatSelect = root.querySelector('[data-agend-export-format]');
-    var reportId = select ? select.value : (cfg.reports[0] && cfg.reports[0].id);
+  function download(root, cfg, reportId, button) {
     if (!reportId) {
       return;
     }
-    var format = formatSelect ? formatSelect.value : (cfg.formats === 'xlsx' ? 'xlsx' : 'csv');
+    var format = cfg.format === 'xlsx' ? 'xlsx' : 'csv';
 
     var original = button.textContent;
     button.disabled = true;
@@ -172,6 +168,34 @@
       });
   }
 
+  function closeMenu(root) {
+    var trigger = root.querySelector('[data-agend-export-trigger]');
+    var menu = root.querySelector('[data-agend-export-menu]');
+    if (!trigger || !menu) {
+      return;
+    }
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    root.classList.remove('is-open');
+  }
+
+  function openMenu(root) {
+    var trigger = root.querySelector('[data-agend-export-trigger]');
+    var menu = root.querySelector('[data-agend-export-menu]');
+    if (!trigger || !menu) {
+      return;
+    }
+    // Only one menu open at a time, wherever it sits on the page.
+    Array.prototype.forEach.call(document.querySelectorAll('.agend-export-report.is-open'), function (other) {
+      if (other !== root) {
+        closeMenu(other);
+      }
+    });
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    root.classList.add('is-open');
+  }
+
   function initWidget(root) {
     var cfg;
     try {
@@ -183,27 +207,56 @@
       return;
     }
 
-    var select = root.querySelector('[data-agend-export-select]');
-    if (select) {
-      // Fill in any option the designer left unlabelled with the report's
-      // current name.
+    // Fill in any entry the designer left unlabelled with the report's current
+    // name, so a rename in Agend reaches a saved template.
+    var unlabelled = root.querySelectorAll('[data-agend-export-submit][data-report-id]');
+    if (cfg.mode === 'dropdown') {
       loadReportIndex(cfg).then(function (byId) {
-        Array.prototype.forEach.call(select.options, function (option) {
-          var configured = cfg.reports.filter(function (r) { return r.id === option.value; })[0];
+        Array.prototype.forEach.call(unlabelled, function (item) {
+          var id = item.getAttribute('data-report-id');
+          var configured = cfg.reports.filter(function (r) { return r.id === id; })[0];
           if (configured && configured.label) {
             return;
           }
-          var report = byId[option.value];
+          var report = byId[id];
           if (report && report.name) {
-            option.textContent = report.name;
+            item.textContent = report.name;
           }
         });
       });
     }
 
-    root.querySelector('[data-agend-export-submit]').addEventListener('click', function () {
-      download(root, cfg);
+    Array.prototype.forEach.call(unlabelled, function (item) {
+      item.addEventListener('click', function () {
+        if (cfg.mode === 'dropdown') {
+          closeMenu(root);
+        }
+        download(root, cfg, item.getAttribute('data-report-id'), item);
+      });
     });
+
+    var trigger = root.querySelector('[data-agend-export-trigger]');
+    if (trigger) {
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (root.classList.contains('is-open')) {
+          closeMenu(root);
+        } else {
+          openMenu(root);
+        }
+      });
+      root.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && root.classList.contains('is-open')) {
+          closeMenu(root);
+          trigger.focus();
+        }
+      });
+      document.addEventListener('click', function (e) {
+        if (root.classList.contains('is-open') && !root.contains(e.target)) {
+          closeMenu(root);
+        }
+      });
+    }
   }
 
   function initAll() {

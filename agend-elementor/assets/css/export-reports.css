@@ -1,32 +1,14 @@
 /* Agend Export Report: structure only, so Elementor's own controls style it. */
 
 .agend-export-report {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  display: inline-block;
+  position: relative;
 }
 
 .agend-export-report--full,
-.agend-export-report--full .agend-export__controls,
 .agend-export-report--full .agend-export__submit {
+  display: block;
   width: 100%;
-}
-
-.agend-export__label {
-  font-weight: 600;
-  font-size: 0.85rem;
-}
-
-.agend-export__controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.agend-export__select,
-.agend-export__format {
-  font: inherit;
 }
 
 .agend-export__submit {
@@ -45,8 +27,69 @@
   cursor: progress;
 }
 
+.agend-export__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.agend-export__caret {
+  border-top: 0.35em solid currentColor;
+  border-right: 0.3em solid transparent;
+  border-left: 0.3em solid transparent;
+  transition: transform 0.15s ease;
+}
+
+.agend-export-report.is-open .agend-export__caret {
+  transform: rotate(180deg);
+}
+
+.agend-export__menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 22rem;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #eceef4;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(30, 42, 74, 0.14);
+}
+
+.agend-export__menu-item {
+  margin: 0;
+}
+
+.agend-export__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.5em 0.75em;
+}
+
+.agend-export__item:hover,
+.agend-export__item:focus {
+  background: rgba(30, 42, 74, 0.06);
+}
+
+.agend-export__item:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 .agend-export__error {
-  margin: 0.25rem 0 0;
+  margin: 0.35rem 0 0;
   color: #d13b2f;
   font-size: 0.9rem;
 }
