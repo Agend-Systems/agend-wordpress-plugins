@@ -26,11 +26,22 @@
   // A filter writes either a list or a single value, and clearing it must
   // restore the shape the catalogue's query builder expects.
   function applyValue(state, cfg, values) {
-    if (cfg.mode === 'array') {
+    if (cfg.mode === 'map') {
+      // A custom field filter writes one key of a map, so several of them can
+      // sit on the same state key without overwriting each other.
+      state[cfg.state] = state[cfg.state] || {};
+      state[cfg.state][cfg.fieldKey] = values.slice();
+    } else if (cfg.mode === 'array') {
       state[cfg.state] = values.slice();
     } else {
       state[cfg.state] = values.length ? values[0] : '';
     }
+    state.page = 1;
+  }
+
+  function applyBounds(state, cfg, bounds) {
+    state[cfg.state] = state[cfg.state] || {};
+    state[cfg.state][cfg.fieldKey] = bounds;
     state.page = 1;
   }
 
@@ -64,6 +75,51 @@
       ctx.reload();
     });
     shell.appendChild(input);
+  }
+
+  function buildRange(shell, cfg, ctx, facet) {
+    var wrap = el('div', 'agend-filter__range');
+    var min = el('input');
+    var max = el('input');
+    min.type = 'number';
+    max.type = 'number';
+    min.placeholder = 'Min';
+    max.placeholder = 'Max';
+    // The facet reports the bounds that exist, so the control does not need
+    // the author to guess them.
+    if (facet && facet.min !== null && facet.min !== undefined) {
+      min.min = String(facet.min);
+      max.min = String(facet.min);
+      min.placeholder = 'Min (' + facet.min + ')';
+    }
+    if (facet && facet.max !== null && facet.max !== undefined) {
+      min.max = String(facet.max);
+      max.max = String(facet.max);
+      max.placeholder = 'Max (' + facet.max + ')';
+    }
+
+    function push() {
+      var bounds = {};
+      if (min.value !== '') {
+        bounds.min = min.value;
+      }
+      if (max.value !== '') {
+        bounds.max = max.value;
+      }
+      applyBounds(ctx.state, cfg, bounds);
+      ctx.reload();
+    }
+
+    var timer;
+    [min, max].forEach(function (input) {
+      input.addEventListener('input', function () {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(push, 400);
+      });
+    });
+    wrap.appendChild(min);
+    wrap.appendChild(max);
+    shell.appendChild(wrap);
   }
 
   function buildSelect(shell, cfg, ctx, values) {
@@ -148,7 +204,42 @@
   // shared by every filter reading it.
   var pending = {};
 
+  // The facets endpoint answers for several fields at once and is
+  // entitlement-scoped, so one request per page serves every facet-backed
+  // filter, and a field this visitor may not read is simply absent.
+  var facetRequest = null;
+  var facetNames = [];
+
+  function loadFacets(ctx) {
+    if (!facetRequest) {
+      facetRequest = ctx.apiGet('/directory/facets', facetNames.length ? { fields: facetNames.join(',') } : {})
+        .then(function (body) {
+          return (body && body.data) || {};
+        })
+        .catch(function () {
+          return {};
+        });
+    }
+    return facetRequest;
+  }
+
+  function facetToValues(entry) {
+    if (!entry || !Array.isArray(entry.values)) {
+      return [];
+    }
+    return entry.values.map(function (v) {
+      // Taxonomy facets carry the id the gateway filters on; a custom field
+      // facet has no id, so its own value is what gets sent.
+      return { label: String(v.label === undefined || v.label === null ? v.value : v.label), value: [String(v.id || v.value)] };
+    });
+  }
+
   function loadValues(cfg, ctx) {
+    if (cfg.source && cfg.source.facet) {
+      return loadFacets(ctx).then(function (facets) {
+        return facetToValues(facets[cfg.source.facet]);
+      });
+    }
     if (!cfg.source || !cfg.source.path) {
       return Promise.resolve(cfg.values || []);
     }
@@ -200,7 +291,11 @@
       if (!cfg || !cfg.state) {
         return;
       }
-      ctx.state[cfg.state] = cfg.mode === 'array' ? [] : '';
+      if (cfg.mode === 'map') {
+        ctx.state[cfg.state] = {};
+      } else {
+        ctx.state[cfg.state] = cfg.mode === 'array' ? [] : '';
+      }
       shell.removeAttribute('data-agend-filter-ready');
     });
     ctx.state.page = 1;
@@ -234,6 +329,12 @@
 
     if (cfg.control === 'reset') {
       buildReset(slot, cfg, ctx, scope || document);
+      return;
+    }
+    if (cfg.control === 'range') {
+      loadFacets(ctx).then(function (facets) {
+        buildRange(slot, cfg, ctx, cfg.source && cfg.source.facet ? facets[cfg.source.facet] : null);
+      });
       return;
     }
     if (cfg.control === 'search') {
@@ -273,6 +374,19 @@
       return 0;
     }
     var shells = scope.querySelectorAll('[data-agend-filter]');
+    // Gather every facet this template needs first, so the endpoint is asked
+    // once for all of them rather than once per filter.
+    Array.prototype.forEach.call(shells, function (shell) {
+      var cfg;
+      try {
+        cfg = JSON.parse(shell.getAttribute('data-agend-filter'));
+      } catch (e) {
+        return;
+      }
+      if (cfg && cfg.source && cfg.source.facet && facetNames.indexOf(cfg.source.facet) === -1) {
+        facetNames.push(cfg.source.facet);
+      }
+    });
     Array.prototype.forEach.call(shells, function (shell) {
       buildOne(shell, options, scope);
     });

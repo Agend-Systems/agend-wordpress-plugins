@@ -119,9 +119,11 @@ function agend_elementor_filter_static_values( string $set ): array {
  * - `mode`       'array' when the state key holds a list, 'scalar' otherwise.
  * - `controls`   presentations the filter supports, first is the default.
  * - `source`     where "all values" come from: `null` (no value list, e.g. a
- *                free-text search), `array('static' => <set>)`, or
+ *                free-text search), `array('static' => <set>)`,
  *                `array('endpoint' => <rest path>, 'value' => k, 'label' => k)`
- *                with optional `distinct` for a payload that repeats values.
+ *                with optional `distinct` for a payload that repeats values,
+ *                or `array('facet' => <facet name>)` for a value list the
+ *                facets endpoint enumerates, entitlement-scoped.
  * - `approximate` true when the source cannot enumerate reliably today.
  *
  * @return array<string, array<string, array<string, mixed>>>
@@ -250,24 +252,30 @@ function agend_elementor_filter_registry(): array {
 				'controls' => array( 'buttons', 'select' ),
 				'source'   => array( 'static' => 'featured' ),
 			),
-			// The gateway filters on tag and badge ids, but nothing can list
-			// them yet, so these carry author-defined choices only. They pick
-			// up "every value" automatically once a list endpoint exists.
 			'tag'      => array(
-				'label'        => __( 'Tag', 'agend-elementor' ),
-				'state'        => 'tag_ids',
-				'mode'         => 'array',
-				'controls'     => array( 'buttons', 'checkboxes', 'select' ),
-				'source'       => null,
-				'choices_only' => true,
+				'label'    => __( 'Tag', 'agend-elementor' ),
+				'state'    => 'tag_ids',
+				'mode'     => 'array',
+				'controls' => array( 'checkboxes', 'select', 'buttons' ),
+				'source'   => array( 'facet' => 'tags' ),
 			),
 			'badge'    => array(
-				'label'        => __( 'Badge', 'agend-elementor' ),
-				'state'        => 'badge_ids',
-				'mode'         => 'array',
-				'controls'     => array( 'buttons', 'checkboxes', 'select' ),
-				'source'       => null,
-				'choices_only' => true,
+				'label'    => __( 'Badge', 'agend-elementor' ),
+				'state'    => 'badge_ids',
+				'mode'     => 'array',
+				'controls' => array( 'checkboxes', 'select', 'buttons' ),
+				'source'   => array( 'facet' => 'badges' ),
+			),
+			// A custom field is addressed by key, so one registry entry backs
+			// every field an account has configured as a filter. The facet
+			// endpoint decides which keys this viewer may see at all.
+			'custom_field' => array(
+				'label'      => __( 'Custom field', 'agend-elementor' ),
+				'state'      => 'custom_fields',
+				'mode'       => 'map',
+				'controls'   => array( 'checkboxes', 'select', 'buttons', 'range' ),
+				'source'     => array( 'facet' => 'custom' ),
+				'needs_key'  => true,
 			),
 		),
 	);
@@ -335,6 +343,10 @@ function agend_elementor_filter_config( string $type, string $key, array $settin
 		return null;
 	}
 
+	if ( ! empty( $descriptor['needs_key'] ) && '' === trim( (string) ( $settings['custom_field_key'] ?? '' ) ) ) {
+		return null;
+	}
+
 	$control = (string) ( $settings['control'] ?? '' );
 	if ( ! in_array( $control, $descriptor['controls'], true ) ) {
 		$control = $descriptor['controls'][0];
@@ -342,6 +354,8 @@ function agend_elementor_filter_config( string $type, string $key, array $settin
 
 	$config = array(
 		'choicesOnly' => ! empty( $descriptor['choices_only'] ),
+		'needsKey'    => ! empty( $descriptor['needs_key'] ),
+		'fieldKey'    => trim( (string) ( $settings['custom_field_key'] ?? '' ) ),
 		'type'        => $type,
 		'filter'      => $key,
 		'state'       => $descriptor['state'],
@@ -382,6 +396,15 @@ function agend_elementor_filter_config( string $type, string $key, array $settin
 	}
 
 	$source = $descriptor['source'];
+	if ( is_array( $source ) && isset( $source['facet'] ) ) {
+		// 'custom' is a placeholder: the real facet name is custom.<key>, and
+		// the key is per widget instance.
+		$facet             = 'custom' === $source['facet']
+			? 'custom.' . $config['fieldKey']
+			: (string) $source['facet'];
+		$config['source']  = array( 'facet' => $facet );
+		return $config;
+	}
 	if ( is_array( $source ) && isset( $source['static'] ) ) {
 		foreach ( agend_elementor_filter_static_values( (string) $source['static'] ) as $value => $label ) {
 			$config['values'][] = array( 'label' => $label, 'value' => array( (string) $value ) );
