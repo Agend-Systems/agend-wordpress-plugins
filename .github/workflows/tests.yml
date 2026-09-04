@@ -53,3 +53,22 @@ jobs:
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: PHPUnit
         run: ./vendor/bin/phpunit
+
+  blocks:
+    # Build output under agend-apps-core/build/ is committed because deploys copy
+    # files without a build step; this proves the committed output is current.
+    name: Block build matches source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Committed build is up to date
+        run: |
+          git add -N agend-apps-core/build
+          git diff --exit-code --stat -- agend-apps-core/build \
+            || { echo '::error::agend-apps-core/build is stale: run `npm run build` and commit the result'; exit 1; }
