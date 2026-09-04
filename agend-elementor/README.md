@@ -23,6 +23,7 @@ Cards and detail pages for events, courses and directory listings can be designe
 | Agend Image | The record image as an `img` (aspect ratio, object fit) or as a background. Background placement `fill` stretches behind the sibling widgets of the container it is dropped into; `parent` paints the image onto the parent container; `block` is a sized box. |
 | Agend Pills | A record's categories, tags or other terms, one styled pill per term. The pill count follows the record, where a styled Agend Field would render one chip holding a joined list. |
 | Agend Link / Button | Open detail, back to catalogue, register (events), enrol (courses), add to calendar (events), or a custom URL with `{slug}` and `{title}` tokens. |
+| Agend Export Report | A download control for the directory's export reports, in one of two shapes: a button that downloads one nominated report, or a dropdown of several the designer chose with one button beside it. The visitor can be offered CSV, Excel, or a choice. |
 | Agend Content Block | The built-in detail panels as reusable blocks: event facts, registration, tickets, sponsors; course details, learning outcomes, pricing and enrolment; listing about, contact, categories, tags, gallery, locations, hours, custom fields, badges and reviews. |
 | Agend Filter | One catalogue filter control. Directory tag, badge and custom field values come from `GET /v1/directory/facets`, entitlement-scoped, so a visitor never sees a value they may not read. Filter widgets go in a filter template that a catalogue widget is pointed at, so the controls survive the move between the listing and detail views. Each filter either lists every value of a field or sends author-defined choices, where one choice can stand for several values. |
 
@@ -63,6 +64,25 @@ Deferred deliberately, in rough order:
    record-type-neutral, so adopting it for the other two is additive on both sides.
 3. **Export reports.** Make the directory export reports interactive. Not started, and a separate
    surface from card and detail templating.
+
+## Export report parameters
+
+A report can declare parameters that narrow what it exports. The widget maps them with rows keyed
+on the parameter's **field** rather than on its name, because a report names its parameters by an
+internal condition id that differs per report, while the field is what the parameter actually
+filters on. Mapping on the field means one set of rows serves every report a dropdown offers, and
+a report added later inherits the mapping rather than needing new rows.
+
+Each row supplies its value one of two ways:
+
+- **A value set in the editor**, for a fixed export such as one state or one category.
+- **From the Directory Catalogue on the page**, read when the visitor presses the button, so the
+  export follows whatever they have filtered the catalogue down to. The catalogue publishes its
+  live filter state for this; with more than one directory catalogue on a page, the last to
+  initialise is the one an export reads.
+
+Rows whose field no report parameter matches are ignored, and a report with no parameters ignores
+them all.
 
 ## Manual QA checklist
 

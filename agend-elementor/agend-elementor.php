@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Elementor Widgets
  * Plugin URI:        https://agend.com.au
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.17.1
+ * Version:           0.18.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.17.1' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.18.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -257,6 +257,22 @@ function agend_elementor_enqueue_scripts(): void {
 	wp_enqueue_script(
 		'agend-elementor-filters',
 		AGEND_ELEMENTOR_URL . 'assets/js/filters.js',
+		array(),
+		AGEND_ELEMENTOR_VERSION,
+		true
+	);
+
+	// Directory export reports: the list is per-visitor, so it is fetched at
+	// view time rather than rendered into a cacheable page.
+	wp_enqueue_style(
+		'agend-elementor-export-reports',
+		AGEND_ELEMENTOR_URL . 'assets/css/export-reports.css',
+		array(),
+		AGEND_ELEMENTOR_VERSION
+	);
+	wp_enqueue_script(
+		'agend-elementor-export-reports',
+		AGEND_ELEMENTOR_URL . 'assets/js/export-reports.js',
 		array(),
 		AGEND_ELEMENTOR_VERSION,
 		true

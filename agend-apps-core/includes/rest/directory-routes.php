@@ -163,6 +163,38 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 
 		register_rest_route(
 			$this->namespace,
+			'/' . $this->rest_base . '/export-reports',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_export_reports' ),
+					'permission_callback' => '__return_true',
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/export-reports/(?P<report_id>[a-zA-Z0-9_-]+)',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'run_export_report' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'format' => array(
+							'type'              => 'string',
+							'enum'              => array( 'csv', 'xlsx' ),
+							'default'           => 'csv',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
 			'/' . $this->rest_base . '/search',
 			array(
 				array(
@@ -475,6 +507,66 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 
 		$result = agend_apps_directory_search( $search_query, $filters );
 		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Returns the export reports the current visitor may run.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_export_reports( WP_REST_Request $request ): WP_REST_Response {
+		return $this->prepare_api_response( agend_apps_directory_get_export_reports() );
+	}
+
+	/**
+	 * Runs an export report and streams the file back to the browser.
+	 *
+	 * The gateway returns the file's bytes, so this echoes them with their own
+	 * content headers rather than wrapping them in a JSON envelope. The
+	 * browser never talks to the gateway directly: the API key and the
+	 * member's bearer stay server-side, and the visitor's own reachable report
+	 * set is what decides whether this returns anything at all.
+	 *
+	 * Every parameter except the reserved ones is forwarded as a report
+	 * parameter; the gateway rejects a name the report does not declare.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response (errors only; success exits after streaming).
+	 */
+	public function run_export_report( WP_REST_Request $request ) {
+		$report_id = (string) $request->get_param( 'report_id' );
+		$format    = (string) ( $request->get_param( 'format' ) ?? 'csv' );
+
+		$reserved   = array( 'report_id', 'format', '_wpnonce', '_locale', 'rest_route' );
+		$parameters = array();
+		foreach ( $request->get_params() as $name => $value ) {
+			if ( in_array( $name, $reserved, true ) || is_array( $value ) ) {
+				continue;
+			}
+			$parameters[ $name ] = sanitize_text_field( (string) $value );
+		}
+
+		$result = agend_apps_directory_run_export_report( $report_id, $parameters, $format );
+
+		if ( is_wp_error( $result ) ) {
+			return $this->prepare_api_response( $result );
+		}
+
+		$content_type = ! empty( $result['content_type'] )
+			? (string) $result['content_type']
+			: 'text/csv; charset=utf-8';
+		$disposition  = ! empty( $result['content_disposition'] )
+			? (string) $result['content_disposition']
+			: 'attachment; filename="' . sanitize_file_name( $report_id ) . '.' . ( 'xlsx' === $format ? 'xlsx' : 'csv' ) . '"';
+
+		header( 'Content-Type: ' . $content_type );
+		header( 'Content-Disposition: ' . $disposition );
+		// An export reflects the caller's own entitlements, so it must never
+		// be held by a shared cache.
+		header( 'Cache-Control: private, no-store' );
+		echo (string) $result['body']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Raw file passthrough; not HTML.
+		exit;
 	}
 
 	/**
