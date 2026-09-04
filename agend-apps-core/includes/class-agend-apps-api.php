@@ -89,7 +89,11 @@ class Agend_Apps_API {
 		$url = $this->base_url . $path;
 
 		if ( ! empty( $args['query'] ) && is_array( $args['query'] ) ) {
-			$url = add_query_arg( $args['query'], $url );
+			$pairs = $this->query_pairs( $args['query'] );
+
+			if ( $pairs ) {
+				$url .= ( false === strpos( $url, '?' ) ? '?' : '&' ) . implode( '&', $pairs );
+			}
 		}
 
 		// Repeatable parameters as repeated bare keys (`key=a&key=b`). PHP's
@@ -353,6 +357,48 @@ class Agend_Apps_API {
 	 * @param int    $ttl       Cache lifetime in seconds.
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
+	/**
+	 * Encodes query parameters as name=value pairs, nesting arrays in bracket
+	 * notation.
+	 *
+	 * Not add_query_arg(): that helper encodes the key but leaves the value
+	 * verbatim, because it is built for values a caller has already encoded.
+	 * Ours are raw, so a search term of "annual gala" went out as
+	 * `search=annual gala`, an invalid URL that the gateway reads truncated or
+	 * not at all. Every value is encoded here instead.
+	 *
+	 * A nested array becomes `name[key]=value`, which is what the gateway's
+	 * custom-field filters read. A plain list stays the caller's problem:
+	 * repeatable parameters go through `query_multi`, because the gateway reads
+	 * those as repeated bare keys rather than indexed brackets.
+	 *
+	 * @param array  $query  Query parameters.
+	 * @param string $prefix Parent key when recursing.
+	 * @return string[] Encoded `name=value` pairs.
+	 */
+	private function query_pairs( array $query, string $prefix = '' ): array {
+		$pairs = array();
+
+		foreach ( $query as $key => $value ) {
+			$name = '' === $prefix ? (string) $key : $prefix . '[' . $key . ']';
+
+			if ( is_array( $value ) ) {
+				$pairs = array_merge( $pairs, $this->query_pairs( $value, $name ) );
+				continue;
+			}
+			if ( null === $value ) {
+				continue;
+			}
+			if ( is_bool( $value ) ) {
+				$value = $value ? 'true' : 'false';
+			}
+
+			$pairs[] = rawurlencode( $name ) . '=' . rawurlencode( (string) $value );
+		}
+
+		return $pairs;
+	}
+
 	public function get_cached( string $path, array $args, string $cache_key, int $ttl ) {
 		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
 			? (string) $args['bearer_token']

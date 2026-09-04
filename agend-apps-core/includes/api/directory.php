@@ -212,6 +212,61 @@ function agend_apps_directory_search( string $search_query, array $filters = arr
 }
 
 /**
+ * Retrieves the filterable facets for the directory, with the values that
+ * exist for each.
+ *
+ * Answers "what can a visitor filter by, and what values does it admit" so a
+ * filter control can be built without hardcoding a value list. The response is
+ * scoped to the caller's entitlements: a custom field the caller may not read
+ * is absent entirely rather than present and empty, so the endpoint cannot be
+ * used to probe an account's field schema.
+ *
+ * @param string[] $fields Optional. Facet names (`categories`, `tags`,
+ *                         `badges`, `custom.<field_key>`). Empty returns every
+ *                         facet the caller may read.
+ * @return array|WP_Error Decoded response, or WP_Error on failure.
+ */
+function agend_apps_directory_get_facets( array $fields = array() ) {
+	$query = array();
+	$names = array_values( array_filter( array_map( 'trim', $fields ), 'strlen' ) );
+	if ( ! empty( $names ) ) {
+		$query['fields'] = implode( ',', $names );
+	}
+
+	/**
+	 * Filters the directory facets request args before the request is sent.
+	 *
+	 * @param array $args   Request args.
+	 * @param array $fields Requested facet names.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_directory_get_facets_args',
+		array( 'query' => $query ),
+		$fields
+	);
+
+	$cache_key = Agend_Apps_Cache::build_key( 'directory_facets', $query );
+	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_facets' );
+
+	// Identity-scoped for a signed-in member: get_cached() bypasses the shared
+	// transient whenever a bearer is attached, so one member's readable facet
+	// set is never served to the next visitor.
+	$response = agend_apps_api()->get_cached( '/directory/facets', $args, $cache_key, $ttl );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded directory facets response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $fields   Requested facet names.
+	 */
+	return apply_filters( 'agend_apps_directory_get_facets_response', $response, $fields );
+}
+
+/**
  * Retrieves the approved reviews for a single directory listing.
  *
  * Read route, publicly cached. Only approved reviews are returned by the

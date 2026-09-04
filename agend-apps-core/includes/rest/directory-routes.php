@@ -145,6 +145,24 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 
 		register_rest_route(
 			$this->namespace,
+			'/' . $this->rest_base . '/facets',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_facets' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'fields' => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
 			'/' . $this->rest_base . '/search',
 			array(
 				array(
@@ -434,6 +452,10 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			'sortBy',
 			'sortOrder',
 			'excludeCategories',
+			// Bracket notation arrives already parsed into a nested array by
+			// PHP, and add_query_arg() re-encodes it the same way for the
+			// gateway: custom_fields[key]=a,b and custom_fields[key][min]=5.
+			'custom_fields',
 		);
 		$filters     = array_filter(
 			$request->get_params(),
@@ -452,6 +474,20 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		$result = agend_apps_directory_search( $search_query, $filters );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Returns the directory's filterable facets and their values.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_facets( WP_REST_Request $request ): WP_REST_Response {
+		$fields = (string) ( $request->get_param( 'fields' ) ?? '' );
+		$result = agend_apps_directory_get_facets(
+			'' === $fields ? array() : explode( ',', $fields )
+		);
 		return $this->prepare_api_response( $result );
 	}
 

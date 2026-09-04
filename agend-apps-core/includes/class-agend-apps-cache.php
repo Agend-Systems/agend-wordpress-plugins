@@ -48,6 +48,10 @@ class Agend_Apps_Cache {
 			'label'       => 'Directory Search',
 			'default_ttl' => 120,
 		),
+		'directory_facets'         => array(
+			'label'       => 'Directory Filter Values',
+			'default_ttl' => 600,
+		),
 		'directory_listing_reviews' => array(
 			'label'       => 'Listing Reviews',
 			'default_ttl' => 120,
