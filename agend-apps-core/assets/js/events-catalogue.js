@@ -79,7 +79,9 @@
       qs.push(encodeURIComponent(key) + '=' + encodeURIComponent(value));
     });
     if (qs.length) {
-      url += '?' + qs.join('&');
+      // The REST base already carries a query string on a site with plain
+      // permalinks (index.php?rest_route=...), so join with & there.
+      url += (url.indexOf('?') === -1 ? '?' : '&') + qs.join('&');
     }
     return fetch(url, {
       headers: nonce() ? { 'X-WP-Nonce': nonce() } : {},
