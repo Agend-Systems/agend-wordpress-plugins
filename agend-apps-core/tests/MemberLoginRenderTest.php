@@ -35,7 +35,15 @@ final class MemberLoginRenderTest extends TestCase {
 		'body_colour'           => '#202020',
 		'button_colour'         => '#303030',
 		'button_text_colour'    => '#EFEFEF',
-		// inherit_colours deliberately absent, matching the recorded fixture.
+		// Set alongside the manual colour values above (US-1.3): with
+		// inherit_colours left at its schema default of 'yes', the resolver
+		// would supersede these values with the resolved site/Agend colours.
+		// A settings map with manual colours and inheritance still on is
+		// precisely the state a real UI cannot produce (US-1.2 hides the
+		// manual fields while inherit is on), so 'no' here matches what an
+		// editor who set these actually did, on the CatalogueRenderTest
+		// pattern (539c15b).
+		'inherit_colours'       => '',
 	);
 
 	/** @return array<string, array{string}> */
@@ -70,6 +78,7 @@ final class MemberLoginRenderTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/member-login.php';
 		require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/widgets/class-agend-elementor-member-login.php';
 	}
