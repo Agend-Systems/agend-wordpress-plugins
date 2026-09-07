@@ -16,6 +16,16 @@
  * is unavailable, the username is not an email, or no WordPress user with
  * that email exists.
  *
+ * A WordPress login is likewise refused, not allowed through, when the
+ * gateway withholds the session for email verification (a login 202 or a
+ * register 201 with `pending_email_confirmation`, or the 503
+ * `VERIFICATION_EMAIL_UNAVAILABLE` the gateway raises when it cannot even send
+ * the ownership link): the WordPress user meta is marked pending and the
+ * priority-30 refusal is armed with a verification-specific error, superseding
+ * the earlier design that let WordPress authenticate through in this case
+ * (SPEC-CORE-20260907-wordpress-email-verification-handling Decision change
+ * A, US-4.1).
+ *
  * A successful gateway login reuses the exact machinery of the member-login
  * REST proxy (SPEC-CORE-20260722-wordpress-member-login US-1.4): the same
  * identity policy (`agend_apps_member_login_user_id`, which finds-or-creates
@@ -48,11 +58,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Never returns a `WP_Error` itself: WordPress's own handlers at priority 20
  * ignore an incoming error when a username and password are present and
  * authenticate against the WordPress password regardless, so a refusal raised
- * here would be overridden. The one refusal this bridge makes (the email
+ * here would be overridden. The two refusals this bridge makes — the email
  * already has a dashboard account and the submitted password is not its
- * password) is applied by `agend_apps_wp_login_refuse_wordpress_password` at
- * priority 30, after WordPress has run. Every other failure falls through to
- * WordPress authentication, which owns the user-facing error.
+ * password, and the gateway has withheld the session for email verification —
+ * are applied by `agend_apps_wp_login_refuse_wordpress_password` at priority
+ * 30, after WordPress has run, each with its own error. Every other failure
+ * falls through to WordPress authentication, which owns the user-facing
+ * error.
  *
  * @param null|WP_User|WP_Error $user     Result of earlier authenticate filters.
  * @param string                $username Submitted username or email.
@@ -109,10 +121,13 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	if ( is_wp_error( $response ) ) {
 		// The gateway withheld the login because verification is outstanding
 		// and the ownership email itself could not be sent
-		// (SPEC-CORE-20260907 US-4.1 AC1, AC3): record pending and let
-		// WordPress authenticate, same as a 202 below.
+		// (SPEC-CORE-20260907 US-4.1 AC1, AC3). Record pending and arm the
+		// verification refusal for priority 30, same as a 202 below (Decision
+		// change A supersedes the earlier "let WordPress authenticate through"
+		// design).
 		if ( agend_apps_auth_response_is_verification_required( $response ) ) {
 			agend_apps_wp_login_mark_verification_pending( $email );
+			agend_apps_wp_login_arm_refusal( $email, AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
 			return $user;
 		}
 
@@ -138,8 +153,9 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		// Either the login itself answered 202 verification_required, or the
 		// register call above withheld the session pending verification
 		// (SPEC-CORE-20260907 US-4.1 AC3, AC6): both converge here on "no
-		// session", and both mean the same thing for a WordPress sign-in.
+		// session", and both are refused the same way (Decision change A).
 		agend_apps_wp_login_mark_verification_pending( $email );
+		agend_apps_wp_login_arm_refusal( $email, AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
 		return $user;
 	}
 
@@ -280,25 +296,48 @@ function agend_apps_wp_login_register_existing_user( string $email, string $pass
 }
 
 /**
- * Email whose WordPress-password login is refused for the current request.
+ * Refusal reasons `agend_apps_wp_login_refuse_wordpress_password` can emit
+ * (SPEC-CORE-20260907-wordpress-email-verification-handling Decision change
+ * A). `CONFLICT` is the default when a caller arms with one argument, so the
+ * existing email-conflict call site did not need to change.
  *
- * @param string|null $email Email to arm, or null to read.
- * @return string The armed email ('' when none).
+ * @var string
  */
-function agend_apps_wp_login_arm_refusal( ?string $email = null ): string {
-	static $armed = '';
+const AGEND_APPS_WP_LOGIN_REFUSAL_CONFLICT     = 'conflict';
+const AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION = 'verification';
+
+/**
+ * Email (and reason) whose WordPress-password login is refused for the
+ * current request.
+ *
+ * @param string|null $email  Email to arm ('' clears the arming), or null to read.
+ * @param string      $reason One of the `AGEND_APPS_WP_LOGIN_REFUSAL_*` constants.
+ *                            Ignored when `$email` is null; forced to '' when
+ *                            `$email` is ''.
+ * @return array{email: string, reason: string} The currently armed state.
+ */
+function agend_apps_wp_login_arm_refusal( ?string $email = null, string $reason = AGEND_APPS_WP_LOGIN_REFUSAL_CONFLICT ): array {
+	static $armed = array(
+		'email'  => '',
+		'reason' => '',
+	);
 
 	if ( null !== $email ) {
-		$armed = $email;
+		$armed = array(
+			'email'  => $email,
+			'reason' => ( '' === $email ) ? '' : $reason,
+		);
 	}
 
 	return $armed;
 }
 
 /**
- * Converts a WordPress-password authentication into the generic credentials
- * error for an email that already has a dashboard account
- * (SPEC-CORE-20260907 Decision 2.1, US-1.2).
+ * Converts a WordPress-password authentication into the refusal the bridge
+ * armed for this email: the generic credentials error for an email that
+ * already has a dashboard account (SPEC-CORE-20260907 Decision 2.1, US-1.2),
+ * or the verification-required error for a session the gateway withheld
+ * pending an ownership link (Decision change A, US-4.1).
  *
  * Runs at priority 30, after `wp_authenticate_username_password` and
  * `wp_authenticate_email_password` (20), so it sees and overrides the
@@ -308,15 +347,19 @@ function agend_apps_wp_login_arm_refusal( ?string $email = null ): string {
  * @param null|WP_User|WP_Error $user     Result of earlier authenticate filters.
  * @param string                $username Submitted username or email.
  * @param string                $password Submitted password.
- * @return null|WP_User|WP_Error The generic error when armed, else the incoming value.
+ * @return null|WP_User|WP_Error The armed error, else the incoming value.
  */
 function agend_apps_wp_login_refuse_wordpress_password( $user, $username, $password ) {
 	unset( $password );
 
 	$armed = agend_apps_wp_login_arm_refusal();
 
-	if ( '' === $armed || strtolower( trim( (string) $username ) ) !== $armed ) {
+	if ( '' === $armed['email'] || strtolower( trim( (string) $username ) ) !== $armed['email'] ) {
 		return $user;
+	}
+
+	if ( AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION === $armed['reason'] ) {
+		return agend_apps_wp_login_verification_required_error();
 	}
 
 	return agend_apps_wp_login_generic_error();
@@ -333,5 +376,21 @@ function agend_apps_wp_login_generic_error(): WP_Error {
 	return new WP_Error(
 		'agend_apps_invalid_credentials',
 		__( 'The email or password you entered is incorrect.', 'agend-apps-core' )
+	);
+}
+
+/**
+ * The verification-required refusal (SPEC-CORE-20260907-wordpress-email
+ * -verification-handling Decision change A, US-4.1). Distinct code and
+ * message from the generic credentials error: by the time the gateway answers
+ * with this state it has already accepted the submitted password, so naming
+ * the reason discloses nothing an attacker does not already have.
+ *
+ * @return WP_Error
+ */
+function agend_apps_wp_login_verification_required_error(): WP_Error {
+	return new WP_Error(
+		'agend_apps_verification_required',
+		__( 'Check your email for a link to verify your address, then sign in again.', 'agend-apps-core' )
 	);
 }
