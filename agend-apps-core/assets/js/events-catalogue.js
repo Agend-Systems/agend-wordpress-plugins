@@ -1704,7 +1704,7 @@
     });
   }
 
-  function hydrateSsrDetail(root, cfg) {
+  function hydrateSsrDetail(root, cfg, bindsUrl) {
     var detailEl = root.querySelector('.agend-ev-detail');
     if (!detailEl) {
       return;
@@ -1730,15 +1730,20 @@
         });
       });
     }
-    // Show the confirmation screen on return from a paid registration.
-    if (ssrPayState() === 'success') {
+    // Show the confirmation screen on return from a paid registration. Only
+    // the URL-binding instance reads the payment-return param (Decision 2.6).
+    if (bindsUrl && ssrPayState() === 'success') {
       openSsrConfirmation(root, detailEl, slug, cfg);
     }
   }
 
   // -- Widget orchestration -------------------------------------------------
 
-  function initWidget(root) {
+  // bindsUrl: only the first catalogue instance in document order reads
+  // filter/deep-link/payment-return state from window.location and writes it
+  // back via the history API (Decision 2.6); later instances keep that state
+  // in memory only.
+  function initWidget(root, bindsUrl) {
     var cfg;
     try {
       cfg = JSON.parse(root.getAttribute('data-agend-events-config'));
@@ -1756,7 +1761,7 @@
     // Server-rendered detail page: the read-only detail is already in the DOM;
     // only hydrate the registration flow, never build the catalogue.
     if (cfg && cfg.ssrDetail) {
-      hydrateSsrDetail(root, cfg);
+      hydrateSsrDetail(root, cfg, bindsUrl);
       return;
     }
 
@@ -1929,6 +1934,9 @@
     }
 
     function setUrlParam(slug) {
+      if (!bindsUrl) {
+        return;
+      }
       try {
         var target;
         if (slug) {
@@ -2004,6 +2012,9 @@
     }
 
     function clearPayParam() {
+      if (!bindsUrl) {
+        return;
+      }
       try {
         var url = new URL(window.location.href);
         url.searchParams.delete(PAY_PARAM);
@@ -2091,14 +2102,16 @@
       }
     }
 
-    window.addEventListener('popstate', function () {
-      var slug = currentDeepLink();
-      if (slug) {
-        showDetail(slug, false);
-      } else {
-        showCatalogue(false);
-      }
-    });
+    if (bindsUrl) {
+      window.addEventListener('popstate', function () {
+        var slug = currentDeepLink();
+        if (slug) {
+          showDetail(slug, false);
+        } else {
+          showCatalogue(false);
+        }
+      });
+    }
 
     function currentPayState() {
       try {
@@ -2109,9 +2122,10 @@
     }
 
     // Server-injected slug (from the rewrite endpoint) wins on first load, then
-    // fall back to parsing the URL (pretty path or legacy query param).
-    var deepLinkSlug = cfg.deepLink || currentDeepLink();
-    var payState = currentPayState();
+    // fall back to parsing the URL (pretty path or legacy query param) — only
+    // for the instance that binds to the URL (Decision 2.6).
+    var deepLinkSlug = cfg.deepLink || (bindsUrl && currentDeepLink());
+    var payState = bindsUrl && currentPayState();
     if (templated) {
       // The first page is already in the DOM; only wire pagination, and
       // refetch when the server-side fetch failed.
@@ -2135,7 +2149,9 @@
 
   function initAll() {
     var nodes = document.querySelectorAll('.agend-events-catalogue[data-agend-events-config]');
-    Array.prototype.forEach.call(nodes, initWidget);
+    Array.prototype.forEach.call(nodes, function (root, index) {
+      initWidget(root, index === 0);
+    });
   }
 
   if (document.readyState === 'loading') {
