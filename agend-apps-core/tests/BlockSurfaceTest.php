@@ -122,4 +122,36 @@ final class BlockSurfaceTest extends TestCase {
 		}
 	}
 
+	#[Test]
+	public function should_insert_the_agend_category_before_widgets(): void {
+		$categories = array(
+			array( 'slug' => 'text', 'title' => 'Text' ),
+			array( 'slug' => 'widgets', 'title' => 'Widgets' ),
+			array( 'slug' => 'theme', 'title' => 'Theme' ),
+		);
+
+		$result = agend_apps_records_block_categories( $categories );
+		$slugs  = array_column( $result, 'slug' );
+
+		self::assertSame( array( 'text', 'agend', 'widgets', 'theme' ), $slugs );
+	}
+
+	#[Test]
+	public function should_not_duplicate_the_agend_category_when_called_more_than_once_per_request(): void {
+		$categories = array( array( 'slug' => 'widgets', 'title' => 'Widgets' ) );
+
+		$once  = agend_apps_records_block_categories( $categories );
+		$twice = agend_apps_records_block_categories( $once );
+
+		self::assertCount( 1, array_filter( $twice, static fn( array $c ): bool => 'agend' === $c['slug'] ) );
+	}
+
+	#[Test]
+	public function should_append_the_agend_category_when_widgets_is_absent(): void {
+		$categories = array( array( 'slug' => 'text', 'title' => 'Text' ) );
+
+		$result = agend_apps_records_block_categories( $categories );
+
+		self::assertSame( 'agend', $result[ count( $result ) - 1 ]['slug'] );
+	}
 }

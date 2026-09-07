@@ -188,6 +188,39 @@ function agend_apps_records_register_blocks(): void {
 add_action( 'init', 'agend_apps_records_register_blocks' );
 
 /**
+ * Adds the "Agend" inserter category immediately before Widgets, so the Agend
+ * blocks are easy to find rather than sorted among Widgets entries. Idempotent
+ * because block_categories_all can run more than once per request.
+ *
+ * @param array $categories Existing block categories.
+ * @return array
+ */
+function agend_apps_records_block_categories( array $categories ): array {
+	foreach ( $categories as $category ) {
+		if ( 'agend' === ( $category['slug'] ?? '' ) ) {
+			return $categories;
+		}
+	}
+
+	$agend_category = array(
+		'slug'  => 'agend',
+		'title' => 'Agend',
+	);
+
+	foreach ( $categories as $index => $category ) {
+		if ( 'widgets' === ( $category['slug'] ?? '' ) ) {
+			array_splice( $categories, $index, 0, array( $agend_category ) );
+			return $categories;
+		}
+	}
+
+	$categories[] = $agend_category;
+
+	return $categories;
+}
+add_filter( 'block_categories_all', 'agend_apps_records_block_categories' );
+
+/**
  * Serves a surface's editor schema so the block inspector renders its
  * controls from the same declaration the Elementor widget uses.
  */
