@@ -312,6 +312,17 @@ class Agend_Apps_API {
 		 */
 		$decoded = apply_filters( 'agend_apps_api_response', $decoded, $method, $path, $status_code );
 
+		// Carried onto the decoded array so a caller can distinguish response
+		// shapes that share a body structure but differ by HTTP status (e.g.
+		// login's 200 session vs 202 verification_required), without every
+		// caller re-deriving it from a structural field
+		// (SPEC-CORE-20260907-wordpress-email-verification-handling US-4.1
+		// Decision change B). Never overwrites a `status_code` the gateway
+		// itself put in the body.
+		if ( is_array( $decoded ) && ! isset( $decoded['status_code'] ) ) {
+			$decoded['status_code'] = $status_code;
+		}
+
 		return $decoded;
 	}
 
