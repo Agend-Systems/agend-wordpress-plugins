@@ -26,6 +26,7 @@ final class BlockSurfaceTest extends TestCase {
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/events-catalogue.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/courses-catalogue.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/blocks.php';
 		agend_render_test_reset();
 	}
@@ -75,6 +76,31 @@ final class BlockSurfaceTest extends TestCase {
 
 		self::assertSame( agend_apps_records_render_events_catalogue( $elementor_settings ), agend_apps_records_render_block( 'events-catalogue', $defaults ) );
 		self::assertStringContainsString( 'Upcoming Events', agend_apps_records_render_block( 'events-catalogue', $defaults ) );
+	}
+
+	#[Test]
+	public function should_render_what_the_elementor_courses_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'courses-catalogue' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		// The Elementor content-control defaults, recorded from the widget.
+		// The colour and inherit_colours defaults are not in this fixture
+		// (it only ever recorded the Content tab); they come from the schema's
+		// style section defaults instead, which is what
+		// agend_apps_records_render_block() already resolves the block's own
+		// $defaults from, so no separate merge is needed here for the
+		// comparison to hold.
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/courses-catalogue-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		self::assertSame( agend_apps_records_render_courses_catalogue( $elementor_settings ), agend_apps_records_render_block( 'courses-catalogue', $defaults ) );
 	}
 
 	#[Test]
