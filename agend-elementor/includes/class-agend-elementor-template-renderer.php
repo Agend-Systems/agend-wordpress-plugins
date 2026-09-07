@@ -14,7 +14,7 @@
  *
  * The record a template renders against is not passed as a render() argument
  * the widgets inside the template can see; it is pushed onto
- * Agend_Elementor_Record_Context before the render and popped after, and the
+ * Agend_Apps_Records_Record_Context before the render and popped after, and the
  * field/image/link widgets inside the template read it from there.
  *
  * @package Agend_Elementor
@@ -146,19 +146,19 @@ final class Agend_Elementor_Template_Renderer {
 		// the cache active, the first render of a template caches its output
 		// and every subsequent render of the same template id (record 2, 3,
 		// ...) returns that same cached markup regardless of which record we
-		// pushed onto Agend_Elementor_Record_Context. Disabling it for the
+		// pushed onto Agend_Apps_Records_Record_Context. Disabling it for the
 		// duration of this render is what makes per-record rendering possible
 		// at all.
 		add_filter( 'pre_option_elementor_element_cache_ttl', array( __CLASS__, 'disable_element_cache' ) );
 
 		self::ensure_styles( $template_id );
 
-		Agend_Elementor_Record_Context::push( $type, $record, $extra );
+		Agend_Apps_Records_Record_Context::push( $type, $record, $extra );
 
 		try {
 			$html = \Elementor\Plugin::$instance->frontend->get_builder_content_for_display( $template_id, $with_css );
 		} finally {
-			Agend_Elementor_Record_Context::pop();
+			Agend_Apps_Records_Record_Context::pop();
 			remove_filter( 'pre_option_elementor_element_cache_ttl', array( __CLASS__, 'disable_element_cache' ) );
 
 			if ( 1 === self::$in_flight[ $template_id ] ) {

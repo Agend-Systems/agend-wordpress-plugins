@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Each block is one of the fragments in class-agend-elementor-fragments.php,
+ * Each block is one of the fragments in fragments.php,
  * so a detail template and the built-in detail render identical panels.
  */
 class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
@@ -40,65 +40,43 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-record-fields', 'agend-elementor-events-catalogue', 'agend-elementor-courses-catalogue' );
+		return array( 'agend-elementor-record-fields', 'agend-apps-records-events-catalogue', 'agend-apps-records-courses-catalogue' );
 	}
 
 	/**
 	 * Block key => [ label, record type, fragment function ].
 	 *
+	 * Kept here (not in the schema) because the record type and fragment
+	 * function are render-time concerns; the schema's `block` field lists the
+	 * same keys and labels as a plain option array (see
+	 * agend_apps_records_schema_record_block()).
+	 *
 	 * @return array<string, array{0: string, 1: string, 2: string}>
 	 */
 	private function blocks(): array {
 		return array(
-			'event_facts'        => array( __( 'Event facts (date, location, format)', 'agend-elementor' ), 'event', 'agend_elementor_fragment_event_facts' ),
-			'event_registration' => array( __( 'Event registration panel', 'agend-elementor' ), 'event', 'agend_elementor_fragment_event_registration' ),
-			'event_tickets'      => array( __( 'Event tickets and pricing', 'agend-elementor' ), 'event', 'agend_elementor_fragment_event_tickets' ),
-			'event_sponsors'     => array( __( 'Event sponsors', 'agend-elementor' ), 'event', 'agend_elementor_fragment_event_sponsors' ),
-			'course_meta'        => array( __( 'Course details (level, format, duration)', 'agend-elementor' ), 'course', 'agend_elementor_fragment_course_meta' ),
-			'course_outcomes'    => array( __( 'Course learning outcomes', 'agend-elementor' ), 'course', 'agend_elementor_fragment_course_outcomes' ),
-			'course_enrolment'   => array( __( 'Course pricing and enrolment', 'agend-elementor' ), 'course', 'agend_elementor_fragment_course_enrolment' ),
-			'listing_about'         => array( __( 'Listing about', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_about' ),
-			'listing_contact'       => array( __( 'Listing contact and links', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_contact' ),
-			'listing_categories'    => array( __( 'Listing categories', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_categories' ),
-			'listing_tags'          => array( __( 'Listing tags', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_tags' ),
-			'listing_gallery'       => array( __( 'Listing gallery', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_gallery' ),
-			'listing_locations'     => array( __( 'Listing locations', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_locations' ),
-			'listing_hours'         => array( __( 'Listing business hours', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_hours' ),
-			'listing_custom_fields' => array( __( 'Listing custom fields', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_custom_fields' ),
-			'listing_achievements'  => array( __( 'Listing badges and credentials', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_achievements' ),
-			'listing_reviews'       => array( __( 'Listing reviews', 'agend-elementor' ), 'listing', 'agend_elementor_fragment_listing_reviews' ),
+			'event_facts'        => array( __( 'Event facts (date, location, format)', 'agend-elementor' ), 'event', 'agend_apps_records_fragment_event_facts' ),
+			'event_registration' => array( __( 'Event registration panel', 'agend-elementor' ), 'event', 'agend_apps_records_fragment_event_registration' ),
+			'event_tickets'      => array( __( 'Event tickets and pricing', 'agend-elementor' ), 'event', 'agend_apps_records_fragment_event_tickets' ),
+			'event_sponsors'     => array( __( 'Event sponsors', 'agend-elementor' ), 'event', 'agend_apps_records_fragment_event_sponsors' ),
+			'course_meta'        => array( __( 'Course details (level, format, duration)', 'agend-elementor' ), 'course', 'agend_apps_records_fragment_course_meta' ),
+			'course_outcomes'    => array( __( 'Course learning outcomes', 'agend-elementor' ), 'course', 'agend_apps_records_fragment_course_outcomes' ),
+			'course_enrolment'   => array( __( 'Course pricing and enrolment', 'agend-elementor' ), 'course', 'agend_apps_records_fragment_course_enrolment' ),
+			'listing_about'         => array( __( 'Listing about', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_about' ),
+			'listing_contact'       => array( __( 'Listing contact and links', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_contact' ),
+			'listing_categories'    => array( __( 'Listing categories', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_categories' ),
+			'listing_tags'          => array( __( 'Listing tags', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_tags' ),
+			'listing_gallery'       => array( __( 'Listing gallery', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_gallery' ),
+			'listing_locations'     => array( __( 'Listing locations', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_locations' ),
+			'listing_hours'         => array( __( 'Listing business hours', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_hours' ),
+			'listing_custom_fields' => array( __( 'Listing custom fields', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_custom_fields' ),
+			'listing_achievements'  => array( __( 'Listing badges and credentials', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_achievements' ),
+			'listing_reviews'       => array( __( 'Listing reviews', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_reviews' ),
 		);
 	}
 
 	protected function register_controls(): void {
-		$this->start_controls_section(
-			'section_block',
-			array(
-				'label' => __( 'Block', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->record_type_control();
-
-		$options = array();
-		foreach ( $this->blocks() as $key => $block ) {
-			$options[ $key ] = $block[0];
-		}
-
-		$this->add_control(
-			'block',
-			array(
-				'label'       => __( 'Block', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'event_facts',
-				'options'     => $options,
-				'label_block' => true,
-				'description' => __( 'Intended for detail templates. The tickets block loads the ticket list per event, so avoid it on cards.', 'agend-elementor' ),
-			)
-		);
-
-		$this->end_controls_section();
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'record-block' ) );
 	}
 
 	/**
@@ -186,7 +164,7 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 		$roots  = array( 'course' => 'agend-courses-catalogue', 'listing' => 'agend-directory-catalogue', 'event' => 'agend-events-catalogue' );
 		$prefix = array( 'course' => 'agend-lms', 'listing' => 'agend-dir', 'event' => 'agend-ev' );
 		$root   = $roots[ $ctx['type'] ] ?? 'agend-events-catalogue';
-		$style  = agend_elementor_ssr_colour_style( $prefix[ $ctx['type'] ] ?? 'agend-ev' );
+		$style  = agend_apps_records_ssr_colour_style( $prefix[ $ctx['type'] ] ?? 'agend-ev' );
 		echo '<div class="agend-record-block agend-record-block--' . esc_attr( $key ) . ' ' . esc_attr( $root ) . ' ' . esc_attr( $root ) . '--fragment" style="' . esc_attr( $style ) . '">' . $html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragments escape internally.
 	}
 }

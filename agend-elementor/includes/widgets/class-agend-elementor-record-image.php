@@ -53,181 +53,99 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 		return array( 'agend-elementor-record-fields' );
 	}
 
+	/**
+	 * Registers a Content-tab control this widget declares itself because the
+	 * shared schema vocabulary cannot describe it (a MEDIA picker, a COLOR
+	 * picker, a responsive SLIDER, or a SELECT that needs `selectors`).
+	 *
+	 * @param string $name Schema field name.
+	 * @return void
+	 */
+	public function register_adapter_control( string $name ): void {
+		switch ( $name ) {
+			case 'fallback_image':
+				$this->add_control(
+					'fallback_image',
+					array(
+						'label'       => __( 'Fallback image', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::MEDIA,
+						'description' => __( 'Used when the record has no image.', 'agend-elementor' ),
+					)
+				);
+				break;
+
+			case 'aspect_ratio':
+				$this->add_control(
+					'aspect_ratio',
+					array(
+						'label'     => __( 'Aspect ratio', 'agend-elementor' ),
+						'type'      => \Elementor\Controls_Manager::SELECT,
+						'default'   => '16 / 9',
+						'options'   => array(
+							''       => __( 'Original', 'agend-elementor' ),
+							'1 / 1'  => '1:1',
+							'4 / 3'  => '4:3',
+							'3 / 2'  => '3:2',
+							'16 / 9' => '16:9',
+							'21 / 9' => '21:9',
+						),
+						'selectors' => array( '{{WRAPPER}} .agend-record-image--img' => 'aspect-ratio: {{VALUE}};' ),
+						'condition' => array( 'mode' => 'img' ),
+					)
+				);
+				break;
+
+			case 'object_fit':
+				$this->add_control(
+					'object_fit',
+					array(
+						'label'     => __( 'Object fit', 'agend-elementor' ),
+						'type'      => \Elementor\Controls_Manager::SELECT,
+						'default'   => 'cover',
+						'options'   => array(
+							'cover'   => __( 'Cover', 'agend-elementor' ),
+							'contain' => __( 'Contain', 'agend-elementor' ),
+							'fill'    => __( 'Fill', 'agend-elementor' ),
+							'none'    => __( 'None', 'agend-elementor' ),
+						),
+						'selectors' => array( '{{WRAPPER}} .agend-record-image--img' => 'object-fit: {{VALUE}};' ),
+						'condition' => array( 'mode' => 'img' ),
+					)
+				);
+				break;
+
+			case 'min_height':
+				$this->add_responsive_control(
+					'min_height',
+					array(
+						'label'      => __( 'Minimum height', 'agend-elementor' ),
+						'type'       => \Elementor\Controls_Manager::SLIDER,
+						'size_units' => array( 'px', 'vh', 'em' ),
+						'range'      => array( 'px' => array( 'min' => 0, 'max' => 1000 ) ),
+						'default'    => array( 'size' => 240, 'unit' => 'px' ),
+						'selectors'  => array( '{{WRAPPER}} .agend-record-image--block' => 'min-height: {{SIZE}}{{UNIT}};' ),
+						'condition'  => array( 'mode' => 'background', 'placement' => 'block' ),
+					)
+				);
+				break;
+
+			case 'overlay_colour':
+				$this->add_control(
+					'overlay_colour',
+					array(
+						'label'       => __( 'Overlay colour', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::COLOR,
+						'default'     => '',
+						'description' => __( 'A translucent colour layered over the image, for legible text.', 'agend-elementor' ),
+						'condition'   => array( 'mode' => 'background' ),
+					)
+				);
+				break;
+		}
+	}
+
 	protected function register_controls(): void {
-		$this->start_controls_section(
-			'section_image',
-			array(
-				'label' => __( 'Image', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->record_type_control();
-
-		$this->add_control(
-			'field',
-			array(
-				'label'       => __( 'Image field', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'common:image',
-				'groups'      => agend_elementor_field_options( array( 'url' ) ),
-				'label_block' => true,
-			)
-		);
-
-		$this->add_control(
-			'fallback_image',
-			array(
-				'label'       => __( 'Fallback image', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::MEDIA,
-				'description' => __( 'Used when the record has no image.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'mode',
-			array(
-				'label'   => __( 'Render as', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'default' => 'img',
-				'options' => array(
-					'img'        => __( 'Image', 'agend-elementor' ),
-					'background' => __( 'Background', 'agend-elementor' ),
-				),
-			)
-		);
-
-		$this->add_control(
-			'link_to_detail',
-			array(
-				'label'       => __( 'Link to detail page', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SWITCHER,
-				'default'     => '',
-				'description' => __( 'Ignored when the whole card is already a link.', 'agend-elementor' ),
-				'condition'   => array( 'mode' => 'img' ),
-			)
-		);
-
-		$this->add_control(
-			'aspect_ratio',
-			array(
-				'label'     => __( 'Aspect ratio', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::SELECT,
-				'default'   => '16 / 9',
-				'options'   => array(
-					''       => __( 'Original', 'agend-elementor' ),
-					'1 / 1'  => '1:1',
-					'4 / 3'  => '4:3',
-					'3 / 2'  => '3:2',
-					'16 / 9' => '16:9',
-					'21 / 9' => '21:9',
-				),
-				'selectors' => array( '{{WRAPPER}} .agend-record-image--img' => 'aspect-ratio: {{VALUE}};' ),
-				'condition' => array( 'mode' => 'img' ),
-			)
-		);
-
-		$this->add_control(
-			'object_fit',
-			array(
-				'label'     => __( 'Object fit', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::SELECT,
-				'default'   => 'cover',
-				'options'   => array(
-					'cover'   => __( 'Cover', 'agend-elementor' ),
-					'contain' => __( 'Contain', 'agend-elementor' ),
-					'fill'    => __( 'Fill', 'agend-elementor' ),
-					'none'    => __( 'None', 'agend-elementor' ),
-				),
-				'selectors' => array( '{{WRAPPER}} .agend-record-image--img' => 'object-fit: {{VALUE}};' ),
-				'condition' => array( 'mode' => 'img' ),
-			)
-		);
-
-		$this->add_control(
-			'placement',
-			array(
-				'label'       => __( 'Placement', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => 'fill',
-				'options'     => array(
-					'fill'   => __( 'Fill the container behind other widgets', 'agend-elementor' ),
-					'parent' => __( 'Paint onto the parent container', 'agend-elementor' ),
-					'block'  => __( 'Sized block', 'agend-elementor' ),
-				),
-				'description' => __( 'Fill: drop this widget into a container as its first child and it becomes that container\'s background. Parent: the image is applied to the parent container\'s own background. Block: a box of the height set below.', 'agend-elementor' ),
-				'condition'   => array( 'mode' => 'background' ),
-			)
-		);
-
-		$this->add_responsive_control(
-			'min_height',
-			array(
-				'label'      => __( 'Minimum height', 'agend-elementor' ),
-				'type'       => \Elementor\Controls_Manager::SLIDER,
-				'size_units' => array( 'px', 'vh', 'em' ),
-				'range'      => array( 'px' => array( 'min' => 0, 'max' => 1000 ) ),
-				'default'    => array( 'size' => 240, 'unit' => 'px' ),
-				'selectors'  => array( '{{WRAPPER}} .agend-record-image--block' => 'min-height: {{SIZE}}{{UNIT}};' ),
-				'condition'  => array( 'mode' => 'background', 'placement' => 'block' ),
-			)
-		);
-
-		$this->add_control(
-			'background_size',
-			array(
-				'label'     => __( 'Background size', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::SELECT,
-				'default'   => 'cover',
-				'options'   => array(
-					'cover'   => __( 'Cover', 'agend-elementor' ),
-					'contain' => __( 'Contain', 'agend-elementor' ),
-					'auto'    => __( 'Auto', 'agend-elementor' ),
-				),
-				'condition' => array( 'mode' => 'background' ),
-			)
-		);
-
-		$this->add_control(
-			'background_position',
-			array(
-				'label'     => __( 'Background position', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::SELECT,
-				'default'   => 'center center',
-				'options'   => array(
-					'center center' => __( 'Centre', 'agend-elementor' ),
-					'center top'    => __( 'Top', 'agend-elementor' ),
-					'center bottom' => __( 'Bottom', 'agend-elementor' ),
-					'left center'   => __( 'Left', 'agend-elementor' ),
-					'right center'  => __( 'Right', 'agend-elementor' ),
-				),
-				'condition' => array( 'mode' => 'background' ),
-			)
-		);
-
-		$this->add_control(
-			'overlay_colour',
-			array(
-				'label'       => __( 'Overlay colour', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::COLOR,
-				'default'     => '',
-				'description' => __( 'A translucent colour layered over the image, for legible text.', 'agend-elementor' ),
-				'condition'   => array( 'mode' => 'background' ),
-			)
-		);
-
-		$this->add_control(
-			'overlay_gradient',
-			array(
-				'label'       => __( 'Darken towards the bottom', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SWITCHER,
-				'default'     => '',
-				'description' => __( 'Adds the same top-to-bottom darkening the built-in detail hero uses.', 'agend-elementor' ),
-				'condition'   => array( 'mode' => 'background' ),
-			)
-		);
-
-		$this->end_controls_section();
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'record-image' ) );
 	}
 
 	/**
@@ -239,7 +157,7 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 	 */
 	private function image_url( array $s, array $ctx ): string {
 		$key = (string) ( $s['field'] ?? 'common:image' );
-		$url = agend_elementor_field_value( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
+		$url = agend_apps_records_field_value( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
 		$url = is_string( $url ) ? $url : '';
 		if ( '' === $url && ! empty( $s['fallback_image']['url'] ) ) {
 			$url = (string) $s['fallback_image']['url'];
@@ -285,7 +203,7 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 			return;
 		}
 
-		$title = (string) ( agend_elementor_field_value( 'common:title', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
+		$title = (string) ( agend_apps_records_field_value( 'common:title', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
 
 		if ( 'background' === ( $s['mode'] ?? 'img' ) ) {
 			$placement = (string) ( $s['placement'] ?? 'fill' );
@@ -336,7 +254,7 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 		$img = '<img ' . $this->get_render_attribute_string( 'image' ) . ' />';
 
 		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $ctx['extra']['in_card_link'] ) )
-			? (string) ( agend_elementor_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
+			? (string) ( agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
 			: '';
 		if ( '' !== $link && '#' !== $link ) {
 			$img = '<a class="agend-record-image__link" href="' . esc_url( $link ) . '">' . $img . '</a>';

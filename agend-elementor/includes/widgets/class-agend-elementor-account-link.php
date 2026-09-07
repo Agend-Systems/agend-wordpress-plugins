@@ -64,7 +64,7 @@ class Agend_Elementor_Account_Link extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-account-link' );
+		return array( 'agend-apps-records-account-link' );
 	}
 
 	/**
@@ -73,7 +73,7 @@ class Agend_Elementor_Account_Link extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-account-link' );
+		return array( 'agend-apps-records-account-link' );
 	}
 
 	/**
@@ -88,81 +88,7 @@ class Agend_Elementor_Account_Link extends \Elementor\Widget_Base {
 	 * Registers the Content tab controls (copy for each state).
 	 */
 	private function register_content_controls(): void {
-		$this->start_controls_section(
-			'section_content',
-			array(
-				'label' => __( 'Content', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'show_heading',
-			array(
-				'label'   => __( 'Show heading', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SWITCHER,
-				'default' => 'yes',
-			)
-		);
-
-		$this->add_control(
-			'heading_text',
-			array(
-				'label'     => __( 'Heading', 'agend-elementor' ),
-				'type'      => \Elementor\Controls_Manager::TEXT,
-				'default'   => __( 'Your Agend Account', 'agend-elementor' ),
-				'condition' => array( 'show_heading' => 'yes' ),
-			)
-		);
-
-		$this->add_control(
-			'linked_message',
-			array(
-				'label'   => __( 'Linked message', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXTAREA,
-				'default' => __( 'Your account is linked. You have full access to member content.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'unlinked_message',
-			array(
-				'label'   => __( 'Not-linked message', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXTAREA,
-				'default' => __( 'Link your account to unlock member content, courses, and event pricing.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'button_label',
-			array(
-				'label'   => __( 'Link button label', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXT,
-				'default' => __( 'Link my account', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'portal_link_label',
-			array(
-				'label'       => __( 'Portal link label', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => __( 'Review your Agend details', 'agend-elementor' ),
-				'description' => __( 'Shown to linked members as a link to the member portal. Leave empty to hide the link.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'logged_out_message',
-			array(
-				'label'       => __( 'Logged-out message', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXTAREA,
-				'default'     => __( 'Log in to link your account with Agend.', 'agend-elementor' ),
-				'description' => __( 'Shown to visitors who are not logged in to WordPress. Leave empty to hide the widget for logged-out visitors.', 'agend-elementor' ),
-			)
-		);
-
-		$this->end_controls_section();
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'account-link' ) );
 	}
 
 	/**

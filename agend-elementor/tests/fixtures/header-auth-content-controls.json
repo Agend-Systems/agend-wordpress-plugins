@@ -1,0 +1,53 @@
+{
+    "sections": [
+        {
+            "id": "section_content",
+            "args": {
+                "label": "Content",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "logged_out_label",
+                    "args": {
+                        "label": "Logged-out label",
+                        "type": "text",
+                        "default": "Log In",
+                        "description": "Shown to signed-out visitors; links to the login page."
+                    }
+                },
+                {
+                    "id": "logged_in_label",
+                    "args": {
+                        "label": "Logged-in label",
+                        "type": "text",
+                        "default": "My Portal",
+                        "description": "Shown to signed-in members; opens the member portal, already signed in."
+                    }
+                },
+                {
+                    "id": "sign_out_label",
+                    "args": {
+                        "label": "Sign-out label",
+                        "type": "text",
+                        "default": "Sign out",
+                        "description": "Shown in a dropdown when a signed-in member hovers or focuses the button. Leave empty to hide the dropdown."
+                    }
+                },
+                {
+                    "id": "login_url",
+                    "args": {
+                        "label": "Login page",
+                        "type": "url",
+                        "description": "Where signed-out visitors go. Leave blank to use the WordPress login page.",
+                        "placeholder": "https:\/\/example.test\/login\/",
+                        "show_external": false,
+                        "default": {
+                            "url": ""
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.10.0
+ * Version:           1.11.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.10.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.11.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -82,12 +82,92 @@ define( 'AGEND_APPS_PORTAL_STAGING_URL', 'https://portal.agend.info' );
 define( 'AGEND_APPS_PORTAL_LOCAL_URL', 'http://localhost:3074' );
 
 /**
+ * Rewrite ruleset version. Bump whenever the rewrite endpoints registered in
+ * includes/records/routing.php change, so the versioned auto-flush
+ * regenerates the rules on the next request after an update deploy.
+ *
+ * @var string
+ */
+define( 'AGEND_APPS_RECORDS_REWRITE_VERSION', '20260723-1' );
+
+// Detail-URL rewrite endpoints (SPEC-INFRA-20260717 US-1.1). Loaded
+// unconditionally so the endpoints register even when a page-builder plugin
+// consuming them is temporarily unavailable; the widgets that consume them
+// stay gated.
+require_once AGEND_APPS_CORE_DIR . 'includes/records/routing.php';
+
+// Settings (server-rendered detail toggle). Loaded unconditionally so the
+// accessor is available on the front-end `wp` hook and in the admin.
+require_once AGEND_APPS_CORE_DIR . 'includes/records/settings.php';
+
+// Dedicated catalogue pages (fixes the host-page hijack: a catalogue used as
+// a homepage CTA no longer turns the homepage into the detail page). Loaded
+// unconditionally, like settings, so the wp:4 redirect and the widgets'
+// page_url()/detail_url() calls work even before this plugin's own bootstrap
+// runs.
+require_once AGEND_APPS_CORE_DIR . 'includes/records/pages.php';
+
+register_activation_hook( __FILE__, 'agend_apps_records_activate_rewrites' );
+register_deactivation_hook( __FILE__, 'agend_apps_records_deactivate_rewrites' );
+
+/**
  * Loads all plugin includes and initialises the admin controller.
  *
  * Hooked on `plugins_loaded` so all WordPress APIs are available before
  * any include is executed.
  */
 function agend_apps_core_bootstrap() {
+	require_once AGEND_APPS_CORE_DIR . 'includes/templates/interface-agend-apps-template-renderer.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/templates/interface-agend-apps-template-source.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/templates/class-agend-apps-templates.php';
+
+	// Shared front-end assets: the CSS/JS behind the catalogue widgets, and the
+	// handful of helpers (shop cart detection, DOMPurify) they depend on.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/assets.php';
+
+	// Server-rendered detail pages (opt-in). The format/fragments helpers are
+	// split out so field widgets can reuse them without pulling in the whole
+	// SSR detail machinery.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/format.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/fragments.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/ssr-detail.php';
+
+	// Template-driven cards and detail pages: the record context the field
+	// widgets read, the field registry, and the editor preview records.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/record-context.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/fields.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/preview-records.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/filters.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/query.php';
+
+	// Content-settings schema: the page-builder-agnostic declaration every
+	// presentation adapter (Elementor, later the block editor) renders its
+	// controls from, instead of each hand-declaring the same settings.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/schema.php';
+
+	// Server renders of the catalogue surfaces, shared by every editor adapter.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
+
+	// The block editor surface: attributes from the schemas, output from the renderers.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
+
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/cards.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/rest/fragments-controller.php';
+
+	// Deprecated pre-rename names. Last among the records requires: it aliases
+	// classes and constants those files define.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/deprecated.php';
+
+	add_action(
+		'rest_api_init',
+		static function () {
+			( new Agend_Apps_Records_Fragments_Controller() )->register_routes();
+		}
+	);
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-secret-store.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-settings.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';

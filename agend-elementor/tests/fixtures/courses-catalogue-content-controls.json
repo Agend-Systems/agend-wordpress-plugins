@@ -1,0 +1,375 @@
+{
+    "sections": [
+        {
+            "id": "section_heading",
+            "args": {
+                "label": "Heading",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "show_heading",
+                    "args": {
+                        "label": "Show heading block",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "heading_text",
+                    "args": {
+                        "label": "Heading",
+                        "type": "text",
+                        "default": "Learning Hub",
+                        "condition": {
+                            "show_heading": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "subheading_text",
+                    "args": {
+                        "label": "Subheading",
+                        "type": "textarea",
+                        "default": "Self-paced courses and live workshops to level up your skills.",
+                        "condition": {
+                            "show_heading": "yes"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_layout",
+            "args": {
+                "label": "Layout",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "columns_desktop",
+                    "args": {
+                        "label": "Columns (Desktop)",
+                        "type": "select",
+                        "options": {
+                            "2": "2",
+                            "3": "3",
+                            "4": "4"
+                        },
+                        "default": "3"
+                    }
+                },
+                {
+                    "id": "columns_tablet",
+                    "args": {
+                        "label": "Columns (Tablet)",
+                        "type": "select",
+                        "options": {
+                            "1": "1",
+                            "2": "2"
+                        },
+                        "default": "2"
+                    }
+                },
+                {
+                    "id": "columns_mobile",
+                    "args": {
+                        "label": "Columns (Mobile)",
+                        "type": "select",
+                        "options": {
+                            "1": "1",
+                            "2": "2"
+                        },
+                        "default": "1"
+                    }
+                },
+                {
+                    "id": "card_radius",
+                    "args": {
+                        "label": "Card Corner Radius (px)",
+                        "type": "number",
+                        "default": 10,
+                        "min": 0,
+                        "max": 48
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_card_template",
+            "args": {
+                "label": "Card Template",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "card_template",
+                    "args": {
+                        "label": "Card template",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Built-in card"
+                        },
+                        "label_block": true,
+                        "description": "A saved template (Templates > Saved Templates) rendered once per course. Build it from the Agend Field, Agend Image and Agend Link widgets. The built-in card options below apply only when no template is chosen."
+                    }
+                },
+                {
+                    "id": "card_link_whole",
+                    "args": {
+                        "label": "Whole card links to the course",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Off: only Agend Link widgets inside the template navigate.",
+                        "condition": {
+                            "card_template!": ""
+                        }
+                    }
+                },
+                {
+                    "id": "filter_template",
+                    "args": {
+                        "label": "Filter template",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Built-in filter bar"
+                        },
+                        "label_block": true,
+                        "description": "A saved template built from Agend Filter widgets. Chosen here, it replaces the built-in filter bar and keeps working across the listing and detail views."
+                    }
+                },
+                {
+                    "id": "filter_position",
+                    "args": {
+                        "label": "Filter position",
+                        "type": "select",
+                        "default": "top",
+                        "options": {
+                            "top": "Across the top",
+                            "left": "Down the left",
+                            "right": "Down the right"
+                        },
+                        "description": "A side position puts the filters in their own column beside the results. Set the column width on the filter template itself.",
+                        "condition": {
+                            "filter_template!": ""
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_card_fields",
+            "args": {
+                "label": "Card Fields",
+                "tab": "content",
+                "condition": {
+                    "card_template": ""
+                }
+            },
+            "controls": [
+                {
+                    "id": "show_image",
+                    "args": {
+                        "label": "Show course image",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_difficulty",
+                    "args": {
+                        "label": "Show difficulty badge",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_delivery_mode",
+                    "args": {
+                        "label": "Show delivery mode pill",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_category",
+                    "args": {
+                        "label": "Show category label",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_description",
+                    "args": {
+                        "label": "Show description excerpt",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_meta",
+                    "args": {
+                        "label": "Show duration and module count",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_price",
+                    "args": {
+                        "label": "Show price tag",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "excerpt_length",
+                    "args": {
+                        "label": "Excerpt length (characters)",
+                        "type": "number",
+                        "default": 110,
+                        "min": 20,
+                        "max": 400,
+                        "condition": {
+                            "show_description": "yes"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_filters",
+            "args": {
+                "label": "Visitor Filter Bar",
+                "tab": "content",
+                "condition": {
+                    "filter_template": ""
+                }
+            },
+            "controls": [
+                {
+                    "id": "show_search",
+                    "args": {
+                        "label": "Show search box",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_category_filter",
+                    "args": {
+                        "label": "Show category filter",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_difficulty_filter",
+                    "args": {
+                        "label": "Show difficulty filter",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_delivery_filter",
+                    "args": {
+                        "label": "Show delivery mode filter",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_exclusions",
+            "args": {
+                "label": "Exclusions",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "exclusions_note",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "Excluded items never appear in this widget, and excluded values are hidden from the visitor filters."
+                    }
+                },
+                {
+                    "id": "exclude_categories",
+                    "args": {
+                        "label": "Exclude categories",
+                        "type": "select2",
+                        "multiple": true,
+                        "label_block": true,
+                        "options": []
+                    }
+                },
+                {
+                    "id": "exclude_difficulties",
+                    "args": {
+                        "label": "Exclude difficulty levels",
+                        "type": "select2",
+                        "multiple": true,
+                        "label_block": true,
+                        "options": {
+                            "beginner": "Beginner",
+                            "intermediate": "Intermediate",
+                            "advanced": "Advanced"
+                        }
+                    }
+                },
+                {
+                    "id": "exclude_delivery_modes",
+                    "args": {
+                        "label": "Exclude delivery modes",
+                        "type": "select2",
+                        "multiple": true,
+                        "label_block": true,
+                        "options": {
+                            "self_paced": "Self-paced",
+                            "live_online": "Live Online",
+                            "in_person": "In-Person",
+                            "blended": "Blended"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_pagination",
+            "args": {
+                "label": "Pagination",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "pagination_style",
+                    "args": {
+                        "label": "Pagination style",
+                        "type": "select",
+                        "options": {
+                            "numbered": "Numbered pages",
+                            "load_more": "Load more button",
+                            "none": "None (show all fetched)"
+                        },
+                        "default": "numbered"
+                    }
+                },
+                {
+                    "id": "per_page",
+                    "args": {
+                        "label": "Courses per page",
+                        "type": "number",
+                        "default": 9,
+                        "min": 1,
+                        "max": 100
+                    }
+                }
+            ]
+        }
+    ]
+}

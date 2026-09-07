@@ -1,0 +1,191 @@
+{
+    "sections": [
+        {
+            "id": "section_heading",
+            "args": {
+                "label": "Heading",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "heading_text",
+                    "args": {
+                        "label": "Heading",
+                        "type": "text",
+                        "default": "Membership Options"
+                    }
+                },
+                {
+                    "id": "membership_type",
+                    "args": {
+                        "label": "Membership types to show",
+                        "type": "select",
+                        "options": {
+                            "": "Individual & corporate",
+                            "individual": "Individual only",
+                            "corporate": "Corporate only"
+                        },
+                        "default": "",
+                        "description": "Filters the tiers server-side by type."
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_layout",
+            "args": {
+                "label": "Layout",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "columns_desktop",
+                    "args": {
+                        "label": "Columns (Desktop)",
+                        "type": "select",
+                        "options": {
+                            "2": "2",
+                            "3": "3",
+                            "4": "4"
+                        },
+                        "default": "3"
+                    }
+                },
+                {
+                    "id": "columns_tablet",
+                    "args": {
+                        "label": "Columns (Tablet)",
+                        "type": "select",
+                        "options": {
+                            "1": "1",
+                            "2": "2"
+                        },
+                        "default": "2"
+                    }
+                },
+                {
+                    "id": "columns_mobile",
+                    "args": {
+                        "label": "Columns (Mobile)",
+                        "type": "select",
+                        "options": {
+                            "1": "1",
+                            "2": "2"
+                        },
+                        "default": "1"
+                    }
+                },
+                {
+                    "id": "card_radius",
+                    "args": {
+                        "label": "Card Corner Radius (px)",
+                        "type": "number",
+                        "default": 10,
+                        "min": 0,
+                        "max": 48
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_card_fields",
+            "args": {
+                "label": "Card Fields",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "show_description",
+                    "args": {
+                        "label": "Show description",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_benefits",
+                    "args": {
+                        "label": "Show benefits",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "show_price",
+                    "args": {
+                        "label": "Show price and billing period",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_signup_mode",
+            "args": {
+                "label": "Signup Mode",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "global_signup_mode",
+                    "args": {
+                        "label": "Default signup mode",
+                        "type": "select",
+                        "options": {
+                            "application": "Application (captures contact)",
+                            "direct": "Direct purchase (requires payment)"
+                        },
+                        "default": "application",
+                        "description": "The signup mode for each tier. Can be overridden per tier below."
+                    }
+                },
+                {
+                    "id": "tier_mode_overrides",
+                    "args": {
+                        "label": "Tier-specific overrides",
+                        "type": "repeater",
+                        "fields": [
+                            {
+                                "name": "tier_slug",
+                                "label": "Tier slug",
+                                "type": "text",
+                                "placeholder": "professional"
+                            },
+                            {
+                                "name": "tier_mode",
+                                "label": "Mode for this tier",
+                                "type": "select",
+                                "options": {
+                                    "application": "Application",
+                                    "direct": "Direct purchase"
+                                },
+                                "default": "application"
+                            }
+                        ],
+                        "default": [],
+                        "title_field": "{{{ \"undefined\" !== typeof tier_slug && tier_slug ? tier_slug : \"Tier override\" }}}"
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_redirect",
+            "args": {
+                "label": "Post-Signup Redirect",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "success_url",
+                    "args": {
+                        "label": "Success page URL (optional)",
+                        "type": "url",
+                        "placeholder": "https:\/\/example.com\/thank-you",
+                        "description": "URL to redirect to after successful signup. Defaults to the current page."
+                    }
+                }
+            ]
+        }
+    ]
+}

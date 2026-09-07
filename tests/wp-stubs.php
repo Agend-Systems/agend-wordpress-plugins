@@ -47,6 +47,10 @@ final class Agend_Test_WP {
 	/** @var array<int, array{timestamp: int, hook: string, args: array<int, mixed>}> WP-Cron events scheduled via wp_schedule_single_event(). */
 	public static array $scheduled_events = array();
 
+	public static int $queried_object_id = 0;
+
+	public static array $query_vars = array();
+
 	/**
 	 * Canned `wp_remote_request()` responses, consumed one per call (FIFO).
 	 * Empty means the default (200, `{"call": N}`) behaviour.
@@ -57,6 +61,8 @@ final class Agend_Test_WP {
 
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
+		self::$queried_object_id = 0;
+		self::$query_vars        = array();
 		self::$transients        = array();
 		self::$actions           = array();
 		self::$did_action        = array();
@@ -149,6 +155,26 @@ function add_filter( string $hook, $callback, int $priority = 10, int $args = 1 
 	Agend_Test_WP::$filters[ $hook ] = $callback;
 	return true;
 }
+
+/**
+ * Deprecated-hook variant of {@see apply_filters()}: runs the same filter
+ * machinery against `$args[0]` under the OLD hook name, so a test (or a
+ * site's real `add_filter()`) registered on the pre-rename name still
+ * changes the result.
+ *
+ * @param string $hook        The deprecated hook name.
+ * @param array  $args        `array( $value, ...$extra )`.
+ * @param string $version     Unused; kept for signature parity with WordPress.
+ * @param string $replacement Unused; kept for signature parity with WordPress.
+ */
+function apply_filters_deprecated( string $hook, array $args, string $version = '', string $replacement = '' ) {
+	$value = array_shift( $args );
+
+	return apply_filters( $hook, $value, ...$args );
+}
+
+/** No-op: the stub harness does not assert on deprecation notices. */
+function _deprecated_function( string $function, string $version, string $replacement = '' ): void {}
 
 // ---------------------------------------------------------------------------
 // Options, escaping, i18n
@@ -892,4 +918,28 @@ if ( ! function_exists( 'esc_attr' ) ) {
 	function esc_attr( $text ): string {
 		return htmlspecialchars( (string) $text, ENT_QUOTES );
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Front-end render context (queried page, permalinks, REST, escaping)
+// ---------------------------------------------------------------------------
+
+function esc_html_e( string $text, string $domain = 'default' ): void {
+	echo esc_html( $text );
+}
+
+function rest_url( string $path = '' ): string {
+	return 'https://example.test/wp-json/' . ltrim( $path, '/' );
+}
+
+function get_queried_object_id(): int {
+	return Agend_Test_WP::$queried_object_id;
+}
+
+function get_query_var( string $var, $default = '' ) {
+	return Agend_Test_WP::$query_vars[ $var ] ?? $default;
+}
+
+function wp_timezone_string(): string {
+	return 'Australia/Sydney';
 }

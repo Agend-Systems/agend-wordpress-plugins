@@ -225,6 +225,48 @@ if ( ! function_exists( 'agend_apps_crm_get_contacts' ) ) {
 	}
 }
 
+if ( ! function_exists( 'agend_apps_events_get_categories' ) ) {
+	/**
+	 * Deterministic two-category double for the events catalogue's exclude
+	 * categories option list (schema `template`/`select`/`multiselect`
+	 * fixture tests need a non-empty, stable list).
+	 *
+	 * @return array{data: array<int, array{id: int, name: string}>}
+	 */
+	function agend_apps_events_get_categories(): array {
+		return array(
+			'data' => array(
+				array(
+					'id'   => 1,
+					'name' => 'Conferences',
+				),
+				array(
+					'id'   => 2,
+					'name' => 'Workshops',
+				),
+			),
+		);
+	}
+}
+
+if ( ! function_exists( 'agend_apps_events_get_venues' ) ) {
+	/**
+	 * Deterministic two-venue double for the events catalogue's exclude
+	 * cities option list.
+	 *
+	 * @param array $query Ignored.
+	 * @return array{data: array<int, array{city: string}>}
+	 */
+	function agend_apps_events_get_venues( array $query = array() ): array {
+		return array(
+			'data' => array(
+				array( 'city' => 'Sydney' ),
+				array( 'city' => 'Melbourne' ),
+			),
+		);
+	}
+}
+
 if ( ! class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) ) {
 	/**
 	 * Minimal fake of the kiosk's entitlement value object.
