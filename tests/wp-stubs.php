@@ -644,6 +644,107 @@ if ( ! function_exists( 'admin_url' ) ) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// REST API — minimal stand-ins so a controller class (which extends
+// WP_REST_Controller) can be instantiated and its route methods called
+// directly in a test, bypassing `register_routes()`/dispatch entirely.
+// ---------------------------------------------------------------------------
+
+if ( ! class_exists( 'WP_REST_Server' ) ) {
+	class WP_REST_Server {
+		const READABLE   = 'GET';
+		const CREATABLE  = 'POST';
+		const EDITABLE   = 'POST, PUT, PATCH';
+		const DELETABLE  = 'DELETE';
+		const ALLMETHODS = 'GET, POST, PUT, PATCH, DELETE';
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Request' ) ) {
+	/**
+	 * Minimal WP_REST_Request stand-in: a test builds one and sets params
+	 * directly, bypassing WordPress's own routing/sanitisation.
+	 */
+	class WP_REST_Request {
+		private string $method;
+		private string $route;
+
+		/** @var array<string, mixed> */
+		private array $params = array();
+
+		/** @var array<string, string> */
+		private array $headers = array();
+
+		public function __construct( string $method = 'GET', string $route = '' ) {
+			$this->method = $method;
+			$this->route  = $route;
+		}
+
+		public function set_param( string $key, $value ): void {
+			$this->params[ $key ] = $value;
+		}
+
+		public function get_param( string $key ) {
+			return $this->params[ $key ] ?? null;
+		}
+
+		public function set_header( string $key, string $value ): void {
+			$this->headers[ strtolower( $key ) ] = $value;
+		}
+
+		public function get_header( string $key ) {
+			return $this->headers[ strtolower( $key ) ] ?? null;
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Response' ) ) {
+	/**
+	 * Minimal WP_REST_Response stand-in: a test reads back `get_data()` and
+	 * `get_status()`, matching the real class's public surface.
+	 */
+	class WP_REST_Response {
+		private $data;
+		private int $status;
+
+		public function __construct( $data = null, int $status = 200 ) {
+			$this->data   = $data;
+			$this->status = $status;
+		}
+
+		public function get_data() {
+			return $this->data;
+		}
+
+		public function get_status(): int {
+			return $this->status;
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Controller' ) ) {
+	abstract class WP_REST_Controller {}
+}
+
+if ( ! function_exists( 'register_rest_route' ) ) {
+	/**
+	 * No-op recording stub: route registration itself is WordPress dispatch
+	 * machinery, out of scope for these unit tests, which call a
+	 * controller's route method directly.
+	 */
+	function register_rest_route( string $namespace, string $route, array $args = array(), bool $override = false ) {
+		unset( $namespace, $route, $args, $override );
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_verify_nonce' ) ) {
+	function wp_verify_nonce( $nonce, $action = -1 ) {
+		return $nonce === wp_create_nonce( $action ) ? 1 : false;
+	}
+}
+
 if ( ! function_exists( 'get_user_meta' ) ) {
 	/**
 	 * User meta stub, backed by a global registry keyed by user id then meta
