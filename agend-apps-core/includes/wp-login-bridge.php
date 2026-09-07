@@ -70,6 +70,10 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	$email    = strtolower( trim( (string) $username ) );
 	$password = (string) $password;
 
+	// Each authenticate run starts with no refusal armed, so a refusal from an
+	// earlier attempt in the same process never leaks into this one.
+	agend_apps_wp_login_arm_refusal( '' );
+
 	// The gateway authenticates by email; a non-email username belongs to
 	// WordPress.
 	if ( '' === $email || '' === $password || ! is_email( $email ) ) {
