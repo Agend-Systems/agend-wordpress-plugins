@@ -223,6 +223,56 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 
 		register_rest_route(
 			$this->namespace,
+			'/' . $this->rest_base . '/resend-verification',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'resend_verification' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'email' => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_email',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/register',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'register' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'email'      => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_email',
+						),
+						'password'   => array(
+							'required' => true,
+							'type'     => 'string',
+						),
+						'first_name' => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'last_name'  => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
 			'/' . $this->rest_base . '/session',
 			array(
 				array(
@@ -352,7 +402,38 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		$response = agend_apps_auth_login( $email, $password );
 
 		if ( is_wp_error( $response ) ) {
+			if ( agend_apps_auth_response_is_verification_required( $response ) ) {
+				agend_apps_wp_login_mark_verification_pending( $email );
+
+				return new WP_REST_Response(
+					array(
+						'code'    => 'verification_required',
+						'message' => __( 'Check your email to verify your address, then sign in.', 'agend-apps-core' ),
+					),
+					202
+				);
+			}
+
 			return $this->error_to_response( $response );
+		}
+
+		// A 202 verification_required carries no session at all (SPEC-CORE-20260907
+		// US-4.2 AC1); mirrors register()'s existing 202 handling below. This is
+		// distinct from a genuine 200 whose session is simply malformed (AC2).
+		if ( agend_apps_auth_response_is_verification_required( $response ) ) {
+			$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+
+			agend_apps_wp_login_mark_verification_pending( $email );
+
+			return new WP_REST_Response(
+				array(
+					'code'    => 'verification_required',
+					'message' => isset( $data['message'] ) && '' !== (string) $data['message']
+						? (string) $data['message']
+						: __( 'Check your email to verify your address, then sign in.', 'agend-apps-core' ),
+				),
+				202
+			);
 		}
 
 		$data    = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
@@ -448,6 +529,177 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 	}
 
 	/**
+	 * Requests another ownership verification email
+	 * (SPEC-CORE-20260907 US-4.2 AC4).
+	 *
+	 * Response uniformity: every non-error gateway outcome, and a gateway
+	 * 429, are all reported as the same 202 `verification_sent` so this route
+	 * never discloses whether the email matched an account.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function resend_verification( WP_REST_Request $request ): WP_REST_Response {
+		$email = strtolower( (string) $request->get_param( 'email' ) );
+
+		$confirmation = new WP_REST_Response(
+			array(
+				'code'    => 'verification_sent',
+				'message' => __( 'If a verification is pending for that address, a new link is on its way.', 'agend-apps-core' ),
+			),
+			202
+		);
+
+		if ( '' === $email || ! is_email( $email ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'invalid_email',
+					'message' => __( 'Enter a valid email address.', 'agend-apps-core' ),
+				),
+				400
+			);
+		}
+
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+
+		if ( ! agend_apps_auth_login_throttle( $email, $ip ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'too_many_attempts',
+					'message' => __( 'Too many attempts. Please wait a few minutes and try again.', 'agend-apps-core' ),
+				),
+				429
+			);
+		}
+
+		$response = agend_apps_auth_resend_verification( $email );
+
+		// A gateway 429 is still reported as the generic 202: the resend
+		// route never surfaces gateway-side rate-limit detail to the browser.
+		if ( is_wp_error( $response ) && 429 !== agend_apps_auth_error_status( $response ) ) {
+			return $this->error_to_response( $response );
+		}
+
+		return $confirmation;
+	}
+
+	/**
+	 * Registers an Agend account from the site and signs the member in
+	 * (SPEC-CORE-20260907 US-3.1).
+	 *
+	 * This is the one surface that names a duplicate email verbosely: the
+	 * gateway's 409 `EMAIL_ALREADY_REGISTERED` is returned as
+	 * `email_already_registered`. The login route and the wp-login.php bridge
+	 * never do (SPEC-API-20260810 v1.1 Decision 2.10).
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function register( WP_REST_Request $request ): WP_REST_Response {
+		$email      = strtolower( (string) $request->get_param( 'email' ) );
+		$password   = (string) $request->get_param( 'password' );
+		$first_name = (string) $request->get_param( 'first_name' );
+		$last_name  = (string) $request->get_param( 'last_name' );
+
+		if ( '' === $email || '' === $password ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'missing_fields',
+					'message' => __( 'Email and password are required.', 'agend-apps-core' ),
+				),
+				400
+			);
+		}
+
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+
+		if ( ! agend_apps_auth_login_throttle( $email, $ip ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'too_many_attempts',
+					'message' => __( 'Too many attempts. Please wait a few minutes and try again.', 'agend-apps-core' ),
+				),
+				429
+			);
+		}
+
+		$response = agend_apps_auth_register(
+			agend_apps_provision_register_payload( $email, $password, $first_name, $last_name )
+		);
+
+		if ( is_wp_error( $response ) ) {
+			if ( agend_apps_auth_error_is_email_conflict( $response ) ) {
+				return new WP_REST_Response(
+					array(
+						'code'    => 'email_already_registered',
+						'message' => __( 'An account with this email already exists. Sign in instead.', 'agend-apps-core' ),
+					),
+					409
+				);
+			}
+
+			return $this->error_to_response( $response );
+		}
+
+		$parsed  = agend_apps_auth_response_session( $response );
+		$data    = $parsed['data'];
+		$session = $parsed['session'];
+
+		if ( empty( $session ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'verification_required',
+					'message' => isset( $data['message'] ) && '' !== (string) $data['message']
+						? (string) $data['message']
+						: __( 'Check your email to verify your address, then sign in.', 'agend-apps-core' ),
+				),
+				202
+			);
+		}
+
+		$guest_cart_token = agend_apps_login_guest_cart_with_items();
+
+		/** This filter is documented in the login() method above. */
+		$user_id = (int) apply_filters( 'agend_apps_member_login_user_id', 0, $email, $data, $request );
+
+		if ( 0 === $user_id ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'wp_identity_required',
+					'message' => __( 'Your Agend account was created, but this site could not sign you in. Please sign in.', 'agend-apps-core' ),
+				),
+				409
+			);
+		}
+
+		Agend_Apps_Member_Session::store( $user_id, $session );
+		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
+		delete_user_meta( $user_id, AGEND_APPS_IDENTITY_CONFLICT_META );
+
+		$cart_transferred = false;
+		if ( '' !== $guest_cart_token ) {
+			$transfer = agend_apps_cart_transfer( $guest_cart_token, agend_apps_get_bearer_token() );
+			if ( ! is_wp_error( $transfer ) ) {
+				$cart_transferred = true;
+				setcookie( 'agend_cart_session', '', array( 'expires' => time() - HOUR_IN_SECONDS, 'path' => '/' ) );
+			}
+		}
+
+		agend_apps_member_sync_membership_meta( $user_id );
+
+		return new WP_REST_Response(
+			array(
+				'ok'               => true,
+				'user'             => isset( $data['user'] ) ? $data['user'] : null,
+				'contact'          => isset( $data['contact'] ) ? $data['contact'] : null,
+				'cart_transferred' => $cart_transferred,
+				'nonce'            => wp_create_nonce( 'wp_rest' ),
+			),
+			200
+		);
+	}
+
+	/**
 	 * Reports whether the current visitor has an active Agend member session.
 	 *
 	 * @param WP_REST_Request $request Current request.
@@ -456,13 +708,29 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 	public function session_status( WP_REST_Request $request ): WP_REST_Response {
 		unset( $request );
 
-		$user_id   = get_current_user_id();
-		$signed_in = 0 !== $user_id && Agend_Apps_Member_Session::has_session( $user_id );
+		$user_id = get_current_user_id();
+
+		// A pending user holds no Agend session yet but IS signed into
+		// WordPress (Decision 2.1), so the widget still renders its signed-in
+		// view -- with the verification notice rather than the portal button
+		// (SPEC-CORE-20260907 US-4.2 AC5, US-4.3 AC3).
+		$pending = 0 !== $user_id
+			&& '1' === (string) get_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META, true );
+
+		$signed_in = 0 !== $user_id && ( $pending || Agend_Apps_Member_Session::has_session( $user_id ) );
+
+		$email = '';
+		if ( $pending ) {
+			$wp_user = get_user_by( 'id', $user_id );
+			$email   = ( $wp_user instanceof WP_User ) ? $wp_user->user_email : '';
+		}
 
 		return new WP_REST_Response(
 			array(
-				'signed_in'  => $signed_in,
-				'portal_url' => $signed_in ? Agend_Apps_Settings::get_portal_home_url() : '',
+				'signed_in'            => $signed_in,
+				'portal_url'           => ( $signed_in && ! $pending ) ? Agend_Apps_Settings::get_portal_home_url() : '',
+				'verification_pending' => $pending,
+				'email'                => $email,
 			),
 			200
 		);
