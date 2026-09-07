@@ -39,9 +39,11 @@ abstract class TestCase extends PHPUnitTestCase {
 		}
 
 		// Post and meta registries used by the WordPress stubs.
-		$GLOBALS['agend_test_posts']     = array();
-		$GLOBALS['agend_test_post_meta'] = array();
-		$GLOBALS['agend_test_user_meta'] = array();
+		$GLOBALS['agend_test_posts']            = array();
+		$GLOBALS['agend_test_post_meta']        = array();
+		$GLOBALS['agend_test_user_meta']        = array();
+		$GLOBALS['agend_test_users']            = array();
+		$GLOBALS['agend_test_current_user_can'] = array();
 	}
 
 	/**

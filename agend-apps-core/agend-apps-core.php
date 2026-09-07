@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.8.0
+ * Version:           1.11.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.8.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.11.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -175,7 +175,17 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/member-identity.php';
+
+	// Member sign-in mode (SPEC-CORE-20260907 US-4.1): in `sso` mode the
+	// credential login surface does not exist, not merely stand down per
+	// email. `Agend_Apps_Settings` is already loaded above.
+	$agend_apps_credential_login_enabled = Agend_Apps_Settings::credential_login_enabled();
+
+	if ( $agend_apps_credential_login_enabled ) {
+		require_once AGEND_APPS_CORE_DIR . 'includes/member-identity.php';
+		require_once AGEND_APPS_CORE_DIR . 'includes/member-provisioning.php';
+	}
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-membership-sync.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
@@ -203,13 +213,24 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';
+
+	if ( $agend_apps_credential_login_enabled ) {
+		require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';
+	}
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/webhook-receiver-routes.php';
 
-	// Agend-first authentication for wp-login.php and wp_signon() callers.
-	// Loaded after api/auth.php and rest/auth-routes.php, whose helpers
-	// (gateway login, proxy-edge throttle) it reuses at authenticate time.
-	require_once AGEND_APPS_CORE_DIR . 'includes/wp-login-bridge.php';
+	if ( $agend_apps_credential_login_enabled ) {
+		// Agend-first authentication for wp-login.php and wp_signon() callers.
+		// Loaded after api/auth.php and rest/auth-routes.php, whose helpers
+		// (gateway login, proxy-edge throttle) it reuses at authenticate time.
+		require_once AGEND_APPS_CORE_DIR . 'includes/wp-login-bridge.php';
+	} else {
+		// SPEC-CORE-20260907 US-4.1 AC5: any sibling code that still consults
+		// this filter directly (rather than checking credential_login_enabled())
+		// also stands down in `sso` mode.
+		add_filter( 'agend_apps_wp_login_bridge_enabled', '__return_false' );
+	}
 
 	// Bearer identity for outbound gateway calls (addendum E-11): mints and
 	// caches the logged-in member's Supabase JWT, served via the
@@ -245,7 +266,11 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
-	agend_apps_register_auth_routes();
+
+	if ( Agend_Apps_Settings::credential_login_enabled() ) {
+		agend_apps_register_auth_routes();
+	}
+
 	agend_apps_register_webhook_receiver_routes();
 }
 add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
@@ -258,9 +283,10 @@ add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
  */
 function agend_apps_output_config_js() {
 	$config = array(
-		'restUrl'  => rest_url( 'agend-apps/v1/' ),
-		'nonce'    => wp_create_nonce( 'wp_rest' ),
-		'loggedIn' => false,
+		'restUrl'        => rest_url( 'agend-apps/v1/' ),
+		'nonce'          => wp_create_nonce( 'wp_rest' ),
+		'loggedIn'       => false,
+		'memberAuthMode' => Agend_Apps_Settings::get_member_auth_mode(),
 	);
 
 	// Expose the Agend member-session state so every widget can render its
