@@ -1,0 +1,167 @@
+name: Release
+
+# Cuts a per-plugin GitHub Release whenever a plugin's header Version on
+# main has no matching tag yet (tag format: <slug>-v<version>), then
+# republishes the manifest.json / gh-pages site consumed by the
+# WordPress-side updater. See docs/RELEASING.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agend-*/**'
+      - '.github/workflows/release.yml'
+      - '.github/scripts/**'
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: 'Plugin slug to check (e.g. agend-embed). Leave empty to check every plugin.'
+        required: false
+        default: ''
+      force_manifest:
+        description: 'Rebuild and publish manifest.json even if nothing was released this run'
+        required: false
+        default: false
+        type: boolean
+
+# No workflow-level `permissions:` block on purpose -- each job below
+# declares only the permissions it actually needs.
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  detect:
+    name: Detect plugins needing a release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      has_matches: ${{ steps.detect.outputs.has_matches }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Detect plugins with an unreleased header version
+        id: detect
+        env:
+          # Passed via env, never interpolated into the script, so a crafted
+          # dispatch input cannot inject shell.
+          ONLY_PLUGIN: ${{ github.event.inputs.plugin }}
+        run: |
+          if [[ -n "${ONLY_PLUGIN}" ]]; then
+            .github/scripts/detect-releases.sh --plugin "${ONLY_PLUGIN}"
+          else
+            .github/scripts/detect-releases.sh
+          fi
+
+  release:
+    name: Release ${{ matrix.slug }} ${{ matrix.version }}
+    needs: detect
+    if: needs.detect.outputs.has_matches == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1 # serialised so the manifest job never races a half-published release
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        if: matrix.slug == 'agend-apps-core'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build blocks and verify the committed build is current
+        if: matrix.slug == 'agend-apps-core'
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          git add -N agend-apps-core/build
+          git diff --exit-code --stat -- agend-apps-core/build \
+            || { echo '::error::agend-apps-core/build is stale: run `npm run build` and commit the result before releasing'; exit 1; }
+
+      - name: Build release zip
+        run: .github/scripts/build-zip.sh "${{ matrix.slug }}" dist
+
+      - name: Generate release notes
+        run: .github/scripts/release-notes.sh "${{ matrix.slug }}" "${{ matrix.tag }}" notes.md
+
+      - name: Create GitHub release
+        run: |
+          source .github/scripts/lib.sh
+          plugin_name="$(agend_get_header "${{ matrix.slug }}/${{ matrix.slug }}.php" "Plugin Name")"
+          extra_args=()
+          if [[ "${{ matrix.version }}" =~ -[0-9A-Za-z.-]+$ ]]; then
+            extra_args+=(--prerelease)
+          fi
+          gh release create "${{ matrix.tag }}" \
+            "dist/${{ matrix.slug }}.zip" \
+            --title "${plugin_name} ${{ matrix.version }}" \
+            --notes-file notes.md \
+            --target "${{ github.sha }}" \
+            "${extra_args[@]}"
+
+  manifest:
+    name: Publish manifest.json and gh-pages site
+    needs: [detect, release]
+    # Runs whenever the release job ran at all (success OR partial failure:
+    # the manifest is built from the releases that actually exist, so the
+    # plugins that did publish must still be listed), or on demand via
+    # force_manifest. `always()` is required so this still evaluates when
+    # `release` was skipped (nothing to release) instead of being skipped
+    # itself.
+    if: >-
+      always() && (
+        needs.release.result == 'success'
+        || needs.release.result == 'failure'
+        || github.event.inputs.force_manifest == 'true'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Package host switch: while the repo is private, release assets
+      # aren't publicly downloadable, so "pages" (the default) mirrors each
+      # latest zip into the gh-pages site under packages/ and points the
+      # manifest at that. Flip the AGEND_PACKAGE_HOST repo variable to
+      # "releases" once the repo is public, to link the manifest straight at
+      # the (now-public) release asset instead. See docs/RELEASING.md.
+      AGEND_PACKAGE_HOST: ${{ vars.AGEND_PACKAGE_HOST || 'pages' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Fetch releases
+        run: .github/scripts/fetch-releases.sh releases.json
+
+      - name: Build manifest.json and site/
+        run: |
+          python3 .github/scripts/build-manifest.py \
+            --releases-file releases.json \
+            --site-dir site \
+            --repo "${GITHUB_REPOSITORY}" \
+            --package-host "${AGEND_PACKAGE_HOST}"
+
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+          force_orphan: true
+          enable_jekyll: false
