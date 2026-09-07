@@ -23,10 +23,16 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/rest/auth-routes.php'
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/wp-login-bridge.php';
 
 /**
- * The priority-30 refusal behind the login bridge: once the bridge has learned
- * (from the gateway's 409) that an email already holds a dashboard account,
- * the WordPress-password login WordPress resolved at priority 20 is replaced
- * by the generic credentials error, for that email only.
+ * The priority-30 refusal behind the login bridge. Once the bridge has
+ * learned (from the gateway's 409) that an email already holds a dashboard
+ * account, the WordPress-password login WordPress resolved at priority 20 is
+ * replaced by the generic credentials error, for that email only. Once the
+ * bridge has learned the gateway withheld the session for email verification
+ * (a 202, a 503 `VERIFICATION_EMAIL_UNAVAILABLE`, or a register response
+ * carrying `pending_email_confirmation`), the same replacement happens with
+ * the verification-specific error instead
+ * (SPEC-CORE-20260907-wordpress-email-verification-handling Decision change
+ * A).
  */
 final class LoginBridgeDecisionTest extends TestCase {
 
@@ -102,8 +108,32 @@ final class LoginBridgeDecisionTest extends TestCase {
 		$this->assertSame( 1, $this->requestCount( '/auth/register' ) );
 	}
 
+	/**
+	 * Asserts the verification-pending outcome common to all three
+	 * verification-required cases: pending meta written, no session stored,
+	 * the refusal armed with the verification reason for the submitted email,
+	 * and priority 30 replacing whatever WordPress resolved with the
+	 * verification-specific `WP_Error`
+	 * (SPEC-CORE-20260907-wordpress-email-verification-handling Decision
+	 * change A).
+	 */
+	private function assertVerificationPendingAndRefused( ?WP_User $result, int $user_id, string $email ): void {
+		$this->assertNull( $result );
+		$this->assertSame( '1', get_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META, true ) );
+		$this->assertFalse( Agend_Apps_Member_Session::has_session( $user_id ) );
+
+		$armed = agend_apps_wp_login_arm_refusal();
+		$this->assertSame( $email, $armed['email'] );
+		$this->assertSame( 'verification', $armed['reason'] );
+
+		$refused = agend_apps_wp_login_refuse_wordpress_password( new WP_User( $user_id ), $email, 'whatever' );
+
+		$this->assertInstanceOf( WP_Error::class, $refused );
+		$this->assertSame( 'agend_apps_verification_required', $refused->get_error_code() );
+	}
+
 	#[Test]
-	public function should_record_pending_and_return_the_incoming_user_on_a_202_login_response(): void {
+	public function should_record_pending_and_arm_the_verification_refusal_on_a_202_login_response(): void {
 		$existing             = new WP_User( 31 );
 		$existing->user_email = 'pending@example.test';
 		$existing->user_pass  = 'whatever';
@@ -121,14 +151,11 @@ final class LoginBridgeDecisionTest extends TestCase {
 
 		$result = agend_apps_wp_login_authenticate( null, 'pending@example.test', 'whatever' );
 
-		$this->assertNull( $result );
-		$this->assertSame( '1', get_user_meta( 31, AGEND_APPS_VERIFICATION_PENDING_META, true ) );
-		$this->assertFalse( Agend_Apps_Member_Session::has_session( 31 ) );
-		$this->assertSame( '', agend_apps_wp_login_arm_refusal() );
+		$this->assertVerificationPendingAndRefused( $result, 31, 'pending@example.test' );
 	}
 
 	#[Test]
-	public function should_record_pending_and_return_the_incoming_user_on_a_503_verification_email_unavailable_response(): void {
+	public function should_record_pending_and_arm_the_verification_refusal_on_a_503_verification_email_unavailable_response(): void {
 		$existing             = new WP_User( 32 );
 		$existing->user_email = 'pending2@example.test';
 		$existing->user_pass  = 'whatever';
@@ -146,14 +173,11 @@ final class LoginBridgeDecisionTest extends TestCase {
 
 		$result = agend_apps_wp_login_authenticate( null, 'pending2@example.test', 'whatever' );
 
-		$this->assertNull( $result );
-		$this->assertSame( '1', get_user_meta( 32, AGEND_APPS_VERIFICATION_PENDING_META, true ) );
-		$this->assertFalse( Agend_Apps_Member_Session::has_session( 32 ) );
-		$this->assertSame( '', agend_apps_wp_login_arm_refusal() );
+		$this->assertVerificationPendingAndRefused( $result, 32, 'pending2@example.test' );
 	}
 
 	#[Test]
-	public function should_record_pending_when_register_returns_pending_email_confirmation(): void {
+	public function should_record_pending_and_arm_the_verification_refusal_when_register_returns_pending_email_confirmation(): void {
 		$existing             = new WP_User( 33 );
 		$existing->user_email = 'newmember@example.test';
 		$existing->user_pass  = 'correct-password';
@@ -178,9 +202,32 @@ final class LoginBridgeDecisionTest extends TestCase {
 
 		$result = agend_apps_wp_login_authenticate( null, 'newmember@example.test', 'correct-password' );
 
+		$this->assertVerificationPendingAndRefused( $result, 33, 'newmember@example.test' );
+	}
+
+	#[Test]
+	public function should_still_return_the_generic_error_for_the_email_conflict_case(): void {
+		$existing             = new WP_User( 41 );
+		$existing->user_email = 'conflict@example.test';
+		$existing->user_pass  = 'correct-password';
+		$GLOBALS['agend_test_users'][] = $existing;
+
+		Agend_Test_WP::queue_response(
+			409,
+			array( 'error' => array( 'code' => 'EMAIL_ALREADY_REGISTERED', 'message' => 'Email already registered.' ) )
+		);
+
+		$result = agend_apps_wp_login_register_existing_user( 'conflict@example.test', 'correct-password' );
+
 		$this->assertNull( $result );
-		$this->assertSame( '1', get_user_meta( 33, AGEND_APPS_VERIFICATION_PENDING_META, true ) );
-		$this->assertFalse( Agend_Apps_Member_Session::has_session( 33 ) );
-		$this->assertSame( '', agend_apps_wp_login_arm_refusal() );
+
+		$armed = agend_apps_wp_login_arm_refusal();
+		$this->assertSame( 'conflict@example.test', $armed['email'] );
+		$this->assertSame( 'conflict', $armed['reason'] );
+
+		$refused = agend_apps_wp_login_refuse_wordpress_password( new WP_User( 41 ), 'conflict@example.test', 'correct-password' );
+
+		$this->assertInstanceOf( WP_Error::class, $refused );
+		$this->assertSame( 'agend_apps_invalid_credentials', $refused->get_error_code() );
 	}
 }
