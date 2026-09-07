@@ -14,12 +14,26 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Colour role defaults the member login surface exposes: the same four roles
+ * as the catalogues, minus accent, which the login form's CSS has no use for
+ * (US-1.2 business rule).
+ *
+ * @var array<string, string>
+ */
+const AGEND_APPS_RECORDS_MEMBER_LOGIN_COLOUR_ROLES = array(
+	'heading'    => AGEND_APPS_RECORDS_COLOUR_DEFAULTS['heading'],
+	'body'       => AGEND_APPS_RECORDS_COLOUR_DEFAULTS['body'],
+	'button'     => AGEND_APPS_RECORDS_COLOUR_DEFAULTS['button'],
+	'buttonText' => AGEND_APPS_RECORDS_COLOUR_DEFAULTS['buttonText'],
+);
+
+/**
  * Builds the client-side config object from the surface settings.
  *
  * @param array $s Surface settings (Elementor-shaped values: toggles are 'yes'/'').
  * @return array Config passed to the frontend script as JSON.
  */
-function agend_apps_records_member_login_build_config( array $s ): array {
+function agend_apps_records_member_login_build_config( array $s, array $colours ): array {
 	// An emptied return label falls back to the default so the recovery
 	// views never render an unlabelled control; an emptied forgot label
 	// intentionally hides the link (see the control description).
@@ -76,6 +90,9 @@ function agend_apps_records_member_login_build_config( array $s ): array {
 		// Seconds the resend button stays disabled after each attempt
 		// (SPEC-CORE-20260907 US-4.3 AC2).
 		'resendCooldownSeconds' => 60,
+		// US-1.3: no inheritFonts here, unlike the catalogues -- the login
+		// form has no font settings to inherit or override (Decision 2.1/6.2).
+		'theme'                 => array( 'colourSource' => $colours['source'] ),
 	);
 }
 
@@ -94,14 +111,18 @@ function agend_apps_records_render_member_login( array $settings ): string {
 		return '';
 	}
 
-	$config = agend_apps_records_member_login_build_config( $settings );
+	$colours = agend_apps_records_resolve_colours(
+		array( 'inherit_colours' => (string) ( $settings['inherit_colours'] ?? 'yes' ) ) + $settings,
+		AGEND_APPS_RECORDS_MEMBER_LOGIN_COLOUR_ROLES
+	);
+	$config  = agend_apps_records_member_login_build_config( $settings, $colours );
 
 	$style = sprintf(
 		'--agend-ml-heading:%1$s;--agend-ml-body:%2$s;--agend-ml-button:%3$s;--agend-ml-button-text:%4$s;',
-		esc_attr( (string) ( $settings['heading_colour'] ?? '#1E2A4A' ) ),
-		esc_attr( (string) ( $settings['body_colour'] ?? '#26304D' ) ),
-		esc_attr( (string) ( $settings['button_colour'] ?? '#FF6B55' ) ),
-		esc_attr( (string) ( $settings['button_text_colour'] ?? '#FFFFFF' ) )
+		esc_attr( $colours['colours']['heading'] ),
+		esc_attr( $colours['colours']['body'] ),
+		esc_attr( $colours['colours']['button'] ),
+		esc_attr( $colours['colours']['buttonText'] )
 	);
 
 	ob_start();
