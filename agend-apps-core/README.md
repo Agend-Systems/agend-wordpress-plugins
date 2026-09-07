@@ -196,13 +196,18 @@ once and have it appear in every adapter's editor.
 ### Vocabulary
 
 Schema = `array( 'sections' => Section[] )`. Section = `array( 'id', 'label',
-'condition'?, 'fields' => Field[] )`. Every field carries `name` (the setting
-key, PERSISTED in saved pages — never change one), `label`, `type`, `default`,
-plus optionally `description`, `condition`, `label_block`.
+'condition'?, 'tab'?, 'fields' => Field[] )`. `tab` accepts only `'style'`; a
+section without it, or with any other value, is a content section, rendered on
+Elementor's Content tab and in the block inspector's default slot. A `'style'`
+section renders on Elementor's Style tab and under the block inspector's
+`InspectorControls group="styles"` slot. Every field carries `name` (the
+setting key, PERSISTED in saved pages — never change one), `label`, `type`,
+`default`, plus optionally `description`, `condition`, `label_block`.
 
 | Type | Extra keys | Default shape |
 | :--- | :--- | :--- |
 | `toggle` | — | boolean |
+| `colour` | — | string, a CSS colour (Elementor's COLOR control, the block inspector's `ColorPalette`) |
 | `text` / `textarea` | — | string |
 | `number` | `min`, `max`, `step` | numeric |
 | `select` | `options` (array, or a callable string resolved at render time) or `groups` | string |
@@ -221,8 +226,9 @@ setting under. Renaming one orphans every page that already set it; add a new
 field and migrate instead.
 
 **`adapter`** is the escape hatch for a control the shared vocabulary cannot
-describe: a repeater, a media picker, a URL field, a colour, or a control that
-needs a builder-specific key such as `selectors`. The schema records only the
+describe: a repeater, a media picker, a URL field, or a control that needs a
+builder-specific key such as `selectors`. (A colour is its own `colour` type,
+not an `adapter` field, since US-1.1.) The schema records only the
 field's `name` (so the section keeps its order); the widget itself supplies a
 `public function register_adapter_control( string $name ): void` with a
 `switch` on the name that runs its original `add_control()` /
@@ -269,7 +275,11 @@ settings (`agend_apps_records_settings_from_attributes()`). The block inspector
 fetches the schema from `GET /agend-apps/v1/surfaces/<surface>/schema`
 (editors only, option lists resolved) and renders it with
 `src/blocks/shared/schema-inspector.js`, so a setting added to a schema appears
-in the block editor and in Elementor from the same line.
+in the block editor and in Elementor from the same line. `SchemaInspector`
+takes a `tab` prop (`'content'` or `'style'`) so an edit component can render
+each half of the schema in its own `InspectorControls` slot; a `colour` field
+renders as `ColorPalette` from `@wordpress/components`, sourced from the
+active theme's `useSettings( 'color.palette' )`.
 
 Source lives in `src/blocks/<surface>/`; the compiled block directory in
 `build/blocks/<surface>/` is COMMITTED because deployment copies files without a

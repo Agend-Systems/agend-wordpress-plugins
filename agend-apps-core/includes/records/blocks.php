@@ -65,6 +65,7 @@ function agend_apps_records_block_attributes( array $schema ): array {
 				case 'textarea':
 				case 'select':
 				case 'template':
+				case 'colour':
 					$attributes[ $name ] = array(
 						'type'    => 'string',
 						'default' => (string) ( $field['default'] ?? '' ),
