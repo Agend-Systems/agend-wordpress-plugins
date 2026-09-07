@@ -507,13 +507,71 @@ if ( ! class_exists( 'WP_User' ) ) {
 	 * type-hints `WP_User` (e.g. the `wp_login` and
 	 * `wp_saml_idp_user_attributes_lightsaml` handlers), and a cast object
 	 * would fail that type check on a real site while slipping past a test.
+	 *
+	 * Carries the password/email/name fields the login-bridge decision layer
+	 * reads; a test registers an instance in `$GLOBALS['agend_test_users']`
+	 * so `get_user_by()` can resolve it.
 	 */
 	class WP_User {
 		public int $ID;
+		public string $user_email = '';
+		public string $user_pass  = '';
+		public string $first_name = '';
+		public string $last_name  = '';
 
 		public function __construct( int $id = 0 ) {
 			$this->ID = $id;
 		}
+	}
+}
+
+if ( ! isset( $GLOBALS['agend_test_users'] ) ) {
+	$GLOBALS['agend_test_users'] = array();
+}
+
+if ( ! function_exists( 'get_user_by' ) ) {
+	/**
+	 * User lookup stub, backed by the `$GLOBALS['agend_test_users']` registry
+	 * a test populates directly (`$GLOBALS['agend_test_users'][] = $user;`).
+	 *
+	 * @param string     $field 'email' or 'id'.
+	 * @param string|int $value Value to match.
+	 * @return WP_User|false
+	 */
+	function get_user_by( string $field, $value ) {
+		foreach ( (array) $GLOBALS['agend_test_users'] as $user ) {
+			if ( ! ( $user instanceof WP_User ) ) {
+				continue;
+			}
+
+			if ( 'email' === $field && strtolower( $user->user_email ) === strtolower( (string) $value ) ) {
+				return $user;
+			}
+
+			if ( 'id' === $field && $user->ID === (int) $value ) {
+				return $user;
+			}
+		}
+
+		return false;
+	}
+}
+
+if ( ! function_exists( 'wp_check_password' ) ) {
+	/**
+	 * Password-check stub. Real WordPress hashes the password; the tests
+	 * that drive this stub set a user's `user_pass` to the plaintext they
+	 * expect, so a direct comparison is the correct fake here.
+	 *
+	 * @param string     $password Plaintext password submitted.
+	 * @param string     $hash     Stored password ('hash' in name only here).
+	 * @param string|int $user_id  Ignored; matches the real signature.
+	 * @return bool
+	 */
+	function wp_check_password( string $password, string $hash, $user_id = '' ): bool {
+		unset( $user_id );
+
+		return '' !== $hash && $password === $hash;
 	}
 }
 

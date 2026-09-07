@@ -24,6 +24,11 @@
  * snapshot sync — so a wp-login.php sign-in is indistinguishable from a
  * widget sign-in to every other Agend surface.
  *
+ * Registration for an existing WordPress user proceeds only after
+ * `wp_check_password()` accepts the submitted password against that user's
+ * own WordPress password hash (SPEC-CORE-20260907 US-1.1 Decision 2.8):
+ * the gateway register call is never the thing that proves the password.
+ *
  * @package Agend_Apps_Core
  */
 
@@ -181,6 +186,13 @@ add_filter( 'authenticate', 'agend_apps_wp_login_authenticate', 15, 3 );
  * Registers a dashboard account for an existing WordPress user whose
  * credentials the gateway rejected (SPEC-CORE-20260907 US-1.1, US-1.2).
  *
+ * Registration proceeds only when `wp_check_password()` accepts the
+ * submitted password against the existing WordPress user's own password
+ * hash (US-1.1 AC1): the submitted password is otherwise unproven, and
+ * calling the gateway register with it would let anyone who knows a
+ * WordPress user's email create that user's dashboard account with a
+ * password of their own choosing.
+ *
  * @param string $email    Submitted email (lower-cased, validated).
  * @param string $password Submitted password.
  * On a 409 the refusal is armed for priority 30 (see
@@ -195,6 +207,15 @@ function agend_apps_wp_login_register_existing_user( string $email, string $pass
 	$existing = get_user_by( 'email', $email );
 
 	if ( ! $existing instanceof WP_User ) {
+		return null;
+	}
+
+	// The submitted password must be proven against WordPress's own record
+	// before it is ever forwarded to the gateway as the password to register
+	// with (US-1.1 AC1, AC3). WordPress's own priority-20 handlers have not
+	// run yet at this point in the filter chain, so this check cannot be
+	// skipped in favour of "let WordPress decide" here.
+	if ( ! wp_check_password( $password, (string) $existing->user_pass, $existing->ID ) ) {
 		return null;
 	}
 
