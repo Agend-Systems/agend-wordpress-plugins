@@ -101,4 +101,25 @@ final class BlockSurfaceTest extends TestCase {
 	public function should_return_an_empty_string_when_rendering_a_surface_with_no_renderer(): void {
 		self::assertSame( '', agend_apps_records_render_block( 'no-such-surface', array() ) );
 	}
+
+	/**
+	 * Iterates every committed build/blocks/* directory rather than naming
+	 * events-catalogue alone, so a later block (courses-catalogue) is covered
+	 * by this assertion without a second test being written for it.
+	 */
+	#[Test]
+	public function should_allow_several_instances_on_every_catalogue_block(): void {
+		$build_dir = AGEND_TESTS_ROOT . '/agend-apps-core/build/blocks';
+		$block_dirs = glob( $build_dir . '/*', GLOB_ONLYDIR );
+
+		self::assertNotEmpty( $block_dirs, 'expected at least one committed block build' );
+
+		foreach ( $block_dirs as $block_dir ) {
+			$block = json_decode( (string) file_get_contents( $block_dir . '/block.json' ), true );
+			$multiple = $block['supports']['multiple'] ?? true;
+
+			self::assertNotFalse( $multiple, basename( $block_dir ) . ' should allow several instances on one page' );
+		}
+	}
+
 }

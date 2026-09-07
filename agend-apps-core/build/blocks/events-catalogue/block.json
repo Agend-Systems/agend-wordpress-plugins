@@ -15,7 +15,6 @@
   "textdomain": "agend-apps-core",
   "supports": {
     "html": false,
-    "multiple": false,
     "align": [
       "wide",
       "full"

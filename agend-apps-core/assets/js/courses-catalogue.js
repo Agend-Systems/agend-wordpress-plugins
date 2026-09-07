@@ -850,7 +850,11 @@
 
   // -- Widget orchestration -------------------------------------------------
 
-  function initWidget(root) {
+  // bindsUrl: only the first catalogue instance in document order reads
+  // filter/deep-link state from window.location and writes it back via the
+  // history API (Decision 2.6); later instances keep that state in memory
+  // only.
+  function initWidget(root, bindsUrl) {
     var cfg;
     try {
       cfg = JSON.parse(root.getAttribute('data-agend-courses-config'));
@@ -1023,6 +1027,9 @@
     }
 
     function setUrlParam(slug) {
+      if (!bindsUrl) {
+        return;
+      }
       try {
         var target;
         if (slug) {
@@ -1145,18 +1152,21 @@
       }
     }
 
-    window.addEventListener('popstate', function () {
-      var slug = currentDeepLink();
-      if (slug) {
-        showDetail(slug, false);
-      } else {
-        showCatalogue(false);
-      }
-    });
+    if (bindsUrl) {
+      window.addEventListener('popstate', function () {
+        var slug = currentDeepLink();
+        if (slug) {
+          showDetail(slug, false);
+        } else {
+          showCatalogue(false);
+        }
+      });
+    }
 
     // Server-injected slug (from the rewrite endpoint) wins on first load, then
-    // fall back to parsing the URL (pretty path or legacy query param).
-    var deepLinkSlug = cfg.deepLink || currentDeepLink();
+    // fall back to parsing the URL (pretty path or legacy query param) — only
+    // for the instance that binds to the URL (Decision 2.6).
+    var deepLinkSlug = cfg.deepLink || (bindsUrl && currentDeepLink());
     if (templated) {
       renderPagination(pager, cfg, state, cfg.initialPagination || null, reloadCatalogue);
       if (deepLinkSlug) {
@@ -1178,7 +1188,9 @@
 
   function initAll() {
     var nodes = document.querySelectorAll('.agend-courses-catalogue[data-agend-courses-config]');
-    Array.prototype.forEach.call(nodes, initWidget);
+    Array.prototype.forEach.call(nodes, function (root, index) {
+      initWidget(root, index === 0);
+    });
   }
 
   if (document.readyState === 'loading') {
