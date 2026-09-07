@@ -78,7 +78,6 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	 */
 	protected function register_controls(): void {
 		$this->register_content_controls();
-		$this->register_style_controls();
 	}
 
 	/**
@@ -139,50 +138,6 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 				);
 				break;
 		}
-	}
-
-	/**
-	 * Registers the Style tab controls.
-	 */
-	private function register_style_controls(): void {
-		// Colours section.
-		$this->start_controls_section(
-			'section_style_colours',
-			array(
-				'label' => __( 'Colours', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
-			)
-		);
-
-		$this->add_control(
-			'accent_colour',
-			array(
-				'label'   => __( 'Accent colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#F76B4F',
-				'description' => __( 'Used for buttons, selected card borders, and highlights.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'heading_colour',
-			array(
-				'label'   => __( 'Heading colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#1E2A4A',
-			)
-		);
-
-		$this->add_control(
-			'body_colour',
-			array(
-				'label'   => __( 'Body text colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#26304D',
-			)
-		);
-
-		$this->end_controls_section();
 	}
 
 	/**
