@@ -1,0 +1,21 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/member-login",
+	"version": "1.8.0",
+	"title": "Agend Member Login",
+	"category": "agend",
+	"icon": "lock",
+	"description": "Sign-in form for Agend members.",
+	"keywords": [ "agend", "login", "sign in", "member" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false,
+		"multiple": false,
+		"align": [ "wide" ]
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-records-member-login" ],
+	"style": [ "agend-apps-records-member-login" ],
+	"render": "file:./render.php"
+}
