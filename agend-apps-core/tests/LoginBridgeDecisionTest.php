@@ -18,6 +18,8 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/auth.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/member-provisioning.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-member-session.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-token-worker.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/rest/class-agend-apps-rest-controller.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/rest/auth-routes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/wp-login-bridge.php';
 
 /**

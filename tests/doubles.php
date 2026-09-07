@@ -274,22 +274,3 @@ if ( ! class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) ) {
 	}
 }
 
-if ( ! function_exists( 'agend_apps_auth_login_throttle' ) ) {
-	/**
-	 * Permissive double for the login-bridge proxy-edge throttle
-	 * (defined in `rest/auth-routes.php`, which unit tests never require —
-	 * it declares a REST controller class that extends unstubbed
-	 * `WP_REST_Controller` machinery). Always allows; the throttle's own
-	 * transient-window behaviour is not what the login-bridge decision
-	 * tests are about.
-	 *
-	 * @param string $email Ignored.
-	 * @param string $ip    Ignored.
-	 * @return bool Always true.
-	 */
-	function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
-		unset( $email, $ip );
-
-		return true;
-	}
-}
