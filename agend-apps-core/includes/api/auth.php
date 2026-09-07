@@ -22,6 +22,42 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Whether a decoded gateway response or a gateway error means the caller must
+ * verify their email before a session is issued (SPEC-CORE-20260907
+ * Decision 2.1, US-4.1 AC1; Decision change B).
+ *
+ * `Agend_Apps_API::request()` carries the upstream HTTP status onto the
+ * decoded array as `status_code`, so a 202 is identified by status first. The
+ * structural `data.status === 'verification_required'` check is a fallback
+ * only, for a response some filter has stripped `status_code` from; it never
+ * runs when `status_code` is present, so a 200 body that happens to carry a
+ * `status` key of its own (never issued today, but not excluded by the
+ * schema) is not misread as verification-required.
+ *
+ * @param array|WP_Error $response Decoded response (from login()) or a gateway
+ *                                 error (from login() or register()).
+ * @return bool
+ */
+function agend_apps_auth_response_is_verification_required( $response ): bool {
+	if ( is_wp_error( $response ) ) {
+		return 503 === agend_apps_auth_error_status( $response )
+			&& 'VERIFICATION_EMAIL_UNAVAILABLE' === agend_apps_auth_error_code( $response );
+	}
+
+	if ( ! is_array( $response ) ) {
+		return false;
+	}
+
+	if ( isset( $response['status_code'] ) ) {
+		return 202 === $response['status_code'];
+	}
+
+	$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+
+	return isset( $data['status'] ) && 'verification_required' === $data['status'];
+}
+
+/**
  * Logs in a user with email and password.
  *
  * Scope: `auth.sessions.create`.
@@ -314,4 +350,47 @@ function agend_apps_auth_change_password( array $payload ) {
 	 * @param array $payload  Change-password payload.
 	 */
 	return apply_filters( 'agend_apps_auth_change_password_response', $response, $payload );
+}
+
+/**
+ * Requests another ownership verification email for an address
+ * (SPEC-CORE-20260907 US-4.2 AC3).
+ *
+ * Scope: `auth.sessions.create`. The gateway's response is identical whether
+ * or not a matching unverified contact exists, so this call never discloses
+ * account existence.
+ *
+ * @param string $email Email address to resend the ownership link to.
+ * @return array|WP_Error Decoded confirmation response on success, or WP_Error on failure.
+ */
+function agend_apps_auth_resend_verification( string $email ) {
+	/**
+	 * Filters the resend-verification request args before the request is sent.
+	 *
+	 * @param array  $args  Request args.
+	 * @param string $email Email address.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_auth_resend_verification_args',
+		array(
+			'body' => array(
+				'email' => $email,
+			),
+		),
+		$email
+	);
+
+	$response = agend_apps_api()->request( 'POST', '/auth/resend-verification', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded resend-verification response before it is returned.
+	 *
+	 * @param array  $response Decoded response body.
+	 * @param string $email    Email address.
+	 */
+	return apply_filters( 'agend_apps_auth_resend_verification_response', $response, $email );
 }

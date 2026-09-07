@@ -51,33 +51,88 @@
     return body || {};
   }
 
-  function renderSignedIn(root, cfg, portalUrl) {
+  // Verification-pending resend control (SPEC-CORE-20260907 US-4.3): shared
+  // between the login form's 202 response, the register form's existing 202
+  // response, and the signed-in-but-pending view. Posts the given email to
+  // the resend proxy and shows whatever message comes back, disabling the
+  // button for cfg.resendCooldownSeconds (default 60) after every attempt.
+  function appendResendControl(container, cfg, email) {
+    var notice = el('p', 'agend-ml-form__notice agend-ml-resend-notice');
+    notice.setAttribute('role', 'status');
+    notice.style.display = 'none';
+
+    var btn = el('button', 'agend-ml-card__link', cfg.messages.resend || 'Send another link');
+    btn.type = 'button';
+
+    function cooldown() {
+      var seconds = (cfg && cfg.resendCooldownSeconds) || 60;
+      btn.disabled = true;
+      setTimeout(function () {
+        btn.disabled = false;
+      }, seconds * 1000);
+    }
+
+    btn.addEventListener('click', function () {
+      if (!email) {
+        return;
+      }
+      btn.disabled = true;
+      request('POST', '/auth/resend-verification', { email: email }).then(function (r) {
+        var data = unwrap(r.data);
+        notice.textContent = data.message || cfg.messages.error || '';
+        notice.style.display = '';
+        cooldown();
+      }).catch(function () {
+        notice.textContent = cfg.messages.error || '';
+        notice.style.display = '';
+        cooldown();
+      });
+    });
+
+    container.appendChild(notice);
+    container.appendChild(btn);
+
+    return btn;
+  }
+
+  function renderSignedIn(root, cfg, portalUrl, verificationPending, pendingEmail) {
     root.innerHTML = '';
     var wrap = el('div', 'agend-ml-card is-signed-in');
     if (cfg.messages.heading) {
       wrap.appendChild(el('h3', 'agend-ml-card__heading', cfg.messages.heading));
     }
-    if (cfg.messages.signedIn) {
-      wrap.appendChild(el('p', 'agend-ml-card__text', cfg.messages.signedIn));
-    }
 
-    if (portalUrl && cfg.messages.portalButton) {
-      var portalBtn = el('button', 'agend-ml-card__button', cfg.messages.portalButton);
-      portalBtn.type = 'button';
-      portalBtn.addEventListener('click', function () {
-        portalBtn.disabled = true;
-        request('POST', '/auth/portal-handoff', {}).then(function (r) {
-          var data = unwrap(r.data);
-          if (r.ok && data.url) {
-            window.location.assign(data.url);
-          } else {
+    if (verificationPending) {
+      // Verification pending (SPEC-CORE-20260907 US-4.3 AC3): the member is
+      // signed into WordPress but the dashboard session is withheld, so the
+      // portal button is never shown here.
+      if (cfg.messages.verificationPending) {
+        wrap.appendChild(el('p', 'agend-ml-card__text', cfg.messages.verificationPending));
+      }
+      appendResendControl(wrap, cfg, pendingEmail || '');
+    } else {
+      if (cfg.messages.signedIn) {
+        wrap.appendChild(el('p', 'agend-ml-card__text', cfg.messages.signedIn));
+      }
+
+      if (portalUrl && cfg.messages.portalButton) {
+        var portalBtn = el('button', 'agend-ml-card__button', cfg.messages.portalButton);
+        portalBtn.type = 'button';
+        portalBtn.addEventListener('click', function () {
+          portalBtn.disabled = true;
+          request('POST', '/auth/portal-handoff', {}).then(function (r) {
+            var data = unwrap(r.data);
+            if (r.ok && data.url) {
+              window.location.assign(data.url);
+            } else {
+              portalBtn.disabled = false;
+            }
+          }).catch(function () {
             portalBtn.disabled = false;
-          }
-        }).catch(function () {
-          portalBtn.disabled = false;
+          });
         });
-      });
-      wrap.appendChild(portalBtn);
+        wrap.appendChild(portalBtn);
+      }
     }
 
     if (cfg.messages.signOut) {
@@ -130,12 +185,17 @@
     error.setAttribute('role', 'alert');
     error.style.display = 'none';
 
+    var done = el('p', 'agend-ml-form__notice');
+    done.setAttribute('role', 'status');
+    done.style.display = 'none';
+
     var submit = el('button', 'agend-ml-card__button', cfg.messages.submit);
     submit.type = 'submit';
 
     form.appendChild(emailLabel);
     form.appendChild(passwordLabel);
     form.appendChild(error);
+    form.appendChild(done);
     form.appendChild(submit);
 
     // Password recovery (SPEC-CORE-20260722 US-2.7): a link that swaps the
@@ -147,6 +207,17 @@
         renderForgot(root, cfg, email.value || '');
       });
       form.appendChild(forgotLink);
+    }
+
+    // Account registration (SPEC-CORE-20260907 US-3.2): swaps the sign-in form
+    // for the registration view, prefilling the typed email.
+    if (cfg.messages.register) {
+      var registerLink = el('button', 'agend-ml-card__link agend-ml-form__register', cfg.messages.register);
+      registerLink.type = 'button';
+      registerLink.addEventListener('click', function () {
+        renderRegister(root, cfg, email.value || '');
+      });
+      form.appendChild(registerLink);
     }
 
     form.addEventListener('submit', function (event) {
@@ -169,6 +240,20 @@
           return;
         }
         var data = unwrap(r.data);
+        if (r.status === 202) {
+          // Verification pending (SPEC-CORE-20260907 US-4.3 AC1): WordPress
+          // has already signed the member in server-side; the form just
+          // shows the notice and offers a resend, it never reloads here.
+          done.textContent = data.message || '';
+          done.style.display = '';
+          error.style.display = 'none';
+          Array.prototype.forEach.call(form.querySelectorAll('input'), function (i) {
+            i.disabled = true;
+          });
+          submit.style.display = 'none';
+          appendResendControl(wrap, cfg, email.value);
+          return;
+        }
         error.textContent = data.message || cfg.messages.error;
         error.style.display = '';
         submit.disabled = false;
@@ -178,6 +263,125 @@
         error.style.display = '';
         submit.disabled = false;
         submit.textContent = cfg.messages.submit;
+      });
+    });
+
+    wrap.appendChild(form);
+    root.appendChild(wrap);
+  }
+
+  // Account registration view (SPEC-CORE-20260907 US-3.2). Posts to the proxy
+  // register route, which creates the Agend account and signs the member in.
+  // A 409 (email already in use) is shown verbosely here and only here: the
+  // sign-in form collapses that case into the generic credentials error.
+  function renderRegister(root, cfg, prefillEmail) {
+    root.innerHTML = '';
+    var wrap = el('div', 'agend-ml-card');
+    if (cfg.messages.registerTitle) {
+      wrap.appendChild(el('h3', 'agend-ml-card__heading', cfg.messages.registerTitle));
+    }
+    if (cfg.messages.registerIntro) {
+      wrap.appendChild(el('p', 'agend-ml-card__text', cfg.messages.registerIntro));
+    }
+
+    var form = el('form', 'agend-ml-form');
+    form.setAttribute('novalidate', 'novalidate');
+
+    function field(labelText, type, name, autocomplete, required) {
+      var label = el('label', 'agend-ml-form__label', labelText);
+      var input = el('input', 'agend-ml-form__input');
+      input.type = type;
+      input.name = name;
+      input.autocomplete = autocomplete;
+      input.required = !!required;
+      label.appendChild(input);
+      return { label: label, input: input };
+    }
+
+    var firstName = field(cfg.messages.firstName, 'text', 'first_name', 'given-name', false);
+    var lastName = field(cfg.messages.lastName, 'text', 'family-name', 'family-name', false);
+    lastName.input.name = 'last_name';
+    var email = field(cfg.messages.email, 'email', 'email', 'email', true);
+    email.input.value = prefillEmail || '';
+    var password = field(cfg.messages.password, 'password', 'password', 'new-password', true);
+
+    var emailError = el('p', 'agend-ml-form__error');
+    emailError.setAttribute('role', 'alert');
+    emailError.style.display = 'none';
+
+    var error = el('p', 'agend-ml-form__error');
+    error.setAttribute('role', 'alert');
+    error.style.display = 'none';
+
+    var done = el('p', 'agend-ml-form__notice');
+    done.setAttribute('role', 'status');
+    done.style.display = 'none';
+
+    var submit = el('button', 'agend-ml-card__button', cfg.messages.registerSubmit);
+    submit.type = 'submit';
+
+    var back = el('button', 'agend-ml-card__link', cfg.messages.backToSignIn);
+    back.type = 'button';
+    back.addEventListener('click', function () {
+      renderForm(root, cfg);
+    });
+
+    form.appendChild(firstName.label);
+    form.appendChild(lastName.label);
+    form.appendChild(email.label);
+    form.appendChild(emailError);
+    form.appendChild(password.label);
+    form.appendChild(error);
+    form.appendChild(done);
+    form.appendChild(submit);
+    form.appendChild(back);
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      error.style.display = 'none';
+      emailError.style.display = 'none';
+      if (!email.input.value || !password.input.value) {
+        return;
+      }
+      submit.disabled = true;
+      submit.textContent = cfg.messages.registerWorking;
+
+      request('POST', '/auth/register', {
+        email: email.input.value,
+        password: password.input.value,
+        first_name: firstName.input.value,
+        last_name: lastName.input.value,
+      }).then(function (r) {
+        var data = unwrap(r.data);
+        if (r.ok && r.status === 200) {
+          window.location.reload();
+          return;
+        }
+        if (r.status === 202) {
+          done.textContent = data.message || '';
+          done.style.display = '';
+          Array.prototype.forEach.call(form.querySelectorAll('input'), function (i) {
+            i.disabled = true;
+          });
+          submit.style.display = 'none';
+          appendResendControl(wrap, cfg, email.input.value);
+          return;
+        }
+        if (r.status === 409 && data.code === 'email_already_registered') {
+          emailError.textContent = data.message;
+          emailError.style.display = '';
+          email.input.focus();
+        } else {
+          error.textContent = data.message || cfg.messages.registerError;
+          error.style.display = '';
+        }
+        submit.disabled = false;
+        submit.textContent = cfg.messages.registerSubmit;
+      }).catch(function () {
+        error.textContent = cfg.messages.registerError;
+        error.style.display = '';
+        submit.disabled = false;
+        submit.textContent = cfg.messages.registerSubmit;
       });
     });
 
@@ -411,7 +615,7 @@
     request('GET', '/auth/session').then(function (r) {
       var status = unwrap(r.data);
       if (status.signed_in) {
-        renderSignedIn(root, cfg, status.portal_url || '');
+        renderSignedIn(root, cfg, status.portal_url || '', !!status.verification_pending, status.email || '');
       } else {
         renderForm(root, cfg);
       }

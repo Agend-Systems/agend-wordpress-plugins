@@ -12,8 +12,16 @@
 declare( strict_types=1 );
 
 if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
-	/** Settings double. Values are fixed; nothing under test varies by them. */
+	/**
+	 * Settings double. Most values are fixed; nothing under test varies by
+	 * them. The member sign-in mode (SPEC-CORE-20260907 US-4.1) is the one
+	 * exception -- it reads `get_option()` like the real class, because
+	 * MemberAuthModeTest exercises it varying by option value.
+	 */
 	class Agend_Apps_Settings {
+		const MEMBER_AUTH_CREDENTIALS = 'credentials';
+		const MEMBER_AUTH_SSO         = 'sso';
+
 		public static function get_api_key(): string {
 			return 'test-api-key';
 		}
@@ -28,6 +36,16 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 
 		public static function get_cache_ttl( string $endpoint_key ): int {
 			return 300;
+		}
+
+		public static function get_member_auth_mode(): string {
+			$value = get_option( 'agend_apps_member_auth_mode', self::MEMBER_AUTH_CREDENTIALS );
+
+			return self::MEMBER_AUTH_SSO === $value ? self::MEMBER_AUTH_SSO : self::MEMBER_AUTH_CREDENTIALS;
+		}
+
+		public static function credential_login_enabled(): bool {
+			return self::MEMBER_AUTH_CREDENTIALS === self::get_member_auth_mode();
 		}
 	}
 }
@@ -273,3 +291,4 @@ if ( ! class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) ) {
 		}
 	}
 }
+

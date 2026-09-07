@@ -11,10 +11,12 @@
  * Members whose first interaction is through the WordPress/API surface are
  * onboarded without the association manually creating WordPress accounts: a
  * successful Agend login finds-or-creates a member-role WordPress user and
- * signs them in. Role management is confined to accounts this integration
- * created (the `_agend_apps_managed` flag), so a pre-existing independent
- * WordPress account that happens to share an email is never adopted, demoted,
- * or promoted by a login.
+ * signs them in. A pre-existing WordPress account with the same email is
+ * adopted (SPEC-CORE-20260907 Decision 2.4): the person proved possession of
+ * the Agend login for that email, so the session attaches. Role management
+ * stays confined to accounts this integration created (the
+ * `_agend_apps_managed` flag), so an adopted administrator is never demoted or
+ * promoted by a login.
  *
  * @package Agend_Apps_Core
  */
@@ -54,6 +56,7 @@ function agend_apps_member_login_establish_identity( $user_id, string $email, ar
 			agend_apps_member_apply_role( $user_id, $role );
 		}
 		agend_apps_member_store_contact_ref( $user_id, $data );
+		delete_user_meta( $user_id, AGEND_APPS_IDENTITY_CONFLICT_META );
 		return $user_id;
 	}
 
@@ -64,18 +67,16 @@ function agend_apps_member_login_establish_identity( $user_id, string $email, ar
 	$existing = get_user_by( 'email', $email );
 
 	if ( $existing instanceof WP_User ) {
-		// Only manage accounts this integration created. A pre-existing
-		// independent WordPress account (any role) is never adopted or
-		// modified by a credential login: this protects a shared-email account
-		// from hijack, promotion, or demotion. Those users sign in through
-		// WordPress.
-		if ( ! agend_apps_member_is_managed( $existing->ID ) ) {
-			return 0;
+		// Role sync only for accounts this integration created. An adopted
+		// independent account keeps its WordPress role untouched, so a
+		// shared-email administrator cannot be demoted or promoted from Agend.
+		if ( agend_apps_member_is_managed( $existing->ID ) ) {
+			agend_apps_member_apply_role( $existing->ID, $role );
 		}
 
-		agend_apps_member_apply_role( $existing->ID, $role );
 		agend_apps_member_sign_in( $existing->ID );
 		agend_apps_member_store_contact_ref( $existing->ID, $data );
+		delete_user_meta( $existing->ID, AGEND_APPS_IDENTITY_CONFLICT_META );
 
 		return $existing->ID;
 	}
@@ -187,6 +188,11 @@ function agend_apps_member_create_user( string $email, array $data, string $role
 	$first_name = isset( $contact['first_name'] ) ? (string) $contact['first_name'] : '';
 	$last_name  = isset( $contact['last_name'] ) ? (string) $contact['last_name'] : '';
 
+	// The Agend account already exists (this user is being created FROM an
+	// Agend login or registration), so the user_register provisioning hook
+	// must not register the email again.
+	Agend_Apps_Member_Provisioning::suppress();
+
 	$new_id = wp_insert_user(
 		array(
 			'user_login'   => $username,
@@ -198,6 +204,8 @@ function agend_apps_member_create_user( string $email, array $data, string $role
 			'role'         => '' !== $role ? $role : 'subscriber',
 		)
 	);
+
+	Agend_Apps_Member_Provisioning::resume();
 
 	if ( is_wp_error( $new_id ) ) {
 		return 0;

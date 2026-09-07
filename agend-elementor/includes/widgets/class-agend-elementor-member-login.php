@@ -164,6 +164,16 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'register_label',
+			array(
+				'label'       => __( 'Create-account link text', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::TEXT,
+				'default'     => '',
+				'description' => __( 'Shows a link that swaps the sign-in form for an account registration form. Leave empty to hide.', 'agend-elementor' ),
+			)
+		);
+
 		$this->end_controls_section();
 
 		$this->start_controls_section(
@@ -259,7 +269,23 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 				'resetDone'        => __( 'Your password has been updated. You can now sign in.', 'agend-elementor' ),
 				'resetError'       => __( 'That reset link is invalid or has expired. Request a new one.', 'agend-elementor' ),
 				'passwordMismatch' => __( 'The two passwords do not match.', 'agend-elementor' ),
+				// Account registration (SPEC-CORE-20260907 US-3.2). This is the one
+				// surface that names a duplicate email; the sign-in form never does.
+				'register'         => (string) ( $s['register_label'] ?? '' ),
+				'registerTitle'    => __( 'Create your account', 'agend-elementor' ),
+				'registerIntro'    => __( 'Create an Agend member account to sign in on this site.', 'agend-elementor' ),
+				'firstName'        => __( 'First name', 'agend-elementor' ),
+				'lastName'         => __( 'Last name', 'agend-elementor' ),
+				'registerSubmit'   => __( 'Create account', 'agend-elementor' ),
+				'registerWorking'  => __( 'Creating…', 'agend-elementor' ),
+				'registerError'    => __( 'Could not create the account. Check your details and try again.', 'agend-elementor' ),
+				// Email ownership verification (SPEC-CORE-20260907 US-4.3).
+				'resend'              => __( 'Send another link', 'agend-elementor' ),
+				'verificationPending' => __( 'Your email address is not yet verified. Check your inbox for the verification link, or request a new one below.', 'agend-elementor' ),
 			),
+			// Seconds the resend button stays disabled after each attempt
+			// (SPEC-CORE-20260907 US-4.3 AC2).
+			'resendCooldownSeconds' => 60,
 		);
 	}
 
@@ -270,6 +296,15 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * assets/js/member-login.js from the config and the session status.
 	 */
 	protected function render(): void {
+		// SPEC-CORE-20260907 US-4.1 AC7: the credential login surface does not
+		// exist at all in `sso` member sign-in mode.
+		if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
+			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
+				echo '<div class="agend-widget-notice">' . esc_html__( 'Member sign-in is set to SSO in Agend Apps settings.', 'agend-elementor' ) . '</div>';
+			}
+			return;
+		}
+
 		$settings = $this->get_settings_for_display();
 		$config   = $this->build_config( $settings );
 

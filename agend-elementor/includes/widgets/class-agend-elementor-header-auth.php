@@ -389,6 +389,15 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	 * header adapts per member.
 	 */
 	protected function render(): void {
+		// SPEC-CORE-20260907 US-4.1 AC7: the credential login surface does not
+		// exist at all in `sso` member sign-in mode.
+		if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
+			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
+				echo '<div class="agend-widget-notice">' . esc_html__( 'Member sign-in is set to SSO in Agend Apps settings.', 'agend-elementor' ) . '</div>';
+			}
+			return;
+		}
+
 		$settings = $this->get_settings_for_display();
 		$config   = $this->build_config( $settings );
 		?>
