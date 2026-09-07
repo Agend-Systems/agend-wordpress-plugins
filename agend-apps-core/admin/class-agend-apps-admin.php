@@ -59,7 +59,12 @@ class Agend_Apps_Admin {
 		}
 
 		$user_id = (int) $user->ID;
-		$pending = '1' === (string) get_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META, true );
+		// The two meta constants live in member-provisioning.php, which is not
+		// loaded in `sso` member sign-in mode (SPEC-CORE-20260907 US-4.1); the
+		// defined() guard keeps this profile section from a fatal undefined
+		// constant there. Neither state can occur in that mode anyway.
+		$pending = defined( 'AGEND_APPS_VERIFICATION_PENDING_META' )
+			&& '1' === (string) get_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META, true );
 
 		if ( $pending ) {
 			// Takes precedence over "Linked" (US-4.4 AC1): a withheld session
@@ -75,7 +80,10 @@ class Agend_Apps_Admin {
 			// linked" below, rather than showing a stale "Linked".
 			$state = __( 'Linked', 'agend-apps-core' );
 			$help  = __( 'This user holds an Agend member session on this site.', 'agend-apps-core' );
-		} elseif ( '1' === (string) get_user_meta( $user_id, AGEND_APPS_IDENTITY_CONFLICT_META, true ) ) {
+		} elseif (
+			defined( 'AGEND_APPS_IDENTITY_CONFLICT_META' )
+			&& '1' === (string) get_user_meta( $user_id, AGEND_APPS_IDENTITY_CONFLICT_META, true )
+		) {
 			$state = __( 'Existing Agend account', 'agend-apps-core' );
 			$help  = __( 'An Agend account already exists for this email. The user must sign in with their Agend password, not a WordPress password.', 'agend-apps-core' );
 		} else {
@@ -348,6 +356,24 @@ class Agend_Apps_Admin {
 
 		register_setting(
 			self::OPTION_GROUP,
+			'agend_apps_member_auth_mode',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_member_auth_mode' ),
+				'default'           => Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS,
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_member_auth_mode',
+			__( 'Member sign-in', 'agend-apps-core' ),
+			array( $this, 'render_member_auth_mode_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_api_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
 			'agend_apps_external_id_meta_key',
 			array(
 				'type'              => 'string',
@@ -448,6 +474,20 @@ class Agend_Apps_Admin {
 		$allowed = array( 'production', 'staging', 'local', 'custom' );
 
 		return in_array( $value, $allowed, true ) ? $value : 'production';
+	}
+
+	/**
+	 * Sanitizes the member sign-in mode option value (SPEC-CORE-20260907
+	 * US-4.1 AC2).
+	 *
+	 * @param string $value Raw submitted value.
+	 *
+	 * @return string `sso` when submitted exactly, otherwise `credentials`.
+	 */
+	public function sanitize_member_auth_mode( string $value ): string {
+		return Agend_Apps_Settings::MEMBER_AUTH_SSO === $value
+			? Agend_Apps_Settings::MEMBER_AUTH_SSO
+			: Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS;
 	}
 
 	/**
@@ -641,6 +681,38 @@ class Agend_Apps_Admin {
 		echo '<p class="description">';
 		esc_html_e( 'Optional. The member portal URL the account-link widget links to. Leave empty to derive it from the environment.', 'agend-apps-core' );
 		echo '</p>';
+	}
+
+	/**
+	 * Renders the member sign-in mode radio field (SPEC-CORE-20260907
+	 * US-4.1 AC2).
+	 *
+	 * In `sso` mode the credential login surface (login bridge, provisioning
+	 * hook, `/auth/*` REST routes, member-login widget) is not loaded at all.
+	 */
+	public function render_member_auth_mode_field(): void {
+		$value = Agend_Apps_Settings::get_member_auth_mode();
+
+		$options = array(
+			Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS => array(
+				'label' => __( 'Agend credentials', 'agend-apps-core' ),
+				'help'  => __( 'Members sign in on this site with their Agend email and password. WordPress logins create and adopt Agend accounts, and the member sign-in widget and REST proxy are active.', 'agend-apps-core' ),
+			),
+			Agend_Apps_Settings::MEMBER_AUTH_SSO         => array(
+				'label' => __( 'SSO connection only', 'agend-apps-core' ),
+				'help'  => __( 'Members reach Agend only through your SSO connection. Credential sign-in, account provisioning on user creation, and the /auth REST routes are switched off. Existing member sessions are kept until they expire.', 'agend-apps-core' ),
+			),
+		);
+
+		foreach ( $options as $option_value => $option ) {
+			printf(
+				'<p><label><input type="radio" name="agend_apps_member_auth_mode" value="%1$s"%2$s /> %3$s</label></p>',
+				esc_attr( $option_value ),
+				checked( $value, $option_value, false ),
+				esc_html( $option['label'] )
+			);
+			echo '<p class="description" style="margin-left:24px;">' . esc_html( $option['help'] ) . '</p>';
+		}
 	}
 
 	/**
