@@ -47,16 +47,40 @@ final class Agend_Test_WP {
 	/** @var array<int, array{timestamp: int, hook: string, args: array<int, mixed>}> WP-Cron events scheduled via wp_schedule_single_event(). */
 	public static array $scheduled_events = array();
 
+	/**
+	 * Canned `wp_remote_request()` responses, consumed one per call (FIFO).
+	 * Empty means the default (200, `{"call": N}`) behaviour.
+	 *
+	 * @var array<int, array{status:int, body:string}>
+	 */
+	public static array $canned_responses = array();
+
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
-		self::$transients      = array();
-		self::$actions         = array();
-		self::$did_action      = array();
-		self::$filters         = array();
-		self::$options         = array();
-		self::$requests        = array();
-		self::$tiers_response  = array();
-		self::$scheduled_events = array();
+		self::$transients        = array();
+		self::$actions           = array();
+		self::$did_action        = array();
+		self::$filters           = array();
+		self::$options           = array();
+		self::$requests          = array();
+		self::$tiers_response    = array();
+		self::$scheduled_events  = array();
+		self::$canned_responses  = array();
+	}
+
+	/**
+	 * Queues the next `wp_remote_request()` call to return a specific status
+	 * and JSON body, so a test can drive a gateway response
+	 * (non-2xx included) without a live HTTP call.
+	 *
+	 * @param int          $status HTTP status code.
+	 * @param array|string $body   Response body; arrays are JSON-encoded.
+	 */
+	public static function queue_response( int $status, $body ): void {
+		self::$canned_responses[] = array(
+			'status' => $status,
+			'body'   => is_string( $body ) ? $body : (string) json_encode( $body ),
+		);
 	}
 
 	/**
@@ -311,6 +335,15 @@ function wp_remote_request( string $url, array $args = array() ) {
 		'headers' => $args['headers'] ?? array(),
 	);
 
+	if ( ! empty( Agend_Test_WP::$canned_responses ) ) {
+		$next = array_shift( Agend_Test_WP::$canned_responses );
+
+		return array(
+			'body'        => $next['body'],
+			'status_code' => $next['status'],
+		);
+	}
+
 	return array(
 		'body' => (string) json_encode( array( 'call' => count( Agend_Test_WP::$requests ) ) ),
 	);
@@ -321,7 +354,7 @@ function wp_remote_retrieve_body( $response ): string {
 }
 
 function wp_remote_retrieve_response_code( $response ): int {
-	return 200;
+	return isset( $response['status_code'] ) ? (int) $response['status_code'] : 200;
 }
 
 /**
@@ -510,7 +543,8 @@ if ( ! class_exists( 'WP_User' ) ) {
 	 *
 	 * Carries the password/email/name fields the login-bridge decision layer
 	 * reads; a test registers an instance in `$GLOBALS['agend_test_users']`
-	 * so `get_user_by()` can resolve it.
+	 * (or via {@see agend_apps_test_register_user()}) so `get_user_by()` can
+	 * resolve it.
 	 */
 	class WP_User {
 		public int $ID;
@@ -572,6 +606,41 @@ if ( ! function_exists( 'wp_check_password' ) ) {
 		unset( $user_id );
 
 		return '' !== $hash && $password === $hash;
+	}
+}
+
+if ( ! function_exists( 'is_email' ) ) {
+	/**
+	 * @param mixed $email Value to validate.
+	 * @return string|false The email when valid, false otherwise.
+	 */
+	function is_email( $email ) {
+		return false !== filter_var( (string) $email, FILTER_VALIDATE_EMAIL ) ? (string) $email : false;
+	}
+}
+
+if ( ! function_exists( 'current_user_can' ) ) {
+	/**
+	 * Capability stub, true by default; a test denies a capability via
+	 * `$GLOBALS['agend_test_current_user_can'][$capability] = false;`.
+	 *
+	 * @param string $capability Capability to check.
+	 * @return bool
+	 */
+	function current_user_can( string $capability ): bool {
+		return (bool) ( $GLOBALS['agend_test_current_user_can'][ $capability ] ?? true );
+	}
+}
+
+if ( ! function_exists( 'wp_create_nonce' ) ) {
+	function wp_create_nonce( $action = -1 ): string {
+		return 'test-nonce-' . md5( (string) $action );
+	}
+}
+
+if ( ! function_exists( 'admin_url' ) ) {
+	function admin_url( string $path = '' ): string {
+		return 'https://example.test/wp-admin/' . ltrim( $path, '/' );
 	}
 }
 

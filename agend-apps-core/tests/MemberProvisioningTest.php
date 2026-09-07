@@ -12,6 +12,8 @@ use Agend_Apps_Member_Provisioning;
 use PHPUnit\Framework\Attributes\Test;
 use WP_Error;
 
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-member-session.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-token-worker.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/member-provisioning.php';
 
 /**
@@ -142,9 +144,32 @@ final class MemberProvisioningTest extends TestCase {
 	#[Test]
 	public function should_write_no_user_meta_when_provisioning_errors(): void {
 		agend_apps_provision_record_outcome( 7, AGEND_APPS_PROVISION_ERROR );
-		agend_apps_provision_record_outcome( 7, AGEND_APPS_PROVISION_PENDING );
 
 		$this->assertArrayNotHasKey( 7, $GLOBALS['agend_test_user_meta'] );
+	}
+
+	#[Test]
+	public function should_flag_verification_pending_when_the_gateway_withholds_the_session(): void {
+		agend_apps_provision_record_outcome( 7, AGEND_APPS_PROVISION_PENDING );
+
+		$this->assertSame( array( AGEND_APPS_VERIFICATION_PENDING_META => '1' ), $GLOBALS['agend_test_user_meta'][7] );
+	}
+
+	#[Test]
+	public function should_clear_the_verification_pending_flag_when_registration_succeeds(): void {
+		agend_apps_provision_record_outcome( 7, AGEND_APPS_PROVISION_PENDING );
+		agend_apps_provision_record_outcome(
+			7,
+			AGEND_APPS_PROVISION_REGISTERED,
+			array(),
+			array(
+				'access_token'  => 'a',
+				'refresh_token' => 'r',
+				'expires_at'    => time() + 3600,
+			)
+		);
+
+		$this->assertArrayNotHasKey( AGEND_APPS_VERIFICATION_PENDING_META, $GLOBALS['agend_test_user_meta'][7] );
 	}
 
 	#[Test]

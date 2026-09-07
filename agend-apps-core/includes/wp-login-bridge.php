@@ -107,6 +107,15 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	$response = agend_apps_auth_login( $email, $password );
 
 	if ( is_wp_error( $response ) ) {
+		// The gateway withheld the login because verification is outstanding
+		// and the ownership email itself could not be sent
+		// (SPEC-CORE-20260907 US-4.1 AC1, AC3): record pending and let
+		// WordPress authenticate, same as a 202 below.
+		if ( agend_apps_auth_response_is_verification_required( $response ) ) {
+			agend_apps_wp_login_mark_verification_pending( $email );
+			return $user;
+		}
+
 		// No API key configured, gateway down or timing out: WordPress-specific
 		// login logic takes over. Only the gateway's invalid-credentials answer
 		// continues into registration.
@@ -126,6 +135,11 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	$session = $parsed['session'];
 
 	if ( empty( $session ) ) {
+		// Either the login itself answered 202 verification_required, or the
+		// register call above withheld the session pending verification
+		// (SPEC-CORE-20260907 US-4.1 AC3, AC6): both converge here on "no
+		// session", and both mean the same thing for a WordPress sign-in.
+		agend_apps_wp_login_mark_verification_pending( $email );
 		return $user;
 	}
 
@@ -157,6 +171,10 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		return $user;
 	}
 
+	// A session came back: any earlier verification-pending state is stale
+	// (SPEC-CORE-20260907 US-4.1 AC4). Cleared before the fresh session is
+	// stored.
+	delete_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META );
 	Agend_Apps_Member_Session::store( $user_id, $session );
 
 	// A credential login supersedes any negative-cached SSO mint state.
@@ -181,6 +199,22 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	return ( $wp_user instanceof WP_User ) ? $wp_user : $user;
 }
 add_filter( 'authenticate', 'agend_apps_wp_login_authenticate', 15, 3 );
+
+/**
+ * Records verification-pending on the WordPress user for the submitted email,
+ * when one exists, so the profile and the widget can surface it
+ * (SPEC-CORE-20260907 US-4.1 AC3). A no-op when no WordPress user holds this
+ * email: there is nothing to flag.
+ *
+ * @param string $email Submitted email (lower-cased, validated).
+ */
+function agend_apps_wp_login_mark_verification_pending( string $email ): void {
+	$existing = get_user_by( 'email', $email );
+
+	if ( $existing instanceof WP_User ) {
+		agend_apps_provision_record_outcome( $existing->ID, AGEND_APPS_PROVISION_PENDING );
+	}
+}
 
 /**
  * Registers a dashboard account for an existing WordPress user whose

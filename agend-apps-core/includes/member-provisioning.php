@@ -27,6 +27,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 const AGEND_APPS_IDENTITY_CONFLICT_META = '_agend_apps_identity_conflict';
 
 /**
+ * User-meta flag: the gateway has withheld a dashboard session for this
+ * WordPress user until an ownership link is accepted
+ * (SPEC-CORE-20260907-wordpress-email-verification-handling US-4.1). Cleared
+ * only on gateway evidence of a session (a 200 login or refresh); no
+ * webhook, poll or WordPress-side timer clears it (Decision 2.9). Distinct
+ * from `AGEND_APPS_IDENTITY_CONFLICT_META`, which is untouched by this flag.
+ *
+ * @var string
+ */
+const AGEND_APPS_VERIFICATION_PENDING_META = '_agend_apps_verification_pending';
+
+/**
  * Outcome of a provisioning attempt.
  */
 const AGEND_APPS_PROVISION_REGISTERED = 'registered';
@@ -190,11 +202,17 @@ function agend_apps_provision_record_outcome( int $user_id, string $outcome, arr
 		return;
 	}
 
+	if ( AGEND_APPS_PROVISION_PENDING === $outcome ) {
+		update_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META, '1' );
+		return;
+	}
+
 	if ( AGEND_APPS_PROVISION_REGISTERED !== $outcome ) {
 		return;
 	}
 
 	delete_user_meta( $user_id, AGEND_APPS_IDENTITY_CONFLICT_META );
+	delete_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META );
 	Agend_Apps_Member_Session::store( $user_id, $session );
 	Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
 
@@ -253,6 +271,7 @@ function agend_apps_provision_dashboard_account( int $user_id, string $email, st
 		// verification. Nothing to store; the person completes verification
 		// and signs in with the password they just registered.
 		$result['outcome'] = AGEND_APPS_PROVISION_PENDING;
+		agend_apps_provision_record_outcome( $user_id, AGEND_APPS_PROVISION_PENDING );
 		return $result;
 	}
 
