@@ -26,6 +26,15 @@ final class Agend_Test_WP {
 	/** @var array<string, mixed> */
 	public static array $transients = array();
 
+	/**
+	 * Site (network-wide) transients: a separate store from {@see $transients}
+	 * because plugin updates are network-wide (`get_site_transient()` /
+	 * `set_site_transient()`) even on a single-site install.
+	 *
+	 * @var array<string, mixed>
+	 */
+	public static array $site_transients = array();
+
 	/** @var array<string, array<int, callable>> */
 	public static array $actions = array();
 
@@ -64,6 +73,7 @@ final class Agend_Test_WP {
 		self::$queried_object_id = 0;
 		self::$query_vars        = array();
 		self::$transients        = array();
+		self::$site_transients   = array();
 		self::$actions           = array();
 		self::$did_action        = array();
 		self::$filters           = array();
@@ -120,6 +130,28 @@ function set_transient( string $key, $value, int $ttl = 0 ): bool {
 function delete_transient( string $key ): bool {
 	unset( Agend_Test_WP::$transients[ $key ] );
 	return true;
+}
+
+if ( ! function_exists( 'get_site_transient' ) ) {
+	function get_site_transient( string $key ) {
+		return array_key_exists( $key, Agend_Test_WP::$site_transients )
+			? Agend_Test_WP::$site_transients[ $key ]
+			: false;
+	}
+}
+
+if ( ! function_exists( 'set_site_transient' ) ) {
+	function set_site_transient( string $key, $value, int $ttl = 0 ): bool {
+		Agend_Test_WP::$site_transients[ $key ] = $value;
+		return true;
+	}
+}
+
+if ( ! function_exists( 'delete_site_transient' ) ) {
+	function delete_site_transient( string $key ): bool {
+		unset( Agend_Test_WP::$site_transients[ $key ] );
+		return true;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +407,14 @@ function wp_remote_request( string $url, array $args = array() ) {
 	);
 }
 
+if ( ! function_exists( 'wp_remote_get' ) ) {
+	/** Thin `wp_remote_request()` wrapper, matching WordPress's own. */
+	function wp_remote_get( string $url, array $args = array() ) {
+		$args['method'] = 'GET';
+		return wp_remote_request( $url, $args );
+	}
+}
+
 function wp_remote_retrieve_body( $response ): string {
 	return $response['body'] ?? '';
 }
@@ -437,6 +477,17 @@ if ( ! class_exists( 'WP_Error' ) ) {
 // ---------------------------------------------------------------------------
 // WP-Cron
 // ---------------------------------------------------------------------------
+
+if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
+	define( 'HOUR_IN_SECONDS', 60 * 60 );
+}
+
+if ( ! function_exists( 'get_bloginfo' ) ) {
+	/** Fixed 'version' value; the updater's tests only assert the User-Agent is well-formed. */
+	function get_bloginfo( string $show = '' ): string {
+		return 'version' === $show ? '6.8' : '';
+	}
+}
 
 if ( ! function_exists( 'wp_next_scheduled' ) ) {
 	/**

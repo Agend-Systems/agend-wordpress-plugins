@@ -37,3 +37,7 @@ Mirrors Upbeat entitlement grants into Agend CRM entitlement grants so directory
 ## Testing
 
 A repo-level PHPUnit 10.5 harness (`composer test`) runs fast, WordPress-free unit tests against stubs in `tests/`. Test suites exist for agend-apps-core, agend-content-access, agend-entitlement-mirror and agend-directory-sync; the remaining plugins have no suites yet, and there is no integration suite against a real WordPress install.
+
+## Releases and updates
+
+Each plugin ships its own GitHub Release, cut automatically when its header `Version` changes on `main` (tag format `<slug>-v<version>`). A `manifest.json`, republished to the `gh-pages` branch after every release, is what each plugin's `Update URI` header points a WordPress-side updater at. See `docs/RELEASING.md` for the full workflow, the `AGEND_PACKAGE_HOST` private/public switch, and one-time maintainer setup.

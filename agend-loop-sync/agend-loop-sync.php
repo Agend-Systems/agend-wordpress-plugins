@@ -2,6 +2,7 @@
 /**
  * Plugin Name:       Agend Loop Sync
  * Plugin URI:        https://agend.com.au
+ * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-loop-sync
  * Description:       Syncs WordPress users, roles, and Upbeat committees into Agend Loop channels via the Agend gateway. Users sync on login/role change; committees sync on a schedule or on demand.
  * Version:           1.0.0
  * Author:            Agend

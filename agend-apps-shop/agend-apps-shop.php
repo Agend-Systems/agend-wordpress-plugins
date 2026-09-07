@@ -2,6 +2,7 @@
 /**
  * Plugin Name:       Agend Apps Shop
  * Plugin URI:        https://agend.com.au
+ * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-shop
  * Description:       Extends Agend Apps Core with Elementor cart widgets for end-user checkout flows.
  * Version:           1.0.4
  * Author:            Agend
