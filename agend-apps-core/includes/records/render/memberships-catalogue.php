@@ -43,6 +43,18 @@ function agend_apps_records_memberships_catalogue_build_config( array $s ): arra
 		: array( 'url' => '' );
 	$success_url       = (string) ( $success_url_parts['url'] ?? '' );
 
+	// This surface has no `inherit_colours` control (US-1.2 spec-vs-code
+	// finding), so `$s` is passed through unmerged: a missing key resolves to
+	// not-'yes' and the source is always 'custom'.
+	$colours = agend_apps_records_resolve_colours(
+		$s,
+		array(
+			'heading' => AGEND_APPS_RECORDS_COLOUR_DEFAULTS['heading'],
+			'body'    => AGEND_APPS_RECORDS_COLOUR_DEFAULTS['body'],
+			'accent'  => '#F76B4F',
+		)
+	);
+
 	return array(
 		'heading'          => (string) ( $s['heading_text'] ?? '' ),
 		// '' (both), 'individual', or 'corporate' — forwarded to the tiers
@@ -63,9 +75,15 @@ function agend_apps_records_memberships_catalogue_build_config( array $s ): arra
 		'tierModeOverrides' => agend_apps_records_memberships_catalogue_build_tier_mode_overrides( (array) ( $s['tier_mode_overrides'] ?? array() ) ),
 		'successUrl'       => $success_url,
 		'colours'          => array(
-			'accent'  => (string) ( $s['accent_colour'] ?? '#F76B4F' ),
-			'heading' => (string) ( $s['heading_colour'] ?? '#1E2A4A' ),
-			'body'    => (string) ( $s['body_colour'] ?? '#26304D' ),
+			'accent'  => $colours['colours']['accent'],
+			'heading' => $colours['colours']['heading'],
+			'body'    => $colours['colours']['body'],
+		),
+		// No `inherit_fonts` control on this surface either; fonts always
+		// follow the account theme, unaffected by this story (Section 6.2).
+		'theme'            => array(
+			'inheritFonts' => false,
+			'colourSource' => $colours['source'],
 		),
 	);
 }

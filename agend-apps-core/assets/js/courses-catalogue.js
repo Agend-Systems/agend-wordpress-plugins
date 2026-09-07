@@ -274,7 +274,7 @@
   }
 
   function applySiteTheme(root, cfg) {
-    if (!cfg.theme || (!cfg.theme.inheritFonts && !cfg.theme.inheritColours)) {
+    if (!cfg.theme || (!cfg.theme.inheritFonts && cfg.theme.colourSource !== 'agend')) {
       return;
     }
     apiGet('/sites/config', {}).then(function (body) {
@@ -283,7 +283,7 @@
         return;
       }
       var theme = config.theme || {};
-      if (cfg.theme.inheritColours && theme.colors) {
+      if (cfg.theme.colourSource === 'agend' && theme.colors) {
         var c = theme.colors;
         var heading = normaliseColour(c.primary || c.navy || c.foreground);
         var body2 = normaliseColour(c.foreground || c.body);

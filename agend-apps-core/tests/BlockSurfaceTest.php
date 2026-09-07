@@ -24,6 +24,7 @@ final class BlockSurfaceTest extends TestCase {
 		parent::setUp();
 		require_once AGEND_TESTS_ROOT . '/tests/render-doubles.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/events-catalogue.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/blocks.php';
 		agend_render_test_reset();

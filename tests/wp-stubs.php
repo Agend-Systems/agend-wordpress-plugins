@@ -51,6 +51,12 @@ final class Agend_Test_WP {
 
 	public static array $query_vars = array();
 
+	/** @var bool Whether the active theme declares theme.json (wp_theme_has_theme_json()). */
+	public static bool $theme_has_theme_json = false;
+
+	/** @var array The merged Global Styles tree returned by wp_get_global_styles(). */
+	public static array $global_styles = array();
+
 	/**
 	 * Canned `wp_remote_request()` responses, consumed one per call (FIFO).
 	 * Empty means the default (200, `{"call": N}`) behaviour.
@@ -61,8 +67,10 @@ final class Agend_Test_WP {
 
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
-		self::$queried_object_id = 0;
-		self::$query_vars        = array();
+		self::$queried_object_id    = 0;
+		self::$query_vars           = array();
+		self::$theme_has_theme_json = false;
+		self::$global_styles        = array();
 		self::$transients        = array();
 		self::$actions           = array();
 		self::$did_action        = array();
@@ -942,4 +950,22 @@ function get_query_var( string $var, $default = '' ) {
 
 function wp_timezone_string(): string {
 	return 'Australia/Sydney';
+}
+
+/**
+ * Whether the active theme declares theme.json (block theme, or a classic
+ * theme opting into Global Styles). {@see Agend_Test_WP::$theme_has_theme_json}
+ * is the test double a case sets directly; there is no real WordPress here.
+ */
+function wp_theme_has_theme_json(): bool {
+	return Agend_Test_WP::$theme_has_theme_json;
+}
+
+/**
+ * The merged Global Styles tree. {@see Agend_Test_WP::$global_styles} is the
+ * test double a case sets directly, shaped exactly like the real merged
+ * styles array (Decision 2.3 paths).
+ */
+function wp_get_global_styles(): array {
+	return Agend_Test_WP::$global_styles;
 }
