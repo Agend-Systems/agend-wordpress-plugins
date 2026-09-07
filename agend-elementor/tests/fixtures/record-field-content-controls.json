@@ -1,0 +1,307 @@
+{
+    "sections": [
+        {
+            "id": "section_field",
+            "args": {
+                "label": "Field",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "record_type",
+                    "args": {
+                        "label": "Record type",
+                        "type": "select",
+                        "default": "auto",
+                        "options": {
+                            "auto": "Auto",
+                            "event": "Event",
+                            "course": "Course"
+                        },
+                        "description": "Auto uses whatever record the surrounding template is rendering."
+                    }
+                },
+                {
+                    "id": "field",
+                    "args": {
+                        "label": "Field",
+                        "type": "select",
+                        "default": "common:title",
+                        "groups": [
+                            {
+                                "label": "Common (any record)",
+                                "options": {
+                                    "common:title": "Title",
+                                    "common:description": "Description (HTML)",
+                                    "common:excerpt": "Excerpt",
+                                    "common:image": "Image",
+                                    "common:category": "Category",
+                                    "common:price_from": "Price from",
+                                    "common:slug": "Slug",
+                                    "common:custom_field": "Custom field (by key)",
+                                    "common:custom_field_label": "Custom field label (by key)",
+                                    "common:detail_url": "Detail URL"
+                                }
+                            },
+                            {
+                                "label": "Directory listing",
+                                "options": {
+                                    "listing:name": "Name",
+                                    "listing:short_description": "Short description",
+                                    "listing:description": "Description (HTML)",
+                                    "listing:excerpt": "Excerpt",
+                                    "listing:logo_url": "Logo",
+                                    "listing:hero_image_url": "Hero image",
+                                    "listing:category": "Category",
+                                    "listing:categories": "All categories",
+                                    "listing:tags": "Tags",
+                                    "listing:badges": "Badges",
+                                    "listing:location": "Location (city, state)",
+                                    "listing:city": "City",
+                                    "listing:state": "State",
+                                    "listing:rating": "Average rating",
+                                    "listing:review_count": "Review count",
+                                    "listing:is_featured": "Featured",
+                                    "listing:phone": "Phone",
+                                    "listing:website": "Website",
+                                    "listing:linkedin_url": "LinkedIn",
+                                    "listing:facebook_url": "Facebook",
+                                    "listing:instagram_url": "Instagram",
+                                    "listing:twitter_url": "X (Twitter)",
+                                    "listing:youtube_url": "YouTube"
+                                }
+                            },
+                            {
+                                "label": "Event",
+                                "options": {
+                                    "event:name": "Name",
+                                    "event:short_description": "Short description",
+                                    "event:description": "Description (HTML)",
+                                    "event:excerpt": "Excerpt",
+                                    "event:hero_image_url": "Hero image",
+                                    "event:start_date": "Start date",
+                                    "event:end_date": "End date",
+                                    "event:date_range": "Date range",
+                                    "event:date_time": "Date and time",
+                                    "event:timezone": "Timezone",
+                                    "event:venue_name": "Venue name",
+                                    "event:venue_address": "Venue address",
+                                    "event:venue_city": "Venue city",
+                                    "event:venue_type": "Format (In-Person, Online, Hybrid)",
+                                    "event:location": "Location (venue, or Online)",
+                                    "event:category": "Category",
+                                    "event:categories": "All categories",
+                                    "event:tags": "Tags",
+                                    "event:price_from": "Price from (viewer)",
+                                    "event:price_member_from": "Member price from",
+                                    "event:price_non_member_from": "Non-member price from",
+                                    "event:sold_out": "Sold out",
+                                    "event:is_registered": "Viewer is registered",
+                                    "event:viewer_price_group": "Viewer price group"
+                                }
+                            },
+                            {
+                                "label": "Course",
+                                "options": {
+                                    "course:title": "Title",
+                                    "course:description": "Description (HTML)",
+                                    "course:excerpt": "Excerpt",
+                                    "course:image_url": "Image",
+                                    "course:category": "Category",
+                                    "course:difficulty": "Level",
+                                    "course:delivery_mode": "Delivery mode",
+                                    "course:duration": "Duration",
+                                    "course:total_duration_minutes": "Duration (minutes)",
+                                    "course:lessons_count": "Lessons",
+                                    "course:price": "Price",
+                                    "course:is_free": "Is free",
+                                    "course:instructor_name": "Instructor",
+                                    "course:learning_outcomes": "Learning outcomes",
+                                    "course:progress_percent": "Progress (%)",
+                                    "course:is_enrolled": "Viewer is enrolled"
+                                }
+                            }
+                        ],
+                        "label_block": true,
+                        "description": "Common fields work in both event and course templates. Event and Course fields render only inside a template of that type."
+                    }
+                },
+                {
+                    "id": "custom_field_key",
+                    "args": {
+                        "label": "Custom field key",
+                        "type": "text",
+                        "default": "",
+                        "description": "The key as configured in Agend, for example education_level. Which custom fields a visitor receives depends on their entitlements, so this renders empty for a visitor who is not entitled to it.",
+                        "condition": {
+                            "field": [
+                                "common:custom_field",
+                                "common:custom_field_label"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "id": "html_tag",
+                    "args": {
+                        "label": "HTML tag",
+                        "type": "select",
+                        "default": "div",
+                        "options": {
+                            "div": "div",
+                            "span": "span",
+                            "p": "p",
+                            "h1": "H1",
+                            "h2": "H2",
+                            "h3": "H3",
+                            "h4": "H4",
+                            "h5": "H5",
+                            "h6": "H6"
+                        }
+                    }
+                },
+                {
+                    "id": "before_text",
+                    "args": {
+                        "label": "Text before",
+                        "type": "text",
+                        "default": "",
+                        "description": "Shown before the value, for example \"From \" ahead of a price."
+                    }
+                },
+                {
+                    "id": "after_text",
+                    "args": {
+                        "label": "Text after",
+                        "type": "text",
+                        "default": ""
+                    }
+                },
+                {
+                    "id": "fallback_text",
+                    "args": {
+                        "label": "Fallback text",
+                        "type": "text",
+                        "default": "",
+                        "description": "Shown when the record has no value for this field. Leave empty to render nothing."
+                    }
+                },
+                {
+                    "id": "link_to_detail",
+                    "args": {
+                        "label": "Link to detail page",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Ignored when the whole card is already a link."
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_format",
+            "args": {
+                "label": "Formatting",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "date_format",
+                    "args": {
+                        "label": "Date format",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Site default",
+                            "j M Y": "6 Jul 2026",
+                            "D, j M Y": "Mon, 6 Jul 2026",
+                            "l, j F Y": "Monday, 6 July 2026",
+                            "j M": "6 Jul",
+                            "j": "6",
+                            "M": "Jul",
+                            "g:i a": "9:00 am",
+                            "custom": "Custom"
+                        },
+                        "description": "Applies to date fields. Date range and date-and-time fields use their fixed format."
+                    }
+                },
+                {
+                    "id": "date_format_custom",
+                    "args": {
+                        "label": "Custom date format",
+                        "type": "text",
+                        "default": "j M Y",
+                        "description": "A PHP date format string.",
+                        "condition": {
+                            "date_format": "custom"
+                        }
+                    }
+                },
+                {
+                    "id": "price_free_label",
+                    "args": {
+                        "label": "Free label",
+                        "type": "text",
+                        "default": "Free",
+                        "description": "Applies to price fields when the price is zero."
+                    }
+                },
+                {
+                    "id": "list_separator",
+                    "args": {
+                        "label": "List separator",
+                        "type": "text",
+                        "default": ", ",
+                        "description": "Applies to list fields such as categories and learning outcomes."
+                    }
+                },
+                {
+                    "id": "list_max",
+                    "args": {
+                        "label": "Maximum list items",
+                        "type": "number",
+                        "default": 0,
+                        "min": 0,
+                        "description": "0 shows every item."
+                    }
+                },
+                {
+                    "id": "bool_true",
+                    "args": {
+                        "label": "Text when true",
+                        "type": "text",
+                        "default": "Yes",
+                        "description": "Applies to yes\/no fields such as Sold out."
+                    }
+                },
+                {
+                    "id": "bool_false",
+                    "args": {
+                        "label": "Text when false",
+                        "type": "text",
+                        "default": "",
+                        "description": "Leave empty to render nothing when false."
+                    }
+                },
+                {
+                    "id": "number_suffix",
+                    "args": {
+                        "label": "Number suffix",
+                        "type": "text",
+                        "default": "",
+                        "description": "Applies to number fields, for example \" lessons\" or \"%\"."
+                    }
+                },
+                {
+                    "id": "truncate_chars",
+                    "args": {
+                        "label": "Truncate to characters",
+                        "type": "number",
+                        "default": 0,
+                        "min": 0,
+                        "description": "Applies to text and HTML fields. HTML fields are reduced to plain text when truncated. 0 keeps the full value."
+                    }
+                }
+            ]
+        }
+    ]
+}

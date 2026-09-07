@@ -65,7 +65,7 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-member-login' );
+		return array( 'agend-apps-records-member-login' );
 	}
 
 	/**
@@ -74,107 +74,14 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-member-login' );
+		return array( 'agend-apps-records-member-login' );
 	}
 
 	/**
 	 * Registers all Elementor controls for this widget.
 	 */
 	protected function register_controls(): void {
-		$this->start_controls_section(
-			'section_content',
-			array(
-				'label' => __( 'Content', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'heading_text',
-			array(
-				'label'   => __( 'Heading', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXT,
-				'default' => __( 'Sign in', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'intro_text',
-			array(
-				'label'   => __( 'Intro text', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXTAREA,
-				'default' => __( 'Sign in with your Agend member account.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'submit_label',
-			array(
-				'label'   => __( 'Sign-in button label', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXT,
-				'default' => __( 'Sign in', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'forgot_label',
-			array(
-				'label'       => __( 'Forgot-password link text', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => __( 'Forgot your password?', 'agend-elementor' ),
-				'description' => __( 'Leave empty to hide the password-recovery link.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'back_to_sign_in_label',
-			array(
-				'label'       => __( 'Return link text', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => __( 'Back to sign in', 'agend-elementor' ),
-				'description' => __( 'Shown in the password-recovery and reset views to return to the sign-in form.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'signed_in_message',
-			array(
-				'label'   => __( 'Signed-in message', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXTAREA,
-				'default' => __( 'You are signed in to your Agend account.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'portal_button_label',
-			array(
-				'label'       => __( 'Portal button label', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => __( 'Go to my account', 'agend-elementor' ),
-				'description' => __( 'Opens the member portal, already signed in. Leave empty to hide.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'sign_out_label',
-			array(
-				'label'   => __( 'Sign-out label', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXT,
-				'default' => __( 'Sign out', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'register_label',
-			array(
-				'label'       => __( 'Create-account link text', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::TEXT,
-				'default'     => '',
-				'description' => __( 'Shows a link that swaps the sign-in form for an account registration form. Leave empty to hide.', 'agend-elementor' ),
-			)
-		);
-
-		$this->end_controls_section();
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'member-login' ) );
 
 		$this->start_controls_section(
 			'section_style',

@@ -1,0 +1,90 @@
+{
+    "sections": [
+        {
+            "id": "section_pills",
+            "args": {
+                "label": "Pills",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "record_type",
+                    "args": {
+                        "label": "Record type",
+                        "type": "select",
+                        "default": "auto",
+                        "options": {
+                            "auto": "Auto",
+                            "event": "Event",
+                            "course": "Course"
+                        },
+                        "description": "Auto uses whatever record the surrounding template is rendering."
+                    }
+                },
+                {
+                    "id": "field",
+                    "args": {
+                        "label": "Terms",
+                        "type": "select",
+                        "default": "common:category",
+                        "groups": [
+                            {
+                                "label": "Common (any record)",
+                                "options": {
+                                    "common:category": "Category"
+                                }
+                            },
+                            {
+                                "label": "Directory listing",
+                                "options": {
+                                    "listing:category": "Category",
+                                    "listing:categories": "All categories",
+                                    "listing:tags": "Tags",
+                                    "listing:badges": "Badges",
+                                    "listing:state": "State"
+                                }
+                            },
+                            {
+                                "label": "Event",
+                                "options": {
+                                    "event:venue_type": "Format (In-Person, Online, Hybrid)",
+                                    "event:category": "Category",
+                                    "event:categories": "All categories",
+                                    "event:tags": "Tags"
+                                }
+                            },
+                            {
+                                "label": "Course",
+                                "options": {
+                                    "course:category": "Category",
+                                    "course:difficulty": "Level",
+                                    "course:delivery_mode": "Delivery mode"
+                                }
+                            }
+                        ],
+                        "label_block": true,
+                        "description": "A list field renders one pill per term. A single-value field renders one pill."
+                    }
+                },
+                {
+                    "id": "max_items",
+                    "args": {
+                        "label": "Maximum pills",
+                        "type": "number",
+                        "default": 0,
+                        "min": 0,
+                        "description": "0 shows every term."
+                    }
+                },
+                {
+                    "id": "link_to_detail",
+                    "args": {
+                        "label": "Link pills to the detail page",
+                        "type": "switcher",
+                        "default": ""
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -61,7 +61,7 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-memberships-catalogue' );
+		return array( 'agend-apps-records-memberships-catalogue' );
 	}
 
 	/**
@@ -70,7 +70,7 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-memberships-catalogue' );
+		return array( 'agend-apps-records-memberships-catalogue' );
 	}
 
 	/**
@@ -85,214 +85,60 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	 * Registers the Content tab controls.
 	 */
 	private function register_content_controls(): void {
-		// Heading section.
-		$this->start_controls_section(
-			'section_heading',
-			array(
-				'label' => __( 'Heading', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'memberships-catalogue' ) );
+	}
 
-		$this->add_control(
-			'heading_text',
-			array(
-				'label'   => __( 'Heading', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::TEXT,
-				'default' => __( 'Membership Options', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'membership_type',
-			array(
-				'label'       => __( 'Membership types to show', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'options'     => array(
-					''           => __( 'Individual & corporate', 'agend-elementor' ),
-					'individual' => __( 'Individual only', 'agend-elementor' ),
-					'corporate'  => __( 'Corporate only', 'agend-elementor' ),
-				),
-				'default'     => '',
-				'description' => __( 'Filters the tiers server-side by type.', 'agend-elementor' ),
-			)
-		);
-
-		$this->end_controls_section();
-
-		// Layout section.
-		$this->start_controls_section(
-			'section_layout',
-			array(
-				'label' => __( 'Layout', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'columns_desktop',
-			array(
-				'label'   => __( 'Columns (Desktop)', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'options' => array(
-					'2' => '2',
-					'3' => '3',
-					'4' => '4',
-				),
-				'default' => '3',
-			)
-		);
-
-		$this->add_control(
-			'columns_tablet',
-			array(
-				'label'   => __( 'Columns (Tablet)', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'options' => array(
-					'1' => '1',
-					'2' => '2',
-				),
-				'default' => '2',
-			)
-		);
-
-		$this->add_control(
-			'columns_mobile',
-			array(
-				'label'   => __( 'Columns (Mobile)', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'options' => array(
-					'1' => '1',
-					'2' => '2',
-				),
-				'default' => '1',
-			)
-		);
-
-		$this->add_control(
-			'card_radius',
-			array(
-				'label'   => __( 'Card Corner Radius (px)', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::NUMBER,
-				'default' => 10,
-				'min'     => 0,
-				'max'     => 48,
-			)
-		);
-
-		$this->end_controls_section();
-
-		// Card fields section.
-		$this->start_controls_section(
-			'section_card_fields',
-			array(
-				'label' => __( 'Card Fields', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'show_description',
-			array(
-				'label'   => __( 'Show description', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SWITCHER,
-				'default' => 'yes',
-			)
-		);
-
-		$this->add_control(
-			'show_benefits',
-			array(
-				'label'   => __( 'Show benefits', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SWITCHER,
-				'default' => 'yes',
-			)
-		);
-
-		$this->add_control(
-			'show_price',
-			array(
-				'label'   => __( 'Show price and billing period', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SWITCHER,
-				'default' => 'yes',
-			)
-		);
-
-		$this->end_controls_section();
-
-		// Signup mode section.
-		$this->start_controls_section(
-			'section_signup_mode',
-			array(
-				'label' => __( 'Signup Mode', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'global_signup_mode',
-			array(
-				'label'   => __( 'Default signup mode', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::SELECT,
-				'options' => array(
-					'application' => __( 'Application (captures contact)', 'agend-elementor' ),
-					'direct'      => __( 'Direct purchase (requires payment)', 'agend-elementor' ),
-				),
-				'default' => 'application',
-				'description' => __( 'The signup mode for each tier. Can be overridden per tier below.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'tier_mode_overrides',
-			array(
-				'label'       => __( 'Tier-specific overrides', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::REPEATER,
-				'fields'      => array(
+	/**
+	 * Registers a Content-tab control this widget declares itself because the
+	 * shared schema vocabulary cannot describe it.
+	 *
+	 * @param string $name Schema field name.
+	 * @return void
+	 */
+	public function register_adapter_control( string $name ): void {
+		switch ( $name ) {
+			case 'tier_mode_overrides':
+				$this->add_control(
+					'tier_mode_overrides',
 					array(
-						'name'        => 'tier_slug',
-						'label'       => __( 'Tier slug', 'agend-elementor' ),
-						'type'        => \Elementor\Controls_Manager::TEXT,
-						'placeholder' => 'professional',
-					),
-					array(
-						'name'    => 'tier_mode',
-						'label'   => __( 'Mode for this tier', 'agend-elementor' ),
-						'type'    => \Elementor\Controls_Manager::SELECT,
-						'options' => array(
-							'application' => __( 'Application', 'agend-elementor' ),
-							'direct'      => __( 'Direct purchase', 'agend-elementor' ),
+						'label'       => __( 'Tier-specific overrides', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::REPEATER,
+						'fields'      => array(
+							array(
+								'name'        => 'tier_slug',
+								'label'       => __( 'Tier slug', 'agend-elementor' ),
+								'type'        => \Elementor\Controls_Manager::TEXT,
+								'placeholder' => 'professional',
+							),
+							array(
+								'name'    => 'tier_mode',
+								'label'   => __( 'Mode for this tier', 'agend-elementor' ),
+								'type'    => \Elementor\Controls_Manager::SELECT,
+								'options' => array(
+									'application' => __( 'Application', 'agend-elementor' ),
+									'direct'      => __( 'Direct purchase', 'agend-elementor' ),
+								),
+								'default' => 'application',
+							),
 						),
-						'default' => 'application',
-					),
-				),
-				'default'     => array(),
-				'title_field' => '{{{ "undefined" !== typeof tier_slug && tier_slug ? tier_slug : "Tier override" }}}',
-			)
-		);
+						'default'     => array(),
+						'title_field' => '{{{ "undefined" !== typeof tier_slug && tier_slug ? tier_slug : "Tier override" }}}',
+					)
+				);
+				break;
 
-		$this->end_controls_section();
-
-		// Redirect section.
-		$this->start_controls_section(
-			'section_redirect',
-			array(
-				'label' => __( 'Post-Signup Redirect', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
-			)
-		);
-
-		$this->add_control(
-			'success_url',
-			array(
-				'label'       => __( 'Success page URL (optional)', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::URL,
-				'placeholder' => 'https://example.com/thank-you',
-				'description' => __( 'URL to redirect to after successful signup. Defaults to the current page.', 'agend-elementor' ),
-			)
-		);
-
-		$this->end_controls_section();
+			case 'success_url':
+				$this->add_control(
+					'success_url',
+					array(
+						'label'       => __( 'Success page URL (optional)', 'agend-elementor' ),
+						'type'        => \Elementor\Controls_Manager::URL,
+						'placeholder' => 'https://example.com/thank-you',
+						'description' => __( 'URL to redirect to after successful signup. Defaults to the current page.', 'agend-elementor' ),
+					)
+				);
+				break;
+		}
 	}
 
 	/**
@@ -340,100 +186,9 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Normalises a repeater value to a clean object keyed by tier slug.
-	 *
-	 * @param array $repeater_data Raw repeater setting value.
-	 * @return array Keyed by tier slug, values are 'application' or 'direct'.
-	 */
-	private function build_tier_mode_overrides( array $repeater_data ): array {
-		$result = array();
-		foreach ( $repeater_data as $row ) {
-			$slug = isset( $row['tier_slug'] ) ? (string) $row['tier_slug'] : '';
-			$mode = isset( $row['tier_mode'] ) ? (string) $row['tier_mode'] : '';
-			if ( '' !== $slug && ( 'application' === $mode || 'direct' === $mode ) ) {
-				$result[ $slug ] = $mode;
-			}
-		}
-		return $result;
-	}
-
-	/**
-	 * Builds the client-side config object from the widget settings.
-	 *
-	 * @param array $s Settings for display.
-	 * @return array Config passed to the frontend script as JSON.
-	 */
-	private function build_config( array $s ): array {
-		$success_url_parts = isset( $s['success_url'] ) && is_array( $s['success_url'] )
-			? $s['success_url']
-			: array( 'url' => '' );
-		$success_url       = (string) ( $success_url_parts['url'] ?? '' );
-
-		return array(
-			'heading'          => (string) ( $s['heading_text'] ?? '' ),
-			// '' (both), 'individual', or 'corporate' — forwarded to the tiers
-			// API as the tierType query param (SPEC-CORE-20260722).
-			'membershipType'   => (string) ( $s['membership_type'] ?? '' ),
-			'columns'          => array(
-				'desktop' => (int) ( $s['columns_desktop'] ?? 3 ),
-				'tablet'  => (int) ( $s['columns_tablet'] ?? 2 ),
-				'mobile'  => (int) ( $s['columns_mobile'] ?? 1 ),
-			),
-			'cardRadius'       => (int) ( $s['card_radius'] ?? 10 ),
-			'fields'           => array(
-				'description' => 'yes' === ( $s['show_description'] ?? 'yes' ),
-				'benefits'    => 'yes' === ( $s['show_benefits'] ?? 'yes' ),
-				'price'       => 'yes' === ( $s['show_price'] ?? 'yes' ),
-			),
-			'signupMode'       => (string) ( $s['global_signup_mode'] ?? 'application' ),
-			'tierModeOverrides' => $this->build_tier_mode_overrides( (array) ( $s['tier_mode_overrides'] ?? array() ) ),
-			'successUrl'       => $success_url,
-			'colours'          => array(
-				'accent'  => (string) ( $s['accent_colour'] ?? '#F76B4F' ),
-				'heading' => (string) ( $s['heading_colour'] ?? '#1E2A4A' ),
-				'body'    => (string) ( $s['body_colour'] ?? '#26304D' ),
-			),
-		);
-	}
-
-	/**
-	 * Renders the widget container on the frontend.
-	 *
-	 * The catalogue and form are rendered client-side by
-	 * assets/js/memberships-catalogue.js.
+	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
-		$settings = $this->get_settings_for_display();
-		$config   = $this->build_config( $settings );
-
-		$style = sprintf(
-			'--agend-mem-accent:%1$s;--agend-mem-heading:%2$s;--agend-mem-body:%3$s;--agend-mem-radius:%4$dpx;--agend-mem-cols-desktop:%5$d;--agend-mem-cols-tablet:%6$d;--agend-mem-cols-mobile:%7$d;',
-			esc_attr( $config['colours']['accent'] ),
-			esc_attr( $config['colours']['heading'] ),
-			esc_attr( $config['colours']['body'] ),
-			(int) $config['cardRadius'],
-			(int) $config['columns']['desktop'],
-			(int) $config['columns']['tablet'],
-			(int) $config['columns']['mobile']
-		);
-		?>
-		<div class="agend-memberships" style="<?php echo esc_attr( $style ); ?>" data-agend-memberships-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
-			<span class="agend-visually-hidden" role="status"><?php esc_html_e( 'Loading membership options…', 'agend-elementor' ); ?></span>
-			<?php if ( '' !== $config['heading'] ) : ?>
-				<h2 class="agend-mem-heading"><?php echo esc_html( $config['heading'] ); ?></h2>
-			<?php endif; ?>
-			<div class="agend-mem-container">
-				<div class="agend-mem-grid">
-					<?php for ( $i = 0; $i < 3; $i++ ) : ?>
-						<article class="agend-mem-card agend-mem-skeleton" aria-hidden="true">
-							<div class="agend-skel-line" style="width:60%"></div>
-							<div class="agend-skel-line" style="width:40%"></div>
-							<div class="agend-skel-line" style="width:85%"></div>
-						</article>
-					<?php endfor; ?>
-				</div>
-			</div>
-		</div>
-		<?php
+		echo agend_apps_records_render_memberships_catalogue( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

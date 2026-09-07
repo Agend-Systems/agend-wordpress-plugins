@@ -1,0 +1,74 @@
+{
+    "sections": [
+        {
+            "id": "section_content",
+            "args": {
+                "label": "Content",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "show_heading",
+                    "args": {
+                        "label": "Show heading",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "heading_text",
+                    "args": {
+                        "label": "Heading",
+                        "type": "text",
+                        "default": "Your Agend Account",
+                        "condition": {
+                            "show_heading": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "linked_message",
+                    "args": {
+                        "label": "Linked message",
+                        "type": "textarea",
+                        "default": "Your account is linked. You have full access to member content."
+                    }
+                },
+                {
+                    "id": "unlinked_message",
+                    "args": {
+                        "label": "Not-linked message",
+                        "type": "textarea",
+                        "default": "Link your account to unlock member content, courses, and event pricing."
+                    }
+                },
+                {
+                    "id": "button_label",
+                    "args": {
+                        "label": "Link button label",
+                        "type": "text",
+                        "default": "Link my account"
+                    }
+                },
+                {
+                    "id": "portal_link_label",
+                    "args": {
+                        "label": "Portal link label",
+                        "type": "text",
+                        "default": "Review your Agend details",
+                        "description": "Shown to linked members as a link to the member portal. Leave empty to hide the link."
+                    }
+                },
+                {
+                    "id": "logged_out_message",
+                    "args": {
+                        "label": "Logged-out message",
+                        "type": "textarea",
+                        "default": "Log in to link your account with Agend.",
+                        "description": "Shown to visitors who are not logged in to WordPress. Leave empty to hide the widget for logged-out visitors."
+                    }
+                }
+            ]
+        }
+    ]
+}
