@@ -145,11 +145,17 @@ function agend_apps_core_bootstrap() {
 	// controls from, instead of each hand-declaring the same settings.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/schema.php';
 
+	// Site palette resolution (US-1.3): the renderer reads this before the
+	// renders below build their config, since colour resolution is a render
+	// dependency, not a display concern.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/palette.php';
+
 	// Server renders of the catalogue surfaces, shared by every editor adapter.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-login.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
