@@ -93,6 +93,31 @@ final class BlockSurfaceTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_derive_a_string_attribute_with_the_field_default_when_given_a_colour_field(): void {
+		$schema = array(
+			'sections' => array(
+				array(
+					'id'     => 'section_style_colours',
+					'label'  => 'Colours',
+					'tab'    => 'style',
+					'fields' => array(
+						array(
+							'name'    => 'accent_colour',
+							'label'   => 'Accent colour',
+							'type'    => 'colour',
+							'default' => '#FF6B55',
+						),
+					),
+				),
+			),
+		);
+
+		$attributes = agend_apps_records_block_attributes( $schema );
+
+		self::assertSame( array( 'type' => 'string', 'default' => '#FF6B55' ), $attributes['accent_colour'] );
+	}
+
+	#[Test]
 	public function should_return_an_empty_schema_when_the_surface_is_unknown(): void {
 		self::assertSame( array(), agend_apps_records_block_editor_schema( 'no-such-surface' ) );
 	}

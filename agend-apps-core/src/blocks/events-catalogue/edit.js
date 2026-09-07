@@ -20,11 +20,16 @@ export default function Edit( { attributes, setAttributes } ) {
 		<>
 			<InspectorControls>
 				{ schema ? (
-					<SchemaInspector schema={ schema } attributes={ attributes } setAttributes={ setAttributes } />
+					<SchemaInspector schema={ schema } attributes={ attributes } setAttributes={ setAttributes } tab="content" />
 				) : (
 					<div style={ { padding: '16px' } }>{ error ? error : <Spinner /> }</div>
 				) }
 			</InspectorControls>
+			{ schema && (
+				<InspectorControls group="styles">
+					<SchemaInspector schema={ schema } attributes={ attributes } setAttributes={ setAttributes } tab="style" />
+				</InspectorControls>
+			) }
 			<div { ...blockProps }>
 				<Placeholder icon="calendar-alt" label={ __( 'Agend Events Catalogue', 'agend-apps-core' ) } instructions={ summary } />
 			</div>

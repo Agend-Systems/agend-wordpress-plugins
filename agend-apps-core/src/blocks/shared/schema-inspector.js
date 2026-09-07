@@ -9,6 +9,7 @@
 import { useEffect, useState } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
 import { __ } from '@wordpress/i18n';
+import { useSettings } from '@wordpress/block-editor';
 import {
 	PanelBody,
 	ToggleControl,
@@ -17,6 +18,7 @@ import {
 	SelectControl,
 	CheckboxControl,
 	BaseControl,
+	ColorPalette,
 	Notice,
 	__experimentalNumberControl as NumberControl,
 } from '@wordpress/components';
@@ -66,8 +68,33 @@ function Field( { field, attributes, setAttributes } ) {
 	const { name, type, label, description } = field;
 	const set = ( value ) => setAttributes( { [ name ]: value } );
 	const value = attributes[ name ];
+	// Called unconditionally so the colour branch below stays within the
+	// rules of hooks; unused for every other field type.
+	const [ paletteColours ] = useSettings( 'color.palette' );
 
 	switch ( type ) {
+		case 'colour': {
+			const colours = paletteColours || [];
+			const onChange = ( next ) => {
+				if ( ! next ) {
+					set( '' );
+					return;
+				}
+				const preset = colours.find( ( colour ) => colour.color === next );
+				set( preset ? `var(--wp--preset--color--${ preset.slug })` : next );
+			};
+			return (
+				<BaseControl label={ label } help={ description } __nextHasNoMarginBottom>
+					<ColorPalette
+						colors={ colours }
+						value={ value ?? field.default ?? '' }
+						onChange={ onChange }
+						enableAlpha={ false }
+						clearable
+					/>
+				</BaseControl>
+			);
+		}
 		case 'toggle':
 			return <ToggleControl label={ label } help={ description } checked={ !! value } onChange={ set } __nextHasNoMarginBottom />;
 		case 'text':
@@ -127,8 +154,18 @@ function Field( { field, attributes, setAttributes } ) {
 	}
 }
 
-export function SchemaInspector( { schema, attributes, setAttributes } ) {
-	return ( schema.sections || [] ).map( ( section, index ) =>
+/**
+ * Renders one tab's worth of a surface schema's sections. `tab` selects
+ * `'content'` (the default, every section without `tab: 'style'`) or
+ * `'style'` (only sections with `tab: 'style'`), so an edit component can
+ * place each half in its own `InspectorControls` slot.
+ */
+export function SchemaInspector( { schema, attributes, setAttributes, tab = 'content' } ) {
+	const sections = ( schema.sections || [] ).filter(
+		( section ) => ( 'style' === section.tab ? 'style' : 'content' ) === tab
+	);
+
+	return sections.map( ( section, index ) =>
 		conditionMet( section.condition, attributes ) ? (
 			<PanelBody key={ section.id } title={ section.label } initialOpen={ index === 0 }>
 				{ ( section.fields || [] ).map( ( field ) =>
