@@ -279,7 +279,13 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 				'registerSubmit'   => __( 'Create account', 'agend-elementor' ),
 				'registerWorking'  => __( 'Creating…', 'agend-elementor' ),
 				'registerError'    => __( 'Could not create the account. Check your details and try again.', 'agend-elementor' ),
+				// Email ownership verification (SPEC-CORE-20260907 US-4.3).
+				'resend'              => __( 'Send another link', 'agend-elementor' ),
+				'verificationPending' => __( 'Your email address is not yet verified. Check your inbox for the verification link, or request a new one below.', 'agend-elementor' ),
 			),
+			// Seconds the resend button stays disabled after each attempt
+			// (SPEC-CORE-20260907 US-4.3 AC2).
+			'resendCooldownSeconds' => 60,
 		);
 	}
 
