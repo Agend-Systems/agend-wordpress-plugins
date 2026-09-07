@@ -27,6 +27,7 @@ final class BlockSurfaceTest extends TestCase {
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/events-catalogue.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/courses-catalogue.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/member-login.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/blocks.php';
 		agend_render_test_reset();
 	}
@@ -104,6 +105,50 @@ final class BlockSurfaceTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_render_what_the_elementor_member_login_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'member-login' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/member-login-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		self::assertSame( agend_apps_records_render_member_login( $elementor_settings ), agend_apps_records_render_block( 'member-login', $defaults ) );
+	}
+
+	#[Test]
+	public function should_report_no_notices_when_member_login_is_in_credentials_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'credentials' );
+
+		self::assertSame( array(), agend_apps_records_block_surface_notices( 'member-login' ) );
+	}
+
+	#[Test]
+	public function should_report_an_sso_warning_notice_when_member_login_is_in_sso_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'sso' );
+
+		$notices = agend_apps_records_block_surface_notices( 'member-login' );
+
+		self::assertCount( 1, $notices );
+		self::assertSame( 'warning', $notices[0]['status'] );
+		self::assertSame(
+			'Member sign-in is set to SSO in Agend Apps settings. This block renders nothing until credential sign-in is enabled.',
+			$notices[0]['text']
+		);
+	}
+
+	#[Test]
+	public function should_report_no_notices_for_a_catalogue_surface(): void {
+		self::assertSame( array(), agend_apps_records_block_surface_notices( 'events-catalogue' ) );
+	}
+
+	#[Test]
 	public function should_resolve_option_callables_and_boolean_toggle_defaults_when_serving_the_editor_schema(): void {
 		$schema = agend_apps_records_block_editor_schema( 'events-catalogue' );
 		$fields = array();
@@ -156,21 +201,29 @@ final class BlockSurfaceTest extends TestCase {
 
 	/**
 	 * Iterates every committed build/blocks/* directory rather than naming
-	 * events-catalogue alone, so a later block (courses-catalogue) is covered
-	 * by this assertion without a second test being written for it.
+	 * events-catalogue and courses-catalogue individually, so a later
+	 * catalogue block is covered by this assertion with no second test.
+	 * member-login is the one surface excluded from the "allows multiple"
+	 * expectation (Decision 2.5): two login forms on a page is not a real
+	 * layout, and the script binds one session status per page.
 	 */
 	#[Test]
-	public function should_allow_several_instances_on_every_catalogue_block(): void {
-		$build_dir = AGEND_TESTS_ROOT . '/agend-apps-core/build/blocks';
+	public function should_allow_several_instances_on_every_catalogue_block_but_not_member_login(): void {
+		$build_dir  = AGEND_TESTS_ROOT . '/agend-apps-core/build/blocks';
 		$block_dirs = glob( $build_dir . '/*', GLOB_ONLYDIR );
 
 		self::assertNotEmpty( $block_dirs, 'expected at least one committed block build' );
 
 		foreach ( $block_dirs as $block_dir ) {
-			$block = json_decode( (string) file_get_contents( $block_dir . '/block.json' ), true );
+			$block    = json_decode( (string) file_get_contents( $block_dir . '/block.json' ), true );
 			$multiple = $block['supports']['multiple'] ?? true;
+			$name     = basename( $block_dir );
 
-			self::assertNotFalse( $multiple, basename( $block_dir ) . ' should allow several instances on one page' );
+			if ( 'member-login' === $name ) {
+				self::assertFalse( $multiple, 'member-login should not allow several instances on one page' );
+			} else {
+				self::assertNotFalse( $multiple, $name . ' should allow several instances on one page' );
+			}
 		}
 	}
 

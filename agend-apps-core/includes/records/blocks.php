@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /** Surface ids that ship as blocks, in inserter order. */
-const AGEND_APPS_RECORDS_BLOCK_SURFACES = array( 'events-catalogue', 'courses-catalogue' );
+const AGEND_APPS_RECORDS_BLOCK_SURFACES = array( 'events-catalogue', 'courses-catalogue', 'member-login' );
 
 /**
  * Block attribute definitions derived from a surface schema. Fields that store
@@ -222,6 +222,32 @@ function agend_apps_records_block_categories( array $categories ): array {
 add_filter( 'block_categories_all', 'agend_apps_records_block_categories' );
 
 /**
+ * Editor-only notices for a surface, shown above the block placeholder
+ * (US-4.2 AC3). Empty for every surface except member-login in `sso` member
+ * sign-in mode, where the block renders nothing on the front end and the
+ * editor otherwise has no way to know why.
+ *
+ * @param string $surface Surface id.
+ * @return array<int, array{status: string, text: string}>
+ */
+function agend_apps_records_block_surface_notices( string $surface ): array {
+	if ( 'member-login' !== $surface ) {
+		return array();
+	}
+
+	if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
+		return array(
+			array(
+				'status' => 'warning',
+				'text'   => __( 'Member sign-in is set to SSO in Agend Apps settings. This block renders nothing until credential sign-in is enabled.', 'agend-apps-core' ),
+			),
+		);
+	}
+
+	return array();
+}
+
+/**
  * Serves a surface's editor schema so the block inspector renders its
  * controls from the same declaration the Elementor widget uses.
  */
@@ -242,6 +268,8 @@ function agend_apps_records_register_surface_schema_route(): void {
 					if ( array() === $schema ) {
 						return new WP_Error( 'agend_apps_records_unknown_surface', __( 'No such surface.', 'agend-apps-core' ), array( 'status' => 404 ) );
 					}
+
+					$schema['notices'] = agend_apps_records_block_surface_notices( $surface );
 
 					return rest_ensure_response( $schema );
 				},
