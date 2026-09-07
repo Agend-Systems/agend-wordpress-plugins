@@ -264,6 +264,15 @@ requires both the core function and the delegating widget to reproduce those
 fixtures byte for byte. Change a renderer deliberately, re-record the fixture in
 the same commit, and say so.
 
+The member login surface follows the same pattern:
+`agend_apps_records_render_member_login( array $settings ): string` in
+`includes/records/render/member-login.php`, pinned by
+`tests/fixtures/member-login-render.json` and proven byte-identical by
+`MemberLoginRenderTest`. It returns `''` when the Elementor SSO gate
+(`Agend_Apps_Settings::credential_login_enabled()`) is off; the widget keeps
+its own edit-mode notice for that case and otherwise echoes the core
+renderer.
+
 ## Block editor surface
 
 `includes/records/blocks.php` registers one block per catalogue surface
