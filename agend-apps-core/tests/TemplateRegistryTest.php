@@ -26,8 +26,16 @@ final class Template_Registry_Test_Renderer implements Agend_Apps_Template_Rende
 	/** @var array<int, array<string, mixed>> */
 	public array $calls = array();
 
+	/** @var int[] Template ids this renderer claims. */
+	private array $owns;
+
+	private string $name;
+
 	/** @param int[] $owns Template ids this renderer claims. */
-	public function __construct( private array $owns = array(), private string $name = 'stub' ) {}
+	public function __construct( array $owns = array(), string $name = 'stub' ) {
+		$this->owns = $owns;
+		$this->name = $name;
+	}
 
 	public function is_valid_template( int $template_id ): bool {
 		return in_array( $template_id, $this->owns, true );
@@ -53,12 +61,19 @@ final class Template_Registry_Test_Renderer implements Agend_Apps_Template_Rende
  */
 final class Template_Registry_Test_Source implements Agend_Apps_Template_Source {
 
+	private string $label;
+
+	/** @var array<string, string> */
+	private array $templates;
+
+	private ?bool $page_surface_result;
+
 	/** @param array<string, string> $templates */
-	public function __construct(
-		private string $label = 'Stub',
-		private array $templates = array(),
-		private ?bool $page_surface_result = null
-	) {}
+	public function __construct( string $label = 'Stub', array $templates = array(), ?bool $page_surface_result = null ) {
+		$this->label               = $label;
+		$this->templates           = $templates;
+		$this->page_surface_result = $page_surface_result;
+	}
 
 	public function label(): string {
 		return $this->label;
