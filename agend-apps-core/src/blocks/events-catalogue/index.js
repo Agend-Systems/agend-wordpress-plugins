@@ -1,10 +1,15 @@
 import { registerBlockType } from '@wordpress/blocks';
+import { __ } from '@wordpress/i18n';
 import metadata from './block.json';
-import Edit from './edit';
+import { createSurfaceEdit } from '../shared/surface-edit';
 
 // Attributes come from the server: core derives them from the surface schema
 // and registers them in PHP, so nothing is declared twice.
 registerBlockType( metadata.name, {
-	edit: Edit,
+	edit: createSurfaceEdit( {
+		surface: 'events-catalogue',
+		icon: 'calendar-alt',
+		label: __( 'Agend Events Catalogue', 'agend-apps-core' ),
+	} ),
 	save: () => null,
 } );
