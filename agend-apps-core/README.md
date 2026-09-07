@@ -275,20 +275,43 @@ renderer.
 
 ## Block editor surface
 
-`includes/records/blocks.php` registers one block per catalogue surface
-(`agend-apps/events-catalogue` today) as a thin adapter over the two seams
-above: its attributes are derived from the surface schema
-(`agend_apps_records_block_attributes()`), and its render callback is the
-surface's core renderer, fed the attributes converted to Elementor-shaped
-settings (`agend_apps_records_settings_from_attributes()`). The block inspector
-fetches the schema from `GET /agend-apps/v1/surfaces/<surface>/schema`
-(editors only, option lists resolved) and renders it with
-`src/blocks/shared/schema-inspector.js`, so a setting added to a schema appears
-in the block editor and in Elementor from the same line. `SchemaInspector`
-takes a `tab` prop (`'content'` or `'style'`) so an edit component can render
-each half of the schema in its own `InspectorControls` slot; a `colour` field
-renders as `ColorPalette` from `@wordpress/components`, sourced from the
-active theme's `useSettings( 'color.palette' )`.
+`includes/records/blocks.php` registers one block per surface, listed in
+`AGEND_APPS_RECORDS_BLOCK_SURFACES` (inserter order): `agend-apps/events-catalogue`,
+`agend-apps/courses-catalogue` and `agend-apps/member-login`. Every block is a
+thin adapter over the two seams above: its attributes are derived from the
+surface schema (`agend_apps_records_block_attributes()`), and its render
+callback is the surface's core renderer, fed the attributes converted to
+Elementor-shaped settings (`agend_apps_records_settings_from_attributes()`).
+The two catalogue blocks allow several instances per page; `member-login` does
+not (one session status per page). All three register under the "Agend"
+inserter category (`block_categories_all`).
+
+**A surface setting is declared in the schema or it does not exist.** A widget
+or block may not register its own control for a setting the renderer reads;
+the schema is the single declaration both builders read, and a setting living
+in only one builder is the class of defect this seam exists to prevent.
+
+The block inspector fetches the schema from
+`GET /agend-apps/v1/surfaces/<surface>/schema` (editors only, option lists
+resolved) and renders it with `src/blocks/shared/schema-inspector.js`, so a
+setting added to a schema appears in the block editor and in Elementor from
+the same line. `SchemaInspector` takes a `tab` prop (`'content'` or `'style'`)
+so an edit component can render each half of the schema in its own
+`InspectorControls` slot; a `colour` field renders as `ColorPalette` from
+`@wordpress/components`, sourced from the active theme's
+`useSettings( 'color.palette' )`. The schema response also carries a top-level
+`notices` array (empty for most surfaces; `member-login` reports the SSO-mode
+warning here when credential sign-in is off), which the edit component renders
+above its placeholder.
+
+Every block's `index.js` registers through the one shared edit component,
+`createSurfaceEdit( { surface, icon, label, instructions } )` in
+`src/blocks/shared/surface-edit.js`: content sections in the default
+`InspectorControls` slot, style sections in `group="styles"`, any schema
+notices above a `Placeholder` standing in for the front-end render.
+`instructions` is an optional `( attributes ) => string`, defaulting to the
+column/pagination summary the catalogue blocks share; `member-login` supplies
+its own.
 
 Source lives in `src/blocks/<surface>/`; the compiled block directory in
 `build/blocks/<surface>/` is COMMITTED because deployment copies files without a
@@ -296,6 +319,6 @@ build step. After changing anything under `src/`, run `npm run build` at the
 repo root and commit the output; the `Block build matches source` CI job fails
 when the committed output is stale. `npm start` watches during development.
 
-`BlockSurfaceTest` proves a block left at its defaults renders exactly what the
-Elementor widget renders at its control defaults.
+`BlockSurfaceTest` proves each block left at its defaults renders exactly what
+its Elementor widget renders at its control defaults.
 
