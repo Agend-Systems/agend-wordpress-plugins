@@ -18,6 +18,46 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Apps_Settings {
 
 	/**
+	 * Member sign-in mode: Agend credentials on this site (default).
+	 *
+	 * @var string
+	 */
+	const MEMBER_AUTH_CREDENTIALS = 'credentials';
+
+	/**
+	 * Member sign-in mode: SSO connection only, credential login switched off.
+	 *
+	 * @var string
+	 */
+	const MEMBER_AUTH_SSO = 'sso';
+
+	/**
+	 * Returns the configured member sign-in mode.
+	 *
+	 * SPEC-CORE-20260907 US-4.1 AC1: reads option `agend_apps_member_auth_mode`
+	 * and treats any value other than exactly `sso` as `credentials`, so a
+	 * missing option, an upgraded install, or a corrupted value all keep
+	 * today's behaviour.
+	 *
+	 * @return string One of `credentials` or `sso`.
+	 */
+	public static function get_member_auth_mode(): string {
+		$value = get_option( 'agend_apps_member_auth_mode', self::MEMBER_AUTH_CREDENTIALS );
+
+		return self::MEMBER_AUTH_SSO === $value ? self::MEMBER_AUTH_SSO : self::MEMBER_AUTH_CREDENTIALS;
+	}
+
+	/**
+	 * Whether the credential login surface (login bridge, provisioning hook,
+	 * `/auth/*` REST routes, member-login widget) is active on this site.
+	 *
+	 * @return bool True when the member sign-in mode is `credentials`.
+	 */
+	public static function credential_login_enabled(): bool {
+		return self::MEMBER_AUTH_CREDENTIALS === self::get_member_auth_mode();
+	}
+
+	/**
 	 * Returns the configured API key.
 	 *
 	 * Resolution order: the optional `AGEND_APPS_API_KEY` wp-config.php

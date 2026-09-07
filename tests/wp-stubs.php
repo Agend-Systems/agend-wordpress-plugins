@@ -51,18 +51,42 @@ final class Agend_Test_WP {
 
 	public static array $query_vars = array();
 
+	/**
+	 * Canned `wp_remote_request()` responses, consumed one per call (FIFO).
+	 * Empty means the default (200, `{"call": N}`) behaviour.
+	 *
+	 * @var array<int, array{status:int, body:string}>
+	 */
+	public static array $canned_responses = array();
+
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
 		self::$queried_object_id = 0;
 		self::$query_vars        = array();
-		self::$transients      = array();
-		self::$actions         = array();
-		self::$did_action      = array();
-		self::$filters         = array();
-		self::$options         = array();
-		self::$requests        = array();
-		self::$tiers_response  = array();
-		self::$scheduled_events = array();
+		self::$transients        = array();
+		self::$actions           = array();
+		self::$did_action        = array();
+		self::$filters           = array();
+		self::$options           = array();
+		self::$requests          = array();
+		self::$tiers_response    = array();
+		self::$scheduled_events  = array();
+		self::$canned_responses  = array();
+	}
+
+	/**
+	 * Queues the next `wp_remote_request()` call to return a specific status
+	 * and JSON body, so a test can drive a gateway response
+	 * (non-2xx included) without a live HTTP call.
+	 *
+	 * @param int          $status HTTP status code.
+	 * @param array|string $body   Response body; arrays are JSON-encoded.
+	 */
+	public static function queue_response( int $status, $body ): void {
+		self::$canned_responses[] = array(
+			'status' => $status,
+			'body'   => is_string( $body ) ? $body : (string) json_encode( $body ),
+		);
 	}
 
 	/**
@@ -337,6 +361,15 @@ function wp_remote_request( string $url, array $args = array() ) {
 		'headers' => $args['headers'] ?? array(),
 	);
 
+	if ( ! empty( Agend_Test_WP::$canned_responses ) ) {
+		$next = array_shift( Agend_Test_WP::$canned_responses );
+
+		return array(
+			'body'        => $next['body'],
+			'status_code' => $next['status'],
+		);
+	}
+
 	return array(
 		'body' => (string) json_encode( array( 'call' => count( Agend_Test_WP::$requests ) ) ),
 	);
@@ -347,7 +380,7 @@ function wp_remote_retrieve_body( $response ): string {
 }
 
 function wp_remote_retrieve_response_code( $response ): int {
-	return 200;
+	return isset( $response['status_code'] ) ? (int) $response['status_code'] : 200;
 }
 
 /**
@@ -533,13 +566,208 @@ if ( ! class_exists( 'WP_User' ) ) {
 	 * type-hints `WP_User` (e.g. the `wp_login` and
 	 * `wp_saml_idp_user_attributes_lightsaml` handlers), and a cast object
 	 * would fail that type check on a real site while slipping past a test.
+	 *
+	 * Carries the password/email/name fields the login-bridge decision layer
+	 * reads; a test registers an instance in `$GLOBALS['agend_test_users']`
+	 * (or via {@see agend_apps_test_register_user()}) so `get_user_by()` can
+	 * resolve it.
 	 */
 	class WP_User {
 		public int $ID;
+		public string $user_email = '';
+		public string $user_pass  = '';
+		public string $first_name = '';
+		public string $last_name  = '';
 
 		public function __construct( int $id = 0 ) {
 			$this->ID = $id;
 		}
+	}
+}
+
+if ( ! isset( $GLOBALS['agend_test_users'] ) ) {
+	$GLOBALS['agend_test_users'] = array();
+}
+
+if ( ! function_exists( 'get_user_by' ) ) {
+	/**
+	 * User lookup stub, backed by the `$GLOBALS['agend_test_users']` registry
+	 * a test populates directly (`$GLOBALS['agend_test_users'][] = $user;`).
+	 *
+	 * @param string     $field 'email' or 'id'.
+	 * @param string|int $value Value to match.
+	 * @return WP_User|false
+	 */
+	function get_user_by( string $field, $value ) {
+		foreach ( (array) $GLOBALS['agend_test_users'] as $user ) {
+			if ( ! ( $user instanceof WP_User ) ) {
+				continue;
+			}
+
+			if ( 'email' === $field && strtolower( $user->user_email ) === strtolower( (string) $value ) ) {
+				return $user;
+			}
+
+			if ( 'id' === $field && $user->ID === (int) $value ) {
+				return $user;
+			}
+		}
+
+		return false;
+	}
+}
+
+if ( ! function_exists( 'wp_check_password' ) ) {
+	/**
+	 * Password-check stub. Real WordPress hashes the password; the tests
+	 * that drive this stub set a user's `user_pass` to the plaintext they
+	 * expect, so a direct comparison is the correct fake here.
+	 *
+	 * @param string     $password Plaintext password submitted.
+	 * @param string     $hash     Stored password ('hash' in name only here).
+	 * @param string|int $user_id  Ignored; matches the real signature.
+	 * @return bool
+	 */
+	function wp_check_password( string $password, string $hash, $user_id = '' ): bool {
+		unset( $user_id );
+
+		return '' !== $hash && $password === $hash;
+	}
+}
+
+if ( ! function_exists( 'is_email' ) ) {
+	/**
+	 * @param mixed $email Value to validate.
+	 * @return string|false The email when valid, false otherwise.
+	 */
+	function is_email( $email ) {
+		return false !== filter_var( (string) $email, FILTER_VALIDATE_EMAIL ) ? (string) $email : false;
+	}
+}
+
+if ( ! function_exists( 'current_user_can' ) ) {
+	/**
+	 * Capability stub, true by default; a test denies a capability via
+	 * `$GLOBALS['agend_test_current_user_can'][$capability] = false;`.
+	 *
+	 * @param string $capability Capability to check.
+	 * @return bool
+	 */
+	function current_user_can( string $capability ): bool {
+		return (bool) ( $GLOBALS['agend_test_current_user_can'][ $capability ] ?? true );
+	}
+}
+
+if ( ! function_exists( 'wp_create_nonce' ) ) {
+	function wp_create_nonce( $action = -1 ): string {
+		return 'test-nonce-' . md5( (string) $action );
+	}
+}
+
+if ( ! function_exists( 'admin_url' ) ) {
+	function admin_url( string $path = '' ): string {
+		return 'https://example.test/wp-admin/' . ltrim( $path, '/' );
+	}
+}
+
+// ---------------------------------------------------------------------------
+// REST API — minimal stand-ins so a controller class (which extends
+// WP_REST_Controller) can be instantiated and its route methods called
+// directly in a test, bypassing `register_routes()`/dispatch entirely.
+// ---------------------------------------------------------------------------
+
+if ( ! class_exists( 'WP_REST_Server' ) ) {
+	class WP_REST_Server {
+		const READABLE   = 'GET';
+		const CREATABLE  = 'POST';
+		const EDITABLE   = 'POST, PUT, PATCH';
+		const DELETABLE  = 'DELETE';
+		const ALLMETHODS = 'GET, POST, PUT, PATCH, DELETE';
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Request' ) ) {
+	/**
+	 * Minimal WP_REST_Request stand-in: a test builds one and sets params
+	 * directly, bypassing WordPress's own routing/sanitisation.
+	 */
+	class WP_REST_Request {
+		private string $method;
+		private string $route;
+
+		/** @var array<string, mixed> */
+		private array $params = array();
+
+		/** @var array<string, string> */
+		private array $headers = array();
+
+		public function __construct( string $method = 'GET', string $route = '' ) {
+			$this->method = $method;
+			$this->route  = $route;
+		}
+
+		public function set_param( string $key, $value ): void {
+			$this->params[ $key ] = $value;
+		}
+
+		public function get_param( string $key ) {
+			return $this->params[ $key ] ?? null;
+		}
+
+		public function set_header( string $key, string $value ): void {
+			$this->headers[ strtolower( $key ) ] = $value;
+		}
+
+		public function get_header( string $key ) {
+			return $this->headers[ strtolower( $key ) ] ?? null;
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Response' ) ) {
+	/**
+	 * Minimal WP_REST_Response stand-in: a test reads back `get_data()` and
+	 * `get_status()`, matching the real class's public surface.
+	 */
+	class WP_REST_Response {
+		private $data;
+		private int $status;
+
+		public function __construct( $data = null, int $status = 200 ) {
+			$this->data   = $data;
+			$this->status = $status;
+		}
+
+		public function get_data() {
+			return $this->data;
+		}
+
+		public function get_status(): int {
+			return $this->status;
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Controller' ) ) {
+	abstract class WP_REST_Controller {}
+}
+
+if ( ! function_exists( 'register_rest_route' ) ) {
+	/**
+	 * No-op recording stub: route registration itself is WordPress dispatch
+	 * machinery, out of scope for these unit tests, which call a
+	 * controller's route method directly.
+	 */
+	function register_rest_route( string $namespace, string $route, array $args = array(), bool $override = false ) {
+		unset( $namespace, $route, $args, $override );
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_verify_nonce' ) ) {
+	function wp_verify_nonce( $nonce, $action = -1 ) {
+		return $nonce === wp_create_nonce( $action ) ? 1 : false;
 	}
 }
 
@@ -558,6 +786,14 @@ if ( ! function_exists( 'get_user_meta' ) ) {
 if ( ! function_exists( 'update_user_meta' ) ) {
 	function update_user_meta( int $user_id, string $key, $value ) {
 		$GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] = $value;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'delete_user_meta' ) ) {
+	function delete_user_meta( int $user_id, string $key ): bool {
+		unset( $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] );
 
 		return true;
 	}

@@ -54,6 +54,17 @@ Both return the decoded gateway payload or a `WP_Error`. Always branch on
 `agend_apps_crm_get_me()` is member-scoped and needs a bearer.
 `agend_apps_crm_get_tiers()` is the public tier catalogue and does not.
 
+### Member sign-in mode
+
+The site setting `Agend_Apps_Settings::get_member_auth_mode()` (`credentials`,
+the default, or `sso`) decides whether the credential login surface exists at
+all: the login bridge, the `user_register` provisioning hook, and the
+`/agend-apps/v1/auth/*` REST routes are not loaded in `sso` mode, and the
+Elementor member-login and header-auth widgets render nothing on the front end.
+`agend_apps_bearer_token`, `Agend_Apps_Member_Session::has_session()`, and the
+`agend_apps_auth_*()` gateway wrappers remain available in both modes, so a
+consumer plugin never needs to branch on the mode itself.
+
 ### Caching and identity
 
 `Agend_Apps_Cache::build_key()` and `Agend_Apps_Settings::get_cache_ttl()` are

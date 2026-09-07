@@ -75,6 +75,13 @@ function agend_apps_records_schema_member_login(): array {
 						'type'    => 'text',
 						'default' => __( 'Sign out', 'agend-apps-core' ),
 					),
+					array(
+						'name'        => 'register_label',
+						'label'       => __( 'Create-account link text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'description' => __( 'Shows a link that swaps the sign-in form for an account registration form. Leave empty to hide.', 'agend-apps-core' ),
+					),
 				),
 			),
 		),

@@ -73,6 +73,15 @@
                         "type": "text",
                         "default": "Sign out"
                     }
+                },
+                {
+                    "id": "register_label",
+                    "args": {
+                        "label": "Create-account link text",
+                        "type": "text",
+                        "default": "",
+                        "description": "Shows a link that swaps the sign-in form for an account registration form. Leave empty to hide."
+                    }
                 }
             ]
         }
