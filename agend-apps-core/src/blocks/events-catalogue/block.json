@@ -4,7 +4,7 @@
 	"name": "agend-apps/events-catalogue",
 	"version": "1.8.0",
 	"title": "Agend Events Catalogue",
-	"category": "widgets",
+	"category": "agend",
 	"icon": "calendar-alt",
 	"description": "Upcoming events from Agend, with search, filters and detail pages.",
 	"keywords": [ "agend", "events", "catalogue" ],
