@@ -164,6 +164,16 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'register_label',
+			array(
+				'label'       => __( 'Create-account link text', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::TEXT,
+				'default'     => '',
+				'description' => __( 'Shows a link that swaps the sign-in form for an account registration form. Leave empty to hide.', 'agend-elementor' ),
+			)
+		);
+
 		$this->end_controls_section();
 
 		$this->start_controls_section(
@@ -259,6 +269,16 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 				'resetDone'        => __( 'Your password has been updated. You can now sign in.', 'agend-elementor' ),
 				'resetError'       => __( 'That reset link is invalid or has expired. Request a new one.', 'agend-elementor' ),
 				'passwordMismatch' => __( 'The two passwords do not match.', 'agend-elementor' ),
+				// Account registration (SPEC-CORE-20260907 US-3.2). This is the one
+				// surface that names a duplicate email; the sign-in form never does.
+				'register'         => (string) ( $s['register_label'] ?? '' ),
+				'registerTitle'    => __( 'Create your account', 'agend-elementor' ),
+				'registerIntro'    => __( 'Create an Agend member account to sign in on this site.', 'agend-elementor' ),
+				'firstName'        => __( 'First name', 'agend-elementor' ),
+				'lastName'         => __( 'Last name', 'agend-elementor' ),
+				'registerSubmit'   => __( 'Create account', 'agend-elementor' ),
+				'registerWorking'  => __( 'Creating…', 'agend-elementor' ),
+				'registerError'    => __( 'Could not create the account. Check your details and try again.', 'agend-elementor' ),
 			),
 		);
 	}

@@ -223,6 +223,37 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 
 		register_rest_route(
 			$this->namespace,
+			'/' . $this->rest_base . '/register',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'register' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'email'      => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_email',
+						),
+						'password'   => array(
+							'required' => true,
+							'type'     => 'string',
+						),
+						'first_name' => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'last_name'  => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
 			'/' . $this->rest_base . '/session',
 			array(
 				array(
@@ -441,6 +472,122 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 				// Sign-in rotates the WordPress session, so the caller's REST
 				// nonce is now stale. Return a fresh one for subsequent calls
 				// (the frontend also reloads, which re-seeds window.agendApps).
+				'nonce'            => wp_create_nonce( 'wp_rest' ),
+			),
+			200
+		);
+	}
+
+	/**
+	 * Registers an Agend account from the site and signs the member in
+	 * (SPEC-CORE-20260907 US-3.1).
+	 *
+	 * This is the one surface that names a duplicate email verbosely: the
+	 * gateway's 409 `EMAIL_ALREADY_REGISTERED` is returned as
+	 * `email_already_registered`. The login route and the wp-login.php bridge
+	 * never do (SPEC-API-20260810 v1.1 Decision 2.10).
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function register( WP_REST_Request $request ): WP_REST_Response {
+		$email      = strtolower( (string) $request->get_param( 'email' ) );
+		$password   = (string) $request->get_param( 'password' );
+		$first_name = (string) $request->get_param( 'first_name' );
+		$last_name  = (string) $request->get_param( 'last_name' );
+
+		if ( '' === $email || '' === $password ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'missing_fields',
+					'message' => __( 'Email and password are required.', 'agend-apps-core' ),
+				),
+				400
+			);
+		}
+
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+
+		if ( ! agend_apps_auth_login_throttle( $email, $ip ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'too_many_attempts',
+					'message' => __( 'Too many attempts. Please wait a few minutes and try again.', 'agend-apps-core' ),
+				),
+				429
+			);
+		}
+
+		$response = agend_apps_auth_register(
+			agend_apps_provision_register_payload( $email, $password, $first_name, $last_name )
+		);
+
+		if ( is_wp_error( $response ) ) {
+			if ( agend_apps_auth_error_is_email_conflict( $response ) ) {
+				return new WP_REST_Response(
+					array(
+						'code'    => 'email_already_registered',
+						'message' => __( 'An account with this email already exists. Sign in instead.', 'agend-apps-core' ),
+					),
+					409
+				);
+			}
+
+			return $this->error_to_response( $response );
+		}
+
+		$parsed  = agend_apps_auth_response_session( $response );
+		$data    = $parsed['data'];
+		$session = $parsed['session'];
+
+		if ( empty( $session ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'verification_required',
+					'message' => isset( $data['message'] ) && '' !== (string) $data['message']
+						? (string) $data['message']
+						: __( 'Check your email to verify your address, then sign in.', 'agend-apps-core' ),
+				),
+				202
+			);
+		}
+
+		$guest_cart_token = agend_apps_login_guest_cart_with_items();
+
+		/** This filter is documented in the login() method above. */
+		$user_id = (int) apply_filters( 'agend_apps_member_login_user_id', 0, $email, $data, $request );
+
+		if ( 0 === $user_id ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'wp_identity_required',
+					'message' => __( 'Your Agend account was created, but this site could not sign you in. Please sign in.', 'agend-apps-core' ),
+				),
+				409
+			);
+		}
+
+		Agend_Apps_Member_Session::store( $user_id, $session );
+		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
+		delete_user_meta( $user_id, AGEND_APPS_IDENTITY_CONFLICT_META );
+
+		$cart_transferred = false;
+		if ( '' !== $guest_cart_token ) {
+			$transfer = agend_apps_cart_transfer( $guest_cart_token, agend_apps_get_bearer_token() );
+			if ( ! is_wp_error( $transfer ) ) {
+				$cart_transferred = true;
+				setcookie( 'agend_cart_session', '', array( 'expires' => time() - HOUR_IN_SECONDS, 'path' => '/' ) );
+			}
+		}
+
+		agend_apps_member_sync_membership_meta( $user_id );
+
+		return new WP_REST_Response(
+			array(
+				'ok'               => true,
+				'user'             => isset( $data['user'] ) ? $data['user'] : null,
+				'contact'          => isset( $data['contact'] ) ? $data['contact'] : null,
+				'cart_transferred' => $cart_transferred,
 				'nonce'            => wp_create_nonce( 'wp_rest' ),
 			),
 			200

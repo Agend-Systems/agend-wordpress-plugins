@@ -3,7 +3,7 @@
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.6.0
+ * Version:           1.9.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.6.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.9.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -96,6 +96,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-identity.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/member-provisioning.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-membership-sync.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
