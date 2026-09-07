@@ -40,14 +40,16 @@ class Agend_Apps_Admin {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'wp_ajax_agend_apps_clear_cache', array( $this, 'handle_clear_cache' ) );
 		add_action( 'wp_ajax_agend_apps_verify_api_key', array( $this, 'handle_verify_api_key' ) );
+		add_action( 'wp_ajax_agend_apps_resend_verification', array( $this, 'handle_resend_verification' ) );
 		add_action( 'show_user_profile', array( $this, 'render_user_agend_account' ) );
 		add_action( 'edit_user_profile', array( $this, 'render_user_agend_account' ) );
 	}
 
 	/**
 	 * Read-only "Agend account" state on the user profile
-	 * (SPEC-CORE-20260907 US-2.2). Display only: no fields, no save handler,
-	 * and never a token or identifier.
+	 * (SPEC-CORE-20260907 US-2.2, US-4.4). Display only: no fields, no save
+	 * handler, and never a token or identifier -- except the "Resend
+	 * verification email" action, which posts only the user's own email.
 	 *
 	 * @param WP_User $user Profile being viewed.
 	 */
@@ -56,10 +58,24 @@ class Agend_Apps_Admin {
 			return;
 		}
 
-		if ( Agend_Apps_Member_Session::has_session( (int) $user->ID ) ) {
+		$user_id = (int) $user->ID;
+		$pending = '1' === (string) get_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META, true );
+
+		if ( $pending ) {
+			// Takes precedence over "Linked" (US-4.4 AC1): a withheld session
+			// and a stored one are mutually exclusive in practice, but pending
+			// is the more actionable state to show either way.
+			$state = __( 'Pending email verification', 'agend-apps-core' );
+			$help  = __( 'This user must verify their email address before the Agend account is fully active.', 'agend-apps-core' );
+		} elseif (
+			Agend_Apps_Member_Session::has_session( $user_id )
+			&& Agend_Apps_Member_Session::is_live( $user_id )
+		) {
+			// A stored but dead session (US-4.4 AC3) falls through to "Not
+			// linked" below, rather than showing a stale "Linked".
 			$state = __( 'Linked', 'agend-apps-core' );
 			$help  = __( 'This user holds an Agend member session on this site.', 'agend-apps-core' );
-		} elseif ( '1' === (string) get_user_meta( (int) $user->ID, AGEND_APPS_IDENTITY_CONFLICT_META, true ) ) {
+		} elseif ( '1' === (string) get_user_meta( $user_id, AGEND_APPS_IDENTITY_CONFLICT_META, true ) ) {
 			$state = __( 'Existing Agend account', 'agend-apps-core' );
 			$help  = __( 'An Agend account already exists for this email. The user must sign in with their Agend password, not a WordPress password.', 'agend-apps-core' );
 		} else {
@@ -72,6 +88,100 @@ class Agend_Apps_Admin {
 		echo '<th>' . esc_html__( 'Status', 'agend-apps-core' ) . '</th>';
 		echo '<td><strong>' . esc_html( $state ) . '</strong><p class="description">' . esc_html( $help ) . '</p></td>';
 		echo '</tr></table>';
+
+		if ( $pending && current_user_can( 'edit_users' ) ) {
+			$this->render_resend_verification_control( $user_id, (string) $user->user_email );
+		}
+	}
+
+	/**
+	 * Renders the staff "Resend verification email" control for a pending
+	 * user (SPEC-CORE-20260907 US-4.4 AC2). Gated on `edit_users` by the
+	 * caller; posts to `wp_ajax_agend_apps_resend_verification` and shows the
+	 * returned message inline, with no page reload.
+	 *
+	 * @param int    $user_id WordPress user id, used only to scope element ids.
+	 * @param string $email   The user's email; the only identifier posted.
+	 */
+	private function render_resend_verification_control( int $user_id, string $email ): void {
+		$button_id = 'agend-apps-resend-verification-' . $user_id;
+		$result_id = $button_id . '-result';
+
+		printf(
+			'<p><button type="button" id="%1$s" class="button" data-nonce="%2$s" data-ajax-url="%3$s" data-email="%4$s" data-result="%5$s">%6$s</button></p>',
+			esc_attr( $button_id ),
+			esc_attr( wp_create_nonce( 'agend_apps_resend_verification' ) ),
+			esc_attr( admin_url( 'admin-ajax.php' ) ),
+			esc_attr( $email ),
+			esc_attr( $result_id ),
+			esc_html__( 'Resend verification email', 'agend-apps-core' )
+		);
+		printf( '<p class="description" id="%s" style="display:none;"></p>', esc_attr( $result_id ) );
+		?>
+		<script>
+		( function () {
+			var btn = document.getElementById( <?php echo wp_json_encode( $button_id ); ?> );
+			if ( ! btn ) {
+				return;
+			}
+			btn.addEventListener( 'click', function () {
+				var result = document.getElementById( btn.dataset.result );
+				btn.disabled = true;
+				fetch( btn.dataset.ajaxUrl, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+					body: 'action=agend_apps_resend_verification&_ajax_nonce=' + encodeURIComponent( btn.dataset.nonce ) + '&email=' + encodeURIComponent( btn.dataset.email )
+				} )
+					.then( function ( r ) { return r.json(); } )
+					.then( function ( json ) {
+						result.style.display = '';
+						result.textContent = ( json && json.data && json.data.message ) ? json.data.message : '';
+						btn.disabled = false;
+					} )
+					.catch( function () {
+						result.style.display = '';
+						result.textContent = <?php echo wp_json_encode( __( 'Something went wrong. Please try again.', 'agend-apps-core' ) ); ?>;
+						btn.disabled = false;
+					} );
+			} );
+		} )();
+		</script>
+		<?php
+	}
+
+	/**
+	 * Handles the AJAX request to resend a member's ownership verification
+	 * email (SPEC-CORE-20260907 US-4.4 AC2). Requires `edit_users`, since this
+	 * runs from any user's profile, not only the caller's own.
+	 */
+	public function handle_resend_verification(): void {
+		check_ajax_referer( 'agend_apps_resend_verification', '_ajax_nonce' );
+
+		if ( ! current_user_can( 'edit_users' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Insufficient permissions.', 'agend-apps-core' ) ), 403 );
+		}
+
+		$email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+
+		if ( '' === $email ) {
+			wp_send_json_error( array( 'message' => __( 'No email address to resend to.', 'agend-apps-core' ) ), 400 );
+		}
+
+		$response = agend_apps_auth_resend_verification( $email );
+
+		if ( is_wp_error( $response ) ) {
+			wp_send_json_error( array( 'message' => $response->get_error_message() ) );
+		}
+
+		$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+
+		wp_send_json_success(
+			array(
+				'message' => isset( $data['message'] ) && '' !== (string) $data['message']
+					? (string) $data['message']
+					: __( 'If a verification is pending for this email, a new link has been sent.', 'agend-apps-core' ),
+			)
+		);
 	}
 
 	/**
