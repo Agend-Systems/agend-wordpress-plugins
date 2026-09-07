@@ -22,6 +22,53 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Threads the HTTP status code onto every decoded gateway response, so a
+ * caller can distinguish a 202 from a 200 without `Agend_Apps_API::request()`
+ * changing how it treats a 2xx response (SPEC-CORE-20260907 US-4.1 AC1: the
+ * request() method's own 2xx handling is out of scope for that story).
+ *
+ * @param mixed  $decoded     Decoded response body.
+ * @param string $method      HTTP method.
+ * @param string $path        Relative path.
+ * @param int    $status_code HTTP status code.
+ * @return mixed
+ */
+function agend_apps_auth_thread_status_code( $decoded, string $method, string $path, int $status_code ) {
+	unset( $method, $path );
+
+	if ( is_array( $decoded ) && ! isset( $decoded['status_code'] ) ) {
+		$decoded['status_code'] = $status_code;
+	}
+
+	return $decoded;
+}
+add_filter( 'agend_apps_api_response', 'agend_apps_auth_thread_status_code', 10, 4 );
+
+/**
+ * Whether a decoded gateway response or a gateway error means the caller must
+ * verify their email before a session is issued (SPEC-CORE-20260907
+ * Decision 2.1, US-4.1 AC1).
+ *
+ * @param array|WP_Error $response Decoded response (from login()) or a gateway
+ *                                 error (from login() or register()).
+ * @return bool
+ */
+function agend_apps_auth_response_is_verification_required( $response ): bool {
+	if ( is_wp_error( $response ) ) {
+		return 'VERIFICATION_EMAIL_UNAVAILABLE' === agend_apps_auth_error_code( $response );
+	}
+
+	if ( ! is_array( $response ) ) {
+		return false;
+	}
+
+	$status_code = isset( $response['status_code'] ) ? (int) $response['status_code'] : 0;
+	$data        = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+
+	return 202 === $status_code && isset( $data['status'] ) && 'verification_required' === $data['status'];
+}
+
+/**
  * Logs in a user with email and password.
  *
  * Scope: `auth.sessions.create`.

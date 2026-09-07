@@ -118,6 +118,36 @@ class Agend_Apps_Member_Session {
 	}
 
 	/**
+	 * Whether the stored session is live: unexpired, or rotated successfully
+	 * via `POST /v1/auth/refresh` (SPEC-CORE-20260907 US-4.4 AC3). A stored
+	 * but dead session (the refresh token itself has expired or been
+	 * revoked) is cleared and reported as not live, so the admin profile can
+	 * show "Not linked" rather than a stale "Linked".
+	 *
+	 * Deliberately separate from {@see has_session()}, which stays a cheap
+	 * existence check with no gateway call.
+	 *
+	 * @param int $user_id WordPress user id.
+	 * @return bool
+	 */
+	public static function is_live( int $user_id ): bool {
+		$stored = get_user_meta( $user_id, self::META_KEY, true );
+
+		if (
+			! is_array( $stored )
+			|| ! isset( $stored['access_token'], $stored['refresh_token'], $stored['expires_at'] )
+		) {
+			return false;
+		}
+
+		if ( ( (int) $stored['expires_at'] - self::EXPIRY_BUFFER ) > time() ) {
+			return true;
+		}
+
+		return '' !== ( new self() )->refresh( $user_id, (string) $stored['refresh_token'], '' );
+	}
+
+	/**
 	 * Resolves the current user's access token for an outbound gateway call.
 	 *
 	 * @param mixed $token The token from an earlier filter (usually '').
@@ -188,6 +218,10 @@ class Agend_Apps_Member_Session {
 			self::clear( $user_id );
 			return is_string( $passthrough ) ? $passthrough : '';
 		}
+
+		// A refresh returned a live session: any earlier verification-pending
+		// state is stale (SPEC-CORE-20260907 US-4.1 AC5).
+		delete_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META );
 
 		return (string) $session['access_token'];
 	}
