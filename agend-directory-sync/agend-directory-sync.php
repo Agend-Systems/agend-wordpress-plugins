@@ -2,6 +2,7 @@
 /**
  * Plugin Name:     Agend Directory Sync
  * Plugin URI:      https://www.agend.com.au
+ * Update URI:      https://agend-systems.github.io/agend-wordpress-plugins/agend-directory-sync
  * Description:     Sync directory records from Upbeat, any JSON API, or Microsoft Dataverse to the Agend directory via the bulk-upsert API.
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au

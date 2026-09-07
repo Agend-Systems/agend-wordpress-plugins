@@ -3,3 +3,7 @@ vendor/
 .phpunit.result.cache
 .claude/
 node_modules/
+dist/
+site/
+releases.json
+__pycache__/

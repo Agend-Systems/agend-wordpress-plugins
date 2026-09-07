@@ -72,3 +72,15 @@ jobs:
           git add -N agend-apps-core/build
           git diff --exit-code --stat -- agend-apps-core/build \
             || { echo '::error::agend-apps-core/build is stale: run `npm run build` and commit the result'; exit 1; }
+
+  versions:
+    # Guardrail for the release workflow (.github/workflows/release.yml):
+    # every plugin's header Version must be valid semver and must match its
+    # own *_VERSION constant (where one is defined), so a release never gets
+    # cut from an inconsistent header.
+    name: Plugin version headers are consistent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Header/constant/semver check
+        run: .github/scripts/detect-releases.sh --check-only
