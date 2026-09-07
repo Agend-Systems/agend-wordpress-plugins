@@ -24,13 +24,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Whether a decoded gateway response or a gateway error means the caller must
  * verify their email before a session is issued (SPEC-CORE-20260907
- * Decision 2.1, US-4.1 AC1).
+ * Decision 2.1, US-4.1 AC1; Decision change B).
  *
- * `Agend_Apps_API::request()` deliberately does not carry the upstream HTTP
- * status code onto a 2xx decoded response (its own 2xx handling is out of
- * scope for this story), so a login 202 is identified structurally: only
- * the withheld-session `{ status: 'verification_required', message }` body
- * carries a `status` key at all, a genuine 200 login response never does.
+ * `Agend_Apps_API::request()` carries the upstream HTTP status onto the
+ * decoded array as `status_code`, so a 202 is identified by status first. The
+ * structural `data.status === 'verification_required'` check is a fallback
+ * only, for a response some filter has stripped `status_code` from; it never
+ * runs when `status_code` is present, so a 200 body that happens to carry a
+ * `status` key of its own (never issued today, but not excluded by the
+ * schema) is not misread as verification-required.
  *
  * @param array|WP_Error $response Decoded response (from login()) or a gateway
  *                                 error (from login() or register()).
@@ -38,11 +40,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 function agend_apps_auth_response_is_verification_required( $response ): bool {
 	if ( is_wp_error( $response ) ) {
-		return 'VERIFICATION_EMAIL_UNAVAILABLE' === agend_apps_auth_error_code( $response );
+		return 503 === agend_apps_auth_error_status( $response )
+			&& 'VERIFICATION_EMAIL_UNAVAILABLE' === agend_apps_auth_error_code( $response );
 	}
 
 	if ( ! is_array( $response ) ) {
 		return false;
+	}
+
+	if ( isset( $response['status_code'] ) ) {
+		return 202 === $response['status_code'];
 	}
 
 	$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
