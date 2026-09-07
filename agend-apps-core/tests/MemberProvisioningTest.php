@@ -22,8 +22,11 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/member-provisioning.p
  */
 final class MemberProvisioningTest extends TestCase {
 
-	private function gatewayError( int $status, string $code = '' ): WP_Error {
+	private function gatewayError( int $status, string $code = '', string $detail = '' ): WP_Error {
 		$body = '' === $code ? array() : array( 'error' => array( 'code' => $code ) );
+		if ( '' !== $detail ) {
+			$body['error']['details'] = array( 'code' => $detail );
+		}
 
 		return new WP_Error(
 			'agend_api_error',
@@ -38,6 +41,17 @@ final class MemberProvisioningTest extends TestCase {
 	#[Test]
 	public function should_classify_a_409_email_already_registered_as_an_email_conflict(): void {
 		$this->assertTrue( agend_apps_auth_error_is_email_conflict( $this->gatewayError( 409, 'EMAIL_ALREADY_REGISTERED' ) ) );
+	}
+
+	#[Test]
+	public function should_classify_a_400_contact_already_linked_as_an_email_conflict(): void {
+		$this->assertTrue( agend_apps_auth_error_is_email_conflict( $this->gatewayError( 400, 'BAD_REQUEST', 'CONTACT_ALREADY_LINKED' ) ) );
+	}
+
+	#[Test]
+	public function should_not_classify_a_400_with_another_detail_as_an_email_conflict(): void {
+		$this->assertFalse( agend_apps_auth_error_is_email_conflict( $this->gatewayError( 400, 'BAD_REQUEST', 'SELF_REGISTRATION_DISABLED' ) ) );
+		$this->assertFalse( agend_apps_auth_error_is_email_conflict( $this->gatewayError( 400, 'VALIDATION_ERROR' ) ) );
 	}
 
 	#[Test]

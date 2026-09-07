@@ -65,14 +65,46 @@ function agend_apps_auth_error_code( WP_Error $error ): string {
 }
 
 /**
+ * Reads the gateway error detail code (`error.details.code`) from a gateway
+ * `WP_Error`. Some gateway errors carry their specific reason here under a
+ * generic top-level code (a `BAD_REQUEST` whose detail is
+ * `CONTACT_ALREADY_LINKED`).
+ *
+ * @param WP_Error $error Gateway error.
+ * @return string Upper-case detail code, or '' when absent.
+ */
+function agend_apps_auth_error_detail_code( WP_Error $error ): string {
+	$data = $error->get_error_data();
+
+	if ( ! is_array( $data ) || ! isset( $data['body']['error']['details']['code'] ) ) {
+		return '';
+	}
+
+	return strtoupper( (string) $data['body']['error']['details']['code'] );
+}
+
+/**
  * Whether a register error means the email already has a dashboard account.
+ *
+ * Two gateway answers say so. A 409 `EMAIL_ALREADY_REGISTERED` is the
+ * platform-wide duplicate (the email has a login but no contact on this
+ * account). A 400 whose detail is `CONTACT_ALREADY_LINKED` is the
+ * account-scoped duplicate: the register pre-flight found a contact for the
+ * email on this account already bound to a user, and refused before touching
+ * auth. For this plugin both mean the same thing: the person must sign in
+ * with their Agend password.
  *
  * @param WP_Error $error Gateway error from `agend_apps_auth_register()`.
  * @return bool
  */
 function agend_apps_auth_error_is_email_conflict( WP_Error $error ): bool {
-	return 409 === agend_apps_auth_error_status( $error )
-		&& 'EMAIL_ALREADY_REGISTERED' === agend_apps_auth_error_code( $error );
+	$status = agend_apps_auth_error_status( $error );
+
+	if ( 409 === $status && 'EMAIL_ALREADY_REGISTERED' === agend_apps_auth_error_code( $error ) ) {
+		return true;
+	}
+
+	return 400 === $status && 'CONTACT_ALREADY_LINKED' === agend_apps_auth_error_detail_code( $error );
 }
 
 /**
