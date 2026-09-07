@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/courses-catalogue",
+  "version": "1.8.0",
+  "title": "Agend Courses Catalogue",
+  "category": "agend",
+  "icon": "welcome-learn-more",
+  "description": "Courses from Agend LMS, with search, filters and detail pages.",
+  "keywords": [
+    "agend",
+    "courses",
+    "catalogue"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "align": [
+      "wide",
+      "full"
+    ]
+  },
+  "editorScript": "file:./index.js",
+  "viewScript": [
+    "agend-apps-records-courses-catalogue"
+  ],
+  "style": [
+    "agend-apps-records-courses-catalogue"
+  ],
+  "render": "file:./render.php"
+}

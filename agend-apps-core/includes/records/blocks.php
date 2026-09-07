@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /** Surface ids that ship as blocks, in inserter order. */
-const AGEND_APPS_RECORDS_BLOCK_SURFACES = array( 'events-catalogue' );
+const AGEND_APPS_RECORDS_BLOCK_SURFACES = array( 'events-catalogue', 'courses-catalogue' );
 
 /**
  * Block attribute definitions derived from a surface schema. Fields that store
