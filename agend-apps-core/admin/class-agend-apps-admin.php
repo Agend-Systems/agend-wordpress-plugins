@@ -40,6 +40,38 @@ class Agend_Apps_Admin {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'wp_ajax_agend_apps_clear_cache', array( $this, 'handle_clear_cache' ) );
 		add_action( 'wp_ajax_agend_apps_verify_api_key', array( $this, 'handle_verify_api_key' ) );
+		add_action( 'show_user_profile', array( $this, 'render_user_agend_account' ) );
+		add_action( 'edit_user_profile', array( $this, 'render_user_agend_account' ) );
+	}
+
+	/**
+	 * Read-only "Agend account" state on the user profile
+	 * (SPEC-CORE-20260907 US-2.2). Display only: no fields, no save handler,
+	 * and never a token or identifier.
+	 *
+	 * @param WP_User $user Profile being viewed.
+	 */
+	public function render_user_agend_account( WP_User $user ): void {
+		if ( get_current_user_id() !== (int) $user->ID && ! current_user_can( 'edit_users' ) ) {
+			return;
+		}
+
+		if ( Agend_Apps_Member_Session::has_session( (int) $user->ID ) ) {
+			$state = __( 'Linked', 'agend-apps-core' );
+			$help  = __( 'This user holds an Agend member session on this site.', 'agend-apps-core' );
+		} elseif ( '1' === (string) get_user_meta( (int) $user->ID, AGEND_APPS_IDENTITY_CONFLICT_META, true ) ) {
+			$state = __( 'Existing Agend account', 'agend-apps-core' );
+			$help  = __( 'An Agend account already exists for this email. The user must sign in with their Agend password, not a WordPress password.', 'agend-apps-core' );
+		} else {
+			$state = __( 'Not linked', 'agend-apps-core' );
+			$help  = __( 'No Agend member session yet. One is created at the next sign-in with Agend credentials.', 'agend-apps-core' );
+		}
+
+		echo '<h2>' . esc_html__( 'Agend account', 'agend-apps-core' ) . '</h2>';
+		echo '<table class="form-table" role="presentation"><tr>';
+		echo '<th>' . esc_html__( 'Status', 'agend-apps-core' ) . '</th>';
+		echo '<td><strong>' . esc_html( $state ) . '</strong><p class="description">' . esc_html( $help ) . '</p></td>';
+		echo '</tr></table>';
 	}
 
 	/**

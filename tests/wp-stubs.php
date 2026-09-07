@@ -537,6 +537,14 @@ if ( ! function_exists( 'update_user_meta' ) ) {
 	}
 }
 
+if ( ! function_exists( 'delete_user_meta' ) ) {
+	function delete_user_meta( int $user_id, string $key ): bool {
+		unset( $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] );
+
+		return true;
+	}
+}
+
 if ( ! class_exists( 'WP_Post' ) ) {
 	/**
 	 * Minimal WP_Post stand-in.
