@@ -13,7 +13,7 @@ Proven locally on pca.test on 2026-09-08. Local-only steps are marked as such.
 |---|---|
 | Plugins | agend-apps-core with the changes on branch `feat/pca-directory-listing-fields` (listing address fields, windowed pager, My Account directory item); agend-elementor; agend-saml-idp; agend-loop-sync (populates `imk_membership_number`); WooCommerce; Elementor Pro (custom CSS on templates). |
 | Agend account | Slug `pca`, environment matching the site (`agend_apps_account_slug`, `agend_apps_environment`). |
-| API key | Must hold, in addition to the directory scopes: `sso.tokens.create` and `sso.identities.read`. Without these the Account Link status check and the member token mint return 403 and members only ever see the anonymous directory. Regenerate or edit the key in the dashboard. |
+| API key | Must hold, in addition to the directory scopes: `sso.tokens.create` and `sso.identities.read`. Without these the Account Link status check and the member token mint return 403 and members only ever see the anonymous directory. Optional features are scope-gated by the plugin: Badges & Credentials needs `directory.achievements.browse`, export reports `directory.export_reports.browse`, the review form `directory.reviews.manage`, member self-edit `directory.listings.self_update`. The plugin reads the key's scopes from the gateway and disables features whose scope is missing; use Test connection after changing the key. |
 | Elementor | Containers are disabled on PCA; templates use sections and columns. Keep it that way or the provisioning script's markup will not match. |
 
 ## 1. Member sign-in mode

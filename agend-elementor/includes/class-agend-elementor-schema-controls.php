@@ -44,6 +44,26 @@ final class Agend_Elementor_Schema_Controls {
 			$widget->start_controls_section( $section['id'], $section_args );
 
 			foreach ( $section['fields'] ?? array() as $field ) {
+				// A field gated on an optional feature (SPEC-CORE-20260908
+				// scope-gated features): when the connected API key does not
+				// (or is not yet known to) hold the scope(s) the feature
+				// needs, a notice naming the missing scope(s) replaces the
+				// control entirely, rather than letting the site configure a
+				// setting the runtime will never honour.
+				if ( isset( $field['requires_feature'] ) && function_exists( 'agend_apps_records_feature_available' )
+					&& ! agend_apps_records_feature_available( (string) $field['requires_feature'] )
+				) {
+					$widget->add_control(
+						$field['name'],
+						array(
+							'type'            => \Elementor\Controls_Manager::RAW_HTML,
+							'raw'             => esc_html( agend_apps_records_feature_missing_scope_notice( (string) $field['requires_feature'] ) ),
+							'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
+						)
+					);
+					continue;
+				}
+
 				if ( 'adapter' === ( $field['type'] ?? '' ) ) {
 					if ( method_exists( $widget, 'register_adapter_control' ) ) {
 						$widget->register_adapter_control( $field['name'] );

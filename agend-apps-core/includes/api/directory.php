@@ -281,6 +281,14 @@ function agend_apps_directory_get_facets( array $fields = array() ) {
  *                        or WP_Error on failure.
  */
 function agend_apps_directory_get_export_reports() {
+	// Never call an endpoint the connected key cannot use (SPEC-CORE-20260908
+	// scope-gated features): a key without directory.export_reports.browse
+	// gets a 403 for this call, which is exactly what the optional-feature
+	// registry exists to pre-empt.
+	if ( function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'directory_export_reports' ) ) {
+		return array( 'data' => array() );
+	}
+
 	/**
 	 * Filters the export report list request args before the request is sent.
 	 *
@@ -692,6 +700,17 @@ function agend_apps_directory_get_my_listing() {
  * @return array|WP_Error Decoded listing on success, or WP_Error on failure.
  */
 function agend_apps_directory_update_my_listing( array $listing ) {
+	// Never call an endpoint the connected key cannot use (SPEC-CORE-20260908
+	// scope-gated features): a key without directory.listings.self_update gets
+	// a 403 for this call.
+	if ( function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'directory_my_listing' ) ) {
+		return new WP_Error(
+			'agend_apps_feature_unavailable',
+			__( 'Editing your own directory listing is not available: the connected API key does not hold the directory.listings.self_update scope.', 'agend-apps-core' ),
+			array( 'status_code' => 403 )
+		);
+	}
+
 	/**
 	 * Filters the update-my-listing request args before the request is sent.
 	 *

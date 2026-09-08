@@ -46,6 +46,19 @@ namespace Agend\Tests\Core {
 			unset( $GLOBALS['agend_test_current_user_id'] );
 
 			update_option( 'wp_saml_idp_settings', array( 'entity_id' => 'https://example.test/saml/metadata' ) );
+
+			// This file exercises the token worker's mint and the account-link
+			// status route directly, both gated (SPEC-CORE-20260908 scope-gated
+			// features) on the sso_account_link optional feature holding
+			// sso.identities.read + sso.tokens.create. Seeded as held here so
+			// this file's own behaviour under test is unaffected by that gate
+			// (KeyScopesTest/OptionalFeaturesTest exercise the gate itself);
+			// class_exists() guards a run where those classes never loaded.
+			if ( class_exists( '\Agend_Apps_Key_Scopes' ) && function_exists( 'agend_apps_verify_api_key' ) ) {
+				Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'sso.identities.read', 'sso.tokens.create' ) ) ) );
+				\Agend_Apps_Key_Scopes::refresh();
+				Agend_Test_WP::$requests = array();
+			}
 		}
 
 		private function setLoggedInUser( int $user_id, string $external_id ): void {

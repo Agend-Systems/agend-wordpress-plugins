@@ -153,6 +153,10 @@ function agend_apps_records_ssr_maybe_render_detail(): void {
 			$wp_query->set_404();
 			status_header( 404 );
 			nocache_headers();
+			// redirect_canonical() treats a 404 on a page URL as a stray path and
+			// 301s back to the catalogue page, which hides the 404 (and whatever
+			// upstream failure caused it) behind a silent redirect.
+			remove_action( 'template_redirect', 'redirect_canonical' );
 			return;
 		}
 
@@ -849,7 +853,14 @@ function agend_apps_records_ssr_reviews_section( array $item, string $slug, $rev
 			class_exists( 'Agend_Apps_Member_Session' ) &&
 			Agend_Apps_Member_Session::has_session( get_current_user_id() )
 		);
+
+		// The review-form optional feature (SPEC-CORE-20260908 scope-gated
+		// features): omit the submission form entirely when the connected key
+		// does not (or is not yet known to) hold directory.reviews.manage,
+		// rather than render a form whose submit 403s.
+		$review_form_available = ! function_exists( 'agend_apps_records_feature_available' ) || agend_apps_records_feature_available( 'directory_review_form' );
 		?>
+		<?php if ( $review_form_available ) : ?>
 		<div class="agend-dir-review-form" data-agend-listing-id="<?php echo esc_attr( $item['id'] ?? '' ); ?>" data-agend-member="<?php echo $member_logged_in ? '1' : '0'; ?>">
 			<h3 class="agend-dir-review-form__title"><?php esc_html_e( 'Write a Review', 'agend-apps-core' ); ?></h3>
 			<div class="agend-dir-review-form__rating">
@@ -877,6 +888,7 @@ function agend_apps_records_ssr_reviews_section( array $item, string $slug, $rev
 			<div class="agend-dir-review-form__error" style="display:none;"></div>
 			<button type="button" class="agend-dir-review-form__submit"><?php esc_html_e( 'Submit Review', 'agend-apps-core' ); ?></button>
 		</div>
+		<?php endif; ?>
 	</section>
 	<?php
 	return (string) ob_get_clean();
