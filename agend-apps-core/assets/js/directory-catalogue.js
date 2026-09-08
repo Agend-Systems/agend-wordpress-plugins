@@ -587,6 +587,17 @@
 
   // Renders a single public custom-field value by its type (US-4.x / Part A).
   function renderCustomFieldValue(field) {
+    // A gated field arrives without a value; the gateway says why (`state`).
+    // Mirror the server-rendered detail: name the reason, never a blank.
+    if (field && field.gated) {
+      var gatedLabels = {
+        authentication_required: 'Sign in to view',
+        membership_required: 'Members only',
+        plan_required: 'Not included in your subscription',
+      };
+      return el('span', 'agend-dir-cf__value agend-dir-cf__value--gated', gatedLabels[field.state] || 'Restricted');
+    }
+
     var type = field.type || 'text';
     var value = field.value;
     if (type === 'array' && Array.isArray(value)) {

@@ -675,6 +675,17 @@
   line-height: 1.5;
 }
 
+.agend-dir-cf__value--gated {
+  color: var(--agend-dir-muted);
+  font-style: italic;
+}
+
+.agend-dir-cf__value--gated::before {
+  content: "\1F512\00a0";
+  font-style: normal;
+  font-size: 0.85em;
+}
+
 .agend-dir-cf__link {
   color: var(--agend-dir-accent);
   text-decoration: none;
