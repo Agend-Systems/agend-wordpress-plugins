@@ -101,8 +101,17 @@ def git_show(repo_root: Path, tag: str, path: str) -> str:
 def select_latest_per_slug(releases: list[dict]) -> dict:
 	"""releases -> {slug: release_dict} keeping only the highest-version,
 	non-prerelease release per slug."""
+	# Tolerate a `gh api --paginate --slurp` array-of-pages shape as well as
+	# a flat list, so a raw dump works without pre-flattening.
+	flat: list[dict] = []
+	for item in releases:
+		if isinstance(item, list):
+			flat.extend(item)
+		else:
+			flat.append(item)
+
 	best: dict[str, tuple[tuple, dict, str]] = {}
-	for release in releases:
+	for release in flat:
 		if release.get("prerelease"):
 			continue
 		if release.get("draft"):
