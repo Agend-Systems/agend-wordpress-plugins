@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * None of the Agend plugins are on WordPress.org, so each plugin's main file
  * declares `Update URI: https://agend-systems.github.io/agend-wordpress-plugins/{slug}`.
  * WordPress 5.8+ dispatches update checks for a given `Update URI` hostname
- * through a per-hostname `update-plugins_{hostname}` filter, so this one
+ * through a per-hostname `update_plugins_{hostname}` filter, so this one
  * class -- loaded unconditionally by Core, which every sibling plugin
  * depends on -- covers the whole family from a single manifest fetch.
  *
@@ -103,7 +103,7 @@ class Agend_Apps_Updater {
 	 * need to have run for.
 	 */
 	public static function boot() {
-		add_filter( 'update-plugins_' . self::UPDATE_HOST, array( __CLASS__, 'filter_plugin_update' ), 10, 4 );
+		add_filter( 'update_plugins_' . self::UPDATE_HOST, array( __CLASS__, 'filter_plugin_update' ), 10, 4 );
 		add_filter( 'plugins_api', array( __CLASS__, 'filter_plugins_api' ), 10, 3 );
 		add_action( 'delete_site_transient_update_plugins', array( __CLASS__, 'flush_cache' ) );
 
@@ -240,7 +240,7 @@ class Agend_Apps_Updater {
 	}
 
 	/**
-	 * `update-plugins_{hostname}` filter: reports a newer version for a
+	 * `update_plugins_{hostname}` filter: reports a newer version for a
 	 * single plugin, or leaves WordPress's own `$update` untouched.
 	 *
 	 * @param array|false $update      Update array WordPress already has, or false.

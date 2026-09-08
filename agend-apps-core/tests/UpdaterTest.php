@@ -16,7 +16,7 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-upda
 
 /**
  * `Agend_Apps_Updater`: serves plugin updates from the GitHub Pages manifest
- * for every Agend plugin, through the WP 5.8+ `update-plugins_{hostname}`
+ * for every Agend plugin, through the WP 5.8+ `update_plugins_{hostname}`
  * filter, and fills the "View details" modal through `plugins_api`.
  */
 final class UpdaterTest extends TestCase {
@@ -374,5 +374,22 @@ final class UpdaterTest extends TestCase {
 		$this->expectException( \Agend_Test_WP_Die_Exception::class );
 
 		Agend_Apps_Updater::handle_check_updates();
+	}
+
+	/**
+	 * WordPress has fired `update_plugins_{$hostname}` (underscore) since 5.8.
+	 * A hyphenated name silently never fires, which is exactly the bug this
+	 * guards against: the filter method can be correct while nothing calls it.
+	 */
+	#[Test]
+	public function boot_registers_the_underscore_update_plugins_hostname_filter(): void {
+		Agend_Apps_Updater::boot();
+
+		$this->assertArrayHasKey( 'update_plugins_agend-systems.github.io', Agend_Test_WP::$filters );
+		$this->assertArrayNotHasKey( 'update-plugins_agend-systems.github.io', Agend_Test_WP::$filters );
+		$this->assertSame(
+			array( Agend_Apps_Updater::class, 'filter_plugin_update' ),
+			Agend_Test_WP::$filters['update_plugins_agend-systems.github.io']
+		);
 	}
 }
