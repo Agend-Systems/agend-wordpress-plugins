@@ -2,6 +2,7 @@
 /**
  * Plugin Name:       Agend Apps Core
  * Plugin URI:        https://agend.com.au
+ * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
  * Version:           1.12.0
  * Author:            Agend
@@ -106,6 +107,13 @@ require_once AGEND_APPS_CORE_DIR . 'includes/records/settings.php';
 // page_url()/detail_url() calls work even before this plugin's own bootstrap
 // runs.
 require_once AGEND_APPS_CORE_DIR . 'includes/records/pages.php';
+
+// GitHub Releases updater, shared by every Agend plugin (Core is a
+// dependency of all of them). Loaded and booted unconditionally, ahead of
+// `agend_apps_core_bootstrap()`, because update checks run in admin and
+// `wp-cron.php` contexts that do not otherwise run the full bootstrap.
+require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-updater.php';
+agend_apps_updater_boot();
 
 register_activation_hook( __FILE__, 'agend_apps_records_activate_rewrites' );
 register_deactivation_hook( __FILE__, 'agend_apps_records_deactivate_rewrites' );
