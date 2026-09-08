@@ -2,16 +2,15 @@
 	"$schema": "https://schemas.wp.org/trunk/block.json",
 	"apiVersion": 3,
 	"name": "agend-apps/events-catalogue",
-	"version": "1.8.0",
+	"version": "1.12.0",
 	"title": "Agend Events Catalogue",
-	"category": "widgets",
+	"category": "agend",
 	"icon": "calendar-alt",
 	"description": "Upcoming events from Agend, with search, filters and detail pages.",
 	"keywords": [ "agend", "events", "catalogue" ],
 	"textdomain": "agend-apps-core",
 	"supports": {
 		"html": false,
-		"multiple": false,
 		"align": [ "wide", "full" ]
 	},
 	"editorScript": "file:./index.js",

@@ -34,6 +34,11 @@ function agend_apps_records_events_catalogue_string_list( $value ): array {
  * @return array Config passed to the frontend script as JSON.
  */
 function agend_apps_records_events_catalogue_build_config( array $s ): array {
+	$colours = agend_apps_records_resolve_colours(
+		array( 'inherit_colours' => (string) ( $s['inherit_colours'] ?? 'yes' ) ) + $s,
+		AGEND_APPS_RECORDS_COLOUR_DEFAULTS
+	);
+
 	return array(
 		'heading'        => array(
 			'show'       => 'yes' === ( $s['show_heading'] ?? 'yes' ),
@@ -81,16 +86,10 @@ function agend_apps_records_events_catalogue_build_config( array $s ): array {
 			'style'   => (string) ( $s['pagination_style'] ?? 'numbered' ),
 			'perPage' => (int) ( $s['per_page'] ?? 9 ),
 		),
-		'colours'        => array(
-			'heading'    => (string) ( $s['heading_colour'] ?? '#1E2A4A' ),
-			'body'       => (string) ( $s['body_colour'] ?? '#26304D' ),
-			'accent'     => (string) ( $s['accent_colour'] ?? '#FF6B55' ),
-			'button'     => (string) ( $s['button_colour'] ?? '#FF6B55' ),
-			'buttonText' => (string) ( $s['button_text_colour'] ?? '#FFFFFF' ),
-		),
+		'colours'        => $colours['colours'],
 		'theme'          => array(
-			'inheritFonts'   => 'yes' === ( $s['inherit_fonts'] ?? 'yes' ),
-			'inheritColours' => 'yes' === ( $s['inherit_colours'] ?? 'yes' ),
+			'inheritFonts' => 'yes' === ( $s['inherit_fonts'] ?? 'yes' ),
+			'colourSource' => $colours['source'],
 		),
 	);
 }
