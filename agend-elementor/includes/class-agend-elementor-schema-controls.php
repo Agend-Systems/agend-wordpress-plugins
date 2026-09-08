@@ -32,7 +32,9 @@ final class Agend_Elementor_Schema_Controls {
 		foreach ( $schema['sections'] ?? array() as $section ) {
 			$section_args = array(
 				'label' => $section['label'] ?? '',
-				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
+				'tab'   => 'style' === ( $section['tab'] ?? '' )
+					? \Elementor\Controls_Manager::TAB_STYLE
+					: \Elementor\Controls_Manager::TAB_CONTENT,
 			);
 
 			if ( isset( $section['condition'] ) ) {
@@ -48,7 +50,17 @@ final class Agend_Elementor_Schema_Controls {
 					}
 					continue;
 				}
-				$widget->add_control( $field['name'], self::control_args( $field ) );
+
+				$args = self::control_args( $field );
+
+				// A newer core schema may describe a field type this adapter
+				// does not understand yet (Decision 2.10); skip it rather than
+				// registering a typeless control.
+				if ( array() === $args ) {
+					continue;
+				}
+
+				$widget->add_control( $field['name'], $args );
 			}
 
 			$widget->end_controls_section();
@@ -92,6 +104,11 @@ final class Agend_Elementor_Schema_Controls {
 
 			case 'textarea':
 				$args['type']    = \Elementor\Controls_Manager::TEXTAREA;
+				$args['default'] = $field['default'] ?? '';
+				break;
+
+			case 'colour':
+				$args['type']    = \Elementor\Controls_Manager::COLOR;
 				$args['default'] = $field['default'] ?? '';
 				break;
 
@@ -157,6 +174,10 @@ final class Agend_Elementor_Schema_Controls {
 					$args['condition'] = $field['condition'];
 				}
 				return $args;
+
+			default:
+				// Unknown field type: no control this adapter can build.
+				return array();
 		}
 
 		if ( isset( $field['label_block'] ) ) {

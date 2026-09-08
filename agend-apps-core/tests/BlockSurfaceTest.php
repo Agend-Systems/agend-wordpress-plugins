@@ -24,7 +24,10 @@ final class BlockSurfaceTest extends TestCase {
 		parent::setUp();
 		require_once AGEND_TESTS_ROOT . '/tests/render-doubles.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/events-catalogue.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/courses-catalogue.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/member-login.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/blocks.php';
 		agend_render_test_reset();
 	}
@@ -77,6 +80,75 @@ final class BlockSurfaceTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_render_what_the_elementor_courses_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'courses-catalogue' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		// The Elementor content-control defaults, recorded from the widget.
+		// The colour and inherit_colours defaults are not in this fixture
+		// (it only ever recorded the Content tab); they come from the schema's
+		// style section defaults instead, which is what
+		// agend_apps_records_render_block() already resolves the block's own
+		// $defaults from, so no separate merge is needed here for the
+		// comparison to hold.
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/courses-catalogue-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		self::assertSame( agend_apps_records_render_courses_catalogue( $elementor_settings ), agend_apps_records_render_block( 'courses-catalogue', $defaults ) );
+	}
+
+	#[Test]
+	public function should_render_what_the_elementor_member_login_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'member-login' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/member-login-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		self::assertSame( agend_apps_records_render_member_login( $elementor_settings ), agend_apps_records_render_block( 'member-login', $defaults ) );
+	}
+
+	#[Test]
+	public function should_report_no_notices_when_member_login_is_in_credentials_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'credentials' );
+
+		self::assertSame( array(), agend_apps_records_block_surface_notices( 'member-login' ) );
+	}
+
+	#[Test]
+	public function should_report_an_sso_warning_notice_when_member_login_is_in_sso_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'sso' );
+
+		$notices = agend_apps_records_block_surface_notices( 'member-login' );
+
+		self::assertCount( 1, $notices );
+		self::assertSame( 'warning', $notices[0]['status'] );
+		self::assertSame(
+			'Member sign-in is set to SSO in Agend Apps settings. This block renders nothing until credential sign-in is enabled.',
+			$notices[0]['text']
+		);
+	}
+
+	#[Test]
+	public function should_report_no_notices_for_a_catalogue_surface(): void {
+		self::assertSame( array(), agend_apps_records_block_surface_notices( 'events-catalogue' ) );
+	}
+
+	#[Test]
 	public function should_resolve_option_callables_and_boolean_toggle_defaults_when_serving_the_editor_schema(): void {
 		$schema = agend_apps_records_block_editor_schema( 'events-catalogue' );
 		$fields = array();
@@ -93,6 +165,31 @@ final class BlockSurfaceTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_derive_a_string_attribute_with_the_field_default_when_given_a_colour_field(): void {
+		$schema = array(
+			'sections' => array(
+				array(
+					'id'     => 'section_style_colours',
+					'label'  => 'Colours',
+					'tab'    => 'style',
+					'fields' => array(
+						array(
+							'name'    => 'accent_colour',
+							'label'   => 'Accent colour',
+							'type'    => 'colour',
+							'default' => '#FF6B55',
+						),
+					),
+				),
+			),
+		);
+
+		$attributes = agend_apps_records_block_attributes( $schema );
+
+		self::assertSame( array( 'type' => 'string', 'default' => '#FF6B55' ), $attributes['accent_colour'] );
+	}
+
+	#[Test]
 	public function should_return_an_empty_schema_when_the_surface_is_unknown(): void {
 		self::assertSame( array(), agend_apps_records_block_editor_schema( 'no-such-surface' ) );
 	}
@@ -100,5 +197,66 @@ final class BlockSurfaceTest extends TestCase {
 	#[Test]
 	public function should_return_an_empty_string_when_rendering_a_surface_with_no_renderer(): void {
 		self::assertSame( '', agend_apps_records_render_block( 'no-such-surface', array() ) );
+	}
+
+	/**
+	 * Iterates every committed build/blocks/* directory rather than naming
+	 * events-catalogue and courses-catalogue individually, so a later
+	 * catalogue block is covered by this assertion with no second test.
+	 * member-login is the one surface excluded from the "allows multiple"
+	 * expectation (Decision 2.5): two login forms on a page is not a real
+	 * layout, and the script binds one session status per page.
+	 */
+	#[Test]
+	public function should_allow_several_instances_on_every_catalogue_block_but_not_member_login(): void {
+		$build_dir  = AGEND_TESTS_ROOT . '/agend-apps-core/build/blocks';
+		$block_dirs = glob( $build_dir . '/*', GLOB_ONLYDIR );
+
+		self::assertNotEmpty( $block_dirs, 'expected at least one committed block build' );
+
+		foreach ( $block_dirs as $block_dir ) {
+			$block    = json_decode( (string) file_get_contents( $block_dir . '/block.json' ), true );
+			$multiple = $block['supports']['multiple'] ?? true;
+			$name     = basename( $block_dir );
+
+			if ( 'member-login' === $name ) {
+				self::assertFalse( $multiple, 'member-login should not allow several instances on one page' );
+			} else {
+				self::assertNotFalse( $multiple, $name . ' should allow several instances on one page' );
+			}
+		}
+	}
+
+	#[Test]
+	public function should_insert_the_agend_category_before_widgets(): void {
+		$categories = array(
+			array( 'slug' => 'text', 'title' => 'Text' ),
+			array( 'slug' => 'widgets', 'title' => 'Widgets' ),
+			array( 'slug' => 'theme', 'title' => 'Theme' ),
+		);
+
+		$result = agend_apps_records_block_categories( $categories );
+		$slugs  = array_column( $result, 'slug' );
+
+		self::assertSame( array( 'text', 'agend', 'widgets', 'theme' ), $slugs );
+	}
+
+	#[Test]
+	public function should_not_duplicate_the_agend_category_when_called_more_than_once_per_request(): void {
+		$categories = array( array( 'slug' => 'widgets', 'title' => 'Widgets' ) );
+
+		$once  = agend_apps_records_block_categories( $categories );
+		$twice = agend_apps_records_block_categories( $once );
+
+		self::assertCount( 1, array_filter( $twice, static fn( array $c ): bool => 'agend' === $c['slug'] ) );
+	}
+
+	#[Test]
+	public function should_append_the_agend_category_when_widgets_is_absent(): void {
+		$categories = array( array( 'slug' => 'text', 'title' => 'Text' ) );
+
+		$result = agend_apps_records_block_categories( $categories );
+
+		self::assertSame( 'agend', $result[ count( $result ) - 1 ]['slug'] );
 	}
 }

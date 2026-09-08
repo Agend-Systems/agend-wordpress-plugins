@@ -11,7 +11,11 @@
  *
  * Schema = `array( 'sections' => Section[] )`.
  *
- * Section = `array( 'id' => string, 'label' => string, 'condition' => ?Condition, 'fields' => Field[] )`.
+ * Section = `array( 'id' => string, 'label' => string, 'condition' => ?Condition, 'tab' => ?string, 'fields' => Field[] )`.
+ * `tab` accepts only `'style'`; a section without the key, or with any other
+ * value, is a content section. A style section renders on the Style tab in
+ * Elementor and under the block inspector's `InspectorControls group="styles"`
+ * slot.
  *
  * Field keys (per-type keys noted under each type):
  * - `name` (string): the setting key. PERSISTED in every saved page that uses
@@ -28,6 +32,8 @@
  *   A field transcribed from a control whose original default was
  *   already a literal Elementor value (e.g. `'no'`) may give that string
  *   directly instead; it passes through unconverted.
+ * - `colour`: string `default`, a CSS colour. Maps to Elementor's COLOR
+ *   control and the block inspector's `ColorPalette`.
  * - `text`, `textarea`: string `default`.
  * - `number`: `min`, `max`, `step` (all optional); numeric `default`.
  * - `select`: `options` (array value => label, OR a callable string resolved
