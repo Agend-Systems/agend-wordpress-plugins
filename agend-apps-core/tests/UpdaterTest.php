@@ -308,4 +308,71 @@ final class UpdaterTest extends TestCase {
 			Agend_Test_WP::$site_transients
 		);
 	}
+
+	#[Test]
+	public function row_meta_gets_a_check_for_updates_link_for_our_update_uri(): void {
+		$links = Agend_Apps_Updater::filter_plugin_row_meta(
+			array( '<a href="https://agend.com.au">Visit plugin site</a>' ),
+			'agend-apps-core/agend-apps-core.php',
+			array( 'UpdateURI' => 'https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core' ),
+			'all'
+		);
+
+		$this->assertCount( 2, $links );
+		$this->assertStringContainsString( 'Check for updates', $links[1] );
+		$this->assertStringContainsString( 'action=agend_apps_check_updates', $links[1] );
+		$this->assertStringContainsString( 'plugin=agend-apps-core', str_replace( '%2F', '/', $links[1] ) );
+	}
+
+	#[Test]
+	public function row_meta_is_unchanged_for_a_foreign_update_uri(): void {
+		$links = array( '<a href="https://example.com">Visit plugin site</a>' );
+
+		$result = Agend_Apps_Updater::filter_plugin_row_meta(
+			$links,
+			'some-other-plugin/some-other-plugin.php',
+			array( 'UpdateURI' => 'https://example.com/some-other-plugin' ),
+			'all'
+		);
+
+		$this->assertSame( $links, $result );
+	}
+
+	#[Test]
+	public function row_meta_is_unchanged_without_the_update_plugins_capability(): void {
+		$GLOBALS['agend_test_current_user_can']['update_plugins'] = false;
+
+		$links = array();
+
+		$result = Agend_Apps_Updater::filter_plugin_row_meta(
+			$links,
+			'agend-apps-core/agend-apps-core.php',
+			array( 'UpdateURI' => 'https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core' ),
+			'all'
+		);
+
+		$this->assertSame( $links, $result );
+	}
+
+	#[Test]
+	public function handle_check_updates_flushes_caches_and_triggers_a_forced_check(): void {
+		Agend_Test_WP::$site_transients[ Agend_Apps_Updater::CACHE_TRANSIENT ] = $this->sample_manifest();
+		Agend_Test_WP::$site_transients['update_plugins']                     = array( 'stale' => true );
+
+		$redirect_url = Agend_Apps_Updater::handle_check_updates();
+
+		$this->assertArrayNotHasKey( Agend_Apps_Updater::CACHE_TRANSIENT, Agend_Test_WP::$site_transients );
+		$this->assertArrayNotHasKey( 'update_plugins', Agend_Test_WP::$site_transients );
+		$this->assertSame( 1, Agend_Test_WP::$wp_update_plugins_calls );
+		$this->assertStringContainsString( 'agend_apps_checked=1', $redirect_url );
+	}
+
+	#[Test]
+	public function handle_check_updates_dies_without_the_update_plugins_capability(): void {
+		$GLOBALS['agend_test_current_user_can']['update_plugins'] = false;
+
+		$this->expectException( \Agend_Test_WP_Die_Exception::class );
+
+		Agend_Apps_Updater::handle_check_updates();
+	}
 }

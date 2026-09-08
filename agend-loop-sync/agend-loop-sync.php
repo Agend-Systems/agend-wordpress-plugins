@@ -10,6 +10,7 @@
  * Text Domain:       agend-loop-sync
  * Domain Path:       /languages
  * Requires at least: 6.0
+ * Tested up to:      7.1
  * Requires PHP:      7.4
  * Requires Plugins:  agend-apps-core, iugo-membership-kiosk
  *
