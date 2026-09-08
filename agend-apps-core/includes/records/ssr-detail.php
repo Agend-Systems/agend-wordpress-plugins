@@ -608,12 +608,55 @@ function agend_apps_records_ssr_custom_fields( $fields ): string {
 }
 
 /**
+ * The short label shown in place of a gated custom field's value.
+ *
+ * Mirrors the gateway's `state` vocabulary for a withheld field. The plain
+ * words are deliberately non-specific: the gateway never discloses which tier,
+ * segment or entitlement would unlock the field, and neither does this.
+ *
+ * @param string $state The gateway's gate state for the field.
+ * @return string The label.
+ */
+function agend_apps_records_gated_field_label( string $state ): string {
+	switch ( $state ) {
+		case 'authentication_required':
+			$label = __( 'Sign in to view', 'agend-apps-core' );
+			break;
+		case 'membership_required':
+			$label = __( 'Members only', 'agend-apps-core' );
+			break;
+		case 'plan_required':
+			$label = __( 'Not included in your subscription', 'agend-apps-core' );
+			break;
+		default:
+			$label = __( 'Restricted', 'agend-apps-core' );
+	}
+
+	/**
+	 * Filters the label shown for a gated custom field.
+	 *
+	 * @param string $label The label.
+	 * @param string $state The gateway's gate state.
+	 */
+	return (string) apply_filters( 'agend_apps_records_gated_field_label', $label, $state );
+}
+
+/**
  * Renders a single custom-field value by its type.
  *
  * @param array $field { key, label, type, value }.
  * @return string Value HTML.
  */
 function agend_apps_records_ssr_cf_value( array $field ): string {
+	// A gated field arrives without a value: the gateway withholds it and says
+	// why (`state`). Show that reason in place of a blank, so a visitor can tell
+	// "you may not see this" from "nothing recorded".
+	if ( ! empty( $field['gated'] ) ) {
+		return '<span class="agend-dir-cf__value agend-dir-cf__value--gated">'
+			. esc_html( agend_apps_records_gated_field_label( (string) ( $field['state'] ?? '' ) ) )
+			. '</span>';
+	}
+
 	$type  = $field['type'] ?? 'text';
 	$value = $field['value'] ?? '';
 
