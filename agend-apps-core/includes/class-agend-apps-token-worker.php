@@ -148,6 +148,13 @@ class Agend_Apps_Token_Worker {
 			return '';
 		}
 
+		// A successful mint confirms the identity is linked; record the ids the
+		// gateway returned alongside it (both optional -- an older gateway
+		// omits them) the same way agend_apps_account_link_state() does.
+		if ( function_exists( 'agend_apps_record_linked_identity' ) ) {
+			agend_apps_record_linked_identity( $user_id, $minted );
+		}
+
 		update_user_meta(
 			$user_id,
 			self::META_KEY,

@@ -392,6 +392,24 @@ class Agend_Apps_Admin {
 
 		register_setting(
 			self::OPTION_GROUP,
+			'agend_apps_directory_page_id',
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => 'absint',
+				'default'           => 0,
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_directory_page_id',
+			__( 'Directory page (My Account link)', 'agend-apps-core' ),
+			array( $this, 'render_directory_page_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_api_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
 			'agend_apps_webhook_secret',
 			array(
 				'type'              => 'string',
@@ -754,6 +772,30 @@ class Agend_Apps_Admin {
 		);
 		echo '<p class="description">';
 		esc_html_e( 'User-meta key holding each member\'s Agend external id (the SAML NameID your IdP asserts). Defaults to the Upbeat membership number.', 'agend-apps-core' );
+		echo '</p>';
+	}
+
+	/**
+	 * Renders the "Directory page (My Account link)" page picker.
+	 *
+	 * The WooCommerce My Account "Directory" endpoint links here. Left unset,
+	 * it falls back to the dedicated Directory Catalogue page configured under
+	 * Agend Widgets ({@see Agend_Apps_Records_Pages::page_id()}); with neither
+	 * configured the My Account menu item is not registered at all.
+	 */
+	public function render_directory_page_field(): void {
+		$selected = absint( get_option( 'agend_apps_directory_page_id', 0 ) );
+
+		wp_dropdown_pages(
+			array(
+				'name'              => 'agend_apps_directory_page_id',
+				'show_option_none'  => __( 'Select a page', 'agend-apps-core' ),
+				'option_none_value' => '0',
+				'selected'          => $selected,
+			)
+		);
+		echo '<p class="description">';
+		esc_html_e( 'The page the WooCommerce My Account "Directory" link points to. Leave unset to use the dedicated Directory Catalogue page (Agend Widgets settings) if one is configured.', 'agend-apps-core' );
 		echo '</p>';
 	}
 

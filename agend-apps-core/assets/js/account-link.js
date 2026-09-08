@@ -126,7 +126,11 @@
   // `identity` (optional) is the credential-login member's name/email
   // (SPEC-CORE-20260722 US-2.6) — shown only for the credential-login
   // connected state; the SSO-linked state never passes it.
-  function renderLinked(root, cfg, portalUrl, identity) {
+  //
+  // `note` (optional) is a short status line shown beneath the linked state,
+  // used for a linked-but-contactless member (the gateway has not associated
+  // a CRM contact yet).
+  function renderLinked(root, cfg, portalUrl, identity, note) {
     var wrap = card(cfg);
     wrap.classList.add('is-linked');
     var row = el('div', 'agend-al-card__status');
@@ -138,6 +142,9 @@
     }
     if (identity) {
       wrap.appendChild(el('p', 'agend-al-card__identity', identity));
+    }
+    if (note) {
+      wrap.appendChild(el('p', 'agend-al-card__note', note));
     }
     if (portalUrl && cfg.messages.portalLink) {
       var portal = el('a', 'agend-al-card__button', cfg.messages.portalLink);
@@ -204,7 +211,11 @@
         return;
       }
       if (status.linked) {
-        renderLinked(root, cfg, status.portal_url || '');
+        // A linked SSO member with no recorded contact id yet (the gateway
+        // has not associated a CRM contact, or an older gateway did not
+        // report one) is still linked, but has no directory profile to show.
+        var note = status.contact_id ? '' : 'Your directory profile is still being set up.';
+        renderLinked(root, cfg, status.portal_url || '', '', note);
         return;
       }
       renderUnlinked(root, cfg, status.initiate_url || '');

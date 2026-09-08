@@ -47,6 +47,10 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 		public static function credential_login_enabled(): bool {
 			return self::MEMBER_AUTH_CREDENTIALS === self::get_member_auth_mode();
 		}
+
+		public static function get_portal_home_url(): string {
+			return '';
+		}
 	}
 }
 
