@@ -68,7 +68,11 @@
                                     "listing:facebook_url": "Facebook",
                                     "listing:instagram_url": "Instagram",
                                     "listing:twitter_url": "X (Twitter)",
-                                    "listing:youtube_url": "YouTube"
+                                    "listing:youtube_url": "YouTube",
+                                    "listing:postcode": "Postcode",
+                                    "listing:street": "Street address",
+                                    "listing:address": "Full address (one line)",
+                                    "listing:updated_at": "Last updated"
                                 }
                             },
                             {

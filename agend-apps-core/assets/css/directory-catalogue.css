@@ -383,6 +383,18 @@
   font-size: 0.9rem;
 }
 
+.agend-dir-page:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agend-dir-page-gap {
+  min-width: 24px;
+  text-align: center;
+  align-self: center;
+  color: var(--agend-dir-muted);
+}
+
 .agend-dir-page.is-active {
   background: var(--agend-dir-button);
   border-color: var(--agend-dir-button);

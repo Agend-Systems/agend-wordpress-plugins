@@ -99,3 +99,77 @@ function agend_apps_idp_entity_id(): string {
 	 */
 	return (string) apply_filters( 'agend_apps_idp_entity_id', $entity_id );
 }
+
+/**
+ * User-meta key holding a member's Agend Supabase user id.
+ *
+ * Underscore-prefixed (hidden from the profile UI); never sent to the
+ * browser.
+ *
+ * @var string
+ */
+const AGEND_APPS_SUPABASE_USER_ID_META = '_agend_apps_supabase_user_id';
+
+/**
+ * User-meta key holding a member's Agend CRM contact id.
+ *
+ * Underscore-prefixed (hidden from the profile UI); never sent to the
+ * browser.
+ *
+ * @var string
+ */
+const AGEND_APPS_CONTACT_ID_META = '_agend_apps_contact_id';
+
+/**
+ * Records a WordPress user's linked Agend identity ids from a gateway
+ * response.
+ *
+ * Shared by every surface that observes a linked identity: the credential
+ * login flow (member-identity.php's `agend_apps_member_store_contact_ref()`),
+ * the account-link state resolver (`agend_apps_account_link_state()`) on a
+ * linked SSO status, and the SSO token worker on a successful mint. Both ids
+ * are optional in the response (an older gateway omits them, or a contactless
+ * member has no `contact_id`), and an empty/missing value never overwrites an
+ * already-recorded one -- a later call that happens not to carry an id (e.g.
+ * a status check against an older gateway) must not erase what an earlier
+ * call already established.
+ *
+ * @param int   $user_id WordPress user id.
+ * @param array $data    Decoded response data. Reads `user_id` and
+ *                        `contact_id` (both optional, `contact_id` may be
+ *                        null).
+ */
+function agend_apps_record_linked_identity( int $user_id, array $data ): void {
+	if ( 0 === $user_id ) {
+		return;
+	}
+
+	if ( isset( $data['user_id'] ) && '' !== (string) $data['user_id'] ) {
+		update_user_meta( $user_id, AGEND_APPS_SUPABASE_USER_ID_META, sanitize_text_field( (string) $data['user_id'] ) );
+	}
+
+	if ( isset( $data['contact_id'] ) && '' !== (string) $data['contact_id'] ) {
+		update_user_meta( $user_id, AGEND_APPS_CONTACT_ID_META, sanitize_text_field( (string) $data['contact_id'] ) );
+	}
+}
+
+/**
+ * Resolves the Agend identity ids already recorded for a WordPress user.
+ *
+ * @param int $user_id WordPress user id (0 = not logged in).
+ * @return array{supabase_user_id: string, contact_id: string} Both empty
+ *         strings when nothing has been recorded, or `$user_id` is 0.
+ */
+function agend_apps_linked_identity_ids( int $user_id ): array {
+	if ( 0 === $user_id ) {
+		return array(
+			'supabase_user_id' => '',
+			'contact_id'       => '',
+		);
+	}
+
+	return array(
+		'supabase_user_id' => (string) get_user_meta( $user_id, AGEND_APPS_SUPABASE_USER_ID_META, true ),
+		'contact_id'       => (string) get_user_meta( $user_id, AGEND_APPS_CONTACT_ID_META, true ),
+	);
+}
