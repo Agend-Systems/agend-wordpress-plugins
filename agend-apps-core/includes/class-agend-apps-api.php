@@ -71,6 +71,12 @@ class Agend_Apps_API {
 	 *                                (no JSON decoding) as an array with `body`, `status_code`,
 	 *                                `content_type`, and `content_disposition` keys. For
 	 *                                non-JSON payloads such as iCal files. Default false.
+	 *     @type bool   $unattended   Internal use only. When true, skips the bearer resolver
+	 *                                entirely (no Authorization header is sent), even though
+	 *                                `bearer_token` was not supplied. Used by the internal
+	 *                                401/403-on-GET retry below; callers should not set this.
+	 *     @type bool   $bearer_auto_resolved Internal use only. Set by `get_cached()` when the
+	 *                                `bearer_token` it passes came from the shared resolver.
 	 * }
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
@@ -151,9 +157,26 @@ class Agend_Apps_API {
 		// supplied the shared resolver is consulted so a logged-in identity is
 		// attached automatically; an empty string leaves the request unattended
 		// (guest / API-key-only).
-		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
-			? (string) $args['bearer_token']
-			: agend_apps_get_bearer_token();
+		$bearer_supplied_by_caller = isset( $args['bearer_token'] ) && '' !== $args['bearer_token'];
+		$bearer_unattended         = ! empty( $args['unattended'] );
+
+		if ( $bearer_supplied_by_caller ) {
+			$bearer_token = (string) $args['bearer_token'];
+		} elseif ( $bearer_unattended ) {
+			$bearer_token = '';
+		} else {
+			$bearer_token = agend_apps_get_bearer_token();
+		}
+
+		// Whether this bearer came from the auto-resolver (as opposed to being
+		// supplied explicitly by the caller) determines whether the 401/403
+		// retry below is allowed to fire: we only want to drop a bearer we
+		// attached ourselves, never one the caller asked for on purpose.
+		// `get_cached()` resolves the bearer itself and hands it over as
+		// `bearer_token`, marking it `bearer_auto_resolved` so it still counts
+		// as ours here.
+		$bearer_auto_resolved = ( ! $bearer_supplied_by_caller || ! empty( $args['bearer_auto_resolved'] ) ) && ! $bearer_unattended;
+
 		if ( '' !== $bearer_token ) {
 			$headers['Authorization'] = 'Bearer ' . $bearer_token;
 		}
@@ -280,6 +303,34 @@ class Agend_Apps_API {
 
 		// 14. Handle non-2xx status codes.
 		if ( $status_code < 200 || $status_code >= 300 ) {
+			// Public catalogue data (e.g. GET /events, GET /lms/courses) must
+			// still render for a signed-in WordPress user even when the
+			// gateway does not accept their member session bearer for that
+			// particular resource. Rather than let every catalogue read break
+			// for logged-in users, retry once with no Authorization header
+			// when the auto-resolved bearer itself appears to be the cause
+			// (401/403 on a GET). A caller-supplied bearer, or any non-GET
+			// method, is never retried: those are real permission failures,
+			// not an identity mismatch we can safely drop.
+			if (
+				'GET' === strtoupper( $method )
+				&& $bearer_auto_resolved
+				&& '' !== $bearer_token
+				&& ( 401 === $status_code || 403 === $status_code )
+			) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+						sprintf( '[Agend Apps] Gateway rejected the member bearer (%d) on GET %s; retried unattended.', $status_code, $path )
+					);
+				}
+
+				$retry_args                = $args;
+				$retry_args['bearer_token'] = '';
+				$retry_args['unattended']   = true;
+
+				return $this->request( $method, $path, $retry_args );
+			}
+
 			$message = isset( $decoded['error']['message'] )
 				? $decoded['error']['message']
 				: __( 'An unknown API error occurred.', 'agend-apps-core' );
@@ -416,7 +467,10 @@ class Agend_Apps_API {
 			: agend_apps_get_bearer_token();
 
 		if ( '' !== $bearer_token ) {
-			$args['bearer_token'] = $bearer_token;
+			// Record whether the bearer was ours, so request() may drop it and
+			// retry unattended when the gateway rejects it (401/403).
+			$args['bearer_auto_resolved'] = empty( $args['bearer_token'] );
+			$args['bearer_token']         = $bearer_token;
 
 			return $this->request( 'GET', $path, $args );
 		}

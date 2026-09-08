@@ -220,8 +220,12 @@ class Agend_Apps_Member_Session {
 		}
 
 		// A refresh returned a live session: any earlier verification-pending
-		// state is stale (SPEC-CORE-20260907 US-4.1 AC5).
-		delete_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META );
+		// state is stale (SPEC-CORE-20260907 US-4.1 AC5). The constant is only
+		// defined when credential login is enabled (see member-provisioning.php),
+		// so guard it for SSO-mode installs where it is never loaded.
+		if ( defined( 'AGEND_APPS_VERIFICATION_PENDING_META' ) ) {
+			delete_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META );
+		}
 
 		return (string) $session['access_token'];
 	}
