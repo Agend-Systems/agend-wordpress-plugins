@@ -311,3 +311,10 @@ for that (`delete_site_transient_update_plugins`) and flushes its own cache at
 the same time, so a forced check always re-fetches the manifest. Code can do
 the same via `Agend_Apps_Updater::flush_cache()`.
 
+Every Agend plugin also gets a "Check for updates" link on the Plugins screen
+(next to "Visit plugin site"), for users with the `update_plugins`
+capability, modelled on the equivalent link plugin-update-checker adds.
+Clicking it flushes both caches, forces `wp_update_plugins()`, and redirects
+back to the Plugins screen with a dismissible "Checked for Agend plugin
+updates." notice.
+
