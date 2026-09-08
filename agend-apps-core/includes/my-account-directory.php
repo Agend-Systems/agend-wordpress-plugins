@@ -207,6 +207,14 @@ function agend_apps_my_account_directory_render( array $state ): string {
 			break;
 
 		case 'error':
+			// A missing-scope error (the connected API key cannot use the SSO
+			// account-link feature at all) is a configuration problem, not a
+			// transient outage; "try again shortly" would be misleading.
+			$out .= 'missing_scope' === ( $state['reason'] ?? '' )
+				? '<p>' . esc_html__( 'Account connection is not available on this site yet. Please contact support.', 'agend-apps-core' ) . '</p>'
+				: '<p>' . esc_html__( 'The directory is temporarily unavailable. Please try again shortly.', 'agend-apps-core' ) . '</p>';
+			break;
+
 		default:
 			$out .= '<p>' . esc_html__( 'The directory is temporarily unavailable. Please try again shortly.', 'agend-apps-core' ) . '</p>';
 			break;

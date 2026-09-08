@@ -111,9 +111,12 @@ function agend_apps_account_link_directory_url(): string {
  *                            used to build `initiate_url` for the `unlinked`
  *                            state. May be '' when the caller has none (the
  *                            resulting `initiate_url` is then '').
- * @return array{state: string, initiate_url: string, directory_url: string, supabase_user_id: string, contact_id: string}
+ * @return array{state: string, reason: string, initiate_url: string, directory_url: string, supabase_user_id: string, contact_id: string}
  *         `state` is one of `linked`, `unlinked`, `no_external_id`, `error`,
- *         `logged_out`. `supabase_user_id`/`contact_id` are the recorded
+ *         `logged_out`. `reason` is '' except for an `error` state caused by
+ *         the connected API key missing the `sso_account_link` optional
+ *         feature's scopes, where it is `missing_scope`.
+ *         `supabase_user_id`/`contact_id` are the recorded
  *         Agend identity ids (see {@see agend_apps_record_linked_identity()});
  *         both '' when nothing has been recorded, or the visitor is logged
  *         out.
@@ -124,6 +127,7 @@ function agend_apps_account_link_state( int $user_id, string $return_url = '' ):
 	if ( 0 === $user_id ) {
 		return array(
 			'state'            => 'logged_out',
+			'reason'           => '',
 			'initiate_url'     => '',
 			'directory_url'    => $directory_url,
 			'supabase_user_id' => '',
@@ -136,6 +140,7 @@ function agend_apps_account_link_state( int $user_id, string $return_url = '' ):
 
 		return array(
 			'state'            => 'linked',
+			'reason'           => '',
 			'initiate_url'     => '',
 			'directory_url'    => $directory_url,
 			'supabase_user_id' => $ids['supabase_user_id'],
@@ -150,6 +155,25 @@ function agend_apps_account_link_state( int $user_id, string $return_url = '' ):
 
 		return array(
 			'state'            => 'no_external_id',
+			'reason'           => '',
+			'initiate_url'     => '',
+			'directory_url'    => $directory_url,
+			'supabase_user_id' => $ids['supabase_user_id'],
+			'contact_id'       => $ids['contact_id'],
+		);
+	}
+
+	// The sso_account_link optional feature (SPEC-CORE-20260908 scope-gated
+	// features): sso.identities.read is what the status lookup below needs. A
+	// key without it never reaches the gateway for this — the `missing_scope`
+	// reason lets a caller (a widget, the My Account endpoint) show a distinct
+	// "not configured" message rather than the generic outage one.
+	if ( function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'sso_account_link' ) ) {
+		$ids = agend_apps_linked_identity_ids( $user_id );
+
+		return array(
+			'state'            => 'error',
+			'reason'           => 'missing_scope',
 			'initiate_url'     => '',
 			'directory_url'    => $directory_url,
 			'supabase_user_id' => $ids['supabase_user_id'],
@@ -169,6 +193,7 @@ function agend_apps_account_link_state( int $user_id, string $return_url = '' ):
 
 		return array(
 			'state'            => 'error',
+			'reason'           => '',
 			'initiate_url'     => '',
 			'directory_url'    => $directory_url,
 			'supabase_user_id' => $ids['supabase_user_id'],
@@ -198,6 +223,7 @@ function agend_apps_account_link_state( int $user_id, string $return_url = '' ):
 
 		return array(
 			'state'            => 'linked',
+			'reason'           => '',
 			'initiate_url'     => '',
 			'directory_url'    => $directory_url,
 			'supabase_user_id' => $ids['supabase_user_id'],
@@ -209,6 +235,7 @@ function agend_apps_account_link_state( int $user_id, string $return_url = '' ):
 
 	return array(
 		'state'            => 'unlinked',
+		'reason'           => '',
 		'initiate_url'     => agend_apps_account_link_initiate_url_to( $return_url ),
 		'directory_url'    => $directory_url,
 		'supabase_user_id' => $ids['supabase_user_id'],

@@ -187,6 +187,13 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-settings.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-api.php';
+
+	// Cached API-key scopes (SPEC-CORE-20260908 scope-gated features): backs
+	// the optional-feature registry below, so a feature needing a gateway
+	// scope the connected key does not hold can be switched off rather than
+	// sent and 403'd.
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-key-scopes.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
@@ -205,6 +212,13 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-membership-sync.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
+
+	// Optional-feature registry: which scope-gated feature needs which scope,
+	// and whether it is currently available. Depends on the health API above
+	// (Agend_Apps_Key_Scopes::refresh() calls agend_apps_verify_api_key()) and
+	// the records settings option constants (loaded unconditionally earlier).
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/features.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';

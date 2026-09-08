@@ -42,6 +42,19 @@ namespace Agend\Tests\Core {
 			// stubbed; configuring the option avoids that fallback in every test
 			// that reaches the SSO link-status lookup.
 			update_option( 'wp_saml_idp_settings', array( 'entity_id' => 'https://example.test/saml/metadata' ) );
+
+			// This file's SSO-mode tests reach agend_apps_account_link_state(),
+			// which is gated (SPEC-CORE-20260908 scope-gated features) on the
+			// sso_account_link optional feature holding sso.identities.read +
+			// sso.tokens.create. Seeded as held here so the pre-existing
+			// gateway-response tests below are unaffected by that gate; the
+			// gate itself is exercised in OptionalFeaturesTest. class_exists()
+			// guards a run where those classes never loaded.
+			if ( class_exists( '\Agend_Apps_Key_Scopes' ) && function_exists( 'agend_apps_verify_api_key' ) ) {
+				Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'sso.identities.read', 'sso.tokens.create' ) ) ) );
+				\Agend_Apps_Key_Scopes::refresh();
+				Agend_Test_WP::$requests = array();
+			}
 		}
 
 		private function setLoggedInUser( int $user_id, string $external_id = '' ): void {

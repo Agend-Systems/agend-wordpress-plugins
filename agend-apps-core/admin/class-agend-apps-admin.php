@@ -851,6 +851,13 @@ class Agend_Apps_Admin {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 		}
 
+		// Cache the returned scopes from this same response, so the optional-
+		// feature registry reflects a freshly verified key without a second
+		// gateway round trip (SPEC-CORE-20260908 scope-gated features).
+		if ( class_exists( 'Agend_Apps_Key_Scopes' ) && is_array( $result ) ) {
+			Agend_Apps_Key_Scopes::store_from_response( $result );
+		}
+
 		wp_send_json_success( $result );
 	}
 

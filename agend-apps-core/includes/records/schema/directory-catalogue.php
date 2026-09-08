@@ -289,12 +289,17 @@ function agend_apps_records_schema_directory_catalogue(): array {
 						'description' => __( 'Show the rating summary and approved reviews on the listing detail view.', 'agend-apps-core' ),
 					),
 					array(
-						'name'        => 'show_review_form',
-						'label'       => __( 'Show review submission form', 'agend-apps-core' ),
-						'type'        => 'toggle',
-						'default'     => true,
-						'description' => __( 'Let visitors submit a review. New reviews are held for moderation before publishing.', 'agend-apps-core' ),
-						'condition'   => array( 'show_reviews' => 'yes' ),
+						'name'             => 'show_review_form',
+						'label'            => __( 'Show review submission form', 'agend-apps-core' ),
+						'type'             => 'toggle',
+						'default'          => true,
+						'description'      => __( 'Let visitors submit a review. New reviews are held for moderation before publishing.', 'agend-apps-core' ),
+						'condition'        => array( 'show_reviews' => 'yes' ),
+						// Needs the directory.reviews.manage scope; an adapter
+						// renders a missing-scope notice in place of this
+						// control when the connected key does not hold it
+						// (SPEC-CORE-20260908 scope-gated features).
+						'requires_feature' => 'directory_review_form',
 					),
 				),
 			),

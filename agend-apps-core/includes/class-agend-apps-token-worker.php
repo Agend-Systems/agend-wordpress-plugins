@@ -101,6 +101,13 @@ class Agend_Apps_Token_Worker {
 			return '';
 		}
 
+		// The sso_account_link optional feature (SPEC-CORE-20260908
+		// scope-gated features): a key without sso.tokens.create always gets a
+		// 403 from POST /v1/sso/tokens, so never attempt the mint at all.
+		if ( function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'sso_account_link' ) ) {
+			return '';
+		}
+
 		$user_id = get_current_user_id();
 
 		if ( 0 === $user_id ) {
