@@ -2,6 +2,7 @@
 /**
  * Plugin Name:     Agend Entitlement Mirror
  * Plugin URI:      https://www.agend.com.au
+ * Update URI:      https://agend-systems.github.io/agend-wordpress-plugins/agend-entitlement-mirror
  * Description:     Mirrors Upbeat entitlements into Agend CRM entitlement grants, so directory/content gating segments react to standing granted or revoked in Upbeat.
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au

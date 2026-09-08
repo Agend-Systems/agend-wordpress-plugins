@@ -322,3 +322,34 @@ when the committed output is stale. `npm start` watches during development.
 `BlockSurfaceTest` proves each block left at its defaults renders exactly what
 its Elementor widget renders at its control defaults.
 
+## Updates
+
+None of the Agend plugins are on WordPress.org, so updates are served from
+GitHub Releases via a static manifest published on GitHub Pages at
+`https://agend-systems.github.io/agend-wordpress-plugins/manifest.json`. Every
+Agend plugin's main file declares
+`Update URI: https://agend-systems.github.io/agend-wordpress-plugins/{slug}`,
+and Core registers the WordPress 5.8+ per-hostname
+`update-plugins_agend-systems.github.io` filter (`Agend_Apps_Updater`,
+`includes/class-agend-apps-updater.php`) that answers it for every installed
+Agend plugin, not only itself. Because Core is a dependency of every sibling
+plugin, this one class covers the whole family from a single manifest fetch.
+It also hooks `plugins_api` so the Dashboard's "View details" modal shows the
+manifest's description and changelog.
+
+The manifest is cached in the `agend_apps_update_manifest` site transient for
+12 hours; a failed fetch is cached as a sentinel for 1 hour so a dead endpoint
+does not get hit on every admin page load. Two filters tune this without
+touching code:
+
+- `agend_apps_update_manifest_url` — override the manifest URL (e.g. to point
+  a staging site at a different manifest).
+- `agend_apps_update_cache_ttl` — override the fresh-manifest cache TTL, in
+  seconds.
+
+**Forcing a re-check.** Clicking "Check again" on Dashboard > Updates deletes
+WordPress's own `update_plugins` site transient; `Agend_Apps_Updater` listens
+for that (`delete_site_transient_update_plugins`) and flushes its own cache at
+the same time, so a forced check always re-fetches the manifest. Code can do
+the same via `Agend_Apps_Updater::flush_cache()`.
+
