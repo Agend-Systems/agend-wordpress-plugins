@@ -1,31 +1,32 @@
 {
   "$schema": "https://schemas.wp.org/trunk/block.json",
   "apiVersion": 3,
-  "name": "agend-apps/events-catalogue",
+  "name": "agend-apps/member-login",
   "version": "1.12.0",
-  "title": "Agend Events Catalogue",
+  "title": "Agend Member Login",
   "category": "agend",
-  "icon": "calendar-alt",
-  "description": "Upcoming events from Agend, with search, filters and detail pages.",
+  "icon": "lock",
+  "description": "Sign-in form for Agend members.",
   "keywords": [
     "agend",
-    "events",
-    "catalogue"
+    "login",
+    "sign in",
+    "member"
   ],
   "textdomain": "agend-apps-core",
   "supports": {
     "html": false,
+    "multiple": false,
     "align": [
-      "wide",
-      "full"
+      "wide"
     ]
   },
   "editorScript": "file:./index.js",
   "viewScript": [
-    "agend-apps-records-events-catalogue"
+    "agend-apps-records-member-login"
   ],
   "style": [
-    "agend-apps-records-events-catalogue"
+    "agend-apps-records-member-login"
   ],
   "render": "file:./render.php"
 }

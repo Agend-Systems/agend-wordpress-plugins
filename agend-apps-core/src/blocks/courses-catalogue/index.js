@@ -7,9 +7,9 @@ import { createSurfaceEdit } from '../shared/surface-edit';
 // and registers them in PHP, so nothing is declared twice.
 registerBlockType( metadata.name, {
 	edit: createSurfaceEdit( {
-		surface: 'events-catalogue',
-		icon: 'calendar-alt',
-		label: __( 'Agend Events Catalogue', 'agend-apps-core' ),
+		surface: 'courses-catalogue',
+		icon: 'welcome-learn-more',
+		label: __( 'Agend Courses Catalogue', 'agend-apps-core' ),
 	} ),
 	save: () => null,
 } );

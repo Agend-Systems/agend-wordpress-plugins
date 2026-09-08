@@ -90,7 +90,9 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Registers the Style tab controls (US-EVT.8, colour subset).
+	 * Registers the Style tab typography controls (US-EVT.8). The colours
+	 * section moved into the surface schema (US-1.2) and is registered by
+	 * register_content_controls() above, from the same schema call.
 	 */
 	private function register_style_controls(): void {
 		// Typography section.
@@ -109,73 +111,6 @@ class Agend_Elementor_Events_Catalogue extends \Elementor\Widget_Base {
 				'type'        => \Elementor\Controls_Manager::SWITCHER,
 				'default'     => 'yes',
 				'description' => __( 'Pull heading and body fonts from the connected Agend account\'s site config.', 'agend-elementor' ),
-			)
-		);
-
-		$this->end_controls_section();
-
-		// Colours section.
-		$this->start_controls_section(
-			'section_style_colours',
-			array(
-				'label' => __( 'Colours', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
-			)
-		);
-
-		$this->add_control(
-			'inherit_colours',
-			array(
-				'label'       => __( 'Inherit site theme colours', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::SWITCHER,
-				'default'     => 'yes',
-				'description' => __( 'Pull heading, body, and accent colours from the connected account\'s site config. Turn off to set them manually below.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'heading_colour',
-			array(
-				'label'   => __( 'Heading colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#1E2A4A',
-			)
-		);
-
-		$this->add_control(
-			'body_colour',
-			array(
-				'label'   => __( 'Body text colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#26304D',
-			)
-		);
-
-		$this->add_control(
-			'accent_colour',
-			array(
-				'label'       => __( 'Highlight / accent colour', 'agend-elementor' ),
-				'type'        => \Elementor\Controls_Manager::COLOR,
-				'default'     => '#FF6B55',
-				'description' => __( 'Drives FREE price text, active filter state, and the date badge month label.', 'agend-elementor' ),
-			)
-		);
-
-		$this->add_control(
-			'button_colour',
-			array(
-				'label'   => __( 'Button colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#FF6B55',
-			)
-		);
-
-		$this->add_control(
-			'button_text_colour',
-			array(
-				'label'   => __( 'Button text colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#FFFFFF',
 			)
 		);
 

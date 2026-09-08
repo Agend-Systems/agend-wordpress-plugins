@@ -149,6 +149,35 @@ function agend_apps_records_schema_memberships_catalogue(): array {
 					),
 				),
 			),
+			// Deviates from the other three catalogues' style-colours section:
+			// this widget never had an inherit_colours switch or button colour
+			// controls, so none are added here. See US-1.2 spec-vs-code finding.
+			array(
+				'id'     => 'section_style_colours',
+				'label'  => __( 'Colours', 'agend-apps-core' ),
+				'tab'    => 'style',
+				'fields' => array(
+					array(
+						'name'        => 'accent_colour',
+						'label'       => __( 'Accent colour', 'agend-apps-core' ),
+						'type'        => 'colour',
+						'default'     => '#F76B4F',
+						'description' => __( 'Used for buttons, selected card borders, and highlights.', 'agend-apps-core' ),
+					),
+					array(
+						'name'    => 'heading_colour',
+						'label'   => __( 'Heading colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '#1E2A4A',
+					),
+					array(
+						'name'    => 'body_colour',
+						'label'   => __( 'Body text colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '#26304D',
+					),
+				),
+			),
 		),
 	);
 }
