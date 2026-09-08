@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.11.0
+ * Version:           1.12.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.11.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.12.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -154,11 +154,17 @@ function agend_apps_core_bootstrap() {
 	// controls from, instead of each hand-declaring the same settings.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/schema.php';
 
+	// Site palette resolution (US-1.3): the renderer reads this before the
+	// renders below build their config, since colour resolution is a render
+	// dependency, not a display concern.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/palette.php';
+
 	// Server renders of the catalogue surfaces, shared by every editor adapter.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-login.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';

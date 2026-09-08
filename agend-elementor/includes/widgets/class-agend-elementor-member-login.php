@@ -82,129 +82,20 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 */
 	protected function register_controls(): void {
 		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'member-login' ) );
-
-		$this->start_controls_section(
-			'section_style',
-			array(
-				'label' => __( 'Colours', 'agend-elementor' ),
-				'tab'   => \Elementor\Controls_Manager::TAB_STYLE,
-			)
-		);
-
-		$this->add_control(
-			'heading_colour',
-			array(
-				'label'   => __( 'Heading colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#1E2A4A',
-			)
-		);
-
-		$this->add_control(
-			'body_colour',
-			array(
-				'label'   => __( 'Body text colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#26304D',
-			)
-		);
-
-		$this->add_control(
-			'button_colour',
-			array(
-				'label'   => __( 'Button colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#FF6B55',
-			)
-		);
-
-		$this->add_control(
-			'button_text_colour',
-			array(
-				'label'   => __( 'Button text colour', 'agend-elementor' ),
-				'type'    => \Elementor\Controls_Manager::COLOR,
-				'default' => '#FFFFFF',
-			)
-		);
-
-		$this->end_controls_section();
 	}
 
 	/**
-	 * Builds the client-side config object from the widget settings.
-	 *
-	 * @param array $s Settings for display.
-	 * @return array Config passed to the frontend script as JSON.
-	 */
-	private function build_config( array $s ): array {
-		// An emptied return label falls back to the default so the recovery
-		// views never render an unlabelled control; an emptied forgot label
-		// intentionally hides the link (see the control description).
-		$back_label = trim( (string) ( $s['back_to_sign_in_label'] ?? '' ) );
-		if ( '' === $back_label ) {
-			$back_label = __( 'Back to sign in', 'agend-elementor' );
-		}
-
-		return array(
-			'messages' => array(
-				'heading'      => (string) ( $s['heading_text'] ?? '' ),
-				'intro'        => (string) ( $s['intro_text'] ?? '' ),
-				'email'        => __( 'Email', 'agend-elementor' ),
-				'password'     => __( 'Password', 'agend-elementor' ),
-				'submit'       => (string) ( $s['submit_label'] ?? __( 'Sign in', 'agend-elementor' ) ),
-				'signedIn'     => (string) ( $s['signed_in_message'] ?? '' ),
-				'portalButton' => (string) ( $s['portal_button_label'] ?? '' ),
-				'signOut'      => (string) ( $s['sign_out_label'] ?? __( 'Sign out', 'agend-elementor' ) ),
-				'error'        => __( 'Sign-in failed. Check your details and try again.', 'agend-elementor' ),
-				'working'      => __( 'Signing in…', 'agend-elementor' ),
-				// Password recovery (SPEC-CORE-20260722 US-2.7).
-				'forgot'       => (string) ( $s['forgot_label'] ?? __( 'Forgot your password?', 'agend-elementor' ) ),
-				'forgotTitle'  => __( 'Reset your password', 'agend-elementor' ),
-				'forgotIntro'  => __( 'Enter your account email and we will send you a link to reset your password.', 'agend-elementor' ),
-				'forgotSubmit' => __( 'Send reset link', 'agend-elementor' ),
-				'forgotWorking' => __( 'Sending…', 'agend-elementor' ),
-				'forgotDone'   => __( 'If an account exists for that email, a password reset link has been sent. Check your inbox.', 'agend-elementor' ),
-				'forgotError'  => __( 'Could not send the reset link. Please try again.', 'agend-elementor' ),
-				'backToSignIn' => $back_label,
-				// Password-reset completion (SPEC-CORE-20260722 US-2.7).
-				'resetTitle'       => __( 'Choose a new password', 'agend-elementor' ),
-				'resetIntro'       => __( 'Enter your account email and a new password to finish resetting it.', 'agend-elementor' ),
-				'newPassword'      => __( 'New password', 'agend-elementor' ),
-				'confirmPassword'  => __( 'Confirm new password', 'agend-elementor' ),
-				'resetSubmit'      => __( 'Update password', 'agend-elementor' ),
-				'resetWorking'     => __( 'Updating…', 'agend-elementor' ),
-				'resetDone'        => __( 'Your password has been updated. You can now sign in.', 'agend-elementor' ),
-				'resetError'       => __( 'That reset link is invalid or has expired. Request a new one.', 'agend-elementor' ),
-				'passwordMismatch' => __( 'The two passwords do not match.', 'agend-elementor' ),
-				// Account registration (SPEC-CORE-20260907 US-3.2). This is the one
-				// surface that names a duplicate email; the sign-in form never does.
-				'register'         => (string) ( $s['register_label'] ?? '' ),
-				'registerTitle'    => __( 'Create your account', 'agend-elementor' ),
-				'registerIntro'    => __( 'Create an Agend member account to sign in on this site.', 'agend-elementor' ),
-				'firstName'        => __( 'First name', 'agend-elementor' ),
-				'lastName'         => __( 'Last name', 'agend-elementor' ),
-				'registerSubmit'   => __( 'Create account', 'agend-elementor' ),
-				'registerWorking'  => __( 'Creating…', 'agend-elementor' ),
-				'registerError'    => __( 'Could not create the account. Check your details and try again.', 'agend-elementor' ),
-				// Email ownership verification (SPEC-CORE-20260907 US-4.3).
-				'resend'              => __( 'Send another link', 'agend-elementor' ),
-				'verificationPending' => __( 'Your email address is not yet verified. Check your inbox for the verification link, or request a new one below.', 'agend-elementor' ),
-			),
-			// Seconds the resend button stays disabled after each attempt
-			// (SPEC-CORE-20260907 US-4.3 AC2).
-			'resendCooldownSeconds' => 60,
-		);
-	}
-
-	/**
-	 * Renders the widget container on the frontend.
+	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 *
 	 * The form and signed-in states are rendered client-side by
 	 * assets/js/member-login.js from the config and the session status.
 	 */
 	protected function render(): void {
 		// SPEC-CORE-20260907 US-4.1 AC7: the credential login surface does not
-		// exist at all in `sso` member sign-in mode.
+		// exist at all in `sso` member sign-in mode. The edit-mode notice stays
+		// here, in the widget: the core renderer's '' return is what a real
+		// front-end visitor sees, but an editor needs to know why the canvas
+		// is empty.
 		if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
 			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
 				echo '<div class="agend-widget-notice">' . esc_html__( 'Member sign-in is set to SSO in Agend Apps settings.', 'agend-elementor' ) . '</div>';
@@ -212,20 +103,6 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 			return;
 		}
 
-		$settings = $this->get_settings_for_display();
-		$config   = $this->build_config( $settings );
-
-		$style = sprintf(
-			'--agend-ml-heading:%1$s;--agend-ml-body:%2$s;--agend-ml-button:%3$s;--agend-ml-button-text:%4$s;',
-			esc_attr( (string) ( $settings['heading_colour'] ?? '#1E2A4A' ) ),
-			esc_attr( (string) ( $settings['body_colour'] ?? '#26304D' ) ),
-			esc_attr( (string) ( $settings['button_colour'] ?? '#FF6B55' ) ),
-			esc_attr( (string) ( $settings['button_text_colour'] ?? '#FFFFFF' ) )
-		);
-		?>
-		<div class="agend-member-login" style="<?php echo esc_attr( $style ); ?>" data-agend-member-login-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
-			<div class="agend-ml-status" role="status"><?php esc_html_e( 'Loading…', 'agend-elementor' ); ?></div>
-		</div>
-		<?php
+		echo agend_apps_records_render_member_login( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

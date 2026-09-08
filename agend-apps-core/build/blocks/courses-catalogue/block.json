@@ -1,15 +1,15 @@
 {
   "$schema": "https://schemas.wp.org/trunk/block.json",
   "apiVersion": 3,
-  "name": "agend-apps/events-catalogue",
+  "name": "agend-apps/courses-catalogue",
   "version": "1.12.0",
-  "title": "Agend Events Catalogue",
+  "title": "Agend Courses Catalogue",
   "category": "agend",
-  "icon": "calendar-alt",
-  "description": "Upcoming events from Agend, with search, filters and detail pages.",
+  "icon": "welcome-learn-more",
+  "description": "Courses from Agend LMS, with search, filters and detail pages.",
   "keywords": [
     "agend",
-    "events",
+    "courses",
     "catalogue"
   ],
   "textdomain": "agend-apps-core",
@@ -22,10 +22,10 @@
   },
   "editorScript": "file:./index.js",
   "viewScript": [
-    "agend-apps-records-events-catalogue"
+    "agend-apps-records-courses-catalogue"
   ],
   "style": [
-    "agend-apps-records-events-catalogue"
+    "agend-apps-records-courses-catalogue"
   ],
   "render": "file:./render.php"
 }
