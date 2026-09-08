@@ -68,6 +68,12 @@ final class Agend_Test_WP {
 	 */
 	public static array $canned_responses = array();
 
+	/** @var array<int, array{location: string, status: int}> Recorded `wp_safe_redirect()` calls. */
+	public static array $redirects = array();
+
+	/** Number of `wp_update_plugins()` calls recorded. */
+	public static int $wp_update_plugins_calls = 0;
+
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
 		self::$queried_object_id = 0;
@@ -82,6 +88,8 @@ final class Agend_Test_WP {
 		self::$tiers_response    = array();
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
+		self::$redirects         = array();
+		self::$wp_update_plugins_calls = 0;
 	}
 
 	/**
@@ -289,9 +297,12 @@ if ( ! function_exists( 'esc_url_raw' ) ) {
 }
 
 if ( ! function_exists( 'wp_parse_url' ) ) {
-	/** Thin wrapper over PHP's parse_url(), matching WP's own fallback shape. */
-	function wp_parse_url( string $url ) {
-		return parse_url( $url );
+	/**
+	 * Thin wrapper over PHP's parse_url(), matching WP's own fallback shape,
+	 * including the optional `$component` (e.g. `PHP_URL_HOST`) argument.
+	 */
+	function wp_parse_url( string $url, int $component = -1 ) {
+		return -1 === $component ? parse_url( $url ) : parse_url( $url, $component );
 	}
 }
 
@@ -303,12 +314,29 @@ if ( ! function_exists( 'wp_get_environment_type' ) ) {
 }
 
 function add_query_arg( ...$args ) {
-	if ( is_array( $args[0] ) && count( $args ) === 1 ) {
-		return '';
+	if ( is_array( $args[0] ) ) {
+		// `add_query_arg( array $args, string $url = '' )`.
+		$pairs = $args[0];
+		$url   = (string) ( $args[1] ?? '' );
+	} else {
+		// `add_query_arg( string $key, string $value, string $url = '' )`.
+		$pairs = array( $args[0] => $args[1] ?? '' );
+		$url   = (string) ( $args[2] ?? '' );
 	}
-	[ $key, $value, $url ] = array( $args[0], $args[1] ?? '', $args[2] ?? '' );
-	$sep = str_contains( (string) $url, '?' ) ? '&' : '?';
-	return $url . $sep . rawurlencode( (string) $key ) . '=' . rawurlencode( (string) $value );
+
+	if ( array() === $pairs ) {
+		return $url;
+	}
+
+	$query = array();
+
+	foreach ( $pairs as $key => $value ) {
+		$query[] = rawurlencode( (string) $key ) . '=' . rawurlencode( (string) $value );
+	}
+
+	$sep = str_contains( $url, '?' ) ? '&' : '?';
+
+	return $url . $sep . implode( '&', $query );
 }
 
 function home_url( $path = '' ): string {
@@ -719,6 +747,65 @@ if ( ! function_exists( 'admin_url' ) ) {
 	function admin_url( string $path = '' ): string {
 		return 'https://example.test/wp-admin/' . ltrim( $path, '/' );
 	}
+}
+
+if ( ! function_exists( 'self_admin_url' ) ) {
+	/** Single-site stand-in: the test suite has no multisite/network context. */
+	function self_admin_url( string $path = '' ): string {
+		return admin_url( $path );
+	}
+}
+
+if ( ! function_exists( 'wp_nonce_url' ) ) {
+	function wp_nonce_url( string $actionurl, $action = -1 ): string {
+		$sep = str_contains( $actionurl, '?' ) ? '&' : '?';
+		return $actionurl . $sep . '_wpnonce=' . wp_create_nonce( $action );
+	}
+}
+
+if ( ! function_exists( 'check_admin_referer' ) ) {
+	/**
+	 * No-op stand-in: the unit suite does not exercise nonce forgery, so this
+	 * only records that the check happened (via `did_action()`-style counting
+	 * is unnecessary; the calling code's own capability/behaviour is what
+	 * tests assert on).
+	 */
+	function check_admin_referer( $action = -1, $query_arg = '_wpnonce' ) {
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_safe_redirect' ) ) {
+	/** Records the redirect location rather than sending real headers. */
+	function wp_safe_redirect( string $location, int $status = 302 ): bool {
+		Agend_Test_WP::$redirects[] = array(
+			'location' => $location,
+			'status'   => $status,
+		);
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_update_plugins' ) ) {
+	/** Records that a forced update check was requested. */
+	function wp_update_plugins(): void {
+		++Agend_Test_WP::$wp_update_plugins_calls;
+	}
+}
+
+if ( ! function_exists( 'wp_die' ) ) {
+	/**
+	 * Throws rather than exiting the process, so a test can assert the
+	 * permission-denied path without killing the test runner.
+	 */
+	function wp_die( $message = '', $title = '', $args = array() ) {
+		throw new Agend_Test_WP_Die_Exception( (string) $message );
+	}
+}
+
+if ( ! class_exists( 'Agend_Test_WP_Die_Exception' ) ) {
+	/** Thrown by the `wp_die()` stub so a test can assert on it. */
+	class Agend_Test_WP_Die_Exception extends \RuntimeException {}
 }
 
 // ---------------------------------------------------------------------------

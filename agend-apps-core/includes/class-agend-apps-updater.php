@@ -71,6 +71,22 @@ class Agend_Apps_Updater {
 	const FETCH_FAILED_SENTINEL = 'agend_apps_update_fetch_failed';
 
 	/**
+	 * `admin_action_{action}` hook and query var for the per-plugin
+	 * "Check for updates" link on the Plugins screen.
+	 *
+	 * @var string
+	 */
+	const CHECK_UPDATES_ACTION = 'agend_apps_check_updates';
+
+	/**
+	 * Query var set on redirect after a manual check, so the success notice
+	 * knows to render.
+	 *
+	 * @var string
+	 */
+	const CHECKED_QUERY_VAR = 'agend_apps_checked';
+
+	/**
 	 * Injected HTTP fetcher, `null` to use `wp_remote_get()`.
 	 *
 	 * @var callable|null
@@ -95,6 +111,11 @@ class Agend_Apps_Updater {
 		// release zips already have the plugin slug as their single top-level
 		// folder (matching what WordPress expects after extraction), so there
 		// is no mismatched folder name to rename.
+
+		add_filter( 'plugin_row_meta', array( __CLASS__, 'filter_plugin_row_meta' ), 10, 4 );
+		add_action( 'admin_action_' . self::CHECK_UPDATES_ACTION, array( __CLASS__, 'dispatch_check_updates' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'render_checked_notice' ) );
+		add_action( 'network_admin_notices', array( __CLASS__, 'render_checked_notice' ) );
 	}
 
 	/**
@@ -125,6 +146,97 @@ class Agend_Apps_Updater {
 	 */
 	public static function flush_cache() {
 		delete_site_transient( self::CACHE_TRANSIENT );
+	}
+
+	/**
+	 * `plugin_row_meta` filter: adds a "Check for updates" link, next to
+	 * "Visit plugin site", for every plugin whose `Update URI` hostname is
+	 * ours, modelled on the equivalent link plugin-update-checker adds.
+	 *
+	 * @param string[] $links       Existing row meta links.
+	 * @param string   $plugin_file Plugin file, relative to the plugins directory.
+	 * @param array    $plugin_data Parsed plugin header data.
+	 * @param string   $status      Plugin status context. Unused.
+	 * @return string[]
+	 */
+	public static function filter_plugin_row_meta( $links, $plugin_file, $plugin_data, $status ) {
+		unset( $status );
+
+		$host = wp_parse_url( (string) ( $plugin_data['UpdateURI'] ?? '' ), PHP_URL_HOST );
+
+		if ( self::UPDATE_HOST !== $host || ! current_user_can( 'update_plugins' ) ) {
+			return $links;
+		}
+
+		$url = wp_nonce_url(
+			add_query_arg(
+				array(
+					'action' => self::CHECK_UPDATES_ACTION,
+					'plugin' => $plugin_file,
+				),
+				self_admin_url( 'plugins.php' )
+			),
+			self::CHECK_UPDATES_ACTION
+		);
+
+		$links[] = sprintf(
+			'<a href="%1$s">%2$s</a>',
+			esc_url( $url ),
+			esc_html__( 'Check for updates', 'agend-apps-core' )
+		);
+
+		return $links;
+	}
+
+	/**
+	 * `admin_action_{self::CHECK_UPDATES_ACTION}` callback: verifies the
+	 * request, forces a fresh manifest fetch, and redirects back to the
+	 * Plugins screen. Thin wrapper around {@see handle_check_updates()} so
+	 * the redirect + exit stays untestable-but-trivial while the actual
+	 * logic is covered directly.
+	 */
+	public static function dispatch_check_updates() {
+		$redirect_url = self::handle_check_updates();
+
+		wp_safe_redirect( $redirect_url );
+		exit;
+	}
+
+	/**
+	 * Verifies the request, forces a fresh manifest fetch, and returns the
+	 * URL the caller should redirect to. Separated from
+	 * {@see dispatch_check_updates()} so tests can exercise it without a
+	 * `wp_safe_redirect()` + `exit`.
+	 *
+	 * @return string Redirect URL.
+	 */
+	public static function handle_check_updates() {
+		check_admin_referer( self::CHECK_UPDATES_ACTION );
+
+		if ( ! current_user_can( 'update_plugins' ) ) {
+			wp_die( esc_html__( 'You do not have permission to check for plugin updates.', 'agend-apps-core' ) );
+		}
+
+		self::flush_cache();
+		delete_site_transient( 'update_plugins' );
+		wp_update_plugins();
+
+		return add_query_arg( self::CHECKED_QUERY_VAR, '1', self_admin_url( 'plugins.php' ) );
+	}
+
+	/**
+	 * `admin_notices` / `network_admin_notices` callback: shows a dismissible
+	 * success notice after a manual "Check for updates" redirect.
+	 */
+	public static function render_checked_notice() {
+		if ( ! isset( $_GET[ self::CHECKED_QUERY_VAR ] ) ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-success is-dismissible"><p>%s</p></div>',
+			esc_html__( 'Checked for Agend plugin updates.', 'agend-apps-core' )
+		);
 	}
 
 	/**
