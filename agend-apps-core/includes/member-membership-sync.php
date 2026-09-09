@@ -124,11 +124,17 @@ function agend_apps_member_sync_membership_meta( int $user_id ): bool {
 /**
  * Extracts the membership rows from a decoded gateway response.
  *
- * @param array $response Decoded `GET /v1/crm/me/memberships` response.
+ * Untyped for the same reason as `agend_apps_auth_response_session()`: the
+ * argument comes straight from a gateway response, which is not guaranteed to
+ * be an array, and a type declaration would raise a TypeError inside the
+ * post-login snapshot refresh that every sign-in surface calls.
+ *
+ * @param mixed $response Decoded `GET /v1/crm/me/memberships` response.
  * @return array List of membership rows (possibly empty).
  */
-function agend_apps_member_membership_rows( array $response ): array {
-	$data = isset( $response['data'] ) && is_array( $response['data'] )
+function agend_apps_member_membership_rows( $response ): array {
+	$response = is_array( $response ) ? $response : array();
+	$data     = isset( $response['data'] ) && is_array( $response['data'] )
 		? $response['data']
 		: $response;
 
