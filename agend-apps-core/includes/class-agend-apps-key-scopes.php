@@ -39,6 +39,19 @@ class Agend_Apps_Key_Scopes {
 	const MAX_AGE = HOUR_IN_SECONDS;
 
 	/**
+	 * Whether a refresh is currently in flight.
+	 *
+	 * The refresh itself calls the gateway, and anything on that path that
+	 * asks whether a scope is held (the token worker's `sso_account_link`
+	 * check, for one) would otherwise re-enter the refresh and recurse until
+	 * the request dies. While the flag is set, `all()`/`has()` answer from
+	 * whatever is already stored.
+	 *
+	 * @var bool
+	 */
+	private static $refreshing = false;
+
+	/**
 	 * Returns every scope the connected API key currently holds.
 	 *
 	 * Triggers a lazy {@see maybe_refresh()} first (front-end callers have no
@@ -110,7 +123,23 @@ class Agend_Apps_Key_Scopes {
 	 * @return string[]|WP_Error The freshly fetched scopes, or the gateway error.
 	 */
 	public static function refresh() {
-		$result = agend_apps_verify_api_key();
+		if ( self::$refreshing ) {
+			return new WP_Error(
+				'agend_apps_key_scopes_refreshing',
+				__( 'A key scope refresh is already in flight.', 'agend-apps-core' )
+			);
+		}
+
+		self::$refreshing = true;
+
+		try {
+			// Unattended: the scopes belong to the API key, not to any member,
+			// so no bearer is resolved for this call. Resolving one would run
+			// the token worker, whose own scope check lands back here.
+			$result = agend_apps_verify_api_key( array( 'unattended' => true ) );
+		} finally {
+			self::$refreshing = false;
+		}
 
 		if ( is_wp_error( $result ) ) {
 			return $result;
@@ -154,6 +183,10 @@ class Agend_Apps_Key_Scopes {
 	 * place (see {@see refresh()}).
 	 */
 	public static function maybe_refresh(): void {
+		if ( self::$refreshing ) {
+			return;
+		}
+
 		$stored = get_option( self::OPTION, array() );
 
 		if ( ! is_array( $stored ) || ! isset( $stored['fetched_at'], $stored['key_hash'] ) ) {

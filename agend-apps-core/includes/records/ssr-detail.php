@@ -251,11 +251,41 @@ function agend_apps_records_ssr_swap_to_virtual_page( WP_Post $host, string $slu
 	add_filter( 'update_post_metadata', $block_meta, 1, 2 );
 	add_filter( 'add_post_metadata', $block_meta, 1, 2 );
 	add_filter( 'delete_post_metadata', $block_meta, 1, 2 );
+
+	// One exception to the blanket blank: the page template. A detail page is a
+	// virtual child of the catalogue page, so it renders in the catalogue page's
+	// chrome. Blanking this key sent every detail page to the theme's default
+	// template, which is wrong whenever the catalogue page is not on it (an
+	// Elementor Canvas or full-width catalogue got the theme header and footer
+	// back on its own detail pages). Resolved once, up front, so the filter
+	// itself never reads meta.
+	//
+	// Only this key is inherited. `_elementor_edit_mode` and friends must stay
+	// blank: the virtual post has no Elementor data of its own, and letting
+	// Elementor treat it as a built document would render the catalogue page's
+	// content in place of the detail.
+	$host_template = (string) get_post_meta( $host->ID, '_wp_page_template', true );
+
+	/**
+	 * Filters the page template a server-rendered detail page renders in.
+	 *
+	 * Defaults to the catalogue (host) page's own template. Return an empty
+	 * string for the theme's default template.
+	 *
+	 * @param string  $host_template The host page's `_wp_page_template`.
+	 * @param WP_Post $host          The catalogue (host) page.
+	 * @param string  $path_segment  The detail URL path segment, e.g. 'listing/'.
+	 */
+	$host_template = (string) apply_filters( 'agend_apps_records_ssr_detail_page_template', $host_template, $host, $path_segment );
+
 	add_filter(
 		'get_post_metadata',
-		static function ( $value, $object_id, $meta_key, $single ) use ( $fake_id ) {
+		static function ( $value, $object_id, $meta_key, $single ) use ( $fake_id, $host_template ) {
 			if ( (int) $object_id !== $fake_id ) {
 				return $value;
+			}
+			if ( '_wp_page_template' === $meta_key ) {
+				return $single ? $host_template : array( $host_template );
 			}
 			return $single ? '' : array();
 		},
@@ -292,6 +322,50 @@ function agend_apps_records_ssr_swap_to_virtual_page( WP_Post $host, string $slu
 
 	$GLOBALS['post'] = $post_obj;
 	setup_postdata( $post_obj );
+
+	// wpautop must not touch a server-rendered detail body. The body is already
+	// complete HTML, and wpautop reads its blank lines as paragraph breaks: it
+	// injects </p><p> between block elements and, fatally, inside any inline
+	// <script> a detail template carries, which is a syntax error that kills the
+	// script. Suspended around this post's own content only (priority 9 out,
+	// priority 11 back, both guarded on the queried id), so any other
+	// the_content() on the request keeps its normal formatting, and each filter
+	// is restored at the priority it was actually registered at.
+	$autop_priority   = has_filter( 'the_content', 'wpautop' );
+	$unautop_priority = has_filter( 'the_content', 'shortcode_unautop' );
+
+	add_filter(
+		'the_content',
+		static function ( $content ) use ( $fake_id, $autop_priority, $unautop_priority ) {
+			if ( (int) get_the_ID() !== $fake_id ) {
+				return $content;
+			}
+			if ( false !== $autop_priority ) {
+				remove_filter( 'the_content', 'wpautop', $autop_priority );
+			}
+			if ( false !== $unautop_priority ) {
+				remove_filter( 'the_content', 'shortcode_unautop', $unautop_priority );
+			}
+			return $content;
+		},
+		9
+	);
+	add_filter(
+		'the_content',
+		static function ( $content ) use ( $fake_id, $autop_priority, $unautop_priority ) {
+			if ( (int) get_the_ID() !== $fake_id ) {
+				return $content;
+			}
+			if ( false !== $autop_priority ) {
+				add_filter( 'the_content', 'wpautop', $autop_priority );
+			}
+			if ( false !== $unautop_priority ) {
+				add_filter( 'the_content', 'shortcode_unautop', $unautop_priority );
+			}
+			return $content;
+		},
+		11
+	);
 
 	// Progressive enhancement for the server-rendered detail.
 	add_action( 'wp_enqueue_scripts', $enqueue_cb, 20 );
