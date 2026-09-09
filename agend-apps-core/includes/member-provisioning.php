@@ -134,12 +134,20 @@ function agend_apps_auth_error_is_invalid_credentials( WP_Error $error ): bool {
 /**
  * Extracts the session envelope from a decoded login or register response.
  *
- * @param array $response Decoded gateway response (with or without the `data` wrapper).
+ * Deliberately untyped: this is fed straight from a gateway response, and an
+ * `array` type declaration here turns an unusable answer into an uncaught
+ * TypeError on the wp-login.php `authenticate` path, where there is no route
+ * handler to convert a thrown error into a response. A non-array reads as "no
+ * session", the same as an empty one. Not a union type, so `php -l` still
+ * passes on PHP 7.4 (the plugin's declared floor).
+ *
+ * @param mixed $response Decoded gateway response (with or without the `data` wrapper).
  * @return array{data: array, session: array} The unwrapped data and its session (empty when unusable).
  */
-function agend_apps_auth_response_session( array $response ): array {
-	$data    = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
-	$session = ( isset( $data['session'] ) && is_array( $data['session'] ) ) ? $data['session'] : array();
+function agend_apps_auth_response_session( $response ): array {
+	$response = is_array( $response ) ? $response : array();
+	$data     = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+	$session  = ( isset( $data['session'] ) && is_array( $data['session'] ) ) ? $data['session'] : array();
 
 	if ( empty( $session['access_token'] ) || empty( $session['refresh_token'] ) ) {
 		$session = array();
