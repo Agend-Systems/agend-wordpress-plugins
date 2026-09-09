@@ -106,7 +106,7 @@ the gated fields to this member.
 ## 4. Directory page, card template and filter template
 
 Run the provisioning script from this folder against the site. It is idempotent and keyed by
-the `_sco_directory_role` post meta, so re-running updates the same three posts:
+the `_sco_directory_role` post meta, so re-running updates the same posts:
 
 ```
 wp eval-file docs/pca-sco-directory/provision-sco-directory.php
@@ -118,14 +118,91 @@ It creates or updates:
 |---|---|---|
 | SCO Directory Card | Elementor section template | One listing card: name, centre type pill, one-line address, Suburb, Owner, Asset owner, GLAR (m²) rows, last updated, "View profile". |
 | SCO Directory Filters | Elementor section template | Search, Centre type, Owner, Asset owner, GLAR range, Reset. |
-| Shopping Centres Directory | Page (`/shopping-centres-directory`) | Directory Catalogue widget, filters on the left, 3 columns, 12 per page, numbered pagination, PCA colours. |
+| SCO Listing Detail | Elementor section template | The listing detail page: SCO header, back link, name/type/address hero, then the About, Details, Locations, Gallery, Hours and Tags blocks with Contact and Categories in a sidebar, SCO footer. Set as the Listing detail template. |
+| Shopping Centres Directory | Page (`/shopping-centres-directory`) | SCO header, Directory Catalogue widget (filters on the left, 3 columns, 12 per page, numbered pagination, PCA colours), SCO footer. Elementor Canvas template. |
+| Shopping Centres Online | Attachment | White SCO wordmark for the header, sideloaded from `assets/sco-logo-white.png`. |
+| Property Council of Australia | Attachment | Navy PCA mark for the footer, sideloaded from `assets/pca-logo-navy.png`. |
 
 Before running on another site, set `$sco_author` at the top of the script to an administrator
 user id on that site. The script clears the Elementor CSS cache and the template picker cache.
 
-Manual alternative: build the same three items in Elementor using the Agend Field, Agend
-Pills, Agend Link and Agend Filter widgets, then select them as Card template and Filter
-template on the Directory Catalogue widget. The script is the source of truth for settings.
+Manual alternative: build the same items in Elementor using the Agend Field, Agend Pills,
+Agend Link and Agend Filter widgets, then select them as Card template and Filter template on
+the Directory Catalogue widget. The script is the source of truth for settings.
+
+### 4a. Page chrome: Canvas template plus the mock's header and footer
+
+The page is set to `_wp_page_template = elementor_canvas`, which drops the theme header, the
+navy page-title hero, the breadcrumb bar and the theme footer. The header and footer from the
+design mock are rebuilt inside the page instead, as two full-width sections holding an HTML
+widget each, with all styling in the page's Elementor custom CSS.
+
+| Element | Behaviour |
+|---|---|
+| Header | Sticky at the top of the page (`position: sticky` on the section, so it pins across the whole document). Navy `#001E60`, 1496px inner width, white SCO wordmark at 34px linking to the site home. |
+| Member chip | Hydrates client-side: `window.agendApps.member` when an Agend member session exists, otherwise the WordPress REST `users/me` record (`context=edit`, authorised with `window.agendApps.nonce`). Renders initials, display name and a dropdown carrying the email and a Log out link. A visitor with no WordPress session sees a "Log in" pill pointing at My Account. |
+| Expiry row | The mock shows an "Expires" row in the dropdown. WordPress holds no membership expiry for PCA members, so the row ships hidden and appears only once something supplies `member.expires`. Wire it up when a source exists rather than filling it with a placeholder date. |
+| Log out | Points at `/my-account/customer-logout/`. The nonce-bearing URL is per-session and the markup is static, so WooCommerce shows its "Confirm and log out" step. Give the header a server-rendered logout URL if that extra click matters. |
+| Footer | Navy `#001E60`, three columns (address, centred PCA mark, right-aligned contact), a rule, then the strapline and the Subscriptions / Data methodology / Terms of use / Privacy links. Those four are `href="#"` in the mock and stay that way until the destinations exist. |
+| Typography | Barlow 300/400/600/700/900 from Google Fonts, loaded by a `<link>` in the header widget (the theme does not enqueue Barlow, and Elementor appends page custom CSS after the widget CSS, so an `@import` there would be ignored). |
+| Theme leftovers | The theme's floating back-to-top button is hidden on this page: it is not in the mock and it overlaps the footer link row. |
+
+Two deliberate departures from the mock's footer copy, both easy to revert in the script if PCA
+wants the mock verbatim: the strapline uses a comma where the mock uses an em dash (Agend style),
+and the ABN is regrouped to the standard 2-3-3-3 form, `13 008 474 422`, from the mock's
+`13 00847 4422`. Same digits.
+
+Two caveats worth knowing before this goes to an environment with page caching:
+
+- The chip's signed-in decision reads a server-rendered signal (`window.agendApps` and the
+  `logged-in` body class). A full-page cache would serve the signed-out header to a signed-in
+  member. The plugin's own Header Auth widget has the same exposure, so treat page caching for
+  logged-in members as a decision for both.
+- Elementor containers stay disabled on PCA (see Prerequisites); the header and footer are
+  sections and columns like everything else the script builds.
+
+Verified locally on 2026-09-09 at 1440px and 390px: theme chrome gone, header pinned on scroll,
+chip hydrated as "Sco Tester" with the account email, dropdown opening and closing on click,
+outside click and Escape, footer stacked and centred under 900px, no horizontal overflow, no
+console errors from the header script.
+
+### 4b. Listing detail pages: same chrome, no reviews or star ratings
+
+A detail URL (`/shopping-centres-directory/listing/<slug>/`) is not a WordPress page. The
+plugin resolves it into a virtual child of the catalogue page and renders the listing into its
+content, which has two consequences for this work.
+
+**The chrome.** The virtual page has no Elementor data of its own, so the catalogue page's
+header and footer sections do not reach it. They are built into the SCO Listing Detail template
+instead, from the same `$header_html` / `$footer_html` and `$header_css` / `$footer_css` the
+catalogue page uses, via `sco_chrome_header()` and `sco_chrome_footer()`. Edit the chrome once
+and both documents change. This is also why the chrome's CSS is per-element custom CSS on its
+own sections rather than page-settings CSS: `selector` then resolves to the section in whichever
+document renders it, and Elementor enqueues a rendered template's stylesheet automatically.
+
+**Colours.** Each fragment block on the template carries the same palette the Directory
+Catalogue widget carries on the catalogue page (`$block_colours` in the script), set on the
+widgets' own Colours controls. Before those controls existed the blocks stamped the plugin's
+default coral palette inline and the template had to fight it with `!important`; that override
+is gone.
+
+**No reviews, no stars.** The plugin's built-in detail layout opens with a five-star rating row
+and closes with a Reviews section and a submission form. PCA's shopping centres are not
+reviewed, so the template exists to leave those out: it renders the `listing_about`,
+`listing_custom_fields`, `listing_locations`, `listing_gallery`, `listing_hours` and
+`listing_tags` blocks with `listing_contact` and `listing_categories` in a sidebar, and never
+touches `listing:rating` or the `listing_reviews` block. Configuring a detail template also
+switches that type to server-side rendering on its own, whatever the "Server-rendered detail
+pages" toggle says, because an Elementor template has no client-rendered form.
+
+Set by the script as `agend_elementor_listing_detail_template`, which is Settings > Agend
+Widgets > "Listing detail template" in the admin.
+
+Verified locally on 2026-09-09 at 1440px and 390px, signed out, on a listing with data
+(`/listing/122-beach-road`) and one without (`/listing/dev-11-talavera-road`): Canvas template,
+no theme chrome, SCO header pinned and SCO footer present, no stars and no Reviews section,
+empty blocks render nothing rather than an empty card, sidebar stacks under 900px, no horizontal
+overflow, no console errors.
 
 Optional: set the page as the dedicated Listing catalogue page in Settings > Agend Widgets
 so detail URLs resolve to it.
@@ -191,6 +268,48 @@ Also required from the dashboard side: the search card mapper only returns city 
   disabled steps in `assets/css/directory-catalogue.css`.
 - WooCommerce My Account "Directory" endpoint and the `agend_apps_directory_page_id` setting
   (files listed in the pull request).
+- Server-rendered detail pages now inherit the catalogue page's `_wp_page_template`
+  (`includes/records/ssr-detail.php`, filterable via
+  `agend_apps_records_ssr_detail_page_template`). The virtual detail post blanks all its meta
+  to stay clear of other plugins, which included the page template, so every detail page fell
+  back to the theme's default template: a Canvas or full-width catalogue page got the theme
+  header and footer back on its own detail pages. Only this one key is inherited;
+  `_elementor_edit_mode` and friends must stay blank or Elementor renders the catalogue page's
+  content in place of the detail.
+- `wpautop` is suspended around a server-rendered detail body (same file). The body is complete
+  HTML, and `wpautop` reads its blank lines as paragraph breaks: it injects `</p><p>` between
+  block elements and, fatally, inside any inline `<script>` a detail template carries, which is
+  a syntax error that kills the script. Suspended on the queried id only, and each filter is
+  restored at the priority it was registered at.
+- The Agend Content Block widget now has its own Colours controls, and
+  `agend_apps_records_ssr_colour_style()` supplies the default palette rather than the only
+  palette (`includes/records/format.php`, new `agend_apps_records_colour_style_from_settings()`
+  in `includes/records/palette.php`, controls in `includes/records/schema/record-block.php`,
+  widget wiring in agend-elementor). A block renders the plugin's fragment markup, which reads
+  the catalogue colour variables, and it was stamping the default coral palette inline onto
+  every fragment, so a block placed in a template could never match the catalogue widget it
+  came from. The controls resolve through the existing `agend_apps_records_resolve_colours()`,
+  so `inherit_colours` and the Global Styles lookup work as they do on the catalogue surfaces,
+  and every value is re-checked against the colour allow-list before it reaches a `style`
+  attribute. `inherit_colours` defaults off on this surface and the colour fields default to the
+  plugin palette, so an untouched block emits byte-identical markup to before: only a control an
+  author actually changes moves it. Tests in `tests/PaletteTest.php` and
+  `tests/RecordBlockSchemaTest.php`.
+- `.agend-dir-detail--templated` now resets the wrapper's ground, radius and padding
+  (`assets/css/directory-catalogue.css`). The modifier class already existed but was unstyled,
+  so a detail template could not place anything against the edge of the page.
+- The category pill's background is tinted from `--agend-dir-accent` instead of the coral
+  default it hard-coded (`assets/css/directory-catalogue.css`,
+  `assets/css/events-catalogue.css`). Its text colour already followed the variable, so on any
+  site with a different accent the pill was pink text-on-mismatched-fill.
+- Infinite-recursion fix on the bearer-token path, needed before the directory renders at all
+  once the scope cache goes stale (it lives an hour). `Agend_Apps_Key_Scopes::refresh()` calls
+  `GET /v1/health`; that call resolved a bearer, which ran the token worker, whose
+  `sso_account_link` feature check asked for the scopes again. Fixed at both layers:
+  `agend_apps_verify_api_key()` now takes request args and the scope refresh passes
+  `unattended => true` (the key's scopes belong to the key, not to a member), and
+  `Agend_Apps_Key_Scopes` holds a re-entrancy flag; separately the token worker's own
+  `$resolving` guard now wraps the whole resolution instead of only the mint call.
 
 ## Local-only steps that must not be repeated elsewhere
 
