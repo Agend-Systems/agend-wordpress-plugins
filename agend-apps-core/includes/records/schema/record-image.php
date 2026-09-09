@@ -31,7 +31,6 @@ function agend_apps_records_schema_record_image(): array {
 				'id'     => 'section_image',
 				'label'  => __( 'Image', 'agend-apps-core' ),
 				'fields' => array(
-					agend_apps_records_schema_record_type_field(),
 					array(
 						'name'        => 'field',
 						'label'       => __( 'Image field', 'agend-apps-core' ),

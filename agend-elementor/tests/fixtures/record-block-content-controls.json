@@ -3,51 +3,47 @@
         {
             "id": "section_block",
             "args": {
-                "label": "Block",
+                "label": "Panel",
                 "tab": "content"
             },
             "controls": [
                 {
-                    "id": "record_type",
-                    "args": {
-                        "label": "Record type",
-                        "type": "select",
-                        "default": "auto",
-                        "options": {
-                            "auto": "Auto",
-                            "event": "Event",
-                            "course": "Course"
-                        },
-                        "description": "Auto uses whatever record the surrounding template is rendering."
-                    }
-                },
-                {
                     "id": "block",
                     "args": {
-                        "label": "Block",
+                        "label": "Panel",
                         "type": "select",
                         "default": "event_facts",
-                        "options": {
-                            "event_facts": "Event facts (date, location, format)",
-                            "event_registration": "Event registration panel",
-                            "event_tickets": "Event tickets and pricing",
-                            "event_sponsors": "Event sponsors",
-                            "course_meta": "Course details (level, format, duration)",
-                            "course_outcomes": "Course learning outcomes",
-                            "course_enrolment": "Course pricing and enrolment",
-                            "listing_about": "Listing about",
-                            "listing_contact": "Listing contact and links",
-                            "listing_categories": "Listing categories",
-                            "listing_tags": "Listing tags",
-                            "listing_gallery": "Listing gallery",
-                            "listing_locations": "Listing locations",
-                            "listing_hours": "Listing business hours",
-                            "listing_custom_fields": "Listing custom fields",
-                            "listing_achievements": "Listing badges and credentials",
-                            "listing_reviews": "Listing reviews"
-                        },
+                        "groups": [
+                            {
+                                "label": "Event",
+                                "options": {
+                                    "event_facts": "Event facts (date, location, format)",
+                                    "event_registration": "Event registration panel",
+                                    "event_tickets": "Event tickets and pricing",
+                                    "event_sponsors": "Event sponsors"
+                                }
+                            },
+                            {
+                                "label": "Course",
+                                "options": {
+                                    "course_meta": "Course details (level, format, duration)",
+                                    "course_outcomes": "Course learning outcomes",
+                                    "course_enrolment": "Course pricing and enrolment"
+                                }
+                            },
+                            {
+                                "label": "Directory listing",
+                                "options": {
+                                    "listing_contact": "Listing contact and links",
+                                    "listing_gallery": "Listing gallery",
+                                    "listing_locations": "Listing locations",
+                                    "listing_achievements": "Listing badges and credentials",
+                                    "listing_reviews": "Listing reviews"
+                                }
+                            }
+                        ],
                         "label_block": true,
-                        "description": "Intended for detail templates. The tickets block loads the ticket list per event, so avoid it on cards."
+                        "description": "Intended for detail templates. The tickets panel loads the ticket list per event, so avoid it on cards. For a single value (a description, categories, opening hours, one custom field) use Agend Field or Agend Pills instead."
                     }
                 }
             ]

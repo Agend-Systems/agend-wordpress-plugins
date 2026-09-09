@@ -8,20 +8,6 @@
             },
             "controls": [
                 {
-                    "id": "record_type",
-                    "args": {
-                        "label": "Record type",
-                        "type": "select",
-                        "default": "auto",
-                        "options": {
-                            "auto": "Auto",
-                            "event": "Event",
-                            "course": "Course"
-                        },
-                        "description": "Auto uses whatever record the surrounding template is rendering."
-                    }
-                },
-                {
                     "id": "action",
                     "args": {
                         "label": "Action",

@@ -363,6 +363,10 @@ function __( $text, $domain = null ): string {
 	return (string) $text;
 }
 
+function _n( $single, $plural, $number, $domain = null ): string {
+	return (string) ( 1 === (int) $number ? $single : $plural );
+}
+
 /**
  * The site timezone, fixed to UTC for deterministic test fixtures.
  */

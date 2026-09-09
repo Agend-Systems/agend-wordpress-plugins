@@ -30,10 +30,16 @@ final class Record_Image_Controls_Test_Harness extends Agend_Elementor_Record_Im
 }
 
 /**
- * Proves the schema-driven register_controls() registers exactly the same
- * Content-tab controls as the pre-refactor, hand-declared version (captured
- * in the fixture before Phase F2 changed the widget), including the five
- * adapter controls the widget still declares itself.
+ * Snapshot of the Content-tab controls this widget registers from its schema.
+ *
+ * It began as a fidelity fixture, pinning the schema-driven controls to the
+ * pre-refactor hand-declared ones. The controls have since changed on
+ * purpose (the record-type control removed, labels added, panels split from
+ * fields), so what it pins now is the intended set: a schema edit that
+ * changes a control an author sees has to change this fixture too, in the
+ * same commit, where a reviewer can see it.
+ *
+ * Includes the five adapter controls the widget still declares itself.
  */
 #[CoversClass( Agend_Elementor_Schema_Controls::class )]
 final class RecordImageControlsTest extends TestCase {
@@ -41,7 +47,7 @@ final class RecordImageControlsTest extends TestCase {
 	use Content_Tab_Recording_Trait;
 
 	#[Test]
-	public function should_register_the_same_content_tab_controls_as_the_pre_refactor_widget(): void {
+	public function should_register_the_content_tab_controls_the_fixture_pins(): void {
 		$fixture = json_decode(
 			file_get_contents( __DIR__ . '/fixtures/record-image-content-controls.json' ),
 			true
