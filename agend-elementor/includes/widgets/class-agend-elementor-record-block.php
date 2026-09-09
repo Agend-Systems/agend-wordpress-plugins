@@ -160,11 +160,14 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 		}
 
 		// The fragments carry the built-in detail's BEM classes, which are
-		// styled under the catalogue root class and its colour variables.
+		// styled under the catalogue root class and its colour variables. The
+		// variables come from this widget's own Colours controls, falling back
+		// to the plugin defaults while they sit untouched, so a fragment in a
+		// template can be made to match the catalogue widget it came from.
 		$roots  = array( 'course' => 'agend-courses-catalogue', 'listing' => 'agend-directory-catalogue', 'event' => 'agend-events-catalogue' );
 		$prefix = array( 'course' => 'agend-lms', 'listing' => 'agend-dir', 'event' => 'agend-ev' );
 		$root   = $roots[ $ctx['type'] ] ?? 'agend-events-catalogue';
-		$style  = agend_apps_records_ssr_colour_style( $prefix[ $ctx['type'] ] ?? 'agend-ev' );
+		$style  = agend_apps_records_colour_style_from_settings( $prefix[ $ctx['type'] ] ?? 'agend-ev', $s );
 		echo '<div class="agend-record-block agend-record-block--' . esc_attr( $key ) . ' ' . esc_attr( $root ) . ' ' . esc_attr( $root ) . '--fragment" style="' . esc_attr( $style ) . '">' . $html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragments escape internally.
 	}
 }

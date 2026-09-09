@@ -291,55 +291,13 @@ function agend_apps_records_schema_courses_catalogue(): array {
 					),
 				),
 			),
-			array(
-				'id'     => 'section_style_colours',
-				'label'  => __( 'Colours', 'agend-apps-core' ),
-				'tab'    => 'style',
-				'fields' => array(
-					array(
-						'name'        => 'inherit_colours',
-						'label'       => __( 'Inherit theme colours', 'agend-apps-core' ),
-						'type'        => 'toggle',
-						'default'     => true,
-						'description' => __( 'Use the site\'s theme colours when the theme sets them, otherwise the connected Agend account\'s colours. Turn off to set them manually below.', 'agend-apps-core' ),
+			agend_apps_records_schema_colour_fields(
+				array( 'heading', 'body', 'accent', 'button', 'buttonText' ),
+				array(
+					'descriptions' => array(
+						'accent' => __( 'Drives the difficulty badge, free price text, and active filter state.', 'agend-apps-core' ),
 					),
-					array(
-						'name'      => 'heading_colour',
-						'label'     => __( 'Heading colour', 'agend-apps-core' ),
-						'type'      => 'colour',
-						'default'   => '#1E2A4A',
-						'condition' => array( 'inherit_colours!' => 'yes' ),
-					),
-					array(
-						'name'      => 'body_colour',
-						'label'     => __( 'Body text colour', 'agend-apps-core' ),
-						'type'      => 'colour',
-						'default'   => '#26304D',
-						'condition' => array( 'inherit_colours!' => 'yes' ),
-					),
-					array(
-						'name'        => 'accent_colour',
-						'label'       => __( 'Highlight / accent colour', 'agend-apps-core' ),
-						'type'        => 'colour',
-						'default'     => '#FF6B55',
-						'description' => __( 'Drives the difficulty badge, free price text, and active filter state.', 'agend-apps-core' ),
-						'condition'   => array( 'inherit_colours!' => 'yes' ),
-					),
-					array(
-						'name'      => 'button_colour',
-						'label'     => __( 'Button colour', 'agend-apps-core' ),
-						'type'      => 'colour',
-						'default'   => '#FF6B55',
-						'condition' => array( 'inherit_colours!' => 'yes' ),
-					),
-					array(
-						'name'      => 'button_text_colour',
-						'label'     => __( 'Button text colour', 'agend-apps-core' ),
-						'type'      => 'colour',
-						'default'   => '#FFFFFF',
-						'condition' => array( 'inherit_colours!' => 'yes' ),
-					),
-				),
+				)
 			),
 		),
 	);

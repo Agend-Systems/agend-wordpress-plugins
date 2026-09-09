@@ -15,6 +15,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// agend_apps_records_ssr_colour_style() reads the shared role defaults and the
+// colour allow-list from here, so the dependency is declared rather than left
+// to the plugin bootstrap's require order.
+require_once __DIR__ . '/palette.php';
+
 /**
  * Resolves the timezone a catalogue record's dates should be displayed in.
  *
@@ -36,20 +41,50 @@ function agend_apps_records_record_timezone( array $record ): DateTimeZone {
 }
 
 /**
- * Builds the default catalogue colour CSS variables for a server-rendered
- * detail.
+ * Builds the catalogue colour CSS variables for a server-rendered surface.
  *
- * The virtual detail page is not tied to a specific widget instance, so the
- * plugin's default palette is applied. The prefix selects the widget family
- * ('agend-ev' for Events, 'agend-lms' for Courses).
+ * Emits the plugin's default palette
+ * ({@see AGEND_APPS_RECORDS_COLOUR_DEFAULTS}) unless the caller passes
+ * resolved colours to override it, role by role. The prefix selects the widget
+ * family ('agend-dir' for Directory, 'agend-ev' for Events, 'agend-lms' for
+ * Courses).
  *
- * @param string $prefix The CSS-variable prefix (without the leading '--').
+ * Two kinds of caller:
+ *
+ * - A caller with a widget instance to read from resolves that instance's
+ *   colour controls with {@see agend_apps_records_resolve_colours()} and passes
+ *   the `colours` member here (or goes through
+ *   {@see agend_apps_records_colour_style_from_settings()}, which does both).
+ * - A caller with no instance to consult, such as the virtual detail page's own
+ *   wrapper, passes nothing and gets the defaults, exactly as before this
+ *   parameter existed.
+ *
+ * Every value is re-checked against the colour allow-list here, and an unsafe
+ * or absent one falls back to its role default, so a caller cannot widen what
+ * may reach a `style` attribute.
+ *
+ * @param string                $prefix  The CSS-variable prefix (without the leading '--').
+ * @param array<string, string> $colours Role => colour overrides, keyed as
+ *                                       AGEND_APPS_RECORDS_COLOUR_DEFAULTS is.
+ *                                       Absent roles keep their default.
  * @return string The inline style declaration string.
  */
-function agend_apps_records_ssr_colour_style( string $prefix ): string {
+function agend_apps_records_ssr_colour_style( string $prefix, array $colours = array() ): string {
+	$palette = array();
+
+	foreach ( AGEND_APPS_RECORDS_COLOUR_DEFAULTS as $role => $default ) {
+		$value            = (string) ( $colours[ $role ] ?? '' );
+		$palette[ $role ] = agend_apps_records_colour_is_safe( $value ) ? $value : $default;
+	}
+
 	return sprintf(
-		'--%1$s-heading:#1E2A4A;--%1$s-body:#26304D;--%1$s-accent:#FF6B55;--%1$s-button:#FF6B55;--%1$s-button-text:#FFFFFF;--%1$s-card-radius:10px;',
-		$prefix
+		'--%1$s-heading:%2$s;--%1$s-body:%3$s;--%1$s-accent:%4$s;--%1$s-button:%5$s;--%1$s-button-text:%6$s;--%1$s-card-radius:10px;',
+		$prefix,
+		$palette['heading'],
+		$palette['body'],
+		$palette['accent'],
+		$palette['button'],
+		$palette['buttonText']
 	);
 }
 
