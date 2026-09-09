@@ -263,7 +263,11 @@
 }
 
 .agend-dir-pill--category {
+  /* Tinted from the accent rather than the coral default it used to hard-code,
+     which left the pill pink on any site with a different accent while its own
+     text colour followed the variable. */
   background: rgba(255, 107, 85, 0.12);
+  background: color-mix(in srgb, var(--agend-dir-accent) 12%, transparent);
   color: var(--agend-dir-accent);
 }
 
@@ -446,6 +450,16 @@
   .agend-dir-detail {
     padding: 14px;
   }
+}
+
+/* A detail rendered from a configured detail template owns its own layout, so
+   the wrapper must not impose the built-in page ground, radius or padding on
+   it. Without this a template cannot place anything (a header band, a
+   full-bleed hero) against the edge of the page. */
+.agend-dir-detail--templated {
+  background: none;
+  border-radius: 0;
+  padding: 0;
 }
 
 /* Header: a clean white card with the avatar beside the name/badges/rating,
