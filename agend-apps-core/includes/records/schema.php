@@ -113,9 +113,10 @@ function agend_apps_records_schema_record_type_field(): array {
 		'type'        => 'select',
 		'default'     => 'auto',
 		'options'     => array(
-			'auto'   => __( 'Auto', 'agend-apps-core' ),
-			'event'  => __( 'Event', 'agend-apps-core' ),
-			'course' => __( 'Course', 'agend-apps-core' ),
+			'auto'    => __( 'Auto', 'agend-apps-core' ),
+			'event'   => __( 'Event', 'agend-apps-core' ),
+			'course'  => __( 'Course', 'agend-apps-core' ),
+			'listing' => __( 'Directory listing', 'agend-apps-core' ),
 		),
 		'description' => __( 'Auto uses whatever record the surrounding template is rendering.', 'agend-apps-core' ),
 	);

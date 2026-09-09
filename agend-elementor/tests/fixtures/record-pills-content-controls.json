@@ -16,7 +16,8 @@
                         "options": {
                             "auto": "Auto",
                             "event": "Event",
-                            "course": "Course"
+                            "course": "Course",
+                            "listing": "Directory listing"
                         },
                         "description": "Auto uses whatever record the surrounding template is rendering."
                     }

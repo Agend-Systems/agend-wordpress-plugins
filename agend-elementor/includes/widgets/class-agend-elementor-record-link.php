@@ -246,7 +246,11 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 				if ( '' === $href ) {
 					return;
 				}
-				$label = '' !== $text ? $text : ( 'course' === $ctx['type'] ? __( 'Back to Courses', 'agend-elementor' ) : __( 'Back to Events', 'agend-elementor' ) );
+				$labels = array(
+					'course'  => __( 'Back to Courses', 'agend-elementor' ),
+					'listing' => __( 'Back to Directory', 'agend-elementor' ),
+				);
+				$label  = '' !== $text ? $text : ( $labels[ $ctx['type'] ] ?? __( 'Back to Events', 'agend-elementor' ) );
 				$this->output_anchor( $href, $label, $s, $ctx );
 				return;
 
