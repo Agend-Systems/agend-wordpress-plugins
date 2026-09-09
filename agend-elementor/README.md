@@ -19,15 +19,21 @@ Cards and detail pages for events, courses and directory listings can be designe
 
 | Widget | Purpose |
 | --- | --- |
-| Agend Field | One value from the current record: title, dates, price, venue, category, level, duration, and so on, with per-kind formatting (date format, list separator, free label, yes/no text, truncation). |
+| Agend Field | One value from the current record: title, dates, price, venue, category, level, duration, opening hours, one custom field, and so on, with per-kind formatting (date format, list separator, free label, yes/no text, truncation) and an optional label before the value. |
 | Agend Image | The record image as an `img` (aspect ratio, object fit) or as a background. Background placement `fill` stretches behind the sibling widgets of the container it is dropped into; `parent` paints the image onto the parent container; `block` is a sized box. |
-| Agend Pills | A record's categories, tags or other terms, one styled pill per term. The pill count follows the record, where a styled Agend Field would render one chip holding a joined list. |
+| Agend Pills | A record's categories, tags or other terms, one styled pill per term, with an optional label. The pill count follows the record, where a styled Agend Field would render one chip holding a joined list. |
 | Agend Link / Button | Open detail, back to catalogue, register (events), enrol (courses), add to calendar (events), or a custom URL with `{slug}` and `{title}` tokens. |
 | Agend Export Report | A download control for the directory's export reports, in one of two shapes: a button that downloads one nominated report, or a menu whose trigger opens a list of reports where choosing one downloads it. The output format is set in the editor. |
-| Agend Content Block | The built-in detail panels as reusable blocks: event facts, registration, tickets, sponsors; course details, learning outcomes, pricing and enrolment; listing about, contact, categories, tags, gallery, locations, hours, custom fields, badges and reviews. |
+| Agend Panel | The built-in detail's composite panels: event facts, registration, tickets, sponsors; course details, learning outcomes, pricing and enrolment; listing contact, gallery, locations, badges and reviews. A panel is several values with their own headings and layout. For one value use Agend Field or Agend Pills. Was "Agend Content Block"; templates saved against its single-value blocks (about, categories, tags, hours, custom fields) keep rendering, and the editor names the field each became. |
 | Agend Filter | One catalogue filter control. Directory tag, badge and custom field values come from `GET /v1/directory/facets`, entitlement-scoped, so a visitor never sees a value they may not read. Filter widgets go in a filter template that a catalogue widget is pointed at, so the controls survive the move between the listing and detail views. Each filter either lists every value of a field or sends author-defined choices, where one choice can stand for several values. |
 
-Fields marked Common work in any template, resolving to that record type's equivalent. `Custom field (by key)` reads an Agend custom field by its key; which custom fields a visitor receives depends on their entitlements, so it renders empty for a visitor who is not entitled to that field. In the editor the widgets preview against a real record: the first upcoming event, the first course, or the first directory listing, read through its detail endpoint so the content blocks preview populated. Which type a widget previews follows its own Field or Block setting first, then what the rest of the template's widgets are set to, so a directory template previews a listing without setting Record type on every widget in it. Set Record type to something other than Auto to override that.
+There is no record-type control. The chosen field or panel names its own record type: `listing:name` can only be a listing, `event_tickets` can only be an event. Fields marked Common work in any template, resolving to that record type's equivalent, and a field belonging to one type renders nothing inside a template of another, saying so in the editor.
+
+`Custom field` reads one Agend custom field. The picker lists the fields this site's key can enumerate; a field that does not exist yet, or that the key cannot see, is addressed by typing its key instead. Which custom fields a *visitor* receives depends on their entitlements, so a field renders empty for a visitor who is not entitled to it.
+
+Any field can print its own name in front of its value: **Show label**, with an optional override, a separator, and its own colour and typography in the Style tab.
+
+In the editor the widgets preview against a real record: the first upcoming event, the first course, or the first directory listing, read through its detail endpoint so the panels preview populated. Which type a widget previews follows its own Field or Panel setting first, then what the rest of the template's widgets are set to, so a directory template previews a listing throughout without the author declaring it anywhere.
 
 - **Card template**: chosen per catalogue widget (Content > Card Template). The first page is rendered server-side, one template render per record; filtering and pagination fetch rendered fragments from `GET /wp-json/agend-apps/v1/cards/events`, `/cards/courses` and `/cards/listings`. "Whole card links to the event" wraps each card in one anchor; turn it off to let only Agend Link widgets navigate.
 - **Filter template**: chosen per catalogue widget, alongside a Filter position of across the top,
@@ -109,11 +115,11 @@ Card templates
 
 Detail templates
 
-10. Build a Page template with Agend Image (background), Agend Field (title, H1), Agend Content Block (event facts, registration, tickets), Agend Link (back to catalogue). Select it as the Event detail template.
+10. Build a Page template with Agend Image (background), Agend Field (title, H1), Agend Panel (event facts, registration, tickets), Agend Link (back to catalogue). Select it as the Event detail template.
 11. Open `/{events-page}/event/{slug}/`: the template renders, the breadcrumb parent is the Events page, the page title is the event name, Register Now opens the registration flow.
 12. Unpublish the template: the built-in detail renders again.
 13. Saved Templates list shows "Agend Event detail template" against the template in use.
 
 Editor
 
-14. Open a card template for editing: field widgets show the preview record and a dashed outline. A Course field inside an event template shows a warning notice; on the live site it renders nothing.
+14. Open a card template for editing: field widgets show the preview record and a dashed outline. A Course field inside an event template shows a warning notice; on the live site it renders nothing. A directory template previews a listing throughout, including widgets set to a Common field.

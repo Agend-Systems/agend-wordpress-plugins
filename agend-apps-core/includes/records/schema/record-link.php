@@ -25,7 +25,6 @@ function agend_apps_records_schema_record_link(): array {
 				'id'     => 'section_link',
 				'label'  => __( 'Link', 'agend-apps-core' ),
 				'fields' => array(
-					agend_apps_records_schema_record_type_field(),
 					array(
 						'name'    => 'action',
 						'label'   => __( 'Action', 'agend-apps-core' ),

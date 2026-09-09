@@ -8,21 +8,6 @@
             },
             "controls": [
                 {
-                    "id": "record_type",
-                    "args": {
-                        "label": "Record type",
-                        "type": "select",
-                        "default": "auto",
-                        "options": {
-                            "auto": "Auto",
-                            "event": "Event",
-                            "course": "Course",
-                            "listing": "Directory listing"
-                        },
-                        "description": "Auto uses whatever record the surrounding template is rendering."
-                    }
-                },
-                {
                     "id": "field",
                     "args": {
                         "label": "Terms",
@@ -83,6 +68,46 @@
                         "label": "Link pills to the detail page",
                         "type": "switcher",
                         "default": ""
+                    }
+                },
+                {
+                    "id": "label_heading",
+                    "args": {
+                        "label": "Label",
+                        "type": "heading",
+                        "separator": "before"
+                    }
+                },
+                {
+                    "id": "show_label",
+                    "args": {
+                        "label": "Show label",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Puts the field's own name before the pills."
+                    }
+                },
+                {
+                    "id": "label_text",
+                    "args": {
+                        "label": "Label text",
+                        "type": "text",
+                        "default": "",
+                        "description": "Leave empty to use the field's own name.",
+                        "condition": {
+                            "show_label": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "label_block_display",
+                    "args": {
+                        "label": "Label on its own line",
+                        "type": "switcher",
+                        "default": "",
+                        "condition": {
+                            "show_label": "yes"
+                        }
                     }
                 }
             ]

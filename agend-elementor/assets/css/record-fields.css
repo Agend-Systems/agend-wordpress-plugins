@@ -1,4 +1,4 @@
-/* Agend template widgets: Field, Image, Link, Content Block. */
+/* Agend template widgets: Field, Pills, Image, Link, Panel. */
 
 .agend-field {
   margin: 0;
@@ -7,6 +7,24 @@
 .agend-field--preview {
   outline: 1px dashed rgba(0, 0, 0, 0.15);
   outline-offset: 2px;
+}
+
+/* Field and pill labels. Inline by default so "Phone: 02 9000 0000" reads as
+   one line; --label-block puts the label on its own line for a stacked
+   detail-sheet layout. */
+.agend-field__label,
+.agend-pills__label {
+  font-weight: 600;
+}
+
+.agend-field--label-block .agend-field__label {
+  display: block;
+}
+
+/* The pill row stays a flex row: a full-basis label wraps the pills onto the
+   next line without giving up the row's gap, which display:block would. */
+.agend-pills--label-block .agend-pills__label {
+  flex: 0 0 100%;
 }
 
 .agend-field__link,

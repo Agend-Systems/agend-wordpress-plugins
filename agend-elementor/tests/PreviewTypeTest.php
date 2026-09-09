@@ -19,6 +19,9 @@ require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor
  * {@see Agend_Elementor_Preview_Type}: the record type a card/detail template
  * is being built for, read back out of the template's own widgets while it is
  * open in the editor.
+ *
+ * `record_type` in these fixtures is the removed control: templates built
+ * before it went away still carry it, and it is still read as a hint.
  */
 #[CoversClass( Agend_Elementor_Preview_Type::class )]
 final class PreviewTypeTest extends TestCase {
@@ -60,7 +63,7 @@ final class PreviewTypeTest extends TestCase {
 			$this->container(
 				array(
 					$this->widget( 'agend-record-field', array( 'field' => 'common:title' ) ),
-					$this->container( array( $this->widget( 'agend-record-block', array( 'block' => 'listing_business_hours' ) ) ) ),
+					$this->container( array( $this->widget( 'agend-record-block', array( 'block' => 'listing_contact' ) ) ) ),
 				)
 			),
 		);
@@ -69,7 +72,7 @@ final class PreviewTypeTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_prefer_a_record_type_an_author_set_by_hand_over_one_a_field_key_implies(): void {
+	public function should_prefer_a_legacy_record_type_over_one_a_field_key_implies(): void {
 		$elements = array(
 			$this->widget( 'agend-record-field', array( 'field' => 'listing:name' ) ),
 			$this->widget( 'agend-record-field', array( 'field' => 'common:title', 'record_type' => 'course' ) ),
@@ -79,9 +82,9 @@ final class PreviewTypeTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_ignore_a_record_type_left_on_auto(): void {
+	public function should_ignore_a_legacy_record_type_left_on_auto(): void {
 		$elements = array(
-			$this->widget( 'agend-record-block', array( 'block' => 'listing_about', 'record_type' => 'auto' ) ),
+			$this->widget( 'agend-record-block', array( 'block' => 'listing_contact', 'record_type' => 'auto' ) ),
 		);
 
 		$this->assertSame( 'listing', Agend_Elementor_Preview_Type::from_elements( $elements ) );

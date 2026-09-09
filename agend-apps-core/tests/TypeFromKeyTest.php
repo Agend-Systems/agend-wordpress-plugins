@@ -65,14 +65,25 @@ final class TypeFromKeyTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_name_a_type_for_every_content_block_key(): void {
-		$schema = \agend_apps_records_schema_record_block();
-		$blocks = $schema['sections'][0]['fields'][1]['options'];
+	public function should_name_a_type_for_every_panel_key(): void {
+		$groups = \agend_apps_records_block_options();
 
-		$this->assertNotEmpty( $blocks );
+		$this->assertNotEmpty( $groups );
 
-		foreach ( array_keys( $blocks ) as $key ) {
-			$this->assertNotSame( '', \agend_apps_records_type_from_key( (string) $key ), $key . ' names no record type' );
+		foreach ( $groups as $group ) {
+			foreach ( array_keys( $group['options'] ) as $key ) {
+				$this->assertNotSame( '', \agend_apps_records_type_from_key( (string) $key ), $key . ' names no record type' );
+			}
+		}
+	}
+
+	#[Test]
+	public function should_name_a_type_for_every_retired_panel_key(): void {
+		// The keys the picker no longer offers still render, so they still
+		// have to resolve a preview type in the editor.
+		foreach ( array( 'listing_about', 'listing_categories', 'listing_tags', 'listing_hours', 'listing_custom_fields' ) as $key ) {
+			$this->assertSame( 'listing', \agend_apps_records_type_from_key( $key ) );
+			$this->assertNotSame( '', \agend_apps_records_retired_block_field( $key ), $key . ' names no replacement field' );
 		}
 	}
 }

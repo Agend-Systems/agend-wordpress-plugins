@@ -14,9 +14,9 @@
  * listing block reporting it belonged to the other record type.
  *
  * The template does say which record it is for, implicitly: its widgets are
- * set to `listing:name`, `listing_hours`, and so on. This class reads that
+ * set to `listing:name`, `listing_contact`, and so on. This class reads that
  * back out of the saved document, so the whole template previews against a
- * listing without the author setting `record_type` on every widget.
+ * listing without the author declaring it anywhere.
  *
  * @package Agend_Elementor
  */
@@ -85,9 +85,12 @@ final class Agend_Elementor_Preview_Type {
 	/**
 	 * The record type an element tree declares.
 	 *
-	 * A widget with an explicit `record_type` wins over one that only implies
-	 * a type through its field/block key, wherever in the tree each sits: an
-	 * author who set the type by hand has said so outright.
+	 * A widget carrying a saved `record_type` wins over one that only implies
+	 * a type through its field/panel key, wherever in the tree each sits.
+	 * That control no longer exists -- a field key names its own type, so a
+	 * second control could only contradict it -- but templates built before
+	 * it was removed still carry the value, and it is still a true statement
+	 * of what their author meant.
 	 *
 	 * Pure, so it is testable without Elementor or WordPress.
 	 *
@@ -117,6 +120,7 @@ final class Agend_Elementor_Preview_Type {
 
 			if ( self::is_agend_widget( $element ) ) {
 				$settings = is_array( $element['settings'] ?? null ) ? $element['settings'] : array();
+				// Legacy: the removed record-type control. See from_elements().
 				$declared = (string) ( $settings['record_type'] ?? '' );
 
 				if ( '' !== $declared && 'auto' !== $declared ) {

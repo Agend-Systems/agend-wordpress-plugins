@@ -2,9 +2,11 @@
 /**
  * Content-settings schema for the Agend Pills surface.
  *
- * Transcribed from the Content-tab controls that used to be hand-declared in
- * the Agend Pills widget's register_controls(). The Style-tab
- * ("Pills") section is untouched and stays hand-declared in the widget.
+ * The Style-tab ("Pills") section is untouched and stays hand-declared in the
+ * widget.
+ *
+ * There is no `record_type` control: the chosen terms field names the record
+ * type on its own {@see agend_apps_records_schema_record_field()}.
  *
  * @package Agend_Apps_Core
  */
@@ -25,7 +27,6 @@ function agend_apps_records_schema_record_pills(): array {
 				'id'     => 'section_pills',
 				'label'  => __( 'Pills', 'agend-apps-core' ),
 				'fields' => array(
-					agend_apps_records_schema_record_type_field(),
 					array(
 						'name'        => 'field',
 						'label'       => __( 'Terms', 'agend-apps-core' ),
@@ -48,6 +49,34 @@ function agend_apps_records_schema_record_pills(): array {
 						'label'   => __( 'Link pills to the detail page', 'agend-apps-core' ),
 						'type'    => 'toggle',
 						'default' => false,
+					),
+					array(
+						'name'      => 'label_heading',
+						'label'     => __( 'Label', 'agend-apps-core' ),
+						'type'      => 'heading',
+						'separator' => 'before',
+					),
+					array(
+						'name'        => 'show_label',
+						'label'       => __( 'Show label', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Puts the field\'s own name before the pills.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'label_text',
+						'label'       => __( 'Label text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'description' => __( 'Leave empty to use the field\'s own name.', 'agend-apps-core' ),
+						'condition'   => array( 'show_label' => 'yes' ),
+					),
+					array(
+						'name'      => 'label_block_display',
+						'label'     => __( 'Label on its own line', 'agend-apps-core' ),
+						'type'      => 'toggle',
+						'default'   => false,
+						'condition' => array( 'show_label' => 'yes' ),
 					),
 				),
 			),
