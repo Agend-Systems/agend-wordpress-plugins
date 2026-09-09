@@ -53,6 +53,42 @@ function agend_apps_records_schema_record_block(): array {
 					),
 				),
 			),
+			// A block renders the built-in fragment markup, which reads the
+			// catalogue colour variables. Without these controls the block was
+			// stuck emitting the plugin's default palette, so a fragment placed
+			// in a template never matched the catalogue widget it came from.
+			// `inherit_colours` defaults OFF here, unlike the catalogue
+			// surfaces: the field defaults below are the plugin defaults, so an
+			// untouched block emits exactly what it emitted before it had any
+			// colour controls, and only a control the author actually changes
+			// moves it.
+			//
+			// The field names, types and defaults have to stay byte-identical
+			// to the catalogue surfaces' own colour section for
+			// AGEND_APPS_RECORDS_COLOUR_SETTING_KEYS to read them. This is the
+			// sixth copy of that array in this directory; a shared builder is
+			// the obvious follow-up, and would need to carry the memberships
+			// surface's deliberate role subset with it.
+			// A block renders the built-in fragment markup, which reads the
+			// catalogue colour variables. Without these controls the block was
+			// stuck emitting the plugin's default palette, so a fragment placed
+			// in a template never matched the catalogue widget it came from.
+			// `inherit_colours` defaults OFF here, unlike the catalogue
+			// surfaces: the field defaults are the plugin defaults, so an
+			// untouched block emits exactly what it emitted before it had any
+			// colour controls, and only a control the author actually changes
+			// moves it.
+			agend_apps_records_schema_colour_fields(
+				array( 'heading', 'body', 'accent', 'button', 'buttonText' ),
+				array(
+					'inherit'      => false,
+					'inherit_text' => __( 'Use the site\'s theme colours when the theme sets them, otherwise the connected Agend account\'s colours. Leave off to set them manually below.', 'agend-apps-core' ),
+					'descriptions' => array(
+						'heading' => __( 'Section titles inside the block.', 'agend-apps-core' ),
+						'accent'  => __( 'Drives links, category pills and rating stars inside the block.', 'agend-apps-core' ),
+					),
+				)
+			),
 		),
 	);
 }
