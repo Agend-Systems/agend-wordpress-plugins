@@ -37,6 +37,38 @@ so the manifest step never races a half-finished release.
 Release notes only include commits under that plugin's own directory --
 not repo-wide noise from the other seven plugins.
 
+### Every PR must bump the Version it ships
+
+The `bump` job in `.github/workflows/tests.yml` runs on every pull
+request targeting `main` and fails the PR if it changes a plugin's
+shipped files without bumping that plugin's header `Version`. Without
+this, a PR can merge to `main`, change plugin code, and release
+nothing, silently, because `release.yml` only fires on an unmatched
+header `Version`.
+
+"Shipped files" means whatever `.github/scripts/build-zip.sh` actually
+packs into the release zip. The following are exempt, so a PR that only
+touches them never needs a bump:
+
+- anything under `<slug>/tests/`
+- anything under `<slug>/node_modules/`
+- for `agend-apps-core` only, anything under `agend-apps-core/src/`
+  (the built output that ships lives in `build/`)
+- any `*.md` file other than a `README.md`, which build-zip keeps at
+  any depth
+- dotfiles and build artefacts build-zip.sh also drops: `.git*`,
+  `phpunit*`, `.phpunit.cache`, `.DS_Store`, `composer.lock`
+
+The check also rejects two other cases: a `Version` that goes down
+instead of up (an accidental downgrade), and a `Version` that already
+has a matching release tag (that version already shipped, so the
+release workflow would skip it and this change would ship nowhere).
+
+For the rare PR that legitimately changes shipped files without a
+release, e.g. CI or tooling changes that live inside a plugin directory,
+a maintainer can apply the `skip-version-bump` label to the PR and the
+`bump` job is skipped.
+
 ## The manifest and gh-pages
 
 `manifest.json` describes the latest non-prerelease release of every
