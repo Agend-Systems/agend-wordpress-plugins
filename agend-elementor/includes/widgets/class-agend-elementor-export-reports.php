@@ -122,11 +122,17 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 				// when the account has none; count() > 1 is the "has real
 				// reports" test both call sites use.
 				if ( count( agend_apps_records_export_reports_report_options() ) <= 1 ) {
+					$scope_notice = function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'directory_export_reports' )
+						? agend_apps_records_feature_missing_scope_notice( 'directory_export_reports' )
+						: '';
+
 					$this->add_control(
 						'reports_unavailable',
 						array(
 							'type'            => \Elementor\Controls_Manager::RAW_HTML,
-							'raw'             => esc_html__( 'No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published.', 'agend-elementor' ),
+							'raw'             => '' !== $scope_notice
+								? esc_html( $scope_notice )
+								: esc_html__( 'No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published.', 'agend-elementor' ),
 							'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
 						)
 					);

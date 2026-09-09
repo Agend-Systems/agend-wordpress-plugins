@@ -210,4 +210,38 @@ final class ListingFieldsTest extends TestCase {
 
 		$this->assertSame( array( 'rating' => 4 ), $out );
 	}
+
+	#[Test]
+	public function should_read_the_postcode_from_the_primary_location(): void {
+		$record = array( 'primary_location' => array( 'city' => 'Bondi Junction', 'state' => 'NSW', 'postcode' => '2022' ) );
+
+		$this->assertSame( '2022', agend_apps_records_field_value( 'listing:postcode', 'listing', $record ) );
+	}
+
+	#[Test]
+	public function should_join_both_address_lines_for_the_street(): void {
+		$record = array( 'locations' => array( array( 'address_line_1' => '500 Oxford Street', 'address_line_2' => 'Level 2' ) ) );
+
+		$this->assertSame( '500 Oxford Street, Level 2', agend_apps_records_field_value( 'listing:street', 'listing', $record ) );
+	}
+
+	#[Test]
+	public function should_build_the_one_line_address_from_street_and_locality(): void {
+		$record = array( 'locations' => array( array( 'address_line_1' => '500 Oxford Street', 'city' => 'Bondi Junction', 'state' => 'NSW', 'postcode' => '2022' ) ) );
+
+		$this->assertSame( '500 Oxford Street, Bondi Junction NSW 2022', agend_apps_records_field_value( 'listing:address', 'listing', $record ) );
+	}
+
+	#[Test]
+	public function should_omit_missing_address_parts_without_stray_separators(): void {
+		$this->assertSame( 'Sydney NSW', agend_apps_records_field_value( 'listing:address', 'listing', $this->cardPayload() ) );
+		$this->assertSame( '15 Lake Street', agend_apps_records_field_value( 'listing:address', 'listing', array( 'locations' => array( array( 'address_line_1' => '15 Lake Street' ) ) ) ) );
+		$this->assertEmpty( agend_apps_records_field_value( 'listing:address', 'listing', array() ) );
+	}
+
+	#[Test]
+	public function should_expose_updated_at_as_a_date_field(): void {
+		$this->assertSame( 'date', agend_apps_records_field_kind( 'listing:updated_at' ) );
+		$this->assertSame( '2026-09-02T04:41:29+00:00', agend_apps_records_field_value( 'listing:updated_at', 'listing', array( 'updated_at' => '2026-09-02T04:41:29+00:00' ) ) );
+	}
 }

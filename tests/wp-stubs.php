@@ -628,9 +628,11 @@ if ( ! class_exists( 'Agend_Test_User' ) ) {
 	 */
 	class Agend_Test_User {
 		public array $roles = array();
+		public int $ID;
 
-		public function __construct( array $roles = array() ) {
+		public function __construct( array $roles = array(), int $id = 0 ) {
 			$this->roles = $roles;
+			$this->ID    = $id;
 		}
 
 		public function exists(): bool {
@@ -641,7 +643,10 @@ if ( ! class_exists( 'Agend_Test_User' ) ) {
 
 if ( ! function_exists( 'wp_get_current_user' ) ) {
 	function wp_get_current_user() {
-		return new Agend_Test_User( (array) ( $GLOBALS['agend_test_current_user_roles'] ?? array() ) );
+		return new Agend_Test_User(
+			(array) ( $GLOBALS['agend_test_current_user_roles'] ?? array() ),
+			(int) ( $GLOBALS['agend_test_current_user_id'] ?? 0 )
+		);
 	}
 }
 

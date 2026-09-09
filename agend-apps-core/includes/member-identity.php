@@ -222,15 +222,19 @@ function agend_apps_member_create_user( string $email, array $data, string $role
  * the WordPress user by the Agend user id without a login). Underscore-prefixed
  * (hidden from the profile UI); never sent to the browser.
  *
+ * Delegates to the shared {@see agend_apps_record_linked_identity()} (defined
+ * in identity.php, which loads in both member sign-in modes) so every surface
+ * that observes a linked identity records it the same way.
+ *
  * @param int   $user_id WordPress user id.
  * @param array $data    Decoded login data.
  */
 function agend_apps_member_store_contact_ref( int $user_id, array $data ): void {
-	if ( isset( $data['contact']['id'] ) && '' !== (string) $data['contact']['id'] ) {
-		update_user_meta( $user_id, '_agend_apps_contact_id', sanitize_text_field( (string) $data['contact']['id'] ) );
-	}
-
-	if ( isset( $data['user']['id'] ) && '' !== (string) $data['user']['id'] ) {
-		update_user_meta( $user_id, '_agend_apps_supabase_user_id', sanitize_text_field( (string) $data['user']['id'] ) );
-	}
+	agend_apps_record_linked_identity(
+		$user_id,
+		array(
+			'user_id'    => $data['user']['id'] ?? null,
+			'contact_id' => $data['contact']['id'] ?? null,
+		)
+	);
 }

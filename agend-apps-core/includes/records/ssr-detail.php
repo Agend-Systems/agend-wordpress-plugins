@@ -153,6 +153,10 @@ function agend_apps_records_ssr_maybe_render_detail(): void {
 			$wp_query->set_404();
 			status_header( 404 );
 			nocache_headers();
+			// redirect_canonical() treats a 404 on a page URL as a stray path and
+			// 301s back to the catalogue page, which hides the 404 (and whatever
+			// upstream failure caused it) behind a silent redirect.
+			remove_action( 'template_redirect', 'redirect_canonical' );
 			return;
 		}
 
@@ -604,12 +608,55 @@ function agend_apps_records_ssr_custom_fields( $fields ): string {
 }
 
 /**
+ * The short label shown in place of a gated custom field's value.
+ *
+ * Mirrors the gateway's `state` vocabulary for a withheld field. The plain
+ * words are deliberately non-specific: the gateway never discloses which tier,
+ * segment or entitlement would unlock the field, and neither does this.
+ *
+ * @param string $state The gateway's gate state for the field.
+ * @return string The label.
+ */
+function agend_apps_records_gated_field_label( string $state ): string {
+	switch ( $state ) {
+		case 'authentication_required':
+			$label = __( 'Sign in to view', 'agend-apps-core' );
+			break;
+		case 'membership_required':
+			$label = __( 'Members only', 'agend-apps-core' );
+			break;
+		case 'plan_required':
+			$label = __( 'Not included in your subscription', 'agend-apps-core' );
+			break;
+		default:
+			$label = __( 'Restricted', 'agend-apps-core' );
+	}
+
+	/**
+	 * Filters the label shown for a gated custom field.
+	 *
+	 * @param string $label The label.
+	 * @param string $state The gateway's gate state.
+	 */
+	return (string) apply_filters( 'agend_apps_records_gated_field_label', $label, $state );
+}
+
+/**
  * Renders a single custom-field value by its type.
  *
  * @param array $field { key, label, type, value }.
  * @return string Value HTML.
  */
 function agend_apps_records_ssr_cf_value( array $field ): string {
+	// A gated field arrives without a value: the gateway withholds it and says
+	// why (`state`). Show that reason in place of a blank, so a visitor can tell
+	// "you may not see this" from "nothing recorded".
+	if ( ! empty( $field['gated'] ) ) {
+		return '<span class="agend-dir-cf__value agend-dir-cf__value--gated">'
+			. esc_html( agend_apps_records_gated_field_label( (string) ( $field['state'] ?? '' ) ) )
+			. '</span>';
+	}
+
 	$type  = $field['type'] ?? 'text';
 	$value = $field['value'] ?? '';
 
@@ -849,7 +896,14 @@ function agend_apps_records_ssr_reviews_section( array $item, string $slug, $rev
 			class_exists( 'Agend_Apps_Member_Session' ) &&
 			Agend_Apps_Member_Session::has_session( get_current_user_id() )
 		);
+
+		// The review-form optional feature (SPEC-CORE-20260908 scope-gated
+		// features): omit the submission form entirely when the connected key
+		// does not (or is not yet known to) hold directory.reviews.manage,
+		// rather than render a form whose submit 403s.
+		$review_form_available = ! function_exists( 'agend_apps_records_feature_available' ) || agend_apps_records_feature_available( 'directory_review_form' );
 		?>
+		<?php if ( $review_form_available ) : ?>
 		<div class="agend-dir-review-form" data-agend-listing-id="<?php echo esc_attr( $item['id'] ?? '' ); ?>" data-agend-member="<?php echo $member_logged_in ? '1' : '0'; ?>">
 			<h3 class="agend-dir-review-form__title"><?php esc_html_e( 'Write a Review', 'agend-apps-core' ); ?></h3>
 			<div class="agend-dir-review-form__rating">
@@ -877,6 +931,7 @@ function agend_apps_records_ssr_reviews_section( array $item, string $slug, $rev
 			<div class="agend-dir-review-form__error" style="display:none;"></div>
 			<button type="button" class="agend-dir-review-form__submit"><?php esc_html_e( 'Submit Review', 'agend-apps-core' ); ?></button>
 		</div>
+		<?php endif; ?>
 	</section>
 	<?php
 	return (string) ob_get_clean();

@@ -35,21 +35,13 @@ function agend_apps_register_account_link_routes(): void {
  * @return string The initiate URL, or an empty string when no account slug is configured.
  */
 function agend_apps_account_link_initiate_url( WP_REST_Request $request ): string {
-	$slug = Agend_Apps_Settings::get_account_slug();
-
-	if ( '' === $slug ) {
-		return '';
-	}
-
 	$return_url = wp_get_referer();
 
 	if ( ! $return_url ) {
 		$return_url = home_url( '/' );
 	}
 
-	$initiate = Agend_Apps_Settings::get_root_url() . '/api/auth/sso/' . rawurlencode( $slug ) . '/initiate';
-
-	return add_query_arg( 'relayState', rawurlencode( $return_url ), $initiate );
+	return agend_apps_account_link_initiate_url_to( $return_url );
 }
 
 /**
@@ -141,26 +133,33 @@ class Agend_Apps_Account_Link_REST_Controller extends Agend_Apps_REST_Controller
 			return $this->error_to_response( $result );
 		}
 
-		// The gateway returns the canonical { success, data:{ linked } } envelope.
+		// The gateway returns the canonical { success, data:{ linked, user_id?,
+		// contact_id? } } envelope. user_id/contact_id are optional -- an older
+		// gateway omits them.
+		$identity_data = ( isset( $result['data'] ) && is_array( $result['data'] ) ) ? $result['data'] : $result;
+
 		$linked = false;
-		if ( isset( $result['data']['linked'] ) ) {
-			$linked = (bool) $result['data']['linked'];
-		} elseif ( isset( $result['linked'] ) ) {
-			$linked = (bool) $result['linked'];
+		if ( isset( $identity_data['linked'] ) ) {
+			$linked = (bool) $identity_data['linked'];
 		}
 
 		// A freshly linked member should gain their bearer token on the next
 		// gateway call rather than waiting out the worker's negative cache.
 		if ( $linked ) {
 			Agend_Apps_Token_Worker::clear_negative_cache( $user->ID );
+			agend_apps_record_linked_identity( $user->ID, $identity_data );
 		}
+
+		$ids = agend_apps_linked_identity_ids( $user->ID );
 
 		return new WP_REST_Response(
 			array(
-				'logged_in'    => true,
-				'linked'       => $linked,
-				'initiate_url' => $linked ? '' : agend_apps_account_link_initiate_url( $request ),
-				'portal_url'   => Agend_Apps_Settings::get_portal_home_url(),
+				'logged_in'        => true,
+				'linked'           => $linked,
+				'initiate_url'     => $linked ? '' : agend_apps_account_link_initiate_url( $request ),
+				'portal_url'       => Agend_Apps_Settings::get_portal_home_url(),
+				'supabase_user_id' => $ids['supabase_user_id'],
+				'contact_id'       => $ids['contact_id'],
 			),
 			200
 		);

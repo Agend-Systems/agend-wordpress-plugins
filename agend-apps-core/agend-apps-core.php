@@ -187,9 +187,17 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-settings.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-api.php';
+
+	// Cached API-key scopes (SPEC-CORE-20260908 scope-gated features): backs
+	// the optional-feature registry below, so a feature needing a gateway
+	// scope the connected key does not hold can be switched off rather than
+	// sent and 403'd.
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-key-scopes.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/account-link-state.php';
 
 	// Member sign-in mode (SPEC-CORE-20260907 US-4.1): in `sso` mode the
 	// credential login surface does not exist, not merely stand down per
@@ -204,6 +212,13 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-membership-sync.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/sanitize.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/health.php';
+
+	// Optional-feature registry: which scope-gated feature needs which scope,
+	// and whether it is currently available. Depends on the health API above
+	// (Agend_Apps_Key_Scopes::refresh() calls agend_apps_verify_api_key()) and
+	// the records settings option constants (loaded unconditionally earlier).
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/features.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';
@@ -228,6 +243,11 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
+
+	// WooCommerce My Account "Directory" endpoint. Loaded unconditionally like
+	// the routes above; every hook it registers checks
+	// class_exists( 'WooCommerce' ) itself (see agend_apps_my_account_directory_enabled()).
+	require_once AGEND_APPS_CORE_DIR . 'includes/my-account-directory.php';
 
 	if ( $agend_apps_credential_login_enabled ) {
 		require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';

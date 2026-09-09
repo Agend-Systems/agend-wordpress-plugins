@@ -383,6 +383,18 @@
   font-size: 0.9rem;
 }
 
+.agend-dir-page:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agend-dir-page-gap {
+  min-width: 24px;
+  text-align: center;
+  align-self: center;
+  color: var(--agend-dir-muted);
+}
+
 .agend-dir-page.is-active {
   background: var(--agend-dir-button);
   border-color: var(--agend-dir-button);
@@ -661,6 +673,17 @@
   color: var(--agend-dir-body);
   font-size: 0.95rem;
   line-height: 1.5;
+}
+
+.agend-dir-cf__value--gated {
+  color: var(--agend-dir-muted);
+  font-style: italic;
+}
+
+.agend-dir-cf__value--gated::before {
+  content: "\1F512\00a0";
+  font-style: normal;
+  font-size: 0.85em;
 }
 
 .agend-dir-cf__link {

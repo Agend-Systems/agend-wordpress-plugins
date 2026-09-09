@@ -587,6 +587,17 @@
 
   // Renders a single public custom-field value by its type (US-4.x / Part A).
   function renderCustomFieldValue(field) {
+    // A gated field arrives without a value; the gateway says why (`state`).
+    // Mirror the server-rendered detail: name the reason, never a blank.
+    if (field && field.gated) {
+      var gatedLabels = {
+        authentication_required: 'Sign in to view',
+        membership_required: 'Members only',
+        plan_required: 'Not included in your subscription',
+      };
+      return el('span', 'agend-dir-cf__value agend-dir-cf__value--gated', gatedLabels[field.state] || 'Restricted');
+    }
+
     var type = field.type || 'text';
     var value = field.value;
     if (type === 'array' && Array.isArray(value)) {
@@ -1341,18 +1352,62 @@
         nav.appendChild(more);
       }
     } else {
-      for (var i = 1; i <= (pagination.total_pages || 1); i++) {
-        (function (pageNum) {
-          var btn = el('button', 'agend-dir-page' + (pageNum === pagination.page ? ' is-active' : ''), pageNum);
-          btn.addEventListener('click', function () {
-            state.page = pageNum;
-            reload();
-          });
-          nav.appendChild(btn);
-        })(i);
+      var total = pagination.total_pages || 1;
+      var current = pagination.page || 1;
+      if (total < 2) {
+        return;
       }
+      var goTo = function (pageNum) {
+        state.page = pageNum;
+        reload();
+      };
+      var step = function (label, target, className) {
+        var btn = el('button', 'agend-dir-page agend-dir-page--step ' + className, label);
+        btn.setAttribute('aria-label', className === 'agend-dir-page--prev' ? 'Previous page' : 'Next page');
+        if (target < 1 || target > total) {
+          btn.disabled = true;
+        } else {
+          btn.addEventListener('click', function () { goTo(target); });
+        }
+        return btn;
+      };
+      nav.appendChild(step('\u2039', current - 1, 'agend-dir-page--prev'));
+      pageWindow(current, total).forEach(function (entry) {
+        if (entry === null) {
+          nav.appendChild(el('span', 'agend-dir-page-gap', '\u2026'));
+          return;
+        }
+        var btn = el('button', 'agend-dir-page' + (entry === current ? ' is-active' : ''), entry);
+        if (entry === current) {
+          btn.setAttribute('aria-current', 'page');
+        }
+        btn.addEventListener('click', function () { goTo(entry); });
+        nav.appendChild(btn);
+      });
+      nav.appendChild(step('\u203a', current + 1, 'agend-dir-page--next'));
     }
     root.appendChild(nav);
+  }
+
+  // The page numbers a pager shows for `current` of `total`: the first and
+  // last page, the current page with two neighbours each side, and a null
+  // wherever pages were skipped. A directory can run to hundreds of pages,
+  // so one button per page is not an option.
+  function pageWindow(current, total) {
+    var pages = [];
+    var last = 0;
+    for (var i = 1; i <= total; i++) {
+      if (i === 1 || i === total || Math.abs(i - current) <= 2) {
+        if (i - last === 2) {
+          pages.push(last + 1);
+        } else if (i - last > 2) {
+          pages.push(null);
+        }
+        pages.push(i);
+        last = i;
+      }
+    }
+    return pages;
   }
 
   // -- Widget orchestration -------------------------------------------------

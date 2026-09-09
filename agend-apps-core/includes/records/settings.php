@@ -69,13 +69,17 @@ const AGEND_APPS_RECORDS_LISTING_DETAIL_TEMPLATE_OPTION = 'agend_elementor_listi
  *
  * The detail request only sends `include=achievements` when this is on, because
  * the gateway rejects that param (403) for API keys without the
- * `directory.achievements.browse` scope. Enable it only when the connected
- * account's API key holds that scope. Filterable.
+ * `directory.achievements.browse` scope. Delegates to the optional-feature
+ * registry ({@see agend_apps_records_feature_available()}) so the toggle also
+ * self-disables when the connected key does not (or is not yet known to)
+ * hold that scope, even if the option itself is on. Filterable.
  *
  * @return bool True when member achievements are shown.
  */
 function agend_apps_records_show_achievements_enabled(): bool {
-	$enabled = '1' === get_option( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION, '' );
+	$enabled = function_exists( 'agend_apps_records_feature_available' )
+		? agend_apps_records_feature_available( 'directory_achievements' )
+		: ( '1' === get_option( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION, '' ) );
 
 	/**
 	 * Filters whether member LMS achievements are shown on the detail.
@@ -471,10 +475,13 @@ function agend_apps_records_settings_field_ssr_detail(): void {
  * Renders the show-member-achievements checkbox field.
  */
 function agend_apps_records_settings_field_show_achievements(): void {
-	$value = get_option( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION, '' );
+	$value    = get_option( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION, '' );
+	$held     = ! function_exists( 'agend_apps_records_feature_scopes_held' ) || agend_apps_records_feature_scopes_held( 'directory_achievements' );
+	$unknown  = function_exists( 'agend_apps_records_feature_unknown_scopes' ) && agend_apps_records_feature_unknown_scopes();
+	$disabled = ! $held || $unknown;
 	?>
 	<label>
-		<input type="checkbox" name="<?php echo esc_attr( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
+		<input type="checkbox" name="<?php echo esc_attr( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> <?php disabled( $disabled ); ?> />
 		<?php esc_html_e( 'Show a member\'s LMS badges and certificates on the Directory detail view', 'agend-apps-core' ); ?>
 	</label>
 	<p class="description">
@@ -485,7 +492,63 @@ function agend_apps_records_settings_field_show_achievements(): void {
 		);
 		?>
 	</p>
+	<?php if ( $disabled && function_exists( 'agend_apps_records_feature_missing_scope_notice' ) ) : ?>
+		<p class="description notice-warning">
+			<?php
+			echo $unknown
+				? esc_html__( 'Verify the connection first (below) to check whether the API key holds this scope.', 'agend-apps-core' )
+				: esc_html( agend_apps_records_feature_missing_scope_notice( 'directory_achievements' ) );
+			?>
+		</p>
+	<?php endif; ?>
 	<?php
+}
+
+/**
+ * Renders a top-of-page notice listing every enabled feature whose option is
+ * on but whose required scope(s) the connected key does not (or is not yet
+ * known to) hold.
+ *
+ * Currently only "Show member badges & credentials" has both a settings
+ * toggle and a scope requirement on this page; the notice is written against
+ * the registry generally so a future scope-gated option here is covered
+ * without further changes.
+ */
+function agend_apps_records_settings_scope_notice(): void {
+	if ( ! function_exists( 'agend_apps_records_optional_features' ) ) {
+		return;
+	}
+
+	$problems = array();
+
+	foreach ( agend_apps_records_optional_features() as $feature => $entry ) {
+		if ( empty( $entry['option'] ) ) {
+			continue;
+		}
+		if ( '1' !== (string) get_option( $entry['option'], '' ) ) {
+			continue;
+		}
+		if ( agend_apps_records_feature_available( $feature ) ) {
+			continue;
+		}
+
+		$notice = agend_apps_records_feature_missing_scope_notice( $feature );
+		if ( '' !== $notice ) {
+			$problems[] = $notice;
+		}
+	}
+
+	if ( empty( $problems ) ) {
+		return;
+	}
+
+	echo '<div class="notice notice-warning"><p>';
+	esc_html_e( 'One or more enabled features need a scope the connected API key does not hold:', 'agend-apps-core' );
+	echo '</p><ul style="list-style:disc;margin-left:1.5em;">';
+	foreach ( $problems as $problem ) {
+		echo '<li>' . esc_html( $problem ) . '</li>';
+	}
+	echo '</ul></div>';
 }
 
 /**
@@ -498,6 +561,7 @@ function agend_apps_records_settings_page(): void {
 	?>
 	<div class="wrap">
 		<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+		<?php agend_apps_records_settings_scope_notice(); ?>
 		<form action="options.php" method="post">
 			<?php
 			settings_fields( 'agend_elementor_settings' );
