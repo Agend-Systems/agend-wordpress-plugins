@@ -230,4 +230,64 @@ final class LoginBridgeDecisionTest extends TestCase {
 		$this->assertInstanceOf( WP_Error::class, $refused );
 		$this->assertSame( 'agend_apps_invalid_credentials', $refused->get_error_code() );
 	}
+
+	/**
+	 * A gateway answer the client cannot read must hand the login back to
+	 * WordPress, exactly as an unreachable gateway does. It previously threw
+	 * an uncaught TypeError instead, because a 2xx with an empty body reached
+	 * the bridge as bare null and `agend_apps_auth_response_session()`
+	 * declared an `array` parameter. There is no route handler on the
+	 * `authenticate` filter, so that surfaced as WordPress's critical-error
+	 * page on every login form submission, for every credential.
+	 */
+	#[Test]
+	public function should_hand_the_login_to_wordpress_when_a_2xx_login_response_has_no_body(): void {
+		$existing                      = new WP_User( 51 );
+		$existing->user_email          = 'nobody@example.test';
+		$existing->user_pass           = 'correct-password';
+		$GLOBALS['agend_test_users'][] = $existing;
+
+		Agend_Test_WP::queue_response( 200, '' );
+
+		$result = agend_apps_wp_login_authenticate( null, 'nobody@example.test', 'correct-password' );
+
+		$this->assertNull( $result );
+		$this->assertSame( '', agend_apps_wp_login_arm_refusal()['email'], 'an unreadable answer must not refuse the WordPress password' );
+		$this->assertFalse( Agend_Apps_Member_Session::has_session( 51 ) );
+	}
+
+	#[Test]
+	public function should_hand_the_login_to_wordpress_when_a_2xx_register_response_has_no_body(): void {
+		$existing                      = new WP_User( 52 );
+		$existing->user_email          = 'noregister@example.test';
+		$existing->user_pass           = 'correct-password';
+		$GLOBALS['agend_test_users'][] = $existing;
+
+		Agend_Test_WP::queue_response(
+			401,
+			array( 'error' => array( 'code' => 'INVALID_CREDENTIALS', 'message' => 'Invalid credentials.' ) )
+		);
+		Agend_Test_WP::queue_response( 201, '' );
+
+		$result = agend_apps_wp_login_authenticate( null, 'noregister@example.test', 'correct-password' );
+
+		$this->assertNull( $result );
+		$this->assertSame( '', agend_apps_wp_login_arm_refusal()['email'] );
+		$this->assertSame( '', get_user_meta( 52, AGEND_APPS_VERIFICATION_PENDING_META, true ) );
+	}
+
+	#[Test]
+	public function should_hand_the_login_to_wordpress_when_a_2xx_login_body_decodes_to_a_scalar(): void {
+		$existing                      = new WP_User( 53 );
+		$existing->user_email          = 'scalar@example.test';
+		$existing->user_pass           = 'correct-password';
+		$GLOBALS['agend_test_users'][] = $existing;
+
+		Agend_Test_WP::queue_response( 200, 'true' );
+
+		$result = agend_apps_wp_login_authenticate( null, 'scalar@example.test', 'correct-password' );
+
+		$this->assertNull( $result );
+		$this->assertSame( '', agend_apps_wp_login_arm_refusal()['email'] );
+	}
 }
