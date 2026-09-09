@@ -330,7 +330,7 @@ GitHub Releases via a static manifest published on GitHub Pages at
 Agend plugin's main file declares
 `Update URI: https://agend-systems.github.io/agend-wordpress-plugins/{slug}`,
 and Core registers the WordPress 5.8+ per-hostname
-`update-plugins_agend-systems.github.io` filter (`Agend_Apps_Updater`,
+`update_plugins_agend-systems.github.io` filter (`Agend_Apps_Updater`,
 `includes/class-agend-apps-updater.php`) that answers it for every installed
 Agend plugin, not only itself. Because Core is a dependency of every sibling
 plugin, this one class covers the whole family from a single manifest fetch.
