@@ -84,3 +84,36 @@ jobs:
       - uses: actions/checkout@v4
       - name: Header/constant/semver check
         run: .github/scripts/detect-releases.sh --check-only
+
+  bump:
+    # Guardrail for the release workflow: a PR that changes a plugin's
+    # shipped files but never bumps that plugin's header Version merges
+    # into main and releases nothing, silently (this happened for real in
+    # PR #16). Only meaningful against the actual merge target, so this job
+    # is restricted to pull_request events targeting main, using the
+    # trigger's existing bare `pull_request:` (left as is, not narrowed to
+    # `branches: [main]`) plus a job-level `if:`. The `push: ['**']` trigger
+    # above already runs the other jobs on every branch push regardless of
+    # target, so a PR to a non-main branch still gets lint/phpunit/blocks/
+    # versions coverage from that; only this job, which is specifically
+    # about the main-only release trigger, needs to skip for non-main PRs.
+    name: Plugin version bumped for changed plugins
+    runs-on: ubuntu-latest
+    # skip-version-bump: a maintainer applies this label, on review, for the
+    # rare PR that legitimately ships no release (e.g. CI/tooling-only
+    # changes under a plugin directory that don't warrant a version bump).
+    if: >-
+      github.event_name == 'pull_request' && github.base_ref == 'main' &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-version-bump')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Version bump check
+        env:
+          # Routed through env, not interpolated into the run script
+          # directly, per the convention in release.yml: github.base_ref is
+          # attacker-influenceable branch-name text on a pull_request event.
+          BASE_REF: ${{ github.base_ref }}
+        run: .github/scripts/check-version-bumps.sh --base "origin/${BASE_REF}"
