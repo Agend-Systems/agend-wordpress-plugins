@@ -363,6 +363,41 @@ class Agend_Apps_API {
 		 */
 		$decoded = apply_filters( 'agend_apps_api_response', $decoded, $method, $path, $status_code );
 
+		// Every caller relies on "array or WP_Error", and several hand the
+		// result straight to an `array`-typed helper, so a non-array success
+		// return is an uncaught TypeError rather than a failed request. Two
+		// ways one gets here: `json_decode( '' )` is null and the invalid-JSON
+		// guard above deliberately admits an empty body, so a 2xx with no body
+		// arrives as null; and a 2xx whose body is a JSON scalar (`true`, `12`,
+		// `"ok"`) decodes without error to a non-array. A response filter that
+		// drops the array is caught here too. Reported as the same
+		// invalid-response error, so callers that already fall back on an
+		// unusable gateway answer need no new branch.
+		if ( ! is_array( $decoded ) ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+					sprintf(
+						'[Agend Apps] Non-array %d response on %s %s (%d bytes, type %s).',
+						$status_code,
+						$method,
+						$path,
+						strlen( $body ),
+						gettype( $decoded )
+					)
+				);
+			}
+
+			return new WP_Error(
+				'agend_apps_invalid_response',
+				__( 'Invalid JSON response from Agend API.', 'agend-apps-core' ),
+				array(
+					'status_code' => $status_code,
+					'body'        => $body,
+					'path'        => $path,
+				)
+			);
+		}
+
 		// Carried onto the decoded array so a caller can distinguish response
 		// shapes that share a body structure but differ by HTTP status (e.g.
 		// login's 200 session vs 202 verification_required), without every
@@ -370,7 +405,7 @@ class Agend_Apps_API {
 		// (SPEC-CORE-20260907-wordpress-email-verification-handling US-4.1
 		// Decision change B). Never overwrites a `status_code` the gateway
 		// itself put in the body.
-		if ( is_array( $decoded ) && ! isset( $decoded['status_code'] ) ) {
+		if ( ! isset( $decoded['status_code'] ) ) {
 			$decoded['status_code'] = $status_code;
 		}
 
