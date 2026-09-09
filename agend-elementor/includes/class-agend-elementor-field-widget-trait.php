@@ -59,20 +59,24 @@ trait Agend_Elementor_Field_Widget_Trait {
 		}
 
 		if ( $this->is_editor() ) {
-			$type = 'auto' === $setting ? 'event' : $setting;
+			$type = 'auto' === $setting ? $this->preview_type() : $setting;
 
 			$record = function_exists( 'agend_apps_records_preview_record' )
 				? agend_apps_records_preview_record( $type )
 				: array();
 
-			return array(
-				'type'       => $type,
-				'record'     => $record,
-				'extra'      => array(
+			$extra = function_exists( 'agend_apps_records_preview_extra' )
+				? agend_apps_records_preview_extra( $type, $record )
+				: array(
 					'slug'       => $record['slug'] ?? '',
 					'detail_url' => '#',
 					'is_detail'  => false,
-				),
+				);
+
+			return array(
+				'type'       => $type,
+				'record'     => $record,
+				'extra'      => $extra,
 				'is_preview' => true,
 				'mismatch'   => false,
 			);
@@ -85,6 +89,54 @@ trait Agend_Elementor_Field_Widget_Trait {
 			'is_preview' => false,
 			'mismatch'   => false,
 		);
+	}
+
+	/**
+	 * The record type an "Auto" widget previews against in the editor.
+	 *
+	 * Its own settings first: a widget set to `listing:name` or
+	 * `listing_hours` has already named the record it wants. Then the
+	 * template it sits in, which the rest of its widgets have named the same
+	 * way -- that is what lets a `common:title` in a directory template
+	 * preview a listing's name rather than an event's. Events last, as the
+	 * type this fallback has always had.
+	 *
+	 * @return string 'event', 'course' or 'listing'.
+	 */
+	protected function preview_type(): string {
+		$own = $this->preview_type_from_settings();
+		if ( '' !== $own ) {
+			return $own;
+		}
+
+		$template = class_exists( 'Agend_Elementor_Preview_Type' )
+			? Agend_Elementor_Preview_Type::for_current_document()
+			: '';
+
+		return '' !== $template ? $template : 'event';
+	}
+
+	/**
+	 * The record type this widget's own field/block setting implies.
+	 *
+	 * @return string 'event', 'course', 'listing', or '' for a widget whose
+	 *                setting names no single type (a `common:` field, or a
+	 *                widget with neither setting).
+	 */
+	private function preview_type_from_settings(): string {
+		if ( ! function_exists( 'agend_apps_records_type_from_key' ) ) {
+			return '';
+		}
+
+		foreach ( array( 'field', 'block' ) as $name ) {
+			$type = agend_apps_records_type_from_key( (string) $this->get_widget_setting( $name ) );
+
+			if ( '' !== $type ) {
+				return $type;
+			}
+		}
+
+		return '';
 	}
 
 	/**

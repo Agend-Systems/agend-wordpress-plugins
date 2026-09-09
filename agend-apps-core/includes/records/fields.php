@@ -641,6 +641,28 @@ function agend_apps_records_field_applies( string $key, string $type ): bool {
 }
 
 /**
+ * The record type a widget setting names, or '' when it names none.
+ *
+ * Both vocabularies a template widget picks from are prefixed with the record
+ * type they belong to: field keys as `listing:name` (see the registry above)
+ * and content-block keys as `listing_about` (see
+ * agend_apps_records_schema_record_block()). A widget set to one of those has
+ * therefore already told us which record it wants, which is what lets the
+ * editor preview it against the right record type without the author also
+ * setting `record_type` by hand.
+ *
+ * `common:` fields apply to every type and so name none.
+ *
+ * @param string $key Field key or content-block key.
+ * @return string 'event', 'course', 'listing', or ''.
+ */
+function agend_apps_records_type_from_key( string $key ): string {
+	$prefix = (string) ( preg_split( '/[:_]/', $key, 2 )[0] ?? '' );
+
+	return in_array( $prefix, array( 'event', 'course', 'listing' ), true ) ? $prefix : '';
+}
+
+/**
  * The raw value of a field on a record.
  *
  * Returns null for an unknown key or a field that does not apply to the
