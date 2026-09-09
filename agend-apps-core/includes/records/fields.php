@@ -546,6 +546,19 @@ function agend_apps_records_field_registry(): array {
 		'listing:instagram_url'     => array( 'label' => __( 'Instagram', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'instagram_url' ) ),
 		'listing:twitter_url'       => array( 'label' => __( 'X (Twitter)', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'twitter_url' ) ),
 		'listing:youtube_url'       => array( 'label' => __( 'YouTube', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'youtube_url' ) ),
+		'listing:hours'             => array(
+			'label' => __( 'Opening hours', 'agend-apps-core' ),
+			'kind'  => 'html',
+			'get'   => static function ( array $record ) {
+				// The same table the detail renders, without its section
+				// heading: an Agend Field prints its own label when asked to.
+				// Guarded because fields.php is loadable on its own, and the
+				// renderer lives in the SSR detail file.
+				return function_exists( 'agend_apps_records_ssr_hours' )
+					? agend_apps_records_ssr_hours( $record['business_hours'] ?? null )
+					: '';
+			},
+		),
 	);
 
 	// Common aliases resolve to the per-type field so one template can serve
@@ -626,6 +639,39 @@ function agend_apps_records_field_registry(): array {
 function agend_apps_records_field_kind( string $key ): string {
 	$registry = agend_apps_records_field_registry();
 	return isset( $registry[ $key ] ) ? (string) $registry[ $key ]['kind'] : '';
+}
+
+/**
+ * The name a field is shown under when a widget is asked to print its label.
+ *
+ * The registry's label for an ordinary field. A custom field has no fixed
+ * name -- it is whatever the account configured -- so its label is read off
+ * the record, falling back to the registry's generic "Custom field" when the
+ * record carries no entry for that key (a visitor who is not entitled to it,
+ * or a key that does not exist).
+ *
+ * @param string $key    Field key.
+ * @param array  $record The record.
+ * @param array  $extra  Render context; `custom_field_key` when the field is a
+ *                       custom one.
+ * @return string The label, or '' for an unknown key.
+ */
+function agend_apps_records_field_label( string $key, array $record = array(), array $extra = array() ): string {
+	$registry = agend_apps_records_field_registry();
+
+	if ( ! isset( $registry[ $key ] ) ) {
+		return '';
+	}
+
+	if ( 'common:custom_field' === $key || 'common:custom_field_label' === $key ) {
+		$label = agend_apps_records_record_custom_field_label( $record, (string) ( $extra['custom_field_key'] ?? '' ) );
+
+		if ( '' !== $label ) {
+			return $label;
+		}
+	}
+
+	return (string) $registry[ $key ]['label'];
 }
 
 /**

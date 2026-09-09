@@ -97,31 +97,6 @@ function agend_apps_records_surface_schema( string $surface ): array {
 	return apply_filters( 'agend_apps_records_surface_schema', $schema, $surface );
 }
 
-/**
- * The `record_type` select every field widget (Agend Field, Agend Image,
- * Agend Link, Agend Content Block, Agend Pills) exposes as the first field of
- * its first section.
- *
- * Transcribed verbatim from the shared field-widget trait's former record_type_control() method.
- *
- * @return array
- */
-function agend_apps_records_schema_record_type_field(): array {
-	return array(
-		'name'        => 'record_type',
-		'label'       => __( 'Record type', 'agend-apps-core' ),
-		'type'        => 'select',
-		'default'     => 'auto',
-		'options'     => array(
-			'auto'    => __( 'Auto', 'agend-apps-core' ),
-			'event'   => __( 'Event', 'agend-apps-core' ),
-			'course'  => __( 'Course', 'agend-apps-core' ),
-			'listing' => __( 'Directory listing', 'agend-apps-core' ),
-		),
-		'description' => __( 'Auto uses whatever record the surrounding template is rendering.', 'agend-apps-core' ),
-	);
-}
-
 require_once __DIR__ . '/schema/events-catalogue.php';
 require_once __DIR__ . '/schema/record-block.php';
 require_once __DIR__ . '/schema/record-pills.php';

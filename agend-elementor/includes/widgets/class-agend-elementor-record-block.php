@@ -1,8 +1,19 @@
 <?php
 /**
- * Elementor "Agend Content Block" widget: the composite panels of the
- * built-in detail (tickets, sponsors, facts, outcomes ...) as single blocks
- * for a detail template.
+ * Elementor "Agend Panel" widget: the composite panels of the built-in detail
+ * (tickets, sponsors, facts, outcomes, reviews ...) as single blocks for a
+ * detail template.
+ *
+ * A panel is several values with their own headings and layout, sometimes
+ * their own live data. Anything that is one value -- a description, a set of
+ * categories, opening hours, one custom field -- is a FIELD, and belongs on
+ * Agend Field or Agend Pills, which can label, format and truncate it. This
+ * widget used to offer both, which taught authors to reach for a whole panel
+ * to print one line of text; those keys are no longer offered, but they still
+ * render, so templates built on them are untouched.
+ *
+ * The widget's name stays `agend-record-block`: it is the id every saved
+ * template refers to, and renaming it would orphan all of them.
  *
  * @package Agend_Elementor
  */
@@ -24,7 +35,7 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 	}
 
 	public function get_title(): string {
-		return __( 'Agend Content Block', 'agend-elementor' );
+		return __( 'Agend Panel', 'agend-elementor' );
 	}
 
 	public function get_icon(): string {
@@ -36,7 +47,7 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 	}
 
 	public function get_keywords(): array {
-		return array( 'agend', 'tickets', 'sponsors', 'outcomes', 'progress', 'detail' );
+		return array( 'agend', 'panel', 'block', 'tickets', 'sponsors', 'outcomes', 'reviews', 'detail' );
 	}
 
 	public function get_style_depends(): array {
@@ -44,12 +55,16 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Block key => [ label, record type, fragment function ].
+	 * Panel key => [ label, record type, fragment function ].
 	 *
 	 * Kept here (not in the schema) because the record type and fragment
-	 * function are render-time concerns; the schema's `block` field lists the
-	 * same keys and labels as a plain option array (see
-	 * agend_apps_records_schema_record_block()).
+	 * function are render-time concerns; the schema lists the pickable keys
+	 * (see agend_apps_records_block_options()).
+	 *
+	 * This map is deliberately WIDER than the picker: it still carries the
+	 * single-value keys that moved to Agend Field and Agend Pills, so a
+	 * template saved against one of them keeps rendering exactly as before.
+	 * See agend_apps_records_retired_block_field().
 	 *
 	 * @return array<string, array{0: string, 1: string, 2: string}>
 	 */
@@ -104,14 +119,38 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 		return $memo[ $slug ];
 	}
 
+	/**
+	 * Editor-only notice for a panel key that is now a field.
+	 *
+	 * The panel still renders, so this says where the value moved to rather
+	 * than warning about something broken.
+	 *
+	 * @param string $key The panel key.
+	 * @return void
+	 */
+	private function render_retired_notice( string $key ): void {
+		if ( ! function_exists( 'agend_apps_records_retired_block_field' ) ) {
+			return;
+		}
+
+		$field = agend_apps_records_retired_block_field( $key );
+		if ( '' === $field ) {
+			return;
+		}
+
+		$this->render_editor_notice(
+			sprintf(
+				/* translators: %s: the field key this panel became, e.g. listing:description. */
+				__( 'This is now a field. It still renders, but new templates should use Agend Field or Agend Pills set to "%s", which can label and format the value.', 'agend-elementor' ),
+				$field
+			)
+		);
+	}
+
 	protected function render(): void {
 		$s   = $this->get_settings_for_display();
 		$ctx = $this->resolve_context();
 
-		if ( $ctx['mismatch'] ) {
-			$this->render_mismatch_notice( (string) $s['record_type'], $ctx['type'] );
-			return;
-		}
 		if ( '' === $ctx['type'] ) {
 			return;
 		}
@@ -123,9 +162,17 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 		}
 		list( , $block_type, $fragment ) = $blocks[ $key ];
 		if ( $block_type !== $ctx['type'] ) {
-			$this->render_editor_notice( __( 'This block belongs to the other record type and will not show in this template.', 'agend-elementor' ) );
+			$this->render_editor_notice(
+				sprintf(
+					/* translators: 1: the panel's record type, 2: the record type the template renders. */
+					__( 'This panel is a %1$s panel, but this template renders a %2$s. Nothing will show here on the live site.', 'agend-elementor' ),
+					$block_type,
+					$ctx['type']
+				)
+			);
 			return;
 		}
+		$this->render_retired_notice( $key );
 		if ( ! function_exists( $fragment ) ) {
 			return;
 		}

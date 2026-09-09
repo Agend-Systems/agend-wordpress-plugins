@@ -218,10 +218,6 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 		$s   = $this->get_settings_for_display();
 		$ctx = $this->resolve_context();
 
-		if ( $ctx['mismatch'] ) {
-			$this->render_mismatch_notice( (string) $s['record_type'], $ctx['type'] );
-			return;
-		}
 		if ( '' === $ctx['type'] ) {
 			return;
 		}

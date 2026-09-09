@@ -153,10 +153,14 @@ function agend_apps_records_preview_placeholder_record( string $type ): array {
 				'saturday'  => array( 'closed' => true ),
 				'sunday'    => array( 'closed' => true ),
 			),
+			// Keyed like the gateway's own `{key,label,type,value}` entries: the
+			// editor's custom field picker reads its options off this list
+			// {@see agend_apps_records_custom_field_key_options()}, so a
+			// keyless placeholder would offer an author nothing to pick.
 			'custom_fields'              => array(
-				array( 'label' => 'ABN', 'type' => 'text', 'value' => '00 000 000 000' ),
-				array( 'label' => 'Established', 'type' => 'text', 'value' => '2014' ),
-				array( 'label' => 'Services', 'type' => 'array', 'value' => array( 'Advisory', 'Audit' ) ),
+				array( 'key' => 'abn', 'label' => 'ABN', 'type' => 'text', 'value' => '00 000 000 000' ),
+				array( 'key' => 'established', 'label' => 'Established', 'type' => 'text', 'value' => '2014' ),
+				array( 'key' => 'services', 'label' => 'Services', 'type' => 'array', 'value' => array( 'Advisory', 'Audit' ) ),
 			),
 			'achievements'               => array(
 				array( 'name' => 'Sample Credential', 'type' => 'certificate', 'earned_at' => gmdate( 'c', time() - ( 30 * DAY_IN_SECONDS ) ) ),
