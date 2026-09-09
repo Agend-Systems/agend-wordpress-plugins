@@ -288,7 +288,11 @@
 }
 
 .agend-ev-pill--category {
+  /* Tinted from the accent rather than the coral default it used to hard-code,
+     which left the pill pink on any site with a different accent while its own
+     text colour followed the variable. */
   background: rgba(255, 107, 85, 0.12);
+  background: color-mix(in srgb, var(--agend-ev-accent) 12%, transparent);
   color: var(--agend-ev-accent);
 }
 

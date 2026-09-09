@@ -84,15 +84,19 @@ function agend_apps_service_health() {
  * Calls `GET /v1/health` (versioned, authenticated) and returns the
  * decoded payload containing the key's scopes and authorised app IDs.
  *
+ * @param array $args Request args passed to Agend_Apps_API::request(). Pass
+ *                    `unattended => true` to keep the call off the bearer
+ *                    resolver, which callers on the token-resolution path
+ *                    must do to avoid re-entering it.
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
-function agend_apps_verify_api_key() {
+function agend_apps_verify_api_key( array $args = array() ) {
 	/**
 	 * Filters the verify-API-key request args before the request is sent.
 	 *
 	 * @param array $args Request args passed to Agend_Apps_API::request().
 	 */
-	$args = (array) apply_filters( 'agend_apps_verify_api_key_args', array() );
+	$args = (array) apply_filters( 'agend_apps_verify_api_key_args', $args );
 
 	$response = agend_apps_api()->request( 'GET', '/health', $args );
 
