@@ -239,3 +239,26 @@ function agend_apps_records_resolve_colours( array $settings, array $roles ): ar
 		'source'  => 'custom',
 	);
 }
+
+/**
+ * Builds a surface's colour CSS variables straight from its settings.
+ *
+ * The one-call form of {@see agend_apps_records_resolve_colours()} followed by
+ * {@see agend_apps_records_ssr_colour_style()}, for a surface that renders the
+ * built-in fragment markup rather than its own: it resolves the instance's
+ * colour controls (honouring `inherit_colours`) and emits them as the CSS
+ * variables that markup reads.
+ *
+ * A surface whose controls are all at their defaults resolves to the plugin
+ * defaults, so leaving the controls alone emits what the surface emitted before
+ * it had any.
+ *
+ * @param string               $prefix   The CSS-variable prefix (without the leading '--').
+ * @param array<string, mixed> $settings Surface settings (Elementor-shaped: toggles are 'yes'/'').
+ * @return string The inline style declaration string.
+ */
+function agend_apps_records_colour_style_from_settings( string $prefix, array $settings ): string {
+	$resolved = agend_apps_records_resolve_colours( $settings, AGEND_APPS_RECORDS_COLOUR_DEFAULTS );
+
+	return agend_apps_records_ssr_colour_style( $prefix, $resolved['colours'] );
+}

@@ -121,6 +121,105 @@ function agend_apps_records_schema_record_type_field(): array {
 	);
 }
 
+/**
+ * The Colours style section, for every surface whose markup reads the shared
+ * catalogue colour variables.
+ *
+ * The field names come straight from AGEND_APPS_RECORDS_COLOUR_SETTING_KEYS,
+ * which is the map agend_apps_records_resolve_colours() reads a surface's
+ * manual colours by. That is the whole point of this helper: the names and the
+ * resolver cannot drift apart, because there is only one place that knows them.
+ * Before it existed the section was copied per surface, and a rename on one
+ * side failed silently, leaving colours an author had set simply unread.
+ * Defaults likewise come from AGEND_APPS_RECORDS_COLOUR_DEFAULTS, so the
+ * palette is written once.
+ *
+ * What genuinely varies per surface is copy, not structure: which roles the
+ * surface has, whether it offers the inherit toggle, and the wording that says
+ * what the accent drives on that particular surface. Those are the options.
+ *
+ * @param array<int, string>   $roles   Ordered roles this surface exposes, keyed as
+ *                                      AGEND_APPS_RECORDS_COLOUR_DEFAULTS is
+ *                                      ('heading', 'body', 'accent', 'button', 'buttonText').
+ * @param array<string, mixed> $options {
+ *     Optional. Per-surface copy and defaults.
+ *
+ *     @type bool|null             $inherit      Default for the inherit toggle, or null to
+ *                                               omit the toggle (and the fields' conditions)
+ *                                               entirely. Default true.
+ *     @type string                $inherit_text Description under the toggle. Defaults to the
+ *                                               shared wording.
+ *     @type array<string, string> $labels       Per-role label overrides.
+ *     @type array<string, string> $descriptions Per-role descriptions.
+ *     @type array<string, string> $defaults     Per-role default colour overrides.
+ * }
+ * @return array The section, ready to drop into a surface's `sections` list.
+ */
+function agend_apps_records_schema_colour_fields( array $roles, array $options = array() ): array {
+	$inherit_default = array_key_exists( 'inherit', $options ) ? $options['inherit'] : true;
+	$labels          = (array) ( $options['labels'] ?? array() );
+	$descriptions    = (array) ( $options['descriptions'] ?? array() );
+	$defaults        = (array) ( $options['defaults'] ?? array() );
+
+	$default_labels = array(
+		'heading'    => __( 'Heading colour', 'agend-apps-core' ),
+		'body'       => __( 'Body text colour', 'agend-apps-core' ),
+		'accent'     => __( 'Highlight / accent colour', 'agend-apps-core' ),
+		'button'     => __( 'Button colour', 'agend-apps-core' ),
+		'buttonText' => __( 'Button text colour', 'agend-apps-core' ),
+	);
+
+	$fields = array();
+
+	if ( null !== $inherit_default ) {
+		$fields[] = array(
+			'name'        => 'inherit_colours',
+			'label'       => __( 'Inherit theme colours', 'agend-apps-core' ),
+			'type'        => 'toggle',
+			'default'     => (bool) $inherit_default,
+			'description' => (string) ( $options['inherit_text'] ?? __( 'Use the site\'s theme colours when the theme sets them, otherwise the connected Agend account\'s colours. Turn off to set them manually below.', 'agend-apps-core' ) ),
+		);
+	}
+
+	foreach ( $roles as $role ) {
+		$setting_key = AGEND_APPS_RECORDS_COLOUR_SETTING_KEYS[ $role ] ?? null;
+
+		if ( null === $setting_key ) {
+			continue;
+		}
+
+		$field = array(
+			'name'    => $setting_key,
+			'label'   => (string) ( $labels[ $role ] ?? $default_labels[ $role ] ?? $setting_key ),
+			'type'    => 'colour',
+			'default' => (string) ( $defaults[ $role ] ?? AGEND_APPS_RECORDS_COLOUR_DEFAULTS[ $role ] ?? '' ),
+		);
+
+		if ( isset( $descriptions[ $role ] ) ) {
+			$field['description'] = (string) $descriptions[ $role ];
+		}
+
+		// Manual colours are only reachable with inheritance off, so the fields
+		// hide behind the toggle wherever there is one.
+		if ( null !== $inherit_default ) {
+			$field['condition'] = array( 'inherit_colours!' => 'yes' );
+		}
+
+		$fields[] = $field;
+	}
+
+	return array(
+		'id'     => 'section_style_colours',
+		'label'  => __( 'Colours', 'agend-apps-core' ),
+		'tab'    => 'style',
+		'fields' => $fields,
+	);
+}
+
+// agend_apps_records_schema_colour_fields() reads the shared role defaults and
+// setting-key map from here.
+require_once __DIR__ . '/palette.php';
+
 require_once __DIR__ . '/schema/events-catalogue.php';
 require_once __DIR__ . '/schema/record-block.php';
 require_once __DIR__ . '/schema/record-pills.php';

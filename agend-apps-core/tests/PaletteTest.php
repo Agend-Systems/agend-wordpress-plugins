@@ -30,6 +30,7 @@ final class PaletteTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/format.php';
 	}
 
 	// -- agend_apps_records_site_palette() -----------------------------------
@@ -177,6 +178,136 @@ final class PaletteTest extends TestCase {
 		$result = agend_apps_records_resolve_colours( array(), self::ROLES );
 
 		self::assertSame( 'custom', $result['source'] );
+	}
+
+	// -- agend_apps_records_ssr_colour_style() -------------------------------
+
+	#[Test]
+	public function should_emit_the_plugin_default_palette_when_no_overrides_are_given(): void {
+		// Pinned as an exact string so this test fails the moment the default
+		// palette in AGEND_APPS_RECORDS_COLOUR_DEFAULTS silently changes.
+		self::assertSame(
+			'--agend-dir-heading:#1E2A4A;--agend-dir-body:#26304D;--agend-dir-accent:#FF6B55;--agend-dir-button:#FF6B55;--agend-dir-button-text:#FFFFFF;--agend-dir-card-radius:10px;',
+			agend_apps_records_ssr_colour_style( 'agend-dir' )
+		);
+	}
+
+	#[Test]
+	public function should_emit_every_override_when_a_full_set_of_colours_is_given(): void {
+		$style = agend_apps_records_ssr_colour_style(
+			'agend-dir',
+			array(
+				'heading'    => '#111111',
+				'body'       => '#222222',
+				'accent'     => '#333333',
+				'button'     => '#444444',
+				'buttonText' => '#555555',
+			)
+		);
+
+		self::assertSame(
+			'--agend-dir-heading:#111111;--agend-dir-body:#222222;--agend-dir-accent:#333333;--agend-dir-button:#444444;--agend-dir-button-text:#555555;--agend-dir-card-radius:10px;',
+			$style
+		);
+	}
+
+	#[Test]
+	public function should_fall_back_to_the_role_default_for_a_role_omitted_from_a_partial_override_set(): void {
+		$style = agend_apps_records_ssr_colour_style(
+			'agend-dir',
+			array(
+				'heading' => '#111111',
+				'accent'  => '#333333',
+			)
+		);
+
+		self::assertSame(
+			'--agend-dir-heading:#111111;--agend-dir-body:#26304D;--agend-dir-accent:#333333;--agend-dir-button:#FF6B55;--agend-dir-button-text:#FFFFFF;--agend-dir-card-radius:10px;',
+			$style
+		);
+	}
+
+	/** @return array<string, array{string}> */
+	public static function unsafeOverrides(): array {
+		return array(
+			'empty string'    => array( '' ),
+			'css injection'   => array( 'red;background:url(x)' ),
+			'javascript: url' => array( 'javascript:alert(1)' ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'unsafeOverrides' )]
+	public function should_fall_back_to_the_role_default_instead_of_writing_an_unsafe_override_into_the_style_attribute( string $unsafe ): void {
+		$style = agend_apps_records_ssr_colour_style( 'agend-dir', array( 'heading' => $unsafe ) );
+
+		self::assertStringContainsString( '--agend-dir-heading:#1E2A4A;', $style );
+		if ( '' !== $unsafe ) {
+			self::assertStringNotContainsString( $unsafe, $style );
+		}
+	}
+
+	#[Test]
+	public function should_always_emit_a_fixed_card_radius_regardless_of_the_overrides_passed(): void {
+		$style = agend_apps_records_ssr_colour_style(
+			'agend-dir',
+			array( 'heading' => '#111111', 'accent' => 'javascript:alert(1)' )
+		);
+
+		self::assertStringContainsString( '--agend-dir-card-radius:10px;', $style );
+	}
+
+	// -- agend_apps_records_colour_style_from_settings() ---------------------
+
+	#[Test]
+	public function should_emit_the_plugin_defaults_when_settings_are_empty(): void {
+		// Guarantees an untouched widget (no schema fields saved yet) renders
+		// exactly as it did before the colour controls existed.
+		self::assertSame(
+			'--agend-dir-heading:#1E2A4A;--agend-dir-body:#26304D;--agend-dir-accent:#FF6B55;--agend-dir-button:#FF6B55;--agend-dir-button-text:#FFFFFF;--agend-dir-card-radius:10px;',
+			agend_apps_records_colour_style_from_settings( 'agend-dir', array() )
+		);
+	}
+
+	#[Test]
+	public function should_emit_the_manual_colours_when_inherit_colours_is_off(): void {
+		$style = agend_apps_records_colour_style_from_settings(
+			'agend-dir',
+			array(
+				'inherit_colours' => '',
+				'heading_colour'  => '#101010',
+				'button_colour'   => '#202020',
+			)
+		);
+
+		self::assertStringContainsString( '--agend-dir-heading:#101010;', $style );
+		self::assertStringContainsString( '--agend-dir-button:#202020;', $style );
+	}
+
+	#[Test]
+	public function should_emit_the_site_palette_values_when_inherit_colours_is_on_and_a_palette_is_present(): void {
+		Agend_Test_WP::$theme_has_theme_json = true;
+		Agend_Test_WP::$global_styles        = array(
+			'elements' => array(
+				'button' => array( 'color' => array( 'background' => '#00ff00' ) ),
+			),
+		);
+
+		$style = agend_apps_records_colour_style_from_settings( 'agend-dir', array( 'inherit_colours' => 'yes' ) );
+
+		self::assertStringContainsString( '--agend-dir-button:#00ff00;', $style );
+	}
+
+	#[Test]
+	public function should_emit_the_plugin_defaults_when_inherit_colours_is_on_and_no_site_palette_is_present(): void {
+		Agend_Test_WP::$theme_has_theme_json = false;
+
+		$style = agend_apps_records_colour_style_from_settings( 'agend-dir', array( 'inherit_colours' => 'yes' ) );
+
+		self::assertSame(
+			'--agend-dir-heading:#1E2A4A;--agend-dir-body:#26304D;--agend-dir-accent:#FF6B55;--agend-dir-button:#FF6B55;--agend-dir-button-text:#FFFFFF;--agend-dir-card-radius:10px;',
+			$style
+		);
 	}
 
 	// -- agend_apps_records_colour_is_safe() ---------------------------------
