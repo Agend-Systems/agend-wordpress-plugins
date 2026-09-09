@@ -143,6 +143,35 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'label_style_heading',
+			array(
+				'label'     => __( 'Label', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
+				'condition' => array( 'show_label' => 'yes' ),
+			)
+		);
+
+		$this->add_control(
+			'label_colour',
+			array(
+				'label'     => __( 'Label colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array( '{{WRAPPER}} .agend-pills__label' => 'color: {{VALUE}};' ),
+				'condition' => array( 'show_label' => 'yes' ),
+			)
+		);
+
+		$this->add_group_control(
+			\Elementor\Group_Control_Typography::get_type(),
+			array(
+				'name'      => 'label_typography',
+				'selector'  => '{{WRAPPER}} .agend-pills__label',
+				'condition' => array( 'show_label' => 'yes' ),
+			)
+		);
+
 		$this->end_controls_section();
 	}
 
@@ -150,10 +179,6 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 		$s   = $this->get_settings_for_display();
 		$ctx = $this->resolve_context();
 
-		if ( $ctx['mismatch'] ) {
-			$this->render_mismatch_notice( (string) $s['record_type'], $ctx['type'] );
-			return;
-		}
 		if ( '' === $ctx['type'] ) {
 			return;
 		}
@@ -179,7 +204,17 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 			? (string) ( agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
 			: '';
 
-		echo '<div class="agend-pills">';
+		$label   = $this->label_html( $s, $key, $ctx['record'], $ctx['extra'] );
+		$classes = array( 'agend-pills' );
+		if ( '' !== $label ) {
+			$classes[] = 'agend-pills--labelled';
+			if ( 'yes' === ( $s['label_block_display'] ?? '' ) ) {
+				$classes[] = 'agend-pills--label-block';
+			}
+		}
+
+		echo '<div class="' . esc_attr( implode( ' ', $classes ) ) . '">';
+		echo $label; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped where it is built.
 		foreach ( $terms as $term ) {
 			if ( '' !== $link && '#' !== $link ) {
 				echo '<a class="agend-pill" href="' . esc_url( $link ) . '">' . esc_html( $term ) . '</a>';
@@ -188,5 +223,27 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 			}
 		}
 		echo '</div>';
+	}
+
+	/**
+	 * The label element, or '' when the widget is not showing one.
+	 *
+	 * @param array  $s      Widget settings.
+	 * @param string $key    Terms field key.
+	 * @param array  $record The record.
+	 * @param array  $extra  Render context.
+	 * @return string Escaped HTML.
+	 */
+	private function label_html( array $s, string $key, array $record, array $extra ): string {
+		if ( 'yes' !== ( $s['show_label'] ?? '' ) ) {
+			return '';
+		}
+
+		$text = trim( (string) ( $s['label_text'] ?? '' ) );
+		if ( '' === $text ) {
+			$text = agend_apps_records_field_label( $key, $record, $extra );
+		}
+
+		return '' === $text ? '' : '<span class="agend-pills__label">' . esc_html( $text ) . '</span>';
 	}
 }

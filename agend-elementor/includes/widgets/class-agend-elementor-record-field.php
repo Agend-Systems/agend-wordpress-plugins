@@ -85,6 +85,35 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'label_style_heading',
+			array(
+				'label'     => __( 'Label', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::HEADING,
+				'separator' => 'before',
+				'condition' => array( 'show_label' => 'yes' ),
+			)
+		);
+
+		$this->add_control(
+			'label_colour',
+			array(
+				'label'     => __( 'Label colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array( '{{WRAPPER}} .agend-field__label' => 'color: {{VALUE}};' ),
+				'condition' => array( 'show_label' => 'yes' ),
+			)
+		);
+
+		$this->add_group_control(
+			\Elementor\Group_Control_Typography::get_type(),
+			array(
+				'name'      => 'label_typography',
+				'selector'  => '{{WRAPPER}} .agend-field__label',
+				'condition' => array( 'show_label' => 'yes' ),
+			)
+		);
+
 		$this->end_controls_section();
 	}
 
@@ -115,10 +144,6 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 		$s   = $this->get_settings_for_display();
 		$ctx = $this->resolve_context();
 
-		if ( $ctx['mismatch'] ) {
-			$this->render_mismatch_notice( (string) $s['record_type'], $ctx['type'] );
-			return;
-		}
 		if ( '' === $ctx['type'] ) {
 			return;
 		}
@@ -133,8 +158,8 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 			return;
 		}
 
-		$extra = $ctx['extra'];
-		$extra['custom_field_key'] = (string) ( $s['custom_field_key'] ?? '' );
+		$extra                     = $ctx['extra'];
+		$extra['custom_field_key'] = $this->custom_field_key( $s );
 
 		$html = agend_apps_records_render_field( $key, $ctx['type'], $ctx['record'], $extra, $this->format_options( $s ) );
 		if ( '' === $html ) {
@@ -171,6 +196,58 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 			$classes[] = 'agend-field--preview';
 		}
 
-		echo '<' . $tag . ' class="' . esc_attr( implode( ' ', $classes ) ) . '">' . $inner . '</' . $tag . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $inner is escaped by agend_apps_records_format_field().
+		$label = $this->label_html( $s, $key, $ctx['record'], $extra );
+		if ( '' !== $label ) {
+			$classes[] = 'agend-field--labelled';
+			if ( 'yes' === ( $s['label_block_display'] ?? '' ) ) {
+				$classes[] = 'agend-field--label-block';
+			}
+		}
+
+		echo '<' . $tag . ' class="' . esc_attr( implode( ' ', $classes ) ) . '">' . $label . $inner . '</' . $tag . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $label and $inner are escaped where they are built.
+	}
+
+	/**
+	 * The custom field key this widget reads.
+	 *
+	 * The picker wins when it names a key; the free-text control is what an
+	 * author uses for a field this site's key cannot enumerate, or one that
+	 * does not exist yet. A widget saved before the picker existed has only
+	 * the free-text value, which is why the picker's empty option leaves that
+	 * control visible rather than hiding a key the render is still using.
+	 *
+	 * @param array $s Widget settings.
+	 * @return string
+	 */
+	private function custom_field_key( array $s ): string {
+		$choice = trim( (string) ( $s['custom_field_key_choice'] ?? '' ) );
+
+		return '' !== $choice ? $choice : trim( (string) ( $s['custom_field_key'] ?? '' ) );
+	}
+
+	/**
+	 * The label element, or '' when the widget is not showing one.
+	 *
+	 * @param array  $s      Widget settings.
+	 * @param string $key    Field key.
+	 * @param array  $record The record.
+	 * @param array  $extra  Render context.
+	 * @return string Escaped HTML.
+	 */
+	private function label_html( array $s, string $key, array $record, array $extra ): string {
+		if ( 'yes' !== ( $s['show_label'] ?? '' ) ) {
+			return '';
+		}
+
+		$text = trim( (string) ( $s['label_text'] ?? '' ) );
+		if ( '' === $text ) {
+			$text = agend_apps_records_field_label( $key, $record, $extra );
+		}
+		if ( '' === $text ) {
+			return '';
+		}
+
+		return '<span class="agend-field__label">' . esc_html( $text )
+			. esc_html( (string) ( $s['label_separator'] ?? '' ) ) . '</span>';
 	}
 }

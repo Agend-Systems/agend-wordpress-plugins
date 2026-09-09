@@ -8,20 +8,6 @@
             },
             "controls": [
                 {
-                    "id": "record_type",
-                    "args": {
-                        "label": "Record type",
-                        "type": "select",
-                        "default": "auto",
-                        "options": {
-                            "auto": "Auto",
-                            "event": "Event",
-                            "course": "Course"
-                        },
-                        "description": "Auto uses whatever record the surrounding template is rendering."
-                    }
-                },
-                {
                     "id": "field",
                     "args": {
                         "label": "Field",
@@ -59,6 +45,10 @@
                                     "listing:location": "Location (city, state)",
                                     "listing:city": "City",
                                     "listing:state": "State",
+                                    "listing:postcode": "Postcode",
+                                    "listing:street": "Street address",
+                                    "listing:address": "Full address (one line)",
+                                    "listing:updated_at": "Last updated",
                                     "listing:rating": "Average rating",
                                     "listing:review_count": "Review count",
                                     "listing:is_featured": "Featured",
@@ -69,10 +59,7 @@
                                     "listing:instagram_url": "Instagram",
                                     "listing:twitter_url": "X (Twitter)",
                                     "listing:youtube_url": "YouTube",
-                                    "listing:postcode": "Postcode",
-                                    "listing:street": "Street address",
-                                    "listing:address": "Full address (one line)",
-                                    "listing:updated_at": "Last updated"
+                                    "listing:hours": "Opening hours"
                                 }
                             },
                             {
@@ -127,7 +114,29 @@
                             }
                         ],
                         "label_block": true,
-                        "description": "Common fields work in both event and course templates. Event and Course fields render only inside a template of that type."
+                        "description": "Common fields work in any template, resolving to that record type's equivalent. A field from one record type renders only inside a template of that type."
+                    }
+                },
+                {
+                    "id": "custom_field_key_choice",
+                    "args": {
+                        "label": "Custom field",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Not listed (enter a key below)",
+                            "abn": "ABN",
+                            "established": "Established",
+                            "services": "Services"
+                        },
+                        "label_block": true,
+                        "description": "The custom fields this site can read. Which of them a visitor receives depends on their entitlements, so a field renders empty for a visitor who is not entitled to it.",
+                        "condition": {
+                            "field": [
+                                "common:custom_field",
+                                "common:custom_field_label"
+                            ]
+                        }
                     }
                 },
                 {
@@ -136,12 +145,13 @@
                         "label": "Custom field key",
                         "type": "text",
                         "default": "",
-                        "description": "The key as configured in Agend, for example education_level. Which custom fields a visitor receives depends on their entitlements, so this renders empty for a visitor who is not entitled to it.",
+                        "description": "The key as configured in Agend, for example education_level. Use this for a field that does not exist yet, or that this site's key cannot enumerate.",
                         "condition": {
                             "field": [
                                 "common:custom_field",
                                 "common:custom_field_label"
-                            ]
+                            ],
+                            "custom_field_key_choice": ""
                         }
                     }
                 },
@@ -197,6 +207,58 @@
                         "type": "switcher",
                         "default": "",
                         "description": "Ignored when the whole card is already a link."
+                    }
+                },
+                {
+                    "id": "label_heading",
+                    "args": {
+                        "label": "Label",
+                        "type": "heading",
+                        "separator": "before"
+                    }
+                },
+                {
+                    "id": "show_label",
+                    "args": {
+                        "label": "Show label",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Puts the field's own name before the value. A custom field uses the label configured in Agend."
+                    }
+                },
+                {
+                    "id": "label_text",
+                    "args": {
+                        "label": "Label text",
+                        "type": "text",
+                        "default": "",
+                        "description": "Leave empty to use the field's own name.",
+                        "condition": {
+                            "show_label": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "label_separator",
+                    "args": {
+                        "label": "After the label",
+                        "type": "text",
+                        "default": ": ",
+                        "description": "Printed between the label and the value.",
+                        "condition": {
+                            "show_label": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "label_block_display",
+                    "args": {
+                        "label": "Label on its own line",
+                        "type": "switcher",
+                        "default": "",
+                        "condition": {
+                            "show_label": "yes"
+                        }
                     }
                 }
             ]
