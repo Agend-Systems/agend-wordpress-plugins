@@ -37,6 +37,23 @@ final class DirectoryCatalogueControlsTest extends TestCase {
 
 	use Content_Tab_Recording_Trait;
 
+	protected function setUp(): void {
+		parent::setUp();
+
+		// The show_review_form field declares `requires_feature =>
+		// 'directory_review_form'` (SPEC-CORE-20260908 scope-gated features):
+		// when another test in this process has loaded the key-scopes/feature
+		// classes, the schema adapter would otherwise swap this fixture's
+		// control for a missing-scope notice. Seeded as held so this fixture
+		// keeps asserting the ordinary control; the gate itself is exercised
+		// in OptionalFeaturesTest.
+		if ( class_exists( '\Agend_Apps_Key_Scopes' ) && function_exists( 'agend_apps_verify_api_key' ) ) {
+			\Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'directory.reviews.manage' ) ) ) );
+			\Agend_Apps_Key_Scopes::refresh();
+			\Agend_Test_WP::$requests = array();
+		}
+	}
+
 	#[Test]
 	public function should_register_the_same_content_tab_controls_as_the_pre_refactor_widget(): void {
 		$fixture = json_decode(

@@ -101,6 +101,13 @@ class Agend_Apps_Token_Worker {
 			return '';
 		}
 
+		// The sso_account_link optional feature (SPEC-CORE-20260908
+		// scope-gated features): a key without sso.tokens.create always gets a
+		// 403 from POST /v1/sso/tokens, so never attempt the mint at all.
+		if ( function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'sso_account_link' ) ) {
+			return '';
+		}
+
 		$user_id = get_current_user_id();
 
 		if ( 0 === $user_id ) {
@@ -146,6 +153,13 @@ class Agend_Apps_Token_Worker {
 		if ( empty( $minted['access_token'] ) || empty( $minted['expires_at'] ) ) {
 			set_transient( self::NEGATIVE_PREFIX . $user_id, 1, self::NEGATIVE_TTL_ERROR );
 			return '';
+		}
+
+		// A successful mint confirms the identity is linked; record the ids the
+		// gateway returned alongside it (both optional -- an older gateway
+		// omits them) the same way agend_apps_account_link_state() does.
+		if ( function_exists( 'agend_apps_record_linked_identity' ) ) {
+			agend_apps_record_linked_identity( $user_id, $minted );
 		}
 
 		update_user_meta(

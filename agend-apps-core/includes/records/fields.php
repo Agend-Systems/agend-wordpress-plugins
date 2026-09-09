@@ -208,6 +208,47 @@ function agend_apps_records_record_listing_location_part( array $record, string 
 }
 
 /**
+ * A listing's street address: address line 1, then line 2 when present.
+ *
+ * @param array $record The listing record.
+ * @return string
+ */
+function agend_apps_records_record_listing_street( array $record ): string {
+	$parts = array_filter(
+		array(
+			agend_apps_records_record_listing_location_part( $record, 'address_line_1' ),
+			agend_apps_records_record_listing_location_part( $record, 'address_line_2' ),
+		),
+		'strlen'
+	);
+	return implode( ', ', $parts );
+}
+
+/**
+ * A listing's full address on one line: "1 Example St, Sydney NSW 2000".
+ *
+ * Each part is optional, so a listing with only a suburb renders just that.
+ *
+ * @param array $record The listing record.
+ * @return string
+ */
+function agend_apps_records_record_listing_address( array $record ): string {
+	$street   = agend_apps_records_record_listing_street( $record );
+	$locality = implode(
+		' ',
+		array_filter(
+			array(
+				agend_apps_records_record_listing_location_part( $record, 'city' ),
+				agend_apps_records_record_listing_location_part( $record, 'state' ),
+				agend_apps_records_record_listing_location_part( $record, 'postcode' ),
+			),
+			'strlen'
+		)
+	);
+	return implode( ', ', array_filter( array( $street, $locality ), 'strlen' ) );
+}
+
+/**
  * A single custom-field value from a record, by its key.
  *
  * `custom_fields` is a list of `{key,label,type,value}`. Which entries the
@@ -485,6 +526,16 @@ function agend_apps_records_field_registry(): array {
 				return agend_apps_records_record_listing_location_part( $record, 'state' );
 			},
 		),
+		'listing:postcode'          => array(
+			'label' => __( 'Postcode', 'agend-apps-core' ),
+			'kind'  => 'text',
+			'get'   => static function ( array $record ) {
+				return agend_apps_records_record_listing_location_part( $record, 'postcode' );
+			},
+		),
+		'listing:street'            => array( 'label' => __( 'Street address', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_listing_street' ),
+		'listing:address'           => array( 'label' => __( 'Full address (one line)', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_listing_address' ),
+		'listing:updated_at'        => array( 'label' => __( 'Last updated', 'agend-apps-core' ), 'kind' => 'date', 'get' => $text( 'updated_at' ) ),
 		'listing:rating'            => array( 'label' => __( 'Average rating', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'average_rating' ) ),
 		'listing:review_count'      => array( 'label' => __( 'Review count', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'review_count' ) ),
 		'listing:is_featured'       => array( 'label' => __( 'Featured', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'is_featured' ) ),

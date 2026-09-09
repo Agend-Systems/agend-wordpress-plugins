@@ -73,7 +73,12 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
 		),
 		'detail'     => array(
 			'reviews'    => 'yes' === ( $s['show_reviews'] ?? 'yes' ),
-			'reviewForm' => 'yes' === ( $s['show_review_form'] ?? 'yes' ),
+			// Also gated on the review-form optional feature: a key without
+			// the directory.reviews.manage scope never gets the submission
+			// form, whatever this widget instance's own toggle says
+			// (SPEC-CORE-20260908 scope-gated features).
+			'reviewForm' => 'yes' === ( $s['show_review_form'] ?? 'yes' )
+				&& ( ! function_exists( 'agend_apps_records_feature_available' ) || agend_apps_records_feature_available( 'directory_review_form' ) ),
 		),
 		'pagination' => array(
 			'style'   => (string) ( $s['pagination_style'] ?? 'numbered' ),

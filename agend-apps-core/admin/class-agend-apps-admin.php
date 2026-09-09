@@ -392,6 +392,24 @@ class Agend_Apps_Admin {
 
 		register_setting(
 			self::OPTION_GROUP,
+			'agend_apps_directory_page_id',
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => 'absint',
+				'default'           => 0,
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_directory_page_id',
+			__( 'Directory page (My Account link)', 'agend-apps-core' ),
+			array( $this, 'render_directory_page_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_api_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
 			'agend_apps_webhook_secret',
 			array(
 				'type'              => 'string',
@@ -758,6 +776,30 @@ class Agend_Apps_Admin {
 	}
 
 	/**
+	 * Renders the "Directory page (My Account link)" page picker.
+	 *
+	 * The WooCommerce My Account "Directory" endpoint links here. Left unset,
+	 * it falls back to the dedicated Directory Catalogue page configured under
+	 * Agend Widgets ({@see Agend_Apps_Records_Pages::page_id()}); with neither
+	 * configured the My Account menu item is not registered at all.
+	 */
+	public function render_directory_page_field(): void {
+		$selected = absint( get_option( 'agend_apps_directory_page_id', 0 ) );
+
+		wp_dropdown_pages(
+			array(
+				'name'              => 'agend_apps_directory_page_id',
+				'show_option_none'  => __( 'Select a page', 'agend-apps-core' ),
+				'option_none_value' => '0',
+				'selected'          => $selected,
+			)
+		);
+		echo '<p class="description">';
+		esc_html_e( 'The page the WooCommerce My Account "Directory" link points to. Leave unset to use the dedicated Directory Catalogue page (Agend Widgets settings) if one is configured.', 'agend-apps-core' );
+		echo '</p>';
+	}
+
+	/**
 	 * Renders a TTL number input field.
 	 *
 	 * @param array $args Field arguments including `option_name` and `default`.
@@ -807,6 +849,13 @@ class Agend_Apps_Admin {
 
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+		}
+
+		// Cache the returned scopes from this same response, so the optional-
+		// feature registry reflects a freshly verified key without a second
+		// gateway round trip (SPEC-CORE-20260908 scope-gated features).
+		if ( class_exists( 'Agend_Apps_Key_Scopes' ) && is_array( $result ) ) {
+			Agend_Apps_Key_Scopes::store_from_response( $result );
 		}
 
 		wp_send_json_success( $result );
