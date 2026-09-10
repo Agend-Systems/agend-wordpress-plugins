@@ -241,6 +241,13 @@ function agend_apps_core_bootstrap() {
 		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-link.php';
 	}
 
+	// WordPress-IdP diagnostics (docs/PLAN-wordpress-idp-option-b.md section
+	// 6): loaded unconditionally, unlike wp-idp-link.php above, because the
+	// Identity and SSO settings page panel it backs must degrade honestly in
+	// `credentials`/`sso` mode rather than disappearing. Every symbol it
+	// reads from wp-idp-link.php is guarded internally.
+	require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-diagnostics.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/support.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/webhooks.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/class-agend-apps-rest-controller.php';
