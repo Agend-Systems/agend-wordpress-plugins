@@ -76,6 +76,55 @@ final class MemberLoginRenderTest extends TestCase {
 		self::assertSame( $this->expected( $scenario ), (string) ob_get_clean() );
 	}
 
+	// -----------------------------------------------------------------
+	// docs/PLAN-wordpress-idp-option-b.md section 4.5: `wordpress` mode
+	// server-renders instead of standing down (previously indistinguishable
+	// from `sso` mode) or delegating to the client-side credential flow
+	// (`credentials` mode), since it has neither a credential form nor an
+	// `/auth/*` proxy route to probe a session through.
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_render_a_wordpress_login_prompt_when_signed_out_in_wordpress_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+
+		$markup = agend_apps_records_render_member_login( self::CUSTOM );
+
+		self::assertStringContainsString( 'Custom &lt;Heading&gt;', $markup );
+		self::assertStringContainsString( 'Sign in with your WordPress account to continue.', $markup );
+		self::assertStringContainsString( 'wp-login.php', $markup );
+		self::assertStringNotContainsString( 'is-signed-in', $markup );
+		// No client-side session probe in this mode: the config attribute the
+		// script keys off is deliberately absent.
+		self::assertStringNotContainsString( 'data-agend-member-login-config', $markup );
+	}
+
+	#[Test]
+	public function should_render_the_signed_in_view_when_signed_in_in_wordpress_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$GLOBALS['agend_test_current_user_id'] = 5;
+
+		$markup = agend_apps_records_render_member_login( self::CUSTOM );
+
+		self::assertStringContainsString( 'is-signed-in', $markup );
+		self::assertStringContainsString( 'You are in', $markup );
+		self::assertStringContainsString( 'Log out', $markup );
+		self::assertStringContainsString( 'wp-login.php?action=logout', $markup );
+		self::assertStringNotContainsString( 'Sign in with your WordPress account', $markup );
+		self::assertStringNotContainsString( 'data-agend-member-login-config', $markup );
+	}
+
+	#[Test]
+	public function should_still_render_nothing_in_sso_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'sso' );
+
+		self::assertSame( '', agend_apps_records_render_member_login( self::CUSTOM ) );
+
+		$GLOBALS['agend_test_current_user_id'] = 5;
+
+		self::assertSame( '', agend_apps_records_render_member_login( self::CUSTOM ) );
+	}
+
 	protected function setUp(): void {
 		parent::setUp();
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
