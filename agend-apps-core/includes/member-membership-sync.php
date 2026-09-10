@@ -33,8 +33,8 @@
  * snapshot for an entitlement.
  *
  * The snapshot is refreshed on every credential login and by the incoming
- * webhook receiver when a `crm.membership.*` event arrives for a member
- * with an active session.
+ * webhook receiver when a `crm.membership.*` event arrives for a member whose
+ * WordPress identity resolves to a gateway bearer.
  *
  * Meta written (all underscore-prefixed, hidden from the profile UI):
  * - `_agend_apps_membership_status_display`     Aggregate standing: `active`,
@@ -68,15 +68,23 @@ if ( ! defined( 'ABSPATH' ) ) {
  * and the previous user is restored afterwards — safe in the login and
  * webhook contexts this runs in (no rendering depends on the current user).
  *
- * @param int $user_id WordPress user id holding an Agend member session.
+ * Whether `$user_id` has a resolvable identity is discovered by impersonating
+ * them and calling `agend_apps_get_bearer_token()` — the same
+ * `agend_apps_bearer_token` filter chain every gateway call consults —
+ * rather than checking a specific provider's session store directly. That
+ * keeps this function correct under credentials sign-in
+ * (`Agend_Apps_Member_Session`), SSO (`Agend_Apps_Token_Worker`), and the
+ * planned WordPress-IdP mode alike, without needing to know which one is
+ * active. It also respects the `agend_apps_current_user_external_id` filter,
+ * which reading a specific provider's usermeta directly would bypass. An
+ * empty bearer means no provider can speak for this user right now, so the
+ * gateway is never called.
+ *
+ * @param int $user_id WordPress user id to refresh the snapshot for.
  * @return bool True when the snapshot was refreshed, false when skipped or failed.
  */
 function agend_apps_member_sync_membership_meta( int $user_id ): bool {
-	if ( $user_id <= 0 || ! class_exists( 'Agend_Apps_Member_Session' ) ) {
-		return false;
-	}
-
-	if ( ! Agend_Apps_Member_Session::has_session( $user_id ) ) {
+	if ( $user_id <= 0 ) {
 		return false;
 	}
 
@@ -84,6 +92,16 @@ function agend_apps_member_sync_membership_meta( int $user_id ): bool {
 
 	if ( $previous_user_id !== $user_id ) {
 		wp_set_current_user( $user_id );
+	}
+
+	$bearer_token = agend_apps_get_bearer_token();
+
+	if ( '' === $bearer_token ) {
+		if ( $previous_user_id !== $user_id ) {
+			wp_set_current_user( $previous_user_id );
+		}
+
+		return false;
 	}
 
 	$memberships = agend_apps_crm_get_my_memberships();
