@@ -772,6 +772,27 @@ if ( ! function_exists( 'wp_create_nonce' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_generate_uuid4' ) ) {
+	/**
+	 * A real, distinct v4-shaped string per call (random, not constant), so
+	 * `agend_apps_ensure_external_id()`'s write-once and uniqueness guarantees
+	 * can actually be asserted against two different calls.
+	 */
+	function wp_generate_uuid4(): string {
+		return sprintf(
+			'%04x%04x-%04x-4%03x-%04x-%04x%04x%04x',
+			random_int( 0, 0xffff ),
+			random_int( 0, 0xffff ),
+			random_int( 0, 0xffff ),
+			random_int( 0, 0x0fff ),
+			random_int( 0x8000, 0xbfff ),
+			random_int( 0, 0xffff ),
+			random_int( 0, 0xffff ),
+			random_int( 0, 0xffff )
+		);
+	}
+}
+
 if ( ! function_exists( 'admin_url' ) ) {
 	function admin_url( string $path = '' ): string {
 		return 'https://example.test/wp-admin/' . ltrim( $path, '/' );
@@ -952,6 +973,25 @@ if ( ! function_exists( 'get_user_meta' ) ) {
 
 if ( ! function_exists( 'update_user_meta' ) ) {
 	function update_user_meta( int $user_id, string $key, $value ) {
+		$GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] = $value;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'add_user_meta' ) ) {
+	/**
+	 * Mirrors real WordPress's `$unique` contract: when true, refuses to add
+	 * (returns false) if the user already has a value for that key. This is
+	 * the write-once guard `agend_apps_ensure_external_id()` relies on to lose
+	 * a mint race cleanly instead of overwriting a value another call already
+	 * stored.
+	 */
+	function add_user_meta( int $user_id, string $key, $value, bool $unique = false ) {
+		if ( $unique && array_key_exists( $key, $GLOBALS['agend_test_user_meta'][ $user_id ] ?? array() ) ) {
+			return false;
+		}
+
 		$GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] = $value;
 
 		return true;
