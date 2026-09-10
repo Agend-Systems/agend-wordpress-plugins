@@ -3,9 +3,7 @@
  * Content-settings schema for the Agend Login / Portal Link surface.
  *
  * Transcribed from the Agend Login / Portal Link widget's register_controls()'s
- * Content-tab section. The `login_url` field is a URL control, which the
- * shared vocabulary cannot describe, so it stays an `adapter` field; see
- * the widget's register_adapter_control().
+ * Content-tab section.
  *
  * @package Agend_Apps_Core
  */
@@ -48,10 +46,15 @@ function agend_apps_records_schema_header_auth(): array {
 						'description' => __( 'Shown in a dropdown when a signed-in member hovers or focuses the button. Leave empty to hide the dropdown.', 'agend-apps-core' ),
 					),
 					array(
-						'name'        => 'login_url',
-						'label'       => __( 'Login page', 'agend-apps-core' ),
-						'type'        => 'adapter',
-						'description' => __( 'Where signed-out visitors go. Leave blank to use the WordPress login page.', 'agend-apps-core' ),
+						'name'          => 'login_url',
+						'label'         => __( 'Login page', 'agend-apps-core' ),
+						'type'          => 'url',
+						'description'   => __( 'Where signed-out visitors go. Leave blank to use the WordPress login page.', 'agend-apps-core' ),
+						'placeholder'   => home_url( '/login/' ),
+						'show_external' => false,
+						'default'       => array(
+							'url' => '',
+						),
 					),
 				),
 			),

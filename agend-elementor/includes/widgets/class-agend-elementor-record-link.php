@@ -40,7 +40,7 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-record-fields' );
+		return array( 'agend-apps-records-record-fields' );
 	}
 
 	protected function register_controls(): void {
@@ -145,163 +145,42 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * The record's detail URL from context, falling back to the page resolver.
+	 * The 'preview'/'preview_type' opts this widget's record-context reads
+	 * always need, built the same way
+	 * Agend_Elementor_Field_Widget_Trait::resolve_context() builds them
+	 * internally. The core render/reason functions take these opts directly
+	 * rather than a resolved context (a block passes its own), so this widget
+	 * has to construct them itself.
 	 *
-	 * @param array $ctx Resolved context.
-	 * @return string
+	 * @return array{preview: bool, preview_type: string}
 	 */
-	private function detail_url( array $ctx ): string {
-		return (string) ( agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
-	}
+	private function render_opts(): array {
+		$is_editor = $this->is_editor();
 
-	/**
-	 * The catalogue (dedicated or host) page URL.
-	 *
-	 * @param array $ctx Resolved context.
-	 * @return string
-	 */
-	private function catalogue_url( array $ctx ): string {
-		$url = Agend_Apps_Records_Pages::page_url( $ctx['type'] );
-		if ( '' === $url && ! empty( $ctx['extra']['host_page_id'] ) ) {
-			$permalink = get_permalink( (int) $ctx['extra']['host_page_id'] );
-			$url       = is_string( $permalink ) ? $permalink : '';
-		}
-		return $url;
-	}
-
-	/**
-	 * Outputs an anchor with the shared classes.
-	 *
-	 * @param string $href    Destination.
-	 * @param string $label   Visible label.
-	 * @param array  $s       Widget settings.
-	 * @param array  $ctx     Resolved context.
-	 * @param bool   $new_tab Whether to open in a new tab.
-	 */
-	private function output_anchor( string $href, string $label, array $s, array $ctx, bool $new_tab = false ): void {
-		$classes = $this->classes( $s, 'action-' . (string) ( $s['action'] ?? '' ) );
-
-		// Inside a card that is one big link a nested anchor is invalid HTML;
-		// render the label as a span and let the card link do the navigating.
-		if ( ! empty( $ctx['extra']['in_card_link'] ) ) {
-			echo '<span class="' . esc_attr( $classes ) . '">' . esc_html( $label ) . '</span>';
-			return;
-		}
-
-		$attrs = ' class="' . esc_attr( $classes ) . '" href="' . esc_url( $href ) . '"';
-		if ( $new_tab ) {
-			$attrs .= ' target="_blank" rel="noopener"';
-		}
-		echo '<a' . $attrs . '>' . esc_html( $label ) . '</a>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped above.
-	}
-
-	/**
-	 * Class list for the rendered element.
-	 *
-	 * @param array  $s     Widget settings.
-	 * @param string $extra Additional modifier.
-	 * @return string
-	 */
-	private function classes( array $s, string $extra = '' ): string {
-		$classes = array( 'agend-record-link' );
-		$classes[] = 'link' === ( $s['style_as'] ?? 'button' ) ? 'agend-record-link--text' : 'agend-record-link--button';
-		if ( 'yes' === ( $s['full_width'] ?? '' ) ) {
-			$classes[] = 'agend-record-link--full';
-		}
-		if ( '' !== $extra ) {
-			$classes[] = 'agend-record-link--' . $extra;
-		}
-		return implode( ' ', $classes );
+		return array(
+			'preview'      => $is_editor,
+			'preview_type' => $is_editor ? $this->preview_type() : '',
+		);
 	}
 
 	protected function render(): void {
-		$s   = $this->get_settings_for_display();
-		$ctx = $this->resolve_context();
+		$s    = $this->get_settings_for_display();
+		$opts = $this->render_opts();
 
-		if ( '' === $ctx['type'] ) {
-			return;
-		}
-
-		$record = $ctx['record'];
-		$slug   = isset( $record['slug'] ) ? (string) $record['slug'] : (string) ( $ctx['extra']['slug'] ?? '' );
-		$title  = (string) ( agend_apps_records_field_value( 'common:title', $ctx['type'], $record, $ctx['extra'] ) ?? '' );
-		$text   = trim( (string) ( $s['text'] ?? '' ) );
-		$action = (string) ( $s['action'] ?? 'detail' );
-
-		switch ( $action ) {
-			case 'detail':
-				$href = $this->detail_url( $ctx );
-				if ( '' === $href ) {
-					return;
-				}
-				$this->output_anchor( $href, '' !== $text ? $text : __( 'View details', 'agend-elementor' ), $s, $ctx );
+		switch ( agend_apps_records_record_link_render_reason( $s, $opts ) ) {
+			case 'ical_wrong_type':
+				$this->render_editor_notice( __( 'Add to calendar is only available for events.', 'agend-elementor' ) );
 				return;
 
-			case 'catalogue':
-				$href = $this->catalogue_url( $ctx );
-				if ( '' === $href ) {
-					return;
-				}
-				$labels = array(
-					'course'  => __( 'Back to Courses', 'agend-elementor' ),
-					'listing' => __( 'Back to Directory', 'agend-elementor' ),
-				);
-				$label  = '' !== $text ? $text : ( $labels[ $ctx['type'] ] ?? __( 'Back to Events', 'agend-elementor' ) );
-				$this->output_anchor( $href, $label, $s, $ctx );
+			case 'enrol_wrong_type':
+				$this->render_editor_notice( __( 'Enrol is only available for courses.', 'agend-elementor' ) );
 				return;
 
-			case 'ical':
-				if ( 'event' !== $ctx['type'] || '' === $slug ) {
-					$this->render_editor_notice( __( 'Add to calendar is only available for events.', 'agend-elementor' ) );
-					return;
-				}
-				$href = rest_url( 'agend-apps/v1/events/' . rawurlencode( $slug ) . '/ical' );
-				$this->output_anchor( $href, '' !== $text ? $text : __( 'Add to Calendar', 'agend-elementor' ), $s, $ctx, 'yes' === ( $s['new_tab'] ?? '' ) );
-				return;
-
-			case 'custom':
-				$template = (string) ( $s['custom_url'] ?? '' );
-				$href     = str_replace( array( '{slug}', '{title}' ), array( rawurlencode( $slug ), rawurlencode( $title ) ), $template );
-				if ( '' === trim( $href ) ) {
-					return;
-				}
-				$this->output_anchor( $href, '' !== $text ? $text : $title, $s, $ctx, 'yes' === ( $s['new_tab'] ?? '' ) );
-				return;
-
-			case 'enrol':
-				if ( 'course' !== $ctx['type'] ) {
-					$this->render_editor_notice( __( 'Enrol is only available for courses.', 'agend-elementor' ) );
-					return;
-				}
-				if ( 'yes' === ( $s['hide_when_enrolled'] ?? 'yes' ) && ! empty( $record['my_enrollment'] ) ) {
-					return;
-				}
-				// Mirrors the built-in detail: enrolment starts from a member
-				// sign-in that returns to this course.
-				$href = wp_login_url( $this->detail_url( $ctx ) );
-				$this->output_anchor( $href, '' !== $text ? $text : __( 'Enrol Now', 'agend-elementor' ), $s, $ctx );
-				return;
-
-			case 'register':
-				if ( 'event' !== $ctx['type'] || '' === $slug ) {
-					$this->render_editor_notice( __( 'Register is only available for events.', 'agend-elementor' ) );
-					return;
-				}
-				$registered = ! empty( $record['my_registration'] );
-				if ( $registered && 'yes' === ( $s['hide_when_registered'] ?? '' ) ) {
-					return;
-				}
-				$sold_out = ! empty( $record['sold_out'] );
-				$disabled = $sold_out && 'yes' === ( $s['disabled_when_sold_out'] ?? 'yes' );
-				if ( '' === $text ) {
-					$text = $sold_out
-						? __( 'Sold Out', 'agend-elementor' )
-						: ( $registered ? __( 'Register Another Attendee', 'agend-elementor' ) : __( 'Register Now', 'agend-elementor' ) );
-				}
-				// Never inside a card link: the button's own click must win, so
-				// the card wrapper skips clicks that land on [data-agend-event-slug].
-				echo '<button type="button" class="' . esc_attr( $this->classes( $s, 'action-register' ) ) . '" data-agend-event-slug="' . esc_attr( $slug ) . '"' . ( $disabled ? ' disabled' : '' ) . '>' . esc_html( $text ) . '</button>';
+			case 'register_wrong_type':
+				$this->render_editor_notice( __( 'Register is only available for events.', 'agend-elementor' ) );
 				return;
 		}
+
+		echo agend_apps_records_render_record_link( $s, $opts ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

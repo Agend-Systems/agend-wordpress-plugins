@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/memberships-catalogue",
+  "version": "1.15.0",
+  "title": "Agend Memberships Catalogue",
+  "category": "agend",
+  "icon": "money-alt",
+  "description": "Membership tiers from Agend, with pricing and signup.",
+  "keywords": [
+    "agend",
+    "memberships",
+    "catalogue"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "align": [
+      "wide",
+      "full"
+    ]
+  },
+  "editorScript": "file:./index.js",
+  "viewScript": [
+    "agend-apps-records-memberships-catalogue"
+  ],
+  "style": [
+    "agend-apps-records-memberships-catalogue"
+  ],
+  "render": "file:./render.php"
+}

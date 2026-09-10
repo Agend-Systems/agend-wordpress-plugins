@@ -1,7 +1,7 @@
 <?php
 /**
- * Pure formatters shared by the SSR catalogue detail pages and the Elementor
- * "field" widgets.
+ * Pure formatters and value normalisers shared by the SSR catalogue detail
+ * pages, the Elementor "field" widgets, and the record surface renderers.
  *
  * Every function here takes scalars or arrays and returns a formatted string
  * (or, for agend_apps_records_record_timezone(), a DateTimeZone); none of them
@@ -223,4 +223,28 @@ function agend_apps_records_ssr_lms_price( array $course ): string {
 	// No thousands separator, matching the client priceLabel() (toFixed(2)) used
 	// on the catalogue cards and the client-rendered detail.
 	return '$' . number_format( $num, 2, '.', '' );
+}
+
+/**
+ * Normalises a URL-valued `adapter` schema setting to a plain string.
+ *
+ * A `url`-shaped `adapter` field (see the `adapter` type note in schema.php)
+ * is not one shape across page-builder adapters: Elementor's URL control
+ * hands the widget `array( 'url' => ..., 'is_external' => ...,
+ * 'nofollow' => ... )`, while a Gutenberg block stores the same setting as a
+ * plain string. A renderer that reads a URL-valued setting normalises it once
+ * through here rather than repeating the "is it an array or a string" check
+ * inline; header-auth's `login_url` and memberships-catalogue's `success_url`
+ * both need it.
+ *
+ * @param mixed $value Raw setting value: a string, an Elementor URL control
+ *                      array, or unset/null.
+ * @return string The URL, or '' when absent.
+ */
+function agend_apps_records_normalise_url_setting( $value ): string {
+	if ( is_array( $value ) ) {
+		return (string) ( $value['url'] ?? '' );
+	}
+
+	return null === $value ? '' : (string) $value;
 }
