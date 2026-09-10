@@ -48,54 +48,6 @@ const AGEND_APPS_PROVISION_ERROR      = 'error';
 const AGEND_APPS_PROVISION_SKIPPED    = 'skipped';
 
 /**
- * Reads the upstream HTTP status from a gateway `WP_Error`.
- *
- * @param WP_Error $error Gateway error.
- * @return int Status code, or 0 when the error carries none (transport failure).
- */
-function agend_apps_auth_error_status( WP_Error $error ): int {
-	$data = $error->get_error_data();
-
-	return ( is_array( $data ) && isset( $data['status_code'] ) ) ? (int) $data['status_code'] : 0;
-}
-
-/**
- * Reads the gateway error code (`error.code` in the response envelope) from a
- * gateway `WP_Error`.
- *
- * @param WP_Error $error Gateway error.
- * @return string Upper-case gateway code, or '' when absent.
- */
-function agend_apps_auth_error_code( WP_Error $error ): string {
-	$data = $error->get_error_data();
-
-	if ( ! is_array( $data ) || ! isset( $data['body']['error']['code'] ) ) {
-		return '';
-	}
-
-	return strtoupper( (string) $data['body']['error']['code'] );
-}
-
-/**
- * Reads the gateway error detail code (`error.details.code`) from a gateway
- * `WP_Error`. Some gateway errors carry their specific reason here under a
- * generic top-level code (a `BAD_REQUEST` whose detail is
- * `CONTACT_ALREADY_LINKED`).
- *
- * @param WP_Error $error Gateway error.
- * @return string Upper-case detail code, or '' when absent.
- */
-function agend_apps_auth_error_detail_code( WP_Error $error ): string {
-	$data = $error->get_error_data();
-
-	if ( ! is_array( $data ) || ! isset( $data['body']['error']['details']['code'] ) ) {
-		return '';
-	}
-
-	return strtoupper( (string) $data['body']['error']['details']['code'] );
-}
-
-/**
  * Whether a register error means the email already has a dashboard account.
  *
  * Two gateway answers say so. A 409 `EMAIL_ALREADY_REGISTERED` is the
