@@ -14,6 +14,11 @@ use WP_Error;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-member-session.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-token-worker.php';
+// agend_apps_auth_error_status()/_code()/_detail_code() now live in
+// includes/api/auth.php (moved so the WordPress-IdP link step can use them
+// in `wordpress` mode, where member-provisioning.php is never loaded); the
+// email-conflict/invalid-credentials decisions under test here call them.
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/auth.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/member-provisioning.php';
 
 /**
