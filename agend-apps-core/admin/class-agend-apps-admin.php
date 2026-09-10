@@ -211,6 +211,13 @@ class Agend_Apps_Admin {
 	 * Passes translated strings to the script via `wp_localize_script()` so
 	 * the JS file contains no PHP and can be served as a static asset.
 	 *
+	 * Deliberately does NOT also match `settings_page_` . Agend_Apps_Identity_Admin::PAGE_SLUG.
+	 * The asset this method enqueues is agend-apps-admin.js, whose only job is
+	 * the "Verify Key" AJAX button and its i18n strings -- neither of which
+	 * exists on the Identity and SSO page. That page's one interactive bit
+	 * (selecting the read-only entity id field for copying) is a plain inline
+	 * `onclick` attribute, so it needs no enqueued script or style at all.
+	 *
 	 * @param string $hook_suffix The current admin page hook suffix.
 	 */
 	public function enqueue_assets( string $hook_suffix ): void {
@@ -320,78 +327,6 @@ class Agend_Apps_Admin {
 
 		register_setting(
 			self::OPTION_GROUP,
-			'agend_apps_account_slug',
-			array(
-				'type'              => 'string',
-				'sanitize_callback' => 'sanitize_text_field',
-				'default'           => '',
-			)
-		);
-
-		add_settings_field(
-			'agend_apps_account_slug',
-			__( 'Account Slug', 'agend-apps-core' ),
-			array( $this, 'render_account_slug_field' ),
-			self::PAGE_SLUG,
-			'agend_apps_api_section'
-		);
-
-		register_setting(
-			self::OPTION_GROUP,
-			'agend_apps_portal_url',
-			array(
-				'type'              => 'string',
-				'sanitize_callback' => 'esc_url_raw',
-				'default'           => '',
-			)
-		);
-
-		add_settings_field(
-			'agend_apps_portal_url',
-			__( 'Portal URL', 'agend-apps-core' ),
-			array( $this, 'render_portal_url_field' ),
-			self::PAGE_SLUG,
-			'agend_apps_api_section'
-		);
-
-		register_setting(
-			self::OPTION_GROUP,
-			'agend_apps_member_auth_mode',
-			array(
-				'type'              => 'string',
-				'sanitize_callback' => array( $this, 'sanitize_member_auth_mode' ),
-				'default'           => Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS,
-			)
-		);
-
-		add_settings_field(
-			'agend_apps_member_auth_mode',
-			__( 'Member sign-in', 'agend-apps-core' ),
-			array( $this, 'render_member_auth_mode_field' ),
-			self::PAGE_SLUG,
-			'agend_apps_api_section'
-		);
-
-		register_setting(
-			self::OPTION_GROUP,
-			'agend_apps_external_id_meta_key',
-			array(
-				'type'              => 'string',
-				'sanitize_callback' => 'sanitize_key',
-				'default'           => '',
-			)
-		);
-
-		add_settings_field(
-			'agend_apps_external_id_meta_key',
-			__( 'Member ID Meta Key', 'agend-apps-core' ),
-			array( $this, 'render_external_id_meta_key_field' ),
-			self::PAGE_SLUG,
-			'agend_apps_api_section'
-		);
-
-		register_setting(
-			self::OPTION_GROUP,
 			'agend_apps_directory_page_id',
 			array(
 				'type'              => 'integer',
@@ -495,22 +430,6 @@ class Agend_Apps_Admin {
 	}
 
 	/**
-	 * Sanitizes the member sign-in mode option value (SPEC-CORE-20260907
-	 * US-4.1 AC2, widened by the WordPress-IdP scope to a third value).
-	 *
-	 * @param string $value Raw submitted value.
-	 *
-	 * @return string `sso` or `wordpress` when submitted exactly, otherwise `credentials`.
-	 */
-	public function sanitize_member_auth_mode( string $value ): string {
-		if ( Agend_Apps_Settings::MEMBER_AUTH_SSO === $value || Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS === $value ) {
-			return $value;
-		}
-
-		return Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS;
-	}
-
-	/**
 	 * Renders the settings page — delegates to view partials.
 	 */
 	public function render_page(): void {
@@ -525,9 +444,23 @@ class Agend_Apps_Admin {
 
 	/**
 	 * Renders the API Configuration settings section description.
+	 *
+	 * Includes a pointer to the "Identity and SSO" page
+	 * (`admin/class-agend-apps-identity-admin.php`), since member sign-in
+	 * mode, account slug, portal URL, and the external-id meta key used to
+	 * live in this section and moved there
+	 * (docs/PLAN-wordpress-idp-option-b.md section 6). An admin who has run
+	 * this plugin for months should not have to hunt for where they went.
 	 */
 	public function render_api_section(): void {
 		echo '<p>' . esc_html__( 'Configure the connection to the Agend Gateway API.', 'agend-apps-core' ) . '</p>';
+		echo '<p>';
+		printf(
+			/* translators: %s: link to the Identity and SSO settings page. */
+			esc_html__( 'Member sign-in mode, account slug, portal URL, and identity settings moved to %s.', 'agend-apps-core' ),
+			'<a href="' . esc_url( admin_url( 'options-general.php?page=' . Agend_Apps_Identity_Admin::PAGE_SLUG ) ) . '">' . esc_html__( 'Identity and SSO', 'agend-apps-core' ) . '</a>'
+		);
+		echo '</p>';
 	}
 
 	/**
@@ -668,80 +601,6 @@ class Agend_Apps_Admin {
 	}
 
 	/**
-	 * Renders the account slug text field.
-	 *
-	 * The slug names the connected Agend account in browser SSO URLs
-	 * (`/api/auth/sso/{slug}/initiate`). Required for the account-link widget
-	 * to build its sign-in URL.
-	 */
-	public function render_account_slug_field(): void {
-		$value = get_option( 'agend_apps_account_slug', '' );
-		printf(
-			'<input type="text" id="agend_apps_account_slug" name="agend_apps_account_slug" value="%s" class="regular-text" autocomplete="off" />',
-			esc_attr( $value )
-		);
-		echo '<p class="description">';
-		esc_html_e( 'The Agend account slug, used to build SSO links for the account-link widget.', 'agend-apps-core' );
-		echo '</p>';
-	}
-
-	/**
-	 * Renders the portal URL text field.
-	 *
-	 * Optional. When empty the portal URL is derived from the selected
-	 * environment; set it only for associations on a custom portal domain.
-	 */
-	public function render_portal_url_field(): void {
-		$value = get_option( 'agend_apps_portal_url', '' );
-		printf(
-			'<input type="url" id="agend_apps_portal_url" name="agend_apps_portal_url" value="%s" class="regular-text" placeholder="%s" autocomplete="off" />',
-			esc_attr( $value ),
-			esc_attr__( 'Derived from environment when empty', 'agend-apps-core' )
-		);
-		echo '<p class="description">';
-		esc_html_e( 'Optional. The member portal URL the account-link widget links to. Leave empty to derive it from the environment.', 'agend-apps-core' );
-		echo '</p>';
-	}
-
-	/**
-	 * Renders the member sign-in mode radio field (SPEC-CORE-20260907
-	 * US-4.1 AC2, widened by the WordPress-IdP scope to a third option).
-	 *
-	 * In `sso` and `wordpress` mode the credential login surface (login
-	 * bridge, provisioning hook, `/auth/*` REST routes, member-login widget)
-	 * is not loaded at all, because `Agend_Apps_Settings::credential_login_enabled()`
-	 * returns false for both.
-	 */
-	public function render_member_auth_mode_field(): void {
-		$value = Agend_Apps_Settings::get_member_auth_mode();
-
-		$options = array(
-			Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS => array(
-				'label' => __( 'Agend credentials', 'agend-apps-core' ),
-				'help'  => __( 'Members sign in on this site with their Agend email and password. WordPress logins create and adopt Agend accounts, and the member sign-in widget and REST proxy are active.', 'agend-apps-core' ),
-			),
-			Agend_Apps_Settings::MEMBER_AUTH_SSO         => array(
-				'label' => __( 'SSO connection only', 'agend-apps-core' ),
-				'help'  => __( 'Members reach Agend only through your SSO connection. Credential sign-in, account provisioning on user creation, and the /auth REST routes are switched off. Existing member sessions are kept until they expire.', 'agend-apps-core' ),
-			),
-			Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS   => array(
-				'label' => __( 'WordPress account (not yet complete)', 'agend-apps-core' ),
-				'help'  => __( 'Members sign in with their WordPress password, which is never sent to Agend. Their Agend account stays separate, and a bearer is minted server to server from the WordPress session. This mode is not yet complete: the step that links a WordPress account to its Agend identity has not been built, so selecting it will not yet give members access.', 'agend-apps-core' ),
-			),
-		);
-
-		foreach ( $options as $option_value => $option ) {
-			printf(
-				'<p><label><input type="radio" name="agend_apps_member_auth_mode" value="%1$s"%2$s /> %3$s</label></p>',
-				esc_attr( $option_value ),
-				checked( $value, $option_value, false ),
-				esc_html( $option['label'] )
-			);
-			echo '<p class="description" style="margin-left:24px;">' . esc_html( $option['help'] ) . '</p>';
-		}
-	}
-
-	/**
 	 * Renders the webhook signing secret field.
 	 *
 	 * The secret shown once when the Agend webhook subscription is created in
@@ -761,25 +620,6 @@ class Agend_Apps_Admin {
 			esc_html__( 'Signing secret of the Agend webhook subscription pointed at this site. Subscribe crm.membership.* and crm.seat.* events to: %s', 'agend-apps-core' ),
 			'<code>' . esc_html( rest_url( 'agend-apps/v1/webhooks/incoming' ) ) . '</code>'
 		);
-		echo '</p>';
-	}
-
-	/**
-	 * Renders the external-id meta key text field.
-	 *
-	 * The user-meta key holding each member's Agend external id (the SAML
-	 * NameID the site's IdP asserts). IdP-plugin-agnostic by design: the value
-	 * depends on which IdP plugin the site runs, so it is configuration, not
-	 * code.
-	 */
-	public function render_external_id_meta_key_field(): void {
-		$value = get_option( 'agend_apps_external_id_meta_key', '' );
-		printf(
-			'<input type="text" id="agend_apps_external_id_meta_key" name="agend_apps_external_id_meta_key" value="%s" class="regular-text" placeholder="imk_membership_number" autocomplete="off" />',
-			esc_attr( $value )
-		);
-		echo '<p class="description">';
-		esc_html_e( 'User-meta key holding each member\'s Agend external id (the SAML NameID your IdP asserts). Defaults to the Upbeat membership number.', 'agend-apps-core' );
 		echo '</p>';
 	}
 
