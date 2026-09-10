@@ -16,22 +16,27 @@
  * of them nothing to do with Agend. Rather than detect a qualifying template
  * on read (parsing every candidate's content on every picker render), a
  * `save_post_wp_block` hook here tags a post's content once, on save: if it
- * contains a block whose name starts `agend-apps/record-` (the five
- * record-authoring blocks; a separate, later task this one is designed to
- * sit alongside), a postmeta flag is written recording that fact together
- * with the record type the template implies, derived with
- * {@see agend_apps_records_type_from_key()} against each record block's
- * `field`/`block` attribute, the same helper
- * {@see Agend_Elementor_Preview_Type} uses to infer an Elementor template's
- * preview type. {@see self::templates()} then filters on that flag via
+ * contains any of {@see self::TEMPLATE_SURFACE_BLOCKS}, a postmeta flag is
+ * written. {@see self::templates()} then filters on that flag via
  * `meta_query`, exactly as {@see Agend_Elementor_Templates} filters on
  * `_elementor_template_type`.
  *
- * The five record blocks do not exist yet, so nothing on a real site
- * satisfies this predicate until they ship; the tagging predicate is tested
- * here against synthetic block content built directly from the
- * `agend-apps/record-` naming convention the record blocks are specified to
- * use.
+ * TWO SEPARATE QUESTIONS, deliberately. "Is this pattern an Agend template?"
+ * and "which record type does it imply?" are not the same question, and an
+ * earlier version of this class answered the first by whether the second
+ * succeeded. That made two real templates invisible to every picker:
+ *
+ * - a filters template, whose blocks are `agend-apps/filter` and so never
+ *   matched a `agend-apps/record-` prefix test at all;
+ * - a card template whose fields are all `common:` ones, or whose blocks sit
+ *   at their defaults (the block editor omits an attribute equal to its
+ *   default from the serialised markup, so `attrs` is simply absent), leaving
+ *   no type to infer even though the pattern is plainly a template.
+ *
+ * So the flag records {@see self::TYPE_UNKNOWN} for a template whose type
+ * cannot be inferred, rather than not tagging it. Consumers of the type
+ * validate it against the real record types and ignore anything else, so an
+ * unknown type falls back to their own default rather than being trusted.
  *
  * Ships inside Agend Apps Core and is always present (unlike Elementor's
  * template source, which only exists when the Elementor plugin does), so
@@ -53,14 +58,46 @@ final class Agend_Apps_Block_Template_Source implements Agend_Apps_Template_Sour
 	/**
 	 * Post meta key flagging a `wp_block` post as a qualifying Agend template
 	 * and recording the record type it implies ('event', 'course' or
-	 * 'listing'). The value doubles as the flag: {@see self::query_candidates()}
-	 * matches on the key's mere presence, so a template is untagged (meta
-	 * deleted) rather than tagged with an empty value when it stops
-	 * qualifying. Leading underscore keeps it out of the custom-fields UI.
+	 * 'listing'), or {@see self::TYPE_UNKNOWN} when it qualifies but names no
+	 * type. {@see self::query_candidates()} matches on the key's mere presence,
+	 * so a template is untagged (meta deleted) rather than tagged with an
+	 * empty value when it stops qualifying. Leading underscore keeps it out of
+	 * the custom-fields UI.
 	 *
 	 * @var string
 	 */
 	const TYPE_META_KEY = '_agend_apps_block_template_type';
+
+	/**
+	 * Recorded when a pattern is an Agend template but names no record type.
+	 *
+	 * Never a real record type, so a consumer validating against the real ones
+	 * ignores it and falls back to its own default. That is exactly what
+	 * {@see agend_apps_records_surface_preview_type()} does.
+	 *
+	 * @var string
+	 */
+	const TYPE_UNKNOWN = 'any';
+
+	/**
+	 * The blocks whose presence makes a `wp_block` post an Agend template.
+	 *
+	 * An explicit list, not a name prefix. A prefix test (`agend-apps/record-`)
+	 * was tried first and silently excluded the filter surface, which is
+	 * template-internal like the rest but is not named `record-*`. Naming each
+	 * one means adding a template-internal surface later fails loudly, by not
+	 * appearing, rather than quietly depending on what it was called.
+	 *
+	 * @var array<int, string>
+	 */
+	const TEMPLATE_SURFACE_BLOCKS = array(
+		'agend-apps/record-field',
+		'agend-apps/record-pills',
+		'agend-apps/record-image',
+		'agend-apps/record-link',
+		'agend-apps/record-block',
+		'agend-apps/filter',
+	);
 
 	/** Transient key the resolved id => title map is cached under. */
 	const TRANSIENT_KEY = 'agend_apps_block_template_options';
@@ -210,15 +247,48 @@ final class Agend_Apps_Block_Template_Source implements Agend_Apps_Template_Sour
 			return;
 		}
 
-		$type = self::implied_type( (string) $post->post_content );
+		$blocks = parse_blocks( (string) $post->post_content );
 
-		if ( '' !== $type ) {
-			update_post_meta( $post_id, self::TYPE_META_KEY, $type );
-		} else {
+		// Qualifying and typing are separate questions (see the class
+		// docblock): a template with no inferable type is still a template,
+		// and tagging it TYPE_UNKNOWN is what keeps it visible in the pickers.
+		if ( ! self::contains_template_surface( $blocks ) ) {
 			delete_post_meta( $post_id, self::TYPE_META_KEY );
+			self::flush_cache();
+
+			return;
 		}
 
+		$type = self::first_record_block_type( $blocks );
+
+		update_post_meta( $post_id, self::TYPE_META_KEY, '' !== $type ? $type : self::TYPE_UNKNOWN );
+
 		self::flush_cache();
+	}
+
+	/**
+	 * Whether a parsed block tree holds any {@see self::TEMPLATE_SURFACE_BLOCKS}
+	 * block, at any depth.
+	 *
+	 * @param array<int, array<string, mixed>> $blocks Parsed blocks.
+	 * @return bool
+	 */
+	private static function contains_template_surface( array $blocks ): bool {
+		foreach ( $blocks as $block ) {
+			$name = $block['blockName'] ?? null;
+
+			if ( is_string( $name ) && in_array( $name, self::TEMPLATE_SURFACE_BLOCKS, true ) ) {
+				return true;
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] )
+				&& self::contains_template_surface( $block['innerBlocks'] )
+			) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -237,8 +307,8 @@ final class Agend_Apps_Block_Template_Source implements Agend_Apps_Template_Sour
 	}
 
 	/**
-	 * Walks a parsed block tree depth-first for the first record type an
-	 * `agend-apps/record-*` block's `field` or `block` attribute implies.
+	 * Walks a parsed block tree depth-first for the first record type a
+	 * template-surface block's own setting implies.
 	 *
 	 * @param array<int, array<string, mixed>> $blocks Parsed blocks.
 	 * @return string 'event', 'course', 'listing', or ''.
@@ -247,7 +317,7 @@ final class Agend_Apps_Block_Template_Source implements Agend_Apps_Template_Sour
 		foreach ( $blocks as $block ) {
 			$name = $block['blockName'] ?? null;
 
-			if ( is_string( $name ) && 0 === strpos( $name, 'agend-apps/record-' ) ) {
+			if ( is_string( $name ) && in_array( $name, self::TEMPLATE_SURFACE_BLOCKS, true ) ) {
 				$attrs = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
 				$type  = self::type_from_attrs( $attrs );
 
@@ -269,7 +339,13 @@ final class Agend_Apps_Block_Template_Source implements Agend_Apps_Template_Sour
 	}
 
 	/**
-	 * The record type a record block's saved attributes imply.
+	 * The record type a template-surface block's saved attributes imply.
+	 *
+	 * `field` covers Agend Field, Pills and Image, `block` covers Agend Panel,
+	 * and `filter` covers Agend Filter, whose setting is keyed the same way
+	 * ('event:search' names an event just as 'event:name' does). Agend Link
+	 * has none of the three and contributes no type, by design: its action
+	 * setting names an action, not a record field.
 	 *
 	 * @param array<string, mixed> $attrs One block's attrs.
 	 * @return string 'event', 'course', 'listing', or ''.
@@ -279,7 +355,7 @@ final class Agend_Apps_Block_Template_Source implements Agend_Apps_Template_Sour
 			return '';
 		}
 
-		foreach ( array( 'field', 'block' ) as $key ) {
+		foreach ( array( 'field', 'block', 'filter' ) as $key ) {
 			$type = agend_apps_records_type_from_key( (string) ( $attrs[ $key ] ?? '' ) );
 
 			if ( '' !== $type ) {
