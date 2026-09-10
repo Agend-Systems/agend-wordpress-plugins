@@ -40,6 +40,24 @@ class Agend_Apps_Identity_Admin {
 	const OPTION_GROUP = 'agend_apps_identity_settings';
 
 	/**
+	 * Nonce action for the diagnostics panel's member lookup form
+	 * (docs/PLAN-wordpress-idp-option-b.md section 6). A GET-based,
+	 * non-destructive lookup, but still nonce-checked per the brief this
+	 * panel was built against: it is the only field on this page that reads
+	 * arbitrary request input.
+	 *
+	 * @var string
+	 */
+	const DIAGNOSTICS_LOOKUP_ACTION = 'agend_apps_wp_idp_diagnostics_lookup';
+
+	/**
+	 * Request field name carrying the diagnostics panel's user id/email query.
+	 *
+	 * @var string
+	 */
+	const DIAGNOSTICS_QUERY_FIELD = 'agend_apps_wp_idp_user';
+
+	/**
 	 * Registers all admin hooks.
 	 */
 	public function __construct() {
@@ -239,6 +257,28 @@ class Agend_Apps_Identity_Admin {
 			self::PAGE_SLUG,
 			'agend_apps_identity_connection_section'
 		);
+
+		// Diagnostics section (docs/PLAN-wordpress-idp-option-b.md section 6,
+		// "Diagnostic panel"): reports the recorded link state for a chosen
+		// WordPress user. Not optional -- agend-content-access fails closed
+		// on an empty bearer, so a linking gap otherwise presents only as
+		// "member can't see their content", with no error anywhere. Added as
+		// a settings section/field like Connection above, rather than a
+		// registered setting, because it reads state and never writes one.
+		add_settings_section(
+			'agend_apps_identity_diagnostics_section',
+			__( 'Diagnostics', 'agend-apps-core' ),
+			array( $this, 'render_diagnostics_section' ),
+			self::PAGE_SLUG
+		);
+
+		add_settings_field(
+			'agend_apps_wp_idp_diagnostics',
+			__( 'Member lookup', 'agend-apps-core' ),
+			array( $this, 'render_diagnostics_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_identity_diagnostics_section'
+		);
 	}
 
 	/**
@@ -316,6 +356,75 @@ class Agend_Apps_Identity_Admin {
 	 */
 	public function render_connection_section(): void {
 		echo '<p>' . esc_html__( 'Read-only identifiers for the Agend dashboard side of this connection.', 'agend-apps-core' ) . '</p>';
+	}
+
+	/**
+	 * Renders the Diagnostics section description.
+	 */
+	public function render_diagnostics_section(): void {
+		echo '<p>' . esc_html__( 'Reports the recorded WordPress-IdP link state for a chosen member. Reads recorded state only -- opening this page never attempts a link or mints a token.', 'agend-apps-core' ) . '</p>';
+	}
+
+	/**
+	 * Resolves which WordPress user the diagnostics panel should report on,
+	 * from the request (nonce-checked) or the current admin as the default.
+	 *
+	 * Deliberately never triggers a link attempt or a token mint: it only
+	 * resolves WHICH user id {@see agend_apps_wp_idp_diagnostics()} should
+	 * then read recorded state for.
+	 *
+	 * @return array{user_id: int, query: string, not_found: bool} `user_id`
+	 *         is 0 when a submitted query resolved to no WordPress user (see
+	 *         `not_found`), and defaults to the current admin's id when no
+	 *         query was submitted at all.
+	 */
+	private function resolve_diagnostics_lookup(): array {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- verified below via check_admin_referer() once we know a query was actually submitted.
+		$raw_query = isset( $_GET[ self::DIAGNOSTICS_QUERY_FIELD ] ) ? sanitize_text_field( wp_unslash( $_GET[ self::DIAGNOSTICS_QUERY_FIELD ] ) ) : '';
+
+		if ( '' === $raw_query ) {
+			return array(
+				'user_id'   => get_current_user_id(),
+				'query'     => '',
+				'not_found' => false,
+			);
+		}
+
+		check_admin_referer( self::DIAGNOSTICS_LOOKUP_ACTION, 'agend_apps_wp_idp_nonce' );
+
+		$user = is_numeric( $raw_query )
+			? get_user_by( 'id', absint( $raw_query ) )
+			: get_user_by( 'email', sanitize_email( $raw_query ) );
+
+		if ( ! ( $user instanceof WP_User ) ) {
+			return array(
+				'user_id'   => 0,
+				'query'     => $raw_query,
+				'not_found' => true,
+			);
+		}
+
+		return array(
+			'user_id'   => (int) $user->ID,
+			'query'     => $raw_query,
+			'not_found' => false,
+		);
+	}
+
+	/**
+	 * Renders the diagnostics panel: the member lookup form, and the
+	 * assembled facts for whichever user {@see resolve_diagnostics_lookup()}
+	 * resolves. Markup lives in the view partial; this only builds the data
+	 * ({@see agend_apps_wp_idp_diagnostics()} is the tested, pure part).
+	 */
+	public function render_diagnostics_field(): void {
+		$lookup = $this->resolve_diagnostics_lookup();
+
+		$diagnostics = ( $lookup['user_id'] > 0 && function_exists( 'agend_apps_wp_idp_diagnostics' ) )
+			? agend_apps_wp_idp_diagnostics( $lookup['user_id'] )
+			: null;
+
+		require AGEND_APPS_CORE_DIR . 'admin/views/identity-diagnostics.php';
 	}
 
 	/**
