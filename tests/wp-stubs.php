@@ -1193,7 +1193,7 @@ function wp_get_global_styles(): array {
 }
 
 // ---------------------------------------------------------------------------
-// Block editor (wp_block templates, block rendering, style engine) — added
+// Block editor (wp_block templates, block rendering, style engine), added
 // for the block-editor template renderer/source, which parses and renders a
 // `wp_block` post's own content directly rather than going through a real
 // WordPress+Gutenberg install.
