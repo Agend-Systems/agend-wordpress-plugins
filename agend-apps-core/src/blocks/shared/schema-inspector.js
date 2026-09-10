@@ -68,6 +68,44 @@ function optionsToChoices( options ) {
 	return Object.entries( options || {} ).map( ( [ value, label ] ) => ( { value, label: String( label ) } ) );
 }
 
+/**
+ * Whether a schema select field declares its choices as grouped.
+ *
+ * A `select` may carry either `options` (a flat value => label map) or
+ * `groups` (a list of `{ label, options }`), and the five surfaces whose main
+ * control answers "which field is this?" all use `groups`: the Agend Filter's
+ * filter picker, and the field or panel picker on Agend Field, Pills, Image
+ * and Panel. Reading only `options` renders those as an EMPTY dropdown, which
+ * leaves the one control that matters most on each of those blocks unusable.
+ *
+ * @param {Object} field A schema field.
+ * @return {boolean} True when the field declares `groups` with entries.
+ */
+function hasGroups( field ) {
+	return Array.isArray( field.groups ) && field.groups.length > 0;
+}
+
+/**
+ * A grouped select's `<optgroup>` children.
+ *
+ * SelectControl renders its children in place of the `options` prop, which is
+ * the only way to get real option groups out of it.
+ *
+ * @param {Array} groups The field's `groups` list.
+ * @return {Array} optgroup elements.
+ */
+function groupChildren( groups ) {
+	return groups.map( ( group, index ) => (
+		<optgroup key={ group.label ?? index } label={ group.label ?? '' }>
+			{ optionsToChoices( group.options ).map( ( choice ) => (
+				<option key={ choice.value } value={ choice.value }>
+					{ choice.label }
+				</option>
+			) ) }
+		</optgroup>
+	) );
+}
+
 function Field( { field, attributes, setAttributes } ) {
 	const { name, type, label, description } = field;
 	const set = ( value ) => setAttributes( { [ name ]: value } );
@@ -120,7 +158,20 @@ function Field( { field, attributes, setAttributes } ) {
 			);
 		case 'select':
 		case 'template':
-			return (
+			// A grouped select passes optgroup children instead of `options`;
+			// see hasGroups() for why both shapes have to be handled.
+			return hasGroups( field ) ? (
+				<SelectControl
+					label={ label }
+					help={ description }
+					value={ value ?? '' }
+					onChange={ set }
+					__nextHasNoMarginBottom
+					__next40pxDefaultSize
+				>
+					{ groupChildren( field.groups ) }
+				</SelectControl>
+			) : (
 				<SelectControl
 					label={ label }
 					help={ description }
