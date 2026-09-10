@@ -381,9 +381,37 @@ its Elementor widget renders at its control defaults.
 ## Block card and detail templates
 
 A card, detail or filters template can be authored in the block editor as well
-as in Elementor. `includes/templates/` holds the block editor's own
-implementation of the two template contracts, registered on every request
-because the block editor is part of WordPress:
+as in Elementor.
+
+### Authoring one
+
+1. Go to Appearance > Patterns (Site Editor > Patterns on a block theme) and
+   create a pattern. It must be a SYNCED pattern: an unsynced one is copied
+   into the page and leaves no post to address.
+2. Build it from the Agend blocks in the "Agend" inserter category: Agend
+   Field, Agend Image, Agend Pills, Agend Link / Button and Agend Panel for a
+   card or detail template, or Agend Filter for a filters template. These are
+   the same surfaces as the Elementor widgets of the same names, so
+   `agend-elementor/README.md`'s table of what each one does applies
+   unchanged.
+3. Publish it. Saving is what tags it: the content is parsed for Agend record
+   blocks, and the record type they imply is recorded in postmeta. A pattern
+   with no Agend record block in it is not tagged and will not appear in a
+   template picker.
+4. Point a catalogue at it: the Card Template, Detail Template and Filters
+   Template pickers on any Agend catalogue block or widget list every tagged
+   pattern alongside any Elementor saved templates. When both builders are
+   registered, each title is suffixed with its builder so two identically
+   named templates can be told apart.
+
+There is no record-type control to set, exactly as in Elementor: the field or
+panel each block is set to names its own type.
+
+### How it works
+
+`includes/templates/` holds the block editor's own implementation of the two
+template contracts, registered on every request because the block editor is
+part of WordPress:
 
 - `Agend_Apps_Block_Template_Renderer` renders a template once per record.
 - `Agend_Apps_Block_Template_Source` lists the templates a picker can offer.
