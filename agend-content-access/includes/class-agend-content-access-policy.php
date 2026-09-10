@@ -225,6 +225,56 @@ class Agend_Content_Access_Policy {
 	const MODE_INHERIT = 'inherit';
 
 	/**
+	 * Builds a fragment policy from already-extracted editor values.
+	 *
+	 * Fails closed: an unrecognised mode, or selected-plans with nothing
+	 * selected, both yield a policy nobody satisfies rather than being ignored.
+	 * The experiment this replaces treated both as "no condition" and rendered
+	 * the element to everyone.
+	 *
+	 * Takes plain values rather than an editor-shaped settings array: each
+	 * editor stores these under its own attribute names, and none of them
+	 * should have to fake another editor's shape to reuse this validation.
+	 *
+	 * @param string $mode     Submitted mode.
+	 * @param array  $tier_ids Submitted tier ids, unfiltered.
+	 * @return array|null Fragment policy, or null when the fragment opts out.
+	 */
+	public static function from_fragment_values( string $mode, array $tier_ids ): ?array {
+		if ( '' === $mode || self::MODE_INHERIT === $mode ) {
+			return null;
+		}
+
+		if ( self::MODE_MEMBERS === $mode ) {
+			return array( 'mode' => self::MODE_MEMBERS );
+		}
+
+		if ( self::MODE_TIERS === $mode ) {
+			$clean = array();
+
+			foreach ( $tier_ids as $tier_id ) {
+				$tier_id = is_string( $tier_id ) ? trim( $tier_id ) : '';
+
+				if ( 1 === preg_match( self::UUID_PATTERN, $tier_id ) ) {
+					$clean[] = $tier_id;
+				}
+			}
+
+			// An empty list here is NOT "no restriction". The editor asked for
+			// selected plans, so the honest reading is a restriction nobody
+			// satisfies, which hides the element until the policy is repaired.
+			return array(
+				'mode'     => self::MODE_TIERS,
+				'tier_ids' => array_values( array_unique( $clean ) ),
+			);
+		}
+
+		// An unrecognised mode is a policy we cannot honour. Treat it as
+		// members-only rather than ignoring it.
+		return array( 'mode' => self::MODE_MEMBERS );
+	}
+
+	/**
 	 * How restrictive a mode is, for picking the narrower of two policies.
 	 *
 	 * @param string $mode Mode.

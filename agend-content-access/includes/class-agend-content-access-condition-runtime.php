@@ -40,15 +40,39 @@ class Agend_Content_Access_Condition_Runtime {
 	const SEGMENT_CACHE_KEY = 'agend_content_access_segment_facts';
 
 	/**
+	 * Default TTL for the cached per-viewer facts, in seconds.
+	 *
+	 * Short by intent: membership standing decides what a visitor can see, so
+	 * a long TTL means a lapsed member keeps their access for that long.
+	 *
+	 * Sixty seconds, NOT the five minutes the old fallback line suggested.
+	 * That line was unreachable while Core was installed: the value actually
+	 * shipped came from `Agend_Apps_Settings::get_cache_ttl()`, whose generic
+	 * default for an unregistered key is 60, and which returned before the
+	 * fallback was ever consulted. Sixty is therefore what every site has been
+	 * running. Do not "restore" 300 on the strength of the old code reading
+	 * that way: it would quintuple the window in which a lapsed member keeps
+	 * access, which is a change to make deliberately, if at all, and not as a
+	 * side effect of tidying this up.
+	 */
+	const DEFAULT_CACHE_TTL = MINUTE_IN_SECONDS;
+
+	/**
 	 * Builds a checker bound to live sources.
+	 *
+	 * WordPress facts need no override: the registry's own default already
+	 * reads the current user locally. Membership and segments have no default
+	 * because they need the Agend API, which this class, not the generic
+	 * provider registry, knows how to reach.
 	 *
 	 * @return callable fn(string $provider, string $value): ?bool
 	 */
 	public static function checker(): callable {
 		return Agend_Content_Access_Condition_Providers::checker(
-			array( 'Agend_Content_Access_Condition_Providers', 'wordpress_facts' ),
-			array( __CLASS__, 'member_facts' ),
-			array( __CLASS__, 'segment_facts' )
+			array(
+				Agend_Content_Access_Condition_Providers::MEMBERSHIP => array( __CLASS__, 'member_facts' ),
+				Agend_Content_Access_Condition_Providers::SEGMENTS   => array( __CLASS__, 'segment_facts' ),
+			)
 		);
 	}
 
@@ -191,24 +215,34 @@ class Agend_Content_Access_Condition_Runtime {
 	}
 
 	/**
-	 * TTL for the cached membership facts.
+	 * TTL for the cached membership and segment facts.
 	 *
-	 * Short by intent. Membership standing decides what a visitor can see, so a
-	 * long TTL means a lapsed member keeps their access for that long. Uses
-	 * Core's configured value when available so an operator tunes one setting.
+	 * Deliberately NOT read from `Agend_Apps_Settings::get_cache_ttl()`. That
+	 * helper falls back to a generic 60-second default for any endpoint key
+	 * Core does not recognise, and `crm_me_entitlements` was never registered
+	 * in `Agend_Apps_Cache::$keys` (nor should it be: Core's `get_cached()`
+	 * bypasses its cache entirely whenever a bearer token is present, so
+	 * registering a per-viewer `/crm/me/*` key there would wrongly imply Core
+	 * caches per-viewer data). Reading it anyway meant the setting this class
+	 * documented as tunable was never actually tunable: every site got Core's
+	 * generic 60 seconds.
+	 *
+	 * So the plugin now owns the value, at the same 60 seconds, and offers a
+	 * filter that genuinely works. This is a fix to the honesty of the setting,
+	 * not to its value: see DEFAULT_CACHE_TTL for why the number stays put.
 	 *
 	 * @return int Seconds.
 	 */
 	public static function cache_ttl(): int {
-		if ( class_exists( 'Agend_Apps_Settings' ) ) {
-			$ttl = (int) Agend_Apps_Settings::get_cache_ttl( 'crm_me_entitlements' );
+		/**
+		 * Filters the TTL for the cached per-viewer membership and segment
+		 * facts.
+		 *
+		 * @param int $ttl Seconds.
+		 */
+		$ttl = (int) apply_filters( 'agend_content_access_facts_cache_ttl', self::DEFAULT_CACHE_TTL );
 
-			if ( $ttl > 0 ) {
-				return $ttl;
-			}
-		}
-
-		return 5 * MINUTE_IN_SECONDS;
+		return $ttl > 0 ? $ttl : self::DEFAULT_CACHE_TTL;
 	}
 
 	/**

@@ -11,6 +11,7 @@ use Agend_Content_Access_Condition_Providers as Providers;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use Agend_Test_WP;
 
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 
@@ -146,17 +147,16 @@ final class ConditionProvidersTest extends TestCase {
 		$memberCalls  = 0;
 		$segmentCalls = 0;
 
-		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
-			static function () use ( &$memberCalls ): array {
+		$check = Providers::checker( array(
+			Providers::MEMBERSHIP => static function () use ( &$memberCalls ): array {
 				++$memberCalls;
 				return array( 'is_member' => true, 'tier_ids' => array(), 'tier_slugs' => array() );
 			},
-			static function () use ( &$segmentCalls ): array {
+			Providers::SEGMENTS   => static function () use ( &$segmentCalls ): array {
 				++$segmentCalls;
 				return array( 'segment_1' );
-			}
-		);
+			},
+		) );
 
 		$check( 'upbeat_is_member', 'is_member' );
 		$check( 'upbeat_is_member', 'is_member' );
@@ -174,22 +174,20 @@ final class ConditionProvidersTest extends TestCase {
 	 */
 	#[Test]
 	public function an_unreachable_membership_api_is_unknown_not_a_denial(): void {
-		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
-			static fn() => null, // outage
-			static fn(): array => array()
-		);
+		$check = Providers::checker( array(
+			Providers::MEMBERSHIP => static fn() => null, // outage
+			Providers::SEGMENTS   => static fn(): array => array(),
+		) );
 
 		$this->assertNull( $check( 'upbeat_is_member', 'is_member' ) );
 	}
 
 	#[Test]
 	public function an_unreachable_segments_api_is_unknown(): void {
-		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
-			static fn(): array => array( 'is_member' => true ),
-			static fn() => null // outage
-		);
+		$check = Providers::checker( array(
+			Providers::MEMBERSHIP => static fn(): array => array( 'is_member' => true ),
+			Providers::SEGMENTS   => static fn() => null, // outage
+		) );
 
 		$this->assertNull( $check( 'iugo_esac_segments', 'segment_1' ) );
 	}
@@ -198,14 +196,13 @@ final class ConditionProvidersTest extends TestCase {
 	public function an_unknown_provider_is_unknown_and_costs_no_api_call(): void {
 		$calls = 0;
 
-		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => false, 'roles' => array() ),
-			static function () use ( &$calls ) {
+		$check = Providers::checker( array(
+			Providers::MEMBERSHIP => static function () use ( &$calls ) {
 				++$calls;
 				return array( 'is_member' => true );
 			},
-			static fn(): array => array()
-		);
+			Providers::SEGMENTS   => static fn(): array => array(),
+		) );
 
 		$this->assertNull( $check( 'company_access', 'company_administrator' ) );
 		$this->assertSame( 0, $calls );
@@ -214,21 +211,138 @@ final class ConditionProvidersTest extends TestCase {
 	/**
 	 * WordPress facts need no network, so an anonymous visitor on a page with
 	 * only role conditions must not trigger a member lookup at all.
+	 *
+	 * The WordPress facts are injected rather than left to the registry's
+	 * default, which reads the current user from global state. This assertion
+	 * is about which sources get CALLED, so letting it depend on whichever
+	 * user a previously-run suite happened to leave signed in would make it
+	 * fail on test order rather than on the behaviour it exists to pin.
 	 */
 	#[Test]
 	public function wordpress_conditions_never_reach_the_api(): void {
 		$calls = 0;
 
-		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => false, 'roles' => array() ),
-			static function () use ( &$calls ) {
+		$check = Providers::checker( array(
+			Providers::WORDPRESS  => static fn(): array => array(
+				'logged_in' => false,
+				'roles'     => array(),
+			),
+			Providers::MEMBERSHIP => static function () use ( &$calls ) {
 				++$calls;
 				return array( 'is_member' => false );
 			},
-			static fn(): array => array()
-		);
+			Providers::SEGMENTS   => static fn(): array => array(),
+		) );
 
 		$this->assertTrue( $check( 'iugo_esac_wordpress', 'logged_out' ) );
 		$this->assertSame( 0, $calls );
+	}
+
+	// -----------------------------------------------------------------
+	// Segments as an explicit branch, not a fallthrough
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function segment_values_match_the_resolved_slugs(): void {
+		$this->assertTrue( Providers::check_segments( 'vic-fellows', array( 'vic-fellows', 'trainees' ) ) );
+		$this->assertFalse( Providers::check_segments( 'other', array( 'vic-fellows' ) ) );
+	}
+
+	// -----------------------------------------------------------------
+	// The provider registry and its extension filter
+	// -----------------------------------------------------------------
+
+	/**
+	 * The registry is exactly the three built-ins until a site adds to it.
+	 */
+	#[Test]
+	public function the_default_registry_holds_only_the_three_built_ins(): void {
+		$registry = Providers::registry();
+
+		$this->assertSame(
+			array( Providers::WORDPRESS, Providers::MEMBERSHIP, Providers::SEGMENTS ),
+			array_keys( $registry )
+		);
+	}
+
+	/**
+	 * A site adds a fourth family entirely through the filter: no method on
+	 * this class changes to accommodate it, and its own `facts` callable is
+	 * used as-is because the registry, not the caller of `checker()`, owns it.
+	 */
+	#[Test]
+	public function a_site_registered_provider_is_dispatched_through_the_filter(): void {
+		Agend_Test_WP::$filters['agend_content_access_condition_providers'] = static function ( $providers ) {
+			$providers['agend_entitlements'] = array(
+				'facts' => static fn(): array => array( 'active_skus' => array( 'ce-2026' ) ),
+				'check' => static fn( string $value, array $facts ): ?bool =>
+					in_array( $value, $facts['active_skus'], true ),
+			);
+			return $providers;
+		};
+
+		$check = Providers::checker();
+
+		$this->assertTrue( $check( 'agend_entitlements', 'ce-2026' ) );
+		$this->assertFalse( $check( 'agend_entitlements', 'ce-2027' ) );
+	}
+
+	/**
+	 * The defect this registry replaces: adding a set to the editor vocabulary
+	 * without a matching provider must still deny, loudly, rather than being
+	 * silently accepted or, worse, silently passing.
+	 */
+	#[Test]
+	public function a_provider_with_no_registry_entry_stays_unknown(): void {
+		$check = Providers::checker();
+
+		$this->assertNull( $check( 'agend_entitlements', 'ce-2026' ) );
+	}
+
+	/**
+	 * A site-registered provider's own outage denies exactly like a built-in's:
+	 * `facts` returning null is unknown, not "the visitor lacks this".
+	 */
+	#[Test]
+	public function a_site_registered_providers_outage_is_unknown_not_a_denial(): void {
+		Agend_Test_WP::$filters['agend_content_access_condition_providers'] = static function ( $providers ) {
+			$providers['agend_entitlements'] = array(
+				'facts' => static fn() => null, // outage
+				'check' => static fn( string $value, array $facts ): ?bool => true,
+			);
+			return $providers;
+		};
+
+		$check = Providers::checker();
+
+		$this->assertNull( $check( 'agend_entitlements', 'ce-2026' ) );
+	}
+
+	/**
+	 * A fourth provider's facts are memoised exactly like the built-ins':
+	 * once per checker instance, however many conditions reference it.
+	 */
+	#[Test]
+	public function a_site_registered_providers_facts_are_resolved_once(): void {
+		$calls = 0;
+
+		Agend_Test_WP::$filters['agend_content_access_condition_providers'] = static function ( $providers ) use ( &$calls ) {
+			$providers['agend_entitlements'] = array(
+				'facts' => static function () use ( &$calls ): array {
+					++$calls;
+					return array( 'active_skus' => array( 'ce-2026' ) );
+				},
+				'check' => static fn( string $value, array $facts ): ?bool =>
+					in_array( $value, $facts['active_skus'], true ),
+			);
+			return $providers;
+		};
+
+		$check = Providers::checker();
+
+		$check( 'agend_entitlements', 'ce-2026' );
+		$check( 'agend_entitlements', 'ce-2027' );
+
+		$this->assertSame( 1, $calls );
 	}
 }

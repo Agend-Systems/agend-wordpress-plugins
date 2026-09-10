@@ -171,6 +171,47 @@ final class ConditionRuntimeTest extends TestCase {
 		$this->assertGreaterThan( 0, Runtime::cache_ttl() );
 	}
 
+	/**
+	 * The TTL every site has actually been running, now owned here rather than
+	 * read from `Agend_Apps_Settings::get_cache_ttl()`. That helper is keyed by
+	 * Core's registered endpoints, `crm_me_entitlements` is not one of them, and
+	 * it therefore returned Core's generic 60-second default for this call. So
+	 * 60 is the shipped behaviour, and this test pins it against a well-meant
+	 * "fix" to the five minutes the old unreachable fallback line implied: that
+	 * would quintuple the window in which a lapsed member keeps access.
+	 */
+	#[Test]
+	public function the_default_ttl_matches_the_shipped_sixty_seconds(): void {
+		$this->assertSame( MINUTE_IN_SECONDS, Runtime::cache_ttl() );
+		$this->assertSame( MINUTE_IN_SECONDS, Runtime::DEFAULT_CACHE_TTL );
+	}
+
+	/**
+	 * The TTL is this plugin's own, and a site can tune it without Core
+	 * needing to know a per-viewer endpoint exists.
+	 */
+	#[Test]
+	public function the_ttl_is_filterable(): void {
+		Agend_Test_WP::$filters['agend_content_access_facts_cache_ttl'] =
+			static fn( $value ) => 45;
+
+		$this->assertSame( 45, Runtime::cache_ttl() );
+	}
+
+	/**
+	 * A filter returning something nonsensical (zero, negative, a non-numeric
+	 * string coerced to zero) must not disable the cache. Falling through to
+	 * an always-live lookup would look like a caching bug, not a
+	 * misconfiguration.
+	 */
+	#[Test]
+	public function a_non_positive_filtered_ttl_falls_back_to_the_default(): void {
+		Agend_Test_WP::$filters['agend_content_access_facts_cache_ttl'] =
+			static fn( $value ) => 0;
+
+		$this->assertSame( Runtime::DEFAULT_CACHE_TTL, Runtime::cache_ttl() );
+	}
+
 	// -----------------------------------------------------------------
 	// Segments
 	// -----------------------------------------------------------------
