@@ -2,7 +2,7 @@
 	"$schema": "https://schemas.wp.org/trunk/block.json",
 	"apiVersion": 3,
 	"name": "agend-apps/export-reports",
-	"version": "1.15.1",
+	"version": "1.15.2",
 	"title": "Agend Export Reports",
 	"category": "agend",
 	"icon": "download",
