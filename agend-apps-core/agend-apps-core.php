@@ -280,6 +280,13 @@ function agend_apps_core_bootstrap() {
 	if ( is_admin() ) {
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-admin.php';
 		new Agend_Apps_Admin();
+
+		// Dedicated "Identity and SSO" settings page
+		// (docs/PLAN-wordpress-idp-option-b.md section 6): a second
+		// add_options_page(), following the records/settings.php precedent,
+		// rather than a third tab on the page above.
+		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-identity-admin.php';
+		new Agend_Apps_Identity_Admin();
 	}
 }
 add_action( 'plugins_loaded', 'agend_apps_core_bootstrap' );
