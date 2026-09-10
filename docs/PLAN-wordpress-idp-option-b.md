@@ -20,6 +20,57 @@ Audience: Agend engineering, plus the platform team for section 2
    mechanism including the ability to stand down when `agend-saml-idp` is
    present.
 
+## 0. Update: what the gateway actually shipped
+
+Sections 2 and 3 were written as an ask, before the gateway existed. It has
+since shipped on `agend-dashboard` and differs from that ask. Where they
+disagree, this section is correct.
+
+**Both open questions in 2.3 are answered.** The endpoint creates the platform
+user when none exists, passwordless and recoverable only through the portal
+reset. And it auto-creates a WordPress connection when `idp_entity_id` matches
+none, provided the key also holds `sso.connections.create`, otherwise 403.
+
+**The endpoint.** `POST /v1/sso/identities`, scope `sso.identities.create` (not
+`sso.identities.link`), 30 requests a minute. Body is strict: `idp_entity_id`,
+`external_id`, `email`, and an optional `contact` with `first_name` and
+`last_name`. There is no `create_contact` field; contact provisioning is a
+per-connection `jit_contact_provisioning` setting.
+
+**There is a third outcome this plan did not have.** A `202` withholds the link
+when the email resolves to an existing platform user who already holds a
+password and whose contact is not verified. Nothing is created. The gateway
+emails that address a single-use confirm link, and completes the link itself
+when the member follows it.
+
+That is not an edge case. It is every member whose Agend password was silently
+set from their WordPress password under credential-login mode, which is exactly
+the population this whole change exists to rescue. On a migrating site it is the
+majority of first attempts.
+
+Two consequences for the client, both load-bearing:
+
+- Re-posting while withheld rotates the pending token and can send another
+  email. So a pending member is never re-posted. The read-only
+  `GET /v1/sso/identities/status` is polled instead; it mints nothing and emails
+  nothing.
+- Nothing is pushed back when the member confirms. Polling is the only way the
+  site finds out, and it cannot wait for the next `wp_login`, because the member
+  confirms mid-session and never logs in again. See section 4.2.
+
+**Section 3 is superseded and no longer needed for new members.** There is no
+`password_management_url` or `password_reset_url` on the connection. Linked
+members are created passwordless, so there is no second credential to diverge
+from the WordPress one. `post_link_return_url` on the connection is a different
+thing: where the gateway redirects a member after they confirm ownership. It is
+worth setting to a page on the WordPress site, and it must be an absolute
+`https` URL set through `sso.connections.update`, never per request.
+
+**Setup trap.** Auto-created connections have `jit_contact_provisioning` off, so
+a fresh site auto-creates the connection and then returns `404
+CONTACT_NOT_FOUND` for every member without a CRM contact. Turning that on is a
+required setup step, not an optimisation.
+
 ## 1. Shape of the change
 
 WordPress authenticates the member. On login the site binds that WordPress user

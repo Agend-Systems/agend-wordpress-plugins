@@ -666,6 +666,13 @@ if ( ! function_exists( 'wp_set_current_user' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_doing_cron' ) ) {
+	/** Never a cron request in the unit harness unless a test says otherwise. */
+	function wp_doing_cron(): bool {
+		return ! empty( $GLOBALS['agend_test_doing_cron'] );
+	}
+}
+
 if ( ! class_exists( 'WP_User' ) ) {
 	/**
 	 * Minimal WP_User stand-in.
