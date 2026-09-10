@@ -60,6 +60,13 @@ final class MemberAuthModeTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_return_wordpress_when_the_option_is_set_to_wordpress(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+
+		$this->assertSame( 'wordpress', Agend_Apps_Settings::get_member_auth_mode() );
+	}
+
+	#[Test]
 	public function should_report_credential_login_enabled_when_the_mode_is_credentials(): void {
 		update_option( 'agend_apps_member_auth_mode', 'credentials' );
 
@@ -74,10 +81,36 @@ final class MemberAuthModeTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_report_credential_login_disabled_when_the_mode_is_wordpress(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+
+		$this->assertFalse( Agend_Apps_Settings::credential_login_enabled() );
+	}
+
+	#[Test]
+	public function should_report_wordpress_idp_enabled_only_when_the_mode_is_wordpress(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$this->assertTrue( Agend_Apps_Settings::wordpress_idp_enabled() );
+
+		update_option( 'agend_apps_member_auth_mode', 'credentials' );
+		$this->assertFalse( Agend_Apps_Settings::wordpress_idp_enabled() );
+
+		update_option( 'agend_apps_member_auth_mode', 'sso' );
+		$this->assertFalse( Agend_Apps_Settings::wordpress_idp_enabled() );
+	}
+
+	#[Test]
 	public function should_sanitise_sso_to_sso(): void {
 		$admin = new Agend_Apps_Admin();
 
 		$this->assertSame( 'sso', $admin->sanitize_member_auth_mode( 'sso' ) );
+	}
+
+	#[Test]
+	public function should_sanitise_wordpress_to_wordpress(): void {
+		$admin = new Agend_Apps_Admin();
+
+		$this->assertSame( 'wordpress', $admin->sanitize_member_auth_mode( 'wordpress' ) );
 	}
 
 	#[Test]
