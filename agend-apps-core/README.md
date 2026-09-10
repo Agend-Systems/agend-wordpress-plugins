@@ -105,13 +105,23 @@ Upbeat-specific knowledge.
 
 ## Shared front-end assets
 
-The CSS/JS behind the Agend Elementor catalogue widgets lives in
-`assets/` here, not in the Elementor plugin: none of it is Elementor-specific,
-it only talks to the rendered DOM and the REST fragments API. This plugin
-registers every `agend-apps-records-*` handle on `wp_enqueue_scripts` at priority
-5 (`includes/records/assets.php`), ahead of any consumer's own
-`wp_enqueue_scripts` hook. Sibling plugins enqueue these by handle only; they
-do not register them again.
+The CSS/JS behind every Agend surface lives in `assets/` here, not in the
+Elementor plugin: none of it is Elementor-specific, it only talks to the
+rendered DOM and the REST fragments API. This plugin registers every
+`agend-apps-records-*` handle on `init` at priority 5
+(`includes/records/assets.php`), not on `wp_enqueue_scripts`, because a block's
+`viewScript` and `style` name these handles and the block editor resolves them
+outside the front-end enqueue hook. Sibling plugins enqueue these by handle
+only; they do not register them again.
+
+**Handle rename in 1.15.0.** The templated surfaces' asset (Agend Field,
+Pills, Image, Link, Panel) moved out of the Elementor plugin and is now
+`agend-apps-records-record-fields`, hosted here. It was
+`agend-elementor-record-fields`, registered in `agend-elementor.php`. It had to
+move: those surfaces render from core now, and a site running the block editor
+alone has no Elementor plugin to register the handle, so a record block would
+have rendered unstyled. The old handle no longer exists, so a site that
+dequeued or depended on it by name needs updating.
 
 ## Deprecated names (removed in the release after 1.8.0)
 
@@ -239,10 +249,12 @@ field-value `condition`). `Agend_Elementor_Schema_Controls::register()` calls
 it when a field's type is `adapter`, guarded with `method_exists` so a widget
 without one is skipped rather than fatal.
 
-The shared `record_type` select every field widget (Agend Field, Agend Image,
-Agend Link, Agend Content Block, Agend Pills) exposes is a single fragment,
-`agend_apps_records_schema_record_type_field(): array`, included as the first
-field of each widget's first section rather than five separate declarations.
+The templated surfaces (Agend Field, Agend Image, Agend Link, Agend Panel,
+Agend Pills) have no record-type setting to declare. Each one's own field or
+panel key names the type by itself, and a key that does not apply to the
+surrounding template is caught where it is read, by
+`agend_apps_records_field_applies()` and by the panel's own type check, both of
+which can say WHICH field is wrong rather than only that something is.
 
 When a Content-tab control genuinely has no schema equivalent, it becomes an
 `adapter` field rather than forcing a bad fit into the vocabulary; the
@@ -275,16 +287,31 @@ renderer.
 
 ## Block editor surface
 
+The block editor is the primary target for new surface work. Elementor is
+supported at parity, not led.
+
 `includes/records/blocks.php` registers one block per surface, listed in
-`AGEND_APPS_RECORDS_BLOCK_SURFACES` (inserter order): `agend-apps/events-catalogue`,
-`agend-apps/courses-catalogue` and `agend-apps/member-login`. Every block is a
-thin adapter over the two seams above: its attributes are derived from the
-surface schema (`agend_apps_records_block_attributes()`), and its render
-callback is the surface's core renderer, fed the attributes converted to
-Elementor-shaped settings (`agend_apps_records_settings_from_attributes()`).
-The two catalogue blocks allow several instances per page; `member-login` does
-not (one session status per page). All three register under the "Agend"
-inserter category (`block_categories_all`).
+`AGEND_APPS_RECORDS_BLOCK_SURFACES` (inserter order): `events-catalogue`,
+`courses-catalogue`, `directory-catalogue`, `memberships-catalogue`,
+`member-login`, `header-auth`, `account-link`, `export-reports` and `filter`,
+all namespaced `agend-apps/`. Every block is a thin adapter over the two seams
+above: its attributes are derived from the surface schema
+(`agend_apps_records_block_attributes()`), and its render callback is the
+surface's core renderer, fed the attributes converted to Elementor-shaped
+settings (`agend_apps_records_settings_from_attributes()`). Every block
+registers under the "Agend" inserter category (`block_categories_all`).
+
+`member-login` is the one surface that does not allow several instances per
+page: two sign-in forms is not a real layout, and its script binds one session
+status per page. `header-auth` and `account-link` look similar but do allow
+several, because their scripts bind per element rather than per page, so a
+header and a mobile menu can each carry one.
+
+Agend Apps Shop registers its own cart blocks the same way, from its own build
+directory, by calling `agend_apps_records_register_surface_blocks()`. Core does
+not know those surfaces exist: the schema and renderer lookups either side of
+that call are global function-name lookups, so a sibling plugin owns its
+surfaces end to end.
 
 **A surface setting is declared in the schema or it does not exist.** A widget
 or block may not register its own control for a setting the renderer reads;
@@ -304,7 +331,7 @@ so an edit component can render each half of the schema in its own
 warning here when credential sign-in is off), which the edit component renders
 above its placeholder.
 
-Every block's `index.js` registers through the one shared edit component,
+Most blocks' `index.js` registers through the one shared edit component,
 `createSurfaceEdit( { surface, icon, label, instructions } )` in
 `src/blocks/shared/surface-edit.js`: content sections in the default
 `InspectorControls` slot, style sections in `group="styles"`, any schema
@@ -312,6 +339,35 @@ notices above a `Placeholder` standing in for the front-end render.
 `instructions` is an optional `( attributes ) => string`, defaulting to the
 column/pagination summary the catalogue blocks share; `member-login` supplies
 its own.
+
+### Surfaces that render nothing without context
+
+A templated surface (`filter`, and the record surfaces used inside a card or
+detail template) renders nothing on a page where it has no catalogue or record
+in scope. A bare placeholder would tell a template author nothing about what
+they are styling, so those blocks show the core renderer's own stand-in markup
+instead, fetched through `useSurfacePreview()` in
+`src/blocks/shared/surface-preview.js` from
+`POST /agend-apps/v1/surfaces/<surface>/preview` (editors only).
+
+That is a dedicated route rather than `ServerSideRender` for a specific
+reason: a block's registered render callback is also the LIVE front-end path,
+and `agend_apps_records_render_block()` forwards only the attributes, with no
+way to say "this call is a preview". A callback that renders nothing without
+context therefore cannot tell a preview request from a real page. Widening the
+shared render contract so every block carried a preview flag it never uses was
+rejected; one editor-only route that passes the extra opt is the smaller
+change.
+
+The route also returns a `reason` code, resolved through
+`agend_apps_records_surface_render_reason()`, which finds the surface's
+`agend_apps_records_<surface>_render_reason()` companion beside its renderer.
+Those companions return a stable code, never translated copy, so the
+conditions behind an editor notice live with the render they belong to while
+each editor owns its own wording. Per-instance reasons cannot go through
+`agend_apps_records_block_surface_notices()`, which is keyed by surface id
+alone and never sees a block's attributes; that function is for
+account-wide states such as SSO mode.
 
 Source lives in `src/blocks/<surface>/`; the compiled block directory in
 `build/blocks/<surface>/` is COMMITTED because deployment copies files without a
@@ -321,6 +377,66 @@ when the committed output is stale. `npm start` watches during development.
 
 `BlockSurfaceTest` proves each block left at its defaults renders exactly what
 its Elementor widget renders at its control defaults.
+
+## Block card and detail templates
+
+A card, detail or filters template can be authored in the block editor as well
+as in Elementor. `includes/templates/` holds the block editor's own
+implementation of the two template contracts, registered on every request
+because the block editor is part of WordPress:
+
+- `Agend_Apps_Block_Template_Renderer` renders a template once per record.
+- `Agend_Apps_Block_Template_Source` lists the templates a picker can offer.
+
+A block template is a `wp_block` post, the post type behind synced patterns. It
+is addressable by a bare integer post id, which the registry requires, and it
+gets a real editing UI and edit-once semantics for free. Registered block
+patterns have no post id at all, and `wp_template_part` needs a block theme, so
+neither can serve.
+
+That post pool holds every reusable block on the site, most of them nothing to
+do with Agend, so a qualifying template is TAGGED on `save_post_wp_block`: the
+content is parsed for blocks named `agend-apps/record-*`, and the record type
+they imply is stored in postmeta. The picker filters on that flag rather than
+inspecting content on every read, exactly as the Elementor source filters on
+`_elementor_template_type`.
+
+Two things differ from the Elementor renderer and are worth knowing:
+
+**There is no output cache to defeat.** Elementor's renderer has to disable
+Elementor's own per-document element cache for the duration of every render,
+or every card after the first returns the first card's markup. WordPress has
+no equivalent: `WP_Block::render()` re-invokes a dynamic block's render
+callback on every call, and `core/block`'s recursion guard stores reference
+ids, not output. This was checked against core source, not inferred, because
+the whole per-record design rests on it. The renderer still keeps its OWN
+recursion guard and depth limit, because core's guard only covers `core/block`
+references and does nothing about a nested catalogue calling back into the
+registry.
+
+**CSS reaches a card by two different routes.** `ensure_styles()` runs during
+the host page request and enqueues the block types' registered style handles,
+so the host page carries them as ordinary `<link>` tags. `$with_css` covers
+only what that structurally cannot: block-supports CSS that does not travel
+inline with the markup, chiefly layout rules, which WordPress normally drains
+into the page footer. A REST fragment request never fires `wp_footer`, so it
+never happens there, and the renderer captures
+`wp_style_engine_get_stylesheet_from_context( 'block-supports' )` after the
+render instead. Capturing does not drain the store, `with_css` is only ever set
+from the fragments REST controller (so the store holds this template's rules
+alone), and the generated class names are content-hash-derived from a structure
+identical across records, which is why `cards.php` asks for it on the first
+card only. That function needs WordPress 6.1, so it is guarded and degrades by
+omitting the layout CSS.
+
+Known limitation: `page_contains_surface()` uses `has_block()`, which
+substring-searches serialised content, so a surface placed inside a synced
+pattern that the host page only references by id is invisible to it. That
+method is advisory, so a false negative suppresses a hint and nothing more.
+
+This subsystem is covered by unit tests against stubs. There is no integration
+suite in this repo, so per-record rendering, the layout-CSS capture and the
+tagging have not been exercised against a running WordPress.
 
 ## Updates
 

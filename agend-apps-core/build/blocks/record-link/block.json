@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/record-link",
+  "version": "1.15.0",
+  "title": "Agend Link / Button",
+  "category": "agend",
+  "icon": "button",
+  "description": "Renders an action link or button, such as viewing details or registering, for the record a card or detail template is rendering. Renders nothing on an ordinary page.",
+  "keywords": [
+    "agend",
+    "button",
+    "link",
+    "register",
+    "enrol",
+    "detail"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "multiple": true
+  },
+  "editorScript": "file:./index.js",
+  "style": [
+    "agend-apps-records-record-fields"
+  ],
+  "render": "file:./render.php"
+}

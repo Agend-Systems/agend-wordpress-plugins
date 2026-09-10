@@ -271,6 +271,32 @@ if ( ! function_exists( 'agend_apps_events_get_venues' ) ) {
 	}
 }
 
+if ( ! function_exists( 'agend_apps_events_get_tickets' ) ) {
+	/**
+	 * Ticket-type list double for an event's tickets endpoint.
+	 *
+	 * Records a request the same way the CRM doubles above do, so a test can
+	 * assert on call COUNT -- what makes
+	 * agend_apps_records_record_block_tickets_for()'s per-slug memo testable
+	 * (RecordBlockRenderTest).
+	 *
+	 * @param string $slug Event slug.
+	 * @return array{data: array<int, array<string, mixed>>}
+	 */
+	function agend_apps_events_get_tickets( string $slug ) {
+		Agend_Test_WP::$requests[] = array(
+			'url'     => '/events/' . $slug . '/tickets',
+			'headers' => array(),
+		);
+
+		return array(
+			'data' => array(
+				array( 'ticket' => array( 'name' => 'General Admission', 'price' => 25 ) ),
+			),
+		);
+	}
+}
+
 if ( ! class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) ) {
 	/**
 	 * Minimal fake of the kiosk's entitlement value object.

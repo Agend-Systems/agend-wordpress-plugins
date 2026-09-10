@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/filter",
+	"version": "1.15.0",
+	"title": "Agend Filter",
+	"category": "agend",
+	"icon": "filter",
+	"description": "A single catalogue filter control, placed inside a catalogue's filters template.",
+	"keywords": [ "agend", "filter", "facet", "search", "category", "refine" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-records-filters" ],
+	"style": [ "agend-apps-records-filters" ],
+	"render": "file:./render.php"
+}

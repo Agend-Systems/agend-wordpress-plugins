@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/export-reports",
+  "version": "1.15.0",
+  "title": "Agend Export Reports",
+  "category": "agend",
+  "icon": "download",
+  "description": "Download button or menu for Agend directory export reports.",
+  "keywords": [
+    "agend",
+    "export",
+    "reports",
+    "download"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false
+  },
+  "editorScript": "file:./index.js",
+  "viewScript": [
+    "agend-apps-records-export-reports"
+  ],
+  "style": [
+    "agend-apps-records-export-reports"
+  ],
+  "render": "file:./render.php"
+}
