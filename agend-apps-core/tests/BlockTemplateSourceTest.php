@@ -187,6 +187,100 @@ final class BlockTemplateSourceTest extends TestCase {
 		$this->assertSame( '', get_post_meta( 31, Agend_Apps_Block_Template_Source::TYPE_META_KEY, true ) );
 	}
 
+	/**
+	 * A filters template holds `agend-apps/filter` blocks and no record block
+	 * at all. The first version of this class tested the block name against an
+	 * `agend-apps/record-` prefix, so a filters template was never tagged and
+	 * could not be chosen in any picker: the feature was unusable, reported
+	 * from the editor rather than caught here.
+	 */
+	#[Test]
+	public function should_tag_a_filters_template_built_only_from_filter_blocks(): void {
+		$post = $this->makeWpBlockPost( 40, '<!-- wp:agend-apps/filter {"filter":"event:category"} /-->' );
+
+		Agend_Apps_Block_Template_Source::tag_post( 40, $post );
+
+		$this->assertSame(
+			'event',
+			get_post_meta( 40, Agend_Apps_Block_Template_Source::TYPE_META_KEY, true ),
+			"a filter's own setting keys its type the same way a field's does"
+		);
+	}
+
+	/**
+	 * Qualifying and typing are separate questions. The block editor omits an
+	 * attribute equal to its default from the serialised markup, so a surface
+	 * left at its defaults has no `attrs` at all. That is still a template.
+	 */
+	#[Test]
+	public function should_tag_a_template_whose_surfaces_sit_at_their_defaults_as_type_unknown(): void {
+		$post = $this->makeWpBlockPost( 41, '<!-- wp:agend-apps/record-field /-->' );
+
+		Agend_Apps_Block_Template_Source::tag_post( 41, $post );
+
+		$this->assertSame(
+			Agend_Apps_Block_Template_Source::TYPE_UNKNOWN,
+			get_post_meta( 41, Agend_Apps_Block_Template_Source::TYPE_META_KEY, true ),
+			'a template with no inferable type must still be tagged, or no picker can offer it'
+		);
+	}
+
+	#[Test]
+	public function should_tag_an_all_common_field_template_as_type_unknown(): void {
+		$post = $this->makeWpBlockPost( 42, '<!-- wp:agend-apps/record-field {"field":"common:title"} /-->' );
+
+		Agend_Apps_Block_Template_Source::tag_post( 42, $post );
+
+		$this->assertSame(
+			Agend_Apps_Block_Template_Source::TYPE_UNKNOWN,
+			get_post_meta( 42, Agend_Apps_Block_Template_Source::TYPE_META_KEY, true ),
+			'a common: field names no type, but the pattern is plainly still a template'
+		);
+	}
+
+	#[Test]
+	public function should_tag_a_filters_template_left_at_its_defaults(): void {
+		$post = $this->makeWpBlockPost( 43, '<!-- wp:agend-apps/filter /--><!-- wp:agend-apps/filter /-->' );
+
+		Agend_Apps_Block_Template_Source::tag_post( 43, $post );
+
+		$this->assertSame(
+			Agend_Apps_Block_Template_Source::TYPE_UNKNOWN,
+			get_post_meta( 43, Agend_Apps_Block_Template_Source::TYPE_META_KEY, true )
+		);
+	}
+
+	#[Test]
+	public function should_find_a_template_surface_nested_inside_wrapper_blocks(): void {
+		$content = '<!-- wp:core/group --><!-- wp:core/columns --><!-- wp:agend-apps/filter {"filter":"listing:category"} /--><!-- /wp:core/columns --><!-- /wp:core/group -->';
+
+		Agend_Apps_Block_Template_Source::tag_post( 44, $this->makeWpBlockPost( 44, $content ) );
+
+		$this->assertSame( 'listing', get_post_meta( 44, Agend_Apps_Block_Template_Source::TYPE_META_KEY, true ) );
+	}
+
+	#[Test]
+	public function should_not_tag_a_pattern_holding_no_agend_template_surface(): void {
+		$content = '<!-- wp:agend-apps/events-catalogue /--><!-- wp:core/paragraph --><p>Hi</p><!-- /wp:core/paragraph -->';
+
+		Agend_Apps_Block_Template_Source::tag_post( 45, $this->makeWpBlockPost( 45, $content ) );
+
+		$this->assertSame(
+			'',
+			get_post_meta( 45, Agend_Apps_Block_Template_Source::TYPE_META_KEY, true ),
+			'a catalogue block is a page-level surface, not something a card template is built from'
+		);
+	}
+
+	#[Test]
+	public function should_not_record_a_type_unknown_value_that_a_consumer_could_mistake_for_a_record_type(): void {
+		$this->assertNotContains(
+			Agend_Apps_Block_Template_Source::TYPE_UNKNOWN,
+			array( 'event', 'course', 'listing' ),
+			'TYPE_UNKNOWN must never collide with a real record type, or a preview would trust it'
+		);
+	}
+
 	#[Test]
 	public function should_ignore_a_post_that_is_not_a_wp_block(): void {
 		$post = new WP_Post(
