@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/record-image",
+  "version": "1.15.0",
+  "title": "Agend Image",
+  "category": "agend",
+  "icon": "format-image",
+  "description": "Renders the image of the record a card or detail template is rendering. Does nothing on an ordinary page, outside such a template.",
+  "keywords": [
+    "agend",
+    "image",
+    "background",
+    "hero",
+    "record",
+    "template"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false
+  },
+  "editorScript": "file:./index.js",
+  "viewScript": [
+    "agend-apps-records-record-fields"
+  ],
+  "style": [
+    "agend-apps-records-record-fields"
+  ],
+  "render": "file:./render.php"
+}

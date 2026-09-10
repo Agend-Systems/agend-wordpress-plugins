@@ -54,7 +54,34 @@ class Agend_Apps_Shop_Cart_Header extends \Elementor\Widget_Base {
 	}
 
 	/**
+	 * Returns the frontend script handle this widget depends on.
+	 *
+	 * @return array Script handles.
+	 */
+	public function get_script_depends(): array {
+		return array( 'agend-apps-shop-cart-header' );
+	}
+
+	/**
+	 * Returns the frontend style handle this widget depends on.
+	 *
+	 * @return array Style handles.
+	 */
+	public function get_style_depends(): array {
+		return array( 'agend-apps-shop-cart-header' );
+	}
+
+	/**
 	 * Registers all Elementor controls for this widget.
+	 *
+	 * Hand-declared rather than built from
+	 * agend_apps_records_surface_schema( 'cart-header' ): Agend_Elementor_Schema_Controls
+	 * lives in the separate agend-elementor plugin, and this plugin hard-depends
+	 * only on agend-apps-core (see agend_apps_shop_bootstrap()'s agend_apps_api
+	 * check), so it must keep registering controls with Elementor directly even
+	 * when agend-elementor is inactive. The schema is the single source of
+	 * truth for the block editor only; a parity test
+	 * (SchemaWidgetParityTest) keeps the two declarations from drifting apart.
 	 */
 	protected function register_controls(): void {
 		$this->start_controls_section(
@@ -108,35 +135,9 @@ class Agend_Apps_Shop_Cart_Header extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Renders the widget HTML on the frontend.
+	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
-		$settings = $this->get_settings_for_display();
-
-		// Resolve cart page URL: widget setting overrides global option.
-		$cart_url = '';
-		if ( ! empty( $settings['cart_page_url']['url'] ) ) {
-			$cart_url = esc_url( $settings['cart_page_url']['url'] );
-		} else {
-			$cart_url = esc_url( get_option( 'agend_apps_shop_cart_page_url', '' ) );
-		}
-
-		$badge_color      = sanitize_hex_color( $settings['badge_color'] ) ?: '#e74c3c';
-		$badge_text_color = sanitize_hex_color( $settings['badge_text_color'] ) ?: '#ffffff';
-		$badge_style      = sprintf(
-			'background-color: %s; color: %s;',
-			esc_attr( $badge_color ),
-			esc_attr( $badge_text_color )
-		);
-		?>
-		<div class="agend-apps-shop-cart-header elementor-widget-container">
-			<a class="agend-shop-cart-header-link" href="<?php echo $cart_url; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>" aria-label="<?php esc_attr_e( 'View cart', 'agend-apps-shop' ); ?>">
-				<span class="agend-shop-cart-icon">
-					<?php \Elementor\Icons_Manager::render_icon( $settings['cart_icon'], array( 'aria-hidden' => 'true' ) ); ?>
-				</span>
-				<span class="agend-shop-cart-badge" aria-live="polite" aria-atomic="true" hidden style="<?php echo esc_attr( $badge_style ); ?>">0</span>
-			</a>
-		</div>
-		<?php
+		echo agend_apps_records_render_cart_header( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/header-auth",
+	"version": "1.15.0",
+	"title": "Agend Header Login",
+	"category": "agend",
+	"icon": "external",
+	"description": "Sign-in or member portal link that adapts to the visitor's session.",
+	"keywords": [ "agend", "login", "account", "header" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-records-header-auth" ],
+	"style": [ "agend-apps-records-header-auth" ],
+	"render": "file:./render.php"
+}

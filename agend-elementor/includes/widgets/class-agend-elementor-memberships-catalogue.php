@@ -88,59 +88,6 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Registers a Content-tab control this widget declares itself because the
-	 * shared schema vocabulary cannot describe it.
-	 *
-	 * @param string $name Schema field name.
-	 * @return void
-	 */
-	public function register_adapter_control( string $name ): void {
-		switch ( $name ) {
-			case 'tier_mode_overrides':
-				$this->add_control(
-					'tier_mode_overrides',
-					array(
-						'label'       => __( 'Tier-specific overrides', 'agend-elementor' ),
-						'type'        => \Elementor\Controls_Manager::REPEATER,
-						'fields'      => array(
-							array(
-								'name'        => 'tier_slug',
-								'label'       => __( 'Tier slug', 'agend-elementor' ),
-								'type'        => \Elementor\Controls_Manager::TEXT,
-								'placeholder' => 'professional',
-							),
-							array(
-								'name'    => 'tier_mode',
-								'label'   => __( 'Mode for this tier', 'agend-elementor' ),
-								'type'    => \Elementor\Controls_Manager::SELECT,
-								'options' => array(
-									'application' => __( 'Application', 'agend-elementor' ),
-									'direct'      => __( 'Direct purchase', 'agend-elementor' ),
-								),
-								'default' => 'application',
-							),
-						),
-						'default'     => array(),
-						'title_field' => '{{{ "undefined" !== typeof tier_slug && tier_slug ? tier_slug : "Tier override" }}}',
-					)
-				);
-				break;
-
-			case 'success_url':
-				$this->add_control(
-					'success_url',
-					array(
-						'label'       => __( 'Success page URL (optional)', 'agend-elementor' ),
-						'type'        => \Elementor\Controls_Manager::URL,
-						'placeholder' => 'https://example.com/thank-you',
-						'description' => __( 'URL to redirect to after successful signup. Defaults to the current page.', 'agend-elementor' ),
-					)
-				);
-				break;
-		}
-	}
-
-	/**
 	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
