@@ -496,16 +496,18 @@ class Agend_Apps_Admin {
 
 	/**
 	 * Sanitizes the member sign-in mode option value (SPEC-CORE-20260907
-	 * US-4.1 AC2).
+	 * US-4.1 AC2, widened by the WordPress-IdP scope to a third value).
 	 *
 	 * @param string $value Raw submitted value.
 	 *
-	 * @return string `sso` when submitted exactly, otherwise `credentials`.
+	 * @return string `sso` or `wordpress` when submitted exactly, otherwise `credentials`.
 	 */
 	public function sanitize_member_auth_mode( string $value ): string {
-		return Agend_Apps_Settings::MEMBER_AUTH_SSO === $value
-			? Agend_Apps_Settings::MEMBER_AUTH_SSO
-			: Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS;
+		if ( Agend_Apps_Settings::MEMBER_AUTH_SSO === $value || Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS === $value ) {
+			return $value;
+		}
+
+		return Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS;
 	}
 
 	/**
@@ -703,10 +705,12 @@ class Agend_Apps_Admin {
 
 	/**
 	 * Renders the member sign-in mode radio field (SPEC-CORE-20260907
-	 * US-4.1 AC2).
+	 * US-4.1 AC2, widened by the WordPress-IdP scope to a third option).
 	 *
-	 * In `sso` mode the credential login surface (login bridge, provisioning
-	 * hook, `/auth/*` REST routes, member-login widget) is not loaded at all.
+	 * In `sso` and `wordpress` mode the credential login surface (login
+	 * bridge, provisioning hook, `/auth/*` REST routes, member-login widget)
+	 * is not loaded at all, because `Agend_Apps_Settings::credential_login_enabled()`
+	 * returns false for both.
 	 */
 	public function render_member_auth_mode_field(): void {
 		$value = Agend_Apps_Settings::get_member_auth_mode();
@@ -719,6 +723,10 @@ class Agend_Apps_Admin {
 			Agend_Apps_Settings::MEMBER_AUTH_SSO         => array(
 				'label' => __( 'SSO connection only', 'agend-apps-core' ),
 				'help'  => __( 'Members reach Agend only through your SSO connection. Credential sign-in, account provisioning on user creation, and the /auth REST routes are switched off. Existing member sessions are kept until they expire.', 'agend-apps-core' ),
+			),
+			Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS   => array(
+				'label' => __( 'WordPress account (not yet complete)', 'agend-apps-core' ),
+				'help'  => __( 'Members sign in with their WordPress password, which is never sent to Agend. Their Agend account stays separate, and a bearer is minted server to server from the WordPress session. This mode is not yet complete: the step that links a WordPress account to its Agend identity has not been built, so selecting it will not yet give members access.', 'agend-apps-core' ),
 			),
 		);
 
