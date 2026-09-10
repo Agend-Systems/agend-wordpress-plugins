@@ -32,19 +32,40 @@ class Agend_Apps_Settings {
 	const MEMBER_AUTH_SSO = 'sso';
 
 	/**
+	 * Member sign-in mode: WordPress is the identity provider. The member's
+	 * WordPress password is the only credential and is never sent to the
+	 * Agend gateway; the Agend bearer is minted server to server from the
+	 * WordPress session via the existing SSO token worker
+	 * ({@see Agend_Apps_Token_Worker}). See
+	 * `docs/SCOPE-wordpress-idp-member-auth.md` and
+	 * `docs/PLAN-wordpress-idp-option-b.md` for the full design. This
+	 * constant only introduces the mode; the linking step that makes it
+	 * functional (`includes/wp-idp-link.php`) is not built yet.
+	 *
+	 * @var string
+	 */
+	const MEMBER_AUTH_WORDPRESS = 'wordpress';
+
+	/**
 	 * Returns the configured member sign-in mode.
 	 *
-	 * SPEC-CORE-20260907 US-4.1 AC1: reads option `agend_apps_member_auth_mode`
-	 * and treats any value other than exactly `sso` as `credentials`, so a
-	 * missing option, an upgraded install, or a corrupted value all keep
-	 * today's behaviour.
+	 * SPEC-CORE-20260907 US-4.1 AC1, widened by the WordPress-IdP scope
+	 * (`docs/SCOPE-wordpress-idp-member-auth.md` decision 4): reads option
+	 * `agend_apps_member_auth_mode` as a closed, three-value vocabulary --
+	 * `credentials`, `sso`, or `wordpress`. A missing option, an upgraded
+	 * install, or any unrecognised value all resolve to `credentials`, so
+	 * existing installs do not change behaviour on upgrade.
 	 *
-	 * @return string One of `credentials` or `sso`.
+	 * @return string One of `credentials`, `sso`, or `wordpress`.
 	 */
 	public static function get_member_auth_mode(): string {
 		$value = get_option( 'agend_apps_member_auth_mode', self::MEMBER_AUTH_CREDENTIALS );
 
-		return self::MEMBER_AUTH_SSO === $value ? self::MEMBER_AUTH_SSO : self::MEMBER_AUTH_CREDENTIALS;
+		if ( self::MEMBER_AUTH_SSO === $value || self::MEMBER_AUTH_WORDPRESS === $value ) {
+			return $value;
+		}
+
+		return self::MEMBER_AUTH_CREDENTIALS;
 	}
 
 	/**
@@ -55,6 +76,17 @@ class Agend_Apps_Settings {
 	 */
 	public static function credential_login_enabled(): bool {
 		return self::MEMBER_AUTH_CREDENTIALS === self::get_member_auth_mode();
+	}
+
+	/**
+	 * Whether WordPress is configured as the identity provider for member
+	 * sign-in. Named predicate for callers, rather than comparing strings
+	 * against `get_member_auth_mode()` directly.
+	 *
+	 * @return bool True only when the member sign-in mode is `wordpress`.
+	 */
+	public static function wordpress_idp_enabled(): bool {
+		return self::MEMBER_AUTH_WORDPRESS === self::get_member_auth_mode();
 	}
 
 	/**

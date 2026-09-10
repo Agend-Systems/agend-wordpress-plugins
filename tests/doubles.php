@@ -21,6 +21,7 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 	class Agend_Apps_Settings {
 		const MEMBER_AUTH_CREDENTIALS = 'credentials';
 		const MEMBER_AUTH_SSO         = 'sso';
+		const MEMBER_AUTH_WORDPRESS   = 'wordpress';
 
 		public static function get_api_key(): string {
 			return 'test-api-key';
@@ -41,11 +42,19 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 		public static function get_member_auth_mode(): string {
 			$value = get_option( 'agend_apps_member_auth_mode', self::MEMBER_AUTH_CREDENTIALS );
 
-			return self::MEMBER_AUTH_SSO === $value ? self::MEMBER_AUTH_SSO : self::MEMBER_AUTH_CREDENTIALS;
+			if ( self::MEMBER_AUTH_SSO === $value || self::MEMBER_AUTH_WORDPRESS === $value ) {
+				return $value;
+			}
+
+			return self::MEMBER_AUTH_CREDENTIALS;
 		}
 
 		public static function credential_login_enabled(): bool {
 			return self::MEMBER_AUTH_CREDENTIALS === self::get_member_auth_mode();
+		}
+
+		public static function wordpress_idp_enabled(): bool {
+			return self::MEMBER_AUTH_WORDPRESS === self::get_member_auth_mode();
 		}
 
 		public static function get_portal_home_url(): string {
