@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/cart-header",
+	"version": "1.1.0",
+	"title": "Agend Cart Header",
+	"category": "agend",
+	"icon": "cart",
+	"description": "Cart icon with a live item-count badge.",
+	"keywords": [ "agend", "shop", "cart", "badge" ],
+	"textdomain": "agend-apps-shop",
+	"supports": {
+		"html": false
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-shop-cart-header" ],
+	"style": [ "agend-apps-shop-cart-header" ],
+	"render": "file:./render.php"
+}

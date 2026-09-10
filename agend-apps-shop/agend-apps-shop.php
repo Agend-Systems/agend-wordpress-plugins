@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-shop
  * Description:       Extends Agend Apps Core with Elementor cart widgets for end-user checkout flows.
- * Version:           1.0.4
+ * Version:           1.1.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-shop
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_SHOP_VERSION', '1.0.4' );
+define( 'AGEND_APPS_SHOP_VERSION', '1.1.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -53,6 +53,9 @@ function agend_apps_shop_bootstrap(): void {
 		return;
 	}
 
+	require_once AGEND_APPS_SHOP_DIR . 'includes/records/schema.php';
+	require_once AGEND_APPS_SHOP_DIR . 'includes/records/render.php';
+	require_once AGEND_APPS_SHOP_DIR . 'includes/records/blocks.php';
 	require_once AGEND_APPS_SHOP_DIR . 'includes/class-agend-apps-shop-elementor.php';
 
 	if ( is_admin() ) {
@@ -72,96 +75,33 @@ function agend_apps_shop_missing_core_notice(): void {
 }
 
 /**
- * Enqueues frontend assets for all Agend Apps Shop widgets.
+ * Registers every `agend-apps-shop-*` front-end handle, ungated by Elementor.
  *
- * Assets are only loaded on the frontend when Elementor is active. Registered
- * at priority 20 to ensure `window.agendApps` from agend-apps-core is already
- * output by `wp_head`.
- */
-function agend_apps_shop_enqueue_scripts(): void {
-	if ( ! did_action( 'elementor/loaded' ) ) {
-		return;
-	}
-
-	wp_enqueue_script( 'agend-apps-shop-cart-session' );
-
-	wp_enqueue_script(
-		'agend-apps-shop-add-to-cart',
-		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-add-to-cart.js',
-		array( 'agend-apps-shop-cart-session' ),
-		AGEND_APPS_SHOP_VERSION,
-		true
-	);
-
-	wp_enqueue_style(
-		'agend-apps-shop-add-to-cart',
-		AGEND_APPS_SHOP_URL . 'assets/css/agend-apps-shop-add-to-cart.css',
-		array(),
-		AGEND_APPS_SHOP_VERSION
-	);
-
-	wp_enqueue_script(
-		'agend-apps-shop-cart-header',
-		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-cart-header.js',
-		array( 'agend-apps-shop-cart-session' ),
-		AGEND_APPS_SHOP_VERSION,
-		true
-	);
-
-	wp_enqueue_style(
-		'agend-apps-shop-cart-header',
-		AGEND_APPS_SHOP_URL . 'assets/css/agend-apps-shop-cart-header.css',
-		array(),
-		AGEND_APPS_SHOP_VERSION
-	);
-
-	wp_enqueue_script(
-		'agend-apps-shop-cart-view',
-		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-cart-view.js',
-		array( 'agend-apps-shop-cart-session' ),
-		AGEND_APPS_SHOP_VERSION,
-		true
-	);
-
-	wp_enqueue_style(
-		'agend-apps-shop-cart-view',
-		AGEND_APPS_SHOP_URL . 'assets/css/agend-apps-shop-cart-view.css',
-		array(),
-		AGEND_APPS_SHOP_VERSION
-	);
-
-	wp_localize_script(
-		'agend-apps-shop-cart-view',
-		'agendAppsShop',
-		array(
-			'cartPageUrl'        => esc_url( get_option( 'agend_apps_shop_cart_page_url', '' ) ),
-			'checkoutSuccessUrl' => esc_url( get_option( 'agend_apps_shop_checkout_success_url', '' ) ),
-			'checkoutCancelUrl'  => esc_url( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),
-		)
-	);
-
-	wp_localize_script(
-		'agend-apps-shop-cart-header',
-		'agendAppsShop',
-		array(
-			'cartPageUrl'        => esc_url( get_option( 'agend_apps_shop_cart_page_url', '' ) ),
-			'checkoutSuccessUrl' => esc_url( get_option( 'agend_apps_shop_checkout_success_url', '' ) ),
-			'checkoutCancelUrl'  => esc_url( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),
-		)
-	);
-}
-add_action( 'wp_enqueue_scripts', 'agend_apps_shop_enqueue_scripts', 20 );
-
-/**
- * Registers the cart-session helper on every request, Elementor or not.
+ * Registered on init (not wp_enqueue_scripts, and not gated on
+ * did_action( 'elementor/loaded' )) so a block's viewScript/style can name
+ * these handles directly: WordPress only actually enqueues a registered
+ * handle when the block that names it is present on the page, the same
+ * mechanism agend-apps-core's shared assets rely on (see
+ * agend-apps-core/includes/records/assets.php's own init-priority-5
+ * registration and its docblock).
  *
- * The Agend Apps Core catalogue scripts depend on this handle whenever the
- * shop is active. A dependency that is never registered makes WordPress drop
- * the dependent script silently, which is what happened to the events
- * catalogue block on a site without Elementor while registration lived inside
- * the Elementor-gated enqueue above.
+ * Before this, assets were enqueued unconditionally on every front-end page
+ * of an Elementor site (gated only on Elementor being active at all, not on
+ * a cart widget actually being present), and never loaded at all on a
+ * Gutenberg-only site -- a block would have rendered dead markup. Each
+ * Elementor widget now declares its own get_script_depends()/
+ * get_style_depends() so Elementor enqueues only what a placed widget
+ * actually needs, matching a block's own per-page enqueue. This is a
+ * deliberate behaviour change: a site with custom JS or CSS that assumed
+ * these handles were always present on every page should verify it still
+ * runs once only the pages that use a cart surface load them.
+ *
+ * The cart-session handle is registered for every request regardless,
+ * Elementor or not: the Agend Apps Core catalogue scripts depend on it
+ * whenever the shop is active, and a dependency that is never registered
+ * makes WordPress drop the dependent script silently.
  */
-function agend_apps_shop_register_cart_session(): void {
+function agend_apps_shop_register_assets(): void {
 	wp_register_script(
 		'agend-apps-shop-cart-session',
 		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-cart-session.js',
@@ -169,8 +109,61 @@ function agend_apps_shop_register_cart_session(): void {
 		AGEND_APPS_SHOP_VERSION,
 		true
 	);
+
+	wp_register_script(
+		'agend-apps-shop-add-to-cart',
+		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-add-to-cart.js',
+		array( 'agend-apps-shop-cart-session' ),
+		AGEND_APPS_SHOP_VERSION,
+		true
+	);
+	wp_register_style(
+		'agend-apps-shop-add-to-cart',
+		AGEND_APPS_SHOP_URL . 'assets/css/agend-apps-shop-add-to-cart.css',
+		array(),
+		AGEND_APPS_SHOP_VERSION
+	);
+
+	wp_register_script(
+		'agend-apps-shop-cart-header',
+		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-cart-header.js',
+		array( 'agend-apps-shop-cart-session' ),
+		AGEND_APPS_SHOP_VERSION,
+		true
+	);
+	wp_register_style(
+		'agend-apps-shop-cart-header',
+		AGEND_APPS_SHOP_URL . 'assets/css/agend-apps-shop-cart-header.css',
+		array(),
+		AGEND_APPS_SHOP_VERSION
+	);
+
+	wp_register_script(
+		'agend-apps-shop-cart-view',
+		AGEND_APPS_SHOP_URL . 'assets/js/agend-apps-shop-cart-view.js',
+		array( 'agend-apps-shop-cart-session' ),
+		AGEND_APPS_SHOP_VERSION,
+		true
+	);
+	wp_register_style(
+		'agend-apps-shop-cart-view',
+		AGEND_APPS_SHOP_URL . 'assets/css/agend-apps-shop-cart-view.css',
+		array(),
+		AGEND_APPS_SHOP_VERSION
+	);
+
+	$localized = array(
+		'cartPageUrl'        => esc_url( get_option( 'agend_apps_shop_cart_page_url', '' ) ),
+		'checkoutSuccessUrl' => esc_url( get_option( 'agend_apps_shop_checkout_success_url', '' ) ),
+		'checkoutCancelUrl'  => esc_url( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),
+	);
+	// wp_localize_script() only needs the handle registered, not enqueued: the
+	// data is attached now and printed alongside the script if and when it is
+	// actually enqueued, so this is safe to call unconditionally here.
+	wp_localize_script( 'agend-apps-shop-cart-view', 'agendAppsShop', $localized );
+	wp_localize_script( 'agend-apps-shop-cart-header', 'agendAppsShop', $localized );
 }
-add_action( 'init', 'agend_apps_shop_register_cart_session', 5 );
+add_action( 'init', 'agend_apps_shop_register_assets', 5 );
 
 /**
  * Seeds default option values on plugin activation.

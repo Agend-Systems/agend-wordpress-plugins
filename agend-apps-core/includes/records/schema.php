@@ -34,7 +34,8 @@
  *   directly instead; it passes through unconverted.
  * - `colour`: string `default`, a CSS colour. Maps to Elementor's COLOR
  *   control and the block inspector's `ColorPalette`.
- * - `text`, `textarea`: string `default`.
+ * - `text`, `textarea`: string `default`. Optional `placeholder` (string),
+ *   passed through to the control unchanged.
  * - `number`: `min`, `max`, `step` (all optional); numeric `default`.
  * - `select`: `options` (array value => label, OR a callable string resolved
  *   at render time, so an option list sourced from the gateway is only
@@ -46,6 +47,29 @@
  * - `template`: a saved-template picker. `placeholder` is the label of the
  *   "no template" entry; options come from
  *   `Agend_Apps_Templates::options( $placeholder )`. String `default` (`''`).
+ * - `url`: a URL field. Optional `placeholder` (string) and `show_external`
+ *   (bool). `default` is a plain string or Elementor's own
+ *   `array( 'url' => ..., 'is_external' => ..., 'nofollow' => ... )` shape;
+ *   a renderer reads either through
+ *   `agend_apps_records_normalise_url_setting()` (format.php) rather than
+ *   assuming which one it got. Maps to Elementor's URL control and the block
+ *   inspector's own URL text field.
+ * - `media`: an image picker. `default`, Elementor's own
+ *   `array( 'url' => ..., 'id' => ... )` shape. Maps to Elementor's MEDIA
+ *   control and the block inspector's `MediaUpload`.
+ * - `repeater`: a list of rows. `fields` (a nested `Field[]` using this same
+ *   vocabulary) shapes one row; `default` (array of rows). `row_label` names
+ *   the nested field whose value labels a row, plainly, e.g.
+ *   `'row_label' => 'choice_label'`; the Elementor adapter builds its own
+ *   `title_field` Mustache template from it
+ *   (`'{{{ ' . $row_label . ' }}}'`), so Elementor's template syntax never
+ *   appears in the schema for the common case. Optional `title_field`
+ *   (string): Elementor's own row-title template, carried verbatim, for the
+ *   rare row title `row_label` cannot describe, for example a conditional
+ *   expression rather than a bare `{{{ field }}}` wrapper around one field.
+ *   An adapter with no equivalent of its own ignores it and falls back to
+ *   `row_label`. `row_label` stays the preferred, builder-agnostic way to say
+ *   this; reach for `title_field` only when it genuinely cannot.
  * - `note`: `content` (string), no `name` needed but give one for stability.
  *   Renders as static help text.
  * - `heading`: a labelled divider between groups of fields in one
@@ -58,7 +82,24 @@
  *   `name` and position so the section keeps its order; the widget supplies
  *   the control's own declaration for that name via
  *   `register_adapter_control( string $name ): void`. Optional `label` and
- *   `description` are for documentation only and are not rendered.
+ *   `description` are for documentation only and are not rendered. Optional
+ *   `block` (a Field, using this same vocabulary, e.g. `select`, `number`,
+ *   `colour`): describes the control a BLOCK should render for this field,
+ *   for the rarer adapter field whose stored VALUE is perfectly describable
+ *   even though HOW it is applied is builder-specific. Elementor drives such
+ *   a value through CSS `selectors` written by its own control; a block has
+ *   no stylesheet of its own to write into, so it applies the same value as
+ *   an inline style at render time instead (see the `inline_style` render
+ *   opt on record-image's renderer for an example). Elementor ignores this
+ *   key entirely and keeps registering its own control via
+ *   `register_adapter_control()`, exactly as before;
+ *   `agend_apps_records_block_attributes()` is the only reader, deriving one
+ *   ordinary attribute from it the same way it derives one from any other
+ *   Field, and `schema-inspector.js` renders it the same way too. Reach for
+ *   `block` only when the field's stored value needs no adapter-specific
+ *   shape of its own (a plain string, number or colour); a field whose value
+ *   itself is builder-specific, not just its application, stays adapter-only
+ *   with no `block` key.
  *
  * Condition = Elementor's `condition` array shape:
  * `array( 'other_field' => $value )`, or `array( 'other_field!' => $value )`

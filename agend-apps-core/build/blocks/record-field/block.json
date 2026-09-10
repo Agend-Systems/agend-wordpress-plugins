@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/record-field",
+  "version": "1.15.0",
+  "title": "Agend Field",
+  "category": "agend",
+  "icon": "text",
+  "description": "Renders one value, such as the title, date or price, from the record a card or detail template is rendering. Renders nothing on an ordinary page.",
+  "keywords": [
+    "agend",
+    "event",
+    "course",
+    "field",
+    "dynamic",
+    "template"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "multiple": true
+  },
+  "editorScript": "file:./index.js",
+  "style": [
+    "agend-apps-records-record-fields"
+  ],
+  "render": "file:./render.php"
+}

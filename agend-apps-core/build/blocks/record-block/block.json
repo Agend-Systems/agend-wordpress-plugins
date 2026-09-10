@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/record-block",
+  "version": "1.15.0",
+  "title": "Agend Panel",
+  "category": "agend",
+  "icon": "media-document",
+  "description": "Renders one of the composite panels (tickets, sponsors, facts, outcomes, reviews and so on) for the record a card or detail template is rendering. Does nothing on an ordinary page, outside such a template.",
+  "keywords": [
+    "agend",
+    "panel",
+    "block",
+    "tickets",
+    "sponsors",
+    "outcomes",
+    "reviews",
+    "detail",
+    "record",
+    "template"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false
+  },
+  "editorScript": "file:./index.js",
+  "style": [
+    "agend-apps-records-record-fields",
+    "agend-apps-records-events-catalogue",
+    "agend-apps-records-courses-catalogue"
+  ],
+  "render": "file:./render.php"
+}
