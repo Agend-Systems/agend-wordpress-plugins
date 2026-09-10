@@ -298,51 +298,21 @@ class Agend_Content_Access_Elementor {
 	/**
 	 * Reads an element's fragment policy from its settings.
 	 *
-	 * Fails closed: an unrecognised mode, or selected-plans with nothing
-	 * selected, both yield a policy nobody satisfies rather than being ignored.
-	 * The experiment this replaces treated both as "no condition" and rendered
-	 * the element to everyone.
+	 * Extracts Elementor's two setting keys and delegates the editor-neutral
+	 * validation (mode and tier ids into a canonical policy, failing closed)
+	 * to Agend_Content_Access_Policy::from_fragment_values(), which a future
+	 * Gutenberg block driver will reuse with its own attribute names.
 	 *
 	 * @param array $settings Element settings.
 	 * @return array|null Fragment policy, or null when the element opts out.
 	 */
 	public static function policy_from_settings( array $settings ): ?array {
-		$mode = isset( $settings[ self::MODE_KEY ] ) ? (string) $settings[ self::MODE_KEY ] : '';
+		$mode     = isset( $settings[ self::MODE_KEY ] ) ? (string) $settings[ self::MODE_KEY ] : '';
+		$tier_ids = isset( $settings[ self::TIERS_KEY ] ) && is_array( $settings[ self::TIERS_KEY ] )
+			? $settings[ self::TIERS_KEY ]
+			: array();
 
-		if ( '' === $mode || Agend_Content_Access_Policy::MODE_INHERIT === $mode ) {
-			return null;
-		}
-
-		if ( Agend_Content_Access_Policy::MODE_MEMBERS === $mode ) {
-			return array( 'mode' => Agend_Content_Access_Policy::MODE_MEMBERS );
-		}
-
-		if ( Agend_Content_Access_Policy::MODE_TIERS === $mode ) {
-			$raw   = isset( $settings[ self::TIERS_KEY ] ) && is_array( $settings[ self::TIERS_KEY ] )
-				? $settings[ self::TIERS_KEY ]
-				: array();
-			$clean = array();
-
-			foreach ( $raw as $tier_id ) {
-				$tier_id = is_string( $tier_id ) ? trim( $tier_id ) : '';
-
-				if ( 1 === preg_match( Agend_Content_Access_Policy::UUID_PATTERN, $tier_id ) ) {
-					$clean[] = $tier_id;
-				}
-			}
-
-			// An empty list here is NOT "no restriction". The editor asked for
-			// selected plans, so the honest reading is a restriction nobody
-			// satisfies, which hides the element until the policy is repaired.
-			return array(
-				'mode'     => Agend_Content_Access_Policy::MODE_TIERS,
-				'tier_ids' => array_values( array_unique( $clean ) ),
-			);
-		}
-
-		// An unrecognised mode is a policy we cannot honour. Treat it as
-		// members-only rather than ignoring it.
-		return array( 'mode' => Agend_Content_Access_Policy::MODE_MEMBERS );
+		return Agend_Content_Access_Policy::from_fragment_values( $mode, $tier_ids );
 	}
 
 	/**

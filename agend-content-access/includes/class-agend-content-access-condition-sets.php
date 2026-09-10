@@ -61,7 +61,7 @@ class Agend_Content_Access_Condition_Sets {
 		 * Filters the condition vocabulary offered to editors.
 		 *
 		 * A site adding its own provider registers the matching checker through
-		 * `agend_content_access_check_condition` as well. Adding a set here
+		 * `agend_content_access_condition_providers` as well. Adding a set here
 		 * WITHOUT a checker produces conditions that always deny, because an
 		 * unrecognised provider is a denial by design.
 		 *

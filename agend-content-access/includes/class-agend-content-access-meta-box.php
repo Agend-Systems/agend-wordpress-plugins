@@ -111,6 +111,14 @@ class Agend_Content_Access_Meta_Box {
 
 	/**
 	 * Adds the panel to every supported post type.
+	 *
+	 * Declared block-editor compatible. The panel is plain PHP with no
+	 * dependency on the classic editor's DOM, and its own script only ever
+	 * touches its own subtree, so it renders correctly in the block editor's
+	 * sidebar as-is. Without the flag WordPress cannot know that, and treats an
+	 * undeclared meta box as a reason to steer the site towards Classic Editor.
+	 * That matters increasingly: sites are moving to the block editor, and this
+	 * panel is the only place a page's access policy can be set.
 	 */
 	public function add_meta_box(): void {
 		add_meta_box(
@@ -119,7 +127,8 @@ class Agend_Content_Access_Meta_Box {
 			array( $this, 'render' ),
 			self::supported_post_types(),
 			'side',
-			'default'
+			'default',
+			array( '__block_editor_compatible_meta_box' => true )
 		);
 	}
 

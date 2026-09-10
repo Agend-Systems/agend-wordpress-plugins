@@ -177,6 +177,62 @@ final class PolicyTest extends TestCase {
 		);
 	}
 
+	// -----------------------------------------------------------------------
+	// Fragment values (editor-neutral seam)
+	// -----------------------------------------------------------------------
+
+	#[Test]
+	public function fragment_values_with_no_mode_or_inherit_defer_to_the_document(): void {
+		$this->assertNull( Agend_Content_Access_Policy::from_fragment_values( '', array() ) );
+		$this->assertNull( Agend_Content_Access_Policy::from_fragment_values( 'inherit', array() ) );
+	}
+
+	#[Test]
+	public function fragment_values_all_active_members_reads_as_a_members_policy(): void {
+		$this->assertSame(
+			array( 'mode' => 'active_member' ),
+			Agend_Content_Access_Policy::from_fragment_values( 'active_member', array() )
+		);
+	}
+
+	#[Test]
+	public function fragment_values_selected_tiers_filters_trims_dedupes_and_reindexes(): void {
+		$policy = Agend_Content_Access_Policy::from_fragment_values(
+			'selected_tiers',
+			array( ' ' . self::TIER_A . ' ', 'not-a-uuid', 123, self::TIER_A, self::TIER_B )
+		);
+
+		$this->assertSame( 'selected_tiers', $policy['mode'] );
+		$this->assertSame( array( self::TIER_A, self::TIER_B ), $policy['tier_ids'] );
+		$this->assertSame( array( 0, 1 ), array_keys( $policy['tier_ids'] ) );
+	}
+
+	/**
+	 * The exact case the previous implementation got wrong. "Selected plans"
+	 * with nothing selected is a restriction nobody satisfies, not an absent
+	 * one.
+	 */
+	#[Test]
+	public function fragment_values_selected_tiers_with_nothing_selected_still_restricts(): void {
+		$policy = Agend_Content_Access_Policy::from_fragment_values( 'selected_tiers', array() );
+
+		$this->assertNotNull( $policy, 'an empty selection must not read as "no policy"' );
+		$this->assertSame(
+			array(
+				'mode'     => 'selected_tiers',
+				'tier_ids' => array(),
+			),
+			$policy
+		);
+	}
+
+	#[Test]
+	public function fragment_values_an_unrecognised_mode_restricts_rather_than_being_ignored(): void {
+		$policy = Agend_Content_Access_Policy::from_fragment_values( 'everyone', array() );
+
+		$this->assertSame( array( 'mode' => 'active_member' ), $policy );
+	}
+
 	#[Test]
 	public function every_mode_has_a_label_and_an_unknown_mode_does_not_read_as_public(): void {
 		$this->assertSame( 'Public', Agend_Content_Access_Policy::label( 'public' ) );
