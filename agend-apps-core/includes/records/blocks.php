@@ -223,9 +223,11 @@ add_filter( 'block_categories_all', 'agend_apps_records_block_categories' );
 
 /**
  * Editor-only notices for a surface, shown above the block placeholder
- * (US-4.2 AC3). Empty for every surface except member-login in `sso` member
- * sign-in mode, where the block renders nothing on the front end and the
- * editor otherwise has no way to know why.
+ * (US-4.2 AC3). Empty for every surface except member-login, where the
+ * editor has no other way to know that the block's behaviour depends on the
+ * site's member sign-in mode (docs/PLAN-wordpress-idp-option-b.md section
+ * 4.5): it renders nothing at all in `sso` mode, and a WordPress-native
+ * sign-in prompt rather than the credential form in `wordpress` mode.
  *
  * @param string $surface Surface id.
  * @return array<int, array{status: string, text: string}>
@@ -235,16 +237,29 @@ function agend_apps_records_block_surface_notices( string $surface ): array {
 		return array();
 	}
 
-	if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
+	if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
+		return array();
+	}
+
+	if ( Agend_Apps_Settings::credential_login_enabled() ) {
+		return array();
+	}
+
+	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
 		return array(
 			array(
-				'status' => 'warning',
-				'text'   => __( 'Member sign-in is set to SSO in Agend Apps settings. This block renders nothing until credential sign-in is enabled.', 'agend-apps-core' ),
+				'status' => 'info',
+				'text'   => __( 'Member sign-in is set to WordPress in Agend Apps settings. This block shows a WordPress sign-in prompt instead of the Agend credential form.', 'agend-apps-core' ),
 			),
 		);
 	}
 
-	return array();
+	return array(
+		array(
+			'status' => 'warning',
+			'text'   => __( 'Member sign-in is set to SSO in Agend Apps settings. This block renders nothing until credential sign-in is enabled.', 'agend-apps-core' ),
+		),
+	);
 }
 
 /**

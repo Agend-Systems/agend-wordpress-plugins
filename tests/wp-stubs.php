@@ -351,6 +351,36 @@ function home_url( $path = '' ): string {
 	return 'https://example.test' . $path;
 }
 
+if ( ! function_exists( 'wp_login_url' ) ) {
+	/** Minimal stand-in: appends a `redirect_to` query arg when a redirect is given. */
+	function wp_login_url( string $redirect = '', bool $force_reauth = false ): string {
+		$url = home_url( '/wp-login.php' );
+
+		if ( '' !== $redirect ) {
+			$url = add_query_arg( 'redirect_to', urlencode( $redirect ), $url );
+		}
+
+		if ( $force_reauth ) {
+			$url = add_query_arg( 'reauth', '1', $url );
+		}
+
+		return $url;
+	}
+}
+
+if ( ! function_exists( 'wp_logout_url' ) ) {
+	/** Minimal stand-in: appends a `redirect_to` query arg when a redirect is given. */
+	function wp_logout_url( string $redirect = '' ): string {
+		$url = home_url( '/wp-login.php?action=logout' );
+
+		if ( '' !== $redirect ) {
+			$url = add_query_arg( 'redirect_to', urlencode( $redirect ), $url );
+		}
+
+		return $url;
+	}
+}
+
 function esc_html( $text ): string {
 	return htmlspecialchars( (string) $text, ENT_QUOTES );
 }
