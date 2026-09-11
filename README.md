@@ -4,11 +4,11 @@ Collection of WordPress plugins that integrate into the Agend system. Each plugi
 
 ## Agend Apps - Core (`agend-apps-core/`)
 
-The foundational plugin every other Agend plugin builds on. Owns the gateway API client (`agend_apps_api()`) with encrypted API key storage (libsodium, keyed off the site's auth salts), member session and bearer-token resolution, and a shared identity-aware response cache with per-endpoint TTLs. Provides REST proxy endpoints for Events, Courses/Learning Hub, Directory (reviews, badges, custom fields, multi-location) and Memberships, plus cart and attendee proxying, entitlement types and grants gateway bindings, and server-to-server protected asset upload. Also carries the member credential login backbone: Agend-first WordPress login, in-WordPress password recovery and reset, admin-role sync on login, and guest-cart transfer. Authorisation is server-side and fail-closed; the old usermeta entitlement authority is retired, and membership snapshot usermeta is presentation-only.
+The foundational plugin every other Agend plugin builds on. Owns the Gutenberg block surfaces, which are the primary editor target: every Agend surface ships as a block, registered from a page-builder-agnostic schema and rendered by a core renderer, with the Elementor widget pack a second adapter over the same declarations. Also owns the block editor's card and detail template renderer, so a `wp_block` synced pattern can be used as a catalogue card or detail template. Owns the gateway API client (`agend_apps_api()`) with encrypted API key storage (libsodium, keyed off the site's auth salts), member session and bearer-token resolution, and a shared identity-aware response cache with per-endpoint TTLs. Provides REST proxy endpoints for Events, Courses/Learning Hub, Directory (reviews, badges, custom fields, multi-location) and Memberships, plus cart and attendee proxying, entitlement types and grants gateway bindings, and server-to-server protected asset upload. Also carries the member credential login backbone: Agend-first WordPress login, in-WordPress password recovery and reset, admin-role sync on login, and guest-cart transfer. Authorisation is server-side and fail-closed; the old usermeta entitlement authority is retired, and membership snapshot usermeta is presentation-only.
 
 ## Agend Apps - Shop (`agend-apps-shop/`)
 
-Agend product, cart and shop service built on Core. Provides Elementor cart widgets (Add to Cart, Cart Header mini-cart, full Cart View) and syncs the member's cart between the website and the Agend ecosystem. Includes a per-seat attendee editor in the cart view so a purchaser can assign named attendees to each ticket or seat, with live in-place updates as quantities change.
+Agend product, cart and shop service built on Core. Provides the three cart surfaces (Add to Cart, Cart Header mini-cart, full Cart View) as both Gutenberg blocks and Elementor widgets, and syncs the member's cart between the website and the Agend ecosystem. Includes a per-seat attendee editor in the cart view so a purchaser can assign named attendees to each ticket or seat, with live in-place updates as quantities change. Cart assets are registered rather than blanket-enqueued, so they load only on pages that actually use a cart surface, on any editor.
 
 ## Agend Elementor (`agend-elementor/`)
 
@@ -36,7 +36,11 @@ Mirrors Upbeat entitlement grants into Agend CRM entitlement grants so directory
 
 ## Testing
 
-A repo-level PHPUnit 10.5 harness (`composer test`) runs fast, WordPress-free unit tests against stubs in `tests/`. Test suites exist for agend-apps-core, agend-content-access, agend-entitlement-mirror and agend-directory-sync; the remaining plugins have no suites yet, and there is no integration suite against a real WordPress install.
+A repo-level PHPUnit 10.5 harness (`composer test`) runs fast, WordPress-free unit tests against stubs in `tests/`. Test suites exist for agend-apps-core, agend-apps-shop, agend-content-access, agend-elementor, agend-entitlement-mirror and agend-directory-sync; the remaining plugins have no suites yet, and there is no integration suite against a real WordPress install.
+
+Run the whole suite, not one testsuite at a time: `--testsuite agend-elementor` on its own fails, because those tests depend on function definitions that other suites load into the shared process. `./vendor/bin/phpunit` with no arguments is the authoritative check, and is what CI runs.
+
+Because there is no integration suite, anything whose correctness depends on real WordPress behaviour rather than on our own code is covered by stubs only. The block editor's card and detail template renderer is the clearest example: per-record block rendering, its layout-CSS capture, and its postmeta tagging are unit-tested but have never run against a live install. Smoke-test that subsystem on a real site before shipping it to a client.
 
 ## Releases and updates
 
