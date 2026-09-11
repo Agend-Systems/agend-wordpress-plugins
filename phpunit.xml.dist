@@ -24,6 +24,9 @@
     <testsuite name="agend-apps-core">
       <directory suffix="Test.php">agend-apps-core/tests</directory>
     </testsuite>
+    <testsuite name="agend-apps-shop">
+      <directory suffix="Test.php">agend-apps-shop/tests</directory>
+    </testsuite>
     <testsuite name="agend-content-access">
       <directory suffix="Test.php">agend-content-access/tests</directory>
     </testsuite>
@@ -40,6 +43,7 @@
   <source>
     <include>
       <directory suffix=".php">agend-apps-core/includes</directory>
+      <directory suffix=".php">agend-apps-shop/includes</directory>
       <directory suffix=".php">agend-content-access/includes</directory>
       <directory suffix=".php">agend-entitlement-mirror/includes</directory>
       <directory suffix=".php">agend-directory-sync/includes</directory>
