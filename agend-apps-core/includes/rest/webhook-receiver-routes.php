@@ -182,13 +182,16 @@ class Agend_Apps_Webhook_Receiver_REST_Controller extends Agend_Apps_REST_Contro
 
 	/**
 	 * Refreshes the membership snapshot for the member a membership event
-	 * belongs to, when they have an active session on this site.
+	 * belongs to, when their WordPress identity resolves to a gateway bearer.
 	 *
 	 * The payload's contact id is used only to LOCATE the WordPress user (via
 	 * the `_agend_apps_contact_id` meta written at login); their standing is
-	 * re-fetched from the gateway with their own stored bearer, so a forged or
-	 * stale payload can never assert a standing directly. A member without an
-	 * active session is skipped — their snapshot refreshes at next login.
+	 * always re-fetched from the gateway with that user's own bearer, so a
+	 * forged or stale payload can never assert a standing directly.
+	 * `agend_apps_member_sync_membership_meta()` resolves that bearer itself
+	 * (whichever provider is active) and returns false without a gateway call
+	 * when none resolves, which is what skips a member with no live identity
+	 * on this site — their snapshot refreshes at next login instead.
 	 *
 	 * @param array $envelope Decoded delivery envelope.
 	 * @return bool True when a member's snapshot was refreshed.
@@ -215,13 +218,7 @@ class Agend_Apps_Webhook_Receiver_REST_Controller extends Agend_Apps_REST_Contro
 			return false;
 		}
 
-		$user_id = (int) $user_ids[0];
-
-		if ( ! Agend_Apps_Member_Session::has_session( $user_id ) ) {
-			return false;
-		}
-
-		return agend_apps_member_sync_membership_meta( $user_id );
+		return agend_apps_member_sync_membership_meta( (int) $user_ids[0] );
 	}
 
 	/**

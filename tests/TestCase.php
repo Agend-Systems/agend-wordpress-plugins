@@ -55,6 +55,13 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_user_meta']        = array();
 		$GLOBALS['agend_test_users']            = array();
 		$GLOBALS['agend_test_current_user_can'] = array();
+
+		// Signed-out by default. Production code impersonates through
+		// `wp_set_current_user()` (the membership snapshot sync does, and
+		// restores afterwards), so a test that leaves the global set, or a
+		// restore that a fatal skipped past, would otherwise sign the next
+		// test in as that user.
+		$GLOBALS['agend_test_current_user_id'] = 0;
 	}
 
 	/**

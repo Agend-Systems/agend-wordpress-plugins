@@ -686,6 +686,18 @@ if ( ! function_exists( 'wp_get_current_user' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_set_current_user' ) ) {
+	/**
+	 * Swaps the effective current user, as impersonation code (e.g. the
+	 * membership snapshot sync) relies on.
+	 */
+	function wp_set_current_user( int $user_id ) {
+		$GLOBALS['agend_test_current_user_id'] = $user_id;
+
+		return wp_get_current_user();
+	}
+}
+
 if ( ! class_exists( 'WP_User' ) ) {
 	/**
 	 * Minimal WP_User stand-in.
