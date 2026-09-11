@@ -40,7 +40,7 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-record-fields' );
+		return array( 'agend-apps-records-record-fields' );
 	}
 
 	protected function register_controls(): void {
@@ -118,136 +118,26 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Formatting options for agend_apps_records_format_field() from the controls.
-	 *
-	 * @param array $s Widget settings.
-	 * @return array
+	 * Echoes the surface, rendered by Agend Apps Core from this widget's
+	 * settings. The "renders nothing, and why" conditions live in
+	 * agend_apps_records_record_field_render_reason(); this widget only maps
+	 * the reason it gets back to the translated notice it already owned.
 	 */
-	private function format_options( array $s ): array {
-		$date_format = (string) ( $s['date_format'] ?? '' );
-		if ( 'custom' === $date_format ) {
-			$date_format = (string) ( $s['date_format_custom'] ?? '' );
-		}
-		return array(
-			'date_format'      => $date_format,
-			'price_free_label' => (string) ( $s['price_free_label'] ?? '' ),
-			'list_separator'   => (string) ( $s['list_separator'] ?? ', ' ),
-			'list_max'         => (int) ( $s['list_max'] ?? 0 ),
-			'bool_true'        => (string) ( $s['bool_true'] ?? '' ),
-			'bool_false'       => (string) ( $s['bool_false'] ?? '' ),
-			'number_suffix'    => (string) ( $s['number_suffix'] ?? '' ),
-			'truncate'         => (int) ( $s['truncate_chars'] ?? 0 ),
-		);
-	}
-
 	protected function render(): void {
-		$s   = $this->get_settings_for_display();
-		$ctx = $this->resolve_context();
+		$s = $this->get_settings_for_display();
 
-		if ( '' === $ctx['type'] ) {
-			return;
-		}
+		$is_editor = $this->is_editor();
+		$opts      = array(
+			'preview'      => $is_editor,
+			'preview_type' => $is_editor ? $this->preview_type() : '',
+		);
 
-		$key  = (string) ( $s['field'] ?? 'common:title' );
-		$kind = agend_apps_records_field_kind( $key );
-		if ( '' === $kind ) {
-			return;
-		}
-		if ( ! agend_apps_records_field_applies( $key, $ctx['type'] ) ) {
-			$this->render_editor_notice( __( 'This field does not exist on the record type this template renders.', 'agend-elementor' ) );
-			return;
-		}
-
-		$extra                     = $ctx['extra'];
-		$extra['custom_field_key'] = $this->custom_field_key( $s );
-
-		$html = agend_apps_records_render_field( $key, $ctx['type'], $ctx['record'], $extra, $this->format_options( $s ) );
-		if ( '' === $html ) {
-			$fallback = trim( (string) ( $s['fallback_text'] ?? '' ) );
-			if ( '' === $fallback ) {
+		switch ( agend_apps_records_record_field_render_reason( $s, $opts ) ) {
+			case 'field_not_applicable':
+				$this->render_editor_notice( __( 'This field does not exist on the record type this template renders.', 'agend-elementor' ) );
 				return;
-			}
-			$html = esc_html( $fallback );
 		}
 
-		$before = (string) ( $s['before_text'] ?? '' );
-		$after  = (string) ( $s['after_text'] ?? '' );
-		if ( 'html' === $kind ) {
-			$inner = $html;
-		} else {
-			$inner = esc_html( $before ) . $html . esc_html( $after );
-		}
-
-		// A card that is already one big link cannot contain another anchor.
-		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $extra['in_card_link'] ) )
-			? (string) agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $extra )
-			: '';
-		if ( '' !== $link && '#' !== $link ) {
-			$inner = '<a class="agend-field__link" href="' . esc_url( $link ) . '">' . $inner . '</a>';
-		}
-
-		$tag = (string) ( $s['html_tag'] ?? 'div' );
-		if ( ! in_array( $tag, array( 'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true ) ) {
-			$tag = 'div';
-		}
-
-		$classes = array( 'agend-field', 'agend-field--' . $kind, 'agend-field--' . str_replace( ':', '-', $key ) );
-		if ( $ctx['is_preview'] ) {
-			$classes[] = 'agend-field--preview';
-		}
-
-		$label = $this->label_html( $s, $key, $ctx['record'], $extra );
-		if ( '' !== $label ) {
-			$classes[] = 'agend-field--labelled';
-			if ( 'yes' === ( $s['label_block_display'] ?? '' ) ) {
-				$classes[] = 'agend-field--label-block';
-			}
-		}
-
-		echo '<' . $tag . ' class="' . esc_attr( implode( ' ', $classes ) ) . '">' . $label . $inner . '</' . $tag . '>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $label and $inner are escaped where they are built.
-	}
-
-	/**
-	 * The custom field key this widget reads.
-	 *
-	 * The picker wins when it names a key; the free-text control is what an
-	 * author uses for a field this site's key cannot enumerate, or one that
-	 * does not exist yet. A widget saved before the picker existed has only
-	 * the free-text value, which is why the picker's empty option leaves that
-	 * control visible rather than hiding a key the render is still using.
-	 *
-	 * @param array $s Widget settings.
-	 * @return string
-	 */
-	private function custom_field_key( array $s ): string {
-		$choice = trim( (string) ( $s['custom_field_key_choice'] ?? '' ) );
-
-		return '' !== $choice ? $choice : trim( (string) ( $s['custom_field_key'] ?? '' ) );
-	}
-
-	/**
-	 * The label element, or '' when the widget is not showing one.
-	 *
-	 * @param array  $s      Widget settings.
-	 * @param string $key    Field key.
-	 * @param array  $record The record.
-	 * @param array  $extra  Render context.
-	 * @return string Escaped HTML.
-	 */
-	private function label_html( array $s, string $key, array $record, array $extra ): string {
-		if ( 'yes' !== ( $s['show_label'] ?? '' ) ) {
-			return '';
-		}
-
-		$text = trim( (string) ( $s['label_text'] ?? '' ) );
-		if ( '' === $text ) {
-			$text = agend_apps_records_field_label( $key, $record, $extra );
-		}
-		if ( '' === $text ) {
-			return '';
-		}
-
-		return '<span class="agend-field__label">' . esc_html( $text )
-			. esc_html( (string) ( $s['label_separator'] ?? '' ) ) . '</span>';
+		echo agend_apps_records_render_record_field( $s, $opts ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

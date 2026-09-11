@@ -13,6 +13,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// This renderer reads a `url` field through the shared normaliser. The plugin
+// bootstrap already loads format.php ahead of every renderer, so this require
+// is for the callers that load a single renderer on its own, the unit tests
+// among them, rather than for production.
+require_once __DIR__ . '/../format.php';
+
 /**
  * Normalises a repeater value to a clean object keyed by tier slug.
  *
@@ -38,10 +44,11 @@ function agend_apps_records_memberships_catalogue_build_tier_mode_overrides( arr
  * @return array Config passed to the frontend script as JSON.
  */
 function agend_apps_records_memberships_catalogue_build_config( array $s ): array {
-	$success_url_parts = isset( $s['success_url'] ) && is_array( $s['success_url'] )
-		? $s['success_url']
-		: array( 'url' => '' );
-	$success_url       = (string) ( $success_url_parts['url'] ?? '' );
+	// `success_url` is a `url` field: Elementor's URL control hands us
+	// array( 'url' => ... ), a block a plain string. Reading only the array
+	// shape, as this did before the block surface existed, silently dropped a
+	// block's value and rendered no redirect at all.
+	$success_url = agend_apps_records_normalise_url_setting( $s['success_url'] ?? null );
 
 	// This surface has no `inherit_colours` control (US-1.2 spec-vs-code
 	// finding), so `$s` is passed through unmerged: a missing key resolves to

@@ -29,6 +29,17 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Agend_Test_Mirror_Gateway::reset();
 		}
 
+		if ( class_exists( '\\Elementor\\Plugin' ) ) {
+			\Elementor\Plugin::reset();
+		}
+
+		// Registered block types are process-global too (WP_Block_Type_Registry
+		// is a singleton); cleared here so a block a test registers cannot leak
+		// into the next one.
+		if ( class_exists( 'WP_Block_Type_Registry' ) ) {
+			\WP_Block_Type_Registry::get_instance()->reset();
+		}
+
 		// The decision layer memoises the resolved viewer for the request. In
 		// production that is right: one visitor, one answer. Across tests it
 		// leaks, so a test that ran earlier as a member silently makes the next
