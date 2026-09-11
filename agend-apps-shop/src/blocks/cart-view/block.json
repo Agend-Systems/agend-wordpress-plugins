@@ -1,0 +1,21 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/cart-view",
+	"version": "1.1.1",
+	"title": "Agend Cart View",
+	"category": "agend",
+	"icon": "editor-table",
+	"description": "Full shopping cart: items, totals and checkout actions, for a dedicated cart page.",
+	"keywords": [ "agend", "shop", "cart", "checkout" ],
+	"textdomain": "agend-apps-shop",
+	"supports": {
+		"html": false,
+		"multiple": false,
+		"align": [ "wide", "full" ]
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-shop-cart-view" ],
+	"style": [ "agend-apps-shop-cart-view" ],
+	"render": "file:./render.php"
+}

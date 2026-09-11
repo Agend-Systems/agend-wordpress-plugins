@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-elementor
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.23.0
+ * Version:           0.24.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.23.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.24.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -168,23 +168,14 @@ function agend_elementor_enqueue_scripts(): void {
 		return;
 	}
 
-	// Template widgets (Agend Field / Image / Link / Content Block). Enqueued
+	// Template widgets (Agend Field / Pills / Image / Link / Panel). Enqueued
 	// unconditionally like the catalogue assets: REST-rendered card fragments
 	// arrive after the page has loaded, so the host page must already carry
-	// these. Kept as full calls: these are adapter assets, still hosted here.
-	wp_enqueue_style(
-		'agend-elementor-record-fields',
-		AGEND_ELEMENTOR_URL . 'assets/css/record-fields.css',
-		array(),
-		AGEND_ELEMENTOR_VERSION
-	);
-	wp_enqueue_script(
-		'agend-elementor-record-fields',
-		AGEND_ELEMENTOR_URL . 'assets/js/record-fields.js',
-		array(),
-		AGEND_ELEMENTOR_VERSION,
-		true
-	);
+	// these. Now enqueued by handle alone: these stopped being adapter assets
+	// when those surfaces moved their render into core, and they are hosted
+	// there so the block editor's own record blocks can name the same handle.
+	wp_enqueue_style( 'agend-apps-records-record-fields' );
+	wp_enqueue_script( 'agend-apps-records-record-fields' );
 
 	// Filter controls for Agend Filter widgets placed in a filter template.
 	wp_enqueue_style( 'agend-apps-records-filters' );
