@@ -117,6 +117,29 @@ if ( ! function_exists( 'agend_apps_crm_get_tiers' ) ) {
 	}
 }
 
+if ( ! function_exists( 'agend_apps_crm_get_my_memberships' ) ) {
+	/**
+	 * Member memberships double.
+	 *
+	 * Unlike the other CRM doubles above, this one delegates to the real
+	 * `Agend_Apps_API::request()` rather than to a scripted filter, so tests
+	 * that need to see which bearer actually reached the gateway (e.g. the
+	 * membership-sync provider-agnostic bearer resolution) can assert on
+	 * `Agend_Test_WP::$requests[n]['headers']['Authorization']` exactly as
+	 * they would against the real `agend-apps-core/includes/api/crm.php`
+	 * implementation. That file is not required directly in tests because it
+	 * declares `agend_apps_crm_get_my_entitlements()` and
+	 * `agend_apps_crm_get_tiers()` without `function_exists()` guards, which
+	 * would fatal against the doubles above.
+	 *
+	 * @param array $query Optional query parameters, forwarded as-is.
+	 * @return mixed
+	 */
+	function agend_apps_crm_get_my_memberships( array $query = array() ) {
+		return agend_apps_api()->request( 'GET', '/crm/me/memberships', array( 'query' => $query ) );
+	}
+}
+
 if ( ! function_exists( 'agend_apps_crm_get_my_segments' ) ) {
 	/**
 	 * Member segments double.
