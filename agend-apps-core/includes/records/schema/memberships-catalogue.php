@@ -3,9 +3,14 @@
  * Content-settings schema for the Agend Memberships surface.
  *
  * Transcribed from the Agend Memberships widget's register_content_controls().
- * `tier_mode_overrides` (REPEATER) and `success_url` (URL) are controls the
- * shared vocabulary cannot describe, so they stay `adapter` fields; see
- * the widget's register_adapter_control().
+ * `tier_mode_overrides` (REPEATER) carries an explicit `title_field`: its row
+ * title is a conditional expression rather than a bare `{{{ field }}}`
+ * wrapper around one field name, which the shared vocabulary's `row_label`
+ * key alone cannot express (see the `repeater` type note in schema.php), so
+ * the Elementor template string is carried verbatim in `title_field` instead.
+ * `row_label` is also given, naming the same tier-slug field, so the block
+ * editor's own repeater (which only ever reads `row_label`) still gets a
+ * sensible row heading.
  *
  * @package Agend_Apps_Core
  */
@@ -131,9 +136,34 @@ function agend_apps_records_schema_memberships_catalogue(): array {
 						'description' => __( 'The signup mode for each tier. Can be overridden per tier below.', 'agend-apps-core' ),
 					),
 					array(
-						'name'  => 'tier_mode_overrides',
-						'label' => __( 'Tier-specific overrides', 'agend-apps-core' ),
-						'type'  => 'adapter',
+						'name'        => 'tier_mode_overrides',
+						'label'       => __( 'Tier-specific overrides', 'agend-apps-core' ),
+						'type'        => 'repeater',
+						'row_label'   => 'tier_slug',
+						// Elementor's own row-title template, carried verbatim
+						// because it is a conditional expression rather than a
+						// bare `{{{ field }}}` wrapper `row_label` can express
+						// (see the `repeater` type note in schema.php).
+						'title_field' => '{{{ "undefined" !== typeof tier_slug && tier_slug ? tier_slug : "Tier override" }}}',
+						'default'     => array(),
+						'fields'      => array(
+							array(
+								'name'        => 'tier_slug',
+								'label'       => __( 'Tier slug', 'agend-apps-core' ),
+								'type'        => 'text',
+								'placeholder' => 'professional',
+							),
+							array(
+								'name'    => 'tier_mode',
+								'label'   => __( 'Mode for this tier', 'agend-apps-core' ),
+								'type'    => 'select',
+								'options' => array(
+									'application' => __( 'Application', 'agend-apps-core' ),
+									'direct'      => __( 'Direct purchase', 'agend-apps-core' ),
+								),
+								'default' => 'application',
+							),
+						),
 					),
 				),
 			),
@@ -144,7 +174,8 @@ function agend_apps_records_schema_memberships_catalogue(): array {
 					array(
 						'name'        => 'success_url',
 						'label'       => __( 'Success page URL (optional)', 'agend-apps-core' ),
-						'type'        => 'adapter',
+						'type'        => 'url',
+						'placeholder' => 'https://example.com/thank-you',
 						'description' => __( 'URL to redirect to after successful signup. Defaults to the current page.', 'agend-apps-core' ),
 					),
 				),
