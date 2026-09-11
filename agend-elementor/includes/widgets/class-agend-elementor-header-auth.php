@@ -80,31 +80,6 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	/**
 	 * Registers all Elementor controls for this widget.
 	 */
-	/**
-	 * Registers a Content-tab control this widget declares itself because the
-	 * shared schema vocabulary cannot describe it.
-	 *
-	 * @param string $name Schema field name.
-	 * @return void
-	 */
-	public function register_adapter_control( string $name ): void {
-		if ( 'login_url' === $name ) {
-			$this->add_control(
-				'login_url',
-				array(
-					'label'         => __( 'Login page', 'agend-elementor' ),
-					'type'          => \Elementor\Controls_Manager::URL,
-					'description'   => __( 'Where signed-out visitors go. Leave blank to use the WordPress login page.', 'agend-elementor' ),
-					'placeholder'   => home_url( '/login/' ),
-					'show_external' => false,
-					'default'       => array(
-						'url' => '',
-					),
-				)
-			);
-		}
-	}
-
 	protected function register_controls(): void {
 		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'header-auth' ) );
 
@@ -320,42 +295,7 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Builds the config passed to the frontend script as JSON.
-	 *
-	 * @param array $s Widget settings.
-	 * @return array Config for the frontend renderer.
-	 */
-	private function build_config( array $s ): array {
-		$login_url = isset( $s['login_url']['url'] ) ? (string) $s['login_url']['url'] : '';
-		if ( '' === $login_url ) {
-			$login_url = wp_login_url();
-		}
-
-		$portal_url = '';
-		if ( class_exists( 'Agend_Apps_Settings' ) ) {
-			// The account portal home ({portal}/home/{slug}, from the connected
-			// account slug setting) when the core plugin provides it; the portal
-			// root on older core plugin versions.
-			$portal_url = method_exists( 'Agend_Apps_Settings', 'get_portal_home_url' )
-				? Agend_Apps_Settings::get_portal_home_url()
-				: Agend_Apps_Settings::get_portal_url();
-		}
-
-		return array(
-			'loggedOutLabel' => (string) ( $s['logged_out_label'] ?? __( 'Log In', 'agend-elementor' ) ),
-			'loggedInLabel'  => (string) ( $s['logged_in_label'] ?? __( 'My Portal', 'agend-elementor' ) ),
-			// An emptied label intentionally hides the sign-out dropdown (see
-			// the control description).
-			'signOutLabel'   => trim( (string) ( $s['sign_out_label'] ?? __( 'Sign out', 'agend-elementor' ) ) ),
-			'loginUrl'       => $login_url,
-			// Fallback portal URL used if the authenticated hand-off cannot be
-			// minted; the signed-in click prefers the hand-off (US-1.5).
-			'portalUrl'      => $portal_url,
-		);
-	}
-
-	/**
-	 * Renders the widget container on the frontend.
+	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 *
 	 * The link is rendered client-side by assets/js/header-auth.js from the
 	 * config and the shared `window.agendApps.loggedIn` signal, so one cached
@@ -363,7 +303,10 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	 */
 	protected function render(): void {
 		// SPEC-CORE-20260907 US-4.1 AC7: the credential login surface does not
-		// exist at all in `sso` member sign-in mode.
+		// exist at all in `sso` member sign-in mode. The edit-mode notice stays
+		// here, in the widget: the core renderer's '' return is what a real
+		// front-end visitor sees, but an editor needs to know why the canvas
+		// is empty.
 		if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
 			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
 				echo '<div class="agend-widget-notice">' . esc_html__( 'Member sign-in is set to SSO in Agend Apps settings.', 'agend-elementor' ) . '</div>';
@@ -371,12 +314,6 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 			return;
 		}
 
-		$settings = $this->get_settings_for_display();
-		$config   = $this->build_config( $settings );
-		?>
-		<div class="agend-header-auth" data-agend-header-auth-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
-			<span class="agend-header-auth__placeholder" aria-hidden="true"></span>
-		</div>
-		<?php
+		echo agend_apps_records_render_header_auth( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }
