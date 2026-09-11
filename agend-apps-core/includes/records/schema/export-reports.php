@@ -3,16 +3,14 @@
  * Content-settings schema for the Agend Export Report surface.
  *
  * Transcribed from the Agend Export Report widget's register_controls()'s two
- * Content-tab sections ("Report" and "Parameters"). `reports` and
- * `parameters` are REPEATER controls the shared vocabulary cannot describe.
- * `reports_unavailable` is conditionally registered only when the account has
- * no export reports, which the vocabulary's `condition` key (a field VALUE
- * condition) cannot express either, so it is also an `adapter` field whose
- * `register_adapter_control()` reproduces the same runtime check.
- * `parameters_note` carries a `content_classes` key the `note` type's
- * `control_args()` branch does not pass through, so it is an `adapter` field
- * too rather than a `note` one. See
- * the widget's register_adapter_control().
+ * Content-tab sections ("Report" and "Parameters"). `reports_unavailable` is
+ * conditionally registered only when the account has no export reports,
+ * which the vocabulary's `condition` key (a field VALUE condition) cannot
+ * express, so it stays an `adapter` field whose `register_adapter_control()`
+ * reproduces the same runtime check. `parameters_note` carries a
+ * `content_classes` key the `note` type's `control_args()` branch does not
+ * pass through, so it also stays an `adapter` field rather than a `note` one.
+ * See the widget's register_adapter_control().
  *
  * @package Agend_Apps_Core
  */
@@ -53,9 +51,29 @@ function agend_apps_records_schema_export_reports(): array {
 						'condition'   => array( 'mode' => 'button' ),
 					),
 					array(
-						'name'  => 'reports',
-						'label' => __( 'Reports in the menu', 'agend-apps-core' ),
-						'type'  => 'adapter',
+						'name'      => 'reports',
+						'label'     => __( 'Reports in the menu', 'agend-apps-core' ),
+						'type'      => 'repeater',
+						'row_label' => 'report_label',
+						'default'   => array(),
+						'condition' => array( 'mode' => 'dropdown' ),
+						'fields'    => array(
+							array(
+								'name'        => 'report_id',
+								'label'       => __( 'Report', 'agend-apps-core' ),
+								'type'        => 'select',
+								'default'     => '',
+								'options'     => 'agend_apps_records_export_reports_report_options',
+								'label_block' => true,
+							),
+							array(
+								'name'        => 'report_label',
+								'label'       => __( 'Label', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'description' => __( 'Leave empty to use the report\'s own name.', 'agend-apps-core' ),
+							),
+						),
 					),
 					array(
 						'name' => 'reports_unavailable',
@@ -90,9 +108,58 @@ function agend_apps_records_schema_export_reports(): array {
 						'type' => 'adapter',
 					),
 					array(
-						'name'  => 'parameters',
-						'label' => __( 'Parameter mapping', 'agend-apps-core' ),
-						'type'  => 'adapter',
+						'name'      => 'parameters',
+						'label'     => __( 'Parameter mapping', 'agend-apps-core' ),
+						'type'      => 'repeater',
+						'row_label' => 'param_field',
+						'default'   => array(),
+						'fields'    => array(
+							array(
+								'name'        => 'param_field',
+								'label'       => __( 'Parameter field', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'placeholder' => 'keyword',
+								'description' => __( 'The field the report parameter filters on.', 'agend-apps-core' ),
+							),
+							array(
+								'name'    => 'param_source',
+								'label'   => __( 'Value from', 'agend-apps-core' ),
+								'type'    => 'select',
+								'default' => 'manual',
+								'options' => array(
+									'manual'    => __( 'A value I set here', 'agend-apps-core' ),
+									'catalogue' => __( 'The Directory Catalogue on this page', 'agend-apps-core' ),
+								),
+							),
+							array(
+								'name'      => 'param_value',
+								'label'     => __( 'Value', 'agend-apps-core' ),
+								'type'      => 'text',
+								'default'   => '',
+								'condition' => array( 'param_source' => 'manual' ),
+							),
+							array(
+								'name'        => 'param_catalogue_filter',
+								'label'       => __( 'Read from filter', 'agend-apps-core' ),
+								'type'        => 'select',
+								'default'     => '',
+								'options'     => 'agend_apps_records_export_reports_catalogue_source_options',
+								'description' => __( 'Takes whatever the visitor has this filter set to when they press the button.', 'agend-apps-core' ),
+								'condition'   => array( 'param_source' => 'catalogue' ),
+							),
+							array(
+								'name'        => 'param_custom_key',
+								'label'       => __( 'Custom field key', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'condition'   => array(
+									'param_source'           => 'catalogue',
+									'param_catalogue_filter' => 'custom_field',
+								),
+								'description' => __( 'Which custom field the catalogue filter targets.', 'agend-apps-core' ),
+							),
+						),
 					),
 				),
 			),

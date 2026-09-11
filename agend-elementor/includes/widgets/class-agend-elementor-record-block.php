@@ -51,72 +51,11 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-record-fields', 'agend-apps-records-events-catalogue', 'agend-apps-records-courses-catalogue' );
-	}
-
-	/**
-	 * Panel key => [ label, record type, fragment function ].
-	 *
-	 * Kept here (not in the schema) because the record type and fragment
-	 * function are render-time concerns; the schema lists the pickable keys
-	 * (see agend_apps_records_block_options()).
-	 *
-	 * This map is deliberately WIDER than the picker: it still carries the
-	 * single-value keys that moved to Agend Field and Agend Pills, so a
-	 * template saved against one of them keeps rendering exactly as before.
-	 * See agend_apps_records_retired_block_field().
-	 *
-	 * @return array<string, array{0: string, 1: string, 2: string}>
-	 */
-	private function blocks(): array {
-		return array(
-			'event_facts'        => array( __( 'Event facts (date, location, format)', 'agend-elementor' ), 'event', 'agend_apps_records_fragment_event_facts' ),
-			'event_registration' => array( __( 'Event registration panel', 'agend-elementor' ), 'event', 'agend_apps_records_fragment_event_registration' ),
-			'event_tickets'      => array( __( 'Event tickets and pricing', 'agend-elementor' ), 'event', 'agend_apps_records_fragment_event_tickets' ),
-			'event_sponsors'     => array( __( 'Event sponsors', 'agend-elementor' ), 'event', 'agend_apps_records_fragment_event_sponsors' ),
-			'course_meta'        => array( __( 'Course details (level, format, duration)', 'agend-elementor' ), 'course', 'agend_apps_records_fragment_course_meta' ),
-			'course_outcomes'    => array( __( 'Course learning outcomes', 'agend-elementor' ), 'course', 'agend_apps_records_fragment_course_outcomes' ),
-			'course_enrolment'   => array( __( 'Course pricing and enrolment', 'agend-elementor' ), 'course', 'agend_apps_records_fragment_course_enrolment' ),
-			'listing_about'         => array( __( 'Listing about', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_about' ),
-			'listing_contact'       => array( __( 'Listing contact and links', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_contact' ),
-			'listing_categories'    => array( __( 'Listing categories', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_categories' ),
-			'listing_tags'          => array( __( 'Listing tags', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_tags' ),
-			'listing_gallery'       => array( __( 'Listing gallery', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_gallery' ),
-			'listing_locations'     => array( __( 'Listing locations', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_locations' ),
-			'listing_hours'         => array( __( 'Listing business hours', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_hours' ),
-			'listing_custom_fields' => array( __( 'Listing custom fields', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_custom_fields' ),
-			'listing_achievements'  => array( __( 'Listing badges and credentials', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_achievements' ),
-			'listing_reviews'       => array( __( 'Listing reviews', 'agend-elementor' ), 'listing', 'agend_apps_records_fragment_listing_reviews' ),
-		);
+		return array( 'agend-apps-records-record-fields', 'agend-apps-records-events-catalogue', 'agend-apps-records-courses-catalogue' );
 	}
 
 	protected function register_controls(): void {
 		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'record-block' ) );
-	}
-
-	/**
-	 * Ticket types for an event, from the render context or fetched once per
-	 * slug per request.
-	 *
-	 * @param string $slug  Event slug.
-	 * @param array  $extra Render context.
-	 * @return array
-	 */
-	private function tickets_for( string $slug, array $extra ): array {
-		if ( isset( $extra['tickets'] ) && is_array( $extra['tickets'] ) ) {
-			return $extra['tickets'];
-		}
-		static $memo = array();
-		if ( '' === $slug || ! function_exists( 'agend_apps_events_get_tickets' ) ) {
-			return array();
-		}
-		if ( ! isset( $memo[ $slug ] ) ) {
-			$response      = agend_apps_events_get_tickets( $slug );
-			$memo[ $slug ] = ( ! is_wp_error( $response ) && isset( $response['data'] ) && is_array( $response['data'] ) )
-				? $response['data']
-				: array();
-		}
-		return $memo[ $slug ];
 	}
 
 	/**
@@ -147,21 +86,38 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 		);
 	}
 
+	/**
+	 * Echoes the panel, rendered by Agend Apps Core from this widget's
+	 * settings and whichever record is in context.
+	 *
+	 * The "does this panel render, and if not why" decision now lives in
+	 * agend_apps_records_record_block_render_reason() (render/record-block.php),
+	 * reachable by a caller other than this widget; this method only maps
+	 * each reason code to the translated notice it has always shown.
+	 *
+	 * The retired-key notice is the one case not driven by that reason: it is
+	 * independent of whether the panel goes on to render or ends up with
+	 * nothing to show for this record (both can be true at once -- a retired
+	 * key whose record happens to have nothing to show), so it is called here
+	 * unconditionally, exactly where it always ran, rather than folded into
+	 * the reason switch below.
+	 */
 	protected function render(): void {
-		$s   = $this->get_settings_for_display();
-		$ctx = $this->resolve_context();
+		$s         = $this->get_settings_for_display();
+		$is_editor = $this->is_editor();
+		$opts      = array(
+			'preview'      => $is_editor,
+			'preview_type' => $is_editor ? $this->preview_type() : '',
+		);
 
-		if ( '' === $ctx['type'] ) {
-			return;
-		}
+		$reason = agend_apps_records_record_block_render_reason( $s, $opts );
 
-		$blocks = $this->blocks();
-		$key    = (string) ( $s['block'] ?? '' );
-		if ( ! isset( $blocks[ $key ] ) ) {
-			return;
-		}
-		list( , $block_type, $fragment ) = $blocks[ $key ];
-		if ( $block_type !== $ctx['type'] ) {
+		if ( 'wrong_type' === $reason ) {
+			$ctx        = agend_apps_records_resolve_record_context( $opts );
+			$blocks     = agend_apps_records_record_block_blocks();
+			$key        = (string) ( $s['block'] ?? '' );
+			$block_type = isset( $blocks[ $key ][1] ) ? $blocks[ $key ][1] : '';
+
 			$this->render_editor_notice(
 				sprintf(
 					/* translators: 1: the panel's record type, 2: the record type the template renders. */
@@ -172,46 +128,19 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 			);
 			return;
 		}
-		$this->render_retired_notice( $key );
-		if ( ! function_exists( $fragment ) ) {
+
+		$this->render_retired_notice( (string) ( $s['block'] ?? '' ) );
+
+		if ( 'tickets_live_only' === $reason ) {
+			$this->render_editor_notice( __( 'The tickets panel renders from the live ticket list on the detail page.', 'agend-elementor' ) );
 			return;
 		}
 
-		$record = $ctx['record'];
-		$slug   = isset( $record['slug'] ) ? (string) $record['slug'] : (string) ( $ctx['extra']['slug'] ?? '' );
-		$extra  = $ctx['extra'];
-		if ( ! isset( $extra['host'] ) && ! empty( $extra['host_page_id'] ) ) {
-			$extra['host'] = get_post( (int) $extra['host_page_id'] );
-		}
-
-		switch ( $key ) {
-			case 'event_tickets':
-				if ( $ctx['is_preview'] ) {
-					$this->render_editor_notice( __( 'The tickets panel renders from the live ticket list on the detail page.', 'agend-elementor' ) );
-					return;
-				}
-				$html = $fragment( $record, $this->tickets_for( $slug, $extra ) );
-				break;
-			case 'event_registration':
-			case 'course_enrolment':
-			case 'listing_reviews':
-				$html = $fragment( $record, $slug, $extra );
-				break;
-			default:
-				$html = $fragment( $record );
-		}
-
-		if ( '' === trim( $html ) ) {
+		if ( 'empty_fragment' === $reason ) {
 			$this->render_editor_notice( __( 'This record has nothing to show for this block.', 'agend-elementor' ) );
 			return;
 		}
 
-		// The fragments carry the built-in detail's BEM classes, which are
-		// styled under the catalogue root class and its colour variables.
-		$roots  = array( 'course' => 'agend-courses-catalogue', 'listing' => 'agend-directory-catalogue', 'event' => 'agend-events-catalogue' );
-		$prefix = array( 'course' => 'agend-lms', 'listing' => 'agend-dir', 'event' => 'agend-ev' );
-		$root   = $roots[ $ctx['type'] ] ?? 'agend-events-catalogue';
-		$style  = agend_apps_records_ssr_colour_style( $prefix[ $ctx['type'] ] ?? 'agend-ev' );
-		echo '<div class="agend-record-block agend-record-block--' . esc_attr( $key ) . ' ' . esc_attr( $root ) . ' ' . esc_attr( $root ) . '--fragment" style="' . esc_attr( $style ) . '">' . $html . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragments escape internally.
+		echo agend_apps_records_render_record_block( $s, $opts ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

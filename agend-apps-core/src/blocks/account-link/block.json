@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/account-link",
+	"version": "1.15.2",
+	"title": "Agend Account Link",
+	"category": "agend",
+	"icon": "id-alt",
+	"description": "Account link status for signed-in members, with a prompt to connect via SSO.",
+	"keywords": [ "agend", "account", "link", "member" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false,
+		"align": [ "wide" ]
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-records-account-link" ],
+	"style": [ "agend-apps-records-account-link" ],
+	"render": "file:./render.php"
+}

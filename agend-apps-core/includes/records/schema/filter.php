@@ -3,9 +3,7 @@
  * Content-settings schema for the Agend Filter surface.
  *
  * Transcribed from the Agend Filter widget's register_controls()'s two
- * Content-tab sections ("Filter" and "Values"). The `choices` REPEATER field
- * is a control the shared vocabulary cannot describe, so it stays an
- * `adapter` field; see the widget's register_adapter_control().
+ * Content-tab sections ("Filter" and "Values").
  *
  * @package Agend_Apps_Core
  */
@@ -107,9 +105,27 @@ function agend_apps_records_schema_filter(): array {
 						'description' => __( 'Defined choices each send a fixed selection, so one choice can stand for several values, for example "All States". Tag and badge filters always use defined choices, because the API cannot list their values yet.', 'agend-apps-core' ),
 					),
 					array(
-						'name'  => 'choices',
-						'label' => __( 'Choices', 'agend-apps-core' ),
-						'type'  => 'adapter',
+						'name'      => 'choices',
+						'label'     => __( 'Choices', 'agend-apps-core' ),
+						'type'      => 'repeater',
+						'row_label' => 'choice_label',
+						'default'   => array(),
+						'condition' => array( 'values_mode' => 'choices' ),
+						'fields'    => array(
+							array(
+								'name'    => 'choice_label',
+								'label'   => __( 'Label', 'agend-apps-core' ),
+								'type'    => 'text',
+								'default' => '',
+							),
+							array(
+								'name'        => 'choice_value',
+								'label'       => __( 'Sends', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'description' => __( 'One value, or several separated by commas. Several values match any of them.', 'agend-apps-core' ),
+							),
+						),
 					),
 				),
 			),

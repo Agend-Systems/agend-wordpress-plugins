@@ -237,6 +237,25 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// The templated surfaces (Agend Field, Pills, Image, Link, Panel). Hosted
+	// here rather than in the Elementor plugin, where they used to live: those
+	// surfaces render from core now, and a site running the block editor alone
+	// has no Elementor plugin to register them, so a record block would have
+	// rendered unstyled.
+	wp_register_style(
+		'agend-apps-records-record-fields',
+		agend_apps_records_asset_url( 'css/record-fields.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-record-fields',
+		agend_apps_records_asset_url( 'js/record-fields.js' ),
+		array(),
+		agend_apps_records_asset_version(),
+		true
+	);
+
 	wp_register_style(
 		'agend-apps-records-header-auth',
 		agend_apps_records_asset_url( 'css/header-auth.css' ),
