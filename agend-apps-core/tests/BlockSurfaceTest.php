@@ -27,7 +27,13 @@ final class BlockSurfaceTest extends TestCase {
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/events-catalogue.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/courses-catalogue.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/directory-catalogue.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/member-login.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/memberships-catalogue.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/account-link.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/header-auth.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/export-reports.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/filter.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/blocks.php';
 		agend_render_test_reset();
 	}
@@ -123,6 +129,164 @@ final class BlockSurfaceTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_render_what_the_elementor_directory_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'directory-catalogue' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		// The Elementor content-control defaults, recorded from the widget.
+		// The colour and inherit_colours defaults are not in this fixture
+		// (it only ever recorded the Content tab); they come from the
+		// schema's style section defaults instead, which is what
+		// agend_apps_records_render_block() already resolves the block's own
+		// $defaults from, so no separate merge is needed here for the
+		// comparison to hold.
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/directory-catalogue-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		self::assertSame( agend_apps_records_render_directory_catalogue( $elementor_settings ), agend_apps_records_render_block( 'directory-catalogue', $defaults ) );
+	}
+
+	#[Test]
+	public function should_render_what_the_elementor_memberships_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'memberships-catalogue' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		// The Elementor content-control defaults, recorded from the widget.
+		// The colour defaults are not in this fixture (it only ever recorded
+		// the Content tab); they come from the schema's style section defaults
+		// instead, which is what agend_apps_records_render_block() already
+		// resolves the block's own $defaults from, so no separate merge is
+		// needed here for the comparison to hold.
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/memberships-catalogue-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		self::assertSame( agend_apps_records_render_memberships_catalogue( $elementor_settings ), agend_apps_records_render_block( 'memberships-catalogue', $defaults ) );
+	}
+
+	#[Test]
+	public function should_render_what_the_elementor_account_link_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'account-link' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/account-link-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		self::assertSame( agend_apps_records_render_account_link( $elementor_settings ), agend_apps_records_render_block( 'account-link', $defaults ) );
+	}
+
+	#[Test]
+	public function should_render_what_the_elementor_header_auth_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		update_option( 'agend_apps_member_auth_mode', 'credentials' );
+
+		$schema   = agend_apps_records_surface_schema( 'header-auth' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/header-auth-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		self::assertSame( agend_apps_records_render_header_auth( $elementor_settings ), agend_apps_records_render_block( 'header-auth', $defaults ) );
+	}
+
+	#[Test]
+	public function should_render_what_the_elementor_export_reports_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'export-reports' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/export-reports-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		// Both sides are given the same instance id: at these defaults (no
+		// report chosen) agend_apps_records_render_export_reports() returns ''
+		// before the id is ever used, but passing it identically to both calls
+		// keeps the comparison meaningful if that ever stops being true.
+		self::assertSame(
+			agend_apps_records_render_export_reports( $elementor_settings, array( 'id' => 'test-id' ) ),
+			agend_apps_records_render_export_reports(
+				agend_apps_records_settings_from_attributes( $schema, $defaults ),
+				array( 'id' => 'test-id' )
+			)
+		);
+	}
+
+	#[Test]
+	public function should_render_what_the_elementor_filter_widget_renders_at_its_control_defaults_when_the_block_is_left_at_its_defaults(): void {
+		$schema   = agend_apps_records_surface_schema( 'filter' );
+		$defaults = array_map( static fn( array $a ) => $a['default'], agend_apps_records_block_attributes( $schema ) );
+
+		$controls = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-elementor/tests/fixtures/filter-content-controls.json' ), true );
+		$elementor_settings = array();
+		foreach ( $controls['sections'] as $section ) {
+			foreach ( $section['controls'] as $control ) {
+				if ( array_key_exists( 'default', $control['args'] ) ) {
+					$elementor_settings[ $control['id'] ] = $control['args']['default'];
+				}
+			}
+		}
+
+		// At these defaults (no context, live) agend_apps_records_render_filter()
+		// returns '' on both sides before any of the filter's own settings are
+		// ever consulted (there is no catalogue's filters template rendering
+		// either fixture), so both sides are given 'preview' => true instead,
+		// the same opt the Elementor widget's own render() passes when
+		// is_editor() is true. That is what makes the comparison meaningful: it
+		// is the stand-in control markup, drawn identically from the same
+		// shared settings, that this test actually pins.
+		self::assertSame(
+			agend_apps_records_render_filter( $elementor_settings, array( 'preview' => true ) ),
+			agend_apps_records_render_filter(
+				agend_apps_records_settings_from_attributes( $schema, $defaults ),
+				array( 'preview' => true )
+			)
+		);
+	}
+
+	#[Test]
+	public function should_report_no_notices_for_the_filter_surface(): void {
+		// The filter surface's render-nothing reasons are all per-instance
+		// (which filter is chosen, its custom field key, its choices), and
+		// agend_apps_records_block_surface_notices() is keyed by surface id
+		// alone with no attributes, so it cannot express any of them; the
+		// filter block's own editor view surfaces them instead. Nothing
+		// surface-wide applies, so this stays empty like every catalogue.
+		self::assertSame( array(), agend_apps_records_block_surface_notices( 'filter' ) );
+	}
+
+	#[Test]
 	public function should_report_no_notices_when_member_login_is_in_credentials_mode(): void {
 		update_option( 'agend_apps_member_auth_mode', 'credentials' );
 
@@ -139,6 +303,27 @@ final class BlockSurfaceTest extends TestCase {
 		self::assertSame( 'warning', $notices[0]['status'] );
 		self::assertSame(
 			'Member sign-in is set to SSO in Agend Apps settings. This block renders nothing until credential sign-in is enabled.',
+			$notices[0]['text']
+		);
+	}
+
+	#[Test]
+	public function should_report_no_notices_when_header_auth_is_in_credentials_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'credentials' );
+
+		self::assertSame( array(), agend_apps_records_block_surface_notices( 'header-auth' ) );
+	}
+
+	#[Test]
+	public function should_report_an_sso_warning_notice_when_header_auth_is_in_sso_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'sso' );
+
+		$notices = agend_apps_records_block_surface_notices( 'header-auth' );
+
+		self::assertCount( 1, $notices );
+		self::assertSame( 'warning', $notices[0]['status'] );
+		self::assertSame(
+			'Member sign-in is set to SSO in Agend Apps settings. This block renders no Log In / My Portal link until credential sign-in is enabled.',
 			$notices[0]['text']
 		);
 	}
@@ -190,6 +375,125 @@ final class BlockSurfaceTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_derive_a_string_attribute_from_a_plain_string_default_when_given_a_url_field(): void {
+		$schema = array(
+			'sections' => array(
+				array(
+					'id'     => 'section_redirect',
+					'label'  => 'Redirect',
+					'fields' => array(
+						array(
+							'name'    => 'success_url',
+							'label'   => 'Success page URL',
+							'type'    => 'url',
+							'default' => 'https://example.com/thank-you',
+						),
+					),
+				),
+			),
+		);
+
+		$attributes = agend_apps_records_block_attributes( $schema );
+
+		self::assertSame( array( 'type' => 'string', 'default' => 'https://example.com/thank-you' ), $attributes['success_url'] );
+	}
+
+	#[Test]
+	public function should_normalise_the_elementor_array_shape_when_given_a_url_field_with_an_array_default(): void {
+		$schema = array(
+			'sections' => array(
+				array(
+					'id'     => 'section_content',
+					'label'  => 'Content',
+					'fields' => array(
+						array(
+							'name'    => 'login_url',
+							'label'   => 'Login page',
+							'type'    => 'url',
+							'default' => array( 'url' => '' ),
+						),
+					),
+				),
+			),
+		);
+
+		$attributes = agend_apps_records_block_attributes( $schema );
+
+		self::assertSame( array( 'type' => 'string', 'default' => '' ), $attributes['login_url'] );
+	}
+
+	#[Test]
+	public function should_derive_an_object_attribute_with_the_field_default_when_given_a_media_field(): void {
+		$schema = array(
+			'sections' => array(
+				array(
+					'id'     => 'section_image',
+					'label'  => 'Image',
+					'fields' => array(
+						array(
+							'name'  => 'fallback_image',
+							'label' => 'Fallback image',
+							'type'  => 'media',
+						),
+					),
+				),
+			),
+		);
+
+		$attributes = agend_apps_records_block_attributes( $schema );
+
+		self::assertSame( array( 'type' => 'object', 'default' => array( 'url' => '', 'id' => 0 ) ), $attributes['fallback_image'] );
+	}
+
+	#[Test]
+	public function should_derive_an_array_attribute_with_nested_item_properties_when_given_a_repeater_field(): void {
+		$schema = array(
+			'sections' => array(
+				array(
+					'id'     => 'section_values',
+					'label'  => 'Values',
+					'fields' => array(
+						array(
+							'name'      => 'choices',
+							'label'     => 'Choices',
+							'type'      => 'repeater',
+							'row_label' => 'choice_label',
+							'default'   => array(),
+							'fields'    => array(
+								array(
+									'name'    => 'choice_label',
+									'label'   => 'Label',
+									'type'    => 'text',
+									'default' => '',
+								),
+								array(
+									'name'    => 'choice_value',
+									'label'   => 'Sends',
+									'type'    => 'text',
+									'default' => '',
+								),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$attributes = agend_apps_records_block_attributes( $schema );
+
+		self::assertSame( 'array', $attributes['choices']['type'] );
+		self::assertSame( array(), $attributes['choices']['default'] );
+		self::assertSame( 'object', $attributes['choices']['items']['type'] );
+		self::assertSame(
+			array(
+				'choice_label' => array( 'type' => 'string', 'default' => '' ),
+				'choice_value' => array( 'type' => 'string', 'default' => '' ),
+			),
+			$attributes['choices']['items']['properties']
+		);
+	}
+
+	#[Test]
 	public function should_return_an_empty_schema_when_the_surface_is_unknown(): void {
 		self::assertSame( array(), agend_apps_records_block_editor_schema( 'no-such-surface' ) );
 	}
@@ -205,7 +509,16 @@ final class BlockSurfaceTest extends TestCase {
 	 * catalogue block is covered by this assertion with no second test.
 	 * member-login is the one surface excluded from the "allows multiple"
 	 * expectation (Decision 2.5): two login forms on a page is not a real
-	 * layout, and the script binds one session status per page.
+	 * layout, and the script binds one session status per page (it reads a
+	 * page-level password-reset token from the URL, which every instance
+	 * would react to identically). account-link and header-auth stay in the
+	 * "allows multiple" bucket: both scripts bind per element via their own
+	 * `querySelectorAll()` + per-node init, with no page-level state of their
+	 * own beyond the shared, read-only `window.agendApps.loggedIn` signal, so
+	 * two placements (e.g. a header link and a mobile-menu copy) behave
+	 * correctly independently. export-reports is explicitly built for several
+	 * instances (its renderer takes a per-instance `id` precisely so more than
+	 * one on a page never collide).
 	 */
 	#[Test]
 	public function should_allow_several_instances_on_every_catalogue_block_but_not_member_login(): void {
@@ -224,6 +537,28 @@ final class BlockSurfaceTest extends TestCase {
 			} else {
 				self::assertNotFalse( $multiple, $name . ' should allow several instances on one page' );
 			}
+		}
+	}
+
+	/**
+	 * Locks in the "allows multiple" decision explicitly for the four surfaces
+	 * added in this change, rather than relying only on the generic
+	 * not-false check above, since two of them (account-link, header-auth)
+	 * needed scrutiny of their front-end scripts to decide (see the docblock
+	 * above). filter joins the same bucket: several filters (a search box, a
+	 * category filter, a reset button, ...) on one filters template is the
+	 * normal case, and the Elementor widget places no limit on how many
+	 * Agend Filter widgets one template may hold.
+	 */
+	#[Test]
+	public function should_explicitly_allow_several_instances_of_the_surfaces_added_in_this_change(): void {
+		foreach ( array( 'memberships-catalogue', 'account-link', 'header-auth', 'export-reports', 'filter' ) as $surface ) {
+			$block = json_decode(
+				(string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/build/blocks/' . $surface . '/block.json' ),
+				true
+			);
+
+			self::assertNotFalse( $block['supports']['multiple'] ?? true, $surface . ' should allow several instances on one page' );
 		}
 	}
 

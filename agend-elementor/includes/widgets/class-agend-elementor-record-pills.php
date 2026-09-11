@@ -44,7 +44,7 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-record-fields' );
+		return array( 'agend-apps-records-record-fields' );
 	}
 
 	protected function register_controls(): void {
@@ -175,75 +175,31 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 		$this->end_controls_section();
 	}
 
-	protected function render(): void {
-		$s   = $this->get_settings_for_display();
-		$ctx = $this->resolve_context();
-
-		if ( '' === $ctx['type'] ) {
-			return;
-		}
-
-		$key = (string) ( $s['field'] ?? 'common:category' );
-		if ( ! agend_apps_records_field_applies( $key, $ctx['type'] ) ) {
-			$this->render_editor_notice( __( 'These terms do not exist on the record type this template renders.', 'agend-elementor' ) );
-			return;
-		}
-
-		$terms = agend_apps_records_field_terms( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
-		$max   = (int) ( $s['max_items'] ?? 0 );
-		if ( $max > 0 ) {
-			$terms = array_slice( $terms, 0, $max );
-		}
-
-		if ( empty( $terms ) ) {
-			$this->render_editor_notice( __( 'This record has no terms for this field, so nothing renders here on the live site.', 'agend-elementor' ) );
-			return;
-		}
-
-		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $ctx['extra']['in_card_link'] ) )
-			? (string) ( agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
-			: '';
-
-		$label   = $this->label_html( $s, $key, $ctx['record'], $ctx['extra'] );
-		$classes = array( 'agend-pills' );
-		if ( '' !== $label ) {
-			$classes[] = 'agend-pills--labelled';
-			if ( 'yes' === ( $s['label_block_display'] ?? '' ) ) {
-				$classes[] = 'agend-pills--label-block';
-			}
-		}
-
-		echo '<div class="' . esc_attr( implode( ' ', $classes ) ) . '">';
-		echo $label; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped where it is built.
-		foreach ( $terms as $term ) {
-			if ( '' !== $link && '#' !== $link ) {
-				echo '<a class="agend-pill" href="' . esc_url( $link ) . '">' . esc_html( $term ) . '</a>';
-			} else {
-				echo '<span class="agend-pill">' . esc_html( $term ) . '</span>';
-			}
-		}
-		echo '</div>';
-	}
-
 	/**
-	 * The label element, or '' when the widget is not showing one.
-	 *
-	 * @param array  $s      Widget settings.
-	 * @param string $key    Terms field key.
-	 * @param array  $record The record.
-	 * @param array  $extra  Render context.
-	 * @return string Escaped HTML.
+	 * Echoes the surface, rendered by Agend Apps Core from this widget's
+	 * settings. The "renders nothing, and why" conditions live in
+	 * agend_apps_records_record_pills_render_reason(); this widget only maps
+	 * the reason it gets back to the translated notice it already owned.
 	 */
-	private function label_html( array $s, string $key, array $record, array $extra ): string {
-		if ( 'yes' !== ( $s['show_label'] ?? '' ) ) {
-			return '';
+	protected function render(): void {
+		$s = $this->get_settings_for_display();
+
+		$is_editor = $this->is_editor();
+		$opts      = array(
+			'preview'      => $is_editor,
+			'preview_type' => $is_editor ? $this->preview_type() : '',
+		);
+
+		switch ( agend_apps_records_record_pills_render_reason( $s, $opts ) ) {
+			case 'field_not_applicable':
+				$this->render_editor_notice( __( 'These terms do not exist on the record type this template renders.', 'agend-elementor' ) );
+				return;
+
+			case 'no_terms':
+				$this->render_editor_notice( __( 'This record has no terms for this field, so nothing renders here on the live site.', 'agend-elementor' ) );
+				return;
 		}
 
-		$text = trim( (string) ( $s['label_text'] ?? '' ) );
-		if ( '' === $text ) {
-			$text = agend_apps_records_field_label( $key, $record, $extra );
-		}
-
-		return '' === $text ? '' : '<span class="agend-pills__label">' . esc_html( $text ) . '</span>';
+		echo agend_apps_records_render_record_pills( $s, $opts ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }
