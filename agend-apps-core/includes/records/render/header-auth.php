@@ -43,7 +43,7 @@ function agend_apps_records_header_auth_build_config( array $s ): array {
 			: Agend_Apps_Settings::get_portal_url();
 	}
 
-	return array(
+	$config = array(
 		'loggedOutLabel' => (string) ( $s['logged_out_label'] ?? __( 'Log In', 'agend-apps-core' ) ),
 		'loggedInLabel'  => (string) ( $s['logged_in_label'] ?? __( 'My Portal', 'agend-apps-core' ) ),
 		// An emptied label intentionally hides the sign-out dropdown (see
@@ -54,6 +54,22 @@ function agend_apps_records_header_auth_build_config( array $s ): array {
 		// minted; the signed-in click prefers the hand-off (US-1.5).
 		'portalUrl'      => $portal_url,
 	);
+
+	// docs/PLAN-wordpress-idp-option-b.md section 4.5: `wordpress` mode has
+	// no credential session for window.agendApps.loggedIn to reflect (it is
+	// populated from Agend_Apps_Member_Session, the credential-login store,
+	// which nothing ever writes to in this mode) and no `/auth/*` proxy
+	// routes (`includes/rest/auth-routes.php` loads only when
+	// `credential_login_enabled()`) to hand off to the portal or sign out
+	// through. assets/js/header-auth.js reads `wordpressMode` to switch to
+	// the real WordPress session and to plain navigation for both actions.
+	if ( class_exists( 'Agend_Apps_Settings' ) && Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		$config['wordpressMode'] = true;
+		$config['signedIn']      = is_user_logged_in();
+		$config['logoutUrl']     = wp_logout_url();
+	}
+
+	return $config;
 }
 
 /**
@@ -61,14 +77,24 @@ function agend_apps_records_header_auth_build_config( array $s ): array {
  *
  * The link is rendered client-side by assets/js/header-auth.js from the
  * config and the shared `window.agendApps.loggedIn` signal, so one cached
- * header adapts per member.
+ * header adapts per member. In `wordpress` mode nothing populates that
+ * signal, so the config carries the session state instead
+ * (docs/PLAN-wordpress-idp-option-b.md section 4.5).
  *
  * @param array $settings Surface settings (see agend_apps_records_surface_schema( 'header-auth' )).
- * @return string The rendered markup, or '' in SSO mode (SPEC-CORE-20260907 US-4.1 AC7:
+ * @return string The rendered markup, or '' in `sso` mode (SPEC-CORE-20260907 US-4.1 AC7:
  *                the credential login surface does not exist at all in `sso` member sign-in mode).
  */
 function agend_apps_records_render_header_auth( array $settings ): string {
-	if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
+	$agend_settings_available = class_exists( 'Agend_Apps_Settings' );
+	$credential_enabled       = ! $agend_settings_available || Agend_Apps_Settings::credential_login_enabled();
+	// docs/PLAN-wordpress-idp-option-b.md section 4.5: this is a "Log In /
+	// My Portal" control, meaningful in every mode where a member actually
+	// signs in somewhere -- `wordpress` included. Only `sso` mode has
+	// nothing for it to point at, so it alone still stands down.
+	$wordpress_enabled        = $agend_settings_available && Agend_Apps_Settings::wordpress_idp_enabled();
+
+	if ( ! $credential_enabled && ! $wordpress_enabled ) {
 		return '';
 	}
 

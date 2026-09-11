@@ -19,7 +19,15 @@
     return (window.agendApps && window.agendApps.nonce) || '';
   }
 
-  function isLoggedIn() {
+  // In `wordpress` sign-in mode there is no credential session for
+  // window.agendApps.loggedIn to reflect (it is populated from the
+  // credential-login session store, which nothing writes to in this mode),
+  // so the widget's own config carries the real WordPress session state
+  // instead (docs/PLAN-wordpress-idp-option-b.md section 4.5).
+  function isLoggedIn(cfg) {
+    if (cfg && cfg.wordpressMode) {
+      return !!cfg.signedIn;
+    }
     return !!(window.agendApps && window.agendApps.loggedIn);
   }
 
@@ -98,7 +106,13 @@
         return;
       }
       item.setAttribute('aria-busy', 'true');
-      signOut(item);
+      if (cfg.wordpressMode) {
+        // No `/auth/logout` proxy route exists in this mode; sign out is a
+        // plain navigation to WordPress's own logout URL.
+        window.location.assign(cfg.logoutUrl || '/');
+      } else {
+        signOut(item);
+      }
     });
     menu.appendChild(item);
 
@@ -134,20 +148,25 @@
     root.innerHTML = '';
     root.classList.remove('agend-header-auth--has-menu');
     var link = el('a', 'agend-header-auth__link');
+    var loggedIn = isLoggedIn(cfg);
 
-    if (isLoggedIn()) {
+    if (loggedIn) {
       link.textContent = cfg.loggedInLabel || 'My Portal';
-      // The href is the plain portal URL (works without JS / as the fallback);
-      // the click prefers an authenticated hand-off.
+      // The href is the plain portal URL. In the default (credential-login)
+      // mode this is a fallback and the click prefers an authenticated
+      // hand-off; in `wordpressMode` there is no hand-off route to prefer,
+      // so it is the actual destination and plain navigation is enough.
       link.href = cfg.portalUrl || '#';
-      link.addEventListener('click', function (event) {
-        event.preventDefault();
-        if (link.getAttribute('aria-busy') === 'true') {
-          return;
-        }
-        link.setAttribute('aria-busy', 'true');
-        goToPortal(link, cfg.portalUrl || '');
-      });
+      if (!cfg.wordpressMode) {
+        link.addEventListener('click', function (event) {
+          event.preventDefault();
+          if (link.getAttribute('aria-busy') === 'true') {
+            return;
+          }
+          link.setAttribute('aria-busy', 'true');
+          goToPortal(link, cfg.portalUrl || '');
+        });
+      }
     } else {
       link.textContent = cfg.loggedOutLabel || 'Log In';
       link.href = cfg.loginUrl || '#';
@@ -155,7 +174,7 @@
 
     root.appendChild(link);
 
-    if (isLoggedIn() && cfg.signOutLabel) {
+    if (loggedIn && cfg.signOutLabel) {
       root.appendChild(buildMenu(root, link, cfg));
     }
   }

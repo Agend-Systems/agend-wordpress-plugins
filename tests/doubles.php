@@ -21,6 +21,12 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 	class Agend_Apps_Settings {
 		const MEMBER_AUTH_CREDENTIALS = 'credentials';
 		const MEMBER_AUTH_SSO         = 'sso';
+		const MEMBER_AUTH_WORDPRESS   = 'wordpress';
+
+		const SSO_LINK_MECHANISM_AUTO     = 'auto';
+		const SSO_LINK_MECHANISM_SAML     = 'saml';
+		const SSO_LINK_MECHANISM_SERVER   = 'server';
+		const SSO_LINK_MECHANISM_DISABLED = 'disabled';
 
 		public static function get_api_key(): string {
 			return 'test-api-key';
@@ -41,11 +47,68 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 		public static function get_member_auth_mode(): string {
 			$value = get_option( 'agend_apps_member_auth_mode', self::MEMBER_AUTH_CREDENTIALS );
 
-			return self::MEMBER_AUTH_SSO === $value ? self::MEMBER_AUTH_SSO : self::MEMBER_AUTH_CREDENTIALS;
+			if ( self::MEMBER_AUTH_SSO === $value || self::MEMBER_AUTH_WORDPRESS === $value ) {
+				return $value;
+			}
+
+			return self::MEMBER_AUTH_CREDENTIALS;
 		}
 
 		public static function credential_login_enabled(): bool {
 			return self::MEMBER_AUTH_CREDENTIALS === self::get_member_auth_mode();
+		}
+
+		public static function wordpress_idp_enabled(): bool {
+			return self::MEMBER_AUTH_WORDPRESS === self::get_member_auth_mode();
+		}
+
+		public static function saml_idp_plugin_present(): bool {
+			return class_exists( 'WP_SAML_IDP_Service_Provider' ) && class_exists( 'WP_SAML_IDP_Endpoints' );
+		}
+
+		public static function miniorange_idp_plugin_present(): bool {
+			return defined( 'MSI_VERSION' );
+		}
+
+		public static function detected_idp_plugin(): string {
+			$detected = '';
+
+			if ( self::saml_idp_plugin_present() ) {
+				$detected = 'saml';
+			} elseif ( self::miniorange_idp_plugin_present() ) {
+				$detected = 'miniorange';
+			}
+
+			return (string) apply_filters( 'agend_apps_detected_idp_plugin', $detected );
+		}
+
+		public static function normalize_sso_link_mechanism( $value ): string {
+			$allowed = array(
+				self::SSO_LINK_MECHANISM_AUTO,
+				self::SSO_LINK_MECHANISM_SAML,
+				self::SSO_LINK_MECHANISM_SERVER,
+				self::SSO_LINK_MECHANISM_DISABLED,
+			);
+
+			return in_array( $value, $allowed, true ) ? (string) $value : self::SSO_LINK_MECHANISM_AUTO;
+		}
+
+		public static function sso_link_mechanism(): string {
+			$configured = self::normalize_sso_link_mechanism( get_option( 'agend_apps_sso_link_mechanism', self::SSO_LINK_MECHANISM_AUTO ) );
+
+			if ( self::SSO_LINK_MECHANISM_AUTO !== $configured ) {
+				return $configured;
+			}
+
+			return '' !== self::detected_idp_plugin() ? self::SSO_LINK_MECHANISM_SAML : self::SSO_LINK_MECHANISM_SERVER;
+		}
+
+		public static function link_on_user_create(): bool {
+			return (bool) get_option( 'agend_apps_sso_link_on_user_create', false );
+		}
+
+		public static function get_member_reset_url(): string {
+			return (string) get_option( 'agend_apps_member_reset_url', '' );
 		}
 
 		public static function get_portal_home_url(): string {
