@@ -48,6 +48,25 @@ trait Agend_Elementor_Field_Widget_Trait {
 	 * @return array{type: string, record: array, extra: array, is_preview: bool}
 	 */
 	protected function resolve_context(): array {
+		$is_editor = $this->is_editor();
+
+		// Core owns the resolution itself, so the block editor's templated
+		// surfaces resolve their record exactly the same way. Only the two
+		// questions core cannot ask for itself are answered here: whether an
+		// editor is drawing this widget, and which record type it should
+		// preview. preview_type() is evaluated only when it will be used,
+		// since it scans the current document.
+		if ( function_exists( 'agend_apps_records_resolve_record_context' ) ) {
+			return agend_apps_records_resolve_record_context(
+				array(
+					'preview'      => $is_editor,
+					'preview_type' => $is_editor ? $this->preview_type() : '',
+				)
+			);
+		}
+
+		// Fallback for an Agend Apps Core older than the shared resolver; the
+		// two plugins are updated independently on live sites.
 		if ( Agend_Apps_Records_Record_Context::has() ) {
 			$current = Agend_Apps_Records_Record_Context::current();
 
@@ -59,7 +78,7 @@ trait Agend_Elementor_Field_Widget_Trait {
 			);
 		}
 
-		if ( $this->is_editor() ) {
+		if ( $is_editor ) {
 			$type = $this->preview_type();
 
 			$record = function_exists( 'agend_apps_records_preview_record' )

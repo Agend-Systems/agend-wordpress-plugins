@@ -30,9 +30,10 @@ final class Memberships_Catalogue_Controls_Test_Harness extends Agend_Elementor_
 /**
  * Proves the schema-driven register_content_controls() registers exactly the
  * same Content-tab controls as the pre-refactor, hand-declared version
- * (captured in the fixture before Phase F2 changed the widget), including
- * the `tier_mode_overrides` REPEATER and `success_url` URL controls the
- * adapter still declares itself.
+ * (captured in the fixture before Phase F2 changed the widget). This includes
+ * `tier_mode_overrides`, whose conditional `title_field` is carried verbatim
+ * in the schema's `repeater` field (see the `repeater` type note in
+ * schema.php) rather than declared by the widget itself.
  */
 #[CoversClass( Agend_Elementor_Schema_Controls::class )]
 final class MembershipsCatalogueControlsTest extends TestCase {
