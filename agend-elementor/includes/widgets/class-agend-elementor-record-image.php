@@ -46,34 +46,23 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-elementor-record-fields' );
+		return array( 'agend-apps-records-record-fields' );
 	}
 
 	public function get_script_depends(): array {
-		return array( 'agend-elementor-record-fields' );
+		return array( 'agend-apps-records-record-fields' );
 	}
 
 	/**
 	 * Registers a Content-tab control this widget declares itself because the
-	 * shared schema vocabulary cannot describe it (a MEDIA picker, a COLOR
-	 * picker, a responsive SLIDER, or a SELECT that needs `selectors`).
+	 * shared schema vocabulary cannot describe it (a COLOR picker, a
+	 * responsive SLIDER, or a SELECT that needs `selectors`).
 	 *
 	 * @param string $name Schema field name.
 	 * @return void
 	 */
 	public function register_adapter_control( string $name ): void {
 		switch ( $name ) {
-			case 'fallback_image':
-				$this->add_control(
-					'fallback_image',
-					array(
-						'label'       => __( 'Fallback image', 'agend-elementor' ),
-						'type'        => \Elementor\Controls_Manager::MEDIA,
-						'description' => __( 'Used when the record has no image.', 'agend-elementor' ),
-					)
-				);
-				break;
-
 			case 'aspect_ratio':
 				$this->add_control(
 					'aspect_ratio',
@@ -149,113 +138,51 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * The image URL for the current record, or the fallback, or ''.
+	 * The 'preview'/'preview_type' opts this widget's record-context reads
+	 * always need, built the same way
+	 * Agend_Elementor_Field_Widget_Trait::resolve_context() builds them
+	 * internally. The core render/reason functions take these opts directly
+	 * rather than a resolved context (a block passes its own), so this widget
+	 * has to construct them itself.
 	 *
-	 * @param array $s   Widget settings.
-	 * @param array $ctx Resolved context.
-	 * @return string
+	 * @return array{preview: bool, preview_type: string}
 	 */
-	private function image_url( array $s, array $ctx ): string {
-		$key = (string) ( $s['field'] ?? 'common:image' );
-		$url = agend_apps_records_field_value( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
-		$url = is_string( $url ) ? $url : '';
-		if ( '' === $url && ! empty( $s['fallback_image']['url'] ) ) {
-			$url = (string) $s['fallback_image']['url'];
-		}
-		return $url;
-	}
+	private function render_opts(): array {
+		$is_editor = $this->is_editor();
 
-	/**
-	 * The CSS `background-image` value including any overlay layers.
-	 *
-	 * @param string $url Image URL.
-	 * @param array  $s   Widget settings.
-	 * @return string
-	 */
-	private function background_image_value( string $url, array $s ): string {
-		$layers = array();
-		if ( 'yes' === ( $s['overlay_gradient'] ?? '' ) ) {
-			$layers[] = 'linear-gradient(180deg, rgba(30,42,74,0.35), rgba(30,42,74,0.85))';
-		}
-		$overlay = trim( (string) ( $s['overlay_colour'] ?? '' ) );
-		if ( '' !== $overlay ) {
-			$layers[] = 'linear-gradient(' . $overlay . ', ' . $overlay . ')';
-		}
-		$layers[] = 'url(\'' . esc_url( $url ) . '\')';
-		return implode( ', ', $layers );
+		return array(
+			'preview'      => $is_editor,
+			'preview_type' => $is_editor ? $this->preview_type() : '',
+		);
 	}
 
 	protected function render(): void {
-		$s   = $this->get_settings_for_display();
-		$ctx = $this->resolve_context();
+		$s    = $this->get_settings_for_display();
+		$opts = $this->render_opts();
 
-		if ( '' === $ctx['type'] ) {
-			return;
-		}
-
-		$url = $this->image_url( $s, $ctx );
-		if ( '' === $url ) {
+		if ( 'no_image' === agend_apps_records_record_image_render_reason( $s, $opts ) ) {
 			$this->render_editor_notice( __( 'This record has no image and no fallback image is set.', 'agend-elementor' ) );
 			return;
 		}
 
-		$title = (string) ( agend_apps_records_field_value( 'common:title', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
-
-		if ( 'background' === ( $s['mode'] ?? 'img' ) ) {
-			$placement = (string) ( $s['placement'] ?? 'fill' );
-			if ( ! in_array( $placement, array( 'fill', 'parent', 'block' ), true ) ) {
-				$placement = 'fill';
-			}
-			// The fill placement positions the inner box against the parent
-			// container, so this widget's own wrapper must not be the nearest
-			// positioned ancestor.
-			if ( 'fill' === $placement ) {
-				$this->add_render_attribute( '_wrapper', 'class', 'agend-record-image-host--fill' );
-			}
-
-			$style = sprintf(
-				'background-image:%s;background-size:%s;background-position:%s;',
-				$this->background_image_value( $url, $s ),
-				esc_attr( (string) ( $s['background_size'] ?? 'cover' ) ),
-				esc_attr( (string) ( $s['background_position'] ?? 'center center' ) )
-			);
-
-			$this->add_render_attribute(
-				'image',
-				array(
-					'class'               => array( 'agend-record-image', 'agend-record-image--bg', 'agend-record-image--' . $placement ),
-					'style'               => $style,
-					'role'                => 'img',
-					'aria-label'          => $title,
-					'data-agend-bg-url'   => esc_url( $url ),
-					'data-agend-bg-style' => $style,
-				)
-			);
-			if ( 'parent' === $placement ) {
-				$this->add_render_attribute( 'image', 'data-agend-bg-target', 'parent' );
-			}
-			echo '<div ' . $this->get_render_attribute_string( 'image' ) . '></div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Attributes escaped by Elementor.
+		$html = agend_apps_records_render_record_image( $s, $opts );
+		if ( '' === $html ) {
+			// No record context in scope (live, outside a template, not a
+			// preview): the same silent "renders nothing" the widget always had
+			// for this case, with nothing more specific to tell an author.
 			return;
 		}
 
-		$this->add_render_attribute(
-			'image',
-			array(
-				'class'   => array( 'agend-record-image', 'agend-record-image--img' ),
-				'src'     => esc_url( $url ),
-				'alt'     => $title,
-				'loading' => 'lazy',
-			)
-		);
-		$img = '<img ' . $this->get_render_attribute_string( 'image' ) . ' />';
-
-		$link = ( 'yes' === ( $s['link_to_detail'] ?? '' ) && empty( $ctx['extra']['in_card_link'] ) )
-			? (string) ( agend_apps_records_field_value( 'common:detail_url', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' )
-			: '';
-		if ( '' !== $link && '#' !== $link ) {
-			$img = '<a class="agend-record-image__link" href="' . esc_url( $link ) . '">' . $img . '</a>';
+		if ( 'background' === (string) ( $s['mode'] ?? 'img' ) && 'fill' === agend_apps_records_record_image_placement( $s ) ) {
+			// The fill placement positions the inner box against the parent
+			// container, so this widget's own wrapper must not be the nearest
+			// positioned ancestor. This is an Elementor-only concern (the core
+			// renderer returns only the surface's own inner markup, never the
+			// widget's wrapper), so it stays here rather than moving with the
+			// rest of the render logic.
+			$this->add_render_attribute( '_wrapper', 'class', 'agend-record-image-host--fill' );
 		}
 
-		echo $img; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Attributes escaped above.
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

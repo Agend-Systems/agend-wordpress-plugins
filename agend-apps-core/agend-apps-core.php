@@ -130,6 +130,21 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/interface-agend-apps-template-source.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/class-agend-apps-templates.php';
 
+	// The block editor's own implementation of the two template contracts.
+	// Unlike Elementor's, which ships in that plugin and registers itself only
+	// when it is active, this one ships here and is always registered: the
+	// block editor is part of WordPress. Registered before any other adapter,
+	// so a site running the block editor alone reads unqualified template
+	// titles while a site also running Elementor gets both lists.
+	require_once AGEND_APPS_CORE_DIR . 'includes/templates/class-agend-apps-block-template-renderer.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/templates/class-agend-apps-block-template-source.php';
+	Agend_Apps_Templates::register_renderer( new Agend_Apps_Block_Template_Renderer() );
+	Agend_Apps_Templates::register_source( new Agend_Apps_Block_Template_Source() );
+
+	// Labels a wp_block that is in use as a card or detail template in the
+	// Patterns admin list. Independent of the registry above.
+	require_once AGEND_APPS_CORE_DIR . 'includes/templates/block-template-post-states.php';
+
 	// Shared front-end assets: the CSS/JS behind the catalogue widgets, and the
 	// handful of helpers (shop cart detection, DOMPurify) they depend on.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/assets.php';
@@ -159,12 +174,24 @@ function agend_apps_core_bootstrap() {
 	// dependency, not a display concern.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/palette.php';
 
-	// Server renders of the catalogue surfaces, shared by every editor adapter.
+	// Server renders of the record surfaces, shared by every editor adapter.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-login.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/account-link.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/header-auth.php';
+	// The templated surfaces, used inside a card or detail template. They read
+	// the record in scope from Agend_Apps_Records_Record_Context, so they load
+	// after record-context.php and fields.php above.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/record-field.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/record-pills.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/record-image.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/record-link.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/record-block.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/filter.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/export-reports.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
