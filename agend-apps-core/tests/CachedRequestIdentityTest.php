@@ -52,14 +52,40 @@ final class CachedRequestIdentityTest extends TestCase {
 	}
 
 	#[Test]
-	public function a_member_read_never_touches_the_shared_store(): void {
+	public function a_member_read_never_touches_the_shared_key(): void {
 		$this->setBearer( 'member-a-token' );
 		$api = $this->api();
 
 		$api->get_cached( '/cms/content/x', array(), 'cms_x', 60 );
-		$api->get_cached( '/cms/content/x', array(), 'cms_x', 60 );
 
-		$this->assertCount( 2, Agend_Test_WP::$requests, 'every member read should hit the network' );
+		$this->assertNotContains(
+			'agend_apps_cms_x',
+			$this->cachedContentKeys(),
+			'the shared key is what leaked one member to the next'
+		);
+	}
+
+	#[Test]
+	public function a_repeated_member_read_is_served_from_that_members_own_entry(): void {
+		$this->setBearer( 'member-a-token' );
+		$api = $this->api();
+
+		$first  = $api->get_cached( '/cms/content/x', array(), 'cms_x', 60 );
+		$second = $api->get_cached( '/cms/content/x', array(), 'cms_x', 60 );
+
+		$this->assertCount( 1, Agend_Test_WP::$requests, 'the second read should not hit the network' );
+		$this->assertSame( $first, $second );
+	}
+
+	#[Test]
+	public function a_cart_read_still_bypasses_the_store_entirely(): void {
+		$this->setBearer( 'member-a-token' );
+		$api = $this->api();
+
+		$api->get_cached( '/cart', array(), 'cart_get', 60 );
+		$api->get_cached( '/cart', array(), 'cart_get', 60 );
+
+		$this->assertCount( 2, Agend_Test_WP::$requests, 'a cart must never be read from a cache' );
 		$this->assertSame( array(), $this->cachedContentKeys() );
 	}
 
@@ -104,7 +130,16 @@ final class CachedRequestIdentityTest extends TestCase {
 		$anonResponse = $api->get_cached( '/events/gala', array(), 'events_gala', 60 );
 
 		$this->assertNotSame( $memberResponse, $anonResponse );
-		$this->assertSame( array( 'agend_apps_events_gala' ), $this->cachedContentKeys() );
+		$this->assertContains(
+			'agend_apps_events_gala',
+			$this->cachedContentKeys(),
+			'the anonymous visitor gets their own unsuffixed entry'
+		);
+		$this->assertSame(
+			$anonResponse,
+			Agend_Test_WP::$transients['agend_apps_events_gala'] ?? null,
+			'the shared entry must hold the anonymous response, never the member one'
+		);
 	}
 
 	#[Test]
