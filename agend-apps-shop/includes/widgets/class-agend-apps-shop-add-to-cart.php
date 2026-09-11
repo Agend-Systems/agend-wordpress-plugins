@@ -55,7 +55,34 @@ class Agend_Apps_Shop_Add_To_Cart extends \Elementor\Widget_Base {
 	}
 
 	/**
+	 * Returns the frontend script handle this widget depends on.
+	 *
+	 * @return array Script handles.
+	 */
+	public function get_script_depends(): array {
+		return array( 'agend-apps-shop-add-to-cart' );
+	}
+
+	/**
+	 * Returns the frontend style handle this widget depends on.
+	 *
+	 * @return array Style handles.
+	 */
+	public function get_style_depends(): array {
+		return array( 'agend-apps-shop-add-to-cart' );
+	}
+
+	/**
 	 * Registers all Elementor controls for this widget.
+	 *
+	 * Hand-declared rather than built from
+	 * agend_apps_records_surface_schema( 'add-to-cart' ): Agend_Elementor_Schema_Controls
+	 * lives in the separate agend-elementor plugin, and this plugin hard-depends
+	 * only on agend-apps-core (see agend_apps_shop_bootstrap()'s agend_apps_api
+	 * check), so it must keep registering controls with Elementor directly even
+	 * when agend-elementor is inactive. The schema is the single source of
+	 * truth for the block editor only; a parity test
+	 * (SchemaWidgetParityTest) keeps the two declarations from drifting apart.
 	 */
 	protected function register_controls(): void {
 		$this->start_controls_section(
@@ -124,32 +151,9 @@ class Agend_Apps_Shop_Add_To_Cart extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Renders the widget HTML on the frontend.
+	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
-		$settings     = $this->get_settings_for_display();
-		$product_type = sanitize_text_field( $settings['product_type'] );
-		$product_id   = sanitize_text_field( $settings['product_id'] );
-		$button_label = sanitize_text_field( $settings['button_label'] );
-		$quantity     = (int) $settings['quantity'];
-		$max_quantity = (int) $settings['max_quantity'];
-
-		$max_attr = $max_quantity > 0 ? ' max="' . esc_attr( $max_quantity ) . '"' : '';
-		?>
-		<div class="agend-apps-shop-add-to-cart elementor-widget-container">
-			<div class="agend-shop-atc-quantity">
-				<button class="agend-shop-atc-qty-btn agend-shop-atc-qty-decrement" aria-label="<?php esc_attr_e( 'Decrease quantity', 'agend-apps-shop' ); ?>">&#8722;</button>
-				<input name="agend-shop-product-<?php echo esc_attr( $product_id ); ?>" class="agend-shop-atc-qty-input" type="number" value="<?php echo esc_attr( $quantity ); ?>" min="1"<?php echo $max_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> />
-				<button class="agend-shop-atc-qty-btn agend-shop-atc-qty-increment" aria-label="<?php esc_attr_e( 'Increase quantity', 'agend-apps-shop' ); ?>">&#43;</button>
-			</div>
-			<button class="agend-shop-add-to-cart-btn elementor-button"
-					data-product-type="<?php echo esc_attr( $product_type ); ?>"
-					data-product-id="<?php echo esc_attr( $product_id ); ?>"
-					data-max-quantity="<?php echo esc_attr( $max_quantity ); ?>">
-				<?php echo esc_html( $button_label ); ?>
-			</button>
-			<div class="agend-shop-atc-message" aria-live="polite"></div>
-		</div>
-		<?php
+		echo agend_apps_records_render_add_to_cart( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

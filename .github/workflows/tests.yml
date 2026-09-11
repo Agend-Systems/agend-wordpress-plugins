@@ -55,8 +55,9 @@ jobs:
         run: ./vendor/bin/phpunit
 
   blocks:
-    # Build output under agend-apps-core/build/ is committed because deploys copy
-    # files without a build step; this proves the committed output is current.
+    # Build output under agend-apps-core/build/ and agend-apps-shop/build/ is
+    # committed because deploys copy files without a build step; this proves
+    # the committed output is current.
     name: Block build matches source
     runs-on: ubuntu-latest
     steps:
@@ -69,9 +70,9 @@ jobs:
       - run: npm run build
       - name: Committed build is up to date
         run: |
-          git add -N agend-apps-core/build
-          git diff --exit-code --stat -- agend-apps-core/build \
-            || { echo '::error::agend-apps-core/build is stale: run `npm run build` and commit the result'; exit 1; }
+          git add -N agend-apps-core/build agend-apps-shop/build
+          git diff --exit-code --stat -- agend-apps-core/build agend-apps-shop/build \
+            || { echo '::error::agend-apps-core/build or agend-apps-shop/build is stale: run `npm run build` and commit the result'; exit 1; }
 
   versions:
     # Guardrail for the release workflow (.github/workflows/release.yml):

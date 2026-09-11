@@ -268,6 +268,65 @@ function agend_apps_records_preview_record( string $type ): array {
 }
 
 /**
+ * Resolves the record a templated surface should render against.
+ *
+ * The page-builder-agnostic form of what
+ * `Agend_Elementor_Field_Widget_Trait::resolve_context()` did privately. The
+ * templated surfaces (field, image, link, pills, panel) have no record of
+ * their own: at render time they read whichever record the template renderer
+ * pushed onto {@see Agend_Apps_Records_Record_Context}. A surface being EDITED
+ * has no such frame, because no catalogue or detail render is in progress, so
+ * it needs a real-shaped record to preview against instead.
+ *
+ * The two editor-specific questions, "is an editor drawing this?" and "which
+ * record type should it preview?", are answered by the CALLER rather than
+ * here, because there is no builder-agnostic way to ask either. Elementor
+ * knows from its own `Plugin` instance and its template scan; a block knows
+ * from the render being a `ServerSideRender` request and from the template
+ * post's own recorded type. Passing both in is what lets one function serve
+ * both editors.
+ *
+ * @param array $opts 'preview' (bool, default false): no record is in context
+ *                     and the caller is an editor, so supply a preview record
+ *                     rather than resolving to nothing. 'preview_type'
+ *                     (string, optional): the record type to preview against;
+ *                     falls back to 'event', the type this fallback has always
+ *                     had.
+ * @return array{type: string, record: array<string, mixed>, extra: array<string, mixed>, is_preview: bool}
+ */
+function agend_apps_records_resolve_record_context( array $opts = array() ): array {
+	if ( Agend_Apps_Records_Record_Context::has() ) {
+		$current = Agend_Apps_Records_Record_Context::current();
+
+		return array(
+			'type'       => (string) ( $current['type'] ?? '' ),
+			'record'     => is_array( $current['record'] ?? null ) ? $current['record'] : array(),
+			'extra'      => is_array( $current['extra'] ?? null ) ? $current['extra'] : array(),
+			'is_preview' => false,
+		);
+	}
+
+	if ( empty( $opts['preview'] ) ) {
+		return array(
+			'type'       => '',
+			'record'     => array(),
+			'extra'      => array(),
+			'is_preview' => false,
+		);
+	}
+
+	$type   = '' !== (string) ( $opts['preview_type'] ?? '' ) ? (string) $opts['preview_type'] : 'event';
+	$record = agend_apps_records_preview_record( $type );
+
+	return array(
+		'type'       => $type,
+		'record'     => $record,
+		'extra'      => agend_apps_records_preview_extra( $type, $record ),
+		'is_preview' => true,
+	);
+}
+
+/**
  * Fetches the first upcoming event, retrying against all events when there is
  * no upcoming one (a site with only past events, or none scheduled yet).
  *
