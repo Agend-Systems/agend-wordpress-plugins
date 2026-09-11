@@ -8,8 +8,8 @@
  */
 import { useEffect, useState } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
-import { __ } from '@wordpress/i18n';
-import { useSettings } from '@wordpress/block-editor';
+import { __, sprintf } from '@wordpress/i18n';
+import { useSettings, MediaUpload, MediaUploadCheck } from '@wordpress/block-editor';
 import {
 	PanelBody,
 	ToggleControl,
@@ -20,6 +20,10 @@ import {
 	BaseControl,
 	ColorPalette,
 	Notice,
+	Button,
+	Card,
+	CardHeader,
+	CardBody,
 	__experimentalNumberControl as NumberControl,
 } from '@wordpress/components';
 
@@ -62,6 +66,44 @@ export function conditionMet( condition, attributes ) {
 
 function optionsToChoices( options ) {
 	return Object.entries( options || {} ).map( ( [ value, label ] ) => ( { value, label: String( label ) } ) );
+}
+
+/**
+ * Whether a schema select field declares its choices as grouped.
+ *
+ * A `select` may carry either `options` (a flat value => label map) or
+ * `groups` (a list of `{ label, options }`), and the five surfaces whose main
+ * control answers "which field is this?" all use `groups`: the Agend Filter's
+ * filter picker, and the field or panel picker on Agend Field, Pills, Image
+ * and Panel. Reading only `options` renders those as an EMPTY dropdown, which
+ * leaves the one control that matters most on each of those blocks unusable.
+ *
+ * @param {Object} field A schema field.
+ * @return {boolean} True when the field declares `groups` with entries.
+ */
+function hasGroups( field ) {
+	return Array.isArray( field.groups ) && field.groups.length > 0;
+}
+
+/**
+ * A grouped select's `<optgroup>` children.
+ *
+ * SelectControl renders its children in place of the `options` prop, which is
+ * the only way to get real option groups out of it.
+ *
+ * @param {Array} groups The field's `groups` list.
+ * @return {Array} optgroup elements.
+ */
+function groupChildren( groups ) {
+	return groups.map( ( group, index ) => (
+		<optgroup key={ group.label ?? index } label={ group.label ?? '' }>
+			{ optionsToChoices( group.options ).map( ( choice ) => (
+				<option key={ choice.value } value={ choice.value }>
+					{ choice.label }
+				</option>
+			) ) }
+		</optgroup>
+	) );
 }
 
 function Field( { field, attributes, setAttributes } ) {
@@ -116,7 +158,20 @@ function Field( { field, attributes, setAttributes } ) {
 			);
 		case 'select':
 		case 'template':
-			return (
+			// A grouped select passes optgroup children instead of `options`;
+			// see hasGroups() for why both shapes have to be handled.
+			return hasGroups( field ) ? (
+				<SelectControl
+					label={ label }
+					help={ description }
+					value={ value ?? '' }
+					onChange={ set }
+					__nextHasNoMarginBottom
+					__next40pxDefaultSize
+				>
+					{ groupChildren( field.groups ) }
+				</SelectControl>
+			) : (
 				<SelectControl
 					label={ label }
 					help={ description }
@@ -147,9 +202,132 @@ function Field( { field, attributes, setAttributes } ) {
 			return <Notice status="info" isDismissible={ false }>{ field.content }</Notice>;
 		case 'heading':
 			return <BaseControl.VisualLabel>{ label }</BaseControl.VisualLabel>;
+		case 'url':
+			return (
+				<TextControl
+					label={ label }
+					help={ description }
+					type="url"
+					value={ value ?? '' }
+					onChange={ set }
+					__nextHasNoMarginBottom
+					__next40pxDefaultSize
+				/>
+			);
+		case 'media': {
+			const media = value && 'object' === typeof value ? value : { url: '', id: 0 };
+			return (
+				<BaseControl label={ label } help={ description } __nextHasNoMarginBottom>
+					<div className="agend-schema-media">
+						{ media.url ? <img src={ media.url } alt="" className="agend-schema-media__preview" /> : null }
+						<MediaUploadCheck>
+							<MediaUpload
+								onSelect={ ( selected ) => set( { url: selected?.url ?? '', id: selected?.id ?? 0 } ) }
+								allowedTypes={ [ 'image' ] }
+								value={ media.id }
+								render={ ( { open } ) => (
+									<Button variant="secondary" onClick={ open }>
+										{ media.url ? __( 'Replace image', 'agend-apps-core' ) : __( 'Select image', 'agend-apps-core' ) }
+									</Button>
+								) }
+							/>
+						</MediaUploadCheck>
+						{ media.url ? (
+							<Button variant="link" isDestructive onClick={ () => set( { url: '', id: 0 } ) }>
+								{ __( 'Remove', 'agend-apps-core' ) }
+							</Button>
+						) : null }
+					</div>
+				</BaseControl>
+			);
+		}
+		case 'repeater': {
+			const rows = Array.isArray( value ) ? value : [];
+			const nestedFields = field.fields || [];
+			const rowLabelKey = field.row_label;
+
+			const updateRow = ( index, nextRow ) => set( rows.map( ( row, i ) => ( i === index ? nextRow : row ) ) );
+			const addRow = () => set( [ ...rows, {} ] );
+			const removeRow = ( index ) => set( rows.filter( ( _, i ) => i !== index ) );
+			const moveRow = ( index, delta ) => {
+				const target = index + delta;
+				if ( target < 0 || target >= rows.length ) {
+					return;
+				}
+				const next = rows.slice();
+				const [ moved ] = next.splice( index, 1 );
+				next.splice( target, 0, moved );
+				set( next );
+			};
+
+			return (
+				<BaseControl label={ label } help={ description } __nextHasNoMarginBottom>
+					{ rows.map( ( row, index ) => (
+						// eslint-disable-next-line react/no-array-index-key -- rows carry no stable id of their own.
+						<Card key={ index } className="agend-schema-repeater__row" size="small">
+							<CardHeader>
+								<span>
+									{ rowLabelKey && row[ rowLabelKey ]
+										? row[ rowLabelKey ]
+										: sprintf( __( 'Row %d', 'agend-apps-core' ), index + 1 ) }
+								</span>
+								<div className="agend-schema-repeater__row-actions">
+									<Button
+										icon="arrow-up-alt2"
+										label={ __( 'Move up', 'agend-apps-core' ) }
+										onClick={ () => moveRow( index, -1 ) }
+										disabled={ 0 === index }
+									/>
+									<Button
+										icon="arrow-down-alt2"
+										label={ __( 'Move down', 'agend-apps-core' ) }
+										onClick={ () => moveRow( index, 1 ) }
+										disabled={ index === rows.length - 1 }
+									/>
+									<Button
+										icon="trash"
+										label={ __( 'Remove', 'agend-apps-core' ) }
+										onClick={ () => removeRow( index ) }
+										isDestructive
+									/>
+								</div>
+							</CardHeader>
+							<CardBody>
+								{ nestedFields.map( ( nestedField ) =>
+									// A repeater row is its own little settings object,
+									// so a nested field's condition is evaluated against
+									// THIS row's values, not the block's top-level
+									// attributes: that is why `attributes={ row }` is
+									// passed here instead of the outer `attributes`.
+									conditionMet( nestedField.condition, row ) ? (
+										<Field
+											key={ nestedField.name }
+											field={ nestedField }
+											attributes={ row }
+											setAttributes={ ( changed ) => updateRow( index, { ...row, ...changed } ) }
+										/>
+									) : null
+								) }
+							</CardBody>
+						</Card>
+					) ) }
+					<Button variant="secondary" onClick={ addRow }>
+						{ __( 'Add', 'agend-apps-core' ) }
+					</Button>
+				</BaseControl>
+			);
+		}
+		case 'adapter':
+			// Most adapter fields describe no control at all: they are
+			// builder-specific, and the block supplies its own elsewhere if
+			// it needs one. One carrying a `block` declaration (see the
+			// `adapter` type note in schema.php) opts in, and renders that
+			// declaration as an ordinary Field, recursing into this same
+			// component rather than a second copy of the switch above.
+			return field.block ? (
+				<Field field={ { ...field.block, name } } attributes={ attributes } setAttributes={ setAttributes } />
+			) : null;
 		default:
-			// 'adapter' fields are builder-specific; the block supplies its own
-			// control for those if it needs one, elsewhere.
 			return null;
 	}
 }
