@@ -496,6 +496,48 @@ class Agend_Apps_API {
 		return $pairs;
 	}
 
+	/**
+	 * Cache-key prefixes whose responses change faster than any useful TTL, so
+	 * an identity-scoped entry would serve the same member a stale answer. A
+	 * cart mutates on the visitor's own next click.
+	 *
+	 * @var string[]
+	 */
+	private const IDENTITY_UNCACHEABLE_PREFIXES = array( 'cart' );
+
+	/**
+	 * Suffix that binds a transient to one member, so an identity-attached
+	 * response is never readable by another visitor.
+	 *
+	 * Derived from the bearer itself, never from the WordPress user id. The
+	 * token is the identity the response was actually fetched under, and the
+	 * two can diverge: a shared or generic WordPress login, or a bearer
+	 * resolved for someone other than the current user, collapses distinct
+	 * members onto one id and reinstates the leak this scoping exists to
+	 * prevent. A refreshed token simply starts a new entry, which costs a
+	 * fetch rather than correctness.
+	 *
+	 * The digest is truncated only for key length; it is never reversed and
+	 * never leaves the options table.
+	 */
+	private function identity_cache_suffix( string $bearer_token ): string {
+		return '_b' . substr( hash( 'sha256', $bearer_token ), 0, 16 );
+	}
+
+	/**
+	 * Whether this cache key must bypass the store entirely while a bearer is
+	 * attached, regardless of identity scoping.
+	 */
+	private function is_identity_uncacheable( string $cache_key ): bool {
+		foreach ( self::IDENTITY_UNCACHEABLE_PREFIXES as $prefix ) {
+			if ( 0 === strpos( $cache_key, $prefix ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	public function get_cached( string $path, array $args, string $cache_key, int $ttl ) {
 		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
 			? (string) $args['bearer_token']
@@ -507,7 +549,17 @@ class Agend_Apps_API {
 			$args['bearer_auto_resolved'] = empty( $args['bearer_token'] );
 			$args['bearer_token']         = $bearer_token;
 
-			return $this->request( 'GET', $path, $args );
+			if ( $this->is_identity_uncacheable( $cache_key ) ) {
+				return $this->request( 'GET', $path, $args );
+			}
+
+			// Identity-scoped rather than bypassed: the original defect was
+			// that the key carried the query but not the member, so one
+			// member's response was served to the next visitor. Naming the
+			// member in the key keeps that impossible while restoring a cache
+			// for signed-in visitors, who otherwise pay a live round trip on
+			// every page render.
+			$cache_key .= $this->identity_cache_suffix( $bearer_token );
 		}
 
 		$transient_name = 'agend_apps_' . $cache_key;
