@@ -183,58 +183,9 @@ class Agend_Elementor_Account_Link extends \Elementor\Widget_Base {
 	}
 
 	/**
-	 * Builds the client-side config object from the widget settings.
-	 *
-	 * @param array $s Settings for display.
-	 * @return array Config passed to the frontend script as JSON.
-	 */
-	private function build_config( array $s ): array {
-		return array(
-			'showHeading' => 'yes' === ( $s['show_heading'] ?? 'yes' ),
-			'messages'    => array(
-				'heading'    => (string) ( $s['heading_text'] ?? '' ),
-				'linked'     => (string) ( $s['linked_message'] ?? '' ),
-				'unlinked'   => (string) ( $s['unlinked_message'] ?? '' ),
-				'button'     => (string) ( $s['button_label'] ?? '' ),
-				'portalLink' => (string) ( $s['portal_link_label'] ?? '' ),
-				'loggedOut'  => (string) ( $s['logged_out_message'] ?? '' ),
-			),
-			'colours'     => array(
-				'heading'    => (string) ( $s['heading_colour'] ?? '#1E2A4A' ),
-				'body'       => (string) ( $s['body_colour'] ?? '#26304D' ),
-				'accent'     => (string) ( $s['accent_colour'] ?? '#FF6B55' ),
-				'button'     => (string) ( $s['button_colour'] ?? '#FF6B55' ),
-				'buttonText' => (string) ( $s['button_text_colour'] ?? '#FFFFFF' ),
-			),
-			'theme'       => array(
-				'inheritFonts'   => 'yes' === ( $s['inherit_fonts'] ?? 'yes' ),
-				'inheritColours' => 'yes' === ( $s['inherit_colours'] ?? 'yes' ),
-			),
-		);
-	}
-
-	/**
-	 * Renders the widget container on the frontend.
-	 *
-	 * The status card is rendered client-side from the config below by
-	 * assets/js/account-link.js.
+	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
-		$settings = $this->get_settings_for_display();
-		$config   = $this->build_config( $settings );
-
-		$style = sprintf(
-			'--agend-al-heading:%1$s;--agend-al-body:%2$s;--agend-al-accent:%3$s;--agend-al-button:%4$s;--agend-al-button-text:%5$s;',
-			esc_attr( $config['colours']['heading'] ),
-			esc_attr( $config['colours']['body'] ),
-			esc_attr( $config['colours']['accent'] ),
-			esc_attr( $config['colours']['button'] ),
-			esc_attr( $config['colours']['buttonText'] )
-		);
-		?>
-		<div class="agend-account-link" style="<?php echo esc_attr( $style ); ?>" data-agend-account-link-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
-			<div class="agend-al-status" role="status"><?php esc_html_e( 'Checking your account…', 'agend-elementor' ); ?></div>
-		</div>
-		<?php
+		echo agend_apps_records_render_account_link( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

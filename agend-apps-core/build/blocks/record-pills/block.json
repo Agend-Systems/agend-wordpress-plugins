@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/record-pills",
+  "version": "1.15.2",
+  "title": "Agend Pills",
+  "category": "agend",
+  "icon": "tag",
+  "description": "Renders a record's categories, tags or other terms as pills, from the record a card or detail template is rendering. Renders nothing on an ordinary page.",
+  "keywords": [
+    "agend",
+    "pill",
+    "tag",
+    "category",
+    "badge",
+    "chip",
+    "taxonomy"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "multiple": true
+  },
+  "editorScript": "file:./index.js",
+  "style": [
+    "agend-apps-records-record-fields"
+  ],
+  "render": "file:./render.php"
+}

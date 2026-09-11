@@ -118,13 +118,27 @@ final class Agend_Elementor_Schema_Controls {
 				break;
 
 			case 'text':
-				$args['type']    = \Elementor\Controls_Manager::TEXT;
-				$args['default'] = $field['default'] ?? '';
+				$args['type'] = \Elementor\Controls_Manager::TEXT;
+				// Optional default, like url/media/multiselect below: a nested
+				// repeater field transcribed from a widget's own hand-declared
+				// Repeater control may have no default at all (Elementor does
+				// not require one on a Repeater field), so a field that omits
+				// one leaves Elementor's own control default unset rather than
+				// forcing an empty string it never had.
+				if ( array_key_exists( 'default', $field ) ) {
+					$args['default'] = $field['default'];
+				}
+				if ( isset( $field['placeholder'] ) ) {
+					$args['placeholder'] = $field['placeholder'];
+				}
 				break;
 
 			case 'textarea':
 				$args['type']    = \Elementor\Controls_Manager::TEXTAREA;
 				$args['default'] = $field['default'] ?? '';
+				if ( isset( $field['placeholder'] ) ) {
+					$args['placeholder'] = $field['placeholder'];
+				}
 				break;
 
 			case 'colour':
@@ -178,6 +192,61 @@ final class Agend_Elementor_Schema_Controls {
 				$args['type']    = \Elementor\Controls_Manager::SELECT;
 				$args['default'] = $field['default'] ?? '';
 				$args['options'] = self::template_options( $field['placeholder'] ?? '' );
+				break;
+
+			case 'url':
+				$args['type'] = \Elementor\Controls_Manager::URL;
+				if ( isset( $field['placeholder'] ) ) {
+					$args['placeholder'] = $field['placeholder'];
+				}
+				if ( isset( $field['show_external'] ) ) {
+					$args['show_external'] = $field['show_external'];
+				}
+				if ( array_key_exists( 'default', $field ) ) {
+					$args['default'] = $field['default'];
+				}
+				break;
+
+			case 'media':
+				$args['type'] = \Elementor\Controls_Manager::MEDIA;
+				if ( array_key_exists( 'default', $field ) ) {
+					$args['default'] = $field['default'];
+				}
+				break;
+
+			case 'repeater':
+				$args['type'] = \Elementor\Controls_Manager::REPEATER;
+
+				$repeater = new \Elementor\Repeater();
+				foreach ( $field['fields'] ?? array() as $nested_field ) {
+					$nested_args = self::control_args( $nested_field );
+
+					// Same Decision 2.10 fallthrough as the top-level loop in
+					// register(): a nested field type this adapter does not
+					// know yet registers no control rather than a typeless one.
+					if ( array() === $nested_args ) {
+						continue;
+					}
+
+					$repeater->add_control( $nested_field['name'], $nested_args );
+				}
+				$args['fields'] = $repeater->get_controls();
+
+				if ( isset( $field['title_field'] ) ) {
+					// An explicit `title_field` is Elementor's own row-title
+					// template, carried verbatim for the rare row a bare
+					// `row_label` cannot describe (see the `repeater` type note
+					// in schema.php); it wins over one derived from `row_label`.
+					$args['title_field'] = $field['title_field'];
+				} elseif ( isset( $field['row_label'] ) ) {
+					// The common case: Elementor's own Mustache-ish `title_field`
+					// syntax is built here, not carried in the schema, so the
+					// schema only ever names the field plainly.
+					$args['title_field'] = '{{{ ' . $field['row_label'] . ' }}}';
+				}
+				if ( array_key_exists( 'default', $field ) ) {
+					$args['default'] = $field['default'];
+				}
 				break;
 
 			case 'note':

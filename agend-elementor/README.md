@@ -2,6 +2,10 @@
 
 Elementor widgets that surface Agend Events, Learning and Directory data inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
 
+**The block editor is the primary target for new surface work.** Every surface in this pack also ships as a Gutenberg block from Agend Apps Core, and both editors build from the same declarations: one page-builder-agnostic schema per surface for the settings, and one core renderer per surface for the output. This plugin is an adapter over those, not the place a surface is defined. A setting or a rendering decision added here and not in the schema or the renderer exists in Elementor only, which is the class of defect that seam exists to prevent. See the Content-settings schema and Block editor surface sections of `agend-apps-core/README.md`.
+
+Both editors can also supply card and detail templates, and a site can run both at once: a template is addressed by a bare post id, and each adapter claims the ids it owns. An Elementor template is an `elementor_library` post; a block template is a `wp_block` synced pattern.
+
 ## Dedicated catalogue pages
 
 Settings > Agend Widgets > Catalogue Pages lets a site nominate one **Events page**, one **Courses page** and one **Directory page**. With a page set:
