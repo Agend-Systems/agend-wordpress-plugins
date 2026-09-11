@@ -78,10 +78,52 @@ class Agend_Apps_Token_Worker {
 	private static $resolving = false;
 
 	/**
-	 * Hooks the worker into the bearer-token filter.
+	 * Hooks the worker into the bearer-token filter and clears its cached
+	 * state on logout.
 	 */
 	public function __construct() {
 		add_filter( 'agend_apps_bearer_token', array( $this, 'provide_token' ) );
+
+		// docs/PLAN-wordpress-idp-option-b.md section 4.5: a minted token and
+		// its negative cache are keyed to the session that requested them, but
+		// nothing previously cleared either on logout, so a token minted
+		// before sign-out stayed valid in the database until its own expiry.
+		// Registered here, unconditionally, mirroring how this worker itself
+		// is instantiated unconditionally in agend-apps-core.php -- the gap
+		// predates `wordpress` mode and applies to `sso` mode members today
+		// too, so the fix is not gated on member sign-in mode either.
+		add_action( 'wp_logout', array( $this, 'handle_logout' ) );
+	}
+
+	/**
+	 * Clears the logged-out member's cached token and negative cache.
+	 *
+	 * `wp_logout` has passed the user id as its first argument since WP 5.5,
+	 * but the hook has historically fired with no argument at all (some
+	 * callers still do), so a falsy argument falls back to
+	 * `get_current_user_id()`, which is still populated at this point in the
+	 * logout flow. Failure here must never break logout, so any unexpected
+	 * error is swallowed rather than propagated.
+	 *
+	 * @param int $user_id WordPress user id, or 0 when the hook fired without one.
+	 */
+	public function handle_logout( $user_id = 0 ): void {
+		try {
+			$user_id = (int) $user_id;
+
+			if ( 0 === $user_id ) {
+				$user_id = get_current_user_id();
+			}
+
+			if ( 0 === $user_id ) {
+				return;
+			}
+
+			self::clear_token( $user_id );
+			self::clear_negative_cache( $user_id );
+		} catch ( \Throwable $e ) {
+			// Never let cleanup break logout.
+		}
 	}
 
 	/**

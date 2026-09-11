@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.15.3
+ * Version:           1.15.9
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.15.3' );
+define( 'AGEND_APPS_CORE_VERSION', '1.15.9' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -257,6 +257,24 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/jobs.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sites.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sso.php';
+
+	// WordPress-as-IdP identity link step (docs/PLAN-wordpress-idp-option-b.md
+	// section 4.2): only relevant, and only loaded, when this site is in
+	// `wordpress` sign-in mode. It calls agend_apps_sso_link_identity() /
+	// agend_apps_sso_get_link_status() above, so this require comes after
+	// them, mirroring the credential-login block's ordering relative to its
+	// own api/auth.php dependency further down this function.
+	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-link.php';
+	}
+
+	// WordPress-IdP diagnostics (docs/PLAN-wordpress-idp-option-b.md section
+	// 6): loaded unconditionally, unlike wp-idp-link.php above, because the
+	// Identity and SSO settings page panel it backs must degrade honestly in
+	// `credentials`/`sso` mode rather than disappearing. Every symbol it
+	// reads from wp-idp-link.php is guarded internally.
+	require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-diagnostics.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/support.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/webhooks.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/class-agend-apps-rest-controller.php';
@@ -307,6 +325,13 @@ function agend_apps_core_bootstrap() {
 	if ( is_admin() ) {
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-admin.php';
 		new Agend_Apps_Admin();
+
+		// Dedicated "Identity and SSO" settings page
+		// (docs/PLAN-wordpress-idp-option-b.md section 6): a second
+		// add_options_page(), following the records/settings.php precedent,
+		// rather than a third tab on the page above.
+		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-identity-admin.php';
+		new Agend_Apps_Identity_Admin();
 	}
 }
 add_action( 'plugins_loaded', 'agend_apps_core_bootstrap' );

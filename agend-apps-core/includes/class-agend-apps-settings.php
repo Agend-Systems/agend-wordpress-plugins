@@ -32,19 +32,71 @@ class Agend_Apps_Settings {
 	const MEMBER_AUTH_SSO = 'sso';
 
 	/**
+	 * Member sign-in mode: WordPress is the identity provider. The member's
+	 * WordPress password is the only credential and is never sent to the
+	 * Agend gateway; the Agend bearer is minted server to server from the
+	 * WordPress session via the existing SSO token worker
+	 * ({@see Agend_Apps_Token_Worker}). See
+	 * `docs/SCOPE-wordpress-idp-member-auth.md` and
+	 * `docs/PLAN-wordpress-idp-option-b.md` for the full design. This
+	 * constant only introduces the mode; the linking step that makes it
+	 * functional (`includes/wp-idp-link.php`) is not built yet.
+	 *
+	 * @var string
+	 */
+	const MEMBER_AUTH_WORDPRESS = 'wordpress';
+
+	/**
+	 * SSO link mechanism: resolve automatically from the detected IdP plugin
+	 * (docs/PLAN-wordpress-idp-option-b.md section 6).
+	 *
+	 * @var string
+	 */
+	const SSO_LINK_MECHANISM_AUTO = 'auto';
+
+	/**
+	 * SSO link mechanism: the linked identity comes from the SAML assertion
+	 * (the NameID a site's SAML IdP plugin sends), not the minted GUID.
+	 *
+	 * @var string
+	 */
+	const SSO_LINK_MECHANISM_SAML = 'saml';
+
+	/**
+	 * SSO link mechanism: the linked identity is the WordPress-minted GUID,
+	 * sent server to server ({@see agend_apps_ensure_external_id()}).
+	 *
+	 * @var string
+	 */
+	const SSO_LINK_MECHANISM_SERVER = 'server';
+
+	/**
+	 * SSO link mechanism: linking is switched off entirely.
+	 *
+	 * @var string
+	 */
+	const SSO_LINK_MECHANISM_DISABLED = 'disabled';
+
+	/**
 	 * Returns the configured member sign-in mode.
 	 *
-	 * SPEC-CORE-20260907 US-4.1 AC1: reads option `agend_apps_member_auth_mode`
-	 * and treats any value other than exactly `sso` as `credentials`, so a
-	 * missing option, an upgraded install, or a corrupted value all keep
-	 * today's behaviour.
+	 * SPEC-CORE-20260907 US-4.1 AC1, widened by the WordPress-IdP scope
+	 * (`docs/SCOPE-wordpress-idp-member-auth.md` decision 4): reads option
+	 * `agend_apps_member_auth_mode` as a closed, three-value vocabulary --
+	 * `credentials`, `sso`, or `wordpress`. A missing option, an upgraded
+	 * install, or any unrecognised value all resolve to `credentials`, so
+	 * existing installs do not change behaviour on upgrade.
 	 *
-	 * @return string One of `credentials` or `sso`.
+	 * @return string One of `credentials`, `sso`, or `wordpress`.
 	 */
 	public static function get_member_auth_mode(): string {
 		$value = get_option( 'agend_apps_member_auth_mode', self::MEMBER_AUTH_CREDENTIALS );
 
-		return self::MEMBER_AUTH_SSO === $value ? self::MEMBER_AUTH_SSO : self::MEMBER_AUTH_CREDENTIALS;
+		if ( self::MEMBER_AUTH_SSO === $value || self::MEMBER_AUTH_WORDPRESS === $value ) {
+			return $value;
+		}
+
+		return self::MEMBER_AUTH_CREDENTIALS;
 	}
 
 	/**
@@ -55,6 +107,149 @@ class Agend_Apps_Settings {
 	 */
 	public static function credential_login_enabled(): bool {
 		return self::MEMBER_AUTH_CREDENTIALS === self::get_member_auth_mode();
+	}
+
+	/**
+	 * Whether WordPress is configured as the identity provider for member
+	 * sign-in. Named predicate for callers, rather than comparing strings
+	 * against `get_member_auth_mode()` directly.
+	 *
+	 * @return bool True only when the member sign-in mode is `wordpress`.
+	 */
+	public static function wordpress_idp_enabled(): bool {
+		return self::MEMBER_AUTH_WORDPRESS === self::get_member_auth_mode();
+	}
+
+	/**
+	 * Whether the `agend-saml-idp` plugin is active on this site.
+	 *
+	 * Uses exactly the checks `agend-embed` already uses to detect it
+	 * (`Agend_Embed_Sso_Drivers::agend_saml_idp_template()`,
+	 * `agend-embed/includes/class-agend-embed-sso-drivers.php:126-134`), so
+	 * the two plugins stay consistent about what "present" means.
+	 *
+	 * @return bool True when both classes the plugin registers exist.
+	 */
+	public static function saml_idp_plugin_present(): bool {
+		return class_exists( 'WP_SAML_IDP_Service_Provider' ) && class_exists( 'WP_SAML_IDP_Endpoints' );
+	}
+
+	/**
+	 * Whether the miniOrange "SAML IDP (Identity Provider)" plugin is active
+	 * on this site.
+	 *
+	 * Uses exactly the check `agend-embed` already uses
+	 * (`agend-embed/includes/class-agend-embed-sso-drivers.php:177`).
+	 *
+	 * @return bool True when the plugin's version constant is defined.
+	 */
+	public static function miniorange_idp_plugin_present(): bool {
+		return defined( 'MSI_VERSION' );
+	}
+
+	/**
+	 * Names the SAML IdP plugin detected on this site, if any.
+	 *
+	 * Checked in this order because a site is not expected to run both; if
+	 * one somehow does, the SAML IdP plugin (the one this feature exists to
+	 * warn about, see {@see self::sso_link_mechanism()}) takes precedence.
+	 *
+	 * @return string `saml` for agend-saml-idp, `miniorange` for miniOrange,
+	 *                or an empty string when neither is detected.
+	 */
+	public static function detected_idp_plugin(): string {
+		$detected = '';
+
+		if ( self::saml_idp_plugin_present() ) {
+			$detected = 'saml';
+		} elseif ( self::miniorange_idp_plugin_present() ) {
+			$detected = 'miniorange';
+		}
+
+		/**
+		 * Filters the SAML IdP plugin detected on this site.
+		 *
+		 * The two built-in checks cover the plugins `agend-embed` ships
+		 * drivers for, but that plugin is deliberately IdP-agnostic via its
+		 * own `agend_embed_sso_kickoff_url` filter, so a site running a third
+		 * SAML IdP can declare it here and get the same automatic mechanism
+		 * resolution and duplicate-identity warning. Return a non-empty
+		 * string to assert an IdP is present, or '' to assert none is.
+		 *
+		 * @param string $detected `saml`, `miniorange`, or '' when neither
+		 *                         built-in check matched.
+		 */
+		return (string) apply_filters( 'agend_apps_detected_idp_plugin', $detected );
+	}
+
+	/**
+	 * Normalises a submitted or stored SSO link mechanism value to the closed
+	 * four-value vocabulary, falling back to `auto` for anything else.
+	 *
+	 * Shared by the admin sanitiser (so an invalid value is never saved) and
+	 * {@see self::sso_link_mechanism()} (so a value written by any other means
+	 * -- direct `update_option()`, a filter, an older/rolled-back version --
+	 * still resolves safely rather than fataling on an unrecognised string).
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string One of `auto`, `saml`, `server`, `disabled`.
+	 */
+	public static function normalize_sso_link_mechanism( $value ): string {
+		$allowed = array(
+			self::SSO_LINK_MECHANISM_AUTO,
+			self::SSO_LINK_MECHANISM_SAML,
+			self::SSO_LINK_MECHANISM_SERVER,
+			self::SSO_LINK_MECHANISM_DISABLED,
+		);
+
+		return in_array( $value, $allowed, true ) ? (string) $value : self::SSO_LINK_MECHANISM_AUTO;
+	}
+
+	/**
+	 * Resolves the effective SSO link mechanism (docs/PLAN-wordpress-idp-option-b.md
+	 * section 6).
+	 *
+	 * Pure and deterministic against the current request's plugin state: the
+	 * `auto` value resolves against IdP detection rather than being returned
+	 * literally, so every caller acts on the mechanism actually in effect
+	 * rather than re-deriving it. `saml`, `server`, and `disabled` are explicit
+	 * admin choices and resolve to themselves.
+	 *
+	 * Nothing reads this yet -- the linking step it will gate
+	 * (`includes/wp-idp-link.php`) is not built. It exists now so the settings
+	 * page has something real to display and admins can set the mechanism
+	 * ahead of that work landing.
+	 *
+	 * @return string One of `saml`, `server`, or `disabled` -- never `auto`.
+	 */
+	public static function sso_link_mechanism(): string {
+		$configured = self::normalize_sso_link_mechanism( get_option( 'agend_apps_sso_link_mechanism', self::SSO_LINK_MECHANISM_AUTO ) );
+
+		if ( self::SSO_LINK_MECHANISM_AUTO !== $configured ) {
+			return $configured;
+		}
+
+		// Any detected IdP plugin, not just agend-saml-idp: miniOrange asserts
+		// a NameID of its own, so a miniOrange site left on server-to-server
+		// linking would hit exactly the duplicate-identity problem the
+		// warning on the settings page describes. Resolving against
+		// `detected_idp_plugin()` also means the third-party escape hatch on
+		// that method steers `auto` too.
+		return '' !== self::detected_idp_plugin() ? self::SSO_LINK_MECHANISM_SAML : self::SSO_LINK_MECHANISM_SERVER;
+	}
+
+	/**
+	 * Whether the WordPress-to-Agend identity link should be attempted the
+	 * moment a WordPress user account is created (`user_register`), rather
+	 * than only at the user's first sign-in.
+	 *
+	 * Off by default: this fires for every WordPress user created, including
+	 * administrators and bulk imports, which is not always desired.
+	 *
+	 * @return bool True when link-on-create is enabled.
+	 */
+	public static function link_on_user_create(): bool {
+		return (bool) get_option( 'agend_apps_sso_link_on_user_create', false );
 	}
 
 	/**

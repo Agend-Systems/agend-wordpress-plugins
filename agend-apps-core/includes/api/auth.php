@@ -22,6 +22,68 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Reads the upstream HTTP status from a gateway `WP_Error`.
+ *
+ * Moved here from `includes/member-provisioning.php` (which this file's
+ * bootstrap require predates) so the WordPress-IdP link step
+ * (`includes/wp-idp-link.php`, docs/PLAN-wordpress-idp-option-b.md section
+ * 4.2) can read it in `wordpress` mode, where `member-provisioning.php` is
+ * never loaded (SPEC-CORE-20260907 US-4.1 gates it to `credentials` mode
+ * only). This file is loaded unconditionally, so it is the correct shared
+ * home; the `agend_apps_auth_*` naming already matched before the move.
+ *
+ * @param WP_Error $error Gateway error.
+ * @return int Status code, or 0 when the error carries none (transport failure).
+ */
+function agend_apps_auth_error_status( WP_Error $error ): int {
+	$data = $error->get_error_data();
+
+	return ( is_array( $data ) && isset( $data['status_code'] ) ) ? (int) $data['status_code'] : 0;
+}
+
+/**
+ * Reads the gateway error code (`error.code` in the response envelope) from a
+ * gateway `WP_Error`.
+ *
+ * Moved here from `includes/member-provisioning.php`; see
+ * {@see agend_apps_auth_error_status()} for why.
+ *
+ * @param WP_Error $error Gateway error.
+ * @return string Upper-case gateway code, or '' when absent.
+ */
+function agend_apps_auth_error_code( WP_Error $error ): string {
+	$data = $error->get_error_data();
+
+	if ( ! is_array( $data ) || ! isset( $data['body']['error']['code'] ) ) {
+		return '';
+	}
+
+	return strtoupper( (string) $data['body']['error']['code'] );
+}
+
+/**
+ * Reads the gateway error detail code (`error.details.code`) from a gateway
+ * `WP_Error`. Some gateway errors carry their specific reason here under a
+ * generic top-level code (a `BAD_REQUEST` whose detail is
+ * `CONTACT_ALREADY_LINKED`).
+ *
+ * Moved here from `includes/member-provisioning.php`; see
+ * {@see agend_apps_auth_error_status()} for why.
+ *
+ * @param WP_Error $error Gateway error.
+ * @return string Upper-case detail code, or '' when absent.
+ */
+function agend_apps_auth_error_detail_code( WP_Error $error ): string {
+	$data = $error->get_error_data();
+
+	if ( ! is_array( $data ) || ! isset( $data['body']['error']['details']['code'] ) ) {
+		return '';
+	}
+
+	return strtoupper( (string) $data['body']['error']['details']['code'] );
+}
+
+/**
  * Whether a decoded gateway response or a gateway error means the caller must
  * verify their email before a session is issued (SPEC-CORE-20260907
  * Decision 2.1, US-4.1 AC1; Decision change B).

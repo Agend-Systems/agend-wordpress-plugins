@@ -63,6 +63,26 @@ function agend_apps_records_optional_features(): array {
 			'scopes'      => array( 'sso.identities.read', 'sso.tokens.create' ),
 			'description' => __( 'Looks up and mints tokens for a member\'s Agend SSO identity link.', 'agend-apps-core' ),
 		),
+		'sso_identity_link'       => array(
+			'label'       => __( 'SSO Identity Link (WordPress IdP)', 'agend-apps-core' ),
+			// Deliberately its own feature, NOT folded into `sso_account_link`
+			// above: that feature gates `Agend_Apps_Token_Worker::provide_token()`
+			// (mint, `sso.tokens.create`) and the status lookup
+			// (`sso.identities.read`). A key can hold either of those without
+			// holding `sso.identities.create` (the write scope this feature
+			// gates, docs/PLAN-wordpress-idp-option-b.md section 4.2). Folding
+			// them together would make a key that can mint tokens for an
+			// already-linked member, but cannot create new links, look
+			// unavailable for minting too -- wrongly standing down a working
+			// feature because of a DIFFERENT, unrelated scope gap.
+			// `sso.connections.create` (auto-creating the SSO connection on
+			// first link) is deliberately NOT required here: it is optional
+			// gateway behaviour the account may not need (the connection can
+			// be created ahead of time in the dashboard), so a key lacking it
+			// must not be treated as unable to link at all.
+			'scopes'      => array( 'sso.identities.create' ),
+			'description' => __( 'Links a WordPress member to their Agend identity server-to-server when WordPress is the identity provider.', 'agend-apps-core' ),
+		),
 	);
 
 	/**

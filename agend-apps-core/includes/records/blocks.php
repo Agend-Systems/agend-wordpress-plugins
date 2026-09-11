@@ -324,9 +324,12 @@ add_filter( 'block_categories_all', 'agend_apps_records_block_categories' );
 
 /**
  * Editor-only notices for a surface, shown above the block placeholder
- * (US-4.2 AC3). Empty for every surface except member-login and header-auth
- * in `sso` member sign-in mode, where each block renders nothing on the
- * front end and the editor otherwise has no way to know why.
+ * (US-4.2 AC3). Empty for every surface except member-login and header-auth,
+ * where the editor has no other way to know that the block's behaviour
+ * depends on the site's member sign-in mode
+ * (docs/PLAN-wordpress-idp-option-b.md section 4.5): each renders nothing at
+ * all in `sso` mode, and points at WordPress's own sign-in rather than the
+ * Agend credential form in `wordpress` mode.
  *
  * @param string $surface Surface id.
  * @return array<int, array{status: string, text: string}>
@@ -334,22 +337,40 @@ add_filter( 'block_categories_all', 'agend_apps_records_block_categories' );
 function agend_apps_records_block_surface_notices( string $surface ): array {
 	$notices = array();
 
-	if ( 'member-login' === $surface
-		&& class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled()
-	) {
-		$notices[] = array(
-			'status' => 'warning',
-			'text'   => __( 'Member sign-in is set to SSO in Agend Apps settings. This block renders nothing until credential sign-in is enabled.', 'agend-apps-core' ),
-		);
-	}
+	if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
+		// `wordpress` mode is a real, member-facing sign-in mode: these blocks
+		// still render, they just point at WordPress's own sign-in instead of
+		// the credential form. Only `sso` mode leaves them with nothing to show
+		// on the front end, so it alone warns.
+		$wordpress_mode = Agend_Apps_Settings::wordpress_idp_enabled();
 
-	if ( 'header-auth' === $surface
-		&& class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled()
-	) {
-		$notices[] = array(
-			'status' => 'warning',
-			'text'   => __( 'Member sign-in is set to SSO in Agend Apps settings. This block renders no Log In / My Portal link until credential sign-in is enabled.', 'agend-apps-core' ),
-		);
+		if ( 'member-login' === $surface ) {
+			if ( $wordpress_mode ) {
+				$notices[] = array(
+					'status' => 'info',
+					'text'   => __( 'Member sign-in is set to WordPress in Agend Apps settings. This block shows a WordPress sign-in prompt instead of the Agend credential form.', 'agend-apps-core' ),
+				);
+			} else {
+				$notices[] = array(
+					'status' => 'warning',
+					'text'   => __( 'Member sign-in is set to SSO in Agend Apps settings. This block renders nothing until credential sign-in is enabled.', 'agend-apps-core' ),
+				);
+			}
+		}
+
+		if ( 'header-auth' === $surface ) {
+			if ( $wordpress_mode ) {
+				$notices[] = array(
+					'status' => 'info',
+					'text'   => __( 'Member sign-in is set to WordPress in Agend Apps settings. This block links to the WordPress sign-in page instead of the Agend credential form.', 'agend-apps-core' ),
+				);
+			} else {
+				$notices[] = array(
+					'status' => 'warning',
+					'text'   => __( 'Member sign-in is set to SSO in Agend Apps settings. This block renders no Log In / My Portal link until credential sign-in is enabled.', 'agend-apps-core' ),
+				);
+			}
+		}
 	}
 
 	/**

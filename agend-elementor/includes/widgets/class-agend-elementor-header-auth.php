@@ -299,15 +299,20 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	 *
 	 * The link is rendered client-side by assets/js/header-auth.js from the
 	 * config and the shared `window.agendApps.loggedIn` signal, so one cached
-	 * header adapts per member.
+	 * header adapts per member. In `wordpress` mode nothing populates that
+	 * signal, so the config carries the session state instead
+	 * (docs/PLAN-wordpress-idp-option-b.md section 4.5).
 	 */
 	protected function render(): void {
-		// SPEC-CORE-20260907 US-4.1 AC7: the credential login surface does not
-		// exist at all in `sso` member sign-in mode. The edit-mode notice stays
-		// here, in the widget: the core renderer's '' return is what a real
-		// front-end visitor sees, but an editor needs to know why the canvas
-		// is empty.
-		if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
+		$credential_enabled = ! class_exists( 'Agend_Apps_Settings' ) || Agend_Apps_Settings::credential_login_enabled();
+		$wordpress_enabled  = class_exists( 'Agend_Apps_Settings' ) && Agend_Apps_Settings::wordpress_idp_enabled();
+
+		// SPEC-CORE-20260907 US-4.1 AC7 / docs/PLAN-wordpress-idp-option-b.md
+		// section 4.5: this is a "Log In / My Portal" control, meaningful in
+		// every mode where a member actually signs in somewhere -- `wordpress`
+		// included. Only `sso` mode has nothing for it to point at, so it
+		// alone still stands down.
+		if ( ! $credential_enabled && ! $wordpress_enabled ) {
 			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
 				echo '<div class="agend-widget-notice">' . esc_html__( 'Member sign-in is set to SSO in Agend Apps settings.', 'agend-elementor' ) . '</div>';
 			}
