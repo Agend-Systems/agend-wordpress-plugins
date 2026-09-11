@@ -1,10 +1,13 @@
 {
 	"name": "agend-wordpress-plugins",
 	"private": true,
-	"description": "Block editor surfaces for Agend Apps Core. Build output is committed under agend-apps-core/build/ because deployment copies files without a build step.",
+	"description": "Block editor surfaces for Agend Apps Core and Agend Apps Shop. Build output is committed under each plugin's own build/ directory because deployment copies files without a build step.",
 	"scripts": {
-		"build": "wp-scripts build --webpack-src-dir=agend-apps-core/src/blocks --output-path=agend-apps-core/build/blocks",
-		"start": "wp-scripts start --webpack-src-dir=agend-apps-core/src/blocks --output-path=agend-apps-core/build/blocks"
+		"build": "npm run build:core && npm run build:shop",
+		"build:core": "wp-scripts build --webpack-src-dir=agend-apps-core/src/blocks --output-path=agend-apps-core/build/blocks",
+		"build:shop": "wp-scripts build --webpack-src-dir=agend-apps-shop/src/blocks --output-path=agend-apps-shop/build/blocks",
+		"start": "wp-scripts start --webpack-src-dir=agend-apps-core/src/blocks --output-path=agend-apps-core/build/blocks",
+		"start:shop": "wp-scripts start --webpack-src-dir=agend-apps-shop/src/blocks --output-path=agend-apps-shop/build/blocks"
 	},
 	"devDependencies": {
 		"@wordpress/scripts": "^30.0.0"
