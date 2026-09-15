@@ -216,6 +216,40 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_name_the_location_facet_for_each_directory_location_filter(): void {
+		$cases = array(
+			'city'     => array( 'location_city', 'location.city' ),
+			'state'    => array( 'location_state', 'location.state' ),
+			'postcode' => array( 'location_postcode', 'location.postcode' ),
+			'country'  => array( 'location_country', 'location.country' ),
+		);
+
+		foreach ( $cases as $key => list( $state, $facet ) ) {
+			$config = agend_apps_records_filter_config( 'listing', $key, array() );
+
+			$this->assertSame( $state, $config['state'], $key );
+			$this->assertSame( 'array', $config['mode'], $key );
+			$this->assertSame( $facet, $config['source']['facet'], $key );
+		}
+	}
+
+	#[Test]
+	public function should_offer_all_four_location_filters_under_the_directory_group(): void {
+		$groups    = agend_apps_records_filter_options();
+		$directory = $groups[2]['options'];
+
+		$this->assertArrayHasKey( 'listing:city', $directory );
+		$this->assertArrayHasKey( 'listing:state', $directory );
+		$this->assertArrayHasKey( 'listing:postcode', $directory );
+		$this->assertArrayHasKey( 'listing:country', $directory );
+	}
+
+	#[Test]
+	public function should_not_offer_a_suburb_filter_because_the_api_treats_it_as_a_city_alias(): void {
+		$this->assertNull( agend_apps_records_filter_descriptor( 'listing', 'suburb' ) );
+	}
+
+	#[Test]
 	public function should_mark_course_categories_approximate_because_they_cannot_be_enumerated(): void {
 		$descriptor = agend_apps_records_filter_descriptor( 'course', 'category' );
 

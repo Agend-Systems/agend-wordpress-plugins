@@ -188,6 +188,40 @@ final class ListingFieldsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_comma_join_a_multi_value_location_selection(): void {
+		$args = agend_apps_records_listings_list_args(
+			array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() ),
+			1,
+			array(
+				'location_city'     => array( 'Sydney', 'Melbourne' ),
+				'location_state'    => array( 'NSW', 'VIC' ),
+				'location_postcode' => array( '2000' ),
+				'location_country'  => array( 'AU' ),
+			)
+		);
+
+		// The gateway 422s on a bracket-encoded array (state[0]=NSW), so a
+		// multi-value selection must reach it as one comma-joined string.
+		$this->assertSame( 'Sydney,Melbourne', $args['city'] );
+		$this->assertSame( 'NSW,VIC', $args['state'] );
+		$this->assertSame( '2000', $args['postcode'] );
+		$this->assertSame( 'AU', $args['country'] );
+	}
+
+	#[Test]
+	public function should_omit_a_location_param_entirely_when_untouched(): void {
+		$args = agend_apps_records_listings_list_args(
+			array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() ),
+			1
+		);
+
+		$this->assertArrayNotHasKey( 'city', $args );
+		$this->assertArrayNotHasKey( 'state', $args );
+		$this->assertArrayNotHasKey( 'postcode', $args );
+		$this->assertArrayNotHasKey( 'country', $args );
+	}
+
+	#[Test]
 	public function should_keep_only_the_bound_that_was_set(): void {
 		$out = agend_apps_records_custom_field_filters( array( 'years' => array( 'min' => '5', 'max' => '' ) ) );
 

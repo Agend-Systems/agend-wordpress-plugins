@@ -32,7 +32,7 @@ const AGEND_APPS_RECORDS_FRAGMENT_MAX_LIMIT = 100;
  */
 function agend_apps_records_fragment_allowed_params( string $type ): array {
 	if ( 'listing' === $type ) {
-		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories' );
+		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories', 'city', 'state', 'postcode', 'country' );
 	}
 	if ( 'course' === $type ) {
 		return array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'deliveryMode', 'excludeCategories', 'excludeDifficulties', 'excludeDeliveryModes', 'sortBy', 'sortOrder' );
@@ -170,7 +170,8 @@ function agend_apps_records_courses_list_args( array $config, int $page = 1, arr
  *
  * @param array $config The widget's build_config() output.
  * @param int   $page   Page number.
- * @param array $state  Visitor filter state (search, category, categories, rating).
+ * @param array $state  Visitor filter state (search, category, categories, rating,
+ *                      location_city, location_state, location_postcode, location_country).
  * @return array
  */
 function agend_apps_records_listings_list_args( array $config, int $page = 1, array $state = array() ): array {
@@ -188,6 +189,10 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 		'featured'          => ( ! empty( $exclusions['featured'] ) || ! empty( $state['featured'] ) ) ? 'true' : '',
 		'tag_ids'           => implode( ',', (array) ( $state['tag_ids'] ?? array() ) ),
 		'badge_ids'         => implode( ',', (array) ( $state['badge_ids'] ?? array() ) ),
+		'city'              => implode( ',', (array) ( $state['location_city'] ?? array() ) ),
+		'state'             => implode( ',', (array) ( $state['location_state'] ?? array() ) ),
+		'postcode'          => implode( ',', (array) ( $state['location_postcode'] ?? array() ) ),
+		'country'           => implode( ',', (array) ( $state['location_country'] ?? array() ) ),
 		'custom_fields'     => agend_apps_records_custom_field_filters( $state['custom_fields'] ?? array() ),
 		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
 		// Relevance unless a Sort filter says otherwise; name reads better

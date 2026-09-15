@@ -264,6 +264,24 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
+						// Comma-separated location values; the gateway splits them
+						// itself and rejects a bracket-encoded array with a 422.
+						'city'              => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'state'             => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'postcode'          => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'country'           => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
 						'sponsor_level'     => array(
 							'type'              => 'integer',
 							'minimum'           => 0,
@@ -475,6 +493,10 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			'category',
 			'tag_ids',
 			'badge_ids',
+			'city',
+			'state',
+			'postcode',
+			'country',
 			'sponsor_level',
 			'lat',
 			'lng',
