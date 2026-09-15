@@ -47,6 +47,35 @@
       if (value === undefined || value === null || value === '') {
         return;
       }
+      // A plain-object value (custom_fields) is a map of sub-key to a comma
+      // list or a {min,max} bound, mirroring what search() in
+      // directory-routes.php parses back into a nested array. An array value
+      // (location, tags) still joins with commas: the gateway rejects a
+      // bracket-encoded array with a 422.
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        Object.keys(value).forEach(function (subKey) {
+          var subValue = value[subKey];
+          if (subValue === undefined || subValue === null || subValue === '') {
+            return;
+          }
+          if (typeof subValue === 'object' && !Array.isArray(subValue)) {
+            Object.keys(subValue).forEach(function (bound) {
+              var boundValue = subValue[bound];
+              if (boundValue === undefined || boundValue === null || boundValue === '') {
+                return;
+              }
+              qs.push(
+                encodeURIComponent(key + '[' + subKey + '][' + bound + ']') +
+                  '=' +
+                  encodeURIComponent(boundValue)
+              );
+            });
+            return;
+          }
+          qs.push(encodeURIComponent(key + '[' + subKey + ']') + '=' + encodeURIComponent(subValue));
+        });
+        return;
+      }
       qs.push(encodeURIComponent(key) + '=' + encodeURIComponent(value));
     });
     if (qs.length) {
@@ -1427,6 +1456,15 @@
       rating: '',
       page: 1,
       append: false,
+      tag_ids: [],
+      badge_ids: [],
+      custom_fields: {},
+      featured: '',
+      sortBy: '',
+      location_city: [],
+      location_state: [],
+      location_postcode: [],
+      location_country: [],
     };
 
     // The filter template is rendered server-side inside the widget; take it
@@ -1695,10 +1733,20 @@
         search: state.search,
         category: categoryParam,
         rating: state.rating,
-        featured: exclusions.featured ? 'true' : '',
+        // The widget-level "featured only" setting is a floor; a visitor
+        // filter can turn it on but never off (matches
+        // agend_apps_records_listings_list_args() in includes/records/query.php).
+        featured: exclusions.featured || state.featured ? 'true' : '',
         excludeCategories: (exclusions.categories || []).join(','),
-        sortBy: 'relevance',
-        sortOrder: 'desc',
+        tag_ids: (state.tag_ids || []).join(','),
+        badge_ids: (state.badge_ids || []).join(','),
+        city: (state.location_city || []).join(','),
+        state: (state.location_state || []).join(','),
+        postcode: (state.location_postcode || []).join(','),
+        country: (state.location_country || []).join(','),
+        custom_fields: state.custom_fields || {},
+        sortBy: state.sortBy || 'relevance',
+        sortOrder: state.sortBy === 'name' ? 'asc' : 'desc',
       };
       (templated ? fragmentGet(params) : apiGet('/directory/search', params)).then(function (body) {
         var result = templated

@@ -69,6 +69,22 @@ final class FragmentQueryArgsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_keep_location_filter_params_when_type_is_listing(): void {
+		$params = array(
+			'city'     => 'Sydney,Melbourne',
+			'state'    => 'NSW,VIC',
+			'postcode' => '2000',
+			'country'  => 'AU',
+			'template' => 42,
+		);
+
+		$this->assertSame(
+			array( 'city' => 'Sydney,Melbourne', 'state' => 'NSW,VIC', 'postcode' => '2000', 'country' => 'AU' ),
+			agend_apps_records_fragment_query_args( $params, 'listing' )
+		);
+	}
+
+	#[Test]
 	public function should_unwrap_gateway_list_shape_and_errors(): void {
 		$list = agend_apps_records_unwrap_list( array( 'data' => array( array( 'slug' => 'a' ), 'junk' ), 'meta' => array( 'pagination' => array( 'page' => 1 ) ) ) );
 
