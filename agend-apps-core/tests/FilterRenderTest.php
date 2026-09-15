@@ -84,16 +84,17 @@ final class FilterRenderTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_render_an_empty_control_live_when_the_control_needs_no_values(): void {
+	public function should_render_the_real_control_disabled_live_when_it_needs_no_values(): void {
 		Agend_Apps_Records_Filter_Context::set( 'listing' );
 
-		foreach ( array( 'listing:search', 'listing:reset' ) as $filter ) {
-			self::assertStringContainsString(
-				'<div class="agend-filter__control"></div>',
-				agend_apps_records_render_filter( array( 'filter' => $filter ) ),
-				$filter
-			);
-		}
+		self::assertStringContainsString(
+			'<div class="agend-filter__control"><input type="search" class="agend-filter__placeholder" placeholder="Search" disabled /></div>',
+			agend_apps_records_render_filter( array( 'filter' => 'listing:search' ) )
+		);
+		self::assertStringContainsString(
+			'<div class="agend-filter__control"><button type="button" class="agend-filter__button agend-filter__reset agend-filter__placeholder" disabled>Clear filters</button></div>',
+			agend_apps_records_render_filter( array( 'filter' => 'listing:reset' ) )
+		);
 	}
 
 	#[Test]
