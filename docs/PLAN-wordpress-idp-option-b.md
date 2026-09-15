@@ -385,6 +385,26 @@ New on the page:
   so a linking gap presents as "member cannot see their content" with no error
   anywhere. Without this panel that is undiagnosable in the field.
 
+**Update, 2026-09-15:** the "Auto resolves to SAML whenever a SAML IdP plugin
+is detected" rule above was too broad. PCA keeps `agend-saml-idp` installed
+purely for embed kick-off (`agend-embed`'s SSO transport), with member sign-in
+set to `wordpress` mode. Both schemes read the same value --
+`imk_membership_number` -- as the SAML NameID and as the server-to-server
+external id, so the two mechanisms name the identical Agend identity. `auto`
+was nonetheless resolving to SAML because a SAML IdP plugin was detected, and
+in `wordpress` mode only the `server` mechanism links at sign-in
+(`includes/wp-idp-link.php`), so no member on that site was ever linked at all.
+`auto` now resolves to `server` in `wordpress` sign-in mode specifically when
+the SAML NameID attribute (read from `agend-saml-idp`'s
+`wp_saml_idp_attribute_mappings` option for this site's Agend SP entry) equals
+the configured external id meta key -- the one case where server-to-server
+cannot create a duplicate identity, because it is the only mechanism that
+links at sign-in in this mode. Every other case (`credentials`/`sso` sign-in
+mode, no SAML IdP detected, or the two mechanisms naming different subjects)
+resolves exactly as before. The duplicate-identity warning on this page is
+suppressed in the equivalent case and replaced with a one-line confirmation
+that the two mechanisms agree.
+
 ## 7. Tests
 
 Against the existing WordPress-free harness (`phpunit.xml.dist`, `composer test`).
