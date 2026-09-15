@@ -183,6 +183,109 @@ class Agend_Apps_Settings {
 	}
 
 	/**
+	 * Resolves the SAML NameID attribute agend-saml-idp asserts for this
+	 * site's Agend SP entry.
+	 *
+	 * Reads `wp_saml_idp_attribute_mappings`, an option agend-saml-idp owns
+	 * (entity id => mapping, each mapping carrying a `nameid_attribute` that
+	 * names a user field or user-meta key). The Agend SP entry is identified
+	 * by its entity id: it contains `/api/auth/sso/` and, when an account
+	 * slug is configured, that slug too. Several matches can occur when a
+	 * site has connections to more than one Agend environment; the one whose
+	 * host matches {@see self::get_base_url()} wins, otherwise the first
+	 * match is used.
+	 *
+	 * @return string The configured NameID attribute, or '' when
+	 *                agend-saml-idp is absent or no entry matches.
+	 */
+	public static function saml_nameid_attribute_for_agend_sp(): string {
+		$mappings = get_option( 'wp_saml_idp_attribute_mappings', array() );
+		$result   = '';
+
+		if ( is_array( $mappings ) && array() !== $mappings ) {
+			$slug       = self::get_account_slug();
+			$candidates = array();
+
+			foreach ( $mappings as $entity_id => $mapping ) {
+				if ( ! is_string( $entity_id ) || false === strpos( $entity_id, '/api/auth/sso/' ) ) {
+					continue;
+				}
+
+				if ( '' !== $slug && false === strpos( $entity_id, $slug ) ) {
+					continue;
+				}
+
+				if ( is_array( $mapping ) && isset( $mapping['nameid_attribute'] ) ) {
+					$candidates[ $entity_id ] = (string) $mapping['nameid_attribute'];
+				}
+			}
+
+			if ( array() !== $candidates ) {
+				$result = (string) reset( $candidates );
+
+				if ( count( $candidates ) > 1 ) {
+					$preferred_host = wp_parse_url( self::get_base_url(), PHP_URL_HOST );
+
+					if ( is_string( $preferred_host ) && '' !== $preferred_host ) {
+						foreach ( $candidates as $entity_id => $attribute ) {
+							if ( false !== strpos( $entity_id, $preferred_host ) ) {
+								$result = $attribute;
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		/**
+		 * Filters the SAML NameID attribute resolved for this site's Agend SP.
+		 *
+		 * @param string $result Resolved attribute, or '' when none matched.
+		 */
+		return (string) apply_filters( 'agend_apps_saml_nameid_attribute', $result );
+	}
+
+	/**
+	 * Whether the SAML assertion mechanism and the server-to-server mechanism
+	 * would name the SAME subject for every member on this site.
+	 *
+	 * True only when both {@see self::saml_nameid_attribute_for_agend_sp()}
+	 * is non-empty AND it equals the configured external id meta key
+	 * (`agend_apps_external_id_meta_key()` in `includes/identity.php`): the
+	 * SAML IdP plugin's NameID and the server-to-server external id then read
+	 * the SAME user-meta value, so linking through either mechanism records
+	 * the identical Agend identity and no duplicate can arise.
+	 *
+	 * Guarded with `function_exists()` because `includes/identity.php` is not
+	 * always loaded (e.g. in isolated tests of this class); when the function
+	 * is unavailable, falls back to the same default the real function uses
+	 * (`imk_membership_number`) read straight from the option, so the two
+	 * checks stay in step.
+	 *
+	 * @return bool
+	 */
+	public static function link_mechanisms_are_identity_equivalent(): bool {
+		$nameid_attribute = self::saml_nameid_attribute_for_agend_sp();
+
+		if ( '' === $nameid_attribute ) {
+			return false;
+		}
+
+		if ( function_exists( 'agend_apps_external_id_meta_key' ) ) {
+			$meta_key = agend_apps_external_id_meta_key();
+		} else {
+			$meta_key = (string) get_option( 'agend_apps_external_id_meta_key', '' );
+
+			if ( '' === $meta_key ) {
+				$meta_key = 'imk_membership_number';
+			}
+		}
+
+		return $nameid_attribute === $meta_key;
+	}
+
+	/**
 	 * Normalises a submitted or stored SSO link mechanism value to the closed
 	 * four-value vocabulary, falling back to `auto` for anything else.
 	 *
@@ -215,10 +318,15 @@ class Agend_Apps_Settings {
 	 * rather than re-deriving it. `saml`, `server`, and `disabled` are explicit
 	 * admin choices and resolve to themselves.
 	 *
-	 * Nothing reads this yet -- the linking step it will gate
-	 * (`includes/wp-idp-link.php`) is not built. It exists now so the settings
-	 * page has something real to display and admins can set the mechanism
-	 * ahead of that work landing.
+	 * When a SAML IdP plugin is detected, `auto` resolves to `saml` -- EXCEPT
+	 * in `wordpress` sign-in mode when the two mechanisms are identity
+	 * equivalent ({@see self::link_mechanisms_are_identity_equivalent()}): the
+	 * SAML NameID and the server-to-server external id then name the same
+	 * subject, so no duplicate identity can arise, and only `server` performs
+	 * a link at sign-in in that mode (`includes/wp-idp-link.php`). Resolving
+	 * to `saml` there would silently stop linking members at sign-in for no
+	 * safety benefit. Every other case (no IdP detected; `credentials` or
+	 * `sso` sign-in mode; the mechanisms not equivalent) is unchanged.
 	 *
 	 * @return string One of `saml`, `server`, or `disabled` -- never `auto`.
 	 */
@@ -235,7 +343,15 @@ class Agend_Apps_Settings {
 		// warning on the settings page describes. Resolving against
 		// `detected_idp_plugin()` also means the third-party escape hatch on
 		// that method steers `auto` too.
-		return '' !== self::detected_idp_plugin() ? self::SSO_LINK_MECHANISM_SAML : self::SSO_LINK_MECHANISM_SERVER;
+		if ( '' === self::detected_idp_plugin() ) {
+			return self::SSO_LINK_MECHANISM_SERVER;
+		}
+
+		if ( self::MEMBER_AUTH_WORDPRESS === self::get_member_auth_mode() && self::link_mechanisms_are_identity_equivalent() ) {
+			return self::SSO_LINK_MECHANISM_SERVER;
+		}
+
+		return self::SSO_LINK_MECHANISM_SAML;
 	}
 
 	/**
