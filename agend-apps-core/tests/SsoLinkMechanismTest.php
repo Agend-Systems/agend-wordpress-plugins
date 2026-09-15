@@ -232,4 +232,83 @@ final class SsoLinkMechanismTest extends TestCase {
 	private function define_saml_idp_stub_classes(): void {
 		require_once __DIR__ . '/fixtures/saml-idp-stub.php';
 	}
+
+	// -----------------------------------------------------------------
+	// saml_nameid_attribute_for_agend_sp() and identity equivalence
+	// (2026-09-15 PCA finding: the site keeps agend-saml-idp for embed
+	// kick-off while member sign-in is `wordpress`, and both schemes read
+	// `imk_membership_number`, so `auto` must resolve to `server` there --
+	// it is the only mechanism that links at sign-in in that mode).
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_return_empty_nameid_attribute_when_no_mappings_are_configured(): void {
+		$this->assertSame( '', Agend_Apps_Settings::saml_nameid_attribute_for_agend_sp() );
+	}
+
+	#[Test]
+	public function should_pick_the_agend_sp_entry_by_the_sso_path_and_account_slug(): void {
+		update_option( 'agend_apps_account_slug', 'wdaa' );
+		update_option(
+			'wp_saml_idp_attribute_mappings',
+			array(
+				'https://idp.example.test/some-other-sp'                  => array( 'nameid_attribute' => 'user_email' ),
+				'https://api.agend.com.au/api/auth/sso/wdaa/metadata'      => array( 'nameid_attribute' => 'imk_membership_number' ),
+				'https://api.agend.com.au/api/auth/sso/other-org/metadata' => array( 'nameid_attribute' => 'user_login' ),
+			)
+		);
+
+		$this->assertSame( 'imk_membership_number', Agend_Apps_Settings::saml_nameid_attribute_for_agend_sp() );
+	}
+
+	#[Test]
+	public function should_resolve_auto_to_server_in_wordpress_mode_when_the_nameid_attribute_matches_the_external_id_key(): void {
+		$this->define_saml_idp_stub_classes();
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
+		update_option( 'agend_apps_account_slug', 'wdaa' );
+		update_option(
+			'wp_saml_idp_attribute_mappings',
+			array(
+				'https://api.agend.com.au/api/auth/sso/wdaa/metadata' => array( 'nameid_attribute' => 'imk_membership_number' ),
+			)
+		);
+
+		$this->assertTrue( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
+		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
+	}
+
+	#[Test]
+	public function should_resolve_auto_to_saml_in_wordpress_mode_when_the_nameid_attribute_differs_from_the_external_id_key(): void {
+		$this->define_saml_idp_stub_classes();
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
+		update_option( 'agend_apps_account_slug', 'wdaa' );
+		update_option(
+			'wp_saml_idp_attribute_mappings',
+			array(
+				'https://api.agend.com.au/api/auth/sso/wdaa/metadata' => array( 'nameid_attribute' => 'user_email' ),
+			)
+		);
+
+		$this->assertFalse( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
+		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
+	}
+
+	#[Test]
+	public function should_resolve_auto_to_saml_in_sso_mode_even_when_the_mechanisms_are_equivalent(): void {
+		$this->define_saml_idp_stub_classes();
+		update_option( 'agend_apps_member_auth_mode', 'sso' );
+		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
+		update_option( 'agend_apps_account_slug', 'wdaa' );
+		update_option(
+			'wp_saml_idp_attribute_mappings',
+			array(
+				'https://api.agend.com.au/api/auth/sso/wdaa/metadata' => array( 'nameid_attribute' => 'imk_membership_number' ),
+			)
+		);
+
+		$this->assertTrue( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
+		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
+	}
 }
