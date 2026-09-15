@@ -144,6 +144,65 @@ function agend_apps_records_filter_preview_values( array $config ): array {
 }
 
 /**
+ * The "no selection" label of a choice control.
+ *
+ * @param array $config The filter config.
+ * @return string
+ */
+function agend_apps_records_filter_any_label( array $config ): string {
+	if ( '' !== $config['anyLabel'] ) {
+		return $config['anyLabel'];
+	}
+
+	/* translators: %s: the filter's label, e.g. Category. "Any" rather than
+	"All" so a singular label still reads correctly. */
+	return sprintf( __( 'Any %s', 'agend-apps-core' ), $config['label'] );
+}
+
+/**
+ * Builds the disabled control a live page shows until the runtime wires it.
+ *
+ * A facet or endpoint-backed list arrives one request after the page does,
+ * and a control that appears out of nowhere a few seconds in reads as broken.
+ * So the real control node is drawn here, disabled, in its final shape and
+ * with its "Any" label; assets/js/filters.js adopts that very node, fills its
+ * options, attaches its listeners and enables it. Nothing is replaced, so the
+ * node a designer styled is the node a visitor uses.
+ *
+ * @param array $config The filter config.
+ * @return string
+ */
+function agend_apps_records_render_filter_placeholder_control( array $config ): string {
+	$any = agend_apps_records_filter_any_label( $config );
+
+	switch ( $config['control'] ) {
+		case 'search':
+			return sprintf(
+				'<input type="search" class="agend-filter__placeholder" placeholder="%s" disabled />',
+				esc_attr( '' !== $config['placeholder'] ? $config['placeholder'] : $config['label'] )
+			);
+
+		case 'date':
+			return '<input type="date" class="agend-filter__placeholder" disabled />';
+
+		case 'reset':
+			return '<button type="button" class="agend-filter__button agend-filter__reset agend-filter__placeholder" disabled>' . esc_html( '' !== $config['label'] ? $config['label'] : __( 'Clear filters', 'agend-apps-core' ) ) . '</button>';
+
+		case 'range':
+			return '<div class="agend-filter__range agend-filter__placeholder" aria-busy="true"><input type="number" placeholder="' . esc_attr__( 'Min', 'agend-apps-core' ) . '" disabled /><input type="number" placeholder="' . esc_attr__( 'Max', 'agend-apps-core' ) . '" disabled /></div>';
+
+		case 'checkboxes':
+			return '<div class="agend-filter__options agend-filter__placeholder" aria-busy="true"></div>';
+
+		case 'buttons':
+			return '<div class="agend-filter__options agend-filter__placeholder" aria-busy="true"><button type="button" class="agend-filter__button is-active" aria-pressed="true" disabled>' . esc_html( $any ) . '</button></div>';
+
+		default:
+			return '<select class="agend-filter__placeholder" aria-busy="true" disabled><option>' . esc_html( $any ) . '</option></select>';
+	}
+}
+
+/**
  * Builds the control markup the runtime would build, for a preview.
  *
  * Mirrors the markup in assets/js/filters.js element for element and class
@@ -154,11 +213,7 @@ function agend_apps_records_filter_preview_values( array $config ): array {
  * @return string
  */
 function agend_apps_records_render_filter_preview_control( array $config ): string {
-	$any = '' !== $config['anyLabel']
-		? $config['anyLabel']
-		/* translators: %s: the filter's label, e.g. Category. "Any" rather
-		than "All" so a singular label still reads correctly. */
-		: sprintf( __( 'Any %s', 'agend-apps-core' ), $config['label'] );
+	$any = agend_apps_records_filter_any_label( $config );
 
 	switch ( $config['control'] ) {
 		case 'search':
@@ -259,6 +314,8 @@ function agend_apps_records_render_filter( array $settings, array $opts = array(
 		// drawn here instead: a designer styles and positions exactly what a
 		// visitor will see.
 		echo agend_apps_records_render_filter_preview_control( $config ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the helper.
+	} else {
+		echo agend_apps_records_render_filter_placeholder_control( $config ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the helper.
 	}
 	echo '</div>';
 	echo '</div>';

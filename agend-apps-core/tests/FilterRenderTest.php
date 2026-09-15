@@ -45,7 +45,7 @@ final class FilterRenderTest extends TestCase {
 	// -------------------------------------------------------------------
 
 	#[Test]
-	public function should_render_the_labelled_shell_live_with_no_preview_markup(): void {
+	public function should_render_the_labelled_shell_live_with_a_disabled_stand_in_select(): void {
 		Agend_Apps_Records_Filter_Context::set( 'listing' );
 
 		$settings = array( 'filter' => 'listing:rating' );
@@ -53,10 +53,48 @@ final class FilterRenderTest extends TestCase {
 
 		$expected = '<div class="agend-filter agend-filter--select agend-filter--rating" data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '">'
 			. '<span class="agend-filter__label">Minimum rating</span>'
-			. '<div class="agend-filter__control"></div>'
+			. '<div class="agend-filter__control"><select class="agend-filter__placeholder" aria-busy="true" disabled><option>Any Minimum rating</option></select></div>'
 			. '</div>';
 
 		self::assertSame( $expected, agend_apps_records_render_filter( $settings ) );
+	}
+
+	#[Test]
+	public function should_render_a_stand_in_carrying_the_any_label_when_values_come_from_a_facet(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		$settings = array( 'filter' => 'listing:state', 'control' => 'select', 'any_label' => 'All states' );
+
+		$html = agend_apps_records_render_filter( $settings );
+
+		self::assertStringContainsString( '<div class="agend-filter__control"><select class="agend-filter__placeholder" aria-busy="true" disabled><option>All states</option></select></div>', $html );
+		self::assertStringNotContainsString( 'Example', $html, 'a live stand-in never carries preview example values' );
+	}
+
+	#[Test]
+	public function should_render_a_disabled_any_button_stand_in_for_a_buttons_control(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		$settings = array( 'filter' => 'listing:state', 'control' => 'buttons' );
+
+		self::assertStringContainsString(
+			'<div class="agend-filter__control"><div class="agend-filter__options agend-filter__placeholder" aria-busy="true"><button type="button" class="agend-filter__button is-active" aria-pressed="true" disabled>Any State</button></div></div>',
+			agend_apps_records_render_filter( $settings )
+		);
+	}
+
+	#[Test]
+	public function should_render_the_real_control_disabled_live_when_it_needs_no_values(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		self::assertStringContainsString(
+			'<div class="agend-filter__control"><input type="search" class="agend-filter__placeholder" placeholder="Search" disabled /></div>',
+			agend_apps_records_render_filter( array( 'filter' => 'listing:search' ) )
+		);
+		self::assertStringContainsString(
+			'<div class="agend-filter__control"><button type="button" class="agend-filter__button agend-filter__reset agend-filter__placeholder" disabled>Clear filters</button></div>',
+			agend_apps_records_render_filter( array( 'filter' => 'listing:reset' ) )
+		);
 	}
 
 	#[Test]
