@@ -330,29 +330,37 @@
     }
     shell.setAttribute('data-agend-filter-ready', '1');
 
+    // The server drew a disabled stand-in for any control whose values are
+    // still to be fetched (render/filter.php). It stays put until the real
+    // control is ready, so nothing pops into the page a request later; only
+    // the controls that need no values are cleared and built straight away.
     var slot = shell.querySelector('.agend-filter__control') || shell;
-    slot.innerHTML = '';
 
     if (cfg.control === 'reset') {
+      slot.innerHTML = '';
       buildReset(slot, cfg, ctx, scope || document);
       return;
     }
     if (cfg.control === 'range') {
       loadFacets(ctx).then(function (facets) {
+        slot.innerHTML = '';
         buildRange(slot, cfg, ctx, cfg.source && cfg.source.facet ? facets[cfg.source.facet] : null);
       });
       return;
     }
     if (cfg.control === 'search') {
+      slot.innerHTML = '';
       buildSearch(slot, cfg, ctx);
       return;
     }
     if (cfg.control === 'date') {
+      slot.innerHTML = '';
       buildDate(slot, cfg, ctx);
       return;
     }
 
     loadValues(cfg, ctx).then(function (values) {
+      slot.innerHTML = '';
       if (!values.length) {
         // Nothing to choose from: leave the shell empty rather than showing a
         // control that cannot do anything.
