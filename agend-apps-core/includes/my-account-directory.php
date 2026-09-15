@@ -41,11 +41,9 @@ const AGEND_APPS_MY_ACCOUNT_DIRECTORY_REWRITE_VERSION = '20260908-1';
 /**
  * Whether the My Account "Directory" endpoint should be registered.
  *
- * Requires WooCommerce active and a resolvable directory page (an explicit
- * `agend_apps_directory_page_id` setting, or the dedicated Directory
- * Catalogue page as a fallback); with neither configured, nothing is
- * registered at all — there would be nowhere for the linked-state button to
- * point.
+ * Requires WooCommerce active and a configured dedicated Directory Catalogue
+ * page (Agend Widgets settings); without one, nothing is registered at all,
+ * there would be nowhere for the linked-state button to point.
  *
  * Deliberately NOT gated on the member sign-in mode: both `sso` and
  * `credentials` mode register the menu item, they only differ in what state

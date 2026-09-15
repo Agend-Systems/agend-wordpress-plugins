@@ -24,6 +24,8 @@ namespace Agend\Tests\Core {
 
 	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/identity.php';
 	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/sso.php';
+	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/settings.php';
+	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/pages.php';
 	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/account-link-state.php';
 	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/my-account-directory.php';
 
@@ -73,7 +75,7 @@ namespace Agend\Tests\Core {
 					'post_status' => 'publish',
 				)
 			);
-			update_option( 'agend_apps_directory_page_id', $page_id );
+			update_option( \AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION, $page_id );
 		}
 
 		// -----------------------------------------------------------------
@@ -227,7 +229,7 @@ namespace Agend\Tests\Core {
 		}
 
 		#[Test]
-		public function should_include_the_directory_url_when_a_directory_page_is_configured(): void {
+		public function should_include_the_directory_url_when_a_catalogue_page_is_configured(): void {
 			$this->setDirectoryPage( 42 );
 			update_option( 'agend_apps_member_auth_mode', 'credentials' );
 			$this->setLoggedInUser( 12 );
@@ -239,7 +241,7 @@ namespace Agend\Tests\Core {
 		}
 
 		#[Test]
-		public function should_resolve_an_empty_directory_url_when_no_directory_page_is_configured(): void {
+		public function should_resolve_an_empty_directory_url_when_no_catalogue_page_is_configured(): void {
 			update_option( 'agend_apps_member_auth_mode', 'credentials' );
 			$this->setLoggedInUser( 13 );
 
@@ -291,7 +293,7 @@ namespace Agend\Tests\Core {
 		}
 
 		#[Test]
-		public function should_omit_the_menu_item_when_no_directory_page_is_configured(): void {
+		public function should_omit_the_menu_item_when_no_catalogue_page_is_configured(): void {
 			$original = array(
 				'dashboard'       => 'Dashboard',
 				'customer-logout' => 'Log out',
