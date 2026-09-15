@@ -562,7 +562,7 @@ class Agend_Apps_Identity_Admin {
 			),
 			Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER   => array(
 				'label' => __( 'Server to server', 'agend-apps-core' ),
-				'help'  => __( 'The linked identity is the GUID WordPress mints for each user and sends to Agend server to server at sign-in. Choose this on a site with no SAML identity provider plugin, or to keep using the WordPress-minted identity even if a SAML IdP plugin is installed.', 'agend-apps-core' ),
+				'help'  => __( 'The linked identity is the value of the configured external id meta key (membership number by default), with a GUID WordPress mints per user as the fallback when that key is empty, sent to Agend server to server at sign-in. Choose this on a site with no SAML identity provider plugin, or to keep using the WordPress-minted identity even if a SAML IdP plugin is installed.', 'agend-apps-core' ),
 			),
 			Agend_Apps_Settings::SSO_LINK_MECHANISM_DISABLED => array(
 				'label' => __( 'Disabled', 'agend-apps-core' ),
@@ -585,6 +585,8 @@ class Agend_Apps_Identity_Admin {
 			Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER => __( 'Server to server', 'agend-apps-core' ),
 		);
 
+		$equivalent = Agend_Apps_Settings::link_mechanisms_are_identity_equivalent();
+
 		echo '<p class="description">';
 		if ( '' === $detected ) {
 			esc_html_e( 'Detected: no SAML identity provider plugin found on this site.', 'agend-apps-core' );
@@ -599,21 +601,29 @@ class Agend_Apps_Identity_Admin {
 			esc_html__( 'Automatic currently resolves to: %s.', 'agend-apps-core' ),
 			'<strong>' . esc_html( $mechanism_labels[ $resolved ] ?? $resolved ) . '</strong>'
 		);
+		if ( $equivalent && Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER === $resolved ) {
+			echo ' ';
+			esc_html_e( 'The SAML NameID attribute and the external id meta key match, so this does not create a duplicate identity.', 'agend-apps-core' );
+		}
 		echo '</p>';
 
 		// The reason this control exists at all (docs/PLAN-wordpress-idp-
-		// option-b.md section 5): a SAML IdP plugin's NameID is not the
-		// WordPress-minted GUID, so leaving `wordpress` mode on Server to
-		// server once a SAML IdP plugin is added would link the same person
-		// twice, as two separate Agend identities.
+		// option-b.md section 5): a SAML IdP plugin's NameID is not always
+		// the WordPress-minted GUID, so leaving `wordpress` mode on Server to
+		// server once a SAML IdP plugin is added can link the same person
+		// twice, as two separate Agend identities. When the two mechanisms
+		// are identity equivalent (the SAML NameID attribute and the
+		// external id meta key match) that cannot happen, so the warning is
+		// replaced with the reassuring description above instead.
 		if (
 			'' !== $detected
+			&& ! $equivalent
 			&& Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS === Agend_Apps_Settings::get_member_auth_mode()
 			&& Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER === $resolved
 		) {
 			echo '<div class="notice notice-warning inline"><p>';
 			esc_html_e(
-				'A SAML identity provider plugin is active, member sign-in is set to WordPress account, and linking resolves to Server to server. The SAML NameID this plugin asserts will not match the GUID WordPress mints, so the same person will be linked twice as two separate Agend identities. Set the linking mechanism to SAML assertion, or switch member sign-in away from WordPress account.',
+				'A SAML identity provider plugin is active, member sign-in is set to WordPress account, and linking resolves to Server to server. The SAML NameID this plugin asserts will not match the identity WordPress sends server to server, so the same person will be linked twice as two separate Agend identities. Set the linking mechanism to SAML assertion, or switch member sign-in away from WordPress account.',
 				'agend-apps-core'
 			);
 			echo '</p></div>';
