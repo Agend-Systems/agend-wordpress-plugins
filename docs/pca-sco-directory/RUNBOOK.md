@@ -211,9 +211,9 @@ so detail URLs resolve to it.
 
 Provided by agend-apps-core (see the plugin change list below).
 
-1. Settings > Agend Apps: set "Directory page (My Account link)" to the Shopping Centres
-   Directory page. If left empty the plugin falls back to the dedicated Listing catalogue page;
-   if neither is set the endpoint is not registered.
+1. Settings > Agend Widgets: set the dedicated Listing catalogue page to the Shopping Centres
+   Directory page. The My Account link resolves to that page only; if it is not set the
+   endpoint is not registered.
 2. The plugin registers the `/my-account/agend-directory/` endpoint and flushes rewrite rules
    once per ruleset version. If the endpoint 404s, visit Settings > Permalinks once.
 3. PCA's My Account navigation is a WordPress menu ("My Account", location `member-dashboard`),
@@ -266,7 +266,7 @@ Also required from the dashboard side: the search card mapper only returns city 
   `tests/ListingFieldsTest.php`).
 - Windowed numbered pagination in `assets/js/directory-catalogue.js` with CSS for gaps and
   disabled steps in `assets/css/directory-catalogue.css`.
-- WooCommerce My Account "Directory" endpoint and the `agend_apps_directory_page_id` setting
+- WooCommerce My Account "Directory" endpoint, linking to the dedicated Listing catalogue page
   (files listed in the pull request).
 - Server-rendered detail pages now inherit the catalogue page's `_wp_page_template`
   (`includes/records/ssr-detail.php`, filterable via

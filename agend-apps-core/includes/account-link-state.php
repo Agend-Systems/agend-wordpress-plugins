@@ -64,37 +64,14 @@ function agend_apps_account_link_initiate_url_to( string $return_url ): string {
 }
 
 /**
- * Resolves the "directory page" a linked member is sent to.
+ * Resolves the "directory page" a linked member is sent to: the dedicated
+ * Directory Catalogue page ({@see Agend_Apps_Records_Pages::page_url()}),
+ * or '' when none is configured.
  *
- * Resolution order:
- * 1. The explicit `agend_apps_directory_page_id` setting (Agend Apps
- *    settings screen), when it names a published page.
- * 2. Otherwise the dedicated Directory Catalogue page
- *    ({@see Agend_Apps_Records_Pages::page_id( 'listing' )}), when configured.
- * 3. Otherwise ''.
- *
- * @return string The directory page URL, or '' when neither is configured.
+ * @return string The directory page URL, or '' when no catalogue page is configured.
  */
 function agend_apps_account_link_directory_url(): string {
-	$page_id = absint( get_option( 'agend_apps_directory_page_id', 0 ) );
-
-	if ( $page_id > 0 ) {
-		$post = get_post( $page_id );
-
-		if ( $post instanceof WP_Post && 'page' === $post->post_type && 'publish' === $post->post_status ) {
-			$url = get_permalink( $page_id );
-
-			if ( is_string( $url ) && '' !== $url ) {
-				return $url;
-			}
-		}
-	}
-
-	if ( class_exists( 'Agend_Apps_Records_Pages' ) && Agend_Apps_Records_Pages::page_id( 'listing' ) > 0 ) {
-		return Agend_Apps_Records_Pages::page_url( 'listing' );
-	}
-
-	return '';
+	return Agend_Apps_Records_Pages::page_url( 'listing' );
 }
 
 /**

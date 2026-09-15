@@ -23,6 +23,30 @@
     return node;
   }
 
+  // The server draws each control disabled at first paint (render/filter.php)
+  // so nothing pops into the page a request later. Building a control means
+  // adopting that node, filling it, and enabling it; a node is created only
+  // when the shell has none, which is the case for markup older than the
+  // stand-in.
+  function adopt(shell, selector, tag, className) {
+    var node = shell.querySelector(selector);
+    if (!node) {
+      node = el(tag, className);
+      shell.appendChild(node);
+    }
+    return node;
+  }
+
+  function ready(node) {
+    node.disabled = false;
+    node.removeAttribute('aria-busy');
+    node.classList.remove('agend-filter__placeholder');
+    Array.prototype.forEach.call(node.querySelectorAll('[disabled]'), function (child) {
+      child.disabled = false;
+    });
+    return node;
+  }
+
   // A filter writes either a list or a single value, and clearing it must
   // restore the shape the catalogue's query builder expects.
   function applyValue(state, cfg, values) {
@@ -55,40 +79,56 @@
     return a.length === b.length && a.every(function (v, i) { return v === b[i]; });
   }
 
+  // Listeners are attached once per node; a rebuild (reset) only clears the
+  // value, so the node the designer styled is never replaced.
+  function once(node, event, handler) {
+    var key = 'agendFilterBound' + event;
+    if (node.dataset[key] === '1') {
+      return;
+    }
+    node.dataset[key] = '1';
+    node.addEventListener(event, handler);
+  }
+
   function buildSearch(shell, cfg, ctx) {
-    var input = el('input');
+    var input = adopt(shell, 'input[type="search"]', 'input');
     input.type = 'search';
     input.placeholder = cfg.placeholder || cfg.label || '';
+    input.value = '';
     var timer;
-    input.addEventListener('input', function () {
+    once(input, 'input', function () {
       window.clearTimeout(timer);
       timer = window.setTimeout(function () {
         applyValue(ctx.state, cfg, input.value.trim() ? [input.value.trim()] : []);
         ctx.reload();
       }, 300);
     });
-    shell.appendChild(input);
+    ready(input);
   }
 
   function buildDate(shell, cfg, ctx) {
-    var input = el('input');
+    var input = adopt(shell, 'input[type="date"]', 'input');
     input.type = 'date';
+    input.value = '';
     if (cfg.placeholder) {
       input.setAttribute('aria-label', cfg.placeholder);
     }
-    input.addEventListener('change', function () {
+    once(input, 'change', function () {
       applyValue(ctx.state, cfg, input.value ? [input.value] : []);
       ctx.reload();
     });
-    shell.appendChild(input);
+    ready(input);
   }
 
   function buildRange(shell, cfg, ctx, facet) {
-    var wrap = el('div', 'agend-filter__range');
-    var min = el('input');
-    var max = el('input');
+    var wrap = adopt(shell, '.agend-filter__range', 'div', 'agend-filter__range');
+    var inputs = wrap.querySelectorAll('input[type="number"]');
+    var min = inputs[0] || wrap.appendChild(el('input'));
+    var max = inputs[1] || wrap.appendChild(el('input'));
     min.type = 'number';
     max.type = 'number';
+    min.value = '';
+    max.value = '';
     min.placeholder = 'Min';
     max.placeholder = 'Max';
     // The facet reports the bounds that exist, so the control does not need
@@ -118,32 +158,36 @@
 
     var timer;
     [min, max].forEach(function (input) {
-      input.addEventListener('input', function () {
+      once(input, 'input', function () {
         window.clearTimeout(timer);
         timer = window.setTimeout(push, 400);
       });
     });
-    wrap.appendChild(min);
-    wrap.appendChild(max);
-    shell.appendChild(wrap);
+    ready(wrap);
   }
 
   function buildSelect(shell, cfg, ctx, values) {
-    var select = el('select');
+    var select = adopt(shell, 'select', 'select');
+    // The option list is the one thing that changes between the stand-in
+    // and the live control, and again on a rebuild.
+    select.innerHTML = '';
     select.appendChild(new Option(anyLabel(cfg), ''));
     values.forEach(function (entry, index) {
       select.appendChild(new Option(entry.label, String(index)));
     });
-    select.addEventListener('change', function () {
-      var picked = select.value === '' ? [] : values[Number(select.value)].value;
+    select.agendFilterValues = values;
+    once(select, 'change', function () {
+      var current = select.agendFilterValues || [];
+      var picked = select.value === '' ? [] : current[Number(select.value)].value;
       applyValue(ctx.state, cfg, picked);
       ctx.reload();
     });
-    shell.appendChild(select);
+    ready(select);
   }
 
   function buildCheckboxes(shell, cfg, ctx, values) {
-    var list = el('div', 'agend-filter__options');
+    var list = adopt(shell, '.agend-filter__options', 'div', 'agend-filter__options');
+    list.innerHTML = '';
     var selected = [];
     values.forEach(function (entry) {
       var label = el('label', 'agend-filter__option');
@@ -162,47 +206,60 @@
       label.appendChild(el('span', null, entry.label));
       list.appendChild(label);
     });
-    shell.appendChild(list);
+    ready(list);
   }
 
   function buildButtons(shell, cfg, ctx, values) {
-    var list = el('div', 'agend-filter__options');
-    var current = [];
-    var buttons = [];
+    var list = adopt(shell, '.agend-filter__options', 'div', 'agend-filter__options');
+    // The stand-in already holds the "Any" pill; it is reused as the first
+    // button so the pill a designer styled is the one that stays. Its click
+    // handler is bound once and reads the list's current build through
+    // `list.agendFilter`, so a rebuild (reset) does not leave it painting the
+    // previous build's buttons.
+    var existing = list.querySelector('.agend-filter__button');
+    list.innerHTML = '';
 
-    function paint() {
-      buttons.forEach(function (pair) {
-        var on = sameSelection(current, pair.value);
+    var state = { current: [], buttons: [] };
+    list.agendFilter = state;
+
+    state.paint = function () {
+      state.buttons.forEach(function (pair) {
+        var on = sameSelection(state.current, pair.value);
         pair.node.className = 'agend-filter__button' + (on ? ' is-active' : '');
         pair.node.setAttribute('aria-pressed', on ? 'true' : 'false');
       });
+    };
+
+    function bind(node, value) {
+      once(node, 'click', function () {
+        var live = list.agendFilter;
+        // Clicking the active choice clears it, so buttons behave like a
+        // toggle set rather than a dead end.
+        live.current = sameSelection(live.current, value) ? [] : value.slice();
+        applyValue(ctx.state, cfg, live.current);
+        live.paint();
+        ctx.reload();
+      });
     }
 
-    var any = el('button', 'agend-filter__button', anyLabel(cfg));
+    var any = existing || el('button', 'agend-filter__button');
+    any.textContent = anyLabel(cfg);
     any.type = 'button';
-    buttons.push({ node: any, value: [] });
+    any.disabled = false;
+    state.buttons.push({ node: any, value: [] });
     list.appendChild(any);
+    bind(any, []);
 
     values.forEach(function (entry) {
       var button = el('button', 'agend-filter__button', entry.label);
       button.type = 'button';
-      buttons.push({ node: button, value: entry.value });
+      state.buttons.push({ node: button, value: entry.value });
       list.appendChild(button);
+      bind(button, entry.value);
     });
 
-    buttons.forEach(function (pair) {
-      pair.node.addEventListener('click', function () {
-        // Clicking the active choice clears it, so buttons behave like a
-        // toggle set rather than a dead end.
-        current = sameSelection(current, pair.value) ? [] : pair.value.slice();
-        applyValue(ctx.state, cfg, current);
-        paint();
-        ctx.reload();
-      });
-    });
-
-    paint();
-    shell.appendChild(list);
+    state.paint();
+    ready(list);
   }
 
   // Endpoint-backed lists are per-account data, so they are fetched at render
@@ -310,12 +367,13 @@
   }
 
   function buildReset(shell, cfg, ctx, scope) {
-    var button = el('button', 'agend-filter__button agend-filter__reset', cfg.label || 'Clear filters');
+    var button = adopt(shell, '.agend-filter__reset', 'button', 'agend-filter__button agend-filter__reset');
+    button.textContent = cfg.label || 'Clear filters';
     button.type = 'button';
-    button.addEventListener('click', function () {
+    once(button, 'click', function () {
       resetAll(scope, ctx);
     });
-    shell.appendChild(button);
+    ready(button);
   }
 
   function buildOne(shell, ctx, scope) {
@@ -330,8 +388,11 @@
     }
     shell.setAttribute('data-agend-filter-ready', '1');
 
+    // Nothing is removed from the slot: the server-drawn control stays
+    // disabled until its values arrive and is then filled and enabled in
+    // place, so the node a designer styled is the node a visitor uses.
     var slot = shell.querySelector('.agend-filter__control') || shell;
-    slot.innerHTML = '';
+    shell.hidden = false;
 
     if (cfg.control === 'reset') {
       buildReset(slot, cfg, ctx, scope || document);
@@ -354,8 +415,10 @@
 
     loadValues(cfg, ctx).then(function (values) {
       if (!values.length) {
-        // Nothing to choose from: leave the shell empty rather than showing a
-        // control that cannot do anything.
+        // Nothing to choose from: hide the filter rather than leaving a
+        // control that cannot do anything. Hidden, not removed, so a later
+        // rebuild can show it again.
+        shell.hidden = true;
         return;
       }
       if (cfg.control === 'checkboxes') {
