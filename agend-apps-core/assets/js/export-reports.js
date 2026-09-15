@@ -63,6 +63,10 @@
       badge: 'badge_ids',
       rating: 'rating',
       featured: 'featured',
+      city: 'location_city',
+      state: 'location_state',
+      postcode: 'location_postcode',
+      country: 'location_country',
     };
 
     if (row.filter === 'custom_field') {

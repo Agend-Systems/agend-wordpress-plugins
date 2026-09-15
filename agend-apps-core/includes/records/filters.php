@@ -231,6 +231,38 @@ function agend_apps_records_filter_registry(): array {
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
 				'source'   => array( 'endpoint' => '/directory/categories', 'value' => 'id', 'label' => 'name' ),
 			),
+			// The gateway takes these as comma-joined named params; a PHP array
+			// value would be bracket-encoded by http_build_query() and 422. There
+			// is deliberately no 'suburb' entry: the API treats it as an alias for
+			// 'city' and 422s if both arrive.
+			'city'     => array(
+				'label'    => __( 'City', 'agend-apps-core' ),
+				'state'    => 'location_city',
+				'mode'     => 'array',
+				'controls' => array( 'checkboxes', 'select', 'buttons' ),
+				'source'   => array( 'facet' => 'location.city' ),
+			),
+			'state'    => array(
+				'label'    => __( 'State', 'agend-apps-core' ),
+				'state'    => 'location_state',
+				'mode'     => 'array',
+				'controls' => array( 'checkboxes', 'select', 'buttons' ),
+				'source'   => array( 'facet' => 'location.state' ),
+			),
+			'postcode' => array(
+				'label'    => __( 'Postcode', 'agend-apps-core' ),
+				'state'    => 'location_postcode',
+				'mode'     => 'array',
+				'controls' => array( 'checkboxes', 'select', 'buttons' ),
+				'source'   => array( 'facet' => 'location.postcode' ),
+			),
+			'country'  => array(
+				'label'    => __( 'Country', 'agend-apps-core' ),
+				'state'    => 'location_country',
+				'mode'     => 'array',
+				'controls' => array( 'checkboxes', 'select', 'buttons' ),
+				'source'   => array( 'facet' => 'location.country' ),
+			),
 			'rating'   => array(
 				'label'    => __( 'Minimum rating', 'agend-apps-core' ),
 				'state'    => 'rating',
