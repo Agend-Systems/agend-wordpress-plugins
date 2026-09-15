@@ -64,6 +64,17 @@
   box-sizing: border-box;
 }
 
+/* Stand-in drawn until the runtime has a control's values. It keeps the
+   control's final shape so nothing shifts when the real one replaces it. */
+.agend-filter__placeholder {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.agend-filter__placeholder .agend-filter__button[disabled] {
+  cursor: progress;
+}
+
 /* Filter placement. The modifier sits on whichever element holds both the
    filter slot and the results, so the same rules serve the server-rendered
    and the script-built layouts. */
