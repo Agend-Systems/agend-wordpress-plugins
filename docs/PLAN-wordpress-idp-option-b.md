@@ -405,6 +405,27 @@ resolves exactly as before. The duplicate-identity warning on this page is
 suppressed in the equivalent case and replaced with a one-line confirmation
 that the two mechanisms agree.
 
+**Update, 2026-09-16:** auto-detection still had no override. PCA runs
+miniOrange SAML IDP for a purpose unrelated to the Agend connection, with no
+way to keep it out of the decision above -- the only escape hatch was the
+`agend_apps_detected_idp_plugin` filter, which needs code, not a site running
+purely as a WordPress admin. A new setting, `agend_apps_idp_plugin`
+(`Agend_Apps_Settings::configured_idp_plugin()`), lets an admin choose `auto`
+(the existing detection, unchanged), `saml`, `miniorange`, or `none` from the
+Identity and SSO settings page. An explicit selection short-circuits both
+built-in presence checks in `detected_idp_plugin()` entirely: `none` behaves as
+if no SAML IdP plugin were installed regardless of what is actually active,
+and `saml`/`miniorange` are asserted regardless of presence. The
+`agend_apps_detected_idp_plugin` filter still runs last in every case and still
+has the final word, now receiving the configured value as a second argument so
+a filter can see whether it is overriding auto-detection or an explicit
+choice. `link_mechanisms_are_identity_equivalent()` is tightened to require
+the effective IdP be `saml` before consulting agend-saml-idp's
+`wp_saml_idp_attribute_mappings` option at all: that option is meaningless
+once the effective IdP is `miniorange` or a filter-declared third party, and
+treating a coincidental key match as equivalence there would silently stop
+linking members who need it.
+
 ## 7. Tests
 
 Against the existing WordPress-free harness (`phpunit.xml.dist`, `composer test`).
