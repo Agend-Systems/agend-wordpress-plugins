@@ -78,6 +78,38 @@ class Agend_Apps_Settings {
 	const SSO_LINK_MECHANISM_DISABLED = 'disabled';
 
 	/**
+	 * IdP plugin selection: resolve automatically from the plugins active on
+	 * this site (the pre-existing behaviour).
+	 *
+	 * @var string
+	 */
+	const IDP_PLUGIN_AUTO = 'auto';
+
+	/**
+	 * IdP plugin selection: always treat agend-saml-idp as this site's
+	 * identity provider, regardless of what else is installed.
+	 *
+	 * @var string
+	 */
+	const IDP_PLUGIN_SAML = 'saml';
+
+	/**
+	 * IdP plugin selection: always treat the miniOrange SAML IDP plugin as
+	 * this site's identity provider, regardless of what else is installed.
+	 *
+	 * @var string
+	 */
+	const IDP_PLUGIN_MINIORANGE = 'miniorange';
+
+	/**
+	 * IdP plugin selection: no SAML identity provider plugin takes part in
+	 * the Agend connection, even if one is installed for another purpose.
+	 *
+	 * @var string
+	 */
+	const IDP_PLUGIN_NONE = 'none';
+
+	/**
 	 * Returns the configured member sign-in mode.
 	 *
 	 * SPEC-CORE-20260907 US-4.1 AC1, widened by the WordPress-IdP scope
@@ -148,22 +180,67 @@ class Agend_Apps_Settings {
 	}
 
 	/**
+	 * Normalises a submitted or stored IdP plugin selection to the closed
+	 * four-value vocabulary, falling back to `auto` for anything else.
+	 *
+	 * Mirrors {@see self::normalize_sso_link_mechanism()}: shared by the admin
+	 * sanitiser and {@see self::configured_idp_plugin()}, so a value written
+	 * by any other means still resolves safely.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string One of `auto`, `saml`, `miniorange`, `none`.
+	 */
+	public static function normalize_idp_plugin( $value ): string {
+		$allowed = array(
+			self::IDP_PLUGIN_AUTO,
+			self::IDP_PLUGIN_SAML,
+			self::IDP_PLUGIN_MINIORANGE,
+			self::IDP_PLUGIN_NONE,
+		);
+
+		return in_array( $value, $allowed, true ) ? (string) $value : self::IDP_PLUGIN_AUTO;
+	}
+
+	/**
+	 * Returns the configured IdP plugin selection (option
+	 * `agend_apps_idp_plugin`, default `auto`).
+	 *
+	 * @return string One of `auto`, `saml`, `miniorange`, `none`.
+	 */
+	public static function configured_idp_plugin(): string {
+		return self::normalize_idp_plugin( get_option( 'agend_apps_idp_plugin', self::IDP_PLUGIN_AUTO ) );
+	}
+
+	/**
 	 * Names the SAML IdP plugin detected on this site, if any.
 	 *
-	 * Checked in this order because a site is not expected to run both; if
-	 * one somehow does, the SAML IdP plugin (the one this feature exists to
-	 * warn about, see {@see self::sso_link_mechanism()}) takes precedence.
+	 * When an admin has made an explicit selection ({@see
+	 * self::configured_idp_plugin()} is not `auto`), that selection wins
+	 * outright and the two presence checks are skipped entirely: a site can
+	 * run a SAML IdP plugin for a purpose unrelated to the Agend connection
+	 * (miniOrange kept for another integration, say) and needs a way to keep
+	 * it out of this decision. Otherwise, checked in this order because a
+	 * site is not expected to run both; if one somehow does, the SAML IdP
+	 * plugin (the one this feature exists to warn about, see
+	 * {@see self::sso_link_mechanism()}) takes precedence.
 	 *
 	 * @return string `saml` for agend-saml-idp, `miniorange` for miniOrange,
-	 *                or an empty string when neither is detected.
+	 *                or an empty string when neither is detected (or `none`
+	 *                is explicitly selected).
 	 */
 	public static function detected_idp_plugin(): string {
-		$detected = '';
+		$configured = self::configured_idp_plugin();
 
-		if ( self::saml_idp_plugin_present() ) {
-			$detected = 'saml';
-		} elseif ( self::miniorange_idp_plugin_present() ) {
-			$detected = 'miniorange';
+		if ( self::IDP_PLUGIN_AUTO !== $configured ) {
+			$detected = self::IDP_PLUGIN_NONE === $configured ? '' : $configured;
+		} else {
+			$detected = '';
+
+			if ( self::saml_idp_plugin_present() ) {
+				$detected = 'saml';
+			} elseif ( self::miniorange_idp_plugin_present() ) {
+				$detected = 'miniorange';
+			}
 		}
 
 		/**
@@ -174,12 +251,20 @@ class Agend_Apps_Settings {
 		 * own `agend_embed_sso_kickoff_url` filter, so a site running a third
 		 * SAML IdP can declare it here and get the same automatic mechanism
 		 * resolution and duplicate-identity warning. Return a non-empty
-		 * string to assert an IdP is present, or '' to assert none is.
+		 * string to assert an IdP is present, or '' to assert none is. An
+		 * explicit admin selection (`agend_apps_idp_plugin` not `auto`)
+		 * short-circuits the two built-in detection checks above, but this
+		 * filter still runs last and still has the final word either way.
 		 *
-		 * @param string $detected `saml`, `miniorange`, or '' when neither
-		 *                         built-in check matched.
+		 * @param string $detected   `saml`, `miniorange`, or '' when neither
+		 *                           built-in check matched (or detection was
+		 *                           short-circuited by an explicit `none`
+		 *                           selection).
+		 * @param string $configured The configured `agend_apps_idp_plugin`
+		 *                           value: `auto`, `saml`, `miniorange`, or
+		 *                           `none`.
 		 */
-		return (string) apply_filters( 'agend_apps_detected_idp_plugin', $detected );
+		return (string) apply_filters( 'agend_apps_detected_idp_plugin', $detected, $configured );
 	}
 
 	/**
@@ -266,6 +351,13 @@ class Agend_Apps_Settings {
 	 * @return bool
 	 */
 	public static function link_mechanisms_are_identity_equivalent(): bool {
+		// The mapping read below belongs to agend-saml-idp: it says nothing
+		// about a different IdP, so equivalence can only hold when that is
+		// the effective plugin.
+		if ( 'saml' !== self::detected_idp_plugin() ) {
+			return false;
+		}
+
 		$nameid_attribute = self::saml_nameid_attribute_for_agend_sp();
 
 		if ( '' === $nameid_attribute ) {

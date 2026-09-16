@@ -28,6 +28,11 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 		const SSO_LINK_MECHANISM_SERVER   = 'server';
 		const SSO_LINK_MECHANISM_DISABLED = 'disabled';
 
+		const IDP_PLUGIN_AUTO       = 'auto';
+		const IDP_PLUGIN_SAML       = 'saml';
+		const IDP_PLUGIN_MINIORANGE = 'miniorange';
+		const IDP_PLUGIN_NONE       = 'none';
+
 		public static function get_api_key(): string {
 			return 'test-api-key';
 		}
@@ -70,16 +75,37 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 			return defined( 'MSI_VERSION' );
 		}
 
-		public static function detected_idp_plugin(): string {
-			$detected = '';
+		public static function normalize_idp_plugin( $value ): string {
+			$allowed = array(
+				self::IDP_PLUGIN_AUTO,
+				self::IDP_PLUGIN_SAML,
+				self::IDP_PLUGIN_MINIORANGE,
+				self::IDP_PLUGIN_NONE,
+			);
 
-			if ( self::saml_idp_plugin_present() ) {
-				$detected = 'saml';
-			} elseif ( self::miniorange_idp_plugin_present() ) {
-				$detected = 'miniorange';
+			return in_array( $value, $allowed, true ) ? (string) $value : self::IDP_PLUGIN_AUTO;
+		}
+
+		public static function configured_idp_plugin(): string {
+			return self::normalize_idp_plugin( get_option( 'agend_apps_idp_plugin', self::IDP_PLUGIN_AUTO ) );
+		}
+
+		public static function detected_idp_plugin(): string {
+			$configured = self::configured_idp_plugin();
+
+			if ( self::IDP_PLUGIN_AUTO !== $configured ) {
+				$detected = self::IDP_PLUGIN_NONE === $configured ? '' : $configured;
+			} else {
+				$detected = '';
+
+				if ( self::saml_idp_plugin_present() ) {
+					$detected = 'saml';
+				} elseif ( self::miniorange_idp_plugin_present() ) {
+					$detected = 'miniorange';
+				}
 			}
 
-			return (string) apply_filters( 'agend_apps_detected_idp_plugin', $detected );
+			return (string) apply_filters( 'agend_apps_detected_idp_plugin', $detected, $configured );
 		}
 
 		public static function get_account_slug(): string {
@@ -130,6 +156,10 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 		}
 
 		public static function link_mechanisms_are_identity_equivalent(): bool {
+			if ( 'saml' !== self::detected_idp_plugin() ) {
+				return false;
+			}
+
 			$nameid_attribute = self::saml_nameid_attribute_for_agend_sp();
 
 			if ( '' === $nameid_attribute ) {

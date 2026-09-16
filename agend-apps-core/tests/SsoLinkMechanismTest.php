@@ -73,6 +73,29 @@ final class SsoLinkMechanismTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// Agend_Apps_Identity_Admin::sanitize_idp_plugin()
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_sanitise_each_valid_idp_plugin_value_to_itself(): void {
+		$admin = new Agend_Apps_Identity_Admin();
+
+		$this->assertSame( 'auto', $admin->sanitize_idp_plugin( 'auto' ) );
+		$this->assertSame( 'saml', $admin->sanitize_idp_plugin( 'saml' ) );
+		$this->assertSame( 'miniorange', $admin->sanitize_idp_plugin( 'miniorange' ) );
+		$this->assertSame( 'none', $admin->sanitize_idp_plugin( 'none' ) );
+	}
+
+	#[Test]
+	public function should_sanitise_an_unrecognised_idp_plugin_value_to_auto(): void {
+		$admin = new Agend_Apps_Identity_Admin();
+
+		$this->assertSame( 'auto', $admin->sanitize_idp_plugin( 'garbage' ) );
+		$this->assertSame( 'auto', $admin->sanitize_idp_plugin( '' ) );
+		$this->assertSame( 'auto', $admin->sanitize_idp_plugin( null ) );
+	}
+
+	// -----------------------------------------------------------------
 	// Detection and the auto resolver -- ABSENCE first (see class docblock).
 	// -----------------------------------------------------------------
 
@@ -103,6 +126,24 @@ final class SsoLinkMechanismTest extends TestCase {
 	#[Test]
 	public function should_default_to_auto_resolved_when_the_option_is_missing(): void {
 		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
+	}
+
+	#[Test]
+	public function should_return_saml_as_the_detected_plugin_when_explicitly_selected_with_no_plugin_present(): void {
+		update_option( 'agend_apps_idp_plugin', 'saml' );
+
+		$this->assertFalse( Agend_Apps_Settings::saml_idp_plugin_present() );
+		$this->assertSame( 'saml', Agend_Apps_Settings::detected_idp_plugin() );
+	}
+
+	#[Test]
+	public function should_return_miniorange_as_the_detected_plugin_when_explicitly_selected_with_no_plugin_present(): void {
+		update_option( 'agend_apps_idp_plugin', 'miniorange' );
+		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
+
+		$this->assertFalse( Agend_Apps_Settings::miniorange_idp_plugin_present() );
+		$this->assertSame( 'miniorange', Agend_Apps_Settings::detected_idp_plugin() );
+		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 
 	// -----------------------------------------------------------------
@@ -140,6 +181,17 @@ final class SsoLinkMechanismTest extends TestCase {
 		update_option( 'agend_apps_sso_link_mechanism', 'disabled' );
 
 		$this->assertSame( 'disabled', Agend_Apps_Settings::sso_link_mechanism() );
+	}
+
+	#[Test]
+	public function should_return_no_detected_plugin_when_none_is_selected_even_with_a_saml_idp_plugin_present(): void {
+		$this->define_saml_idp_stub_classes();
+		update_option( 'agend_apps_idp_plugin', 'none' );
+		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
+
+		$this->assertTrue( Agend_Apps_Settings::saml_idp_plugin_present() );
+		$this->assertSame( '', Agend_Apps_Settings::detected_idp_plugin() );
+		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 
 	// -----------------------------------------------------------------
@@ -210,6 +262,14 @@ final class SsoLinkMechanismTest extends TestCase {
 
 		$this->assertSame( 'keycloak', Agend_Apps_Settings::detected_idp_plugin() );
 		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
+	}
+
+	#[Test]
+	public function should_let_the_detection_filter_override_an_explicit_none_selection(): void {
+		update_option( 'agend_apps_idp_plugin', 'none' );
+		add_filter( 'agend_apps_detected_idp_plugin', static fn (): string => 'keycloak' );
+
+		$this->assertSame( 'keycloak', Agend_Apps_Settings::detected_idp_plugin() );
 	}
 
 	#[Test]
@@ -309,6 +369,29 @@ final class SsoLinkMechanismTest extends TestCase {
 		);
 
 		$this->assertTrue( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
+		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
+	}
+
+	/**
+	 * The equivalence check reads agend-saml-idp's `wp_saml_idp_attribute_mappings`
+	 * option, which says nothing about a different IdP. An explicit
+	 * `miniorange` selection must not be treated as equivalent even when the
+	 * mapping happens to match the external id key.
+	 */
+	#[Test]
+	public function should_not_be_identity_equivalent_when_the_effective_idp_is_miniorange_even_if_the_mapping_matches(): void {
+		update_option( 'agend_apps_idp_plugin', 'miniorange' );
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
+		update_option( 'agend_apps_account_slug', 'wdaa' );
+		update_option(
+			'wp_saml_idp_attribute_mappings',
+			array(
+				'https://api.agend.com.au/api/auth/sso/wdaa/metadata' => array( 'nameid_attribute' => 'imk_membership_number' ),
+			)
+		);
+
+		$this->assertFalse( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
 		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 }

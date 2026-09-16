@@ -201,6 +201,27 @@ class Agend_Apps_Identity_Admin {
 			self::PAGE_SLUG
 		);
 
+		// Identity provider plugin: which SAML IdP plugin, if any, takes part
+		// in the Agend connection. Registered before the linking mechanism
+		// field, since the mechanism's "Detected" line depends on this.
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_idp_plugin',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_idp_plugin' ),
+				'default'           => Agend_Apps_Settings::IDP_PLUGIN_AUTO,
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_idp_plugin',
+			__( 'Identity provider plugin', 'agend-apps-core' ),
+			array( $this, 'render_idp_plugin_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_identity_sso_section'
+		);
+
 		register_setting(
 			self::OPTION_GROUP,
 			'agend_apps_sso_link_mechanism',
@@ -309,6 +330,19 @@ class Agend_Apps_Identity_Admin {
 	 */
 	public function sanitize_sso_link_mechanism( $value ): string {
 		return Agend_Apps_Settings::normalize_sso_link_mechanism( $value );
+	}
+
+	/**
+	 * Sanitizes the IdP plugin selection option value to the closed
+	 * four-value vocabulary. Delegates to
+	 * {@see Agend_Apps_Settings::normalize_idp_plugin()} so the same rule
+	 * governs what gets saved and what a stray stored value resolves to.
+	 *
+	 * @param mixed $value Raw submitted value.
+	 * @return string One of `auto`, `saml`, `miniorange`, `none`.
+	 */
+	public function sanitize_idp_plugin( $value ): string {
+		return Agend_Apps_Settings::normalize_idp_plugin( $value );
 	}
 
 	/**
@@ -542,6 +576,76 @@ class Agend_Apps_Identity_Admin {
 	}
 
 	/**
+	 * Renders the identity provider plugin radio field: lets an admin
+	 * override which SAML IdP plugin, if any, takes part in the Agend
+	 * connection, instead of always relying on auto-detection.
+	 *
+	 * Exists because a site can run a SAML IdP plugin for a purpose unrelated
+	 * to Agend (miniOrange kept for another integration, say) and needs a way
+	 * to keep it out of this connection entirely.
+	 */
+	public function render_idp_plugin_field(): void {
+		$configured = Agend_Apps_Settings::configured_idp_plugin();
+
+		$options = array(
+			Agend_Apps_Settings::IDP_PLUGIN_AUTO       => array(
+				'label' => __( 'Auto-detect (recommended)', 'agend-apps-core' ),
+				'help'  => __( 'Uses agend-saml-idp when it is active, otherwise miniOrange SAML IDP when it is active, otherwise none. Re-evaluated on every page load.', 'agend-apps-core' ),
+			),
+			Agend_Apps_Settings::IDP_PLUGIN_SAML       => array(
+				'label' => __( 'agend-saml-idp', 'agend-apps-core' ),
+				'help'  => __( 'Always treat agend-saml-idp as this site\'s identity provider, even if another SAML IdP plugin is also installed.', 'agend-apps-core' ),
+			),
+			Agend_Apps_Settings::IDP_PLUGIN_MINIORANGE => array(
+				'label' => __( 'miniOrange SAML IDP', 'agend-apps-core' ),
+				'help'  => __( 'Always treat the miniOrange SAML IDP plugin as this site\'s identity provider.', 'agend-apps-core' ),
+			),
+			Agend_Apps_Settings::IDP_PLUGIN_NONE       => array(
+				'label' => __( 'None', 'agend-apps-core' ),
+				'help'  => __( 'Ignore any SAML identity provider plugin installed on this site. Use this when a SAML IdP plugin is present for another purpose and must not take part in the Agend connection. Automatic linking then resolves to Server to server.', 'agend-apps-core' ),
+			),
+		);
+
+		foreach ( $options as $option_value => $option ) {
+			printf(
+				'<p><label><input type="radio" name="agend_apps_idp_plugin" value="%1$s"%2$s /> %3$s</label></p>',
+				esc_attr( $option_value ),
+				checked( $configured, $option_value, false ),
+				esc_html( $option['label'] )
+			);
+			echo '<p class="description" style="margin-left:24px;">' . esc_html( $option['help'] ) . '</p>';
+		}
+
+		$saml_present       = Agend_Apps_Settings::saml_idp_plugin_present();
+		$miniorange_present = Agend_Apps_Settings::miniorange_idp_plugin_present();
+
+		echo '<p class="description">';
+		if ( $saml_present && $miniorange_present ) {
+			esc_html_e( 'Currently active on this site: agend-saml-idp and miniOrange SAML IDP.', 'agend-apps-core' );
+		} elseif ( $saml_present ) {
+			esc_html_e( 'Currently active on this site: agend-saml-idp.', 'agend-apps-core' );
+		} elseif ( $miniorange_present ) {
+			esc_html_e( 'Currently active on this site: miniOrange SAML IDP.', 'agend-apps-core' );
+		} else {
+			esc_html_e( 'No SAML identity provider plugin is currently active on this site.', 'agend-apps-core' );
+		}
+		echo '</p>';
+
+		$selected_plugin_not_active =
+			( Agend_Apps_Settings::IDP_PLUGIN_SAML === $configured && ! $saml_present )
+			|| ( Agend_Apps_Settings::IDP_PLUGIN_MINIORANGE === $configured && ! $miniorange_present );
+
+		if ( $selected_plugin_not_active ) {
+			echo '<div class="notice notice-warning inline"><p>';
+			esc_html_e(
+				'The selected identity provider plugin is not active on this site, so no SAML assertion will arrive from it.',
+				'agend-apps-core'
+			);
+			echo '</p></div>';
+		}
+	}
+
+	/**
 	 * Renders the SSO link mechanism radio field, the live "detected IdP"
 	 * line, and the duplicate-identity warning
 	 * (docs/PLAN-wordpress-idp-option-b.md sections 5-6).
@@ -586,14 +690,34 @@ class Agend_Apps_Identity_Admin {
 		);
 
 		$equivalent = Agend_Apps_Settings::link_mechanisms_are_identity_equivalent();
+		$configured_idp_plugin = Agend_Apps_Settings::configured_idp_plugin();
+		$explicit_selection    = Agend_Apps_Settings::IDP_PLUGIN_AUTO !== $configured_idp_plugin;
 
 		echo '<p class="description">';
 		if ( '' === $detected ) {
-			esc_html_e( 'Detected: no SAML identity provider plugin found on this site.', 'agend-apps-core' );
+			if ( $explicit_selection ) {
+				esc_html_e( 'Identity provider: none (selected above).', 'agend-apps-core' );
+			} else {
+				esc_html_e( 'Identity provider: none (no SAML identity provider plugin found on this site).', 'agend-apps-core' );
+			}
 		} elseif ( 'saml' === $detected ) {
-			esc_html_e( 'Detected: the agend-saml-idp plugin is active.', 'agend-apps-core' );
+			if ( $explicit_selection ) {
+				esc_html_e( 'Identity provider: agend-saml-idp (selected above).', 'agend-apps-core' );
+			} else {
+				esc_html_e( 'Identity provider: agend-saml-idp (auto-detected).', 'agend-apps-core' );
+			}
+		} elseif ( 'miniorange' === $detected ) {
+			if ( $explicit_selection ) {
+				esc_html_e( 'Identity provider: miniOrange SAML IDP (selected above).', 'agend-apps-core' );
+			} else {
+				esc_html_e( 'Identity provider: miniOrange SAML IDP (auto-detected).', 'agend-apps-core' );
+			}
 		} else {
-			esc_html_e( 'Detected: the miniOrange SAML IDP plugin is active.', 'agend-apps-core' );
+			printf(
+				/* translators: %s: the third-party IdP name a filter declared via `agend_apps_detected_idp_plugin`. */
+				esc_html__( 'Identity provider: %s.', 'agend-apps-core' ),
+				esc_html( $detected )
+			);
 		}
 		echo ' ';
 		printf(
