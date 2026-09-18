@@ -91,6 +91,7 @@ final class WpIdpDiagnosticsTest extends TestCase {
 	public static function linkStateProvider(): array {
 		return array(
 			'linked'            => array( \AGEND_APPS_LINK_STATE_LINKED, 'success', 'No action needed' ),
+			'asserted'          => array( \AGEND_APPS_LINK_STATE_ASSERTED, 'info', 'SAML identity provider' ),
 			'pending'           => array( \AGEND_APPS_LINK_STATE_PENDING, 'info', 'confirmation email' ),
 			'conflict'          => array( \AGEND_APPS_LINK_STATE_CONFLICT, 'error', 'different external id' ),
 			'no_contact'        => array( \AGEND_APPS_LINK_STATE_NO_CONTACT, 'error', 'JIT contact provisioning' ),

@@ -387,6 +387,34 @@ if ( ! function_exists( 'wp_login_url' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_validate_redirect' ) ) {
+	/**
+	 * Minimal stand-in for WordPress's wp_validate_redirect(): a value with no
+	 * host (a relative path/query) is trusted as-is; an absolute URL is
+	 * trusted only when its host matches home_url()'s host; anything else
+	 * (including an empty location) falls back to `$default`.
+	 *
+	 * @param string $location Redirect target to validate.
+	 * @param string $default  Fallback when the location is not local.
+	 * @return string
+	 */
+	function wp_validate_redirect( string $location, string $default = '' ): string {
+		if ( '' === $location ) {
+			return $default;
+		}
+
+		$parsed = wp_parse_url( $location );
+
+		if ( ! is_array( $parsed ) || ! isset( $parsed['host'] ) ) {
+			return $location;
+		}
+
+		$home_host = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+
+		return ( $parsed['host'] === $home_host ) ? $location : $default;
+	}
+}
+
 if ( ! function_exists( 'wp_logout_url' ) ) {
 	/**
 	 * Minimal stand-in for WordPress's wp_logout_url(): the stub login page with
