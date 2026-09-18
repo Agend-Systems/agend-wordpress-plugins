@@ -330,20 +330,6 @@ class Agend_Apps_Settings {
 	}
 
 	/**
-	 * Whether the WordPress-to-Agend identity link should be attempted the
-	 * moment a WordPress user account is created (`user_register`), rather
-	 * than only at the user's first sign-in.
-	 *
-	 * Off by default: this fires for every WordPress user created, including
-	 * administrators and bulk imports, which is not always desired.
-	 *
-	 * @return bool True when link-on-create is enabled.
-	 */
-	public static function link_on_user_create(): bool {
-		return (bool) get_option( 'agend_apps_sso_link_on_user_create', false );
-	}
-
-	/**
 	 * Returns the configured API key.
 	 *
 	 * Resolution order: the optional `AGEND_APPS_API_KEY` wp-config.php

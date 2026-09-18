@@ -146,10 +146,6 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 				: self::SSO_LINK_MECHANISM_SAML;
 		}
 
-		public static function link_on_user_create(): bool {
-			return (bool) get_option( 'agend_apps_sso_link_on_user_create', false );
-		}
-
 		public static function get_member_reset_url(): string {
 			return (string) get_option( 'agend_apps_member_reset_url', '' );
 		}
