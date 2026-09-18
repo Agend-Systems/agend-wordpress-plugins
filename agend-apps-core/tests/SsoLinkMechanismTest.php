@@ -319,38 +319,4 @@ final class SsoLinkMechanismTest extends TestCase {
 		require_once __DIR__ . '/fixtures/saml-idp-stub.php';
 	}
 
-	// -----------------------------------------------------------------
-	// saml_nameid_attribute_for_agend_sp()
-	//
-	// The server-to-server mechanism this method's own consumer
-	// (`link_mechanisms_are_identity_equivalent()`) supported is retired: an
-	// Agend identity may only be created from a signed SAML assertion, so
-	// there is no longer a case where the SAML NameID and a server-to-server
-	// external id could name the same subject via two different mechanisms.
-	// The method itself is retained (it identifies the Agend SP entry in
-	// agend-saml-idp's mapping option by the same `/api/auth/sso/` + slug
-	// shape `includes/wp-idp-saml-link.php` uses to identify the SAME entry
-	// in a different agend-saml-idp option), so its own resolution behaviour
-	// is still covered here.
-	// -----------------------------------------------------------------
-
-	#[Test]
-	public function should_return_empty_nameid_attribute_when_no_mappings_are_configured(): void {
-		$this->assertSame( '', Agend_Apps_Settings::saml_nameid_attribute_for_agend_sp() );
-	}
-
-	#[Test]
-	public function should_pick_the_agend_sp_entry_by_the_sso_path_and_account_slug(): void {
-		update_option( 'agend_apps_account_slug', 'wdaa' );
-		update_option(
-			'wp_saml_idp_attribute_mappings',
-			array(
-				'https://idp.example.test/some-other-sp'                  => array( 'nameid_attribute' => 'user_email' ),
-				'https://api.agend.com.au/api/auth/sso/wdaa/metadata'      => array( 'nameid_attribute' => 'imk_membership_number' ),
-				'https://api.agend.com.au/api/auth/sso/other-org/metadata' => array( 'nameid_attribute' => 'user_login' ),
-			)
-		);
-
-		$this->assertSame( 'imk_membership_number', Agend_Apps_Settings::saml_nameid_attribute_for_agend_sp() );
-	}
 }

@@ -124,49 +124,6 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 			return (string) get_option( 'agend_apps_root_url_for_tests', '' );
 		}
 
-		public static function saml_nameid_attribute_for_agend_sp(): string {
-			$mappings = get_option( 'wp_saml_idp_attribute_mappings', array() );
-			$result   = '';
-
-			if ( is_array( $mappings ) && array() !== $mappings ) {
-				$slug       = self::get_account_slug();
-				$candidates = array();
-
-				foreach ( $mappings as $entity_id => $mapping ) {
-					if ( ! is_string( $entity_id ) || false === strpos( $entity_id, '/api/auth/sso/' ) ) {
-						continue;
-					}
-
-					if ( '' !== $slug && false === strpos( $entity_id, $slug ) ) {
-						continue;
-					}
-
-					if ( is_array( $mapping ) && isset( $mapping['nameid_attribute'] ) ) {
-						$candidates[ $entity_id ] = (string) $mapping['nameid_attribute'];
-					}
-				}
-
-				if ( array() !== $candidates ) {
-					$result = (string) reset( $candidates );
-
-					if ( count( $candidates ) > 1 ) {
-						$preferred_host = wp_parse_url( self::get_base_url(), PHP_URL_HOST );
-
-						if ( is_string( $preferred_host ) && '' !== $preferred_host ) {
-							foreach ( $candidates as $entity_id => $attribute ) {
-								if ( false !== strpos( $entity_id, $preferred_host ) ) {
-									$result = $attribute;
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-
-			return (string) apply_filters( 'agend_apps_saml_nameid_attribute', $result );
-		}
-
 		public static function normalize_sso_link_mechanism( $value ): string {
 			$allowed = array(
 				self::SSO_LINK_MECHANISM_AUTO,
