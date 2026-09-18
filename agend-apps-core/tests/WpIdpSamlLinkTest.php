@@ -19,6 +19,7 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/auth.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/sso.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/health.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/connect-site.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/settings.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/features.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-token-worker.php';
@@ -382,6 +383,21 @@ final class WpIdpSamlLinkTest extends TestCase {
 		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata', false );
 
 		$this->assertSame( 'sp_disabled', \agend_apps_saml_link_eligibility( 46 )['reason'] );
+	}
+
+	#[Test]
+	public function should_report_connection_pending_approval_before_the_attempt_cap_check(): void {
+		$this->mintExternalId( 47 );
+		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata' );
+		\agend_apps_connect_store(
+			array( 'approval_state' => 'pending' ),
+			array()
+		);
+
+		$this->assertSame(
+			array( 'eligible' => false, 'reason' => 'connection_pending_approval', 'entity_id' => '' ),
+			\agend_apps_saml_link_eligibility( 47 )
+		);
 	}
 
 	#[Test]

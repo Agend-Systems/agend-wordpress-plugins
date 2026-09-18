@@ -58,11 +58,41 @@ class Agend_Apps_Identity_Admin {
 	const DIAGNOSTICS_QUERY_FIELD = 'agend_apps_wp_idp_user';
 
 	/**
+	 * Nonce action for the "Connect this site" form. Follows the same shape as
+	 * {@see DIAGNOSTICS_LOOKUP_ACTION}: `current_user_can( 'manage_options' )`
+	 * first, then `check_admin_referer()`, then the work -- this is the only
+	 * other form on this page that actually performs work, rather than only
+	 * reading state or saving via the Settings API's own nonce.
+	 *
+	 * @var string
+	 */
+	const CONNECT_ACTION = 'agend_apps_connect_site';
+
+	/**
+	 * `admin_post_{action}` hook suffix {@see CONNECT_ACTION} is registered
+	 * under.
+	 *
+	 * @var string
+	 */
+	const CONNECT_POST_ACTION = 'agend_apps_connect_site';
+
+	/**
+	 * Transient name carrying the last "Connect this site" run's result across
+	 * the redirect back to this page. Keyed to nothing more specific than the
+	 * site, since only one admin at a time is expected to run this action and
+	 * the result is only ever meant to be shown once.
+	 *
+	 * @var string
+	 */
+	const CONNECT_RESULT_TRANSIENT = 'agend_apps_connect_site_result';
+
+	/**
 	 * Registers all admin hooks.
 	 */
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'add_menu_page' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
+		add_action( 'admin_post_' . self::CONNECT_POST_ACTION, array( $this, 'handle_connect_site' ) );
 	}
 
 	/**
@@ -257,6 +287,19 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_idp_entity_id',
 			__( 'Connection entity id', 'agend-apps-core' ),
 			array( $this, 'render_entity_id_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_identity_connection_section'
+		);
+
+		// "Connect this site": registers this site's SP with the local IdP
+		// plugin and creates (or finds) the matching Agend gateway connection.
+		// Not a registered setting -- it performs an action rather than
+		// storing a value, so it is added as a field like the read-only entity
+		// id above rather than through register_setting().
+		add_settings_field(
+			'agend_apps_connect_site',
+			__( 'Connect this site', 'agend-apps-core' ),
+			array( $this, 'render_connect_site_field' ),
 			self::PAGE_SLUG,
 			'agend_apps_identity_connection_section'
 		);
@@ -747,5 +790,129 @@ class Agend_Apps_Identity_Admin {
 			'agend-apps-core'
 		);
 		echo '</p>';
+	}
+
+	/**
+	 * `admin_post_{CONNECT_POST_ACTION}` handler: runs
+	 * {@see agend_apps_connect_run()} and redirects back to this page with the
+	 * result in a transient for {@see render_connect_site_field()} to display.
+	 *
+	 * Follows the same shape as {@see resolve_diagnostics_lookup()}'s nonce
+	 * precedent: `current_user_can( 'manage_options' )` checked FIRST, then
+	 * `check_admin_referer()`, then the work, then `wp_safe_redirect()`. There
+	 * was no existing work-performing POST handler on this page to copy --
+	 * the diagnostics lookup is GET and read-only -- so this is the first one,
+	 * built to match that same precedent as closely as a POST/redirect action
+	 * allows.
+	 */
+	public function handle_connect_site(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'agend-apps-core' ) );
+		}
+
+		check_admin_referer( self::CONNECT_ACTION );
+
+		$result = function_exists( 'agend_apps_connect_run' ) ? agend_apps_connect_run() : array(
+			'steps'       => array(),
+			'errors'      => array( __( 'The connect action is not available on this install.', 'agend-apps-core' ) ),
+			'connection'  => array(),
+			'sp_mismatch' => array(),
+		);
+
+		// A short-lived transient, not an option: this result is meant to be
+		// shown exactly once, immediately after the redirect, not to persist
+		// as site state. {@see agend_apps_connect_stored()} is the persisted
+		// record this run itself writes on success.
+		set_transient( self::CONNECT_RESULT_TRANSIENT, $result, MINUTE_IN_SECONDS );
+
+		wp_safe_redirect( admin_url( 'options-general.php?page=' . self::PAGE_SLUG ) );
+		exit;
+	}
+
+	/**
+	 * Builds the data {@see render_connect_site_field()}'s view partial
+	 * renders: whether the action can be attempted at all right now, why not
+	 * when it cannot, the last run's result (consumed from the transient, so
+	 * it is shown exactly once), and the currently stored connection.
+	 *
+	 * Deliberately never calls {@see agend_apps_connect_run()} itself --
+	 * rendering a settings page must never perform the action, only report on
+	 * it or offer the button that triggers it via the POST handler above.
+	 *
+	 * @return array{
+	 *     can_connect: bool,
+	 *     blocked_reasons: string[],
+	 *     stored: array,
+	 *     last_run: array|null,
+	 *     sp_urls: array{sp_entity_id: string, sp_acs_url: string, sp_metadata_url: string}
+	 * }
+	 */
+	private function build_connect_site_data(): array {
+		$blocked_reasons = array();
+
+		if ( ! class_exists( 'Agend_Apps_Settings' ) || ! Agend_Apps_Settings::wordpress_idp_enabled() ) {
+			$blocked_reasons[] = __( 'This site is not in WordPress account sign-in mode.', 'agend-apps-core' );
+		}
+
+		if ( function_exists( 'agend_apps_connect_missing_scopes' ) ) {
+			$scope_check = agend_apps_connect_missing_scopes();
+
+			if ( $scope_check['unknown'] ) {
+				$blocked_reasons[] = __( 'The connected API key\'s scopes are not yet known. Verify the API key first.', 'agend-apps-core' );
+			} elseif ( ! empty( $scope_check['missing'] ) ) {
+				$blocked_reasons[] = sprintf(
+					/* translators: %s: comma-separated list of missing API key scopes. */
+					__( 'The connected API key is missing the required scope(s): %s.', 'agend-apps-core' ),
+					implode( ', ', $scope_check['missing'] )
+				);
+			}
+		}
+
+		if ( ! class_exists( 'WP_SAML_IDP_Api' ) ) {
+			$blocked_reasons[] = __( 'IdP plugin too old: WP_SAML_IDP_Api is not available.', 'agend-apps-core' );
+		} else {
+			foreach ( array( 'get_idp_metadata', 'upsert_service_provider', 'save_attribute_mapping', 'save_sp_sso_settings' ) as $method ) {
+				if ( ! method_exists( 'WP_SAML_IDP_Api', $method ) ) {
+					$blocked_reasons[] = sprintf(
+						/* translators: %s: the missing method name on WP_SAML_IDP_Api. */
+						__( 'IdP plugin too old: missing %s().', 'agend-apps-core' ),
+						$method
+					);
+				}
+			}
+		}
+
+		$last_run = get_transient( self::CONNECT_RESULT_TRANSIENT );
+		delete_transient( self::CONNECT_RESULT_TRANSIENT );
+
+		$stored  = function_exists( 'agend_apps_connect_stored' ) ? agend_apps_connect_stored() : array();
+		$sp_urls = function_exists( 'agend_apps_connect_sp_urls' )
+			? agend_apps_connect_sp_urls( Agend_Apps_Settings::get_root_url(), Agend_Apps_Settings::get_account_slug() )
+			: array(
+				'sp_entity_id'    => '',
+				'sp_acs_url'      => '',
+				'sp_metadata_url' => '',
+			);
+
+		return array(
+			'can_connect'     => empty( $blocked_reasons ),
+			'blocked_reasons' => $blocked_reasons,
+			'stored'          => $stored,
+			'last_run'        => is_array( $last_run ) ? $last_run : null,
+			'sp_urls'         => $sp_urls,
+		);
+	}
+
+	/**
+	 * Renders the "Connect this site" action: the derived/authoritative SP
+	 * urls, the stored connection's approval state, the last run's per-step
+	 * outcomes and errors, and the SP-mismatch block when present. Markup
+	 * lives in the view partial; this only builds the data, matching
+	 * {@see render_diagnostics_field()}'s split.
+	 */
+	public function render_connect_site_field(): void {
+		$data = $this->build_connect_site_data();
+
+		require AGEND_APPS_CORE_DIR . 'admin/views/identity-connect.php';
 	}
 }

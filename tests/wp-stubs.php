@@ -90,6 +90,21 @@ final class Agend_Test_WP {
 	 */
 	public static string $style_engine_stylesheet = '';
 
+	/**
+	 * Registered role slug => display name, as `wp_roles()->get_names()`
+	 * returns. Backs the `wp_roles()`/`WP_Roles` stubs below, used by
+	 * `agend_apps_connect_member_roles()`.
+	 *
+	 * @var array<string, string>
+	 */
+	public static array $roles = array(
+		'administrator' => 'Administrator',
+		'editor'        => 'Editor',
+		'author'        => 'Author',
+		'contributor'   => 'Contributor',
+		'subscriber'    => 'Subscriber',
+	);
+
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
 		self::$queried_object_id    = 0;
@@ -110,6 +125,13 @@ final class Agend_Test_WP {
 		self::$wp_update_plugins_calls = 0;
 		self::$enqueued_styles   = array();
 		self::$style_engine_stylesheet = '';
+		self::$roles             = array(
+			'administrator' => 'Administrator',
+			'editor'        => 'Editor',
+			'author'        => 'Author',
+			'contributor'   => 'Contributor',
+			'subscriber'    => 'Subscriber',
+		);
 	}
 
 	/**
@@ -361,6 +383,12 @@ function add_query_arg( ...$args ) {
 
 function home_url( $path = '' ): string {
 	return 'https://example.test' . $path;
+}
+
+if ( ! function_exists( 'site_url' ) ) {
+	function site_url( $path = '' ): string {
+		return 'https://example.test' . $path;
+	}
 }
 
 if ( ! function_exists( 'wp_login_url' ) ) {
@@ -866,6 +894,22 @@ if ( ! function_exists( 'is_email' ) ) {
 	 */
 	function is_email( $email ) {
 		return false !== filter_var( (string) $email, FILTER_VALIDATE_EMAIL ) ? (string) $email : false;
+	}
+}
+
+if ( ! class_exists( 'WP_Roles' ) ) {
+	/** Minimal WP_Roles stand-in: only `get_names()`, backed by Agend_Test_WP::$roles. */
+	class WP_Roles {
+		/** @return array<string, string> */
+		public function get_names(): array {
+			return Agend_Test_WP::$roles;
+		}
+	}
+}
+
+if ( ! function_exists( 'wp_roles' ) ) {
+	function wp_roles(): WP_Roles {
+		return new WP_Roles();
 	}
 }
 
