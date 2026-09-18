@@ -20,14 +20,16 @@ use PHPUnit\Framework\Attributes\Test;
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/admin/class-agend-apps-identity-admin.php';
 
 /**
- * The SSO link mechanism setting (docs/PLAN-wordpress-idp-option-b.md
- * sections 5-6): the closed four-value vocabulary, its sanitiser, and the
- * `auto` resolver that consults IdP detection. Also covers the
+ * The SSO link mechanism setting: the closed three-value vocabulary (`auto`,
+ * `saml`, `disabled` -- the retired `server` value normalises to `auto`, see
+ * {@see Agend_Apps_Settings::normalize_sso_link_mechanism()}), its sanitiser,
+ * and the `auto` resolver that consults IdP detection. Also covers the
  * `agend_apps_sso_link_on_user_create` boolean.
  *
- * Nothing reads {@see Agend_Apps_Settings::sso_link_mechanism()} yet -- the
- * linking step it will gate is not built -- so this test only proves the
- * resolver itself is correct, per the brief's own note that this is expected.
+ * An Agend identity may only be created from a signed SAML assertion, so
+ * `auto` has exactly two outcomes: `saml` when a SAML IdP plugin is detected,
+ * `disabled` otherwise. `includes/wp-idp-saml-link.php` is what actually
+ * links a member when the resolved mechanism is `saml`.
  *
  * IdP presence is detected via real `class_exists()`/`defined()` checks
  * against classes/constants a plugin would declare -- there is no way to
@@ -49,7 +51,6 @@ final class SsoLinkMechanismTest extends TestCase {
 
 		$this->assertSame( 'auto', $admin->sanitize_sso_link_mechanism( 'auto' ) );
 		$this->assertSame( 'saml', $admin->sanitize_sso_link_mechanism( 'saml' ) );
-		$this->assertSame( 'server', $admin->sanitize_sso_link_mechanism( 'server' ) );
 		$this->assertSame( 'disabled', $admin->sanitize_sso_link_mechanism( 'disabled' ) );
 	}
 
@@ -64,12 +65,29 @@ final class SsoLinkMechanismTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_sanitise_the_retired_server_value_to_auto(): void {
+		// `server` (Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER) is retired:
+		// an Agend identity may only be created from a signed SAML assertion,
+		// so there is no longer a mechanism it names. A site upgrading past
+		// its retirement re-evaluates via `auto` rather than fataling or
+		// silently keeping a mechanism that no longer runs.
+		$admin = new Agend_Apps_Identity_Admin();
+
+		$this->assertSame( 'auto', $admin->sanitize_sso_link_mechanism( 'server' ) );
+	}
+
+	#[Test]
 	public function should_normalise_an_unrecognised_stored_value_to_auto(): void {
 		// Exercises the same fallback the resolver relies on for a value that
 		// reached the option some way other than the sanitiser above (a
 		// filter, a direct DB edit, a rolled-back version that wrote a value
 		// no longer in the vocabulary).
 		$this->assertSame( 'auto', Agend_Apps_Settings::normalize_sso_link_mechanism( 'not-a-real-mechanism' ) );
+	}
+
+	#[Test]
+	public function should_normalise_the_retired_server_value_to_auto(): void {
+		$this->assertSame( 'auto', Agend_Apps_Settings::normalize_sso_link_mechanism( 'server' ) );
 	}
 
 	// -----------------------------------------------------------------
@@ -116,16 +134,16 @@ final class SsoLinkMechanismTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_resolve_auto_to_server_when_no_saml_idp_plugin_is_present(): void {
+	public function should_resolve_auto_to_disabled_when_no_saml_idp_plugin_is_present(): void {
 		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
 
 		$this->assertFalse( Agend_Apps_Settings::saml_idp_plugin_present() );
-		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
+		$this->assertSame( 'disabled', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 
 	#[Test]
 	public function should_default_to_auto_resolved_when_the_option_is_missing(): void {
-		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
+		$this->assertSame( 'disabled', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 
 	#[Test]
@@ -143,6 +161,10 @@ final class SsoLinkMechanismTest extends TestCase {
 
 		$this->assertFalse( Agend_Apps_Settings::miniorange_idp_plugin_present() );
 		$this->assertSame( 'miniorange', Agend_Apps_Settings::detected_idp_plugin() );
+		// miniOrange asserts its own NameID, so it still counts as "an IdP is
+		// detected" for `auto` even though this plugin only builds against
+		// agend-saml-idp's own registry (includes/wp-idp-saml-link.php);
+		// nothing in `sso_link_mechanism()` distinguishes which SAML IdP.
 		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 
@@ -168,12 +190,16 @@ final class SsoLinkMechanismTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_resolve_explicit_server_to_server_even_when_a_saml_idp_plugin_is_present(): void {
+	public function should_resolve_a_stored_server_value_as_auto_even_when_a_saml_idp_plugin_is_present(): void {
+		// The retired `server` value normalises to `auto` before the resolver
+		// ever sees it (Agend_Apps_Settings::normalize_sso_link_mechanism()),
+		// so a site left with this stored value re-evaluates against
+		// detection rather than keeping a mechanism that no longer runs.
 		$this->define_saml_idp_stub_classes();
 		update_option( 'agend_apps_sso_link_mechanism', 'server' );
 
 		$this->assertTrue( Agend_Apps_Settings::saml_idp_plugin_present() );
-		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
+		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 
 	#[Test]
@@ -191,7 +217,7 @@ final class SsoLinkMechanismTest extends TestCase {
 
 		$this->assertTrue( Agend_Apps_Settings::saml_idp_plugin_present() );
 		$this->assertSame( '', Agend_Apps_Settings::detected_idp_plugin() );
-		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
+		$this->assertSame( 'disabled', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 
 	// -----------------------------------------------------------------
@@ -280,7 +306,7 @@ final class SsoLinkMechanismTest extends TestCase {
 
 		$this->assertTrue( Agend_Apps_Settings::saml_idp_plugin_present() );
 		$this->assertSame( '', Agend_Apps_Settings::detected_idp_plugin() );
-		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
+		$this->assertSame( 'disabled', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 
 	/**
@@ -294,11 +320,18 @@ final class SsoLinkMechanismTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
-	// saml_nameid_attribute_for_agend_sp() and identity equivalence
-	// (2026-09-15 PCA finding: the site keeps agend-saml-idp for embed
-	// kick-off while member sign-in is `wordpress`, and both schemes read
-	// `imk_membership_number`, so `auto` must resolve to `server` there --
-	// it is the only mechanism that links at sign-in in that mode).
+	// saml_nameid_attribute_for_agend_sp()
+	//
+	// The server-to-server mechanism this method's own consumer
+	// (`link_mechanisms_are_identity_equivalent()`) supported is retired: an
+	// Agend identity may only be created from a signed SAML assertion, so
+	// there is no longer a case where the SAML NameID and a server-to-server
+	// external id could name the same subject via two different mechanisms.
+	// The method itself is retained (it identifies the Agend SP entry in
+	// agend-saml-idp's mapping option by the same `/api/auth/sso/` + slug
+	// shape `includes/wp-idp-saml-link.php` uses to identify the SAME entry
+	// in a different agend-saml-idp option), so its own resolution behaviour
+	// is still covered here.
 	// -----------------------------------------------------------------
 
 	#[Test]
@@ -319,79 +352,5 @@ final class SsoLinkMechanismTest extends TestCase {
 		);
 
 		$this->assertSame( 'imk_membership_number', Agend_Apps_Settings::saml_nameid_attribute_for_agend_sp() );
-	}
-
-	#[Test]
-	public function should_resolve_auto_to_server_in_wordpress_mode_when_the_nameid_attribute_matches_the_external_id_key(): void {
-		$this->define_saml_idp_stub_classes();
-		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
-		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
-		update_option( 'agend_apps_account_slug', 'wdaa' );
-		update_option(
-			'wp_saml_idp_attribute_mappings',
-			array(
-				'https://api.agend.com.au/api/auth/sso/wdaa/metadata' => array( 'nameid_attribute' => 'imk_membership_number' ),
-			)
-		);
-
-		$this->assertTrue( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
-		$this->assertSame( 'server', Agend_Apps_Settings::sso_link_mechanism() );
-	}
-
-	#[Test]
-	public function should_resolve_auto_to_saml_in_wordpress_mode_when_the_nameid_attribute_differs_from_the_external_id_key(): void {
-		$this->define_saml_idp_stub_classes();
-		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
-		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
-		update_option( 'agend_apps_account_slug', 'wdaa' );
-		update_option(
-			'wp_saml_idp_attribute_mappings',
-			array(
-				'https://api.agend.com.au/api/auth/sso/wdaa/metadata' => array( 'nameid_attribute' => 'user_email' ),
-			)
-		);
-
-		$this->assertFalse( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
-		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
-	}
-
-	#[Test]
-	public function should_resolve_auto_to_saml_in_sso_mode_even_when_the_mechanisms_are_equivalent(): void {
-		$this->define_saml_idp_stub_classes();
-		update_option( 'agend_apps_member_auth_mode', 'sso' );
-		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
-		update_option( 'agend_apps_account_slug', 'wdaa' );
-		update_option(
-			'wp_saml_idp_attribute_mappings',
-			array(
-				'https://api.agend.com.au/api/auth/sso/wdaa/metadata' => array( 'nameid_attribute' => 'imk_membership_number' ),
-			)
-		);
-
-		$this->assertTrue( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
-		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
-	}
-
-	/**
-	 * The equivalence check reads agend-saml-idp's `wp_saml_idp_attribute_mappings`
-	 * option, which says nothing about a different IdP. An explicit
-	 * `miniorange` selection must not be treated as equivalent even when the
-	 * mapping happens to match the external id key.
-	 */
-	#[Test]
-	public function should_not_be_identity_equivalent_when_the_effective_idp_is_miniorange_even_if_the_mapping_matches(): void {
-		update_option( 'agend_apps_idp_plugin', 'miniorange' );
-		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
-		update_option( 'agend_apps_sso_link_mechanism', 'auto' );
-		update_option( 'agend_apps_account_slug', 'wdaa' );
-		update_option(
-			'wp_saml_idp_attribute_mappings',
-			array(
-				'https://api.agend.com.au/api/auth/sso/wdaa/metadata' => array( 'nameid_attribute' => 'imk_membership_number' ),
-			)
-		);
-
-		$this->assertFalse( Agend_Apps_Settings::link_mechanisms_are_identity_equivalent() );
-		$this->assertSame( 'saml', Agend_Apps_Settings::sso_link_mechanism() );
 	}
 }

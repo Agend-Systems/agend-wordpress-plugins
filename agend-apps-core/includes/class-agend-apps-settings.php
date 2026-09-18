@@ -63,9 +63,15 @@ class Agend_Apps_Settings {
 	const SSO_LINK_MECHANISM_SAML = 'saml';
 
 	/**
-	 * SSO link mechanism: the linked identity is the WordPress-minted GUID,
-	 * sent server to server ({@see agend_apps_ensure_external_id()}).
+	 * Retired SSO link mechanism: server-to-server linking with no signed
+	 * assertion. Removed as an authoring option -- an Agend identity may only
+	 * be created from a signed SAML assertion -- but kept as a value
+	 * `normalize_sso_link_mechanism()` still recognises, purely so a site with
+	 * this value already stored (pre-retirement) normalises to `auto` instead
+	 * of fataling or silently keeping a mechanism that no longer runs.
 	 *
+	 * @deprecated Never write this value. {@see self::sso_link_mechanism()}
+	 *             never returns it.
 	 * @var string
 	 */
 	const SSO_LINK_MECHANISM_SERVER = 'server';
@@ -332,54 +338,12 @@ class Agend_Apps_Settings {
 	}
 
 	/**
-	 * Whether the SAML assertion mechanism and the server-to-server mechanism
-	 * would name the SAME subject for every member on this site.
-	 *
-	 * True only when both {@see self::saml_nameid_attribute_for_agend_sp()}
-	 * is non-empty AND it equals the configured external id meta key
-	 * (`agend_apps_external_id_meta_key()` in `includes/identity.php`): the
-	 * SAML IdP plugin's NameID and the server-to-server external id then read
-	 * the SAME user-meta value, so linking through either mechanism records
-	 * the identical Agend identity and no duplicate can arise.
-	 *
-	 * Guarded with `function_exists()` because `includes/identity.php` is not
-	 * always loaded (e.g. in isolated tests of this class); when the function
-	 * is unavailable, falls back to the same default the real function uses
-	 * (`imk_membership_number`) read straight from the option, so the two
-	 * checks stay in step.
-	 *
-	 * @return bool
-	 */
-	public static function link_mechanisms_are_identity_equivalent(): bool {
-		// The mapping read below belongs to agend-saml-idp: it says nothing
-		// about a different IdP, so equivalence can only hold when that is
-		// the effective plugin.
-		if ( 'saml' !== self::detected_idp_plugin() ) {
-			return false;
-		}
-
-		$nameid_attribute = self::saml_nameid_attribute_for_agend_sp();
-
-		if ( '' === $nameid_attribute ) {
-			return false;
-		}
-
-		if ( function_exists( 'agend_apps_external_id_meta_key' ) ) {
-			$meta_key = agend_apps_external_id_meta_key();
-		} else {
-			$meta_key = (string) get_option( 'agend_apps_external_id_meta_key', '' );
-
-			if ( '' === $meta_key ) {
-				$meta_key = 'imk_membership_number';
-			}
-		}
-
-		return $nameid_attribute === $meta_key;
-	}
-
-	/**
 	 * Normalises a submitted or stored SSO link mechanism value to the closed
-	 * four-value vocabulary, falling back to `auto` for anything else.
+	 * three-value vocabulary, falling back to `auto` for anything else --
+	 * including the retired `server` value (see
+	 * {@see self::SSO_LINK_MECHANISM_SERVER}), so a site upgrading past its
+	 * retirement re-evaluates automatically instead of fataling or silently
+	 * keeping a mechanism that no longer runs.
 	 *
 	 * Shared by the admin sanitiser (so an invalid value is never saved) and
 	 * {@see self::sso_link_mechanism()} (so a value written by any other means
@@ -387,13 +351,12 @@ class Agend_Apps_Settings {
 	 * still resolves safely rather than fataling on an unrecognised string).
 	 *
 	 * @param mixed $value Raw value.
-	 * @return string One of `auto`, `saml`, `server`, `disabled`.
+	 * @return string One of `auto`, `saml`, `disabled`.
 	 */
 	public static function normalize_sso_link_mechanism( $value ): string {
 		$allowed = array(
 			self::SSO_LINK_MECHANISM_AUTO,
 			self::SSO_LINK_MECHANISM_SAML,
-			self::SSO_LINK_MECHANISM_SERVER,
 			self::SSO_LINK_MECHANISM_DISABLED,
 		);
 
@@ -401,26 +364,22 @@ class Agend_Apps_Settings {
 	}
 
 	/**
-	 * Resolves the effective SSO link mechanism (docs/PLAN-wordpress-idp-option-b.md
-	 * section 6).
+	 * Resolves the effective SSO link mechanism.
 	 *
 	 * Pure and deterministic against the current request's plugin state: the
 	 * `auto` value resolves against IdP detection rather than being returned
 	 * literally, so every caller acts on the mechanism actually in effect
-	 * rather than re-deriving it. `saml`, `server`, and `disabled` are explicit
-	 * admin choices and resolve to themselves.
+	 * rather than re-deriving it. `saml` and `disabled` are explicit admin
+	 * choices and resolve to themselves.
 	 *
-	 * When a SAML IdP plugin is detected, `auto` resolves to `saml` -- EXCEPT
-	 * in `wordpress` sign-in mode when the two mechanisms are identity
-	 * equivalent ({@see self::link_mechanisms_are_identity_equivalent()}): the
-	 * SAML NameID and the server-to-server external id then name the same
-	 * subject, so no duplicate identity can arise, and only `server` performs
-	 * a link at sign-in in that mode (`includes/wp-idp-link.php`). Resolving
-	 * to `saml` there would silently stop linking members at sign-in for no
-	 * safety benefit. Every other case (no IdP detected; `credentials` or
-	 * `sso` sign-in mode; the mechanisms not equivalent) is unchanged.
+	 * An Agend identity may only be created from a signed SAML assertion, so
+	 * there is no longer a mechanism that links with no IdP plugin present:
+	 * `auto` resolves to `saml` whenever one is detected, and to `disabled`
+	 * otherwise. The server-to-server mechanism this method used to resolve
+	 * `auto` to when no IdP was detected is retired -- see
+	 * {@see self::SSO_LINK_MECHANISM_SERVER}.
 	 *
-	 * @return string One of `saml`, `server`, or `disabled` -- never `auto`.
+	 * @return string One of `saml` or `disabled` -- never `auto`.
 	 */
 	public static function sso_link_mechanism(): string {
 		$configured = self::normalize_sso_link_mechanism( get_option( 'agend_apps_sso_link_mechanism', self::SSO_LINK_MECHANISM_AUTO ) );
@@ -429,21 +388,9 @@ class Agend_Apps_Settings {
 			return $configured;
 		}
 
-		// Any detected IdP plugin, not just agend-saml-idp: miniOrange asserts
-		// a NameID of its own, so a miniOrange site left on server-to-server
-		// linking would hit exactly the duplicate-identity problem the
-		// warning on the settings page describes. Resolving against
-		// `detected_idp_plugin()` also means the third-party escape hatch on
-		// that method steers `auto` too.
-		if ( '' === self::detected_idp_plugin() ) {
-			return self::SSO_LINK_MECHANISM_SERVER;
-		}
-
-		if ( self::MEMBER_AUTH_WORDPRESS === self::get_member_auth_mode() && self::link_mechanisms_are_identity_equivalent() ) {
-			return self::SSO_LINK_MECHANISM_SERVER;
-		}
-
-		return self::SSO_LINK_MECHANISM_SAML;
+		return ( '' === self::detected_idp_plugin() )
+			? self::SSO_LINK_MECHANISM_DISABLED
+			: self::SSO_LINK_MECHANISM_SAML;
 	}
 
 	/**
