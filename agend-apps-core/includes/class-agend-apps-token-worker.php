@@ -204,6 +204,22 @@ class Agend_Apps_Token_Worker {
 			agend_apps_record_linked_identity( $user_id, $minted );
 		}
 
+		// This is how includes/wp-idp-saml-link.php's `asserted` state
+		// resolves: a mint only succeeds once the gateway has an sso_identity
+		// for this (idp_entity_id, external_id) pair, which -- for a SAML
+		// site -- only exists once the round trip that state records actually
+		// completed. Guarded rather than unconditional so a `wordpress`-mode
+		// mint (the only caller that can reach an `asserted` state at all)
+		// does not fatal on a site where wp-idp-link.php never loaded.
+		if (
+			function_exists( 'agend_apps_wp_idp_record_link_state' )
+			&& function_exists( 'agend_apps_wp_idp_link_state' )
+			&& defined( 'AGEND_APPS_LINK_STATE_LINKED' )
+			&& AGEND_APPS_LINK_STATE_LINKED !== agend_apps_wp_idp_link_state( $user_id )['state']
+		) {
+			agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_LINKED );
+		}
+
 		update_user_meta(
 			$user_id,
 			self::META_KEY,

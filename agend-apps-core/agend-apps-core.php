@@ -258,14 +258,15 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sites.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sso.php';
 
-	// WordPress-as-IdP identity link step (docs/PLAN-wordpress-idp-option-b.md
-	// section 4.2): only relevant, and only loaded, when this site is in
-	// `wordpress` sign-in mode. It calls agend_apps_sso_link_identity() /
-	// agend_apps_sso_get_link_status() above, so this require comes after
-	// them, mirroring the credential-login block's ordering relative to its
-	// own api/auth.php dependency further down this function.
+	// WordPress-as-IdP identity link state, and the SAML round trip that
+	// writes it: only relevant, and only loaded, when this site is in
+	// `wordpress` sign-in mode. wp-idp-saml-link.php calls
+	// agend_apps_sso_get_link_status() above (account-link-state.php does
+	// too) and reuses wp-idp-link.php's state helpers, so both requires come
+	// after it and in this order.
 	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
 		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-link.php';
+		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-saml-link.php';
 	}
 
 	// WordPress-IdP diagnostics (docs/PLAN-wordpress-idp-option-b.md section
