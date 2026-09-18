@@ -539,9 +539,15 @@ function plugin_dir_url( string $file ): string {
  * response is always distinguishable from a freshly fetched one.
  */
 function wp_remote_request( string $url, array $args = array() ) {
+	// `body` is recorded as sent, i.e. already JSON-encoded by
+	// Agend_Apps_API::request(), so a test asserting on it exercises the whole
+	// encode path rather than the array the caller happened to build. Needed
+	// for any field whose ABSENCE changes gateway behaviour, where proving the
+	// builder returned it is not the same as proving it reached the wire.
 	Agend_Test_WP::$requests[] = array(
 		'url'     => $url,
 		'headers' => $args['headers'] ?? array(),
+		'body'    => $args['body'] ?? null,
 	);
 
 	if ( ! empty( Agend_Test_WP::$canned_responses ) ) {

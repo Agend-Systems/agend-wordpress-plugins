@@ -306,6 +306,12 @@ final class ConnectSiteTest extends TestCase {
 
 		$this->assertFalse( $payload['jit_contact_provisioning'] );
 		$this->assertSame( 'contact', $payload['default_role'] );
+
+		// Sent explicitly rather than left to the gateway's default: the
+		// gateway no longer infers provision_only from an omitted slug, and
+		// this flow never consumes the ACS session (the JWT is minted
+		// server-to-server), so the ACS must provision and mint nothing.
+		$this->assertTrue( $payload['provision_only'] );
 		$this->assertArrayNotHasKey( 'role_attribute', $payload );
 		$this->assertArrayNotHasKey( 'role_mapping', $payload );
 		$this->assertArrayNotHasKey( 'role_attribute', $payload['attribute_mappings'] );
@@ -502,6 +508,21 @@ final class ConnectSiteTest extends TestCase {
 		}
 		$this->assertNotNull( $upsert_call );
 		$this->assertSame( 'https://api.example.test/api/auth/sso/wdaa/metadata', $upsert_call[1] );
+
+		// provision_only must reach the WIRE, not merely be present in the
+		// array the payload builder returns: the gateway no longer infers it
+		// from an omitted slug, so a regression that dropped it between the
+		// builder and the request would silently get session-minting
+		// behaviour back with every test still passing.
+		$create_body = null;
+		foreach ( Agend_Test_WP::$requests as $request ) {
+			if ( false !== strpos( (string) $request['url'], '/sso/connections' ) && null !== $request['body'] ) {
+				$create_body = json_decode( (string) $request['body'], true );
+			}
+		}
+		$this->assertIsArray( $create_body );
+		$this->assertTrue( $create_body['provision_only'] );
+		$this->assertFalse( $create_body['jit_contact_provisioning'] );
 	}
 
 	#[Test]
