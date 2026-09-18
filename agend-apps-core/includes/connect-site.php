@@ -519,6 +519,22 @@ function agend_apps_connect_filter_nameid_empty_count( int $count, string $meta_
  * defines `AGEND_APPS_MANAGED_META` -- only loads in `credentials` mode, and
  * so may not be loaded at all when this runs.
  *
+ * TODO: build the member-facing OTP link UX for this population. It is
+ * deliberately NOT built here, and this count plus the `credentials_session`
+ * value of the diagnostics panel's `bearer_source`
+ * ({@see agend_apps_wp_idp_diagnostics()}) are the whole of the current
+ * handling: they measure the tail, they do not shorten it. The gateway route
+ * that does the work already exists and is deliberately not silent
+ * (`POST /api/auth/sso/{account}/link` issues an emailed code, verifies it,
+ * and only then attaches the identity to the live session), so what is missing
+ * is purely a WordPress surface that walks a member through it. Until that
+ * exists, a site migrating off `credentials` mode keeps every existing member
+ * on their credentials session indefinitely, which works but never completes
+ * the migration. Do NOT "solve" this by allow-listing member email domains on
+ * the connection: that converts a cloned or compromised WordPress site from
+ * "impersonate already-linked members" into "take over any Agend account on an
+ * allow-listed domain", which on a consumer-email member base is every member.
+ *
  * Returns 0 -- rather than throwing or fataling an admin screen -- when
  * `WP_User_Query` is unavailable, or if the query itself throws.
  *
