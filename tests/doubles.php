@@ -112,6 +112,18 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 			return (string) get_option( 'agend_apps_account_slug', '' );
 		}
 
+		/**
+		 * Added for WpIdpSamlLinkTest's SP-entity-id host-preference case
+		 * (`agend_apps_saml_agend_sp_entity_id()`'s fallback and host-match
+		 * branches, mirroring `includes/account-link-state.php`'s own
+		 * `method_exists()` guard). Reads the option directly rather than the
+		 * real class's environment-switch logic, which nothing under test here
+		 * exercises.
+		 */
+		public static function get_root_url(): string {
+			return (string) get_option( 'agend_apps_root_url_for_tests', '' );
+		}
+
 		public static function saml_nameid_attribute_for_agend_sp(): string {
 			$mappings = get_option( 'wp_saml_idp_attribute_mappings', array() );
 			$result   = '';
@@ -155,35 +167,10 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 			return (string) apply_filters( 'agend_apps_saml_nameid_attribute', $result );
 		}
 
-		public static function link_mechanisms_are_identity_equivalent(): bool {
-			if ( 'saml' !== self::detected_idp_plugin() ) {
-				return false;
-			}
-
-			$nameid_attribute = self::saml_nameid_attribute_for_agend_sp();
-
-			if ( '' === $nameid_attribute ) {
-				return false;
-			}
-
-			if ( function_exists( 'agend_apps_external_id_meta_key' ) ) {
-				$meta_key = agend_apps_external_id_meta_key();
-			} else {
-				$meta_key = (string) get_option( 'agend_apps_external_id_meta_key', '' );
-
-				if ( '' === $meta_key ) {
-					$meta_key = 'imk_membership_number';
-				}
-			}
-
-			return $nameid_attribute === $meta_key;
-		}
-
 		public static function normalize_sso_link_mechanism( $value ): string {
 			$allowed = array(
 				self::SSO_LINK_MECHANISM_AUTO,
 				self::SSO_LINK_MECHANISM_SAML,
-				self::SSO_LINK_MECHANISM_SERVER,
 				self::SSO_LINK_MECHANISM_DISABLED,
 			);
 
@@ -197,15 +184,9 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 				return $configured;
 			}
 
-			if ( '' === self::detected_idp_plugin() ) {
-				return self::SSO_LINK_MECHANISM_SERVER;
-			}
-
-			if ( self::MEMBER_AUTH_WORDPRESS === self::get_member_auth_mode() && self::link_mechanisms_are_identity_equivalent() ) {
-				return self::SSO_LINK_MECHANISM_SERVER;
-			}
-
-			return self::SSO_LINK_MECHANISM_SAML;
+			return ( '' === self::detected_idp_plugin() )
+				? self::SSO_LINK_MECHANISM_DISABLED
+				: self::SSO_LINK_MECHANISM_SAML;
 		}
 
 		public static function link_on_user_create(): bool {

@@ -1,27 +1,22 @@
 <?php
 /**
- * WordPress-as-IdP identity link step.
+ * WordPress-as-IdP identity link state.
  *
- * docs/PLAN-wordpress-idp-option-b.md section 4.2, with the shipped gateway
- * contract (see the build brief this file was written against) superseding
- * that document's draft `/v1/sso/identities` shape where the two disagree.
+ * The server-to-server link step this file used to run
+ * (`agend_apps_wp_idp_link_user()`, posting `POST /v1/sso/identities` with no
+ * signed assertion) is retired: an Agend identity may only be created from a
+ * signed SAML assertion. Linking a WordPress member to Agend now happens
+ * through the SAML round trip in `includes/wp-idp-saml-link.php`, which loads
+ * after this file (it reuses the state helpers below) and is the only file
+ * that writes a link state forward from a WordPress sign-in.
  *
- * Binds a WordPress user to an Agend identity server to server, using the
- * account-scoped API key -- no password ever crosses the boundary. Loaded
- * only in `wordpress` sign-in mode (`Agend_Apps_Settings::wordpress_idp_enabled()`),
- * alongside the other conditional requires in `agend-apps-core.php`.
- *
- * Two operational facts drive the throttling below:
- *
- * 1. Re-posting `POST /v1/sso/identities` while a withhold (202
- *    `verification_required`) is pending ROTATES the pending confirm token
- *    and may send the member another email (the gateway rate-limits that per
- *    mailbox per hour, but this plugin must not rely on the gateway alone to
- *    avoid spamming a member). So a `pending` user is never re-posted; the
- *    read-only `GET /v1/sso/identities/status` is polled instead.
- * 2. There is no webhook and no push when a pending member completes
- *    verification, so polling on a later login is the only way this plugin
- *    learns about it.
+ * What remains here is the shared vocabulary every surface that talks about a
+ * member's link state depends on: the state constants, the per-user recorded
+ * state (read/write), and the per-state backoff/throttle so a repeatedly
+ * failing state cannot be retried on every page load. `includes/wp-idp-
+ * diagnostics.php` (loaded unconditionally) and `includes/wp-idp-saml-link.php`
+ * (loaded only in `wordpress` sign-in mode, alongside this file) both depend
+ * on these.
  *
  * @package Agend_Apps_Core
  */
@@ -32,8 +27,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Link state: the pair (idp_entity_id, external_id) is bound to an Agend
- * user, confirmed by the gateway (201/200, or a status poll reporting
- * linked).
+ * user, confirmed by the gateway (a successful token mint, or a status poll
+ * reporting linked).
  *
  * @var string
  */
@@ -41,8 +36,7 @@ const AGEND_APPS_LINK_STATE_LINKED = 'linked';
 
 /**
  * Link state: the gateway withheld the link (202 `verification_required`).
- * Nothing was created; a confirm email is outstanding. Never re-posted --
- * only polled (see the file docblock).
+ * Nothing was created; a confirm email is outstanding.
  *
  * @var string
  */
@@ -82,6 +76,19 @@ const AGEND_APPS_LINK_STATE_FORBIDDEN = 'forbidden';
  * @var string
  */
 const AGEND_APPS_LINK_STATE_ERROR = 'error';
+
+/**
+ * Link state: a SAML assertion was sent to Agend for this member
+ * (`includes/wp-idp-saml-link.php`'s handoff redirected them through the
+ * site's SAML identity provider); the link is confirmed once a token mint
+ * succeeds (`Agend_Apps_Token_Worker::provide_token()` promotes this to
+ * `linked`). Recorded so a member whose round trip has not yet completed --
+ * or whose IdP declined it silently -- is not handed the handoff redirect
+ * again on every single sign-in.
+ *
+ * @var string
+ */
+const AGEND_APPS_LINK_STATE_ASSERTED = 'asserted';
 
 /**
  * User-meta key holding the recorded link state
@@ -133,11 +140,22 @@ const AGEND_APPS_LINK_BACKOFF_HUMAN = 24 * HOUR_IN_SECONDS;
 const AGEND_APPS_LINK_BACKOFF_ERROR = 5 * MINUTE_IN_SECONDS;
 
 /**
+ * Per-user backoff after `asserted`: short, for the same reason as `error` --
+ * a member whose SAML round trip has not yet resolved (they abandoned it, the
+ * IdP declined it, the token mint has not run yet) should be offered the
+ * handoff again soon, not made to wait a human-scale window, but not on
+ * every single sign-in either.
+ *
+ * @var int
+ */
+const AGEND_APPS_LINK_BACKOFF_ASSERTED = 5 * MINUTE_IN_SECONDS;
+
+/**
  * Reads a WordPress user's recorded Agend link state.
  *
- * Read-only accessor for any surface that wants to display the state (a
- * future diagnostic panel, per docs/PLAN-wordpress-idp-option-b.md section
- * 6 -- not built by this file). Never triggers a gateway call.
+ * Read-only accessor for any surface that wants to display the state (the
+ * diagnostics panel, `includes/wp-idp-diagnostics.php`). Never triggers a
+ * gateway call.
  *
  * @param int $user_id WordPress user id.
  * @return array{state: string, error_code: string, timestamp: int} Defaults
@@ -172,8 +190,9 @@ function agend_apps_wp_idp_link_state( int $user_id ): array {
  *
  * @param int    $user_id    WordPress user id.
  * @param string $state      One of the `AGEND_APPS_LINK_STATE_*` constants.
- * @param string $error_code The gateway error code (e.g. `IDENTITY_ALREADY_LINKED`),
- *                           or '' when the state carries none (linked/pending).
+ * @param string $error_code A machine-readable reason code (e.g.
+ *                           `IDENTITY_ALREADY_LINKED`, `sp_not_registered`),
+ *                           or '' when the state carries none (linked/pending/asserted).
  */
 function agend_apps_wp_idp_record_link_state( int $user_id, string $state, string $error_code = '' ): void {
 	update_user_meta(
@@ -207,6 +226,9 @@ function agend_apps_wp_idp_link_backoff_seconds( string $state ): int {
 		case AGEND_APPS_LINK_STATE_ERROR:
 			return AGEND_APPS_LINK_BACKOFF_ERROR;
 
+		case AGEND_APPS_LINK_STATE_ASSERTED:
+			return AGEND_APPS_LINK_BACKOFF_ASSERTED;
+
 		default:
 			return 0;
 	}
@@ -233,248 +255,20 @@ function agend_apps_wp_idp_link_is_throttled( array $stored ): bool {
 }
 
 /**
- * Maps a gateway error from `agend_apps_sso_link_identity()` to a link state.
+ * `user_register` handler: mints the external id (so every WordPress user has
+ * one from the moment they exist, per {@see agend_apps_ensure_external_id()}).
  *
- * @param WP_Error $error Gateway error.
- * @return string One of the `AGEND_APPS_LINK_STATE_*` constants (never '').
- */
-function agend_apps_wp_idp_link_state_for_error( WP_Error $error ): string {
-	$status = agend_apps_auth_error_status( $error );
-	$code   = agend_apps_auth_error_code( $error );
-
-	if ( 409 === $status && 'IDENTITY_ALREADY_LINKED' === $code ) {
-		return AGEND_APPS_LINK_STATE_CONFLICT;
-	}
-
-	if ( 404 === $status && 'CONTACT_NOT_FOUND' === $code ) {
-		return AGEND_APPS_LINK_STATE_NO_CONTACT;
-	}
-
-	if ( 403 === $status && 'CONNECTION_CREATE_FORBIDDEN' === $code ) {
-		return AGEND_APPS_LINK_STATE_FORBIDDEN;
-	}
-
-	// Everything else -- transport failure (status 0), rate limiting,
-	// validation errors that should never happen given how the payload is
-	// built, other 403/401 (a scope problem the feature gate below should
-	// already have caught, but the gateway is the final authority), and any
-	// 5xx -- is retryable. An unrecognised code is deliberately treated as
-	// retryable rather than as a hard stop: standing down forever on a
-	// gateway answer this plugin does not understand would be worse than
-	// trying again on the next login.
-	return AGEND_APPS_LINK_STATE_ERROR;
-}
-
-/**
- * Polls `GET /v1/sso/identities/status` for a user already in the `pending`
- * state, promoting to `linked` when the gateway reports it. Never re-posts
- * the identity (see the file docblock) -- this is the only network call a
- * pending user's login triggers.
- *
- * @param int    $user_id       WordPress user id.
- * @param string $idp_entity_id This site's SSO connection entity id.
- * @param string $external_id   The member's external id.
- * @return string The resulting state constant.
- */
-function agend_apps_wp_idp_poll_pending_link( int $user_id, string $idp_entity_id, string $external_id ): string {
-	$response = agend_apps_sso_get_link_status( $idp_entity_id, $external_id );
-
-	if ( is_wp_error( $response ) ) {
-		// The poll itself failing does not un-pend the member -- it just
-		// means this attempt learned nothing. Stay pending (not `error`):
-		// re-classifying a transient status-check failure as `error` would
-		// give it the SHORT backoff, defeating the whole point of the long
-		// `pending` window (avoiding token rotation on the write endpoint,
-		// which this poll never touches anyway).
-		agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_PENDING );
-		return AGEND_APPS_LINK_STATE_PENDING;
-	}
-
-	$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
-
-	if ( is_array( $data ) && ! empty( $data['linked'] ) ) {
-		agend_apps_record_linked_identity( $user_id, $data );
-		agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_LINKED );
-		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
-
-		return AGEND_APPS_LINK_STATE_LINKED;
-	}
-
-	agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_PENDING );
-
-	return AGEND_APPS_LINK_STATE_PENDING;
-}
-
-/**
- * Links (or re-checks the link for) a WordPress user, server to server.
- *
- * The single entry point for the whole link step
- * (docs/PLAN-wordpress-idp-option-b.md section 4.2). Safe to call on every
- * login: it no-ops immediately outside `server` mechanism, short-circuits
- * once linked, and throttles every other state per
- * {@see agend_apps_wp_idp_link_backoff_seconds()} so a burst of logins can
- * never hammer the gateway or, worse, rotate a pending member's
- * verification token by re-posting.
- *
- * Never throws: every path that can fail (the gateway call, the feature
- * checks, anything a filter callback hooked onto a helper here might do) is
- * inside the `try`/`catch` below, because a gateway problem must NEVER
- * delay or break a WordPress login.
- *
- * @param int $user_id WordPress user id.
- * @return string One of the `AGEND_APPS_LINK_STATE_*` constants, or '' when
- *                the site is not using the `server` link mechanism (SAML
- *                sites and disabled sites must never call this endpoint).
- */
-function agend_apps_wp_idp_link_user( int $user_id ): string {
-	if ( Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER !== Agend_Apps_Settings::sso_link_mechanism() ) {
-		return '';
-	}
-
-	if ( 0 === $user_id ) {
-		return '';
-	}
-
-	try {
-		$stored = agend_apps_wp_idp_link_state( $user_id );
-
-		if ( AGEND_APPS_LINK_STATE_LINKED === $stored['state'] ) {
-			return AGEND_APPS_LINK_STATE_LINKED;
-		}
-
-		if ( agend_apps_wp_idp_link_is_throttled( $stored ) ) {
-			return $stored['state'];
-		}
-
-		// The sso_identity_link optional feature (includes/records/features.php):
-		// a key without sso.identities.create always gets a 403 from
-		// POST /v1/sso/identities, so never attempt the call at all. Mirrors
-		// Agend_Apps_Token_Worker::provide_token()'s stand-down for
-		// sso_account_link. Deliberately does not persist a state change or
-		// consume the throttle window: this is a local, static fact about the
-		// connected key, not a gateway answer, and re-checking the gateway
-		// scopes on the very next login (once the key is fixed) must not be
-		// blocked by a backoff this stand-down never set.
-		if ( function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'sso_identity_link' ) ) {
-			return $stored['state'];
-		}
-
-		$idp_entity_id = agend_apps_idp_entity_id();
-		$external_id   = agend_apps_ensure_external_id( $user_id );
-
-		if ( '' === $external_id ) {
-			return $stored['state'];
-		}
-
-		if ( AGEND_APPS_LINK_STATE_PENDING === $stored['state'] ) {
-			return agend_apps_wp_idp_poll_pending_link( $user_id, $idp_entity_id, $external_id );
-		}
-
-		$user = get_user_by( 'id', $user_id );
-
-		if ( ! ( $user instanceof WP_User ) || '' === (string) $user->user_email ) {
-			agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_ERROR );
-			return AGEND_APPS_LINK_STATE_ERROR;
-		}
-
-		$contact = array_filter(
-			array(
-				'first_name' => (string) $user->first_name,
-				'last_name'  => (string) $user->last_name,
-			),
-			static function ( $value ) {
-				return '' !== $value;
-			}
-		);
-
-		$response = agend_apps_sso_link_identity( $idp_entity_id, $external_id, (string) $user->user_email, $contact );
-
-		if ( is_wp_error( $response ) ) {
-			$state      = agend_apps_wp_idp_link_state_for_error( $response );
-			$error_code = agend_apps_auth_error_code( $response );
-
-			agend_apps_wp_idp_record_link_state( $user_id, $state, $error_code );
-
-			return $state;
-		}
-
-		$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
-
-		if ( is_array( $data ) && isset( $data['status'] ) && 'verification_required' === $data['status'] ) {
-			// 202: WITHHELD. Nothing created -- record pending and stop. No
-			// ids to store; the confirm link, when followed, completes the
-			// link on the gateway's side with no push back to this site, so
-			// only a later poll (above) learns about it.
-			agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_PENDING );
-
-			return AGEND_APPS_LINK_STATE_PENDING;
-		}
-
-		// 201 (created) or 200 (idempotent re-post): linked either way.
-		agend_apps_record_linked_identity( $user_id, is_array( $data ) ? $data : array() );
-		agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_LINKED );
-		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
-
-		return AGEND_APPS_LINK_STATE_LINKED;
-	} catch ( Throwable $e ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[Agend Apps] WordPress-IdP link step failed for user ' . $user_id . ': ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-		}
-
-		agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_ERROR );
-
-		return AGEND_APPS_LINK_STATE_ERROR;
-	}
-}
-
-/**
- * `wp_login` handler: the safety-net trigger for the link step, mirroring
- * `agend-entitlement-mirror/includes/class-entitlement-sync.php:182-207`'s
- * `handle_login()` (throttle plus non-blocking `try`/`catch`). Priority 20,
- * same as that mirror hook, so both run after WordPress has fully resolved
- * the login (priority 10 is the default `wp_signon()` uses internally) but
- * independently of each other.
- *
- * `agend_apps_wp_idp_link_user()` already carries its own `try`/`catch` and
- * per-user backoff, so this handler is a thin, doubly-safe wrapper: even a
- * defect in a hook this file itself hangs off (a sibling plugin's filter
- * callback throwing, say) cannot escape here and break authentication.
- *
- * @param string  $user_login Unused; required by the `wp_login` hook signature.
- * @param WP_User $user       The user who just logged in.
- */
-function agend_apps_wp_idp_handle_login( string $user_login, WP_User $user ): void {
-	unset( $user_login );
-
-	try {
-		agend_apps_wp_idp_link_user( $user->ID );
-	} catch ( Throwable $e ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[Agend Apps] wp_login WordPress-IdP link hook failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-		}
-	}
-}
-add_action( 'wp_login', 'agend_apps_wp_idp_handle_login', 20, 2 );
-
-/**
- * `user_register` handler: always mints the external id (so every WordPress
- * user has one from the moment they exist, per
- * {@see agend_apps_ensure_external_id()}), but only attempts the link
- * itself when {@see Agend_Apps_Settings::link_on_user_create()} is on.
- *
- * Off by default because `user_register` fires for every new WordPress
- * user, including administrators and spam registrations, which a site may
- * not want posted to the gateway automatically.
+ * The link-on-create attempt this handler used to make (server-to-server) is
+ * retired along with the mechanism it drove: there is no assertion-free way
+ * to create an Agend identity from a `user_register` event, so this handler
+ * is now only the external-id mint every WordPress user needs regardless of
+ * sign-in mode.
  *
  * @param int $user_id The newly-created WordPress user id.
  */
 function agend_apps_wp_idp_handle_user_register( int $user_id ): void {
 	try {
 		agend_apps_ensure_external_id( $user_id );
-
-		if ( Agend_Apps_Settings::link_on_user_create() ) {
-			agend_apps_wp_idp_link_user( $user_id );
-		}
 	} catch ( Throwable $e ) {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( '[Agend Apps] user_register WordPress-IdP handler failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
@@ -482,46 +276,3 @@ function agend_apps_wp_idp_handle_user_register( int $user_id ): void {
 	}
 }
 add_action( 'user_register', 'agend_apps_wp_idp_handle_user_register' );
-
-/**
- * `init` handler: the lazy poll that closes the withhold round trip
- * (docs/PLAN-wordpress-idp-option-b.md section 4.2, "a lazy fallback when a
- * bearer is needed and no link state exists").
- *
- * `wp_login` alone is not enough for a `pending` member, and the gap is the
- * worst one in the flow. The sequence is: sign in, get withheld, receive the
- * email, click the confirm link, come back to the site. That return trip
- * fires no `wp_login`, because the WordPress session never ended. Without
- * this hook the member would have to log out and back in before the site
- * noticed the link they were just told to complete, and until then
- * `agend-content-access` fails closed on the empty bearer and shows them
- * less than before they confirmed.
- *
- * Cheap by construction, in this order: the file is only loaded in
- * `wordpress` mode at all; signed-out requests and cron stop here; the state
- * read is one usermeta hit; and only the `pending` state proceeds. The
- * backoff inside `agend_apps_wp_idp_link_user()` then bounds an actual
- * gateway call to once per {@see AGEND_APPS_LINK_BACKOFF_PENDING}. Every
- * other state is left entirely to `wp_login`, so a linked, conflicted or
- * errored member costs nothing but that usermeta read.
- */
-function agend_apps_wp_idp_maybe_poll_pending(): void {
-	if ( ! is_user_logged_in() || wp_doing_cron() ) {
-		return;
-	}
-
-	try {
-		$user_id = get_current_user_id();
-
-		if ( AGEND_APPS_LINK_STATE_PENDING !== agend_apps_wp_idp_link_state( $user_id )['state'] ) {
-			return;
-		}
-
-		agend_apps_wp_idp_link_user( $user_id );
-	} catch ( Throwable $e ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[Agend Apps] pending-link poll failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-		}
-	}
-}
-add_action( 'init', 'agend_apps_wp_idp_maybe_poll_pending' );
