@@ -240,24 +240,6 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_identity_sso_section'
 		);
 
-		register_setting(
-			self::OPTION_GROUP,
-			'agend_apps_sso_link_on_user_create',
-			array(
-				'type'              => 'boolean',
-				'sanitize_callback' => array( $this, 'sanitize_checkbox' ),
-				'default'           => false,
-			)
-		);
-
-		add_settings_field(
-			'agend_apps_sso_link_on_user_create',
-			__( 'Link on user creation', 'agend-apps-core' ),
-			array( $this, 'render_link_on_user_create_field' ),
-			self::PAGE_SLUG,
-			'agend_apps_identity_sso_section'
-		);
-
 		// Connection section: the read-only entity id an admin pastes into
 		// the Agend dashboard when creating the connection. Not a registered
 		// setting -- it is derived, and it is HALF of the identity key every
@@ -742,27 +724,6 @@ class Agend_Apps_Identity_Admin {
 			);
 			echo '</p></div>';
 		}
-	}
-
-	/**
-	 * Renders the "link on user creation" checkbox field.
-	 */
-	public function render_link_on_user_create_field(): void {
-		$value = Agend_Apps_Settings::link_on_user_create();
-		?>
-		<label>
-			<input type="checkbox" name="agend_apps_sso_link_on_user_create" value="1" <?php checked( true, $value ); ?> />
-			<?php esc_html_e( 'Attempt the Agend identity link as soon as a WordPress user account is created', 'agend-apps-core' ); ?>
-		</label>
-		<p class="description">
-			<?php
-			esc_html_e(
-				'Off by default. This fires for every WordPress user created, including administrators and bulk imports, which is not always wanted. When off, the link is only attempted at the user\'s first sign-in.',
-				'agend-apps-core'
-			);
-			?>
-		</p>
-		<?php
 	}
 
 	/**

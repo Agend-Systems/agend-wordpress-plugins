@@ -23,8 +23,7 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/admin/class-agend-apps-identit
  * The SSO link mechanism setting: the closed three-value vocabulary (`auto`,
  * `saml`, `disabled` -- the retired `server` value normalises to `auto`, see
  * {@see Agend_Apps_Settings::normalize_sso_link_mechanism()}), its sanitiser,
- * and the `auto` resolver that consults IdP detection. Also covers the
- * `agend_apps_sso_link_on_user_create` boolean.
+ * and the `auto` resolver that consults IdP detection.
  *
  * An Agend identity may only be created from a signed SAML assertion, so
  * `auto` has exactly two outcomes: `saml` when a SAML IdP plugin is detected,
@@ -234,28 +233,22 @@ final class SsoLinkMechanismTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
-	// agend_apps_sso_link_on_user_create
+	// Agend_Apps_Identity_Admin::sanitize_checkbox()
+	//
+	// Generic; its only caller (the now-deleted "link on user creation"
+	// setting -- agend_apps_wp_idp_link_user() is retired, so there is
+	// nothing left to trigger at user_register time) is gone, but the method
+	// itself is a small reusable helper other checkbox fields on this page
+	// can still register against.
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function should_sanitise_the_link_on_create_checkbox_as_a_boolean(): void {
+	public function should_sanitise_a_checkbox_value_as_a_boolean(): void {
 		$admin = new Agend_Apps_Identity_Admin();
 
 		$this->assertTrue( $admin->sanitize_checkbox( '1' ) );
 		$this->assertFalse( $admin->sanitize_checkbox( null ) );
 		$this->assertFalse( $admin->sanitize_checkbox( '' ) );
-	}
-
-	#[Test]
-	public function should_report_link_on_user_create_disabled_by_default(): void {
-		$this->assertFalse( Agend_Apps_Settings::link_on_user_create() );
-	}
-
-	#[Test]
-	public function should_report_link_on_user_create_enabled_when_the_option_is_set(): void {
-		update_option( 'agend_apps_sso_link_on_user_create', true );
-
-		$this->assertTrue( Agend_Apps_Settings::link_on_user_create() );
 	}
 
 	// -----------------------------------------------------------------
