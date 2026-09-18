@@ -373,6 +373,64 @@ final class ConnectSiteTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// agend_apps_connect_site_moved()
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_report_not_moved_with_no_stored_connection(): void {
+		delete_option( 'agend_apps_sso_connection' );
+
+		$this->assertFalse( \agend_apps_connect_site_moved( 'https://example.test' ) );
+	}
+
+	#[Test]
+	public function should_report_not_moved_when_the_stamp_matches(): void {
+		update_option(
+			'agend_apps_sso_connection',
+			array( 'site_url' => 'https://example.test' )
+		);
+
+		$this->assertFalse( \agend_apps_connect_site_moved( 'https://example.test' ) );
+	}
+
+	#[Test]
+	public function should_report_not_moved_when_the_stamp_is_an_empty_string(): void {
+		update_option(
+			'agend_apps_sso_connection',
+			array( 'site_url' => '' )
+		);
+
+		$this->assertFalse( \agend_apps_connect_site_moved( 'https://a-completely-different-site.test' ) );
+	}
+
+	#[Test]
+	public function should_report_moved_when_the_stamp_differs(): void {
+		update_option(
+			'agend_apps_sso_connection',
+			array( 'site_url' => 'https://example.test' )
+		);
+
+		$this->assertTrue( \agend_apps_connect_site_moved( 'https://a-different-site.test' ) );
+	}
+
+	#[Test]
+	public function should_be_insensitive_to_a_trailing_slash_on_either_side(): void {
+		update_option(
+			'agend_apps_sso_connection',
+			array( 'site_url' => 'https://example.test/' )
+		);
+
+		$this->assertFalse( \agend_apps_connect_site_moved( 'https://example.test' ) );
+
+		update_option(
+			'agend_apps_sso_connection',
+			array( 'site_url' => 'https://example.test' )
+		);
+
+		$this->assertFalse( \agend_apps_connect_site_moved( 'https://example.test/' ) );
+	}
+
+	// -----------------------------------------------------------------
 	// agend_apps_connect_approval_notice()
 	// -----------------------------------------------------------------
 

@@ -119,6 +119,24 @@ agend_apps_updater_boot();
 register_activation_hook( __FILE__, 'agend_apps_records_activate_rewrites' );
 register_deactivation_hook( __FILE__, 'agend_apps_records_deactivate_rewrites' );
 
+// WP-CLI commands: CLI-only, never reachable from a web request, because
+// `wp agend-apps scrub-secrets` deletes stored credentials outright -- a
+// destructive action that must never be triggerable by anything a browser
+// request could reach. Loaded and registered here, next to the other
+// conditional requires, rather than inside `agend_apps_core_bootstrap()`,
+// since `wp-cli.php` may run commands before `plugins_loaded` in some
+// contexts and this registration has no dependency on anything that hook
+// loads.
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-secret-store.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/connect-site.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cli.php';
+	// WP-CLI maps this class's public methods to subcommands by name
+	// (underscore to hyphen), so `scrub_secrets()` becomes `wp agend-apps
+	// scrub-secrets` with no further registration needed.
+	WP_CLI::add_command( 'agend-apps', 'Agend_Apps_CLI' );
+}
+
 /**
  * Loads all plugin includes and initialises the admin controller.
  *

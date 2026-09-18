@@ -1139,6 +1139,69 @@ function agend_apps_connect_run( bool $acknowledged = false ): array {
 }
 
 /**
+ * Whether this site's stored connection was made under a DIFFERENT
+ * `site_url()` than the one this runtime resolves now -- the signal that this
+ * site's database (and therefore the API key and the stored connection record
+ * it carries) has been copied onto another site: a staging clone, a restored
+ * backup on a new domain, a domain rename.
+ *
+ * The threat this closes, concretely: a cloned site (a staging copy, a
+ * restored backup on a new domain) carries the ORIGINAL site's live gateway
+ * API key in `agend_apps_secrets` ({@see Agend_Apps_Secret_Store}) AND the
+ * ORIGINAL site's SAML signing key in the local IdP plugin's own option. That
+ * clone can therefore mint SAML assertions the gateway accepts as the
+ * original site's, for any member -- the clone's copy of every member's user
+ * meta is enough to impersonate them. Standing the link flow down on a
+ * `site_url()` mismatch (this function, consumed by
+ * {@see agend_apps_saml_link_eligibility()}'s `site_moved` reason) is the
+ * CHEAP half of the fix: it stops THIS site from silently minting new links
+ * once its stamped URL no longer matches. It is NOT a complete fix by itself,
+ * because the copied API key in `agend_apps_secrets` still works for every
+ * OTHER gateway call this plugin makes (catalogue reads, cart, CRM, and so
+ * on) -- this gate does nothing to revoke that. Actually revoking it requires
+ * scrubbing both secrets, which is what `wp agend-apps scrub-secrets`
+ * ({@see Agend_Apps_CLI::scrub_secrets()}) exists to do; this gate only closes
+ * the silent-linking half.
+ *
+ * FAILS OPEN on an empty or missing stamp: a site connected before scope item
+ * 3 added the `site_url` stamp, or one that has never connected at all, must
+ * NEVER be treated as a clone and locked out merely for lacking a value
+ * nothing wrote yet. Only a genuine, NON-EMPTY mismatch reports `true`.
+ *
+ * Compares with an exact `untrailingslashit()` string match -- deliberately
+ * NOT scheme-insensitive. An http-to-https move (or the reverse) therefore
+ * reads as a move too, and that is correct: this site's registered SAML SP
+ * identity is `site_url()`-anchored end to end (the entity id and ACS url a
+ * member's browser round-trips through), so a scheme change really does
+ * re-key this site's identity at the gateway and really does need a
+ * re-connect, exactly like a host change would.
+ *
+ * @param string|null $current_site_url Injected current `site_url()`, or
+ *                                       `null` (the default) to resolve it
+ *                                       from `site_url()` itself. Production
+ *                                       code ({@see agend_apps_saml_link_eligibility()},
+ *                                       the admin connect view) always calls
+ *                                       this with no argument; the unit suite
+ *                                       injects a value directly since this
+ *                                       runtime's stubbed `site_url()`
+ *                                       resolves to a fixed constant.
+ * @return bool
+ */
+function agend_apps_connect_site_moved( ?string $current_site_url = null ): bool {
+	$stored_site_url = agend_apps_connect_stored()['site_url'];
+
+	if ( '' === $stored_site_url ) {
+		return false;
+	}
+
+	if ( null === $current_site_url ) {
+		$current_site_url = site_url();
+	}
+
+	return untrailingslashit( $stored_site_url ) !== untrailingslashit( $current_site_url );
+}
+
+/**
  * The verbatim operator copy shown for a connection's approval state.
  *
  * @param string $approval_state The connection's `approval_state` (`pending`, `approved`, or '').

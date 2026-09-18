@@ -18,7 +18,9 @@
  *     stored: array,
  *     last_run: array|null,
  *     sp_urls: array{sp_entity_id: string, sp_acs_url: string, sp_metadata_url: string},
- *     preflight: array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool}
+ *     preflight: array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool},
+ *     site_moved: bool,
+ *     current_site_url: string
  * } $data
  */
 
@@ -36,6 +38,21 @@ $display_urls = $has_stored
 	)
 	: $data['sp_urls'];
 ?>
+<?php if ( ! empty( $data['site_moved'] ) ) : ?>
+	<div class="notice notice-error inline"><p>
+		<strong><?php esc_html_e( 'This site\'s connection was made under a different address.', 'agend-apps-core' ); ?></strong><br />
+		<?php
+		printf(
+			/* translators: 1: the site_url() this connection was stamped with, 2: this site's current site_url(). */
+			esc_html__( 'Stored connection address: %1$s. Current address: %2$s. This can mean the site has genuinely moved (a domain rename, or http to https), or that this database is a clone or restored backup of another site -- in which case it may still carry that other site\'s live Agend API key and SAML signing key. The SAML link flow is standing down until this is resolved.', 'agend-apps-core' ),
+			esc_html( $stored['site_url'] ?: __( '(none recorded)', 'agend-apps-core' ) ),
+			esc_html( $data['current_site_url'] )
+		);
+		?>
+		<br />
+		<?php esc_html_e( 'If this site has genuinely moved, pressing "Reconnect this site" below is safe and is the correct way to re-adopt the connection: it re-stamps the current address. If this is a clone or backup restored onto a different address, do NOT reconnect it here -- instead run "wp agend-apps scrub-secrets" on it to remove the copied credentials.', 'agend-apps-core' ); ?>
+	</p></div>
+<?php endif; ?>
 <table class="widefat striped" style="max-width:820px;margin-bottom:12px;">
 	<tbody>
 		<tr>
