@@ -97,6 +97,7 @@ final class WpIdpDiagnosticsTest extends TestCase {
 			'no_contact'        => array( \AGEND_APPS_LINK_STATE_NO_CONTACT, 'error', 'JIT contact provisioning' ),
 			'forbidden'         => array( \AGEND_APPS_LINK_STATE_FORBIDDEN, 'error', 'sso.connections.create' ),
 			'error'             => array( \AGEND_APPS_LINK_STATE_ERROR, 'warning', 'retries on its own' ),
+			'pending_approval'  => array( \AGEND_APPS_LINK_STATE_PENDING_APPROVAL, 'info', 'Agend has not approved it yet' ),
 			'never attempted'   => array( '', 'info', 'Expected until' ),
 			'unrecognised'      => array( 'some_future_state', 'info', 'Expected until' ),
 		);

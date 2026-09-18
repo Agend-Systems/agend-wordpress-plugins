@@ -91,6 +91,25 @@ const AGEND_APPS_LINK_STATE_ERROR = 'error';
 const AGEND_APPS_LINK_STATE_ASSERTED = 'asserted';
 
 /**
+ * Link state: the gateway holds the signed assertion (an `sso_identities` row
+ * was never even attempted, because `GET /v1/sso/identities/status` itself
+ * answers `unknown_issuer` -- see `agend_apps_auth_error_code()`) but the SSO
+ * connection this site's entity id names has not been approved yet. The
+ * gateway's `resolveConnectionByIssuer` filters an unapproved connection out
+ * on `is_active`, so both the status and mint routes report `unknown_issuer`
+ * regardless of whether the round trip itself succeeded.
+ *
+ * This is a normal waiting state on a brand-new connection, not a
+ * configuration fault -- it must never be shown as an error, or it sends an
+ * operator hunting a misconfiguration that does not exist. It clears itself
+ * the moment Agend approves the connection, with no WordPress-side action
+ * required.
+ *
+ * @var string
+ */
+const AGEND_APPS_LINK_STATE_PENDING_APPROVAL = 'pending_approval';
+
+/**
  * User-meta key holding the recorded link state
  * `array{state: string, error_code: string, timestamp: int, attempts: int,
  * views: int, renders: int, completed: bool, fallback_done: bool}`.
@@ -109,6 +128,29 @@ const AGEND_APPS_LINK_STATE_ASSERTED = 'asserted';
  * @var string
  */
 const AGEND_APPS_LINK_STATE_META = '_agend_apps_link_state';
+
+/**
+ * Lifetime cap on how many times a nonce'd IdP URL is issued for one member.
+ *
+ * Defined here, rather than in `includes/wp-idp-saml-link.php` (the file that
+ * actually counts against it and is the only place a nonce'd URL is minted),
+ * because {@see agend_apps_wp_idp_link_backoff_seconds()} below now needs it
+ * too: the escalation to the human backoff once a member has exhausted their
+ * attempts depends on this number, and the file that owns the state
+ * vocabulary and its backoff windows has to own the cap that drives them,
+ * rather than reaching forward into a file that loads after it. Was
+ * `AGEND_APPS_SAML_LINK_MAX_ATTEMPTS`; renamed on the move since it is no
+ * longer SAML-specific vocabulary.
+ *
+ * Counts `attempts` (see `agend_apps_wp_idp_link_state()`'s docblock), never
+ * page views: a member who never reaches an eligible page never burns this
+ * down. Once hit, {@see agend_apps_saml_link_eligibility()} in
+ * `includes/wp-idp-saml-link.php` reports `attempt_cap` and no further URL is
+ * minted, except the one visible fallback redirect.
+ *
+ * @var int
+ */
+const AGEND_APPS_LINK_MAX_ATTEMPTS = 3;
 
 /**
  * Per-user backoff while `pending`. Deliberately SHORT.
@@ -237,7 +279,7 @@ function agend_apps_wp_idp_link_state( int $user_id ): array {
  * `attempts` via {@see agend_apps_wp_idp_merge_link_state()}. If this
  * function reset the counters to zero on every call, recording `asserted`
  * would erase the attempt it just counted and the lifetime cap
- * (`AGEND_APPS_SAML_LINK_MAX_ATTEMPTS`) would never bind.
+ * (`AGEND_APPS_LINK_MAX_ATTEMPTS`) would never bind.
  *
  * @param int    $user_id    WordPress user id.
  * @param string $state      One of the `AGEND_APPS_LINK_STATE_*` constants.
@@ -313,25 +355,58 @@ function agend_apps_wp_idp_merge_link_state( int $user_id, array $changes ): arr
 /**
  * The per-user throttle window for a given non-linked state.
  *
- * @param string $state One of the `AGEND_APPS_LINK_STATE_*` constants (or '').
+ * The 24-hour `AGEND_APPS_LINK_BACKOFF_HUMAN` window was, until this change,
+ * live-but-unreachable code for the SAML round trip: nothing on that path
+ * ever wrote `conflict`, `no_contact`, or `forbidden` (the only three states
+ * this function mapped to it), so `asserted` and `error` -- the two states the
+ * round trip actually produces -- always fell back to their own short
+ * windows, forever. A member stuck mid-link (a frame-blocked cache, a
+ * declined assertion) retried every five minutes with no ceiling, on every
+ * single sign-in, indefinitely.
+ *
+ * `$attempts` closes that gap: once a member has spent every attempt the
+ * lifetime cap allows, `asserted` and `error` escalate to the human window
+ * instead of their normal short one. This is the right moment to escalate
+ * because a capped member has already had their one visible fallback
+ * redirect (`includes/wp-idp-saml-link.php`'s `agend_apps_saml_link_decision()`)
+ * -- there is nothing left for a quick retry to accomplish; either the round
+ * trip completes on its own before the window elapses, or it needs the same
+ * kind of attention the other three human-backoff states already get.
+ *
+ * `pending_approval` maps to the human window unconditionally (not just past
+ * the cap): the SSO connection being unapproved is not something any number
+ * of retries within a day will change, so there is no short-window phase
+ * worth offering it in the first place.
+ *
+ * `pending`'s short window is deliberately untouched by `$attempts` -- see
+ * `AGEND_APPS_LINK_BACKOFF_PENDING`'s own docblock for why escalating it would
+ * cost the member real access for no gain.
+ *
+ * @param string $state    One of the `AGEND_APPS_LINK_STATE_*` constants (or '').
+ * @param int    $attempts The member's recorded attempt count. Defaults to 0 so
+ *                          every existing single-argument caller keeps its exact
+ *                          current behaviour.
  * @return int Seconds. 0 means "no throttle, always attempt" (an empty/never-attempted
  *             state, or an unrecognised one).
  */
-function agend_apps_wp_idp_link_backoff_seconds( string $state ): int {
+function agend_apps_wp_idp_link_backoff_seconds( string $state, int $attempts = 0 ): int {
+	$capped = $attempts >= AGEND_APPS_LINK_MAX_ATTEMPTS;
+
 	switch ( $state ) {
 		case AGEND_APPS_LINK_STATE_PENDING:
 			return AGEND_APPS_LINK_BACKOFF_PENDING;
 
+		case AGEND_APPS_LINK_STATE_PENDING_APPROVAL:
 		case AGEND_APPS_LINK_STATE_CONFLICT:
 		case AGEND_APPS_LINK_STATE_NO_CONTACT:
 		case AGEND_APPS_LINK_STATE_FORBIDDEN:
 			return AGEND_APPS_LINK_BACKOFF_HUMAN;
 
 		case AGEND_APPS_LINK_STATE_ERROR:
-			return AGEND_APPS_LINK_BACKOFF_ERROR;
+			return $capped ? AGEND_APPS_LINK_BACKOFF_HUMAN : AGEND_APPS_LINK_BACKOFF_ERROR;
 
 		case AGEND_APPS_LINK_STATE_ASSERTED:
-			return AGEND_APPS_LINK_BACKOFF_ASSERTED;
+			return $capped ? AGEND_APPS_LINK_BACKOFF_HUMAN : AGEND_APPS_LINK_BACKOFF_ASSERTED;
 
 		default:
 			return 0;
@@ -341,7 +416,12 @@ function agend_apps_wp_idp_link_backoff_seconds( string $state ): int {
 /**
  * Whether the last recorded attempt is still inside its backoff window.
  *
- * @param array{state: string, error_code: string, timestamp: int} $stored Recorded state.
+ * Passes the recorded `attempts` count through to
+ * {@see agend_apps_wp_idp_link_backoff_seconds()} so a member who has already
+ * exhausted the lifetime attempt cap is held to the escalated human window,
+ * not the short one their state would otherwise get.
+ *
+ * @param array{state: string, error_code: string, timestamp: int, attempts?: int} $stored Recorded state.
  * @return bool
  */
 function agend_apps_wp_idp_link_is_throttled( array $stored ): bool {
@@ -349,7 +429,7 @@ function agend_apps_wp_idp_link_is_throttled( array $stored ): bool {
 		return false;
 	}
 
-	$backoff = agend_apps_wp_idp_link_backoff_seconds( $stored['state'] );
+	$backoff = agend_apps_wp_idp_link_backoff_seconds( $stored['state'], (int) ( $stored['attempts'] ?? 0 ) );
 
 	if ( 0 === $backoff ) {
 		return false;

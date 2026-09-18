@@ -182,13 +182,14 @@ function agend_apps_wp_idp_scopes_held( array $scopes ): array {
  *         `error` (conflict / no_contact / forbidden -- needs a human).
  */
 function agend_apps_wp_idp_link_state_guidance( string $state ): array {
-	$linked     = defined( 'AGEND_APPS_LINK_STATE_LINKED' ) ? AGEND_APPS_LINK_STATE_LINKED : 'linked';
-	$pending    = defined( 'AGEND_APPS_LINK_STATE_PENDING' ) ? AGEND_APPS_LINK_STATE_PENDING : 'pending';
-	$conflict   = defined( 'AGEND_APPS_LINK_STATE_CONFLICT' ) ? AGEND_APPS_LINK_STATE_CONFLICT : 'conflict';
-	$no_contact = defined( 'AGEND_APPS_LINK_STATE_NO_CONTACT' ) ? AGEND_APPS_LINK_STATE_NO_CONTACT : 'no_contact';
-	$forbidden  = defined( 'AGEND_APPS_LINK_STATE_FORBIDDEN' ) ? AGEND_APPS_LINK_STATE_FORBIDDEN : 'forbidden';
-	$error      = defined( 'AGEND_APPS_LINK_STATE_ERROR' ) ? AGEND_APPS_LINK_STATE_ERROR : 'error';
-	$asserted   = defined( 'AGEND_APPS_LINK_STATE_ASSERTED' ) ? AGEND_APPS_LINK_STATE_ASSERTED : 'asserted';
+	$linked           = defined( 'AGEND_APPS_LINK_STATE_LINKED' ) ? AGEND_APPS_LINK_STATE_LINKED : 'linked';
+	$pending          = defined( 'AGEND_APPS_LINK_STATE_PENDING' ) ? AGEND_APPS_LINK_STATE_PENDING : 'pending';
+	$pending_approval = defined( 'AGEND_APPS_LINK_STATE_PENDING_APPROVAL' ) ? AGEND_APPS_LINK_STATE_PENDING_APPROVAL : 'pending_approval';
+	$conflict         = defined( 'AGEND_APPS_LINK_STATE_CONFLICT' ) ? AGEND_APPS_LINK_STATE_CONFLICT : 'conflict';
+	$no_contact       = defined( 'AGEND_APPS_LINK_STATE_NO_CONTACT' ) ? AGEND_APPS_LINK_STATE_NO_CONTACT : 'no_contact';
+	$forbidden        = defined( 'AGEND_APPS_LINK_STATE_FORBIDDEN' ) ? AGEND_APPS_LINK_STATE_FORBIDDEN : 'forbidden';
+	$error            = defined( 'AGEND_APPS_LINK_STATE_ERROR' ) ? AGEND_APPS_LINK_STATE_ERROR : 'error';
+	$asserted         = defined( 'AGEND_APPS_LINK_STATE_ASSERTED' ) ? AGEND_APPS_LINK_STATE_ASSERTED : 'asserted';
 
 	switch ( $state ) {
 		case $linked:
@@ -202,7 +203,14 @@ function agend_apps_wp_idp_link_state_guidance( string $state ): array {
 			return array(
 				'label'    => __( 'SAML assertion sent', 'agend-apps-core' ),
 				'severity' => 'info',
-				'guidance' => __( 'The member was redirected through the SAML identity provider; the link is confirmed the first time a token is minted.', 'agend-apps-core' ),
+				'guidance' => __( 'The member was redirected through the SAML identity provider; the link is confirmed when the round trip returns and the status check confirms it.', 'agend-apps-core' ),
+			);
+
+		case $pending_approval:
+			return array(
+				'label'    => __( 'Pending Agend approval', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( "This site's SSO connection has been created but Agend has not approved it yet. SSO stays inactive until they do. Nothing on the WordPress side needs fixing.", 'agend-apps-core' ),
 			);
 
 		case $pending:
