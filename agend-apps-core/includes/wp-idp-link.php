@@ -92,9 +92,19 @@ const AGEND_APPS_LINK_STATE_ASSERTED = 'asserted';
 
 /**
  * User-meta key holding the recorded link state
- * `array{state: string, error_code: string, timestamp: int}`.
+ * `array{state: string, error_code: string, timestamp: int, attempts: int,
+ * views: int, renders: int, completed: bool, fallback_done: bool}`.
  * Underscore-prefixed like the other identity meta in `includes/identity.php`
  * -- hidden from the profile UI, never sent to the browser.
+ *
+ * The five counters (`attempts`, `views`, `renders`, `completed`,
+ * `fallback_done`) live in this same array rather than five separate meta
+ * keys: every read this file's callers need is "the whole picture for this
+ * member", never a single counter in isolation, so one `get_user_meta()` call
+ * and one `update_user_meta()` call (as close to atomic as WordPress user
+ * meta gets) is both cheaper and keeps a stale partial read from ever
+ * happening. It also means `includes/wp-idp-diagnostics.php`'s panel reads a
+ * single fact per member instead of assembling one from five.
  *
  * @var string
  */
@@ -154,18 +164,45 @@ const AGEND_APPS_LINK_BACKOFF_ASSERTED = 5 * MINUTE_IN_SECONDS;
  * Reads a WordPress user's recorded Agend link state.
  *
  * Read-only accessor for any surface that wants to display the state (the
- * diagnostics panel, `includes/wp-idp-diagnostics.php`). Never triggers a
- * gateway call.
+ * diagnostics panel, `includes/wp-idp-diagnostics.php`) or decide what to do
+ * next (`includes/wp-idp-saml-link.php`). Never triggers a gateway call and
+ * never writes.
+ *
+ * The five counters, each a diagnostic of a DIFFERENT failure mode along the
+ * footer-iframe round trip:
+ * - `attempts`: how many times a nonce'd IdP URL was actually issued for this
+ *   member (see `agend_apps_saml_link_issue_url()`). This is the number the
+ *   lifetime cap binds against -- NOT page views, so a member who never
+ *   reaches an eligible page never burns down the cap.
+ * - `views`: how many eligible front-end page views scheduled the footer
+ *   placeholder (`template_redirect` decided `render`). Climbing without
+ *   `renders` climbing alongside it means the theme never calls `wp_footer`.
+ * - `renders`: how many of those views actually reached `wp_footer` and
+ *   echoed the placeholder. Climbing without `attempts` climbing alongside it
+ *   means the placeholder's own script never ran or its REST call never
+ *   completed (most often a full-page cache serving a stale/shared nonce).
+ * - `completed`: whether the same-origin "done" URL was reached at least
+ *   once, i.e. the iframe was not blocked and the round trip actually came
+ *   back. `false` after several `attempts` is the frame-blocked case the
+ *   visible-redirect fallback exists for.
+ * - `fallback_done`: whether the one permitted visible redirect has already
+ *   been spent, so it is never fired twice for the same member.
  *
  * @param int $user_id WordPress user id.
- * @return array{state: string, error_code: string, timestamp: int} Defaults
- *         to an empty state ('', '', 0) when nothing has been recorded.
+ * @return array{state: string, error_code: string, timestamp: int, attempts: int,
+ *         views: int, renders: int, completed: bool, fallback_done: bool} Defaults to
+ *         an empty/zeroed state when nothing has been recorded.
  */
 function agend_apps_wp_idp_link_state( int $user_id ): array {
 	$default = array(
-		'state'      => '',
-		'error_code' => '',
-		'timestamp'  => 0,
+		'state'         => '',
+		'error_code'    => '',
+		'timestamp'     => 0,
+		'attempts'      => 0,
+		'views'         => 0,
+		'renders'       => 0,
+		'completed'     => false,
+		'fallback_done' => false,
 	);
 
 	if ( 0 === $user_id ) {
@@ -179,14 +216,28 @@ function agend_apps_wp_idp_link_state( int $user_id ): array {
 	}
 
 	return array(
-		'state'      => isset( $stored['state'] ) ? (string) $stored['state'] : '',
-		'error_code' => isset( $stored['error_code'] ) ? (string) $stored['error_code'] : '',
-		'timestamp'  => isset( $stored['timestamp'] ) ? (int) $stored['timestamp'] : 0,
+		'state'         => isset( $stored['state'] ) ? (string) $stored['state'] : '',
+		'error_code'    => isset( $stored['error_code'] ) ? (string) $stored['error_code'] : '',
+		'timestamp'     => isset( $stored['timestamp'] ) ? (int) $stored['timestamp'] : 0,
+		'attempts'      => isset( $stored['attempts'] ) ? (int) $stored['attempts'] : 0,
+		'views'         => isset( $stored['views'] ) ? (int) $stored['views'] : 0,
+		'renders'       => isset( $stored['renders'] ) ? (int) $stored['renders'] : 0,
+		'completed'     => isset( $stored['completed'] ) ? (bool) $stored['completed'] : false,
+		'fallback_done' => isset( $stored['fallback_done'] ) ? (bool) $stored['fallback_done'] : false,
 	);
 }
 
 /**
- * Records a WordPress user's link state and stamps the attempt time.
+ * Records a WordPress user's link state and stamps the attempt time,
+ * PRESERVING the five counters already on record.
+ *
+ * This is a read-modify-write, not a blind overwrite, and that is load-
+ * bearing: `includes/wp-idp-saml-link.php` calls this to record `asserted`
+ * (and `error`) as a side effect of the very code path that also bumps
+ * `attempts` via {@see agend_apps_wp_idp_merge_link_state()}. If this
+ * function reset the counters to zero on every call, recording `asserted`
+ * would erase the attempt it just counted and the lifetime cap
+ * (`AGEND_APPS_SAML_LINK_MAX_ATTEMPTS`) would never bind.
  *
  * @param int    $user_id    WordPress user id.
  * @param string $state      One of the `AGEND_APPS_LINK_STATE_*` constants.
@@ -195,15 +246,68 @@ function agend_apps_wp_idp_link_state( int $user_id ): array {
  *                           or '' when the state carries none (linked/pending/asserted).
  */
 function agend_apps_wp_idp_record_link_state( int $user_id, string $state, string $error_code = '' ): void {
+	$current = agend_apps_wp_idp_link_state( $user_id );
+
 	update_user_meta(
 		$user_id,
 		AGEND_APPS_LINK_STATE_META,
 		array(
-			'state'      => $state,
-			'error_code' => $error_code,
-			'timestamp'  => time(),
+			'state'         => $state,
+			'error_code'    => $error_code,
+			'timestamp'     => time(),
+			'attempts'      => $current['attempts'],
+			'views'         => $current['views'],
+			'renders'       => $current['renders'],
+			'completed'     => $current['completed'],
+			'fallback_done' => $current['fallback_done'],
 		)
 	);
+}
+
+/**
+ * Generic read-modify-write over the recorded link state, for the counter
+ * bumps and flags `includes/wp-idp-saml-link.php` needs (`attempts`,
+ * `views`, `renders`, `completed`, `fallback_done`) without also having to
+ * restate `state`/`error_code`/`timestamp` on every call the way
+ * {@see agend_apps_wp_idp_record_link_state()} does.
+ *
+ * Only the eight known keys are honoured; anything else in `$changes` is
+ * silently ignored, so a typo'd key can never smuggle an arbitrary value
+ * into user meta.
+ *
+ * @param int   $user_id WordPress user id.
+ * @param array $changes Any subset of the eight state keys to overwrite.
+ * @return array{state: string, error_code: string, timestamp: int, attempts: int,
+ *         views: int, renders: int, completed: bool, fallback_done: bool} The full
+ *         state after the merge.
+ */
+function agend_apps_wp_idp_merge_link_state( int $user_id, array $changes ): array {
+	$current = agend_apps_wp_idp_link_state( $user_id );
+
+	$known = array( 'state', 'error_code', 'timestamp', 'attempts', 'views', 'renders', 'completed', 'fallback_done' );
+
+	foreach ( $known as $key ) {
+		if ( array_key_exists( $key, $changes ) ) {
+			$current[ $key ] = $changes[ $key ];
+		}
+	}
+
+	$next = array(
+		'state'         => (string) $current['state'],
+		'error_code'    => (string) $current['error_code'],
+		'timestamp'     => (int) $current['timestamp'],
+		'attempts'      => (int) $current['attempts'],
+		'views'         => (int) $current['views'],
+		'renders'       => (int) $current['renders'],
+		'completed'     => (bool) $current['completed'],
+		'fallback_done' => (bool) $current['fallback_done'],
+	);
+
+	if ( 0 !== $user_id ) {
+		update_user_meta( $user_id, AGEND_APPS_LINK_STATE_META, $next );
+	}
+
+	return $next;
 }
 
 /**

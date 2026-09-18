@@ -770,6 +770,18 @@ if ( ! function_exists( 'is_admin' ) ) {
 	}
 }
 
+if ( ! function_exists( 'is_feed' ) ) {
+	/** Never a feed request in the unit harness unless a test says otherwise. */
+	function is_feed(): bool {
+		return ! empty( $GLOBALS['agend_test_is_feed'] );
+	}
+}
+
+if ( ! function_exists( 'nocache_headers' ) ) {
+	/** No-op: the unit harness sends no real HTTP headers. */
+	function nocache_headers(): void {}
+}
+
 if ( ! class_exists( 'WP_User' ) ) {
 	/**
 	 * Minimal WP_User stand-in.
@@ -1018,12 +1030,18 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 
 if ( ! class_exists( 'WP_REST_Response' ) ) {
 	/**
-	 * Minimal WP_REST_Response stand-in: a test reads back `get_data()` and
-	 * `get_status()`, matching the real class's public surface.
+	 * Minimal WP_REST_Response stand-in: a test reads back `get_data()`,
+	 * `get_status()` and `get_headers()`, matching the real class's public
+	 * surface (including `header()`) so a test can assert on a header a
+	 * controller set, e.g. the identity-link endpoint's `no-store`
+	 * Cache-Control.
 	 */
 	class WP_REST_Response {
 		private $data;
 		private int $status;
+
+		/** @var array<string, string> */
+		private array $headers = array();
 
 		public function __construct( $data = null, int $status = 200 ) {
 			$this->data   = $data;
@@ -1036,6 +1054,24 @@ if ( ! class_exists( 'WP_REST_Response' ) ) {
 
 		public function get_status(): int {
 			return $this->status;
+		}
+
+		/**
+		 * @param string $key     Header name.
+		 * @param mixed  $value   Header value.
+		 * @param bool   $replace Whether to replace an existing header of the same name.
+		 */
+		public function header( string $key, $value, bool $replace = true ): void {
+			if ( ! $replace && isset( $this->headers[ $key ] ) ) {
+				return;
+			}
+
+			$this->headers[ $key ] = (string) $value;
+		}
+
+		/** @return array<string, string> */
+		public function get_headers(): array {
+			return $this->headers;
 		}
 	}
 }

@@ -44,9 +44,14 @@ final class WpIdpLinkTest extends TestCase {
 	public function should_default_to_an_empty_state_when_nothing_is_recorded(): void {
 		$this->assertSame(
 			array(
-				'state'      => '',
-				'error_code' => '',
-				'timestamp'  => 0,
+				'state'         => '',
+				'error_code'    => '',
+				'timestamp'     => 0,
+				'attempts'      => 0,
+				'views'         => 0,
+				'renders'       => 0,
+				'completed'     => false,
+				'fallback_done' => false,
 			),
 			\agend_apps_wp_idp_link_state( 1 )
 		);
@@ -68,6 +73,50 @@ final class WpIdpLinkTest extends TestCase {
 		$this->assertSame( \AGEND_APPS_LINK_STATE_CONFLICT, $stored['state'] );
 		$this->assertSame( 'IDENTITY_ALREADY_LINKED', $stored['error_code'] );
 		$this->assertGreaterThan( 0, $stored['timestamp'] );
+	}
+
+	#[Test]
+	public function should_preserve_the_counters_across_a_recorded_state(): void {
+		\agend_apps_wp_idp_merge_link_state(
+			6,
+			array(
+				'attempts'      => 2,
+				'views'         => 4,
+				'renders'       => 3,
+				'completed'     => true,
+				'fallback_done' => true,
+			)
+		);
+
+		// Recording `asserted` must not reset the attempt counter, or the
+		// lifetime attempt cap in includes/wp-idp-saml-link.php never binds.
+		\agend_apps_wp_idp_record_link_state( 6, \AGEND_APPS_LINK_STATE_ASSERTED );
+
+		$stored = \agend_apps_wp_idp_link_state( 6 );
+
+		$this->assertSame( \AGEND_APPS_LINK_STATE_ASSERTED, $stored['state'] );
+		$this->assertSame( 2, $stored['attempts'] );
+		$this->assertSame( 4, $stored['views'] );
+		$this->assertSame( 3, $stored['renders'] );
+		$this->assertTrue( $stored['completed'] );
+		$this->assertTrue( $stored['fallback_done'] );
+	}
+
+	#[Test]
+	public function should_ignore_unknown_keys_when_merging_link_state(): void {
+		$result = \agend_apps_wp_idp_merge_link_state(
+			7,
+			array(
+				'attempts'    => 1,
+				'not_a_field' => 'should be dropped',
+			)
+		);
+
+		$this->assertArrayNotHasKey( 'not_a_field', $result );
+		$this->assertSame( 1, $result['attempts'] );
+
+		$stored = \agend_apps_wp_idp_link_state( 7 );
+		$this->assertArrayNotHasKey( 'not_a_field', $stored );
 	}
 
 	// -----------------------------------------------------------------
