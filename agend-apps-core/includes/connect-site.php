@@ -671,6 +671,16 @@ function agend_apps_connect_preflight_acknowledged( array $post ): bool {
  * but not an automatic CRM contact record, keeping contact creation a
  * separate, deliberate step rather than a side effect of first sign-in.
  *
+ * `provision_only` is `true` and is sent EXPLICITLY: the gateway no longer
+ * infers it from an omitted slug, so leaving it out would get the default
+ * behaviour rather than this one. The WordPress flow never consumes the ACS
+ * session -- the whole round trip exists only to create the `sso_identities`
+ * row once per member, and the JWT that actually serves the member is minted
+ * server-to-server via `POST /v1/sso/tokens` (see
+ * `Agend_Apps_Token_Worker`). So the ACS must provision the identity and mint
+ * nothing: a session minted here would be abandoned the moment the hidden
+ * iframe is discarded, one orphaned session per member.
+ *
  * `idp_sso_url` is the IdP-INITIATED endpoint (`$idp_metadata['idp_sso_url']`,
  * not `sso_url`), since that is the endpoint this WordPress-as-IdP flow
  * actually drives (`includes/wp-idp-saml-link.php`).
@@ -701,6 +711,7 @@ function agend_apps_connect_connection_payload( array $idp_metadata ): array {
 		'name_id_format'           => 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
 		'jit_provisioning'         => true,
 		'jit_contact_provisioning' => false,
+		'provision_only'           => true,
 		'default_role'             => 'contact',
 		'allow_idp_initiated'      => true,
 		'want_assertions_signed'   => true,
