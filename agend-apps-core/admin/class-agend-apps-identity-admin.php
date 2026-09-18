@@ -812,11 +812,15 @@ class Agend_Apps_Identity_Admin {
 
 		check_admin_referer( self::CONNECT_ACTION );
 
-		$result = function_exists( 'agend_apps_connect_run' ) ? agend_apps_connect_run() : array(
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- check_admin_referer() runs above, before any request input is read.
+		$acknowledged = function_exists( 'agend_apps_connect_preflight_acknowledged' ) && agend_apps_connect_preflight_acknowledged( $_POST );
+
+		$result = function_exists( 'agend_apps_connect_run' ) ? agend_apps_connect_run( $acknowledged ) : array(
 			'steps'       => array(),
 			'errors'      => array( __( 'The connect action is not available on this install.', 'agend-apps-core' ) ),
 			'connection'  => array(),
 			'sp_mismatch' => array(),
+			'preflight'   => array(),
 		);
 
 		// A short-lived transient, not an option: this result is meant to be
@@ -844,7 +848,8 @@ class Agend_Apps_Identity_Admin {
 	 *     blocked_reasons: string[],
 	 *     stored: array,
 	 *     last_run: array|null,
-	 *     sp_urls: array{sp_entity_id: string, sp_acs_url: string, sp_metadata_url: string}
+	 *     sp_urls: array{sp_entity_id: string, sp_acs_url: string, sp_metadata_url: string},
+	 *     preflight: array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool}
 	 * }
 	 */
 	private function build_connect_site_data(): array {
@@ -894,12 +899,26 @@ class Agend_Apps_Identity_Admin {
 				'sp_metadata_url' => '',
 			);
 
+		// The pre-flight is built here, not in the view, matching this method's
+		// whole purpose: the view partial never computes anything itself, only
+		// renders what it is handed. Shown whether or not it currently blocks
+		// (see agend-apps-core/admin/views/identity-connect.php), so an
+		// operator sees both counts on every visit to this page, not only when
+		// something is wrong.
+		$preflight = function_exists( 'agend_apps_connect_preflight' ) ? agend_apps_connect_preflight() : array(
+			'nameid_empty'        => 0,
+			'credentials_members' => 0,
+			'nameid_meta_key'     => '',
+			'blocks'              => false,
+		);
+
 		return array(
 			'can_connect'     => empty( $blocked_reasons ),
 			'blocked_reasons' => $blocked_reasons,
 			'stored'          => $stored,
 			'last_run'        => is_array( $last_run ) ? $last_run : null,
 			'sp_urls'         => $sp_urls,
+			'preflight'       => $preflight,
 		);
 	}
 

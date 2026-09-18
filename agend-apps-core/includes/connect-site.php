@@ -390,6 +390,255 @@ function agend_apps_connect_nameid_meta_key(): string {
 }
 
 /**
+ * Field name the "Connect this site" form's pre-flight acknowledgement
+ * checkbox is submitted under, read by
+ * {@see agend_apps_connect_preflight_acknowledged()}.
+ *
+ * @var string
+ */
+const AGEND_APPS_CONNECT_ACK_FIELD = 'agend_apps_connect_preflight_ack';
+
+/**
+ * Counts WordPress users who resolve an EMPTY value for the given NameID
+ * meta key -- either the key is entirely absent for that user, or present but
+ * stored as an empty string.
+ *
+ * THIN `WP_User_Query` WRAPPER, deliberately kept out of the unit suite: this
+ * suite runs with no database and no WordPress bootstrap (see this file's
+ * header and `phpunit.xml.dist`), so there is no `WP_User_Query` to exercise
+ * here. The DECISION this count feeds -- whether the connect action should
+ * block -- lives in the pure {@see agend_apps_connect_preflight()}, which
+ * takes this count as an argument and is what the unit suite actually tests.
+ *
+ * WHY this matters: the IdP's `create_name_id()` reads exactly the one meta
+ * key configured as `nameid_attribute` with no fallback, and
+ * `get_user_field_value()` returns `''` for a missing key, so an empty value
+ * here means the member is asserted to the gateway with an EMPTY NameID. The
+ * gateway fails an empty subject closed. Left undetected, each such member
+ * discovers the problem one at a time, invisibly, inside the hidden iframe
+ * this site's silent-link flow drives -- exactly the failure mode this
+ * pre-flight exists to turn into one number an operator sees BEFORE
+ * connecting, rather than a trickle of unexplained support tickets after.
+ *
+ * Returns 0 -- rather than throwing or fataling an admin screen -- for an
+ * empty `$meta_key`, when `WP_User_Query` is unavailable, or if the query
+ * itself throws.
+ *
+ * @param string $meta_key The user-meta key configured as the NameID source
+ *                          (see {@see agend_apps_connect_nameid_meta_key()}).
+ * @return int
+ */
+function agend_apps_connect_nameid_empty_count( string $meta_key ): int {
+	$count = 0;
+
+	if ( '' === $meta_key || ! class_exists( 'WP_User_Query' ) ) {
+		return agend_apps_connect_filter_nameid_empty_count( $count, $meta_key );
+	}
+
+	try {
+		$query = new WP_User_Query(
+			array(
+				'count_total' => true,
+				'number'      => 1,
+				'fields'      => 'ID',
+				'meta_query'  => array(
+					'relation' => 'OR',
+					array(
+						'key'     => $meta_key,
+						'compare' => 'NOT EXISTS',
+					),
+					array(
+						'key'     => $meta_key,
+						'value'   => '',
+						'compare' => '=',
+					),
+				),
+			)
+		);
+
+		$count = (int) $query->get_total();
+	} catch ( Throwable $e ) {
+		$count = 0;
+	}
+
+	return agend_apps_connect_filter_nameid_empty_count( $count, $meta_key );
+}
+
+/**
+ * Applies the `agend_apps_connect_nameid_empty_count` filter.
+ *
+ * Extracted so EVERY return path of {@see agend_apps_connect_nameid_empty_count()},
+ * including its early bail-outs, runs the filter: a site that substitutes its
+ * own count must have that substitution honoured whether or not this runtime
+ * could have computed one itself. That is also what lets the unit suite, which
+ * has no database and therefore no `WP_User_Query`, drive
+ * {@see agend_apps_connect_run()} into its blocking branch.
+ *
+ * @param int    $count    The count this runtime computed (0 when it could not).
+ * @param string $meta_key The NameID meta key the count was taken against.
+ * @return int
+ */
+function agend_apps_connect_filter_nameid_empty_count( int $count, string $meta_key ): int {
+	/**
+	 * Filters how many WordPress users resolve an empty NameID value.
+	 *
+	 * A large site may prefer to substitute a cheaper or cached count than the
+	 * bounded `WP_User_Query` this plugin runs, or to supply one at all on a
+	 * runtime where that query is unavailable.
+	 *
+	 * @param int    $count    The count this plugin computed (0 when it could not).
+	 * @param string $meta_key The NameID meta key the count was taken against.
+	 */
+	return (int) apply_filters( 'agend_apps_connect_nameid_empty_count', $count, $meta_key );
+}
+
+/**
+ * Counts WordPress users who cannot be linked to Agend SILENTLY once this
+ * site connects: those flagged as holding a `credentials`-mode member session,
+ * or as an account this integration itself provisioned.
+ *
+ * THIN `WP_User_Query` WRAPPER, kept out of the unit suite for the same reason
+ * as {@see agend_apps_connect_nameid_empty_count()} -- no database in this
+ * suite. The DECISION this count feeds is the pure
+ * {@see agend_apps_connect_preflight()}, which takes it as an argument and is
+ * tested directly.
+ *
+ * This is an ESTIMATE, not an exact count, and it deliberately over-counts
+ * rather than under-counts: the authoritative signal is `has_password` on the
+ * Agend auth user, which the gateway computes in `sso_find_user_by_email` and
+ * never exposes to this plugin. A member provisioned under `credentials` mode
+ * holds an Agend password, and the SAML JIT path refuses to link an asserted
+ * email to a password-holding user (`email_link_forbidden`), so that
+ * population needs the OTP-verified link route instead of a silent SAML link
+ * and CANNOT be migrated silently. Over-counting here is the safe direction;
+ * under-counting is not. Never state or imply this number is exact in any
+ * copy that shows it.
+ *
+ * Resolves both meta keys defensively (`class_exists()`/`defined()`, falling
+ * back to the literal strings) because `includes/member-identity.php` -- which
+ * defines `AGEND_APPS_MANAGED_META` -- only loads in `credentials` mode, and
+ * so may not be loaded at all when this runs.
+ *
+ * Returns 0 -- rather than throwing or fataling an admin screen -- when
+ * `WP_User_Query` is unavailable, or if the query itself throws.
+ *
+ * @return int
+ */
+function agend_apps_connect_credentials_member_count(): int {
+	if ( ! class_exists( 'WP_User_Query' ) ) {
+		return agend_apps_connect_filter_credentials_member_count( 0 );
+	}
+
+	$session_meta_key = class_exists( 'Agend_Apps_Member_Session' ) ? Agend_Apps_Member_Session::META_KEY : '_agend_apps_member_session';
+	$managed_meta_key = defined( 'AGEND_APPS_MANAGED_META' ) ? AGEND_APPS_MANAGED_META : '_agend_apps_managed';
+
+	try {
+		$query = new WP_User_Query(
+			array(
+				'count_total' => true,
+				'number'      => 1,
+				'fields'      => 'ID',
+				'meta_query'  => array(
+					'relation' => 'OR',
+					array(
+						'key'     => $session_meta_key,
+						'compare' => 'EXISTS',
+					),
+					array(
+						'key'     => $managed_meta_key,
+						'compare' => 'EXISTS',
+					),
+				),
+			)
+		);
+
+		$count = (int) $query->get_total();
+	} catch ( Throwable $e ) {
+		$count = 0;
+	}
+
+	return agend_apps_connect_filter_credentials_member_count( $count );
+}
+
+/**
+ * Applies the `agend_apps_connect_credentials_member_count` filter, on every
+ * return path of {@see agend_apps_connect_credentials_member_count()}, for the
+ * same reasons {@see agend_apps_connect_filter_nameid_empty_count()} documents.
+ *
+ * @param int $count The count this runtime computed (0 when it could not).
+ * @return int
+ */
+function agend_apps_connect_filter_credentials_member_count( int $count ): int {
+	/**
+	 * Filters the estimated count of members provisioned under `credentials`
+	 * mode, who therefore hold an Agend password and cannot be linked silently.
+	 *
+	 * A site that knows its own population better than the two local markers
+	 * this plugin counts (see the calling function's docblock on why the exact
+	 * signal is gateway-side only) can substitute a better figure here.
+	 *
+	 * @param int $count The count this plugin computed (0 when it could not).
+	 */
+	return (int) apply_filters( 'agend_apps_connect_credentials_member_count', $count );
+}
+
+/**
+ * The pure pre-flight gate the connect action consults before doing anything
+ * with the IdP or the gateway.
+ *
+ * When either `$nameid_empty` or `$credentials_members` is `null`, it falls
+ * back to the corresponding thin `WP_User_Query` wrapper above -- so
+ * production code ({@see agend_apps_connect_run()}) calls this with NO
+ * arguments, while the unit suite passes both counts in directly, since the
+ * suite has no database to seed a real query against.
+ *
+ * `credentials_members` NEVER contributes to `blocks`. A non-zero credentials
+ * population does not make connecting WRONG, it makes a member-visible
+ * OTP-verified link step necessary for that population afterwards -- an
+ * accepted cost of this design, not a fault to fix before connecting.
+ * Blocking on it would stop a site from ever being able to connect at all,
+ * for a condition that has no fix available on the connect screen.
+ *
+ * @param int|null $nameid_empty        Injected count, or `null` to resolve
+ *                                       from {@see agend_apps_connect_nameid_empty_count()}.
+ * @param int|null $credentials_members Injected count, or `null` to resolve
+ *                                       from {@see agend_apps_connect_credentials_member_count()}.
+ * @return array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool}
+ */
+function agend_apps_connect_preflight( ?int $nameid_empty = null, ?int $credentials_members = null ): array {
+	$nameid_meta_key = agend_apps_connect_nameid_meta_key();
+
+	if ( null === $nameid_empty ) {
+		$nameid_empty = agend_apps_connect_nameid_empty_count( $nameid_meta_key );
+	}
+
+	if ( null === $credentials_members ) {
+		$credentials_members = agend_apps_connect_credentials_member_count();
+	}
+
+	return array(
+		'nameid_empty'        => $nameid_empty,
+		'credentials_members' => $credentials_members,
+		'nameid_meta_key'     => $nameid_meta_key,
+		'blocks'              => $nameid_empty > 0,
+	);
+}
+
+/**
+ * Reads the pre-flight acknowledgement checkbox out of a POST-like array.
+ * Pure -- takes the array rather than reading `$_POST` directly, so this is
+ * unit testable without a superglobal or a WordPress bootstrap. Only presence
+ * and truthiness of the field are checked, so no sanitisation of the value
+ * itself is needed here.
+ *
+ * @param array $post The POST-like array to read (e.g. `$_POST`).
+ * @return bool
+ */
+function agend_apps_connect_preflight_acknowledged( array $post ): bool {
+	return ! empty( $post[ AGEND_APPS_CONNECT_ACK_FIELD ] );
+}
+
+/**
  * Builds the `POST /v1/sso/connections` request body.
  *
  * Deliberately carries NEITHER `role_attribute` NOR `role_mapping` (finding
@@ -517,6 +766,13 @@ function agend_apps_connect_stored(): array {
  *
  * i.    Capability/mode sanity: not `wordpress` mode, an unconfigured account
  *       slug/root URL, or a missing scope ({@see agend_apps_connect_missing_scopes()}) -- error, stop.
+ * i.5.  {@see agend_apps_connect_preflight()} (with no arguments -- production
+ *       always resolves the counts from the real `WP_User_Query` wrappers).
+ *       When it `blocks` and `$acknowledged` is false -- error naming the
+ *       count and the meta key, stop. When it blocks and `$acknowledged` is
+ *       true -- recorded `ok`, noting how many members were acknowledged, and
+ *       the run continues. The `credentials_members` estimate never stops
+ *       this step; see that function's docblock for why.
  * ii.   `WP_SAML_IDP_Api` presence, method by method -- "IdP plugin too old",
  *       naming the missing method, stop.
  * iii.  `get_idp_metadata()` -- an empty entity id, SSO url, or certificate is
@@ -549,14 +805,20 @@ function agend_apps_connect_stored(): array {
  * in try/catch so a thrown `Throwable` becomes a recorded error, never a
  * fatal on an admin screen.
  *
+ * @param bool $acknowledged Whether the operator ticked the pre-flight
+ *                            acknowledgement checkbox (see
+ *                            {@see agend_apps_connect_preflight_acknowledged()}).
+ *                            Only meaningful when the pre-flight blocks;
+ *                            ignored otherwise.
  * @return array{steps: array<int, array{step: string, status: string, message: string}>,
- *         errors: string[], connection: array, sp_mismatch: array}
+ *         errors: string[], connection: array, sp_mismatch: array, preflight: array}
  */
-function agend_apps_connect_run(): array {
+function agend_apps_connect_run( bool $acknowledged = false ): array {
 	$steps       = array();
 	$errors      = array();
 	$connection  = array();
 	$sp_mismatch = array();
+	$preflight   = array();
 
 	try {
 		// i. Capability and mode sanity.
@@ -568,7 +830,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		$account_slug = Agend_Apps_Settings::get_account_slug();
@@ -582,7 +844,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		$scope_check = agend_apps_connect_missing_scopes();
@@ -599,7 +861,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		$steps[] = array(
@@ -607,6 +869,41 @@ function agend_apps_connect_run(): array {
 			'status'  => 'ok',
 			'message' => '',
 		);
+
+		// i.5. NameID pre-flight: see agend_apps_connect_preflight() for why
+		// credentials_members never blocks this step.
+		$preflight = agend_apps_connect_preflight();
+
+		if ( $preflight['blocks'] ) {
+			if ( ! $acknowledged ) {
+				$errors[] = sprintf(
+					/* translators: 1: count of members who would be asserted with an empty NameID, 2: the configured NameID user-meta key. */
+					__( '%1$d member(s) would be asserted with an empty NameID because the "%2$s" meta key is not populated for them. Populate it for those members, or acknowledge the pre-flight to continue anyway.', 'agend-apps-core' ),
+					$preflight['nameid_empty'],
+					$preflight['nameid_meta_key']
+				);
+				$steps[]  = array(
+					'step'    => 'nameid_preflight',
+					'status'  => 'error',
+					'message' => '',
+				);
+
+				return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
+			}
+
+			$steps[] = array(
+				'step'    => 'nameid_preflight',
+				'status'  => 'ok',
+				/* translators: %d: count of members the operator acknowledged had an empty NameID. */
+				'message' => sprintf( __( 'operator acknowledged %d member(s) with an empty NameID', 'agend-apps-core' ), $preflight['nameid_empty'] ),
+			);
+		} else {
+			$steps[] = array(
+				'step'    => 'nameid_preflight',
+				'status'  => 'ok',
+				'message' => '',
+			);
+		}
 
 		// ii. WP_SAML_IDP_Api presence.
 		$required_methods = array( 'get_idp_metadata', 'upsert_service_provider', 'save_attribute_mapping', 'save_sp_sso_settings' );
@@ -619,7 +916,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		foreach ( $required_methods as $method ) {
@@ -635,7 +932,7 @@ function agend_apps_connect_run(): array {
 					'message' => '',
 				);
 
-				return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+				return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 			}
 		}
 
@@ -656,7 +953,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		$steps[] = array(
@@ -676,7 +973,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		if ( null !== $existing ) {
@@ -712,7 +1009,7 @@ function agend_apps_connect_run(): array {
 						'message' => '',
 					);
 
-					return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+					return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 				}
 			} else {
 				$connection = ( isset( $created['data'] ) && is_array( $created['data'] ) ) ? $created['data'] : $created;
@@ -765,7 +1062,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		$steps[] = array(
@@ -785,7 +1082,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		$steps[] = array(
@@ -812,7 +1109,7 @@ function agend_apps_connect_run(): array {
 				'message' => '',
 			);
 
-			return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+			return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 		}
 
 		$steps[] = array(
@@ -838,7 +1135,7 @@ function agend_apps_connect_run(): array {
 		);
 	}
 
-	return compact( 'steps', 'errors', 'connection', 'sp_mismatch' );
+	return compact( 'steps', 'errors', 'connection', 'sp_mismatch', 'preflight' );
 }
 
 /**

@@ -18,6 +18,14 @@
  * `maybe_refresh()`, which can perform a live gateway request
  * (`GET /v1/health`) when the cache is stale or unknown.
  *
+ * The `preflight` key added by {@see agend_apps_wp_idp_diagnostics()} (via
+ * {@see agend_apps_connect_preflight()}, `includes/connect-site.php`) is the
+ * one exception worth calling out explicitly: it runs two `WP_User_Query`
+ * counts, the only queries this panel executes. Both are still reads that
+ * measure nothing they change, and both are bounded (`number => 1`,
+ * `count_total`) so neither can turn into an unbounded scan of the user
+ * table.
+ *
  * Loaded unconditionally (see `agend-apps-core.php`), unlike
  * `includes/wp-idp-link.php`, which only loads in `wordpress` sign-in mode.
  * The panel itself must degrade honestly in the other two modes rather than
@@ -276,7 +284,8 @@ function agend_apps_wp_idp_link_state_guidance( string $state ): array {
  *         identity_link: array{known: bool, held: bool},
  *         account_link: array{known: bool, held: bool}
  *     },
- *     idp_entity_id: string
+ *     idp_entity_id: string,
+ *     preflight: array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool}|array{}
  * }
  */
 function agend_apps_wp_idp_diagnostics( int $user_id ): array {
@@ -326,5 +335,6 @@ function agend_apps_wp_idp_diagnostics( int $user_id ): array {
 			'account_link'  => agend_apps_wp_idp_scopes_held( $account_link_scopes ),
 		),
 		'idp_entity_id'  => function_exists( 'agend_apps_idp_entity_id' ) ? agend_apps_idp_entity_id() : '',
+		'preflight'      => function_exists( 'agend_apps_connect_preflight' ) ? agend_apps_connect_preflight() : array(),
 	);
 }

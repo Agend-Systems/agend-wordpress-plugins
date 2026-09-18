@@ -552,4 +552,177 @@ final class ConnectSiteTest extends TestCase {
 		$this->assertSame( 'https://gateway.other.test/api/auth/sso/wdaa/metadata', $result['sp_mismatch']['authoritative']['sp_entity_id'] );
 		$this->assertSame( 'https://api.example.test/api/auth/sso/wdaa/metadata', $result['sp_mismatch']['local']['sp_entity_id'] );
 	}
+
+	// -----------------------------------------------------------------
+	// agend_apps_connect_preflight()
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_block_when_the_nameid_empty_count_is_positive(): void {
+		$preflight = \agend_apps_connect_preflight( 1, 0 );
+
+		$this->assertTrue( $preflight['blocks'] );
+		$this->assertSame( 1, $preflight['nameid_empty'] );
+	}
+
+	#[Test]
+	public function should_not_block_when_the_nameid_empty_count_is_zero(): void {
+		$preflight = \agend_apps_connect_preflight( 0, 0 );
+
+		$this->assertFalse( $preflight['blocks'] );
+	}
+
+	#[Test]
+	public function should_never_block_on_the_credentials_member_count_alone(): void {
+		$preflight = \agend_apps_connect_preflight( 0, 50 );
+
+		$this->assertFalse( $preflight['blocks'] );
+		$this->assertSame( 50, $preflight['credentials_members'] );
+	}
+
+	#[Test]
+	public function should_report_the_resolved_nameid_meta_key(): void {
+		update_option( 'agend_apps_external_id_meta_key', 'custom_meta_key' );
+
+		$preflight = \agend_apps_connect_preflight( 0, 0 );
+
+		$this->assertSame( 'custom_meta_key', $preflight['nameid_meta_key'] );
+	}
+
+	// -----------------------------------------------------------------
+	// agend_apps_connect_preflight_acknowledged()
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_report_acknowledged_true_when_the_checkbox_field_is_checked(): void {
+		$this->assertTrue( \agend_apps_connect_preflight_acknowledged( array( \AGEND_APPS_CONNECT_ACK_FIELD => '1' ) ) );
+	}
+
+	#[Test]
+	public function should_report_acknowledged_false_when_the_field_is_absent(): void {
+		$this->assertFalse( \agend_apps_connect_preflight_acknowledged( array() ) );
+	}
+
+	#[Test]
+	public function should_report_acknowledged_false_when_the_field_is_empty(): void {
+		$this->assertFalse( \agend_apps_connect_preflight_acknowledged( array( \AGEND_APPS_CONNECT_ACK_FIELD => '' ) ) );
+	}
+
+	// -----------------------------------------------------------------
+	// agend_apps_connect_run() -- the NameID pre-flight step
+	// -----------------------------------------------------------------
+
+	/**
+	 * Forces a non-zero NameID-empty count through the
+	 * `agend_apps_connect_nameid_empty_count` filter, which
+	 * {@see agend_apps_connect_nameid_empty_count()} applies on every return
+	 * path including the one taken when `WP_User_Query` is unavailable. This
+	 * suite has no database (see this file's header and `phpunit.xml.dist`),
+	 * so that filter is what lets these tests drive
+	 * `agend_apps_connect_run()` into its blocking branch. It is a real
+	 * extension point, not a test-only seam: a large site can substitute its
+	 * own cheaper or cached count the same way.
+	 */
+	private function seedNameidEmptyCount( int $count ): void {
+		add_filter(
+			'agend_apps_connect_nameid_empty_count',
+			static function () use ( $count ) {
+				return $count;
+			}
+		);
+	}
+
+	#[Test]
+	public function should_stop_at_the_nameid_preflight_when_it_blocks_and_is_not_acknowledged(): void {
+		$this->seedIdpMetadata();
+		$this->seedNameidEmptyCount( 3 );
+
+		$result = \agend_apps_connect_run( false );
+
+		$this->assertNotEmpty( $result['errors'] );
+
+		$preflight_step = null;
+		foreach ( $result['steps'] as $step ) {
+			if ( 'nameid_preflight' === $step['step'] ) {
+				$preflight_step = $step;
+			}
+		}
+		$this->assertNotNull( $preflight_step );
+		$this->assertSame( 'error', $preflight_step['status'] );
+
+		// Never reached the IdP-plugin-presence step.
+		foreach ( $result['steps'] as $step ) {
+			$this->assertNotSame( 'idp_api', $step['step'] );
+		}
+
+		$this->assertTrue( $result['preflight']['blocks'] );
+		$this->assertSame( 3, $result['preflight']['nameid_empty'] );
+	}
+
+	#[Test]
+	public function should_proceed_past_the_nameid_preflight_when_it_blocks_but_is_acknowledged(): void {
+		$this->seedIdpMetadata();
+		$this->seedNameidEmptyCount( 3 );
+
+		// find_existing: no match on the first (only) page.
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'connections' => array() ) ) );
+		// create_connection: succeeds.
+		Agend_Test_WP::queue_response(
+			200,
+			array(
+				'data' => array(
+					'id'              => 'conn-ack',
+					'slug'            => 'wp-saml-abc123',
+					'approval_state'  => 'pending',
+					'idp_entity_id'   => 'https://example.test/saml/metadata',
+					'sp_entity_id'    => 'https://api.example.test/api/auth/sso/wdaa/metadata',
+					'sp_acs_url'      => 'https://api.example.test/api/auth/sso/wdaa/acs',
+					'sp_metadata_url' => 'https://api.example.test/api/auth/sso/wdaa/metadata',
+				),
+			)
+		);
+
+		$result = \agend_apps_connect_run( true );
+
+		$this->assertSame( array(), $result['errors'] );
+		$this->assertSame( 'conn-ack', $result['connection']['id'] );
+
+		$preflight_step = null;
+		foreach ( $result['steps'] as $step ) {
+			if ( 'nameid_preflight' === $step['step'] ) {
+				$preflight_step = $step;
+			}
+		}
+		$this->assertNotNull( $preflight_step );
+		$this->assertSame( 'ok', $preflight_step['status'] );
+		$this->assertStringContainsString( '3', $preflight_step['message'] );
+
+		$this->assertTrue( $result['preflight']['blocks'] );
+	}
+
+	#[Test]
+	public function should_carry_the_preflight_result_when_proceeding(): void {
+		$this->seedIdpMetadata();
+
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'connections' => array() ) ) );
+		Agend_Test_WP::queue_response(
+			200,
+			array(
+				'data' => array(
+					'id'              => 'conn-preflight-ok',
+					'slug'            => 'wp-saml-abc123',
+					'approval_state'  => 'pending',
+					'idp_entity_id'   => 'https://example.test/saml/metadata',
+					'sp_entity_id'    => 'https://api.example.test/api/auth/sso/wdaa/metadata',
+					'sp_acs_url'      => 'https://api.example.test/api/auth/sso/wdaa/acs',
+					'sp_metadata_url' => 'https://api.example.test/api/auth/sso/wdaa/metadata',
+				),
+			)
+		);
+
+		$result = \agend_apps_connect_run();
+
+		$this->assertArrayHasKey( 'preflight', $result );
+		$this->assertFalse( $result['preflight']['blocks'] );
+	}
 }

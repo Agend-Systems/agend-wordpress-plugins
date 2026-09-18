@@ -17,7 +17,8 @@
  *     blocked_reasons: string[],
  *     stored: array,
  *     last_run: array|null,
- *     sp_urls: array{sp_entity_id: string, sp_acs_url: string, sp_metadata_url: string}
+ *     sp_urls: array{sp_entity_id: string, sp_acs_url: string, sp_metadata_url: string},
+ *     preflight: array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool}
  * } $data
  */
 
@@ -65,6 +66,31 @@ $display_urls = $has_stored
 	</tbody>
 </table>
 
+<table class="widefat striped" style="max-width:820px;margin-bottom:12px;">
+	<tbody>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Members with an empty NameID', 'agend-apps-core' ); ?></th>
+			<td>
+				<strong><?php echo esc_html( (string) $data['preflight']['nameid_empty'] ); ?></strong>
+				<?php
+				printf(
+					/* translators: %s: the configured NameID user-meta key. */
+					esc_html__( 'for meta key "%s". These members would be asserted with an empty NameID, which the gateway rejects, until this key is populated for them.', 'agend-apps-core' ),
+					esc_html( $data['preflight']['nameid_meta_key'] )
+				);
+				?>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Members with Agend credentials (estimate)', 'agend-apps-core' ); ?></th>
+			<td>
+				<strong><?php echo esc_html( (string) $data['preflight']['credentials_members'] ); ?></strong>
+				<?php esc_html_e( 'This is an estimate, not an exact count. These members hold an Agend password and cannot be linked to this connection silently; they will need the OTP-verified link step after this site connects.', 'agend-apps-core' ); ?>
+			</td>
+		</tr>
+	</tbody>
+</table>
+
 <?php if ( ! empty( $data['blocked_reasons'] ) ) : ?>
 	<div class="notice notice-warning inline"><p>
 		<?php esc_html_e( 'The connect action is not available right now:', 'agend-apps-core' ); ?>
@@ -79,6 +105,21 @@ $display_urls = $has_stored
 	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 		<input type="hidden" name="action" value="<?php echo esc_attr( Agend_Apps_Identity_Admin::CONNECT_POST_ACTION ); ?>" />
 		<?php wp_nonce_field( Agend_Apps_Identity_Admin::CONNECT_ACTION ); ?>
+		<?php if ( ! empty( $data['preflight']['blocks'] ) ) : ?>
+			<p>
+				<label>
+					<input type="checkbox" name="<?php echo esc_attr( AGEND_APPS_CONNECT_ACK_FIELD ); ?>" value="1" />
+					<?php
+					printf(
+						/* translators: 1: count of members with an empty NameID, 2: the configured NameID user-meta key. */
+						esc_html__( 'I understand that %1$d member(s) have no value for "%2$s" and will fail to link until that key is populated for them.', 'agend-apps-core' ),
+						(int) $data['preflight']['nameid_empty'],
+						esc_html( $data['preflight']['nameid_meta_key'] )
+					);
+					?>
+				</label>
+			</p>
+		<?php endif; ?>
 		<?php submit_button( $has_stored ? __( 'Reconnect this site', 'agend-apps-core' ) : __( 'Connect this site', 'agend-apps-core' ), 'secondary', '', false ); ?>
 	</form>
 <?php endif; ?>
