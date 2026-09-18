@@ -60,7 +60,7 @@
  * removes the cache from the trust boundary entirely.
  *
  * That silence is exactly what the one visible-redirect fallback
- * (`AGEND_APPS_SAML_LINK_FALLBACK_VIEWS`, `AGEND_APPS_SAML_LINK_MAX_ATTEMPTS`
+ * (`AGEND_APPS_SAML_LINK_FALLBACK_VIEWS`, `AGEND_APPS_LINK_MAX_ATTEMPTS`
  * in {@see agend_apps_saml_link_decision()}) exists to rescue: a site whose
  * theme never calls `wp_footer`, or whose cache configuration breaks the
  * background fetch, would otherwise leave every member permanently unlinked
@@ -102,19 +102,6 @@ const AGEND_APPS_SAML_LINK_DONE_FLAG = 'agend_apps_saml_link_done';
  * @var string
  */
 const AGEND_APPS_SAML_LINK_DONE_NONCE = 'agend_apps_saml_link_done';
-
-/**
- * Lifetime cap on how many times a nonce'd IdP URL is issued for one member.
- * Counts `attempts` (see `includes/wp-idp-link.php`), never page views: a
- * member who never reaches an eligible page never burns this down. Once hit,
- * {@see agend_apps_saml_link_eligibility()} reports `attempt_cap` and no
- * further URL is minted -- except the one visible fallback redirect, which
- * this cap is itself one of the two triggers for (see
- * {@see agend_apps_saml_link_decision()}).
- *
- * @var int
- */
-const AGEND_APPS_SAML_LINK_MAX_ATTEMPTS = 3;
 
 /**
  * How many eligible front-end page views with ZERO attempts made must pass
@@ -481,7 +468,7 @@ function agend_apps_saml_link_eligibility( int $user_id ): array {
 		return $fail( 'sp_disabled' );
 	}
 
-	if ( $stored['attempts'] >= AGEND_APPS_SAML_LINK_MAX_ATTEMPTS ) {
+	if ( $stored['attempts'] >= AGEND_APPS_LINK_MAX_ATTEMPTS ) {
 		// Unlike every other failure above, this one still reports the
 		// resolved `entity_id`: the SP is genuinely ready, only the lifetime
 		// attempt count is the problem. {@see agend_apps_saml_link_issue_url()}
@@ -696,7 +683,7 @@ function agend_apps_saml_link_decision( int $user_id, string $current_url ): arr
 		! $stored['completed'] &&
 		(
 			( $stored['views'] >= AGEND_APPS_SAML_LINK_FALLBACK_VIEWS && 0 === $stored['attempts'] ) ||
-			$stored['attempts'] >= AGEND_APPS_SAML_LINK_MAX_ATTEMPTS
+			$stored['attempts'] >= AGEND_APPS_LINK_MAX_ATTEMPTS
 		);
 
 	if ( $fallback_due ) {
@@ -799,6 +786,118 @@ function agend_apps_saml_link_pending( ?string $set = null ): string {
 }
 
 /**
+ * Promotes a member's link state on the SAML round trip's own return leg, by
+ * asking the gateway directly rather than waiting for the next token mint.
+ *
+ * Called from {@see agend_apps_saml_link_done_decision()} the moment the
+ * round trip demonstrably came back (a verified done URL), which is exactly
+ * the moment a status check is most likely to have something new to report.
+ * Before this, the only way `asserted` ever became `linked` was
+ * `Agend_Apps_Token_Worker::provide_token()` promoting it as a side effect of
+ * a successful mint (see `includes/class-agend-apps-token-worker.php`) --
+ * which meant a member on a key that could read identities but not mint
+ * tokens (or one who simply had not yet triggered a mint) could sit in
+ * `asserted` indefinitely even though the gateway already considered them
+ * linked.
+ *
+ * Scope gate: checks `sso.identities.read` directly via
+ * `Agend_Apps_Key_Scopes::has()`, rather than reusing the token worker's
+ * `sso_account_link` feature gate (`sso.identities.read` AND
+ * `sso.tokens.create` together, see `includes/records/features.php`). Gating
+ * promotion on the mint scope is precisely the coupling this change removes:
+ * a key that can read identities must be able to confirm a link even if it
+ * can never mint a token. Checking the single scope directly, rather than
+ * `agend_apps_records_feature_available( 'sso_account_link' )`, is what makes
+ * that true.
+ *
+ * @param int $user_id WordPress user id (0 = signed out).
+ * @return array{state: string, code: string} `state` is the state this call
+ *         recorded, or '' when it recorded nothing; `code` is a machine
+ *         reason for diagnostics.
+ */
+function agend_apps_saml_link_promote( int $user_id ): array {
+	if ( 0 === $user_id ) {
+		return array(
+			'state' => '',
+			'code'  => 'signed_out',
+		);
+	}
+
+	if ( ! class_exists( 'Agend_Apps_Key_Scopes' ) || ! Agend_Apps_Key_Scopes::has( 'sso.identities.read' ) ) {
+		return array(
+			'state' => '',
+			'code'  => 'scope_missing',
+		);
+	}
+
+	$external_id = agend_apps_user_external_id( $user_id );
+
+	if ( '' === $external_id ) {
+		return array(
+			'state' => '',
+			'code'  => 'no_external_id',
+		);
+	}
+
+	$response = agend_apps_sso_get_link_status( agend_apps_idp_entity_id(), $external_id );
+
+	if ( is_wp_error( $response ) ) {
+		if ( 'UNKNOWN_ISSUER' === agend_apps_auth_error_code( $response ) ) {
+			agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_PENDING_APPROVAL, 'unknown_issuer' );
+
+			return array(
+				'state' => AGEND_APPS_LINK_STATE_PENDING_APPROVAL,
+				'code'  => 'unknown_issuer',
+			);
+		}
+
+		$code = agend_apps_auth_error_code( $response );
+		$code = ( '' !== $code ) ? strtolower( $code ) : 'status_failed';
+
+		agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_ERROR, $code );
+
+		return array(
+			'state' => AGEND_APPS_LINK_STATE_ERROR,
+			'code'  => $code,
+		);
+	}
+
+	// The house unwrapping for this envelope (account-link-routes.php:139):
+	// the gateway returns { success, data: { linked, ... } }, but a filter
+	// may have already stripped the envelope, so fall back to the top level.
+	$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+
+	$linked = isset( $data['linked'] ) && (bool) $data['linked'];
+
+	if ( ! $linked ) {
+		// Record NOTHING: the member stays in `asserted`, so the existing
+		// backoff and the attempt cap keep governing. Recording anything here
+		// would either reset the timestamp (restarting the backoff on every
+		// return leg) or invent a failure the gateway never reported -- the
+		// assertion may simply still be in flight.
+		return array(
+			'state' => '',
+			'code'  => 'not_linked',
+		);
+	}
+
+	if ( function_exists( 'agend_apps_record_linked_identity' ) ) {
+		agend_apps_record_linked_identity( $user_id, $data );
+	}
+
+	if ( class_exists( 'Agend_Apps_Token_Worker' ) ) {
+		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
+	}
+
+	agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_LINKED );
+
+	return array(
+		'state' => AGEND_APPS_LINK_STATE_LINKED,
+		'code'  => 'linked',
+	);
+}
+
+/**
  * The `template_redirect` done-URL handler's pure decision: whether the
  * current request is a legitimate return from the SAML round trip, and what
  * to do about it.
@@ -811,26 +910,27 @@ function agend_apps_saml_link_pending( ?string $set = null ): string {
  *
  * Otherwise, `completed => true` is merged into the member's state (the
  * round trip demonstrably was not frame-blocked, regardless of what the
- * gateway itself decided), and:
+ * gateway itself decided), {@see agend_apps_saml_link_promote()} is called to
+ * check the gateway directly rather than waiting for the next token mint, and:
  * - `frame` when `$query['frame'] === '1'`: the wrapper responds with the
  *   tiny inert document from {@see agend_apps_saml_link_done_markup()} and
  *   nothing else.
  * - `redirect` otherwise: the wrapper sends the browser on to
  *   `wp_validate_redirect( $query['redirect_to'], home_url('/') )`.
  *
- * Scope item 2 of the wider brief adds a `GET /v1/sso/identities/status`
- * promotion check here (asserted -> linked without waiting for the next
- * token mint). Not implemented in this change.
- *
  * @param int   $user_id Current WordPress user id (0 = signed out).
  * @param array $query   The relevant `$_GET` values: `AGEND_APPS_SAML_LINK_DONE_FLAG`,
  *                       `_wpnonce`, `frame`, `redirect_to`. Raw/unvalidated.
- * @return array{action: string, url: string} `action` is `frame`, `redirect`, or `skip`.
+ * @return array{action: string, url: string, state: string, code: string} `action` is
+ *         `frame`, `redirect`, or `skip`; `state`/`code` are the promotion outcome
+ *         (both '' for every `skip` return).
  */
 function agend_apps_saml_link_done_decision( int $user_id, array $query ): array {
 	$skip = array(
 		'action' => 'skip',
 		'url'    => '',
+		'state'  => '',
+		'code'   => '',
 	);
 
 	if ( ! isset( $query[ AGEND_APPS_SAML_LINK_DONE_FLAG ] ) || '1' !== (string) $query[ AGEND_APPS_SAML_LINK_DONE_FLAG ] ) {
@@ -849,10 +949,14 @@ function agend_apps_saml_link_done_decision( int $user_id, array $query ): array
 
 	agend_apps_wp_idp_merge_link_state( $user_id, array( 'completed' => true ) );
 
+	$promoted = agend_apps_saml_link_promote( $user_id );
+
 	if ( isset( $query['frame'] ) && '1' === (string) $query['frame'] ) {
 		return array(
 			'action' => 'frame',
 			'url'    => '',
+			'state'  => $promoted['state'],
+			'code'   => $promoted['code'],
 		);
 	}
 
@@ -861,6 +965,8 @@ function agend_apps_saml_link_done_decision( int $user_id, array $query ): array
 	return array(
 		'action' => 'redirect',
 		'url'    => wp_validate_redirect( $redirect_to, home_url( '/' ) ),
+		'state'  => $promoted['state'],
+		'code'   => $promoted['code'],
 	);
 }
 

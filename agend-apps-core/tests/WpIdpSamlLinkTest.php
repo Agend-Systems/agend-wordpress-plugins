@@ -30,9 +30,14 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/wp-idp-saml-link.php'
  * (`includes/wp-idp-saml-link.php`): SP entity id resolution and readiness,
  * the shared eligibility gate, the URL-issuing/attempt-counting function, the
  * `template_redirect` trigger decision (including the visible-redirect
- * fallback), the same-origin done-URL decision, the inert placeholder markup,
- * and the token worker's `asserted` -> `linked` promotion on a successful
- * mint.
+ * fallback), the same-origin done-URL decision, the promotion the done URL
+ * runs against `GET /v1/sso/identities/status`, and the inert placeholder
+ * markup.
+ *
+ * Also covers the token worker NOT promoting `asserted` to `linked` on a
+ * successful mint any more: a mint needs `sso.tokens.create` while the link
+ * only needs `sso.identities.read`, so that promotion made the recorded state
+ * depend on a strictly stronger scope than the thing it described.
  *
  * `WP_SAML_IDP_Service_Provider::get_service_providers()`/`get_sp_by_entity_id()`
  * are required in `setUp()`, not at file scope: PHPUnit includes every test
@@ -383,7 +388,7 @@ final class WpIdpSamlLinkTest extends TestCase {
 	public function should_report_attempt_cap(): void {
 		$this->mintExternalId( 47 );
 		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata' );
-		\agend_apps_wp_idp_merge_link_state( 47, array( 'attempts' => \AGEND_APPS_SAML_LINK_MAX_ATTEMPTS ) );
+		\agend_apps_wp_idp_merge_link_state( 47, array( 'attempts' => \AGEND_APPS_LINK_MAX_ATTEMPTS ) );
 
 		$this->assertSame( 'attempt_cap', \agend_apps_saml_link_eligibility( 47 )['reason'] );
 	}
@@ -517,13 +522,13 @@ final class WpIdpSamlLinkTest extends TestCase {
 	public function should_return_empty_url_and_write_no_attempt_for_attempt_cap(): void {
 		$this->mintExternalId( 53 );
 		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata' );
-		\agend_apps_wp_idp_merge_link_state( 53, array( 'attempts' => \AGEND_APPS_SAML_LINK_MAX_ATTEMPTS ) );
+		\agend_apps_wp_idp_merge_link_state( 53, array( 'attempts' => \AGEND_APPS_LINK_MAX_ATTEMPTS ) );
 
 		$issued = \agend_apps_saml_link_issue_url( 53, '', true );
 
 		$this->assertSame( '', $issued['url'] );
 		$this->assertSame( 'attempt_cap', $issued['reason'] );
-		$this->assertSame( \AGEND_APPS_SAML_LINK_MAX_ATTEMPTS, \agend_apps_wp_idp_link_state( 53 )['attempts'] );
+		$this->assertSame( \AGEND_APPS_LINK_MAX_ATTEMPTS, \agend_apps_wp_idp_link_state( 53 )['attempts'] );
 		// attempt_cap is not one of the two registry-error reasons, so no
 		// state is recorded for it here either.
 		$this->assertSame( '', \agend_apps_wp_idp_link_state( 53 )['state'] );
@@ -620,7 +625,7 @@ final class WpIdpSamlLinkTest extends TestCase {
 		\agend_apps_wp_idp_merge_link_state(
 			67,
 			array(
-				'attempts'  => \AGEND_APPS_SAML_LINK_MAX_ATTEMPTS,
+				'attempts'  => \AGEND_APPS_LINK_MAX_ATTEMPTS,
 				'timestamp' => time() - ( 24 * HOUR_IN_SECONDS ),
 			)
 		);
@@ -639,7 +644,7 @@ final class WpIdpSamlLinkTest extends TestCase {
 		\agend_apps_wp_idp_merge_link_state(
 			68,
 			array(
-				'attempts'      => \AGEND_APPS_SAML_LINK_MAX_ATTEMPTS,
+				'attempts'      => \AGEND_APPS_LINK_MAX_ATTEMPTS,
 				'fallback_done' => true,
 				'timestamp'     => time() - ( 24 * HOUR_IN_SECONDS ),
 			)
@@ -668,6 +673,109 @@ final class WpIdpSamlLinkTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// agend_apps_saml_link_promote()
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_record_nothing_and_report_signed_out_for_user_id_zero(): void {
+		$promoted = \agend_apps_saml_link_promote( 0 );
+
+		$this->assertSame( array( 'state' => '', 'code' => 'signed_out' ), $promoted );
+	}
+
+	#[Test]
+	public function should_record_linked_and_the_identity_ids_on_a_linked_result(): void {
+		$this->mintExternalId( 100 );
+
+		Agend_Test_WP::queue_response(
+			200,
+			array(
+				'data' => array(
+					'linked'     => true,
+					'user_id'    => 'supabase-100',
+					'contact_id' => 'contact-100',
+				),
+			)
+		);
+
+		$promoted = \agend_apps_saml_link_promote( 100 );
+
+		$this->assertSame( array( 'state' => \AGEND_APPS_LINK_STATE_LINKED, 'code' => 'linked' ), $promoted );
+		$this->assertSame( \AGEND_APPS_LINK_STATE_LINKED, \agend_apps_wp_idp_link_state( 100 )['state'] );
+		$this->assertSame(
+			array( 'supabase_user_id' => 'supabase-100', 'contact_id' => 'contact-100' ),
+			\agend_apps_linked_identity_ids( 100 )
+		);
+	}
+
+	#[Test]
+	public function should_record_pending_approval_on_an_unknown_issuer_error(): void {
+		$this->mintExternalId( 101 );
+
+		Agend_Test_WP::queue_response( 403, array( 'error' => array( 'code' => 'UNKNOWN_ISSUER' ) ) );
+
+		$promoted = \agend_apps_saml_link_promote( 101 );
+
+		$this->assertSame( array( 'state' => \AGEND_APPS_LINK_STATE_PENDING_APPROVAL, 'code' => 'unknown_issuer' ), $promoted );
+
+		$stored = \agend_apps_wp_idp_link_state( 101 );
+		$this->assertSame( \AGEND_APPS_LINK_STATE_PENDING_APPROVAL, $stored['state'] );
+		$this->assertSame( 'unknown_issuer', $stored['error_code'] );
+	}
+
+	#[Test]
+	public function should_record_error_with_the_lower_cased_gateway_code_for_another_gateway_error(): void {
+		$this->mintExternalId( 102 );
+
+		Agend_Test_WP::queue_response( 409, array( 'error' => array( 'code' => 'IDENTITY_ALREADY_LINKED' ) ) );
+
+		$promoted = \agend_apps_saml_link_promote( 102 );
+
+		$this->assertSame( array( 'state' => \AGEND_APPS_LINK_STATE_ERROR, 'code' => 'identity_already_linked' ), $promoted );
+
+		$stored = \agend_apps_wp_idp_link_state( 102 );
+		$this->assertSame( \AGEND_APPS_LINK_STATE_ERROR, $stored['state'] );
+		$this->assertSame( 'identity_already_linked', $stored['error_code'] );
+	}
+
+	#[Test]
+	public function should_record_status_failed_for_a_transport_style_error_with_no_gateway_code(): void {
+		$this->mintExternalId( 103 );
+
+		Agend_Test_WP::queue_response( 500, '' );
+
+		$promoted = \agend_apps_saml_link_promote( 103 );
+
+		$this->assertSame( array( 'state' => \AGEND_APPS_LINK_STATE_ERROR, 'code' => 'status_failed' ), $promoted );
+
+		$stored = \agend_apps_wp_idp_link_state( 103 );
+		$this->assertSame( \AGEND_APPS_LINK_STATE_ERROR, $stored['state'] );
+		$this->assertSame( 'status_failed', $stored['error_code'] );
+	}
+
+	#[Test]
+	public function should_record_nothing_and_report_not_linked_when_the_gateway_reports_unlinked(): void {
+		$this->mintExternalId( 104 );
+
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'linked' => false ) ) );
+
+		$promoted = \agend_apps_saml_link_promote( 104 );
+
+		$this->assertSame( array( 'state' => '', 'code' => 'not_linked' ), $promoted );
+		$this->assertSame( '', \agend_apps_wp_idp_link_state( 104 )['state'] );
+	}
+
+	#[Test]
+	public function should_record_nothing_and_report_no_external_id_when_none_resolves(): void {
+		$this->assertSame( '', \agend_apps_user_external_id( 105 ) );
+
+		$promoted = \agend_apps_saml_link_promote( 105 );
+
+		$this->assertSame( array( 'state' => '', 'code' => 'no_external_id' ), $promoted );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	// -----------------------------------------------------------------
 	// agend_apps_saml_link_done_decision()
 	// -----------------------------------------------------------------
 
@@ -675,7 +783,7 @@ final class WpIdpSamlLinkTest extends TestCase {
 	public function should_skip_the_done_decision_on_a_missing_flag(): void {
 		$decision = \agend_apps_saml_link_done_decision( 70, array() );
 
-		$this->assertSame( array( 'action' => 'skip', 'url' => '' ), $decision );
+		$this->assertSame( array( 'action' => 'skip', 'url' => '', 'state' => '', 'code' => '' ), $decision );
 	}
 
 	#[Test]
@@ -694,6 +802,9 @@ final class WpIdpSamlLinkTest extends TestCase {
 
 	#[Test]
 	public function should_return_frame_and_record_completed_for_frame_equal_one(): void {
+		$this->mintExternalId( 72 );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'linked' => true, 'user_id' => 'supabase-72' ) ) );
+
 		$decision = \agend_apps_saml_link_done_decision(
 			72,
 			array(
@@ -705,10 +816,18 @@ final class WpIdpSamlLinkTest extends TestCase {
 
 		$this->assertSame( 'frame', $decision['action'] );
 		$this->assertTrue( \agend_apps_wp_idp_link_state( 72 )['completed'] );
+		// The frame case also carries the promotion outcome computed on this
+		// same return leg.
+		$this->assertSame( \AGEND_APPS_LINK_STATE_LINKED, $decision['state'] );
+		$this->assertSame( 'linked', $decision['code'] );
+		$this->assertSame( \AGEND_APPS_LINK_STATE_LINKED, \agend_apps_wp_idp_link_state( 72 )['state'] );
 	}
 
 	#[Test]
 	public function should_redirect_to_the_validated_same_site_redirect_to(): void {
+		$this->mintExternalId( 73 );
+		Agend_Test_WP::queue_response( 403, array( 'error' => array( 'code' => 'UNKNOWN_ISSUER' ) ) );
+
 		$decision = \agend_apps_saml_link_done_decision(
 			73,
 			array(
@@ -721,6 +840,10 @@ final class WpIdpSamlLinkTest extends TestCase {
 		$this->assertSame( 'redirect', $decision['action'] );
 		$this->assertSame( 'https://example.test/account/', $decision['url'] );
 		$this->assertTrue( \agend_apps_wp_idp_link_state( 73 )['completed'] );
+		// The redirect case also carries the promotion outcome computed on this
+		// same return leg.
+		$this->assertSame( \AGEND_APPS_LINK_STATE_PENDING_APPROVAL, $decision['state'] );
+		$this->assertSame( 'unknown_issuer', $decision['code'] );
 	}
 
 	#[Test]
@@ -770,11 +893,16 @@ final class WpIdpSamlLinkTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
-	// Token worker: asserted -> linked on a successful mint
+	// Token worker: a successful mint no longer promotes the link state --
+	// promotion moved to the SAML round trip's own return leg
+	// (agend_apps_saml_link_promote(), see the tests above). A mint needs
+	// sso.tokens.create, a strictly stronger scope than the sso.identities.read
+	// the link itself needs, so leaving promotion here would make the
+	// recorded state depend on a scope stronger than the thing it describes.
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function should_promote_asserted_to_linked_on_a_successful_mint(): void {
+	public function should_leave_the_recorded_state_alone_on_a_successful_mint(): void {
 		$GLOBALS['agend_test_current_user_id'] = 30;
 		update_user_meta( 30, 'imk_membership_number', 'member-30' );
 		\agend_apps_wp_idp_record_link_state( 30, \AGEND_APPS_LINK_STATE_ASSERTED );
@@ -785,6 +913,7 @@ final class WpIdpSamlLinkTest extends TestCase {
 				'data' => array(
 					'access_token' => 'token-30',
 					'expires_at'   => time() + 300,
+					'user_id'      => 'supabase-30',
 				),
 			)
 		);
@@ -793,6 +922,9 @@ final class WpIdpSamlLinkTest extends TestCase {
 		$token  = $worker->provide_token( '' );
 
 		$this->assertSame( 'token-30', $token );
-		$this->assertSame( \AGEND_APPS_LINK_STATE_LINKED, \agend_apps_wp_idp_link_state( 30 )['state'] );
+		// The mint still records the identity ids it returns (unrelated to link
+		// state), but must not touch the recorded state.
+		$this->assertSame( \AGEND_APPS_LINK_STATE_ASSERTED, \agend_apps_wp_idp_link_state( 30 )['state'] );
+		$this->assertSame( 'supabase-30', \agend_apps_linked_identity_ids( 30 )['supabase_user_id'] );
 	}
 }

@@ -153,6 +153,49 @@ final class WpIdpLinkTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_report_the_human_backoff_for_pending_approval(): void {
+		$this->assertSame(
+			\AGEND_APPS_LINK_BACKOFF_HUMAN,
+			\agend_apps_wp_idp_link_backoff_seconds( \AGEND_APPS_LINK_STATE_PENDING_APPROVAL )
+		);
+	}
+
+	#[Test]
+	public function should_escalate_asserted_to_the_human_backoff_once_the_attempt_cap_is_reached(): void {
+		$this->assertSame(
+			\AGEND_APPS_LINK_BACKOFF_HUMAN,
+			\agend_apps_wp_idp_link_backoff_seconds( \AGEND_APPS_LINK_STATE_ASSERTED, \AGEND_APPS_LINK_MAX_ATTEMPTS )
+		);
+	}
+
+	#[Test]
+	public function should_escalate_error_to_the_human_backoff_once_the_attempt_cap_is_reached(): void {
+		$this->assertSame(
+			\AGEND_APPS_LINK_BACKOFF_HUMAN,
+			\agend_apps_wp_idp_link_backoff_seconds( \AGEND_APPS_LINK_STATE_ERROR, \AGEND_APPS_LINK_MAX_ATTEMPTS )
+		);
+	}
+
+	#[Test]
+	public function should_keep_the_short_asserted_backoff_below_the_attempt_cap(): void {
+		$this->assertSame(
+			5 * MINUTE_IN_SECONDS,
+			\agend_apps_wp_idp_link_backoff_seconds( \AGEND_APPS_LINK_STATE_ASSERTED, \AGEND_APPS_LINK_MAX_ATTEMPTS - 1 )
+		);
+	}
+
+	#[Test]
+	public function should_not_escalate_pending_at_the_attempt_cap(): void {
+		// pending's window is deliberately short for a reason its own constant's
+		// docblock explains (a member who just confirmed by email must be
+		// noticed promptly); the attempt-cap escalation must not touch it.
+		$this->assertSame(
+			\AGEND_APPS_LINK_BACKOFF_PENDING,
+			\agend_apps_wp_idp_link_backoff_seconds( \AGEND_APPS_LINK_STATE_PENDING, \AGEND_APPS_LINK_MAX_ATTEMPTS )
+		);
+	}
+
+	#[Test]
 	public function should_never_throttle_an_empty_state(): void {
 		$this->assertFalse(
 			\agend_apps_wp_idp_link_is_throttled(
@@ -186,6 +229,23 @@ final class WpIdpLinkTest extends TestCase {
 					'state'      => \AGEND_APPS_LINK_STATE_ASSERTED,
 					'error_code' => '',
 					'timestamp'  => time() - ( 2 * HOUR_IN_SECONDS ),
+				)
+			)
+		);
+	}
+
+	#[Test]
+	public function should_honour_the_escalated_window_once_the_attempt_cap_is_reached(): void {
+		// Before the attempt-cap escalation this would NOT have been throttled:
+		// `asserted`'s own short window is only 5 minutes. At the cap it
+		// escalates to the human window, so 10 minutes in is still throttled.
+		$this->assertTrue(
+			\agend_apps_wp_idp_link_is_throttled(
+				array(
+					'state'      => \AGEND_APPS_LINK_STATE_ASSERTED,
+					'error_code' => '',
+					'timestamp'  => time() - ( 10 * MINUTE_IN_SECONDS ),
+					'attempts'   => \AGEND_APPS_LINK_MAX_ATTEMPTS,
 				)
 			)
 		);
