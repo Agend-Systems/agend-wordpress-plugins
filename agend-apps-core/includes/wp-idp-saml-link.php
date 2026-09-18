@@ -7,51 +7,73 @@
  * former `agend_apps_wp_idp_link_user()`, is retired). This file is what makes
  * `wordpress` sign-in mode actually link a member when the resolved mechanism
  * is `saml` (`Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML`): it passes a
- * freshly-signed-in member through the site's own SAML identity provider
- * plugin (agend-saml-idp) once, so the plugin's normal IdP-initiated flow
- * posts a real assertion to the gateway's ACS. The gateway then provisions
- * the user, records `sso_identities`, maps the role, creates the CRM contact,
- * and redirects back to this site because the RelayState origin matches the
+ * signed-in member through the site's own SAML identity provider plugin
+ * (agend-saml-idp) once, so the plugin's normal IdP-initiated flow posts a
+ * real assertion to the gateway's ACS. The gateway then provisions the user,
+ * records `sso_identities`, maps the role, creates the CRM contact, and
+ * redirects back to this site because the RelayState origin matches the
  * connection's own IdP host -- all of that already works and is untouched by
  * this file.
  *
- * Two hops are required, not one, because of a WordPress cookie-timing fact:
- * at `login_redirect` time (fired from `wp_signon()` before it returns) the
- * auth cookies this request just set are not yet present in `$_COOKIE`. A
- * nonce created here (`wp_create_nonce()`) is bound to the current user via
- * that cookie, so a nonce minted at `login_redirect` and later verified by the
- * IdP plugin on a followed link would be computed against the WRONG (pre-
- * login) session and fail `wp_verify_nonce()`. So:
+ * This file used to drive that trip with two visible hops (a `login_redirect`
+ * handoff page, then a `template_redirect` redirect into the IdP), because of
+ * a WordPress cookie-timing fact: at `login_redirect` time the auth cookies
+ * `wp_signon()` just set are not yet present in `$_COOKIE`, so a nonce minted
+ * there would be bound to the wrong (pre-login) session. That two-hop dance
+ * is gone. The trigger is now a single inert placeholder rendered in
+ * `wp_footer`: by the time `wp_footer` runs, the response that sets the auth
+ * cookies has already been sent and the NEXT request (the placeholder's own
+ * background fetch) carries them, so there is no first hop to wait out.
  *
- * 1. `login_redirect` (this file) sends the browser to a same-site handoff
- *    URL first -- a normal page load, by which point the cookies WordPress
- *    just set on this exact response are present.
- * 2. `template_redirect` on that handoff request (this file) builds the
- *    IdP-initiated SSO URL, WITH a nonce that is now correctly bound to the
- *    live session, and redirects into agend-saml-idp's own dispatcher.
+ * The new shape, in order:
+ * 1. `template_redirect` (this file, default priority) decides once per
+ *    request whether this member is eligible and, if so, marks a REST
+ *    endpoint URL as pending for `wp_footer` to pick up. Running the decision
+ *    here rather than at `wp_footer` matters for two reasons: the one
+ *    permitted visible fallback redirect (see below) is a real redirect,
+ *    which must happen before any output; and deciding once per request,
+ *    rather than once per hook, keeps the view/render counters honest.
+ * 2. `wp_footer` echoes an inert `<iframe>` placeholder plus a small inline
+ *    script, built by {@see agend_apps_saml_link_placeholder_markup()}. The
+ *    markup carries no nonce, no member id, nothing session-bound -- it is
+ *    safe to serve out of a full-page cache to any visitor. The script reads
+ *    the per-user REST nonce `agend-apps-core.php` already exposes as
+ *    `window.agendApps.nonce` (SEE THAT FILE's `agend_apps_output_config_js()`)
+ *    and fetches the sso-url endpoint with it.
+ * 3. `GET /agend-apps/v1/identity-link/sso-url` (see
+ *    `includes/rest/identity-link-routes.php`) is the ONLY place the per-user
+ *    nonce travels and the ONLY place a nonce'd IdP URL is minted. Because
+ *    that call happens after the page has already loaded, it is never part of
+ *    the cached HTML: a page cache serving one member's HTML to another only
+ *    ever leaks the inert placeholder, never a credential.
+ * 4. If the endpoint returns a URL, the script points the hidden iframe's
+ *    `src` at it, and the IdP-initiated flow runs inside that iframe.
  *
- * `login_redirect` alone is not enough to reach every member, because it only
- * fires for `wp_signon()`'s own default flow. Three cases never reach it:
- * WooCommerce's My Account login (which resolves its own redirect through
- * `woocommerce_login_redirect`, hooked below too, reusing the exact same
- * decision), an Elementor login widget that calls `wp_signon()` and redirects
- * the browser itself, and a member who already held a session before this
- * mechanism shipped (there was never a login event to hook at all). For all
- * three, `template_redirect` ALSO runs the same handoff decision implicitly,
- * with no query flag, on the very next ordinary front-end page view by a
- * logged-in, unlinked, not-throttled member -- see
- * {@see agend_apps_saml_link_implicit_trigger_eligible()} for exactly which
- * requests that excludes (anything not a plain front-end GET, and anything
- * that is itself part of the SAML round trip, so the implicit trigger cannot
- * interrupt or loop with the explicit one).
+ * Why the nonce must never appear in the footer markup itself: a page cache
+ * cannot know which visitor's nonce belongs in a cached response, so it would
+ * either serve visitor A's nonce to visitor B (a `wp_verify_nonce()` bound to
+ * the wrong session, which the IdP plugin already fails closed on -- see
+ * `WP_SAML_IDP_Auth::handle_idp_initiated_sso()`) or, if the whole markup were
+ * excluded from the cache to avoid that, silently never render at all. Both
+ * failure shapes are silent: the member sees nothing wrong, and the link
+ * simply never happens. Minting the nonce only inside the REST response
+ * removes the cache from the trust boundary entirely.
+ *
+ * That silence is exactly what the one visible-redirect fallback
+ * (`AGEND_APPS_SAML_LINK_FALLBACK_VIEWS`, `AGEND_APPS_SAML_LINK_MAX_ATTEMPTS`
+ * in {@see agend_apps_saml_link_decision()}) exists to rescue: a site whose
+ * theme never calls `wp_footer`, or whose cache configuration breaks the
+ * background fetch, would otherwise leave every member permanently unlinked
+ * with no visible symptom. The fallback trades a single visible redirect,
+ * once per member, for the guarantee that a mis-configured site still
+ * eventually gets a shot at linking every member.
  *
  * Every hook here is guarded on `Agend_Apps_Settings::sso_link_mechanism()`
  * being `saml`, re-evaluated per request like the rest of the plugin: a site
  * on `disabled`, or one where `auto` currently resolves to `disabled` because
- * no SAML IdP plugin is detected, must never redirect a member through this
- * flow. Every hook wraps its work in `try`/`catch`, mirroring
- * `includes/wp-idp-link.php`'s former guarantee: a defect here must never
- * break a WordPress login or an ordinary page view.
+ * no SAML IdP plugin is detected, must never render the placeholder or issue
+ * an IdP URL. Every hook wraps its work in `try`/`catch`: a defect here must
+ * never break a WordPress page view.
  *
  * @package Agend_Apps_Core
  */
@@ -61,14 +83,49 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Query flag naming the handoff request: `home_url('/')` plus this flag set
- * to `1` and a `redirect_to` is the "come back here and get sent to the SAML
- * IdP" page the `login_redirect` decision below builds, and the URL
- * `template_redirect` below recognises.
+ * Query key on the same-origin "done" URL the IdP-initiated flow's
+ * RelayState points back to. Its PRESENCE (with a valid nonce) is what
+ * {@see agend_apps_saml_link_done_decision()} recognises as "the round trip
+ * came back", regardless of whether it landed in the hidden iframe or, via
+ * the visible fallback, the top-level page.
  *
  * @var string
  */
-const AGEND_APPS_SAML_LINK_QUERY_FLAG = 'agend_apps_saml_link';
+const AGEND_APPS_SAML_LINK_DONE_FLAG = 'agend_apps_saml_link_done';
+
+/**
+ * `wp_create_nonce()`/`wp_verify_nonce()` action name for the done URL's
+ * `_wpnonce`. A distinct action from the IdP's own `wp_saml_idp_sso_*`
+ * nonce: this one is verified by THIS plugin, not agend-saml-idp, and scopes
+ * a forged done URL to nothing more than marking `completed` early.
+ *
+ * @var string
+ */
+const AGEND_APPS_SAML_LINK_DONE_NONCE = 'agend_apps_saml_link_done';
+
+/**
+ * Lifetime cap on how many times a nonce'd IdP URL is issued for one member.
+ * Counts `attempts` (see `includes/wp-idp-link.php`), never page views: a
+ * member who never reaches an eligible page never burns this down. Once hit,
+ * {@see agend_apps_saml_link_eligibility()} reports `attempt_cap` and no
+ * further URL is minted -- except the one visible fallback redirect, which
+ * this cap is itself one of the two triggers for (see
+ * {@see agend_apps_saml_link_decision()}).
+ *
+ * @var int
+ */
+const AGEND_APPS_SAML_LINK_MAX_ATTEMPTS = 3;
+
+/**
+ * How many eligible front-end page views with ZERO attempts made must pass
+ * before the visible fallback redirect fires. Covers the case the attempt
+ * counter alone cannot see: a theme that never calls `wp_footer`, so the
+ * placeholder is scheduled (`views` climbs) but never actually rendered and
+ * therefore never has a chance to attempt anything.
+ *
+ * @var int
+ */
+const AGEND_APPS_SAML_LINK_FALLBACK_VIEWS = 3;
 
 /**
  * Resolves this site's registered Agend SP entity id from agend-saml-idp's
@@ -81,11 +138,15 @@ const AGEND_APPS_SAML_LINK_QUERY_FLAG = 'agend_apps_saml_link';
  * site's configured account slug wins, then the one whose host matches
  * {@see Agend_Apps_Settings::get_root_url()}, then the first candidate found.
  *
- * Falls back to constructing the expected shape directly
- * (`{root}/api/auth/sso/{slug}/metadata`) when agend-saml-idp's registry
- * class is unavailable or holds no matching entry but an account slug and
- * root URL are both configured -- the registry not yet reflecting a
- * connection that otherwise exists is exactly the gap this covers.
+ * Returns '' when the registry holds no matching candidate, rather than
+ * fabricating the expected shape (`{root}/api/auth/sso/{slug}/metadata`) the
+ * way an earlier version of this function did. Fabricating an entity id
+ * nothing ever actually registered turns a configuration gap (the SAML IdP
+ * plugin has not yet registered this site's connection) into a raw
+ * `wp_die( 'SAML Error: Service Provider not found' )` on a member-facing
+ * page the moment the placeholder's fetch resolves. The honest empty answer
+ * instead lets {@see agend_apps_saml_link_eligibility()} report
+ * `sp_not_registered` and stand down until the registry catches up.
  *
  * @return string The resolved entity id, or '' when nothing resolves.
  */
@@ -144,17 +205,8 @@ function agend_apps_saml_agend_sp_entity_id(): string {
 		}
 	}
 
-	if ( '' === $result ) {
-		$slug = method_exists( 'Agend_Apps_Settings', 'get_account_slug' ) ? Agend_Apps_Settings::get_account_slug() : '';
-		$root = method_exists( 'Agend_Apps_Settings', 'get_root_url' ) ? Agend_Apps_Settings::get_root_url() : '';
-
-		if ( '' !== $slug && '' !== $root ) {
-			$result = rtrim( $root, '/' ) . '/api/auth/sso/' . rawurlencode( $slug ) . '/metadata';
-		}
-	}
-
 	/**
-	 * Filters the Agend SP entity id resolved for the SAML link handoff.
+	 * Filters the Agend SP entity id resolved for the SAML link trigger.
 	 *
 	 * @param string $result Resolved entity id, or '' when none resolved.
 	 */
@@ -162,234 +214,67 @@ function agend_apps_saml_agend_sp_entity_id(): string {
 }
 
 /**
- * The `login_redirect` filter's pure decision: whether this sign-in should be
- * routed through the same-site handoff page before reaching its normal
- * destination.
+ * Whether a resolved SP entity id is both registered and enabled with
+ * agend-saml-idp.
  *
- * Returns the original `$redirect_to` unchanged (the normal case, on every
- * sign-in once a member is linked) unless the mechanism is `saml` AND the
- * member's recorded state is neither `linked` nor inside its backoff window.
+ * Guarded on the IdP plugin's registry class and lookup method existing at
+ * all: an inactive/missing agend-saml-idp reports `registered: false` rather
+ * than fataling. An empty `$entity_id` short-circuits the same way, since
+ * `get_sp_by_entity_id( '' )` is never a meaningful lookup.
  *
- * @param string $redirect_to WordPress's own resolved post-login redirect.
- * @param int    $user_id     The signed-in WordPress user id.
- * @return string The handoff URL, or `$redirect_to` unchanged.
+ * `enabled` mirrors `WP_SAML_IDP_Service_Provider::is_service_provider_enabled()`'s
+ * own backwards-compatible default: an SP array with no `enabled` key at all
+ * (a connection registered before that key existed) is treated as enabled,
+ * not disabled, matching the IdP plugin's own behaviour rather than silently
+ * disagreeing with it.
+ *
+ * @param string $entity_id Entity id to check.
+ * @return array{registered: bool, enabled: bool}
  */
-function agend_apps_saml_login_redirect_decision( string $redirect_to, int $user_id ): string {
-	if ( Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML !== Agend_Apps_Settings::sso_link_mechanism() ) {
-		return $redirect_to;
-	}
-
-	if ( 0 === $user_id ) {
-		return $redirect_to;
-	}
-
-	$stored = agend_apps_wp_idp_link_state( $user_id );
-
-	if ( AGEND_APPS_LINK_STATE_LINKED === $stored['state'] ) {
-		return $redirect_to;
-	}
-
-	if ( agend_apps_wp_idp_link_is_throttled( $stored ) ) {
-		return $redirect_to;
-	}
-
-	return add_query_arg(
-		array(
-			AGEND_APPS_SAML_LINK_QUERY_FLAG => '1',
-			'redirect_to'                   => rawurlencode( $redirect_to ),
-		),
-		home_url( '/' )
-	);
-}
-
-/**
- * `login_redirect` filter: the thin hook wrapper around
- * {@see agend_apps_saml_login_redirect_decision()}.
- *
- * Priority 50, after every other `login_redirect` filter has decided the
- * member's real post-login destination -- this needs that final value as the
- * `redirect_to` the handoff page returns to, not an earlier candidate.
- *
- * @param string                 $redirect_to           WordPress's resolved redirect.
- * @param string                 $requested_redirect_to Unused; required by the hook signature.
- * @param WP_User|WP_Error|mixed $user                  The signed-in user, or an error.
- * @return string
- */
-function agend_apps_saml_login_redirect( $redirect_to, $requested_redirect_to, $user ) {
-	unset( $requested_redirect_to );
-
-	if ( ! ( $user instanceof WP_User ) ) {
-		return $redirect_to;
-	}
-
-	try {
-		return agend_apps_saml_login_redirect_decision( (string) $redirect_to, $user->ID );
-	} catch ( Throwable $e ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[Agend Apps] SAML login handoff decision failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-		}
-
-		return $redirect_to;
-	}
-}
-add_filter( 'login_redirect', 'agend_apps_saml_login_redirect', 50, 3 );
-
-/**
- * `woocommerce_login_redirect` filter: the same handoff decision as
- * {@see agend_apps_saml_login_redirect()}, for WooCommerce's My Account login
- * form, which resolves its own post-login redirect through this filter
- * instead of `login_redirect`. `add_filter()` registering against a hook a
- * site's plugins never fire is harmless -- WooCommerce not being active just
- * means this filter is never called -- so it is added unconditionally rather
- * than behind a `class_exists( 'WooCommerce' )` guard.
- *
- * @param string  $redirect WooCommerce's resolved redirect.
- * @param WP_User $user     The signed-in user.
- * @return string
- */
-function agend_apps_saml_woocommerce_login_redirect( $redirect, $user ) {
-	if ( ! ( $user instanceof WP_User ) ) {
-		return $redirect;
-	}
-
-	try {
-		return agend_apps_saml_login_redirect_decision( (string) $redirect, $user->ID );
-	} catch ( Throwable $e ) {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[Agend Apps] WooCommerce SAML login handoff decision failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-		}
-
-		return $redirect;
-	}
-}
-add_filter( 'woocommerce_login_redirect', 'agend_apps_saml_woocommerce_login_redirect', 50, 2 );
-
-/**
- * The `template_redirect` handoff's pure decision.
- *
- * Resolves the Agend SP entity id, validates the return URL, and decides
- * between an error stand-down (no SP registered -- never loop: the `error`
- * state's backoff keeps this from being retried on every load) and a
- * redirect into agend-saml-idp's IdP-initiated flow. Records the `asserted`
- * state as a side effect immediately before returning the redirect, so the
- * round trip is never attempted twice for the same request even if the
- * caller's own redirect is somehow delayed. Performs NO redirect itself.
- *
- * Two callers share this one decision. With the query flag present (the
- * explicit handoff `login_redirect` built), the return target is
- * `$query['redirect_to']`. Without it (the implicit trigger on an ordinary
- * front-end page view -- see the file docblock), the return target is
- * `$current_url`, the page the member was already on: the round trip sends
- * them right back to where they were, rather than to a login destination
- * that has nothing to do with an already-established session.
- *
- * @param int    $user_id     Current WordPress user id (0 = signed out).
- * @param array  $query       The relevant `$_GET` values: `AGEND_APPS_SAML_LINK_QUERY_FLAG`
- *                             and `redirect_to`, both raw/unvalidated.
- * @param string $current_url The current request's URL, used as the return
- *                             target only when `$query` carries no flag.
- *                             Ignored when the flag is present. Raw/unvalidated.
- * @return array{action: string, url: string, state: string} `action` is
- *         `redirect` or `skip`; `url` and `state` are only meaningful when
- *         `action` is `redirect`.
- */
-function agend_apps_saml_link_handoff_decision( int $user_id, array $query, string $current_url = '' ): array {
-	$skip = array(
-		'action' => 'skip',
-		'url'    => '',
-		'state'  => '',
+function agend_apps_saml_sp_ready( string $entity_id ): array {
+	$not_ready = array(
+		'registered' => false,
+		'enabled'    => false,
 	);
 
-	$has_flag = isset( $query[ AGEND_APPS_SAML_LINK_QUERY_FLAG ] ) && '1' === (string) $query[ AGEND_APPS_SAML_LINK_QUERY_FLAG ];
-
-	// Neither the explicit handoff nor the implicit trigger applies: nothing
-	// to do, and nowhere to send the member back to even if there were.
-	if ( ! $has_flag && '' === $current_url ) {
-		return $skip;
+	if ( '' === $entity_id ) {
+		return $not_ready;
 	}
 
-	if ( 0 === $user_id ) {
-		return $skip;
+	if ( ! class_exists( 'WP_SAML_IDP_Service_Provider' ) || ! method_exists( 'WP_SAML_IDP_Service_Provider', 'get_sp_by_entity_id' ) ) {
+		return $not_ready;
 	}
 
-	if ( Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML !== Agend_Apps_Settings::sso_link_mechanism() ) {
-		return $skip;
+	$sp = WP_SAML_IDP_Service_Provider::get_sp_by_entity_id( $entity_id );
+
+	if ( ! is_array( $sp ) ) {
+		return $not_ready;
 	}
 
-	$stored = agend_apps_wp_idp_link_state( $user_id );
-
-	if ( AGEND_APPS_LINK_STATE_LINKED === $stored['state'] ) {
-		return $skip;
-	}
-
-	if ( agend_apps_wp_idp_link_is_throttled( $stored ) ) {
-		return $skip;
-	}
-
-	$raw_redirect  = $has_flag ? ( isset( $query['redirect_to'] ) ? (string) $query['redirect_to'] : '' ) : $current_url;
-	$safe_redirect = wp_validate_redirect( $raw_redirect, home_url( '/' ) );
-
-	$entity = agend_apps_saml_agend_sp_entity_id();
-
-	if ( '' === $entity ) {
-		agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_ERROR, 'sp_not_registered' );
-
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[Agend Apps] SAML link handoff failed for user ' . $user_id . ': no Agend SP registered with the SAML IdP plugin.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-		}
-
-		return array(
-			'action' => 'redirect',
-			'url'    => $safe_redirect,
-			'state'  => AGEND_APPS_LINK_STATE_ERROR,
-		);
-	}
-
-	// `sp` and `RelayState` are rawurlencode()'d here, before add_query_arg():
-	// WordPress's real add_query_arg() does not encode its values itself
-	// (`_http_build_query( ..., false )`), so this is the single point of
-	// encoding on the wire, matching the convention
-	// includes/account-link-state.php already uses. `sanitize_text_field(
-	// wp_unslash( $_GET['sp'] ) )` on the receiving (IdP) side then yields the
-	// exact entity id back.
-	$idp_url = add_query_arg(
-		array(
-			'idp_initiated' => '1',
-			'sp'            => rawurlencode( $entity ),
-			'RelayState'    => rawurlencode( $safe_redirect ),
-			'_wpnonce'      => wp_create_nonce( 'wp_saml_idp_sso_' . $entity ),
-		),
-		home_url( '/' )
-	);
-
-	agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_ASSERTED );
-
-	if ( class_exists( 'Agend_Apps_Token_Worker' ) ) {
-		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
-	}
+	$enabled = isset( $sp['enabled'] ) ? (bool) $sp['enabled'] : true;
 
 	return array(
-		'action' => 'redirect',
-		'url'    => $idp_url,
-		'state'  => AGEND_APPS_LINK_STATE_ASSERTED,
+		'registered' => true,
+		'enabled'    => $enabled,
 	);
 }
 
 /**
- * Whether the CURRENT request may carry the implicit handoff trigger (no
- * query flag; see the file docblock and {@see agend_apps_saml_link_handoff_decision()}).
+ * Whether the CURRENT request may carry the footer placeholder at all,
+ * independent of the member's own eligibility.
  *
  * Deliberately excludes anything that is not an ordinary front-end page
- * view -- a non-GET request (a form submit must not be redirected mid-
- * submission), and every shape of request that is itself PART of the SAML
+ * view -- a non-GET request (a form submit must not sprout a background SSO
+ * round trip), `wp-login.php` and the `/saml/` path prefix some SAML plugins
+ * route through, and every shape of request that is itself PART of the SAML
  * round trip this file drives or that agend-saml-idp's own dispatcher
  * handles (`saml`, `idp_initiated`, `SAMLRequest`, `saml_action`, `option` --
- * agend-saml-idp reads its admin/dispatch action from one of these
- * depending on entry point -- and the `/saml/` path prefix some SAML
- * plugins route through, plus wp-login.php itself, which `login_redirect`
- * and `woocommerce_login_redirect` already cover). Without these exclusions
- * the implicit trigger could interrupt the round trip it is meant to start,
- * or loop with it.
+ * agend-saml-idp reads its admin/dispatch action from one of these depending
+ * on entry point). The done-flag key
+ * ({@see AGEND_APPS_SAML_LINK_DONE_FLAG}) is excluded for the same reason:
+ * the same-origin done URL this file itself builds must never re-arm the
+ * trigger that produced it, or a frame landing on it would schedule another
+ * placeholder on the very page that is supposed to end the round trip.
  *
  * @param string $method Request method, e.g. `$_SERVER['REQUEST_METHOD']`.
  * @param string $path   Request path only (no query string), e.g. from
@@ -398,7 +283,7 @@ function agend_apps_saml_link_handoff_decision( int $user_id, array $query, stri
  *                       read; values are never used).
  * @return bool
  */
-function agend_apps_saml_link_implicit_trigger_eligible( string $method, string $path, array $query ): bool {
+function agend_apps_saml_link_request_eligible( string $method, string $path, array $query ): bool {
 	if ( 'GET' !== $method ) {
 		return false;
 	}
@@ -407,7 +292,7 @@ function agend_apps_saml_link_implicit_trigger_eligible( string $method, string 
 		return false;
 	}
 
-	foreach ( array( 'saml', 'idp_initiated', 'SAMLRequest', 'saml_action', 'option' ) as $marker ) {
+	foreach ( array( 'saml', 'idp_initiated', 'SAMLRequest', 'saml_action', 'option', AGEND_APPS_SAML_LINK_DONE_FLAG ) as $marker ) {
 		if ( isset( $query[ $marker ] ) ) {
 			return false;
 		}
@@ -417,20 +302,639 @@ function agend_apps_saml_link_implicit_trigger_eligible( string $method, string 
 }
 
 /**
- * `template_redirect` handler: the thin hook wrapper around
- * {@see agend_apps_saml_link_handoff_decision()}.
+ * Whether the current front-end surface must never carry the placeholder,
+ * even on a plain GET that passed {@see agend_apps_saml_link_request_eligible()}.
  *
- * Cheap by construction for every request that is not this exact handoff:
- * `is_admin()`, cron, REST, and AJAX requests stop here immediately (none of
- * them can carry a browser session through a redirect chain anyway), then a
- * signed-out visitor. From there the query flag decides which of the two
- * paths above runs: with it, the explicit handoff (unconditional on request
- * shape -- it is a redirect target this file itself built); without it, the
- * implicit trigger, gated additionally on
- * {@see agend_apps_saml_link_implicit_trigger_eligible()} so it only ever
- * fires on a plain front-end page view.
+ * A feed is not a page a browser renders (no `wp_footer` script would ever
+ * run there, so scheduling the placeholder would be pure waste), and
+ * WooCommerce's cart/checkout/account pages are excluded because a member
+ * mid-purchase or mid-account-form must not have a background SSO round trip
+ * racing that page's own state (a redirect inside the iframe, a session
+ * refresh, or simply the extra request) while it is in flight. Each
+ * WooCommerce check is behind its own `function_exists()` guard, since
+ * WooCommerce may not be installed at all.
+ *
+ * @return bool
  */
-function agend_apps_saml_link_handoff(): void {
+function agend_apps_saml_link_surface_blocked(): bool {
+	if ( is_feed() ) {
+		return true;
+	}
+
+	if ( function_exists( 'is_cart' ) && is_cart() ) {
+		return true;
+	}
+
+	if ( function_exists( 'is_checkout' ) && is_checkout() ) {
+		return true;
+	}
+
+	if ( function_exists( 'is_account_page' ) && is_account_page() ) {
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Builds the same-origin "done" URL the IdP-initiated flow's RelayState
+ * points back to.
+ *
+ * `_wpnonce` and (when present) `redirect_to` are `rawurlencode()`'d here,
+ * before `add_query_arg()`: real WordPress's `add_query_arg()` does not
+ * encode its values itself (`_http_build_query( ..., false )`), so this is
+ * the single point of encoding on the wire, matching the convention this
+ * file and `includes/account-link-state.php` already use.
+ *
+ * `frame` distinguishes the two ways this URL is ever used: `true` for the
+ * hidden-iframe round trip (the done handler responds with a tiny inert
+ * document and never redirects the top-level page), `false` for the one
+ * visible fallback redirect (the done handler redirects the browser on to
+ * `$return_url` once the round trip completes at the top level).
+ * `redirect_to` is only meaningful in that second case, so it is omitted
+ * entirely when `$frame` is true or `$return_url` is empty.
+ *
+ * @param string $return_url Where a non-framed round trip should land once done. Ignored when `$frame` is true.
+ * @param bool   $frame      Whether this done URL is reached inside the hidden iframe.
+ * @return string
+ */
+function agend_apps_saml_link_done_url( string $return_url, bool $frame ): string {
+	$args = array(
+		AGEND_APPS_SAML_LINK_DONE_FLAG => '1',
+		'_wpnonce'                     => rawurlencode( wp_create_nonce( AGEND_APPS_SAML_LINK_DONE_NONCE ) ),
+	);
+
+	if ( $frame ) {
+		$args['frame'] = '1';
+	} elseif ( '' !== $return_url ) {
+		$args['redirect_to'] = rawurlencode( wp_validate_redirect( $return_url, home_url( '/' ) ) );
+	}
+
+	return add_query_arg( $args, home_url( '/' ) );
+}
+
+/**
+ * Builds the nonce'd IdP-initiated SSO URL agend-saml-idp's own dispatcher
+ * recognises, exactly the shape this file has always built.
+ *
+ * `sp` and `RelayState` are `rawurlencode()`'d here, before `add_query_arg()`
+ * -- see {@see agend_apps_saml_link_done_url()}'s docblock for why. The
+ * receiving (IdP) side runs `sanitize_text_field( wp_unslash( $_GET['sp'] ) )`,
+ * which yields the exact entity id back.
+ *
+ * @param string $entity_id Resolved Agend SP entity id.
+ * @param string $done_url  The same-origin done URL to use as RelayState.
+ * @return string
+ */
+function agend_apps_saml_link_idp_url( string $entity_id, string $done_url ): string {
+	return add_query_arg(
+		array(
+			'idp_initiated' => '1',
+			'sp'            => rawurlencode( $entity_id ),
+			'RelayState'    => rawurlencode( $done_url ),
+			'_wpnonce'      => wp_create_nonce( 'wp_saml_idp_sso_' . $entity_id ),
+		),
+		home_url( '/' )
+	);
+}
+
+/**
+ * The shared eligibility gate: whether a given WordPress user should be sent
+ * through the SAML link round trip at all, and if not, exactly why.
+ *
+ * Called by BOTH the `template_redirect` trigger below and the identity-link
+ * REST endpoint (`includes/rest/identity-link-routes.php`) -- the endpoint
+ * must never trust the browser's own idea of whether it should ask for a URL,
+ * since the browser is exactly the thing a stale cache or a replayed request
+ * could be confused about.
+ *
+ * This function is a PURE READ: it records nothing, regardless of outcome.
+ * Recording (the `sp_not_registered`/`sp_disabled` error states, the
+ * `attempts` counter, the `asserted` state) happens only in the two callers
+ * that actually act on this result --
+ * {@see agend_apps_saml_link_issue_url()} and
+ * {@see agend_apps_saml_link_decision()} -- never here, so a caller that only
+ * wants to know "would this succeed" (a diagnostics panel, a future status
+ * check) can call this freely with no side effect.
+ *
+ * Evaluated in order; the first failing reason wins:
+ * 1. `signed_out` -- no WordPress user.
+ * 2. `mode_not_wordpress` -- this site is not in `wordpress` sign-in mode.
+ * 3. `mechanism_not_saml` -- the resolved link mechanism is not `saml`.
+ * 4. `linked` -- already linked; nothing to do.
+ * 5. `no_external_id` -- no external id resolves for this member.
+ * 6. `sp_not_registered` -- {@see agend_apps_saml_agend_sp_entity_id()} found nothing.
+ * 7. `sp_not_registered` / `sp_disabled` -- the resolved entity id is not
+ *    registered with agend-saml-idp, or is registered but disabled.
+ * 8. `attempt_cap` -- the lifetime attempt cap has been reached.
+ *
+ * @param int $user_id WordPress user id (0 = signed out).
+ * @return array{eligible: bool, reason: string, entity_id: string} `reason` and
+ *         `entity_id` are '' when `eligible` is true / the gate never got far
+ *         enough to resolve an entity id, respectively -- except `entity_id`
+ *         IS populated on the successful path.
+ */
+function agend_apps_saml_link_eligibility( int $user_id ): array {
+	$fail = static function ( string $reason ): array {
+		return array(
+			'eligible'  => false,
+			'reason'    => $reason,
+			'entity_id' => '',
+		);
+	};
+
+	if ( 0 === $user_id ) {
+		return $fail( 'signed_out' );
+	}
+
+	if ( ! Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		return $fail( 'mode_not_wordpress' );
+	}
+
+	if ( Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML !== Agend_Apps_Settings::sso_link_mechanism() ) {
+		return $fail( 'mechanism_not_saml' );
+	}
+
+	$stored = agend_apps_wp_idp_link_state( $user_id );
+
+	if ( AGEND_APPS_LINK_STATE_LINKED === $stored['state'] ) {
+		return $fail( 'linked' );
+	}
+
+	if ( '' === agend_apps_user_external_id( $user_id ) ) {
+		return $fail( 'no_external_id' );
+	}
+
+	$entity_id = agend_apps_saml_agend_sp_entity_id();
+
+	if ( '' === $entity_id ) {
+		return $fail( 'sp_not_registered' );
+	}
+
+	$sp_ready = agend_apps_saml_sp_ready( $entity_id );
+
+	if ( ! $sp_ready['registered'] ) {
+		return $fail( 'sp_not_registered' );
+	}
+
+	if ( ! $sp_ready['enabled'] ) {
+		return $fail( 'sp_disabled' );
+	}
+
+	if ( $stored['attempts'] >= AGEND_APPS_SAML_LINK_MAX_ATTEMPTS ) {
+		// Unlike every other failure above, this one still reports the
+		// resolved `entity_id`: the SP is genuinely ready, only the lifetime
+		// attempt count is the problem. {@see agend_apps_saml_link_issue_url()}
+		// relies on that to mint the one non-framed fallback attempt a capped
+		// member is still owed, without re-resolving the SP itself.
+		return array(
+			'eligible'  => false,
+			'reason'    => 'attempt_cap',
+			'entity_id' => $entity_id,
+		);
+	}
+
+	return array(
+		'eligible'  => true,
+		'reason'    => '',
+		'entity_id' => $entity_id,
+	);
+}
+
+/**
+ * Records the `error` state for the two eligibility reasons that mean "the
+ * SAML IdP plugin's registry is not ready for this member yet" --
+ * `sp_not_registered` and `sp_disabled` -- shared by
+ * {@see agend_apps_saml_link_issue_url()} and
+ * {@see agend_apps_saml_link_decision()} so the copy backing this decision
+ * lives in exactly one place. Recording `error` engages the standard
+ * `AGEND_APPS_LINK_BACKOFF_ERROR` window, which is what stops a broken
+ * registry from being re-checked on every single page view.
+ *
+ * No-op for any other reason.
+ *
+ * @param int    $user_id WordPress user id.
+ * @param string $reason  A reason from {@see agend_apps_saml_link_eligibility()}.
+ */
+function agend_apps_saml_link_record_registry_error( int $user_id, string $reason ): void {
+	if ( 'sp_not_registered' !== $reason && 'sp_disabled' !== $reason ) {
+		return;
+	}
+
+	agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_ERROR, $reason );
+
+	if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+		error_log( '[Agend Apps] SAML link registry not ready for user ' . $user_id . ': ' . $reason ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+	}
+}
+
+/**
+ * The ONLY place a nonce'd IdP-initiated URL is minted and the ONLY place an
+ * SSO attempt is counted.
+ *
+ * Called both by the identity-link REST endpoint (the framed, background
+ * path) and by the visible-redirect fallback in
+ * {@see agend_apps_saml_link_decision()} (the non-framed path) -- the two
+ * differ only in `$frame` and in whether `$return_url` is meaningful (the
+ * REST endpoint has no return url to give; the browser is already where it
+ * needs to be once the iframe finishes).
+ *
+ * Not eligible: returns an empty url with the failing reason. For exactly
+ * `sp_not_registered` and `sp_disabled`, also records the `error` state via
+ * {@see agend_apps_saml_link_record_registry_error()} so the backoff window
+ * stops the site re-checking a broken registry on every page view. No state
+ * write for any other ineligible reason.
+ *
+ * ONE exception to "not eligible means no URL": `attempt_cap` combined with
+ * `$frame === false`. The lifetime cap exists to stop the AUTOMATIC
+ * background attempts (`$frame === true`, from the REST endpoint) from
+ * retrying forever; it does not exist to deny the one visible fallback
+ * redirect a capped member is specifically owed (see
+ * `agend_apps_saml_link_decision()`'s file docblock: "a capped member is
+ * exactly who the frame-blocked fallback exists for"). Since the only caller
+ * that ever passes `$frame === false` is that fallback, and it only ever
+ * does so once (`fallback_done` blocks a second call), this exception can
+ * never be reached by the background path and never grants more than the one
+ * extra attempt the fallback is allowed. `agend_apps_saml_link_eligibility()`
+ * still reports the resolved `entity_id` on an `attempt_cap` failure for
+ * exactly this reason.
+ *
+ * Also refuses while the member is inside a backoff window (`throttled`).
+ * {@see agend_apps_saml_link_decision()} has already checked that before it
+ * reaches its fallback branch, so this is never the throttle that matters for
+ * the trigger itself; it matters because the REST endpoint is reachable
+ * DIRECTLY by anything running on the page (the `wp_rest` nonce is exposed as
+ * `window.agendApps.nonce` for every logged-in visitor). Without this check a
+ * member -- or a script on a page they are viewing -- could call the endpoint
+ * three times in a row and burn the entire lifetime cap in one second,
+ * collapsing the paced "three silent attempts, then fall back" design into an
+ * immediate visible redirect. The cap still bound without this; only the
+ * spacing the cap assumes did not.
+ *
+ * Otherwise eligible (or eligible-via-the-exception-above): builds the done
+ * URL and the IdP url, bumps `attempts`, records `asserted`, and clears the
+ * token worker's negative cache (so a fresh attempt is not held back by an
+ * earlier failed mint) -- then returns the URL.
+ *
+ * @param int    $user_id    WordPress user id.
+ * @param string $return_url Where a non-framed round trip should land once done. Ignored when `$frame` is true.
+ * @param bool   $frame      Whether this URL is meant to run inside a hidden iframe.
+ * @return array{url: string, reason: string}
+ */
+function agend_apps_saml_link_issue_url( int $user_id, string $return_url, bool $frame ): array {
+	$eligibility = agend_apps_saml_link_eligibility( $user_id );
+
+	$capped_fallback = ( ! $frame && ! $eligibility['eligible'] && 'attempt_cap' === $eligibility['reason'] && '' !== $eligibility['entity_id'] );
+
+	if ( ! $eligibility['eligible'] && ! $capped_fallback ) {
+		agend_apps_saml_link_record_registry_error( $user_id, $eligibility['reason'] );
+
+		return array(
+			'url'    => '',
+			'reason' => $eligibility['reason'],
+		);
+	}
+
+	if ( agend_apps_wp_idp_link_is_throttled( agend_apps_wp_idp_link_state( $user_id ) ) ) {
+		return array(
+			'url'    => '',
+			'reason' => 'throttled',
+		);
+	}
+
+	$done_url = agend_apps_saml_link_done_url( $return_url, $frame );
+	$idp_url  = agend_apps_saml_link_idp_url( $eligibility['entity_id'], $done_url );
+
+	agend_apps_wp_idp_merge_link_state( $user_id, array( 'attempts' => agend_apps_wp_idp_link_state( $user_id )['attempts'] + 1 ) );
+	agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_ASSERTED );
+
+	if ( class_exists( 'Agend_Apps_Token_Worker' ) ) {
+		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
+	}
+
+	return array(
+		'url'    => $idp_url,
+		'reason' => '',
+	);
+}
+
+/**
+ * The `template_redirect` trigger's pure decision, run once per request for
+ * a signed-in member on an eligible surface.
+ *
+ * Order of evaluation:
+ * 1. {@see agend_apps_saml_link_eligibility()}. Ineligible for
+ *    `sp_not_registered`/`sp_disabled` records the `error` state (via the
+ *    same shared helper {@see agend_apps_saml_link_issue_url()} uses) and
+ *    returns `skip`. The one exception is `attempt_cap`: rather than skip
+ *    outright, evaluation falls through to the fallback test below, because a
+ *    capped member -- one who has already had every attempt this trigger will
+ *    ever spend on them -- is exactly who the frame-blocked fallback exists
+ *    to rescue.
+ * 2. Throttle check ({@see agend_apps_wp_idp_link_is_throttled()}): `skip` /
+ *    `throttled` while inside an `asserted`/`error` backoff window.
+ * 3. The fallback test. The one visible redirect fires when NEITHER
+ *    `fallback_done` nor `completed` is already true, AND either: `views`
+ *    has reached the threshold with zero attempts made (the theme never
+ *    rendered the placeholder at all -- see `includes/wp-idp-link.php`'s
+ *    docblock on the `views`/`renders`/`attempts` diagnostic triangle), OR
+ *    the attempt cap has been reached (attempts were made but the round trip
+ *    never completed, so something -- most likely a cache serving a stale
+ *    nonce, or the iframe itself being blocked -- is preventing it from ever
+ *    coming back). On firing: marks `fallback_done`, mints the URL via
+ *    {@see agend_apps_saml_link_issue_url()} (non-framed, this page as the
+ *    return target), and returns `redirect`. An empty URL from that call
+ *    (the eligibility re-check inside it failed for some other reason)
+ *    returns `skip` with ITS reason instead.
+ * 4. If step 1's reason was `attempt_cap` and the fallback did not fire:
+ *    `skip` / `attempt_cap`.
+ * 5. Otherwise: bump `views` and return `render`.
+ *
+ * The throttle check runs BEFORE the fallback test deliberately: a capped
+ * member is sitting in `asserted`'s own backoff window (recorded the moment
+ * their last attempt was issued), so the fallback is only ever offered on the
+ * first eligible view AFTER that window elapses, never immediately on the
+ * request that hit the cap.
+ *
+ * @param int    $user_id     WordPress user id (0 = signed out; never eligible).
+ * @param string $current_url The current request's URL, used as the fallback
+ *                             redirect's return target. Raw/unvalidated.
+ * @return array{action: string, url: string, reason: string} `action` is one
+ *         of `render`, `redirect`, `skip`.
+ */
+function agend_apps_saml_link_decision( int $user_id, string $current_url ): array {
+	$eligibility = agend_apps_saml_link_eligibility( $user_id );
+
+	$allow_fallback_only = false;
+
+	if ( ! $eligibility['eligible'] ) {
+		if ( 'attempt_cap' !== $eligibility['reason'] ) {
+			agend_apps_saml_link_record_registry_error( $user_id, $eligibility['reason'] );
+
+			return array(
+				'action' => 'skip',
+				'url'    => '',
+				'reason' => $eligibility['reason'],
+			);
+		}
+
+		$allow_fallback_only = true;
+	}
+
+	$stored = agend_apps_wp_idp_link_state( $user_id );
+
+	if ( agend_apps_wp_idp_link_is_throttled( $stored ) ) {
+		return array(
+			'action' => 'skip',
+			'url'    => '',
+			'reason' => 'throttled',
+		);
+	}
+
+	$fallback_due =
+		! $stored['fallback_done'] &&
+		! $stored['completed'] &&
+		(
+			( $stored['views'] >= AGEND_APPS_SAML_LINK_FALLBACK_VIEWS && 0 === $stored['attempts'] ) ||
+			$stored['attempts'] >= AGEND_APPS_SAML_LINK_MAX_ATTEMPTS
+		);
+
+	if ( $fallback_due ) {
+		agend_apps_wp_idp_merge_link_state( $user_id, array( 'fallback_done' => true ) );
+
+		$issued = agend_apps_saml_link_issue_url( $user_id, $current_url, false );
+
+		if ( '' === $issued['url'] ) {
+			return array(
+				'action' => 'skip',
+				'url'    => '',
+				'reason' => $issued['reason'],
+			);
+		}
+
+		return array(
+			'action' => 'redirect',
+			'url'    => $issued['url'],
+			'reason' => '',
+		);
+	}
+
+	if ( $allow_fallback_only ) {
+		return array(
+			'action' => 'skip',
+			'url'    => '',
+			'reason' => 'attempt_cap',
+		);
+	}
+
+	agend_apps_wp_idp_merge_link_state( $user_id, array( 'views' => $stored['views'] + 1 ) );
+
+	return array(
+		'action' => 'render',
+		'url'    => '',
+		'reason' => '',
+	);
+}
+
+/**
+ * Builds the inert footer placeholder: a hidden iframe plus a small inline
+ * script that fetches the sso-url endpoint and, when it returns one, points
+ * the iframe at it.
+ *
+ * Carries no nonce, no member id, nothing session-bound -- see the file
+ * docblock for why that is the whole point. Every failure path inside the
+ * script (missing element, missing global, non-2xx, no `url` in the body) is
+ * a silent `return`: this placeholder must never surface an error to a
+ * visitor who has no reason to know it exists.
+ *
+ * @param string $endpoint_url The identity-link sso-url REST endpoint, already `rest_url()`-built.
+ * @return string The markup, or '' when `$endpoint_url` is empty.
+ */
+function agend_apps_saml_link_placeholder_markup( string $endpoint_url ): string {
+	if ( '' === $endpoint_url ) {
+		return '';
+	}
+
+	$endpoint = esc_url( $endpoint_url );
+
+	return '<iframe id="agend-apps-saml-link-frame" aria-hidden="true" tabindex="-1" title="" '
+		. 'style="display:none;width:0;height:0;border:0" data-endpoint="' . $endpoint . '"></iframe>'
+		. '<script>(function(){'
+		. 'var f=document.getElementById("agend-apps-saml-link-frame");'
+		. 'if(!f)return;'
+		. 'var e=f.getAttribute("data-endpoint");'
+		. 'var n=window.agendApps&&window.agendApps.nonce;'
+		. 'if(!e||!n)return;'
+		. 'fetch(e,{credentials:"same-origin",headers:{"X-WP-Nonce":n}}).then(function(r){return r.json();}).then(function(d){'
+		. 'if(d&&d.url){f.src=d.url;}'
+		. '}).catch(function(){});'
+		. '})();</script>';
+}
+
+/**
+ * Request-scoped hand-off between the `template_redirect` decision and the
+ * `wp_footer` render, over one static rather than a global: nothing outside
+ * this file needs it, and it must never survive past the current request.
+ *
+ * `template_redirect` runs the decision and, when it is `render`, stores the
+ * REST endpoint URL here; `wp_footer` reads it back. The decision runs at
+ * `template_redirect` rather than `wp_footer` for two reasons: the fallback
+ * outcome is a real redirect, which must happen before any output has been
+ * sent, and running it exactly once per request (rather than once per hook
+ * that happens to fire) is what keeps the `views`/`renders` counters
+ * trustworthy as two independent diagnostics.
+ *
+ * @param string|null $set When given, stores this value and returns it. When
+ *                         null (the default), returns the current value.
+ * @return string
+ */
+function agend_apps_saml_link_pending( ?string $set = null ): string {
+	static $endpoint = '';
+
+	if ( null !== $set ) {
+		$endpoint = $set;
+	}
+
+	return $endpoint;
+}
+
+/**
+ * The `template_redirect` done-URL handler's pure decision: whether the
+ * current request is a legitimate return from the SAML round trip, and what
+ * to do about it.
+ *
+ * `skip` (never records anything) for: no done flag present, a signed-out
+ * visitor, or a nonce that fails `wp_verify_nonce()`. A `skip` here must
+ * never `wp_die()` or otherwise reveal why -- the request simply renders as
+ * whatever ordinary page it would have been, so a forged or replayed done
+ * URL learns nothing.
+ *
+ * Otherwise, `completed => true` is merged into the member's state (the
+ * round trip demonstrably was not frame-blocked, regardless of what the
+ * gateway itself decided), and:
+ * - `frame` when `$query['frame'] === '1'`: the wrapper responds with the
+ *   tiny inert document from {@see agend_apps_saml_link_done_markup()} and
+ *   nothing else.
+ * - `redirect` otherwise: the wrapper sends the browser on to
+ *   `wp_validate_redirect( $query['redirect_to'], home_url('/') )`.
+ *
+ * Scope item 2 of the wider brief adds a `GET /v1/sso/identities/status`
+ * promotion check here (asserted -> linked without waiting for the next
+ * token mint). Not implemented in this change.
+ *
+ * @param int   $user_id Current WordPress user id (0 = signed out).
+ * @param array $query   The relevant `$_GET` values: `AGEND_APPS_SAML_LINK_DONE_FLAG`,
+ *                       `_wpnonce`, `frame`, `redirect_to`. Raw/unvalidated.
+ * @return array{action: string, url: string} `action` is `frame`, `redirect`, or `skip`.
+ */
+function agend_apps_saml_link_done_decision( int $user_id, array $query ): array {
+	$skip = array(
+		'action' => 'skip',
+		'url'    => '',
+	);
+
+	if ( ! isset( $query[ AGEND_APPS_SAML_LINK_DONE_FLAG ] ) || '1' !== (string) $query[ AGEND_APPS_SAML_LINK_DONE_FLAG ] ) {
+		return $skip;
+	}
+
+	if ( 0 === $user_id ) {
+		return $skip;
+	}
+
+	$nonce = isset( $query['_wpnonce'] ) ? (string) $query['_wpnonce'] : '';
+
+	if ( false === wp_verify_nonce( $nonce, AGEND_APPS_SAML_LINK_DONE_NONCE ) ) {
+		return $skip;
+	}
+
+	agend_apps_wp_idp_merge_link_state( $user_id, array( 'completed' => true ) );
+
+	if ( isset( $query['frame'] ) && '1' === (string) $query['frame'] ) {
+		return array(
+			'action' => 'frame',
+			'url'    => '',
+		);
+	}
+
+	$redirect_to = isset( $query['redirect_to'] ) ? (string) $query['redirect_to'] : '';
+
+	return array(
+		'action' => 'redirect',
+		'url'    => wp_validate_redirect( $redirect_to, home_url( '/' ) ),
+	);
+}
+
+/**
+ * The tiny inert document served to the hidden iframe once the round trip
+ * completes. `noindex` because this URL is never meant to be a destination;
+ * an empty body and no script because nothing further needs to happen inside
+ * the frame -- the placeholder script that pointed the iframe here already
+ * did everything this leg of the trip needed to do.
+ *
+ * @return string
+ */
+function agend_apps_saml_link_done_markup(): string {
+	return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="robots" content="noindex"></head><body></body></html>';
+}
+
+/**
+ * `template_redirect` handler, priority 5 (before
+ * {@see agend_apps_saml_link_maybe_trigger()}'s default priority): the thin
+ * hook wrapper around {@see agend_apps_saml_link_done_decision()}.
+ */
+function agend_apps_saml_link_done(): void {
+	try {
+		$query = array();
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- the nonce itself is verified below, inside the pure decision; this is only reading it off the request.
+		if ( isset( $_GET[ AGEND_APPS_SAML_LINK_DONE_FLAG ] ) ) {
+			$query[ AGEND_APPS_SAML_LINK_DONE_FLAG ] = sanitize_text_field( wp_unslash( $_GET[ AGEND_APPS_SAML_LINK_DONE_FLAG ] ) );
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- read here for the pure decision to verify; nothing is trusted before that verification runs.
+			$query['_wpnonce'] = isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) : '';
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only flag, not a security boundary on its own.
+			$query['frame'] = isset( $_GET['frame'] ) ? sanitize_text_field( wp_unslash( $_GET['frame'] ) ) : '';
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- validated via wp_validate_redirect() inside the decision before use.
+			$query['redirect_to'] = isset( $_GET['redirect_to'] ) ? sanitize_text_field( wp_unslash( $_GET['redirect_to'] ) ) : '';
+		}
+
+		$decision = agend_apps_saml_link_done_decision( get_current_user_id(), $query );
+
+		if ( 'frame' === $decision['action'] ) {
+			nocache_headers();
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- agend_apps_saml_link_done_markup() builds a fixed, static document with no dynamic input.
+			echo agend_apps_saml_link_done_markup();
+			exit;
+		}
+
+		if ( 'redirect' === $decision['action'] ) {
+			wp_safe_redirect( $decision['url'] );
+			exit;
+		}
+	} catch ( Throwable $e ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( '[Agend Apps] SAML link done handler failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		}
+	}
+}
+add_action( 'template_redirect', 'agend_apps_saml_link_done', 5 );
+
+/**
+ * `template_redirect` handler, default priority: the thin hook wrapper
+ * around {@see agend_apps_saml_link_decision()}.
+ *
+ * Guards run cheapest-first: `is_admin()`, cron, AJAX and REST requests never
+ * carry a browser session through to `wp_footer` anyway, then a signed-out
+ * visitor, then the request-shape gate
+ * ({@see agend_apps_saml_link_request_eligible()}, reusing the exact
+ * `phpcs:ignore` comments the original implicit trigger carried -- still
+ * accurate, since the values are still read the same way), then the surface
+ * gate ({@see agend_apps_saml_link_surface_blocked()}).
+ *
+ * On `redirect`: `wp_safe_redirect()` and `exit`. On `render`: stores the
+ * identity-link sso-url REST endpoint via
+ * {@see agend_apps_saml_link_pending()} for `wp_footer` to read.
+ */
+function agend_apps_saml_link_maybe_trigger(): void {
 	if ( is_admin() || wp_doing_cron() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) || ( defined( 'DOING_AJAX' ) && DOING_AJAX ) ) {
 		return;
 	}
@@ -440,40 +944,64 @@ function agend_apps_saml_link_handoff(): void {
 	}
 
 	try {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only flag/redirect read; the security boundary is wp_validate_redirect() on the value plus the nonce agend-saml-idp verifies on the next hop, not a nonce on this one.
-		$flag = isset( $_GET[ AGEND_APPS_SAML_LINK_QUERY_FLAG ] ) ? sanitize_text_field( wp_unslash( $_GET[ AGEND_APPS_SAML_LINK_QUERY_FLAG ] ) ) : '';
+		$method = isset( $_SERVER['REQUEST_METHOD'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) : '';
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash -- REQUEST_URI is a server-set path/query, not user POST data; only its PATH component is used below, and only for a marker-string comparison, never output.
+		$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( (string) $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '';
 
-		if ( '1' === $flag ) {
-			$query = array(
-				AGEND_APPS_SAML_LINK_QUERY_FLAG => $flag,
-				// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- see above.
-				'redirect_to'                   => isset( $_GET['redirect_to'] ) ? sanitize_text_field( wp_unslash( $_GET['redirect_to'] ) ) : '',
-			);
-
-			$decision = agend_apps_saml_link_handoff_decision( get_current_user_id(), $query );
-		} else {
-			$method = isset( $_SERVER['REQUEST_METHOD'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) : '';
-			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash -- REQUEST_URI is a server-set path/query, not user POST data; only its PATH component is used below, and only for a marker-string comparison, never output.
-			$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( (string) $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '';
-
-			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- key PRESENCE only (never a value), to detect a request that is itself part of the SAML round trip; never output or stored.
-			if ( ! agend_apps_saml_link_implicit_trigger_eligible( $method, $path, $_GET ) ) {
-				return;
-			}
-
-			$current_url = home_url( add_query_arg( array() ) );
-
-			$decision = agend_apps_saml_link_handoff_decision( get_current_user_id(), array(), $current_url );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- key PRESENCE only (never a value), to detect a request that is itself part of the SAML round trip; never output or stored.
+		if ( ! agend_apps_saml_link_request_eligible( $method, $path, $_GET ) ) {
+			return;
 		}
+
+		if ( agend_apps_saml_link_surface_blocked() ) {
+			return;
+		}
+
+		$current_url = home_url( add_query_arg( array() ) );
+
+		$decision = agend_apps_saml_link_decision( get_current_user_id(), $current_url );
 
 		if ( 'redirect' === $decision['action'] && '' !== $decision['url'] ) {
 			wp_safe_redirect( $decision['url'] );
 			exit;
 		}
+
+		if ( 'render' === $decision['action'] ) {
+			agend_apps_saml_link_pending( rest_url( 'agend-apps/v1/identity-link/sso-url' ) );
+		}
 	} catch ( Throwable $e ) {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[Agend Apps] SAML link handoff failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			error_log( '[Agend Apps] SAML link trigger decision failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
 		}
 	}
 }
-add_action( 'template_redirect', 'agend_apps_saml_link_handoff' );
+add_action( 'template_redirect', 'agend_apps_saml_link_maybe_trigger' );
+
+/**
+ * `wp_footer` handler: echoes the placeholder built by
+ * {@see agend_apps_saml_link_placeholder_markup()} when
+ * {@see agend_apps_saml_link_maybe_trigger()} scheduled one for this
+ * request, and bumps the `renders` counter for the current user.
+ */
+function agend_apps_saml_link_render_placeholder(): void {
+	try {
+		$endpoint = agend_apps_saml_link_pending();
+
+		if ( '' === $endpoint ) {
+			return;
+		}
+
+		agend_apps_wp_idp_merge_link_state(
+			get_current_user_id(),
+			array( 'renders' => agend_apps_wp_idp_link_state( get_current_user_id() )['renders'] + 1 )
+		);
+
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- agend_apps_saml_link_placeholder_markup() escapes the endpoint URL internally (esc_url()) and everything else is fixed, static markup.
+		echo agend_apps_saml_link_placeholder_markup( $endpoint );
+	} catch ( Throwable $e ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( '[Agend Apps] SAML link placeholder render failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		}
+	}
+}
+add_action( 'wp_footer', 'agend_apps_saml_link_render_placeholder' );

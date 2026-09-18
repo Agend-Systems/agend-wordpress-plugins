@@ -290,6 +290,14 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
 
+	// Identity-link routes only exist in `wordpress` sign-in mode: the
+	// callback they register (agend_apps_saml_link_issue_url()) lives in
+	// includes/wp-idp-saml-link.php, which is itself only required above
+	// when Agend_Apps_Settings::wordpress_idp_enabled() is true.
+	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		require_once AGEND_APPS_CORE_DIR . 'includes/rest/identity-link-routes.php';
+	}
+
 	// WooCommerce My Account "Directory" endpoint. Loaded unconditionally like
 	// the routes above; every hook it registers checks
 	// class_exists( 'WooCommerce' ) itself (see agend_apps_my_account_directory_enabled()).
@@ -354,6 +362,10 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
+
+	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		agend_apps_register_identity_link_routes();
+	}
 
 	if ( Agend_Apps_Settings::credential_login_enabled() ) {
 		agend_apps_register_auth_routes();
