@@ -325,6 +325,38 @@ final class WpIdpSamlLinkTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_report_site_moved_before_mode_or_mechanism(): void {
+		// mode_not_wordpress would otherwise fire first for this user; site_moved
+		// must win regardless, since it is checked before mode/mechanism.
+		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_SSO );
+		update_option(
+			'agend_apps_sso_connection',
+			array( 'site_url' => 'https://a-different-site.test' )
+		);
+
+		$this->assertSame( 'site_moved', \agend_apps_saml_link_eligibility( 60 )['reason'] );
+	}
+
+	#[Test]
+	public function should_not_report_site_moved_when_the_stamp_is_absent(): void {
+		delete_option( 'agend_apps_sso_connection' );
+
+		$this->assertNotSame( 'site_moved', \agend_apps_saml_link_eligibility( 61 )['reason'] );
+	}
+
+	#[Test]
+	public function should_write_no_state_for_site_moved(): void {
+		update_option(
+			'agend_apps_sso_connection',
+			array( 'site_url' => 'https://a-different-site.test' )
+		);
+
+		\agend_apps_saml_link_eligibility( 62 );
+
+		$this->assertSame( '', \agend_apps_wp_idp_link_state( 62 )['state'] );
+	}
+
+	#[Test]
 	public function should_report_mode_not_wordpress(): void {
 		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_SSO );
 

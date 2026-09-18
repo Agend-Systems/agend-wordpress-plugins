@@ -406,16 +406,22 @@ function agend_apps_saml_link_idp_url( string $entity_id, string $done_url ): st
  *
  * Evaluated in order; the first failing reason wins:
  * 1. `signed_out` -- no WordPress user.
- * 2. `mode_not_wordpress` -- this site is not in `wordpress` sign-in mode.
- * 3. `mechanism_not_saml` -- the resolved link mechanism is not `saml`.
- * 4. `linked` -- already linked; nothing to do.
- * 5. `no_external_id` -- no external id resolves for this member.
- * 6. `sp_not_registered` -- {@see agend_apps_saml_agend_sp_entity_id()} found nothing.
- * 7. `sp_not_registered` / `sp_disabled` -- the resolved entity id is not
+ * 2. `site_moved` -- this site's stored connection was stamped under a
+ *    different `site_url()` ({@see agend_apps_connect_site_moved()}). Checked
+ *    FIRST among the site-level checks, before mode/mechanism/anything else:
+ *    a moved (cloned) site must stand down regardless of what it is
+ *    otherwise configured to do, and checking it first means no later check
+ *    can ever short-circuit past it.
+ * 3. `mode_not_wordpress` -- this site is not in `wordpress` sign-in mode.
+ * 4. `mechanism_not_saml` -- the resolved link mechanism is not `saml`.
+ * 5. `linked` -- already linked; nothing to do.
+ * 6. `no_external_id` -- no external id resolves for this member.
+ * 7. `sp_not_registered` -- {@see agend_apps_saml_agend_sp_entity_id()} found nothing.
+ * 8. `sp_not_registered` / `sp_disabled` -- the resolved entity id is not
  *    registered with agend-saml-idp, or is registered but disabled.
- * 8. `connection_pending_approval` -- the connection this site made
+ * 9. `connection_pending_approval` -- the connection this site made
  *    ({@see agend_apps_connect_stored()}) is still awaiting Agend approval.
- * 9. `attempt_cap` -- the lifetime attempt cap has been reached.
+ * 10. `attempt_cap` -- the lifetime attempt cap has been reached.
  *
  * @param int $user_id WordPress user id (0 = signed out).
  * @return array{eligible: bool, reason: string, entity_id: string} `reason` and
@@ -434,6 +440,20 @@ function agend_apps_saml_link_eligibility( int $user_id ): array {
 
 	if ( 0 === $user_id ) {
 		return $fail( 'signed_out' );
+	}
+
+	// A moved (cloned) site must stand down regardless of its mode, mechanism,
+	// or anything else -- see {@see agend_apps_connect_site_moved()}'s
+	// docblock for the threat this closes. Guarded on function_exists()
+	// because connect-site.php, while always loaded by the bootstrap ahead of
+	// this file, is not a hard dependency this file otherwise takes.
+	// Deliberately records NO state on this reason: the clone's user meta
+	// (including this member's link state) is a COPY of the original site's,
+	// so writing an error state into it is either useless (the clone is
+	// thrown away) or actively misleading (this database is later restored
+	// back over the real site, carrying a bogus error state with it).
+	if ( function_exists( 'agend_apps_connect_site_moved' ) && agend_apps_connect_site_moved() ) {
+		return $fail( 'site_moved' );
 	}
 
 	if ( ! Agend_Apps_Settings::wordpress_idp_enabled() ) {

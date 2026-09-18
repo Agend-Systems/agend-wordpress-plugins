@@ -1266,6 +1266,18 @@ if ( ! function_exists( 'trailingslashit' ) ) {
 	}
 }
 
+if ( ! function_exists( 'untrailingslashit' ) ) {
+	/**
+	 * Removes any trailing slashes, matching WordPress's helper.
+	 *
+	 * @param string $value The string to unslash.
+	 * @return string
+	 */
+	function untrailingslashit( string $value ): string {
+		return rtrim( $value, '/\\' );
+	}
+}
+
 if ( ! function_exists( 'absint' ) ) {
 	/**
 	 * Absolute integer cast, matching WordPress's helper.

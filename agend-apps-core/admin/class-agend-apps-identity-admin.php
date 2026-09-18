@@ -849,7 +849,9 @@ class Agend_Apps_Identity_Admin {
 	 *     stored: array,
 	 *     last_run: array|null,
 	 *     sp_urls: array{sp_entity_id: string, sp_acs_url: string, sp_metadata_url: string},
-	 *     preflight: array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool}
+	 *     preflight: array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool},
+	 *     site_moved: bool,
+	 *     current_site_url: string
 	 * }
 	 */
 	private function build_connect_site_data(): array {
@@ -912,13 +914,24 @@ class Agend_Apps_Identity_Admin {
 			'blocks'              => false,
 		);
 
+		// Whether the stored connection was stamped under a different
+		// site_url() than this runtime resolves now (see
+		// agend_apps_connect_site_moved()). Deliberately NEVER added to
+		// $blocked_reasons / can_connect: re-running the connect action is
+		// the legitimate way a genuinely migrated site re-adopts its
+		// connection (it re-stamps site_url() on success), so the button
+		// must stay usable in this state, only flagged prominently.
+		$site_moved = function_exists( 'agend_apps_connect_site_moved' ) && agend_apps_connect_site_moved();
+
 		return array(
-			'can_connect'     => empty( $blocked_reasons ),
-			'blocked_reasons' => $blocked_reasons,
-			'stored'          => $stored,
-			'last_run'        => is_array( $last_run ) ? $last_run : null,
-			'sp_urls'         => $sp_urls,
-			'preflight'       => $preflight,
+			'can_connect'      => empty( $blocked_reasons ),
+			'blocked_reasons'  => $blocked_reasons,
+			'stored'           => $stored,
+			'last_run'         => is_array( $last_run ) ? $last_run : null,
+			'sp_urls'          => $sp_urls,
+			'preflight'        => $preflight,
+			'site_moved'       => $site_moved,
+			'current_site_url' => function_exists( 'site_url' ) ? site_url() : '',
 		);
 	}
 
