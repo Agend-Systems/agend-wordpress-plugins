@@ -244,7 +244,7 @@ function agend_apps_wp_idp_link_state_guidance( string $state ): array {
 			return array(
 				'label'    => __( 'Never attempted', 'agend-apps-core' ),
 				'severity' => 'info',
-				'guidance' => __( 'No link has been attempted yet for this member. Expected until they next sign in.', 'agend-apps-core' ),
+				'guidance' => __( 'No link has been attempted yet for this member. Expected until their next front-end page view.', 'agend-apps-core' ),
 			);
 	}
 }
