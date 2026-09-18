@@ -413,7 +413,9 @@ function agend_apps_saml_link_idp_url( string $entity_id, string $done_url ): st
  * 6. `sp_not_registered` -- {@see agend_apps_saml_agend_sp_entity_id()} found nothing.
  * 7. `sp_not_registered` / `sp_disabled` -- the resolved entity id is not
  *    registered with agend-saml-idp, or is registered but disabled.
- * 8. `attempt_cap` -- the lifetime attempt cap has been reached.
+ * 8. `connection_pending_approval` -- the connection this site made
+ *    ({@see agend_apps_connect_stored()}) is still awaiting Agend approval.
+ * 9. `attempt_cap` -- the lifetime attempt cap has been reached.
  *
  * @param int $user_id WordPress user id (0 = signed out).
  * @return array{eligible: bool, reason: string, entity_id: string} `reason` and
@@ -466,6 +468,24 @@ function agend_apps_saml_link_eligibility( int $user_id ): array {
 
 	if ( ! $sp_ready['enabled'] ) {
 		return $fail( 'sp_disabled' );
+	}
+
+	// The connection this site made is still awaiting Agend approval: the
+	// gateway's ACS refuses an unapproved connection's assertion outright, so
+	// it never reaches RelayState, the done URL never fires, `completed` is
+	// never set, and `promote()` never runs. Checked here, after the
+	// SP-readiness checks (the SP genuinely is ready; approval is a separate,
+	// account-level gate) and before the attempt-cap check below: pending
+	// approval is the NORMAL state immediately after connecting, so without
+	// this check every member on a freshly connected site would burn all
+	// three attempts and then trigger the one visible fallback redirect
+	// straight into a round trip that cannot succeed, landing them on a
+	// gateway error page. Standing down here and recording nothing is
+	// correct: nothing on the WordPress side is broken, and nothing it does
+	// can hurry a staff approval, so there is nothing to record and nothing
+	// to back off from.
+	if ( function_exists( 'agend_apps_connect_stored' ) && 'pending' === agend_apps_connect_stored()['approval_state'] ) {
+		return $fail( 'connection_pending_approval' );
 	}
 
 	if ( $stored['attempts'] >= AGEND_APPS_LINK_MAX_ATTEMPTS ) {

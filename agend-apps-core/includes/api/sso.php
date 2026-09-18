@@ -95,7 +95,15 @@ function agend_apps_sso_get_connection( string $id ) {
  * Scope: `sso.connections.create`. Administrative; not cached.
  *
  * @param array $connection Connection payload (snake_case) forwarded as the request body.
- *        Expected keys: `provider_name` (string), `idp_certificate` (string, PEM-encoded X.509).
+ *        Required keys: `name` (string, 1-120 chars), `slug` (string, 1-120 chars,
+ *        `^[a-z0-9]+(?:-[a-z0-9]+)*$`), `idp_entity_id` (string), `idp_sso_url`
+ *        (string, URI), `idp_certificate` (string, PEM-encoded X.509).
+ *        Optional keys: `name_id_format` (string), `attribute_mappings` (array;
+ *        gateway shape -- `email_attribute`, `first_name_attribute`,
+ *        `last_name_attribute`, `display_name_attribute`, `groups_attribute`,
+ *        `role_attribute`, `role_mapping`), `default_role` (string), `jit_provisioning`
+ *        (bool), `jit_contact_provisioning` (bool), `allow_idp_initiated` (bool),
+ *        `want_assertions_signed` (bool), `default_landing_path` (string, `^\/[^\s\\]*$`).
  * @return array|WP_Error Decoded connection on success, or WP_Error on failure.
  */
 function agend_apps_sso_create_connection( array $connection ) {
@@ -132,8 +140,12 @@ function agend_apps_sso_create_connection( array $connection ) {
  * Scope: `sso.connections.update`. Administrative; not cached.
  *
  * @param string $id         SSO connection UUID.
- * @param array  $connection Updated connection payload (snake_case). All fields optional.
- *        Expected keys (optional): `provider_name` (string), `idp_certificate` (string, PEM-encoded X.509).
+ * @param array  $connection Updated connection payload (snake_case). All fields optional:
+ *        `name`, `slug`, `idp_entity_id`, `idp_sso_url`, `idp_certificate`,
+ *        `name_id_format`, `attribute_mappings`, `default_role`, `jit_provisioning`,
+ *        `jit_contact_provisioning`, `allow_idp_initiated`, `want_assertions_signed`,
+ *        `default_landing_path` -- see {@see agend_apps_sso_create_connection()} for
+ *        each field's shape.
  * @return array|WP_Error Decoded connection on success, or WP_Error on failure.
  */
 function agend_apps_sso_update_connection( string $id, array $connection ) {

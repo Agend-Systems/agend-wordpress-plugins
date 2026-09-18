@@ -258,6 +258,17 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sites.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sso.php';
 
+	// "Connect this site" (the IdP SP registration + gateway connection
+	// action): loaded unconditionally, unlike the wp-idp-link.php/
+	// wp-idp-saml-link.php require below, because the admin page must be able
+	// to explain itself (missing scopes, an old IdP plugin, the wrong
+	// sign-in mode) in every sign-in mode. Required here, after api/sso.php
+	// and identity.php/class-agend-apps-key-scopes.php above, since its
+	// functions call into all three. wp-idp-saml-link.php's approval-state
+	// gate (agend_apps_saml_link_eligibility()) reads agend_apps_connect_stored()
+	// via a function_exists() guard, so this must load before that file too.
+	require_once AGEND_APPS_CORE_DIR . 'includes/connect-site.php';
+
 	// WordPress-as-IdP identity link state, and the SAML round trip that
 	// writes it: only relevant, and only loaded, when this site is in
 	// `wordpress` sign-in mode. wp-idp-saml-link.php calls
