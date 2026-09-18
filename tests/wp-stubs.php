@@ -756,6 +756,20 @@ if ( ! function_exists( 'wp_doing_cron' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_doing_ajax' ) ) {
+	/** Never an AJAX request in the unit harness unless a test says otherwise. */
+	function wp_doing_ajax(): bool {
+		return ( defined( 'DOING_AJAX' ) && DOING_AJAX ) || ! empty( $GLOBALS['agend_test_doing_ajax'] );
+	}
+}
+
+if ( ! function_exists( 'is_admin' ) ) {
+	/** Never wp-admin in the unit harness unless a test says otherwise. */
+	function is_admin(): bool {
+		return ! empty( $GLOBALS['agend_test_is_admin'] );
+	}
+}
+
 if ( ! class_exists( 'WP_User' ) ) {
 	/**
 	 * Minimal WP_User stand-in.

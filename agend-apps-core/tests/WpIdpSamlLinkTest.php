@@ -135,6 +135,30 @@ final class WpIdpSamlLinkTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// woocommerce_login_redirect: the same decision, WooCommerce's My Account
+	// login form (which never fires login_redirect at all).
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_return_the_handoff_url_from_the_woocommerce_filter_for_an_unlinked_member(): void {
+		$user = $this->registerUser( 4 );
+
+		$url = \agend_apps_saml_woocommerce_login_redirect( 'https://example.test/my-account/', $user );
+
+		$this->assertStringStartsWith( 'https://example.test/?', $url );
+		$this->assertSame( '1', $this->queryValue( $url, \AGEND_APPS_SAML_LINK_QUERY_FLAG ) );
+		$this->assertSame( 'https://example.test/my-account/', rawurldecode( $this->queryValue( $url, 'redirect_to' ) ) );
+	}
+
+	#[Test]
+	public function should_leave_the_woocommerce_redirect_unchanged_for_a_non_user(): void {
+		$this->assertSame(
+			'https://example.test/my-account/',
+			\agend_apps_saml_woocommerce_login_redirect( 'https://example.test/my-account/', null )
+		);
+	}
+
+	// -----------------------------------------------------------------
 	// template_redirect handoff decision
 	// -----------------------------------------------------------------
 
@@ -262,6 +286,99 @@ final class WpIdpSamlLinkTest extends TestCase {
 		$stored = \agend_apps_wp_idp_link_state( 22 );
 		$this->assertSame( \AGEND_APPS_LINK_STATE_ERROR, $stored['state'] );
 		$this->assertSame( 'sp_not_registered', $stored['error_code'] );
+	}
+
+	// -----------------------------------------------------------------
+	// The implicit trigger: no query flag, driven by $current_url instead --
+	// covers WooCommerce/Elementor logins and a member already signed in
+	// before this mechanism shipped, none of which fire login_redirect.
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_redirect_on_the_implicit_trigger_with_relaystate_equal_to_the_current_url(): void {
+		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata' );
+
+		$decision = \agend_apps_saml_link_handoff_decision( 23, array(), 'https://example.test/some/page/' );
+
+		$this->assertSame( 'redirect', $decision['action'] );
+		$this->assertSame( \AGEND_APPS_LINK_STATE_ASSERTED, $decision['state'] );
+		$this->assertSame( 'https://example.test/some/page/', rawurldecode( $this->queryValue( $decision['url'], 'RelayState' ) ) );
+	}
+
+	#[Test]
+	public function should_skip_the_implicit_trigger_when_no_current_url_is_given(): void {
+		$decision = \agend_apps_saml_link_handoff_decision( 24, array() );
+
+		$this->assertSame( 'skip', $decision['action'] );
+	}
+
+	#[Test]
+	public function should_skip_the_implicit_trigger_when_already_linked(): void {
+		\agend_apps_wp_idp_record_link_state( 25, \AGEND_APPS_LINK_STATE_LINKED );
+
+		$decision = \agend_apps_saml_link_handoff_decision( 25, array(), 'https://example.test/some/page/' );
+
+		$this->assertSame( 'skip', $decision['action'] );
+	}
+
+	#[Test]
+	public function should_skip_the_implicit_trigger_while_throttled(): void {
+		\agend_apps_wp_idp_record_link_state( 26, \AGEND_APPS_LINK_STATE_ASSERTED );
+
+		$decision = \agend_apps_saml_link_handoff_decision( 26, array(), 'https://example.test/some/page/' );
+
+		$this->assertSame( 'skip', $decision['action'] );
+	}
+
+	// -----------------------------------------------------------------
+	// agend_apps_saml_link_implicit_trigger_eligible(): the request-shape
+	// gate the template_redirect wrapper applies before calling the decision
+	// above with no flag, so the implicit trigger only ever fires on a plain
+	// front-end page view and never interrupts or loops with the round trip
+	// it starts.
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_be_eligible_for_an_ordinary_front_end_get_request(): void {
+		$this->assertTrue( \agend_apps_saml_link_implicit_trigger_eligible( 'GET', '/some/page/', array() ) );
+	}
+
+	#[Test]
+	public function should_not_be_eligible_for_a_post_request(): void {
+		$this->assertFalse( \agend_apps_saml_link_implicit_trigger_eligible( 'POST', '/some/page/', array() ) );
+	}
+
+	#[Test]
+	public function should_not_be_eligible_for_wp_login_php(): void {
+		$this->assertFalse( \agend_apps_saml_link_implicit_trigger_eligible( 'GET', '/wp-login.php', array() ) );
+	}
+
+	#[Test]
+	public function should_not_be_eligible_for_a_saml_path_prefix(): void {
+		$this->assertFalse( \agend_apps_saml_link_implicit_trigger_eligible( 'GET', '/saml/acs', array() ) );
+	}
+
+	/** @return array<string, array{0: string}> query key => [marker key] */
+	public static function samlQueryMarkerProvider(): array {
+		return array(
+			'saml'          => array( 'saml' ),
+			'idp_initiated' => array( 'idp_initiated' ),
+			'SAMLRequest'   => array( 'SAMLRequest' ),
+			'saml_action'   => array( 'saml_action' ),
+			'option'        => array( 'option' ),
+		);
+	}
+
+	#[Test]
+	public function should_not_be_eligible_when_a_saml_query_marker_is_present(): void {
+		foreach ( self::samlQueryMarkerProvider() as $case ) {
+			[ $marker ] = $case;
+
+			$this->assertFalse(
+				\agend_apps_saml_link_implicit_trigger_eligible( 'GET', '/some/page/', array( $marker => '1' ) ),
+				"marker: {$marker}"
+			);
+		}
 	}
 
 	// -----------------------------------------------------------------
