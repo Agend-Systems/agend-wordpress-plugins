@@ -189,5 +189,82 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<th scope="row"><?php esc_html_e( 'Connection entity id in effect', 'agend-apps-core' ); ?></th>
 			<td><code><?php echo esc_html( $diagnostics['idp_entity_id'] ); ?></code></td>
 		</tr>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'SAML link eligibility', 'agend-apps-core' ); ?></th>
+			<td>
+				<?php $eligibility_guidance = $diagnostics['eligibility_guidance']; ?>
+				<strong><?php echo esc_html( $eligibility_guidance['label'] ); ?></strong>
+				(<?php echo esc_html( $eligibility_guidance['severity'] ); ?>)
+				<p class="description"><?php echo esc_html( $eligibility_guidance['guidance'] ); ?></p>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Connection approval state', 'agend-apps-core' ); ?></th>
+			<td>
+				<?php if ( '' === $diagnostics['connection']['approval_state'] ) : ?>
+					<em><?php esc_html_e( 'No connection recorded.', 'agend-apps-core' ); ?></em>
+				<?php elseif ( 'pending' === $diagnostics['connection']['approval_state'] ) : ?>
+					<?php esc_html_e( 'Pending Agend approval. This is the normal state right after connecting, not a failure.', 'agend-apps-core' ); ?>
+				<?php else : ?>
+					<code><?php echo esc_html( $diagnostics['connection']['approval_state'] ); ?></code>
+				<?php endif; ?>
+				<?php if ( '' !== $diagnostics['connection']['slug'] ) : ?>
+					<span class="description">
+						<?php
+						printf(
+							/* translators: %s: the connection slug. */
+							esc_html__( '(slug: %s)', 'agend-apps-core' ),
+							esc_html( $diagnostics['connection']['slug'] )
+						);
+						?>
+					</span>
+				<?php endif; ?>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Silent link attempts', 'agend-apps-core' ); ?></th>
+			<td>
+				<?php
+				printf(
+					/* translators: 1: attempts used, 2: the lifetime cap. */
+					esc_html__( '%1$d / %2$d', 'agend-apps-core' ),
+					(int) $diagnostics['attempts']['count'],
+					(int) $diagnostics['attempts']['cap']
+				);
+				?>
+				<?php if ( $diagnostics['attempts']['capped'] ) : ?>
+					<strong><?php esc_html_e( '(capped -- in 24-hour backoff)', 'agend-apps-core' ); ?></strong>
+				<?php endif; ?>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Bearer token source', 'agend-apps-core' ); ?></th>
+			<td>
+				<?php
+				$bearer_source_labels = array(
+					'sso_linked'          => __( 'SSO-linked', 'agend-apps-core' ),
+					'credentials_session' => __( 'Still on the credentials session fallback', 'agend-apps-core' ),
+					'none'                => __( 'No bearer available', 'agend-apps-core' ),
+				);
+				$bearer_source        = $diagnostics['bearer_source'];
+				echo esc_html( $bearer_source_labels[ $bearer_source ] ?? $bearer_source );
+				?>
+			</td>
+		</tr>
+		<?php if ( isset( $diagnostics['preflight']['nameid_meta_key'] ) ) : ?>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Members with an empty NameID field', 'agend-apps-core' ); ?></th>
+				<td>
+					<?php
+					printf(
+						/* translators: 1: count of members with an empty NameID meta value, 2: the NameID meta key. */
+						esc_html__( '%1$d, against the %2$s meta key.', 'agend-apps-core' ),
+						(int) $diagnostics['preflight']['nameid_empty'],
+						esc_html( $diagnostics['preflight']['nameid_meta_key'] )
+					);
+					?>
+				</td>
+			</tr>
+		<?php endif; ?>
 	</tbody>
 </table>
