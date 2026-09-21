@@ -65,6 +65,12 @@ Elementor member-login and header-auth widgets render nothing on the front end.
 `agend_apps_auth_*()` gateway wrappers remain available in both modes, so a
 consumer plugin never needs to branch on the mode itself.
 
+Which SAML IdP plugin, if any, takes part in the Agend connection is decided by
+`Agend_Apps_Settings::detected_idp_plugin()`. It auto-detects by default, but
+the `agend_apps_idp_plugin` setting (Identity and SSO settings page) lets an
+admin pin it to `saml`, `miniorange`, or `none` -- for a site running a SAML
+IdP plugin for an unrelated purpose that must stay out of this connection.
+
 ### Caching and identity
 
 `Agend_Apps_Cache::build_key()` and `Agend_Apps_Settings::get_cache_ttl()` are

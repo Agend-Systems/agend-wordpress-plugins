@@ -90,6 +90,21 @@ final class Agend_Test_WP {
 	 */
 	public static string $style_engine_stylesheet = '';
 
+	/**
+	 * Registered role slug => display name, as `wp_roles()->get_names()`
+	 * returns. Backs the `wp_roles()`/`WP_Roles` stubs below, used by
+	 * `agend_apps_connect_member_roles()`.
+	 *
+	 * @var array<string, string>
+	 */
+	public static array $roles = array(
+		'administrator' => 'Administrator',
+		'editor'        => 'Editor',
+		'author'        => 'Author',
+		'contributor'   => 'Contributor',
+		'subscriber'    => 'Subscriber',
+	);
+
 	/** Resets every stub back to a clean state. */
 	public static function reset(): void {
 		self::$queried_object_id    = 0;
@@ -110,6 +125,13 @@ final class Agend_Test_WP {
 		self::$wp_update_plugins_calls = 0;
 		self::$enqueued_styles   = array();
 		self::$style_engine_stylesheet = '';
+		self::$roles             = array(
+			'administrator' => 'Administrator',
+			'editor'        => 'Editor',
+			'author'        => 'Author',
+			'contributor'   => 'Contributor',
+			'subscriber'    => 'Subscriber',
+		);
 	}
 
 	/**
@@ -363,6 +385,12 @@ function home_url( $path = '' ): string {
 	return 'https://example.test' . $path;
 }
 
+if ( ! function_exists( 'site_url' ) ) {
+	function site_url( $path = '' ): string {
+		return 'https://example.test' . $path;
+	}
+}
+
 if ( ! function_exists( 'wp_login_url' ) ) {
 	/**
 	 * Minimal stand-in for WordPress's wp_login_url(): a fixed login page under
@@ -384,6 +412,34 @@ if ( ! function_exists( 'wp_login_url' ) ) {
 		}
 
 		return $url;
+	}
+}
+
+if ( ! function_exists( 'wp_validate_redirect' ) ) {
+	/**
+	 * Minimal stand-in for WordPress's wp_validate_redirect(): a value with no
+	 * host (a relative path/query) is trusted as-is; an absolute URL is
+	 * trusted only when its host matches home_url()'s host; anything else
+	 * (including an empty location) falls back to `$default`.
+	 *
+	 * @param string $location Redirect target to validate.
+	 * @param string $default  Fallback when the location is not local.
+	 * @return string
+	 */
+	function wp_validate_redirect( string $location, string $default = '' ): string {
+		if ( '' === $location ) {
+			return $default;
+		}
+
+		$parsed = wp_parse_url( $location );
+
+		if ( ! is_array( $parsed ) || ! isset( $parsed['host'] ) ) {
+			return $location;
+		}
+
+		$home_host = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+
+		return ( $parsed['host'] === $home_host ) ? $location : $default;
 	}
 }
 
@@ -483,9 +539,15 @@ function plugin_dir_url( string $file ): string {
  * response is always distinguishable from a freshly fetched one.
  */
 function wp_remote_request( string $url, array $args = array() ) {
+	// `body` is recorded as sent, i.e. already JSON-encoded by
+	// Agend_Apps_API::request(), so a test asserting on it exercises the whole
+	// encode path rather than the array the caller happened to build. Needed
+	// for any field whose ABSENCE changes gateway behaviour, where proving the
+	// builder returned it is not the same as proving it reached the wire.
 	Agend_Test_WP::$requests[] = array(
 		'url'     => $url,
 		'headers' => $args['headers'] ?? array(),
+		'body'    => $args['body'] ?? null,
 	);
 
 	if ( ! empty( Agend_Test_WP::$canned_responses ) ) {
@@ -728,6 +790,32 @@ if ( ! function_exists( 'wp_doing_cron' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_doing_ajax' ) ) {
+	/** Never an AJAX request in the unit harness unless a test says otherwise. */
+	function wp_doing_ajax(): bool {
+		return ( defined( 'DOING_AJAX' ) && DOING_AJAX ) || ! empty( $GLOBALS['agend_test_doing_ajax'] );
+	}
+}
+
+if ( ! function_exists( 'is_admin' ) ) {
+	/** Never wp-admin in the unit harness unless a test says otherwise. */
+	function is_admin(): bool {
+		return ! empty( $GLOBALS['agend_test_is_admin'] );
+	}
+}
+
+if ( ! function_exists( 'is_feed' ) ) {
+	/** Never a feed request in the unit harness unless a test says otherwise. */
+	function is_feed(): bool {
+		return ! empty( $GLOBALS['agend_test_is_feed'] );
+	}
+}
+
+if ( ! function_exists( 'nocache_headers' ) ) {
+	/** No-op: the unit harness sends no real HTTP headers. */
+	function nocache_headers(): void {}
+}
+
 if ( ! class_exists( 'WP_User' ) ) {
 	/**
 	 * Minimal WP_User stand-in.
@@ -812,6 +900,22 @@ if ( ! function_exists( 'is_email' ) ) {
 	 */
 	function is_email( $email ) {
 		return false !== filter_var( (string) $email, FILTER_VALIDATE_EMAIL ) ? (string) $email : false;
+	}
+}
+
+if ( ! class_exists( 'WP_Roles' ) ) {
+	/** Minimal WP_Roles stand-in: only `get_names()`, backed by Agend_Test_WP::$roles. */
+	class WP_Roles {
+		/** @return array<string, string> */
+		public function get_names(): array {
+			return Agend_Test_WP::$roles;
+		}
+	}
+}
+
+if ( ! function_exists( 'wp_roles' ) ) {
+	function wp_roles(): WP_Roles {
+		return new WP_Roles();
 	}
 }
 
@@ -976,12 +1080,18 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 
 if ( ! class_exists( 'WP_REST_Response' ) ) {
 	/**
-	 * Minimal WP_REST_Response stand-in: a test reads back `get_data()` and
-	 * `get_status()`, matching the real class's public surface.
+	 * Minimal WP_REST_Response stand-in: a test reads back `get_data()`,
+	 * `get_status()` and `get_headers()`, matching the real class's public
+	 * surface (including `header()`) so a test can assert on a header a
+	 * controller set, e.g. the identity-link endpoint's `no-store`
+	 * Cache-Control.
 	 */
 	class WP_REST_Response {
 		private $data;
 		private int $status;
+
+		/** @var array<string, string> */
+		private array $headers = array();
 
 		public function __construct( $data = null, int $status = 200 ) {
 			$this->data   = $data;
@@ -994,6 +1104,24 @@ if ( ! class_exists( 'WP_REST_Response' ) ) {
 
 		public function get_status(): int {
 			return $this->status;
+		}
+
+		/**
+		 * @param string $key     Header name.
+		 * @param mixed  $value   Header value.
+		 * @param bool   $replace Whether to replace an existing header of the same name.
+		 */
+		public function header( string $key, $value, bool $replace = true ): void {
+			if ( ! $replace && isset( $this->headers[ $key ] ) ) {
+				return;
+			}
+
+			$this->headers[ $key ] = (string) $value;
+		}
+
+		/** @return array<string, string> */
+		public function get_headers(): array {
+			return $this->headers;
 		}
 	}
 }
@@ -1141,6 +1269,18 @@ if ( ! function_exists( 'trailingslashit' ) ) {
 	 */
 	function trailingslashit( string $value ): string {
 		return rtrim( $value, '/\\' ) . '/';
+	}
+}
+
+if ( ! function_exists( 'untrailingslashit' ) ) {
+	/**
+	 * Removes any trailing slashes, matching WordPress's helper.
+	 *
+	 * @param string $value The string to unslash.
+	 * @return string
+	 */
+	function untrailingslashit( string $value ): string {
+		return rtrim( $value, '/\\' );
 	}
 }
 
