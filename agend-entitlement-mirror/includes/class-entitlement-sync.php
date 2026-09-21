@@ -88,6 +88,51 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		const LAST_ERROR_OPTION = 'agend_entitlement_mirror_last_error';
 
 		/**
+		 * Default TTL, in seconds, for a member's reconcile fingerprint
+		 * transient (7 days). Filterable via
+		 * `agend_entitlement_mirror_fingerprint_ttl`. A literal rather than
+		 * `DAY_IN_SECONDS`, so the unit suite (which stubs only the WordPress
+		 * surface this plugin actually calls) never needs that constant
+		 * defined.
+		 *
+		 * @var int
+		 */
+		const FINGERPRINT_TTL = 604800;
+
+		/**
+		 * Default floor `wait_for_rate_limit_window()` compares the cached
+		 * remaining-requests count against. Filterable via
+		 * `agend_entitlement_mirror_rate_limit_floor`.
+		 *
+		 * @var int
+		 */
+		const RATE_LIMIT_FLOOR = 1;
+
+		/**
+		 * Cap, in seconds, on a single rate-limit pacing sleep.
+		 *
+		 * @var int
+		 */
+		const RATE_LIMIT_MAX_WAIT = 120;
+
+		/**
+		 * Transient holding a types-sync failure cooldown: while set,
+		 * `maybe_sync_types_for_new_keys()` skips discovery+sync entirely, so
+		 * one failed types push does not repeat for every member in a sweep.
+		 *
+		 * @var string
+		 */
+		const TYPES_COOLDOWN_TRANSIENT = 'agend_ent_mirror_types_cooldown';
+
+		/**
+		 * Default TTL, in seconds, for the types-sync failure cooldown.
+		 * Filterable via `agend_entitlement_mirror_types_cooldown`.
+		 *
+		 * @var int
+		 */
+		const TYPES_COOLDOWN_TTL = 300;
+
+		/**
 		 * Registers the webhook listeners, the login hook, and the retry hook.
 		 *
 		 * Guarded behind the enable toggle AND the active source's
@@ -329,15 +374,32 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		 * omission, the empty-entries skip, the types pre-declaration) lands
 		 * once for every caller rather than being re-derived per caller.
 		 *
+		 * A member whose fingerprint (external_source + source_key +
+		 * {@see to_grant_entries()} output) matches the one stored after the
+		 * last successful reconcile is skipped entirely -- before the
+		 * `find_contact_id()` lookup, the types check, or the reconcile call
+		 * itself -- since nothing this call would send has changed. Pass
+		 * `$force` to bypass that check (used by the CLI sweep's `--force`
+		 * flag).
+		 *
 		 * @param string                                                                                                                                        $member_id Kiosk membership number.
 		 * @param array<int, array{gate_key: string, name: string, starts_at: string|null, expires_at: string|null, quantity_allowed: int|null, quantity_remaining: int|null}> $entries   Collector output for this member.
 		 * @param array{email: string, first_name: string, last_name: string}                                                                                  $profile   Create-on-miss identity fields; empty strings are omitted from the payload.
-		 * @return array|true|WP_Error Decoded gateway response on a real call, `true` for a deliberate skip (nothing to grant and no contact exists), or WP_Error on failure.
+		 * @param bool                                                                                                                                          $force     Bypass the unchanged-since-last-sync fingerprint skip.
+		 * @return array|true|WP_Error Decoded gateway response on a real call, `true` for a deliberate skip (nothing to grant and no contact exists, or unchanged since last sync), or WP_Error on failure.
 		 */
-		public static function reconcile_member( string $member_id, array $entries, array $profile ) {
-			self::maybe_sync_types_for_new_keys( $entries );
-
+		public static function reconcile_member( string $member_id, array $entries, array $profile, bool $force = false ) {
 			$external_source = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_external_source();
+			$source_key      = Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_source_key();
+			$fingerprint_key = 'agend_ent_mirror_fp_' . md5( $member_id );
+			$fingerprint     = self::fingerprint( $external_source, $source_key, $entries );
+
+			if ( ! $force && get_transient( $fingerprint_key ) === $fingerprint ) {
+				self::log( 'Skipping reconcile: unchanged since last successful sync.', array( 'member_id' => $member_id ) );
+				return true;
+			}
+
+			self::maybe_sync_types_for_new_keys( $entries );
 
 			// A member with nothing to grant AND no Agend contact needs no
 			// reconcile: there is nothing to revoke, and the endpoint's
@@ -354,6 +416,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 
 				if ( null === $existing ) {
 					self::log( 'Skipping reconcile: member holds nothing and no contact exists.', array( 'member_id' => $member_id ) );
+					self::remember_fingerprint( $fingerprint_key, $fingerprint );
 					return true;
 				}
 			}
@@ -361,7 +424,7 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 			$payload = array(
 				'external_source' => $external_source,
 				'external_id'     => $member_id,
-				'source_key'      => Agend_Entitlement_Mirror_Settings::get_entitlement_mirror_source_key(),
+				'source_key'      => $source_key,
 				// An empty array here is the positively-established "this source
 				// now grants this member nothing" state (AC12): the caller's
 				// collector failing is what must (and does) abort before
@@ -380,7 +443,42 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 				}
 			}
 
-			return agend_apps_crm_reconcile_entitlement_grants( $payload );
+			$result = agend_apps_crm_reconcile_entitlement_grants( $payload );
+
+			if ( ! is_wp_error( $result ) ) {
+				self::remember_fingerprint( $fingerprint_key, $fingerprint );
+			}
+
+			return $result;
+		}
+
+		/**
+		 * Computes the deterministic reconcile fingerprint for a member: an
+		 * md5 of the JSON-encoded `[external_source, source_key, grant
+		 * entries]` tuple, the complete set of values that determine what a
+		 * reconcile call would send.
+		 *
+		 * @param string                                              $external_source Configured external identity source.
+		 * @param string                                              $source_key      Configured stable source_key.
+		 * @param array<int, array{gate_key: string, name: string, starts_at: string|null, expires_at: string|null, quantity_allowed: int|null, quantity_remaining: int|null}> $entries Collector output for this member.
+		 * @return string
+		 */
+		private static function fingerprint( string $external_source, string $source_key, array $entries ): string {
+			return md5( (string) wp_json_encode( array( $external_source, $source_key, self::to_grant_entries( $entries ) ) ) );
+		}
+
+		/**
+		 * Stores a member's reconcile fingerprint after a successful reconcile
+		 * (a real gateway call or a deliberate skip), so the next call with an
+		 * unchanged fingerprint can skip entirely.
+		 *
+		 * @param string $key         Fingerprint transient key.
+		 * @param string $fingerprint Fingerprint value to store.
+		 */
+		private static function remember_fingerprint( string $key, string $fingerprint ): void {
+			$ttl = (int) apply_filters( 'agend_entitlement_mirror_fingerprint_ttl', self::FINGERPRINT_TTL );
+
+			set_transient( $key, $fingerprint, $ttl );
 		}
 
 		/**
@@ -519,6 +617,14 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 
 			foreach ( $entries as $entry ) {
 				if ( ! in_array( $entry['gate_key'], $known, true ) ) {
+					// A prior failed types push already reported (and logged)
+					// its own failure; skip discovery+sync while the cooldown
+					// holds rather than re-attempting -- and re-failing -- the
+					// same push for every remaining member in a sweep.
+					if ( false !== get_transient( self::TYPES_COOLDOWN_TRANSIENT ) ) {
+						return;
+					}
+
 					// Sync the discovered types MERGED with this member's own
 					// observed entries. A live grant can reference a type the
 					// kiosk's get_entitlement_types() does not list (found
@@ -533,10 +639,121 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 					foreach ( array_merge( $discovered, self::to_type_entries( $entries ) ) as $candidate ) {
 						$by_key[ $candidate['gate_key'] ] = $candidate;
 					}
-					self::sync_types( array_values( $by_key ) );
+
+					$result = self::sync_types( array_values( $by_key ) );
+
+					if ( is_wp_error( $result ) ) {
+						$ttl = (int) apply_filters( 'agend_entitlement_mirror_types_cooldown', self::TYPES_COOLDOWN_TTL );
+						set_transient( self::TYPES_COOLDOWN_TRANSIENT, 1, $ttl );
+					}
+
 					return;
 				}
 			}
+		}
+
+		/**
+		 * Paces the CLI sweep against the gateway's 60 requests/minute limit
+		 * (US-2.5 recovery-path hardening): when the cached remaining-requests
+		 * count is at or below the configured floor and the cached reset time
+		 * is still in the future, sleeps until just past that reset (capped at
+		 * {@see RATE_LIMIT_MAX_WAIT} seconds) and returns the seconds slept.
+		 * Returns 0 (no sleep) when either transient is absent, the remaining
+		 * count is comfortably above the floor, or the reset time has already
+		 * passed.
+		 *
+		 * Reads the two rate-limit transients agend-apps-core's API client
+		 * stores from every response's `X-RateLimit-*` headers
+		 * (`agend_apps_rate_limit_remaining`, `agend_apps_rate_limit_reset`).
+		 *
+		 * @return int Seconds slept (0 when nothing to wait for).
+		 */
+		public static function wait_for_rate_limit_window(): int {
+			$remaining = get_transient( 'agend_apps_rate_limit_remaining' );
+
+			if ( false === $remaining ) {
+				return 0;
+			}
+
+			$floor = (int) apply_filters( 'agend_entitlement_mirror_rate_limit_floor', self::RATE_LIMIT_FLOOR );
+
+			if ( (int) $remaining > $floor ) {
+				return 0;
+			}
+
+			$reset = (int) get_transient( 'agend_apps_rate_limit_reset' );
+
+			if ( $reset <= time() ) {
+				return 0;
+			}
+
+			$wait = min( self::RATE_LIMIT_MAX_WAIT, ( $reset - time() ) + 1 );
+
+			if ( $wait <= 0 ) {
+				return 0;
+			}
+
+			self::log( sprintf( 'Rate-limit pacing: sleeping %d second(s) before the next gateway call.', $wait ) );
+
+			self::pace( (float) $wait );
+
+			return $wait;
+		}
+
+		/**
+		 * Sleeps for the given number of seconds, via whatever
+		 * `agend_entitlement_mirror_sleeper` filters in, or a real
+		 * `usleep()` when nothing does. Shared by
+		 * {@see wait_for_rate_limit_window()} and the CLI sweep's `--delay`
+		 * flag and 60-second rate-limit fallback, so a test can intercept
+		 * every sleep this module performs from one place.
+		 *
+		 * @param float $seconds Seconds to sleep; a non-positive value is a no-op.
+		 */
+		public static function pace( float $seconds ): void {
+			if ( $seconds <= 0 ) {
+				return;
+			}
+
+			/**
+			 * Filters the sleep implementation the entitlement mirror uses for
+			 * CLI sweep pacing. A test sets this to a recording no-op so the
+			 * suite never blocks on a real sleep; production leaves it
+			 * unfiltered.
+			 *
+			 * @param callable|null $sleeper Callable invoked with the seconds (float) to sleep, or null for the default.
+			 */
+			$sleeper = apply_filters( 'agend_entitlement_mirror_sleeper', null );
+
+			if ( is_callable( $sleeper ) ) {
+				call_user_func( $sleeper, $seconds );
+				return;
+			}
+
+			usleep( (int) round( $seconds * 1000000 ) );
+		}
+
+		/**
+		 * Whether a `reconcile_member()` result is the gateway's 60
+		 * requests/minute limit being hit -- either agend-apps-core's own
+		 * local short-circuit (`agend_apps_rate_limited`) or a live 429 from
+		 * the gateway itself (`status_code` in the error data).
+		 *
+		 * @param mixed $result A `reconcile_member()` return value.
+		 * @return bool
+		 */
+		public static function is_rate_limited_error( $result ): bool {
+			if ( ! is_wp_error( $result ) ) {
+				return false;
+			}
+
+			if ( 'agend_apps_rate_limited' === $result->get_error_code() ) {
+				return true;
+			}
+
+			$data = $result->get_error_data();
+
+			return is_array( $data ) && isset( $data['status_code'] ) && 429 === (int) $data['status_code'];
 		}
 
 		/**
