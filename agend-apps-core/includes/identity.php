@@ -278,3 +278,131 @@ function agend_apps_linked_identity_ids( int $user_id ): array {
 		'contact_id'       => (string) get_user_meta( $user_id, AGEND_APPS_CONTACT_ID_META, true ),
 	);
 }
+
+/**
+ * The field name the gateway's identity-status response is expected to carry
+ * a member's membership-role under, once that field ships.
+ *
+ * THE single place this field name is configured. As of this writing the
+ * gateway spec that defines it is still being written (confirmed against
+ * `agend-dashboard/apps/api/openapi.json`, schema `SsoIdentityLinkStatus`:
+ * `GET /v1/sso/identities/status` returns only `{ success, data: { linked,
+ * user_id?, contact_id? } }` today, with no role field at all). If the
+ * gateway ships the field under a different key than assumed here, this
+ * constant is the ONLY edit needed to pick it up. Until the gateway sends it
+ * at all, {@see agend_apps_record_membership_role()} finds it absent on every
+ * call and does nothing -- nothing in this file fires against a gateway that
+ * has not shipped the field yet.
+ *
+ * @var string
+ */
+const AGEND_APPS_SSO_STATUS_ROLE_FIELD = 'membership_role';
+
+/**
+ * User-meta key caching the membership role last reported by the gateway's
+ * identity-status route.
+ *
+ * Underscore-prefixed like the other identity meta in this file so WordPress
+ * treats it as protected: hidden from the profile UI and excluded from the
+ * REST users endpoint. This is a CACHE of what the gateway last reported,
+ * never an input to any decision about what the member may do -- the cached
+ * JWT remains the sole authority over the member's actual access. This meta
+ * exists only so {@see agend_apps_record_membership_role()} can notice a
+ * change in what the gateway reports and drop the stale cached token, it is
+ * never read to authorise anything itself.
+ *
+ * @var string
+ */
+const AGEND_APPS_MEMBERSHIP_ROLE_META = '_agend_apps_membership_role';
+
+/**
+ * Notices a change in the membership role the gateway reports for a member
+ * and, when one occurred, drops the cached SSO token so the member's next
+ * gateway call mints a fresh one at the current role.
+ *
+ * Why this exists: a person provisioned at `contact` level gets a
+ * contact-level JWT, which the token worker caches in user meta
+ * ({@see Agend_Apps_Token_Worker::META_KEY}). If they later accept an
+ * emailed invitation that promotes their membership to a higher role, the
+ * cached JWT still carries the OLD role until it naturally expires. This
+ * function is how the plugin notices that a promotion (or any role change)
+ * happened and clears the stale token immediately, rather than leaving the
+ * member under-privileged for however long the cached token has left to run.
+ *
+ * Called from both status-response consumers
+ * ({@see agend_apps_saml_link_promote()} and
+ * {@see agend_apps_account_link_state()}) -- deliberately NOT from the token
+ * worker's own mint path: the mint response is not the status route, and
+ * clearing the token the worker has just minted, from inside the worker
+ * itself, risks a mint-clear-mint loop. This is a status-route concern only.
+ *
+ * No-op (returns false, writes nothing) when:
+ * - `$user_id` is 0.
+ * - {@see AGEND_APPS_SSO_STATUS_ROLE_FIELD} is absent from `$data`. This is
+ *   the NORMAL case against every gateway shipping today (the field does not
+ *   exist yet), so it is a silent no-op, never a warning.
+ * - The field is present but an empty string.
+ *
+ * On first observation (no role previously stored for this user) the
+ * reported role is simply recorded and this returns false: there is no
+ * previous role to have gone stale against, so nothing is stale and clearing
+ * a freshly minted token would be pure waste.
+ *
+ * When a previously stored role differs from the one just reported, the new
+ * role is recorded and both the cached token
+ * ({@see Agend_Apps_Token_Worker::clear_token()}) and the negative cache
+ * ({@see Agend_Apps_Token_Worker::clear_negative_cache()}) are cleared (both
+ * `class_exists()`-guarded), and this returns true. The negative cache is
+ * cleared too, not only the token: a member who was refused a mint at their
+ * old role (and is therefore sitting behind the negative cache's TTL) must
+ * not be held there after a promotion that would now succeed.
+ *
+ * This deliberately fires on ANY change, not only an upgrade -- direction is
+ * never inspected. A downgrade leaves an over-privileged cached token behind,
+ * which is the more dangerous direction of the two, so it must be caught with
+ * exactly the same certainty as an upgrade.
+ *
+ * @param int   $user_id WordPress user id (0 = not logged in / not resolvable).
+ * @param array $data    Decoded gateway response data. Reads
+ *                        {@see AGEND_APPS_SSO_STATUS_ROLE_FIELD} only.
+ * @return bool True when a change was observed (and the cached token/negative
+ *              cache were cleared); false for every no-op case above, and for
+ *              a first observation or an unchanged value.
+ */
+function agend_apps_record_membership_role( int $user_id, array $data ): bool {
+	if ( 0 === $user_id ) {
+		return false;
+	}
+
+	if ( ! isset( $data[ AGEND_APPS_SSO_STATUS_ROLE_FIELD ] ) ) {
+		return false;
+	}
+
+	$reported_role = (string) $data[ AGEND_APPS_SSO_STATUS_ROLE_FIELD ];
+
+	if ( '' === $reported_role ) {
+		return false;
+	}
+
+	$stored_role = get_user_meta( $user_id, AGEND_APPS_MEMBERSHIP_ROLE_META, true );
+
+	if ( '' === $stored_role ) {
+		// First observation: nothing to compare against, so nothing is stale.
+		update_user_meta( $user_id, AGEND_APPS_MEMBERSHIP_ROLE_META, sanitize_text_field( $reported_role ) );
+
+		return false;
+	}
+
+	if ( $stored_role === $reported_role ) {
+		return false;
+	}
+
+	update_user_meta( $user_id, AGEND_APPS_MEMBERSHIP_ROLE_META, sanitize_text_field( $reported_role ) );
+
+	if ( class_exists( 'Agend_Apps_Token_Worker' ) ) {
+		Agend_Apps_Token_Worker::clear_token( $user_id );
+		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
+	}
+
+	return true;
+}
