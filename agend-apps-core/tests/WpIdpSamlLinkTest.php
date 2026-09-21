@@ -941,6 +941,127 @@ final class WpIdpSamlLinkTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// agend_apps_record_membership_role(): noticing a membership-role change
+	// reported by the gateway's identity-status route and dropping the stale
+	// cached token. The gateway does not send this field at all today, so the
+	// "absent" case below is the current, normal, silent-no-op case against
+	// every gateway shipping right now.
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_do_nothing_when_the_role_field_is_absent_the_current_gateway_case(): void {
+		update_user_meta( 200, \AGEND_APPS_MEMBERSHIP_ROLE_META, 'contact' );
+		update_user_meta( 200, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+		$result = \agend_apps_record_membership_role( 200, array( 'linked' => true ) );
+
+		$this->assertFalse( $result );
+		$this->assertSame( 'contact', get_user_meta( 200, \AGEND_APPS_MEMBERSHIP_ROLE_META, true ) );
+		$this->assertNotSame( '', get_user_meta( 200, Agend_Apps_Token_Worker::META_KEY, true ) );
+	}
+
+	#[Test]
+	public function should_do_nothing_for_an_empty_role_value(): void {
+		update_user_meta( 201, \AGEND_APPS_MEMBERSHIP_ROLE_META, 'contact' );
+		update_user_meta( 201, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+		$result = \agend_apps_record_membership_role( 201, array( \AGEND_APPS_SSO_STATUS_ROLE_FIELD => '' ) );
+
+		$this->assertFalse( $result );
+		$this->assertSame( 'contact', get_user_meta( 201, \AGEND_APPS_MEMBERSHIP_ROLE_META, true ) );
+		$this->assertNotSame( '', get_user_meta( 201, Agend_Apps_Token_Worker::META_KEY, true ) );
+	}
+
+	#[Test]
+	public function should_record_but_not_clear_the_token_on_first_observation(): void {
+		update_user_meta( 202, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+		$result = \agend_apps_record_membership_role( 202, array( \AGEND_APPS_SSO_STATUS_ROLE_FIELD => 'contact' ) );
+
+		$this->assertFalse( $result );
+		$this->assertSame( 'contact', get_user_meta( 202, \AGEND_APPS_MEMBERSHIP_ROLE_META, true ) );
+		$this->assertNotSame( '', get_user_meta( 202, Agend_Apps_Token_Worker::META_KEY, true ) );
+	}
+
+	#[Test]
+	public function should_record_the_new_role_and_clear_the_cached_token_on_a_changed_value(): void {
+		update_user_meta( 203, \AGEND_APPS_MEMBERSHIP_ROLE_META, 'contact' );
+		update_user_meta( 203, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+		$result = \agend_apps_record_membership_role( 203, array( \AGEND_APPS_SSO_STATUS_ROLE_FIELD => 'owner' ) );
+
+		$this->assertTrue( $result );
+		$this->assertSame( 'owner', get_user_meta( 203, \AGEND_APPS_MEMBERSHIP_ROLE_META, true ) );
+		$this->assertSame( '', get_user_meta( 203, Agend_Apps_Token_Worker::META_KEY, true ) );
+	}
+
+	#[Test]
+	public function should_return_false_and_leave_the_token_untouched_when_the_role_is_unchanged(): void {
+		update_user_meta( 204, \AGEND_APPS_MEMBERSHIP_ROLE_META, 'owner' );
+		update_user_meta( 204, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+		$result = \agend_apps_record_membership_role( 204, array( \AGEND_APPS_SSO_STATUS_ROLE_FIELD => 'owner' ) );
+
+		$this->assertFalse( $result );
+		$this->assertSame( 'owner', get_user_meta( 204, \AGEND_APPS_MEMBERSHIP_ROLE_META, true ) );
+		$this->assertNotSame( '', get_user_meta( 204, Agend_Apps_Token_Worker::META_KEY, true ) );
+	}
+
+	#[Test]
+	public function should_also_clear_on_a_downgrade_since_direction_is_not_inspected(): void {
+		update_user_meta( 205, \AGEND_APPS_MEMBERSHIP_ROLE_META, 'owner' );
+		update_user_meta( 205, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+		$result = \agend_apps_record_membership_role( 205, array( \AGEND_APPS_SSO_STATUS_ROLE_FIELD => 'contact' ) );
+
+		$this->assertTrue( $result );
+		$this->assertSame( 'contact', get_user_meta( 205, \AGEND_APPS_MEMBERSHIP_ROLE_META, true ) );
+		$this->assertSame( '', get_user_meta( 205, Agend_Apps_Token_Worker::META_KEY, true ) );
+	}
+
+	// -----------------------------------------------------------------
+	// agend_apps_saml_link_promote(): the round trip's own status check also
+	// clears a stale cached token on a reported role change, and leaves it
+	// alone when the response carries no role field (the current gateway).
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_clear_the_cached_token_through_promote_on_a_changed_role(): void {
+		$this->mintExternalId( 210 );
+		update_user_meta( 210, \AGEND_APPS_MEMBERSHIP_ROLE_META, 'contact' );
+		update_user_meta( 210, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+		Agend_Test_WP::queue_response(
+			200,
+			array(
+				'data' => array(
+					'linked'          => true,
+					\AGEND_APPS_SSO_STATUS_ROLE_FIELD => 'owner',
+				),
+			)
+		);
+
+		\agend_apps_saml_link_promote( 210 );
+
+		$this->assertSame( 'owner', get_user_meta( 210, \AGEND_APPS_MEMBERSHIP_ROLE_META, true ) );
+		$this->assertSame( '', get_user_meta( 210, Agend_Apps_Token_Worker::META_KEY, true ) );
+	}
+
+	#[Test]
+	public function should_leave_the_cached_token_alone_through_promote_when_no_role_field_is_sent(): void {
+		$this->mintExternalId( 211 );
+		update_user_meta( 211, \AGEND_APPS_MEMBERSHIP_ROLE_META, 'contact' );
+		update_user_meta( 211, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'linked' => true ) ) );
+
+		\agend_apps_saml_link_promote( 211 );
+
+		$this->assertSame( 'contact', get_user_meta( 211, \AGEND_APPS_MEMBERSHIP_ROLE_META, true ) );
+		$this->assertNotSame( '', get_user_meta( 211, Agend_Apps_Token_Worker::META_KEY, true ) );
+	}
+
+	// -----------------------------------------------------------------
 	// Token worker: a successful mint no longer promotes the link state --
 	// promotion moved to the SAML round trip's own return leg
 	// (agend_apps_saml_link_promote(), see the tests above). A mint needs

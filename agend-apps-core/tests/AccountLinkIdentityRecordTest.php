@@ -203,5 +203,57 @@ namespace Agend\Tests\Core {
 			$this->assertSame( '', $data['supabase_user_id'] );
 			$this->assertSame( '', $data['contact_id'] );
 		}
+
+		// -----------------------------------------------------------------
+		// Membership-role change (agend_apps_record_membership_role()), wired
+		// into agend_apps_account_link_state() alongside the negative-cache
+		// clear. Covered here rather than WpIdpSamlLinkTest.php because this
+		// is the account-link status path specifically (the SAML round
+		// trip's own promote() leg is covered there). The gateway sends no
+		// role field at all today, so the "omitted" case is the current,
+		// normal, no-op case.
+		// -----------------------------------------------------------------
+
+		#[Test]
+		public function should_clear_the_cached_token_when_the_status_route_reports_a_changed_role(): void {
+			// agend_apps_account_link_state() only reaches the SSO status lookup
+			// (and this behaviour) outside credentials mode -- credentials mode
+			// short-circuits to 'linked' from recorded identity ids alone, the
+			// same reason WpIdpSamlLinkTest.php's setUp() sets this option too.
+			update_option( 'agend_apps_member_auth_mode', 'sso' );
+			$this->setLoggedInUser( 60, 'member-60' );
+			update_user_meta( 60, '_agend_apps_membership_role', 'contact' );
+			update_user_meta( 60, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+			Agend_Test_WP::queue_response(
+				200,
+				array(
+					'data' => array(
+						'linked'          => true,
+						'membership_role' => 'owner',
+					),
+				)
+			);
+
+			\agend_apps_account_link_state( 60 );
+
+			$this->assertSame( 'owner', get_user_meta( 60, '_agend_apps_membership_role', true ) );
+			$this->assertSame( '', get_user_meta( 60, Agend_Apps_Token_Worker::META_KEY, true ) );
+		}
+
+		#[Test]
+		public function should_leave_the_cached_token_alone_when_the_status_route_sends_no_role_field(): void {
+			update_option( 'agend_apps_member_auth_mode', 'sso' );
+			$this->setLoggedInUser( 61, 'member-61' );
+			update_user_meta( 61, '_agend_apps_membership_role', 'contact' );
+			update_user_meta( 61, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
+
+			Agend_Test_WP::queue_response( 200, array( 'data' => array( 'linked' => true ) ) );
+
+			\agend_apps_account_link_state( 61 );
+
+			$this->assertSame( 'contact', get_user_meta( 61, '_agend_apps_membership_role', true ) );
+			$this->assertNotSame( '', get_user_meta( 61, Agend_Apps_Token_Worker::META_KEY, true ) );
+		}
 	}
 }

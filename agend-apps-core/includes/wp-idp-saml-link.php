@@ -925,6 +925,14 @@ function agend_apps_saml_link_promote( int $user_id ): array {
 		agend_apps_record_linked_identity( $user_id, $data );
 	}
 
+	// Status-route concern only, deliberately not duplicated in the token
+	// worker's mint path: see agend_apps_record_membership_role()'s docblock
+	// for why clearing the token from inside the worker that just minted it
+	// would risk a mint-clear-mint loop.
+	if ( function_exists( 'agend_apps_record_membership_role' ) ) {
+		agend_apps_record_membership_role( $user_id, $data );
+	}
+
 	if ( class_exists( 'Agend_Apps_Token_Worker' ) ) {
 		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
 	}
