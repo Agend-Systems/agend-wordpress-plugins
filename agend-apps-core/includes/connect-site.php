@@ -14,9 +14,18 @@
  *
  * Security findings this file is the fix for (numbered per the review that
  * settled this design):
- * - Finding 5: the gateway connection payload never sends `role_attribute` or
- *   `role_mapping`, so no WordPress role -- administrator included -- maps to
- *   a privileged Agend role. See {@see agend_apps_connect_connection_payload()}.
+ * - Finding 5: the gateway connection payload originally sent NEITHER
+ *   `role_attribute` NOR `role_mapping`, so no WordPress role could map to a
+ *   privileged Agend role at all. The owner-invitation-gate brief
+ *   (2026-09-21) deliberately REVERSES that for `owner` only: an `owner`
+ *   value in `role_mapping` now means "create an emailed invitation for this
+ *   person", never "grant owner" -- the person is still linked and
+ *   provisioned at `default_role` (`contact`), and owner only ever arrives by
+ *   accepting that invitation. `default_role` itself still refuses owner and
+ *   is unchanged. See {@see agend_apps_connect_connection_payload()} for the
+ *   payload and the hard ordering dependency on the gateway's own schema
+ *   change, and {@see agend_apps_connect_member_roles()} for why this control
+ *   is no longer where administrator exclusion lives.
  * - Finding 10: the IdP service-provider record is created with sha256
  *   signing, both response and assertion signed, and the unspecified NameID
  *   format explicitly, because the IdP's own defaults are sha1/unsigned/
@@ -228,15 +237,14 @@ function agend_apps_connect_find_existing( string $idp_entity_id ) {
 
 /**
  * Builds the allow-list of WordPress roles the IdP is told to let sign in via
- * SSO: every registered role except `administrator`.
+ * SSO: every role currently registered on the site, `administrator` included.
  *
  * CRITICAL, and counter-intuitive: `restricted_roles` is an ALLOW-list
  * despite its name (`check_user_sso_permissions()` allows the login when the
  * user's roles intersect this list). Two traps this function exists to avoid:
  *
- * 1. Reading it as a deny-list. Listing `administrator` here would allow ONLY
- *    administrators through and block every ordinary member -- the exact
- *    inverse of the intended restriction.
+ * 1. Reading it as a deny-list. Listing a role here ALLOWS it through, it
+ *    does not block it.
  * 2. Returning an empty list while `role_restriction_enabled` is true. An
  *    empty allow-list allows EVERYONE, so the flag alone restricts nothing.
  *    This function therefore GUARANTEES a non-empty result: `wp_roles()` is
@@ -246,14 +254,26 @@ function agend_apps_connect_find_existing( string $idp_entity_id ) {
  *    filter below returns an empty list, the result falls back to
  *    `array( 'subscriber' )` rather than ever being returned empty.
  *
- * `editor`, `author`, and `contributor` are deliberately left in this
- * allow-list: elevated WordPress roles below `administrator` are not a
- * privilege escalation risk here, because the GATEWAY side is the second line
- * of defence. {@see agend_apps_connect_connection_payload()} sends no role
- * mapping at all, so every asserted member -- regardless of their WordPress
- * role -- lands on the connection's `default_role` (`contact`, the
- * lowest-privilege Agend role). This function's allow-list only ever decides
- * who may attempt SSO at all, never what Agend role they end up with.
+ * `administrator` is now INCLUDED, and that is a REQUIREMENT of the
+ * owner-invitation-gate flow (2026-09-21), not a relaxation for convenience:
+ * this list used to exclude `administrator` so no admin could ever attempt
+ * SSO, which was itself the control that stopped a WordPress administrator
+ * becoming an Agend owner. That control has MOVED. It no longer lives here.
+ * {@see agend_apps_connect_connection_payload()} now maps an asserted
+ * `administrator` (and `agend_client_administrator`) group to `owner` in
+ * `role_mapping`, but that value means "create an emailed invitation", never
+ * "grant owner" -- the person is still linked and provisioned at
+ * `default_role` (`contact`), and `default_role` still refuses owner
+ * outright. The control a reviewer should check is therefore the GATEWAY's
+ * invitation gate plus that unchanged `default_role` refusal, not this
+ * allow-list. Excluding `administrator` here today would make that whole flow
+ * dead on arrival: `restricted_roles` gates who may attempt SSO at all, so an
+ * excluded administrator could never be asserted, so the `owner` mapping
+ * could never fire.
+ *
+ * Roles are still explicitly enumerated one by one (not "allow everything"),
+ * so a role added to the site LATER is not silently admitted until someone
+ * reconnects and this list is rebuilt.
  *
  * @return string[] Non-empty list of WordPress role slugs.
  */
@@ -262,10 +282,6 @@ function agend_apps_connect_member_roles(): array {
 
 	if ( function_exists( 'wp_roles' ) ) {
 		foreach ( wp_roles()->get_names() as $slug => $label ) {
-			if ( 'administrator' === $slug ) {
-				continue;
-			}
-
 			$roles[] = (string) $slug;
 		}
 	}
@@ -335,6 +351,15 @@ function agend_apps_connect_sp_data( array $sp_urls ): array {
  * Builds the `save_attribute_mapping()` payload: which SAML attribute the IdP
  * asserts for the NameID and for each of the standard user fields, plus the
  * group-membership attribute.
+ *
+ * `group_mapping` releasing WordPress roles as the `groups` attribute
+ * (`class-wp-saml-idp-auth.php` emits `$user->roles` verbatim under that
+ * name) is now LOAD-BEARING for the owner-invitation-gate flow (2026-09-21),
+ * not merely incidental: {@see agend_apps_connect_connection_payload()}'s
+ * `role_mapping` keys (`administrator`, `agend_client_administrator`) are
+ * matched against exactly these released group values on the gateway side.
+ * Changing this mapping's shape without changing that payload's keys in
+ * lockstep would silently break the mapping.
  *
  * @param string $nameid_meta_key The user-meta key the IdP should assert as
  *                                 NameID, from {@see agend_apps_connect_nameid_meta_key()}.
@@ -657,14 +682,31 @@ function agend_apps_connect_preflight_acknowledged( array $post ): bool {
 /**
  * Builds the `POST /v1/sso/connections` request body.
  *
- * Deliberately carries NEITHER `role_attribute` NOR `role_mapping` (finding
- * 5): the gateway's `attribute_mappings` accepts both, but omitting them
- * entirely is what stops any WordPress role -- administrator included -- from
- * ever mapping to a privileged Agend role. Every asserted member instead
- * lands on `default_role` (`contact`, the lowest-privilege role), regardless
- * of which WordPress role they hold; the IdP-side allow-list
- * ({@see agend_apps_connect_member_roles()}) only decides who may attempt SSO
- * at all, never what Agend role the attempt resolves to.
+ * Carries `role_mapping` but still NO `role_attribute` (finding 5's
+ * conclusion on `role_attribute` stands unchanged): role resolution here is
+ * by GROUP membership only (see {@see agend_apps_connect_attribute_mapping()}'s
+ * `group_mapping`), and adding `role_attribute` as a second mechanism would
+ * give two disagreeing sources of truth for the same decision.
+ *
+ * `role_mapping` maps `administrator` and `agend_client_administrator` --
+ * the two roles confirmed for this flow, not a guess -- to `owner`. As of the
+ * owner-invitation-gate brief (2026-09-21), an `owner` value in `role_mapping`
+ * means "the gateway creates an invitation for the asserted email and sends
+ * the standard invitation email", NOT "grant owner directly". The person is
+ * still linked and provisioned at `default_role` (`contact`) exactly as
+ * before this change, and owner arrives ONLY if they later accept that
+ * emailed invitation. `default_role` itself still refuses owner outright and
+ * is completely unchanged by this: the invitation is therefore the ONLY path
+ * to owner this connection can ever produce.
+ *
+ * HARD ORDERING DEPENDENCY, do not deploy out of order: as of this writing,
+ * `SsoGrantableRoleSchema` (`agend-dashboard/packages/@agend/sso/src/schemas/connection.schema.ts:54-59`)
+ * refuses `owner` case-insensitively in BOTH `default_role` and every
+ * `role_mapping` VALUE. Until the gateway ships the invitation gate and lifts
+ * that refusal for `role_mapping` values specifically, this payload is
+ * REJECTED outright by `POST /v1/sso/connections` with "SSO cannot grant the
+ * owner role.", and Connect this site fails end to end. This change must NOT
+ * reach a site connecting against today's gateway.
  *
  * `jit_contact_provisioning` is `false` as a decided precedent: a member
  * asserted via this connection gets a user account (`jit_provisioning: true`)
@@ -721,6 +763,10 @@ function agend_apps_connect_connection_payload( array $idp_metadata ): array {
 			'last_name_attribute'    => 'last_name',
 			'display_name_attribute' => 'display_name',
 			'groups_attribute'       => 'groups',
+			'role_mapping'           => array(
+				'administrator'              => 'owner',
+				'agend_client_administrator' => 'owner',
+			),
 		),
 	);
 }
