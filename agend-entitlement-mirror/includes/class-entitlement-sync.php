@@ -88,6 +88,16 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		const LAST_ERROR_OPTION = 'agend_entitlement_mirror_last_error';
 
 		/**
+		 * Priority for the kiosk webhook listeners. Must be greater than the
+		 * kiosk's own default-priority handlers so the kiosk has already
+		 * erased its cached entitlements for the member before this plugin
+		 * collects them (see {@see register()}).
+		 *
+		 * @var int
+		 */
+		const WEBHOOK_PRIORITY = 20;
+
+		/**
 		 * Default TTL, in seconds, for a member's reconcile fingerprint
 		 * transient (7 days). Filterable via
 		 * `agend_entitlement_mirror_fingerprint_ttl`. A literal rather than
@@ -135,6 +145,17 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 		/**
 		 * Registers the webhook listeners, the login hook, and the retry hook.
 		 *
+		 * The webhook listeners run at {@see WEBHOOK_PRIORITY}, after the
+		 * kiosk's own handlers on the same actions. The kiosk erases its
+		 * cached entitlements for the member inside those handlers
+		 * (`Agend\Membership\Webhooks\Entitlement::handle_entitlement_change()`,
+		 * registered at `setup_theme`, default priority 10). This plugin
+		 * registers at `plugins_loaded`, so at an equal priority WordPress
+		 * would run this listener FIRST and the collector would read the
+		 * kiosk's 15 minute entitlement cache from before the change,
+		 * mirroring the pre-webhook state and then coalescing the next
+		 * webhook for 30 seconds (found on PCA staging, 2026-09-21).
+		 *
 		 * Guarded behind the enable toggle AND the active source's
 		 * availability, degrading silently (no notices spam) when either is
 		 * absent -- the module is only meaningful when a data source is
@@ -152,9 +173,9 @@ if ( ! class_exists( 'Agend_Entitlement_Sync' ) ) :
 				return;
 			}
 
-			add_action( 'agend_webhook_entitlement_created', array( __CLASS__, 'handle_entitlement_webhook' ), 10, 2 );
-			add_action( 'agend_webhook_entitlement_updated', array( __CLASS__, 'handle_entitlement_webhook' ), 10, 2 );
-			add_action( 'agend_webhook_contact_updated', array( __CLASS__, 'handle_contact_webhook' ), 10, 2 );
+			add_action( 'agend_webhook_entitlement_created', array( __CLASS__, 'handle_entitlement_webhook' ), self::WEBHOOK_PRIORITY, 2 );
+			add_action( 'agend_webhook_entitlement_updated', array( __CLASS__, 'handle_entitlement_webhook' ), self::WEBHOOK_PRIORITY, 2 );
+			add_action( 'agend_webhook_contact_updated', array( __CLASS__, 'handle_contact_webhook' ), self::WEBHOOK_PRIORITY, 2 );
 			add_action( 'wp_login', array( __CLASS__, 'handle_login' ), 10, 2 );
 			add_filter( 'wp_saml_idp_user_attributes_lightsaml', array( __CLASS__, 'handle_sso_attributes' ), 10, 3 );
 			add_action( self::RETRY_HOOK, array( __CLASS__, 'handle_retry' ), 10, 1 );

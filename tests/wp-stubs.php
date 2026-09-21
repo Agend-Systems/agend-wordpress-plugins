@@ -38,6 +38,9 @@ final class Agend_Test_WP {
 	/** @var array<string, array<int, callable>> */
 	public static array $actions = array();
 
+	/** hook => list of priorities, in registration order (mirrors $actions). */
+	public static array $action_priorities = array();
+
 	/** @var array<string, int> */
 	public static array $did_action = array();
 
@@ -114,6 +117,7 @@ final class Agend_Test_WP {
 		self::$transients        = array();
 		self::$site_transients   = array();
 		self::$actions           = array();
+		self::$action_priorities = array();
 		self::$did_action        = array();
 		self::$filters           = array();
 		self::$options           = array();
@@ -209,7 +213,8 @@ if ( ! function_exists( 'delete_site_transient' ) ) {
 // ---------------------------------------------------------------------------
 
 function add_action( string $hook, $callback, int $priority = 10, int $args = 1 ): bool {
-	Agend_Test_WP::$actions[ $hook ][] = $callback;
+	Agend_Test_WP::$actions[ $hook ][]           = $callback;
+	Agend_Test_WP::$action_priorities[ $hook ][] = $priority;
 	return true;
 }
 
