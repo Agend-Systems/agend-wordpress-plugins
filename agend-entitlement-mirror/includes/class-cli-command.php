@@ -50,10 +50,19 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 		 * : Report the would-sync set (member, gate keys) without calling the
 		 *   grants endpoint.
 		 *
+		 * [--force]
+		 * : Bypass the unchanged-since-last-sync fingerprint skip and
+		 *   reconcile every member regardless.
+		 *
+		 * [--delay=<ms>]
+		 * : Fixed pause, in milliseconds, between members. Default 0 (no
+		 *   pause).
+		 *
 		 * ## EXAMPLES
 		 *
 		 *     wp agend-apps entitlement-mirror sweep
 		 *     wp agend-apps entitlement-mirror sweep --max=50 --dry-run
+		 *     wp agend-apps entitlement-mirror sweep --force --delay=250
 		 *
 		 * @param array<int, string>    $args       Positional args (unused).
 		 * @param array<string, string> $assoc_args Associative args.
@@ -73,8 +82,10 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 				return;
 			}
 
-			$max     = isset( $assoc_args['max'] ) ? max( 0, (int) $assoc_args['max'] ) : 0;
-			$dry_run = isset( $assoc_args['dry-run'] );
+			$max      = isset( $assoc_args['max'] ) ? max( 0, (int) $assoc_args['max'] ) : 0;
+			$dry_run  = isset( $assoc_args['dry-run'] );
+			$force    = isset( $assoc_args['force'] );
+			$delay_ms = isset( $assoc_args['delay'] ) ? max( 0, (int) $assoc_args['delay'] ) : 0;
 
 			if ( $dry_run ) {
 				WP_CLI::log( 'Dry run: reporting the would-sync set only, the grants endpoint will not be called.' );
@@ -85,9 +96,15 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 			$created = 0;
 			$skipped = 0;
 			$errors  = 0;
+			$first   = true;
 
 			foreach ( $source->enumerate_members( $max ) as $member ) {
 				++$checked;
+
+				if ( $delay_ms > 0 && ! $first ) {
+					Agend_Entitlement_Sync::pace( $delay_ms / 1000 );
+				}
+				$first = false;
 
 				$member_id = (string) $member['member_id'];
 
@@ -122,7 +139,28 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_CLI_Command' ) ) :
 					'last_name'  => (string) $member['last_name'],
 				);
 
-				$result = Agend_Entitlement_Sync::reconcile_member( $member_id, $entries, $profile );
+				// Pace against the gateway's 60 requests/minute limit before
+				// spending this member's call.
+				Agend_Entitlement_Sync::wait_for_rate_limit_window();
+
+				$result = Agend_Entitlement_Sync::reconcile_member( $member_id, $entries, $profile, $force );
+
+				// A 429 (the gateway's own, or agend-apps-core's local
+				// short-circuit) gets exactly one retry after waiting out the
+				// rate-limit window, rather than immediately counting as an
+				// error and burning through the rest of the member list.
+				if ( is_wp_error( $result ) && Agend_Entitlement_Sync::is_rate_limited_error( $result ) ) {
+					$waited = Agend_Entitlement_Sync::wait_for_rate_limit_window();
+
+					if ( 0 === $waited ) {
+						WP_CLI::log( 'Rate limited with no rate-limit window available; waiting 60s before retrying.' );
+						Agend_Entitlement_Sync::pace( 60 );
+					}
+
+					WP_CLI::log( sprintf( 'Member %s: rate limited, retrying once.', $member_id ) );
+
+					$result = Agend_Entitlement_Sync::reconcile_member( $member_id, $entries, $profile, $force );
+				}
 
 				if ( is_wp_error( $result ) ) {
 					++$errors;
