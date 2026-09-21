@@ -219,10 +219,16 @@ class Agend_Apps_API {
 		$rate_remaining = get_transient( 'agend_apps_rate_limit_remaining' );
 		if ( false !== $rate_remaining && 0 === (int) $rate_remaining ) {
 			$reset = get_transient( 'agend_apps_rate_limit_reset' );
+			// Carries the same `status_code` a live 429 would, so callers that
+			// branch on status (retry scheduling, sweep pacing) treat the local
+			// short-circuit and the gateway's own refusal identically.
 			return new WP_Error(
 				'agend_apps_rate_limited',
 				__( 'Agend API rate limit exceeded. Please wait before retrying.', 'agend-apps-core' ),
-				array( 'reset' => $reset )
+				array(
+					'status_code' => 429,
+					'reset'       => $reset,
+				)
 			);
 		}
 
