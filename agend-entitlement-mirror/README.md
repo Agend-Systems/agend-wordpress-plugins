@@ -111,7 +111,57 @@ Useful flags:
 - `--max=<number>` — cap the number of members processed this run.
 - `--dry-run` — report the would-sync set (member, gate keys) without
   calling the grants endpoint.
+- `--force` — bypass the unchanged-since-last-sync fingerprint skip (see
+  below) and reconcile every member regardless.
+- `--delay=<ms>` — fixed pause, in milliseconds, between members. Default
+  0 (no pause).
 
 The grants endpoint is itself idempotent, so a quiet member (nothing
 changed since the last sweep) costs a network round trip, not a write. The
 sweep exits non-zero if any member errored, so cron alerting works.
+
+### Unchanged-since-last-sync fingerprint skip
+
+Every `reconcile_member()` call (webhook/login sync and the CLI sweep alike)
+first computes a fingerprint of everything that would actually be sent to
+the gateway: `[external_source, source_key, the grant entries]`, hashed with
+`md5(wp_json_encode(...))`. If that fingerprint matches the one stored after
+the member's last successful reconcile, the call is skipped entirely —
+before even the contact lookup — and logged as "Skipping reconcile:
+unchanged since last successful sync." A fingerprint is stored after any
+successful outcome (a real gateway call or the deliberate "holds nothing,
+no contact" skip), but never after a `WP_Error`, so a failed attempt is
+always retried on the next pass. The fingerprint transient
+(`agend_ent_mirror_fp_<md5(member_id)>`) defaults to a 7-day TTL, filterable
+via `agend_entitlement_mirror_fingerprint_ttl`. Pass `$force = true` to
+`reconcile_member()` (or `--force` on the CLI sweep) to bypass the check.
+
+### Rate-limit pacing
+
+The Agend gateway limits each API key to 60 requests/minute. The CLI sweep
+paces itself against that limit using the two rate-limit transients
+agend-apps-core's API client already stores from every response's
+`X-RateLimit-*` headers (`agend_apps_rate_limit_remaining`,
+`agend_apps_rate_limit_reset`):
+`Agend_Entitlement_Sync::wait_for_rate_limit_window()` sleeps until just
+past the cached reset time (capped at 120 seconds) whenever the cached
+remaining-requests count is at or below a floor (default 1, filterable via
+`agend_entitlement_mirror_rate_limit_floor`), and is called before every
+non-dry-run member. If a reconcile call still comes back rate limited (a
+429 from the gateway, or agend-apps-core's own local `agend_apps_rate_limited`
+short-circuit), the sweep waits out the rate-limit window again (or a fixed
+60-second fallback if no window information is available) and retries that
+member exactly once before counting it as an error. Every sleep this module
+performs (pacing, the `--delay` flag) goes through the injectable
+`agend_entitlement_mirror_sleeper` filter, so it can be replaced in tests or
+by an install with its own throttling strategy.
+
+### Types-sync failure cooldown
+
+A failed entitlement-types push (`sync_types()` returning a `WP_Error`) sets
+a 300-second cooldown transient (`agend_ent_mirror_types_cooldown`,
+filterable via `agend_entitlement_mirror_types_cooldown`). While that
+cooldown holds, `maybe_sync_types_for_new_keys()` skips discovery and the
+types push entirely for every member's `reconcile_member()` call — the
+grants reconcile itself still proceeds — so one failed types push does not
+repeat (and re-fail) for every remaining member in a sweep.
