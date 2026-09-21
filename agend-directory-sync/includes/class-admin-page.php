@@ -45,6 +45,32 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		public const CAPABILITY = 'manage_options';
 
 		/**
+		 * Query-string key the "Manage directory" hand-off link appends to
+		 * carry the SSO request's login purpose.
+		 *
+		 * The gateway's `SamlRequestPurpose` ('login' | 'link') is fixed
+		 * structurally per route handler today and is never read from a
+		 * query parameter or request body, so `/sso/{account}/directory-home`
+		 * ignores this key entirely as of writing. It is sent anyway because
+		 * the route reads only `connection`/`idp` and silently ignores any
+		 * other query parameter, so this is inert now and forward-compatible:
+		 * once the gateway starts reading a per-request purpose, this
+		 * constant (and SSO_PURPOSE_LOGIN below) are the only edits this
+		 * plugin needs to make.
+		 */
+		public const SSO_PURPOSE_QUERY_ARG = 'purpose';
+
+		/**
+		 * Value sent for SSO_PURPOSE_QUERY_ARG. This hand-off is a login
+		 * session, not an account-linking one, so this is deliberately the
+		 * login purpose, not a stand-in for `provision_only` (a separate,
+		 * per-connection config flag, orthogonal to purpose).
+		 *
+		 * Ignored by the gateway today -- see SSO_PURPOSE_QUERY_ARG.
+		 */
+		public const SSO_PURPOSE_LOGIN = 'login';
+
+		/**
 		 * Maximum number of upstream rows to dump verbatim into the page on
 		 * an Upbeat fetch. The full set is fetched but rendering thousands
 		 * of rows in the browser is unhelpful.
@@ -276,6 +302,145 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			exit;
 		}
 
+		/**
+		 * Builds the "Manage directory" hand-off URL: a pretty-SSO-route link
+		 * that lands a signed-in WordPress administrator on the Agend
+		 * directory app's account-scoped admin view.
+		 *
+		 * Decision, deliberately not re-opened here:
+		 *
+		 * - Uses the gateway's pretty SSO route,
+		 *   `GET {root}/sso/{account}/directory-home`, rather than
+		 *   `/api/auth/sso/{account}/initiate?relayState=<url>`. The
+		 *   destination for `directory-home` is built SERVER-SIDE from the
+		 *   gateway's own resource registry and is never taken from the
+		 *   caller (`packages/@agend/sso/src/routes/index.ts:12-15`, registry
+		 *   at `services/sso-link-registry.ts:123-127`), which removes the
+		 *   open-redirect surface entirely for a link that always lands an
+		 *   administrator on the same fixed admin view. The `relayState`
+		 *   convention takes the return URL from the caller and leans on the
+		 *   ACS origin allow-list to make that safe -- fine for returning a
+		 *   member to the page they came from, needless risk for a fixed
+		 *   internal destination.
+		 * - `directory-home` already exists in that registry and resolves
+		 *   through `getAppHomeUrl( 'directory', account )` to
+		 *   `{directoryApp}/home/{accountSlug}`, the directory app's
+		 *   account-scoped admin view, reusing a convention rather than
+		 *   inventing one.
+		 * - agend-embed's IdP-initiated-with-RelayState kick-off was
+		 *   considered and rejected as inapplicable: its same-site dance
+		 *   exists because a cross-origin iframe cannot otherwise carry the
+		 *   WordPress `SameSite=Lax` cookie into the IdP hop
+		 *   (`agend-embed/includes/class-agend-embed-sso-drivers.php:6-10`).
+		 *   A top-level link clicked in wp-admin is an ordinary navigation
+		 *   that carries cookies normally, so that machinery buys nothing
+		 *   here.
+		 * - The route needs no existing session: it starts an SP-initiated
+		 *   login and, when the account has several active connections and
+		 *   no `?connection=`/`?idp=` hint, the gateway itself renders an IdP
+		 *   chooser.
+		 *
+		 * Pure: takes the root URL and account slug as arguments rather than
+		 * resolving them itself, so it is testable without any WordPress
+		 * option/settings state.
+		 *
+		 * The account slug is interpolated into the URL PATH, not a query
+		 * string, so it must be path-safe -- `rawurlencode()`d here. This is
+		 * the single point of encoding on the wire for this URL, matching the
+		 * convention `agend-apps-core/includes/account-link-state.php` and
+		 * `wp-idp-saml-link.php` already use: real WordPress's
+		 * `add_query_arg()` does not encode its values itself, so the purpose
+		 * value would need the same treatment if it ever stopped being a
+		 * fixed, already URL-safe constant.
+		 *
+		 * @param string $root_url     Agend gateway root URL (e.g. `Agend_Apps_Settings::get_root_url()`).
+		 * @param string $account_slug Agend account slug (e.g. `Agend_Apps_Settings::get_account_slug()`).
+		 * @return string The hand-off URL, or '' when either argument is empty.
+		 */
+		public static function manage_directory_url( string $root_url, string $account_slug ): string {
+			if ( '' === $root_url || '' === $account_slug ) {
+				return '';
+			}
+
+			$url = rtrim( $root_url, '/' ) . '/sso/' . rawurlencode( $account_slug ) . '/directory-home';
+
+			return add_query_arg( self::SSO_PURPOSE_QUERY_ARG, self::SSO_PURPOSE_LOGIN, $url );
+		}
+
+		/**
+		 * Builds the "Manage directory" link markup, or '' when the URL
+		 * cannot be built. Split from render_manage_directory_link() so the
+		 * no-URL / no-markup case is testable without capturing echoed
+		 * output.
+		 *
+		 * Resolves the root URL and account slug from Agend_Apps_Settings
+		 * behind class_exists()/method_exists() guards: agend-directory-sync
+		 * must not fatal when agend-apps-core is inactive or older than the
+		 * accessors used here. An unresolved root URL or account slug is
+		 * exactly the "cannot build a link" case manage_directory_url()
+		 * already returns '' for.
+		 *
+		 * A dead control (an empty button, a disabled control, an
+		 * explanatory box) is worse than no control, so this renders nothing
+		 * at all -- no wrapping markup of any kind -- when the URL is empty.
+		 *
+		 * @return string The link markup, or ''.
+		 */
+		public static function manage_directory_link_markup(): string {
+			$root_url     = '';
+			$account_slug = '';
+
+			if ( class_exists( 'Agend_Apps_Settings' ) ) {
+				$root_url     = method_exists( 'Agend_Apps_Settings', 'get_root_url' )
+					? Agend_Apps_Settings::get_root_url()
+					: '';
+				$account_slug = method_exists( 'Agend_Apps_Settings', 'get_account_slug' )
+					? Agend_Apps_Settings::get_account_slug()
+					: '';
+			}
+
+			$url = self::manage_directory_url( $root_url, $account_slug );
+
+			if ( '' === $url ) {
+				return '';
+			}
+
+			return '<p><a class="button" href="' . esc_url( $url ) . '">' . esc_html__( 'Manage directory', 'agend-directory-sync' ) . '</a></p>'
+				. '<p class="description">' . esc_html__( 'Signs you into the Agend directory admin for this account through this site\'s existing SSO connection.', 'agend-directory-sync' ) . '</p>';
+		}
+
+		/**
+		 * Echoes the "Manage directory" link, admin-only, administrators
+		 * only.
+		 *
+		 * This page is already only ever registered/rendered under
+		 * wp-admin, but the brief requires this link is NEVER shown on the
+		 * front end, and relying solely on where render_page() happens to be
+		 * called from is not a guarantee -- so is_admin() is checked
+		 * explicitly here too. Likewise current_user_can() is re-checked at
+		 * the point of render rather than trusted from page registration.
+		 *
+		 * @return void
+		 */
+		private static function render_manage_directory_link(): void {
+			if ( ! is_admin() ) {
+				return;
+			}
+
+			if ( ! current_user_can( self::CAPABILITY ) ) {
+				return;
+			}
+
+			$markup = self::manage_directory_link_markup();
+
+			if ( '' === $markup ) {
+				return;
+			}
+
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- markup is escaped piece-by-piece inside manage_directory_link_markup().
+			echo $markup;
+		}
+
 		public static function render_page(): void {
 			self::assert_can();
 
@@ -305,6 +470,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						<p><?php esc_html_e( 'Settings saved.', 'agend-directory-sync' ); ?></p>
 					</div>
 				<?php endif; ?>
+
+				<?php self::render_manage_directory_link(); ?>
 
 				<h2><?php esc_html_e( 'Settings', 'agend-directory-sync' ); ?></h2>
 				<form method="post" action="<?php echo $action_url; ?>">
