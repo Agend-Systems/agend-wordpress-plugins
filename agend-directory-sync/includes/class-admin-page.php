@@ -1118,6 +1118,35 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										</tr>
 									</tbody>
 								</table>
+
+								<h3><?php esc_html_e( 'Secondary filter (grouped sync)', 'agend-directory-sync' ); ?></h3>
+								<p class="description">
+									<?php esc_html_e( 'An extra FetchXML filter applied on top of the query above at fetch time, so one sync run can target one group of records (for example, everyone with a given value in a custom field) without editing the main query. Leave blank to sync everything the main query returns. Run source fetch, Preview transform and Send to Agend all honour it, and the WP-CLI command can override it per run with --secondary-filter.', 'agend-directory-sync' ); ?>
+								</p>
+								<table class="form-table" role="presentation">
+									<tbody>
+										<tr>
+											<th scope="row">
+												<label for="agend_dataverse_secondary_filter"><?php esc_html_e( 'Secondary filter', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<textarea
+													name="agend_dataverse[secondary_filter]"
+													id="agend_dataverse_secondary_filter"
+													rows="4"
+													class="large-text code"
+													spellcheck="false"
+												><?php echo esc_textarea( $dataverse['secondary_filter'] ); ?></textarea>
+												<p class="description">
+													<?php esc_html_e( 'A <filter> element (or a single <condition>, which is wrapped for you). It is added as another filter under the query\'s <entity>, so it combines with the main query\'s own filters using AND. Must be valid XML or it is not saved. Connection variables ({name}) are substituted at run time.', 'agend-directory-sync' ); ?>
+												</p>
+												<p class="description">
+													<code>&lt;filter type="and"&gt;&lt;condition attribute="pca_membergroup" operator="eq" value="Region North" /&gt;&lt;/filter&gt;</code>
+												</p>
+											</td>
+										</tr>
+									</tbody>
+								</table>
 							<?php endif; ?>
 						</div>
 					<?php endforeach; ?>
@@ -1754,6 +1783,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						)
 					)
 					. '</p>';
+
+				if ( array_key_exists( 'secondary_filter', $result ) ) {
+					echo '<p>'
+						. esc_html(
+							'' !== trim( (string) $result['secondary_filter'] )
+								? __( 'Secondary filter: applied (see the FetchXML sent).', 'agend-directory-sync' )
+								: __( 'Secondary filter: none.', 'agend-directory-sync' )
+						)
+						. '</p>';
+				}
 
 				self::render_preview_window(
 					__( 'FetchXML sent', 'agend-directory-sync' ),
