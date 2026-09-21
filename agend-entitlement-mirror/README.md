@@ -55,7 +55,9 @@ onward, not retroactively within the same request.
 - The kiosk's `agend_webhook_entitlement_created` / `_updated` /
   `agend_webhook_contact_updated` actions (the same webhooks the kiosk
   already receives from Upbeat — this plugin subscribes to them, it never
-  modifies the kiosk).
+  modifies the kiosk). The listeners run at priority 20, after the kiosk's
+  own handlers have erased the member's cached entitlements; at the
+  default priority this plugin would run first and mirror the stale cache.
 - `wp_login` — a throttled safety-net reconciliation so a member's first
   hop into the directory after signing in to WordPress carries fresh
   entitlements even if a webhook was missed. Never blocks or delays
