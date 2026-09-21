@@ -48,6 +48,21 @@
  *    ever leaks the inert placeholder, never a credential.
  * 4. If the endpoint returns a URL, the script points the hidden iframe's
  *    `src` at it, and the IdP-initiated flow runs inside that iframe.
+ * 5. That URL's RelayState is the same-origin done URL, and it carries
+ *    `agend_purpose=provision` ({@see AGEND_APPS_SAML_LINK_PURPOSE_PARAM}).
+ *    The gateway's ACS reads the purpose off the RelayState and, for an
+ *    IdP-initiated assertion like this one, will only ever let it NARROW:
+ *    it establishes the identity, the membership and any invitation the
+ *    connection's role mapping triggers, and mints no session. It strips the
+ *    parameter before redirecting the browser back, so the done handler never
+ *    sees it and needs no knowledge of it.
+ *
+ * Why this flow asks for no session at all: the member's Agend bearer is
+ * minted server-to-server by `Agend_Apps_Token_Worker` through
+ * `POST /v1/sso/tokens`, and nothing here ever reads a cookie the ACS would
+ * set. A session minted for this round trip is abandoned the moment the
+ * hidden iframe is discarded, so asking for one would leave one dead session
+ * per member per attempt.
  *
  * Why the nonce must never appear in the footer markup itself: a page cache
  * cannot know which visitor's nonce belongs in a cached response, so it would
@@ -102,6 +117,40 @@ const AGEND_APPS_SAML_LINK_DONE_FLAG = 'agend_apps_saml_link_done';
  * @var string
  */
 const AGEND_APPS_SAML_LINK_DONE_NONCE = 'agend_apps_saml_link_done';
+
+/**
+ * Query key the gateway's ACS reads off the RelayState to decide what to do
+ * with a validated assertion (`ACS_PURPOSE_PARAM` in the gateway's
+ * `@agend/sso` `services/acs-purpose.ts`).
+ *
+ * @var string
+ */
+const AGEND_APPS_SAML_LINK_PURPOSE_PARAM = 'agend_purpose';
+
+/**
+ * The only value this plugin's silent link ever asks for: establish the
+ * identity, the membership and any invitation the role mapping triggers, and
+ * mint NO session.
+ *
+ * Asking explicitly, rather than relying on the connection's stored default,
+ * matters because that default is moving. The gateway's
+ * `connectionDefaultPurpose()` prefers a new `default_acs_purpose` field and
+ * falls back to the deprecated per-connection `provision_only` boolean this
+ * plugin currently sends at connect time; once that flag is retired, a
+ * connection that said nothing per request would start minting a session on
+ * every silent iframe load, one abandoned session per member per attempt.
+ * This parameter is what makes the request say so itself.
+ *
+ * It is safe for this to travel in a URL the browser can see. The gateway
+ * treats a purpose read from an IdP-initiated RelayState as NARROWING ONLY:
+ * `provision` is honoured because honouring it removes a capability, and
+ * `login` is ignored outright, because widening is a decision only Agend's
+ * own initiate endpoint may record into a request row. So the worst a tamperer
+ * can do with this parameter is ask for less than they would otherwise get.
+ *
+ * @var string
+ */
+const AGEND_APPS_SAML_LINK_PURPOSE_PROVISION = 'provision';
 
 /**
  * How many eligible front-end page views with ZERO attempts made must pass
@@ -341,14 +390,22 @@ function agend_apps_saml_link_surface_blocked(): bool {
  * `redirect_to` is only meaningful in that second case, so it is omitted
  * entirely when `$frame` is true or `$return_url` is empty.
  *
+ * Both cases carry {@see AGEND_APPS_SAML_LINK_PURPOSE_PARAM}, not just the
+ * framed one. The visible fallback is the same provisioning round trip with
+ * the same destination, merely performed at the top level because the frame
+ * could not be used; it consumes the ACS session exactly as little as the
+ * iframe does, so asking for a session there would leave the same abandoned
+ * session behind.
+ *
  * @param string $return_url Where a non-framed round trip should land once done. Ignored when `$frame` is true.
  * @param bool   $frame      Whether this done URL is reached inside the hidden iframe.
  * @return string
  */
 function agend_apps_saml_link_done_url( string $return_url, bool $frame ): string {
 	$args = array(
-		AGEND_APPS_SAML_LINK_DONE_FLAG => '1',
-		'_wpnonce'                     => rawurlencode( wp_create_nonce( AGEND_APPS_SAML_LINK_DONE_NONCE ) ),
+		AGEND_APPS_SAML_LINK_DONE_FLAG     => '1',
+		AGEND_APPS_SAML_LINK_PURPOSE_PARAM => AGEND_APPS_SAML_LINK_PURPOSE_PROVISION,
+		'_wpnonce'                         => rawurlencode( wp_create_nonce( AGEND_APPS_SAML_LINK_DONE_NONCE ) ),
 	);
 
 	if ( $frame ) {

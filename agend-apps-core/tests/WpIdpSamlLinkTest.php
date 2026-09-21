@@ -502,6 +502,16 @@ final class WpIdpSamlLinkTest extends TestCase {
 			rawurldecode( $this->queryValue( $relay_state, 'redirect_to' ) )
 		);
 
+		// The purpose rides on the RelayState, which is where the gateway's
+		// ACS reads it from. This is the non-framed fallback and it carries it
+		// too: it is the same provisioning round trip, just performed at the
+		// top level, and it consumes an ACS session no more than the iframe
+		// does.
+		$this->assertSame(
+			\AGEND_APPS_SAML_LINK_PURPOSE_PROVISION,
+			$this->queryValue( $relay_state, \AGEND_APPS_SAML_LINK_PURPOSE_PARAM )
+		);
+
 		$this->assertSame(
 			wp_create_nonce( 'wp_saml_idp_sso_https://gw.example.test/api/auth/sso/wdaa/metadata' ),
 			$this->queryValue( $url, '_wpnonce' )
@@ -824,8 +834,60 @@ final class WpIdpSamlLinkTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// agend_apps_saml_link_done_url(): the RelayState the gateway's ACS reads
+	// its purpose off.
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_request_the_provision_purpose_on_the_framed_done_url(): void {
+		$url = \agend_apps_saml_link_done_url( '', true );
+
+		$this->assertSame( '1', $this->queryValue( $url, 'frame' ) );
+		$this->assertSame(
+			\AGEND_APPS_SAML_LINK_PURPOSE_PROVISION,
+			$this->queryValue( $url, \AGEND_APPS_SAML_LINK_PURPOSE_PARAM )
+		);
+	}
+
+	#[Test]
+	public function should_request_the_provision_purpose_on_the_non_framed_done_url(): void {
+		$url = \agend_apps_saml_link_done_url( 'https://example.test/account/', false );
+
+		$this->assertSame(
+			\AGEND_APPS_SAML_LINK_PURPOSE_PROVISION,
+			$this->queryValue( $url, \AGEND_APPS_SAML_LINK_PURPOSE_PARAM )
+		);
+	}
+
+	#[Test]
+	public function should_keep_the_done_url_same_origin(): void {
+		foreach ( array( true, false ) as $frame ) {
+			$url = \agend_apps_saml_link_done_url( 'https://example.test/account/', $frame );
+
+			$this->assertStringStartsWith( home_url( '/' ), $url, 'frame: ' . var_export( $frame, true ) );
+		}
+	}
+
+	// -----------------------------------------------------------------
 	// agend_apps_saml_link_done_decision()
 	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_still_decide_when_the_gateway_has_stripped_the_purpose_param(): void {
+		// The gateway strips agend_purpose before redirecting the browser back,
+		// so the done handler never sees it. It must not have grown any
+		// dependency on the parameter it sent out.
+		$decision = \agend_apps_saml_link_done_decision(
+			78,
+			array(
+				\AGEND_APPS_SAML_LINK_DONE_FLAG => '1',
+				'_wpnonce'                      => wp_create_nonce( \AGEND_APPS_SAML_LINK_DONE_NONCE ),
+				'frame'                         => '1',
+			)
+		);
+
+		$this->assertSame( 'frame', $decision['action'] );
+	}
 
 	#[Test]
 	public function should_skip_the_done_decision_on_a_missing_flag(): void {
