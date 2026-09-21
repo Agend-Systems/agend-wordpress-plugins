@@ -69,7 +69,7 @@
                     "id": "reports_unavailable",
                     "args": {
                         "type": "raw_html",
-                        "raw": "No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published.",
+                        "raw": "No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published. Reports published for members only or for a restricted audience are listed here only when the API key also holds the directory.listings.manage scope; otherwise the list shows reports open to anyone.",
                         "content_classes": "elementor-panel-alert elementor-panel-alert-warning"
                     }
                 },

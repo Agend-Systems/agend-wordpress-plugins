@@ -98,7 +98,7 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 							'type'            => \Elementor\Controls_Manager::RAW_HTML,
 							'raw'             => '' !== $scope_notice
 								? esc_html( $scope_notice )
-								: esc_html__( 'No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published.', 'agend-elementor' ),
+								: esc_html__( 'No export reports were returned for this account. Check that the API key holds the directory.export_reports.browse scope and that at least one report is published. Reports published for members only or for a restricted audience are listed here only when the API key also holds the directory.listings.manage scope; otherwise the list shows reports open to anyone.', 'agend-elementor' ),
 							'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
 						)
 					);
