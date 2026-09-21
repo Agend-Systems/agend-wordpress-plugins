@@ -105,6 +105,12 @@ $display_urls = $has_stored
 				<?php esc_html_e( 'This is an estimate, not an exact count. These members hold an Agend password and cannot be linked to this connection silently; they will need the OTP-verified link step after this site connects.', 'agend-apps-core' ); ?>
 			</td>
 		</tr>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Administrator owner invitations', 'agend-apps-core' ); ?></th>
+			<td>
+				<?php esc_html_e( 'WordPress administrators (and the "agend_client_administrator" role) will be offered the Agend owner role by an emailed invitation. Pressing "Connect this site" does not grant anyone owner: each such person is linked and provisioned at the "contact" role first, and only becomes an owner if they accept the invitation email sent to them.', 'agend-apps-core' ); ?>
+			</td>
+		</tr>
 	</tbody>
 </table>
 

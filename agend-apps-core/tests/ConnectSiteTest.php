@@ -194,17 +194,27 @@ final class ConnectSiteTest extends TestCase {
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function should_exclude_administrator_from_the_allow_list(): void {
+	public function should_include_administrator_in_the_allow_list(): void {
 		$roles = \agend_apps_connect_member_roles();
 
-		$this->assertNotContains( 'administrator', $roles );
+		// administrator's exclusion was the OLD control against a WordPress
+		// admin becoming an Agend owner. That control moved to the gateway's
+		// invitation gate (an owner mapping creates an emailed invitation,
+		// never a grant) plus the unchanged default_role refusal of owner, so
+		// administrators must now be admitted here or the whole
+		// owner-invitation flow could never fire.
+		$this->assertContains( 'administrator', $roles );
 		$this->assertContains( 'subscriber', $roles );
 		$this->assertContains( 'editor', $roles );
 	}
 
 	#[Test]
 	public function should_never_return_an_empty_allow_list(): void {
-		Agend_Test_WP::$roles = array( 'administrator' => 'Administrator' );
+		// No roles registered at all -- administrator's inclusion no longer
+		// gives this scenario an easy way to reach an empty list (it used to
+		// be the exclusion of the only registered role), so the guarantee is
+		// exercised here via an entirely empty role registry instead.
+		Agend_Test_WP::$roles = array();
 
 		$this->assertSame( array( 'subscriber' ), \agend_apps_connect_member_roles() );
 	}
@@ -295,7 +305,7 @@ final class ConnectSiteTest extends TestCase {
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function should_build_the_connection_payload_with_no_role_mapping_and_the_lowest_role(): void {
+	public function should_build_the_connection_payload_with_the_owner_invitation_role_mapping_and_the_lowest_default_role(): void {
 		$payload = \agend_apps_connect_connection_payload(
 			array(
 				'entity_id'   => 'https://gw.example.test/api/auth/sso/wdaa/metadata',
@@ -312,10 +322,24 @@ final class ConnectSiteTest extends TestCase {
 		// this flow never consumes the ACS session (the JWT is minted
 		// server-to-server), so the ACS must provision and mint nothing.
 		$this->assertTrue( $payload['provision_only'] );
+
+		// role_attribute is still never sent: role resolution here is by
+		// group membership only, and a second mechanism would disagree with it.
 		$this->assertArrayNotHasKey( 'role_attribute', $payload );
-		$this->assertArrayNotHasKey( 'role_mapping', $payload );
 		$this->assertArrayNotHasKey( 'role_attribute', $payload['attribute_mappings'] );
-		$this->assertArrayNotHasKey( 'role_mapping', $payload['attribute_mappings'] );
+
+		// role_mapping is now sent (inverted from the prior "absent"
+		// assertion, deliberately, per the owner-invitation-gate brief): an
+		// owner value here means "invite", never "grant" -- default_role
+		// above is still the only role actually assigned at link time.
+		$this->assertArrayHasKey( 'role_mapping', $payload['attribute_mappings'] );
+		$this->assertSame(
+			array(
+				'administrator'              => 'owner',
+				'agend_client_administrator' => 'owner',
+			),
+			$payload['attribute_mappings']['role_mapping']
+		);
 		$this->assertSame( 'https://gw.example.test/api/auth/sso/wdaa/metadata', $payload['idp_entity_id'] );
 		$this->assertSame( 'https://gw.example.test/?idp_initiated=1', $payload['idp_sso_url'] );
 		$this->assertTrue( $payload['jit_provisioning'] );
@@ -523,6 +547,18 @@ final class ConnectSiteTest extends TestCase {
 		$this->assertIsArray( $create_body );
 		$this->assertTrue( $create_body['provision_only'] );
 		$this->assertFalse( $create_body['jit_contact_provisioning'] );
+
+		// role_mapping must reach the WIRE too, for the same reason: a
+		// regression that dropped it between the builder and the request
+		// would silently revert to "no WordPress role can ever reach owner"
+		// with every other test still passing.
+		$this->assertSame(
+			array(
+				'administrator'              => 'owner',
+				'agend_client_administrator' => 'owner',
+			),
+			$create_body['attribute_mappings']['role_mapping']
+		);
 	}
 
 	#[Test]
