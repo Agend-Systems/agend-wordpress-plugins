@@ -95,7 +95,15 @@ function agend_apps_sso_get_connection( string $id ) {
  * Scope: `sso.connections.create`. Administrative; not cached.
  *
  * @param array $connection Connection payload (snake_case) forwarded as the request body.
- *        Expected keys: `provider_name` (string), `idp_certificate` (string, PEM-encoded X.509).
+ *        Required keys: `name` (string, 1-120 chars), `slug` (string, 1-120 chars,
+ *        `^[a-z0-9]+(?:-[a-z0-9]+)*$`), `idp_entity_id` (string), `idp_sso_url`
+ *        (string, URI), `idp_certificate` (string, PEM-encoded X.509).
+ *        Optional keys: `name_id_format` (string), `attribute_mappings` (array;
+ *        gateway shape -- `email_attribute`, `first_name_attribute`,
+ *        `last_name_attribute`, `display_name_attribute`, `groups_attribute`,
+ *        `role_attribute`, `role_mapping`), `default_role` (string), `jit_provisioning`
+ *        (bool), `jit_contact_provisioning` (bool), `allow_idp_initiated` (bool),
+ *        `want_assertions_signed` (bool), `default_landing_path` (string, `^\/[^\s\\]*$`).
  * @return array|WP_Error Decoded connection on success, or WP_Error on failure.
  */
 function agend_apps_sso_create_connection( array $connection ) {
@@ -132,8 +140,12 @@ function agend_apps_sso_create_connection( array $connection ) {
  * Scope: `sso.connections.update`. Administrative; not cached.
  *
  * @param string $id         SSO connection UUID.
- * @param array  $connection Updated connection payload (snake_case). All fields optional.
- *        Expected keys (optional): `provider_name` (string), `idp_certificate` (string, PEM-encoded X.509).
+ * @param array  $connection Updated connection payload (snake_case). All fields optional:
+ *        `name`, `slug`, `idp_entity_id`, `idp_sso_url`, `idp_certificate`,
+ *        `name_id_format`, `attribute_mappings`, `default_role`, `jit_provisioning`,
+ *        `jit_contact_provisioning`, `allow_idp_initiated`, `want_assertions_signed`,
+ *        `default_landing_path` -- see {@see agend_apps_sso_create_connection()} for
+ *        each field's shape.
  * @return array|WP_Error Decoded connection on success, or WP_Error on failure.
  */
 function agend_apps_sso_update_connection( string $id, array $connection ) {
@@ -280,90 +292,5 @@ function agend_apps_sso_mint_token( string $idp_entity_id, string $external_id )
 
 	// Deliberately NO response filter either: the minted token must reach the
 	// worker exactly as issued.
-	return $response;
-}
-
-/**
- * Links a WordPress user to an Agend identity, server to server
- * (docs/PLAN-wordpress-idp-option-b.md section 4.2; shipped contract per the
- * `wp-idp-link` build brief, which supersedes that plan document's section
- * 2 draft).
- *
- * Scope: `sso.identities.create`. Not idempotent-free of side effects: a
- * successful call either creates the link (and, if the email had no
- * platform user yet, a passwordless one) or confirms an existing one, and
- * MAY trigger a withheld-verification email (202) that re-posting rotates.
- * Callers MUST NOT re-post for a user already in the `pending` state; see
- * `includes/wp-idp-link.php`, which is the only intended caller.
- *
- * Responses:
- * - 201 `data.linked=true, data.created=true` -- new link, user created.
- * - 200 `data.linked=true, data.created=false` -- idempotent re-post of an
- *   already-linked pair.
- * - 202 `data.status="verification_required"` -- WITHHELD. Nothing created;
- *   the gateway emailed the address a single-use confirm link.
- *
- * @param string $idp_entity_id The site's SSO connection entity id.
- * @param string $external_id   The member's opaque external subject (the
- *                              minted GUID or configured meta key value).
- * @param string $email         The member's email address.
- * @param array  $contact       Optional. `first_name` and/or `last_name`,
- *                               each 1-120 chars. Only non-empty names are
- *                               sent (see below).
- * @return array|WP_Error Decoded response envelope on success (201/200/202
- *                        all decode without error; the caller distinguishes
- *                        them via `status_code`), or WP_Error on failure
- *                        (400/401/403/404/409/429/500, or transport).
- */
-function agend_apps_sso_link_identity( string $idp_entity_id, string $external_id, string $email, array $contact = array() ) {
-	// This runs on the wp_login path (includes/wp-idp-link.php). The client's
-	// default 15s timeout (class-agend-apps-api.php:193) is sized for
-	// background/admin calls, not "a member is waiting for the login form to
-	// finish". Fixed here, in the wrapper, rather than left to the caller: the
-	// docblock convention this function follows (no request-args filter)
-	// means there is no filter hook a caller could use to raise or lower it,
-	// so the one call site setting it here IS the contract.
-	$timeout = 5;
-
-	$body = array(
-		'idp_entity_id' => $idp_entity_id,
-		'external_id'   => $external_id,
-		'email'         => $email,
-	);
-
-	// The gateway body is strict: an empty string or null field is rejected
-	// outright, so `contact` is only included at all when it would carry at
-	// least one non-empty name, and only the non-empty names are sent.
-	$contact_fields = array_filter(
-		array(
-			'first_name' => isset( $contact['first_name'] ) ? trim( (string) $contact['first_name'] ) : '',
-			'last_name'  => isset( $contact['last_name'] ) ? trim( (string) $contact['last_name'] ) : '',
-		),
-		static function ( $value ) {
-			return '' !== $value;
-		}
-	);
-
-	if ( ! empty( $contact_fields ) ) {
-		$body['contact'] = $contact_fields;
-	}
-
-	$args = array(
-		'body'    => $body,
-		'timeout' => $timeout,
-	);
-
-	// Deliberately NO request-args filter here, mirroring
-	// agend_apps_sso_mint_token() immediately above: the payload is an
-	// identity assertion (which WordPress user binds to which Agend member)
-	// and must not be rewritable by a sibling plugin.
-	$response = agend_apps_api()->request( 'POST', '/sso/identities', $args );
-
-	if ( is_wp_error( $response ) ) {
-		return $response;
-	}
-
-	// Deliberately NO response filter either: the caller must see exactly
-	// what the gateway decided, including the ids it minted.
 	return $response;
 }

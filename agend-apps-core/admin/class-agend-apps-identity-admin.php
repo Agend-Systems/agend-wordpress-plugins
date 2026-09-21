@@ -58,11 +58,41 @@ class Agend_Apps_Identity_Admin {
 	const DIAGNOSTICS_QUERY_FIELD = 'agend_apps_wp_idp_user';
 
 	/**
+	 * Nonce action for the "Connect this site" form. Follows the same shape as
+	 * {@see DIAGNOSTICS_LOOKUP_ACTION}: `current_user_can( 'manage_options' )`
+	 * first, then `check_admin_referer()`, then the work -- this is the only
+	 * other form on this page that actually performs work, rather than only
+	 * reading state or saving via the Settings API's own nonce.
+	 *
+	 * @var string
+	 */
+	const CONNECT_ACTION = 'agend_apps_connect_site';
+
+	/**
+	 * `admin_post_{action}` hook suffix {@see CONNECT_ACTION} is registered
+	 * under.
+	 *
+	 * @var string
+	 */
+	const CONNECT_POST_ACTION = 'agend_apps_connect_site';
+
+	/**
+	 * Transient name carrying the last "Connect this site" run's result across
+	 * the redirect back to this page. Keyed to nothing more specific than the
+	 * site, since only one admin at a time is expected to run this action and
+	 * the result is only ever meant to be shown once.
+	 *
+	 * @var string
+	 */
+	const CONNECT_RESULT_TRANSIENT = 'agend_apps_connect_site_result';
+
+	/**
 	 * Registers all admin hooks.
 	 */
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'add_menu_page' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
+		add_action( 'admin_post_' . self::CONNECT_POST_ACTION, array( $this, 'handle_connect_site' ) );
 	}
 
 	/**
@@ -201,6 +231,27 @@ class Agend_Apps_Identity_Admin {
 			self::PAGE_SLUG
 		);
 
+		// Identity provider plugin: which SAML IdP plugin, if any, takes part
+		// in the Agend connection. Registered before the linking mechanism
+		// field, since the mechanism's "Detected" line depends on this.
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_idp_plugin',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_idp_plugin' ),
+				'default'           => Agend_Apps_Settings::IDP_PLUGIN_AUTO,
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_idp_plugin',
+			__( 'Identity provider plugin', 'agend-apps-core' ),
+			array( $this, 'render_idp_plugin_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_identity_sso_section'
+		);
+
 		register_setting(
 			self::OPTION_GROUP,
 			'agend_apps_sso_link_mechanism',
@@ -215,24 +266,6 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_sso_link_mechanism',
 			__( 'Linking mechanism', 'agend-apps-core' ),
 			array( $this, 'render_sso_link_mechanism_field' ),
-			self::PAGE_SLUG,
-			'agend_apps_identity_sso_section'
-		);
-
-		register_setting(
-			self::OPTION_GROUP,
-			'agend_apps_sso_link_on_user_create',
-			array(
-				'type'              => 'boolean',
-				'sanitize_callback' => array( $this, 'sanitize_checkbox' ),
-				'default'           => false,
-			)
-		);
-
-		add_settings_field(
-			'agend_apps_sso_link_on_user_create',
-			__( 'Link on user creation', 'agend-apps-core' ),
-			array( $this, 'render_link_on_user_create_field' ),
 			self::PAGE_SLUG,
 			'agend_apps_identity_sso_section'
 		);
@@ -254,6 +287,19 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_idp_entity_id',
 			__( 'Connection entity id', 'agend-apps-core' ),
 			array( $this, 'render_entity_id_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_identity_connection_section'
+		);
+
+		// "Connect this site": registers this site's SP with the local IdP
+		// plugin and creates (or finds) the matching Agend gateway connection.
+		// Not a registered setting -- it performs an action rather than
+		// storing a value, so it is added as a field like the read-only entity
+		// id above rather than through register_setting().
+		add_settings_field(
+			'agend_apps_connect_site',
+			__( 'Connect this site', 'agend-apps-core' ),
+			array( $this, 'render_connect_site_field' ),
 			self::PAGE_SLUG,
 			'agend_apps_identity_connection_section'
 		);
@@ -299,16 +345,30 @@ class Agend_Apps_Identity_Admin {
 	}
 
 	/**
-	 * Sanitizes the SSO link mechanism option value to the closed four-value
+	 * Sanitizes the SSO link mechanism option value to the closed three-value
 	 * vocabulary. Delegates to {@see Agend_Apps_Settings::normalize_sso_link_mechanism()}
 	 * so the same rule governs what gets saved and what a stray stored value
-	 * (a filter, a rollback, direct DB edit) resolves to when read back.
+	 * (a filter, a rollback, direct DB edit, or the retired `server` value)
+	 * resolves to when read back.
 	 *
 	 * @param mixed $value Raw submitted value.
-	 * @return string One of `auto`, `saml`, `server`, `disabled`.
+	 * @return string One of `auto`, `saml`, `disabled`.
 	 */
 	public function sanitize_sso_link_mechanism( $value ): string {
 		return Agend_Apps_Settings::normalize_sso_link_mechanism( $value );
+	}
+
+	/**
+	 * Sanitizes the IdP plugin selection option value to the closed
+	 * four-value vocabulary. Delegates to
+	 * {@see Agend_Apps_Settings::normalize_idp_plugin()} so the same rule
+	 * governs what gets saved and what a stray stored value resolves to.
+	 *
+	 * @param mixed $value Raw submitted value.
+	 * @return string One of `auto`, `saml`, `miniorange`, `none`.
+	 */
+	public function sanitize_idp_plugin( $value ): string {
+		return Agend_Apps_Settings::normalize_idp_plugin( $value );
 	}
 
 	/**
@@ -450,8 +510,8 @@ class Agend_Apps_Identity_Admin {
 				'help'  => __( 'Members reach Agend only through your SSO connection. Credential sign-in, account provisioning on user creation, and the /auth REST routes are switched off. Existing member sessions are kept until they expire.', 'agend-apps-core' ),
 			),
 			Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS   => array(
-				'label' => __( 'WordPress account (not yet complete)', 'agend-apps-core' ),
-				'help'  => __( 'Members sign in with their WordPress password, which is never sent to Agend. Their Agend account stays separate, and a bearer is minted server to server from the WordPress session. This mode is not yet complete: the step that links a WordPress account to its Agend identity has not been built, so selecting it will not yet give members access.', 'agend-apps-core' ),
+				'label' => __( 'WordPress account', 'agend-apps-core' ),
+				'help'  => __( 'Members sign in with their WordPress password, which is never sent to Agend. On first sign-in they are passed once through this site\'s SAML identity provider to link their Agend identity; a bearer is then minted server to server from that link for the member widgets. Requires a SAML identity provider plugin (see Linking mechanism below).', 'agend-apps-core' ),
 			),
 		);
 
@@ -542,9 +602,82 @@ class Agend_Apps_Identity_Admin {
 	}
 
 	/**
-	 * Renders the SSO link mechanism radio field, the live "detected IdP"
-	 * line, and the duplicate-identity warning
-	 * (docs/PLAN-wordpress-idp-option-b.md sections 5-6).
+	 * Renders the identity provider plugin radio field: lets an admin
+	 * override which SAML IdP plugin, if any, takes part in the Agend
+	 * connection, instead of always relying on auto-detection.
+	 *
+	 * Exists because a site can run a SAML IdP plugin for a purpose unrelated
+	 * to Agend (miniOrange kept for another integration, say) and needs a way
+	 * to keep it out of this connection entirely.
+	 */
+	public function render_idp_plugin_field(): void {
+		$configured = Agend_Apps_Settings::configured_idp_plugin();
+
+		$options = array(
+			Agend_Apps_Settings::IDP_PLUGIN_AUTO       => array(
+				'label' => __( 'Auto-detect (recommended)', 'agend-apps-core' ),
+				'help'  => __( 'Uses agend-saml-idp when it is active, otherwise miniOrange SAML IDP when it is active, otherwise none. Re-evaluated on every page load.', 'agend-apps-core' ),
+			),
+			Agend_Apps_Settings::IDP_PLUGIN_SAML       => array(
+				'label' => __( 'agend-saml-idp', 'agend-apps-core' ),
+				'help'  => __( 'Always treat agend-saml-idp as this site\'s identity provider, even if another SAML IdP plugin is also installed.', 'agend-apps-core' ),
+			),
+			Agend_Apps_Settings::IDP_PLUGIN_MINIORANGE => array(
+				'label' => __( 'miniOrange SAML IDP', 'agend-apps-core' ),
+				'help'  => __( 'Always treat the miniOrange SAML IDP plugin as this site\'s identity provider.', 'agend-apps-core' ),
+			),
+			Agend_Apps_Settings::IDP_PLUGIN_NONE       => array(
+				'label' => __( 'None', 'agend-apps-core' ),
+				'help'  => __( 'Ignore any SAML identity provider plugin installed on this site. Use this when a SAML IdP plugin is present for another purpose and must not take part in the Agend connection. Automatic linking then resolves to Disabled.', 'agend-apps-core' ),
+			),
+		);
+
+		foreach ( $options as $option_value => $option ) {
+			printf(
+				'<p><label><input type="radio" name="agend_apps_idp_plugin" value="%1$s"%2$s /> %3$s</label></p>',
+				esc_attr( $option_value ),
+				checked( $configured, $option_value, false ),
+				esc_html( $option['label'] )
+			);
+			echo '<p class="description" style="margin-left:24px;">' . esc_html( $option['help'] ) . '</p>';
+		}
+
+		$saml_present       = Agend_Apps_Settings::saml_idp_plugin_present();
+		$miniorange_present = Agend_Apps_Settings::miniorange_idp_plugin_present();
+
+		echo '<p class="description">';
+		if ( $saml_present && $miniorange_present ) {
+			esc_html_e( 'Currently active on this site: agend-saml-idp and miniOrange SAML IDP.', 'agend-apps-core' );
+		} elseif ( $saml_present ) {
+			esc_html_e( 'Currently active on this site: agend-saml-idp.', 'agend-apps-core' );
+		} elseif ( $miniorange_present ) {
+			esc_html_e( 'Currently active on this site: miniOrange SAML IDP.', 'agend-apps-core' );
+		} else {
+			esc_html_e( 'No SAML identity provider plugin is currently active on this site.', 'agend-apps-core' );
+		}
+		echo '</p>';
+
+		$selected_plugin_not_active =
+			( Agend_Apps_Settings::IDP_PLUGIN_SAML === $configured && ! $saml_present )
+			|| ( Agend_Apps_Settings::IDP_PLUGIN_MINIORANGE === $configured && ! $miniorange_present );
+
+		if ( $selected_plugin_not_active ) {
+			echo '<div class="notice notice-warning inline"><p>';
+			esc_html_e(
+				'The selected identity provider plugin is not active on this site, so no SAML assertion will arrive from it.',
+				'agend-apps-core'
+			);
+			echo '</p></div>';
+		}
+	}
+
+	/**
+	 * Renders the SSO link mechanism radio field and the live "detected IdP"
+	 * line.
+	 *
+	 * The server-to-server mechanism is retired: an Agend identity may only
+	 * be created from a signed SAML assertion, so the only choices left are
+	 * SAML assertion or no linking at all.
 	 */
 	public function render_sso_link_mechanism_field(): void {
 		$configured = Agend_Apps_Settings::normalize_sso_link_mechanism( get_option( 'agend_apps_sso_link_mechanism', Agend_Apps_Settings::SSO_LINK_MECHANISM_AUTO ) );
@@ -554,15 +687,11 @@ class Agend_Apps_Identity_Admin {
 		$options = array(
 			Agend_Apps_Settings::SSO_LINK_MECHANISM_AUTO     => array(
 				'label' => __( 'Automatic (recommended)', 'agend-apps-core' ),
-				'help'  => __( 'Uses the SAML assertion when a SAML identity provider plugin is detected on this site, otherwise links server to server. Re-evaluated on every page load, so installing or removing a SAML IdP plugin changes behaviour immediately.', 'agend-apps-core' ),
+				'help'  => __( 'Uses the SAML assertion when a SAML identity provider plugin is detected on this site, otherwise linking is disabled. Re-evaluated on every page load, so installing or removing a SAML IdP plugin changes behaviour immediately.', 'agend-apps-core' ),
 			),
 			Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML     => array(
 				'label' => __( 'SAML assertion', 'agend-apps-core' ),
 				'help'  => __( 'The linked identity is the NameID your SAML identity provider plugin asserts at sign-in. Choose this explicitly to make the SAML assertion the source of truth for linking, whether or not a SAML plugin is currently detected.', 'agend-apps-core' ),
-			),
-			Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER   => array(
-				'label' => __( 'Server to server', 'agend-apps-core' ),
-				'help'  => __( 'The linked identity is the value of the configured external id meta key (membership number by default), with a GUID WordPress mints per user as the fallback when that key is empty, sent to Agend server to server at sign-in. Choose this on a site with no SAML identity provider plugin, or to keep using the WordPress-minted identity even if a SAML IdP plugin is installed.', 'agend-apps-core' ),
 			),
 			Agend_Apps_Settings::SSO_LINK_MECHANISM_DISABLED => array(
 				'label' => __( 'Disabled', 'agend-apps-core' ),
@@ -581,74 +710,63 @@ class Agend_Apps_Identity_Admin {
 		}
 
 		$mechanism_labels = array(
-			Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML   => __( 'SAML assertion', 'agend-apps-core' ),
-			Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER => __( 'Server to server', 'agend-apps-core' ),
+			Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML     => __( 'SAML assertion', 'agend-apps-core' ),
+			Agend_Apps_Settings::SSO_LINK_MECHANISM_DISABLED => __( 'Disabled', 'agend-apps-core' ),
 		);
 
-		$equivalent = Agend_Apps_Settings::link_mechanisms_are_identity_equivalent();
+		$configured_idp_plugin = Agend_Apps_Settings::configured_idp_plugin();
+		$explicit_selection    = Agend_Apps_Settings::IDP_PLUGIN_AUTO !== $configured_idp_plugin;
 
 		echo '<p class="description">';
 		if ( '' === $detected ) {
-			esc_html_e( 'Detected: no SAML identity provider plugin found on this site.', 'agend-apps-core' );
+			if ( $explicit_selection ) {
+				esc_html_e( 'Identity provider: none (selected above).', 'agend-apps-core' );
+			} else {
+				esc_html_e( 'Identity provider: none (no SAML identity provider plugin found on this site).', 'agend-apps-core' );
+			}
 		} elseif ( 'saml' === $detected ) {
-			esc_html_e( 'Detected: the agend-saml-idp plugin is active.', 'agend-apps-core' );
+			if ( $explicit_selection ) {
+				esc_html_e( 'Identity provider: agend-saml-idp (selected above).', 'agend-apps-core' );
+			} else {
+				esc_html_e( 'Identity provider: agend-saml-idp (auto-detected).', 'agend-apps-core' );
+			}
+		} elseif ( 'miniorange' === $detected ) {
+			if ( $explicit_selection ) {
+				esc_html_e( 'Identity provider: miniOrange SAML IDP (selected above).', 'agend-apps-core' );
+			} else {
+				esc_html_e( 'Identity provider: miniOrange SAML IDP (auto-detected).', 'agend-apps-core' );
+			}
 		} else {
-			esc_html_e( 'Detected: the miniOrange SAML IDP plugin is active.', 'agend-apps-core' );
+			printf(
+				/* translators: %s: the third-party IdP name a filter declared via `agend_apps_detected_idp_plugin`. */
+				esc_html__( 'Identity provider: %s.', 'agend-apps-core' ),
+				esc_html( $detected )
+			);
 		}
 		echo ' ';
 		printf(
-			/* translators: %s: the resolved mechanism label ("SAML assertion" or "Server to server"). */
+			/* translators: %s: the resolved mechanism label ("SAML assertion" or "Disabled"). */
 			esc_html__( 'Automatic currently resolves to: %s.', 'agend-apps-core' ),
 			'<strong>' . esc_html( $mechanism_labels[ $resolved ] ?? $resolved ) . '</strong>'
 		);
-		if ( $equivalent && Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER === $resolved ) {
-			echo ' ';
-			esc_html_e( 'The SAML NameID attribute and the external id meta key match, so this does not create a duplicate identity.', 'agend-apps-core' );
-		}
 		echo '</p>';
 
-		// The reason this control exists at all (docs/PLAN-wordpress-idp-
-		// option-b.md section 5): a SAML IdP plugin's NameID is not always
-		// the WordPress-minted GUID, so leaving `wordpress` mode on Server to
-		// server once a SAML IdP plugin is added can link the same person
-		// twice, as two separate Agend identities. When the two mechanisms
-		// are identity equivalent (the SAML NameID attribute and the
-		// external id meta key match) that cannot happen, so the warning is
-		// replaced with the reassuring description above instead.
+		// Member sign-in cannot function in `wordpress` mode without a SAML
+		// IdP to link through: `agend_apps_wp_idp_link_user()`'s server-to-
+		// server path (the fallback this warning used to describe) is
+		// retired, so no linking mechanism does anything with no SAML IdP
+		// detected.
 		if (
-			'' !== $detected
-			&& ! $equivalent
+			'' === $detected
 			&& Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS === Agend_Apps_Settings::get_member_auth_mode()
-			&& Agend_Apps_Settings::SSO_LINK_MECHANISM_SERVER === $resolved
 		) {
 			echo '<div class="notice notice-warning inline"><p>';
 			esc_html_e(
-				'A SAML identity provider plugin is active, member sign-in is set to WordPress account, and linking resolves to Server to server. The SAML NameID this plugin asserts will not match the identity WordPress sends server to server, so the same person will be linked twice as two separate Agend identities. Set the linking mechanism to SAML assertion, or switch member sign-in away from WordPress account.',
+				'No SAML identity provider plugin is active, so members cannot be linked to Agend. Install and configure agend-saml-idp.',
 				'agend-apps-core'
 			);
 			echo '</p></div>';
 		}
-	}
-
-	/**
-	 * Renders the "link on user creation" checkbox field.
-	 */
-	public function render_link_on_user_create_field(): void {
-		$value = Agend_Apps_Settings::link_on_user_create();
-		?>
-		<label>
-			<input type="checkbox" name="agend_apps_sso_link_on_user_create" value="1" <?php checked( true, $value ); ?> />
-			<?php esc_html_e( 'Attempt the Agend identity link as soon as a WordPress user account is created', 'agend-apps-core' ); ?>
-		</label>
-		<p class="description">
-			<?php
-			esc_html_e(
-				'Off by default. This fires for every WordPress user created, including administrators and bulk imports, which is not always wanted. When off, the link is only attempted at the user\'s first sign-in.',
-				'agend-apps-core'
-			);
-			?>
-		</p>
-		<?php
 	}
 
 	/**
@@ -672,5 +790,161 @@ class Agend_Apps_Identity_Admin {
 			'agend-apps-core'
 		);
 		echo '</p>';
+	}
+
+	/**
+	 * `admin_post_{CONNECT_POST_ACTION}` handler: runs
+	 * {@see agend_apps_connect_run()} and redirects back to this page with the
+	 * result in a transient for {@see render_connect_site_field()} to display.
+	 *
+	 * Follows the same shape as {@see resolve_diagnostics_lookup()}'s nonce
+	 * precedent: `current_user_can( 'manage_options' )` checked FIRST, then
+	 * `check_admin_referer()`, then the work, then `wp_safe_redirect()`. There
+	 * was no existing work-performing POST handler on this page to copy --
+	 * the diagnostics lookup is GET and read-only -- so this is the first one,
+	 * built to match that same precedent as closely as a POST/redirect action
+	 * allows.
+	 */
+	public function handle_connect_site(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'agend-apps-core' ) );
+		}
+
+		check_admin_referer( self::CONNECT_ACTION );
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- check_admin_referer() runs above, before any request input is read.
+		$acknowledged = function_exists( 'agend_apps_connect_preflight_acknowledged' ) && agend_apps_connect_preflight_acknowledged( $_POST );
+
+		$result = function_exists( 'agend_apps_connect_run' ) ? agend_apps_connect_run( $acknowledged ) : array(
+			'steps'       => array(),
+			'errors'      => array( __( 'The connect action is not available on this install.', 'agend-apps-core' ) ),
+			'connection'  => array(),
+			'sp_mismatch' => array(),
+			'preflight'   => array(),
+		);
+
+		// A short-lived transient, not an option: this result is meant to be
+		// shown exactly once, immediately after the redirect, not to persist
+		// as site state. {@see agend_apps_connect_stored()} is the persisted
+		// record this run itself writes on success.
+		set_transient( self::CONNECT_RESULT_TRANSIENT, $result, MINUTE_IN_SECONDS );
+
+		wp_safe_redirect( admin_url( 'options-general.php?page=' . self::PAGE_SLUG ) );
+		exit;
+	}
+
+	/**
+	 * Builds the data {@see render_connect_site_field()}'s view partial
+	 * renders: whether the action can be attempted at all right now, why not
+	 * when it cannot, the last run's result (consumed from the transient, so
+	 * it is shown exactly once), and the currently stored connection.
+	 *
+	 * Deliberately never calls {@see agend_apps_connect_run()} itself --
+	 * rendering a settings page must never perform the action, only report on
+	 * it or offer the button that triggers it via the POST handler above.
+	 *
+	 * @return array{
+	 *     can_connect: bool,
+	 *     blocked_reasons: string[],
+	 *     stored: array,
+	 *     last_run: array|null,
+	 *     sp_urls: array{sp_entity_id: string, sp_acs_url: string, sp_metadata_url: string},
+	 *     preflight: array{nameid_empty: int, credentials_members: int, nameid_meta_key: string, blocks: bool},
+	 *     site_moved: bool,
+	 *     current_site_url: string
+	 * }
+	 */
+	private function build_connect_site_data(): array {
+		$blocked_reasons = array();
+
+		if ( ! class_exists( 'Agend_Apps_Settings' ) || ! Agend_Apps_Settings::wordpress_idp_enabled() ) {
+			$blocked_reasons[] = __( 'This site is not in WordPress account sign-in mode.', 'agend-apps-core' );
+		}
+
+		if ( function_exists( 'agend_apps_connect_missing_scopes' ) ) {
+			$scope_check = agend_apps_connect_missing_scopes();
+
+			if ( $scope_check['unknown'] ) {
+				$blocked_reasons[] = __( 'The connected API key\'s scopes are not yet known. Verify the API key first.', 'agend-apps-core' );
+			} elseif ( ! empty( $scope_check['missing'] ) ) {
+				$blocked_reasons[] = sprintf(
+					/* translators: %s: comma-separated list of missing API key scopes. */
+					__( 'The connected API key is missing the required scope(s): %s.', 'agend-apps-core' ),
+					implode( ', ', $scope_check['missing'] )
+				);
+			}
+		}
+
+		if ( ! class_exists( 'WP_SAML_IDP_Api' ) ) {
+			$blocked_reasons[] = __( 'IdP plugin too old: WP_SAML_IDP_Api is not available.', 'agend-apps-core' );
+		} else {
+			foreach ( array( 'get_idp_metadata', 'upsert_service_provider', 'save_attribute_mapping', 'save_sp_sso_settings' ) as $method ) {
+				if ( ! method_exists( 'WP_SAML_IDP_Api', $method ) ) {
+					$blocked_reasons[] = sprintf(
+						/* translators: %s: the missing method name on WP_SAML_IDP_Api. */
+						__( 'IdP plugin too old: missing %s().', 'agend-apps-core' ),
+						$method
+					);
+				}
+			}
+		}
+
+		$last_run = get_transient( self::CONNECT_RESULT_TRANSIENT );
+		delete_transient( self::CONNECT_RESULT_TRANSIENT );
+
+		$stored  = function_exists( 'agend_apps_connect_stored' ) ? agend_apps_connect_stored() : array();
+		$sp_urls = function_exists( 'agend_apps_connect_sp_urls' )
+			? agend_apps_connect_sp_urls( Agend_Apps_Settings::get_root_url(), Agend_Apps_Settings::get_account_slug() )
+			: array(
+				'sp_entity_id'    => '',
+				'sp_acs_url'      => '',
+				'sp_metadata_url' => '',
+			);
+
+		// The pre-flight is built here, not in the view, matching this method's
+		// whole purpose: the view partial never computes anything itself, only
+		// renders what it is handed. Shown whether or not it currently blocks
+		// (see agend-apps-core/admin/views/identity-connect.php), so an
+		// operator sees both counts on every visit to this page, not only when
+		// something is wrong.
+		$preflight = function_exists( 'agend_apps_connect_preflight' ) ? agend_apps_connect_preflight() : array(
+			'nameid_empty'        => 0,
+			'credentials_members' => 0,
+			'nameid_meta_key'     => '',
+			'blocks'              => false,
+		);
+
+		// Whether the stored connection was stamped under a different
+		// site_url() than this runtime resolves now (see
+		// agend_apps_connect_site_moved()). Deliberately NEVER added to
+		// $blocked_reasons / can_connect: re-running the connect action is
+		// the legitimate way a genuinely migrated site re-adopts its
+		// connection (it re-stamps site_url() on success), so the button
+		// must stay usable in this state, only flagged prominently.
+		$site_moved = function_exists( 'agend_apps_connect_site_moved' ) && agend_apps_connect_site_moved();
+
+		return array(
+			'can_connect'      => empty( $blocked_reasons ),
+			'blocked_reasons'  => $blocked_reasons,
+			'stored'           => $stored,
+			'last_run'         => is_array( $last_run ) ? $last_run : null,
+			'sp_urls'          => $sp_urls,
+			'preflight'        => $preflight,
+			'site_moved'       => $site_moved,
+			'current_site_url' => function_exists( 'site_url' ) ? site_url() : '',
+		);
+	}
+
+	/**
+	 * Renders the "Connect this site" action: the derived/authoritative SP
+	 * urls, the stored connection's approval state, the last run's per-step
+	 * outcomes and errors, and the SP-mismatch block when present. Markup
+	 * lives in the view partial; this only builds the data, matching
+	 * {@see render_diagnostics_field()}'s split.
+	 */
+	public function render_connect_site_field(): void {
+		$data = $this->build_connect_site_data();
+
+		require AGEND_APPS_CORE_DIR . 'admin/views/identity-connect.php';
 	}
 }
