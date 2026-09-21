@@ -280,23 +280,23 @@ function agend_apps_linked_identity_ids( int $user_id ): array {
 }
 
 /**
- * The field name the gateway's identity-status response is expected to carry
- * a member's membership-role under, once that field ships.
+ * The field the gateway's identity-status response carries a member's account
+ * role under.
  *
- * THE single place this field name is configured. As of this writing the
- * gateway spec that defines it is still being written (confirmed against
- * `agend-dashboard/apps/api/openapi.json`, schema `SsoIdentityLinkStatus`:
- * `GET /v1/sso/identities/status` returns only `{ success, data: { linked,
- * user_id?, contact_id? } }` today, with no role field at all). If the
- * gateway ships the field under a different key than assumed here, this
- * constant is the ONLY edit needed to pick it up. Until the gateway sends it
- * at all, {@see agend_apps_record_membership_role()} finds it absent on every
- * call and does nothing -- nothing in this file fires against a gateway that
- * has not shipped the field yet.
+ * THE single place this field name is configured. It was written speculatively
+ * as `membership_role` while the gateway spec was still being drafted; the
+ * gateway shipped it as `account_role` (US-4.1 of the owner-invitation-gate
+ * build, `GET /v1/sso/identities/status`), so this is now the real key rather
+ * than an assumed one.
+ *
+ * A gateway predating that story omits the field entirely, in which case
+ * {@see agend_apps_record_membership_role()} finds it absent on every call and
+ * does nothing. That is still the correct behaviour and still needs no
+ * version check: absence and "no change" are the same no-op.
  *
  * @var string
  */
-const AGEND_APPS_SSO_STATUS_ROLE_FIELD = 'membership_role';
+const AGEND_APPS_SSO_STATUS_ROLE_FIELD = 'account_role';
 
 /**
  * User-meta key caching the membership role last reported by the gateway's

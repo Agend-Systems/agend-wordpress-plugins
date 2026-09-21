@@ -225,12 +225,17 @@ namespace Agend\Tests\Core {
 			update_user_meta( 60, '_agend_apps_membership_role', 'contact' );
 			update_user_meta( 60, Agend_Apps_Token_Worker::META_KEY, array( 'access_token' => 't' ) );
 
+			// Keyed off the constant rather than the literal: this test was
+			// written against the speculative `membership_role` name and broke
+			// silently-in-spirit when the gateway shipped `account_role`, since
+			// an unrecognised key is indistinguishable from an absent one and
+			// simply no-ops.
 			Agend_Test_WP::queue_response(
 				200,
 				array(
 					'data' => array(
-						'linked'          => true,
-						'membership_role' => 'owner',
+						'linked'                          => true,
+						\AGEND_APPS_SSO_STATUS_ROLE_FIELD => 'owner',
 					),
 				)
 			);
