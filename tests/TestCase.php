@@ -56,6 +56,16 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_users']            = array();
 		$GLOBALS['agend_test_current_user_can'] = array();
 
+		// Request-shape flags the WordPress stubs and the WooCommerce page
+		// fixture read. Reset for the same reason as the registries above: a
+		// test that flips one and does not put it back would otherwise make
+		// every later test in the run a feed (or a checkout) request, and that
+		// only shows up as a failure in the full run.
+		$GLOBALS['agend_test_is_feed']         = false;
+		$GLOBALS['agend_test_is_cart']         = false;
+		$GLOBALS['agend_test_is_checkout']     = false;
+		$GLOBALS['agend_test_is_account_page'] = false;
+
 		// Signed-out by default. Production code impersonates through
 		// `wp_set_current_user()` (the membership snapshot sync does, and
 		// restores afterwards), so a test that leaves the global set, or a

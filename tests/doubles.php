@@ -28,6 +28,11 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 		const SSO_LINK_MECHANISM_SERVER   = 'server';
 		const SSO_LINK_MECHANISM_DISABLED = 'disabled';
 
+		const IDP_PLUGIN_AUTO       = 'auto';
+		const IDP_PLUGIN_SAML       = 'saml';
+		const IDP_PLUGIN_MINIORANGE = 'miniorange';
+		const IDP_PLUGIN_NONE       = 'none';
+
 		public static function get_api_key(): string {
 			return 'test-api-key';
 		}
@@ -70,90 +75,59 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 			return defined( 'MSI_VERSION' );
 		}
 
-		public static function detected_idp_plugin(): string {
-			$detected = '';
+		public static function normalize_idp_plugin( $value ): string {
+			$allowed = array(
+				self::IDP_PLUGIN_AUTO,
+				self::IDP_PLUGIN_SAML,
+				self::IDP_PLUGIN_MINIORANGE,
+				self::IDP_PLUGIN_NONE,
+			);
 
-			if ( self::saml_idp_plugin_present() ) {
-				$detected = 'saml';
-			} elseif ( self::miniorange_idp_plugin_present() ) {
-				$detected = 'miniorange';
+			return in_array( $value, $allowed, true ) ? (string) $value : self::IDP_PLUGIN_AUTO;
+		}
+
+		public static function configured_idp_plugin(): string {
+			return self::normalize_idp_plugin( get_option( 'agend_apps_idp_plugin', self::IDP_PLUGIN_AUTO ) );
+		}
+
+		public static function detected_idp_plugin(): string {
+			$configured = self::configured_idp_plugin();
+
+			if ( self::IDP_PLUGIN_AUTO !== $configured ) {
+				$detected = self::IDP_PLUGIN_NONE === $configured ? '' : $configured;
+			} else {
+				$detected = '';
+
+				if ( self::saml_idp_plugin_present() ) {
+					$detected = 'saml';
+				} elseif ( self::miniorange_idp_plugin_present() ) {
+					$detected = 'miniorange';
+				}
 			}
 
-			return (string) apply_filters( 'agend_apps_detected_idp_plugin', $detected );
+			return (string) apply_filters( 'agend_apps_detected_idp_plugin', $detected, $configured );
 		}
 
 		public static function get_account_slug(): string {
 			return (string) get_option( 'agend_apps_account_slug', '' );
 		}
 
-		public static function saml_nameid_attribute_for_agend_sp(): string {
-			$mappings = get_option( 'wp_saml_idp_attribute_mappings', array() );
-			$result   = '';
-
-			if ( is_array( $mappings ) && array() !== $mappings ) {
-				$slug       = self::get_account_slug();
-				$candidates = array();
-
-				foreach ( $mappings as $entity_id => $mapping ) {
-					if ( ! is_string( $entity_id ) || false === strpos( $entity_id, '/api/auth/sso/' ) ) {
-						continue;
-					}
-
-					if ( '' !== $slug && false === strpos( $entity_id, $slug ) ) {
-						continue;
-					}
-
-					if ( is_array( $mapping ) && isset( $mapping['nameid_attribute'] ) ) {
-						$candidates[ $entity_id ] = (string) $mapping['nameid_attribute'];
-					}
-				}
-
-				if ( array() !== $candidates ) {
-					$result = (string) reset( $candidates );
-
-					if ( count( $candidates ) > 1 ) {
-						$preferred_host = wp_parse_url( self::get_base_url(), PHP_URL_HOST );
-
-						if ( is_string( $preferred_host ) && '' !== $preferred_host ) {
-							foreach ( $candidates as $entity_id => $attribute ) {
-								if ( false !== strpos( $entity_id, $preferred_host ) ) {
-									$result = $attribute;
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-
-			return (string) apply_filters( 'agend_apps_saml_nameid_attribute', $result );
-		}
-
-		public static function link_mechanisms_are_identity_equivalent(): bool {
-			$nameid_attribute = self::saml_nameid_attribute_for_agend_sp();
-
-			if ( '' === $nameid_attribute ) {
-				return false;
-			}
-
-			if ( function_exists( 'agend_apps_external_id_meta_key' ) ) {
-				$meta_key = agend_apps_external_id_meta_key();
-			} else {
-				$meta_key = (string) get_option( 'agend_apps_external_id_meta_key', '' );
-
-				if ( '' === $meta_key ) {
-					$meta_key = 'imk_membership_number';
-				}
-			}
-
-			return $nameid_attribute === $meta_key;
+		/**
+		 * Added for WpIdpSamlLinkTest's SP-entity-id host-preference case
+		 * (`agend_apps_saml_agend_sp_entity_id()`'s fallback and host-match
+		 * branches, mirroring `includes/account-link-state.php`'s own
+		 * `method_exists()` guard). Reads the option directly rather than the
+		 * real class's environment-switch logic, which nothing under test here
+		 * exercises.
+		 */
+		public static function get_root_url(): string {
+			return (string) get_option( 'agend_apps_root_url_for_tests', '' );
 		}
 
 		public static function normalize_sso_link_mechanism( $value ): string {
 			$allowed = array(
 				self::SSO_LINK_MECHANISM_AUTO,
 				self::SSO_LINK_MECHANISM_SAML,
-				self::SSO_LINK_MECHANISM_SERVER,
 				self::SSO_LINK_MECHANISM_DISABLED,
 			);
 
@@ -167,19 +141,9 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 				return $configured;
 			}
 
-			if ( '' === self::detected_idp_plugin() ) {
-				return self::SSO_LINK_MECHANISM_SERVER;
-			}
-
-			if ( self::MEMBER_AUTH_WORDPRESS === self::get_member_auth_mode() && self::link_mechanisms_are_identity_equivalent() ) {
-				return self::SSO_LINK_MECHANISM_SERVER;
-			}
-
-			return self::SSO_LINK_MECHANISM_SAML;
-		}
-
-		public static function link_on_user_create(): bool {
-			return (bool) get_option( 'agend_apps_sso_link_on_user_create', false );
+			return ( '' === self::detected_idp_plugin() )
+				? self::SSO_LINK_MECHANISM_DISABLED
+				: self::SSO_LINK_MECHANISM_SAML;
 		}
 
 		public static function get_member_reset_url(): string {

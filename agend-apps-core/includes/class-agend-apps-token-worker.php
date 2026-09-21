@@ -204,6 +204,14 @@ class Agend_Apps_Token_Worker {
 			agend_apps_record_linked_identity( $user_id, $minted );
 		}
 
+		// This worker no longer promotes `asserted` to `linked`: a mint needs
+		// `sso.tokens.create`, while the link itself only needs
+		// `sso.identities.read`, so promoting on a mint made the recorded
+		// state depend on a strictly stronger scope than the thing it
+		// describes -- on a key without the mint scope a member could never
+		// leave `asserted` at all. Promotion now happens on the SAML round
+		// trip's own return leg, in `includes/wp-idp-saml-link.php`'s
+		// `agend_apps_saml_link_promote()`.
 		update_user_meta(
 			$user_id,
 			self::META_KEY,

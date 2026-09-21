@@ -9,6 +9,7 @@ namespace Agend\Tests\Core;
 
 use Agend\Tests\TestCase;
 use Agend_Apps_Key_Scopes;
+use Agend_Apps_Member_Session;
 use Agend_Apps_Settings;
 use Agend_Apps_Token_Worker;
 use Agend_Test_WP;
@@ -22,8 +23,11 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/health.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/settings.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/features.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-member-session.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-token-worker.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/wp-idp-link.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/wp-idp-saml-link.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/connect-site.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/wp-idp-diagnostics.php';
 
 /**
@@ -91,11 +95,13 @@ final class WpIdpDiagnosticsTest extends TestCase {
 	public static function linkStateProvider(): array {
 		return array(
 			'linked'            => array( \AGEND_APPS_LINK_STATE_LINKED, 'success', 'No action needed' ),
+			'asserted'          => array( \AGEND_APPS_LINK_STATE_ASSERTED, 'info', 'SAML identity provider' ),
 			'pending'           => array( \AGEND_APPS_LINK_STATE_PENDING, 'info', 'confirmation email' ),
 			'conflict'          => array( \AGEND_APPS_LINK_STATE_CONFLICT, 'error', 'different external id' ),
 			'no_contact'        => array( \AGEND_APPS_LINK_STATE_NO_CONTACT, 'error', 'JIT contact provisioning' ),
 			'forbidden'         => array( \AGEND_APPS_LINK_STATE_FORBIDDEN, 'error', 'sso.connections.create' ),
 			'error'             => array( \AGEND_APPS_LINK_STATE_ERROR, 'warning', 'retries on its own' ),
+			'pending_approval'  => array( \AGEND_APPS_LINK_STATE_PENDING_APPROVAL, 'info', 'Agend has not approved it yet' ),
 			'never attempted'   => array( '', 'info', 'Expected until' ),
 			'unrecognised'      => array( 'some_future_state', 'info', 'Expected until' ),
 		);
@@ -376,5 +382,219 @@ final class WpIdpDiagnosticsTest extends TestCase {
 		$diagnostics = \agend_apps_wp_idp_diagnostics( 90 );
 
 		$this->assertSame( 'https://example.test/saml/metadata', $diagnostics['idp_entity_id'] );
+	}
+
+	// -----------------------------------------------------------------
+	// Eligibility guidance copy
+	// -----------------------------------------------------------------
+
+	/** @return array<string, array{0: string, 1: string}> reason => [severity, needle in guidance] */
+	public static function eligibilityReasonProvider(): array {
+		return array(
+			'eligible'                    => array( '', 'success', 'next front-end page view' ),
+			'linked'                      => array( 'linked', 'success', 'Nothing to do' ),
+			'signed_out'                  => array( 'signed_out', 'info', 'does not apply' ),
+			'mode_not_wordpress'          => array( 'mode_not_wordpress', 'info', 'does not apply' ),
+			'mechanism_not_saml'          => array( 'mechanism_not_saml', 'info', 'does not apply' ),
+			'no_external_id'              => array( 'no_external_id', 'error', 'no external id at all' ),
+			'sp_not_registered'           => array( 'sp_not_registered', 'error', 'Connect this site' ),
+			'sp_disabled'                 => array( 'sp_disabled', 'error', 'Re-enable it' ),
+			'connection_pending_approval' => array( 'connection_pending_approval', 'info', 'not an error' ),
+			'site_moved'                  => array( 'site_moved', 'error', 'Re-run "Connect this site"' ),
+			'attempt_cap'                 => array( 'attempt_cap', 'warning', '24-hour backoff' ),
+			'unavailable'                 => array( 'unavailable', 'info', 'not loaded' ),
+			'unrecognised'                => array( 'some_future_reason', 'info', 'some_future_reason' ),
+		);
+	}
+
+	#[Test]
+	public function should_classify_every_eligibility_reason_with_the_right_severity_and_guidance(): void {
+		foreach ( self::eligibilityReasonProvider() as $case ) {
+			[ $reason, $severity, $needle ] = $case;
+
+			$guidance = \agend_apps_wp_idp_eligibility_guidance( $reason );
+
+			$this->assertSame( $severity, $guidance['severity'], "reason: {$reason}" );
+			$this->assertStringContainsString( $needle, $guidance['guidance'], "reason: {$reason}" );
+		}
+	}
+
+	#[Test]
+	public function should_classify_connection_pending_approval_as_info_not_error(): void {
+		$guidance = \agend_apps_wp_idp_eligibility_guidance( 'connection_pending_approval' );
+
+		$this->assertSame( 'info', $guidance['severity'] );
+	}
+
+	#[Test]
+	public function should_classify_sp_not_registered_sp_disabled_no_external_id_and_site_moved_as_errors(): void {
+		foreach ( array( 'sp_not_registered', 'sp_disabled', 'no_external_id', 'site_moved' ) as $reason ) {
+			$this->assertSame( 'error', \agend_apps_wp_idp_eligibility_guidance( $reason )['severity'], "reason: {$reason}" );
+		}
+	}
+
+	#[Test]
+	public function should_echo_an_unrecognised_eligibility_reason_in_the_default_branch(): void {
+		$guidance = \agend_apps_wp_idp_eligibility_guidance( 'totally_unknown_reason' );
+
+		$this->assertSame( 'info', $guidance['severity'] );
+		$this->assertStringContainsString( 'totally_unknown_reason', $guidance['guidance'] );
+	}
+
+	// -----------------------------------------------------------------
+	// New diagnostics keys: eligibility, connection, attempts
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_report_eligibility_and_its_guidance_with_no_entity_id_leaked(): void {
+		$this->registerUser( 100 );
+		update_user_meta( 100, 'imk_membership_number', 'M-100' );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 100 );
+
+		$this->assertArrayHasKey( 'eligible', $diagnostics['eligibility'] );
+		$this->assertArrayHasKey( 'reason', $diagnostics['eligibility'] );
+		$this->assertArrayNotHasKey( 'entity_id', $diagnostics['eligibility'] );
+		$this->assertSame(
+			\agend_apps_wp_idp_eligibility_guidance( $diagnostics['eligibility']['reason'] ),
+			$diagnostics['eligibility_guidance']
+		);
+	}
+
+	#[Test]
+	public function should_report_a_sane_default_connection_shape_when_nothing_is_connected(): void {
+		$this->registerUser( 101 );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 101 );
+
+		$this->assertSame(
+			array(
+				'approval_state' => '',
+				'slug'           => '',
+				'idp_entity_id'  => '',
+				'site_url'       => '',
+			),
+			$diagnostics['connection']
+		);
+	}
+
+	#[Test]
+	public function should_report_the_stored_connection_facts_when_connected(): void {
+		$this->registerUser( 102 );
+		update_option(
+			\AGEND_APPS_CONNECT_OPTION,
+			array(
+				'approval_state' => 'approved',
+				'slug'           => 'wp-saml-abc123',
+				'idp_entity_id'  => 'https://example.test/saml/metadata',
+				'site_url'       => 'https://example.test',
+			)
+		);
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 102 );
+
+		$this->assertSame( 'approved', $diagnostics['connection']['approval_state'] );
+		$this->assertSame( 'wp-saml-abc123', $diagnostics['connection']['slug'] );
+		$this->assertSame( 'https://example.test/saml/metadata', $diagnostics['connection']['idp_entity_id'] );
+		$this->assertSame( 'https://example.test', $diagnostics['connection']['site_url'] );
+	}
+
+	#[Test]
+	public function should_report_attempts_as_not_capped_below_the_cap(): void {
+		$this->registerUser( 103 );
+		\agend_apps_wp_idp_merge_link_state( 103, array( 'attempts' => 1 ) );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 103 );
+
+		$this->assertSame( 1, $diagnostics['attempts']['count'] );
+		$this->assertSame( \AGEND_APPS_LINK_MAX_ATTEMPTS, $diagnostics['attempts']['cap'] );
+		$this->assertFalse( $diagnostics['attempts']['capped'] );
+	}
+
+	#[Test]
+	public function should_report_attempts_as_capped_at_the_cap(): void {
+		$this->registerUser( 104 );
+		\agend_apps_wp_idp_merge_link_state( 104, array( 'attempts' => \AGEND_APPS_LINK_MAX_ATTEMPTS ) );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 104 );
+
+		$this->assertSame( \AGEND_APPS_LINK_MAX_ATTEMPTS, $diagnostics['attempts']['count'] );
+		$this->assertTrue( $diagnostics['attempts']['capped'] );
+	}
+
+	// -----------------------------------------------------------------
+	// Bearer source
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_report_bearer_source_as_sso_linked_when_the_recorded_link_state_is_linked(): void {
+		$this->registerUser( 110 );
+		\agend_apps_wp_idp_record_link_state( 110, \AGEND_APPS_LINK_STATE_LINKED );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 110 );
+
+		$this->assertSame( 'sso_linked', $diagnostics['bearer_source'] );
+	}
+
+	#[Test]
+	public function should_report_bearer_source_as_credentials_session_when_a_member_session_is_stored_and_not_linked(): void {
+		$this->registerUser( 111 );
+		Agend_Apps_Member_Session::store(
+			111,
+			array(
+				'access_token'  => 'a',
+				'refresh_token' => 'r',
+				'expires_at'    => time() + HOUR_IN_SECONDS,
+			)
+		);
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 111 );
+
+		$this->assertSame( 'credentials_session', $diagnostics['bearer_source'] );
+	}
+
+	#[Test]
+	public function should_report_bearer_source_as_sso_linked_over_credentials_session_when_both_are_present(): void {
+		$this->registerUser( 112 );
+		Agend_Apps_Member_Session::store(
+			112,
+			array(
+				'access_token'  => 'a',
+				'refresh_token' => 'r',
+				'expires_at'    => time() + HOUR_IN_SECONDS,
+			)
+		);
+		\agend_apps_wp_idp_record_link_state( 112, \AGEND_APPS_LINK_STATE_LINKED );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 112 );
+
+		$this->assertSame( 'sso_linked', $diagnostics['bearer_source'] );
+	}
+
+	#[Test]
+	public function should_report_bearer_source_as_none_when_neither_is_present(): void {
+		$this->registerUser( 113 );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 113 );
+
+		$this->assertSame( 'none', $diagnostics['bearer_source'] );
+	}
+
+	// -----------------------------------------------------------------
+	// Core invariant: building diagnostics records no state
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_leave_the_recorded_link_state_unchanged_after_building_diagnostics(): void {
+		$this->registerUser( 120, 'invariant@example.test' );
+		\agend_apps_wp_idp_record_link_state( 120, \AGEND_APPS_LINK_STATE_ERROR, 'SOME_ERROR' );
+
+		$before = get_user_meta( 120, \AGEND_APPS_LINK_STATE_META, true );
+
+		\agend_apps_wp_idp_diagnostics( 120 );
+
+		$after = get_user_meta( 120, \AGEND_APPS_LINK_STATE_META, true );
+
+		$this->assertSame( $before, $after );
 	}
 }
