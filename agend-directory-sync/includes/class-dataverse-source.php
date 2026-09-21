@@ -99,6 +99,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		public const PREVIEW_RECORD_LIMIT = 5;
 
 		/**
+		 * Filter hook through which a caller supplies, for one run, the
+		 * secondary FetchXML filter fragment applied on top of the saved
+		 * query: `apply_filters( self::SECONDARY_FILTER_HOOK, string $saved )`
+		 * returning the fragment to use ('' for none). The WP-CLI command's
+		 * `--secondary-filter` flag uses it so a grouped upload can be
+		 * scripted without touching the saved settings.
+		 */
+		public const SECONDARY_FILTER_HOOK = 'agend_directory_sync_dataverse_secondary_filter';
+
+		/**
 		 * Rows resolved from `value` that were not JSON objects, accumulated
 		 * across the most recent fetch. The runner reads this (duck-typed) and
 		 * folds it into the run summary as the `row_not_an_object` skip reason.
@@ -291,6 +301,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				'decoded'       => $decoded,
 				'data_path'     => self::DATA_PATH,
 				'fetch_xml'     => $fetch_xml,
+				'secondary_filter' => $settings['secondary_filter'],
 				'page'          => $settings['start_page'],
 				'page_size'     => $settings['page_size'],
 				'more_records'  => self::has_more_records( $decoded, is_array( $decoded[ self::DATA_PATH ] ?? null ) ? count( $decoded[ self::DATA_PATH ] ) : 0, $settings['page_size'] ),
@@ -354,6 +365,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				'api_version'         => Agend_Directory_Sync_Config::non_blank( $saved['api_version'] ?? '', self::DEFAULT_API_VERSION ),
 				'entity_set'          => self::sanitize_entity_set( (string) ( $saved['entity_set'] ?? '' ) ),
 				'fetch_xml'           => trim( (string) ( $saved['fetch_xml'] ?? '' ) ),
+				'secondary_filter'    => trim( (string) ( $saved['secondary_filter'] ?? '' ) ),
 				'tenant_id'           => (string) ( $saved['tenant_id'] ?? '' ),
 				'token_url'           => (string) ( $saved['token_url'] ?? '' ),
 				'client_id'           => (string) ( $saved['client_id'] ?? '' ),
@@ -390,6 +402,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				'api_version'         => self::sanitize_api_version( isset( $raw['api_version'] ) ? (string) $raw['api_version'] : '' ),
 				'entity_set'          => self::sanitize_entity_set( isset( $raw['entity_set'] ) ? (string) $raw['entity_set'] : '' ),
 				'fetch_xml'           => self::sanitize_fetch_xml( isset( $raw['fetch_xml'] ) ? (string) $raw['fetch_xml'] : '' ),
+				'secondary_filter'    => self::sanitize_secondary_filter( isset( $raw['secondary_filter'] ) ? (string) $raw['secondary_filter'] : '' ),
 				'tenant_id'           => self::sanitize_tenant_id( isset( $raw['tenant_id'] ) ? (string) $raw['tenant_id'] : '' ),
 				'token_url'           => Agend_Directory_Sync_Config::sanitize_url_setting( isset( $raw['token_url'] ) ? (string) $raw['token_url'] : '' ),
 				'client_id'           => sanitize_text_field( isset( $raw['client_id'] ) ? (string) $raw['client_id'] : '' ),
@@ -458,6 +471,156 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			} catch ( RuntimeException $e ) {
 				return false;
 			}
+		}
+
+		/**
+		 * The secondary filter fragment in force for this run: the saved
+		 * fragment, unless a caller overrides it through
+		 * SECONDARY_FILTER_HOOK. A non-string filter return is treated as
+		 * "no filter" rather than trusted.
+		 *
+		 * @param string $saved The fragment from the saved settings.
+		 */
+		public static function effective_secondary_filter( string $saved ): string {
+			$filtered = apply_filters( self::SECONDARY_FILTER_HOOK, $saved );
+
+			return is_string( $filtered ) ? trim( $filtered ) : '';
+		}
+
+		/**
+		 * Compose the secondary filter onto the main query without editing the
+		 * main query's own text.
+		 *
+		 * The fragment is parsed as its own document and imported as an
+		 * additional `<filter>` child of the query's top-level `<entity>`.
+		 * FetchXML combines sibling `<filter>` elements under an entity with
+		 * AND, so the saved query's own filters keep applying and the group
+		 * narrows the result on top of them. A fragment whose root is a bare
+		 * `<condition>` is wrapped in `<filter type="and">` first, so the
+		 * common one-condition case does not need the wrapper typed by hand.
+		 *
+		 * A blank fragment returns the query unchanged, byte for byte, so a
+		 * site that never configures a secondary filter sends exactly the
+		 * FetchXML it did before this existed.
+		 *
+		 * DOM-based like build_page_fetch_xml(), for the same reason: a
+		 * string splice on a query containing comments, CDATA or a quoted
+		 * `</entity>` would corrupt it; a DOM import cannot.
+		 *
+		 * @param string $fetch_xml Main FetchXML, variables already substituted.
+		 * @param string $fragment  `<filter>` (or `<condition>`) fragment,
+		 *                          variables already substituted; blank for none.
+		 *
+		 * @throws RuntimeException When either document will not parse, the
+		 *                          fragment's root is not `<filter>` or
+		 *                          `<condition>`, or the query has no
+		 *                          top-level `<entity>` to attach to.
+		 */
+		public static function inject_secondary_filter( string $fetch_xml, string $fragment ): string {
+			$fragment = trim( $fragment );
+
+			if ( '' === $fragment ) {
+				return $fetch_xml;
+			}
+
+			$root   = self::parse_fetch_element( $fetch_xml );
+			$entity = null;
+
+			foreach ( $root->childNodes as $child ) {
+				if ( $child instanceof DOMElement && 'entity' === strtolower( $child->nodeName ) ) {
+					$entity = $child;
+					break;
+				}
+			}
+
+			if ( null === $entity ) {
+				throw new RuntimeException( __( 'The FetchXML query has no <entity> element to attach the secondary filter to.', 'agend-directory-sync' ) );
+			}
+
+			$filter   = self::parse_filter_fragment( $fragment );
+			$imported = $root->ownerDocument->importNode( $filter, true );
+			$entity->appendChild( $imported );
+
+			return (string) $root->ownerDocument->saveXML( $root );
+		}
+
+		/**
+		 * Whether a secondary filter fragment parses as a `<filter>` or
+		 * `<condition>` element, for save-time validation. Same parser as the
+		 * run path, so the two can never disagree about what is valid.
+		 */
+		public static function is_valid_secondary_filter( string $fragment ): bool {
+			try {
+				self::parse_filter_fragment( $fragment );
+				return true;
+			} catch ( RuntimeException $e ) {
+				return false;
+			}
+		}
+
+		/**
+		 * Parse a secondary filter fragment into a `<filter>` element,
+		 * wrapping a bare `<condition>` root in `<filter type="and">`.
+		 *
+		 * @throws RuntimeException When the fragment is blank, will not
+		 *                          parse, or has some other root element.
+		 */
+		private static function parse_filter_fragment( string $fragment ): DOMElement {
+			$fragment = trim( $fragment );
+
+			if ( '' === $fragment ) {
+				throw new RuntimeException( __( 'The secondary filter is blank.', 'agend-directory-sync' ) );
+			}
+
+			if ( ! class_exists( 'DOMDocument' ) ) {
+				throw new RuntimeException( __( 'The Dataverse source needs the PHP DOM extension to apply a secondary filter.', 'agend-directory-sync' ) );
+			}
+
+			$previous = libxml_use_internal_errors( true );
+			libxml_clear_errors();
+
+			$doc                     = new DOMDocument();
+			$doc->preserveWhiteSpace = false;
+
+			$loaded = $doc->loadXML( $fragment, LIBXML_NONET );
+			$errors = libxml_get_errors();
+
+			libxml_clear_errors();
+			libxml_use_internal_errors( $previous );
+
+			if ( ! $loaded || ! $doc->documentElement instanceof DOMElement ) {
+				$first = ! empty( $errors ) ? trim( (string) $errors[0]->message ) : __( 'unknown parse error', 'agend-directory-sync' );
+
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the XML parser's error message. */
+						__( 'The secondary filter is not valid XML: %s', 'agend-directory-sync' ),
+						$first
+					)
+				);
+			}
+
+			$element = $doc->documentElement;
+			$name    = strtolower( $element->nodeName );
+
+			if ( 'condition' === $name ) {
+				$wrapper = $doc->createElement( 'filter' );
+				$wrapper->setAttribute( 'type', 'and' );
+				$wrapper->appendChild( $element );
+				return $wrapper;
+			}
+
+			if ( 'filter' !== $name ) {
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the root element name found instead of "filter". */
+						__( 'The secondary filter must be a <filter> or <condition> element; found <%s>.', 'agend-directory-sync' ),
+						$element->nodeName
+					)
+				);
+			}
+
+			return $element;
 		}
 
 		/**
@@ -779,12 +942,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				'tenant_id'       => __( 'Tenant ID', 'agend-directory-sync' ),
 				'client_id'       => __( 'Application (client) ID', 'agend-directory-sync' ),
 				'fetch_xml'       => __( 'FetchXML query', 'agend-directory-sync' ),
+				'secondary_filter' => __( 'Secondary filter', 'agend-directory-sync' ),
 			);
+
+			// A run-scoped override (the CLI flag) replaces the saved fragment
+			// before variable substitution, so a scripted filter can use the
+			// same {name} placeholders the saved one can.
+			$settings['secondary_filter'] = self::effective_secondary_filter( (string) $settings['secondary_filter'] );
 
 			foreach ( $templated as $key => $label ) {
 				$settings[ $key ] = Agend_Directory_Sync_Config::substitute_variables( (string) $settings[ $key ], $variables );
 				Agend_Directory_Sync_Config::assert_no_unresolved_placeholders( (string) $settings[ $key ], $label );
 			}
+
+			// The saved query is never edited: the secondary filter is composed
+			// onto it here, per run, so the same main query serves a full sync
+			// and a grouped one.
+			$settings['fetch_xml'] = self::inject_secondary_filter( $settings['fetch_xml'], $settings['secondary_filter'] );
 
 			foreach ( $settings['headers'] as $header_name => $header_value ) {
 				$header_value = Agend_Directory_Sync_Config::substitute_variables( $header_value, $variables );
@@ -1052,6 +1226,24 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			$probe = (string) preg_replace( '/\{[A-Za-z0-9_]+\}/', 'placeholder', $value );
 
 			return self::is_valid_fetch_xml( $probe ) ? $value : '';
+		}
+
+		/**
+		 * Same treatment for the secondary filter fragment: stored verbatim
+		 * when it parses as a `<filter>` or `<condition>` (placeholders
+		 * probed like the main query), dropped otherwise so a broken fragment
+		 * cannot fail every run.
+		 */
+		private static function sanitize_secondary_filter( string $value ): string {
+			$value = trim( $value );
+
+			if ( '' === $value ) {
+				return '';
+			}
+
+			$probe = (string) preg_replace( '/\{[A-Za-z0-9_]+\}/', 'placeholder', $value );
+
+			return self::is_valid_secondary_filter( $probe ) ? $value : '';
 		}
 
 		/**

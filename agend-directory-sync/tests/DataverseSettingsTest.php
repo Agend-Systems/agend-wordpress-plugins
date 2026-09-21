@@ -75,6 +75,54 @@ final class DataverseSettingsTest extends TestCase {
 	}
 
 	#[Test]
+	public function it_should_store_a_valid_secondary_filter_verbatim(): void {
+		$fragment = '<filter type="and"><condition attribute="pca_membergroup" operator="eq" value="Region North" /></filter>';
+
+		$settings = $this->sanitized( array( 'fetch_xml' => self::QUERY, 'secondary_filter' => "  $fragment\n" ) );
+
+		$this->assertSame( $fragment, $settings['secondary_filter'] );
+	}
+
+	#[Test]
+	public function it_should_store_a_bare_condition_as_the_secondary_filter(): void {
+		$fragment = '<condition attribute="pca_membergroup" operator="eq" value="Region North" />';
+
+		$settings = $this->sanitized( array( 'secondary_filter' => $fragment ) );
+
+		$this->assertSame( $fragment, $settings['secondary_filter'] );
+	}
+
+	#[Test]
+	public function it_should_drop_a_secondary_filter_that_will_not_parse(): void {
+		$settings = $this->sanitized( array( 'secondary_filter' => '<filter><condition attribute="a"' ) );
+
+		$this->assertSame( '', $settings['secondary_filter'] );
+	}
+
+	#[Test]
+	public function it_should_drop_a_secondary_filter_whose_root_is_not_a_filter(): void {
+		$settings = $this->sanitized( array( 'secondary_filter' => '<fetch><entity name="contact" /></fetch>' ) );
+
+		$this->assertSame( '', $settings['secondary_filter'] );
+	}
+
+	#[Test]
+	public function it_should_keep_a_secondary_filter_containing_connection_variables(): void {
+		$fragment = '<condition attribute="pca_membergroup" operator="eq" value="{group}" />';
+
+		$settings = $this->sanitized( array( 'secondary_filter' => $fragment ) );
+
+		$this->assertSame( $fragment, $settings['secondary_filter'] );
+	}
+
+	#[Test]
+	public function it_should_default_the_secondary_filter_blank_for_an_option_saved_before_it_existed(): void {
+		$settings = $this->sanitized( array( 'fetch_xml' => self::QUERY ) );
+
+		$this->assertSame( '', $settings['secondary_filter'] );
+	}
+
+	#[Test]
 	public function it_should_drop_an_environment_url_that_is_not_https(): void {
 		$settings = $this->sanitized( array( 'environment_url' => 'ftp://org.crm6.dynamics.com' ) );
 

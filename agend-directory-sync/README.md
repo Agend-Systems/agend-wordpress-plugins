@@ -183,6 +183,24 @@ the page window is a setting rather than a hand-edit of the query.
   Include an `<order>` on a stable column. Paging a query with no
   deterministic order can return the same row on two pages and miss
   another entirely.
+- **Secondary filter (grouped sync)** — an optional FetchXML `<filter>`
+  element (or a single `<condition>`, which is wrapped in
+  `<filter type="and">` for you) applied on top of the query at fetch
+  time. It is added as another `<filter>` under the query's `<entity>`, and
+  FetchXML combines sibling filters with AND, so the main query's own
+  filters keep applying and this one narrows the result to one group. The
+  saved query is never edited; leave the filter blank to sync everything
+  the main query returns. Must be valid XML or it is not saved; connection
+  variables (`{name}`) are substituted at run time. Run source fetch,
+  Preview transform and Send to Agend all honour it, and the FetchXML shown
+  by Run source fetch includes it. See Grouped uploads below for scripting
+  one group at a time.
+
+  ```xml
+  <filter type="and">
+    <condition attribute="pca_membergroup" operator="eq" value="Region North" />
+  </filter>
+  ```
 - **Page size** — the `count` attribute, 1-5000 (Dataverse rejects more).
 - **Start page** and **Max pages** — the window this run fetches. Start
   page 3 with max pages 1 fetches page 3 alone, which is how you re-run a
@@ -379,6 +397,26 @@ wp agend-directory-sync run --max=50 --dry-run
 - `--max=<n>` caps the rows processed this run (after fetch, before
   transform). Omit or `0` for all rows.
 - `--dry-run` fetches and transforms only; nothing is POSTed.
+- `--secondary-filter=<fetchxml>` (Microsoft Dataverse source only)
+  replaces the saved secondary filter for this run with the given
+  `<filter>` or `<condition>` fragment. Pass an empty value to run
+  unfiltered on a site whose saved settings carry a filter. The saved
+  query and saved filter are not changed.
+
+### Grouped uploads
+
+To upload a directory one group at a time (for example, one Dataverse
+custom-field value per run), keep the main FetchXML query as the full
+directory and script the group as the secondary filter:
+
+```bash
+for group in "Region North" "Region South"; do
+  wp agend-directory-sync run --secondary-filter="<condition attribute=\"pca_membergroup\" operator=\"eq\" value=\"$group\" />"
+done
+```
+
+Each run upserts only the listings the composed query returns; listings
+outside the group are left as they are.
 
 Add a crontab entry that changes into the WordPress root and runs the
 command. Example, every 30 minutes, logging to a file:
