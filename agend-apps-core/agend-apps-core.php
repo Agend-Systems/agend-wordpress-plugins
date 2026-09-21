@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.16.2
+ * Version:           1.18.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.16.2' );
+define( 'AGEND_APPS_CORE_VERSION', '1.18.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -118,6 +118,24 @@ agend_apps_updater_boot();
 
 register_activation_hook( __FILE__, 'agend_apps_records_activate_rewrites' );
 register_deactivation_hook( __FILE__, 'agend_apps_records_deactivate_rewrites' );
+
+// WP-CLI commands: CLI-only, never reachable from a web request, because
+// `wp agend-apps scrub-secrets` deletes stored credentials outright -- a
+// destructive action that must never be triggerable by anything a browser
+// request could reach. Loaded and registered here, next to the other
+// conditional requires, rather than inside `agend_apps_core_bootstrap()`,
+// since `wp-cli.php` may run commands before `plugins_loaded` in some
+// contexts and this registration has no dependency on anything that hook
+// loads.
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-secret-store.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/connect-site.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cli.php';
+	// WP-CLI maps this class's public methods to subcommands by name
+	// (underscore to hyphen), so `scrub_secrets()` becomes `wp agend-apps
+	// scrub-secrets` with no further registration needed.
+	WP_CLI::add_command( 'agend-apps', 'Agend_Apps_CLI' );
+}
 
 /**
  * Loads all plugin includes and initialises the admin controller.
@@ -258,14 +276,26 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sites.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sso.php';
 
-	// WordPress-as-IdP identity link step (docs/PLAN-wordpress-idp-option-b.md
-	// section 4.2): only relevant, and only loaded, when this site is in
-	// `wordpress` sign-in mode. It calls agend_apps_sso_link_identity() /
-	// agend_apps_sso_get_link_status() above, so this require comes after
-	// them, mirroring the credential-login block's ordering relative to its
-	// own api/auth.php dependency further down this function.
+	// "Connect this site" (the IdP SP registration + gateway connection
+	// action): loaded unconditionally, unlike the wp-idp-link.php/
+	// wp-idp-saml-link.php require below, because the admin page must be able
+	// to explain itself (missing scopes, an old IdP plugin, the wrong
+	// sign-in mode) in every sign-in mode. Required here, after api/sso.php
+	// and identity.php/class-agend-apps-key-scopes.php above, since its
+	// functions call into all three. wp-idp-saml-link.php's approval-state
+	// gate (agend_apps_saml_link_eligibility()) reads agend_apps_connect_stored()
+	// via a function_exists() guard, so this must load before that file too.
+	require_once AGEND_APPS_CORE_DIR . 'includes/connect-site.php';
+
+	// WordPress-as-IdP identity link state, and the SAML round trip that
+	// writes it: only relevant, and only loaded, when this site is in
+	// `wordpress` sign-in mode. wp-idp-saml-link.php calls
+	// agend_apps_sso_get_link_status() above (account-link-state.php does
+	// too) and reuses wp-idp-link.php's state helpers, so both requires come
+	// after it and in this order.
 	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
 		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-link.php';
+		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-saml-link.php';
 	}
 
 	// WordPress-IdP diagnostics (docs/PLAN-wordpress-idp-option-b.md section
@@ -288,6 +318,14 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
+
+	// Identity-link routes only exist in `wordpress` sign-in mode: the
+	// callback they register (agend_apps_saml_link_issue_url()) lives in
+	// includes/wp-idp-saml-link.php, which is itself only required above
+	// when Agend_Apps_Settings::wordpress_idp_enabled() is true.
+	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		require_once AGEND_APPS_CORE_DIR . 'includes/rest/identity-link-routes.php';
+	}
 
 	// WooCommerce My Account "Directory" endpoint. Loaded unconditionally like
 	// the routes above; every hook it registers checks
@@ -353,6 +391,10 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
+
+	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		agend_apps_register_identity_link_routes();
+	}
 
 	if ( Agend_Apps_Settings::credential_login_enabled() ) {
 		agend_apps_register_auth_routes();
