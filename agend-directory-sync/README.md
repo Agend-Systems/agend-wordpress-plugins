@@ -301,6 +301,12 @@ are sensitive, so map them only when the directory should publish them.
 
 ## Actions
 
+The actions and the most recent result sit at the top of the Tools > Agend
+Directory Sync page, above the settings form. Each result's raw-data and
+transformed-listing windows are collapsible: they open on the page load that
+follows the action that produced them and stay collapsed on any later visit,
+so a page carrying an old result stays scannable.
+
 - **Run Upbeat fetch** - calls Upbeat and dumps the raw first 10 rows.
   Useful for verifying the source shape and confirming the source field
   names to map.
