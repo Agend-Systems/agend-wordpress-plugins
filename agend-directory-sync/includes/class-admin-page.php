@@ -38,6 +38,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		public const NONCE_ACTION_SETTINGS = 'agend_directory_sync_save_settings';
 		public const NONCE_ACTION_FETCH    = 'agend_directory_sync_run_sync';
 		public const NONCE_ACTION_PREVIEW  = 'agend_directory_sync_preview_transform';
+
+		/**
+		 * The secondary filter saves on its own action rather than with the
+		 * connection settings: it moved out of that form and into its own
+		 * card beside the actions it narrows.
+		 */
+		public const NONCE_ACTION_SECONDARY_FILTER = 'agend_directory_sync_save_secondary_filter';
 		/**
 		 * Retained as the action name the job endpoints nonce against; the
 		 * synchronous send handler it used to guard is gone. Uploading now runs
@@ -87,6 +94,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			add_action( 'admin_post_agend_directory_sync_save_settings', array( __CLASS__, 'handle_save_settings' ) );
 			add_action( 'admin_post_agend_directory_sync_run_sync', array( __CLASS__, 'handle_run_fetch' ) );
 			add_action( 'admin_post_agend_directory_sync_preview_transform', array( __CLASS__, 'handle_preview_transform' ) );
+			add_action( 'admin_post_agend_directory_sync_save_secondary_filter', array( __CLASS__, 'handle_save_secondary_filter' ) );
 		}
 
 		public static function register_menu(): void {
@@ -143,6 +151,18 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				Agend_Directory_Sync_Http_Api_Source::sanitize_settings( $raw_http_api )
 			);
 
+			// The secondary filter's fields live in their own card with their own
+			// save action, so this form posts none of them. Carrying the saved
+			// values through means sanitize_settings() does not read them as
+			// absent and reset a configured group filter to nothing, which is
+			// what saving an unrelated connection change would otherwise do.
+			if ( method_exists( 'Agend_Directory_Sync_Dataverse_Source', 'carry_secondary_filter' ) ) {
+				$raw_dataverse = Agend_Directory_Sync_Dataverse_Source::carry_secondary_filter(
+					$raw_dataverse,
+					(array) get_option( Agend_Directory_Sync::OPTION_DATAVERSE, array() )
+				);
+			}
+
 			update_option(
 				Agend_Directory_Sync::OPTION_DATAVERSE,
 				Agend_Directory_Sync_Dataverse_Source::sanitize_settings( $raw_dataverse )
@@ -190,6 +210,37 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_locations, $raw_flags );
 
 			wp_safe_redirect( self::redirect_url( array( 'saved' => '1' ) ) );
+			exit;
+		}
+
+		/**
+		 * Save the secondary filter on its own, without touching a single
+		 * connection setting.
+		 *
+		 * The filter's card renders none of the connection fields, so handing
+		 * the whole posted array to sanitize_settings() here would blank the
+		 * environment URL and the FetchXML query every time somebody saved a
+		 * filter. Only the filter's own keys are sanitised, and they are
+		 * merged over the stored option.
+		 */
+		public static function handle_save_secondary_filter(): void {
+			self::assert_can();
+			check_admin_referer( self::NONCE_ACTION_SECONDARY_FILTER );
+
+			// The FetchXML fragment is XML and must survive wp_unslash() without
+			// further filtering; the source's sanitiser validates it as XML.
+			$raw_dataverse = isset( $_POST['agend_dataverse'] ) && is_array( $_POST['agend_dataverse'] )
+				? wp_unslash( $_POST['agend_dataverse'] )
+				: array();
+
+			$filter = Agend_Directory_Sync_Dataverse_Source::sanitize_secondary_filter_input( $raw_dataverse );
+
+			update_option(
+				Agend_Directory_Sync::OPTION_DATAVERSE,
+				array_merge( (array) get_option( Agend_Directory_Sync::OPTION_DATAVERSE, array() ), $filter )
+			);
+
+			wp_safe_redirect( self::redirect_url( array( 'filter_saved' => '1' ) ) );
 			exit;
 		}
 
@@ -331,6 +382,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					</div>
 				<?php endif; ?>
 
+				<?php if ( isset( $_GET['filter_saved'] ) ) : ?>
+					<div class="notice notice-success is-dismissible">
+						<p><?php esc_html_e( 'Secondary filter saved. Fetch and sync will use it from now on.', 'agend-directory-sync' ); ?></p>
+					</div>
+				<?php endif; ?>
+
 				<h2><?php esc_html_e( 'Manual sync', 'agend-directory-sync' ); ?></h2>
 				<p>
 					<?php esc_html_e( 'Use "Preview transform" to inspect the mapped payload before pushing live data. Use the "Max records" field to start small while verifying. The most recent result appears below these actions; connection and mapping settings are further down the page.', 'agend-directory-sync' ); ?>
@@ -399,6 +456,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						><?php esc_html_e( 'Send to Agend', 'agend-directory-sync' ); ?></button>
 					</p>
 				</div>
+
+				<?php self::render_secondary_filter_panel( $dataverse, $active_source_key ); ?>
 
 				<?php self::render_job_panel(); ?>
 
@@ -1119,173 +1178,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									</tbody>
 								</table>
 
-								<?php
-								// Defensive reads: the source-layer settings resolver may not
-								// yet return these keys on an install mid-upgrade, or an
-								// option row saved before this feature existed.
-								$secondary_mode_raw    = defined( 'Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW' ) ? Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW : 'raw';
-								$secondary_mode_guided = defined( 'Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_GUIDED' ) ? Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_GUIDED : 'guided';
-
-								$secondary_filter_mode       = (string) ( $dataverse['secondary_filter_mode'] ?? $secondary_mode_raw );
-								$secondary_filter_field      = (string) ( $dataverse['secondary_filter_field'] ?? '' );
-								$secondary_filter_field_type = (string) ( $dataverse['secondary_filter_field_type'] ?? '' );
-								$secondary_filter_values     = is_array( $dataverse['secondary_filter_values'] ?? null ) ? $dataverse['secondary_filter_values'] : array();
-
-								$secondary_filter_value_labels = array();
-								foreach ( $secondary_filter_values as $secondary_filter_value ) {
-									$secondary_filter_value_raw   = (string) ( $secondary_filter_value['value'] ?? '' );
-									$secondary_filter_value_label = (string) ( $secondary_filter_value['label'] ?? '' );
-									if ( '' !== $secondary_filter_value_raw ) {
-										$secondary_filter_value_labels[ $secondary_filter_value_raw ] = $secondary_filter_value_label;
-									}
-								}
-
-								$secondary_filter_resolved_fragment = '';
-								if ( method_exists( 'Agend_Directory_Sync_Dataverse_Source', 'resolve_secondary_filter_fragment' ) ) {
-									$secondary_filter_resolved_fragment = (string) Agend_Directory_Sync_Dataverse_Source::resolve_secondary_filter_fragment( $dataverse );
-								}
-								?>
-								<h3><?php esc_html_e( 'Secondary filter (grouped sync)', 'agend-directory-sync' ); ?></h3>
-								<p class="description">
-									<?php esc_html_e( 'An extra filter applied on top of the query above at fetch time, so one sync run can target one group of records (for example, everyone with a given value in a custom field) without editing the main query. Guided mode: name the field\'s logical name, press Load values, and pick which values count as "in the group" by their label. Advanced mode: write the FetchXML <filter> fragment yourself. Leave it unconfigured (guided: no field, advanced: blank textarea) to sync everything the main query returns. Run source fetch, Preview transform and Send to Agend all honour it, and the WP-CLI command can override it per run, either with --secondary-filter or with the guided --secondary-filter-field / --secondary-filter-values pair.', 'agend-directory-sync' ); ?>
-								</p>
-								<table class="form-table" role="presentation">
-									<tbody>
-										<tr>
-											<th scope="row">
-												<label for="agend_dataverse_secondary_filter_mode"><?php esc_html_e( 'Mode', 'agend-directory-sync' ); ?></label>
-											</th>
-											<td>
-												<select name="agend_dataverse[secondary_filter_mode]" id="agend_dataverse_secondary_filter_mode">
-													<option value="<?php echo esc_attr( $secondary_mode_guided ); ?>" <?php selected( $secondary_filter_mode, $secondary_mode_guided ); ?>><?php esc_html_e( 'Pick values by label', 'agend-directory-sync' ); ?></option>
-													<option value="<?php echo esc_attr( $secondary_mode_raw ); ?>" <?php selected( $secondary_filter_mode, $secondary_mode_raw ); ?>><?php esc_html_e( 'Write the FetchXML filter myself', 'agend-directory-sync' ); ?></option>
-												</select>
-												<p class="description">
-													<?php esc_html_e( '"Pick values by label" looks up the field\'s possible values so you can choose them by name. "Write the FetchXML filter myself" is the advanced raw fragment below.', 'agend-directory-sync' ); ?>
-												</p>
-											</td>
-										</tr>
-										<tr
-											data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
-											style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
-										>
-											<th scope="row">
-												<label for="agend_dataverse_secondary_filter_field"><?php esc_html_e( 'Field', 'agend-directory-sync' ); ?></label>
-											</th>
-											<td>
-												<input
-													name="agend_dataverse[secondary_filter_field]"
-													id="agend_dataverse_secondary_filter_field"
-													type="text"
-													class="regular-text code"
-													value="<?php echo esc_attr( $secondary_filter_field ); ?>"
-													placeholder="pca_membergroup"
-													autocomplete="off"
-												/>
-												<p class="description">
-													<?php esc_html_e( 'The field\'s logical name as it appears in Dataverse, not its display label. It must belong to the entity the main query selects from.', 'agend-directory-sync' ); ?>
-												</p>
-											</td>
-										</tr>
-										<tr
-											data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
-											style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
-										>
-											<th scope="row"><?php esc_html_e( 'Values', 'agend-directory-sync' ); ?></th>
-											<td>
-												<p>
-													<button type="button" class="button" id="agend-dsf-load"><?php esc_html_e( 'Load values', 'agend-directory-sync' ); ?></button>
-													<button type="button" class="button" id="agend-dsf-refresh"><?php esc_html_e( 'Refresh', 'agend-directory-sync' ); ?></button>
-													<span id="agend-dsf-status" class="description"></span>
-												</p>
-												<p class="description">
-													<?php esc_html_e( 'Load values reads from a short-lived cache when available. Refresh re-reads from Dataverse, ignoring that cache.', 'agend-directory-sync' ); ?>
-												</p>
-												<p id="agend-dsf-search-wrap" style="display:none;">
-													<input
-														type="search"
-														id="agend-dsf-search"
-														class="regular-text"
-														placeholder="<?php echo esc_attr__( 'Search values', 'agend-directory-sync' ); ?>"
-													/>
-													<button type="button" class="button" id="agend-dsf-search-go"><?php esc_html_e( 'Search', 'agend-directory-sync' ); ?></button>
-												</p>
-												<select
-													multiple
-													name="agend_dataverse[secondary_filter_values][]"
-													id="agend-dsf-values"
-													size="8"
-													class="large-text"
-												>
-													<?php foreach ( $secondary_filter_values as $secondary_filter_value ) : ?>
-														<?php
-														$secondary_filter_value_raw   = (string) ( $secondary_filter_value['value'] ?? '' );
-														$secondary_filter_value_label = (string) ( $secondary_filter_value['label'] ?? '' );
-														if ( '' === $secondary_filter_value_raw ) {
-															continue;
-														}
-														?>
-														<option value="<?php echo esc_attr( $secondary_filter_value_raw ); ?>" selected>
-															<?php echo esc_html( '' !== $secondary_filter_value_label ? $secondary_filter_value_label . ' (' . $secondary_filter_value_raw . ')' : $secondary_filter_value_raw ); ?>
-														</option>
-													<?php endforeach; ?>
-												</select>
-												<input
-													type="hidden"
-													name="agend_dataverse[secondary_filter_field_type]"
-													id="agend-dsf-field-type"
-													value="<?php echo esc_attr( $secondary_filter_field_type ); ?>"
-												/>
-												<input
-													type="hidden"
-													name="agend_dataverse[secondary_filter_value_labels]"
-													id="agend-dsf-value-labels"
-													value="<?php echo esc_attr( (string) wp_json_encode( (object) $secondary_filter_value_labels ) ); ?>"
-												/>
-												<p class="description">
-													<?php esc_html_e( 'A value already selected is kept even before Load values is pressed, so a saved choice survives a page reload.', 'agend-directory-sync' ); ?>
-												</p>
-											</td>
-										</tr>
-										<tr
-											data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
-											style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
-										>
-											<th scope="row">
-												<label for="agend-dsf-fragment"><?php esc_html_e( 'Resolved filter', 'agend-directory-sync' ); ?></label>
-											</th>
-											<td>
-												<textarea id="agend-dsf-fragment" readonly rows="3" class="large-text code"><?php echo esc_textarea( $secondary_filter_resolved_fragment ); ?></textarea>
-												<p class="description">
-													<?php esc_html_e( 'The FetchXML fragment generated from the field and values chosen above. Shown for reference; it is not saved separately, only the field, values and their labels are.', 'agend-directory-sync' ); ?>
-												</p>
-											</td>
-										</tr>
-										<tr
-											data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_raw ); ?>"
-											style="<?php echo esc_attr( $secondary_mode_raw === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
-										>
-											<th scope="row">
-												<label for="agend_dataverse_secondary_filter"><?php esc_html_e( 'Secondary filter', 'agend-directory-sync' ); ?></label>
-											</th>
-											<td>
-												<textarea
-													name="agend_dataverse[secondary_filter]"
-													id="agend_dataverse_secondary_filter"
-													rows="4"
-													class="large-text code"
-													spellcheck="false"
-												><?php echo esc_textarea( $dataverse['secondary_filter'] ); ?></textarea>
-												<p class="description">
-													<?php esc_html_e( 'A <filter> element (or a single <condition>, which is wrapped for you). It is added as another filter under the query\'s <entity>, so it combines with the main query\'s own filters using AND. Must be valid XML or it is not saved. Connection variables ({name}) are substituted at run time.', 'agend-directory-sync' ); ?>
-												</p>
-												<p class="description">
-													<code>&lt;filter type="and"&gt;&lt;condition attribute="pca_membergroup" operator="eq" value="Region North" /&gt;&lt;/filter&gt;</code>
-												</p>
-											</td>
-										</tr>
-									</tbody>
-								</table>
 							<?php endif; ?>
 						</div>
 					<?php endforeach; ?>
@@ -1540,7 +1432,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						bindModeRows('agend_dataverse_secondary_filter_mode', 'data-agend-secondary-mode');
 
 						// Dataverse guided secondary filter: look up a field's possible
-						// values by label (Load values / Refresh), let the admin pick by
+						// values by label (Load values), let the admin pick by
 						// label, and show the FetchXML fragment the plugin will actually
 						// send. The fragment itself is always built server-side (the
 						// filter preview action below), never duplicated in JavaScript.
@@ -1556,7 +1448,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									'none'       => __( 'No values found.', 'agend-directory-sync' ),
 									'failed'     => __( 'Failed: %1$s', 'agend-directory-sync' ),
 									'moreNotice' => __( 'Showing the first %1$s. Search for more.', 'agend-directory-sync' ),
+									'cachedJust' => __( 'Cached less than a minute ago.', 'agend-directory-sync' ),
+									// Both forms are passed through so the script can pick
+									// one: a plural cannot be assembled in JavaScript.
+									'cachedOne'  => __( 'Cached %1$s minute ago.', 'agend-directory-sync' ),
+									'cachedMany' => __( 'Cached %1$s minutes ago.', 'agend-directory-sync' ),
+									'dirty'      => __( 'Unsaved changes.', 'agend-directory-sync' ),
 								),
+								// The filter as it is actually saved. The script compares the
+								// live controls against this to tell an unsaved edit from a
+								// page that simply reflects what the next run will do.
+								'saved'   => self::secondary_filter_saved_snapshot( $dataverse ),
 								// Where the values came from, in words. The endpoint
 								// answers with its own tokens (in_use, metadata); an
 								// operator reading the status line should not have to
@@ -1572,7 +1474,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						(function () {
 							var fieldInput   = document.getElementById('agend_dataverse_secondary_filter_field');
 							var loadBtn      = document.getElementById('agend-dsf-load');
-							var refreshBtn   = document.getElementById('agend-dsf-refresh');
+							var reloadLink   = document.getElementById('agend-dsf-reload');
+							var dirtyEl      = document.getElementById('agend-dsf-dirty-state');
+							var rawInput     = document.getElementById('agend_dataverse_secondary_filter');
+							var modeSelect   = document.getElementById('agend_dataverse_secondary_filter_mode');
 							var statusEl     = document.getElementById('agend-dsf-status');
 							var searchWrap   = document.getElementById('agend-dsf-search-wrap');
 							var searchInput  = document.getElementById('agend-dsf-search');
@@ -1699,6 +1604,64 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								});
 							}
 
+							// Whole minutes, with the plural chosen from the two forms the
+							// config carries. An unknown age (a list cached before the
+							// stamp existed) reports as recent rather than as an epoch.
+							function dsfCacheAge(seconds) {
+								var mins = Math.floor((Number(seconds) || 0) / 60);
+								if (mins < 1) { return agendDsfConfig.strings.cachedJust; }
+								return dsfFormat(mins === 1 ? agendDsfConfig.strings.cachedOne : agendDsfConfig.strings.cachedMany, [String(mins)]);
+							}
+
+							// The three action buttons run against the saved filter, so an
+							// unsaved edit makes them misleading rather than merely stale.
+							// A button already disabled server-side, because the source is
+							// unavailable, must stay that way: record that once and never
+							// enable it here.
+							var actionButtons = [];
+							(function () {
+								var container = document.getElementById('agend-directory-sync-actions');
+								var sendBtn = document.getElementById('agend-directory-sync-send');
+								var found = container ? container.querySelectorAll('input[type=submit], button') : [];
+								Array.prototype.forEach.call(found, function (el) {
+									actionButtons.push({ el: el, lockedByServer: !!el.disabled });
+								});
+								if (sendBtn && found.length === 0) {
+									actionButtons.push({ el: sendBtn, lockedByServer: !!sendBtn.disabled });
+								}
+							})();
+
+							function dsfSetActionsDisabled(disabled) {
+								actionButtons.forEach(function (entry) {
+									entry.el.disabled = entry.lockedByServer ? true : disabled;
+								});
+							}
+
+							function dsfSameValues(a, b) {
+								if (a.length !== b.length) { return false; }
+								var x = a.slice().sort();
+								var y = b.slice().sort();
+								for (var i = 0; i < x.length; i++) {
+									if (String(x[i]) !== String(y[i])) { return false; }
+								}
+								return true;
+							}
+
+							function dsfIsDirty() {
+								var saved = agendDsfConfig.saved || {};
+								if (modeSelect && String(modeSelect.value) !== String(saved.mode || '')) { return true; }
+								if (String(fieldInput.value).trim() !== String(saved.field || '')) { return true; }
+								if (String(fieldTypeEl.value) !== String(saved.fieldType || '')) { return true; }
+								if (rawInput && String(rawInput.value).trim() !== String(saved.raw || '')) { return true; }
+								return !dsfSameValues(dsfSelectedValues(), (saved.values || []).map(String));
+							}
+
+							function dsfSyncDirtyState() {
+								var dirty = dsfIsDirty();
+								if (dirtyEl) { dirtyEl.style.display = dirty ? '' : 'none'; }
+								dsfSetActionsDisabled(dirty);
+							}
+
 							function dsfLoadValues(opts) {
 								opts = opts || {};
 								var field = fieldInput.value.trim();
@@ -1732,7 +1695,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									if (data.has_more) {
 										statusEl.textContent += ' ' + dsfFormat(agendDsfConfig.strings.moreNotice, [String(data.options.length)]);
 									}
+									// A cached answer says how old it is and offers the one
+									// way to go behind the cache. A fresh answer needs neither.
+									if (data.from_cache) {
+										statusEl.textContent += ' ' + dsfCacheAge(data.cache_age);
+										if (reloadLink) { reloadLink.style.display = ''; }
+									} else if (reloadLink) {
+										reloadLink.style.display = 'none';
+									}
 									dsfRefreshFragment();
+									dsfSyncDirtyState();
 								}).catch(function (e) {
 									statusEl.textContent = dsfFormat(agendDsfConfig.strings.failed, [String(e)]);
 								});
@@ -1741,8 +1713,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							if (loadBtn) {
 								loadBtn.addEventListener('click', function () { dsfLoadValues({}); });
 							}
-							if (refreshBtn) {
-								refreshBtn.addEventListener('click', function () { dsfLoadValues({ refresh: true }); });
+							if (reloadLink) {
+								reloadLink.addEventListener('click', function (e) {
+									e.preventDefault();
+									dsfLoadValues({ refresh: true, search: searchInput ? searchInput.value : '' });
+								});
 							}
 							if (searchGoBtn) {
 								searchGoBtn.addEventListener('click', function () {
@@ -1760,11 +1735,24 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							fieldInput.addEventListener('change', function () {
 								dsfUpdateLabelsMap();
 								dsfRefreshFragment();
+								dsfSyncDirtyState();
 							});
+							fieldInput.addEventListener('input', dsfSyncDirtyState);
 							valuesSelect.addEventListener('change', function () {
 								dsfUpdateLabelsMap();
 								dsfRefreshFragment();
+								dsfSyncDirtyState();
 							});
+							if (modeSelect) {
+								modeSelect.addEventListener('change', dsfSyncDirtyState);
+							}
+							if (rawInput) {
+								rawInput.addEventListener('input', dsfSyncDirtyState);
+								rawInput.addEventListener('change', dsfSyncDirtyState);
+							}
+
+							// The page loads reflecting the saved filter, so it starts clean.
+							dsfSyncDirtyState();
 						})();
 						<?php endif; ?>
 
@@ -1936,6 +1924,281 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						}
 					})();
 				</script>
+			</div>
+			<?php
+		}
+
+		/**
+		 * The saved secondary filter, reduced to the shape the page script
+		 * compares against.
+		 *
+		 * The script needs to tell "these controls reflect what is saved" from
+		 * "somebody has edited this and not saved it yet", and the panel's own
+		 * locals are out of scope by the time the script block renders. Reading
+		 * it from the resolved settings keeps one source of truth.
+		 *
+		 * @param array<string, mixed> $dataverse Resolved Dataverse settings.
+		 *
+		 * @return array<string, mixed>
+		 */
+		private static function secondary_filter_saved_snapshot( array $dataverse ): array {
+			$mode_raw = defined( 'Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW' )
+				? Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW
+				: 'raw';
+
+			$values = is_array( $dataverse['secondary_filter_values'] ?? null ) ? $dataverse['secondary_filter_values'] : array();
+			$raw_values = array();
+			foreach ( $values as $value ) {
+				$raw_value = is_array( $value ) ? (string) ( $value['value'] ?? '' ) : (string) $value;
+				if ( '' !== $raw_value ) {
+					$raw_values[] = $raw_value;
+				}
+			}
+
+			return array(
+				'mode'      => (string) ( $dataverse['secondary_filter_mode'] ?? $mode_raw ),
+				'field'     => (string) ( $dataverse['secondary_filter_field'] ?? '' ),
+				'fieldType' => (string) ( $dataverse['secondary_filter_field_type'] ?? '' ),
+				'values'    => $raw_values,
+				'raw'       => trim( (string) ( $dataverse['secondary_filter'] ?? '' ) ),
+			);
+		}
+
+		/**
+		 * The secondary filter, as its own card in the Manual sync flow.
+		 *
+		 * It used to sit at the foot of the Dataverse connection settings,
+		 * which read as though it were part of connecting to the environment
+		 * rather than part of the run it narrows. It belongs beside the
+		 * actions it changes, so it renders directly under them.
+		 *
+		 * That move takes it out of the settings form, so it carries its own
+		 * save action: the three actions below read the SAVED filter, and an
+		 * edit left unsaved on screen changes nothing about what they do.
+		 * The panel says so, and the page script disables the actions while
+		 * an unsaved edit is pending rather than letting an operator sync on
+		 * a filter they only think is applied.
+		 *
+		 * Rendered only for a saved active source of Dataverse, since that is
+		 * the source the next fetch or sync will actually use.
+		 *
+		 * @param array<string, mixed> $dataverse         Resolved Dataverse settings.
+		 * @param string               $active_source_key Saved active source key.
+		 */
+		private static function render_secondary_filter_panel( array $dataverse, string $active_source_key ): void {
+			if ( Agend_Directory_Sync_Dataverse_Source::SOURCE_KEY !== $active_source_key ) {
+				return;
+			}
+
+			$action_url = esc_url( admin_url( 'admin-post.php' ) );
+
+			// Defensive reads: the source-layer settings resolver may not
+			// yet return these keys on an install mid-upgrade, or an
+			// option row saved before this feature existed.
+			$secondary_mode_raw    = defined( 'Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW' ) ? Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW : 'raw';
+			$secondary_mode_guided = defined( 'Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_GUIDED' ) ? Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_GUIDED : 'guided';
+
+			$secondary_filter_mode       = (string) ( $dataverse['secondary_filter_mode'] ?? $secondary_mode_raw );
+			$secondary_filter_field      = (string) ( $dataverse['secondary_filter_field'] ?? '' );
+			$secondary_filter_field_type = (string) ( $dataverse['secondary_filter_field_type'] ?? '' );
+			$secondary_filter_values     = is_array( $dataverse['secondary_filter_values'] ?? null ) ? $dataverse['secondary_filter_values'] : array();
+
+			$secondary_filter_value_labels = array();
+			foreach ( $secondary_filter_values as $secondary_filter_value ) {
+				$secondary_filter_value_raw   = (string) ( $secondary_filter_value['value'] ?? '' );
+				$secondary_filter_value_label = (string) ( $secondary_filter_value['label'] ?? '' );
+				if ( '' !== $secondary_filter_value_raw ) {
+					$secondary_filter_value_labels[ $secondary_filter_value_raw ] = $secondary_filter_value_label;
+				}
+			}
+
+			$secondary_filter_resolved_fragment = '';
+			if ( method_exists( 'Agend_Directory_Sync_Dataverse_Source', 'resolve_secondary_filter_fragment' ) ) {
+				$secondary_filter_resolved_fragment = (string) Agend_Directory_Sync_Dataverse_Source::resolve_secondary_filter_fragment( $dataverse );
+			}
+
+			// The saved state in words, so the operator can tell at a glance what
+			// the next run will do without reading the fragment.
+			$saved_description = '';
+			if ( method_exists( 'Agend_Directory_Sync_Dataverse_Source', 'describe_secondary_filter' ) ) {
+				$saved_description = (string) Agend_Directory_Sync_Dataverse_Source::describe_secondary_filter( $dataverse );
+			}
+
+			$saved_raw_fragment = trim( (string) ( $dataverse['secondary_filter'] ?? '' ) );
+
+			if ( '' !== $saved_description ) {
+				$saved_state_line = sprintf(
+					/* translators: %s: the saved filter in words, naming the field and the chosen labels. */
+					__( 'Saved filter: %s.', 'agend-directory-sync' ),
+					$saved_description
+				);
+			} elseif ( $secondary_mode_raw === $secondary_filter_mode && '' !== $saved_raw_fragment ) {
+				$saved_state_line = __( 'Saved filter: an advanced FetchXML fragment.', 'agend-directory-sync' );
+			} else {
+				$saved_state_line = __( 'No saved filter. Every record the main query returns will sync.', 'agend-directory-sync' );
+			}
+			?>
+			<div class="card" style="max-width:780px;margin-top:1.5em;">
+				<h3 style="margin-top:0;"><?php esc_html_e( 'Secondary filter (grouped sync)', 'agend-directory-sync' ); ?></h3>
+
+				<p class="description">
+					<?php esc_html_e( 'An extra filter applied on top of the FetchXML query in the settings below, at fetch time, so one sync run can target one group of records without editing that query. It combines with the query\'s own filters using AND, and the saved query is never edited. Leave it unconfigured to sync everything the main query returns. Guided mode: name the field\'s logical name, load its values, and pick which ones count as "in the group" by their label. Advanced mode: write the FetchXML <filter> fragment yourself.', 'agend-directory-sync' ); ?>
+				</p>
+
+				<p class="description">
+					<strong><?php esc_html_e( 'Run source fetch, Preview transform and Send to Agend all use the saved filter, not whatever is on screen. Save the filter before running them.', 'agend-directory-sync' ); ?></strong>
+				</p>
+
+				<p id="agend-dsf-saved-state"><?php echo esc_html( $saved_state_line ); ?></p>
+
+				<p id="agend-dsf-dirty-state" class="notice notice-warning inline" style="display:none;">
+					<?php esc_html_e( 'Unsaved changes. Save the filter to apply it to fetch and sync. The actions above are disabled until you save, or reload the page to discard these edits.', 'agend-directory-sync' ); ?>
+				</p>
+
+				<form method="post" action="<?php echo $action_url; ?>">
+					<input type="hidden" name="action" value="agend_directory_sync_save_secondary_filter" />
+					<?php wp_nonce_field( self::NONCE_ACTION_SECONDARY_FILTER ); ?>
+
+				<table class="form-table" role="presentation">
+					<tbody>
+						<tr>
+							<th scope="row">
+								<label for="agend_dataverse_secondary_filter_mode"><?php esc_html_e( 'Mode', 'agend-directory-sync' ); ?></label>
+							</th>
+							<td>
+								<select name="agend_dataverse[secondary_filter_mode]" id="agend_dataverse_secondary_filter_mode">
+									<option value="<?php echo esc_attr( $secondary_mode_guided ); ?>" <?php selected( $secondary_filter_mode, $secondary_mode_guided ); ?>><?php esc_html_e( 'Pick values by label', 'agend-directory-sync' ); ?></option>
+									<option value="<?php echo esc_attr( $secondary_mode_raw ); ?>" <?php selected( $secondary_filter_mode, $secondary_mode_raw ); ?>><?php esc_html_e( 'Write the FetchXML filter myself', 'agend-directory-sync' ); ?></option>
+								</select>
+								<p class="description">
+									<?php esc_html_e( '"Pick values by label" looks up the field\'s possible values so you can choose them by name. "Write the FetchXML filter myself" is the advanced raw fragment below.', 'agend-directory-sync' ); ?>
+								</p>
+							</td>
+						</tr>
+						<tr
+							data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
+							style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
+						>
+							<th scope="row">
+								<label for="agend_dataverse_secondary_filter_field"><?php esc_html_e( 'Field', 'agend-directory-sync' ); ?></label>
+							</th>
+							<td>
+								<input
+									name="agend_dataverse[secondary_filter_field]"
+									id="agend_dataverse_secondary_filter_field"
+									type="text"
+									class="regular-text code"
+									value="<?php echo esc_attr( $secondary_filter_field ); ?>"
+									placeholder="pca_membergroup"
+									autocomplete="off"
+								/>
+								<p class="description">
+									<?php esc_html_e( 'The field\'s logical name as it appears in Dataverse, not its display label. It must belong to the entity the main query selects from.', 'agend-directory-sync' ); ?>
+								</p>
+							</td>
+						</tr>
+						<tr
+							data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
+							style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
+						>
+							<th scope="row"><?php esc_html_e( 'Values', 'agend-directory-sync' ); ?></th>
+							<td>
+								<p>
+									<button type="button" class="button" id="agend-dsf-load"><?php esc_html_e( 'Load values', 'agend-directory-sync' ); ?></button>
+									<span id="agend-dsf-status" class="description"></span>
+									<a href="#" id="agend-dsf-reload" class="button-link" style="display:none;"><?php esc_html_e( 'Reload from Dataverse', 'agend-directory-sync' ); ?></a>
+								</p>
+								<p class="description">
+									<?php esc_html_e( 'Load values reads from a short-lived cache when available. Refresh re-reads from Dataverse, ignoring that cache.', 'agend-directory-sync' ); ?>
+								</p>
+								<p id="agend-dsf-search-wrap" style="display:none;">
+									<input
+										type="search"
+										id="agend-dsf-search"
+										class="regular-text"
+										placeholder="<?php echo esc_attr__( 'Search values', 'agend-directory-sync' ); ?>"
+									/>
+									<button type="button" class="button" id="agend-dsf-search-go"><?php esc_html_e( 'Search', 'agend-directory-sync' ); ?></button>
+								</p>
+								<select
+									multiple
+									name="agend_dataverse[secondary_filter_values][]"
+									id="agend-dsf-values"
+									size="8"
+									class="large-text"
+								>
+									<?php foreach ( $secondary_filter_values as $secondary_filter_value ) : ?>
+										<?php
+										$secondary_filter_value_raw   = (string) ( $secondary_filter_value['value'] ?? '' );
+										$secondary_filter_value_label = (string) ( $secondary_filter_value['label'] ?? '' );
+										if ( '' === $secondary_filter_value_raw ) {
+											continue;
+										}
+										?>
+										<option value="<?php echo esc_attr( $secondary_filter_value_raw ); ?>" selected>
+											<?php echo esc_html( '' !== $secondary_filter_value_label ? $secondary_filter_value_label . ' (' . $secondary_filter_value_raw . ')' : $secondary_filter_value_raw ); ?>
+										</option>
+									<?php endforeach; ?>
+								</select>
+								<input
+									type="hidden"
+									name="agend_dataverse[secondary_filter_field_type]"
+									id="agend-dsf-field-type"
+									value="<?php echo esc_attr( $secondary_filter_field_type ); ?>"
+								/>
+								<input
+									type="hidden"
+									name="agend_dataverse[secondary_filter_value_labels]"
+									id="agend-dsf-value-labels"
+									value="<?php echo esc_attr( (string) wp_json_encode( (object) $secondary_filter_value_labels ) ); ?>"
+								/>
+								<p class="description">
+									<?php esc_html_e( 'A value already selected is kept even before Load values is pressed, so a saved choice survives a page reload.', 'agend-directory-sync' ); ?>
+								</p>
+							</td>
+						</tr>
+						<tr
+							data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
+							style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
+						>
+							<th scope="row">
+								<label for="agend-dsf-fragment"><?php esc_html_e( 'Resolved filter', 'agend-directory-sync' ); ?></label>
+							</th>
+							<td>
+								<textarea id="agend-dsf-fragment" readonly rows="3" class="large-text code"><?php echo esc_textarea( $secondary_filter_resolved_fragment ); ?></textarea>
+								<p class="description">
+									<?php esc_html_e( 'The FetchXML fragment generated from the field and values chosen above. Shown for reference; it is not saved separately, only the field, values and their labels are.', 'agend-directory-sync' ); ?>
+								</p>
+							</td>
+						</tr>
+						<tr
+							data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_raw ); ?>"
+							style="<?php echo esc_attr( $secondary_mode_raw === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
+						>
+							<th scope="row">
+								<label for="agend_dataverse_secondary_filter"><?php esc_html_e( 'Secondary filter', 'agend-directory-sync' ); ?></label>
+							</th>
+							<td>
+								<textarea
+									name="agend_dataverse[secondary_filter]"
+									id="agend_dataverse_secondary_filter"
+									rows="4"
+									class="large-text code"
+									spellcheck="false"
+								><?php echo esc_textarea( $dataverse['secondary_filter'] ); ?></textarea>
+								<p class="description">
+									<?php esc_html_e( 'A <filter> element (or a single <condition>, which is wrapped for you). It is added as another filter under the query\'s <entity>, so it combines with the main query\'s own filters using AND. Must be valid XML or it is not saved. Connection variables ({name}) are substituted at run time.', 'agend-directory-sync' ); ?>
+								</p>
+								<p class="description">
+									<code>&lt;filter type="and"&gt;&lt;condition attribute="pca_membergroup" operator="eq" value="Region North" /&gt;&lt;/filter&gt;</code>
+								</p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+
+					<?php submit_button( __( 'Save filter', 'agend-directory-sync' ), 'primary', 'submit', false ); ?>
+				</form>
 			</div>
 			<?php
 		}

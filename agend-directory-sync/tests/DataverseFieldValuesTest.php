@@ -295,7 +295,114 @@ final class DataverseFieldValuesTest extends TestCase {
 
 		$this->assertSame( 2, $after_first );
 		$this->assertCount( $after_first, Agend_Test_WP::$requests, 'a cached call must not issue another request' );
-		$this->assertSame( $first, $second );
+
+		// The payload is the same list; only the cache metadata differs, which
+		// is what lets the admin page offer a reload instead of a second button.
+		$this->assertSame( $first['options'], $second['options'] );
+		$this->assertSame( $first['type'], $second['type'] );
+		$this->assertFalse( $first['from_cache'], 'the first call discovers live' );
+		$this->assertTrue( $second['from_cache'], 'the second call is served from the transient' );
+		$this->assertSame( 0, $first['cache_age'] );
+		$this->assertSame( $first['cached_at'], $second['cached_at'], 'age is measured from the discovery, not from the hit' );
+	}
+
+	#[Test]
+	public function a_fresh_discovery_reports_itself_as_not_cached(): void {
+		Agend_Test_WP::queue_response( 200, array( 'AttributeType' => 'Picklist' ) );
+		Agend_Test_WP::queue_response(
+			200,
+			array(
+				'value' => array(
+					array(
+						'agend_value' => 798380003,
+						'agend_value@OData.Community.Display.V1.FormattedValue' => 'Region North',
+					),
+				),
+			)
+		);
+
+		$before = time();
+		$result = $this->source()->fetch_field_values( 'pca_membergroup' );
+
+		$this->assertFalse( $result['from_cache'] );
+		$this->assertSame( 0, $result['cache_age'] );
+		$this->assertGreaterThanOrEqual( $before, $result['cached_at'] );
+	}
+
+	#[Test]
+	public function a_cached_list_reports_its_age_in_seconds(): void {
+		Agend_Test_WP::queue_response( 200, array( 'AttributeType' => 'Picklist' ) );
+		Agend_Test_WP::queue_response(
+			200,
+			array(
+				'value' => array(
+					array(
+						'agend_value' => 798380003,
+						'agend_value@OData.Community.Display.V1.FormattedValue' => 'Region North',
+					),
+				),
+			)
+		);
+
+		$source = $this->source();
+		$source->fetch_field_values( 'pca_membergroup' );
+
+		// Age the stored payload by backdating its stamp, which is the only
+		// part of the result the age is computed from.
+		$key = $this->onlyFieldValuesTransientKey();
+		$stored = Agend_Test_WP::$transients[ $key ];
+		$stored['cached_at'] = time() - 180;
+		Agend_Test_WP::$transients[ $key ] = $stored;
+
+		$second = $source->fetch_field_values( 'pca_membergroup' );
+
+		$this->assertTrue( $second['from_cache'] );
+		$this->assertGreaterThanOrEqual( 180, $second['cache_age'] );
+		$this->assertLessThan( 240, $second['cache_age'] );
+	}
+
+	#[Test]
+	public function a_payload_stored_before_the_stamp_existed_reports_an_unknown_age(): void {
+		Agend_Test_WP::queue_response( 200, array( 'AttributeType' => 'Picklist' ) );
+		Agend_Test_WP::queue_response(
+			200,
+			array(
+				'value' => array(
+					array(
+						'agend_value' => 798380003,
+						'agend_value@OData.Community.Display.V1.FormattedValue' => 'Region North',
+					),
+				),
+			)
+		);
+
+		$source = $this->source();
+		$source->fetch_field_values( 'pca_membergroup' );
+
+		// Simulate a transient written by the version that cached no stamp.
+		$key = $this->onlyFieldValuesTransientKey();
+		$stored = Agend_Test_WP::$transients[ $key ];
+		unset( $stored['cached_at'] );
+		Agend_Test_WP::$transients[ $key ] = $stored;
+
+		$second = $source->fetch_field_values( 'pca_membergroup' );
+
+		$this->assertTrue( $second['from_cache'] );
+		$this->assertSame( 0, $second['cached_at'] );
+		$this->assertSame( 0, $second['cache_age'], 'an unstamped payload must not report an age counted from the epoch' );
+	}
+
+	/**
+	 * The one field-values transient key currently stored.
+	 */
+	private function onlyFieldValuesTransientKey(): string {
+		foreach ( array_keys( Agend_Test_WP::$transients ) as $key ) {
+			if ( 0 === strpos( (string) $key, 'agend_dsync_dvfields_' ) ) {
+				return (string) $key;
+			}
+		}
+
+		$this->fail( 'no field-values transient was stored' );
 	}
 
 	#[Test]

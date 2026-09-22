@@ -186,9 +186,21 @@ the page window is a setting rather than a hand-edit of the query.
 - **Secondary filter (grouped sync)**: an extra filter applied on top of
   the query at fetch time, so one sync run can target one group of records
   without editing the main query. The saved query is never edited by this
-  feature. It combines with the main query's own filters using AND. Run
-  source fetch, Preview transform and Send to Agend all honour it, and the
-  FetchXML shown by Run source fetch includes it. There are two modes:
+  feature. It combines with the main query's own filters using AND, and the
+  FetchXML shown by Run source fetch includes it.
+
+  It is **not** in this settings list. It has its own card at the top of the
+  page, directly under the Manual sync actions, because it changes what
+  those actions do rather than how the plugin connects to Dataverse. The
+  card has its own **Save filter** button, separate from **Save settings**
+  below, and saving one never touches the other.
+
+  **Run source fetch, Preview transform and Send to Agend all use the SAVED
+  filter, not whatever is on screen.** The card states which filter is
+  saved, and while an edit is unsaved it says so and disables those three
+  actions, so a sync can never run against a filter you only think is
+  applied. Save the filter, or reload the page to discard the edit. There
+  are two modes:
 
   - **Guided (pick values by label)**: name the field's logical name (for
     example `pca_membergroup`), press **Load values**, and choose which
@@ -197,11 +209,12 @@ the page window is a setting rather than a hand-edit of the query.
     values actually in use on the entity (a distinct-values query against
     the field), and falls back to the field's option set metadata when that
     read is not possible or comes back empty, so a value nobody has used
-    yet is still selectable. Results are cached for five minutes; press
-    **Refresh** to re-read from Dataverse and bypass that cache. Up to 200
-    values are loaded at once; when there are more, a search box appears so
-    you can find a value outside that first page rather than raising the
-    cap. Selecting values by label builds the filter for you, with the
+    yet is still selectable. Results are cached for five minutes. **Load
+    values** is the only button: when it answers from that cache it says how
+    old the cached list is and offers a single **Reload from Dataverse**
+    link, which is the one way to go behind the cache. Up to 200 values are
+    loaded at once; when there are more, a search box appears so you can
+    find a value outside that first page rather than raising the cap. Selecting values by label builds the filter for you, with the
     operator chosen from the field's type: `in` for a choice (option set),
     lookup, status or state field, `contain-values` for a multi-select
     choice field, and `eq` for a yes/no field. The generated fragment is

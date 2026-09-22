@@ -510,4 +510,132 @@ final class DataverseGuidedFilterTest extends TestCase {
 	public function it_returns_blank_when_none_of_the_flags_are_present(): void {
 		$this->assertSame( '', Agend_Directory_Sync_Dataverse_Source::build_secondary_filter_from_args( array() ) );
 	}
+
+	// -----------------------------------------------------------------
+	// The two save paths: the filter's own save, and the settings save
+	// that no longer posts it.
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function it_should_return_only_the_secondary_filter_keys_from_a_posted_array(): void {
+		$input = Agend_Directory_Sync_Dataverse_Source::sanitize_secondary_filter_input(
+			array(
+				'environment_url'             => 'https://evil.example.com',
+				'fetch_xml'                   => '<fetch />',
+				'secondary_filter_mode'       => 'guided',
+				'secondary_filter_field'      => 'pca_membergroup',
+				'secondary_filter_field_type' => 'picklist',
+				'secondary_filter_values'     => array( '798380003' ),
+				'secondary_filter_value_labels' => '{"798380003":"Region North"}',
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'secondary_filter',
+				'secondary_filter_mode',
+				'secondary_filter_field',
+				'secondary_filter_field_type',
+				'secondary_filter_values',
+			),
+			array_keys( $input ),
+			'a filter save must never carry a connection setting with it'
+		);
+		$this->assertArrayNotHasKey( 'environment_url', $input );
+		$this->assertArrayNotHasKey( 'fetch_xml', $input );
+	}
+
+	#[Test]
+	public function it_should_sanitise_every_key_it_returns(): void {
+		$input = Agend_Directory_Sync_Dataverse_Source::sanitize_secondary_filter_input(
+			array(
+				'secondary_filter_mode'       => 'nonsense',
+				'secondary_filter_field'      => 'Not A Field',
+				'secondary_filter_field_type' => 'invented',
+				'secondary_filter_values'     => array( 'not-a-value', '798380003' ),
+				'secondary_filter'            => '<filter><condition attribute="a"',
+			)
+		);
+
+		$this->assertSame( Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW, $input['secondary_filter_mode'] );
+		$this->assertSame( '', $input['secondary_filter_field'] );
+		$this->assertSame( '', $input['secondary_filter_field_type'] );
+		$this->assertSame( array( array( 'value' => '798380003', 'label' => '798380003' ) ), $input['secondary_filter_values'] );
+		$this->assertSame( '', $input['secondary_filter'], 'an unparseable fragment is dropped rather than stored' );
+	}
+
+	#[Test]
+	public function it_should_apply_the_posted_label_map_when_saving_the_filter_alone(): void {
+		$input = Agend_Directory_Sync_Dataverse_Source::sanitize_secondary_filter_input(
+			array(
+				'secondary_filter_values'       => array( '798380003' ),
+				'secondary_filter_value_labels' => '{"798380003":"Region North"}',
+			)
+		);
+
+		$this->assertSame( array( array( 'value' => '798380003', 'label' => 'Region North' ) ), $input['secondary_filter_values'] );
+	}
+
+	#[Test]
+	public function it_should_return_defaults_for_a_non_array_filter_input(): void {
+		foreach ( array( null, 'string', 7 ) as $bad ) {
+			$input = Agend_Directory_Sync_Dataverse_Source::sanitize_secondary_filter_input( $bad );
+
+			$this->assertSame( '', $input['secondary_filter'] );
+			$this->assertSame( Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW, $input['secondary_filter_mode'] );
+			$this->assertSame( array(), $input['secondary_filter_values'] );
+		}
+	}
+
+	#[Test]
+	public function it_should_carry_a_saved_filter_through_a_settings_save_that_omits_it(): void {
+		$saved = array(
+			'environment_url'             => 'https://example.crm6.dynamics.com',
+			'secondary_filter_mode'       => 'guided',
+			'secondary_filter_field'      => 'pca_membergroup',
+			'secondary_filter_field_type' => 'picklist',
+			'secondary_filter_values'     => array( array( 'value' => '798380003', 'label' => 'Region North' ) ),
+			'secondary_filter'            => '',
+		);
+
+		$carried = Agend_Directory_Sync_Dataverse_Source::carry_secondary_filter(
+			array( 'environment_url' => 'https://example.crm6.dynamics.com', 'page_size' => '250' ),
+			$saved
+		);
+
+		$this->assertSame( 'guided', $carried['secondary_filter_mode'] );
+		$this->assertSame( 'pca_membergroup', $carried['secondary_filter_field'] );
+		$this->assertSame( 'picklist', $carried['secondary_filter_field_type'] );
+		$this->assertSame( $saved['secondary_filter_values'], $carried['secondary_filter_values'] );
+		$this->assertSame( '250', $carried['page_size'], 'an unrelated posted setting passes through untouched' );
+	}
+
+	#[Test]
+	public function it_should_treat_a_posted_but_empty_filter_as_a_deliberate_clear(): void {
+		$carried = Agend_Directory_Sync_Dataverse_Source::carry_secondary_filter(
+			array(
+				'secondary_filter_mode'   => 'guided',
+				'secondary_filter_field'  => '',
+				'secondary_filter_values' => array(),
+			),
+			array(
+				'secondary_filter_mode'   => 'guided',
+				'secondary_filter_field'  => 'pca_membergroup',
+				'secondary_filter_values' => array( array( 'value' => '798380003', 'label' => 'Region North' ) ),
+			)
+		);
+
+		$this->assertSame( '', $carried['secondary_filter_field'], 'clearing the field on purpose must not be undone' );
+		$this->assertSame( array(), $carried['secondary_filter_values'] );
+	}
+
+	#[Test]
+	public function it_should_not_invent_filter_keys_a_saved_option_never_had(): void {
+		$carried = Agend_Directory_Sync_Dataverse_Source::carry_secondary_filter(
+			array( 'environment_url' => 'https://example.crm6.dynamics.com' ),
+			array( 'environment_url' => 'https://example.crm6.dynamics.com' )
+		);
+
+		$this->assertSame( array( 'environment_url' ), array_keys( $carried ) );
+	}
 }
