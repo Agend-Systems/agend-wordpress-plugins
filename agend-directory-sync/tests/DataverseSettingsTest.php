@@ -219,6 +219,121 @@ final class DataverseSettingsTest extends TestCase {
 	 * annotation toggles existed has no stored value for them; reading the
 	 * option must not silently turn paging cookies off.
 	 */
+	// -----------------------------------------------------------------
+	// Guided secondary filter settings
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function it_should_coerce_the_secondary_filter_mode(): void {
+		$this->assertSame( 'guided', $this->sanitized( array( 'secondary_filter_mode' => 'guided' ) )['secondary_filter_mode'] );
+		$this->assertSame( 'raw', $this->sanitized( array( 'secondary_filter_mode' => 'bogus' ) )['secondary_filter_mode'] );
+		$this->assertSame( 'raw', $this->sanitized( array() )['secondary_filter_mode'] );
+	}
+
+	#[Test]
+	public function it_should_accept_a_valid_secondary_filter_field_name(): void {
+		$this->assertSame( 'pca_membergroup', $this->sanitized( array( 'secondary_filter_field' => ' PCA_MemberGroup ' ) )['secondary_filter_field'] );
+	}
+
+	#[Test]
+	public function it_should_reject_an_invalid_secondary_filter_field_name(): void {
+		$this->assertSame( '', $this->sanitized( array( 'secondary_filter_field' => '1bad name' ) )['secondary_filter_field'] );
+	}
+
+	#[Test]
+	public function it_should_whitelist_the_secondary_filter_field_type(): void {
+		$this->assertSame( 'picklist', $this->sanitized( array( 'secondary_filter_field_type' => 'PICKLIST' ) )['secondary_filter_field_type'] );
+		$this->assertSame( '', $this->sanitized( array( 'secondary_filter_field_type' => 'string' ) )['secondary_filter_field_type'] );
+	}
+
+	#[Test]
+	public function it_should_accept_secondary_filter_values_as_scalars(): void {
+		$settings = $this->sanitized( array( 'secondary_filter_values' => array( '1', '2' ) ) );
+
+		$this->assertSame(
+			array(
+				array( 'value' => '1', 'label' => '1' ),
+				array( 'value' => '2', 'label' => '2' ),
+			),
+			$settings['secondary_filter_values']
+		);
+	}
+
+	#[Test]
+	public function it_should_accept_secondary_filter_values_as_value_label_rows(): void {
+		$settings = $this->sanitized(
+			array(
+				'secondary_filter_values' => array( array( 'value' => '1', 'label' => 'Region North' ) ),
+			)
+		);
+
+		$this->assertSame( array( array( 'value' => '1', 'label' => 'Region North' ) ), $settings['secondary_filter_values'] );
+	}
+
+	#[Test]
+	public function it_should_apply_the_json_label_map_to_secondary_filter_values(): void {
+		$settings = $this->sanitized(
+			array(
+				'secondary_filter_values'        => array( '1' ),
+				'secondary_filter_value_labels'  => wp_json_encode( array( '1' => 'Region North' ) ),
+			)
+		);
+
+		$this->assertSame( array( array( 'value' => '1', 'label' => 'Region North' ) ), $settings['secondary_filter_values'] );
+	}
+
+	#[Test]
+	public function it_should_drop_invalid_secondary_filter_values(): void {
+		$settings = $this->sanitized( array( 'secondary_filter_values' => array( 'not-a-value', '1' ) ) );
+
+		$this->assertSame( array( array( 'value' => '1', 'label' => '1' ) ), $settings['secondary_filter_values'] );
+	}
+
+	#[Test]
+	public function it_should_default_the_guided_filter_settings_blank_for_an_option_saved_before_they_existed(): void {
+		$settings = $this->sanitized( array( 'fetch_xml' => self::QUERY ) );
+
+		$this->assertSame( 'raw', $settings['secondary_filter_mode'] );
+		$this->assertSame( '', $settings['secondary_filter_field'] );
+		$this->assertSame( '', $settings['secondary_filter_field_type'] );
+		$this->assertSame( array(), $settings['secondary_filter_values'] );
+	}
+
+	/**
+	 * resolve_settings() re-sanitises every guided filter setting from the
+	 * stored option, exactly like it already re-clamps the numeric
+	 * settings, so an option written by any other path (a direct
+	 * update_option() call, a stale migration) can never produce a fragment
+	 * this source would refuse to build.
+	 */
+	#[Test]
+	public function it_should_re_sanitise_a_hostile_stored_guided_filter_option(): void {
+		update_option(
+			Agend_Directory_Sync::OPTION_DATAVERSE,
+			array(
+				'environment_url'             => 'https://org.crm6.dynamics.com',
+				'entity_set'                  => 'contacts',
+				'secondary_filter_mode'       => 'guided',
+				'secondary_filter_field'      => 'Has Space; DROP TABLE',
+				'secondary_filter_field_type' => 'not-a-real-type',
+				'secondary_filter_values'     => array( 'not-a-value', '1', array( 'value' => '2', 'label' => "<script>alert('x')</script>" ) ),
+			)
+		);
+
+		$settings = Agend_Directory_Sync_Dataverse_Source::resolve_settings();
+
+		$this->assertSame( 'guided', $settings['secondary_filter_mode'] );
+		$this->assertSame( '', $settings['secondary_filter_field'], 'the field contains characters no logical name can hold, so it is dropped rather than passed through' );
+		$this->assertSame( '', $settings['secondary_filter_field_type'] );
+		$this->assertSame(
+			array(
+				array( 'value' => '1', 'label' => '1' ),
+				array( 'value' => '2', 'label' => 'alert(\'x\')' ),
+			),
+			$settings['secondary_filter_values']
+		);
+	}
+
 	#[Test]
 	public function it_should_default_the_toggles_on_for_an_option_saved_before_they_existed(): void {
 		update_option(
