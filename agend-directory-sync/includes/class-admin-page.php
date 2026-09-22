@@ -1119,13 +1119,152 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									</tbody>
 								</table>
 
+								<?php
+								// Defensive reads: the source-layer settings resolver may not
+								// yet return these keys on an install mid-upgrade, or an
+								// option row saved before this feature existed.
+								$secondary_mode_raw    = defined( 'Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW' ) ? Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_RAW : 'raw';
+								$secondary_mode_guided = defined( 'Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_GUIDED' ) ? Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_MODE_GUIDED : 'guided';
+
+								$secondary_filter_mode       = (string) ( $dataverse['secondary_filter_mode'] ?? $secondary_mode_raw );
+								$secondary_filter_field      = (string) ( $dataverse['secondary_filter_field'] ?? '' );
+								$secondary_filter_field_type = (string) ( $dataverse['secondary_filter_field_type'] ?? '' );
+								$secondary_filter_values     = is_array( $dataverse['secondary_filter_values'] ?? null ) ? $dataverse['secondary_filter_values'] : array();
+
+								$secondary_filter_value_labels = array();
+								foreach ( $secondary_filter_values as $secondary_filter_value ) {
+									$secondary_filter_value_raw   = (string) ( $secondary_filter_value['value'] ?? '' );
+									$secondary_filter_value_label = (string) ( $secondary_filter_value['label'] ?? '' );
+									if ( '' !== $secondary_filter_value_raw ) {
+										$secondary_filter_value_labels[ $secondary_filter_value_raw ] = $secondary_filter_value_label;
+									}
+								}
+
+								$secondary_filter_resolved_fragment = '';
+								if ( method_exists( 'Agend_Directory_Sync_Dataverse_Source', 'resolve_secondary_filter_fragment' ) ) {
+									$secondary_filter_resolved_fragment = (string) Agend_Directory_Sync_Dataverse_Source::resolve_secondary_filter_fragment( $dataverse );
+								}
+								?>
 								<h3><?php esc_html_e( 'Secondary filter (grouped sync)', 'agend-directory-sync' ); ?></h3>
 								<p class="description">
-									<?php esc_html_e( 'An extra FetchXML filter applied on top of the query above at fetch time, so one sync run can target one group of records (for example, everyone with a given value in a custom field) without editing the main query. Leave blank to sync everything the main query returns. Run source fetch, Preview transform and Send to Agend all honour it, and the WP-CLI command can override it per run with --secondary-filter.', 'agend-directory-sync' ); ?>
+									<?php esc_html_e( 'An extra filter applied on top of the query above at fetch time, so one sync run can target one group of records (for example, everyone with a given value in a custom field) without editing the main query. Guided mode: name the field\'s logical name, press Load values, and pick which values count as "in the group" by their label. Advanced mode: write the FetchXML <filter> fragment yourself. Leave it unconfigured (guided: no field, advanced: blank textarea) to sync everything the main query returns. Run source fetch, Preview transform and Send to Agend all honour it, and the WP-CLI command can override it per run, either with --secondary-filter or with the guided --secondary-filter-field / --secondary-filter-values pair.', 'agend-directory-sync' ); ?>
 								</p>
 								<table class="form-table" role="presentation">
 									<tbody>
 										<tr>
+											<th scope="row">
+												<label for="agend_dataverse_secondary_filter_mode"><?php esc_html_e( 'Mode', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<select name="agend_dataverse[secondary_filter_mode]" id="agend_dataverse_secondary_filter_mode">
+													<option value="<?php echo esc_attr( $secondary_mode_guided ); ?>" <?php selected( $secondary_filter_mode, $secondary_mode_guided ); ?>><?php esc_html_e( 'Pick values by label', 'agend-directory-sync' ); ?></option>
+													<option value="<?php echo esc_attr( $secondary_mode_raw ); ?>" <?php selected( $secondary_filter_mode, $secondary_mode_raw ); ?>><?php esc_html_e( 'Write the FetchXML filter myself', 'agend-directory-sync' ); ?></option>
+												</select>
+												<p class="description">
+													<?php esc_html_e( '"Pick values by label" looks up the field\'s possible values so you can choose them by name. "Write the FetchXML filter myself" is the advanced raw fragment below.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr
+											data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
+											style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
+										>
+											<th scope="row">
+												<label for="agend_dataverse_secondary_filter_field"><?php esc_html_e( 'Field', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<input
+													name="agend_dataverse[secondary_filter_field]"
+													id="agend_dataverse_secondary_filter_field"
+													type="text"
+													class="regular-text code"
+													value="<?php echo esc_attr( $secondary_filter_field ); ?>"
+													placeholder="pca_membergroup"
+													autocomplete="off"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'The field\'s logical name as it appears in Dataverse, not its display label. It must belong to the entity the main query selects from.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr
+											data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
+											style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
+										>
+											<th scope="row"><?php esc_html_e( 'Values', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<button type="button" class="button" id="agend-dsf-load"><?php esc_html_e( 'Load values', 'agend-directory-sync' ); ?></button>
+													<button type="button" class="button" id="agend-dsf-refresh"><?php esc_html_e( 'Refresh', 'agend-directory-sync' ); ?></button>
+													<span id="agend-dsf-status" class="description"></span>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Load values reads from a short-lived cache when available. Refresh re-reads from Dataverse, ignoring that cache.', 'agend-directory-sync' ); ?>
+												</p>
+												<p id="agend-dsf-search-wrap" style="display:none;">
+													<input
+														type="search"
+														id="agend-dsf-search"
+														class="regular-text"
+														placeholder="<?php echo esc_attr__( 'Search values', 'agend-directory-sync' ); ?>"
+													/>
+													<button type="button" class="button" id="agend-dsf-search-go"><?php esc_html_e( 'Search', 'agend-directory-sync' ); ?></button>
+												</p>
+												<select
+													multiple
+													name="agend_dataverse[secondary_filter_values][]"
+													id="agend-dsf-values"
+													size="8"
+													class="large-text"
+												>
+													<?php foreach ( $secondary_filter_values as $secondary_filter_value ) : ?>
+														<?php
+														$secondary_filter_value_raw   = (string) ( $secondary_filter_value['value'] ?? '' );
+														$secondary_filter_value_label = (string) ( $secondary_filter_value['label'] ?? '' );
+														if ( '' === $secondary_filter_value_raw ) {
+															continue;
+														}
+														?>
+														<option value="<?php echo esc_attr( $secondary_filter_value_raw ); ?>" selected>
+															<?php echo esc_html( '' !== $secondary_filter_value_label ? $secondary_filter_value_label . ' (' . $secondary_filter_value_raw . ')' : $secondary_filter_value_raw ); ?>
+														</option>
+													<?php endforeach; ?>
+												</select>
+												<input
+													type="hidden"
+													name="agend_dataverse[secondary_filter_field_type]"
+													id="agend-dsf-field-type"
+													value="<?php echo esc_attr( $secondary_filter_field_type ); ?>"
+												/>
+												<input
+													type="hidden"
+													name="agend_dataverse[secondary_filter_value_labels]"
+													id="agend-dsf-value-labels"
+													value="<?php echo esc_attr( (string) wp_json_encode( (object) $secondary_filter_value_labels ) ); ?>"
+												/>
+												<p class="description">
+													<?php esc_html_e( 'A value already selected is kept even before Load values is pressed, so a saved choice survives a page reload.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr
+											data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_guided ); ?>"
+											style="<?php echo esc_attr( $secondary_mode_guided === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
+										>
+											<th scope="row">
+												<label for="agend-dsf-fragment"><?php esc_html_e( 'Resolved filter', 'agend-directory-sync' ); ?></label>
+											</th>
+											<td>
+												<textarea id="agend-dsf-fragment" readonly rows="3" class="large-text code"><?php echo esc_textarea( $secondary_filter_resolved_fragment ); ?></textarea>
+												<p class="description">
+													<?php esc_html_e( 'The FetchXML fragment generated from the field and values chosen above. Shown for reference; it is not saved separately, only the field, values and their labels are.', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr
+											data-agend-secondary-mode="<?php echo esc_attr( $secondary_mode_raw ); ?>"
+											style="<?php echo esc_attr( $secondary_mode_raw === $secondary_filter_mode ? '' : 'display:none;' ); ?>"
+										>
 											<th scope="row">
 												<label for="agend_dataverse_secondary_filter"><?php esc_html_e( 'Secondary filter', 'agend-directory-sync' ); ?></label>
 											</th>
@@ -1398,6 +1537,236 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						}
 						bindModeRows('agend_http_api_auth_mode', 'data-agend-http-auth');
 						bindModeRows('agend_http_api_pagination_mode', 'data-agend-http-pagination');
+						bindModeRows('agend_dataverse_secondary_filter_mode', 'data-agend-secondary-mode');
+
+						// Dataverse guided secondary filter: look up a field's possible
+						// values by label (Load values / Refresh), let the admin pick by
+						// label, and show the FetchXML fragment the plugin will actually
+						// send. The fragment itself is always built server-side (the
+						// filter preview action below), never duplicated in JavaScript.
+						<?php if ( class_exists( 'Agend_Directory_Sync_Dataverse_Metadata_Controller' ) ) : ?>
+						var agendDsfConfig = <?php echo wp_json_encode(
+							array(
+								'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+								'nonce'   => wp_create_nonce( Agend_Directory_Sync_Dataverse_Metadata_Controller::NONCE_ACTION ),
+								'strings' => array(
+									'loading'    => __( 'Loading values…', 'agend-directory-sync' ),
+									'searching'  => __( 'Searching…', 'agend-directory-sync' ),
+									'loaded'     => __( 'Loaded %1$s values %2$s.', 'agend-directory-sync' ),
+									'none'       => __( 'No values found.', 'agend-directory-sync' ),
+									'failed'     => __( 'Failed: %1$s', 'agend-directory-sync' ),
+									'moreNotice' => __( 'Showing the first %1$s. Search for more.', 'agend-directory-sync' ),
+								),
+								// Where the values came from, in words. The endpoint
+								// answers with its own tokens (in_use, metadata); an
+								// operator reading the status line should not have to
+								// know them.
+								'sources' => array(
+									'in_use'          => __( 'in use on this table', 'agend-directory-sync' ),
+									'metadata'        => __( 'from the field definition', 'agend-directory-sync' ),
+									'in_use+metadata' => __( 'in use, plus the rest of the field definition', 'agend-directory-sync' ),
+								),
+							)
+						); ?>;
+
+						(function () {
+							var fieldInput   = document.getElementById('agend_dataverse_secondary_filter_field');
+							var loadBtn      = document.getElementById('agend-dsf-load');
+							var refreshBtn   = document.getElementById('agend-dsf-refresh');
+							var statusEl     = document.getElementById('agend-dsf-status');
+							var searchWrap   = document.getElementById('agend-dsf-search-wrap');
+							var searchInput  = document.getElementById('agend-dsf-search');
+							var searchGoBtn  = document.getElementById('agend-dsf-search-go');
+							var valuesSelect = document.getElementById('agend-dsf-values');
+							var fieldTypeEl  = document.getElementById('agend-dsf-field-type');
+							var labelsEl     = document.getElementById('agend-dsf-value-labels');
+							var fragmentEl   = document.getElementById('agend-dsf-fragment');
+
+							if (!fieldInput || !valuesSelect || !fieldTypeEl || !labelsEl || !fragmentEl) {
+								return;
+							}
+
+							function dsfFormat(template, values) {
+								return template.replace(/%(\d+)\$s/g, function (m, i) { return values[i - 1]; });
+							}
+
+							// Always a plain object, never an array: a choice value such
+							// as 798380003 is a valid array index, so assigning it onto a
+							// JSON [] would build a sparse array of 798 million entries
+							// and JSON.stringify would throw rather than return a map.
+							function dsfCurrentLabels() {
+								var parsed = null;
+								try {
+									parsed = JSON.parse(labelsEl.value || '{}');
+								} catch (e) {
+									parsed = null;
+								}
+								if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+									return {};
+								}
+								return parsed;
+							}
+
+							function dsfOptionText(value, label) {
+								return label ? (label + ' (' + value + ')') : value;
+							}
+
+							function dsfSelectedValues() {
+								var out = [];
+								Array.prototype.forEach.call(valuesSelect.options, function (opt) {
+									if (opt.selected) { out.push(opt.value); }
+								});
+								return out;
+							}
+
+							function dsfPost(action, params) {
+								var body = new URLSearchParams();
+								body.set('action', action);
+								body.set('nonce', agendDsfConfig.nonce);
+								Object.keys(params || {}).forEach(function (k) {
+									var v = params[k];
+									if (Array.isArray(v)) {
+										v.forEach(function (item) { body.append(k, item); });
+									} else {
+										body.set(k, v);
+									}
+								});
+								return fetch(agendDsfConfig.ajaxUrl, {
+									method: 'POST',
+									credentials: 'same-origin',
+									headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+									body: body.toString()
+								}).then(function (r) { return r.json(); });
+							}
+
+							// Keep a currently selected value even when it is missing from
+							// a freshly loaded (or searched) option list, so switching to a
+							// narrower search never silently drops an earlier choice.
+							function dsfPopulateSelect(options) {
+								var currentlySelected = dsfSelectedValues();
+								var newValueSet = {};
+								options.forEach(function (o) { newValueSet[o.value] = true; });
+
+								var keptOptions = [];
+								Array.prototype.forEach.call(valuesSelect.options, function (opt) {
+									if (opt.selected && !newValueSet[opt.value]) {
+										keptOptions.push({ value: opt.value, text: opt.textContent });
+									}
+								});
+
+								valuesSelect.innerHTML = '';
+								keptOptions.forEach(function (o) {
+									var opt = document.createElement('option');
+									opt.value = o.value;
+									opt.textContent = o.text;
+									opt.selected = true;
+									valuesSelect.appendChild(opt);
+								});
+								options.forEach(function (o) {
+									var opt = document.createElement('option');
+									opt.value = o.value;
+									opt.textContent = dsfOptionText(o.value, o.label);
+									opt.selected = currentlySelected.indexOf(o.value) !== -1;
+									valuesSelect.appendChild(opt);
+								});
+							}
+
+							function dsfUpdateLabelsMap() {
+								var labels = dsfCurrentLabels();
+								Array.prototype.forEach.call(valuesSelect.options, function (opt) {
+									if (opt.selected) {
+										labels[opt.value] = opt.textContent.replace(/ \([^)]*\)$/, '');
+									}
+								});
+								labelsEl.value = JSON.stringify(labels);
+							}
+
+							function dsfRefreshFragment() {
+								var values = dsfSelectedValues();
+								if (!fieldInput.value.trim() || !values.length) {
+									fragmentEl.value = '';
+									return;
+								}
+								dsfPost('agend_directory_sync_dataverse_filter_preview', {
+									field: fieldInput.value.trim(),
+									field_type: fieldTypeEl.value,
+									'values[]': values,
+									value_labels: labelsEl.value
+								}).then(function (res) {
+									if (res && res.success && res.data) {
+										fragmentEl.value = res.data.fragment || '';
+									}
+								});
+							}
+
+							function dsfLoadValues(opts) {
+								opts = opts || {};
+								var field = fieldInput.value.trim();
+								if (!field) {
+									statusEl.textContent = '';
+									return;
+								}
+								statusEl.textContent = opts.search ? agendDsfConfig.strings.searching : agendDsfConfig.strings.loading;
+								dsfPost('agend_directory_sync_dataverse_field_values', {
+									field: field,
+									search: opts.search || '',
+									refresh: opts.refresh ? '1' : ''
+								}).then(function (res) {
+									if (!res || !res.success) {
+										statusEl.textContent = dsfFormat(agendDsfConfig.strings.failed, [(res && res.data && res.data.message) || '']);
+										return;
+									}
+									var data = res.data;
+									fieldTypeEl.value = data.type || '';
+									dsfPopulateSelect(data.options || []);
+									dsfUpdateLabelsMap();
+									if (!data.options || !data.options.length) {
+										statusEl.textContent = agendDsfConfig.strings.none;
+									} else {
+										var sourceLabel = (agendDsfConfig.sources || {})[data.source] || '';
+										statusEl.textContent = dsfFormat(agendDsfConfig.strings.loaded, [String(data.options.length), sourceLabel]).replace(/ \./, '.');
+									}
+									if (searchWrap) {
+										searchWrap.style.display = data.has_more ? '' : 'none';
+									}
+									if (data.has_more) {
+										statusEl.textContent += ' ' + dsfFormat(agendDsfConfig.strings.moreNotice, [String(data.options.length)]);
+									}
+									dsfRefreshFragment();
+								}).catch(function (e) {
+									statusEl.textContent = dsfFormat(agendDsfConfig.strings.failed, [String(e)]);
+								});
+							}
+
+							if (loadBtn) {
+								loadBtn.addEventListener('click', function () { dsfLoadValues({}); });
+							}
+							if (refreshBtn) {
+								refreshBtn.addEventListener('click', function () { dsfLoadValues({ refresh: true }); });
+							}
+							if (searchGoBtn) {
+								searchGoBtn.addEventListener('click', function () {
+									dsfLoadValues({ search: searchInput ? searchInput.value : '' });
+								});
+							}
+							if (searchInput) {
+								searchInput.addEventListener('keydown', function (e) {
+									if (e.key === 'Enter' || e.keyCode === 13) {
+										e.preventDefault();
+										dsfLoadValues({ search: searchInput.value });
+									}
+								});
+							}
+							fieldInput.addEventListener('change', function () {
+								dsfUpdateLabelsMap();
+								dsfRefreshFragment();
+							});
+							valuesSelect.addEventListener('change', function () {
+								dsfUpdateLabelsMap();
+								dsfRefreshFragment();
+							});
+						})();
+						<?php endif; ?>
 
 						// Upload stepper. The send is one short request per batch
 						// rather than one long request for the whole directory,
@@ -1785,13 +2154,22 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					. '</p>';
 
 				if ( array_key_exists( 'secondary_filter', $result ) ) {
-					echo '<p>'
-						. esc_html(
-							'' !== trim( (string) $result['secondary_filter'] )
-								? __( 'Secondary filter: applied (see the FetchXML sent).', 'agend-directory-sync' )
-								: __( 'Secondary filter: none.', 'agend-directory-sync' )
-						)
-						. '</p>';
+					$secondary_filter_applied     = '' !== trim( (string) $result['secondary_filter'] );
+					$secondary_filter_description = trim( (string) ( $result['secondary_filter_description'] ?? '' ) );
+
+					if ( '' !== $secondary_filter_description ) {
+						$secondary_filter_message = sprintf(
+							/* translators: %s: plain-language description of the applied secondary filter, e.g. "pca_membergroup limited to Region North, Region South". */
+							__( 'Secondary filter: %s (see the FetchXML sent).', 'agend-directory-sync' ),
+							$secondary_filter_description
+						);
+					} elseif ( $secondary_filter_applied ) {
+						$secondary_filter_message = __( 'Secondary filter: applied (see the FetchXML sent).', 'agend-directory-sync' );
+					} else {
+						$secondary_filter_message = __( 'Secondary filter: none.', 'agend-directory-sync' );
+					}
+
+					echo '<p>' . esc_html( $secondary_filter_message ) . '</p>';
 				}
 
 				self::render_preview_window(

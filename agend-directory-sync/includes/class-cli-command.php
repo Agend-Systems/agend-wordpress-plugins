@@ -52,12 +52,26 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 		 *   <condition>) fragment applied on top of the saved query for this
 		 *   run, replacing the saved secondary filter, so a grouped upload can
 		 *   be scripted one group at a time. The saved query is not changed.
+		 *   Mutually exclusive with --secondary-filter-field and
+		 *   --secondary-filter-values.
+		 *
+		 * [--secondary-filter-field=<name>]
+		 * : Microsoft Dataverse source only. The guided alternative to
+		 *   --secondary-filter: the logical name of the field to filter on,
+		 *   paired with --secondary-filter-values. Mutually exclusive with
+		 *   --secondary-filter.
+		 *
+		 * [--secondary-filter-values=<v1,v2>]
+		 * : Comma separated raw values (a choice value, a GUID, or true/false)
+		 *   to match --secondary-filter-field against. Required together
+		 *   with --secondary-filter-field.
 		 *
 		 * ## EXAMPLES
 		 *
 		 *     wp agend-directory-sync run
 		 *     wp agend-directory-sync run --max=50 --dry-run
 		 *     wp agend-directory-sync run --secondary-filter='<condition attribute="pca_membergroup" operator="eq" value="Region North" />'
+		 *     wp agend-directory-sync run --secondary-filter-field=pca_membergroup --secondary-filter-values=798380003,798380004
 		 *
 		 * @param array<int, string>    $args       Positional args (unused).
 		 * @param array<string, string> $assoc_args Associative args.
@@ -72,8 +86,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 				WP_CLI::log( 'Dry run: fetching and transforming only, nothing will be sent.' );
 			}
 
-			if ( isset( $assoc_args['secondary-filter'] ) ) {
-				$this->apply_secondary_filter( (string) $assoc_args['secondary-filter'] );
+			if ( isset( $assoc_args['secondary-filter'] ) || isset( $assoc_args['secondary-filter-field'] ) || isset( $assoc_args['secondary-filter-values'] ) ) {
+				$this->apply_secondary_filter_args( $assoc_args );
 			}
 
 			try {
@@ -141,26 +155,35 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 		}
 
 		/**
-		 * Route a --secondary-filter fragment to the Dataverse source for this
-		 * run through its filter hook, after validating it the way the settings
-		 * form does so a typo fails here with the parser's message rather than
-		 * as a Dataverse 400 mid-run.
+		 * Route a run-scoped secondary filter to the Dataverse source through
+		 * its filter hook: either the raw --secondary-filter fragment, or the
+		 * guided --secondary-filter-field / --secondary-filter-values pair,
+		 * built and validated by
+		 * `Agend_Directory_Sync_Dataverse_Source::build_secondary_filter_from_args()`
+		 * so a typo fails here with a specific message rather than as a
+		 * Dataverse 400 mid-run.
 		 *
 		 * The override replaces the saved fragment even when blank, which is
 		 * how a script asks for an unfiltered run against a site whose saved
 		 * settings carry a filter: `--secondary-filter=''`.
+		 *
+		 * @param array<string, string> $assoc_args
 		 */
-		private function apply_secondary_filter( string $fragment ): void {
-			$fragment = trim( $fragment );
-
-			if ( '' !== $fragment && ! Agend_Directory_Sync_Dataverse_Source::is_valid_secondary_filter( $fragment ) ) {
-				WP_CLI::error( '--secondary-filter must be a valid FetchXML <filter> or <condition> element.' );
+		private function apply_secondary_filter_args( array $assoc_args ): void {
+			try {
+				$fragment = Agend_Directory_Sync_Dataverse_Source::build_secondary_filter_from_args( $assoc_args );
+			} catch ( RuntimeException $e ) {
+				WP_CLI::error( $e->getMessage() );
 				return;
 			}
 
+			$via = isset( $assoc_args['secondary-filter'] )
+				? '--secondary-filter'
+				: '--secondary-filter-field/--secondary-filter-values';
+
 			$active = Agend_Directory_Sync_Source_Registry::active()->get_key();
 			if ( Agend_Directory_Sync_Dataverse_Source::SOURCE_KEY !== $active ) {
-				WP_CLI::warning( sprintf( '--secondary-filter applies to the Microsoft Dataverse source only; the active source is "%s", so it has no effect on this run.', $active ) );
+				WP_CLI::warning( sprintf( '%s applies to the Microsoft Dataverse source only; the active source is "%s", so it has no effect on this run.', $via, $active ) );
 			}
 
 			add_filter(
@@ -170,7 +193,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 				}
 			);
 
-			WP_CLI::log( '' !== $fragment ? 'Secondary filter: applied from --secondary-filter.' : 'Secondary filter: cleared for this run by --secondary-filter.' );
+			WP_CLI::log(
+				'' !== $fragment
+					? sprintf( 'Secondary filter: applied from %s.', $via )
+					: sprintf( 'Secondary filter: cleared for this run by %s.', $via )
+			);
 		}
 
 		/**
