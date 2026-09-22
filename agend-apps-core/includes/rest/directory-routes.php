@@ -26,7 +26,8 @@ function agend_apps_register_directory_routes(): void {
  * submission is a write and requires a valid WordPress nonce (`wp_rest`).
  * Listing create/update/delete and bulk upsert are intentionally NOT proxied:
  * they are administrative writes and are only available via the server-side
- * PHP functions in `includes/api/directory.php`.
+ * PHP functions in `includes/api/directory.php` and
+ * `includes/api/directory-export-reports.php`.
  *
  * Exposes:
  * - `GET  /agend-apps/v1/directory/listings`                  — paginated listing index.

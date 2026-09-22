@@ -244,6 +244,16 @@ function add_filter( string $hook, $callback, int $priority = 10, int $args = 1 
 }
 
 /**
+ * Single-callback model like add_filter(): removing a hook's callback
+ * clears the hook. The callback and priority are accepted for signature
+ * parity and not compared.
+ */
+function remove_filter( string $hook, $callback = null, int $priority = 10 ): bool {
+	unset( Agend_Test_WP::$filters[ $hook ] );
+	return true;
+}
+
+/**
  * Deprecated-hook variant of {@see apply_filters()}: runs the same filter
  * machinery against `$args[0]` under the OLD hook name, so a test (or a
  * site's real `add_filter()`) registered on the pre-rename name still

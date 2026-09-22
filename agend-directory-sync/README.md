@@ -183,6 +183,71 @@ the page window is a setting rather than a hand-edit of the query.
   Include an `<order>` on a stable column. Paging a query with no
   deterministic order can return the same row on two pages and miss
   another entirely.
+- **Secondary filter (grouped sync)**: an extra filter applied on top of
+  the query at fetch time, so one sync run can target one group of records
+  without editing the main query. The saved query is never edited by this
+  feature. It combines with the main query's own filters using AND, and the
+  FetchXML shown by Run source fetch includes it.
+
+  It is **not** in this settings list. It has its own card at the top of the
+  page, directly under the Manual sync actions, because it changes what
+  those actions do rather than how the plugin connects to Dataverse. The
+  card has its own **Save filter** button, separate from **Save settings**
+  below, and saving one never touches the other.
+
+  **Run source fetch, Preview transform and Send to Agend all use the SAVED
+  filter, not whatever is on screen.** The card states which filter is
+  saved, and while an edit is unsaved it says so and disables those three
+  actions, so a sync can never run against a filter you only think is
+  applied. Save the filter, or reload the page to discard the edit. There
+  are two modes:
+
+  - **Guided (pick values by label)**: name the field's logical name (for
+    example `pca_membergroup`), press **Load values**, and choose which
+    values count as "in the group" by their label rather than their raw
+    stored value. Discovery works like this: the plugin first reads the
+    values actually in use on the entity (a distinct-values query against
+    the field), and falls back to the field's option set metadata when that
+    read is not possible or comes back empty, so a value nobody has used
+    yet is still selectable. Results are cached for five minutes. **Load
+    values** is the only button: when it answers from that cache it says how
+    old the cached list is and offers a single **Reload from Dataverse**
+    link, which is the one way to go behind the cache. Up to 200 values are
+    loaded at once; when there are more, a search box appears so you can
+    find a value outside that first page rather than raising the cap. Selecting values by label builds the filter for you, with the
+    operator chosen from the field's type: `in` for a choice (option set),
+    lookup, status or state field, `contain-values` for a multi-select
+    choice field, and `eq` for a yes/no field. The generated fragment is
+    shown read-only below the values for reference and is not itself saved,
+    only the field, the chosen values, and their labels are.
+
+    Worked example: field `pca_membergroup` (a choice field), values
+    "Region North" and "Region South" selected, produces a filter
+    equivalent to:
+
+    ```xml
+    <filter type="and">
+      <condition attribute="pca_membergroup" operator="in">
+        <value>798380003</value>
+        <value>798380004</value>
+      </condition>
+    </filter>
+    ```
+  - **Advanced (write the FetchXML filter myself)**: the original raw
+    mode, unchanged: a `<filter>` element (or a single `<condition>`, which
+    is wrapped in `<filter type="and">` for you), added as another
+    `<filter>` under the query's `<entity>`. Must be valid XML or it is not
+    saved. Connection variables (`{name}`) are substituted at run time.
+
+    ```xml
+    <filter type="and">
+      <condition attribute="pca_membergroup" operator="eq" value="Region North" />
+    </filter>
+    ```
+
+  Leave the guided field blank (or the raw textarea blank in advanced mode)
+  to sync everything the main query returns. See Grouped uploads below for
+  scripting one group at a time from the command line.
 - **Page size** — the `count` attribute, 1-5000 (Dataverse rejects more).
 - **Start page** and **Max pages** — the window this run fetches. Start
   page 3 with max pages 1 fetches page 3 alone, which is how you re-run a
@@ -301,6 +366,12 @@ are sensitive, so map them only when the directory should publish them.
 
 ## Actions
 
+The actions and the most recent result sit at the top of the Tools > Agend
+Directory Sync page, above the settings form. Each result's raw-data and
+transformed-listing windows are collapsible: they open on the page load that
+follows the action that produced them and stay collapsed on any later visit,
+so a page carrying an old result stays scannable.
+
 - **Run Upbeat fetch** - calls Upbeat and dumps the raw first 10 rows.
   Useful for verifying the source shape and confirming the source field
   names to map.
@@ -373,6 +444,47 @@ wp agend-directory-sync run --max=50 --dry-run
 - `--max=<n>` caps the rows processed this run (after fetch, before
   transform). Omit or `0` for all rows.
 - `--dry-run` fetches and transforms only; nothing is POSTed.
+- `--secondary-filter=<fetchxml>` (Microsoft Dataverse source only)
+  replaces the saved secondary filter for this run with the given
+  `<filter>` or `<condition>` fragment. Pass an empty value to run
+  unfiltered on a site whose saved settings carry a filter. The saved
+  query and saved filter are not changed.
+- `--secondary-filter-field=<name>` and `--secondary-filter-values=<v1,v2>`
+  (Microsoft Dataverse source only) are the guided alternative to
+  `--secondary-filter`: name the field's logical name and a comma-separated
+  list of the raw values to match, and the plugin builds the filter itself
+  using the same field-type-to-operator rule the admin UI's guided mode
+  uses. Both flags are required together. They are mutually exclusive with
+  `--secondary-filter`: passing both fails the run rather than guessing
+  which one wins. As with `--secondary-filter`, this replaces the saved
+  secondary filter for this run only; the saved settings are not changed.
+
+### Grouped uploads
+
+To upload a directory one group at a time (for example, one Dataverse
+custom-field value per run), keep the main FetchXML query as the full
+directory and script the group as the secondary filter. The guided flags
+are the form an operator will usually reach for, since they take the same
+raw values shown in the admin UI's Values list rather than a hand-written
+FetchXML condition:
+
+```bash
+for group_field in 798380003 798380004; do
+  wp agend-directory-sync run --secondary-filter-field=pca_membergroup --secondary-filter-values="$group_field"
+done
+```
+
+The raw `--secondary-filter` form still works for anything the guided flags
+cannot express:
+
+```bash
+for group in "Region North" "Region South"; do
+  wp agend-directory-sync run --secondary-filter="<condition attribute=\"pca_membergroup\" operator=\"eq\" value=\"$group\" />"
+done
+```
+
+Each run upserts only the listings the composed query returns; listings
+outside the group are left as they are.
 
 Add a crontab entry that changes into the WordPress root and runs the
 command. Example, every 30 minutes, logging to a file:
