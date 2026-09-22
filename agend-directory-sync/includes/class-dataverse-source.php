@@ -382,11 +382,27 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			} else {
 				$cached = get_transient( $cache_key );
 				if ( is_array( $cached ) ) {
+					// A payload stored before `cached_at` existed has no stamp
+					// to measure from. Report an unknown age rather than one
+					// counted from the epoch: the admin UI turns this into
+					// words, and "cached 56 years ago" is worse than silence.
+					$cached_at = (int) ( $cached['cached_at'] ?? 0 );
+
+					$cached['cached_at']  = $cached_at;
+					$cached['from_cache'] = true;
+					$cached['cache_age']  = $cached_at > 0 ? max( 0, time() - $cached_at ) : 0;
+
 					return $cached;
 				}
 			}
 
 			$result = $this->discover_field_values( $settings, $entity, $field, $search );
+
+			// Stamped before storing, so the age reported on a later hit is
+			// measured from the discovery, not from the hit.
+			$result['cached_at']  = time();
+			$result['from_cache'] = false;
+			$result['cache_age']  = 0;
 
 			set_transient( $cache_key, $result, self::FIELD_VALUES_CACHE_TTL );
 
@@ -1087,6 +1103,73 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		 *
 		 * @param mixed $raw
 		 */
+		/**
+		 * The five secondary-filter keys, sanitised, and nothing else.
+		 *
+		 * The filter has its own panel and its own save action, separate from
+		 * the connection settings form. This exists so that save writes the
+		 * filter without touching a single connection setting: handing the
+		 * whole settings array to `sanitize_settings()` from a panel that
+		 * renders none of those fields would blank the environment URL and
+		 * the FetchXML query on every filter save.
+		 *
+		 * @param mixed $raw The posted `agend_dataverse` array, or anything at all.
+		 *
+		 * @return array<string, mixed>
+		 */
+		public static function sanitize_secondary_filter_input( $raw ): array {
+			$raw = is_array( $raw ) ? $raw : array();
+
+			return array(
+				'secondary_filter'            => self::sanitize_secondary_filter( isset( $raw['secondary_filter'] ) ? (string) $raw['secondary_filter'] : '' ),
+				'secondary_filter_mode'       => self::sanitize_secondary_filter_mode( $raw['secondary_filter_mode'] ?? '' ),
+				'secondary_filter_field'      => self::sanitize_secondary_filter_field( $raw['secondary_filter_field'] ?? '' ),
+				'secondary_filter_field_type' => self::sanitize_secondary_filter_field_type( $raw['secondary_filter_field_type'] ?? '' ),
+				'secondary_filter_values'     => self::sanitize_secondary_filter_values(
+					$raw['secondary_filter_values'] ?? array(),
+					isset( $raw['secondary_filter_value_labels'] ) ? (string) $raw['secondary_filter_value_labels'] : ''
+				),
+			);
+		}
+
+		/**
+		 * Carry the saved secondary filter through a settings save that does
+		 * not post it.
+		 *
+		 * The filter's fields left the connection settings form when the
+		 * filter moved to its own panel, so a settings save posts none of
+		 * them. Without this, `sanitize_settings()` would read them as absent,
+		 * sanitise them to their defaults, and silently drop a configured
+		 * group filter the moment somebody saved an unrelated connection
+		 * change.
+		 *
+		 * Only an ABSENT key is carried. A key that is present but empty is a
+		 * real edit, clearing the filter on purpose, and is left alone.
+		 *
+		 * @param array<string, mixed> $raw   The posted settings array.
+		 * @param array<string, mixed> $saved The currently stored settings array.
+		 *
+		 * @return array<string, mixed>
+		 */
+		public static function carry_secondary_filter( array $raw, array $saved ): array {
+			$keys = array(
+				'secondary_filter',
+				'secondary_filter_mode',
+				'secondary_filter_field',
+				'secondary_filter_field_type',
+				'secondary_filter_values',
+				'secondary_filter_value_labels',
+			);
+
+			foreach ( $keys as $key ) {
+				if ( ! array_key_exists( $key, $raw ) && array_key_exists( $key, $saved ) ) {
+					$raw[ $key ] = $saved[ $key ];
+				}
+			}
+
+			return $raw;
+		}
+
 		public static function sanitize_secondary_filter_mode( $raw ): string {
 			return self::SECONDARY_FILTER_MODE_GUIDED === trim( (string) $raw )
 				? self::SECONDARY_FILTER_MODE_GUIDED
