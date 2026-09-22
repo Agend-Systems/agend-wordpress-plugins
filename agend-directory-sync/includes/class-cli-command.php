@@ -47,10 +47,31 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 		 * : Fetch and transform only; do not POST anything to Agend. Reports the
 		 *   counts that a real run would produce.
 		 *
+		 * [--secondary-filter=<fetchxml>]
+		 * : Microsoft Dataverse source only. A FetchXML <filter> (or single
+		 *   <condition>) fragment applied on top of the saved query for this
+		 *   run, replacing the saved secondary filter, so a grouped upload can
+		 *   be scripted one group at a time. The saved query is not changed.
+		 *   Mutually exclusive with --secondary-filter-field and
+		 *   --secondary-filter-values.
+		 *
+		 * [--secondary-filter-field=<name>]
+		 * : Microsoft Dataverse source only. The guided alternative to
+		 *   --secondary-filter: the logical name of the field to filter on,
+		 *   paired with --secondary-filter-values. Mutually exclusive with
+		 *   --secondary-filter.
+		 *
+		 * [--secondary-filter-values=<v1,v2>]
+		 * : Comma separated raw values (a choice value, a GUID, or true/false)
+		 *   to match --secondary-filter-field against. Required together
+		 *   with --secondary-filter-field.
+		 *
 		 * ## EXAMPLES
 		 *
 		 *     wp agend-directory-sync run
 		 *     wp agend-directory-sync run --max=50 --dry-run
+		 *     wp agend-directory-sync run --secondary-filter='<condition attribute="pca_membergroup" operator="eq" value="Region North" />'
+		 *     wp agend-directory-sync run --secondary-filter-field=pca_membergroup --secondary-filter-values=798380003,798380004
 		 *
 		 * @param array<int, string>    $args       Positional args (unused).
 		 * @param array<string, string> $assoc_args Associative args.
@@ -63,6 +84,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 
 			if ( $dry_run ) {
 				WP_CLI::log( 'Dry run: fetching and transforming only, nothing will be sent.' );
+			}
+
+			if ( isset( $assoc_args['secondary-filter'] ) || isset( $assoc_args['secondary-filter-field'] ) || isset( $assoc_args['secondary-filter-values'] ) ) {
+				$this->apply_secondary_filter_args( $assoc_args );
 			}
 
 			try {
@@ -126,6 +151,52 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 					(int) ( $send['created'] ?? 0 ),
 					(int) ( $send['updated'] ?? 0 )
 				)
+			);
+		}
+
+		/**
+		 * Route a run-scoped secondary filter to the Dataverse source through
+		 * its filter hook: either the raw --secondary-filter fragment, or the
+		 * guided --secondary-filter-field / --secondary-filter-values pair,
+		 * built and validated by
+		 * `Agend_Directory_Sync_Dataverse_Source::build_secondary_filter_from_args()`
+		 * so a typo fails here with a specific message rather than as a
+		 * Dataverse 400 mid-run.
+		 *
+		 * The override replaces the saved fragment even when blank, which is
+		 * how a script asks for an unfiltered run against a site whose saved
+		 * settings carry a filter: `--secondary-filter=''`.
+		 *
+		 * @param array<string, string> $assoc_args
+		 */
+		private function apply_secondary_filter_args( array $assoc_args ): void {
+			try {
+				$fragment = Agend_Directory_Sync_Dataverse_Source::build_secondary_filter_from_args( $assoc_args );
+			} catch ( RuntimeException $e ) {
+				WP_CLI::error( $e->getMessage() );
+				return;
+			}
+
+			$via = isset( $assoc_args['secondary-filter'] )
+				? '--secondary-filter'
+				: '--secondary-filter-field/--secondary-filter-values';
+
+			$active = Agend_Directory_Sync_Source_Registry::active()->get_key();
+			if ( Agend_Directory_Sync_Dataverse_Source::SOURCE_KEY !== $active ) {
+				WP_CLI::warning( sprintf( '%s applies to the Microsoft Dataverse source only; the active source is "%s", so it has no effect on this run.', $via, $active ) );
+			}
+
+			add_filter(
+				Agend_Directory_Sync_Dataverse_Source::SECONDARY_FILTER_HOOK,
+				static function () use ( $fragment ): string {
+					return $fragment;
+				}
+			);
+
+			WP_CLI::log(
+				'' !== $fragment
+					? sprintf( 'Secondary filter: applied from %s.', $via )
+					: sprintf( 'Secondary filter: cleared for this run by %s.', $via )
 			);
 		}
 

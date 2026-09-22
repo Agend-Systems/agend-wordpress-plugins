@@ -99,6 +99,34 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		public const PREVIEW_RECORD_LIMIT = 5;
 
 		/**
+		 * Filter hook through which a caller supplies, for one run, the
+		 * secondary FetchXML filter fragment applied on top of the saved
+		 * query: `apply_filters( self::SECONDARY_FILTER_HOOK, string $saved )`
+		 * returning the fragment to use ('' for none). The WP-CLI command's
+		 * `--secondary-filter` flag uses it so a grouped upload can be
+		 * scripted without touching the saved settings.
+		 */
+		public const SECONDARY_FILTER_HOOK = 'agend_directory_sync_dataverse_secondary_filter';
+
+		/**
+		 * Secondary filter configuration modes: a hand-written FetchXML
+		 * fragment, or a field + list of values the admin picked by label and
+		 * this source builds into a fragment.
+		 */
+		public const SECONDARY_FILTER_MODE_RAW    = 'raw';
+		public const SECONDARY_FILTER_MODE_GUIDED = 'guided';
+
+		/**
+		 * How long a field's discovered values are cached, and how many are
+		 * returned before the admin UI is told to offer a search box instead
+		 * of an ever-growing list. Both are properties of "how big can a
+		 * picklist reasonably get before this stops being a dropdown", not
+		 * configuration an operator should need to tune.
+		 */
+		public const FIELD_VALUES_CACHE_TTL = 300;
+		public const FIELD_VALUES_LIMIT     = 200;
+
+		/**
 		 * Rows resolved from `value` that were not JSON objects, accumulated
 		 * across the most recent fetch. The runner reads this (duck-typed) and
 		 * folds it into the run summary as the `row_not_an_object` skip reason.
@@ -291,6 +319,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				'decoded'       => $decoded,
 				'data_path'     => self::DATA_PATH,
 				'fetch_xml'     => $fetch_xml,
+				'secondary_filter' => $settings['secondary_filter'],
+				'secondary_filter_description' => $settings['secondary_filter_description'],
 				'page'          => $settings['start_page'],
 				'page_size'     => $settings['page_size'],
 				'more_records'  => self::has_more_records( $decoded, is_array( $decoded[ self::DATA_PATH ] ?? null ) ? count( $decoded[ self::DATA_PATH ] ) : 0, $settings['page_size'] ),
@@ -312,6 +342,584 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			$result['skipped_non_associative'] = $this->skipped_non_associative_count;
 
 			return $result;
+		}
+
+		/**
+		 * The possible values for a Dataverse field, for the guided secondary
+		 * filter builder: values actually in use on records (preferred,
+		 * since they are what an admin will actually be filtering among),
+		 * falling back to (or merging in) the field's metadata options.
+		 *
+		 * Cached in a transient keyed on the environment, entity, field and
+		 * search term, since this is a lookup the admin page can trigger
+		 * repeatedly while an operator is building a filter.
+		 *
+		 * @return array{entity: string, field: string, type: string, source: string, options: array<int, array{value: string, label: string}>, has_more: bool}
+		 *
+		 * @throws RuntimeException When the source is unavailable, the field
+		 *                          name is invalid, the main query has no
+		 *                          entity, or every discovery path failed.
+		 */
+		public function fetch_field_values( string $field, string $search = '', bool $refresh = false ): array {
+			if ( ! $this->is_available() ) {
+				throw new RuntimeException( $this->get_unavailable_reason() );
+			}
+
+			$field = self::sanitize_secondary_filter_field( $field );
+
+			if ( '' === $field ) {
+				throw new RuntimeException( __( 'That is not a valid Dataverse field logical name.', 'agend-directory-sync' ) );
+			}
+
+			$settings = $this->runtime_settings();
+			$entity   = self::extract_entity_name( $settings['fetch_xml'] );
+			$search   = trim( $search );
+
+			$cache_key = self::field_values_cache_key( $settings['environment_url'], $entity, $field, $search );
+
+			if ( $refresh ) {
+				delete_transient( $cache_key );
+			} else {
+				$cached = get_transient( $cache_key );
+				if ( is_array( $cached ) ) {
+					// A payload stored before `cached_at` existed has no stamp
+					// to measure from. Report an unknown age rather than one
+					// counted from the epoch: the admin UI turns this into
+					// words, and "cached 56 years ago" is worse than silence.
+					$cached_at = (int) ( $cached['cached_at'] ?? 0 );
+
+					$cached['cached_at']  = $cached_at;
+					$cached['from_cache'] = true;
+					$cached['cache_age']  = $cached_at > 0 ? max( 0, time() - $cached_at ) : 0;
+
+					return $cached;
+				}
+			}
+
+			$result = $this->discover_field_values( $settings, $entity, $field, $search );
+
+			// Stamped before storing, so the age reported on a later hit is
+			// measured from the discovery, not from the hit.
+			$result['cached_at']  = time();
+			$result['from_cache'] = false;
+			$result['cache_age']  = 0;
+
+			set_transient( $cache_key, $result, self::FIELD_VALUES_CACHE_TTL );
+
+			return $result;
+		}
+
+		/**
+		 * Transient key for a cached field-values discovery, following
+		 * `Agend_Directory_Sync_Oauth_Token_Manager::transient_key()`'s md5
+		 * style: distinct environments, entities, fields and search terms
+		 * never collide.
+		 */
+		private static function field_values_cache_key( string $environment_url, string $entity, string $field, string $search ): string {
+			return 'agend_dsync_dvfields_' . md5( $environment_url . '|' . $entity . '|' . $field . '|' . $search );
+		}
+
+		/**
+		 * Orchestrate the discovery steps: attribute type, values in use,
+		 * metadata options (merged in as appropriate), search filtering,
+		 * sort, and the display cap. A failure in the type lookup or the
+		 * in-use/metadata queries is not fatal here on its own; only ending
+		 * up with no options at all is.
+		 *
+		 * @return array{entity: string, field: string, type: string, source: string, options: array<int, array{value: string, label: string}>, has_more: bool}
+		 *
+		 * @throws RuntimeException When every discovery path failed.
+		 */
+		private function discover_field_values( array $settings, string $entity, string $field, string $search ): array {
+			$type = $this->discover_field_type( $settings, $entity, $field );
+
+			try {
+				$in_use = $this->discover_in_use_values( $settings, $entity, $field, $type, $search );
+			} catch ( Throwable $e ) {
+				$in_use = array();
+			}
+
+			$options = $in_use;
+			$source  = ! empty( $in_use ) ? 'in_use' : '';
+
+			// Lookup, customer and owner have no metadata option source to
+			// fall back to or merge in: their only values come from what is
+			// actually on a record.
+			$metadata_types = array( 'picklist', 'multiselectpicklist', 'status', 'state', 'boolean' );
+
+			if ( in_array( $type, $metadata_types, true ) ) {
+				try {
+					$metadata_options = $this->discover_metadata_values( $settings, $entity, $field, $type );
+				} catch ( Throwable $e ) {
+					$metadata_options = array();
+				}
+
+				if ( ! empty( $metadata_options ) ) {
+					$existing = array_column( $options, 'value' );
+
+					foreach ( $metadata_options as $metadata_option ) {
+						if ( ! in_array( $metadata_option['value'], $existing, true ) ) {
+							$options[]  = $metadata_option;
+							$existing[] = $metadata_option['value'];
+						}
+					}
+
+					$source = '' === $source ? 'metadata' : 'in_use+metadata';
+				}
+			}
+
+			if ( empty( $options ) ) {
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the Dataverse field logical name. */
+						__( 'Could not discover any values for field "%s". Check the field name, and that the environment is reachable.', 'agend-directory-sync' ),
+						$field
+					)
+				);
+			}
+
+			// A lookup field's search is already applied at the query level
+			// (in discover_in_use_values(), narrowed on the target's primary
+			// name) when that narrowing succeeds; re-filtering by substring
+			// here on a formatted lookup label would only risk dropping a
+			// legitimate match whose label does not literally contain the
+			// search text. Every other type has no query-level narrowing, so
+			// it is filtered here instead.
+			if ( '' !== $search && 'lookup' !== $type ) {
+				$options = self::filter_options_by_search( $options, $search );
+			}
+
+			usort(
+				$options,
+				static function ( array $a, array $b ): int {
+					return strcasecmp( $a['label'], $b['label'] );
+				}
+			);
+
+			$has_more = count( $options ) > self::FIELD_VALUES_LIMIT;
+
+			if ( $has_more ) {
+				$options = array_slice( $options, 0, self::FIELD_VALUES_LIMIT );
+			}
+
+			return array(
+				'entity'   => $entity,
+				'field'    => $field,
+				'type'     => $type,
+				'source'   => '' === $source ? 'metadata' : $source,
+				'options'  => array_values( $options ),
+				'has_more' => $has_more,
+			);
+		}
+
+		/**
+		 * The field's Dataverse attribute type, lowercased and restricted to
+		 * the types this source knows how to build a filter for. A failure
+		 * here (a typo'd field name, an unreachable environment) is not
+		 * fatal: the caller carries on with an empty type, which still lets
+		 * the in-use values query run.
+		 */
+		private function discover_field_type( array $settings, string $entity, string $field ): string {
+			try {
+				$url = sprintf(
+					"%s/api/data/v%s/EntityDefinitions(LogicalName='%s')/Attributes(LogicalName='%s')?\$select=LogicalName,AttributeType,DisplayName",
+					rtrim( $settings['environment_url'], '/' ),
+					$settings['api_version'],
+					rawurlencode( $entity ),
+					rawurlencode( $field )
+				);
+
+				$decoded = $this->request_json_url( $url, $settings );
+
+				return self::sanitize_secondary_filter_field_type( (string) ( $decoded['AttributeType'] ?? '' ) );
+			} catch ( Throwable $e ) {
+				return '';
+			}
+		}
+
+		/**
+		 * The values actually in use on records for this field: a distinct
+		 * FetchXML aggregate grouped on the field, run against the MAIN
+		 * query's entity (never the operator's own filters, so discovery
+		 * always sees the whole entity's values rather than whatever the
+		 * currently-configured filter already narrows to).
+		 *
+		 * A lookup field with a search term is narrowed at the query level,
+		 * joined to the target entity's primary name; when that narrowing
+		 * fails for any reason, this falls back to the unnarrowed aggregate
+		 * with the search applied to labels in PHP instead, rather than
+		 * failing the whole lookup.
+		 */
+		private function discover_in_use_values( array $settings, string $entity, string $field, string $type, string $search ): array {
+			$narrowed = false;
+			$rows     = null;
+
+			if ( 'lookup' === $type && '' !== $search ) {
+				try {
+					$rows     = $this->fetch_in_use_rows_narrowed( $settings, $entity, $field, $search );
+					$narrowed = true;
+				} catch ( Throwable $e ) {
+					$rows = null;
+				}
+			}
+
+			if ( null === $rows ) {
+				$rows = $this->fetch_in_use_rows( $settings, $entity, $field, null );
+			}
+
+			$options = self::rows_to_options( $rows );
+
+			if ( 'lookup' === $type && ! $narrowed && '' !== $search ) {
+				$options = self::filter_options_by_search( $options, $search );
+			}
+
+			return $options;
+		}
+
+		/**
+		 * Resolve a lookup field's single target entity and the attribute to
+		 * narrow a search on: its primary name field, and the logical name
+		 * to join through. The target's primary key attribute is assumed to
+		 * be `{logical name}id`, the Dataverse convention for every
+		 * out-of-box and custom entity; fetching it explicitly would need a
+		 * second metadata call this source has no other use for.
+		 *
+		 * @return array{entity: string, from: string, primary_name: string}
+		 *
+		 * @throws RuntimeException When the lookup has no target metadata, or
+		 *                          the target has no primary name attribute.
+		 */
+		private function resolve_lookup_target( array $settings, string $entity, string $field ): array {
+			$url = sprintf(
+				"%s/api/data/v%s/EntityDefinitions(LogicalName='%s')/Attributes(LogicalName='%s')/Microsoft.Dynamics.CRM.LookupAttributeMetadata?\$select=Targets",
+				rtrim( $settings['environment_url'], '/' ),
+				$settings['api_version'],
+				rawurlencode( $entity ),
+				rawurlencode( $field )
+			);
+
+			$decoded = $this->request_json_url( $url, $settings );
+			$targets = $decoded['Targets'] ?? null;
+
+			if ( ! is_array( $targets ) || empty( $targets ) ) {
+				throw new RuntimeException( __( 'The lookup field has no target entity metadata.', 'agend-directory-sync' ) );
+			}
+
+			$target = (string) reset( $targets );
+
+			$entity_url = sprintf(
+				"%s/api/data/v%s/EntityDefinitions(LogicalName='%s')?\$select=PrimaryNameAttribute,LogicalName",
+				rtrim( $settings['environment_url'], '/' ),
+				$settings['api_version'],
+				rawurlencode( $target )
+			);
+
+			$entity_decoded = $this->request_json_url( $entity_url, $settings );
+
+			$primary_name = trim( (string) ( $entity_decoded['PrimaryNameAttribute'] ?? '' ) );
+			$logical_name = trim( (string) ( $entity_decoded['LogicalName'] ?? $target ) );
+
+			if ( '' === $primary_name || '' === $logical_name ) {
+				throw new RuntimeException( __( 'The lookup target entity has no primary name attribute.', 'agend-directory-sync' ) );
+			}
+
+			return array(
+				'entity'       => $logical_name,
+				'from'         => $logical_name . 'id',
+				'primary_name' => $primary_name,
+			);
+		}
+
+		/**
+		 * Run the in-use aggregate narrowed to rows whose lookup target's
+		 * primary name contains the search term, via an inner `<link-entity>`
+		 * built with DOM so the search text is escaped by the writer.
+		 */
+		private function fetch_in_use_rows_narrowed( array $settings, string $entity, string $field, string $search ): array {
+			$target = $this->resolve_lookup_target( $settings, $entity, $field );
+
+			return $this->fetch_in_use_rows(
+				$settings,
+				$entity,
+				$field,
+				array(
+					'entity'       => $target['entity'],
+					'from'         => $target['from'],
+					'primary_name' => $target['primary_name'],
+					'search'       => $search,
+				)
+			);
+		}
+
+		/**
+		 * Send the distinct/aggregate group-by query for one field, with the
+		 * `Prefer` header that brings back each row's formatted value
+		 * alongside its raw one. Built with DOM throughout, like
+		 * `build_page_fetch_xml()`, so a search term or field name containing
+		 * XML specials cannot corrupt the document.
+		 *
+		 * @param array{entity: string, from: string, primary_name: string, search: string}|null $link_spec
+		 *
+		 * @return array<int, array<string, mixed>>
+		 */
+		private function fetch_in_use_rows( array $settings, string $entity, string $field, ?array $link_spec ): array {
+			if ( ! class_exists( 'DOMDocument' ) ) {
+				throw new RuntimeException( __( 'The Dataverse source needs the PHP DOM extension to discover field values.', 'agend-directory-sync' ) );
+			}
+
+			$doc = new DOMDocument();
+
+			$fetch = $doc->createElement( 'fetch' );
+			$fetch->setAttribute( 'distinct', 'true' );
+			$fetch->setAttribute( 'aggregate', 'true' );
+			$doc->appendChild( $fetch );
+
+			$entity_el = $doc->createElement( 'entity' );
+			$entity_el->setAttribute( 'name', $entity );
+			$fetch->appendChild( $entity_el );
+
+			$attribute_el = $doc->createElement( 'attribute' );
+			$attribute_el->setAttribute( 'name', $field );
+			$attribute_el->setAttribute( 'alias', 'agend_value' );
+			$attribute_el->setAttribute( 'groupby', 'true' );
+			$entity_el->appendChild( $attribute_el );
+
+			if ( null !== $link_spec ) {
+				$link = $doc->createElement( 'link-entity' );
+				$link->setAttribute( 'name', $link_spec['entity'] );
+				$link->setAttribute( 'from', $link_spec['from'] );
+				$link->setAttribute( 'to', $field );
+				$link->setAttribute( 'link-type', 'inner' );
+
+				$link_filter    = $doc->createElement( 'filter' );
+				$link_condition = $doc->createElement( 'condition' );
+				$link_condition->setAttribute( 'attribute', $link_spec['primary_name'] );
+				$link_condition->setAttribute( 'operator', 'like' );
+				$link_condition->setAttribute( 'value', '%' . $link_spec['search'] . '%' );
+				$link_filter->appendChild( $link_condition );
+				$link->appendChild( $link_filter );
+
+				$entity_el->appendChild( $link );
+			}
+
+			$fetch_xml = (string) $doc->saveXML( $fetch );
+
+			$url = self::build_request_url( $settings['environment_url'], $settings['api_version'], $settings['entity_set'], $fetch_xml );
+
+			$decoded = $this->request_json_url(
+				$url,
+				$settings,
+				array( 'Prefer' => 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"' )
+			);
+
+			$value = $decoded[ self::DATA_PATH ] ?? null;
+
+			return is_array( $value ) ? $value : array();
+		}
+
+		/**
+		 * Pair each row's raw grouped value with its formatted-value
+		 * annotation (falling back to the raw value as its own label), and
+		 * drop a row whose raw value is null, empty, or not one of the three
+		 * shapes the values sanitiser trusts.
+		 *
+		 * @param array<int, mixed> $rows
+		 *
+		 * @return array<int, array{value: string, label: string}>
+		 */
+		private static function rows_to_options( array $rows ): array {
+			$options = array();
+
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+
+				$raw = $row['agend_value'] ?? null;
+
+				if ( null === $raw || '' === $raw ) {
+					continue;
+				}
+
+				$raw_string = is_bool( $raw ) ? ( $raw ? 'true' : 'false' ) : (string) $raw;
+				$normalized = self::normalize_secondary_filter_value( $raw_string );
+
+				if ( null === $normalized || array_key_exists( $normalized, $options ) ) {
+					continue;
+				}
+
+				$formatted = $row['agend_value@OData.Community.Display.V1.FormattedValue'] ?? null;
+				$label     = is_string( $formatted ) && '' !== trim( $formatted ) ? $formatted : $normalized;
+
+				$options[ $normalized ] = array(
+					'value' => $normalized,
+					'label' => sanitize_text_field( $label ),
+				);
+			}
+
+			return array_values( $options );
+		}
+
+		/**
+		 * The field's metadata-declared options, for the types that have
+		 * them. A boolean's true/false options are read from
+		 * `TrueOption`/`FalseOption` rather than an `Options` array, which is
+		 * why it is handled as its own branch rather than folded into the
+		 * type => cast map.
+		 *
+		 * @return array<int, array{value: string, label: string}>
+		 */
+		private function discover_metadata_values( array $settings, string $entity, string $field, string $type ): array {
+			if ( 'boolean' === $type ) {
+				return $this->discover_boolean_metadata_values( $settings, $entity, $field );
+			}
+
+			$casts = array(
+				'picklist'            => 'PicklistAttributeMetadata',
+				'multiselectpicklist' => 'MultiSelectPicklistAttributeMetadata',
+				'status'              => 'StatusAttributeMetadata',
+				'state'               => 'StateAttributeMetadata',
+			);
+
+			if ( ! isset( $casts[ $type ] ) ) {
+				return array();
+			}
+
+			$url = sprintf(
+				"%s/api/data/v%s/EntityDefinitions(LogicalName='%s')/Attributes(LogicalName='%s')/Microsoft.Dynamics.CRM.%s?\$select=LogicalName&\$expand=OptionSet(\$select=Options),GlobalOptionSet(\$select=Options)",
+				rtrim( $settings['environment_url'], '/' ),
+				$settings['api_version'],
+				rawurlencode( $entity ),
+				rawurlencode( $field ),
+				$casts[ $type ]
+			);
+
+			$decoded    = $this->request_json_url( $url, $settings );
+			$option_set = self::pick_populated_option_set( $decoded['OptionSet'] ?? null, $decoded['GlobalOptionSet'] ?? null );
+			$raw_options = is_array( $option_set ) && is_array( $option_set['Options'] ?? null ) ? $option_set['Options'] : array();
+
+			$options = array();
+
+			foreach ( $raw_options as $raw_option ) {
+				if ( ! is_array( $raw_option ) || ! isset( $raw_option['Value'] ) ) {
+					continue;
+				}
+
+				$value = self::normalize_secondary_filter_value( (string) $raw_option['Value'] );
+
+				if ( null === $value ) {
+					continue;
+				}
+
+				$options[] = array(
+					'value' => $value,
+					'label' => sanitize_text_field( self::extract_metadata_option_label( $raw_option, $value ) ),
+				);
+			}
+
+			return $options;
+		}
+
+		/**
+		 * A boolean field's two options, from `TrueOption`/`FalseOption`
+		 * rather than an `Options` array.
+		 *
+		 * @return array<int, array{value: string, label: string}>
+		 */
+		private function discover_boolean_metadata_values( array $settings, string $entity, string $field ): array {
+			$url = sprintf(
+				"%s/api/data/v%s/EntityDefinitions(LogicalName='%s')/Attributes(LogicalName='%s')/Microsoft.Dynamics.CRM.BooleanAttributeMetadata?\$select=LogicalName&\$expand=OptionSet(\$select=TrueOption,FalseOption),GlobalOptionSet(\$select=TrueOption,FalseOption)",
+				rtrim( $settings['environment_url'], '/' ),
+				$settings['api_version'],
+				rawurlencode( $entity ),
+				rawurlencode( $field )
+			);
+
+			$decoded    = $this->request_json_url( $url, $settings );
+			$option_set = self::pick_populated_option_set( $decoded['OptionSet'] ?? null, $decoded['GlobalOptionSet'] ?? null );
+
+			if ( ! is_array( $option_set ) ) {
+				return array();
+			}
+
+			$options = array();
+
+			foreach ( array( 'TrueOption' => 'true', 'FalseOption' => 'false' ) as $key => $value ) {
+				$entry = $option_set[ $key ] ?? null;
+
+				if ( is_array( $entry ) ) {
+					$options[] = array(
+						'value' => $value,
+						'label' => sanitize_text_field( self::extract_metadata_option_label( $entry, $value ) ),
+					);
+				}
+			}
+
+			return $options;
+		}
+
+		/**
+		 * Metadata options may sit under `OptionSet` (an entity-local option
+		 * set) or `GlobalOptionSet` (a shared one); exactly one of the two is
+		 * ever populated for a given attribute, so the first non-empty one
+		 * wins.
+		 *
+		 * @param mixed $option_set
+		 * @param mixed $global_option_set
+		 *
+		 * @return array<string, mixed>|null
+		 */
+		private static function pick_populated_option_set( $option_set, $global_option_set ): ?array {
+			if ( is_array( $option_set ) && ! empty( $option_set ) ) {
+				return $option_set;
+			}
+
+			return is_array( $global_option_set ) ? $global_option_set : null;
+		}
+
+		/**
+		 * A metadata option's display label: the current UI language's
+		 * label, falling back to the first localized label, falling back to
+		 * the value itself when the option carries no label at all.
+		 *
+		 * @param array<string, mixed> $entry
+		 */
+		private static function extract_metadata_option_label( array $entry, string $fallback ): string {
+			$label = $entry['Label']['UserLocalizedLabel']['Label'] ?? null;
+
+			if ( is_string( $label ) && '' !== trim( $label ) ) {
+				return $label;
+			}
+
+			$localized = $entry['Label']['LocalizedLabels'][0]['Label'] ?? null;
+
+			return ( is_string( $localized ) && '' !== trim( $localized ) ) ? $localized : $fallback;
+		}
+
+		/**
+		 * Filter a list of `{value, label}` options to those whose label or
+		 * value contains the search term, case-insensitively.
+		 *
+		 * @param array<int, array{value: string, label: string}> $options
+		 *
+		 * @return array<int, array{value: string, label: string}>
+		 */
+		private static function filter_options_by_search( array $options, string $search ): array {
+			if ( '' === $search ) {
+				return $options;
+			}
+
+			$needle = strtolower( $search );
+
+			return array_values(
+				array_filter(
+					$options,
+					static function ( array $option ) use ( $needle ): bool {
+						return false !== strpos( strtolower( $option['label'] ), $needle )
+							|| false !== strpos( strtolower( $option['value'] ), $needle );
+					}
+				)
+			);
 		}
 
 		/**
@@ -354,6 +962,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				'api_version'         => Agend_Directory_Sync_Config::non_blank( $saved['api_version'] ?? '', self::DEFAULT_API_VERSION ),
 				'entity_set'          => self::sanitize_entity_set( (string) ( $saved['entity_set'] ?? '' ) ),
 				'fetch_xml'           => trim( (string) ( $saved['fetch_xml'] ?? '' ) ),
+				'secondary_filter'    => trim( (string) ( $saved['secondary_filter'] ?? '' ) ),
+				'secondary_filter_mode'       => self::sanitize_secondary_filter_mode( $saved['secondary_filter_mode'] ?? self::SECONDARY_FILTER_MODE_RAW ),
+				'secondary_filter_field'      => self::sanitize_secondary_filter_field( $saved['secondary_filter_field'] ?? '' ),
+				'secondary_filter_field_type' => self::sanitize_secondary_filter_field_type( $saved['secondary_filter_field_type'] ?? '' ),
+				'secondary_filter_values'     => self::sanitize_secondary_filter_values( $saved['secondary_filter_values'] ?? array() ),
 				'tenant_id'           => (string) ( $saved['tenant_id'] ?? '' ),
 				'token_url'           => (string) ( $saved['token_url'] ?? '' ),
 				'client_id'           => (string) ( $saved['client_id'] ?? '' ),
@@ -390,6 +1003,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				'api_version'         => self::sanitize_api_version( isset( $raw['api_version'] ) ? (string) $raw['api_version'] : '' ),
 				'entity_set'          => self::sanitize_entity_set( isset( $raw['entity_set'] ) ? (string) $raw['entity_set'] : '' ),
 				'fetch_xml'           => self::sanitize_fetch_xml( isset( $raw['fetch_xml'] ) ? (string) $raw['fetch_xml'] : '' ),
+				'secondary_filter'    => self::sanitize_secondary_filter( isset( $raw['secondary_filter'] ) ? (string) $raw['secondary_filter'] : '' ),
+				'secondary_filter_mode'       => self::sanitize_secondary_filter_mode( $raw['secondary_filter_mode'] ?? '' ),
+				'secondary_filter_field'      => self::sanitize_secondary_filter_field( $raw['secondary_filter_field'] ?? '' ),
+				'secondary_filter_field_type' => self::sanitize_secondary_filter_field_type( $raw['secondary_filter_field_type'] ?? '' ),
+				'secondary_filter_values'     => self::sanitize_secondary_filter_values(
+					$raw['secondary_filter_values'] ?? array(),
+					isset( $raw['secondary_filter_value_labels'] ) ? (string) $raw['secondary_filter_value_labels'] : ''
+				),
 				'tenant_id'           => self::sanitize_tenant_id( isset( $raw['tenant_id'] ) ? (string) $raw['tenant_id'] : '' ),
 				'token_url'           => Agend_Directory_Sync_Config::sanitize_url_setting( isset( $raw['token_url'] ) ? (string) $raw['token_url'] : '' ),
 				'client_id'           => sanitize_text_field( isset( $raw['client_id'] ) ? (string) $raw['client_id'] : '' ),
@@ -458,6 +1079,606 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			} catch ( RuntimeException $e ) {
 				return false;
 			}
+		}
+
+		/**
+		 * The secondary filter fragment in force for this run: the saved
+		 * fragment, unless a caller overrides it through
+		 * SECONDARY_FILTER_HOOK. A non-string filter return is treated as
+		 * "no filter" rather than trusted.
+		 *
+		 * @param string $saved The fragment from the saved settings.
+		 */
+		public static function effective_secondary_filter( string $saved ): string {
+			$filtered = apply_filters( self::SECONDARY_FILTER_HOOK, $saved );
+
+			return is_string( $filtered ) ? trim( $filtered ) : '';
+		}
+
+		/**
+		 * Coerce a posted secondary filter mode to one of the two known
+		 * values, defaulting to raw: an unrecognised or missing mode should
+		 * never silently switch an operator's hand-written fragment for a
+		 * guided one built from stale or absent field/values settings.
+		 *
+		 * @param mixed $raw
+		 */
+		/**
+		 * The five secondary-filter keys, sanitised, and nothing else.
+		 *
+		 * The filter has its own panel and its own save action, separate from
+		 * the connection settings form. This exists so that save writes the
+		 * filter without touching a single connection setting: handing the
+		 * whole settings array to `sanitize_settings()` from a panel that
+		 * renders none of those fields would blank the environment URL and
+		 * the FetchXML query on every filter save.
+		 *
+		 * @param mixed $raw The posted `agend_dataverse` array, or anything at all.
+		 *
+		 * @return array<string, mixed>
+		 */
+		public static function sanitize_secondary_filter_input( $raw ): array {
+			$raw = is_array( $raw ) ? $raw : array();
+
+			return array(
+				'secondary_filter'            => self::sanitize_secondary_filter( isset( $raw['secondary_filter'] ) ? (string) $raw['secondary_filter'] : '' ),
+				'secondary_filter_mode'       => self::sanitize_secondary_filter_mode( $raw['secondary_filter_mode'] ?? '' ),
+				'secondary_filter_field'      => self::sanitize_secondary_filter_field( $raw['secondary_filter_field'] ?? '' ),
+				'secondary_filter_field_type' => self::sanitize_secondary_filter_field_type( $raw['secondary_filter_field_type'] ?? '' ),
+				'secondary_filter_values'     => self::sanitize_secondary_filter_values(
+					$raw['secondary_filter_values'] ?? array(),
+					isset( $raw['secondary_filter_value_labels'] ) ? (string) $raw['secondary_filter_value_labels'] : ''
+				),
+			);
+		}
+
+		/**
+		 * Carry the saved secondary filter through a settings save that does
+		 * not post it.
+		 *
+		 * The filter's fields left the connection settings form when the
+		 * filter moved to its own panel, so a settings save posts none of
+		 * them. Without this, `sanitize_settings()` would read them as absent,
+		 * sanitise them to their defaults, and silently drop a configured
+		 * group filter the moment somebody saved an unrelated connection
+		 * change.
+		 *
+		 * Only an ABSENT key is carried. A key that is present but empty is a
+		 * real edit, clearing the filter on purpose, and is left alone.
+		 *
+		 * @param array<string, mixed> $raw   The posted settings array.
+		 * @param array<string, mixed> $saved The currently stored settings array.
+		 *
+		 * @return array<string, mixed>
+		 */
+		public static function carry_secondary_filter( array $raw, array $saved ): array {
+			$keys = array(
+				'secondary_filter',
+				'secondary_filter_mode',
+				'secondary_filter_field',
+				'secondary_filter_field_type',
+				'secondary_filter_values',
+				'secondary_filter_value_labels',
+			);
+
+			foreach ( $keys as $key ) {
+				if ( ! array_key_exists( $key, $raw ) && array_key_exists( $key, $saved ) ) {
+					$raw[ $key ] = $saved[ $key ];
+				}
+			}
+
+			return $raw;
+		}
+
+		public static function sanitize_secondary_filter_mode( $raw ): string {
+			return self::SECONDARY_FILTER_MODE_GUIDED === trim( (string) $raw )
+				? self::SECONDARY_FILTER_MODE_GUIDED
+				: self::SECONDARY_FILTER_MODE_RAW;
+		}
+
+		/**
+		 * Sanitise a Dataverse field logical name for the guided filter:
+		 * lowercased, and restricted to the character set a Dataverse
+		 * logical name can hold (a leading letter or underscore, then
+		 * letters/digits/underscores). Anything else is a typo or an
+		 * attribute path, neither of which this builder can use, so it is
+		 * dropped rather than half-applied.
+		 *
+		 * @param mixed $raw
+		 */
+		public static function sanitize_secondary_filter_field( $raw ): string {
+			$value = strtolower( trim( (string) $raw ) );
+
+			return 1 === preg_match( '/^[a-z_][a-z0-9_]*$/', $value ) ? $value : '';
+		}
+
+		/**
+		 * Sanitise a Dataverse attribute type to the small set this source
+		 * knows how to build a guided filter for. An unrecognised type is
+		 * dropped rather than stored, so the operator field can carry
+		 * whatever Dataverse reports without this source having to keep a
+		 * mapping for a type it has no operator behaviour for.
+		 *
+		 * @param mixed $raw
+		 */
+		public static function sanitize_secondary_filter_field_type( $raw ): string {
+			$value = strtolower( trim( (string) $raw ) );
+
+			$known = array( 'picklist', 'multiselectpicklist', 'boolean', 'status', 'state', 'lookup', 'customer', 'owner' );
+
+			return in_array( $value, $known, true ) ? $value : '';
+		}
+
+		/**
+		 * Sanitise the guided filter's chosen values into a reindexed list of
+		 * `array{value, label}` rows.
+		 *
+		 * Accepts either the raw scalars a field-values response hands back,
+		 * or the `{value, label}` rows the stored option itself holds, so the
+		 * same sanitiser round-trips a saved option and a freshly posted
+		 * form. Only three value shapes are trusted onto a FetchXML
+		 * condition without further escaping concern: an (optionally signed)
+		 * integer, a GUID (brace-wrapped or not, normalised to lowercase
+		 * without braces), or a literal true/false. Anything else is a value
+		 * this source did not offer, so it is dropped rather than passed
+		 * through to the query.
+		 *
+		 * @param mixed  $raw_values
+		 * @param string $raw_labels JSON-encoded map of raw value => label,
+		 *                           posted separately because a <select> only
+		 *                           gives back selected values, not the label
+		 *                           text that was showing.
+		 *
+		 * @return array<int, array{value: string, label: string}>
+		 */
+		public static function sanitize_secondary_filter_values( $raw_values, $raw_labels = '' ): array {
+			if ( ! is_array( $raw_values ) ) {
+				return array();
+			}
+
+			$label_map = array();
+			if ( is_string( $raw_labels ) && '' !== trim( $raw_labels ) ) {
+				$decoded = json_decode( $raw_labels, true );
+				if ( is_array( $decoded ) ) {
+					foreach ( $decoded as $raw_key => $raw_label ) {
+						$label_map[ (string) $raw_key ] = (string) $raw_label;
+					}
+				}
+			}
+
+			$values = array();
+
+			foreach ( $raw_values as $row ) {
+				if ( is_array( $row ) ) {
+					$raw_value = isset( $row['value'] ) ? (string) $row['value'] : '';
+					$own_label = isset( $row['label'] ) ? (string) $row['label'] : null;
+				} elseif ( is_scalar( $row ) ) {
+					$raw_value = (string) $row;
+					$own_label = null;
+				} else {
+					continue;
+				}
+
+				$normalized = self::normalize_secondary_filter_value( $raw_value );
+
+				if ( null === $normalized || array_key_exists( $normalized, $values ) ) {
+					// Duplicate collapsing keeps the first occurrence, which is
+					// also why this check happens before the label lookup below.
+					continue;
+				}
+
+				$label = $own_label ?? ( $label_map[ $raw_value ] ?? ( $label_map[ $normalized ] ?? $normalized ) );
+
+				$values[ $normalized ] = array(
+					'value' => $normalized,
+					'label' => sanitize_text_field( $label ),
+				);
+			}
+
+			return array_values( $values );
+		}
+
+		/**
+		 * Normalise a single candidate value to the exact shape this source
+		 * trusts on a FetchXML condition: an integer string kept as-is
+		 * (sign included), a GUID lowercased and unwrapped of braces, or a
+		 * boolean literal lowercased. Returns null for anything else.
+		 */
+		private static function normalize_secondary_filter_value( string $value ): ?string {
+			$value = trim( $value );
+
+			if ( '' === $value ) {
+				return null;
+			}
+
+			if ( 1 === preg_match( '/^[+-]?\d+$/', $value ) ) {
+				return $value;
+			}
+
+			if ( 1 === preg_match( '/^\{?([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\}?$/', $value, $matches ) ) {
+				return strtolower( $matches[1] );
+			}
+
+			$lower = strtolower( $value );
+
+			return ( 'true' === $lower || 'false' === $lower ) ? $lower : null;
+		}
+
+		/**
+		 * Build a `<condition>` fragment from a field and a set of chosen
+		 * values, the same shape `inject_secondary_filter()` accepts as a
+		 * secondary filter fragment. Sanitises its own inputs so a caller
+		 * (the AJAX preview, the CLI flags, `resolve_secondary_filter_fragment()`)
+		 * never has to sanitise twice or risk the two disagreeing.
+		 *
+		 * A half-configured guided filter (a field with no values, or values
+		 * with no field) returns '' rather than throwing: guided mode with
+		 * nothing chosen means "no filter yet", not a broken run.
+		 *
+		 * Built with DOMDocument, like `build_page_fetch_xml()`, so a value
+		 * containing XML specials is escaped by the writer rather than
+		 * spliced in as a string.
+		 *
+		 * @param array<int, mixed> $values
+		 */
+		public static function build_guided_filter_fragment( string $field, array $values, string $field_type = '' ): string {
+			$field  = self::sanitize_secondary_filter_field( $field );
+			$values = self::sanitize_secondary_filter_values( $values );
+			$type   = self::sanitize_secondary_filter_field_type( $field_type );
+
+			if ( '' === $field || empty( $values ) ) {
+				return '';
+			}
+
+			// A single true/false value is an unambiguous boolean condition
+			// whatever the declared type says (or when there is no declared
+			// type at all, as on the WP-CLI path).
+			$is_single_boolean = 1 === count( $values ) && in_array( $values[0]['value'], array( 'true', 'false' ), true );
+
+			if ( 'multiselectpicklist' === $type ) {
+				$operator = 'contain-values';
+			} elseif ( 'boolean' === $type || $is_single_boolean ) {
+				$operator = 'eq';
+			} else {
+				$operator = 'in';
+			}
+
+			if ( ! class_exists( 'DOMDocument' ) ) {
+				throw new RuntimeException( __( 'The Dataverse source needs the PHP DOM extension to build a guided secondary filter.', 'agend-directory-sync' ) );
+			}
+
+			$doc       = new DOMDocument();
+			$condition = $doc->createElement( 'condition' );
+			$condition->setAttribute( 'attribute', $field );
+			$condition->setAttribute( 'operator', $operator );
+
+			if ( 'eq' === $operator ) {
+				$condition->setAttribute( 'value', $values[0]['value'] );
+			} else {
+				foreach ( $values as $value_row ) {
+					$condition->appendChild( $doc->createElement( 'value', $value_row['value'] ) );
+				}
+			}
+
+			$doc->appendChild( $condition );
+
+			return (string) $doc->saveXML( $condition );
+		}
+
+		/**
+		 * The secondary filter fragment the current settings would produce:
+		 * built from the guided field/values in guided mode, or the raw
+		 * fragment as saved otherwise. This is what `runtime_settings()`
+		 * feeds to `effective_secondary_filter()`, so a run-scoped CLI
+		 * override still replaces whichever mode is configured.
+		 *
+		 * @param array<string, mixed> $settings
+		 */
+		public static function resolve_secondary_filter_fragment( array $settings ): string {
+			if ( self::SECONDARY_FILTER_MODE_GUIDED === ( $settings['secondary_filter_mode'] ?? '' ) ) {
+				return self::build_guided_filter_fragment(
+					(string) ( $settings['secondary_filter_field'] ?? '' ),
+					is_array( $settings['secondary_filter_values'] ?? null ) ? $settings['secondary_filter_values'] : array(),
+					(string) ( $settings['secondary_filter_field_type'] ?? '' )
+				);
+			}
+
+			return trim( (string) ( $settings['secondary_filter'] ?? '' ) );
+		}
+
+		/**
+		 * A plain-language summary of the guided filter for the run summary
+		 * and the admin preview, e.g. "pca_membergroup limited to Region
+		 * North, Region South". Blank in raw mode (the raw fragment is
+		 * already shown verbatim, and it can be arbitrary FetchXML this
+		 * source has no vocabulary to describe) or when nothing is chosen
+		 * yet.
+		 *
+		 * @param array<string, mixed> $settings
+		 */
+		public static function describe_secondary_filter( array $settings ): string {
+			if ( self::SECONDARY_FILTER_MODE_GUIDED !== ( $settings['secondary_filter_mode'] ?? '' ) ) {
+				return '';
+			}
+
+			$field  = self::sanitize_secondary_filter_field( (string) ( $settings['secondary_filter_field'] ?? '' ) );
+			$values = self::sanitize_secondary_filter_values(
+				is_array( $settings['secondary_filter_values'] ?? null ) ? $settings['secondary_filter_values'] : array()
+			);
+
+			if ( '' === $field || empty( $values ) ) {
+				return '';
+			}
+
+			$labels = array_map(
+				static function ( array $value ): string {
+					return $value['label'];
+				},
+				$values
+			);
+
+			return sprintf(
+				/* translators: 1: the Dataverse field logical name, 2: comma-separated chosen labels. */
+				__( '%1$s limited to %2$s', 'agend-directory-sync' ),
+				$field,
+				implode( ', ', $labels )
+			);
+		}
+
+		/**
+		 * The logical name of the main query's top-level `<entity>`, read
+		 * from the MAIN FetchXML (never the composed one, which may not
+		 * exist yet): field-value discovery needs an entity to query
+		 * metadata and rows against before a secondary filter has anything
+		 * to compose onto.
+		 *
+		 * @throws RuntimeException When the query will not parse, has no
+		 *                          `<entity>`, or that entity has no `name`.
+		 */
+		public static function extract_entity_name( string $fetch_xml ): string {
+			$root = self::parse_fetch_element( $fetch_xml );
+
+			foreach ( $root->childNodes as $child ) {
+				if ( $child instanceof DOMElement && 'entity' === strtolower( $child->nodeName ) ) {
+					$name = trim( $child->getAttribute( 'name' ) );
+
+					if ( '' === $name ) {
+						throw new RuntimeException( __( 'The FetchXML query\'s <entity> element has no "name" attribute.', 'agend-directory-sync' ) );
+					}
+
+					return $name;
+				}
+			}
+
+			throw new RuntimeException( __( 'The FetchXML query has no <entity> element to read the entity name from.', 'agend-directory-sync' ) );
+		}
+
+		/**
+		 * Build a run-scoped secondary filter fragment from WP-CLI flags:
+		 * either the raw `--secondary-filter` fragment, or the guided
+		 * `--secondary-filter-field` + `--secondary-filter-values` pair.
+		 *
+		 * The two styles are mutually exclusive, and each fails loudly
+		 * rather than falling back to "no filter": on the command line,
+		 * silently building an empty fragment would upload the whole
+		 * directory when the operator asked for one group, which is a worse
+		 * failure than the command simply refusing to run.
+		 *
+		 * @param array<string, mixed> $args WP-CLI associative args.
+		 *
+		 * @throws RuntimeException When the raw and guided styles are mixed,
+		 *                          only one half of the guided pair is
+		 *                          given, the raw fragment is invalid, the
+		 *                          field name is invalid, or no value
+		 *                          survives sanitising.
+		 */
+		public static function build_secondary_filter_from_args( array $args ): string {
+			$has_raw    = array_key_exists( 'secondary-filter', $args );
+			$has_field  = array_key_exists( 'secondary-filter-field', $args );
+			$has_values = array_key_exists( 'secondary-filter-values', $args );
+
+			if ( $has_raw && ( $has_field || $has_values ) ) {
+				throw new RuntimeException( __( '--secondary-filter cannot be combined with --secondary-filter-field or --secondary-filter-values; use one style or the other.', 'agend-directory-sync' ) );
+			}
+
+			if ( $has_raw ) {
+				$fragment = trim( (string) $args['secondary-filter'] );
+
+				if ( '' === $fragment ) {
+					return '';
+				}
+
+				if ( ! self::is_valid_secondary_filter( $fragment ) ) {
+					throw new RuntimeException( __( '--secondary-filter must be a valid FetchXML <filter> or <condition> element.', 'agend-directory-sync' ) );
+				}
+
+				return $fragment;
+			}
+
+			if ( ! $has_field && ! $has_values ) {
+				return '';
+			}
+
+			if ( $has_field !== $has_values ) {
+				throw new RuntimeException( __( '--secondary-filter-field and --secondary-filter-values must be given together.', 'agend-directory-sync' ) );
+			}
+
+			$field = self::sanitize_secondary_filter_field( (string) $args['secondary-filter-field'] );
+
+			if ( '' === $field ) {
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the invalid --secondary-filter-field value supplied. */
+						__( '--secondary-filter-field "%s" is not a valid Dataverse field logical name.', 'agend-directory-sync' ),
+						(string) $args['secondary-filter-field']
+					)
+				);
+			}
+
+			$raw_values = array_values(
+				array_filter(
+					array_map( 'trim', explode( ',', (string) $args['secondary-filter-values'] ) ),
+					static function ( string $value ): bool {
+						return '' !== $value;
+					}
+				)
+			);
+
+			$values = self::sanitize_secondary_filter_values( $raw_values );
+
+			if ( empty( $values ) ) {
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the --secondary-filter-values value supplied. */
+						__( '--secondary-filter-values "%s" contained no valid value (an integer, a GUID, or true/false).', 'agend-directory-sync' ),
+						(string) $args['secondary-filter-values']
+					)
+				);
+			}
+
+			$fragment = self::build_guided_filter_fragment( $field, $values );
+
+			if ( '' === $fragment ) {
+				throw new RuntimeException( __( 'The guided secondary filter could not be built from --secondary-filter-field and --secondary-filter-values.', 'agend-directory-sync' ) );
+			}
+
+			return $fragment;
+		}
+
+		/**
+		 * Compose the secondary filter onto the main query without editing the
+		 * main query's own text.
+		 *
+		 * The fragment is parsed as its own document and imported as an
+		 * additional `<filter>` child of the query's top-level `<entity>`.
+		 * FetchXML combines sibling `<filter>` elements under an entity with
+		 * AND, so the saved query's own filters keep applying and the group
+		 * narrows the result on top of them. A fragment whose root is a bare
+		 * `<condition>` is wrapped in `<filter type="and">` first, so the
+		 * common one-condition case does not need the wrapper typed by hand.
+		 *
+		 * A blank fragment returns the query unchanged, byte for byte, so a
+		 * site that never configures a secondary filter sends exactly the
+		 * FetchXML it did before this existed.
+		 *
+		 * DOM-based like build_page_fetch_xml(), for the same reason: a
+		 * string splice on a query containing comments, CDATA or a quoted
+		 * `</entity>` would corrupt it; a DOM import cannot.
+		 *
+		 * @param string $fetch_xml Main FetchXML, variables already substituted.
+		 * @param string $fragment  `<filter>` (or `<condition>`) fragment,
+		 *                          variables already substituted; blank for none.
+		 *
+		 * @throws RuntimeException When either document will not parse, the
+		 *                          fragment's root is not `<filter>` or
+		 *                          `<condition>`, or the query has no
+		 *                          top-level `<entity>` to attach to.
+		 */
+		public static function inject_secondary_filter( string $fetch_xml, string $fragment ): string {
+			$fragment = trim( $fragment );
+
+			if ( '' === $fragment ) {
+				return $fetch_xml;
+			}
+
+			$root   = self::parse_fetch_element( $fetch_xml );
+			$entity = null;
+
+			foreach ( $root->childNodes as $child ) {
+				if ( $child instanceof DOMElement && 'entity' === strtolower( $child->nodeName ) ) {
+					$entity = $child;
+					break;
+				}
+			}
+
+			if ( null === $entity ) {
+				throw new RuntimeException( __( 'The FetchXML query has no <entity> element to attach the secondary filter to.', 'agend-directory-sync' ) );
+			}
+
+			$filter   = self::parse_filter_fragment( $fragment );
+			$imported = $root->ownerDocument->importNode( $filter, true );
+			$entity->appendChild( $imported );
+
+			return (string) $root->ownerDocument->saveXML( $root );
+		}
+
+		/**
+		 * Whether a secondary filter fragment parses as a `<filter>` or
+		 * `<condition>` element, for save-time validation. Same parser as the
+		 * run path, so the two can never disagree about what is valid.
+		 */
+		public static function is_valid_secondary_filter( string $fragment ): bool {
+			try {
+				self::parse_filter_fragment( $fragment );
+				return true;
+			} catch ( RuntimeException $e ) {
+				return false;
+			}
+		}
+
+		/**
+		 * Parse a secondary filter fragment into a `<filter>` element,
+		 * wrapping a bare `<condition>` root in `<filter type="and">`.
+		 *
+		 * @throws RuntimeException When the fragment is blank, will not
+		 *                          parse, or has some other root element.
+		 */
+		private static function parse_filter_fragment( string $fragment ): DOMElement {
+			$fragment = trim( $fragment );
+
+			if ( '' === $fragment ) {
+				throw new RuntimeException( __( 'The secondary filter is blank.', 'agend-directory-sync' ) );
+			}
+
+			if ( ! class_exists( 'DOMDocument' ) ) {
+				throw new RuntimeException( __( 'The Dataverse source needs the PHP DOM extension to apply a secondary filter.', 'agend-directory-sync' ) );
+			}
+
+			$previous = libxml_use_internal_errors( true );
+			libxml_clear_errors();
+
+			$doc                     = new DOMDocument();
+			$doc->preserveWhiteSpace = false;
+
+			$loaded = $doc->loadXML( $fragment, LIBXML_NONET );
+			$errors = libxml_get_errors();
+
+			libxml_clear_errors();
+			libxml_use_internal_errors( $previous );
+
+			if ( ! $loaded || ! $doc->documentElement instanceof DOMElement ) {
+				$first = ! empty( $errors ) ? trim( (string) $errors[0]->message ) : __( 'unknown parse error', 'agend-directory-sync' );
+
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the XML parser's error message. */
+						__( 'The secondary filter is not valid XML: %s', 'agend-directory-sync' ),
+						$first
+					)
+				);
+			}
+
+			$element = $doc->documentElement;
+			$name    = strtolower( $element->nodeName );
+
+			if ( 'condition' === $name ) {
+				$wrapper = $doc->createElement( 'filter' );
+				$wrapper->setAttribute( 'type', 'and' );
+				$wrapper->appendChild( $element );
+				return $wrapper;
+			}
+
+			if ( 'filter' !== $name ) {
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the root element name found instead of "filter". */
+						__( 'The secondary filter must be a <filter> or <condition> element; found <%s>.', 'agend-directory-sync' ),
+						$element->nodeName
+					)
+				);
+			}
+
+			return $element;
 		}
 
 		/**
@@ -779,12 +2000,31 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				'tenant_id'       => __( 'Tenant ID', 'agend-directory-sync' ),
 				'client_id'       => __( 'Application (client) ID', 'agend-directory-sync' ),
 				'fetch_xml'       => __( 'FetchXML query', 'agend-directory-sync' ),
+				'secondary_filter' => __( 'Secondary filter', 'agend-directory-sync' ),
 			);
+
+			// A run-scoped override (the CLI flag) replaces the saved fragment
+			// (guided or raw) before variable substitution, so a scripted
+			// filter can use the same {name} placeholders the saved one can.
+			$resolved_secondary_filter = self::resolve_secondary_filter_fragment( $settings );
+			$settings['secondary_filter'] = self::effective_secondary_filter( $resolved_secondary_filter );
+
+			// The description names the field and labels an operator chose, so it is
+			// only true while the guided settings are what actually went out: a
+			// run-scoped override (the CLI flag) replaces the fragment and clears it.
+			$settings['secondary_filter_description'] = $settings['secondary_filter'] === $resolved_secondary_filter
+				? self::describe_secondary_filter( $settings )
+				: '';
 
 			foreach ( $templated as $key => $label ) {
 				$settings[ $key ] = Agend_Directory_Sync_Config::substitute_variables( (string) $settings[ $key ], $variables );
 				Agend_Directory_Sync_Config::assert_no_unresolved_placeholders( (string) $settings[ $key ], $label );
 			}
+
+			// The saved query is never edited: the secondary filter is composed
+			// onto it here, per run, so the same main query serves a full sync
+			// and a grouped one.
+			$settings['fetch_xml'] = self::inject_secondary_filter( $settings['fetch_xml'], $settings['secondary_filter'] );
 
 			foreach ( $settings['headers'] as $header_name => $header_value ) {
 				$header_value = Agend_Directory_Sync_Config::substitute_variables( $header_value, $variables );
@@ -858,15 +2098,64 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		}
 
 		/**
+		 * GET a Dataverse Web API URL and return its decoded JSON body,
+		 * retrying once with a fresh token on a 401 and throwing on any
+		 * other non-2xx status or a non-JSON body, exactly like
+		 * `request_page()`. Metadata and field-value discovery use this
+		 * directly rather than the FetchXML-specific `request_page()`,
+		 * since they call plain Web API URLs, not `fetchXml=` requests.
+		 *
+		 * @param array<string, string> $header_overrides
+		 *
+		 * @return array<string, mixed>
+		 *
+		 * @throws RuntimeException On transport failure, non-2xx status, or an
+		 *                          invalid JSON body.
+		 */
+		private function request_json_url( string $url, array $settings, array $header_overrides = array() ): array {
+			$response = $this->perform_get( $url, $settings, false, $header_overrides );
+
+			if ( 401 === $response['status'] ) {
+				Agend_Directory_Sync_Oauth_Token_Manager::invalidate( $settings['token_url'], $settings['client_id'] );
+				$response = $this->perform_get( $url, $settings, true, $header_overrides );
+			}
+
+			if ( $response['status'] < 200 || $response['status'] >= 300 ) {
+				throw new RuntimeException( self::format_http_failure_message( $response['status'], $response['body'] ) );
+			}
+
+			$decoded = json_decode( $response['body'], true );
+
+			if ( ! is_array( $decoded ) ) {
+				throw new RuntimeException(
+					sprintf(
+						/* translators: %s: the response Content-Type header, or "unknown" when absent. */
+						__( 'Dataverse response was not valid JSON (content type: %s).', 'agend-directory-sync' ),
+						'' !== $response['content_type'] ? $response['content_type'] : __( 'unknown', 'agend-directory-sync' )
+					)
+				);
+			}
+
+			return $decoded;
+		}
+
+		/**
 		 * Perform the raw GET with the OData and auth headers, never throwing
 		 * on a non-2xx status (the caller decides whether to retry or fail).
+		 *
+		 * `$header_overrides` lets a caller replace a computed OData header
+		 * for one request (field-value discovery asks for the formatted-value
+		 * annotation specifically, rather than the run path's `*`) without a
+		 * second header-merge implementation.
+		 *
+		 * @param array<string, string> $header_overrides
 		 *
 		 * @return array{status: int, body: string, content_type: string}
 		 *
 		 * @throws RuntimeException On transport failure or token acquisition
 		 *                          failure.
 		 */
-		private function perform_get( string $url, array $settings, bool $force_fresh_token ): array {
+		private function perform_get( string $url, array $settings, bool $force_fresh_token, array $header_overrides = array() ): array {
 			$access_token = Agend_Directory_Sync_Oauth_Token_Manager::get_access_token(
 				$settings['token_url'],
 				$settings['client_id'],
@@ -881,6 +2170,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				$settings['headers'],
 				array_merge(
 					self::build_odata_headers( (bool) $settings['include_annotations'] ),
+					$header_overrides,
 					array( 'Authorization' => 'Bearer ' . $access_token )
 				)
 			);
@@ -1052,6 +2342,24 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			$probe = (string) preg_replace( '/\{[A-Za-z0-9_]+\}/', 'placeholder', $value );
 
 			return self::is_valid_fetch_xml( $probe ) ? $value : '';
+		}
+
+		/**
+		 * Same treatment for the secondary filter fragment: stored verbatim
+		 * when it parses as a `<filter>` or `<condition>` (placeholders
+		 * probed like the main query), dropped otherwise so a broken fragment
+		 * cannot fail every run.
+		 */
+		private static function sanitize_secondary_filter( string $value ): string {
+			$value = trim( $value );
+
+			if ( '' === $value ) {
+				return '';
+			}
+
+			$probe = (string) preg_replace( '/\{[A-Za-z0-9_]+\}/', 'placeholder', $value );
+
+			return self::is_valid_secondary_filter( $probe ) ? $value : '';
 		}
 
 		/**
