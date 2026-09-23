@@ -68,6 +68,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		public const STAGE_CANCELLED = 'cancelled';
 
 		/**
+		 * Total attempts a batch gets before its timeout is finally recorded as a
+		 * failure: the first send plus two retries.
+		 */
+		public const MAX_SEND_ATTEMPTS = 3;
+
+		/**
+		 * Backoff before retry N+1, keyed by the number of attempts already
+		 * failed (1 or 2, since MAX_SEND_ATTEMPTS is 3).
+		 */
+		private const RETRY_BACKOFF_SECONDS = array(
+			1 => 5,
+			2 => 15,
+		);
+
+		/**
+		 * Default step budget when no caller-supplied max_execution_time is
+		 * given (only the test suite calls step() this way; the AJAX
+		 * controller always passes ini_get('max_execution_time')).
+		 */
+		private const DEFAULT_MAX_EXECUTION_TIME = 30;
+
+		/**
 		 * The in-flight job, or null when there is none.
 		 *
 		 * @return array<string, mixed>|null
@@ -76,6 +98,29 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			$job = get_option( self::OPTION_JOB, null );
 
 			return is_array( $job ) && isset( $job['id'] ) ? $job : null;
+		}
+
+		/**
+		 * Re-reads the job bypassing any copy already cached in this
+		 * request's object cache. A value fetched once (e.g. step()'s own
+		 * pre-lock read of current()) stays pinned there for the rest of the
+		 * request on a real persistent object cache (the default WP_Object_Cache
+		 * behaviour), regardless of what a concurrent request has since
+		 * written to the shared/database copy -- only an explicit
+		 * wp_cache_delete() forces the next read to go back to the source of
+		 * truth. Used wherever a step is about to act on, or write over, the
+		 * job: right after the step lock is granted, and again immediately
+		 * before every write a step makes, since cancel() deliberately does
+		 * not take that lock (an operator's Cancel click is not made to wait
+		 * behind a slow gateway request) and so can race a step in flight.
+		 *
+		 * @return array<string, mixed>|null
+		 */
+		private static function fresh_job(): ?array {
+			wp_cache_delete( self::OPTION_JOB, 'options' );
+			wp_cache_delete( 'notoptions', 'options' );
+
+			return self::current();
 		}
 
 		/**
@@ -112,8 +157,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				'source'          => $source->get_key(),
 				'external_source' => Agend_Directory_Sync_Runner::resolve_external_source(),
 				'auto_publish'    => Agend_Directory_Sync_Runner::resolve_auto_publish_approved(),
+				// Fixed for the life of the job (SPEC: a setting changed
+				// mid-run must not desync batch-index-to-listing-position
+				// arithmetic already computed against earlier batches).
+				'batch_size'      => Agend_Directory_Sync_Agend_Client::batch_size(),
 				'batch_count'     => 0,
 				'batch_cursor'    => 0,
+				'batch_attempts'  => 0,
+				'retry_after'     => 0,
 				'listing_count'   => 0,
 				'transform'       => array(),
 				'send'            => self::empty_send_summary(),
@@ -132,10 +183,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 * exception reach the browser: a half-finished sync the operator can see
 		 * and retry beats a stack trace and no record of how far it got.
 		 *
+		 * @param int|null $max_execution_time `ini_get( 'max_execution_time' )`
+		 *                                     for the current request, read by
+		 *                                     the caller AFTER its own
+		 *                                     set_time_limit() call, 0 meaning
+		 *                                     unlimited. Null (the WP-CLI /
+		 *                                     test-suite case) falls back to a
+		 *                                     conservative default; step_fetch()
+		 *                                     ignores it, only the upload step
+		 *                                     uses it to size the gateway
+		 *                                     request's own timeout.
+		 *
 		 * @return array<string, mixed> The job state, with `busy` set when
 		 *                              another request holds the lock.
 		 */
-		public static function step(): array {
+		public static function step( ?int $max_execution_time = null ): array {
 			$job = self::current();
 
 			if ( null === $job ) {
@@ -146,15 +208,71 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				return $job;
 			}
 
+			// A retry that is not due yet is a cheap no-op: no lock, no gateway
+			// call, just the unchanged job (progress() derives waiting_seconds
+			// from it so the page can back off on its own). This is only an
+			// early exit, not the source of truth for the decision -- see the
+			// re-read below, which checks the same thing again against
+			// whatever is actually stored once the lock is held.
+			if ( self::STAGE_SENDING === $job['stage'] && (int) ( $job['retry_after'] ?? 0 ) > time() ) {
+				return $job;
+			}
+
+			/**
+			 * Fires with the job as read at the top of step(), immediately
+			 * before the lock is requested. Test seam only: it lets a test
+			 * simulate another request's write landing in the gap between this
+			 * read and the lock being granted (id est: acquiring the lock does
+			 * not itself refresh $job), so the re-read immediately after
+			 * acquire_lock() below can be asserted against. No production code
+			 * hooks this.
+			 *
+			 * @param array<string, mixed> $job
+			 */
+			do_action( 'agend_directory_sync_job_before_lock', $job );
+
 			if ( ! self::acquire_lock() ) {
 				$job['busy'] = true;
 				return $job;
 			}
 
 			try {
+				// Re-read now that the lock is held, bypassing the cache
+				// (fresh_job()): another request may have advanced, cancelled,
+				// or restarted this job in the gap between the read above and
+				// the lock being granted (acquire_lock() only serialises steps
+				// against each other, it does not itself see or wait on a
+				// concurrent write, and a cached copy of the pre-lock read
+				// would keep showing that same stale state even after this
+				// re-read otherwise). Acting on the pre-lock copy here would
+				// redo a step already taken, or step a job that no longer
+				// exists.
+				$fresh = self::fresh_job();
+
+				if (
+					null === $fresh
+					|| $fresh['id'] !== $job['id']
+					|| ! self::is_active( $fresh )
+					|| ( self::STAGE_SENDING === $fresh['stage'] && (int) ( $fresh['retry_after'] ?? 0 ) > time() )
+				) {
+					return $fresh ?? $job;
+				}
+
+				// From here on $job IS the re-read copy: if step_fetch() or
+				// step_send() throws before returning (a fatal mid-call, or an
+				// uncaught exception such as
+				// Agend_Directory_Sync_Agend_Client::send_listings()'s
+				// "agend-apps-core is not available"), the catch block below
+				// marks and saves THIS state, not the stale pre-lock one --
+				// reassigning $job only via step_fetch()/step_send()'s return
+				// value would leave it unchanged (still the pre-lock copy) for
+				// exactly the call that throws, since PHP never completes the
+				// assignment when the right-hand side throws.
+				$job = $fresh;
+
 				$job = self::STAGE_PENDING === $job['stage']
 					? self::step_fetch( $job )
-					: self::step_send( $job );
+					: self::step_send( $job, $max_execution_time ?? self::DEFAULT_MAX_EXECUTION_TIME );
 			} catch ( Throwable $e ) {
 				$job['stage']   = self::STAGE_FAILED;
 				$job['message'] = $e->getMessage();
@@ -162,6 +280,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				self::write_result( $job );
 				self::discard_batches( $job );
 			} finally {
+				// Covers step_fetch()/step_send() throwing for any reason,
+				// including Agend_Directory_Sync_Agend_Client::send_listings()
+				// (e.g. "agend-apps-core is not available"): the lock is
+				// always released here, so a later step is never left waiting
+				// out LOCK_TTL for a request that already ended.
 				self::release_lock();
 			}
 
@@ -211,6 +334,32 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		}
 
 		/**
+		 * The batch size a job was actually split with.
+		 *
+		 * start() has stored `batch_size` on every job since it was
+		 * introduced, but a job created by an older version of this plugin (or
+		 * one resumed across an upgrade) has no such key, and it was chunked
+		 * with the hardcoded 100 every pre-0.8.1 release used -- not today's
+		 * batch_size() setting, whose default (25) is a different number. Any
+		 * other missing or invalid value is treated the same way: falling back
+		 * to the CURRENT batch_size() setting here would silently change the
+		 * arithmetic partway through resuming an old job (a mismatch between
+		 * how many listings are actually in each stored batch option and what
+		 * this returns), which is exactly the bug this method exists to avoid.
+		 *
+		 * @param array<string, mixed> $job
+		 */
+		public static function job_batch_size( array $job ): int {
+			$value = $job['batch_size'] ?? null;
+
+			if ( is_numeric( $value ) && (int) $value > 0 ) {
+				return (int) $value;
+			}
+
+			return Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE;
+		}
+
+		/**
 		 * The numbers the progress panel renders, derived rather than stored so
 		 * they cannot drift from the job they describe.
 		 *
@@ -232,22 +381,76 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				$percent = 100;
 			}
 
-			$sent = min( $done * Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE, (int) ( $job['listing_count'] ?? 0 ) );
+			// The job's own batch_size, fixed at start() -- not the current
+			// setting, which may have changed since (see start()'s comment).
+			$batch_size = self::job_batch_size( $job );
+			$sent       = min( $done * $batch_size, (int) ( $job['listing_count'] ?? 0 ) );
+
+			$retry_after     = (int) ( $job['retry_after'] ?? 0 );
+			$waiting_seconds = $retry_after > time() ? $retry_after - time() : null;
 
 			return array(
-				'stage'          => $stage,
-				'active'         => self::is_active( $job ),
-				'percent'        => $percent,
-				'batches_total'  => $batches,
-				'batches_done'   => $done,
-				'listing_count'  => (int) ( $job['listing_count'] ?? 0 ),
-				'listings_sent'  => $sent,
-				'created'        => (int) ( $job['send']['created'] ?? 0 ),
-				'updated'        => (int) ( $job['send']['updated'] ?? 0 ),
-				'errored'        => (int) ( $job['send']['errored'] ?? 0 ),
-				'http_errors'    => count( (array) ( $job['send']['http_errors'] ?? array() ) ),
-				'message'        => (string) ( $job['message'] ?? '' ),
-				'source'         => (string) ( $job['source'] ?? '' ),
+				'stage'              => $stage,
+				'active'             => self::is_active( $job ),
+				'percent'            => $percent,
+				'batches_total'      => $batches,
+				'batches_done'       => $done,
+				'listing_count'      => (int) ( $job['listing_count'] ?? 0 ),
+				'listings_sent'      => $sent,
+				'created'            => (int) ( $job['send']['created'] ?? 0 ),
+				'updated'            => (int) ( $job['send']['updated'] ?? 0 ),
+				'errored'            => (int) ( $job['send']['errored'] ?? 0 ),
+				'http_errors'        => count( (array) ( $job['send']['http_errors'] ?? array() ) ),
+				'http_error_details' => self::progress_http_error_details( (array) ( $job['send']['http_errors'] ?? array() ) ),
+				// Set only while the current batch is between a failed attempt
+				// and its next retry; the JS stepper uses these two to show
+				// "Batch N timed out, retrying in Xs (attempt Y of Z)" and to
+				// delay its next step call instead of hammering the lock.
+				'waiting_seconds'    => $waiting_seconds,
+				'batch_attempts'     => (int) ( $job['batch_attempts'] ?? 0 ),
+				'max_send_attempts'  => self::MAX_SEND_ATTEMPTS,
+				'message'            => (string) ( $job['message'] ?? '' ),
+				'source'             => (string) ( $job['source'] ?? '' ),
+			);
+		}
+
+		/**
+		 * Reduce the running job's `http_errors` to the handful the live
+		 * progress panel shows while a run is in flight; the full list is still
+		 * on the finished result page. Kept to the most recent few batches so a
+		 * long run with many failures doesn't grow the step response without
+		 * bound.
+		 *
+		 * @param array<int, array<string, mixed>> $http_errors
+		 *
+		 * @return array<int, array{batch: int, message: string, issues: array<int, array<string, mixed>>}>
+		 */
+		private static function progress_http_error_details( array $http_errors ): array {
+			$recent = array_slice( $http_errors, -5 );
+
+			return array_map(
+				static function ( array $http_error ): array {
+					$issues = is_array( $http_error['issues'] ?? null ) ? $http_error['issues'] : array();
+
+					return array(
+						'batch'   => (int) ( $http_error['batch_index'] ?? 0 ) + 1,
+						'message' => (string) ( $http_error['message'] ?? '' ),
+						'issues'  => array_map(
+							static function ( $issue ): array {
+								$issue = is_array( $issue ) ? $issue : array();
+
+								return array(
+									'field'            => (string) ( $issue['field'] ?? '' ),
+									'reason'           => (string) ( $issue['reason'] ?? '' ),
+									'listing_position' => $issue['listing_position'] ?? null,
+									'external_id'      => (string) ( $issue['external_id'] ?? '' ),
+								);
+							},
+							$issues
+						),
+					);
+				},
+				$recent
 			);
 		}
 
@@ -264,7 +467,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 * @return array<string, mixed>
 		 */
 		private static function step_fetch( array $job ): array {
-			$result = Agend_Directory_Sync_Runner::run( (int) $job['max_records'], true );
+			$result = Agend_Directory_Sync_Runner::run( (int) $job['max_records'], true, 'web' );
 
 			$listings = is_array( $result['listings'] ?? null ) ? $result['listings'] : array();
 			unset( $result['listings'] );
@@ -273,7 +476,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			$job['transform'] = $result;
 			$job['listing_count'] = count( $listings );
 
-			$batches = array_chunk( $listings, Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE );
+			$batches = array_chunk( $listings, self::job_batch_size( $job ) );
 
 			foreach ( $batches as $index => $batch ) {
 				update_option( self::batch_option( (string) $job['id'], (int) $index ), $batch, false );
@@ -284,7 +487,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			$job['send']['batches']   = count( $batches );
 			$job['stage']             = empty( $batches ) ? self::STAGE_DONE : self::STAGE_SENDING;
 
-			self::save( $job );
+			$job_id = (string) $job['id'];
+
+			[ $saved, $job ] = self::save_unless_superseded( $job );
+
+			if ( ! $saved ) {
+				// Cancelled, cleared, or replaced by a new job while this
+				// fetch was in flight: the batch options just written above
+				// belong to a job that is no longer the current one, so they
+				// are cleaned up here rather than left to leak.
+				foreach ( array_keys( $batches ) as $index ) {
+					delete_option( self::batch_option( $job_id, (int) $index ) );
+				}
+				return $job;
+			}
 
 			if ( self::STAGE_DONE === $job['stage'] ) {
 				self::write_result( $job );
@@ -301,26 +517,181 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 * one request and a summary for it, and the client keeps its single
 		 * responsibility for talking to the gateway.
 		 *
+		 * A transport timeout is retried here, not inside one request (which
+		 * would only make it longer): the cursor and the batch option are left
+		 * alone, an attempt counter and a retry_after timestamp go on the job,
+		 * and the caller's own step() no-ops on the next call until retry_after
+		 * has passed. The bulk-upsert is idempotent on
+		 * (external_source, external_id), so re-sending the same batch after a
+		 * timeout -- which may or may not have reached the gateway -- is safe.
+		 * A 4xx/5xx the gateway did answer with is never retried: the gateway
+		 * has spoken, and trying again cannot change its answer.
+		 *
 		 * @param array<string, mixed> $job
+		 * @param int                  $max_execution_time See step()'s docblock.
 		 *
 		 * @return array<string, mixed>
 		 */
-		private static function step_send( array $job ): array {
+		private static function step_send( array $job, int $max_execution_time ): array {
 			$index  = (int) $job['batch_cursor'];
 			$option = self::batch_option( (string) $job['id'], $index );
 			$batch  = get_option( $option, null );
 
 			if ( ! is_array( $batch ) || empty( $batch ) ) {
-				// Nothing stored for this index: treat it as sent rather than
-				// stalling the job on a payload that will never appear.
-				$job['batch_cursor'] = $index + 1;
-			} else {
-				$client  = new Agend_Directory_Sync_Agend_Client();
-				$summary = $client->send_listings( $batch, (string) $job['external_source'], (bool) $job['auto_publish'] );
+				// Nothing stored for this index. This is a real failure, not
+				// silently "treat as sent": the job was cancelled (which
+				// discards every stored batch) and then restarted, or its
+				// data was otherwise cleared, so advancing past it would
+				// under-report what the run actually uploaded.
+				$message = sprintf(
+					/* translators: %d: 1-based batch number. */
+					__( 'Batch %d payload is missing (the job was cancelled or its data was cleared); start a new sync.', 'agend-directory-sync' ),
+					$index + 1
+				);
 
-				$job['send']         = self::merge_send_summary( $job['send'], $summary, $index );
-				$job['batch_cursor'] = $index + 1;
+				$job['send']['http_errors'][] = array(
+					'batch_index' => $index,
+					'status'      => 'error',
+					'message'     => $message,
+				);
+				$job['stage']          = self::STAGE_FAILED;
+				$job['message']        = $message;
+				$job['batch_attempts'] = 0;
+				$job['retry_after']    = 0;
+
+				[ $saved, $job ] = self::save_unless_superseded( $job );
+
+				if ( $saved ) {
+					self::write_result( $job );
+					self::discard_batches( $job );
+				}
+
+				return $job;
 			}
+
+			$attempts_before = (int) ( $job['batch_attempts'] ?? 0 );
+
+			if ( $attempts_before >= self::MAX_SEND_ATTEMPTS ) {
+				// batch_attempts is bumped and saved BEFORE send_listings() is
+				// called (below), precisely so a step that dies mid-flight --
+				// the PHP process killed, a host recycling a worker blocked on
+				// the gateway call -- still leaves that fact recorded. Getting
+				// back here with attempts already at the cap means the
+				// previous attempt never returned an answer at all: recorded
+				// as its own failure rather than retried forever.
+				$message = sprintf(
+					/* translators: 1: 1-based batch number, 2: attempts made. */
+					__( 'Batch %1$d: no response after %2$d attempts; the request may have been terminated by the host.', 'agend-directory-sync' ),
+					$index + 1,
+					$attempts_before
+				);
+
+				$job['send']['http_errors'][] = array(
+					'batch_index' => $index,
+					'status'      => 'error',
+					'message'     => $message,
+				);
+				$job['batch_cursor']   = $index + 1;
+				$job['batch_attempts'] = 0;
+				$job['retry_after']    = 0;
+
+				delete_option( $option );
+
+				if ( $job['batch_cursor'] >= (int) $job['batch_count'] ) {
+					$job['stage'] = self::STAGE_DONE;
+				}
+
+				[ $saved, $job ] = self::save_unless_superseded( $job );
+
+				if ( $saved && self::STAGE_DONE === $job['stage'] ) {
+					self::write_result( $job );
+				}
+
+				return $job;
+			}
+
+			$batch_size = self::job_batch_size( $job );
+			$timeout    = Agend_Directory_Sync_Agend_Client::effective_timeout(
+				Agend_Directory_Sync_Agend_Client::timeout_seconds(),
+				$max_execution_time,
+				'web'
+			);
+
+			// Record this attempt BEFORE calling send_listings(), not after: a
+			// step that dies mid-flight must not leave batch_attempts and
+			// retry_after looking like nothing was ever tried, or a batch that
+			// always dies the same way would retry forever instead of
+			// eventually failing (see the attempts-at-cap branch above).
+			// retry_after is set to the backoff this attempt would need IF it
+			// fails; the success and failure paths below both overwrite it
+			// with the real outcome once one is known.
+			$attempts = $attempts_before + 1;
+
+			$job['batch_attempts'] = $attempts;
+			$job['retry_after']    = time() + ( self::RETRY_BACKOFF_SECONDS[ $attempts ] ?? 15 );
+
+			[ $saved, $job ] = self::save_unless_superseded( $job );
+
+			if ( ! $saved ) {
+				// Cancelled, cleared, or replaced while about to send: do not
+				// send at all.
+				return $job;
+			}
+
+			$client  = new Agend_Directory_Sync_Agend_Client();
+			$summary = $client->send_listings(
+				$batch,
+				(string) $job['external_source'],
+				(bool) $job['auto_publish'],
+				$batch_size,
+				$timeout
+			);
+
+			$http_error = $summary['http_errors'][0] ?? null;
+			$retryable  = null !== $http_error && ! empty( $http_error['retryable'] );
+
+			if ( $retryable && $attempts < self::MAX_SEND_ATTEMPTS ) {
+				// batch_attempts and retry_after were already saved above,
+				// before the call: nothing changed since, so there is nothing
+				// new to persist. Leave batch_cursor and the stored batch
+				// option alone; the next step (once retry_after has passed)
+				// tries this same batch again.
+				return $job;
+			}
+
+			if ( $retryable ) {
+				// Final attempt also failed: note the attempt count in the
+				// message an operator sees, then let it fall through to
+				// http_errors like any other batch failure.
+				$http_error['message']              = sprintf(
+					/* translators: 1: number of attempts made, 2: the last attempt's failure message. */
+					__( '(failed after %1$d attempts: %2$s)', 'agend-directory-sync' ),
+					$attempts,
+					(string) ( $http_error['message'] ?? '' )
+				);
+				$summary['http_errors'][0] = $http_error;
+			}
+
+			if ( null === $http_error && $attempts > 1 ) {
+				// Succeeded on a retry: the gateway may already hold rows an
+				// earlier, timed-out attempt actually delivered, so this
+				// attempt's own created/updated split is not fully trusted --
+				// flagged for the result panel rather than silently folded
+				// into the totals as if nothing had happened. A legacy job's
+				// `send` may predate this key.
+				if ( ! is_array( $job['send']['retried_batches'] ?? null ) ) {
+					$job['send']['retried_batches'] = array();
+				}
+				$job['send']['retried_batches'][] = array(
+					'batch'    => $index + 1,
+					'attempts' => $attempts,
+				);
+			}
+
+			$job['send']           = self::merge_send_summary( $job['send'], $summary, $index, $batch, $batch_size );
+			$job['batch_cursor']   = $index + 1;
+			$job['batch_attempts'] = 0;
+			$job['retry_after']    = 0;
 
 			delete_option( $option );
 
@@ -328,9 +699,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				$job['stage'] = self::STAGE_DONE;
 			}
 
-			self::save( $job );
+			[ $saved, $job ] = self::save_unless_superseded( $job );
 
-			if ( self::STAGE_DONE === $job['stage'] ) {
+			if ( $saved && self::STAGE_DONE === $job['stage'] ) {
 				self::write_result( $job );
 			}
 
@@ -345,12 +716,24 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 * are restamped with the job's real batch index — otherwise every failure
 		 * in a 25-batch run claims to be batch 0.
 		 *
-		 * @param array<string, mixed> $running
-		 * @param array<string, mixed> $batch_summary
+		 * A batch-level validation failure's issues carry a record index that is
+		 * also relative to the call (`record`, 0-based within the batch); this
+		 * also converts it into a job-wide listing position (`listing_position`,
+		 * 1-based, what an operator counts by), and attaches the record's
+		 * external_id from the batch that was actually sent, when the batch is
+		 * available.
+		 *
+		 * @param array<string, mixed>              $running
+		 * @param array<string, mixed>              $batch_summary
+		 * @param array<int, array<string, mixed>>  $batch         The listings sent in this batch, for
+		 *                                                          resolving an issue's external_id.
+		 * @param int                                $batch_size    The job's own batch_size (see start()'s
+		 *                                                          comment on why this is not
+		 *                                                          Agend_Directory_Sync_Agend_Client::batch_size()).
 		 *
 		 * @return array<string, mixed>
 		 */
-		private static function merge_send_summary( array $running, array $batch_summary, int $batch_index ): array {
+		private static function merge_send_summary( array $running, array $batch_summary, int $batch_index, array $batch, int $batch_size ): array {
 			$running['created'] += (int) ( $batch_summary['created'] ?? 0 );
 			$running['updated'] += (int) ( $batch_summary['updated'] ?? 0 );
 			$running['errored'] += (int) ( $batch_summary['errored'] ?? 0 );
@@ -365,7 +748,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 
 			foreach ( (array) ( $batch_summary['http_errors'] ?? array() ) as $http_error ) {
 				$http_error['batch_index'] = $batch_index;
-				$running['http_errors'][]  = $http_error;
+
+				if ( is_array( $http_error['issues'] ?? null ) ) {
+					$http_error['issues'] = array_map(
+						static function ( array $issue ) use ( $batch_index, $batch, $batch_size ): array {
+							return Agend_Directory_Sync_Agend_Client::stamp_issue_position( $issue, $batch_index, $batch, $batch_size );
+						},
+						$http_error['issues']
+					);
+				}
+
+				$running['http_errors'][] = $http_error;
 			}
 
 			return $running;
@@ -399,12 +792,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 */
 		private static function empty_send_summary(): array {
 			return array(
-				'batches'        => 0,
-				'created'        => 0,
-				'updated'        => 0,
-				'errored'        => 0,
-				'error_examples' => array(),
-				'http_errors'    => array(),
+				'batches'         => 0,
+				'created'         => 0,
+				'updated'         => 0,
+				'errored'         => 0,
+				'error_examples'  => array(),
+				'http_errors'     => array(),
+				'retried_batches' => array(),
 			);
 		}
 
@@ -415,6 +809,35 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			$job['updated_at'] = time();
 
 			update_option( self::OPTION_JOB, $job, false );
+		}
+
+		/**
+		 * Saves $job UNLESS a fresher, no-longer-active state has landed since
+		 * this step started acting on it -- cancel() and clear() deliberately
+		 * do not take the step lock (an operator's Cancel click is not made to
+		 * wait behind a slow gateway request), so either can race a step in
+		 * flight. Checked with fresh_job(), bypassing the cache, immediately
+		 * before every write a step makes: writing $job over that fresher
+		 * state would resurrect a job the operator already cancelled, or
+		 * clobber one they already started again.
+		 *
+		 * @param array<string, mixed> $job
+		 *
+		 * @return array{0: bool, 1: array<string, mixed>} [ whether $job was
+		 *         actually saved, the job to use from here on -- $job itself
+		 *         when saved, or the fresher state that superseded it
+		 *         (unsaved) otherwise ].
+		 */
+		private static function save_unless_superseded( array $job ): array {
+			$fresh = self::fresh_job();
+
+			if ( null === $fresh || $fresh['id'] !== $job['id'] || ! self::is_active( $fresh ) ) {
+				return array( false, $fresh ?? $job );
+			}
+
+			self::save( $job );
+
+			return array( true, $job );
 		}
 
 		/**
@@ -439,15 +862,130 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		}
 
 		/**
-		 * Take the step lock. add_option() fails when the row already exists, and
-		 * that failure is the database's, so two simultaneous callers cannot both
-		 * believe they hold it.
+		 * The exact "timestamp:token" value this process wrote for the lock it
+		 * currently holds, so release_lock() can delete only that row and only
+		 * if it still holds that exact value -- never a lock a different
+		 * request has since taken over after this one's TTL expired. Static
+		 * because acquire_lock() and release_lock() are always called within
+		 * the same step() call (the try/finally in step() guarantees a
+		 * release for every acquire), never across two.
+		 */
+		private static ?string $lock_value = null;
+
+		/**
+		 * @return array{0: int, 1: string} [timestamp, token]; token is '' for
+		 *         a value that is not the "timestamp:token" shape -- a legacy
+		 *         lock from before it carried one, or nothing at all.
+		 */
+		private static function decode_lock( ?string $value ): array {
+			if ( null === $value || '' === $value ) {
+				return array( 0, '' );
+			}
+
+			if ( 1 === preg_match( '/^(\d+):(.*)$/s', $value, $m ) ) {
+				return array( (int) $m[1], $m[2] );
+			}
+
+			return array( (int) $value, '' );
+		}
+
+		/**
+		 * Take the step lock, atomically, directly against the database.
+		 *
+		 * get_option()/add_option() are not used for this: WP core's own
+		 * add_option() is an `INSERT ... ON DUPLICATE KEY UPDATE` under the
+		 * hood, so two callers racing a plain add_option() can both be told
+		 * they "added" a row when only one of them actually created it --
+		 * exactly the double-acquire this lock exists to prevent. The lock is
+		 * instead taken with a real `INSERT IGNORE`, whose affected-row count
+		 * is the database's own word on whether THIS process's row won, and
+		 * an expired lock is taken over with a compare-and-swap UPDATE, so a
+		 * second request racing for the same takeover cannot also win it.
+		 *
+		 * Falls back to the previous add_option()-based behaviour when $wpdb
+		 * is unavailable (should not happen under WordPress proper, but keeps
+		 * this from fataling in an unusual host or test context).
 		 */
 		private static function acquire_lock(): bool {
+			global $wpdb;
+
+			if ( ! ( $wpdb instanceof wpdb ) ) {
+				return self::acquire_lock_without_wpdb();
+			}
+
+			$token = bin2hex( random_bytes( 8 ) );
+			$value = time() . ':' . $token;
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- the step lock must be atomic; see the docblock above.
+			$wpdb->query(
+				$wpdb->prepare(
+					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+					self::OPTION_LOCK,
+					$value
+				)
+			);
+			wp_cache_delete( self::OPTION_LOCK, 'options' );
+
+			if ( 1 === (int) $wpdb->rows_affected ) {
+				self::$lock_value = $value;
+				return true;
+			}
+
+			// Someone already holds (or held) the lock. Read it directly,
+			// bypassing the cache: a stale cached copy here is exactly the
+			// failure mode this lock exists to prevent.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$existing = $wpdb->get_var(
+				$wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::OPTION_LOCK )
+			);
+
+			if ( null === $existing ) {
+				// Gone by the time we looked (released, or never really
+				// there): nothing to take over. Let the caller's next step
+				// try again rather than looping here.
+				return false;
+			}
+
+			[ $existing_time ] = self::decode_lock( (string) $existing );
+
+			if ( $existing_time > time() - self::LOCK_TTL ) {
+				return false;
+			}
+
+			// Expired: take it over atomically. The WHERE clause only matches
+			// if the value is still exactly what was just read, so a third
+			// request racing for the same takeover cannot also win it.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+					$value,
+					self::OPTION_LOCK,
+					(string) $existing
+				)
+			);
+			wp_cache_delete( self::OPTION_LOCK, 'options' );
+
+			if ( 1 === (int) $wpdb->rows_affected ) {
+				self::$lock_value = $value;
+				return true;
+			}
+
+			return false;
+		}
+
+		/**
+		 * Pre-$wpdb-lock fallback: add_option() fails when the row already
+		 * exists, and that failure being the database's (rather than a
+		 * get-then-set race in PHP) is what made this safe enough before the
+		 * atomic version above.
+		 */
+		private static function acquire_lock_without_wpdb(): bool {
 			$held = get_option( self::OPTION_LOCK, false );
 
 			if ( false !== $held ) {
-				if ( (int) $held > time() - self::LOCK_TTL ) {
+				[ $existing_time ] = self::decode_lock( (string) $held );
+				if ( $existing_time > time() - self::LOCK_TTL ) {
 					return false;
 				}
 				delete_option( self::OPTION_LOCK );
@@ -457,7 +995,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		}
 
 		private static function release_lock(): void {
-			delete_option( self::OPTION_LOCK );
+			global $wpdb;
+
+			if ( ( $wpdb instanceof wpdb ) && null !== self::$lock_value ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				$wpdb->query(
+					$wpdb->prepare(
+						"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+						self::OPTION_LOCK,
+						self::$lock_value
+					)
+				);
+				wp_cache_delete( self::OPTION_LOCK, 'options' );
+			} else {
+				delete_option( self::OPTION_LOCK );
+			}
+
+			self::$lock_value = null;
 		}
 	}
 endif;

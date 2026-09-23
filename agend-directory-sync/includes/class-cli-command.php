@@ -91,7 +91,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 			}
 
 			try {
-				$summary = Agend_Directory_Sync_Runner::run( $max, $dry_run );
+				$summary = Agend_Directory_Sync_Runner::run( $max, $dry_run, 'cli' );
 			} catch ( Throwable $e ) {
 				WP_CLI::error( 'Sync failed: ' . $e->getMessage() );
 				return;
@@ -137,7 +137,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 			$errored     = (int) ( $send['errored'] ?? 0 );
 
 			if ( ! empty( $http_errors ) ) {
-				WP_CLI::warning( sprintf( '%d batch(es) failed at the HTTP level; see the gateway response.', count( $http_errors ) ) );
+				WP_CLI::warning( sprintf( '%d batch(es) failed at the HTTP level:', count( $http_errors ) ) );
+				$this->log_http_errors( $http_errors );
 			}
 
 			if ( $errored > 0 ) {
@@ -213,6 +214,39 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 			WP_CLI::log( $heading . ':' );
 			foreach ( $map as $key => $count ) {
 				WP_CLI::log( sprintf( '  %s: %d', (string) $key, (int) $count ) );
+			}
+		}
+
+		/**
+		 * Print each failed batch's message, and any per-row validation issues
+		 * beneath it. Agend_Directory_Sync_Runner stamps each issue with a
+		 * run-wide, 1-based listing_position (and, when known, the row's
+		 * external_id) before this summary is returned, the same way the
+		 * resumable job does for a browser run -- send_listings() makes one
+		 * call for the whole listings set here, so its own batch_index is
+		 * already run-wide and the position needs no further restamping.
+		 * Formatted with Agend_Directory_Sync_Agend_Client::format_issue_line(),
+		 * shared with (and covered by the same tests as) the admin result
+		 * panel's equivalent, translated rendering.
+		 *
+		 * @param array<int, array<string, mixed>> $http_errors
+		 */
+		private function log_http_errors( array $http_errors ): void {
+			foreach ( $http_errors as $http_error ) {
+				$batch_index = (int) ( $http_error['batch_index'] ?? 0 );
+				$message     = (string) ( $http_error['message'] ?? '' );
+
+				WP_CLI::warning( sprintf( 'Batch %d: %s', $batch_index + 1, $message ) );
+
+				$issues = is_array( $http_error['issues'] ?? null ) ? $http_error['issues'] : array();
+
+				foreach ( $issues as $issue ) {
+					if ( ! is_array( $issue ) ) {
+						continue;
+					}
+
+					WP_CLI::log( '  ' . Agend_Directory_Sync_Agend_Client::format_issue_line( $issue ) );
+				}
 			}
 		}
 	}

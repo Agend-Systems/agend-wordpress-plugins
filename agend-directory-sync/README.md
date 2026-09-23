@@ -403,10 +403,62 @@ response was to press the button again and start a second concurrent run.
 
 Now the button creates a job and returns immediately. The page then advances it
 one step per request: one step fetches and transforms, then one step per upload
-batch of 100. Each request is short, so nothing approaches the timeout however
-large the directory, and a progress bar reports batches, listings, and running
+batch. Each request is short, so nothing approaches the timeout however large
+the directory, and a progress bar reports batches, listings, and running
 created / updated / error counts.
 
+- **Batch size and upload timeout are configurable** under Settings, alongside
+  `external_source`. **Batch size (listings per request)** defaults to 25 and
+  is clamped to 1-100 (100 stays the gateway's hard cap); a smaller batch
+  finishes each step faster, which helps on a host with a short execution-time
+  limit. **Upload timeout (seconds)** defaults to 45 and is clamped to
+  15-300, and is the ceiling given to each batch's own gateway request. WP-CLI
+  and cron runs use the full setting. A browser step is always capped at 45
+  seconds regardless of the setting, because `max_execution_time` alone is not
+  a reliable ceiling there: on Linux, PHP's own execution-time limit does not
+  count time spent blocked on a network read, so it can be far more generous
+  than what the host or an intermediate proxy actually allows the request to
+  run for before cutting it off outright (Kinsta and many others cut at 60
+  seconds). A sync already in progress keeps the batch size it started with
+  even if the setting changes mid-run, so its batch numbering stays consistent
+  from start to finish; the same applies to a run paused before this batch
+  size setting existed and resumed afterwards, which is treated as having
+  used 100 (what every earlier release actually chunked with).
+- **A batch that fails with a transport-level or upstream-availability
+  failure is retried automatically** in the browser stepper, up to twice (5
+  seconds, then 15, before each retry), before it is recorded as a failure
+  noting how many attempts were made. This covers a transport failure that
+  never reached the gateway at all (a dropped connection, a DNS failure, a
+  timeout), and a real 502, 503 or 504 status the gateway (or something in
+  front of it) did answer with; every other status, including all 4xx and a
+  500, is a real answer retrying cannot change, so those are never retried,
+  and neither is a non-JSON response (an edge or proxy's own HTML error page)
+  whose real status could not be determined. Retrying is safe because the
+  bulk-upsert is idempotent on (`external_source`, `external_id`): re-sending
+  a batch that may or may not have reached the gateway produces the same end
+  state either way. If a batch's own attempt count reaches the limit without
+  ever coming back with an answer at all (the PHP process was killed, or a
+  host recycled the worker mid-request), it is recorded as failed noting that
+  no response was received, rather than being retried forever. While a batch
+  is waiting to retry, the progress panel shows a countdown instead of
+  stepping again immediately, and a batch that succeeds after a retry is
+  noted in the finished result ("Batch N succeeded after K attempts…") since
+  some of what it counts as created or updated may already have been
+  committed by the earlier, timed-out attempt. WP-CLI does not retry a
+  timeout; rerunning the command is safe for the same reason.
+- **Cancel takes effect immediately**, even while a batch upload is in
+  flight: it does not wait for the current step to finish before it is
+  honoured, and that step's own result (whatever it turns out to be) is
+  discarded rather than overwriting the cancellation.
+- **If the step request itself never gets an answer** -- the browser tab lost
+  its connection, or an edge or proxy returned an HTML error page instead of
+  the expected JSON, most commonly a 504 -- the page retries the step after 10
+  seconds rather than treating it as failed, up to 3 consecutive failures
+  before it pauses with a message asking the operator to check their
+  connection and press Resume. This is a different situation from the
+  batch-level retry above: nothing here is known about the batch that step
+  was trying to send, only that the browser could not get a straight answer
+  about it.
 - **Leave the tab open.** Stepping is driven by the page. Closing it pauses the
   job rather than losing it; reopening Tools > Agend Directory Sync shows the
   unfinished run and offers **Resume**. It never resumes on its own, so opening
@@ -424,7 +476,10 @@ created / updated / error counts.
 
 Unattended runs are unaffected and remain the better choice for very large
 directories: `wp agend-directory-sync run` has no request timeout and does not
-need a browser open (see Scheduling below).
+need a browser open (see Scheduling below). It uses the same batch size and
+timeout settings, but does not retry a timeout itself -- it has no per-request
+time limit to protect, so the plain bulk-upsert failure is what a rerun of the
+command (safe, per the idempotency above) would fix.
 
 Note the fetch-and-transform step is still a single request. It has never been
 the step that timed out, and for a paged source it is a handful of API calls,
