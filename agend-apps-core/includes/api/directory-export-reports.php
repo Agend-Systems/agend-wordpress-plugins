@@ -28,11 +28,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  * every published report regardless of audience, for authoring; it answers
  * 403 without that scope and 422 for any other `scope` value.
  *
+ * @param bool $fresh When true, skip the cached transient and call the
+ *                     gateway live, so a caller about to apply the report's
+ *                     declared parameters is never working from a listing an
+ *                     author has since edited. The live result still
+ *                     replaces the transient on success, so subsequent
+ *                     cached reads (e.g. the dropdown label fill-in) also
+ *                     pick up the new definition rather than waiting out
+ *                     the TTL.
  * @return array|WP_Error Decoded response with `data` as a list of
  *                        `{id, name, description, audience, parameters}`,
  *                        or WP_Error on failure.
  */
-function agend_apps_directory_get_export_reports() {
+function agend_apps_directory_get_export_reports( bool $fresh = false ) {
 	// Never call an endpoint the connected key cannot use (SPEC-CORE-20260908
 	// scope-gated features): a key without directory.export_reports.browse
 	// gets a 403 for this call, which is exactly what the optional-feature
@@ -59,7 +67,7 @@ function agend_apps_directory_get_export_reports() {
 	// Identity-scoped: get_cached() bypasses the shared transient whenever a
 	// bearer is attached, so a member's reachable report list is never served
 	// to the next visitor.
-	$response = agend_apps_api()->get_cached( '/directory/export-reports', $args, $cache_key, $ttl );
+	$response = agend_apps_api()->get_cached( '/directory/export-reports', $args, $cache_key, $ttl, $fresh );
 
 	if ( is_wp_error( $response ) ) {
 		return $response;

@@ -549,7 +549,23 @@ class Agend_Apps_API {
 		return false;
 	}
 
-	public function get_cached( string $path, array $args, string $cache_key, int $ttl ) {
+	/**
+	 * Fetches a GET response, serving a transient when one is fresh enough.
+	 *
+	 * @param string $path      Relative path, e.g. `/directory/export-reports`.
+	 * @param array  $args      Request args, as accepted by `request()`.
+	 * @param string $cache_key Cache key the caller derived from the query.
+	 * @param int    $ttl       Transient lifetime in seconds.
+	 * @param bool   $fresh     When true, skip the transient read and always
+	 *                          call the gateway live, still writing the result
+	 *                          back into the same transient on success so a
+	 *                          later cached read picks up the new value too.
+	 *                          Used where a caller needs this call's own
+	 *                          answer to be current, not merely to warm the
+	 *                          cache for others.
+	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
+	 */
+	public function get_cached( string $path, array $args, string $cache_key, int $ttl, bool $fresh = false ) {
 		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
 			? (string) $args['bearer_token']
 			: agend_apps_get_bearer_token();
@@ -574,15 +590,21 @@ class Agend_Apps_API {
 		}
 
 		$transient_name = 'agend_apps_' . $cache_key;
-		$cached         = get_transient( $transient_name );
 
-		if ( false !== $cached ) {
-			return $cached;
+		if ( ! $fresh ) {
+			$cached = get_transient( $transient_name );
+
+			if ( false !== $cached ) {
+				return $cached;
+			}
 		}
 
 		$response = $this->request( 'GET', $path, $args );
 
 		if ( ! is_wp_error( $response ) ) {
+			// Always written, even on a forced-fresh call: the point of
+			// $fresh is that THIS call cannot serve a stale answer, not that
+			// the shared cache stays stale until it next expires on its own.
 			set_transient( $transient_name, $response, $ttl );
 		}
 
