@@ -115,3 +115,48 @@ function agend_apps_directory_run_export_report( string $report_id, array $param
 		)
 	);
 }
+
+/**
+ * The gateway's own error envelope from a refused download, when it sent one.
+ *
+ * The download route proxies bytes, so a refusal arrives as a `WP_Error`
+ * carrying the upstream status and body rather than a decoded response. When
+ * that body is the canonical `{ success: false, error: { code, message } }`
+ * envelope, forwarding it unchanged is what lets the visitor read why the
+ * download was refused instead of a generic failure line.
+ *
+ * Returns null for anything else: a body that is not JSON, an envelope with no
+ * code or message, or a gateway that predates the explanation. The caller then
+ * keeps today's behaviour, which is the required tolerance for an older
+ * gateway.
+ *
+ * @param WP_Error $error The error from the download request.
+ * @return array{status: int, body: array<string, mixed>}|null
+ */
+function agend_apps_directory_export_report_error_envelope( WP_Error $error ): ?array {
+	$data   = $error->get_error_data();
+	$status = isset( $data['status_code'] ) ? (int) $data['status_code'] : 0;
+	$body   = isset( $data['body'] ) ? (string) $data['body'] : '';
+
+	if ( $status < 400 || '' === $body ) {
+		return null;
+	}
+
+	$decoded = json_decode( $body, true );
+
+	if ( ! is_array( $decoded ) || ! isset( $decoded['error'] ) || ! is_array( $decoded['error'] ) ) {
+		return null;
+	}
+
+	$code    = trim( (string) ( $decoded['error']['code'] ?? '' ) );
+	$message = trim( (string) ( $decoded['error']['message'] ?? '' ) );
+
+	if ( '' === $code || '' === $message ) {
+		return null;
+	}
+
+	return array(
+		'status' => $status,
+		'body'   => $decoded,
+	);
+}
