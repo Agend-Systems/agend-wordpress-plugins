@@ -67,6 +67,69 @@ final class RecordImageRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_show_the_image_mapped_to_the_first_matching_term(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array(
+				'name'       => 'Priya Raman',
+				'logo_url'   => 'https://cdn.test/priya.jpg',
+				'categories' => array( array( 'name' => 'Accountant' ), array( 'name' => 'SMSF Specialist Advisor' ) ),
+			)
+		);
+
+		$settings = array(
+			'use_term_images' => 'yes',
+			'term_field'      => 'listing:categories',
+			'term_images'     => array(
+				array( 'term_match' => 'SMSF Specialist Auditor', 'term_image' => array( 'url' => 'https://site.test/auditor.png', 'id' => 2 ) ),
+				array( 'term_match' => 'smsf specialist advisor, fellow smsf specialist advisor', 'term_image' => array( 'url' => 'https://site.test/advisor.png', 'id' => 1 ) ),
+			),
+		);
+
+		self::assertSame(
+			'<img class="agend-record-image agend-record-image--img" src="https://site.test/advisor.png" alt="SMSF Specialist Advisor" loading="lazy" />',
+			agend_apps_records_render_record_image( $settings )
+		);
+	}
+
+	#[Test]
+	public function should_fall_back_rather_than_to_the_image_field_when_no_term_matches(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array( 'name' => 'Priya Raman', 'logo_url' => 'https://cdn.test/priya.jpg', 'categories' => array( array( 'name' => 'Accountant' ) ) )
+		);
+
+		$settings = array(
+			'use_term_images' => 'yes',
+			'term_field'      => 'listing:categories',
+			'term_images'     => array( array( 'term_match' => 'SMSF Specialist Advisor', 'term_image' => 'https://site.test/advisor.png' ) ),
+		);
+
+		self::assertSame( '', agend_apps_records_render_record_image( $settings ) );
+		self::assertSame( 'no_image', agend_apps_records_record_image_render_reason( $settings ) );
+	}
+
+	#[Test]
+	public function should_add_the_shape_and_width_hooks_in_every_editor(): void {
+		$this->pushEvent();
+
+		self::assertSame(
+			'<img class="agend-record-image agend-record-image--img agend-record-image--circle agend-record-image--sized" style="--agend-image-width:96px;" src="https://cdn.test/hero.jpg" alt="Sample Event" loading="lazy" />',
+			agend_apps_records_render_record_image( array( 'shape' => 'circle', 'display_width' => '96' ) )
+		);
+	}
+
+	#[Test]
+	public function should_ignore_a_shape_or_width_the_schema_does_not_offer(): void {
+		$this->pushEvent();
+
+		self::assertSame(
+			'<img class="agend-record-image agend-record-image--img" src="https://cdn.test/hero.jpg" alt="Sample Event" loading="lazy" />',
+			agend_apps_records_render_record_image( array( 'shape' => 'star', 'display_width' => '97' ) )
+		);
+	}
+
+	#[Test]
 	public function should_link_the_img_to_the_detail_page_when_link_to_detail_is_enabled(): void {
 		$this->pushEvent();
 

@@ -230,6 +230,104 @@
                     }
                 }
             ]
+        },
+        {
+            "id": "section_term_images",
+            "args": {
+                "label": "Image by term",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "use_term_images",
+                    "args": {
+                        "label": "Choose the image by term",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Shows an image you upload for a term the record has, for example an accreditation logo for each specialist type. Replaces the image field above."
+                    }
+                },
+                {
+                    "id": "term_field",
+                    "args": {
+                        "label": "Terms",
+                        "type": "select",
+                        "default": "common:category",
+                        "groups": [
+                            {
+                                "label": "Common (any record)",
+                                "options": {
+                                    "common:category": "Category"
+                                }
+                            },
+                            {
+                                "label": "Directory listing",
+                                "options": {
+                                    "listing:category": "Category",
+                                    "listing:categories": "All categories",
+                                    "listing:tags": "Tags",
+                                    "listing:badges": "Badges",
+                                    "listing:state": "State"
+                                }
+                            },
+                            {
+                                "label": "Event",
+                                "options": {
+                                    "event:venue_type": "Format (In-Person, Online, Hybrid)",
+                                    "event:category": "Category",
+                                    "event:categories": "All categories",
+                                    "event:tags": "Tags"
+                                }
+                            },
+                            {
+                                "label": "Course",
+                                "options": {
+                                    "course:category": "Category",
+                                    "course:difficulty": "Level",
+                                    "course:delivery_mode": "Delivery mode"
+                                }
+                            }
+                        ],
+                        "label_block": true,
+                        "condition": {
+                            "use_term_images": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "term_images",
+                    "args": {
+                        "label": "Images",
+                        "type": "repeater",
+                        "fields": [
+                            {
+                                "label": "Matches",
+                                "type": "text",
+                                "default": "",
+                                "description": "The term exactly as it appears, ignoring case. Several terms can be separated by commas.",
+                                "name": "term_match"
+                            },
+                            {
+                                "label": "Image",
+                                "type": "media",
+                                "name": "term_image"
+                            }
+                        ],
+                        "title_field": "{{{ term_match }}}",
+                        "default": [],
+                        "condition": {
+                            "use_term_images": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "term_images_note",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "The first term the record has that matches a row wins. A record with no matching term shows the fallback image, or nothing."
+                    }
+                }
+            ]
         }
     ]
 }
