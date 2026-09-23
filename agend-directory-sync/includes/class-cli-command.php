@@ -219,10 +219,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 
 		/**
 		 * Print each failed batch's message, and any per-row validation issues
-		 * beneath it. A record index here is 0-based within its own batch: the
-		 * CLI sends each batch directly through Agend_Directory_Sync_Runner,
-		 * not through the resumable job, so there is no run-wide listing
-		 * position to convert it to.
+		 * beneath it. Agend_Directory_Sync_Runner stamps each issue with a
+		 * run-wide, 1-based listing_position (and, when known, the row's
+		 * external_id) before this summary is returned, the same way the
+		 * resumable job does for a browser run -- send_listings() makes one
+		 * call for the whole listings set here, so its own batch_index is
+		 * already run-wide and the position needs no further restamping.
+		 * Formatted with Agend_Directory_Sync_Agend_Client::format_issue_line(),
+		 * shared with (and covered by the same tests as) the admin result
+		 * panel's equivalent, translated rendering.
 		 *
 		 * @param array<int, array<string, mixed>> $http_errors
 		 */
@@ -240,15 +245,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 						continue;
 					}
 
-					$field  = (string) ( $issue['field'] ?? '' );
-					$reason = (string) ( $issue['reason'] ?? '' );
-					$record = $issue['record'] ?? null;
-
-					WP_CLI::log(
-						null !== $record
-							? sprintf( '  record %d (0-based in this batch), field %s: %s', (int) $record, $field, $reason )
-							: sprintf( '  field %s: %s', $field, $reason )
-					);
+					WP_CLI::log( '  ' . Agend_Directory_Sync_Agend_Client::format_issue_line( $issue ) );
 				}
 			}
 		}

@@ -109,18 +109,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 			if ( ! $dry_run && ! empty( $listings ) ) {
 				// Unattended (CLI, or a future scheduled run): no request-time
 				// budget to share with anything else, so the operator's whole
-				// timeout setting applies (effective_timeout()'s
-				// max_execution_time = 0 case).
+				// timeout setting applies in full (effective_timeout()'s 'cli'
+				// context).
+				$batch_size = Agend_Directory_Sync_Agend_Client::batch_size();
+				$timeout    = Agend_Directory_Sync_Agend_Client::effective_timeout(
+					Agend_Directory_Sync_Agend_Client::timeout_seconds(),
+					0,
+					'cli'
+				);
+
 				$agend        = new Agend_Directory_Sync_Agend_Client();
-				$send_summary = $agend->send_listings(
+				$send_summary = $agend->send_listings( $listings, $external_source, $auto_publish, $batch_size, $timeout );
+
+				// send_listings() makes exactly one call for the whole listings
+				// set, so its own batch_index is already run-wide (there is no
+				// job restamping it needed a job does); this only adds the
+				// run-wide listing_position and external_id an issue does not
+				// carry yet, the same way the job does for a browser run, so
+				// the CLI's own log lines read the same way.
+				$send_summary['http_errors'] = self::stamp_http_error_positions(
+					is_array( $send_summary['http_errors'] ?? null ) ? $send_summary['http_errors'] : array(),
 					$listings,
-					$external_source,
-					$auto_publish,
-					Agend_Directory_Sync_Agend_Client::batch_size(),
-					Agend_Directory_Sync_Agend_Client::effective_timeout(
-						Agend_Directory_Sync_Agend_Client::timeout_seconds(),
-						0
-					)
+					$batch_size
 				);
 			}
 
@@ -178,6 +188,44 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 				return $contacts;
 			}
 			return array_slice( $contacts, 0, $max_records );
+		}
+
+		/**
+		 * Apply Agend_Directory_Sync_Agend_Client::stamp_issue_position() to
+		 * every issue in a run's http_errors, using the same $batch_size
+		 * chunking send_listings() itself used, so each issue's record index
+		 * resolves against the same listing it was reported against.
+		 *
+		 * Public so it is directly unit-testable against a plain http_errors
+		 * array, without standing up the full fetch/transform pipeline
+		 * run() otherwise requires.
+		 *
+		 * @param array<int, array<string, mixed>> $http_errors
+		 * @param array<int, array<string, mixed>> $listings
+		 *
+		 * @return array<int, array<string, mixed>>
+		 */
+		public static function stamp_http_error_positions( array $http_errors, array $listings, int $batch_size ): array {
+			$chunks = array_chunk( $listings, max( 1, $batch_size ) );
+
+			foreach ( $http_errors as &$http_error ) {
+				if ( ! is_array( $http_error['issues'] ?? null ) ) {
+					continue;
+				}
+
+				$batch_index = (int) ( $http_error['batch_index'] ?? 0 );
+				$batch       = $chunks[ $batch_index ] ?? array();
+
+				$http_error['issues'] = array_map(
+					static function ( array $issue ) use ( $batch_index, $batch, $batch_size ): array {
+						return Agend_Directory_Sync_Agend_Client::stamp_issue_position( $issue, $batch_index, $batch, $batch_size );
+					},
+					$http_error['issues']
+				);
+			}
+			unset( $http_error );
+
+			return $http_errors;
 		}
 	}
 endif;

@@ -201,7 +201,11 @@ final class AgendClientValidationErrorTest extends TestCase {
 		$this->assertCount( 1, $http_error['issues'] );
 		$this->assertSame( 0, $http_error['issues'][0]['record'] );
 		$this->assertSame( 'custom_fields.state', $http_error['issues'][0]['field'] );
-		$this->assertStringContainsString( 'record 0 (0-based in this batch) custom_fields.state: Expected string', $http_error['message'] );
+		// The batch message names the issue count and field, not an in-batch
+		// record index: that detail now lives only in the issue line, once a
+		// run-wide position is available (see SyncJobProgressTest.php and
+		// SyncRunnerStampingTest.php).
+		$this->assertStringContainsString( '1 issue: custom_fields.state', $http_error['message'] );
 	}
 
 	#[Test]

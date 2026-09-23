@@ -62,11 +62,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 
 		/**
 		 * Default, minimum and maximum for the "upload timeout" setting
-		 * (Agend_Directory_Sync::OPTION_TIMEOUT_SECONDS), in seconds.
+		 * (Agend_Directory_Sync::OPTION_TIMEOUT_SECONDS), in seconds. The default
+		 * of 45 is chosen against STEP_REQUEST_BUDGET_SECONDS below, not against
+		 * the maximum: a browser step's own budget caps it there regardless, so
+		 * 45 is the largest default that still leaves margin inside a typical
+		 * 60-second host/proxy request limit (Kinsta and others). WP-CLI applies
+		 * the setting in full, so the 300-second maximum is still meaningful
+		 * there.
 		 */
-		public const DEFAULT_TIMEOUT_SECONDS = 60;
+		public const DEFAULT_TIMEOUT_SECONDS = 45;
 		public const MIN_TIMEOUT_SECONDS     = 15;
 		public const MAX_TIMEOUT_SECONDS     = 300;
+
+		/**
+		 * Fixed budget for one AJAX step request (handle_step()), independent
+		 * of `max_execution_time`: on Linux, time blocked on a network read
+		 * does not count against max_execution_time, so a host or proxy can
+		 * still cut the request off well before PHP's own limit would. Kinsta
+		 * and many others cut at 60 seconds; 50 leaves margin for everything
+		 * around the gateway call itself (fetching the option, JSON encode/
+		 * decode, the AJAX response).
+		 */
+		public const STEP_REQUEST_BUDGET_SECONDS = 50;
 
 		/**
 		 * The number of listings per bulk-upsert request, resolved from
@@ -101,30 +118,47 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		}
 
 		/**
-		 * The timeout to actually send with a batch request: the operator's
-		 * setting, capped to leave 5 seconds of the current request's execution
-		 * budget for everything around the HTTP call (JSON decode, option
-		 * writes, the JSON response). Never below 10 seconds, since a lower
-		 * value would make the request more likely to fail than to succeed.
+		 * The timeout to actually send with a batch request.
 		 *
-		 * A pure function of its two inputs so it is trivial to test every
+		 * `$context = 'cli'` (WP-CLI, or a future scheduled run with no request
+		 * to protect): the operator's setting applies in full, floored at 10.
+		 *
+		 * `$context = 'web'` (the AJAX stepper, the default): capped against
+		 * TWO independent ceilings, both with a 5-second margin for everything
+		 * around the HTTP call itself (JSON decode, option writes, the AJAX
+		 * response) --
+		 *   - STEP_REQUEST_BUDGET_SECONDS, always, because `max_execution_time`
+		 *     alone is not trustworthy: on Linux it does not count time spent
+		 *     blocked on a network read, so PHP's own limit can be far more
+		 *     generous than what the host or an intermediate proxy actually
+		 *     allows the request to run for.
+		 *   - `$max_execution_time`, when it is not 0 (unlimited).
+		 * Never below 10 seconds either way, since a lower value would make the
+		 * request more likely to fail outright than to succeed.
+		 *
+		 * A pure function of its inputs so it is trivial to test every
 		 * combination without a real PHP ini setting.
 		 *
-		 * @param int $setting            The resolved timeout_seconds() value.
-		 * @param int $max_execution_time `ini_get( 'max_execution_time' )` for
-		 *                                the current request, 0 meaning
-		 *                                unlimited (WP-CLI, or a host with no
-		 *                                cap), read AFTER any set_time_limit()
-		 *                                call the caller already made.
+		 * @param int    $setting            The resolved timeout_seconds() value.
+		 * @param int    $max_execution_time `ini_get( 'max_execution_time' )` for
+		 *                                   the current request, 0 meaning
+		 *                                   unlimited, read AFTER any
+		 *                                   set_time_limit() call the caller
+		 *                                   already made. Ignored for 'cli'.
+		 * @param string $context            'web' or 'cli'.
 		 */
-		public static function effective_timeout( int $setting, int $max_execution_time ): int {
-			if ( 0 === $max_execution_time ) {
+		public static function effective_timeout( int $setting, int $max_execution_time, string $context = 'web' ): int {
+			if ( 'cli' === $context ) {
 				return max( 10, $setting );
 			}
 
-			$available = max( 0, $max_execution_time - 5 );
+			$limit = self::STEP_REQUEST_BUDGET_SECONDS - 5;
 
-			return max( 10, min( $setting, $available ) );
+			if ( $max_execution_time > 0 ) {
+				$limit = min( $limit, max( 0, $max_execution_time - 5 ) );
+			}
+
+			return max( 10, min( $setting, $limit ) );
 		}
 
 		/**
@@ -257,8 +291,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 
 			if ( is_wp_error( $response ) ) {
 				$result = array(
-					'status'  => 'error',
-					'message' => $response->get_error_message(),
+					'status'    => 'error',
+					'message'   => $response->get_error_message(),
+					'retryable' => self::is_retryable_failure( $response ),
 				);
 
 				$described = self::describe_validation_error( $response, count( $batch ) );
@@ -436,32 +471,152 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		}
 
 		/**
-		 * Fold the first few issues of a failed batch into the message the
-		 * operator sees in the job log and the CLI, instead of the generic
-		 * "Invalid request parameters" the gateway sends.
+		 * Fold a failed batch's issue count and field names into the message
+		 * the operator sees in the job log and the CLI, instead of the generic
+		 * "Invalid request parameters" the gateway sends: e.g. "Invalid request
+		 * parameters (3 issues: listings, external_source)".
+		 *
+		 * Deliberately carries no record index: at this point (inside one
+		 * gateway call) a record is only known relative to this one batch, and
+		 * the run-wide listing_position a record-level detail should use is not
+		 * computed until the job or the runner stamps it afterwards (see
+		 * stamp_issue_position()). Putting a "record N (0-based in this batch)"
+		 * figure in the batch-level message duplicated that detail with a
+		 * different, more confusing number; the per-issue lines are the only
+		 * place a record is now named.
 		 *
 		 * @param array<int, array{record: int|null, field: string, reason: string}> $issues
 		 */
 		private static function summarize_issues_message( string $base_message, array $issues, int $issues_omitted ): string {
 			$total = count( $issues ) + $issues_omitted;
-			$shown = array_slice( $issues, 0, 3 );
 
-			$parts = array_map(
-				static function ( array $issue ): string {
-					return null !== $issue['record']
-						? sprintf( 'record %d (0-based in this batch) %s: %s', $issue['record'], $issue['field'], $issue['reason'] )
-						: sprintf( '%s: %s', $issue['field'], $issue['reason'] );
-				},
-				$shown
-			);
-
-			$summary = implode( '; ', $parts );
-
-			if ( $total > count( $shown ) ) {
-				$summary .= sprintf( ' and %d more', $total - count( $shown ) );
+			if ( 0 === $total ) {
+				return $base_message;
 			}
 
-			return '' !== $summary ? sprintf( '%s: %s', $base_message, $summary ) : $base_message;
+			$fields = array();
+			foreach ( $issues as $issue ) {
+				$field = (string) ( $issue['field'] ?? '' );
+				if ( '' !== $field && ! in_array( $field, $fields, true ) ) {
+					$fields[] = $field;
+				}
+				if ( count( $fields ) >= 3 ) {
+					break;
+				}
+			}
+
+			return 1 === $total
+				? sprintf(
+					/* translators: 1: base gateway message, 2: the one issue's field name. */
+					__( '%1$s (1 issue: %2$s)', 'agend-directory-sync' ),
+					$base_message,
+					implode( ', ', $fields )
+				)
+				: sprintf(
+					/* translators: 1: base gateway message, 2: number of issues, 3: comma-separated field names (first few, deduplicated). */
+					__( '%1$s (%2$d issues: %3$s)', 'agend-directory-sync' ),
+					$base_message,
+					$total,
+					implode( ', ', $fields )
+				);
+		}
+
+		/**
+		 * Whether a batch's failure is safe to retry given the bulk-upsert's
+		 * idempotency on (external_source, external_id):
+		 *
+		 * - Any error with no `status_code` at all -- a transport failure (cURL
+		 *   7, 28, 52, 56, and the like) that never reached the gateway, or one
+		 *   that did but returned a body agend-apps-core could not decode as
+		 *   JSON (`agend_apps_invalid_response`, which is what an edge/proxy
+		 *   504 HTML error page becomes: it carries no status_code either).
+		 * - A `status_code` of 502, 503 or 504: the gateway (or something in
+		 *   front of it) answered, but with an upstream/availability failure a
+		 *   retry can plausibly succeed against.
+		 *
+		 * Every other status, 4xx and 500 included, is a real answer retrying
+		 * cannot change, so this returns false for those.
+		 */
+		public static function is_retryable_failure( WP_Error $error ): bool {
+			$data = $error->get_error_data();
+
+			if ( ! is_array( $data ) || ! isset( $data['status_code'] ) || null === $data['status_code'] ) {
+				return true;
+			}
+
+			return in_array( (int) $data['status_code'], array( 502, 503, 504 ), true );
+		}
+
+		/**
+		 * Convert one issue's in-batch record index into a run-wide 1-based
+		 * listing position, and attach the external_id of the listing it
+		 * refers to when the batch it came from is available.
+		 *
+		 * Shared by the resumable job (Agend_Directory_Sync_Job, which sends
+		 * one batch per gateway call and restamps its always-0 batch index to
+		 * the job's real one) and the synchronous runner/CLI path
+		 * (Agend_Directory_Sync_Runner, whose own batch index from
+		 * send_listings() is already run-wide since it makes one call for the
+		 * whole listings set), so a run-wide position and an external_id mean
+		 * the same thing and are computed the same way whichever path produced
+		 * them.
+		 *
+		 * @param array<string, mixed>             $issue
+		 * @param array<int, array<string, mixed>> $batch      The listings sent in the batch this issue's
+		 *                                                     record index is relative to.
+		 *
+		 * @return array<string, mixed>
+		 */
+		public static function stamp_issue_position( array $issue, int $batch_index, array $batch, int $batch_size ): array {
+			$record = $issue['record'] ?? null;
+
+			if ( null === $record ) {
+				$issue['listing_position'] = null;
+				return $issue;
+			}
+
+			$record = (int) $record;
+
+			$issue['listing_position'] = $batch_index * $batch_size + $record + 1;
+
+			if ( isset( $batch[ $record ]['external_id'] ) && '' !== $batch[ $record ]['external_id'] ) {
+				$issue['external_id'] = (string) $batch[ $record ]['external_id'];
+			}
+
+			return $issue;
+		}
+
+		/**
+		 * One issue as a plain-text, operator-facing line: "Listing #M
+		 * (external id X), field F: reason", "Listing #M, field F: reason" when
+		 * no external_id is known, or "Field F: reason" when the issue carries
+		 * no run-wide listing_position at all (a batch-level failure with no
+		 * per-row detail, e.g. a rejected external_source).
+		 *
+		 * Shared by the CLI's own log lines, and directly unit-testable without
+		 * WP_CLI (that class is only defined under an actual WP-CLI process).
+		 * The admin result panel's Agend_Directory_Sync_Admin_Page keeps its
+		 * own translated version of the same shape rather than calling this,
+		 * since a CLI log line is not translated but a page rendered for an
+		 * operator's browser should be.
+		 *
+		 * @param array<string, mixed> $issue
+		 */
+		public static function format_issue_line( array $issue ): string {
+			$field       = (string) ( $issue['field'] ?? '' );
+			$reason      = (string) ( $issue['reason'] ?? '' );
+			$position    = $issue['listing_position'] ?? null;
+			$external_id = (string) ( $issue['external_id'] ?? '' );
+
+			if ( null === $position ) {
+				return sprintf( 'Field %s: %s', $field, $reason );
+			}
+
+			if ( '' !== $external_id ) {
+				return sprintf( 'Listing #%d (external id %s), field %s: %s', (int) $position, $external_id, $field, $reason );
+			}
+
+			return sprintf( 'Listing #%d, field %s: %s', (int) $position, $field, $reason );
 		}
 	}
 endif;
