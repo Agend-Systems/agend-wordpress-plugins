@@ -36,6 +36,67 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		public const OPTION_FIELD_MAP = 'agend_directory_sync_field_map';
 
 		/**
+		 * The two visibility-flag core targets that can optionally use value
+		 * map mode instead of the default truthy read.
+		 */
+		public const FLAG_KEYS = array( 'eligible_flag', 'opt_in_flag' );
+
+		/**
+		 * Flag read mode: the source value is coerced to a boolean with
+		 * `truthy()` semantics (today's behaviour, invert applies).
+		 */
+		public const FLAG_MODE_TRUTHY = 'truthy';
+
+		/**
+		 * Flag read mode: the source value is matched against a configured
+		 * list of value => outcome rows instead of coerced to a boolean.
+		 * Invert does not apply in this mode.
+		 */
+		public const FLAG_MODE_MAP = 'map';
+
+		/**
+		 * Outcome: the listing is sent with status `approved`.
+		 */
+		public const OUTCOME_PUBLISHED = 'published';
+
+		/**
+		 * Outcome: the listing is sent with status `pending` (or, when
+		 * neither flag is in map mode, folded into the legacy `suspended`
+		 * status for back-compat).
+		 */
+		public const OUTCOME_DRAFT = 'draft';
+
+		/**
+		 * Outcome: the row would not be imported at all. Designed but NOT
+		 * offered yet: it needs a gateway option that does not exist yet.
+		 * Kept in the ranking below so it slots in later, as the most
+		 * restrictive rank, without reshuffling every other outcome.
+		 * `sanitize_flags()` rejects it today and rewrites it to
+		 * OUTCOME_DRAFT.
+		 */
+		public const OUTCOME_SKIP = 'skip';
+
+		/**
+		 * Outcome precedence, ordered least to most restrictive. When
+		 * combining the eligibility and opt-in flags, the most restrictive
+		 * matched outcome wins.
+		 */
+		public const OUTCOME_RANKING = array( self::OUTCOME_PUBLISHED, self::OUTCOME_DRAFT, self::OUTCOME_SKIP );
+
+		/**
+		 * Outcomes actually selectable today, in the admin UI and in
+		 * `sanitize_flags()`. OUTCOME_SKIP stays out of this list until the
+		 * gateway grows a "not imported" option.
+		 */
+		public const OFFERED_OUTCOMES = array( self::OUTCOME_PUBLISHED, self::OUTCOME_DRAFT );
+
+		/**
+		 * Maximum accepted rows in a single flag's value map. Past this,
+		 * extra posted rows are discarded rather than stored.
+		 */
+		public const MAX_FLAG_MAP_ROWS = 50;
+
+		/**
 		 * The core Agend targets, each defaulting to an EMPTY source field. The
 		 * defaults are intentionally blank: the mapping is configured per client
 		 * under Tools > Agend Directory Sync (the previous defaults were
@@ -81,19 +142,25 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		}
 
 		/**
-		 * Default `flags` map: per-flag invert setting. Most eligibility /
-		 * opt-in sources are true-means-visible; a source that is instead
-		 * true-means-hide (e.g. an "opted out" or "excluded" flag) sets its
-		 * invert to true rather than requiring the client to negate the
-		 * source data itself.
+		 * Default `flags` map: per-flag invert setting, read mode, value map
+		 * and map default outcome. Most eligibility / opt-in sources are
+		 * true-means-visible; a source that is instead true-means-hide (e.g.
+		 * an "opted out" or "excluded" flag) sets its invert to true rather
+		 * than requiring the client to negate the source data itself. Each
+		 * flag defaults to truthy mode with no map rows, so an install saved
+		 * before map mode existed resolves exactly as before (back-compat).
 		 *
-		 * @return array<string, bool>
+		 * @return array<string, mixed>
 		 */
 		public static function default_flags(): array {
-			return array(
-				'eligible_flag_invert' => false,
-				'opt_in_flag_invert'   => false,
-			);
+			$flags = array();
+			foreach ( self::FLAG_KEYS as $flag_key ) {
+				$flags[ $flag_key . '_invert' ]      = false;
+				$flags[ $flag_key . '_mode' ]        = self::FLAG_MODE_TRUTHY;
+				$flags[ $flag_key . '_map' ]         = array();
+				$flags[ $flag_key . '_map_default' ] = self::OUTCOME_DRAFT;
+			}
+			return $flags;
 		}
 
 		/**
@@ -299,14 +366,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				}
 			}
 
-			$flags = self::default_flags();
-			if ( isset( $saved['flags'] ) && is_array( $saved['flags'] ) ) {
-				foreach ( $flags as $key => $default ) {
-					if ( array_key_exists( $key, $saved['flags'] ) ) {
-						$flags[ $key ] = (bool) $saved['flags'][ $key ];
-					}
-				}
-			}
+			// sanitize_flags() already fills in every key from the defaults,
+			// coercing each to its proper type, so an install saved before
+			// map mode existed (no mode/map/map_default keys at all) resolves
+			// to truthy mode with an empty map, identical to today.
+			$flags = isset( $saved['flags'] ) && is_array( $saved['flags'] )
+				? self::sanitize_flags( $saved['flags'] )
+				: self::default_flags();
 
 			return array(
 				'core'          => $core,
@@ -341,22 +407,90 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		}
 
 		/**
-		 * Validate posted flag-invert checkboxes against the known flag keys.
+		 * Validate posted flag settings against the known flag keys: the
+		 * invert checkbox, the read mode, the value map, and the map's
+		 * default outcome.
+		 *
 		 * An HTML checkbox omits its field entirely when unchecked, so
 		 * presence (any truthy value, conventionally '1') means true and
-		 * absence means false — there is no third state.
+		 * absence means false: there is no third state.
 		 *
-		 * @param mixed $raw Posted flags (key => '1' when checked).
+		 * @param mixed $raw Posted flags.
 		 *
-		 * @return array<string, bool>
+		 * @return array<string, mixed>
 		 */
 		public static function sanitize_flags( $raw ): array {
 			$raw   = is_array( $raw ) ? $raw : array();
 			$flags = array();
-			foreach ( array_keys( self::default_flags() ) as $key ) {
-				$flags[ $key ] = ! empty( $raw[ $key ] );
+
+			foreach ( self::FLAG_KEYS as $flag_key ) {
+				$flags[ $flag_key . '_invert' ]      = ! empty( $raw[ $flag_key . '_invert' ] );
+				$flags[ $flag_key . '_mode' ]        = self::sanitize_flag_mode( $raw[ $flag_key . '_mode' ] ?? null );
+				$flags[ $flag_key . '_map' ]         = self::sanitize_flag_map( $raw[ $flag_key . '_map' ] ?? null );
+				$flags[ $flag_key . '_map_default' ] = self::sanitize_flag_outcome( $raw[ $flag_key . '_map_default' ] ?? null );
 			}
+
 			return $flags;
+		}
+
+		/**
+		 * Validate a posted flag read mode. Anything other than the exact
+		 * map-mode string falls back to truthy mode, including a missing key
+		 * (an install saved before map mode existed).
+		 *
+		 * @param mixed $raw
+		 */
+		private static function sanitize_flag_mode( $raw ): string {
+			return self::FLAG_MODE_MAP === $raw ? self::FLAG_MODE_MAP : self::FLAG_MODE_TRUTHY;
+		}
+
+		/**
+		 * Validate a posted outcome against OFFERED_OUTCOMES. Anything else
+		 * (an unknown string, OUTCOME_SKIP, which is reserved but not
+		 * offered yet, see the class const docblock, or a missing value)
+		 * becomes OUTCOME_DRAFT, the safer (more restrictive) fallback.
+		 *
+		 * @param mixed $raw
+		 */
+		private static function sanitize_flag_outcome( $raw ): string {
+			return in_array( $raw, self::OFFERED_OUTCOMES, true ) ? (string) $raw : self::OUTCOME_DRAFT;
+		}
+
+		/**
+		 * Validate a posted flag value map: rows with a blank value are
+		 * dropped, a value repeated case-insensitively keeps only the last
+		 * row for it (later rows win), the outcome is validated the same way
+		 * as the map default, and the result is capped at
+		 * MAX_FLAG_MAP_ROWS distinct values.
+		 *
+		 * @param mixed $raw Posted rows, each `{value, outcome}`.
+		 *
+		 * @return array<int, array{value: string, outcome: string}>
+		 */
+		private static function sanitize_flag_map( $raw ): array {
+			$raw = is_array( $raw ) ? $raw : array();
+
+			$by_lower_value = array();
+			foreach ( $raw as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+
+				$value = trim( (string) ( $row['value'] ?? '' ) );
+				if ( '' === $value ) {
+					continue;
+				}
+
+				// Case-insensitive de-dupe on the value: the last posted row
+				// for a given value wins, but keeps its original position so
+				// row order in the admin UI stays stable.
+				$by_lower_value[ strtolower( $value ) ] = array(
+					'value'   => $value,
+					'outcome' => self::sanitize_flag_outcome( $row['outcome'] ?? null ),
+				);
+			}
+
+			return array_slice( array_values( $by_lower_value ), 0, self::MAX_FLAG_MAP_ROWS );
 		}
 
 		/**
