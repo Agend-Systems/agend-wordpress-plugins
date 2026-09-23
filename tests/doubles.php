@@ -438,9 +438,24 @@ if ( ! class_exists( 'Agend_Test_Directory_Bulk_Upsert' ) ) {
 		/** @var mixed Value the next call returns. */
 		public static $response = array( 'data' => array( 'results' => array() ) );
 
+		/**
+		 * When set, the double fires WP core's `http_api_debug` action for
+		 * the bulk-upsert URL with this HTTP status, simulating what a real
+		 * `wp_remote_request()` call reports even when agend-apps-core's own
+		 * decoded $response (see {@see $response} above) carries none of its
+		 * own -- the `agend_apps_invalid_response` case
+		 * Agend_Directory_Sync_Agend_Client::is_retryable_failure() needs this
+		 * for. Null (the default) fires nothing, matching a transport failure
+		 * that never got an HTTP response at all.
+		 *
+		 * @var int|null
+		 */
+		public static ?int $http_api_debug_status = null;
+
 		public static function reset(): void {
-			self::$calls    = array();
-			self::$response = array( 'data' => array( 'results' => array() ) );
+			self::$calls                 = array();
+			self::$response               = array( 'data' => array( 'results' => array() ) );
+			self::$http_api_debug_status  = null;
 		}
 	}
 }
@@ -473,6 +488,17 @@ if ( ! function_exists( 'agend_apps_directory_bulk_upsert_listings' ) ) {
 			$auto_publish_approved,
 			$locations_mode
 		);
+
+		if ( null !== Agend_Test_Directory_Bulk_Upsert::$http_api_debug_status ) {
+			do_action(
+				'http_api_debug',
+				array( 'status_code' => Agend_Test_Directory_Bulk_Upsert::$http_api_debug_status ),
+				'response',
+				'WP_Http',
+				$args,
+				'https://api.example.test/v1/directory/listings/bulk-upsert'
+			);
+		}
 
 		Agend_Test_Directory_Bulk_Upsert::$calls[] = array(
 			'args'                  => $args,

@@ -230,7 +230,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 								'batch_index' => $batch_index,
 								'external_id' => (string) ( $row['external_id'] ?? '' ),
 								'code'        => (string) ( $row['error']['code'] ?? '' ),
-								'message'     => (string) ( $row['error']['message'] ?? '' ),
+								'message'     => self::sanitize_text( (string) ( $row['error']['message'] ?? '' ) ),
 							);
 						}
 					}
@@ -243,14 +243,27 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		/**
 		 * Send a single batch via agend-apps-core and parse the result rows.
 		 *
-		 * When a timeout is given, it is injected through the
+		 * Two request args are injected through the
 		 * `agend_apps_directory_bulk_upsert_listings_args` filter for the
 		 * duration of this one call and removed in a `finally`, the same
 		 * pattern agend-apps-core's own
 		 * `agend_apps_records_export_reports_authoring_listing()` uses to scope
-		 * a one-off request arg through a filter it does not otherwise control.
-		 * agend-apps-core is never modified for this: `request()` already
-		 * honours `$args['timeout']`.
+		 * a one-off request arg through a filter it does not otherwise control
+		 * (agend-apps-core is never modified for either), both from ONE
+		 * callback so only one add_filter()/remove_filter() pair is needed:
+		 *
+		 * - `timeout`, when given; `request()` already honours it.
+		 * - `unattended => true`, always: this is a server-to-server upload
+		 *   driven by the admin (or WP-CLI), never a member's own action, so it
+		 *   must never carry a member bearer -- API-key auth only.
+		 *
+		 * A second, temporary hook (`http_api_debug`, a real WP core action
+		 * fired right after the HTTP call completes) captures the response's
+		 * actual HTTP status for the one gateway error that carries none of
+		 * its own: `agend_apps_invalid_response`, which is what an edge or
+		 * proxy's non-JSON error page (an HTML 504, most commonly) becomes.
+		 * Without it, is_retryable_failure() would have no status to look at
+		 * for that case at all.
 		 *
 		 * @param string                           $external_source
 		 * @param array<int, array<string, mixed>> $batch
@@ -265,16 +278,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 			bool $auto_publish_approved,
 			?int $timeout_seconds = null
 		): array {
-			$inject_timeout = null;
+			$inject_args = static function ( $args ) use ( $timeout_seconds ): array {
+				$args               = is_array( $args ) ? $args : array();
+				$args['unattended'] = true;
+				if ( null !== $timeout_seconds ) {
+					$args['timeout'] = $timeout_seconds;
+				}
+				return $args;
+			};
+			add_filter( 'agend_apps_directory_bulk_upsert_listings_args', $inject_args, 20 );
 
-			if ( null !== $timeout_seconds ) {
-				$inject_timeout = static function ( $args ) use ( $timeout_seconds ): array {
-					$args             = is_array( $args ) ? $args : array();
-					$args['timeout']  = $timeout_seconds;
-					return $args;
-				};
-				add_filter( 'agend_apps_directory_bulk_upsert_listings_args', $inject_timeout, 20 );
-			}
+			$captured_status = null;
+			$needle          = '/directory/listings/bulk-upsert';
+			$capture_status  = static function ( $response, $context, $class, $parsed_args, $url ) use ( &$captured_status, $needle ): void {
+				if ( is_wp_error( $response ) || ! is_string( $url ) ) {
+					return;
+				}
+				if ( $needle !== substr( $url, -strlen( $needle ) ) ) {
+					return;
+				}
+				$captured_status = (int) wp_remote_retrieve_response_code( $response );
+			};
+			add_action( 'http_api_debug', $capture_status, 10, 5 );
 
 			try {
 				$response = agend_apps_directory_bulk_upsert_listings(
@@ -284,16 +309,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 					self::LOCATIONS_MODE
 				);
 			} finally {
-				if ( null !== $inject_timeout ) {
-					remove_filter( 'agend_apps_directory_bulk_upsert_listings_args', $inject_timeout, 20 );
-				}
+				remove_filter( 'agend_apps_directory_bulk_upsert_listings_args', $inject_args, 20 );
+				remove_action( 'http_api_debug', $capture_status, 10 );
 			}
 
 			if ( is_wp_error( $response ) ) {
 				$result = array(
 					'status'    => 'error',
-					'message'   => $response->get_error_message(),
-					'retryable' => self::is_retryable_failure( $response ),
+					'message'   => self::sanitize_text( $response->get_error_message() ),
+					'retryable' => self::is_retryable_failure( $response, $captured_status ),
 				);
 
 				$described = self::describe_validation_error( $response, count( $batch ) );
@@ -405,7 +429,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 						$raw_issues[] = array(
 							'record' => null,
 							'field'  => (string) $field,
-							'reason' => self::sanitize_reason( (string) $message ),
+							'reason' => self::sanitize_text( (string) $message ),
 						);
 					}
 				}
@@ -448,26 +472,43 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 			return array(
 				'record' => $record,
 				'field'  => $field,
-				'reason' => self::sanitize_reason( $message ),
+				'reason' => self::sanitize_text( $message ),
 			);
 		}
 
 		/**
-		 * Strip anything a zod message may echo back from the submitted value
-		 * (e.g. "Invalid enum value. Expected 'a' | 'b', received 'Jane Smith'"),
-		 * so a validation reason never carries a member's data into a log or an
-		 * admin screen. Field names and record indexes, which describe shape
-		 * rather than content, are left alone.
+		 * One privacy scrub applied to every message this class stores or
+		 * returns, whatever the error type: a batch-level failure message and
+		 * a per-issue reason alike, so neither ever carries a member's data
+		 * into a log, the admin screen, or the raw JSON block (sanitised here,
+		 * before storage, not only where either is rendered).
+		 *
+		 * - Strips a zod-style "received ..." tail (e.g. "Invalid enum value.
+		 *   Expected 'a' | 'b', received 'Jane Smith'").
+		 * - Blanks out every quoted literal, single or double, one character
+		 *   or more -- a value the gateway may have echoed back is exactly as
+		 *   likely inside a plain message as inside a "received" tail, and
+		 *   there is no reliable way to tell a submitted value apart from a
+		 *   literal that is simply part of the message (e.g. an allowed enum
+		 *   option), so every quoted literal is treated as unsafe.
+		 * - Redacts an email address anywhere in the message.
+		 * - Caps the result at 300 characters.
+		 *
+		 * Field names, error codes and record/position numbers, which
+		 * describe shape rather than content, are never passed through this;
+		 * they are kept as-is wherever they are used.
 		 */
-		private static function sanitize_reason( string $message ): string {
-			$reason = preg_replace( '/,?\s*received\b.*$/is', '', $message );
-			$reason = trim( (string) $reason );
+		private static function sanitize_text( string $message ): string {
+			$text = (string) preg_replace( '/,?\s*received\b.*$/is', '', $message );
+			$text = (string) preg_replace( '/"[^"]+"|\'[^\']+\'/', "'\u{2026}'", $text );
+			$text = (string) preg_replace(
+				'/[a-zA-Z0-9.!#$%&\'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+/',
+				'[email]',
+				$text
+			);
+			$text = trim( $text );
 
-			if ( function_exists( 'mb_substr' ) ) {
-				return mb_substr( $reason, 0, 200 );
-			}
-
-			return substr( $reason, 0, 200 );
+			return function_exists( 'mb_substr' ) ? mb_substr( $text, 0, 300 ) : substr( $text, 0, 300 );
 		}
 
 		/**
@@ -525,26 +566,45 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		 * Whether a batch's failure is safe to retry given the bulk-upsert's
 		 * idempotency on (external_source, external_id):
 		 *
-		 * - Any error with no `status_code` at all -- a transport failure (cURL
-		 *   7, 28, 52, 56, and the like) that never reached the gateway, or one
-		 *   that did but returned a body agend-apps-core could not decode as
-		 *   JSON (`agend_apps_invalid_response`, which is what an edge/proxy
-		 *   504 HTML error page becomes: it carries no status_code either).
-		 * - A `status_code` of 502, 503 or 504: the gateway (or something in
+		 * - `http_request_failed`: WP core's own error code for a transport
+		 *   failure (cURL 7, 28, 52, 56, and the like) that never reached the
+		 *   gateway at all, whatever status a later look might report.
+		 * - A real HTTP status of 502, 503 or 504: the gateway (or something in
 		 *   front of it) answered, but with an upstream/availability failure a
 		 *   retry can plausibly succeed against.
 		 *
+		 * The status comes from the error's own `status_code` when
+		 * agend-apps-core set one (the normal `agend_api_error` case); for
+		 * `agend_apps_invalid_response`, which carries none because the body
+		 * could not be decoded as JSON (what an edge/proxy's non-JSON error
+		 * page -- an HTML 504, most commonly -- becomes), $captured_status is
+		 * used instead: the real status send_batch() captured via WP core's
+		 * `http_api_debug` action, since agend-apps-core itself never exposes
+		 * one for that case. No status at all (neither the error's own nor a
+		 * captured one) is NOT retried: an unknown failure is not assumed to
+		 * be a retryable one.
+		 *
 		 * Every other status, 4xx and 500 included, is a real answer retrying
 		 * cannot change, so this returns false for those.
+		 *
+		 * @param WP_Error $error
+		 * @param int|null $captured_status See send_batch()'s http_api_debug capture.
 		 */
-		public static function is_retryable_failure( WP_Error $error ): bool {
-			$data = $error->get_error_data();
-
-			if ( ! is_array( $data ) || ! isset( $data['status_code'] ) || null === $data['status_code'] ) {
+		public static function is_retryable_failure( WP_Error $error, ?int $captured_status = null ): bool {
+			if ( 'http_request_failed' === $error->get_error_code() ) {
 				return true;
 			}
 
-			return in_array( (int) $data['status_code'], array( 502, 503, 504 ), true );
+			$data   = $error->get_error_data();
+			$status = ( is_array( $data ) && isset( $data['status_code'] ) && null !== $data['status_code'] )
+				? (int) $data['status_code']
+				: $captured_status;
+
+			if ( null === $status ) {
+				return false;
+			}
+
+			return in_array( $status, array( 502, 503, 504 ), true );
 		}
 
 		/**
