@@ -24,7 +24,14 @@ final class ExportReportsRenderTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/filters.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/export-reports.php';
+
+		// These assert exact markup. The signed-out pre-emption path reads the
+		// report listing, which would put a gateway call inside a test about
+		// markup, so they run as a signed-in visitor; pre-emption has its own
+		// tests below.
+		$GLOBALS['agend_test_current_user_id'] = 7;
 		require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-field-widget-trait.php';
 		require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/widgets/class-agend-elementor-export-reports.php';
 	}
@@ -48,9 +55,14 @@ final class ExportReportsRenderTest extends TestCase {
 			'reports'    => array( array( 'id' => 'report-1', 'label' => '' ) ),
 			'format'     => 'csv',
 			'parameters' => array(),
+			'filterStateKeys' => agend_apps_records_export_reports_filter_state_keys(),
+			'loginUrl'   => esc_url_raw( agend_apps_records_export_reports_login_url() ),
+			'canManage'  => true,
 			'labels'     => array(
 				'working' => 'Preparing…',
-				'failed'  => 'That report could not be produced. Try again shortly.',
+				'failed'  => 'That report could not be downloaded. Access to some reports depends on your membership or entitlements. Contact the organisation if you believe you should have access.',
+				'signIn'  => 'Sign in',
+				'featureUnavailable' => 'This account does not have export reports enabled. Check the account\'s Agend plan, or contact Agend support.',
 			),
 		);
 
@@ -89,9 +101,14 @@ final class ExportReportsRenderTest extends TestCase {
 				array( 'field' => 'keyword', 'source' => 'manual', 'value' => 'gold', 'filter' => '', 'customKey' => '' ),
 				array( 'field' => 'category', 'source' => 'catalogue', 'value' => '', 'filter' => 'custom_field', 'customKey' => 'education_level' ),
 			),
+			'filterStateKeys' => agend_apps_records_export_reports_filter_state_keys(),
+			'loginUrl'   => esc_url_raw( agend_apps_records_export_reports_login_url() ),
+			'canManage'  => true,
 			'labels'     => array(
 				'working' => 'Preparing…',
-				'failed'  => 'That report could not be produced. Try again shortly.',
+				'failed'  => 'That report could not be downloaded. Access to some reports depends on your membership or entitlements. Contact the organisation if you believe you should have access.',
+				'signIn'  => 'Sign in',
+				'featureUnavailable' => 'This account does not have export reports enabled. Check the account\'s Agend plan, or contact Agend support.',
 			),
 		);
 

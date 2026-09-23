@@ -573,6 +573,16 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		$result = agend_apps_directory_run_export_report( $report_id, $parameters, $format );
 
 		if ( is_wp_error( $result ) ) {
+			$forwarded = agend_apps_directory_export_report_error_envelope( $result );
+
+			// Forwarded verbatim when the gateway explained itself, so the
+			// visitor reads why rather than a generic failure. Anything else,
+			// including a gateway that predates the explanation, falls through
+			// to the ordinary error translation.
+			if ( null !== $forwarded ) {
+				return new WP_REST_Response( $forwarded['body'], $forwarded['status'] );
+			}
+
 			return $this->prepare_api_response( $result );
 		}
 

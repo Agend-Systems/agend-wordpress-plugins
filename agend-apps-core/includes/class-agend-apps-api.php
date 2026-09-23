@@ -277,6 +277,11 @@ class Agend_Apps_API {
 					array(
 						'status_code' => $status_code,
 						'path'        => $path,
+						// A raw download otherwise throws the body away, and the
+						// body is the only place a refusal says why it refused.
+						// Carried verbatim so a controller can forward it without
+						// a second request; decoding is the controller's business.
+						'body'        => $body,
 					)
 				);
 			}

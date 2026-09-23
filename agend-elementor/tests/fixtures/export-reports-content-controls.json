@@ -108,8 +108,16 @@
                     "id": "parameters_note",
                     "args": {
                         "type": "raw_html",
-                        "raw": "A report can accept parameters that narrow what it exports. Match a row to the field the parameter filters on, for example keyword or custom.education_level. A report that declares no parameters ignores these rows.",
+                        "raw": "A report can accept parameters that narrow what it exports. Pick the parameter each row fills in. Rows apply to every report this widget offers, so a report that does not accept a parameter ignores that row without reporting an error.",
                         "content_classes": "elementor-descriptor"
+                    }
+                },
+                {
+                    "id": "parameters_none_declared",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "None of this account's export reports accept parameters. Rows added here will be ignored until a report is published with an overridable filter.",
+                        "content_classes": "elementor-panel-alert elementor-panel-alert-warning"
                     }
                 },
                 {
@@ -119,11 +127,30 @@
                         "type": "repeater",
                         "fields": [
                             {
-                                "label": "Parameter field",
+                                "label": "Parameter",
+                                "type": "select",
+                                "default": "",
+                                "groups": [
+                                    {
+                                        "label": "Advanced",
+                                        "options": {
+                                            "__other": "Something else, type the key below"
+                                        }
+                                    }
+                                ],
+                                "label_block": true,
+                                "description": "The filter this row fills in. The list shows what this account's reports accept.",
+                                "name": "param_field_pick"
+                            },
+                            {
+                                "label": "Parameter key",
                                 "type": "text",
                                 "default": "",
-                                "placeholder": "keyword",
-                                "description": "The field the report parameter filters on.",
+                                "placeholder": "location.state",
+                                "description": "The exact field the report parameter filters on, for example location.state or custom.education_level.",
+                                "condition": {
+                                    "param_field_pick": "__other"
+                                },
                                 "name": "param_field"
                             },
                             {
@@ -148,8 +175,9 @@
                             {
                                 "label": "Read from filter",
                                 "type": "select",
-                                "default": "",
+                                "default": "__auto",
                                 "options": {
+                                    "__auto": "Match the parameter automatically",
                                     "": "Select a filter",
                                     "search": "Search",
                                     "category": "Category",
@@ -163,7 +191,7 @@
                                     "badge": "Badge",
                                     "custom_field": "Custom field"
                                 },
-                                "description": "Takes whatever the visitor has this filter set to when they press the button.",
+                                "description": "Takes whatever the visitor has this filter set to when they press the button. Left automatic, the filter is paired to the parameter for you.",
                                 "condition": {
                                     "param_source": "catalogue"
                                 },
@@ -173,15 +201,15 @@
                                 "label": "Custom field key",
                                 "type": "text",
                                 "default": "",
+                                "description": "Which custom field the catalogue filter targets.",
                                 "condition": {
                                     "param_source": "catalogue",
                                     "param_catalogue_filter": "custom_field"
                                 },
-                                "description": "Which custom field the catalogue filter targets.",
                                 "name": "param_custom_key"
                             }
                         ],
-                        "title_field": "{{{ param_field }}}",
+                        "title_field": "{{{ param_field_pick && param_field_pick !== \"__other\" ? param_field_pick : param_field }}}",
                         "default": []
                     }
                 }
