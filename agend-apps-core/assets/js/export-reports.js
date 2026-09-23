@@ -44,6 +44,31 @@
     return reportIndex;
   }
 
+  // The cached index above is fine for a label fill-in on page load, but not
+  // for deciding what parameters to send: an author who edits a report after
+  // the transient was warmed would have that edit silently ignored for up to
+  // the transient's TTL. A click asks the gateway directly instead, and only
+  // falls back to the cached index when that live call itself fails.
+  function loadFreshReportIndex(cfg) {
+    return fetch(restBase(cfg) + '/directory/export-reports?fresh=1', {
+      headers: nonce() ? { 'X-WP-Nonce': nonce() } : {},
+      credentials: 'same-origin',
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error('fresh export report listing failed: ' + res.status);
+        }
+        return res.json();
+      })
+      .then(function (body) {
+        var list = (body && Array.isArray(body.data)) ? body.data : [];
+        var byId = {};
+        list.forEach(function (r) { byId[r.id] = r; });
+        return byId;
+      })
+      .catch(function () { return loadReportIndex(cfg); });
+  }
+
   // The catalogue script publishes its live filter state; a parameter row
   // reading from the catalogue takes its value from there at click time.
   function catalogueState() {
@@ -173,10 +198,24 @@
       note.textContent = '';
     }
 
-    loadReportIndex(cfg)
+    loadFreshReportIndex(cfg)
       .then(function (byId) {
+        var report = byId[reportId];
+
+        // Absent from whichever index we ended up using (the fresh call and
+        // its cached fallback both failed to include it), so parametersFor()
+        // below will silently send nothing. Configured parameter rows exist
+        // to be applied, so say so rather than leave the widget looking like
+        // it filtered when it did not.
+        if (!report && cfg.parameters && cfg.parameters.length && window.console && window.console.warn) {
+          window.console.warn(
+            'Agend export report: report "' + reportId + '" was not in the export report listing. ' +
+            'Configured parameters could not be applied; the download proceeded unfiltered.'
+          );
+        }
+
         var url = restBase(cfg) + '/directory/export-reports/' + encodeURIComponent(reportId) + '?format=' + encodeURIComponent(format);
-        var params = parametersFor(byId[reportId], cfg);
+        var params = parametersFor(report, cfg);
         Object.keys(params).forEach(function (name) {
           url += '&' + encodeURIComponent(name) + '=' + encodeURIComponent(params[name]);
         });
