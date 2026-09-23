@@ -114,6 +114,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			$external_source = isset( $_POST['agend_external_source'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_external_source'] ) ) : '';
 			$auto_publish    = ! empty( $_POST['agend_auto_publish_approved'] ) ? '1' : '0';
+			// Clamped on save, not just on read: the stored option should
+			// reflect what will actually be used, so the settings form never
+			// shows a number that silently gets overridden.
+			$batch_size      = self::sanitize_clamped_setting(
+				isset( $_POST['agend_batch_size'] ) ? (string) wp_unslash( $_POST['agend_batch_size'] ) : null,
+				Agend_Directory_Sync_Agend_Client::MIN_BATCH_SIZE,
+				Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+				Agend_Directory_Sync_Agend_Client::DEFAULT_BATCH_SIZE
+			);
+			$timeout_seconds = self::sanitize_clamped_setting(
+				isset( $_POST['agend_timeout_seconds'] ) ? (string) wp_unslash( $_POST['agend_timeout_seconds'] ) : null,
+				Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS,
+				Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS,
+				Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS
+			);
 			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
 			$posted_source   = isset( $_POST['agend_directory_sync_source'] ) ? sanitize_key( wp_unslash( $_POST['agend_directory_sync_source'] ) ) : '';
 			$raw_http_api    = isset( $_POST['agend_http_api'] ) && is_array( $_POST['agend_http_api'] )
@@ -131,6 +146,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			// it (SPEC-DIR-20260731 US-1.2 business rule).
 			update_option( Agend_Directory_Sync::OPTION_EXTERNAL_SOURCE, $external_source );
 			update_option( Agend_Directory_Sync::OPTION_AUTO_PUBLISH_APPROVED, $auto_publish );
+			update_option( Agend_Directory_Sync::OPTION_BATCH_SIZE, $batch_size );
+			update_option( Agend_Directory_Sync::OPTION_TIMEOUT_SECONDS, $timeout_seconds );
 
 			// Only persist a source key that is actually registered; an
 			// unknown or blank posted value is dropped so the registry's
@@ -211,6 +228,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			wp_safe_redirect( self::redirect_url( array( 'saved' => '1' ) ) );
 			exit;
+		}
+
+		/**
+		 * A clamped numeric setting from a posted form field. A missing OR
+		 * blank value (trimmed) is the setting's own default, never
+		 * `(int) '' === 0` clamped up to the minimum: a cleared number input
+		 * must not silently become "as small as this setting can possibly
+		 * be". A public static method, not inlined into handle_save_settings(),
+		 * so the sanitize path is directly testable without exercising the
+		 * whole admin-post handler (which ends in `exit`).
+		 *
+		 * @param string|null $raw     The posted value, already wp_unslash()ed;
+		 *                             null when the field was not posted at all.
+		 */
+		public static function sanitize_clamped_setting( ?string $raw, int $min, int $max, int $default ): int {
+			$raw = null === $raw ? '' : trim( $raw );
+
+			if ( '' === $raw ) {
+				return $default;
+			}
+
+			return max( $min, min( $max, (int) $raw ) );
 		}
 
 		/**
@@ -325,7 +364,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$max_records = self::read_max_records();
 
 			try {
-				$result = Agend_Directory_Sync_Runner::run( $max_records, true );
+				$result = Agend_Directory_Sync_Runner::run( $max_records, true, 'web' );
 
 				// Keep the transient small: store only a sample, not the full
 				// transformed payload.
@@ -357,6 +396,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			$external_source      = Agend_Directory_Sync_Runner::resolve_external_source();
 			$auto_publish         = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
+			$batch_size           = Agend_Directory_Sync_Agend_Client::batch_size();
+			$timeout_seconds      = Agend_Directory_Sync_Agend_Client::timeout_seconds();
 			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
 			$http_api             = Agend_Directory_Sync_Http_Api_Source::resolve_settings();
 			$dataverse            = Agend_Directory_Sync_Dataverse_Source::resolve_settings();
@@ -1228,6 +1269,67 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									</p>
 								</td>
 							</tr>
+							<tr>
+								<th scope="row">
+									<label for="agend_batch_size"><?php esc_html_e( 'Batch size (listings per request)', 'agend-directory-sync' ); ?></label>
+								</th>
+								<td>
+									<input
+										name="agend_batch_size"
+										id="agend_batch_size"
+										type="number"
+										min="<?php echo esc_attr( (string) Agend_Directory_Sync_Agend_Client::MIN_BATCH_SIZE ); ?>"
+										max="<?php echo esc_attr( (string) Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE ); ?>"
+										step="1"
+										class="small-text"
+										value="<?php echo esc_attr( (string) $batch_size ); ?>"
+									/>
+									<p class="description">
+										<?php
+										printf(
+											/* translators: 1: minimum, 2: maximum, 3: default batch size. */
+											esc_html__( 'How many listings go in one bulk-upsert request, from %1$d to %2$d (the gateway\'s hard cap). Default %3$d. A smaller batch finishes each upload step faster, which helps on a host with a short execution-time limit; a larger one sends fewer requests overall.', 'agend-directory-sync' ),
+											Agend_Directory_Sync_Agend_Client::MIN_BATCH_SIZE,
+											Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+											Agend_Directory_Sync_Agend_Client::DEFAULT_BATCH_SIZE
+										);
+										?>
+										<?php esc_html_e( 'A sync already in progress keeps the batch size it started with; a change here applies to the next run.', 'agend-directory-sync' ); ?>
+									</p>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">
+									<label for="agend_timeout_seconds"><?php esc_html_e( 'Upload timeout (seconds)', 'agend-directory-sync' ); ?></label>
+								</th>
+								<td>
+									<input
+										name="agend_timeout_seconds"
+										id="agend_timeout_seconds"
+										type="number"
+										min="<?php echo esc_attr( (string) Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS ); ?>"
+										max="<?php echo esc_attr( (string) Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS ); ?>"
+										step="1"
+										class="small-text"
+										value="<?php echo esc_attr( (string) $timeout_seconds ); ?>"
+									/>
+									<p class="description">
+										<?php
+										printf(
+											/* translators: 1: minimum, 2: maximum, 3: default timeout, 4: the browser cap. */
+											esc_html__( 'How long one batch request may wait on the Agend gateway, from %1$d to %2$d seconds. Default %3$d. Applies in full to WP-CLI and cron runs; browser runs are capped at %4$d seconds regardless of this setting, so the request finishes inside typical 60-second host or proxy limits.', 'agend-directory-sync' ),
+											Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS,
+											Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS,
+											Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS,
+											Agend_Directory_Sync_Agend_Client::STEP_REQUEST_BUDGET_SECONDS - 5
+										);
+										?>
+									</p>
+									<p class="description">
+										<?php esc_html_e( 'In the browser stepper, a batch that times out is retried automatically (twice, with a short backoff) before it is recorded as failed. WP-CLI does not retry a timeout; rerunning the command is safe, since the bulk-upsert is idempotent on external_source and external_id.', 'agend-directory-sync' ); ?>
+									</p>
+								</td>
+							</tr>
 						</tbody>
 					</table>
 
@@ -1772,11 +1874,18 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									'cancelled' => __( 'Cancelled. Batches already uploaded were kept; running again completes the rest.', 'agend-directory-sync' ),
 								),
 								'strings'  => array(
-									'uploading' => __( 'Uploading… batch %1$s of %2$s', 'agend-directory-sync' ),
-									'counts'    => __( '%1$s of %2$s listings — created %3$s, updated %4$s, errors %5$s', 'agend-directory-sync' ),
-									'failed'    => __( 'Failed: %1$s', 'agend-directory-sync' ),
-									'busy'      => __( 'Another tab is running a step; waiting…', 'agend-directory-sync' ),
-									'resume'    => __( 'A previous upload is unfinished. Resume it to continue where it stopped.', 'agend-directory-sync' ),
+									'uploading'       => __( 'Uploading… batch %1$s of %2$s', 'agend-directory-sync' ),
+									'counts'          => __( '%1$s of %2$s listings — created %3$s, updated %4$s, errors %5$s', 'agend-directory-sync' ),
+									'failed'          => __( 'Failed: %1$s', 'agend-directory-sync' ),
+									'busy'            => __( 'Another tab is running a step; waiting…', 'agend-directory-sync' ),
+									'resume'          => __( 'A previous upload is unfinished. Resume it to continue where it stopped.', 'agend-directory-sync' ),
+									'batch'           => __( 'Batch %1$s: %2$s', 'agend-directory-sync' ),
+									'field'           => __( 'Field %1$s: %2$s', 'agend-directory-sync' ),
+									'listing'         => __( 'Listing #%1$s, field %2$s: %3$s', 'agend-directory-sync' ),
+									'listingWithId'   => __( 'Listing #%1$s (external id %2$s), field %3$s: %4$s', 'agend-directory-sync' ),
+									'retrying'        => __( 'Batch %1$s timed out, retrying in %2$ss (attempt %3$s of %4$s)', 'agend-directory-sync' ),
+									'transportRetry'  => __( 'The server took too long to answer; retrying…', 'agend-directory-sync' ),
+									'transportFailed' => __( 'The server stopped responding after several attempts. Check your connection, then press Resume to continue; batches already uploaded were kept.', 'agend-directory-sync' ),
 								),
 							)
 						); ?>;
@@ -1786,6 +1895,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							var stageEl = document.getElementById('agend-dsj-stage');
 							var barEl = document.getElementById('agend-dsj-bar');
 							var countsEl = document.getElementById('agend-dsj-counts');
+							var errorsEl = document.getElementById('agend-dsj-errors');
 							var pauseBtn = document.getElementById('agend-dsj-pause');
 							var resumeBtn = document.getElementById('agend-dsj-resume');
 							var cancelBtn = document.getElementById('agend-dsj-cancel');
@@ -1793,6 +1903,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							var sendBtn = document.getElementById('agend-directory-sync-send');
 							var maxInput = document.getElementById('agend_max_records');
 							var running = false;
+							// Bumped by begin()/pause/cancel so a loop() chain started
+							// before a pause or a fresh begin() can tell it is stale
+							// and stop scheduling itself, even if a fetch it already
+							// sent resolves afterwards. That, plus clearing any
+							// pending setTimeout on the same events, is what keeps
+							// exactly one chain ever stepping.
+							var runToken = 0;
+							var pendingTimer = null;
+							var transportFailures = 0;
+							var lastJob = null;
 
 							function format(template, values) {
 								return template.replace(/%(\d+)\$s/g, function (m, i) { return values[i - 1]; });
@@ -1811,11 +1931,52 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								}).then(function (r) { return r.json(); });
 							}
 
+							// Mirrors Admin_Page::format_issue_line() so the live progress
+							// panel reads the same as the finished result page.
+							function formatIssue(issue) {
+								if (issue.listing_position === null || issue.listing_position === undefined) {
+									return format(jobConfig.strings.field, [issue.field, issue.reason]);
+								}
+								if (issue.external_id) {
+									return format(jobConfig.strings.listingWithId, [issue.listing_position, issue.external_id, issue.field, issue.reason]);
+								}
+								return format(jobConfig.strings.listing, [issue.listing_position, issue.field, issue.reason]);
+							}
+
+							// Mirrors Admin_Page::render_http_errors_summary(): one line
+							// per failed batch, with its issues nested beneath. Built
+							// with textContent rather than innerHTML since batch messages
+							// and field names come from the gateway's response.
+							function renderHttpErrors(details) {
+								if (!errorsEl) { return; }
+								errorsEl.textContent = '';
+								(details || []).forEach(function (detail) {
+									var li = document.createElement('li');
+									li.textContent = format(jobConfig.strings.batch, [detail.batch, detail.message]);
+									if (detail.issues && detail.issues.length) {
+										var sub = document.createElement('ul');
+										sub.style.listStyle = 'circle';
+										sub.style.paddingLeft = '1.5em';
+										detail.issues.forEach(function (issue) {
+											var issueLi = document.createElement('li');
+											issueLi.textContent = formatIssue(issue);
+											sub.appendChild(issueLi);
+										});
+										li.appendChild(sub);
+									}
+									errorsEl.appendChild(li);
+								});
+							}
+
 							function paint(job, note) {
+								job = job || {};
+								lastJob = (job.stage !== undefined) ? job : lastJob;
 								panel.style.display = '';
 								var label = '';
 								if (note) {
 									label = note;
+								} else if (job.stage === 'sending' && job.waiting_seconds !== null && job.waiting_seconds !== undefined) {
+									label = format(jobConfig.strings.retrying, [job.batches_done + 1, job.waiting_seconds, job.batch_attempts + 1, job.max_send_attempts]);
 								} else if (job.stage === 'sending') {
 									label = format(jobConfig.strings.uploading, [job.batches_done, job.batches_total]);
 								} else if (job.stage === 'failed') {
@@ -1824,10 +1985,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									label = jobConfig.stages[job.stage] || '';
 								}
 								stageEl.textContent = label;
-								barEl.style.width = (job.percent === null ? 0 : job.percent) + '%';
+								barEl.style.width = (job.percent === null || job.percent === undefined ? 0 : job.percent) + '%';
 								countsEl.textContent = job.listing_count
 									? format(jobConfig.strings.counts, [job.listings_sent, job.listing_count, job.created, job.updated, job.errored])
 									: '';
+								renderHttpErrors(job.http_error_details);
 
 								var active = job.active;
 								pauseBtn.style.display = active && running ? '' : 'none';
@@ -1837,25 +1999,73 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								if (sendBtn) { sendBtn.disabled = active; }
 							}
 
-							function loop() {
-								if (!running) { return; }
+							function clearPending() {
+								if (pendingTimer !== null) {
+									window.clearTimeout(pendingTimer);
+									pendingTimer = null;
+								}
+							}
+
+							// Schedules the next step under the SAME chain (token):
+							// a chain a pause or a new begin() has since invalidated
+							// never gets to run again, even if its timer was already
+							// pending when that happened.
+							function scheduleLoop(token, delayMs) {
+								clearPending();
+								pendingTimer = window.setTimeout(function () {
+									pendingTimer = null;
+									loop(token);
+								}, delayMs || 0);
+							}
+
+							function loop(token) {
+								if (!running || token !== runToken) { return; }
 								post('agend_directory_sync_job_step').then(function (res) {
+									if (token !== runToken) { return; }
 									if (!res || !res.success) {
 										running = false;
 										stageEl.textContent = (res && res.data && res.data.message) || 'Request failed.';
 										return;
 									}
 									var job = res.data.job;
+
 									if (res.data.busy) {
+										// Another tab holds the step lock: this
+										// poll did not advance anything of its
+										// own, so it does not reset
+										// transportFailures either -- only a
+										// response that actually changed the job
+										// does, checked below.
 										paint(job, jobConfig.strings.busy);
-										// Another tab holds the step lock. Back off
-										// rather than spinning against it.
-										window.setTimeout(loop, 3000);
+										scheduleLoop(token, 3000);
 										return;
 									}
+
+									// Compare against the previous poll, not just
+									// "the request came back OK": a step that
+									// itself no-ops (e.g. arriving before
+									// retry_after) is not evidence the host has
+									// recovered from repeated transport failures,
+									// only that this one particular request
+									// happened to get an answer.
+									var advanced = !lastJob
+										|| job.batches_done !== lastJob.batches_done
+										|| job.batch_attempts !== lastJob.batch_attempts
+										|| job.stage !== lastJob.stage;
+									if (advanced) {
+										transportFailures = 0;
+									}
+
 									paint(job);
 									if (job.active) {
-										window.setTimeout(loop, 0);
+										// A batch mid-retry: wait out the backoff
+										// server-side computed rather than
+										// hammering the step endpoint (and its
+										// lock) until retry_after has passed.
+										var delay = (job.waiting_seconds !== null && job.waiting_seconds !== undefined && job.waiting_seconds > 0)
+											? job.waiting_seconds * 1000
+											: 0;
+										scheduleLoop(token, delay);
 									} else {
 										running = false;
 										paint(job);
@@ -1865,15 +2075,35 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										// the result's preview windows open.
 										window.location.href = jobConfig.resultUrl;
 									}
-								}).catch(function (e) {
-									running = false;
-									stageEl.textContent = String(e);
+								}).catch(function () {
+									// A rejected step is either a network failure or a
+									// response that was not JSON (an HTML error page
+									// from an edge or proxy timing the request out
+									// itself, e.g. a 504) -- the request never reached
+									// a point where the job could answer either way.
+									// The server-side step lock has a TTL, so a step
+									// that did land is not stuck; retrying here is
+									// safe and, per the bulk-upsert's idempotency, so
+									// is a batch that partially sent before the
+									// connection dropped.
+									if (token !== runToken) { return; }
+									transportFailures += 1;
+									if (transportFailures >= 3) {
+										running = false;
+										paint(lastJob || {}, jobConfig.strings.transportFailed);
+										return;
+									}
+									paint(lastJob || {}, jobConfig.strings.transportRetry);
+									scheduleLoop(token, 10000);
 								});
 							}
 
 							function begin() {
+								clearPending();
 								running = true;
-								loop();
+								transportFailures = 0;
+								runToken += 1;
+								loop(runToken);
 							}
 
 							if (sendBtn) {
@@ -1892,6 +2122,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 							pauseBtn.addEventListener('click', function () {
 								running = false;
+								runToken += 1;
+								clearPending();
 								post('agend_directory_sync_job_status').then(function (res) {
 									if (res && res.success && res.data.job) { paint(res.data.job); }
 								});
@@ -1901,6 +2133,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 							cancelBtn.addEventListener('click', function () {
 								running = false;
+								runToken += 1;
+								clearPending();
 								post('agend_directory_sync_job_cancel').then(function (res) {
 									if (res && res.success && res.data.job) { paint(res.data.job); }
 								});
@@ -2235,6 +2469,30 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					<?php echo esc_html( null !== $progress ? self::job_counts_label( $progress ) : '' ); ?>
 				</p>
 
+				<ul id="agend-dsj-errors" style="list-style:disc;padding-left:1.5em;margin:0 0 1em;max-height:200px;overflow:auto;">
+					<?php foreach ( ( null !== $progress ? $progress['http_error_details'] : array() ) as $http_error ) : ?>
+						<li>
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: 1: batch number (1-based), 2: failure message. */
+									__( 'Batch %1$d: %2$s', 'agend-directory-sync' ),
+									(int) $http_error['batch'],
+									(string) $http_error['message']
+								)
+							);
+							?>
+							<?php if ( ! empty( $http_error['issues'] ) ) : ?>
+								<ul style="list-style:circle;padding-left:1.5em;">
+									<?php foreach ( $http_error['issues'] as $issue ) : ?>
+										<li><?php echo esc_html( self::format_issue_line( $issue ) ); ?></li>
+									<?php endforeach; ?>
+								</ul>
+							<?php endif; ?>
+						</li>
+					<?php endforeach; ?>
+				</ul>
+
 				<p style="margin:0;">
 					<button type="button" class="button" id="agend-dsj-pause"><?php esc_html_e( 'Pause', 'agend-directory-sync' ); ?></button>
 					<button type="button" class="button" id="agend-dsj-resume" style="display:none;"><?php esc_html_e( 'Resume', 'agend-directory-sync' ); ?></button>
@@ -2253,6 +2511,19 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		 * @param array<string, mixed> $progress
 		 */
 		private static function job_stage_label( array $progress ): string {
+			$waiting_seconds = $progress['waiting_seconds'] ?? null;
+
+			if ( Agend_Directory_Sync_Job::STAGE_SENDING === (string) $progress['stage'] && null !== $waiting_seconds ) {
+				return sprintf(
+					/* translators: 1: batch number (1-based), 2: seconds until the retry, 3: next attempt number, 4: attempts allowed. */
+					__( 'Batch %1$d timed out, retrying in %2$ds (attempt %3$d of %4$d)', 'agend-directory-sync' ),
+					(int) $progress['batches_done'] + 1,
+					(int) $waiting_seconds,
+					(int) $progress['batch_attempts'] + 1,
+					(int) $progress['max_send_attempts']
+				);
+			}
+
 			switch ( (string) $progress['stage'] ) {
 				case Agend_Directory_Sync_Job::STAGE_PENDING:
 					return __( 'Fetching and transforming records…', 'agend-directory-sync' );
@@ -2613,8 +2884,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$errored     = (int) ( $send['errored'] ?? 0 );
 			$batches     = (int) ( $send['batches'] ?? 0 );
 			$url         = (string) ( $send['url'] ?? '' );
-			$examples    = is_array( $send['error_examples'] ?? null ) ? $send['error_examples'] : array();
-			$http_errors = is_array( $send['http_errors'] ?? null ) ? $send['http_errors'] : array();
+			$examples        = is_array( $send['error_examples'] ?? null ) ? $send['error_examples'] : array();
+			$http_errors     = is_array( $send['http_errors'] ?? null ) ? $send['http_errors'] : array();
+			$retried_batches = is_array( $send['retried_batches'] ?? null ) ? $send['retried_batches'] : array();
 
 			echo '<h4>' . esc_html__( 'Agend bulk-upsert result', 'agend-directory-sync' ) . '</h4>';
 			echo '<p><code>' . esc_html( $url ) . '</code></p>';
@@ -2624,6 +2896,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			echo '<li>' . esc_html( sprintf( __( 'Updated: %d', 'agend-directory-sync' ), $updated ) ) . '</li>';
 			echo '<li>' . esc_html( sprintf( __( 'Errored: %d', 'agend-directory-sync' ), $errored ) ) . '</li>';
 			echo '</ul>';
+
+			if ( ! empty( $retried_batches ) ) {
+				echo '<div class="notice notice-info inline"><ul style="list-style:disc;padding-left:1.5em;margin:.5em 0;">';
+				foreach ( $retried_batches as $entry ) {
+					echo '<li>' . esc_html(
+						sprintf(
+							/* translators: 1: batch number (1-based), 2: attempts the batch took to succeed. */
+							__( 'Batch %1$d succeeded after %2$d attempts; rows committed by an earlier timed-out attempt are counted as updated.', 'agend-directory-sync' ),
+							(int) ( $entry['batch'] ?? 0 ),
+							(int) ( $entry['attempts'] ?? 0 )
+						)
+					) . '</li>';
+				}
+				echo '</ul></div>';
+			}
 
 			if ( ! empty( $examples ) ) {
 				echo '<h4>' . esc_html__( 'Per-row error examples', 'agend-directory-sync' ) . '</h4>';
@@ -2645,13 +2932,98 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			}
 
 			if ( ! empty( $http_errors ) ) {
+				self::render_http_errors_summary( $http_errors );
 				self::render_preview_window(
-					__( 'Batch-level HTTP errors', 'agend-directory-sync' ),
+					__( 'Batch-level HTTP errors (raw)', 'agend-directory-sync' ),
 					static function () use ( $http_errors ): void {
 						self::render_json_block( $http_errors );
 					}
 				);
 			}
+		}
+
+		/**
+		 * Render a readable per-batch summary of HTTP-level batch failures, above
+		 * the raw JSON block: one line per failed batch with its message, and
+		 * beneath it one line per validation issue the gateway reported, so an
+		 * operator can see what to fix without reading a JSON dump.
+		 *
+		 * @param array<int, array<string, mixed>> $http_errors
+		 */
+		private static function render_http_errors_summary( array $http_errors ): void {
+			echo '<h4>' . esc_html__( 'Batch failures', 'agend-directory-sync' ) . '</h4>';
+			echo '<ul style="list-style:disc;padding-left:1.5em;">';
+			foreach ( $http_errors as $http_error ) {
+				$batch_index = (int) ( $http_error['batch_index'] ?? 0 );
+				$message     = (string) ( $http_error['message'] ?? '' );
+				$issues      = is_array( $http_error['issues'] ?? null ) ? $http_error['issues'] : array();
+
+				echo '<li>' . esc_html(
+					sprintf(
+						/* translators: 1: batch number (1-based), 2: failure message. */
+						__( 'Batch %1$d: %2$s', 'agend-directory-sync' ),
+						$batch_index + 1,
+						$message
+					)
+				);
+
+				if ( ! empty( $issues ) ) {
+					echo '<ul style="list-style:circle;padding-left:1.5em;">';
+					foreach ( $issues as $issue ) {
+						if ( ! is_array( $issue ) ) {
+							continue;
+						}
+						echo '<li>' . esc_html( self::format_issue_line( $issue ) ) . '</li>';
+					}
+					echo '</ul>';
+				}
+
+				echo '</li>';
+			}
+			echo '</ul>';
+		}
+
+		/**
+		 * One issue as an operator-facing line. `listing_position` is the
+		 * job-wide, 1-based position `merge_send_summary()` stamps on; when it
+		 * is absent (a batch failure with no per-row detail, e.g. a rejected
+		 * `external_source`), only the field and reason are shown.
+		 *
+		 * @param array<string, mixed> $issue
+		 */
+		private static function format_issue_line( array $issue ): string {
+			$field        = (string) ( $issue['field'] ?? '' );
+			$reason       = (string) ( $issue['reason'] ?? '' );
+			$position     = $issue['listing_position'] ?? null;
+			$external_id  = (string) ( $issue['external_id'] ?? '' );
+
+			if ( null === $position ) {
+				return sprintf(
+					/* translators: 1: field name, 2: validation reason. */
+					__( 'Field %1$s: %2$s', 'agend-directory-sync' ),
+					$field,
+					$reason
+				);
+			}
+
+			if ( '' !== $external_id ) {
+				return sprintf(
+					/* translators: 1: listing position in the run, 2: external id, 3: field name, 4: validation reason. */
+					__( 'Listing #%1$d (external id %2$s), field %3$s: %4$s', 'agend-directory-sync' ),
+					(int) $position,
+					$external_id,
+					$field,
+					$reason
+				);
+			}
+
+			return sprintf(
+				/* translators: 1: listing position in the run, 2: field name, 3: validation reason. */
+				__( 'Listing #%1$d, field %2$s: %3$s', 'agend-directory-sync' ),
+				(int) $position,
+				$field,
+				$reason
+			);
 		}
 
 		private static function render_skip_reasons( $skip_reasons ): void {

@@ -422,6 +422,96 @@ if ( ! function_exists( 'agend_apps_events_get_tickets' ) ) {
 	}
 }
 
+if ( ! class_exists( 'Agend_Test_Directory_Bulk_Upsert' ) ) {
+	/**
+	 * Spy + scripted response for agend-apps-core's directory bulk-upsert
+	 * function, which agend-directory-sync's Agend_Directory_Sync_Agend_Client
+	 * calls per batch. Declared here rather than requiring
+	 * agend-apps-core/includes/api/directory.php, so a test can script a
+	 * WP_Error (a gateway 400, or a bare transport failure) as easily as a
+	 * success payload.
+	 */
+	final class Agend_Test_Directory_Bulk_Upsert {
+		/** @var array<int, array<string, mixed>> Every call's args, in call order. */
+		public static array $calls = array();
+
+		/** @var mixed Value the next call returns. */
+		public static $response = array( 'data' => array( 'results' => array() ) );
+
+		/**
+		 * When set, the double fires WP core's `http_api_debug` action for
+		 * the bulk-upsert URL with this HTTP status, simulating what a real
+		 * `wp_remote_request()` call reports even when agend-apps-core's own
+		 * decoded $response (see {@see $response} above) carries none of its
+		 * own -- the `agend_apps_invalid_response` case
+		 * Agend_Directory_Sync_Agend_Client::is_retryable_failure() needs this
+		 * for. Null (the default) fires nothing, matching a transport failure
+		 * that never got an HTTP response at all.
+		 *
+		 * @var int|null
+		 */
+		public static ?int $http_api_debug_status = null;
+
+		public static function reset(): void {
+			self::$calls                 = array();
+			self::$response               = array( 'data' => array( 'results' => array() ) );
+			self::$http_api_debug_status  = null;
+		}
+	}
+}
+
+if ( ! function_exists( 'agend_apps_directory_bulk_upsert_listings' ) ) {
+	/**
+	 * Applies the `agend_apps_directory_bulk_upsert_listings_args` filter the
+	 * same way the real function (agend-apps-core/includes/api/directory.php)
+	 * does, so a test can verify a caller's scoped add_filter()/remove_filter()
+	 * (e.g. Agend_Directory_Sync_Agend_Client::send_batch()'s timeout
+	 * injection) actually reaches the request args, and does not leak into a
+	 * later call.
+	 *
+	 * @param array<int, array<string, mixed>> $listings
+	 * @return mixed
+	 */
+	function agend_apps_directory_bulk_upsert_listings( array $listings, string $external_source, bool $auto_publish_approved = false, string $locations_mode = 'replace' ) {
+		$args = (array) apply_filters(
+			'agend_apps_directory_bulk_upsert_listings_args',
+			array(
+				'body' => array(
+					'external_source'       => $external_source,
+					'listings'              => array_values( $listings ),
+					'auto_publish_approved' => $auto_publish_approved,
+					'locations_mode'        => $locations_mode,
+				),
+			),
+			$listings,
+			$external_source,
+			$auto_publish_approved,
+			$locations_mode
+		);
+
+		if ( null !== Agend_Test_Directory_Bulk_Upsert::$http_api_debug_status ) {
+			do_action(
+				'http_api_debug',
+				array( 'status_code' => Agend_Test_Directory_Bulk_Upsert::$http_api_debug_status ),
+				'response',
+				'WP_Http',
+				$args,
+				'https://api.example.test/v1/directory/listings/bulk-upsert'
+			);
+		}
+
+		Agend_Test_Directory_Bulk_Upsert::$calls[] = array(
+			'args'                  => $args,
+			'listings'              => $listings,
+			'external_source'       => $external_source,
+			'auto_publish_approved' => $auto_publish_approved,
+			'locations_mode'        => $locations_mode,
+		);
+
+		return Agend_Test_Directory_Bulk_Upsert::$response;
+	}
+}
+
 if ( ! class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) ) {
 	/**
 	 * Minimal fake of the kiosk's entitlement value object.

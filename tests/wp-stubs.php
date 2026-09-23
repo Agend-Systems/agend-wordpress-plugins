@@ -47,8 +47,21 @@ final class Agend_Test_WP {
 	/** @var array<string, callable> Filter callbacks keyed by hook name. */
 	public static array $filters = array();
 
-	/** @var array<string, mixed> */
+	/** @var array<string, mixed> The "database": what get_option()/update_option() persist. */
 	public static array $options = array();
+
+	/**
+	 * The per-request object cache, modelled faithfully enough that a value
+	 * fetched once stays pinned for the rest of "the request" even if
+	 * {@see $options} changes underneath it (e.g. a simulated concurrent
+	 * write via {@see write_option_bypassing_cache()}), exactly like WP's own
+	 * WP_Object_Cache: a value already loaded into its request-local runtime
+	 * cache is not invalidated by another process's write to a persistent
+	 * cache backend, only by an explicit wp_cache_delete().
+	 *
+	 * @var array<string, array<string, mixed>> [group][key] => value.
+	 */
+	public static array $object_cache = array();
 
 	/** @var array<int, array{url: string, headers: array<string, string>}> */
 	public static array $requests = array();
@@ -121,6 +134,7 @@ final class Agend_Test_WP {
 		self::$did_action        = array();
 		self::$filters           = array();
 		self::$options           = array();
+		self::$object_cache      = array();
 		self::$requests          = array();
 		self::$tiers_response    = array();
 		self::$scheduled_events  = array();
@@ -164,6 +178,21 @@ final class Agend_Test_WP {
 			return $value;
 		};
 	}
+
+	/**
+	 * Writes straight to the "database" ({@see $options}), bypassing the
+	 * object cache entirely -- simulating a write from another process (a
+	 * concurrent request, sharing the same persistent object-cache backend
+	 * but not this process's already-populated request-local copy of it).
+	 * update_option() refreshes the cache on write, so it cannot model this;
+	 * this is the seam a test uses to prove a re-read is actually fresh
+	 * rather than fresh only because nothing was ever cached to begin with.
+	 *
+	 * @param mixed $value
+	 */
+	public static function write_option_bypassing_cache( string $key, $value ): void {
+		self::$options[ $key ] = $value;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +208,16 @@ function get_transient( string $key ) {
 function set_transient( string $key, $value, int $ttl = 0 ): bool {
 	Agend_Test_WP::$transients[ $key ] = $value;
 	return true;
+}
+
+if ( ! function_exists( 'current_time' ) ) {
+	/**
+	 * Fixed, deterministic timestamp: nothing under test asserts on wall-clock
+	 * time, and a real one would make a snapshot assertion flaky.
+	 */
+	function current_time( string $type, $gmt = 0 ) {
+		return 'timestamp' === $type ? 1_700_000_000 : '2023-11-14 22:13:20';
+	}
 }
 
 function delete_transient( string $key ): bool {
@@ -215,6 +254,30 @@ if ( ! function_exists( 'delete_site_transient' ) ) {
 function add_action( string $hook, $callback, int $priority = 10, int $args = 1 ): bool {
 	Agend_Test_WP::$actions[ $hook ][]           = $callback;
 	Agend_Test_WP::$action_priorities[ $hook ][] = $priority;
+	return true;
+}
+
+/**
+ * Removes the SAME callback instance previously passed to add_action() (the
+ * only form the code under test uses: a closure held in a local variable
+ * across the matching add_action()/remove_action() pair), matched by
+ * identity as WP core's own remove_action() matches by identity for a
+ * closure.
+ */
+function remove_action( string $hook, $callback, int $priority = 10 ): bool {
+	if ( ! isset( Agend_Test_WP::$actions[ $hook ] ) ) {
+		return false;
+	}
+
+	$index = array_search( $callback, Agend_Test_WP::$actions[ $hook ], true );
+
+	if ( false === $index ) {
+		return false;
+	}
+
+	unset( Agend_Test_WP::$actions[ $hook ][ $index ] );
+	unset( Agend_Test_WP::$action_priorities[ $hook ][ $index ] );
+
 	return true;
 }
 
@@ -277,18 +340,235 @@ function _deprecated_function( string $function, string $version, string $replac
 // Options, escaping, i18n
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Object cache (options group only -- nothing else in this suite needs it)
+// ---------------------------------------------------------------------------
+
+function wp_cache_get( $key, string $group = '', bool $force = false, &$found = null ) {
+	$found = false;
+
+	if ( array_key_exists( $group, Agend_Test_WP::$object_cache ) && array_key_exists( $key, Agend_Test_WP::$object_cache[ $group ] ) ) {
+		$found = true;
+		return Agend_Test_WP::$object_cache[ $group ][ $key ];
+	}
+
+	return false;
+}
+
+function wp_cache_set( $key, $value, string $group = '', int $expire = 0 ): bool {
+	Agend_Test_WP::$object_cache[ $group ][ $key ] = $value;
+	return true;
+}
+
+/**
+ * Matches WP core: fails (does not overwrite) when the key is already
+ * cached, since it is meant for "cache this if nobody has yet".
+ */
+function wp_cache_add( $key, $value, string $group = '', int $expire = 0 ): bool {
+	if ( array_key_exists( $group, Agend_Test_WP::$object_cache ) && array_key_exists( $key, Agend_Test_WP::$object_cache[ $group ] ) ) {
+		return false;
+	}
+
+	Agend_Test_WP::$object_cache[ $group ][ $key ] = $value;
+	return true;
+}
+
+function wp_cache_delete( $key, string $group = '' ): bool {
+	$existed = array_key_exists( $group, Agend_Test_WP::$object_cache ) && array_key_exists( $key, Agend_Test_WP::$object_cache[ $group ] );
+	unset( Agend_Test_WP::$object_cache[ $group ][ $key ] );
+	return $existed;
+}
+
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+/**
+ * Modelled on WP core's own get_option(): a cache hit (including a cached
+ * "this key does not exist", tracked the same way core tracks it -- an
+ * array of known-missing keys under the 'notoptions' cache key) short-
+ * circuits the "database" read entirely. That is what makes a value fetched
+ * once stay pinned for the rest of a simulated request even after
+ * {@see Agend_Test_WP::write_option_bypassing_cache()} changes the
+ * database underneath it, exactly like a real persistent object cache.
+ */
 function get_option( string $key, $default = false ) {
-	return Agend_Test_WP::$options[ $key ] ?? $default;
+	$found  = false;
+	$cached = wp_cache_get( $key, 'options', false, $found );
+	if ( $found ) {
+		return $cached;
+	}
+
+	$notoptions = wp_cache_get( 'notoptions', 'options' );
+	if ( is_array( $notoptions ) && in_array( $key, $notoptions, true ) ) {
+		return $default;
+	}
+
+	if ( array_key_exists( $key, Agend_Test_WP::$options ) ) {
+		$value = Agend_Test_WP::$options[ $key ];
+		wp_cache_set( $key, $value, 'options' );
+		return $value;
+	}
+
+	$notoptions   = is_array( $notoptions ) ? $notoptions : array();
+	$notoptions[] = $key;
+	wp_cache_set( 'notoptions', $notoptions, 'options' );
+
+	return $default;
 }
 
 function update_option( string $key, $value, $autoload = null ): bool {
 	Agend_Test_WP::$options[ $key ] = $value;
+	wp_cache_set( $key, $value, 'options' );
+	agend_test_forget_notoption( $key );
+	return true;
+}
+
+/**
+ * Fails when the option already exists, matching WordPress's add_option()
+ * closely enough for callers that rely on that failure being the
+ * database's rather than a get-then-set race.
+ */
+function add_option( string $key, $value, string $deprecated = '', $autoload = null ): bool {
+	if ( array_key_exists( $key, Agend_Test_WP::$options ) ) {
+		return false;
+	}
+
+	Agend_Test_WP::$options[ $key ] = $value;
+	wp_cache_set( $key, $value, 'options' );
+	agend_test_forget_notoption( $key );
 	return true;
 }
 
 function delete_option( string $key ): bool {
+	$existed = array_key_exists( $key, Agend_Test_WP::$options );
 	unset( Agend_Test_WP::$options[ $key ] );
-	return true;
+	wp_cache_delete( $key, 'options' );
+	return $existed;
+}
+
+/** Removes $key from the cached 'notoptions' list, if present. */
+function agend_test_forget_notoption( string $key ): void {
+	$notoptions = wp_cache_get( 'notoptions', 'options' );
+	if ( is_array( $notoptions ) && in_array( $key, $notoptions, true ) ) {
+		wp_cache_set( 'notoptions', array_values( array_diff( $notoptions, array( $key ) ) ), 'options' );
+	}
+}
+
+// ---------------------------------------------------------------------------
+// $wpdb (the job lock only: query() and get_var() recognise exactly the
+// three query shapes the lock issues -- an INSERT IGNORE, a compare-and-swap
+// UPDATE, and a compare-and-delete DELETE -- plus the SELECT that reads the
+// lock row directly. Named exactly `wpdb`, matching WP core's own class, so
+// `$wpdb instanceof wpdb` in production code resolves true against this
+// double the same way it would against the real class.)
+// ---------------------------------------------------------------------------
+
+if ( ! class_exists( 'wpdb' ) ) {
+	/**
+	 * Deliberately narrow: this suite's only direct-SQL caller is the
+	 * directory sync job lock (Agend_Directory_Sync_Job::acquire_lock() /
+	 * release_lock()), so this only needs to understand the handful of query
+	 * shapes that code issues, operating on {@see Agend_Test_WP::$options} --
+	 * the same "database" get_option()/update_option() use, since in
+	 * production these are literally the same wp_options table -- but
+	 * bypassing the object cache entirely, exactly like real direct SQL
+	 * does.
+	 */
+	class wpdb {
+		public string $options = 'wp_options';
+
+		/** @var int Rows affected by the most recent query(). */
+		public $rows_affected = 0;
+
+		public string $last_error = '';
+
+		/**
+		 * Minimal %s/%d placeholder substitution -- not SQL-injection-safe
+		 * escaping, just enough to build a string query() can pattern-match,
+		 * since nothing here ever executes against a real database.
+		 */
+		public function prepare( string $query, ...$args ): string {
+			if ( 1 === count( $args ) && is_array( $args[0] ) ) {
+				$args = $args[0];
+			}
+
+			$i = 0;
+			return (string) preg_replace_callback(
+				'/%[sd]/',
+				static function ( array $m ) use ( $args, &$i ): string {
+					$value = $args[ $i ] ?? '';
+					$i++;
+
+					return '%d' === $m[0]
+						? (string) (int) $value
+						: "'" . addslashes( (string) $value ) . "'";
+				},
+				$query
+			);
+		}
+
+		public function esc_like( string $text ): string {
+			return addcslashes( $text, '_%\\' );
+		}
+
+		/**
+		 * @return int|false Rows affected, matching wpdb::query()'s return for
+		 *                    a write query.
+		 */
+		public function query( string $query ) {
+			$this->rows_affected = 0;
+
+			if ( 1 === preg_match( "/^INSERT IGNORE INTO .*? \\(option_name, option_value, autoload\\) VALUES \\('(.*?)', '(.*?)', 'no'\\)$/s", $query, $m ) ) {
+				$name = stripslashes( $m[1] );
+				if ( array_key_exists( $name, Agend_Test_WP::$options ) ) {
+					return 0;
+				}
+				Agend_Test_WP::$options[ $name ] = stripslashes( $m[2] );
+				$this->rows_affected             = 1;
+				return 1;
+			}
+
+			if ( 1 === preg_match( "/^UPDATE .*? SET option_value = '(.*?)' WHERE option_name = '(.*?)' AND option_value = '(.*?)'$/s", $query, $m ) ) {
+				$new  = stripslashes( $m[1] );
+				$name = stripslashes( $m[2] );
+				$old  = stripslashes( $m[3] );
+				if ( array_key_exists( $name, Agend_Test_WP::$options ) && (string) Agend_Test_WP::$options[ $name ] === $old ) {
+					Agend_Test_WP::$options[ $name ] = $new;
+					$this->rows_affected             = 1;
+					return 1;
+				}
+				return 0;
+			}
+
+			if ( 1 === preg_match( "/^DELETE FROM .*? WHERE option_name = '(.*?)' AND option_value = '(.*?)'$/s", $query, $m ) ) {
+				$name  = stripslashes( $m[1] );
+				$value = stripslashes( $m[2] );
+				if ( array_key_exists( $name, Agend_Test_WP::$options ) && (string) Agend_Test_WP::$options[ $name ] === $value ) {
+					unset( Agend_Test_WP::$options[ $name ] );
+					$this->rows_affected = 1;
+					return 1;
+				}
+				return 0;
+			}
+
+			return false;
+		}
+
+		/** @return string|null */
+		public function get_var( string $query ) {
+			if ( 1 === preg_match( "/^SELECT option_value FROM .*? WHERE option_name = '(.*?)'$/s", $query, $m ) ) {
+				$name = stripslashes( $m[1] );
+				return array_key_exists( $name, Agend_Test_WP::$options ) ? (string) Agend_Test_WP::$options[ $name ] : null;
+			}
+
+			return null;
+		}
+	}
+}
+
+if ( ! isset( $GLOBALS['wpdb'] ) || ! ( $GLOBALS['wpdb'] instanceof wpdb ) ) {
+	$GLOBALS['wpdb'] = new wpdb();
 }
 
 /** Minimal paragraph wrapper. Enough for assertions; not WordPress's algorithm. */
