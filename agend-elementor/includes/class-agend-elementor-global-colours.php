@@ -81,7 +81,7 @@ class Agend_Elementor_Global_Colours {
 	 * Only colours are resolved: a global typography reference is left to
 	 * Elementor, which applies it through the control's own `selectors`.
 	 *
-	 * @param string $reference For example 'globals/colors?id=292aa7d8'.
+	 * @param string $reference For example 'globals/colors?id=a1b2c3d4'.
 	 * @return string
 	 */
 	public static function colour_id( string $reference ): string {

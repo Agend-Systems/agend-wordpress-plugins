@@ -24,8 +24,8 @@ final class DirectoryResultCountTest extends TestCase {
 	#[Test]
 	public function should_count_the_listings_on_the_current_page(): void {
 		self::assertSame(
-			'Showing 13–24 of 56 specialists',
-			agend_apps_records_directory_catalogue_count_text( 'Showing {from}–{to} of {total} specialists', array( 'page' => 2, 'limit' => 12, 'total' => 56 ) )
+			'Showing 13–24 of 56 members',
+			agend_apps_records_directory_catalogue_count_text( 'Showing {from}–{to} of {total} members', array( 'page' => 2, 'limit' => 12, 'total' => 56 ) )
 		);
 	}
 
@@ -47,7 +47,7 @@ final class DirectoryResultCountTest extends TestCase {
 	public function should_add_the_count_to_the_config_only_when_switched_on(): void {
 		self::assertArrayNotHasKey( 'resultCount', agend_apps_records_directory_catalogue_build_config( array() ) );
 
-		$config = agend_apps_records_directory_catalogue_build_config( array( 'show_result_count' => 'yes', 'result_count_text' => '{total} specialists' ) );
-		self::assertSame( array( 'text' => '{total} specialists' ), $config['resultCount'] );
+		$config = agend_apps_records_directory_catalogue_build_config( array( 'show_result_count' => 'yes', 'result_count_text' => '{total} members' ) );
+		self::assertSame( array( 'text' => '{total} members' ), $config['resultCount'] );
 	}
 }

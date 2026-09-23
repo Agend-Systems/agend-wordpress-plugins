@@ -88,7 +88,7 @@ function agend_apps_records_schema_record_pills(): array {
 					array(
 						'name'    => 'colour_rules_note',
 						'type'    => 'note',
-						'content' => __( 'Give particular terms their own colours, for example one colour per accreditation. The first rule that matches a term wins; a term no rule matches keeps the pill style.', 'agend-apps-core' ),
+						'content' => __( 'Give particular terms their own colours, for example one colour per membership level. The first rule that matches a term wins; a term no rule matches keeps the pill style.', 'agend-apps-core' ),
 					),
 					array(
 						'name'      => 'colour_rules',

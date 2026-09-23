@@ -71,9 +71,9 @@ final class RecordImageRenderTest extends TestCase {
 		Agend_Apps_Records_Record_Context::push(
 			'listing',
 			array(
-				'name'       => 'Priya Raman',
-				'logo_url'   => 'https://cdn.test/priya.jpg',
-				'categories' => array( array( 'name' => 'Accountant' ), array( 'name' => 'SMSF Specialist Advisor' ) ),
+				'name'       => 'Alex Example',
+				'logo_url'   => 'https://cdn.test/alex.jpg',
+				'categories' => array( array( 'name' => 'Volunteer' ), array( 'name' => 'Gold Member' ) ),
 			)
 		);
 
@@ -81,13 +81,13 @@ final class RecordImageRenderTest extends TestCase {
 			'use_term_images' => 'yes',
 			'term_field'      => 'listing:categories',
 			'term_images'     => array(
-				array( 'term_match' => 'SMSF Specialist Auditor', 'term_image' => array( 'url' => 'https://site.test/auditor.png', 'id' => 2 ) ),
-				array( 'term_match' => 'smsf specialist advisor, fellow smsf specialist advisor', 'term_image' => array( 'url' => 'https://site.test/advisor.png', 'id' => 1 ) ),
+				array( 'term_match' => 'Silver Member', 'term_image' => array( 'url' => 'https://site.test/silver.png', 'id' => 2 ) ),
+				array( 'term_match' => 'gold member, life gold member', 'term_image' => array( 'url' => 'https://site.test/gold.png', 'id' => 1 ) ),
 			),
 		);
 
 		self::assertSame(
-			'<img class="agend-record-image agend-record-image--img" src="https://site.test/advisor.png" alt="SMSF Specialist Advisor" loading="lazy" />',
+			'<img class="agend-record-image agend-record-image--img" src="https://site.test/gold.png" alt="Gold Member" loading="lazy" />',
 			agend_apps_records_render_record_image( $settings )
 		);
 	}
@@ -96,13 +96,13 @@ final class RecordImageRenderTest extends TestCase {
 	public function should_fall_back_rather_than_to_the_image_field_when_no_term_matches(): void {
 		Agend_Apps_Records_Record_Context::push(
 			'listing',
-			array( 'name' => 'Priya Raman', 'logo_url' => 'https://cdn.test/priya.jpg', 'categories' => array( array( 'name' => 'Accountant' ) ) )
+			array( 'name' => 'Alex Example', 'logo_url' => 'https://cdn.test/alex.jpg', 'categories' => array( array( 'name' => 'Volunteer' ) ) )
 		);
 
 		$settings = array(
 			'use_term_images' => 'yes',
 			'term_field'      => 'listing:categories',
-			'term_images'     => array( array( 'term_match' => 'SMSF Specialist Advisor', 'term_image' => 'https://site.test/advisor.png' ) ),
+			'term_images'     => array( array( 'term_match' => 'Gold Member', 'term_image' => 'https://site.test/gold.png' ) ),
 		);
 
 		self::assertSame( '', agend_apps_records_render_record_image( $settings ) );
