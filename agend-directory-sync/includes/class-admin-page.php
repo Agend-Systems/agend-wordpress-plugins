@@ -1367,6 +1367,19 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								$is_flag       = in_array( $key, array( 'eligible_flag', 'opt_in_flag' ), true );
 								$invert_id     = 'agend_field_map_flags_' . $invert_key;
 								$invert_value  = ! empty( $field_map['flags'][ $invert_key ] );
+
+								$mode_key          = $key . '_mode';
+								$mode_id           = 'agend_field_map_flags_' . $mode_key;
+								$mode_value        = isset( $field_map['flags'][ $mode_key ] ) && Agend_Directory_Sync_Field_Map::FLAG_MODE_MAP === $field_map['flags'][ $mode_key ]
+									? Agend_Directory_Sync_Field_Map::FLAG_MODE_MAP
+									: Agend_Directory_Sync_Field_Map::FLAG_MODE_TRUTHY;
+								$map_default_key   = $key . '_map_default';
+								$map_default_id    = 'agend_field_map_flags_' . $map_default_key;
+								$map_default_value = isset( $field_map['flags'][ $map_default_key ] ) ? (string) $field_map['flags'][ $map_default_key ] : Agend_Directory_Sync_Field_Map::OUTCOME_DRAFT;
+								$map_rows          = isset( $field_map['flags'][ $key . '_map' ] ) && is_array( $field_map['flags'][ $key . '_map' ] )
+									? array_values( $field_map['flags'][ $key . '_map' ] )
+									: array();
+								$mode_attr         = 'data-agend-flag-mode-' . str_replace( '_', '-', $key );
 								?>
 								<tr>
 									<th scope="row">
@@ -1385,20 +1398,97 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										<p class="description"><?php echo esc_html( $target['description'] ); ?></p>
 										<?php if ( $is_flag ) : ?>
 											<p>
-												<label for="<?php echo esc_attr( $invert_id ); ?>">
-													<input
-														name="agend_field_map_flags[<?php echo esc_attr( $invert_key ); ?>]"
-														id="<?php echo esc_attr( $invert_id ); ?>"
-														type="checkbox"
-														value="1"
-														<?php checked( $invert_value ); ?>
-													/>
-													<?php esc_html_e( 'Invert this flag (source value means hide/exclude)', 'agend-directory-sync' ); ?>
-												</label>
+												<label for="<?php echo esc_attr( $mode_id ); ?>"><?php esc_html_e( 'How to read this field', 'agend-directory-sync' ); ?></label><br />
+												<select
+													name="agend_field_map_flags[<?php echo esc_attr( $mode_key ); ?>]"
+													id="<?php echo esc_attr( $mode_id ); ?>"
+													data-agend-flag-mode-select="<?php echo esc_attr( $key ); ?>"
+												>
+													<option value="<?php echo esc_attr( Agend_Directory_Sync_Field_Map::FLAG_MODE_TRUTHY ); ?>" <?php selected( $mode_value, Agend_Directory_Sync_Field_Map::FLAG_MODE_TRUTHY ); ?>>
+														<?php esc_html_e( 'True or false (with invert)', 'agend-directory-sync' ); ?>
+													</option>
+													<option value="<?php echo esc_attr( Agend_Directory_Sync_Field_Map::FLAG_MODE_MAP ); ?>" <?php selected( $mode_value, Agend_Directory_Sync_Field_Map::FLAG_MODE_MAP ); ?>>
+														<?php esc_html_e( 'Map each value', 'agend-directory-sync' ); ?>
+													</option>
+												</select>
 											</p>
-											<p class="description">
-												<?php esc_html_e( 'Off (default): a truthy source value means visible. On: a truthy source value means hidden, and a blank/unresolved source still means visible (there is no gate to flip).', 'agend-directory-sync' ); ?>
-											</p>
+
+											<div <?php echo $mode_attr; ?>="<?php echo esc_attr( Agend_Directory_Sync_Field_Map::FLAG_MODE_TRUTHY ); ?>" style="<?php echo esc_attr( Agend_Directory_Sync_Field_Map::FLAG_MODE_TRUTHY === $mode_value ? '' : 'display:none;' ); ?>">
+												<p>
+													<label for="<?php echo esc_attr( $invert_id ); ?>">
+														<input
+															name="agend_field_map_flags[<?php echo esc_attr( $invert_key ); ?>]"
+															id="<?php echo esc_attr( $invert_id ); ?>"
+															type="checkbox"
+															value="1"
+															<?php checked( $invert_value ); ?>
+														/>
+														<?php esc_html_e( 'Invert this flag (source value means hide/exclude)', 'agend-directory-sync' ); ?>
+													</label>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Off (default): a truthy source value means visible. On: a truthy source value means hidden, and a blank/unresolved source still means visible (there is no gate to flip).', 'agend-directory-sync' ); ?>
+												</p>
+											</div>
+
+											<div <?php echo $mode_attr; ?>="<?php echo esc_attr( Agend_Directory_Sync_Field_Map::FLAG_MODE_MAP ); ?>" style="<?php echo esc_attr( Agend_Directory_Sync_Field_Map::FLAG_MODE_MAP === $mode_value ? '' : 'display:none;' ); ?>">
+												<table class="widefat striped" style="max-width:520px;" data-agend-flag-map-table="<?php echo esc_attr( $key ); ?>">
+													<thead>
+														<tr>
+															<th><?php esc_html_e( 'Value', 'agend-directory-sync' ); ?></th>
+															<th><?php esc_html_e( 'Outcome', 'agend-directory-sync' ); ?></th>
+															<th></th>
+														</tr>
+													</thead>
+													<tbody data-agend-flag-map-rows="<?php echo esc_attr( $key ); ?>">
+														<?php foreach ( $map_rows as $row_index => $map_row ) : ?>
+															<?php
+															$row_value   = (string) ( $map_row['value'] ?? '' );
+															$row_outcome = (string) ( $map_row['outcome'] ?? Agend_Directory_Sync_Field_Map::OUTCOME_DRAFT );
+															?>
+															<tr>
+																<td>
+																	<input
+																		type="text"
+																		class="regular-text"
+																		name="agend_field_map_flags[<?php echo esc_attr( $key ); ?>_map][<?php echo (int) $row_index; ?>][value]"
+																		value="<?php echo esc_attr( $row_value ); ?>"
+																		autocomplete="off"
+																	/>
+																</td>
+																<td>
+																	<select name="agend_field_map_flags[<?php echo esc_attr( $key ); ?>_map][<?php echo (int) $row_index; ?>][outcome]">
+																		<?php foreach ( Agend_Directory_Sync_Field_Map::OFFERED_OUTCOMES as $outcome_option ) : ?>
+																			<option value="<?php echo esc_attr( $outcome_option ); ?>" <?php selected( $row_outcome, $outcome_option ); ?>>
+																				<?php echo esc_html( self::flag_outcome_label( $outcome_option ) ); ?>
+																			</option>
+																		<?php endforeach; ?>
+																	</select>
+																</td>
+																<td>
+																	<button type="button" class="button" data-agend-flag-map-remove-row><?php esc_html_e( 'Remove', 'agend-directory-sync' ); ?></button>
+																</td>
+															</tr>
+														<?php endforeach; ?>
+													</tbody>
+												</table>
+												<p>
+													<button type="button" class="button" data-agend-flag-map-add-row="<?php echo esc_attr( $key ); ?>"><?php esc_html_e( 'Add row', 'agend-directory-sync' ); ?></button>
+												</p>
+												<p>
+													<label for="<?php echo esc_attr( $map_default_id ); ?>"><?php esc_html_e( 'Any other value', 'agend-directory-sync' ); ?></label><br />
+													<select name="agend_field_map_flags[<?php echo esc_attr( $map_default_key ); ?>]" id="<?php echo esc_attr( $map_default_id ); ?>">
+														<?php foreach ( Agend_Directory_Sync_Field_Map::OFFERED_OUTCOMES as $outcome_option ) : ?>
+															<option value="<?php echo esc_attr( $outcome_option ); ?>" <?php selected( $map_default_value, $outcome_option ); ?>>
+																<?php echo esc_html( self::flag_outcome_label( $outcome_option ) ); ?>
+															</option>
+														<?php endforeach; ?>
+													</select>
+												</p>
+												<p class="description">
+													<?php esc_html_e( 'Values are matched case-insensitively against the raw value and, for choice fields, its label. A value not in the list uses "Any other value" and is reported as unmapped in the preview.', 'agend-directory-sync' ); ?>
+												</p>
+											</div>
 										<?php endif; ?>
 									</td>
 								</tr>
@@ -1532,6 +1622,42 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 						bindModeRows('agend_http_api_auth_mode', 'data-agend-http-auth');
 						bindModeRows('agend_http_api_pagination_mode', 'data-agend-http-pagination');
 						bindModeRows('agend_dataverse_secondary_filter_mode', 'data-agend-secondary-mode');
+						bindModeRows('agend_field_map_flags_eligible_flag_mode', 'data-agend-flag-mode-eligible-flag');
+						bindModeRows('agend_field_map_flags_opt_in_flag_mode', 'data-agend-flag-mode-opt-in-flag');
+
+						// Flag value map (truthy vs. map read mode): add/remove
+						// rows in the small value => outcome table. Each row's
+						// name attributes use the row's position in the DOM at
+						// submit time, so a removed row simply disappears and
+						// the remaining rows keep posting correctly regardless
+						// of their original index.
+						document.querySelectorAll('[data-agend-flag-map-add-row]').forEach(function (button) {
+							var flagKey = button.getAttribute('data-agend-flag-map-add-row');
+							var body = document.querySelector('[data-agend-flag-map-rows="' + flagKey + '"]');
+							if (!body) {
+								return;
+							}
+							button.addEventListener('click', function () {
+								var index = body.querySelectorAll('tr').length;
+								var row = document.createElement('tr');
+								row.innerHTML =
+									'<td><input type="text" class="regular-text" name="agend_field_map_flags[' + flagKey + '_map][' + index + '][value]" autocomplete="off" /></td>' +
+									'<td><select name="agend_field_map_flags[' + flagKey + '_map][' + index + '][outcome]">' +
+									'<option value="published"><?php echo esc_js( self::flag_outcome_label( Agend_Directory_Sync_Field_Map::OUTCOME_PUBLISHED ) ); ?></option>' +
+									'<option value="draft" selected><?php echo esc_js( self::flag_outcome_label( Agend_Directory_Sync_Field_Map::OUTCOME_DRAFT ) ); ?></option>' +
+									'</select></td>' +
+									'<td><button type="button" class="button" data-agend-flag-map-remove-row><?php echo esc_js( __( 'Remove', 'agend-directory-sync' ) ); ?></button></td>';
+								body.appendChild(row);
+							});
+						});
+						document.querySelectorAll('[data-agend-flag-map-rows]').forEach(function (body) {
+							body.addEventListener('click', function (event) {
+								var button = event.target.closest('[data-agend-flag-map-remove-row]');
+								if (button && body.contains(button)) {
+									button.closest('tr').remove();
+								}
+							});
+						});
 
 						// Dataverse guided secondary filter: look up a field's possible
 						// values by label (Load values), let the admin pick by
@@ -2832,6 +2958,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				$result['dropped_fields'] ?? array(),
 				$result['dropped_field_examples'] ?? array()
 			);
+			self::render_unmapped_flag_values( $result['unmapped_flag_values'] ?? array() );
 
 			self::render_preview_window(
 				__( 'Sample of transformed listings', 'agend-directory-sync' ),
@@ -2871,6 +2998,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				$result['dropped_fields'] ?? array(),
 				$result['dropped_field_examples'] ?? array()
 			);
+			self::render_unmapped_flag_values( $result['unmapped_flag_values'] ?? array() );
 
 			if ( empty( $send ) ) {
 				echo '<div class="notice notice-warning inline"><p>'
@@ -3157,6 +3285,71 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				}
 				echo '</tbody></table>';
 				echo '</details>';
+			}
+		}
+
+		/**
+		 * Human-readable label for an admin-selectable flag outcome.
+		 */
+		private static function flag_outcome_label( string $outcome ): string {
+			if ( Agend_Directory_Sync_Field_Map::OUTCOME_PUBLISHED === $outcome ) {
+				return __( 'Published', 'agend-directory-sync' );
+			}
+			return __( 'Draft', 'agend-directory-sync' );
+		}
+
+		/**
+		 * Display label for a flag core-target key, used in the unmapped
+		 * value warning so an operator sees "Eligibility flag" rather than
+		 * the raw key `eligible_flag`.
+		 */
+		private static function flag_display_label( string $key ): string {
+			foreach ( Agend_Directory_Sync_Field_Map::core_targets() as $target ) {
+				if ( $target['key'] === $key ) {
+					return (string) $target['label'];
+				}
+			}
+			return $key;
+		}
+
+		/**
+		 * Render the unmapped-value warning for any flag in map mode: values
+		 * seen in the source data that matched no configured map row, so
+		 * they fell through to the "Any other value" outcome. Purely
+		 * informational: the run already applied that fallback outcome.
+		 *
+		 * @param mixed $unmapped_flag_values Map: flag key => { value string => count }.
+		 */
+		private static function render_unmapped_flag_values( $unmapped_flag_values ): void {
+			if ( ! is_array( $unmapped_flag_values ) || empty( $unmapped_flag_values ) ) {
+				return;
+			}
+
+			foreach ( $unmapped_flag_values as $flag_key => $values ) {
+				if ( ! is_array( $values ) || empty( $values ) ) {
+					continue;
+				}
+
+				$parts = array();
+				foreach ( $values as $value_string => $count ) {
+					$parts[] = sprintf(
+						/* translators: 1: the unmapped source value, 2: how many rows carried it. */
+						__( '\'%1$s\' (%2$d)', 'agend-directory-sync' ),
+						(string) $value_string,
+						(int) $count
+					);
+				}
+
+				echo '<div class="notice notice-warning inline"><p>'
+					. esc_html(
+						sprintf(
+							/* translators: 1: flag label, 2: comma-separated list of "'value' (count)". */
+							__( 'Unmapped values for %1$s: %2$s. These used the fallback outcome.', 'agend-directory-sync' ),
+							self::flag_display_label( (string) $flag_key ),
+							implode( ', ', $parts )
+						)
+					)
+					. '</p></div>';
 			}
 		}
 

@@ -76,12 +76,38 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		public const STATUS_VISIBLE = 'approved';
 
 		/**
-		 * Status assigned when the member has lost eligibility OR opted out.
-		 * The row is preserved (no delete) but hidden from the public directory
-		 * because the frontend requires `status = 'approved'`. Flips back to
-		 * visible automatically on the next sync if the source flags flip back.
+		 * Status assigned when the member has lost eligibility OR opted out,
+		 * and neither flag is in map mode. The row is preserved (no delete)
+		 * but hidden from the public directory because the frontend requires
+		 * `status = 'approved'`. Flips back to visible automatically on the
+		 * next sync if the source flags flip back.
 		 */
 		public const STATUS_HIDDEN = 'suspended';
+
+		/**
+		 * Status assigned when the most restrictive resolved outcome across
+		 * the two flags is `draft` AND at least one flag is in map mode.
+		 * Same "kept but hidden" semantics as STATUS_HIDDEN, but a distinct
+		 * status string so a map-mode "draft" outcome is distinguishable from
+		 * the legacy truthy-only `suspended` status.
+		 */
+		public const STATUS_PENDING = 'pending';
+
+		/**
+		 * Maximum distinct unmapped values tracked per flag in
+		 * `unmapped_flag_values`. Past this the counter for an already-seen
+		 * value keeps incrementing but no new distinct value is added,
+		 * keeping the admin-page transient bounded on large syncs.
+		 */
+		public const MAX_UNMAPPED_FLAG_VALUES = 20;
+
+		/**
+		 * The Dataverse/OData annotation suffix carrying a field's
+		 * human-readable label alongside its raw value (e.g. an option-set
+		 * code). A flag in map mode matches against both the raw value and
+		 * this label (SPEC-DIR-20260731 flag key map feature).
+		 */
+		private const LABEL_ANNOTATION_SUFFIX = '@OData.Community.Display.V1.FormattedValue';
 
 		/**
 		 * Maximum accepted length for the Agend `phone` field. Both the gateway
@@ -123,7 +149,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 *     duplicate_external_ids: int,
 		 *     dropped_fields: array<string, int>,
 		 *     dropped_field_examples: array<string, array<int, array{external_id: string, fullname: string}>>,
-		 *     status_counts: array<string, int>
+		 *     status_counts: array<string, int>,
+		 *     unmapped_flag_values: array<string, array<string, int>>
 		 * }
 		 */
 		public static function transform_all( array $contacts, ?array $field_map = null, ?Agend_Directory_Sync_Source $source = null ): array {
@@ -135,6 +162,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$dropped_fields         = array();
 			$dropped_field_examples = array();
 			$status_counts          = array();
+			$unmapped_flag_values   = array();
 
 			foreach ( $contacts as $contact ) {
 				if ( ! is_array( $contact ) ) {
@@ -148,7 +176,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 					continue;
 				}
 
-				$listing     = self::transform_one( $contact, $field_map, $dropped_fields, $dropped_field_examples, $source );
+				$listing     = self::transform_one( $contact, $field_map, $dropped_fields, $dropped_field_examples, $unmapped_flag_values, $source );
 				$external_id = $listing['external_id'];
 				$status      = (string) ( $listing['status'] ?? '' );
 
@@ -172,6 +200,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				'dropped_fields'         => $dropped_fields,
 				'dropped_field_examples' => $dropped_field_examples,
 				'status_counts'          => $status_counts,
+				'unmapped_flag_values'   => $unmapped_flag_values,
 			);
 		}
 
@@ -287,22 +316,253 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 
 		/**
 		 * Resolve the Agend listing status from the two visibility flag
-		 * sources. Both must be true for the listing to be publicly visible;
-		 * otherwise the row is kept as `suspended` (hidden but preserved). A
-		 * blank flag source is treated as true, so an environment without an
-		 * eligibility / opt-in concept publishes everyone. Each flag reads
-		 * its own per-flag invert setting (SPEC-DIR-20260731 US-3.3) for
-		 * sources that are true-means-hide rather than true-means-show.
+		 * sources.
+		 *
+		 * Each flag independently reads in one of two modes (flag key map
+		 * feature):
+		 * - truthy (default, back-compat): the source is coerced to a
+		 *   boolean with `truthy()`, honouring the per-flag invert setting.
+		 *   True ranks as OUTCOME_PUBLISHED, false as OUTCOME_DRAFT.
+		 * - map: the source value is matched against a configured list of
+		 *   value => outcome rows instead (see `flag_outcome_map()`).
+		 *
+		 * The most restrictive of the two flags' outcomes wins (published <
+		 * draft in restrictiveness). When NEITHER flag is in map mode this
+		 * collapses to exactly today's two-status behaviour: both flags
+		 * true is `approved`, otherwise `suspended`. The existing
+		 * FlagInvertTest / FieldMapFlagsTest / FlagTruthyCoercionTest suites
+		 * assert this stays byte-for-byte identical. Only once at least one
+		 * flag is in map mode does a `draft` outcome send `pending` instead.
 		 *
 		 * @param array<string, mixed>                                                                                        $contact
-		 * @param array{core: array<string,string>, custom_fields: array<string,string>, flags: array<string,bool>} $field_map
+		 * @param array{core: array<string,string>, custom_fields: array<string,string>, flags: array<string,mixed>} $field_map
+		 * @param array<string, array<string, int>>                                                                   $unmapped_flag_values Mutated counter of unmapped map-mode values, per flag.
 		 */
-		private static function resolve_status( array $contact, array $field_map ): string {
-			$flags    = $field_map['flags'] ?? array();
-			$eligible = self::flag( $contact, $field_map['core'], 'eligible_flag', ! empty( $flags['eligible_flag_invert'] ) );
-			$opted_in = self::flag( $contact, $field_map['core'], 'opt_in_flag', ! empty( $flags['opt_in_flag_invert'] ) );
+		private static function resolve_status( array $contact, array $field_map, array &$unmapped_flag_values ): string {
+			$flags = $field_map['flags'] ?? array();
+			$core  = $field_map['core'];
 
-			return ( $eligible && $opted_in ) ? self::STATUS_VISIBLE : self::STATUS_HIDDEN;
+			$eligible_mapped = self::flag_is_mapped( $flags, 'eligible_flag' );
+			$opt_in_mapped   = self::flag_is_mapped( $flags, 'opt_in_flag' );
+
+			$eligible_outcome = self::flag_outcome( $contact, $core, 'eligible_flag', $flags, $unmapped_flag_values );
+			$opt_in_outcome   = self::flag_outcome( $contact, $core, 'opt_in_flag', $flags, $unmapped_flag_values );
+
+			$outcome = self::most_restrictive_outcome( array( $eligible_outcome, $opt_in_outcome ) );
+
+			if ( ! $eligible_mapped && ! $opt_in_mapped ) {
+				// Pure back-compat path: neither flag has a map configured.
+				return Agend_Directory_Sync_Field_Map::OUTCOME_PUBLISHED === $outcome
+					? self::STATUS_VISIBLE
+					: self::STATUS_HIDDEN;
+			}
+
+			return Agend_Directory_Sync_Field_Map::OUTCOME_PUBLISHED === $outcome
+				? self::STATUS_VISIBLE
+				: self::STATUS_PENDING;
+		}
+
+		/**
+		 * Whether a flag is configured for map mode.
+		 *
+		 * @param array<string, mixed> $flags
+		 */
+		private static function flag_is_mapped( array $flags, string $key ): bool {
+			$mode = $flags[ $key . '_mode' ] ?? Agend_Directory_Sync_Field_Map::FLAG_MODE_TRUTHY;
+			return Agend_Directory_Sync_Field_Map::FLAG_MODE_MAP === $mode;
+		}
+
+		/**
+		 * Resolve a single flag's outcome, dispatching to truthy or map mode.
+		 *
+		 * @param array<string, mixed>              $contact
+		 * @param array<string, string>              $core
+		 * @param array<string, mixed>               $flags
+		 * @param array<string, array<string, int>>  $unmapped_flag_values Mutated.
+		 */
+		private static function flag_outcome( array $contact, array $core, string $key, array $flags, array &$unmapped_flag_values ): string {
+			if ( ! self::flag_is_mapped( $flags, $key ) ) {
+				$invert = ! empty( $flags[ $key . '_invert' ] );
+				$value  = self::flag( $contact, $core, $key, $invert );
+				return $value ? Agend_Directory_Sync_Field_Map::OUTCOME_PUBLISHED : Agend_Directory_Sync_Field_Map::OUTCOME_DRAFT;
+			}
+
+			return self::flag_outcome_map( $contact, $core, $key, $flags, $unmapped_flag_values );
+		}
+
+		/**
+		 * Resolve a map-mode flag's outcome. A blank configured source means
+		 * no gate (same as truthy mode's blank-source case): always
+		 * OUTCOME_PUBLISHED. Otherwise the resolved value (or, for a list
+		 * value, each item) is compared case-insensitively, after trim,
+		 * against both the raw map entry value and its label: the
+		 * Dataverse/OData FormattedValue annotation sibling, resolved
+		 * through the same path. A value matching no entry (including a
+		 * missing or empty resolved value) is unmapped: it takes the map's
+		 * default outcome and is recorded in `$unmapped_flag_values`. For a
+		 * list, the most restrictive of the matched items' outcomes wins;
+		 * an unmatched item is still recorded as unmapped even when another
+		 * item in the same list did match.
+		 *
+		 * @param array<string, mixed>              $contact
+		 * @param array<string, string>              $core
+		 * @param array<string, mixed>               $flags
+		 * @param array<string, array<string, int>>  $unmapped_flag_values Mutated.
+		 */
+		private static function flag_outcome_map( array $contact, array $core, string $key, array $flags, array &$unmapped_flag_values ): string {
+			$field = (string) ( $core[ $key ] ?? '' );
+			if ( '' === $field ) {
+				return Agend_Directory_Sync_Field_Map::OUTCOME_PUBLISHED;
+			}
+
+			$map     = isset( $flags[ $key . '_map' ] ) && is_array( $flags[ $key . '_map' ] ) ? $flags[ $key . '_map' ] : array();
+			$default = self::sanitize_outcome( $flags[ $key . '_map_default' ] ?? null );
+
+			$raw_value   = Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field );
+			$label_value = Agend_Directory_Sync_Path_Resolver::resolve( $contact, $field . self::LABEL_ANNOTATION_SUFFIX );
+
+			$raw_entries   = is_array( $raw_value ) ? $raw_value : array( $raw_value );
+			$label_entries = is_array( $label_value ) ? $label_value : array( $label_value );
+			if ( empty( $raw_entries ) ) {
+				// An empty list, or a missing/empty scalar, is still one
+				// unmapped occurrence to report, never silently skipped.
+				$raw_entries = array( null );
+			}
+
+			$matched = array();
+			foreach ( $raw_entries as $index => $raw_entry ) {
+				$label_entry = $label_entries[ $index ] ?? null;
+				$outcome     = self::match_flag_map_entry( $map, $raw_entry, $label_entry );
+
+				if ( null !== $outcome ) {
+					$matched[] = $outcome;
+					continue;
+				}
+
+				self::record_unmapped_flag_value( $unmapped_flag_values, $key, self::flag_match_string( $raw_entry ) );
+			}
+
+			return empty( $matched ) ? $default : self::most_restrictive_outcome( $matched );
+		}
+
+		/**
+		 * Find the first map row whose value matches `$raw` or `$label`
+		 * (case-insensitive, trimmed), returning its sanitised outcome, or
+		 * null when nothing matches.
+		 *
+		 * @param array<int, array{value?: mixed, outcome?: mixed}> $map
+		 * @param mixed                                             $raw
+		 * @param mixed                                             $label
+		 */
+		private static function match_flag_map_entry( array $map, $raw, $label ): ?string {
+			$raw_string   = self::flag_match_string( $raw );
+			$label_string = self::flag_match_string( $label );
+
+			foreach ( $map as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+
+				$entry_value = self::flag_match_string( $row['value'] ?? '' );
+				if ( '' === $entry_value ) {
+					continue;
+				}
+
+				$matches_raw   = '' !== $raw_string && 0 === strcasecmp( $entry_value, $raw_string );
+				$matches_label = '' !== $label_string && 0 === strcasecmp( $entry_value, $label_string );
+
+				if ( $matches_raw || $matches_label ) {
+					return self::sanitize_outcome( $row['outcome'] ?? null );
+				}
+			}
+
+			return null;
+		}
+
+		/**
+		 * Coerce a resolved flag/label value to its comparison string.
+		 * Scalars compare as strings (so int 1 matches "1"); booleans
+		 * stringify as "true"/"false" (SPEC-DIR-20260731 flag key map
+		 * feature), matching how an operator would type them into the map.
+		 * Non-scalars (null, arrays) yield '': no match.
+		 *
+		 * @param mixed $value
+		 */
+		private static function flag_match_string( $value ): string {
+			if ( is_bool( $value ) ) {
+				return $value ? 'true' : 'false';
+			}
+			if ( is_string( $value ) ) {
+				return trim( $value );
+			}
+			if ( is_scalar( $value ) ) {
+				return trim( (string) $value );
+			}
+			return '';
+		}
+
+		/**
+		 * Validate an outcome value against the outcomes actually offered
+		 * today. Anything else, including OUTCOME_SKIP, which is reserved
+		 * but not offered yet, falls back to OUTCOME_DRAFT, the safer
+		 * (more restrictive) choice. Defensive: the transformer accepts a
+		 * raw, unsanitised `$field_map` from callers/tests, so it cannot
+		 * rely on Agend_Directory_Sync_Field_Map::sanitize_flags() having
+		 * already run.
+		 *
+		 * @param mixed $value
+		 */
+		private static function sanitize_outcome( $value ): string {
+			return Agend_Directory_Sync_Field_Map::OUTCOME_PUBLISHED === $value
+				? Agend_Directory_Sync_Field_Map::OUTCOME_PUBLISHED
+				: Agend_Directory_Sync_Field_Map::OUTCOME_DRAFT;
+		}
+
+		/**
+		 * The most restrictive outcome present in `$outcomes`, per
+		 * Agend_Directory_Sync_Field_Map::OUTCOME_RANKING. Defaults to the
+		 * least restrictive (published) when `$outcomes` is empty or
+		 * contains nothing recognised.
+		 *
+		 * @param array<int, string> $outcomes
+		 */
+		private static function most_restrictive_outcome( array $outcomes ): string {
+			$ranking     = Agend_Directory_Sync_Field_Map::OUTCOME_RANKING;
+			$best_index  = 0;
+			$best        = $ranking[0];
+
+			foreach ( $outcomes as $outcome ) {
+				$index = array_search( $outcome, $ranking, true );
+				if ( false === $index || $index <= $best_index ) {
+					continue;
+				}
+				$best_index = $index;
+				$best       = $outcome;
+			}
+
+			return $best;
+		}
+
+		/**
+		 * Record one unmapped map-mode value for a flag, capped at
+		 * MAX_UNMAPPED_FLAG_VALUES distinct values per flag. Past the cap, a
+		 * value already tracked keeps incrementing; a brand-new distinct
+		 * value is dropped.
+		 *
+		 * @param array<string, array<string, int>> $unmapped_flag_values Mutated.
+		 */
+		private static function record_unmapped_flag_value( array &$unmapped_flag_values, string $flag_key, string $value_string ): void {
+			if ( ! isset( $unmapped_flag_values[ $flag_key ] ) ) {
+				$unmapped_flag_values[ $flag_key ] = array();
+			}
+
+			$bucket = &$unmapped_flag_values[ $flag_key ];
+
+			if ( ! isset( $bucket[ $value_string ] ) && count( $bucket ) >= self::MAX_UNMAPPED_FLAG_VALUES ) {
+				return;
+			}
+
+			$bucket[ $value_string ] = ( $bucket[ $value_string ] ?? 0 ) + 1;
 		}
 
 		/**
@@ -389,6 +649,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 * @param array<string, array<int, array{external_id: string, fullname: string}>> $dropped_field_examples Mutated map of identifying
 		 *                                                                                                    details for the first N rows
 		 *                                                                                                    affected by each drop reason.
+		 * @param array<string, array<string, int>>                                 $unmapped_flag_values   Mutated counter of unmapped
+		 *                                                                                                    map-mode flag values, per flag.
 		 * @param Agend_Directory_Sync_Source|null                                  $source                 Active source, for its
 		 *                                                                                                    external_metadata contribution.
 		 *                                                                                                    Null falls back to the original
@@ -401,6 +663,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			array $field_map,
 			array &$dropped_fields,
 			array &$dropped_field_examples,
+			array &$unmapped_flag_values,
 			?Agend_Directory_Sync_Source $source = null
 		): array {
 			$core = $field_map['core'];
@@ -408,7 +671,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$listing = array(
 				'external_id' => self::source( $contact, $core, 'external_id' ),
 				'name'        => self::build_name( $contact, $core ),
-				'status'      => self::resolve_status( $contact, $field_map ),
+				'status'      => self::resolve_status( $contact, $field_map, $unmapped_flag_values ),
 			);
 
 			$description = self::source( $contact, $core, 'description' );
