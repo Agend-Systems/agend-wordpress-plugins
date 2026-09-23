@@ -170,6 +170,16 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'get_export_reports' ),
 					'permission_callback' => '__return_true',
+					'args'                => array(
+						// Set by the widget just before a download, so the
+						// parameters it applies come from the report's
+						// current declaration rather than a listing an
+						// author edited since the transient was cached.
+						'fresh' => array(
+							'type'              => 'boolean',
+							'sanitize_callback' => 'rest_sanitize_boolean',
+						),
+					),
 				),
 			)
 		);
@@ -539,7 +549,8 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_export_reports( WP_REST_Request $request ): WP_REST_Response {
-		return $this->prepare_api_response( agend_apps_directory_get_export_reports() );
+		$fresh = rest_sanitize_boolean( $request->get_param( 'fresh' ) );
+		return $this->prepare_api_response( agend_apps_directory_get_export_reports( $fresh ) );
 	}
 
 	/**
