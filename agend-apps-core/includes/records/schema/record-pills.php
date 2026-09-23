@@ -80,6 +80,46 @@ function agend_apps_records_schema_record_pills(): array {
 					),
 				),
 			),
+			array(
+				'id'     => 'section_style_colour_rules',
+				'label'  => __( 'Colour rules', 'agend-apps-core' ),
+				'tab'    => 'style',
+				'fields' => array(
+					array(
+						'name'    => 'colour_rules_note',
+						'type'    => 'note',
+						'content' => __( 'Give particular terms their own colours, for example one colour per accreditation. The first rule that matches a term wins; a term no rule matches keeps the pill style.', 'agend-apps-core' ),
+					),
+					array(
+						'name'      => 'colour_rules',
+						'label'     => __( 'Rules', 'agend-apps-core' ),
+						'type'      => 'repeater',
+						'row_label' => 'rule_match',
+						'default'   => array(),
+						'fields'    => array(
+							array(
+								'name'        => 'rule_match',
+								'label'       => __( 'Matches', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'description' => __( 'The term exactly as it appears, ignoring case. Several terms can be separated by commas.', 'agend-apps-core' ),
+							),
+							array(
+								'name'    => 'rule_background',
+								'label'   => __( 'Background', 'agend-apps-core' ),
+								'type'    => 'colour',
+								'default' => '',
+							),
+							array(
+								'name'    => 'rule_text',
+								'label'   => __( 'Text colour', 'agend-apps-core' ),
+								'type'    => 'colour',
+								'default' => '',
+							),
+						),
+					),
+				),
+			),
 		),
 	);
 }

@@ -132,3 +132,13 @@ a.agend-pill:hover,
 a.agend-pill:focus {
   filter: brightness(0.95);
 }
+
+/* Colour rules (agend_apps_records_record_pills_term_style()). Three
+   classes, so a rule wins over the widget's own pill colour controls. */
+.agend-pills .agend-pill.agend-pill--rule-bg {
+  background-color: var(--agend-pill-bg);
+}
+
+.agend-pills .agend-pill.agend-pill--rule-text {
+  color: var(--agend-pill-text);
+}
