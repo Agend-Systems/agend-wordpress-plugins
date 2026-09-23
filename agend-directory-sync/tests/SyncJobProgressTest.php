@@ -8,9 +8,11 @@ declare( strict_types=1 );
 namespace Agend\Tests\DirectorySync;
 
 use Agend_Directory_Sync_Job;
+use Agend_Test_Directory_Bulk_Upsert;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use WP_Error;
 
 require_once AGEND_TESTS_ROOT . '/agend-directory-sync/agend-directory-sync.php';
 require_once AGEND_TESTS_ROOT . '/agend-directory-sync/includes/interface-source.php';
@@ -180,5 +182,146 @@ final class SyncJobProgressTest extends TestCase {
 		Agend_Directory_Sync_Job::clear();
 
 		$this->assertNull( Agend_Directory_Sync_Job::current() );
+	}
+
+	/**
+	 * Stores a batch payload the way step_fetch() would have, at the option
+	 * key step_send() reads it back from -- the same md5(job id) + index
+	 * scheme Agend_Directory_Sync_Job::batch_option() uses internally.
+	 *
+	 * @param array<int, array<string, mixed>> $batch
+	 */
+	private function store_batch( string $job_id, int $index, array $batch ): void {
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_BATCH_PREFIX . md5( $job_id ) . '_' . $index,
+			$batch,
+			false
+		);
+	}
+
+	/**
+	 * A gateway 400 for the record at index 1 of the batch at job-wide batch
+	 * index 2 must come back with its record index converted to the position
+	 * an operator counts across the whole run (batch_index * batch_size +
+	 * record + 1), and with the failing listing's external_id attached from
+	 * the batch that was actually sent.
+	 */
+	#[Test]
+	public function it_converts_an_issue_record_into_a_job_wide_listing_position_and_attaches_external_id(): void {
+		$job_id = 'dsj_position_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 3,
+					'batch_cursor'    => 2,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+
+		$this->store_batch(
+			$job_id,
+			2,
+			array(
+				array( 'external_id' => 'ext-0', 'name' => 'Row 0' ),
+				array( 'external_id' => 'ext-1', 'name' => 'Row 1' ),
+			)
+		);
+
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'agend_api_error',
+			'Invalid request parameters',
+			array(
+				'status_code' => 400,
+				'body'        => array(
+					'error' => array(
+						'code'    => 'VALIDATION_ERROR',
+						'details' => array(
+							'issues' => array(
+								array(
+									'path'    => array( 'listings', 1, 'name' ),
+									'message' => 'Required',
+								),
+							),
+						),
+					),
+				),
+			)
+		);
+
+		$job = Agend_Directory_Sync_Job::step();
+
+		$http_error = $job['send']['http_errors'][0];
+		$this->assertSame( 2, $http_error['batch_index'] );
+
+		$issue = $http_error['issues'][0];
+		$this->assertSame( 1, $issue['record'] );
+		// batch_index (2) * MAX_BATCH_SIZE (100) + record (1) + 1 = 202.
+		$this->assertSame( 202, $issue['listing_position'] );
+		$this->assertSame( 'ext-1', $issue['external_id'] );
+	}
+
+	/**
+	 * A `fields`-shape issue carries no record index, so it must not be given
+	 * a fabricated listing position or external_id.
+	 */
+	#[Test]
+	public function it_leaves_an_issue_with_no_record_unstamped(): void {
+		$job_id = 'dsj_no_record_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+
+		$this->store_batch(
+			$job_id,
+			0,
+			array( array( 'external_id' => 'ext-0', 'name' => 'Row 0' ) )
+		);
+
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'agend_api_error',
+			'Invalid request parameters',
+			array(
+				'status_code' => 400,
+				'body'        => array(
+					'error' => array(
+						'code'    => 'VALIDATION_ERROR',
+						'details' => array(
+							'fields' => array(
+								'external_source' => array( 'Required' ),
+							),
+						),
+					),
+				),
+			)
+		);
+
+		$job = Agend_Directory_Sync_Job::step();
+
+		$issue = $job['send']['http_errors'][0]['issues'][0];
+
+		$this->assertNull( $issue['record'] );
+		$this->assertNull( $issue['listing_position'] );
+		$this->assertArrayNotHasKey( 'external_id', $issue );
 	}
 }

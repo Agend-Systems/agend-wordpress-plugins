@@ -181,6 +181,16 @@ function set_transient( string $key, $value, int $ttl = 0 ): bool {
 	return true;
 }
 
+if ( ! function_exists( 'current_time' ) ) {
+	/**
+	 * Fixed, deterministic timestamp: nothing under test asserts on wall-clock
+	 * time, and a real one would make a snapshot assertion flaky.
+	 */
+	function current_time( string $type, $gmt = 0 ) {
+		return 'timestamp' === $type ? 1_700_000_000 : '2023-11-14 22:13:20';
+	}
+}
+
 function delete_transient( string $key ): bool {
 	unset( Agend_Test_WP::$transients[ $key ] );
 	return true;
@@ -282,6 +292,20 @@ function get_option( string $key, $default = false ) {
 }
 
 function update_option( string $key, $value, $autoload = null ): bool {
+	Agend_Test_WP::$options[ $key ] = $value;
+	return true;
+}
+
+/**
+ * Fails when the option already exists, matching WordPress's add_option()
+ * closely enough for the directory sync job lock, which relies on that
+ * failure being the database's rather than a get-then-set race.
+ */
+function add_option( string $key, $value, string $deprecated = '', $autoload = null ): bool {
+	if ( array_key_exists( $key, Agend_Test_WP::$options ) ) {
+		return false;
+	}
+
 	Agend_Test_WP::$options[ $key ] = $value;
 	return true;
 }

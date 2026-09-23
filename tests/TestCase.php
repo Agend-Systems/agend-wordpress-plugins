@@ -29,6 +29,10 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Agend_Test_Mirror_Gateway::reset();
 		}
 
+		if ( class_exists( 'Agend_Test_Directory_Bulk_Upsert' ) ) {
+			\Agend_Test_Directory_Bulk_Upsert::reset();
+		}
+
 		if ( class_exists( '\\Elementor\\Plugin' ) ) {
 			\Elementor\Plugin::reset();
 		}
