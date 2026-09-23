@@ -104,6 +104,7 @@ function agend_elementor_bootstrap(): void {
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-preview-type.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-schema-controls.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-global-colours.php';
 
 	// The usermeta display conditions that used to load here are RETIRED
 	// (SPEC-CMS-20260727 US-1.1). They were a second entitlement authority that
