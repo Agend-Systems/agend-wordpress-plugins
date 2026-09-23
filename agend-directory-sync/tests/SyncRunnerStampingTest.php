@@ -101,4 +101,23 @@ final class SyncRunnerStampingTest extends TestCase {
 		$this->assertArrayNotHasKey( 'external_id', $stamped[0]['issues'][0] );
 		$this->assertArrayNotHasKey( 'issues', $stamped[1] );
 	}
+
+	/**
+	 * run()'s $timeout_context defaults to 'web', the safer of the two: a
+	 * caller that forgets to say otherwise gets the capped browser-step
+	 * timeout, not CLI's unbounded one. Checked by reflection rather than by
+	 * exercising a real send, since run() with dry_run=false needs the full
+	 * fetch/transform/source-registry pipeline this suite does not stand up
+	 * elsewhere either; the three real callers (the job's step_fetch(), the
+	 * admin preview action, and the CLI command) are each asserted to pass
+	 * their own explicit context in the source directly.
+	 */
+	#[Test]
+	public function run_defaults_the_timeout_context_to_web(): void {
+		$parameter = ( new \ReflectionMethod( Agend_Directory_Sync_Runner::class, 'run' ) )->getParameters()[2];
+
+		$this->assertSame( 'timeout_context', $parameter->getName() );
+		$this->assertTrue( $parameter->isDefaultValueAvailable() );
+		$this->assertSame( 'web', $parameter->getDefaultValue() );
+	}
 }

@@ -151,7 +151,12 @@ final class AgendClientValidationErrorTest extends TestCase {
 
 		$described = Agend_Directory_Sync_Agend_Client::describe_validation_error( $error, 1 );
 
-		$this->assertSame( "Invalid enum value. Expected 'approved' | 'pending'", $described['issues'][0]['reason'] );
+		// The "received" tail is stripped entirely, and every quoted literal
+		// left in the message -- including the allowed enum options, which
+		// are not the submitted value -- is blanked too: there is no reliable
+		// way to tell a submitted value apart from a literal that is simply
+		// part of the message, so every quoted literal is treated as unsafe.
+		$this->assertSame( "Invalid enum value. Expected '\u{2026}' | '\u{2026}'", $described['issues'][0]['reason'] );
 		$this->assertStringNotContainsString( 'Jane Smith', $described['issues'][0]['reason'] );
 	}
 

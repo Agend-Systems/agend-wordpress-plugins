@@ -117,12 +117,18 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			// Clamped on save, not just on read: the stored option should
 			// reflect what will actually be used, so the settings form never
 			// shows a number that silently gets overridden.
-			$batch_size      = isset( $_POST['agend_batch_size'] )
-				? max( Agend_Directory_Sync_Agend_Client::MIN_BATCH_SIZE, min( Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE, (int) $_POST['agend_batch_size'] ) )
-				: Agend_Directory_Sync_Agend_Client::DEFAULT_BATCH_SIZE;
-			$timeout_seconds = isset( $_POST['agend_timeout_seconds'] )
-				? max( Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS, min( Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS, (int) $_POST['agend_timeout_seconds'] ) )
-				: Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS;
+			$batch_size      = self::sanitize_clamped_setting(
+				isset( $_POST['agend_batch_size'] ) ? (string) wp_unslash( $_POST['agend_batch_size'] ) : null,
+				Agend_Directory_Sync_Agend_Client::MIN_BATCH_SIZE,
+				Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+				Agend_Directory_Sync_Agend_Client::DEFAULT_BATCH_SIZE
+			);
+			$timeout_seconds = self::sanitize_clamped_setting(
+				isset( $_POST['agend_timeout_seconds'] ) ? (string) wp_unslash( $_POST['agend_timeout_seconds'] ) : null,
+				Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS,
+				Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS,
+				Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS
+			);
 			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
 			$posted_source   = isset( $_POST['agend_directory_sync_source'] ) ? sanitize_key( wp_unslash( $_POST['agend_directory_sync_source'] ) ) : '';
 			$raw_http_api    = isset( $_POST['agend_http_api'] ) && is_array( $_POST['agend_http_api'] )
@@ -222,6 +228,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			wp_safe_redirect( self::redirect_url( array( 'saved' => '1' ) ) );
 			exit;
+		}
+
+		/**
+		 * A clamped numeric setting from a posted form field. A missing OR
+		 * blank value (trimmed) is the setting's own default, never
+		 * `(int) '' === 0` clamped up to the minimum: a cleared number input
+		 * must not silently become "as small as this setting can possibly
+		 * be". A public static method, not inlined into handle_save_settings(),
+		 * so the sanitize path is directly testable without exercising the
+		 * whole admin-post handler (which ends in `exit`).
+		 *
+		 * @param string|null $raw     The posted value, already wp_unslash()ed;
+		 *                             null when the field was not posted at all.
+		 */
+		public static function sanitize_clamped_setting( ?string $raw, int $min, int $max, int $default ): int {
+			$raw = null === $raw ? '' : trim( $raw );
+
+			if ( '' === $raw ) {
+				return $default;
+			}
+
+			return max( $min, min( $max, (int) $raw ) );
 		}
 
 		/**
@@ -336,7 +364,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$max_records = self::read_max_records();
 
 			try {
-				$result = Agend_Directory_Sync_Runner::run( $max_records, true );
+				$result = Agend_Directory_Sync_Runner::run( $max_records, true, 'web' );
 
 				// Keep the transient small: store only a sample, not the full
 				// transformed payload.
@@ -1999,15 +2027,35 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										stageEl.textContent = (res && res.data && res.data.message) || 'Request failed.';
 										return;
 									}
-									transportFailures = 0;
 									var job = res.data.job;
+
 									if (res.data.busy) {
+										// Another tab holds the step lock: this
+										// poll did not advance anything of its
+										// own, so it does not reset
+										// transportFailures either -- only a
+										// response that actually changed the job
+										// does, checked below.
 										paint(job, jobConfig.strings.busy);
-										// Another tab holds the step lock. Back off
-										// rather than spinning against it.
 										scheduleLoop(token, 3000);
 										return;
 									}
+
+									// Compare against the previous poll, not just
+									// "the request came back OK": a step that
+									// itself no-ops (e.g. arriving before
+									// retry_after) is not evidence the host has
+									// recovered from repeated transport failures,
+									// only that this one particular request
+									// happened to get an answer.
+									var advanced = !lastJob
+										|| job.batches_done !== lastJob.batches_done
+										|| job.batch_attempts !== lastJob.batch_attempts
+										|| job.stage !== lastJob.stage;
+									if (advanced) {
+										transportFailures = 0;
+									}
+
 									paint(job);
 									if (job.active) {
 										// A batch mid-retry: wait out the backoff

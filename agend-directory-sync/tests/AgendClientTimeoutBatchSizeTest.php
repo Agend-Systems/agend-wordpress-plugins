@@ -134,6 +134,56 @@ final class AgendClientTimeoutBatchSizeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'timeout', Agend_Test_Directory_Bulk_Upsert::$calls[1]['args'] );
 	}
 
+	/**
+	 * Every bulk-upsert call carries `unattended => true`, whether or not a
+	 * timeout is also given: this is a server-to-server upload, never a
+	 * member's own action, so it must never carry a member bearer.
+	 */
+	#[Test]
+	public function it_marks_every_call_unattended(): void {
+		$client = new Agend_Directory_Sync_Agend_Client();
+
+		$client->send_listings( array( array( 'external_id' => 'ext-1' ) ), 'test-source' );
+
+		$this->assertTrue( Agend_Test_Directory_Bulk_Upsert::$calls[0]['args']['unattended'] );
+	}
+
+	/**
+	 * The `http_api_debug` capture reaches is_retryable_failure() through the
+	 * whole send_listings() -> send_batch() path: an agend_apps_invalid_response
+	 * with a captured 504 ends up flagged retryable on the stored http_errors
+	 * entry, not just on a directly-called is_retryable_failure().
+	 */
+	#[Test]
+	public function send_listings_captures_the_real_status_for_an_invalid_response_via_http_api_debug(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response             = new WP_Error(
+			'agend_apps_invalid_response',
+			'Invalid JSON response from Agend API.',
+			array( 'body' => '<html>504</html>' )
+		);
+		Agend_Test_Directory_Bulk_Upsert::$http_api_debug_status = 504;
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array( array( 'external_id' => 'ext-1' ) ), 'test-source' );
+
+		$this->assertTrue( $summary['http_errors'][0]['retryable'] );
+	}
+
+	#[Test]
+	public function send_listings_does_not_retry_an_invalid_response_with_an_unretryable_captured_status(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response             = new WP_Error(
+			'agend_apps_invalid_response',
+			'Invalid JSON response from Agend API.',
+			array( 'body' => '<html>403</html>' )
+		);
+		Agend_Test_Directory_Bulk_Upsert::$http_api_debug_status = 403;
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array( array( 'external_id' => 'ext-1' ) ), 'test-source' );
+
+		$this->assertFalse( $summary['http_errors'][0]['retryable'] );
+	}
+
 	#[Test]
 	public function send_listings_chunks_by_the_given_batch_size_rather_than_the_gateway_cap(): void {
 		$client   = new Agend_Directory_Sync_Agend_Client();
@@ -148,40 +198,63 @@ final class AgendClientTimeoutBatchSizeTest extends TestCase {
 	}
 
 	/**
-	 * @return array<string, array{0: WP_Error, 1: bool}>
+	 * @return array<string, array{0: WP_Error, 1: int|null, 2: bool}>
 	 */
 	public static function retryable_failure_cases(): array {
 		return array(
-			'no status_code at all (bare transport error)'      => array(
+			'http_request_failed (WP core transport failure, e.g. cURL 7/28/52/56)' => array(
 				new WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out' ),
+				null,
 				true,
 			),
-			'agend_apps_invalid_response (edge HTML, no status)' => array(
+			'agend_apps_invalid_response, captured status 504' => array(
 				new WP_Error( 'agend_apps_invalid_response', 'Invalid JSON response from Agend API.', array( 'body' => '<html>504</html>' ) ),
+				504,
 				true,
 			),
-			'502 Bad Gateway'                                    => array(
+			'agend_apps_invalid_response, captured status 413' => array(
+				new WP_Error( 'agend_apps_invalid_response', 'Invalid JSON response from Agend API.', array( 'body' => '<html>413</html>' ) ),
+				413,
+				false,
+			),
+			'agend_apps_invalid_response, captured status 403' => array(
+				new WP_Error( 'agend_apps_invalid_response', 'Invalid JSON response from Agend API.', array( 'body' => '<html>403</html>' ) ),
+				403,
+				false,
+			),
+			'agend_apps_invalid_response, no captured status'  => array(
+				new WP_Error( 'agend_apps_invalid_response', 'Invalid JSON response from Agend API.', array( 'body' => '<html>error</html>' ) ),
+				null,
+				false,
+			),
+			'502 Bad Gateway'                                  => array(
 				new WP_Error( 'agend_api_error', 'Bad Gateway', array( 'status_code' => 502 ) ),
+				null,
 				true,
 			),
-			'503 Service Unavailable'                            => array(
+			'503 Service Unavailable'                          => array(
 				new WP_Error( 'agend_api_error', 'Service Unavailable', array( 'status_code' => 503 ) ),
+				null,
 				true,
 			),
-			'504 Gateway Timeout'                                => array(
+			'504 Gateway Timeout'                              => array(
 				new WP_Error( 'agend_api_error', 'Gateway Timeout', array( 'status_code' => 504 ) ),
+				null,
 				true,
 			),
 			'500 Internal Server Error (a real answer, not retried)' => array(
 				new WP_Error( 'agend_api_error', 'Internal Server Error', array( 'status_code' => 500 ) ),
+				null,
 				false,
 			),
-			'400 validation error'                               => array(
+			'400 validation error'                             => array(
 				new WP_Error( 'agend_api_error', 'Invalid request parameters', array( 'status_code' => 400 ) ),
+				null,
 				false,
 			),
-			'422 Unprocessable Entity'                           => array(
+			'422 Unprocessable Entity'                         => array(
 				new WP_Error( 'agend_api_error', 'Unprocessable Entity', array( 'status_code' => 422 ) ),
+				null,
 				false,
 			),
 		);
@@ -190,8 +263,8 @@ final class AgendClientTimeoutBatchSizeTest extends TestCase {
 	#[Test]
 	public function is_retryable_failure_matrix(): void {
 		foreach ( self::retryable_failure_cases() as $label => $case ) {
-			[ $error, $expected ] = $case;
-			$this->assertSame( $expected, Agend_Directory_Sync_Agend_Client::is_retryable_failure( $error ), $label );
+			[ $error, $captured_status, $expected ] = $case;
+			$this->assertSame( $expected, Agend_Directory_Sync_Agend_Client::is_retryable_failure( $error, $captured_status ), $label );
 		}
 	}
 
@@ -296,5 +369,81 @@ final class AgendClientTimeoutBatchSizeTest extends TestCase {
 		$this->assertStringContainsString( 'external_source', $message );
 		$this->assertStringNotContainsString( 'record', $message );
 		$this->assertStringNotContainsString( '0-based', $message );
+	}
+
+	/**
+	 * The privacy scrub redacts an email address anywhere in a message, not
+	 * only inside a "received" tail.
+	 */
+	#[Test]
+	public function it_redacts_an_email_address_in_the_batch_message(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'agend_api_error',
+			'Duplicate contact for jane.smith@example.com',
+			array( 'status_code' => 400 )
+		);
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array( array( 'external_id' => 'ext-1' ) ), 'test-source' );
+
+		$message = $summary['http_errors'][0]['message'];
+
+		$this->assertStringContainsString( '[email]', $message );
+		$this->assertStringNotContainsString( 'jane.smith@example.com', $message );
+	}
+
+	/**
+	 * The privacy scrub blanks a quoted value in a plain (non-validation)
+	 * batch message the same way it does in a per-issue reason.
+	 */
+	#[Test]
+	public function it_blanks_a_quoted_value_in_the_batch_message(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'agend_api_error',
+			'Rejected listing "Jane Smith Consulting LLC"',
+			array( 'status_code' => 400 )
+		);
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array( array( 'external_id' => 'ext-1' ) ), 'test-source' );
+
+		$message = $summary['http_errors'][0]['message'];
+
+		$this->assertStringNotContainsString( 'Jane Smith Consulting LLC', $message );
+		$this->assertStringContainsString( "'\u{2026}'", $message );
+	}
+
+	/**
+	 * "Every error type" includes a non-validation, transport-level failure:
+	 * the scrub is not conditional on the error carrying validation details.
+	 */
+	#[Test]
+	public function it_sanitizes_a_non_validation_transport_failure_message(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'http_request_failed',
+			'Could not resolve host for operator@example.com relay'
+		);
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array( array( 'external_id' => 'ext-1' ) ), 'test-source' );
+
+		$message = $summary['http_errors'][0]['message'];
+
+		$this->assertStringContainsString( '[email]', $message );
+		$this->assertStringNotContainsString( 'operator@example.com', $message );
+	}
+
+	#[Test]
+	public function it_caps_a_message_at_three_hundred_characters(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'agend_api_error',
+			str_repeat( 'x', 500 ),
+			array( 'status_code' => 400 )
+		);
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array( array( 'external_id' => 'ext-1' ) ), 'test-source' );
+
+		$this->assertLessThanOrEqual( 300, strlen( $summary['http_errors'][0]['message'] ) );
 	}
 }

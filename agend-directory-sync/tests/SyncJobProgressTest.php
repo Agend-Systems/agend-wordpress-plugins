@@ -717,4 +717,340 @@ final class SyncJobProgressTest extends TestCase {
 		// would be non-empty.
 		$this->assertSame( array(), Agend_Test_Directory_Bulk_Upsert::$calls );
 	}
+
+	/**
+	 * The re-read after the lock must bypass a copy already sitting in this
+	 * request's object cache: a value fetched once (current()'s own
+	 * get_option()) stays pinned there for the rest of the request on a real
+	 * persistent object cache, regardless of what a concurrent write puts in
+	 * the database, until something explicitly evicts it. A plain current()
+	 * proves this by still returning the stale copy after the bypassed
+	 * write; fresh_job() (used internally by the post-lock re-read) proves
+	 * the eviction actually works by returning the fresh one.
+	 */
+	#[Test]
+	public function the_post_lock_re_read_bypasses_a_stale_cached_copy(): void {
+		$job_id = 'dsj_cache_staleness_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'    => $job_id,
+					'stage' => Agend_Directory_Sync_Job::STAGE_SENDING,
+				)
+			),
+			false
+		);
+
+		// Primes the object cache with the SENDING state, the same way
+		// step()'s own pre-lock read does.
+		$primed = Agend_Directory_Sync_Job::current();
+		$this->assertSame( Agend_Directory_Sync_Job::STAGE_SENDING, $primed['stage'] );
+
+		// Simulates a concurrent request's write reaching the database
+		// without going through THIS process's own update_option() (which
+		// would refresh the cache itself) -- e.g. a different PHP-FPM worker
+		// sharing the same persistent cache backend, whose own write already
+		// refreshed ITS copy, but not this already-populated one.
+		\Agend_Test_WP::write_option_bypassing_cache(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'    => $job_id,
+					'stage' => Agend_Directory_Sync_Job::STAGE_CANCELLED,
+				)
+			)
+		);
+
+		// Proves the cache is genuinely stale: an ordinary read still sees
+		// the primed (SENDING) copy, not the bypassed write.
+		$stale = Agend_Directory_Sync_Job::current();
+		$this->assertSame( Agend_Directory_Sync_Job::STAGE_SENDING, $stale['stage'] );
+
+		// step()'s pre-lock read sees the same stale SENDING copy (nothing
+		// has evicted the cache yet), so it proceeds to acquire the lock and
+		// then re-read. If that re-read did not bypass the cache the same
+		// way, it would see SENDING again and try to send the batch below;
+		// with the bypass, it sees the fresher CANCELLED state instead and
+		// must not touch the gateway at all.
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		$result = Agend_Directory_Sync_Job::step();
+
+		$this->assertSame( Agend_Directory_Sync_Job::STAGE_CANCELLED, $result['stage'] );
+		$this->assertSame( array(), Agend_Test_Directory_Bulk_Upsert::$calls );
+	}
+
+	/**
+	 * acquire_lock() (via the $wpdb-backed implementation) must fail while
+	 * another request's lock row is still within LOCK_TTL: step() reports
+	 * `busy` and touches nothing.
+	 */
+	#[Test]
+	public function a_second_acquire_fails_while_the_lock_is_still_fresh(): void {
+		$job_id = 'dsj_lock_busy_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		// A lock another (live) request is still holding.
+		\Agend_Test_WP::$options[ Agend_Directory_Sync_Job::OPTION_LOCK ] = time() . ':other-request-token';
+
+		$result = Agend_Directory_Sync_Job::step();
+
+		$this->assertTrue( $result['busy'] ?? false );
+		$this->assertSame( array(), Agend_Test_Directory_Bulk_Upsert::$calls );
+		// The other request's lock row is untouched.
+		$this->assertStringContainsString( 'other-request-token', (string) \Agend_Test_WP::$options[ Agend_Directory_Sync_Job::OPTION_LOCK ] );
+	}
+
+	/**
+	 * A lock row older than LOCK_TTL is taken over and the step proceeds;
+	 * afterwards the lock is released (the row is gone), since step()'s own
+	 * release_lock() runs once it is done.
+	 */
+	#[Test]
+	public function an_expired_lock_is_taken_over_and_the_step_proceeds(): void {
+		$job_id = 'dsj_lock_takeover_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		\Agend_Test_WP::$options[ Agend_Directory_Sync_Job::OPTION_LOCK ] = ( time() - Agend_Directory_Sync_Job::LOCK_TTL - 60 ) . ':stale-token';
+
+		Agend_Test_Directory_Bulk_Upsert::$response = array(
+			'data' => array( 'results' => array( array( 'status' => 'created', 'external_id' => 'ext-0' ) ) ),
+		);
+
+		$result = Agend_Directory_Sync_Job::step();
+
+		$this->assertFalse( $result['busy'] ?? false );
+		$this->assertCount( 1, Agend_Test_Directory_Bulk_Upsert::$calls );
+		$this->assertSame( 1, $result['batch_cursor'] );
+		// The lock is released once the step finishes.
+		$this->assertArrayNotHasKey( Agend_Directory_Sync_Job::OPTION_LOCK, \Agend_Test_WP::$options );
+	}
+
+	/**
+	 * release_lock()'s DELETE only matches when the stored value is still
+	 * exactly the token this process wrote: a lock a different request has
+	 * since taken over (its own value, after this one's TTL expired) must
+	 * survive a release from the original holder. Tested directly against
+	 * the $wpdb double, which is what release_lock() itself issues the
+	 * DELETE against.
+	 */
+	#[Test]
+	public function releasing_a_lock_a_different_owner_now_holds_is_a_no_op(): void {
+		$wpdb = new \wpdb();
+
+		\Agend_Test_WP::$options[ Agend_Directory_Sync_Job::OPTION_LOCK ] = '100:new-owner-token';
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+				Agend_Directory_Sync_Job::OPTION_LOCK,
+				'50:original-owner-token'
+			)
+		);
+
+		$this->assertSame( 0, $wpdb->rows_affected );
+		$this->assertSame( '100:new-owner-token', \Agend_Test_WP::$options[ Agend_Directory_Sync_Job::OPTION_LOCK ] );
+	}
+
+	/**
+	 * A second INSERT IGNORE for the same lock row affects no rows (the
+	 * unique key already holds a value), which is the atomicity acquire_lock()
+	 * depends on: two racing callers cannot both be told they created it.
+	 */
+	#[Test]
+	public function a_second_insert_ignore_for_the_same_lock_affects_no_rows(): void {
+		$wpdb = new \wpdb();
+
+		$first = $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+				Agend_Directory_Sync_Job::OPTION_LOCK,
+				'100:token-a'
+			)
+		);
+		$this->assertSame( 1, $wpdb->rows_affected );
+		$this->assertSame( 1, $first );
+
+		$second = $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+				Agend_Directory_Sync_Job::OPTION_LOCK,
+				'100:token-b'
+			)
+		);
+
+		$this->assertSame( 0, $wpdb->rows_affected );
+		$this->assertSame( 0, $second );
+		$this->assertSame( '100:token-a', \Agend_Test_WP::$options[ Agend_Directory_Sync_Job::OPTION_LOCK ] );
+	}
+
+	/**
+	 * cancel() does not take the step lock (an operator's Cancel click is not
+	 * made to wait behind a slow gateway request), so it can land while a
+	 * step is mid-flight, inside the simulated gateway call itself. The
+	 * step's own eventual save must not resurrect the job it was sending
+	 * for: save_unless_superseded() (checked just before every write
+	 * step_send() makes) must see the cancellation and refuse to overwrite
+	 * it, both in the DB and in what step() returns.
+	 */
+	#[Test]
+	public function a_cancel_during_the_gateway_call_is_not_resurrected(): void {
+		$job_id = 'dsj_midflight_cancel_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		Agend_Test_Directory_Bulk_Upsert::$response = array(
+			'data' => array( 'results' => array( array( 'status' => 'created', 'external_id' => 'ext-0' ) ) ),
+		);
+		// The double only fires http_api_debug when this is set; any value
+		// works here since this test does not exercise is_retryable_failure().
+		Agend_Test_Directory_Bulk_Upsert::$http_api_debug_status = 200;
+
+		// http_api_debug fires from inside the double's bulk-upsert function,
+		// i.e. while step_send() is still "inside" the gateway call -- the
+		// same window a real concurrent Cancel click would race into.
+		add_action(
+			'http_api_debug',
+			static function (): void {
+				Agend_Directory_Sync_Job::cancel();
+			},
+			5,
+			5
+		);
+
+		$result = Agend_Directory_Sync_Job::step();
+
+		$this->assertSame( Agend_Directory_Sync_Job::STAGE_CANCELLED, $result['stage'] );
+
+		$current = Agend_Directory_Sync_Job::current();
+		$this->assertSame( Agend_Directory_Sync_Job::STAGE_CANCELLED, $current['stage'] );
+	}
+
+	/**
+	 * A batch option missing while the job is SENDING is now a real failure,
+	 * not a silent "treat as sent": advancing past it would under-report
+	 * what the run actually uploaded.
+	 */
+	#[Test]
+	public function a_missing_batch_option_fails_the_job_instead_of_silently_advancing(): void {
+		$job_id = 'dsj_missing_batch_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 2,
+					'batch_cursor'    => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+		// Deliberately no store_batch() call: nothing is stored at index 0.
+
+		$result = Agend_Directory_Sync_Job::step();
+
+		$this->assertSame( Agend_Directory_Sync_Job::STAGE_FAILED, $result['stage'] );
+		$this->assertStringContainsString( 'Batch 1', $result['message'] );
+		$this->assertStringContainsString( 'missing', $result['message'] );
+		$this->assertCount( 1, $result['send']['http_errors'] );
+	}
+
+	/**
+	 * batch_attempts already at MAX_SEND_ATTEMPTS with the batch option still
+	 * present means the previous attempt never returned an answer at all (a
+	 * step that died mid-flight: the PHP process killed, a host recycling a
+	 * worker blocked on the gateway call) -- since attempts is bumped and
+	 * saved BEFORE send_listings() is called, a step that dies leaves that
+	 * fact recorded rather than looking like nothing was tried. Getting back
+	 * here at the cap must fail the batch and advance, not retry forever.
+	 */
+	#[Test]
+	public function a_dead_attempt_at_the_cap_fails_and_advances_instead_of_retrying_forever(): void {
+		$job_id = 'dsj_dead_attempt_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'batch_attempts'  => Agend_Directory_Sync_Job::MAX_SEND_ATTEMPTS,
+					'retry_after'     => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		$result = Agend_Directory_Sync_Job::step();
+
+		$this->assertSame( 1, $result['batch_cursor'] );
+		$this->assertSame( 0, $result['batch_attempts'] );
+		$this->assertCount( 1, $result['send']['http_errors'] );
+		$this->assertStringContainsString(
+			sprintf( 'no response after %d attempts', Agend_Directory_Sync_Job::MAX_SEND_ATTEMPTS ),
+			$result['send']['http_errors'][0]['message']
+		);
+		// No gateway call was made for a batch already known dead.
+		$this->assertSame( array(), Agend_Test_Directory_Bulk_Upsert::$calls );
+	}
 }

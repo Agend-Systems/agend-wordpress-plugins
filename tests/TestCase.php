@@ -76,6 +76,12 @@ abstract class TestCase extends PHPUnitTestCase {
 		// restore that a fatal skipped past, would otherwise sign the next
 		// test in as that user.
 		$GLOBALS['agend_test_current_user_id'] = 0;
+
+		// A fresh $wpdb double per test: its rows_affected is state from the
+		// last query(), which must not leak into the next test's assertions.
+		if ( class_exists( 'wpdb' ) ) {
+			$GLOBALS['wpdb'] = new \wpdb();
+		}
 	}
 
 	/**

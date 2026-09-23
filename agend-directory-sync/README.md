@@ -427,19 +427,29 @@ created / updated / error counts.
 - **A batch that fails with a transport-level or upstream-availability
   failure is retried automatically** in the browser stepper, up to twice (5
   seconds, then 15, before each retry), before it is recorded as a failure
-  noting how many attempts were made. This covers a timeout or dropped
-  connection with no response from the gateway at all, and a 502, 503 or 504
-  the gateway (or something in front of it) did answer with; every other
-  status, including all 4xx and a 500, is a real answer retrying cannot
-  change, so those are never retried. Retrying is safe because the
+  noting how many attempts were made. This covers a transport failure that
+  never reached the gateway at all (a dropped connection, a DNS failure, a
+  timeout), and a real 502, 503 or 504 status the gateway (or something in
+  front of it) did answer with; every other status, including all 4xx and a
+  500, is a real answer retrying cannot change, so those are never retried,
+  and neither is a non-JSON response (an edge or proxy's own HTML error page)
+  whose real status could not be determined. Retrying is safe because the
   bulk-upsert is idempotent on (`external_source`, `external_id`): re-sending
   a batch that may or may not have reached the gateway produces the same end
-  state either way. While a batch is waiting to retry, the progress panel
-  shows a countdown instead of stepping again immediately, and a batch that
-  succeeds after a retry is noted in the finished result ("Batch N succeeded
-  after K attempts…") since some of what it counts as created or updated may
-  already have been committed by the earlier, timed-out attempt. WP-CLI does
-  not retry a timeout; rerunning the command is safe for the same reason.
+  state either way. If a batch's own attempt count reaches the limit without
+  ever coming back with an answer at all (the PHP process was killed, or a
+  host recycled the worker mid-request), it is recorded as failed noting that
+  no response was received, rather than being retried forever. While a batch
+  is waiting to retry, the progress panel shows a countdown instead of
+  stepping again immediately, and a batch that succeeds after a retry is
+  noted in the finished result ("Batch N succeeded after K attempts…") since
+  some of what it counts as created or updated may already have been
+  committed by the earlier, timed-out attempt. WP-CLI does not retry a
+  timeout; rerunning the command is safe for the same reason.
+- **Cancel takes effect immediately**, even while a batch upload is in
+  flight: it does not wait for the current step to finish before it is
+  honoured, and that step's own result (whatever it turns out to be) is
+  discarded rather than overwriting the cancellation.
 - **If the step request itself never gets an answer** -- the browser tab lost
   its connection, or an edge or proxy returned an HTML error page instead of
   the expected JSON, most commonly a 504 -- the page retries the step after 10

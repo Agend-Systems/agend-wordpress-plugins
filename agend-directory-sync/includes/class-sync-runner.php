@@ -28,11 +28,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 		/**
 		 * Fetch, transform, and (unless dry-run) send.
 		 *
-		 * @param int  $max_records Cap on source rows processed (0 = no cap),
-		 *                          applied after fetch and before transform.
-		 * @param bool $dry_run     When true, transform only; do not POST. The
-		 *                          transformed listings are returned so callers
-		 *                          can preview them.
+		 * @param int    $max_records     Cap on source rows processed (0 = no cap),
+		 *                                applied after fetch and before transform.
+		 * @param bool   $dry_run         When true, transform only; do not POST. The
+		 *                                transformed listings are returned so callers
+		 *                                can preview them.
+		 * @param string $timeout_context Passed through to
+		 *                                Agend_Directory_Sync_Agend_Client::effective_timeout()
+		 *                                for the send. Defaults to 'web', the safer of
+		 *                                the two: a caller that forgets to say otherwise
+		 *                                gets the capped timeout, not an unbounded one.
+		 *                                WP-CLI passes 'cli' explicitly.
 		 *
 		 * @return array{
 		 *     kind: string,
@@ -58,7 +64,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 		 *
 		 * @throws RuntimeException When the active source is unavailable, the fetch fails, or the send fails.
 		 */
-		public static function run( int $max_records = 0, bool $dry_run = false ): array {
+		public static function run( int $max_records = 0, bool $dry_run = false, string $timeout_context = 'web' ): array {
 			$external_source = self::resolve_external_source();
 			$auto_publish    = self::resolve_auto_publish_approved();
 			$field_map       = Agend_Directory_Sync_Field_Map::resolve();
@@ -107,15 +113,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 
 			$send_summary = array();
 			if ( ! $dry_run && ! empty( $listings ) ) {
-				// Unattended (CLI, or a future scheduled run): no request-time
-				// budget to share with anything else, so the operator's whole
-				// timeout setting applies in full (effective_timeout()'s 'cli'
-				// context).
 				$batch_size = Agend_Directory_Sync_Agend_Client::batch_size();
 				$timeout    = Agend_Directory_Sync_Agend_Client::effective_timeout(
 					Agend_Directory_Sync_Agend_Client::timeout_seconds(),
 					0,
-					'cli'
+					$timeout_context
 				);
 
 				$agend        = new Agend_Directory_Sync_Agend_Client();

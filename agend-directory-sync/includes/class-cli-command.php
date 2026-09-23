@@ -91,7 +91,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 			}
 
 			try {
-				$summary = Agend_Directory_Sync_Runner::run( $max, $dry_run );
+				$summary = Agend_Directory_Sync_Runner::run( $max, $dry_run, 'cli' );
 			} catch ( Throwable $e ) {
 				WP_CLI::error( 'Sync failed: ' . $e->getMessage() );
 				return;
