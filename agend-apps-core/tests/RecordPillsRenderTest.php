@@ -24,6 +24,7 @@ final class RecordPillsRenderTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/format.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/fields.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/record-context.php';
@@ -78,6 +79,48 @@ final class RecordPillsRenderTest extends TestCase {
 			'<div class="agend-pills"><span class="agend-pill">A</span><span class="agend-pill">B</span></div>',
 			agend_apps_records_render_record_pills( $settings )
 		);
+	}
+
+	#[Test]
+	public function should_colour_each_term_by_the_first_rule_that_matches_it(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array(
+				'categories' => array(
+					array( 'name' => 'SMSF Specialist Advisor' ),
+					array( 'name' => 'Fellow SMSF Specialist Advisor' ),
+					array( 'name' => 'Accountant' ),
+				),
+			)
+		);
+
+		$settings = array(
+			'field'        => 'listing:categories',
+			'colour_rules' => array(
+				array( 'rule_match' => 'smsf specialist advisor', 'rule_background' => '#D57534', 'rule_text' => '#FFFFFF' ),
+				array( 'rule_match' => 'Fellow SMSF Specialist Advisor, Fellow SMSF Specialist Auditor', 'rule_background' => '#866D4B' ),
+				array( 'rule_match' => 'SMSF Specialist Advisor', 'rule_background' => '#000000' ),
+			),
+		);
+
+		self::assertSame(
+			'<div class="agend-pills">'
+			. '<span class="agend-pill agend-pill--rule-bg agend-pill--rule-text" style="--agend-pill-bg:#D57534;--agend-pill-text:#FFFFFF">SMSF Specialist Advisor</span>'
+			. '<span class="agend-pill agend-pill--rule-bg" style="--agend-pill-bg:#866D4B">Fellow SMSF Specialist Advisor</span>'
+			. '<span class="agend-pill">Accountant</span>'
+			. '</div>',
+			agend_apps_records_render_record_pills( $settings )
+		);
+	}
+
+	#[Test]
+	public function should_drop_an_unsafe_rule_colour(): void {
+		$style = agend_apps_records_record_pills_term_style(
+			array( 'colour_rules' => array( array( 'rule_match' => 'A', 'rule_background' => 'red;x:y', 'rule_text' => '#fff' ) ) ),
+			'a'
+		);
+
+		self::assertSame( array( 'classes' => array( 'agend-pill--rule-text' ), 'style' => '--agend-pill-text:#fff' ), $style );
 	}
 
 	// -------------------------------------------------------------------

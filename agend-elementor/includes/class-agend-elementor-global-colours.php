@@ -44,12 +44,25 @@ class Agend_Elementor_Global_Colours {
 	 * @return array
 	 */
 	public static function resolve( array $settings, ?array $kit_colours = null ): array {
+		$kit_colours = $kit_colours ?? self::kit_colours();
+
+		// A repeater stores each row's global references on the row itself,
+		// so rows are resolved the same way as the top level.
+		foreach ( $settings as $key => $value ) {
+			if ( '__globals__' === $key || ! is_array( $value ) || array_values( $value ) !== $value ) {
+				continue;
+			}
+			foreach ( $value as $index => $row ) {
+				if ( is_array( $row ) && isset( $row['__globals__'] ) ) {
+					$settings[ $key ][ $index ] = self::resolve( $row, $kit_colours );
+				}
+			}
+		}
+
 		$globals = $settings['__globals__'] ?? null;
 		if ( ! is_array( $globals ) || empty( $globals ) ) {
 			return $settings;
 		}
-
-		$kit_colours = $kit_colours ?? self::kit_colours();
 
 		foreach ( $globals as $key => $reference ) {
 			$id = self::colour_id( (string) $reference );

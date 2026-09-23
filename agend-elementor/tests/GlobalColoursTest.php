@@ -70,6 +70,25 @@ final class GlobalColoursTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_resolve_global_colours_inside_repeater_rows(): void {
+		$settings = array(
+			'colour_rules' => array(
+				array(
+					'rule_match'      => 'Advisor',
+					'rule_background' => '',
+					'__globals__'     => array( 'rule_background' => 'globals/colors?id=292aa7d8' ),
+				),
+				array( 'rule_match' => 'Auditor', 'rule_background' => '#C2653A' ),
+			),
+		);
+
+		$resolved = Agend_Elementor_Global_Colours::resolve( $settings, self::KIT );
+
+		$this->assertSame( '#0C5998', $resolved['colour_rules'][0]['rule_background'] );
+		$this->assertSame( '#C2653A', $resolved['colour_rules'][1]['rule_background'] );
+	}
+
+	#[Test]
 	public function should_read_only_colour_references(): void {
 		$this->assertSame( 'abc_1-2', Agend_Elementor_Global_Colours::colour_id( 'globals/colors?id=abc_1-2' ) );
 		$this->assertSame( '', Agend_Elementor_Global_Colours::colour_id( 'globals/typography?id=primary' ) );
