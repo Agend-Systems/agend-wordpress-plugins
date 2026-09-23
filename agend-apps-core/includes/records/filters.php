@@ -513,3 +513,20 @@ function agend_apps_records_filter_height_options(): array {
 		'56' => '56px',
 	);
 }
+
+/**
+ * Horizontal padding choices for the filter field style settings.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_filter_padding_options(): array {
+	return array(
+		''   => __( 'Theme default', 'agend-apps-core' ),
+		'4'  => '4px',
+		'8'  => '8px',
+		'10' => '10px',
+		'12' => '12px',
+		'16' => '16px',
+		'20' => '20px',
+	);
+}

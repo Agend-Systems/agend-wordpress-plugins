@@ -68,6 +68,15 @@ final class FilterStyleTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_expose_horizontal_padding(): void {
+		$style = agend_apps_records_filter_style( array( 'field_padding' => '12' ) );
+
+		$this->assertSame( array( 'agend-filter--field-padding' ), $style['classes'] );
+		$this->assertSame( '--agend-filter-padding-x:12px', $style['style'] );
+		$this->assertSame( array(), agend_apps_records_filter_style( array( 'field_padding' => '13' ) )['classes'] );
+	}
+
+	#[Test]
 	public function should_ignore_border_sides_without_a_border_width(): void {
 		$style = agend_apps_records_filter_style( array( 'field_border_colour' => '#000', 'field_border_sides' => 'bottom' ) );
 

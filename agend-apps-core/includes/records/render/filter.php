@@ -288,6 +288,7 @@ function agend_apps_records_filter_style( array $settings ): array {
 		'field_border_width' => array( 'border-width', 'agend-filter--field-border-width', agend_apps_records_filter_border_width_options() ),
 		'field_radius'       => array( 'radius', 'agend-filter--field-radius', agend_apps_records_filter_radius_options() ),
 		'field_height'       => array( 'height', 'agend-filter--field-height', agend_apps_records_filter_height_options() ),
+		'field_padding'      => array( 'padding-x', 'agend-filter--field-padding', agend_apps_records_filter_padding_options() ),
 		'button_radius'      => array( 'button-radius', 'agend-filter--button-radius', agend_apps_records_filter_radius_options() ),
 	);
 
