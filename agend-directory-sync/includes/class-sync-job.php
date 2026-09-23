@@ -68,6 +68,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		public const STAGE_CANCELLED = 'cancelled';
 
 		/**
+		 * Total attempts a batch gets before its timeout is finally recorded as a
+		 * failure: the first send plus two retries.
+		 */
+		public const MAX_SEND_ATTEMPTS = 3;
+
+		/**
+		 * Backoff before retry N+1, keyed by the number of attempts already
+		 * failed (1 or 2, since MAX_SEND_ATTEMPTS is 3).
+		 */
+		private const RETRY_BACKOFF_SECONDS = array(
+			1 => 5,
+			2 => 15,
+		);
+
+		/**
+		 * Default step budget when no caller-supplied max_execution_time is
+		 * given (only WP-CLI and the test suite call step() this way; the AJAX
+		 * controller always passes ini_get('max_execution_time')).
+		 */
+		private const DEFAULT_MAX_EXECUTION_TIME = 30;
+
+		/**
 		 * The in-flight job, or null when there is none.
 		 *
 		 * @return array<string, mixed>|null
@@ -112,8 +134,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				'source'          => $source->get_key(),
 				'external_source' => Agend_Directory_Sync_Runner::resolve_external_source(),
 				'auto_publish'    => Agend_Directory_Sync_Runner::resolve_auto_publish_approved(),
+				// Fixed for the life of the job (SPEC: a setting changed
+				// mid-run must not desync batch-index-to-listing-position
+				// arithmetic already computed against earlier batches).
+				'batch_size'      => Agend_Directory_Sync_Agend_Client::batch_size(),
 				'batch_count'     => 0,
 				'batch_cursor'    => 0,
+				'batch_attempts'  => 0,
+				'retry_after'     => 0,
 				'listing_count'   => 0,
 				'transform'       => array(),
 				'send'            => self::empty_send_summary(),
@@ -132,10 +160,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 * exception reach the browser: a half-finished sync the operator can see
 		 * and retry beats a stack trace and no record of how far it got.
 		 *
+		 * @param int|null $max_execution_time `ini_get( 'max_execution_time' )`
+		 *                                     for the current request, read by
+		 *                                     the caller AFTER its own
+		 *                                     set_time_limit() call, 0 meaning
+		 *                                     unlimited. Null (the WP-CLI /
+		 *                                     test-suite case) falls back to a
+		 *                                     conservative default; step_fetch()
+		 *                                     ignores it, only the upload step
+		 *                                     uses it to size the gateway
+		 *                                     request's own timeout.
+		 *
 		 * @return array<string, mixed> The job state, with `busy` set when
 		 *                              another request holds the lock.
 		 */
-		public static function step(): array {
+		public static function step( ?int $max_execution_time = null ): array {
 			$job = self::current();
 
 			if ( null === $job ) {
@@ -143,6 +182,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			}
 
 			if ( ! self::is_active( $job ) ) {
+				return $job;
+			}
+
+			// A retry that is not due yet is a no-op: no lock, no gateway call,
+			// just the unchanged job (progress() derives waiting_seconds from
+			// it so the page can back off on its own).
+			if ( self::STAGE_SENDING === $job['stage'] && (int) ( $job['retry_after'] ?? 0 ) > time() ) {
 				return $job;
 			}
 
@@ -154,7 +200,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			try {
 				$job = self::STAGE_PENDING === $job['stage']
 					? self::step_fetch( $job )
-					: self::step_send( $job );
+					: self::step_send( $job, $max_execution_time ?? self::DEFAULT_MAX_EXECUTION_TIME );
 			} catch ( Throwable $e ) {
 				$job['stage']   = self::STAGE_FAILED;
 				$job['message'] = $e->getMessage();
@@ -232,7 +278,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				$percent = 100;
 			}
 
-			$sent = min( $done * Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE, (int) ( $job['listing_count'] ?? 0 ) );
+			// The job's own batch_size, fixed at start() -- not the current
+			// setting, which may have changed since (see start()'s comment).
+			$batch_size = (int) ( $job['batch_size'] ?? Agend_Directory_Sync_Agend_Client::batch_size() );
+			$sent       = min( $done * $batch_size, (int) ( $job['listing_count'] ?? 0 ) );
+
+			$retry_after     = (int) ( $job['retry_after'] ?? 0 );
+			$waiting_seconds = $retry_after > time() ? $retry_after - time() : null;
 
 			return array(
 				'stage'              => $stage,
@@ -247,6 +299,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				'errored'            => (int) ( $job['send']['errored'] ?? 0 ),
 				'http_errors'        => count( (array) ( $job['send']['http_errors'] ?? array() ) ),
 				'http_error_details' => self::progress_http_error_details( (array) ( $job['send']['http_errors'] ?? array() ) ),
+				// Set only while the current batch is between a failed attempt
+				// and its next retry; the JS stepper uses these two to show
+				// "Batch N timed out, retrying in Xs (attempt Y of Z)" and to
+				// delay its next step call instead of hammering the lock.
+				'waiting_seconds'    => $waiting_seconds,
+				'batch_attempts'     => (int) ( $job['batch_attempts'] ?? 0 ),
+				'max_send_attempts'  => self::MAX_SEND_ATTEMPTS,
 				'message'            => (string) ( $job['message'] ?? '' ),
 				'source'             => (string) ( $job['source'] ?? '' ),
 			);
@@ -314,7 +373,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			$job['transform'] = $result;
 			$job['listing_count'] = count( $listings );
 
-			$batches = array_chunk( $listings, Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE );
+			$batches = array_chunk( $listings, (int) $job['batch_size'] );
 
 			foreach ( $batches as $index => $batch ) {
 				update_option( self::batch_option( (string) $job['id'], (int) $index ), $batch, false );
@@ -342,11 +401,22 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 * one request and a summary for it, and the client keeps its single
 		 * responsibility for talking to the gateway.
 		 *
+		 * A transport timeout is retried here, not inside one request (which
+		 * would only make it longer): the cursor and the batch option are left
+		 * alone, an attempt counter and a retry_after timestamp go on the job,
+		 * and the caller's own step() no-ops on the next call until retry_after
+		 * has passed. The bulk-upsert is idempotent on
+		 * (external_source, external_id), so re-sending the same batch after a
+		 * timeout -- which may or may not have reached the gateway -- is safe.
+		 * A 4xx/5xx the gateway did answer with is never retried: the gateway
+		 * has spoken, and trying again cannot change its answer.
+		 *
 		 * @param array<string, mixed> $job
+		 * @param int                  $max_execution_time See step()'s docblock.
 		 *
 		 * @return array<string, mixed>
 		 */
-		private static function step_send( array $job ): array {
+		private static function step_send( array $job, int $max_execution_time ): array {
 			$index  = (int) $job['batch_cursor'];
 			$option = self::batch_option( (string) $job['id'], $index );
 			$batch  = get_option( $option, null );
@@ -354,13 +424,57 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			if ( ! is_array( $batch ) || empty( $batch ) ) {
 				// Nothing stored for this index: treat it as sent rather than
 				// stalling the job on a payload that will never appear.
-				$job['batch_cursor'] = $index + 1;
+				$job['batch_cursor']   = $index + 1;
+				$job['batch_attempts'] = 0;
+				$job['retry_after']    = 0;
 			} else {
-				$client  = new Agend_Directory_Sync_Agend_Client();
-				$summary = $client->send_listings( $batch, (string) $job['external_source'], (bool) $job['auto_publish'] );
+				$batch_size = (int) $job['batch_size'];
+				$timeout    = Agend_Directory_Sync_Agend_Client::effective_timeout(
+					Agend_Directory_Sync_Agend_Client::timeout_seconds(),
+					$max_execution_time
+				);
 
-				$job['send']         = self::merge_send_summary( $job['send'], $summary, $index, $batch );
-				$job['batch_cursor'] = $index + 1;
+				$client  = new Agend_Directory_Sync_Agend_Client();
+				$summary = $client->send_listings(
+					$batch,
+					(string) $job['external_source'],
+					(bool) $job['auto_publish'],
+					$batch_size,
+					$timeout
+				);
+
+				$http_error = $summary['http_errors'][0] ?? null;
+				$attempts   = (int) ( $job['batch_attempts'] ?? 0 ) + 1;
+
+				if ( null !== $http_error && self::is_retryable_timeout( $http_error ) && $attempts < self::MAX_SEND_ATTEMPTS ) {
+					// Leave batch_cursor and the stored batch option alone: the
+					// next step (once retry_after has passed) tries this same
+					// batch again.
+					$job['batch_attempts'] = $attempts;
+					$job['retry_after']    = time() + ( self::RETRY_BACKOFF_SECONDS[ $attempts ] ?? 15 );
+
+					self::save( $job );
+
+					return $job;
+				}
+
+				if ( null !== $http_error && self::is_retryable_timeout( $http_error ) ) {
+					// Final attempt also timed out: note the attempt count in
+					// the message an operator sees, then let it fall through to
+					// http_errors like any other batch failure.
+					$http_error['message']              = sprintf(
+						/* translators: 1: original failure message, 2: number of attempts made. */
+						__( '%1$s (timed out after %2$d attempts)', 'agend-directory-sync' ),
+						(string) ( $http_error['message'] ?? '' ),
+						$attempts
+					);
+					$summary['http_errors'][0] = $http_error;
+				}
+
+				$job['send']           = self::merge_send_summary( $job['send'], $summary, $index, $batch, $batch_size );
+				$job['batch_cursor']   = $index + 1;
+				$job['batch_attempts'] = 0;
+				$job['retry_after']    = 0;
 			}
 
 			delete_option( $option );
@@ -376,6 +490,27 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			}
 
 			return $job;
+		}
+
+		/**
+		 * Whether a batch's failure was a transport-level failure the client
+		 * never got a gateway response for (a timeout, a dropped connection),
+		 * which is safe to retry given the bulk-upsert's idempotency -- as
+		 * opposed to a 4xx/5xx the gateway did answer with, which retrying
+		 * cannot fix.
+		 *
+		 * @param array<string, mixed> $http_error
+		 */
+		private static function is_retryable_timeout( array $http_error ): bool {
+			if ( isset( $http_error['status_code'] ) && null !== $http_error['status_code'] ) {
+				return false;
+			}
+
+			$message = (string) ( $http_error['message'] ?? '' );
+
+			return '' === $message
+				|| false !== stripos( $message, 'curl error 28' )
+				|| false !== stripos( $message, 'timed out' );
 		}
 
 		/**
@@ -397,10 +532,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 * @param array<string, mixed>              $batch_summary
 		 * @param array<int, array<string, mixed>>  $batch         The listings sent in this batch, for
 		 *                                                          resolving an issue's external_id.
+		 * @param int                                $batch_size    The job's own batch_size (see start()'s
+		 *                                                          comment on why this is not
+		 *                                                          Agend_Directory_Sync_Agend_Client::batch_size()).
 		 *
 		 * @return array<string, mixed>
 		 */
-		private static function merge_send_summary( array $running, array $batch_summary, int $batch_index, array $batch = array() ): array {
+		private static function merge_send_summary( array $running, array $batch_summary, int $batch_index, array $batch, int $batch_size ): array {
 			$running['created'] += (int) ( $batch_summary['created'] ?? 0 );
 			$running['updated'] += (int) ( $batch_summary['updated'] ?? 0 );
 			$running['errored'] += (int) ( $batch_summary['errored'] ?? 0 );
@@ -418,8 +556,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 
 				if ( is_array( $http_error['issues'] ?? null ) ) {
 					$http_error['issues'] = array_map(
-						static function ( array $issue ) use ( $batch_index, $batch ): array {
-							return self::stamp_issue_position( $issue, $batch_index, $batch );
+						static function ( array $issue ) use ( $batch_index, $batch, $batch_size ): array {
+							return self::stamp_issue_position( $issue, $batch_index, $batch, $batch_size );
 						},
 						$http_error['issues']
 					);
@@ -440,7 +578,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 *
 		 * @return array<string, mixed>
 		 */
-		private static function stamp_issue_position( array $issue, int $batch_index, array $batch ): array {
+		private static function stamp_issue_position( array $issue, int $batch_index, array $batch, int $batch_size ): array {
 			$record = $issue['record'] ?? null;
 
 			if ( null === $record ) {
@@ -450,7 +588,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 
 			$record = (int) $record;
 
-			$issue['listing_position'] = $batch_index * Agend_Directory_Sync_Agend_Client::batch_size() + $record + 1;
+			$issue['listing_position'] = $batch_index * $batch_size + $record + 1;
 
 			if ( isset( $batch[ $record ]['external_id'] ) && '' !== $batch[ $record ]['external_id'] ) {
 				$issue['external_id'] = (string) $batch[ $record ]['external_id'];

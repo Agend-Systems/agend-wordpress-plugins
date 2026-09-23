@@ -35,15 +35,18 @@ final class SyncJobProgressTest extends TestCase {
 	private function job( array $overrides = array() ): array {
 		return array_merge(
 			array(
-				'id'            => 'dsj_test',
-				'user_id'       => 1,
-				'stage'         => Agend_Directory_Sync_Job::STAGE_SENDING,
-				'batch_count'   => 10,
-				'batch_cursor'  => 4,
-				'listing_count' => 950,
-				'source'        => 'dataverse',
-				'message'       => '',
-				'send'          => array(
+				'id'             => 'dsj_test',
+				'user_id'        => 1,
+				'stage'          => Agend_Directory_Sync_Job::STAGE_SENDING,
+				'batch_size'     => 100,
+				'batch_count'    => 10,
+				'batch_cursor'   => 4,
+				'batch_attempts' => 0,
+				'retry_after'    => 0,
+				'listing_count'  => 950,
+				'source'         => 'dataverse',
+				'message'        => '',
+				'send'           => array(
 					'created'        => 300,
 					'updated'        => 100,
 					'errored'        => 0,
@@ -323,5 +326,176 @@ final class SyncJobProgressTest extends TestCase {
 		$this->assertNull( $issue['record'] );
 		$this->assertNull( $issue['listing_position'] );
 		$this->assertArrayNotHasKey( 'external_id', $issue );
+	}
+
+	/**
+	 * A transport timeout on the first attempt schedules a retry rather than
+	 * failing the batch immediately: the cursor stays put, the stored batch
+	 * option is kept, and nothing lands in http_errors yet.
+	 */
+	#[Test]
+	public function a_timeout_schedules_a_retry_without_advancing_the_cursor_or_recording_a_failure(): void {
+		$job_id = 'dsj_retry_test';
+		$option = Agend_Directory_Sync_Job::OPTION_BATCH_PREFIX . md5( $job_id ) . '_0';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'batch_attempts'  => 0,
+					'retry_after'     => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'http_request_failed',
+			'cURL error 28: Operation timed out after 15001 milliseconds with 0 bytes received'
+		);
+
+		$job = Agend_Directory_Sync_Job::step( 60 );
+
+		$this->assertSame( 0, $job['batch_cursor'] );
+		$this->assertSame( 1, $job['batch_attempts'] );
+		$this->assertGreaterThan( time(), $job['retry_after'] );
+		$this->assertSame( array(), $job['send']['http_errors'] );
+		$this->assertNotFalse( get_option( $option ) );
+	}
+
+	/**
+	 * The third attempt (the original send plus two retries) that still times
+	 * out is finally recorded as a failure, with the attempt count in its
+	 * message, and only then is the stored batch option released.
+	 */
+	#[Test]
+	public function the_third_timeout_records_the_failure_with_the_attempt_count(): void {
+		$job_id = 'dsj_retry_exhausted_test';
+		$option = Agend_Directory_Sync_Job::OPTION_BATCH_PREFIX . md5( $job_id ) . '_0';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'batch_attempts'  => 2,
+					'retry_after'     => time() - 1,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'http_request_failed',
+			'cURL error 28: Operation timed out after 15001 milliseconds with 0 bytes received'
+		);
+
+		$job = Agend_Directory_Sync_Job::step( 60 );
+
+		$this->assertSame( 1, $job['batch_cursor'] );
+		$this->assertSame( 0, $job['batch_attempts'] );
+		$this->assertCount( 1, $job['send']['http_errors'] );
+		$this->assertStringContainsString( 'timed out after 3 attempts', $job['send']['http_errors'][0]['message'] );
+		$this->assertFalse( get_option( $option ) );
+	}
+
+	/**
+	 * A gateway 400 is a real answer, not a transport failure, so it is never
+	 * retried: the batch fails on the first attempt.
+	 */
+	#[Test]
+	public function a_gateway_400_is_not_retried(): void {
+		$job_id = 'dsj_no_retry_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'batch_attempts'  => 0,
+					'retry_after'     => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'agend_api_error',
+			'Invalid request parameters',
+			array(
+				'status_code' => 400,
+				'body'        => array( 'error' => array( 'code' => 'VALIDATION_ERROR' ) ),
+			)
+		);
+
+		$job = Agend_Directory_Sync_Job::step( 60 );
+
+		$this->assertSame( 1, $job['batch_cursor'] );
+		$this->assertSame( 0, $job['batch_attempts'] );
+		$this->assertCount( 1, $job['send']['http_errors'] );
+		$this->assertStringNotContainsString( 'timed out', $job['send']['http_errors'][0]['message'] );
+	}
+
+	/**
+	 * A step that arrives before retry_after is a no-op: no gateway call, no
+	 * lock taken, the job unchanged. progress() reports how much longer the
+	 * page should wait before its next step call.
+	 */
+	#[Test]
+	public function a_step_before_retry_after_is_a_no_op_reporting_waiting_seconds(): void {
+		$job_id = 'dsj_waiting_test';
+
+		$stored = $this->job(
+			array(
+				'id'              => $job_id,
+				'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+				'batch_count'     => 1,
+				'batch_cursor'    => 0,
+				'batch_attempts'  => 1,
+				'retry_after'     => time() + 50,
+				'external_source' => 'test-source',
+				'auto_publish'    => false,
+				'transform'       => array(),
+			)
+		);
+
+		update_option( Agend_Directory_Sync_Job::OPTION_JOB, $stored, false );
+
+		$job = Agend_Directory_Sync_Job::step( 60 );
+
+		$this->assertSame( 0, $job['batch_cursor'] );
+		$this->assertSame( 1, $job['batch_attempts'] );
+		$this->assertFalse( get_option( Agend_Directory_Sync_Job::OPTION_LOCK ) );
+
+		$progress = Agend_Directory_Sync_Job::progress( $job );
+
+		$this->assertNotNull( $progress['waiting_seconds'] );
+		$this->assertGreaterThan( 0, $progress['waiting_seconds'] );
+		$this->assertLessThanOrEqual( 50, $progress['waiting_seconds'] );
 	}
 }

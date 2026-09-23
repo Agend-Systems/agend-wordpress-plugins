@@ -2,15 +2,18 @@
 /**
  * Directory bulk-upsert client.
  *
- * Chunks the listings into batches of 100 (the API's hard cap) and delegates
- * each batch to agend-apps-core's `agend_apps_directory_bulk_upsert_listings()`,
- * which is the single source of truth for the gateway base URL, API key, and
- * request envelope. This plugin never talks to the gateway directly.
+ * Chunks the listings into batches (batch_size(), configurable, capped at the
+ * API's hard limit of 100) and delegates each batch to agend-apps-core's
+ * `agend_apps_directory_bulk_upsert_listings()`, which is the single source of
+ * truth for the gateway base URL, API key, and request envelope. This plugin
+ * never talks to the gateway directly.
  *
  * On HTTP or transport failures the batch is recorded under `http_errors`; we
  * do NOT retry here. The directory bulk-upsert is idempotent on
  * `(external_source, external_id)`, so a manual rerun is safe and is the
- * simplest recovery for a one-button admin tool.
+ * simplest recovery for a one-button admin tool. The resumable job
+ * (class-sync-job.php) does retry a transport timeout, a few times with
+ * backoff, before it too gives up and records the failure here.
  *
  * @package Agend_Directory_Sync
  */
@@ -48,6 +51,83 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		public const LOCATIONS_MODE = 'replace';
 
 		/**
+		 * Default, minimum and maximum for the "listings per request" setting
+		 * (Agend_Directory_Sync::OPTION_BATCH_SIZE). The maximum is the hard
+		 * gateway cap in MAX_BATCH_SIZE; the default of 25 trades some request
+		 * count for headroom under a host's execution-time limit, which the
+		 * hard cap of 100 could exceed on a slow connection.
+		 */
+		public const DEFAULT_BATCH_SIZE = 25;
+		public const MIN_BATCH_SIZE     = 1;
+
+		/**
+		 * Default, minimum and maximum for the "upload timeout" setting
+		 * (Agend_Directory_Sync::OPTION_TIMEOUT_SECONDS), in seconds.
+		 */
+		public const DEFAULT_TIMEOUT_SECONDS = 60;
+		public const MIN_TIMEOUT_SECONDS     = 15;
+		public const MAX_TIMEOUT_SECONDS     = 300;
+
+		/**
+		 * The number of listings per bulk-upsert request, resolved from
+		 * Agend_Directory_Sync::OPTION_BATCH_SIZE and clamped to [1, 100]. The
+		 * single place step_fetch()'s chunking, send_listings()'s chunking, and
+		 * progress()'s listings-sent estimate all read, so there is exactly one
+		 * definition to change if the default or the cap ever move.
+		 *
+		 * A job stores the value this returned at the moment it started
+		 * (Agend_Directory_Sync_Job::start()) rather than calling this again per
+		 * step, so a setting changed mid-run cannot desync its batch-index-to
+		 * listing-position arithmetic.
+		 */
+		public static function batch_size(): int {
+			$raw   = get_option( Agend_Directory_Sync::OPTION_BATCH_SIZE, null );
+			$value = ( null === $raw || '' === $raw ) ? self::DEFAULT_BATCH_SIZE : (int) $raw;
+
+			return max( self::MIN_BATCH_SIZE, min( self::MAX_BATCH_SIZE, $value ) );
+		}
+
+		/**
+		 * The per-batch gateway request timeout in seconds, resolved from
+		 * Agend_Directory_Sync::OPTION_TIMEOUT_SECONDS and clamped to [15, 300].
+		 * This is the operator's setting; effective_timeout() further caps it to
+		 * what the current request can actually spend.
+		 */
+		public static function timeout_seconds(): int {
+			$raw   = get_option( Agend_Directory_Sync::OPTION_TIMEOUT_SECONDS, null );
+			$value = ( null === $raw || '' === $raw ) ? self::DEFAULT_TIMEOUT_SECONDS : (int) $raw;
+
+			return max( self::MIN_TIMEOUT_SECONDS, min( self::MAX_TIMEOUT_SECONDS, $value ) );
+		}
+
+		/**
+		 * The timeout to actually send with a batch request: the operator's
+		 * setting, capped to leave 5 seconds of the current request's execution
+		 * budget for everything around the HTTP call (JSON decode, option
+		 * writes, the JSON response). Never below 10 seconds, since a lower
+		 * value would make the request more likely to fail than to succeed.
+		 *
+		 * A pure function of its two inputs so it is trivial to test every
+		 * combination without a real PHP ini setting.
+		 *
+		 * @param int $setting            The resolved timeout_seconds() value.
+		 * @param int $max_execution_time `ini_get( 'max_execution_time' )` for
+		 *                                the current request, 0 meaning
+		 *                                unlimited (WP-CLI, or a host with no
+		 *                                cap), read AFTER any set_time_limit()
+		 *                                call the caller already made.
+		 */
+		public static function effective_timeout( int $setting, int $max_execution_time ): int {
+			if ( 0 === $max_execution_time ) {
+				return max( 10, $setting );
+			}
+
+			$available = max( 0, $max_execution_time - 5 );
+
+			return max( 10, min( $setting, $available ) );
+		}
+
+		/**
 		 * POST the listings in batches (via agend-apps-core) and aggregate the
 		 * results.
 		 *
@@ -56,6 +136,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		 * @param bool                             $auto_publish_approved When true, Agend sets `published_at` on any
 		 *                                                                listing in the batch with `status: 'approved'`
 		 *                                                                that does not already have one.
+		 * @param int|null                         $batch_size            Listings per request; defaults to batch_size().
+		 *                                                                A caller re-sending a job's own pre-chunked
+		 *                                                                batch passes the size it was chunked with, so a
+		 *                                                                setting changed mid-run cannot split it further.
+		 * @param int|null                         $timeout_seconds       Per-request gateway timeout in seconds; null
+		 *                                                                leaves agend-apps-core's own default in place.
 		 *
 		 * @return array<string, mixed>
 		 *
@@ -64,13 +150,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		public function send_listings(
 			array $listings,
 			string $external_source,
-			bool $auto_publish_approved = false
+			bool $auto_publish_approved = false,
+			?int $batch_size = null,
+			?int $timeout_seconds = null
 		): array {
 			if ( ! function_exists( 'agend_apps_directory_bulk_upsert_listings' ) ) {
 				throw new RuntimeException( __( 'agend-apps-core is not available; cannot reach the Agend gateway.', 'agend-directory-sync' ) );
 			}
 
-			$batches = array_chunk( $listings, self::MAX_BATCH_SIZE );
+			$batches = array_chunk( $listings, max( 1, $batch_size ?? self::batch_size() ) );
 
 			$summary = array(
 				'external_source'       => $external_source,
@@ -85,7 +173,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 			);
 
 			foreach ( $batches as $batch_index => $batch ) {
-				$result = $this->send_batch( $external_source, $batch, $auto_publish_approved );
+				$result = $this->send_batch( $external_source, $batch, $auto_publish_approved, $timeout_seconds );
 
 				if ( 'ok' !== $result['status'] ) {
 					$summary['http_errors'][] = array_merge(
@@ -121,23 +209,51 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		/**
 		 * Send a single batch via agend-apps-core and parse the result rows.
 		 *
+		 * When a timeout is given, it is injected through the
+		 * `agend_apps_directory_bulk_upsert_listings_args` filter for the
+		 * duration of this one call and removed in a `finally`, the same
+		 * pattern agend-apps-core's own
+		 * `agend_apps_records_export_reports_authoring_listing()` uses to scope
+		 * a one-off request arg through a filter it does not otherwise control.
+		 * agend-apps-core is never modified for this: `request()` already
+		 * honours `$args['timeout']`.
+		 *
 		 * @param string                           $external_source
 		 * @param array<int, array<string, mixed>> $batch
 		 * @param bool                             $auto_publish_approved
+		 * @param int|null                         $timeout_seconds
 		 *
 		 * @return array{status: string, rows?: array<int, array<string, mixed>>, message?: string, status_code?: int, code?: string, issues?: array<int, array<string, mixed>>, issues_omitted?: int}
 		 */
 		private function send_batch(
 			string $external_source,
 			array $batch,
-			bool $auto_publish_approved
+			bool $auto_publish_approved,
+			?int $timeout_seconds = null
 		): array {
-			$response = agend_apps_directory_bulk_upsert_listings(
-				$batch,
-				$external_source,
-				$auto_publish_approved,
-				self::LOCATIONS_MODE
-			);
+			$inject_timeout = null;
+
+			if ( null !== $timeout_seconds ) {
+				$inject_timeout = static function ( $args ) use ( $timeout_seconds ): array {
+					$args             = is_array( $args ) ? $args : array();
+					$args['timeout']  = $timeout_seconds;
+					return $args;
+				};
+				add_filter( 'agend_apps_directory_bulk_upsert_listings_args', $inject_timeout, 20 );
+			}
+
+			try {
+				$response = agend_apps_directory_bulk_upsert_listings(
+					$batch,
+					$external_source,
+					$auto_publish_approved,
+					self::LOCATIONS_MODE
+				);
+			} finally {
+				if ( null !== $inject_timeout ) {
+					remove_filter( 'agend_apps_directory_bulk_upsert_listings_args', $inject_timeout, 20 );
+				}
+			}
 
 			if ( is_wp_error( $response ) ) {
 				$result = array(
@@ -183,16 +299,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 				'status' => 'ok',
 				'rows'   => $rows,
 			);
-		}
-
-		/**
-		 * Read the gateway's batch-size limit from one place, so the batch-index
-		 * to run-position arithmetic done elsewhere (e.g. the job's
-		 * merge_send_summary()) has a single source when this becomes
-		 * configurable.
-		 */
-		public static function batch_size(): int {
-			return self::MAX_BATCH_SIZE;
 		}
 
 		/**

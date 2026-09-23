@@ -107,8 +107,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 
 			$send_summary = array();
 			if ( ! $dry_run && ! empty( $listings ) ) {
+				// Unattended (CLI, or a future scheduled run): no request-time
+				// budget to share with anything else, so the operator's whole
+				// timeout setting applies (effective_timeout()'s
+				// max_execution_time = 0 case).
 				$agend        = new Agend_Directory_Sync_Agend_Client();
-				$send_summary = $agend->send_listings( $listings, $external_source, $auto_publish );
+				$send_summary = $agend->send_listings(
+					$listings,
+					$external_source,
+					$auto_publish,
+					Agend_Directory_Sync_Agend_Client::batch_size(),
+					Agend_Directory_Sync_Agend_Client::effective_timeout(
+						Agend_Directory_Sync_Agend_Client::timeout_seconds(),
+						0
+					)
+				);
 			}
 
 			return array(

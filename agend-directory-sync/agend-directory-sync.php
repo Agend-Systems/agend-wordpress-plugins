@@ -7,7 +7,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.8.0
+ * Version:         0.8.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Tested up to:      7.1
@@ -90,6 +90,19 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		 * approved rows and they appear on the public directory.
 		 */
 		public const OPTION_AUTO_PUBLISH_APPROVED = 'agend_directory_sync_auto_publish_approved';
+
+		/**
+		 * Option key for how many listings go in one bulk-upsert request.
+		 * Clamped and defaulted by Agend_Directory_Sync_Agend_Client::batch_size(),
+		 * which is the single place that reads it.
+		 */
+		public const OPTION_BATCH_SIZE = 'agend_directory_sync_batch_size';
+
+		/**
+		 * Option key for the per-batch gateway request timeout, in seconds.
+		 * Clamped and defaulted by Agend_Directory_Sync_Agend_Client::timeout_seconds().
+		 */
+		public const OPTION_TIMEOUT_SECONDS = 'agend_directory_sync_timeout_seconds';
 
 		/**
 		 * Default value for external_source if the option is unset. This is the

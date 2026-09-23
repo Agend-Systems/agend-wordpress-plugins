@@ -54,7 +54,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job_Controller' ) ) :
 				@set_time_limit( 120 );
 			}
 
-			$job = Agend_Directory_Sync_Job::step();
+			// Read AFTER the set_time_limit() call above: a host that disables
+			// set_time_limit() (or caps it below 120) still reports its actual
+			// ceiling here, which is what the batch's own gateway-request
+			// timeout must fit inside. 0 means unlimited.
+			$max_execution_time = (int) ini_get( 'max_execution_time' );
+
+			$job = Agend_Directory_Sync_Job::step( $max_execution_time );
 
 			wp_send_json_success( self::envelope( $job ) );
 		}
