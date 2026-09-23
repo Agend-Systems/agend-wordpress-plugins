@@ -198,7 +198,11 @@
       note.textContent = '';
     }
 
-    loadFreshReportIndex(cfg)
+    // With no parameter rows there is nothing to map, so the live listing
+    // call would only cost a round trip.
+    var hasRows = !!(cfg.parameters && cfg.parameters.length);
+
+    (hasRows ? loadFreshReportIndex(cfg) : loadReportIndex(cfg))
       .then(function (byId) {
         var report = byId[reportId];
 
@@ -207,7 +211,7 @@
         // below will silently send nothing. Configured parameter rows exist
         // to be applied, so say so rather than leave the widget looking like
         // it filtered when it did not.
-        if (!report && cfg.parameters && cfg.parameters.length && window.console && window.console.warn) {
+        if (!report && hasRows && window.console && window.console.warn) {
           window.console.warn(
             'Agend export report: report "' + reportId + '" was not in the export report listing. ' +
             'Configured parameters could not be applied; the download proceeded unfiltered.'
