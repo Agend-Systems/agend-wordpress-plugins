@@ -422,6 +422,46 @@ if ( ! function_exists( 'agend_apps_events_get_tickets' ) ) {
 	}
 }
 
+if ( ! class_exists( 'Agend_Test_Directory_Bulk_Upsert' ) ) {
+	/**
+	 * Spy + scripted response for agend-apps-core's directory bulk-upsert
+	 * function, which agend-directory-sync's Agend_Directory_Sync_Agend_Client
+	 * calls per batch. Declared here rather than requiring
+	 * agend-apps-core/includes/api/directory.php, so a test can script a
+	 * WP_Error (a gateway 400, or a bare transport failure) as easily as a
+	 * success payload.
+	 */
+	final class Agend_Test_Directory_Bulk_Upsert {
+		/** @var array<int, array<string, mixed>> Every call's args, in call order. */
+		public static array $calls = array();
+
+		/** @var mixed Value the next call returns. */
+		public static $response = array( 'data' => array( 'results' => array() ) );
+
+		public static function reset(): void {
+			self::$calls    = array();
+			self::$response = array( 'data' => array( 'results' => array() ) );
+		}
+	}
+}
+
+if ( ! function_exists( 'agend_apps_directory_bulk_upsert_listings' ) ) {
+	/**
+	 * @param array<int, array<string, mixed>> $listings
+	 * @return mixed
+	 */
+	function agend_apps_directory_bulk_upsert_listings( array $listings, string $external_source, bool $auto_publish_approved = false, string $locations_mode = 'replace' ) {
+		Agend_Test_Directory_Bulk_Upsert::$calls[] = array(
+			'listings'              => $listings,
+			'external_source'       => $external_source,
+			'auto_publish_approved' => $auto_publish_approved,
+			'locations_mode'        => $locations_mode,
+		);
+
+		return Agend_Test_Directory_Bulk_Upsert::$response;
+	}
+}
+
 if ( ! class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) ) {
 	/**
 	 * Minimal fake of the kiosk's entitlement value object.

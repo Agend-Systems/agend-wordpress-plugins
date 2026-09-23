@@ -1772,11 +1772,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									'cancelled' => __( 'Cancelled. Batches already uploaded were kept; running again completes the rest.', 'agend-directory-sync' ),
 								),
 								'strings'  => array(
-									'uploading' => __( 'Uploading… batch %1$s of %2$s', 'agend-directory-sync' ),
-									'counts'    => __( '%1$s of %2$s listings — created %3$s, updated %4$s, errors %5$s', 'agend-directory-sync' ),
-									'failed'    => __( 'Failed: %1$s', 'agend-directory-sync' ),
-									'busy'      => __( 'Another tab is running a step; waiting…', 'agend-directory-sync' ),
-									'resume'    => __( 'A previous upload is unfinished. Resume it to continue where it stopped.', 'agend-directory-sync' ),
+									'uploading'       => __( 'Uploading… batch %1$s of %2$s', 'agend-directory-sync' ),
+									'counts'          => __( '%1$s of %2$s listings — created %3$s, updated %4$s, errors %5$s', 'agend-directory-sync' ),
+									'failed'          => __( 'Failed: %1$s', 'agend-directory-sync' ),
+									'busy'            => __( 'Another tab is running a step; waiting…', 'agend-directory-sync' ),
+									'resume'          => __( 'A previous upload is unfinished. Resume it to continue where it stopped.', 'agend-directory-sync' ),
+									'batch'           => __( 'Batch %1$s: %2$s', 'agend-directory-sync' ),
+									'field'           => __( 'Field %1$s: %2$s', 'agend-directory-sync' ),
+									'listing'         => __( 'Listing #%1$s, field %2$s: %3$s', 'agend-directory-sync' ),
+									'listingWithId'   => __( 'Listing #%1$s (external id %2$s), field %3$s: %4$s', 'agend-directory-sync' ),
 								),
 							)
 						); ?>;
@@ -1786,6 +1790,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							var stageEl = document.getElementById('agend-dsj-stage');
 							var barEl = document.getElementById('agend-dsj-bar');
 							var countsEl = document.getElementById('agend-dsj-counts');
+							var errorsEl = document.getElementById('agend-dsj-errors');
 							var pauseBtn = document.getElementById('agend-dsj-pause');
 							var resumeBtn = document.getElementById('agend-dsj-resume');
 							var cancelBtn = document.getElementById('agend-dsj-cancel');
@@ -1811,6 +1816,43 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								}).then(function (r) { return r.json(); });
 							}
 
+							// Mirrors Admin_Page::format_issue_line() so the live progress
+							// panel reads the same as the finished result page.
+							function formatIssue(issue) {
+								if (issue.listing_position === null || issue.listing_position === undefined) {
+									return format(jobConfig.strings.field, [issue.field, issue.reason]);
+								}
+								if (issue.external_id) {
+									return format(jobConfig.strings.listingWithId, [issue.listing_position, issue.external_id, issue.field, issue.reason]);
+								}
+								return format(jobConfig.strings.listing, [issue.listing_position, issue.field, issue.reason]);
+							}
+
+							// Mirrors Admin_Page::render_http_errors_summary(): one line
+							// per failed batch, with its issues nested beneath. Built
+							// with textContent rather than innerHTML since batch messages
+							// and field names come from the gateway's response.
+							function renderHttpErrors(details) {
+								if (!errorsEl) { return; }
+								errorsEl.textContent = '';
+								(details || []).forEach(function (detail) {
+									var li = document.createElement('li');
+									li.textContent = format(jobConfig.strings.batch, [detail.batch, detail.message]);
+									if (detail.issues && detail.issues.length) {
+										var sub = document.createElement('ul');
+										sub.style.listStyle = 'circle';
+										sub.style.paddingLeft = '1.5em';
+										detail.issues.forEach(function (issue) {
+											var issueLi = document.createElement('li');
+											issueLi.textContent = formatIssue(issue);
+											sub.appendChild(issueLi);
+										});
+										li.appendChild(sub);
+									}
+									errorsEl.appendChild(li);
+								});
+							}
+
 							function paint(job, note) {
 								panel.style.display = '';
 								var label = '';
@@ -1828,6 +1870,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								countsEl.textContent = job.listing_count
 									? format(jobConfig.strings.counts, [job.listings_sent, job.listing_count, job.created, job.updated, job.errored])
 									: '';
+								renderHttpErrors(job.http_error_details);
 
 								var active = job.active;
 								pauseBtn.style.display = active && running ? '' : 'none';
@@ -2234,6 +2277,30 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				<p id="agend-dsj-counts" class="description" style="margin:.5em 0 1em;">
 					<?php echo esc_html( null !== $progress ? self::job_counts_label( $progress ) : '' ); ?>
 				</p>
+
+				<ul id="agend-dsj-errors" style="list-style:disc;padding-left:1.5em;margin:0 0 1em;max-height:200px;overflow:auto;">
+					<?php foreach ( ( null !== $progress ? $progress['http_error_details'] : array() ) as $http_error ) : ?>
+						<li>
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: 1: batch number (1-based), 2: failure message. */
+									__( 'Batch %1$d: %2$s', 'agend-directory-sync' ),
+									(int) $http_error['batch'],
+									(string) $http_error['message']
+								)
+							);
+							?>
+							<?php if ( ! empty( $http_error['issues'] ) ) : ?>
+								<ul style="list-style:circle;padding-left:1.5em;">
+									<?php foreach ( $http_error['issues'] as $issue ) : ?>
+										<li><?php echo esc_html( self::format_issue_line( $issue ) ); ?></li>
+									<?php endforeach; ?>
+								</ul>
+							<?php endif; ?>
+						</li>
+					<?php endforeach; ?>
+				</ul>
 
 				<p style="margin:0;">
 					<button type="button" class="button" id="agend-dsj-pause"><?php esc_html_e( 'Pause', 'agend-directory-sync' ); ?></button>
@@ -2645,13 +2712,98 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			}
 
 			if ( ! empty( $http_errors ) ) {
+				self::render_http_errors_summary( $http_errors );
 				self::render_preview_window(
-					__( 'Batch-level HTTP errors', 'agend-directory-sync' ),
+					__( 'Batch-level HTTP errors (raw)', 'agend-directory-sync' ),
 					static function () use ( $http_errors ): void {
 						self::render_json_block( $http_errors );
 					}
 				);
 			}
+		}
+
+		/**
+		 * Render a readable per-batch summary of HTTP-level batch failures, above
+		 * the raw JSON block: one line per failed batch with its message, and
+		 * beneath it one line per validation issue the gateway reported, so an
+		 * operator can see what to fix without reading a JSON dump.
+		 *
+		 * @param array<int, array<string, mixed>> $http_errors
+		 */
+		private static function render_http_errors_summary( array $http_errors ): void {
+			echo '<h4>' . esc_html__( 'Batch failures', 'agend-directory-sync' ) . '</h4>';
+			echo '<ul style="list-style:disc;padding-left:1.5em;">';
+			foreach ( $http_errors as $http_error ) {
+				$batch_index = (int) ( $http_error['batch_index'] ?? 0 );
+				$message     = (string) ( $http_error['message'] ?? '' );
+				$issues      = is_array( $http_error['issues'] ?? null ) ? $http_error['issues'] : array();
+
+				echo '<li>' . esc_html(
+					sprintf(
+						/* translators: 1: batch number (1-based), 2: failure message. */
+						__( 'Batch %1$d: %2$s', 'agend-directory-sync' ),
+						$batch_index + 1,
+						$message
+					)
+				);
+
+				if ( ! empty( $issues ) ) {
+					echo '<ul style="list-style:circle;padding-left:1.5em;">';
+					foreach ( $issues as $issue ) {
+						if ( ! is_array( $issue ) ) {
+							continue;
+						}
+						echo '<li>' . esc_html( self::format_issue_line( $issue ) ) . '</li>';
+					}
+					echo '</ul>';
+				}
+
+				echo '</li>';
+			}
+			echo '</ul>';
+		}
+
+		/**
+		 * One issue as an operator-facing line. `listing_position` is the
+		 * job-wide, 1-based position `merge_send_summary()` stamps on; when it
+		 * is absent (a batch failure with no per-row detail, e.g. a rejected
+		 * `external_source`), only the field and reason are shown.
+		 *
+		 * @param array<string, mixed> $issue
+		 */
+		private static function format_issue_line( array $issue ): string {
+			$field        = (string) ( $issue['field'] ?? '' );
+			$reason       = (string) ( $issue['reason'] ?? '' );
+			$position     = $issue['listing_position'] ?? null;
+			$external_id  = (string) ( $issue['external_id'] ?? '' );
+
+			if ( null === $position ) {
+				return sprintf(
+					/* translators: 1: field name, 2: validation reason. */
+					__( 'Field %1$s: %2$s', 'agend-directory-sync' ),
+					$field,
+					$reason
+				);
+			}
+
+			if ( '' !== $external_id ) {
+				return sprintf(
+					/* translators: 1: listing position in the run, 2: external id, 3: field name, 4: validation reason. */
+					__( 'Listing #%1$d (external id %2$s), field %3$s: %4$s', 'agend-directory-sync' ),
+					(int) $position,
+					$external_id,
+					$field,
+					$reason
+				);
+			}
+
+			return sprintf(
+				/* translators: 1: listing position in the run, 2: field name, 3: validation reason. */
+				__( 'Listing #%1$d, field %2$s: %3$s', 'agend-directory-sync' ),
+				(int) $position,
+				$field,
+				$reason
+			);
 		}
 
 		private static function render_skip_reasons( $skip_reasons ): void {

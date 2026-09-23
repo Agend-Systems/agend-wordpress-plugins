@@ -137,7 +137,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 			$errored     = (int) ( $send['errored'] ?? 0 );
 
 			if ( ! empty( $http_errors ) ) {
-				WP_CLI::warning( sprintf( '%d batch(es) failed at the HTTP level; see the gateway response.', count( $http_errors ) ) );
+				WP_CLI::warning( sprintf( '%d batch(es) failed at the HTTP level:', count( $http_errors ) ) );
+				$this->log_http_errors( $http_errors );
 			}
 
 			if ( $errored > 0 ) {
@@ -213,6 +214,42 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 			WP_CLI::log( $heading . ':' );
 			foreach ( $map as $key => $count ) {
 				WP_CLI::log( sprintf( '  %s: %d', (string) $key, (int) $count ) );
+			}
+		}
+
+		/**
+		 * Print each failed batch's message, and any per-row validation issues
+		 * beneath it. A record index here is 0-based within its own batch: the
+		 * CLI sends each batch directly through Agend_Directory_Sync_Runner,
+		 * not through the resumable job, so there is no run-wide listing
+		 * position to convert it to.
+		 *
+		 * @param array<int, array<string, mixed>> $http_errors
+		 */
+		private function log_http_errors( array $http_errors ): void {
+			foreach ( $http_errors as $http_error ) {
+				$batch_index = (int) ( $http_error['batch_index'] ?? 0 );
+				$message     = (string) ( $http_error['message'] ?? '' );
+
+				WP_CLI::warning( sprintf( 'Batch %d: %s', $batch_index + 1, $message ) );
+
+				$issues = is_array( $http_error['issues'] ?? null ) ? $http_error['issues'] : array();
+
+				foreach ( $issues as $issue ) {
+					if ( ! is_array( $issue ) ) {
+						continue;
+					}
+
+					$field  = (string) ( $issue['field'] ?? '' );
+					$reason = (string) ( $issue['reason'] ?? '' );
+					$record = $issue['record'] ?? null;
+
+					WP_CLI::log(
+						null !== $record
+							? sprintf( '  record %d (0-based in this batch), field %s: %s', (int) $record, $field, $reason )
+							: sprintf( '  field %s: %s', $field, $reason )
+					);
+				}
 			}
 		}
 	}

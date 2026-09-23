@@ -235,19 +235,60 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 			$sent = min( $done * Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE, (int) ( $job['listing_count'] ?? 0 ) );
 
 			return array(
-				'stage'          => $stage,
-				'active'         => self::is_active( $job ),
-				'percent'        => $percent,
-				'batches_total'  => $batches,
-				'batches_done'   => $done,
-				'listing_count'  => (int) ( $job['listing_count'] ?? 0 ),
-				'listings_sent'  => $sent,
-				'created'        => (int) ( $job['send']['created'] ?? 0 ),
-				'updated'        => (int) ( $job['send']['updated'] ?? 0 ),
-				'errored'        => (int) ( $job['send']['errored'] ?? 0 ),
-				'http_errors'    => count( (array) ( $job['send']['http_errors'] ?? array() ) ),
-				'message'        => (string) ( $job['message'] ?? '' ),
-				'source'         => (string) ( $job['source'] ?? '' ),
+				'stage'              => $stage,
+				'active'             => self::is_active( $job ),
+				'percent'            => $percent,
+				'batches_total'      => $batches,
+				'batches_done'       => $done,
+				'listing_count'      => (int) ( $job['listing_count'] ?? 0 ),
+				'listings_sent'      => $sent,
+				'created'            => (int) ( $job['send']['created'] ?? 0 ),
+				'updated'            => (int) ( $job['send']['updated'] ?? 0 ),
+				'errored'            => (int) ( $job['send']['errored'] ?? 0 ),
+				'http_errors'        => count( (array) ( $job['send']['http_errors'] ?? array() ) ),
+				'http_error_details' => self::progress_http_error_details( (array) ( $job['send']['http_errors'] ?? array() ) ),
+				'message'            => (string) ( $job['message'] ?? '' ),
+				'source'             => (string) ( $job['source'] ?? '' ),
+			);
+		}
+
+		/**
+		 * Reduce the running job's `http_errors` to the handful the live
+		 * progress panel shows while a run is in flight; the full list is still
+		 * on the finished result page. Kept to the most recent few batches so a
+		 * long run with many failures doesn't grow the step response without
+		 * bound.
+		 *
+		 * @param array<int, array<string, mixed>> $http_errors
+		 *
+		 * @return array<int, array{batch: int, message: string, issues: array<int, array<string, mixed>>}>
+		 */
+		private static function progress_http_error_details( array $http_errors ): array {
+			$recent = array_slice( $http_errors, -5 );
+
+			return array_map(
+				static function ( array $http_error ): array {
+					$issues = is_array( $http_error['issues'] ?? null ) ? $http_error['issues'] : array();
+
+					return array(
+						'batch'   => (int) ( $http_error['batch_index'] ?? 0 ) + 1,
+						'message' => (string) ( $http_error['message'] ?? '' ),
+						'issues'  => array_map(
+							static function ( $issue ): array {
+								$issue = is_array( $issue ) ? $issue : array();
+
+								return array(
+									'field'            => (string) ( $issue['field'] ?? '' ),
+									'reason'           => (string) ( $issue['reason'] ?? '' ),
+									'listing_position' => $issue['listing_position'] ?? null,
+									'external_id'      => (string) ( $issue['external_id'] ?? '' ),
+								);
+							},
+							$issues
+						),
+					);
+				},
+				$recent
 			);
 		}
 
@@ -318,7 +359,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				$client  = new Agend_Directory_Sync_Agend_Client();
 				$summary = $client->send_listings( $batch, (string) $job['external_source'], (bool) $job['auto_publish'] );
 
-				$job['send']         = self::merge_send_summary( $job['send'], $summary, $index );
+				$job['send']         = self::merge_send_summary( $job['send'], $summary, $index, $batch );
 				$job['batch_cursor'] = $index + 1;
 			}
 
@@ -345,12 +386,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 * are restamped with the job's real batch index — otherwise every failure
 		 * in a 25-batch run claims to be batch 0.
 		 *
-		 * @param array<string, mixed> $running
-		 * @param array<string, mixed> $batch_summary
+		 * A batch-level validation failure's issues carry a record index that is
+		 * also relative to the call (`record`, 0-based within the batch); this
+		 * also converts it into a job-wide listing position (`listing_position`,
+		 * 1-based, what an operator counts by), and attaches the record's
+		 * external_id from the batch that was actually sent, when the batch is
+		 * available.
+		 *
+		 * @param array<string, mixed>              $running
+		 * @param array<string, mixed>              $batch_summary
+		 * @param array<int, array<string, mixed>>  $batch         The listings sent in this batch, for
+		 *                                                          resolving an issue's external_id.
 		 *
 		 * @return array<string, mixed>
 		 */
-		private static function merge_send_summary( array $running, array $batch_summary, int $batch_index ): array {
+		private static function merge_send_summary( array $running, array $batch_summary, int $batch_index, array $batch = array() ): array {
 			$running['created'] += (int) ( $batch_summary['created'] ?? 0 );
 			$running['updated'] += (int) ( $batch_summary['updated'] ?? 0 );
 			$running['errored'] += (int) ( $batch_summary['errored'] ?? 0 );
@@ -365,10 +415,48 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 
 			foreach ( (array) ( $batch_summary['http_errors'] ?? array() ) as $http_error ) {
 				$http_error['batch_index'] = $batch_index;
-				$running['http_errors'][]  = $http_error;
+
+				if ( is_array( $http_error['issues'] ?? null ) ) {
+					$http_error['issues'] = array_map(
+						static function ( array $issue ) use ( $batch_index, $batch ): array {
+							return self::stamp_issue_position( $issue, $batch_index, $batch );
+						},
+						$http_error['issues']
+					);
+				}
+
+				$running['http_errors'][] = $http_error;
 			}
 
 			return $running;
+		}
+
+		/**
+		 * Convert one issue's in-batch record index into a job-wide listing
+		 * position, and attach the external_id of the listing it refers to.
+		 *
+		 * @param array<string, mixed>             $issue
+		 * @param array<int, array<string, mixed>> $batch
+		 *
+		 * @return array<string, mixed>
+		 */
+		private static function stamp_issue_position( array $issue, int $batch_index, array $batch ): array {
+			$record = $issue['record'] ?? null;
+
+			if ( null === $record ) {
+				$issue['listing_position'] = null;
+				return $issue;
+			}
+
+			$record = (int) $record;
+
+			$issue['listing_position'] = $batch_index * Agend_Directory_Sync_Agend_Client::batch_size() + $record + 1;
+
+			if ( isset( $batch[ $record ]['external_id'] ) && '' !== $batch[ $record ]['external_id'] ) {
+				$issue['external_id'] = (string) $batch[ $record ]['external_id'];
+			}
+
+			return $issue;
 		}
 
 		/**
