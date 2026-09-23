@@ -61,18 +61,11 @@ Choosing no template keeps the built-in card and detail layouts.
 
 Deferred deliberately, in rough order:
 
-1. **Custom field filtering does not filter.** The directory tag, badge and custom field filters
-   are wired to the facets endpoint and send correctly encoded, validated parameters, but a
-   `custom_fields[...]` filter returns the full result set for an anonymous caller: three
-   mutually exclusive education values each returned all 20 listings. Tag filtering on the same
-   request path works (20 to 16), so the plugin side is sound. Reported to the API side; likely
-   the search RPC skipping the custom-field predicate when the caller holds no viewer field
-   grant for it.
-2. **Events and courses facets.** The facet endpoint exists for the directory only. Events tags
+1. **Events and courses facets.** The facet endpoint exists for the directory only. Events tags
    and course categories still cannot be enumerated, and course categories are still derived from
    the distinct values of one page of courses. The facet response shape is deliberately
    record-type-neutral, so adopting it for the other two is additive on both sides.
-3. **Export execution returns 500.** The Agend Export Report widget is built, and the list half
+2. **Export execution returns 500.** The Agend Export Report widget is built, and the list half
    works: reports, their audience and their parameters all come back. Every execution of a report
    fails with an internal error from the gateway, for every report and every shape tried, so no
    file is ever produced. Isolated to the gateway route: the underlying RPC returns rows when
