@@ -40,6 +40,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return string
  */
 function agend_apps_records_record_image_url( array $settings, array $ctx ): string {
+	if ( 'yes' === ( $settings['use_term_images'] ?? '' ) ) {
+		$match = agend_apps_records_record_image_term_match( $settings, $ctx );
+		return '' !== $match['url'] ? $match['url'] : agend_apps_records_normalise_url_setting( $settings['fallback_image'] ?? '' );
+	}
+
 	$key = (string) ( $settings['field'] ?? 'common:image' );
 	$url = agend_apps_records_field_value( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
 	$url = is_string( $url ) ? $url : '';
@@ -49,6 +54,95 @@ function agend_apps_records_record_image_url( array $settings, array $ctx ): str
 	}
 
 	return $url;
+}
+
+/**
+ * Display width choices for the Agend Image surface, in pixels.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_record_image_width_options(): array {
+	return array(
+		''    => __( 'Fill its column', 'agend-apps-core' ),
+		'48'  => '48px',
+		'64'  => '64px',
+		'80'  => '80px',
+		'96'  => '96px',
+		'128' => '128px',
+		'160' => '160px',
+		'200' => '200px',
+		'240' => '240px',
+	);
+}
+
+/**
+ * The uploaded image for the first of the record's terms a `term_images` row
+ * matches (comma-separated, trimmed, case-insensitive, exact).
+ *
+ * Terms are tried in the record's own order, so a record holding two mapped
+ * terms shows the image of the one it lists first.
+ *
+ * @param array $settings Surface settings.
+ * @param array $ctx      Resolved record context.
+ * @return array{url: string, term: string} Both '' when nothing matches.
+ */
+function agend_apps_records_record_image_term_match( array $settings, array $ctx ): array {
+	$none = array( 'url' => '', 'term' => '' );
+	$rows = $settings['term_images'] ?? array();
+	$key  = (string) ( $settings['term_field'] ?? 'common:category' );
+
+	if ( ! is_array( $rows ) || empty( $rows ) || ! agend_apps_records_field_applies( $key, $ctx['type'] ) ) {
+		return $none;
+	}
+
+	$lower = static function ( string $value ): string {
+		$value = trim( $value );
+		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $value ) : strtolower( $value );
+	};
+
+	foreach ( agend_apps_records_field_terms( $key, $ctx['type'], $ctx['record'], $ctx['extra'] ) as $term ) {
+		$needle = $lower( (string) $term );
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$matches = array_map( $lower, explode( ',', (string) ( $row['term_match'] ?? '' ) ) );
+			$url     = agend_apps_records_normalise_url_setting( $row['term_image'] ?? '' );
+			if ( '' !== $needle && '' !== $url && in_array( $needle, $matches, true ) ) {
+				return array( 'url' => $url, 'term' => (string) $term );
+			}
+		}
+	}
+
+	return $none;
+}
+
+/**
+ * The shape and width hooks the Style settings put on an `<img>`.
+ *
+ * Applied in every editor: unlike `aspect_ratio` and `object_fit`, these
+ * have no Elementor `selectors`, so the renderer is the only thing that
+ * applies them.
+ *
+ * @param array $settings Surface settings.
+ * @return array{classes: string[], style: string}
+ */
+function agend_apps_records_record_image_shape( array $settings ): array {
+	$classes = array();
+	$style   = '';
+
+	$shape = (string) ( $settings['shape'] ?? '' );
+	if ( in_array( $shape, array( 'rounded', 'circle' ), true ) ) {
+		$classes[] = 'agend-record-image--' . $shape;
+	}
+
+	$width = (string) ( $settings['display_width'] ?? '' );
+	if ( '' !== $width && array_key_exists( $width, agend_apps_records_record_image_width_options() ) ) {
+		$classes[] = 'agend-record-image--sized';
+		$style     = '--agend-image-width:' . (int) $width . 'px';
+	}
+
+	return array( 'classes' => $classes, 'style' => $style );
 }
 
 /**
@@ -260,13 +354,15 @@ function agend_apps_records_record_image_render_background( array $settings, str
  * @return string
  */
 function agend_apps_records_record_image_render_img( array $settings, array $ctx, string $url, string $title, bool $inline_style ): string {
-	$attrs = 'class="agend-record-image agend-record-image--img"';
+	$shape = agend_apps_records_record_image_shape( $settings );
+	$attrs = 'class="' . esc_attr( implode( ' ', array_merge( array( 'agend-record-image', 'agend-record-image--img' ), $shape['classes'] ) ) ) . '"';
 
-	if ( $inline_style ) {
-		$style = agend_apps_records_record_image_inline_styles( $settings, 'img', '' )['img'];
-		if ( '' !== $style ) {
-			$attrs .= ' style="' . esc_attr( $style ) . '"';
-		}
+	$style = $inline_style ? agend_apps_records_record_image_inline_styles( $settings, 'img', '' )['img'] : '';
+	if ( '' !== $shape['style'] ) {
+		$style .= $shape['style'] . ';';
+	}
+	if ( '' !== $style ) {
+		$attrs .= ' style="' . esc_attr( $style ) . '"';
 	}
 
 	$attrs .= ' src="' . esc_url( $url ) . '" alt="' . esc_attr( $title ) . '" loading="lazy"';
@@ -317,6 +413,12 @@ function agend_apps_records_render_record_image( array $settings, array $opts = 
 	$ctx          = $resolved['ctx'];
 	$url          = $resolved['url'];
 	$title        = (string) ( agend_apps_records_field_value( 'common:title', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
+	if ( 'yes' === ( $settings['use_term_images'] ?? '' ) ) {
+		// An image chosen by term shows the term (an accreditation logo, say),
+		// so the term is what its alt text says, not the record's name.
+		$term  = agend_apps_records_record_image_term_match( $settings, $ctx )['term'];
+		$title = '' !== $term ? $term : $title;
+	}
 	$inline_style = ! empty( $opts['inline_style'] );
 
 	if ( 'background' === (string) ( $settings['mode'] ?? 'img' ) ) {

@@ -190,6 +190,83 @@ function agend_apps_records_schema_record_image(): array {
 					),
 				),
 			),
+			array(
+				'id'     => 'section_term_images',
+				'label'  => __( 'Image by term', 'agend-apps-core' ),
+				'fields' => array(
+					array(
+						'name'        => 'use_term_images',
+						'label'       => __( 'Choose the image by term', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Shows an image you upload for a term the record has, for example an accreditation logo for each specialist type. Replaces the image field above.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'term_field',
+						'label'       => __( 'Terms', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'common:category',
+						'groups'      => 'agend_apps_records_pill_field_options',
+						'label_block' => true,
+						'condition'   => array( 'use_term_images' => 'yes' ),
+					),
+					array(
+						'name'      => 'term_images',
+						'label'     => __( 'Images', 'agend-apps-core' ),
+						'type'      => 'repeater',
+						'row_label' => 'term_match',
+						'default'   => array(),
+						'condition' => array( 'use_term_images' => 'yes' ),
+						'fields'    => array(
+							array(
+								'name'        => 'term_match',
+								'label'       => __( 'Matches', 'agend-apps-core' ),
+								'type'        => 'text',
+								'default'     => '',
+								'description' => __( 'The term exactly as it appears, ignoring case. Several terms can be separated by commas.', 'agend-apps-core' ),
+							),
+							array(
+								'name'  => 'term_image',
+								'label' => __( 'Image', 'agend-apps-core' ),
+								'type'  => 'media',
+							),
+						),
+					),
+					array(
+						'name'      => 'term_images_note',
+						'type'      => 'note',
+						'content'   => __( 'The first term the record has that matches a row wins. A record with no matching term shows the fallback image, or nothing.', 'agend-apps-core' ),
+						'condition' => array( 'use_term_images' => 'yes' ),
+					),
+				),
+			),
+			array(
+				'id'        => 'section_style_shape',
+				'label'     => __( 'Shape and size', 'agend-apps-core' ),
+				'tab'       => 'style',
+				'condition' => array( 'mode' => 'img' ),
+				'fields'    => array(
+					array(
+						'name'        => 'shape',
+						'label'       => __( 'Shape', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => '',
+						'options'     => array(
+							''        => __( 'As uploaded', 'agend-apps-core' ),
+							'rounded' => __( 'Rounded corners', 'agend-apps-core' ),
+							'circle'  => __( 'Circle', 'agend-apps-core' ),
+						),
+						'description' => __( 'Circle crops the image square first.', 'agend-apps-core' ),
+					),
+					array(
+						'name'    => 'display_width',
+						'label'   => __( 'Width', 'agend-apps-core' ),
+						'type'    => 'select',
+						'default' => '',
+						'options' => 'agend_apps_records_record_image_width_options',
+					),
+				),
+			),
 		),
 	);
 }
