@@ -188,6 +188,59 @@ function agend_apps_records_record_block_render_reason( array $settings, array $
 }
 
 /**
+ * Corner radius choices for the Agend Panel colour settings.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_record_block_radius_options(): array {
+	return array(
+		''   => __( 'Built-in', 'agend-apps-core' ),
+		'0'  => __( 'Square', 'agend-apps-core' ),
+		'2'  => '2px',
+		'4'  => '4px',
+		'6'  => '6px',
+		'8'  => '8px',
+		'12' => '12px',
+	);
+}
+
+/**
+ * The panel's Colours settings, as custom property declarations that follow
+ * (and so override) the built-in palette agend_apps_records_ssr_colour_style()
+ * writes. Only set, safe values are written.
+ *
+ * @param array  $settings Surface settings.
+ * @param string $prefix   The record type's variable prefix, e.g. 'agend-dir'.
+ * @return string
+ */
+function agend_apps_records_record_block_colour_overrides( array $settings, string $prefix ): string {
+	$roles = array(
+		'heading_colour'     => 'heading',
+		'body_colour'        => 'body',
+		'accent_colour'      => 'accent',
+		'button_colour'      => 'button',
+		'button_text_colour' => 'button-text',
+		'border_colour'      => 'border',
+		'surface_colour'     => 'surface',
+	);
+
+	$css = '';
+	foreach ( $roles as $key => $role ) {
+		$value = trim( (string) ( $settings[ $key ] ?? '' ) );
+		if ( agend_apps_records_colour_is_safe( $value ) ) {
+			$css .= '--' . $prefix . '-' . $role . ':' . $value . ';';
+		}
+	}
+
+	$radius = (string) ( $settings['panel_radius'] ?? '' );
+	if ( '' !== $radius && array_key_exists( $radius, agend_apps_records_record_block_radius_options() ) ) {
+		$css .= '--' . $prefix . '-card-radius:' . (int) $radius . 'px;';
+	}
+
+	return $css;
+}
+
+/**
  * Renders the Agend Panel surface: the fragment for the settings' `block`
  * key, wrapped in the catalogue root class and colour variables its CSS
  * expects, so a panel placed in a detail template lands on the same classes
@@ -209,7 +262,7 @@ function agend_apps_records_render_record_block( array $settings, array $opts = 
 	$roots  = array( 'course' => 'agend-courses-catalogue', 'listing' => 'agend-directory-catalogue', 'event' => 'agend-events-catalogue' );
 	$prefix = array( 'course' => 'agend-lms', 'listing' => 'agend-dir', 'event' => 'agend-ev' );
 	$root   = $roots[ $resolved['type'] ] ?? 'agend-events-catalogue';
-	$style  = agend_apps_records_ssr_colour_style( $prefix[ $resolved['type'] ] ?? 'agend-ev' );
+	$style  = agend_apps_records_ssr_colour_style( $prefix[ $resolved['type'] ] ?? 'agend-ev' ) . agend_apps_records_record_block_colour_overrides( $settings, $prefix[ $resolved['type'] ] ?? 'agend-ev' );
 
 	return '<div class="agend-record-block agend-record-block--' . esc_attr( $resolved['key'] ) . ' ' . esc_attr( $root ) . ' ' . esc_attr( $root ) . '--fragment" style="' . esc_attr( $style ) . '">' . $resolved['html'] . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Fragments escape internally.
 }
