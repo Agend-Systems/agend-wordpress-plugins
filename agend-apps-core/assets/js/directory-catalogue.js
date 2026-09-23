@@ -1369,14 +1369,16 @@
   // agend_apps_records_directory_catalogue_count_text() in
   // includes/records/render/directory-catalogue.php, which renders the first
   // page's line on the server. With "load more", the line counts from the
-  // first listing, because earlier pages stay on screen.
-  function formatCount(text, pagination, appended) {
+  // first listing, because earlier pages stay on screen. The page size is the
+  // one requested (cfg.pagination.perPage); a `limit` in the meta wins when
+  // present, since it is what the gateway applied.
+  function formatCount(text, pagination, appended, perPage) {
     var total = pagination ? parseInt(pagination.total, 10) || 0 : 0;
     if (total < 1) {
       return '';
     }
     var page = Math.max(1, parseInt(pagination.page, 10) || 1);
-    var limit = Math.max(1, parseInt(pagination.limit, 10) || total);
+    var limit = Math.max(1, parseInt(pagination.limit, 10) || parseInt(perPage, 10) || total);
     var from = appended ? 1 : Math.min(total, (page - 1) * limit + 1);
     var to = Math.min(total, page * limit);
     var fmt = function (n) {
@@ -1790,7 +1792,7 @@
           grid.innerHTML = '';
         }
         if (countEl && cfg.resultCount) {
-          countEl.textContent = formatCount(cfg.resultCount.text, result.pagination, state.append);
+          countEl.textContent = formatCount(cfg.resultCount.text, result.pagination, state.append, cfg.pagination.perPage);
         }
         state.append = false;
         if (!result.items.length && !grid.childNodes.length) {

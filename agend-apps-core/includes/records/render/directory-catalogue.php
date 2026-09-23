@@ -112,18 +112,23 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
  * Mirrors formatCount() in assets/js/directory-catalogue.js, which updates
  * the same line after every filter change.
  *
+ * The page size is the one the catalogue requested. A `limit` in the
+ * pagination meta wins when present, since it is what the gateway actually
+ * applied; nothing else in the pager reads it, so it is never relied on.
+ *
  * @param string     $text       The author's text, with {from}, {to} and {total} tokens.
- * @param array|null $pagination The list's pagination meta (page, limit, total).
+ * @param array|null $pagination The list's pagination meta (page, total, and possibly limit).
+ * @param int        $per_page   The page size the catalogue requested.
  * @return string
  */
-function agend_apps_records_directory_catalogue_count_text( string $text, ?array $pagination ): string {
+function agend_apps_records_directory_catalogue_count_text( string $text, ?array $pagination, int $per_page ): string {
 	$total = (int) ( $pagination['total'] ?? 0 );
 	if ( $total < 1 ) {
 		return '';
 	}
 
 	$page  = max( 1, (int) ( $pagination['page'] ?? 1 ) );
-	$limit = max( 1, (int) ( $pagination['limit'] ?? $total ) );
+	$limit = max( 1, (int) ( $pagination['limit'] ?? $per_page ) );
 	$from  = min( $total, ( $page - 1 ) * $limit + 1 );
 	$to    = min( $total, $page * $limit );
 
@@ -319,7 +324,7 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 					<?php endif; ?>
 				</div>
 			<?php endif; ?>
-			<div class="agend-dir-filter-slot"><?php echo agend_apps_records_directory_catalogue_render_filters( (int) $config['filterTemplate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Template output. ?></div><?php echo isset( $config['resultCount'] ) ? "\n\t\t\t" . '<p class="agend-dir-count" aria-live="polite">' . esc_html( agend_apps_records_directory_catalogue_count_text( $config['resultCount']['text'], $list['pagination'] ) ) . '</p>' : ''; ?>
+			<div class="agend-dir-filter-slot"><?php echo agend_apps_records_directory_catalogue_render_filters( (int) $config['filterTemplate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Template output. ?></div><?php echo isset( $config['resultCount'] ) ? "\n\t\t\t" . '<p class="agend-dir-count" aria-live="polite">' . esc_html( agend_apps_records_directory_catalogue_count_text( $config['resultCount']['text'], $list['pagination'], (int) $config['pagination']['perPage'] ) ) . '</p>' : ''; ?>
 
 			<div class="agend-dir-status" <?php echo ( empty( $cards ) ) ? '' : 'style="display:none"'; ?>>
 				<?php echo $list['error'] ? esc_html__( 'Unable to load listings.', 'agend-apps-core' ) : esc_html__( 'No listings found.', 'agend-apps-core' ); ?>
