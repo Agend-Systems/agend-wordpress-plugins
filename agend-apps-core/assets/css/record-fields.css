@@ -40,24 +40,6 @@
   height: auto;
 }
 
-/* Shape and size (agend_apps_records_record_image_shape()). Three classes,
-   so a circle's square crop wins over the widget's own aspect ratio. */
-.agend-record-image.agend-record-image--img.agend-record-image--rounded {
-  border-radius: 8px;
-}
-
-.agend-record-image.agend-record-image--img.agend-record-image--circle {
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  border-radius: 50%;
-}
-
-.agend-record-image.agend-record-image--img.agend-record-image--sized {
-  width: var(--agend-image-width);
-  max-width: 100%;
-  height: auto;
-}
-
 .agend-record-image--bg {
   background-repeat: no-repeat;
 }
@@ -149,14 +131,4 @@
 a.agend-pill:hover,
 a.agend-pill:focus {
   filter: brightness(0.95);
-}
-
-/* Colour rules (agend_apps_records_record_pills_term_style()). Three
-   classes, so a rule wins over the widget's own pill colour controls. */
-.agend-pills .agend-pill.agend-pill--rule-bg {
-  background-color: var(--agend-pill-bg);
-}
-
-.agend-pills .agend-pill.agend-pill--rule-text {
-  color: var(--agend-pill-text);
 }

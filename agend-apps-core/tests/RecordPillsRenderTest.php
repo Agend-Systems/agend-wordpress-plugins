@@ -105,8 +105,8 @@ final class RecordPillsRenderTest extends TestCase {
 
 		self::assertSame(
 			'<div class="agend-pills">'
-			. '<span class="agend-pill agend-pill--rule-bg agend-pill--rule-text" style="--agend-pill-bg:#D57534;--agend-pill-text:#FFFFFF">SMSF Specialist Advisor</span>'
-			. '<span class="agend-pill agend-pill--rule-bg" style="--agend-pill-bg:#866D4B">Fellow SMSF Specialist Advisor</span>'
+			. '<span class="agend-pill agend-pill--rule-bg agend-pill--rule-text" style="background-color:#D57534;color:#FFFFFF">SMSF Specialist Advisor</span>'
+			. '<span class="agend-pill agend-pill--rule-bg" style="background-color:#866D4B">Fellow SMSF Specialist Advisor</span>'
 			. '<span class="agend-pill">Accountant</span>'
 			. '</div>',
 			agend_apps_records_render_record_pills( $settings )
@@ -120,7 +120,7 @@ final class RecordPillsRenderTest extends TestCase {
 			'a'
 		);
 
-		self::assertSame( array( 'classes' => array( 'agend-pill--rule-text' ), 'style' => '--agend-pill-text:#fff' ), $style );
+		self::assertSame( array( 'classes' => array( 'agend-pill--rule-text' ), 'style' => 'color:#fff' ), $style );
 	}
 
 	// -------------------------------------------------------------------

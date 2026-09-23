@@ -14,6 +14,7 @@ use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/format.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/ssr-detail.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/fragments.php';

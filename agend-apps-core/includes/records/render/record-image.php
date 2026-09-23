@@ -120,29 +120,34 @@ function agend_apps_records_record_image_term_match( array $settings, array $ctx
 /**
  * The shape and width hooks the Style settings put on an `<img>`.
  *
- * Applied in every editor: unlike `aspect_ratio` and `object_fit`, these
- * have no Elementor `selectors`, so the renderer is the only thing that
- * applies them.
+ * Applied in every editor, as inline declarations: unlike `aspect_ratio` and
+ * `object_fit` these have no Elementor `selectors`, and a circle has to win
+ * over the aspect ratio Elementor writes for the widget, which a stylesheet
+ * rule could not do without !important. The classes remain as hooks.
  *
  * @param array $settings Surface settings.
  * @return array{classes: string[], style: string}
  */
 function agend_apps_records_record_image_shape( array $settings ): array {
 	$classes = array();
-	$style   = '';
+	$style   = array();
 
 	$shape = (string) ( $settings['shape'] ?? '' );
-	if ( in_array( $shape, array( 'rounded', 'circle' ), true ) ) {
-		$classes[] = 'agend-record-image--' . $shape;
+	if ( 'rounded' === $shape ) {
+		$classes[] = 'agend-record-image--rounded';
+		$style[]   = 'border-radius:8px';
+	} elseif ( 'circle' === $shape ) {
+		$classes[] = 'agend-record-image--circle';
+		$style[]   = 'aspect-ratio:1 / 1;object-fit:cover;border-radius:50%';
 	}
 
 	$width = (string) ( $settings['display_width'] ?? '' );
 	if ( '' !== $width && array_key_exists( $width, agend_apps_records_record_image_width_options() ) ) {
 		$classes[] = 'agend-record-image--sized';
-		$style     = '--agend-image-width:' . (int) $width . 'px';
+		$style[]   = 'width:' . (int) $width . 'px;max-width:100%;height:auto';
 	}
 
-	return array( 'classes' => $classes, 'style' => $style );
+	return array( 'classes' => $classes, 'style' => implode( ';', $style ) );
 }
 
 /**

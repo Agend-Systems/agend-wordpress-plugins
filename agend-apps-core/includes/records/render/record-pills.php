@@ -121,9 +121,11 @@ function agend_apps_records_record_pills_label_html( array $s, string $key, arra
  * The colour rule hooks for one term, from the surface's `colour_rules`.
  *
  * The first rule whose `rule_match` lists the term (comma-separated, trimmed,
- * case-insensitive) wins. Each safe colour it sets becomes a custom property
- * plus a modifier class, which assets/css/record-fields.css applies above the
- * pill's own style; a term no rule matches gets nothing and keeps that style.
+ * case-insensitive) wins. Each safe colour it sets is written as an inline
+ * declaration, plus a modifier class as a styling hook. Inline, because the
+ * widget's own pill colour controls reach the pill through Elementor's
+ * generated per-element selectors, which a stylesheet rule here could not
+ * outrank without !important; a term no rule matches keeps that style.
  *
  * @param array  $settings Surface settings.
  * @param string $term     The term's display text.
@@ -157,10 +159,10 @@ function agend_apps_records_record_pills_term_style( array $settings, string $te
 
 		$classes = array();
 		$vars    = array();
-		foreach ( array( 'rule_background' => array( 'bg', 'agend-pill--rule-bg' ), 'rule_text' => array( 'text', 'agend-pill--rule-text' ) ) as $key => $hook ) {
+		foreach ( array( 'rule_background' => array( 'background-color', 'agend-pill--rule-bg' ), 'rule_text' => array( 'color', 'agend-pill--rule-text' ) ) as $key => $hook ) {
 			$value = trim( (string) ( $rule[ $key ] ?? '' ) );
 			if ( agend_apps_records_colour_is_safe( $value ) ) {
-				$vars[]    = '--agend-pill-' . $hook[0] . ':' . $value;
+				$vars[]    = $hook[0] . ':' . $value;
 				$classes[] = $hook[1];
 			}
 		}

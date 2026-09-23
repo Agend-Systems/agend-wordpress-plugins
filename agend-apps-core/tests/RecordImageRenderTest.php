@@ -114,7 +114,7 @@ final class RecordImageRenderTest extends TestCase {
 		$this->pushEvent();
 
 		self::assertSame(
-			'<img class="agend-record-image agend-record-image--img agend-record-image--circle agend-record-image--sized" style="--agend-image-width:96px;" src="https://cdn.test/hero.jpg" alt="Sample Event" loading="lazy" />',
+			'<img class="agend-record-image agend-record-image--img agend-record-image--circle agend-record-image--sized" style="aspect-ratio:1 / 1;object-fit:cover;border-radius:50%;width:96px;max-width:100%;height:auto;" src="https://cdn.test/hero.jpg" alt="Sample Event" loading="lazy" />',
 			agend_apps_records_render_record_image( array( 'shape' => 'circle', 'display_width' => '96' ) )
 		);
 	}

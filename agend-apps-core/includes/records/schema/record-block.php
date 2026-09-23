@@ -49,6 +49,70 @@ function agend_apps_records_schema_record_block(): array {
 					),
 				),
 			),
+			array(
+				'id'     => 'section_style_panel_colours',
+				'label'  => __( 'Colours', 'agend-apps-core' ),
+				'tab'    => 'style',
+				'fields' => array(
+					array(
+						'name'    => 'panel_colours_note',
+						'type'    => 'note',
+						'content' => __( 'Anything left empty keeps the panel\'s built-in colour.', 'agend-apps-core' ),
+					),
+					array(
+						'name'    => 'heading_colour',
+						'label'   => __( 'Heading colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'    => 'body_colour',
+						'label'   => __( 'Text colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'        => 'accent_colour',
+						'label'       => __( 'Link and accent colour', 'agend-apps-core' ),
+						'type'        => 'colour',
+						'default'     => '',
+						'description' => __( 'Links, icons and highlights inside the panel.', 'agend-apps-core' ),
+					),
+					array(
+						'name'    => 'button_colour',
+						'label'   => __( 'Button colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'    => 'button_text_colour',
+						'label'   => __( 'Button text colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'        => 'border_colour',
+						'label'       => __( 'Border colour', 'agend-apps-core' ),
+						'type'        => 'colour',
+						'default'     => '',
+						'description' => __( 'Directory panels only.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'surface_colour',
+						'label'       => __( 'Background', 'agend-apps-core' ),
+						'type'        => 'colour',
+						'default'     => '',
+						'description' => __( 'Directory panels only.', 'agend-apps-core' ),
+					),
+					array(
+						'name'    => 'panel_radius',
+						'label'   => __( 'Corner radius', 'agend-apps-core' ),
+						'type'    => 'select',
+						'default' => '',
+						'options' => 'agend_apps_records_record_block_radius_options',
+					),
+				),
+			),
 		),
 	);
 }
