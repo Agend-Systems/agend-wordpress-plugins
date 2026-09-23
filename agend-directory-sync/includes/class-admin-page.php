@@ -114,6 +114,15 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			$external_source = isset( $_POST['agend_external_source'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_external_source'] ) ) : '';
 			$auto_publish    = ! empty( $_POST['agend_auto_publish_approved'] ) ? '1' : '0';
+			// Clamped on save, not just on read: the stored option should
+			// reflect what will actually be used, so the settings form never
+			// shows a number that silently gets overridden.
+			$batch_size      = isset( $_POST['agend_batch_size'] )
+				? max( Agend_Directory_Sync_Agend_Client::MIN_BATCH_SIZE, min( Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE, (int) $_POST['agend_batch_size'] ) )
+				: Agend_Directory_Sync_Agend_Client::DEFAULT_BATCH_SIZE;
+			$timeout_seconds = isset( $_POST['agend_timeout_seconds'] )
+				? max( Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS, min( Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS, (int) $_POST['agend_timeout_seconds'] ) )
+				: Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS;
 			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
 			$posted_source   = isset( $_POST['agend_directory_sync_source'] ) ? sanitize_key( wp_unslash( $_POST['agend_directory_sync_source'] ) ) : '';
 			$raw_http_api    = isset( $_POST['agend_http_api'] ) && is_array( $_POST['agend_http_api'] )
@@ -131,6 +140,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			// it (SPEC-DIR-20260731 US-1.2 business rule).
 			update_option( Agend_Directory_Sync::OPTION_EXTERNAL_SOURCE, $external_source );
 			update_option( Agend_Directory_Sync::OPTION_AUTO_PUBLISH_APPROVED, $auto_publish );
+			update_option( Agend_Directory_Sync::OPTION_BATCH_SIZE, $batch_size );
+			update_option( Agend_Directory_Sync::OPTION_TIMEOUT_SECONDS, $timeout_seconds );
 
 			// Only persist a source key that is actually registered; an
 			// unknown or blank posted value is dropped so the registry's
@@ -357,6 +368,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			$external_source      = Agend_Directory_Sync_Runner::resolve_external_source();
 			$auto_publish         = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
+			$batch_size           = Agend_Directory_Sync_Agend_Client::batch_size();
+			$timeout_seconds      = Agend_Directory_Sync_Agend_Client::timeout_seconds();
 			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
 			$http_api             = Agend_Directory_Sync_Http_Api_Source::resolve_settings();
 			$dataverse            = Agend_Directory_Sync_Dataverse_Source::resolve_settings();
@@ -1228,6 +1241,63 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									</p>
 								</td>
 							</tr>
+							<tr>
+								<th scope="row">
+									<label for="agend_batch_size"><?php esc_html_e( 'Batch size (listings per request)', 'agend-directory-sync' ); ?></label>
+								</th>
+								<td>
+									<input
+										name="agend_batch_size"
+										id="agend_batch_size"
+										type="number"
+										min="<?php echo esc_attr( (string) Agend_Directory_Sync_Agend_Client::MIN_BATCH_SIZE ); ?>"
+										max="<?php echo esc_attr( (string) Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE ); ?>"
+										step="1"
+										class="small-text"
+										value="<?php echo esc_attr( (string) $batch_size ); ?>"
+									/>
+									<p class="description">
+										<?php
+										printf(
+											/* translators: 1: minimum, 2: maximum, 3: default batch size. */
+											esc_html__( 'How many listings go in one bulk-upsert request, from %1$d to %2$d (the gateway\'s hard cap). Default %3$d. A smaller batch finishes each upload step faster, which helps on a host with a short execution-time limit; a larger one sends fewer requests overall.', 'agend-directory-sync' ),
+											Agend_Directory_Sync_Agend_Client::MIN_BATCH_SIZE,
+											Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+											Agend_Directory_Sync_Agend_Client::DEFAULT_BATCH_SIZE
+										);
+										?>
+										<?php esc_html_e( 'A sync already in progress keeps the batch size it started with; a change here applies to the next run.', 'agend-directory-sync' ); ?>
+									</p>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">
+									<label for="agend_timeout_seconds"><?php esc_html_e( 'Upload timeout (seconds)', 'agend-directory-sync' ); ?></label>
+								</th>
+								<td>
+									<input
+										name="agend_timeout_seconds"
+										id="agend_timeout_seconds"
+										type="number"
+										min="<?php echo esc_attr( (string) Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS ); ?>"
+										max="<?php echo esc_attr( (string) Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS ); ?>"
+										step="1"
+										class="small-text"
+										value="<?php echo esc_attr( (string) $timeout_seconds ); ?>"
+									/>
+									<p class="description">
+										<?php
+										printf(
+											/* translators: 1: minimum, 2: maximum, 3: default timeout. */
+											esc_html__( 'How long one batch request may wait on the Agend gateway, from %1$d to %2$d seconds. Default %3$d. In a browser this is further capped so it always fits inside the step\'s own execution-time limit; WP-CLI and cron runs use the full value. A batch that times out is retried automatically (twice, with a short backoff) before it is recorded as failed.', 'agend-directory-sync' ),
+											Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS,
+											Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS,
+											Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS
+										);
+										?>
+									</p>
+								</td>
+							</tr>
 						</tbody>
 					</table>
 
@@ -1781,6 +1851,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									'field'           => __( 'Field %1$s: %2$s', 'agend-directory-sync' ),
 									'listing'         => __( 'Listing #%1$s, field %2$s: %3$s', 'agend-directory-sync' ),
 									'listingWithId'   => __( 'Listing #%1$s (external id %2$s), field %3$s: %4$s', 'agend-directory-sync' ),
+									'retrying'        => __( 'Batch %1$s timed out, retrying in %2$ss (attempt %3$s of %4$s)', 'agend-directory-sync' ),
 								),
 							)
 						); ?>;
@@ -1858,6 +1929,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								var label = '';
 								if (note) {
 									label = note;
+								} else if (job.stage === 'sending' && job.waiting_seconds !== null && job.waiting_seconds !== undefined) {
+									label = format(jobConfig.strings.retrying, [job.batches_done + 1, job.waiting_seconds, job.batch_attempts + 1, job.max_send_attempts]);
 								} else if (job.stage === 'sending') {
 									label = format(jobConfig.strings.uploading, [job.batches_done, job.batches_total]);
 								} else if (job.stage === 'failed') {
@@ -1898,7 +1971,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									}
 									paint(job);
 									if (job.active) {
-										window.setTimeout(loop, 0);
+										// A batch mid-retry: wait out the backoff
+										// server-side computed rather than
+										// hammering the step endpoint (and its
+										// lock) until retry_after has passed.
+										var delay = (job.waiting_seconds !== null && job.waiting_seconds !== undefined && job.waiting_seconds > 0)
+											? job.waiting_seconds * 1000
+											: 0;
+										window.setTimeout(loop, delay);
 									} else {
 										running = false;
 										paint(job);
@@ -2320,6 +2400,19 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		 * @param array<string, mixed> $progress
 		 */
 		private static function job_stage_label( array $progress ): string {
+			$waiting_seconds = $progress['waiting_seconds'] ?? null;
+
+			if ( Agend_Directory_Sync_Job::STAGE_SENDING === (string) $progress['stage'] && null !== $waiting_seconds ) {
+				return sprintf(
+					/* translators: 1: batch number (1-based), 2: seconds until the retry, 3: next attempt number, 4: attempts allowed. */
+					__( 'Batch %1$d timed out, retrying in %2$ds (attempt %3$d of %4$d)', 'agend-directory-sync' ),
+					(int) $progress['batches_done'] + 1,
+					(int) $waiting_seconds,
+					(int) $progress['batch_attempts'] + 1,
+					(int) $progress['max_send_attempts']
+				);
+			}
+
 			switch ( (string) $progress['stage'] ) {
 				case Agend_Directory_Sync_Job::STAGE_PENDING:
 					return __( 'Fetching and transforming records…', 'agend-directory-sync' );

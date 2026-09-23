@@ -447,11 +447,35 @@ if ( ! class_exists( 'Agend_Test_Directory_Bulk_Upsert' ) ) {
 
 if ( ! function_exists( 'agend_apps_directory_bulk_upsert_listings' ) ) {
 	/**
+	 * Applies the `agend_apps_directory_bulk_upsert_listings_args` filter the
+	 * same way the real function (agend-apps-core/includes/api/directory.php)
+	 * does, so a test can verify a caller's scoped add_filter()/remove_filter()
+	 * (e.g. Agend_Directory_Sync_Agend_Client::send_batch()'s timeout
+	 * injection) actually reaches the request args, and does not leak into a
+	 * later call.
+	 *
 	 * @param array<int, array<string, mixed>> $listings
 	 * @return mixed
 	 */
 	function agend_apps_directory_bulk_upsert_listings( array $listings, string $external_source, bool $auto_publish_approved = false, string $locations_mode = 'replace' ) {
+		$args = (array) apply_filters(
+			'agend_apps_directory_bulk_upsert_listings_args',
+			array(
+				'body' => array(
+					'external_source'       => $external_source,
+					'listings'              => array_values( $listings ),
+					'auto_publish_approved' => $auto_publish_approved,
+					'locations_mode'        => $locations_mode,
+				),
+			),
+			$listings,
+			$external_source,
+			$auto_publish_approved,
+			$locations_mode
+		);
+
 		Agend_Test_Directory_Bulk_Upsert::$calls[] = array(
+			'args'                  => $args,
 			'listings'              => $listings,
 			'external_source'       => $external_source,
 			'auto_publish_approved' => $auto_publish_approved,
