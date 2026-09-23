@@ -25,7 +25,7 @@ final class DirectoryResultCountTest extends TestCase {
 	public function should_count_the_listings_on_the_current_page(): void {
 		self::assertSame(
 			'Showing 13–24 of 56 members',
-			agend_apps_records_directory_catalogue_count_text( 'Showing {from}–{to} of {total} members', array( 'page' => 2, 'limit' => 12, 'total' => 56 ) )
+			agend_apps_records_directory_catalogue_count_text( 'Showing {from}–{to} of {total} members', array( 'page' => 2, 'total_pages' => 5, 'total' => 56 ), 12 )
 		);
 	}
 
@@ -33,14 +33,22 @@ final class DirectoryResultCountTest extends TestCase {
 	public function should_stop_at_the_total_on_the_last_page(): void {
 		self::assertSame(
 			'49–56 of 56',
-			agend_apps_records_directory_catalogue_count_text( '{from}–{to} of {total}', array( 'page' => 5, 'limit' => 12, 'total' => 56 ) )
+			agend_apps_records_directory_catalogue_count_text( '{from}–{to} of {total}', array( 'page' => 5, 'total_pages' => 5, 'total' => 56 ), 12 )
 		);
 	}
 
 	#[Test]
 	public function should_say_nothing_when_nothing_matches(): void {
-		self::assertSame( '', agend_apps_records_directory_catalogue_count_text( '{total}', array( 'page' => 1, 'limit' => 12, 'total' => 0 ) ) );
-		self::assertSame( '', agend_apps_records_directory_catalogue_count_text( '{total}', null ) );
+		self::assertSame( '', agend_apps_records_directory_catalogue_count_text( '{total}', array( 'page' => 1, 'total_pages' => 0, 'total' => 0 ), 12 ) );
+		self::assertSame( '', agend_apps_records_directory_catalogue_count_text( '{total}', null, 12 ) );
+	}
+
+	#[Test]
+	public function should_prefer_the_limit_the_gateway_reports_when_it_sends_one(): void {
+		self::assertSame(
+			'11–20 of 56',
+			agend_apps_records_directory_catalogue_count_text( '{from}–{to} of {total}', array( 'page' => 2, 'limit' => 10, 'total_pages' => 6, 'total' => 56 ), 12 )
+		);
 	}
 
 	#[Test]
