@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-elementor
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.27.0
+ * Version:           0.28.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.27.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.28.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -104,6 +104,7 @@ function agend_elementor_bootstrap(): void {
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-preview-type.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-field-widget-trait.php';
 	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-schema-controls.php';
+	require_once AGEND_ELEMENTOR_DIR . 'includes/class-agend-elementor-global-colours.php';
 
 	// The usermeta display conditions that used to load here are RETIRED
 	// (SPEC-CMS-20260727 US-1.1). They were a second entitlement authority that

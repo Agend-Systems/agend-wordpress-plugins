@@ -319,6 +319,6 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 			return;
 		}
 
-		echo agend_apps_records_render_header_auth( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
+		echo agend_apps_records_render_header_auth( Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

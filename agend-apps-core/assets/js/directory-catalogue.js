@@ -1365,6 +1365,35 @@
     return bar;
   }
 
+  // The result count line. Mirrors
+  // agend_apps_records_directory_catalogue_count_text() in
+  // includes/records/render/directory-catalogue.php, which renders the first
+  // page's line on the server. With "load more", the line counts from the
+  // first listing, because earlier pages stay on screen. The page size is the
+  // one requested (cfg.pagination.perPage); a `limit` in the meta wins when
+  // present, since it is what the gateway applied.
+  function formatCount(text, pagination, appended, perPage) {
+    var total = pagination ? parseInt(pagination.total, 10) || 0 : 0;
+    if (total < 1) {
+      return '';
+    }
+    var page = Math.max(1, parseInt(pagination.page, 10) || 1);
+    var limit = Math.max(1, parseInt(pagination.limit, 10) || parseInt(perPage, 10) || total);
+    var from = appended ? 1 : Math.min(total, (page - 1) * limit + 1);
+    var to = Math.min(total, page * limit);
+    var fmt = function (n) {
+      try {
+        return n.toLocaleString();
+      } catch (e) {
+        return String(n);
+      }
+    };
+    return String(text)
+      .split('{from}').join(fmt(from))
+      .split('{to}').join(fmt(to))
+      .split('{total}').join(fmt(total));
+  }
+
   function renderPagination(root, cfg, state, pagination, reload) {
     if (cfg.pagination.style === 'none' || !pagination) {
       return;
@@ -1493,7 +1522,7 @@
     // that markup (grid, pager, filter slot) instead of rebuilding it, and
     // fetch later pages as rendered fragments.
     var templated = cfg.cardMode === 'template';
-    var catalogueEl, status, grid, pager;
+    var catalogueEl, status, grid, pager, countEl = null;
     if (templated) {
       catalogueEl = el('div', 'agend-dir-catalogue');
       while (root.firstChild) {
@@ -1502,6 +1531,7 @@
       status = catalogueEl.querySelector('.agend-dir-status') || el('div', 'agend-dir-status');
       grid = catalogueEl.querySelector('.agend-dir-grid') || el('div', 'agend-dir-grid');
       pager = catalogueEl.querySelector('.agend-dir-pager-slot') || el('div', 'agend-dir-pager-slot');
+      countEl = catalogueEl.querySelector('.agend-dir-count');
       mountFilters(catalogueEl.querySelector('.agend-dir-filter-slot') || catalogueEl);
       grid.addEventListener('click', onTemplatedCardClick);
     } else {
@@ -1524,6 +1554,11 @@
       catalogueEl.appendChild(head);
     }
     mountFilters(catalogueEl);
+    if (cfg.resultCount) {
+      countEl = el('p', 'agend-dir-count');
+      countEl.setAttribute('aria-live', 'polite');
+      catalogueEl.appendChild(countEl);
+    }
     catalogueEl.appendChild(status);
     catalogueEl.appendChild(grid);
     catalogueEl.appendChild(pager);
@@ -1756,6 +1791,9 @@
         if (!state.append) {
           grid.innerHTML = '';
         }
+        if (countEl && cfg.resultCount) {
+          countEl.textContent = formatCount(cfg.resultCount.text, result.pagination, state.append, cfg.pagination.perPage);
+        }
         state.append = false;
         if (!result.items.length && !grid.childNodes.length) {
           status.style.display = '';
@@ -1773,6 +1811,9 @@
       }).catch(function () {
         if (!state.append) {
           grid.innerHTML = '';
+        }
+        if (countEl) {
+          countEl.textContent = '';
         }
         status.style.display = '';
         status.textContent = 'Unable to load listings.';

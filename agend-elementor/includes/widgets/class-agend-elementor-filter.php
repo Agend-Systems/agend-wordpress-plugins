@@ -108,7 +108,7 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 	}
 
 	protected function render(): void {
-		$s       = $this->get_settings_for_display();
+		$s       = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 		$context = Agend_Apps_Records_Filter_Context::type();
 
 		switch ( agend_apps_records_filter_render_reason( $s, $context ) ) {

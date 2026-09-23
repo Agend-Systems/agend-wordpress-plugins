@@ -126,6 +126,6 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 			return;
 		}
 
-		echo agend_apps_records_render_courses_catalogue( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
+		echo agend_apps_records_render_courses_catalogue( Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }
