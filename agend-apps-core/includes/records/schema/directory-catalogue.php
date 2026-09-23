@@ -326,6 +326,22 @@ function agend_apps_records_schema_directory_catalogue(): array {
 						'min'     => 1,
 						'max'     => 100,
 					),
+					array(
+						'name'        => 'show_result_count',
+						'label'       => __( 'Show result count', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'A line above the results saying how many listings match the current filters.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'result_count_text',
+						'label'       => __( 'Result count text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => __( 'Showing {from}–{to} of {total}', 'agend-apps-core' ),
+						'label_block' => true,
+						'description' => __( '{from}, {to} and {total} are replaced with the numbers, for example "Showing {from}–{to} of {total} specialists".', 'agend-apps-core' ),
+						'condition'   => array( 'show_result_count' => 'yes' ),
+					),
 				),
 			),
 			array(
