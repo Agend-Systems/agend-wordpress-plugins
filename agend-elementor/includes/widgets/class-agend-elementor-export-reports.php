@@ -77,10 +77,52 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 					'parameters_note',
 					array(
 						'type'            => \Elementor\Controls_Manager::RAW_HTML,
-						'raw'             => esc_html__( 'A report can accept parameters that narrow what it exports. Match a row to the field the parameter filters on, for example keyword or custom.education_level. A report that declares no parameters ignores these rows.', 'agend-elementor' ),
+						// The old wording invited the mistake this picker exists to
+						// remove: both its examples were bare single words, while the
+						// keys most often needed are dotted, so a designer who
+						// generalised from them typed something plausible and wrong.
+						// This says what the rows do and what happens when one misses.
+						'raw'             => esc_html__( 'A report can accept parameters that narrow what it exports. Pick the parameter each row fills in. Rows apply to every report this widget offers, so a report that does not accept a parameter ignores that row without reporting an error.', 'agend-elementor' ),
 						'content_classes' => 'elementor-descriptor',
 					)
 				);
+				break;
+
+			case 'parameters_none_declared':
+				// A picker offering nothing but the escape hatch reads as broken.
+				// Say why it is empty instead.
+				if ( function_exists( 'agend_apps_records_export_reports_parameter_field_union' )
+					&& array() === agend_apps_records_export_reports_parameter_field_union() ) {
+					$this->add_control(
+						'parameters_none_declared',
+						array(
+							'type'            => \Elementor\Controls_Manager::RAW_HTML,
+							'raw'             => esc_html__( 'None of this account\'s export reports accept parameters. Rows added here will be ignored until a report is published with an overridable filter.', 'agend-elementor' ),
+							'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
+						)
+					);
+				}
+				break;
+
+			case 'parameters_declared':
+				// Control registration cannot see which report this instance has
+				// chosen, so a per-row "this key matches nothing" state is not
+				// reachable. Listing what each report accepts is the one place
+				// report-specific truth can reach the panel at all.
+				$declared = function_exists( 'agend_apps_records_export_reports_declared_parameters' )
+					? agend_apps_records_export_reports_declared_parameters()
+					: array();
+
+				if ( ! empty( $declared ) ) {
+					$this->add_control(
+						'parameters_declared',
+						array(
+							'type'            => \Elementor\Controls_Manager::RAW_HTML,
+							'raw'             => esc_html( self::declared_parameters_summary( $declared ) ),
+							'content_classes' => 'elementor-descriptor',
+						)
+					);
+				}
 				break;
 
 			case 'reports_unavailable':
@@ -105,6 +147,62 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 				}
 				break;
 		}
+	}
+
+	/**
+	 * One line naming what each report accepts, kept short on a large account.
+	 *
+	 * Reports that accept nothing are counted rather than listed: on an account
+	 * with fifty reports the list would bury the ones that matter, and the count
+	 * still answers "is this report one of the ones that takes no parameters".
+	 *
+	 * @param array<int, array{id: string, name: string, fields: array<int, string>}> $declared Reports and their parameter fields.
+	 * @return string
+	 */
+	private static function declared_parameters_summary( array $declared ): string {
+		$parts   = array();
+		$without = 0;
+
+		foreach ( $declared as $report ) {
+			if ( empty( $report['fields'] ) ) {
+				++$without;
+				continue;
+			}
+
+			$labels = array();
+			foreach ( $report['fields'] as $field ) {
+				$labels[] = function_exists( 'agend_apps_records_export_reports_parameter_field_label' )
+					? agend_apps_records_export_reports_parameter_field_label( $field )
+					: $field;
+			}
+
+			$parts[] = sprintf(
+				/* translators: 1: report name, 2: comma separated parameter names. */
+				__( '%1$s: %2$s', 'agend-elementor' ),
+				$report['name'],
+				implode( ', ', $labels )
+			);
+		}
+
+		if ( empty( $parts ) ) {
+			return __( 'No report in this account accepts parameters.', 'agend-elementor' );
+		}
+
+		$summary = sprintf(
+			/* translators: %s: semicolon separated list of reports and the parameters each accepts. */
+			__( 'Reports in this account accept: %s.', 'agend-elementor' ),
+			implode( '; ', $parts )
+		);
+
+		if ( $without > 0 ) {
+			$summary .= ' ' . sprintf(
+				/* translators: %d: how many reports accept no parameters. */
+				_n( '%d other report accepts no parameters.', '%d other reports accept no parameters.', $without, 'agend-elementor' ),
+				$without
+			);
+		}
+
+		return $summary;
 	}
 
 	protected function register_controls(): void {

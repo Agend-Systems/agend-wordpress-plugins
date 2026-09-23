@@ -51,23 +51,15 @@
     return (registry.listing && registry.listing.state) || null;
   }
 
-  function stateValue(row) {
+  function stateValue(row, cfg) {
     var state = catalogueState();
     if (!state) {
       return '';
     }
-    var keysByFilter = {
-      search: 'search',
-      category: 'categories',
-      tag: 'tag_ids',
-      badge: 'badge_ids',
-      rating: 'rating',
-      featured: 'featured',
-      city: 'location_city',
-      state: 'location_state',
-      postcode: 'location_postcode',
-      country: 'location_country',
-    };
+    // Emitted from the filter registry by the server. This used to be a second
+    // copy of that mapping, which meant a filter added to the registry read as
+    // empty here until somebody remembered this file.
+    var keysByFilter = cfg.filterStateKeys || {};
 
     if (row.filter === 'custom_field') {
       var map = state.custom_fields || {};
@@ -98,17 +90,73 @@
     if (!report || !Array.isArray(report.parameters)) {
       return out;
     }
+    var declared = report.parameters.map(function (param) { return param.field; });
+
     report.parameters.forEach(function (param) {
       var row = cfg.parameters.filter(function (r) { return r.field === param.field; })[0];
       if (!row) {
         return;
       }
-      var value = row.source === 'catalogue' ? stateValue(row) : row.value;
+      var value = row.source === 'catalogue' ? stateValue(row, cfg) : row.value;
       if (value !== '' && value !== undefined && value !== null) {
         out[param.name] = value;
       }
     });
+
+    // A configured row that matches no parameter on this report contributes
+    // nothing, and the resulting file is indistinguishable from one where no
+    // row was configured at all. Saying so here is what makes a mistyped key
+    // discoverable instead of invisible.
+    var unmatched = (cfg.parameters || [])
+      .map(function (row) { return row.field; })
+      .filter(function (field) { return declared.indexOf(field) === -1; });
+
+    if (unmatched.length && window.console && window.console.warn) {
+      window.console.warn(
+        'Agend export report: no parameter named ' + unmatched.join(', ') +
+        ' on report "' + (report.name || report.id) + '". That filter was not applied. This report accepts: ' +
+        (declared.length ? declared.join(', ') : 'no parameters') + '.'
+      );
+    }
+
     return out;
+  }
+
+  // A refusal reads differently depending on what failed. The gateway names
+  // the reason; everything here is about who can act on it and how.
+  function showRefusal(note, cfg, failure) {
+    var code = (failure && failure.agendCode) || '';
+    var message = (failure && failure.agendMessage) || '';
+
+    while (note.firstChild) {
+      note.removeChild(note.firstChild);
+    }
+
+    // No reason given, including any gateway that predates them: say what is
+    // likely without implying the site is broken.
+    if (!message) {
+      note.appendChild(document.createTextNode(cfg.labels.failed));
+      return;
+    }
+
+    // Nobody but an administrator can turn the feature on, so nobody else is
+    // told about it.
+    if (code === 'feature_unavailable') {
+      note.appendChild(document.createTextNode(cfg.canManage ? cfg.labels.featureUnavailable : cfg.labels.failed));
+      return;
+    }
+
+    note.appendChild(document.createTextNode(message));
+
+    // The one refusal a visitor can resolve on the spot.
+    if (code === 'sign_in_required' && cfg.loginUrl) {
+      note.appendChild(document.createTextNode(' '));
+      var link = document.createElement('a');
+      link.className = 'agend-export__signin-link';
+      link.href = cfg.loginUrl;
+      link.textContent = cfg.labels.signIn;
+      note.appendChild(link);
+    }
   }
 
   function download(root, cfg, reportId, button) {
@@ -139,7 +187,19 @@
       })
       .then(function (res) {
         if (!res.ok) {
-          throw new Error('export failed: ' + res.status);
+          // A refusal is not a fault. When the proxy forwards the gateway's
+          // canonical envelope, its message is the only one that knows why,
+          // so it wins over the generic line.
+          return res
+            .json()
+            .catch(function () { return null; })
+            .then(function (body) {
+              var envelope = (body && body.error) || {};
+              var failure = new Error('export failed: ' + res.status);
+              failure.agendCode = typeof envelope.code === 'string' ? envelope.code : '';
+              failure.agendMessage = typeof envelope.message === 'string' ? envelope.message : '';
+              throw failure;
+            });
         }
         var disposition = res.headers.get('Content-Disposition') || '';
         var match = /filename="?([^";]+)"?/i.exec(disposition);
@@ -158,13 +218,13 @@
         document.body.removeChild(link);
         window.URL.revokeObjectURL(href);
       })
-      .catch(function () {
+      .catch(function (e) {
         if (!note) {
           note = document.createElement('p');
           note.className = 'agend-export__error';
           root.appendChild(note);
         }
-        note.textContent = cfg.labels.failed;
+        showRefusal(note, cfg, e);
       })
       .then(function () {
         button.disabled = false;
