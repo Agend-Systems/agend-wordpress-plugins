@@ -107,6 +107,11 @@
   line-height: normal;
 }
 
+.agend-filter.agend-filter--field-padding .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
+  padding-left: var(--agend-filter-padding-x);
+  padding-right: var(--agend-filter-padding-x);
+}
+
 .agend-filter.agend-filter--field-focus .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select):focus-visible {
   border-color: var(--agend-filter-focus);
   outline: 2px solid var(--agend-filter-focus);

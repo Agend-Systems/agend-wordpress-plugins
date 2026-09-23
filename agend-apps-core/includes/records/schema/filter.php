@@ -190,6 +190,14 @@ function agend_apps_records_schema_filter(): array {
 						'options' => 'agend_apps_records_filter_height_options',
 					),
 					array(
+						'name'        => 'field_padding',
+						'label'       => __( 'Horizontal padding', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => '',
+						'options'     => 'agend_apps_records_filter_padding_options',
+						'description' => __( 'Space between the field\'s edge and its text.', 'agend-apps-core' ),
+					),
+					array(
 						'name'        => 'field_focus_colour',
 						'label'       => __( 'Focus colour', 'agend-apps-core' ),
 						'type'        => 'colour',
