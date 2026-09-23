@@ -29,12 +29,12 @@ final class RecordBlockColoursTest extends TestCase {
 	#[Test]
 	public function should_override_each_set_role_under_the_record_prefix(): void {
 		self::assertSame(
-			'--agend-dir-heading:#3E464D;--agend-dir-accent:#0C5998;--agend-dir-border:#DCE3E9;--agend-dir-card-radius:4px;',
+			'--agend-dir-heading:#333333;--agend-dir-accent:#224488;--agend-dir-border:#DDDDDD;--agend-dir-card-radius:4px;',
 			agend_apps_records_record_block_colour_overrides(
 				array(
-					'heading_colour' => '#3E464D',
-					'accent_colour'  => '#0C5998',
-					'border_colour'  => '#DCE3E9',
+					'heading_colour' => '#333333',
+					'accent_colour'  => '#224488',
+					'border_colour'  => '#DDDDDD',
 					'body_colour'    => 'red;x:y',
 					'panel_radius'   => '4',
 				),

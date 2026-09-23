@@ -339,7 +339,7 @@ function agend_apps_records_schema_directory_catalogue(): array {
 						'type'        => 'text',
 						'default'     => __( 'Showing {from}–{to} of {total}', 'agend-apps-core' ),
 						'label_block' => true,
-						'description' => __( '{from}, {to} and {total} are replaced with the numbers, for example "Showing {from}–{to} of {total} specialists".', 'agend-apps-core' ),
+						'description' => __( '{from}, {to} and {total} are replaced with the numbers, for example "Showing {from}–{to} of {total} members".', 'agend-apps-core' ),
 						'condition'   => array( 'show_result_count' => 'yes' ),
 					),
 				),

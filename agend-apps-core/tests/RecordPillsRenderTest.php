@@ -87,9 +87,9 @@ final class RecordPillsRenderTest extends TestCase {
 			'listing',
 			array(
 				'categories' => array(
-					array( 'name' => 'SMSF Specialist Advisor' ),
-					array( 'name' => 'Fellow SMSF Specialist Advisor' ),
-					array( 'name' => 'Accountant' ),
+					array( 'name' => 'Gold Member' ),
+					array( 'name' => 'Life Gold Member' ),
+					array( 'name' => 'Volunteer' ),
 				),
 			)
 		);
@@ -97,17 +97,17 @@ final class RecordPillsRenderTest extends TestCase {
 		$settings = array(
 			'field'        => 'listing:categories',
 			'colour_rules' => array(
-				array( 'rule_match' => 'smsf specialist advisor', 'rule_background' => '#D57534', 'rule_text' => '#FFFFFF' ),
-				array( 'rule_match' => 'Fellow SMSF Specialist Advisor, Fellow SMSF Specialist Auditor', 'rule_background' => '#866D4B' ),
-				array( 'rule_match' => 'SMSF Specialist Advisor', 'rule_background' => '#000000' ),
+				array( 'rule_match' => 'gold member', 'rule_background' => '#AA7700', 'rule_text' => '#FFFFFF' ),
+				array( 'rule_match' => 'Life Gold Member, Life Silver Member', 'rule_background' => '#555555' ),
+				array( 'rule_match' => 'Gold Member', 'rule_background' => '#000000' ),
 			),
 		);
 
 		self::assertSame(
 			'<div class="agend-pills">'
-			. '<span class="agend-pill agend-pill--rule-bg agend-pill--rule-text" style="background-color:#D57534;color:#FFFFFF">SMSF Specialist Advisor</span>'
-			. '<span class="agend-pill agend-pill--rule-bg" style="background-color:#866D4B">Fellow SMSF Specialist Advisor</span>'
-			. '<span class="agend-pill">Accountant</span>'
+			. '<span class="agend-pill agend-pill--rule-bg agend-pill--rule-text" style="background-color:#AA7700;color:#FFFFFF">Gold Member</span>'
+			. '<span class="agend-pill agend-pill--rule-bg" style="background-color:#555555">Life Gold Member</span>'
+			. '<span class="agend-pill">Volunteer</span>'
 			. '</div>',
 			agend_apps_records_render_record_pills( $settings )
 		);

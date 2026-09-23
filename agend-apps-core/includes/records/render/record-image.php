@@ -419,7 +419,7 @@ function agend_apps_records_render_record_image( array $settings, array $opts = 
 	$url          = $resolved['url'];
 	$title        = (string) ( agend_apps_records_field_value( 'common:title', $ctx['type'], $ctx['record'], $ctx['extra'] ) ?? '' );
 	if ( 'yes' === ( $settings['use_term_images'] ?? '' ) ) {
-		// An image chosen by term shows the term (an accreditation logo, say),
+		// An image chosen by term shows the term (a membership level logo, say),
 		// so the term is what its alt text says, not the record's name.
 		$term  = agend_apps_records_record_image_term_match( $settings, $ctx )['term'];
 		$title = '' !== $term ? $term : $title;

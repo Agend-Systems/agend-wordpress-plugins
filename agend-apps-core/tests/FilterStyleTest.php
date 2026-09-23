@@ -33,7 +33,7 @@ final class FilterStyleTest extends TestCase {
 				'field_background'   => '#FFFFFF',
 				'field_border_width' => '2',
 				'field_border_sides' => 'bottom',
-				'field_border_colour' => '#4D91CE',
+				'field_border_colour' => '#3366AA',
 				'field_height'       => '40',
 				'field_radius'       => '0',
 			)
@@ -50,7 +50,7 @@ final class FilterStyleTest extends TestCase {
 			),
 			$style['classes']
 		);
-		$this->assertSame( '--agend-filter-bg:#FFFFFF;--agend-filter-border-colour:#4D91CE;--agend-filter-border-width:2px;--agend-filter-radius:0px;--agend-filter-height:40px', $style['style'] );
+		$this->assertSame( '--agend-filter-bg:#FFFFFF;--agend-filter-border-colour:#3366AA;--agend-filter-border-width:2px;--agend-filter-radius:0px;--agend-filter-height:40px', $style['style'] );
 	}
 
 	#[Test]

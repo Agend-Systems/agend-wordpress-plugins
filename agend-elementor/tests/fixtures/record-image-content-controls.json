@@ -244,7 +244,7 @@
                         "label": "Choose the image by term",
                         "type": "switcher",
                         "default": "",
-                        "description": "Shows an image you upload for a term the record has, for example an accreditation logo for each specialist type. Replaces the image field above."
+                        "description": "Shows an image you upload for a term the record has, for example a logo for each membership level. Replaces the image field above."
                     }
                 },
                 {

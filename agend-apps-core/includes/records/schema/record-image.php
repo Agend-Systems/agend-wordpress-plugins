@@ -199,7 +199,7 @@ function agend_apps_records_schema_record_image(): array {
 						'label'       => __( 'Choose the image by term', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => false,
-						'description' => __( 'Shows an image you upload for a term the record has, for example an accreditation logo for each specialist type. Replaces the image field above.', 'agend-apps-core' ),
+						'description' => __( 'Shows an image you upload for a term the record has, for example a logo for each membership level. Replaces the image field above.', 'agend-apps-core' ),
 					),
 					array(
 						'name'        => 'term_field',

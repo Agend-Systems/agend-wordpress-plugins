@@ -16,20 +16,20 @@ use PHPUnit\Framework\Attributes\Test;
 final class GlobalColoursTest extends TestCase {
 
 	private const KIT = array(
-		'primary'  => '#6EC1E4',
-		'292aa7d8' => '#0C5998',
+		'primary'  => '#6699CC',
+		'a1b2c3d4' => '#224488',
 	);
 
 	#[Test]
 	public function should_replace_a_global_colour_reference_with_the_kit_colour(): void {
 		$settings = array(
 			'accent_colour' => '',
-			'__globals__'   => array( 'accent_colour' => 'globals/colors?id=292aa7d8' ),
+			'__globals__'   => array( 'accent_colour' => 'globals/colors?id=a1b2c3d4' ),
 		);
 
 		$resolved = Agend_Elementor_Global_Colours::resolve( $settings, self::KIT );
 
-		$this->assertSame( '#0C5998', $resolved['accent_colour'] );
+		$this->assertSame( '#224488', $resolved['accent_colour'] );
 	}
 
 	#[Test]
@@ -39,7 +39,7 @@ final class GlobalColoursTest extends TestCase {
 			'__globals__'   => array( 'accent_colour' => 'globals/colors?id=primary' ),
 		);
 
-		$this->assertSame( '#6EC1E4', Agend_Elementor_Global_Colours::resolve( $settings, self::KIT )['accent_colour'] );
+		$this->assertSame( '#6699CC', Agend_Elementor_Global_Colours::resolve( $settings, self::KIT )['accent_colour'] );
 	}
 
 	#[Test]
@@ -74,18 +74,18 @@ final class GlobalColoursTest extends TestCase {
 		$settings = array(
 			'colour_rules' => array(
 				array(
-					'rule_match'      => 'Advisor',
+					'rule_match'      => 'Gold',
 					'rule_background' => '',
-					'__globals__'     => array( 'rule_background' => 'globals/colors?id=292aa7d8' ),
+					'__globals__'     => array( 'rule_background' => 'globals/colors?id=a1b2c3d4' ),
 				),
-				array( 'rule_match' => 'Auditor', 'rule_background' => '#C2653A' ),
+				array( 'rule_match' => 'Silver', 'rule_background' => '#AA3300' ),
 			),
 		);
 
 		$resolved = Agend_Elementor_Global_Colours::resolve( $settings, self::KIT );
 
-		$this->assertSame( '#0C5998', $resolved['colour_rules'][0]['rule_background'] );
-		$this->assertSame( '#C2653A', $resolved['colour_rules'][1]['rule_background'] );
+		$this->assertSame( '#224488', $resolved['colour_rules'][0]['rule_background'] );
+		$this->assertSame( '#AA3300', $resolved['colour_rules'][1]['rule_background'] );
 	}
 
 	#[Test]
