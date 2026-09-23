@@ -1053,4 +1053,105 @@ final class SyncJobProgressTest extends TestCase {
 		// No gateway call was made for a batch already known dead.
 		$this->assertSame( array(), Agend_Test_Directory_Bulk_Upsert::$calls );
 	}
+
+	/**
+	 * A row error's own field-level issues (the gateway's per-row
+	 * `error.fields`), reported in an error_examples entry rather than an
+	 * http_errors entry, are stamped with the same job-wide listing_position
+	 * and external_id merge_send_summary() gives a batch-level 400's issues,
+	 * using the record index within the batch that was actually sent.
+	 */
+	#[Test]
+	public function a_row_errors_fields_are_stamped_with_a_job_wide_listing_position(): void {
+		$job_id = 'dsj_row_field_position_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 3,
+					'batch_cursor'    => 2,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+
+		$this->store_batch(
+			$job_id,
+			2,
+			array(
+				array( 'external_id' => 'ext-0' ),
+				array( 'external_id' => 'ext-1' ),
+			)
+		);
+
+		Agend_Test_Directory_Bulk_Upsert::$response = array(
+			'data' => array(
+				'results' => array(
+					array( 'index' => 0, 'external_id' => 'ext-0', 'status' => 'updated' ),
+					array(
+						'index'       => 1,
+						'external_id' => 'ext-1',
+						'status'      => 'error',
+						'error'       => array(
+							'code'    => 'VALIDATION_ERROR',
+							'message' => 'Row failed validation',
+							'fields'  => array(
+								array( 'path' => 'custom_fields.state', 'message' => 'Invalid enum value' ),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$job = Agend_Directory_Sync_Job::step();
+
+		$example = $job['send']['error_examples'][0];
+		$this->assertSame( 2, $example['batch_index'] );
+
+		$issue = $example['fields'][0];
+		$this->assertSame( 1, $issue['record'] );
+		// batch_index (2) * batch_size (100, the legacy fallback) + record (1) + 1 = 202.
+		$this->assertSame( 202, $issue['listing_position'] );
+		$this->assertSame( 'ext-1', $issue['external_id'] );
+	}
+
+	/**
+	 * A run-wide `options_created` count in the live progress panel is the
+	 * total rows across every path, summed from the merged `send.
+	 * options_created` map merge_send_summary() built.
+	 */
+	#[Test]
+	public function progress_reports_a_cheap_running_options_created_count(): void {
+		$progress = Agend_Directory_Sync_Job::progress(
+			$this->job(
+				array(
+					'send' => array(
+						'created'         => 5,
+						'updated'         => 0,
+						'errored'         => 0,
+						'error_examples'  => array(),
+						'http_errors'     => array(),
+						'retried_batches' => array(),
+						'options_created' => array(
+							'custom_fields.state'  => array( 'count' => 3, 'values' => array( 'VIC', 'WA' ) ),
+							'custom_fields.region' => array( 'count' => 2, 'values' => array( 'North' ) ),
+						),
+						'other_notices'    => array(),
+						'warnings'         => 4,
+						'warning_examples' => array(),
+					),
+				)
+			)
+		);
+
+		$this->assertSame( 5, $progress['options_created'] );
+		$this->assertSame( 4, $progress['warnings'] );
+	}
 }

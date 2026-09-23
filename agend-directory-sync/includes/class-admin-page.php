@@ -2002,6 +2002,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								'strings'  => array(
 									'uploading'       => __( 'Uploading… batch %1$s of %2$s', 'agend-directory-sync' ),
 									'counts'          => __( '%1$s of %2$s listings — created %3$s, updated %4$s, errors %5$s', 'agend-directory-sync' ),
+									'optionsCreated'  => __( 'New options created: %1$s.', 'agend-directory-sync' ),
+									'warningsCount'   => __( 'Warnings: %1$s.', 'agend-directory-sync' ),
 									'failed'          => __( 'Failed: %1$s', 'agend-directory-sync' ),
 									'busy'            => __( 'Another tab is running a step; waiting…', 'agend-directory-sync' ),
 									'resume'          => __( 'A previous upload is unfinished. Resume it to continue where it stopped.', 'agend-directory-sync' ),
@@ -2112,9 +2114,19 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								}
 								stageEl.textContent = label;
 								barEl.style.width = (job.percent === null || job.percent === undefined ? 0 : job.percent) + '%';
-								countsEl.textContent = job.listing_count
+								var countsText = job.listing_count
 									? format(jobConfig.strings.counts, [job.listings_sent, job.listing_count, job.created, job.updated, job.errored])
 									: '';
+								// Cheap running totals only, same as job_counts_label();
+								// the finished result panel has the full per-path/
+								// per-code breakdown. Both are 0 on an older gateway.
+								if (countsText && job.options_created) {
+									countsText += ' ' + format(jobConfig.strings.optionsCreated, [job.options_created]);
+								}
+								if (countsText && job.warnings) {
+									countsText += ' ' + format(jobConfig.strings.warningsCount, [job.warnings]);
+								}
+								countsEl.textContent = countsText;
 								renderHttpErrors(job.http_error_details);
 
 								var active = job.active;
@@ -2683,7 +2695,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				return '';
 			}
 
-			return sprintf(
+			$label = sprintf(
 				/* translators: 1: listings uploaded, 2: listings total, 3: created count, 4: updated count, 5: error count. */
 				__( '%1$d of %2$d listings — created %3$d, updated %4$d, errors %5$d', 'agend-directory-sync' ),
 				(int) $progress['listings_sent'],
@@ -2692,6 +2704,30 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				(int) $progress['updated'],
 				(int) $progress['errored']
 			);
+
+			// Cheap running totals only (no per-path/per-code breakdown, no
+			// example values); the finished result panel has the full detail.
+			// Both are absent (0) on an older gateway's response.
+			$options_created = (int) ( $progress['options_created'] ?? 0 );
+			$warnings         = (int) ( $progress['warnings'] ?? 0 );
+
+			if ( $options_created > 0 ) {
+				$label .= ' ' . sprintf(
+					/* translators: %d: number of rows that created a new option. */
+					__( 'New options created: %d.', 'agend-directory-sync' ),
+					$options_created
+				);
+			}
+
+			if ( $warnings > 0 ) {
+				$label .= ' ' . sprintf(
+					/* translators: %d: number of rows that carried a warning. */
+					__( 'Warnings: %d.', 'agend-directory-sync' ),
+					$warnings
+				);
+			}
+
+			return $label;
 		}
 
 		/**
@@ -3015,6 +3051,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$examples        = is_array( $send['error_examples'] ?? null ) ? $send['error_examples'] : array();
 			$http_errors     = is_array( $send['http_errors'] ?? null ) ? $send['http_errors'] : array();
 			$retried_batches = is_array( $send['retried_batches'] ?? null ) ? $send['retried_batches'] : array();
+			$options_created = is_array( $send['options_created'] ?? null ) ? $send['options_created'] : array();
+			$other_notices   = is_array( $send['other_notices'] ?? null ) ? $send['other_notices'] : array();
+			$warnings        = (int) ( $send['warnings'] ?? 0 );
+			$warning_examples = is_array( $send['warning_examples'] ?? null ) ? $send['warning_examples'] : array();
 
 			echo '<h4>' . esc_html__( 'Agend bulk-upsert result', 'agend-directory-sync' ) . '</h4>';
 			echo '<p><code>' . esc_html( $url ) . '</code></p>';
@@ -3047,16 +3087,40 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					. '<th>' . esc_html__( 'external_id', 'agend-directory-sync' ) . '</th>'
 					. '<th>' . esc_html__( 'code', 'agend-directory-sync' ) . '</th>'
 					. '<th>' . esc_html__( 'message', 'agend-directory-sync' ) . '</th>'
+					. '<th>' . esc_html__( 'field issues', 'agend-directory-sync' ) . '</th>'
 					. '</tr></thead><tbody>';
 				foreach ( $examples as $row ) {
+					$fields = is_array( $row['fields'] ?? null ) ? $row['fields'] : array();
+
 					echo '<tr>'
 						. '<td>' . esc_html( (string) ( $row['batch_index'] ?? '' ) ) . '</td>'
 						. '<td>' . esc_html( (string) ( $row['external_id'] ?? '' ) ) . '</td>'
 						. '<td>' . esc_html( (string) ( $row['code'] ?? '' ) ) . '</td>'
 						. '<td>' . esc_html( (string) ( $row['message'] ?? '' ) ) . '</td>'
-						. '</tr>';
+						. '<td>';
+
+					if ( ! empty( $fields ) ) {
+						echo '<ul style="list-style:disc;padding-left:1.2em;margin:0;">';
+						foreach ( $fields as $issue ) {
+							if ( ! is_array( $issue ) ) {
+								continue;
+							}
+							echo '<li>' . esc_html( self::format_issue_line( $issue ) ) . '</li>';
+						}
+						echo '</ul>';
+					}
+
+					echo '</td></tr>';
 				}
 				echo '</tbody></table>';
+			}
+
+			if ( ! empty( $options_created ) || ! empty( $other_notices ) ) {
+				self::render_notices_summary( $options_created, $other_notices );
+			}
+
+			if ( $warnings > 0 ) {
+				self::render_warnings_summary( $warnings, $warning_examples );
 			}
 
 			if ( ! empty( $http_errors ) ) {
@@ -3068,6 +3132,95 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					}
 				);
 			}
+		}
+
+		/**
+		 * Render the "New options were created" notices a run's rows carried
+		 * (a select/radio/multi-select custom field value the gateway had no
+		 * existing option for, and auto-created one for, per SPEC-DIR-2026
+		 * OPTION_CREATED) plus a count for any other notice code the gateway
+		 * sent, one line each. Absent on an older gateway's response, so
+		 * both are empty and this is never called then.
+		 *
+		 * @param array<string, array{count: int, values: array<int, string>}> $options_created
+		 * @param array<string, int>                                            $other_notices
+		 */
+		private static function render_notices_summary( array $options_created, array $other_notices ): void {
+			if ( empty( $options_created ) && empty( $other_notices ) ) {
+				return;
+			}
+
+			echo '<div class="notice notice-info inline"><ul style="list-style:disc;padding-left:1.5em;margin:.5em 0;">';
+
+			foreach ( $options_created as $path => $data ) {
+				if ( ! is_array( $data ) ) {
+					continue;
+				}
+
+				$values = is_array( $data['values'] ?? null ) ? $data['values'] : array();
+				$count  = (int) ( $data['count'] ?? 0 );
+
+				echo '<li>' . esc_html(
+					sprintf(
+						/* translators: 1: custom_fields path, 2: comma-separated new option values, 3: number of rows that created one. */
+						_n(
+							'New option created for %1$s: %2$s (%3$d row)',
+							'New options were created for %1$s: %2$s (%3$d rows)',
+							$count,
+							'agend-directory-sync'
+						),
+						(string) $path,
+						implode( ', ', array_map( static fn( $value ): string => "'" . $value . "'", $values ) ),
+						$count
+					)
+				) . '</li>';
+			}
+
+			foreach ( $other_notices as $code => $count ) {
+				echo '<li>' . esc_html(
+					sprintf(
+						/* translators: 1: notice code the gateway sent, 2: number of rows that carried it. */
+						__( '%1$s: %2$d row(s)', 'agend-directory-sync' ),
+						(string) $code,
+						(int) $count
+					)
+				) . '</li>';
+			}
+
+			echo '</ul></div>';
+		}
+
+		/**
+		 * Render the total count of `warnings` the run's rows carried, plus a
+		 * capped set of sanitised examples. Absent on an older gateway's
+		 * response, so this is never called with a zero count.
+		 *
+		 * @param int                  $warnings
+		 * @param array<int, string>   $warning_examples
+		 */
+		private static function render_warnings_summary( int $warnings, array $warning_examples ): void {
+			echo '<div class="notice notice-warning inline"><p>' . esc_html(
+				sprintf(
+					/* translators: %d: number of row-level warnings the gateway returned. */
+					_n(
+						'%d row carried a warning from the gateway.',
+						'%d rows carried a warning from the gateway.',
+						$warnings,
+						'agend-directory-sync'
+					),
+					$warnings
+				)
+			) . '</p>';
+
+			if ( ! empty( $warning_examples ) ) {
+				echo '<ul style="list-style:disc;padding-left:1.5em;margin:.5em 0 0;">';
+				foreach ( $warning_examples as $example ) {
+					echo '<li>' . esc_html( (string) $example ) . '</li>';
+				}
+				echo '</ul>';
+			}
+
+			echo '</div>';
 		}
 
 		/**

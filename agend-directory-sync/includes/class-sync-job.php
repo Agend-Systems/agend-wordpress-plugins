@@ -400,6 +400,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				'created'            => (int) ( $job['send']['created'] ?? 0 ),
 				'updated'            => (int) ( $job['send']['updated'] ?? 0 ),
 				'errored'            => (int) ( $job['send']['errored'] ?? 0 ),
+				// Cheap counters for the live panel; the full per-path/per-code
+				// breakdown is only in the finished result (render_result()'s
+				// options_created / warning_examples).
+				'options_created'    => self::sum_option_created_counts( (array) ( $job['send']['options_created'] ?? array() ) ),
+				'warnings'           => (int) ( $job['send']['warnings'] ?? 0 ),
 				'http_errors'        => count( (array) ( $job['send']['http_errors'] ?? array() ) ),
 				'http_error_details' => self::progress_http_error_details( (array) ( $job['send']['http_errors'] ?? array() ) ),
 				// Set only while the current batch is between a failed attempt
@@ -412,6 +417,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				'message'            => (string) ( $job['message'] ?? '' ),
 				'source'             => (string) ( $job['source'] ?? '' ),
 			);
+		}
+
+		/**
+		 * Total rows across every `options_created` path, for the live
+		 * progress panel's cheap running count; the per-path breakdown and
+		 * example values are only in the finished result.
+		 *
+		 * @param array<string, mixed> $options_created
+		 */
+		private static function sum_option_created_counts( array $options_created ): int {
+			$total = 0;
+			foreach ( $options_created as $data ) {
+				$total += is_array( $data ) ? (int) ( $data['count'] ?? 0 ) : 0;
+			}
+			return $total;
 		}
 
 		/**
@@ -742,7 +762,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				if ( count( $running['error_examples'] ) >= Agend_Directory_Sync_Agend_Client::MAX_ERROR_EXAMPLES ) {
 					break;
 				}
-				$example['batch_index']      = $batch_index;
+				$example['batch_index'] = $batch_index;
+
+				if ( is_array( $example['fields'] ?? null ) ) {
+					$example['fields'] = array_map(
+						static function ( array $issue ) use ( $batch_index, $batch, $batch_size ): array {
+							return Agend_Directory_Sync_Agend_Client::stamp_issue_position( $issue, $batch_index, $batch, $batch_size );
+						},
+						$example['fields']
+					);
+				}
+
 				$running['error_examples'][] = $example;
 			}
 
@@ -759,6 +789,43 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 				}
 
 				$running['http_errors'][] = $http_error;
+			}
+
+			foreach ( (array) ( $batch_summary['options_created'] ?? array() ) as $path => $data ) {
+				if ( ! is_array( $data ) ) {
+					continue;
+				}
+
+				if ( ! isset( $running['options_created'][ $path ] ) ) {
+					$running['options_created'][ $path ] = array(
+						'count'  => 0,
+						'values' => array(),
+					);
+				}
+
+				$running['options_created'][ $path ]['count'] += (int) ( $data['count'] ?? 0 );
+
+				foreach ( (array) ( $data['values'] ?? array() ) as $value ) {
+					if ( count( $running['options_created'][ $path ]['values'] ) >= Agend_Directory_Sync_Agend_Client::MAX_OPTION_VALUES_PER_PATH ) {
+						break;
+					}
+					if ( ! in_array( $value, $running['options_created'][ $path ]['values'], true ) ) {
+						$running['options_created'][ $path ]['values'][] = $value;
+					}
+				}
+			}
+
+			foreach ( (array) ( $batch_summary['other_notices'] ?? array() ) as $code => $count ) {
+				$running['other_notices'][ $code ] = ( $running['other_notices'][ $code ] ?? 0 ) + (int) $count;
+			}
+
+			$running['warnings'] = ( $running['warnings'] ?? 0 ) + (int) ( $batch_summary['warnings'] ?? 0 );
+
+			foreach ( (array) ( $batch_summary['warning_examples'] ?? array() ) as $example ) {
+				if ( count( $running['warning_examples'] ) >= Agend_Directory_Sync_Agend_Client::MAX_WARNING_EXAMPLES ) {
+					break;
+				}
+				$running['warning_examples'][] = $example;
 			}
 
 			return $running;
@@ -792,13 +859,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Job' ) ) :
 		 */
 		private static function empty_send_summary(): array {
 			return array(
-				'batches'         => 0,
-				'created'         => 0,
-				'updated'         => 0,
-				'errored'         => 0,
-				'error_examples'  => array(),
-				'http_errors'     => array(),
-				'retried_batches' => array(),
+				'batches'          => 0,
+				'created'          => 0,
+				'updated'          => 0,
+				'errored'          => 0,
+				'error_examples'   => array(),
+				'http_errors'      => array(),
+				'retried_batches'  => array(),
+				'options_created'  => array(),
+				'other_notices'    => array(),
+				'warnings'         => 0,
+				'warning_examples' => array(),
 			);
 		}
 

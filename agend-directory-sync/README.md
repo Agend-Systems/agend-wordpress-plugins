@@ -358,6 +358,34 @@ the bulk-upsert API. A typical Upbeat build maps a business address to
 location 1 and a residential address to location 2 — residential addresses
 are sensitive, so map them only when the directory should publish them.
 
+### Visibility flags: truthy mode vs. value map mode
+
+Each of the two visibility flags (eligibility, opt-in) can be read one of
+two ways, chosen per flag under "How to read this field":
+
+- **True or false (with invert)** - the default. The source value is
+  coerced to a boolean; **Invert this flag** flips a source that is
+  true-means-hide instead of true-means-visible. This is today's
+  behaviour, unchanged.
+- **Map each value** - the source value is matched case-insensitively
+  against a configured list of value rows (each mapped to **Published**
+  or **Draft**), matched against the raw value and, for a Dataverse choice
+  field, its label too. A value that matches no row falls back to the
+  **Any other value** outcome. Invert does not apply in this mode.
+
+When a flag is in map mode, its outcome can be `draft` as well as
+`published`; a plain truthy flag can only gate visibility on/off. Where
+both flags resolve an outcome, the most restrictive one wins
+(`published` < `draft`). While neither flag is in map mode, the combined
+`status` output is byte-for-byte identical to before this feature (see
+Filtering and visibility below) - only once a flag is switched into map
+mode can a row come back `pending` instead of `suspended`.
+
+A source value that matched no map row is counted per flag and surfaced
+as an "Unmapped values" warning on the **Preview transform** and
+**Send to Agend** results, so it can be added to the map or left to the
+default outcome deliberately.
+
 ### Always set
 
 - `external_metadata.upbeat_unique_id`, `external_metadata.upbeat_date_modified`
@@ -389,6 +417,38 @@ expandable into a table of the affected rows, identified by `external_id`
 and `fullname`, capped at 50 examples per reason so the page stays
 responsive on large syncs. Use these to locate the source record in
 Upbeat and clean the data.
+
+### Per-row errors and new-option notices
+
+The gateway validates each listing in a batch independently and answers
+with one result per row, which **Send to Agend** (and the WP-CLI command)
+report as follows:
+
+- **Per-row error examples** - a row the gateway rejected (`status:
+  'error'`) appears in a table with its `external_id`, error `code` and
+  `message`, and, when the gateway names the specific fields at fault
+  (`error.fields`), a "field issues" column listing each one as
+  "Listing #N (external id X), field F: reason", capped at 10 field
+  issues per row and 10 row examples overall.
+- **New options were created** - a row that succeeded may carry a
+  notice that the gateway auto-created a new select/radio/multi-select
+  option for one of its `custom_fields` values (`OPTION_CREATED`). These
+  are aggregated per field across the whole run into a note such as
+  "New options were created for custom_fields.state: 'VIC', 'WA' (3
+  rows)"; any other notice code the gateway sends is only counted, per
+  code, alongside it.
+- **Warnings** - a row's `warnings` (plain-text notes that did not stop
+  it from succeeding) are counted and shown with up to 10 examples.
+
+All three degrade gracefully against an older gateway that does not yet
+send `error.fields` or `notices`: the result looks exactly as it did
+before this feature.
+
+Every message the gateway returns is passed through the same privacy
+scrub as a batch-level failure: a "received ..." tail is stripped, every
+quoted literal is blanked, and an email address is redacted, so a
+member's own data submitted to the gateway is never echoed back into the
+admin screen, the CLI output, or a log.
 
 ## How the upload runs
 
