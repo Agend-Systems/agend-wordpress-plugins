@@ -259,6 +259,69 @@ function agend_apps_records_render_filter_preview_control( array $config ): stri
 }
 
 /**
+ * The style hooks a filter's Style-tab settings put on its shell.
+ *
+ * Each set value becomes a CSS custom property plus a modifier class, and
+ * assets/css/filters.css applies a property only under its class. The class
+ * is what keeps an unset value from touching the control at all: a rule that
+ * read an undefined custom property would reset the theme's own form styling
+ * instead of leaving it alone.
+ *
+ * Colours go through agend_apps_records_colour_is_safe(); sizes must be one
+ * of the choices the schema offers. Anything else is dropped.
+ *
+ * @param array $settings Surface settings (see agend_apps_records_surface_schema( 'filter' )).
+ * @return array{classes: string[], style: string}
+ */
+function agend_apps_records_filter_style( array $settings ): array {
+	$colours = array(
+		'field_background'         => array( 'bg', 'agend-filter--field-bg' ),
+		'field_text_colour'        => array( 'text', 'agend-filter--field-text' ),
+		'field_border_colour'      => array( 'border-colour', 'agend-filter--field-border-colour' ),
+		'field_focus_colour'       => array( 'focus', 'agend-filter--field-focus' ),
+		'button_colour'            => array( 'button', 'agend-filter--button-colour' ),
+		'button_active_background' => array( 'button-active-bg', 'agend-filter--button-active-bg' ),
+		'button_active_text'       => array( 'button-active-text', 'agend-filter--button-active-text' ),
+		'checkbox_colour'          => array( 'checkbox', 'agend-filter--checkbox-colour' ),
+	);
+	$sizes   = array(
+		'field_border_width' => array( 'border-width', 'agend-filter--field-border-width', agend_apps_records_filter_border_width_options() ),
+		'field_radius'       => array( 'radius', 'agend-filter--field-radius', agend_apps_records_filter_radius_options() ),
+		'field_height'       => array( 'height', 'agend-filter--field-height', agend_apps_records_filter_height_options() ),
+		'button_radius'      => array( 'button-radius', 'agend-filter--button-radius', agend_apps_records_filter_radius_options() ),
+	);
+
+	$classes = array();
+	$vars    = array();
+
+	foreach ( $colours as $key => $hook ) {
+		$value = trim( (string) ( $settings[ $key ] ?? '' ) );
+		if ( agend_apps_records_colour_is_safe( $value ) ) {
+			$vars[]    = '--agend-filter-' . $hook[0] . ':' . $value;
+			$classes[] = $hook[1];
+		}
+	}
+
+	foreach ( $sizes as $key => $hook ) {
+		$value = (string) ( $settings[ $key ] ?? '' );
+		if ( '' === $value || ! array_key_exists( $value, $hook[2] ) ) {
+			continue;
+		}
+		$vars[]    = '--agend-filter-' . $hook[0] . ':' . (int) $value . 'px';
+		$classes[] = $hook[1];
+	}
+
+	if ( in_array( 'agend-filter--field-border-width', $classes, true ) && 'bottom' === ( $settings['field_border_sides'] ?? 'all' ) ) {
+		$classes[] = 'agend-filter--field-border-bottom';
+	}
+
+	return array(
+		'classes' => $classes,
+		'style'   => implode( ';', $vars ),
+	);
+}
+
+/**
  * Renders the catalogue filter surface: a labelled shell around the control
  * a catalogue's script fills in at runtime, or, with `$opts['preview']` on,
  * the stand-in control markup itself.
@@ -302,8 +365,13 @@ function agend_apps_records_render_filter( array $settings, array $opts = array(
 		$classes .= ' agend-filter--preview';
 	}
 
+	$style = agend_apps_records_filter_style( $settings );
+	if ( ! empty( $style['classes'] ) ) {
+		$classes .= ' ' . implode( ' ', $style['classes'] );
+	}
+
 	ob_start();
-	echo '<div class="' . esc_attr( $classes ) . '" data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '">';
+	echo '<div class="' . esc_attr( $classes ) . '"' . ( '' !== $style['style'] ? ' style="' . esc_attr( $style['style'] ) . '"' : '' ) . ' data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '">';
 	if ( $config['showLabel'] && '' !== $config['label'] ) {
 		echo '<span class="agend-filter__label">' . esc_html( $config['label'] ) . '</span>';
 	}
