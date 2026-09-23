@@ -1288,13 +1288,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									<p class="description">
 										<?php
 										printf(
-											/* translators: 1: minimum, 2: maximum, 3: default timeout. */
-											esc_html__( 'How long one batch request may wait on the Agend gateway, from %1$d to %2$d seconds. Default %3$d. In a browser this is further capped so it always fits inside the step\'s own execution-time limit; WP-CLI and cron runs use the full value. A batch that times out is retried automatically (twice, with a short backoff) before it is recorded as failed.', 'agend-directory-sync' ),
+											/* translators: 1: minimum, 2: maximum, 3: default timeout, 4: the browser cap. */
+											esc_html__( 'How long one batch request may wait on the Agend gateway, from %1$d to %2$d seconds. Default %3$d. Applies in full to WP-CLI and cron runs; browser runs are capped at %4$d seconds regardless of this setting, so the request finishes inside typical 60-second host or proxy limits.', 'agend-directory-sync' ),
 											Agend_Directory_Sync_Agend_Client::MIN_TIMEOUT_SECONDS,
 											Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS,
-											Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS
+											Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS,
+											Agend_Directory_Sync_Agend_Client::STEP_REQUEST_BUDGET_SECONDS - 5
 										);
 										?>
+									</p>
+									<p class="description">
+										<?php esc_html_e( 'In the browser stepper, a batch that times out is retried automatically (twice, with a short backoff) before it is recorded as failed. WP-CLI does not retry a timeout; rerunning the command is safe, since the bulk-upsert is idempotent on external_source and external_id.', 'agend-directory-sync' ); ?>
 									</p>
 								</td>
 							</tr>
@@ -1852,6 +1856,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									'listing'         => __( 'Listing #%1$s, field %2$s: %3$s', 'agend-directory-sync' ),
 									'listingWithId'   => __( 'Listing #%1$s (external id %2$s), field %3$s: %4$s', 'agend-directory-sync' ),
 									'retrying'        => __( 'Batch %1$s timed out, retrying in %2$ss (attempt %3$s of %4$s)', 'agend-directory-sync' ),
+									'transportRetry'  => __( 'The server took too long to answer; retrying…', 'agend-directory-sync' ),
+									'transportFailed' => __( 'The server stopped responding after several attempts. Check your connection, then press Resume to continue; batches already uploaded were kept.', 'agend-directory-sync' ),
 								),
 							)
 						); ?>;
@@ -1869,6 +1875,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							var sendBtn = document.getElementById('agend-directory-sync-send');
 							var maxInput = document.getElementById('agend_max_records');
 							var running = false;
+							// Bumped by begin()/pause/cancel so a loop() chain started
+							// before a pause or a fresh begin() can tell it is stale
+							// and stop scheduling itself, even if a fetch it already
+							// sent resolves afterwards. That, plus clearing any
+							// pending setTimeout on the same events, is what keeps
+							// exactly one chain ever stepping.
+							var runToken = 0;
+							var pendingTimer = null;
+							var transportFailures = 0;
+							var lastJob = null;
 
 							function format(template, values) {
 								return template.replace(/%(\d+)\$s/g, function (m, i) { return values[i - 1]; });
@@ -1925,6 +1941,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							}
 
 							function paint(job, note) {
+								job = job || {};
+								lastJob = (job.stage !== undefined) ? job : lastJob;
 								panel.style.display = '';
 								var label = '';
 								if (note) {
@@ -1939,7 +1957,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 									label = jobConfig.stages[job.stage] || '';
 								}
 								stageEl.textContent = label;
-								barEl.style.width = (job.percent === null ? 0 : job.percent) + '%';
+								barEl.style.width = (job.percent === null || job.percent === undefined ? 0 : job.percent) + '%';
 								countsEl.textContent = job.listing_count
 									? format(jobConfig.strings.counts, [job.listings_sent, job.listing_count, job.created, job.updated, job.errored])
 									: '';
@@ -1953,20 +1971,41 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								if (sendBtn) { sendBtn.disabled = active; }
 							}
 
-							function loop() {
-								if (!running) { return; }
+							function clearPending() {
+								if (pendingTimer !== null) {
+									window.clearTimeout(pendingTimer);
+									pendingTimer = null;
+								}
+							}
+
+							// Schedules the next step under the SAME chain (token):
+							// a chain a pause or a new begin() has since invalidated
+							// never gets to run again, even if its timer was already
+							// pending when that happened.
+							function scheduleLoop(token, delayMs) {
+								clearPending();
+								pendingTimer = window.setTimeout(function () {
+									pendingTimer = null;
+									loop(token);
+								}, delayMs || 0);
+							}
+
+							function loop(token) {
+								if (!running || token !== runToken) { return; }
 								post('agend_directory_sync_job_step').then(function (res) {
+									if (token !== runToken) { return; }
 									if (!res || !res.success) {
 										running = false;
 										stageEl.textContent = (res && res.data && res.data.message) || 'Request failed.';
 										return;
 									}
+									transportFailures = 0;
 									var job = res.data.job;
 									if (res.data.busy) {
 										paint(job, jobConfig.strings.busy);
 										// Another tab holds the step lock. Back off
 										// rather than spinning against it.
-										window.setTimeout(loop, 3000);
+										scheduleLoop(token, 3000);
 										return;
 									}
 									paint(job);
@@ -1978,7 +2017,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										var delay = (job.waiting_seconds !== null && job.waiting_seconds !== undefined && job.waiting_seconds > 0)
 											? job.waiting_seconds * 1000
 											: 0;
-										window.setTimeout(loop, delay);
+										scheduleLoop(token, delay);
 									} else {
 										running = false;
 										paint(job);
@@ -1988,15 +2027,35 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 										// the result's preview windows open.
 										window.location.href = jobConfig.resultUrl;
 									}
-								}).catch(function (e) {
-									running = false;
-									stageEl.textContent = String(e);
+								}).catch(function () {
+									// A rejected step is either a network failure or a
+									// response that was not JSON (an HTML error page
+									// from an edge or proxy timing the request out
+									// itself, e.g. a 504) -- the request never reached
+									// a point where the job could answer either way.
+									// The server-side step lock has a TTL, so a step
+									// that did land is not stuck; retrying here is
+									// safe and, per the bulk-upsert's idempotency, so
+									// is a batch that partially sent before the
+									// connection dropped.
+									if (token !== runToken) { return; }
+									transportFailures += 1;
+									if (transportFailures >= 3) {
+										running = false;
+										paint(lastJob || {}, jobConfig.strings.transportFailed);
+										return;
+									}
+									paint(lastJob || {}, jobConfig.strings.transportRetry);
+									scheduleLoop(token, 10000);
 								});
 							}
 
 							function begin() {
+								clearPending();
 								running = true;
-								loop();
+								transportFailures = 0;
+								runToken += 1;
+								loop(runToken);
 							}
 
 							if (sendBtn) {
@@ -2015,6 +2074,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 							pauseBtn.addEventListener('click', function () {
 								running = false;
+								runToken += 1;
+								clearPending();
 								post('agend_directory_sync_job_status').then(function (res) {
 									if (res && res.success && res.data.job) { paint(res.data.job); }
 								});
@@ -2024,6 +2085,8 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 							cancelBtn.addEventListener('click', function () {
 								running = false;
+								runToken += 1;
+								clearPending();
 								post('agend_directory_sync_job_cancel').then(function (res) {
 									if (res && res.success && res.data.job) { paint(res.data.job); }
 								});
@@ -2773,8 +2836,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$errored     = (int) ( $send['errored'] ?? 0 );
 			$batches     = (int) ( $send['batches'] ?? 0 );
 			$url         = (string) ( $send['url'] ?? '' );
-			$examples    = is_array( $send['error_examples'] ?? null ) ? $send['error_examples'] : array();
-			$http_errors = is_array( $send['http_errors'] ?? null ) ? $send['http_errors'] : array();
+			$examples        = is_array( $send['error_examples'] ?? null ) ? $send['error_examples'] : array();
+			$http_errors     = is_array( $send['http_errors'] ?? null ) ? $send['http_errors'] : array();
+			$retried_batches = is_array( $send['retried_batches'] ?? null ) ? $send['retried_batches'] : array();
 
 			echo '<h4>' . esc_html__( 'Agend bulk-upsert result', 'agend-directory-sync' ) . '</h4>';
 			echo '<p><code>' . esc_html( $url ) . '</code></p>';
@@ -2784,6 +2848,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			echo '<li>' . esc_html( sprintf( __( 'Updated: %d', 'agend-directory-sync' ), $updated ) ) . '</li>';
 			echo '<li>' . esc_html( sprintf( __( 'Errored: %d', 'agend-directory-sync' ), $errored ) ) . '</li>';
 			echo '</ul>';
+
+			if ( ! empty( $retried_batches ) ) {
+				echo '<div class="notice notice-info inline"><ul style="list-style:disc;padding-left:1.5em;margin:.5em 0;">';
+				foreach ( $retried_batches as $entry ) {
+					echo '<li>' . esc_html(
+						sprintf(
+							/* translators: 1: batch number (1-based), 2: attempts the batch took to succeed. */
+							__( 'Batch %1$d succeeded after %2$d attempts; rows committed by an earlier timed-out attempt are counted as updated.', 'agend-directory-sync' ),
+							(int) ( $entry['batch'] ?? 0 ),
+							(int) ( $entry['attempts'] ?? 0 )
+						)
+					) . '</li>';
+				}
+				echo '</ul></div>';
+			}
 
 			if ( ! empty( $examples ) ) {
 				echo '<h4>' . esc_html__( 'Per-row error examples', 'agend-directory-sync' ) . '</h4>';

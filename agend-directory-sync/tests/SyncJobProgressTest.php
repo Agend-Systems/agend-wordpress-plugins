@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\DirectorySync;
 
+use Agend_Directory_Sync_Agend_Client;
 use Agend_Directory_Sync_Job;
 use Agend_Test_Directory_Bulk_Upsert;
 use Agend\Tests\TestCase;
@@ -47,11 +48,12 @@ final class SyncJobProgressTest extends TestCase {
 				'source'         => 'dataverse',
 				'message'        => '',
 				'send'           => array(
-					'created'        => 300,
-					'updated'        => 100,
-					'errored'        => 0,
-					'error_examples' => array(),
-					'http_errors'    => array(),
+					'created'         => 300,
+					'updated'         => 100,
+					'errored'         => 0,
+					'error_examples'  => array(),
+					'http_errors'     => array(),
+					'retried_batches' => array(),
 				),
 			),
 			$overrides
@@ -412,7 +414,7 @@ final class SyncJobProgressTest extends TestCase {
 		$this->assertSame( 1, $job['batch_cursor'] );
 		$this->assertSame( 0, $job['batch_attempts'] );
 		$this->assertCount( 1, $job['send']['http_errors'] );
-		$this->assertStringContainsString( 'timed out after 3 attempts', $job['send']['http_errors'][0]['message'] );
+		$this->assertStringContainsString( 'failed after 3 attempts', $job['send']['http_errors'][0]['message'] );
 		$this->assertFalse( get_option( $option ) );
 	}
 
@@ -497,5 +499,222 @@ final class SyncJobProgressTest extends TestCase {
 		$this->assertNotNull( $progress['waiting_seconds'] );
 		$this->assertGreaterThan( 0, $progress['waiting_seconds'] );
 		$this->assertLessThanOrEqual( 50, $progress['waiting_seconds'] );
+	}
+
+	/**
+	 * A job created before batch_size was stored on it (or one whose stored
+	 * value is otherwise unusable) must fall back to the fixed 100 every
+	 * pre-0.8.1 release actually chunked with, not today's batch_size()
+	 * setting default (25) -- a different number that would desync the
+	 * position arithmetic for every batch after the first.
+	 */
+	#[Test]
+	public function job_batch_size_falls_back_to_max_batch_size_for_a_legacy_job(): void {
+		$this->assertSame(
+			Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+			Agend_Directory_Sync_Job::job_batch_size( $this->job( array( 'batch_size' => null ) ) )
+		);
+		$this->assertSame(
+			Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+			Agend_Directory_Sync_Job::job_batch_size( array( 'id' => 'x' ) )
+		);
+		$this->assertSame(
+			Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+			Agend_Directory_Sync_Job::job_batch_size( $this->job( array( 'batch_size' => 0 ) ) )
+		);
+		$this->assertSame(
+			Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+			Agend_Directory_Sync_Job::job_batch_size( $this->job( array( 'batch_size' => -5 ) ) )
+		);
+		$this->assertSame(
+			Agend_Directory_Sync_Agend_Client::MAX_BATCH_SIZE,
+			Agend_Directory_Sync_Job::job_batch_size( $this->job( array( 'batch_size' => 'not-a-number' ) ) )
+		);
+	}
+
+	#[Test]
+	public function job_batch_size_returns_a_valid_stored_value_unchanged(): void {
+		$this->assertSame( 40, Agend_Directory_Sync_Job::job_batch_size( $this->job( array( 'batch_size' => 40 ) ) ) );
+	}
+
+	/**
+	 * A SENDING-stage legacy job (missing batch_size entirely, as one paused
+	 * before 0.8.1 and resumed afterwards would be) must neither crash
+	 * (array_chunk() throws a ValueError given a length of 0, which
+	 * (int) null casts to) nor silently switch to the new batch_size()
+	 * default: it falls back to 100 and computes a run-wide position against
+	 * that, exactly like a job that has always had batch_size stored.
+	 */
+	#[Test]
+	public function a_legacy_sending_job_with_no_batch_size_uses_one_hundred_and_positions_correctly(): void {
+		$job_id = 'dsj_legacy_test';
+
+		$job = $this->job(
+			array(
+				'id'              => $job_id,
+				'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+				'batch_count'     => 3,
+				'batch_cursor'    => 2,
+				'external_source' => 'test-source',
+				'auto_publish'    => false,
+				'transform'       => array(),
+			)
+		);
+		unset( $job['batch_size'] );
+
+		update_option( Agend_Directory_Sync_Job::OPTION_JOB, $job, false );
+
+		$this->store_batch(
+			$job_id,
+			2,
+			array(
+				array( 'external_id' => 'ext-0', 'name' => 'Row 0' ),
+				array( 'external_id' => 'ext-1', 'name' => 'Row 1' ),
+			)
+		);
+
+		Agend_Test_Directory_Bulk_Upsert::$response = new WP_Error(
+			'agend_api_error',
+			'Invalid request parameters',
+			array(
+				'status_code' => 400,
+				'body'        => array(
+					'error' => array(
+						'code'    => 'VALIDATION_ERROR',
+						'details' => array(
+							'issues' => array(
+								array( 'path' => array( 'listings', 1, 'name' ), 'message' => 'Required' ),
+							),
+						),
+					),
+				),
+			)
+		);
+
+		$result = Agend_Directory_Sync_Job::step();
+
+		$issue = $result['send']['http_errors'][0]['issues'][0];
+		// batch_index (2) * 100 (the legacy fallback) + record (1) + 1 = 202.
+		$this->assertSame( 202, $issue['listing_position'] );
+		$this->assertSame( 'ext-1', $issue['external_id'] );
+	}
+
+	/**
+	 * A job's own batch_size, fixed at start(), does not move when the live
+	 * setting is changed mid-run: job_batch_size() reads only the value
+	 * stored on the job it is given.
+	 */
+	#[Test]
+	public function a_job_keeps_its_own_batch_size_when_the_setting_changes_mid_run(): void {
+		$job = $this->job( array( 'batch_size' => 50 ) );
+
+		update_option( \Agend_Directory_Sync::OPTION_BATCH_SIZE, 10 );
+
+		$this->assertSame( 50, Agend_Directory_Sync_Job::job_batch_size( $job ) );
+
+		$progress = Agend_Directory_Sync_Job::progress(
+			array_merge( $job, array( 'batch_cursor' => 2, 'listing_count' => 1000 ) )
+		);
+		$this->assertSame( 100, $progress['listings_sent'] );
+	}
+
+	/**
+	 * A batch that fails once with a retryable transport error and then
+	 * succeeds on its second attempt resets the retry bookkeeping, records no
+	 * http_errors entry, and is flagged in retried_batches so the result
+	 * panel can note that some of what it counts as "updated" may actually be
+	 * rows an earlier, timed-out attempt already delivered.
+	 */
+	#[Test]
+	public function a_timeout_followed_by_success_resets_attempts_and_records_a_retried_batch(): void {
+		$job_id = 'dsj_retry_then_success_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'batch_attempts'  => 1,
+					'retry_after'     => time() - 1,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		Agend_Test_Directory_Bulk_Upsert::$response = array(
+			'data' => array(
+				'results' => array(
+					array( 'status' => 'updated', 'external_id' => 'ext-0' ),
+				),
+			),
+		);
+
+		$job = Agend_Directory_Sync_Job::step( 60 );
+
+		$this->assertSame( 1, $job['batch_cursor'] );
+		$this->assertSame( 0, $job['batch_attempts'] );
+		$this->assertSame( 0, $job['retry_after'] );
+		$this->assertSame( array(), $job['send']['http_errors'] );
+		$this->assertCount( 1, $job['send']['retried_batches'] );
+		$this->assertSame( 1, $job['send']['retried_batches'][0]['batch'] );
+		$this->assertSame( 2, $job['send']['retried_batches'][0]['attempts'] );
+	}
+
+	/**
+	 * Acquiring the lock does not itself refresh the job read at the top of
+	 * step(): another request can write a newer state into the gap between
+	 * that read and the lock being granted. The `agend_directory_sync_job_
+	 * before_lock` action is a test seam for exactly this window: hooking it
+	 * to write a newer job simulates the race, and step() must act on that
+	 * newer state (here: a job the hook cancels, which step() must return
+	 * without touching the gateway) rather than the stale pre-lock copy.
+	 */
+	#[Test]
+	public function step_re_reads_the_job_after_acquiring_the_lock(): void {
+		$job_id = 'dsj_race_test';
+
+		update_option(
+			Agend_Directory_Sync_Job::OPTION_JOB,
+			$this->job(
+				array(
+					'id'              => $job_id,
+					'stage'           => Agend_Directory_Sync_Job::STAGE_SENDING,
+					'batch_count'     => 1,
+					'batch_cursor'    => 0,
+					'external_source' => 'test-source',
+					'auto_publish'    => false,
+					'transform'       => array(),
+				)
+			),
+			false
+		);
+
+		$this->store_batch( $job_id, 0, array( array( 'external_id' => 'ext-0' ) ) );
+
+		add_action(
+			'agend_directory_sync_job_before_lock',
+			static function ( array $job ) use ( $job_id ): void {
+				// Simulate a second request cancelling the job in the window
+				// between step()'s pre-lock read and the lock being granted.
+				$job['stage'] = Agend_Directory_Sync_Job::STAGE_CANCELLED;
+				update_option( Agend_Directory_Sync_Job::OPTION_JOB, $job, false );
+			}
+		);
+
+		$result = Agend_Directory_Sync_Job::step();
+
+		$this->assertSame( Agend_Directory_Sync_Job::STAGE_CANCELLED, $result['stage'] );
+		// The stale pre-lock copy was still STAGE_SENDING with a batch ready
+		// to send; if step() had acted on it instead of re-reading, this
+		// would be non-empty.
+		$this->assertSame( array(), Agend_Test_Directory_Bulk_Upsert::$calls );
 	}
 }

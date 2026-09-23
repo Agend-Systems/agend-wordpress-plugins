@@ -411,24 +411,44 @@ created / updated / error counts.
   `external_source`. **Batch size (listings per request)** defaults to 25 and
   is clamped to 1-100 (100 stays the gateway's hard cap); a smaller batch
   finishes each step faster, which helps on a host with a short execution-time
-  limit. **Upload timeout (seconds)** defaults to 60 and is clamped to
-  15-300, and is the ceiling given to each batch's own gateway request. In a
-  browser it is further capped so a batch's request always leaves a few
-  seconds of the step's own execution-time budget free (read from
-  `max_execution_time`, whatever a host has that set to); WP-CLI and cron runs
-  have no such ceiling, so the full setting applies. A sync already in
-  progress keeps the batch size it started with even if the setting changes
-  mid-run, so its batch numbering stays consistent from start to finish.
-- **A batch that times out is retried automatically**, up to twice (5 seconds,
-  then 15, before each retry), before it is recorded as a failure noting how
-  many attempts were made. This only applies to a transport-level timeout with
-  no response from the gateway; a 4xx or 5xx the gateway did answer with is
-  never retried, since trying again cannot change that answer. Retrying is
-  safe because the bulk-upsert is idempotent on (`external_source`,
-  `external_id`): re-sending a batch that may or may not have reached the
-  gateway produces the same end state either way. While a batch is waiting to
-  retry, the progress panel shows a countdown instead of stepping again
-  immediately.
+  limit. **Upload timeout (seconds)** defaults to 45 and is clamped to
+  15-300, and is the ceiling given to each batch's own gateway request. WP-CLI
+  and cron runs use the full setting. A browser step is always capped at 45
+  seconds regardless of the setting, because `max_execution_time` alone is not
+  a reliable ceiling there: on Linux, PHP's own execution-time limit does not
+  count time spent blocked on a network read, so it can be far more generous
+  than what the host or an intermediate proxy actually allows the request to
+  run for before cutting it off outright (Kinsta and many others cut at 60
+  seconds). A sync already in progress keeps the batch size it started with
+  even if the setting changes mid-run, so its batch numbering stays consistent
+  from start to finish; the same applies to a run paused before this batch
+  size setting existed and resumed afterwards, which is treated as having
+  used 100 (what every earlier release actually chunked with).
+- **A batch that fails with a transport-level or upstream-availability
+  failure is retried automatically** in the browser stepper, up to twice (5
+  seconds, then 15, before each retry), before it is recorded as a failure
+  noting how many attempts were made. This covers a timeout or dropped
+  connection with no response from the gateway at all, and a 502, 503 or 504
+  the gateway (or something in front of it) did answer with; every other
+  status, including all 4xx and a 500, is a real answer retrying cannot
+  change, so those are never retried. Retrying is safe because the
+  bulk-upsert is idempotent on (`external_source`, `external_id`): re-sending
+  a batch that may or may not have reached the gateway produces the same end
+  state either way. While a batch is waiting to retry, the progress panel
+  shows a countdown instead of stepping again immediately, and a batch that
+  succeeds after a retry is noted in the finished result ("Batch N succeeded
+  after K attempts…") since some of what it counts as created or updated may
+  already have been committed by the earlier, timed-out attempt. WP-CLI does
+  not retry a timeout; rerunning the command is safe for the same reason.
+- **If the step request itself never gets an answer** -- the browser tab lost
+  its connection, or an edge or proxy returned an HTML error page instead of
+  the expected JSON, most commonly a 504 -- the page retries the step after 10
+  seconds rather than treating it as failed, up to 3 consecutive failures
+  before it pauses with a message asking the operator to check their
+  connection and press Resume. This is a different situation from the
+  batch-level retry above: nothing here is known about the batch that step
+  was trying to send, only that the browser could not get a straight answer
+  about it.
 - **Leave the tab open.** Stepping is driven by the page. Closing it pauses the
   job rather than losing it; reopening Tools > Agend Directory Sync shows the
   unfinished run and offers **Resume**. It never resumes on its own, so opening
