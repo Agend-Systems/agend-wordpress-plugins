@@ -134,6 +134,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 					$listings,
 					$batch_size
 				);
+
+				// Same run-wide stamping, for a row error's own field-level
+				// issues (error.fields) rather than a batch-level 400's.
+				$send_summary['error_examples'] = self::stamp_error_example_positions(
+					is_array( $send_summary['error_examples'] ?? null ) ? $send_summary['error_examples'] : array(),
+					$listings,
+					$batch_size
+				);
 			}
 
 			return array(
@@ -228,6 +236,48 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 			unset( $http_error );
 
 			return $http_errors;
+		}
+
+		/**
+		 * Same stamping as stamp_http_error_positions(), for a row error's own
+		 * field-level issues (`fields`, from the gateway's per-row `error.
+		 * fields`) rather than a batch-level 400's `issues`. Each error
+		 * example already carries the batch_index its row was reported
+		 * against (run-wide here, since send_listings() makes one call for
+		 * the whole listings set); this only adds the run-wide
+		 * listing_position and external_id each field issue does not carry
+		 * yet.
+		 *
+		 * Public so it is directly unit-testable against a plain
+		 * error_examples array, without standing up the full fetch/transform
+		 * pipeline run() otherwise requires.
+		 *
+		 * @param array<int, array<string, mixed>> $error_examples
+		 * @param array<int, array<string, mixed>> $listings
+		 *
+		 * @return array<int, array<string, mixed>>
+		 */
+		public static function stamp_error_example_positions( array $error_examples, array $listings, int $batch_size ): array {
+			$chunks = array_chunk( $listings, max( 1, $batch_size ) );
+
+			foreach ( $error_examples as &$example ) {
+				if ( ! is_array( $example['fields'] ?? null ) ) {
+					continue;
+				}
+
+				$batch_index = (int) ( $example['batch_index'] ?? 0 );
+				$batch       = $chunks[ $batch_index ] ?? array();
+
+				$example['fields'] = array_map(
+					static function ( array $issue ) use ( $batch_index, $batch, $batch_size ): array {
+						return Agend_Directory_Sync_Agend_Client::stamp_issue_position( $issue, $batch_index, $batch, $batch_size );
+					},
+					$example['fields']
+				);
+			}
+			unset( $example );
+
+			return $error_examples;
 		}
 	}
 endif;

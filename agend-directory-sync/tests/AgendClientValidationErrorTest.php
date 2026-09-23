@@ -232,4 +232,226 @@ final class AgendClientValidationErrorTest extends TestCase {
 		$this->assertArrayNotHasKey( 'issues', $http_error );
 		$this->assertArrayNotHasKey( 'status_code', $http_error );
 	}
+
+	/**
+	 * A per-row 200-level error (the batch as a whole was accepted, but one
+	 * row failed the gateway's independent per-row validation) carries its
+	 * own `error.fields`, mapped into the error_examples entry's `fields`
+	 * the same shape a batch-level 400's `issues` uses, with the row's index
+	 * within the batch as `record` and the field message run through the
+	 * same privacy scrub.
+	 */
+	#[Test]
+	public function a_row_error_maps_its_fields_into_the_error_example(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response = array(
+			'data' => array(
+				'results' => array(
+					array(
+						'index'       => 0,
+						'external_id' => 'ext-0',
+						'status'      => 'error',
+						'error'       => array(
+							'code'    => 'VALIDATION_ERROR',
+							'message' => 'Row failed validation',
+							'fields'  => array(
+								array( 'path' => 'custom_fields.state', 'message' => "Invalid enum value, received 'Jane Smith'" ),
+								array( 'path' => 'email', 'message' => 'Invalid email' ),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings(
+			array( array( 'external_id' => 'ext-0' ) ),
+			'test-source'
+		);
+
+		$this->assertCount( 1, $summary['error_examples'] );
+
+		$fields = $summary['error_examples'][0]['fields'];
+		$this->assertCount( 2, $fields );
+
+		$this->assertSame( 0, $fields[0]['record'] );
+		$this->assertSame( 'custom_fields.state', $fields[0]['field'] );
+		$this->assertSame( 'Invalid enum value', $fields[0]['reason'] );
+		$this->assertStringNotContainsString( 'Jane Smith', $fields[0]['reason'] );
+
+		$this->assertSame( 0, $fields[1]['record'] );
+		$this->assertSame( 'email', $fields[1]['field'] );
+		$this->assertSame( 'Invalid email', $fields[1]['reason'] );
+	}
+
+	/**
+	 * A row error with no `fields` at all (an older gateway, or a row error
+	 * that carries only a top-level code/message) leaves the error_examples
+	 * entry exactly as it was before this feature: no `fields` key at all,
+	 * not an empty array.
+	 */
+	#[Test]
+	public function a_row_error_without_fields_is_unchanged(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response = array(
+			'data' => array(
+				'results' => array(
+					array(
+						'index'       => 0,
+						'external_id' => 'ext-0',
+						'status'      => 'error',
+						'error'       => array(
+							'code'    => 'UNKNOWN',
+							'message' => 'Something went wrong',
+						),
+					),
+				),
+			),
+		);
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings(
+			array( array( 'external_id' => 'ext-0' ) ),
+			'test-source'
+		);
+
+		$this->assertArrayNotHasKey( 'fields', $summary['error_examples'][0] );
+	}
+
+	/**
+	 * A row error's `fields` is capped at MAX_FIELD_ISSUES_PER_ROW, same
+	 * reasoning as the batch-level issue cap: a row that fails every field it
+	 * carries should not swamp the example.
+	 */
+	#[Test]
+	public function a_row_error_caps_its_field_issues(): void {
+		$fields = array();
+		for ( $i = 0; $i < 15; $i++ ) {
+			$fields[] = array( 'path' => "custom_fields.f$i", 'message' => 'Required' );
+		}
+
+		Agend_Test_Directory_Bulk_Upsert::$response = array(
+			'data' => array(
+				'results' => array(
+					array(
+						'index'       => 0,
+						'external_id' => 'ext-0',
+						'status'      => 'error',
+						'error'       => array( 'code' => 'VALIDATION_ERROR', 'message' => 'Row failed', 'fields' => $fields ),
+					),
+				),
+			),
+		);
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings(
+			array( array( 'external_id' => 'ext-0' ) ),
+			'test-source'
+		);
+
+		$this->assertCount( Agend_Directory_Sync_Agend_Client::MAX_FIELD_ISSUES_PER_ROW, $summary['error_examples'][0]['fields'] );
+	}
+
+	/**
+	 * An OPTION_CREATED notice on a successful row is aggregated per path
+	 * into `options_created`, keeping a row count and distinct sanitised
+	 * example values (capped at MAX_OPTION_VALUES_PER_PATH); any other
+	 * notice code is only counted, per code, under `other_notices`.
+	 */
+	#[Test]
+	public function notices_are_aggregated_by_path_and_code(): void {
+		$rows = array();
+		foreach ( array( 'VIC', 'WA', 'VIC' ) as $value ) {
+			$rows[] = array(
+				'status'      => 'created',
+				'external_id' => 'ext-' . $value,
+				'notices'     => array(
+					array( 'code' => 'OPTION_CREATED', 'path' => 'custom_fields.state', 'value' => $value ),
+				),
+			);
+		}
+		$rows[] = array(
+			'status'  => 'updated',
+			'notices' => array( array( 'code' => 'SOMETHING_ELSE' ) ),
+		);
+
+		Agend_Test_Directory_Bulk_Upsert::$response = array( 'data' => array( 'results' => $rows ) );
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array_fill( 0, 4, array( 'external_id' => 'x' ) ), 'test-source' );
+
+		$this->assertSame( 3, $summary['options_created']['custom_fields.state']['count'] );
+		$this->assertSame( array( 'VIC', 'WA' ), $summary['options_created']['custom_fields.state']['values'] );
+		$this->assertSame( array( 'SOMETHING_ELSE' => 1 ), $summary['other_notices'] );
+	}
+
+	/**
+	 * `options_created` values are capped at MAX_OPTION_VALUES_PER_PATH
+	 * distinct examples; the row count keeps counting past the cap.
+	 */
+	#[Test]
+	public function options_created_values_are_capped_but_the_count_is_not(): void {
+		$rows = array();
+		for ( $i = 0; $i < 15; $i++ ) {
+			$rows[] = array(
+				'status'  => 'created',
+				'notices' => array(
+					array( 'code' => 'OPTION_CREATED', 'path' => 'custom_fields.state', 'value' => "v$i" ),
+				),
+			);
+		}
+
+		Agend_Test_Directory_Bulk_Upsert::$response = array( 'data' => array( 'results' => $rows ) );
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array_fill( 0, 15, array( 'external_id' => 'x' ) ), 'test-source' );
+
+		$this->assertSame( 15, $summary['options_created']['custom_fields.state']['count'] );
+		$this->assertCount( Agend_Directory_Sync_Agend_Client::MAX_OPTION_VALUES_PER_PATH, $summary['options_created']['custom_fields.state']['values'] );
+	}
+
+	/**
+	 * A response with no `notices` at all on any row (an older gateway)
+	 * leaves `options_created` and `other_notices` empty, exactly like
+	 * before this feature existed.
+	 */
+	#[Test]
+	public function absent_notices_leave_the_summary_empty(): void {
+		Agend_Test_Directory_Bulk_Upsert::$response = array(
+			'data' => array( 'results' => array( array( 'status' => 'created', 'external_id' => 'ext-0' ) ) ),
+		);
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array( array( 'external_id' => 'ext-0' ) ), 'test-source' );
+
+		$this->assertSame( array(), $summary['options_created'] );
+		$this->assertSame( array(), $summary['other_notices'] );
+		$this->assertSame( 0, $summary['warnings'] );
+		$this->assertSame( array(), $summary['warning_examples'] );
+	}
+
+	/**
+	 * A row's `warnings` (plain strings) are counted and kept as sanitised
+	 * examples, capped at MAX_WARNING_EXAMPLES; the count keeps counting
+	 * past the cap.
+	 */
+	#[Test]
+	public function warnings_are_counted_and_capped_with_the_privacy_scrub_applied(): void {
+		$rows = array();
+		for ( $i = 0; $i < 12; $i++ ) {
+			$rows[] = array(
+				'status'   => 'updated',
+				'warnings' => array( 'Row matched an existing listing by email jane@example.com' ),
+			);
+		}
+
+		Agend_Test_Directory_Bulk_Upsert::$response = array( 'data' => array( 'results' => $rows ) );
+
+		$client  = new Agend_Directory_Sync_Agend_Client();
+		$summary = $client->send_listings( array_fill( 0, 12, array( 'external_id' => 'x' ) ), 'test-source' );
+
+		$this->assertSame( 12, $summary['warnings'] );
+		$this->assertCount( Agend_Directory_Sync_Agend_Client::MAX_WARNING_EXAMPLES, $summary['warning_examples'] );
+		$this->assertStringNotContainsString( 'jane@example.com', $summary['warning_examples'][0] );
+		$this->assertStringContainsString( '[email]', $summary['warning_examples'][0] );
+	}
 }

@@ -36,6 +36,29 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		public const MAX_ERROR_EXAMPLES = 10;
 
 		/**
+		 * Cap on the number of field-level issues kept per row error, mirroring
+		 * MAX_ISSUES_PER_BATCH's reasoning at the row level: a single row can
+		 * fail every field it carries, and only the first handful is worth
+		 * reading.
+		 */
+		public const MAX_FIELD_ISSUES_PER_ROW = 10;
+
+		/**
+		 * Cap on the number of distinct new-option values kept per
+		 * `custom_fields.<key>` path in a run's `options_created` summary. The
+		 * count of rows that created one is not capped, only the list of
+		 * example values shown for it.
+		 */
+		public const MAX_OPTION_VALUES_PER_PATH = 10;
+
+		/**
+		 * Cap on the number of sanitised warning examples kept in a run's
+		 * `warning_examples`. The total warning count is not capped, only the
+		 * list of examples shown for it.
+		 */
+		public const MAX_WARNING_EXAMPLES = 10;
+
+		/**
 		 * Cap on the number of validation issues surfaced per failed batch. A
 		 * malformed template can fail every field on every row, and nobody reads
 		 * a list of a thousand of them; the count of what was left out is kept
@@ -204,6 +227,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 				'errored'               => 0,
 				'error_examples'        => array(),
 				'http_errors'           => array(),
+				'options_created'       => array(),
+				'other_notices'         => array(),
+				'warnings'              => 0,
+				'warning_examples'      => array(),
 			);
 
 			foreach ( $batches as $batch_index => $batch ) {
@@ -217,8 +244,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 					continue;
 				}
 
-				foreach ( $result['rows'] as $row ) {
+				foreach ( $result['rows'] as $row_key => $row ) {
+					if ( ! is_array( $row ) ) {
+						continue;
+					}
+
 					$row_status = (string) ( $row['status'] ?? '' );
+
 					if ( 'created' === $row_status ) {
 						$summary['created']++;
 					} elseif ( 'updated' === $row_status ) {
@@ -226,18 +258,149 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 					} elseif ( 'error' === $row_status ) {
 						$summary['errored']++;
 						if ( count( $summary['error_examples'] ) < self::MAX_ERROR_EXAMPLES ) {
-							$summary['error_examples'][] = array(
+							$row_index = isset( $row['index'] ) ? (int) $row['index'] : (int) $row_key;
+							$example   = array(
 								'batch_index' => $batch_index,
 								'external_id' => (string) ( $row['external_id'] ?? '' ),
 								'code'        => (string) ( $row['error']['code'] ?? '' ),
 								'message'     => self::sanitize_text( (string) ( $row['error']['message'] ?? '' ) ),
 							);
+
+							$fields = self::row_field_issues( $row, $row_index );
+							if ( ! empty( $fields ) ) {
+								$example['fields'] = $fields;
+							}
+
+							$summary['error_examples'][] = $example;
 						}
 					}
+
+					self::collect_notices( $summary, $row );
+					self::collect_warnings( $summary, $row );
 				}
 			}
 
 			return $summary;
+		}
+
+		/**
+		 * Extract a failed row's field-level issues from the gateway's
+		 * `error.fields` (a flat list of `{path, message}`, `path` already a
+		 * dotted string rather than the zod-array path
+		 * `describe_validation_error()` unpacks for a batch-level 400), into
+		 * the same `{record, field, reason}` shape `stamp_issue_position()` and
+		 * `format_issue_line()` already expect. Capped per row so a single row
+		 * failing every field it carries does not swamp the example.
+		 *
+		 * @param array<string, mixed> $row       One `data.results[]` entry.
+		 * @param int                  $row_index The row's 0-based position within
+		 *                                        the batch it was submitted in
+		 *                                        (from the row's own `index`
+		 *                                        when the gateway sent one, else
+		 *                                        its array position).
+		 *
+		 * @return array<int, array{record: int, field: string, reason: string}>
+		 */
+		private static function row_field_issues( array $row, int $row_index ): array {
+			$fields = is_array( $row['error']['fields'] ?? null ) ? $row['error']['fields'] : array();
+
+			$issues = array();
+
+			foreach ( $fields as $field_error ) {
+				if ( count( $issues ) >= self::MAX_FIELD_ISSUES_PER_ROW ) {
+					break;
+				}
+
+				if ( ! is_array( $field_error ) ) {
+					continue;
+				}
+
+				$issues[] = array(
+					'record' => $row_index,
+					'field'  => (string) ( $field_error['path'] ?? '' ),
+					'reason' => self::sanitize_text( (string) ( $field_error['message'] ?? '' ) ),
+				);
+			}
+
+			return $issues;
+		}
+
+		/**
+		 * Fold one row's `notices` into the running summary: an
+		 * `OPTION_CREATED` notice (a new select/radio/multi-select option the
+		 * gateway auto-created for this row's custom field) is aggregated per
+		 * `path` into `options_created`, keeping a row count and up to
+		 * MAX_OPTION_VALUES_PER_PATH distinct sanitised example values; any
+		 * other notice code is only counted, per code, under `other_notices`.
+		 * `notices` is absent on an older gateway, so this is a no-op there.
+		 *
+		 * @param array<string, mixed> $summary Mutated.
+		 * @param array<string, mixed> $row     One `data.results[]` entry.
+		 */
+		private static function collect_notices( array &$summary, array $row ): void {
+			$notices = is_array( $row['notices'] ?? null ) ? $row['notices'] : array();
+
+			foreach ( $notices as $notice ) {
+				if ( ! is_array( $notice ) ) {
+					continue;
+				}
+
+				$code = (string) ( $notice['code'] ?? '' );
+
+				if ( '' === $code ) {
+					continue;
+				}
+
+				if ( 'OPTION_CREATED' !== $code ) {
+					$summary['other_notices'][ $code ] = ( $summary['other_notices'][ $code ] ?? 0 ) + 1;
+					continue;
+				}
+
+				$path = (string) ( $notice['path'] ?? '' );
+
+				if ( ! isset( $summary['options_created'][ $path ] ) ) {
+					$summary['options_created'][ $path ] = array(
+						'count'  => 0,
+						'values' => array(),
+					);
+				}
+
+				$summary['options_created'][ $path ]['count']++;
+
+				$value = self::sanitize_text( (string) ( $notice['value'] ?? '' ) );
+
+				if (
+					'' !== $value
+					&& count( $summary['options_created'][ $path ]['values'] ) < self::MAX_OPTION_VALUES_PER_PATH
+					&& ! in_array( $value, $summary['options_created'][ $path ]['values'], true )
+				) {
+					$summary['options_created'][ $path ]['values'][] = $value;
+				}
+			}
+		}
+
+		/**
+		 * Fold one row's `warnings` (plain strings) into the running summary:
+		 * a total count, plus up to MAX_WARNING_EXAMPLES sanitised examples.
+		 * `warnings` is absent on an older gateway, so this is a no-op there.
+		 *
+		 * @param array<string, mixed> $summary Mutated.
+		 * @param array<string, mixed> $row     One `data.results[]` entry.
+		 */
+		private static function collect_warnings( array &$summary, array $row ): void {
+			$warnings = is_array( $row['warnings'] ?? null ) ? $row['warnings'] : array();
+
+			foreach ( $warnings as $warning ) {
+				if ( ! is_string( $warning ) || '' === $warning ) {
+					continue;
+				}
+
+				$summary['warnings']++;
+
+				if ( count( $summary['warning_examples'] ) < self::MAX_WARNING_EXAMPLES ) {
+					$summary['warning_examples'][] = self::sanitize_text( $warning );
+				}
+			}
 		}
 
 		/**
@@ -677,6 +840,41 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 			}
 
 			return sprintf( 'Listing #%d, field %s: %s', (int) $position, $field, $reason );
+		}
+
+		/**
+		 * One `options_created` path as a plain-text, operator-facing line:
+		 * "New options were created: custom_fields.state: 'VIC', 'WA' (3
+		 * rows)". `values` is a capped list of distinct examples
+		 * (MAX_OPTION_VALUES_PER_PATH); `count` is the full, uncapped number
+		 * of rows that created one, so the two can differ once a run creates
+		 * more distinct values than are shown.
+		 *
+		 * Shared by the CLI's own log lines; the admin result panel keeps its
+		 * own translated version of the same shape, the same split
+		 * format_issue_line() uses.
+		 *
+		 * @param string               $path
+		 * @param array<string, mixed> $data {count: int, values: array<int, string>}
+		 */
+		public static function format_option_created_line( string $path, array $data ): string {
+			$count  = (int) ( $data['count'] ?? 0 );
+			$values = is_array( $data['values'] ?? null ) ? $data['values'] : array();
+
+			$quoted = array_map(
+				static function ( $value ): string {
+					return sprintf( "'%s'", (string) $value );
+				},
+				$values
+			);
+
+			return sprintf(
+				'New options were created: %s: %s (%d row%s)',
+				$path,
+				implode( ', ', $quoted ),
+				$count,
+				1 === $count ? '' : 's'
+			);
 		}
 	}
 endif;
