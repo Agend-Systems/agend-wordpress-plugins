@@ -108,19 +108,43 @@ function agend_apps_records_schema_export_reports(): array {
 						'type' => 'adapter',
 					),
 					array(
-						'name'      => 'parameters',
-						'label'     => __( 'Parameter mapping', 'agend-apps-core' ),
-						'type'      => 'repeater',
-						'row_label' => 'param_field',
-						'default'   => array(),
-						'fields'    => array(
+						'name' => 'parameters_none_declared',
+						'type' => 'adapter',
+					),
+					array(
+						'name' => 'parameters_declared',
+						'type' => 'adapter',
+					),
+					array(
+						'name'        => 'parameters',
+						'label'       => __( 'Parameter mapping', 'agend-apps-core' ),
+						'type'        => 'repeater',
+						'row_label'   => 'param_field',
+						// The collapsed row must show the key that is actually in
+						// force. A row configured with the picker stores nothing in
+						// param_field, and a row typed before the picker existed
+						// stores nothing in param_field_pick, so the header reads
+						// whichever one holds the answer.
+						'title_field' => '{{{ param_field_pick && param_field_pick !== "__other" ? param_field_pick : param_field }}}',
+						'default'     => array(),
+						'fields'      => array(
+							array(
+								'name'        => 'param_field_pick',
+								'label'       => __( 'Parameter', 'agend-apps-core' ),
+								'type'        => 'select',
+								'default'     => '',
+								'groups'      => 'agend_apps_records_export_reports_parameter_field_groups',
+								'label_block' => true,
+								'description' => __( 'The filter this row fills in. The list shows what this account\'s reports accept.', 'agend-apps-core' ),
+							),
 							array(
 								'name'        => 'param_field',
-								'label'       => __( 'Parameter field', 'agend-apps-core' ),
+								'label'       => __( 'Parameter key', 'agend-apps-core' ),
 								'type'        => 'text',
 								'default'     => '',
-								'placeholder' => 'keyword',
-								'description' => __( 'The field the report parameter filters on.', 'agend-apps-core' ),
+								'placeholder' => 'location.state',
+								'description' => __( 'The exact field the report parameter filters on, for example location.state or custom.education_level.', 'agend-apps-core' ),
+								'condition'   => array( 'param_field_pick' => '__other' ),
 							),
 							array(
 								'name'    => 'param_source',
@@ -143,9 +167,9 @@ function agend_apps_records_schema_export_reports(): array {
 								'name'        => 'param_catalogue_filter',
 								'label'       => __( 'Read from filter', 'agend-apps-core' ),
 								'type'        => 'select',
-								'default'     => '',
+								'default'     => '__auto',
 								'options'     => 'agend_apps_records_export_reports_catalogue_source_options',
-								'description' => __( 'Takes whatever the visitor has this filter set to when they press the button.', 'agend-apps-core' ),
+								'description' => __( 'Takes whatever the visitor has this filter set to when they press the button. Left automatic, the filter is paired to the parameter for you.', 'agend-apps-core' ),
 								'condition'   => array( 'param_source' => 'catalogue' ),
 							),
 							array(
@@ -300,7 +324,15 @@ function agend_apps_records_export_reports_option_label( string $name, string $a
  * @return array<string, string>
  */
 function agend_apps_records_export_reports_catalogue_source_options(): array {
-	$options = array( '' => __( 'Select a filter', 'agend-apps-core' ) );
+	// Automatic first, and the default: for every parameter kind but two there
+	// is exactly one compatible catalogue filter, so there is nothing here for
+	// a designer to decide. The options list carries no instance context, so
+	// the list cannot be narrowed to the chosen parameter; removing the choice
+	// is better than offering one that cannot be filtered.
+	$options = array(
+		'__auto' => __( 'Match the parameter automatically', 'agend-apps-core' ),
+		''       => __( 'Select a filter', 'agend-apps-core' ),
+	);
 
 	if ( function_exists( 'agend_apps_records_filter_registry' ) ) {
 		$registry = agend_apps_records_filter_registry();
@@ -313,4 +345,253 @@ function agend_apps_records_export_reports_catalogue_source_options(): array {
 	}
 
 	return $options;
+}
+
+/**
+ * The value the parameter picker stores when the designer wants to type a key
+ * the picker does not list.
+ */
+const AGEND_APPS_RECORDS_EXPORT_REPORTS_FIELD_OTHER = '__other';
+
+/**
+ * The value "Read from filter" stores when the catalogue filter should be
+ * paired to the parameter rather than chosen by hand.
+ */
+const AGEND_APPS_RECORDS_EXPORT_REPORTS_FILTER_AUTO = '__auto';
+
+/**
+ * Every parameter each report in the account declares.
+ *
+ * Read from the same cached authoring listing the Report select already uses,
+ * so the picker, the declared-parameters notice and the report list all cost
+ * one gateway call between them.
+ *
+ * @return array<int, array{id: string, name: string, fields: array<int, string>}>
+ */
+function agend_apps_records_export_reports_declared_parameters(): array {
+	if ( ! function_exists( 'agend_apps_directory_get_export_reports' ) ) {
+		return array();
+	}
+
+	$response = agend_apps_records_export_reports_authoring_listing();
+
+	if ( is_wp_error( $response ) || empty( $response['data'] ) || ! is_array( $response['data'] ) ) {
+		return array();
+	}
+
+	$reports = array();
+
+	foreach ( $response['data'] as $report ) {
+		if ( empty( $report['id'] ) ) {
+			continue;
+		}
+
+		$fields = array();
+		foreach ( (array) ( $report['parameters'] ?? array() ) as $parameter ) {
+			$field = is_array( $parameter ) ? trim( (string) ( $parameter['field'] ?? '' ) ) : '';
+			if ( '' !== $field && ! in_array( $field, $fields, true ) ) {
+				$fields[] = $field;
+			}
+		}
+
+		$reports[] = array(
+			'id'     => (string) $report['id'],
+			'name'   => (string) ( $report['name'] ?? $report['id'] ),
+			'fields' => $fields,
+		);
+	}
+
+	return $reports;
+}
+
+/**
+ * The union of parameter fields across the account's reports, sorted.
+ *
+ * The union rather than one report's own parameters, because a repeater row
+ * applies to every report a widget instance offers, and because an options
+ * list is resolved once while controls are registered and cannot see which
+ * report an instance has chosen.
+ *
+ * @return array<int, string>
+ */
+function agend_apps_records_export_reports_parameter_field_union(): array {
+	$fields = array();
+
+	foreach ( agend_apps_records_export_reports_declared_parameters() as $report ) {
+		foreach ( $report['fields'] as $field ) {
+			if ( ! in_array( $field, $fields, true ) ) {
+				$fields[] = $field;
+			}
+		}
+	}
+
+	sort( $fields );
+
+	return $fields;
+}
+
+/**
+ * A parameter field in plain words.
+ *
+ * A local map until the gateway returns a label of its own. Deliberately not
+ * reusing the export column registry: that describes the columns a report
+ * outputs, not the fields its conditions filter on, and the two vocabularies
+ * disagree on plurals and omit several condition-only keys.
+ *
+ * @param string $field Parameter field key.
+ * @return string
+ */
+function agend_apps_records_export_reports_parameter_field_label( string $field ): string {
+	$labels = array(
+		'keyword'           => __( 'Keyword search', 'agend-apps-core' ),
+		'text'              => __( 'Text search', 'agend-apps-core' ),
+		'category'          => __( 'Category', 'agend-apps-core' ),
+		'tag'               => __( 'Tag', 'agend-apps-core' ),
+		'badge'             => __( 'Badge', 'agend-apps-core' ),
+		'rating'            => __( 'Rating', 'agend-apps-core' ),
+		'location.state'    => __( 'State', 'agend-apps-core' ),
+		'location.city'     => __( 'City or suburb', 'agend-apps-core' ),
+		'location.postcode' => __( 'Postcode', 'agend-apps-core' ),
+		'location.country'  => __( 'Country', 'agend-apps-core' ),
+		'location_radius'   => __( 'Distance from a point', 'agend-apps-core' ),
+	);
+
+	if ( isset( $labels[ $field ] ) ) {
+		return $labels[ $field ];
+	}
+
+	if ( 0 === strpos( $field, 'custom.' ) ) {
+		$key = substr( $field, strlen( 'custom.' ) );
+
+		// The custom field's own display name is not in this response, so the
+		// key is title cased as the nearest honest guess. Shown beside the raw
+		// key, so a wrong guess is still unambiguous.
+		return ucwords( str_replace( array( '_', '-' ), ' ', $key ) );
+	}
+
+	return $field;
+}
+
+/**
+ * Which group a parameter field belongs in, derived from the key itself.
+ *
+ * @param string $field Parameter field key.
+ * @return string One of `location`, `custom`, `listing`.
+ */
+function agend_apps_records_export_reports_parameter_field_group( string $field ): string {
+	if ( 0 === strpos( $field, 'location.' ) || 'location_radius' === $field ) {
+		return 'location';
+	}
+
+	if ( 0 === strpos( $field, 'custom.' ) ) {
+		return 'custom';
+	}
+
+	return 'listing';
+}
+
+/**
+ * Grouped options for the parameter picker.
+ *
+ * Only keys some report in this account actually declares, plus the escape
+ * hatch. Padding the list with the full vocabulary would put keys in front of
+ * a designer that no report accepts, which is the silent failure this picker
+ * exists to remove.
+ *
+ * @return array<int, array{label: string, options: array<string, string>}>
+ */
+function agend_apps_records_export_reports_parameter_field_groups(): array {
+	$buckets = array(
+		'location' => array(
+			'label'   => __( 'Location', 'agend-apps-core' ),
+			'options' => array(),
+		),
+		'listing'  => array(
+			'label'   => __( 'Listing', 'agend-apps-core' ),
+			'options' => array(),
+		),
+		'custom'   => array(
+			'label'   => __( 'Custom fields', 'agend-apps-core' ),
+			'options' => array(),
+		),
+	);
+
+	foreach ( agend_apps_records_export_reports_parameter_field_union() as $field ) {
+		$group = agend_apps_records_export_reports_parameter_field_group( $field );
+
+		$buckets[ $group ]['options'][ $field ] = sprintf(
+			/* translators: 1: the parameter in plain words, 2: the raw parameter key. */
+			__( '%1$s (%2$s)', 'agend-apps-core' ),
+			agend_apps_records_export_reports_parameter_field_label( $field ),
+			$field
+		);
+	}
+
+	$groups = array();
+	foreach ( $buckets as $bucket ) {
+		if ( ! empty( $bucket['options'] ) ) {
+			$groups[] = $bucket;
+		}
+	}
+
+	$groups[] = array(
+		'label'   => __( 'Advanced', 'agend-apps-core' ),
+		'options' => array(
+			AGEND_APPS_RECORDS_EXPORT_REPORTS_FIELD_OTHER => __( 'Something else, type the key below', 'agend-apps-core' ),
+		),
+	);
+
+	return $groups;
+}
+
+/**
+ * Which catalogue filter answers which parameter, for the automatic pairing.
+ *
+ * `text` and `location_radius` are absent on purpose: neither has one obvious
+ * catalogue filter, so a row using them has to name its filter explicitly.
+ * A `custom.<key>` parameter is handled by the caller, since its filter is
+ * always `custom_field` and its custom key comes from the parameter itself.
+ *
+ * @return array<string, string> Parameter field => filter registry control key.
+ */
+function agend_apps_records_export_reports_auto_filter_map(): array {
+	return array(
+		'keyword'           => 'search',
+		'category'          => 'category',
+		'tag'               => 'tag',
+		'badge'             => 'badge',
+		'rating'            => 'rating',
+		'location.state'    => 'state',
+		'location.city'     => 'city',
+		'location.postcode' => 'postcode',
+		'location.country'  => 'country',
+	);
+}
+
+/**
+ * Each listing filter's catalogue state key, taken from the filter registry.
+ *
+ * The client script used to restate this mapping, which meant a filter added
+ * to the registry resolved to nothing until somebody remembered to update the
+ * script too. Emitted into the client config instead, so the registry stays
+ * the only place it is declared.
+ *
+ * @return array<string, string> Filter control key => catalogue state key.
+ */
+function agend_apps_records_export_reports_filter_state_keys(): array {
+	if ( ! function_exists( 'agend_apps_records_filter_registry' ) ) {
+		return array();
+	}
+
+	$registry = agend_apps_records_filter_registry();
+	$keys     = array();
+
+	foreach ( $registry['listing'] ?? array() as $key => $descriptor ) {
+		$state = (string) ( $descriptor['state'] ?? '' );
+		if ( '' !== $state ) {
+			$keys[ (string) $key ] = $state;
+		}
+	}
+
+	return $keys;
 }
