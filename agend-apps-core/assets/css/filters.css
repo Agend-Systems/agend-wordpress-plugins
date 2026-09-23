@@ -1,5 +1,6 @@
-/* Agend Filter: minimal structure only. Typography, spacing, borders and
-   colours are left to Elementor's own controls on the widget. */
+/* Agend Filter: minimal structure, plus the optional Style-tab settings
+   below. Anything left unset is left to the theme and to Elementor's own
+   typography and spacing controls on the widget. */
 
 .agend-filter {
   display: block;
@@ -62,6 +63,77 @@
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+}
+
+/* Style-tab settings. The renderer (agend_apps_records_filter_style())
+   adds a modifier class only for a value that is set, so a property here
+   never applies unset and the theme's own form styling survives untouched.
+   The doubled class lifts these above a theme's element-level form rules. */
+.agend-filter.agend-filter--field-bg .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
+  background-color: var(--agend-filter-bg);
+}
+
+.agend-filter.agend-filter--field-text .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
+  color: var(--agend-filter-text);
+}
+
+.agend-filter.agend-filter--field-text .agend-filter__control :is(input[type='search'], input[type='number'])::placeholder {
+  color: var(--agend-filter-text);
+  opacity: 0.7;
+}
+
+.agend-filter.agend-filter--field-border-width .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
+  border-style: solid;
+  border-width: var(--agend-filter-border-width);
+}
+
+.agend-filter.agend-filter--field-border-bottom .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
+  border-width: 0 0 var(--agend-filter-border-width);
+}
+
+.agend-filter.agend-filter--field-border-colour .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
+  border-color: var(--agend-filter-border-colour);
+}
+
+.agend-filter.agend-filter--field-radius .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
+  border-radius: var(--agend-filter-radius);
+}
+
+.agend-filter.agend-filter--field-height .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
+  height: var(--agend-filter-height);
+  min-height: var(--agend-filter-height);
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: normal;
+}
+
+.agend-filter.agend-filter--field-focus .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select):focus-visible {
+  border-color: var(--agend-filter-focus);
+  outline: 2px solid var(--agend-filter-focus);
+  outline-offset: 1px;
+}
+
+.agend-filter.agend-filter--button-colour .agend-filter__button {
+  color: var(--agend-filter-button);
+  border-color: var(--agend-filter-button);
+}
+
+.agend-filter.agend-filter--button-active-bg .agend-filter__button.is-active {
+  background: var(--agend-filter-button-active-bg);
+  border-color: var(--agend-filter-button-active-bg);
+}
+
+.agend-filter.agend-filter--button-active-text .agend-filter__button.is-active,
+.agend-filter.agend-filter--button-active-text .agend-filter__button.is-active > * {
+  color: var(--agend-filter-button-active-text);
+}
+
+.agend-filter.agend-filter--button-radius .agend-filter__button {
+  border-radius: var(--agend-filter-button-radius);
+}
+
+.agend-filter.agend-filter--checkbox-colour .agend-filter__option input[type='checkbox'] {
+  accent-color: var(--agend-filter-checkbox);
 }
 
 /* Stand-in drawn until the runtime has a control's values. It keeps the

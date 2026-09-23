@@ -129,6 +129,114 @@ function agend_apps_records_schema_filter(): array {
 					),
 				),
 			),
+			array(
+				'id'     => 'section_style_field',
+				'label'  => __( 'Field', 'agend-apps-core' ),
+				'tab'    => 'style',
+				'fields' => array(
+					array(
+						'name'    => 'field_note',
+						'type'    => 'note',
+						'content' => __( 'Styles the search box, dropdown, date and number fields. Anything left on its default keeps the theme\'s own form styling.', 'agend-apps-core' ),
+					),
+					array(
+						'name'    => 'field_background',
+						'label'   => __( 'Background', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'    => 'field_text_colour',
+						'label'   => __( 'Text colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'    => 'field_border_colour',
+						'label'   => __( 'Border colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'    => 'field_border_width',
+						'label'   => __( 'Border width', 'agend-apps-core' ),
+						'type'    => 'select',
+						'default' => '',
+						'options' => 'agend_apps_records_filter_border_width_options',
+					),
+					array(
+						'name'      => 'field_border_sides',
+						'label'     => __( 'Border sides', 'agend-apps-core' ),
+						'type'      => 'select',
+						'default'   => 'all',
+						'options'   => array(
+							'all'    => __( 'All sides', 'agend-apps-core' ),
+							'bottom' => __( 'Bottom only', 'agend-apps-core' ),
+						),
+						'condition' => array( 'field_border_width!' => '' ),
+					),
+					array(
+						'name'    => 'field_radius',
+						'label'   => __( 'Corner radius', 'agend-apps-core' ),
+						'type'    => 'select',
+						'default' => '',
+						'options' => 'agend_apps_records_filter_radius_options',
+					),
+					array(
+						'name'    => 'field_height',
+						'label'   => __( 'Height', 'agend-apps-core' ),
+						'type'    => 'select',
+						'default' => '',
+						'options' => 'agend_apps_records_filter_height_options',
+					),
+					array(
+						'name'        => 'field_focus_colour',
+						'label'       => __( 'Focus colour', 'agend-apps-core' ),
+						'type'        => 'colour',
+						'default'     => '',
+						'description' => __( 'The border and outline a field shows while it has keyboard focus.', 'agend-apps-core' ),
+					),
+				),
+			),
+			array(
+				'id'     => 'section_style_options',
+				'label'  => __( 'Buttons and checkboxes', 'agend-apps-core' ),
+				'tab'    => 'style',
+				'fields' => array(
+					array(
+						'name'    => 'button_colour',
+						'label'   => __( 'Button colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'    => 'button_active_background',
+						'label'   => __( 'Selected button background', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'    => 'button_active_text',
+						'label'   => __( 'Selected button text', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+					array(
+						'name'    => 'button_radius',
+						'label'   => __( 'Button corner radius', 'agend-apps-core' ),
+						'type'    => 'select',
+						'default' => '',
+						'options' => 'agend_apps_records_filter_radius_options',
+					),
+					array(
+						'name'    => 'checkbox_colour',
+						'label'   => __( 'Checkbox colour', 'agend-apps-core' ),
+						'type'    => 'colour',
+						'default' => '',
+					),
+				),
+			),
 		),
 	);
 }
+

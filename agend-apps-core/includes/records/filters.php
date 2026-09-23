@@ -463,3 +463,53 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 
 	return $config;
 }
+
+/**
+ * Border width choices for the filter field style settings.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_filter_border_width_options(): array {
+	return array(
+		''  => __( 'Theme default', 'agend-apps-core' ),
+		'0' => __( 'None', 'agend-apps-core' ),
+		'1' => '1px',
+		'2' => '2px',
+		'3' => '3px',
+	);
+}
+
+/**
+ * Corner radius choices for the filter style settings.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_filter_radius_options(): array {
+	return array(
+		''    => __( 'Theme default', 'agend-apps-core' ),
+		'0'   => __( 'Square', 'agend-apps-core' ),
+		'2'   => '2px',
+		'4'   => '4px',
+		'6'   => '6px',
+		'8'   => '8px',
+		'12'  => '12px',
+		'999' => __( 'Pill', 'agend-apps-core' ),
+	);
+}
+
+/**
+ * Field height choices for the filter field style settings.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_filter_height_options(): array {
+	return array(
+		''   => __( 'Theme default', 'agend-apps-core' ),
+		'32' => '32px',
+		'36' => '36px',
+		'40' => '40px',
+		'44' => '44px',
+		'48' => '48px',
+		'56' => '56px',
+	);
+}
