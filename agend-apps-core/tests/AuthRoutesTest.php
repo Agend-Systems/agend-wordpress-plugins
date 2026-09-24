@@ -107,6 +107,23 @@ final class AuthRoutesTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_preserve_mfa_ip_budget_when_challenge_id_is_unknown(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_auth_mfa_per_ip_limit', 1 );
+		$invalid = new WP_REST_Request( 'POST', '/agend-apps/v1/auth/mfa/verify' );
+		$invalid->set_param( 'challenge_id', str_repeat( 'a', 64 ) );
+		$this->assertSame( 400, $this->controller()->verify_mfa( $invalid )->get_status() );
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'member@example.test' );
+		$valid = new WP_REST_Request( 'POST', '/agend-apps/v1/auth/mfa/verify' );
+		$valid->set_param( 'challenge_id', $public['challenge_id'] );
+		$valid->set_param( 'factor_id', 'factor-1' );
+		$valid->set_param( 'code', '000000' );
+		Agend_Test_WP::queue_response( 400, array( 'error' => array( 'code' => 'INVALID_MFA_CODE', 'message' => 'Wrong code.' ) ) );
+		$this->assertSame( 400, $this->controller()->verify_mfa( $valid )->get_status() );
+		$this->assertSame( 429, $this->controller()->verify_mfa( $valid )->get_status() );
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
 	public function should_mark_wordpress_user_when_rest_gateway_requires_mfa(): void {
 		$existing = new WP_User( 79 );
 		$existing->user_email = 'marked@example.test';

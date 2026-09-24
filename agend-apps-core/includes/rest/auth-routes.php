@@ -479,14 +479,14 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 
 	/** Verify a stored challenge and finish the same member login flow. */
 	public function verify_mfa( WP_REST_Request $request ): WP_REST_Response {
-		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
-		if ( ! agend_apps_auth_mfa_throttle( $ip ) ) {
-			return new WP_REST_Response( array( 'code' => 'too_many_attempts', 'message' => __( 'Too many code attempts. Please wait a minute and try again.', 'agend-apps-core' ) ), 429 );
-		}
 		$id        = (string) $request->get_param( 'challenge_id' );
 		$challenge = agend_apps_auth_get_mfa_challenge( $id );
 		if ( ! is_array( $challenge ) || empty( $challenge['email'] ) ) {
 			return new WP_REST_Response( array( 'code' => 'mfa_expired', 'message' => __( 'Your code step has expired. Please sign in again.', 'agend-apps-core' ) ), 400 );
+		}
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		if ( ! agend_apps_auth_mfa_throttle( $ip ) ) {
+			return new WP_REST_Response( array( 'code' => 'too_many_attempts', 'message' => __( 'Too many code attempts. Please wait a minute and try again.', 'agend-apps-core' ) ), 429 );
 		}
 		$response = agend_apps_auth_verify_mfa_challenge( $id, (string) $request->get_param( 'factor_id' ), (string) $request->get_param( 'code' ) );
 		if ( is_wp_error( $response ) ) {
