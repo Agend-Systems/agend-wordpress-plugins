@@ -74,6 +74,22 @@ Tools > Agend Directory Sync:
   number of Upbeat contacts processed in a single run, applied AFTER the
   fetch and BEFORE filtering. Useful for verifying with a small slice
   before pushing the whole directory.
+- **Directory app link**: a URL pasted from the Agend dashboard, under
+  Settings > SSO > Share links > Member directory, shaped like
+  `{api host}/sso/{account}/directory-home?idp={slug}`. Only the scheme,
+  host and port are checked, against this site's configured Agend API
+  environment (agend-apps-core's Settings > Agend Apps); the path, the
+  account slug and the query string are stored as pasted and never
+  validated. A link that does not match is rejected on save. Leave blank
+  to remove it. An "Open directory app" button appears at the top of this
+  page when the link is set and matches the current environment, and the
+  signed-in user's Agend session grants directory app access. That last
+  check has nothing to grant it yet: the Agend dashboard does not
+  currently issue the claim it looks for, so the button stays hidden for
+  everyone until that ships (see `Agend_Directory_Sync_Admin_Page::
+  DIRECTORY_APP_ACCESS_CLAIM`'s docblock). A dashboard-side integration
+  can flip this on later through the
+  `agend_directory_sync_can_open_directory_app` filter, below.
 
 
 ## Custom HTTP API source
@@ -665,6 +681,11 @@ preview / send.
 - `agend_directory_sync_listing_payload` filter - applied per row, gets
   `($listing, $contact)`. Use to extend or override the mapping in a
   client plugin without forking, beyond what the field-mapping UI covers.
+- `agend_directory_sync_can_open_directory_app` filter - gets
+  `($can, $user_id)`. Decides whether the "Open directory app" button
+  renders for the current user. Currently always false, since it depends
+  on an `app_access` JWT claim the Agend dashboard does not issue yet;
+  reserved for a future dashboard-side integration to hook.
 
 ## Files
 
