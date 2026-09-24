@@ -175,8 +175,6 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		if ( null === $response ) {
 			if ( $refuse_local ) {
 				agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ) );
-			} else {
-				agend_apps_wp_login_arm_refusal( '' );
 			}
 			return $user;
 		}
