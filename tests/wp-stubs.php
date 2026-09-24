@@ -1153,6 +1153,7 @@ if ( ! class_exists( 'WP_User' ) ) {
 	 */
 	class WP_User {
 		public int $ID;
+		public array $roles = array();
 		public string $user_login = '';
 		public string $user_email = '';
 		public string $user_pass  = '';
