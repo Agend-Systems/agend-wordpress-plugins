@@ -89,12 +89,9 @@ function agend_apps_auth_error_detail_code( WP_Error $error ): string {
  * Decision 2.1, US-4.1 AC1; Decision change B).
  *
  * `Agend_Apps_API::request()` carries the upstream HTTP status onto the
- * decoded array as `status_code`, so a 202 is identified by status first. The
- * structural `data.status === 'verification_required'` check is a fallback
- * only, for a response some filter has stripped `status_code` from; it never
- * runs when `status_code` is present, so a 200 body that happens to carry a
- * `status` key of its own (never issued today, but not excluded by the
- * schema) is not misread as verification-required.
+ * decoded array as `status_code`. The body status distinguishes email
+ * verification from the MFA 202; a response with no status code may still be
+ * recognised by its body after a filter has stripped the HTTP status.
  *
  * @param array|WP_Error $response Decoded response (from login()) or a gateway
  *                                 error (from login() or register()).
@@ -110,13 +107,63 @@ function agend_apps_auth_response_is_verification_required( $response ): bool {
 		return false;
 	}
 
-	if ( isset( $response['status_code'] ) ) {
-		return 202 === $response['status_code'];
-	}
-
 	$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
 
-	return isset( $data['status'] ) && 'verification_required' === $data['status'];
+	return ( ! isset( $response['status_code'] ) || 202 === (int) $response['status_code'] )
+		&& isset( $data['status'] ) && 'verification_required' === $data['status'];
+}
+
+/** Whether the gateway is requesting a second factor instead of issuing a session. */
+function agend_apps_auth_response_is_mfa_required( $response ): bool {
+	if ( ! is_array( $response ) ) {
+		return false;
+	}
+	$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+	return ( ! isset( $response['status_code'] ) || 202 === (int) $response['status_code'] )
+		&& isset( $data['status'], $data['mfa_token'] )
+		&& 'mfa_required' === $data['status'] && is_string( $data['mfa_token'] ) && '' !== $data['mfa_token'];
+}
+
+/** Store only the gateway token and identity needed after code verification. */
+function agend_apps_auth_create_mfa_challenge( array $response, string $email ): array {
+	$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
+	$id   = bin2hex( random_bytes( 32 ) );
+	$factors = array_values( array_filter( isset( $data['factors'] ) && is_array( $data['factors'] ) ? $data['factors'] : array(), static function ( $factor ) {
+		return is_array( $factor ) && isset( $factor['id'], $factor['factor_type'] ) && 'totp' === $factor['factor_type'] && is_string( $factor['id'] );
+	} ) );
+	set_transient( 'agend_apps_mfa_' . $id, array( 'mfa_token' => $data['mfa_token'], 'email' => $email, 'factors' => $factors ), 5 * MINUTE_IN_SECONDS );
+	return array( 'challenge_id' => $id, 'factors' => $factors );
+}
+
+/** Read the server-side challenge; callers must never return its token. */
+function agend_apps_auth_get_mfa_challenge( string $id ) {
+	return preg_match( '/^[a-f0-9]{64}$/D', $id ) ? get_transient( 'agend_apps_mfa_' . $id ) : false;
+}
+
+/** Exchange a challenge and six-digit code for the normal login response. */
+function agend_apps_auth_verify_mfa_challenge( string $id, string $factor_id, string $code ) {
+	if ( ! preg_match( '/^[a-f0-9]{64}$/D', $id ) || ! preg_match( '/^[0-9]{6}$/D', $code ) ) {
+		return new WP_Error( 'agend_apps_invalid_mfa_code', __( 'Enter a valid six-digit code.', 'agend-apps-core' ) );
+	}
+	$challenge = agend_apps_auth_get_mfa_challenge( $id );
+	if ( ! is_array( $challenge ) || empty( $challenge['mfa_token'] ) || empty( $challenge['email'] ) ) {
+		return new WP_Error( 'agend_apps_mfa_expired', __( 'Your code step has expired. Please sign in again.', 'agend-apps-core' ) );
+	}
+	$valid = false;
+	foreach ( $challenge['factors'] as $factor ) {
+		if ( hash_equals( (string) $factor['id'], $factor_id ) ) {
+			$valid = true;
+			break;
+		}
+	}
+	if ( ! $valid ) {
+		return new WP_Error( 'agend_apps_invalid_mfa_factor', __( 'Choose a valid authenticator.', 'agend-apps-core' ) );
+	}
+	$response = agend_apps_api()->request( 'POST', '/auth/mfa/verify', array( 'body' => array( 'mfa_token' => $challenge['mfa_token'], 'factor_id' => $factor_id, 'code' => $code ) ) );
+	if ( ! is_wp_error( $response ) && ! empty( agend_apps_auth_response_session( $response )['session'] ) ) {
+		delete_transient( 'agend_apps_mfa_' . $id );
+	}
+	return $response;
 }
 
 /**
