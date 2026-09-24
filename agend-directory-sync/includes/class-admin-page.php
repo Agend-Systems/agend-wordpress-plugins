@@ -58,6 +58,31 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		public const CAPABILITY = 'manage_options';
 
 		/**
+		 * Name of the JWT claim the "Open directory app" button gate looks
+		 * for. NO SUCH CLAIM EXISTS TODAY: the Agend dashboard does not
+		 * currently issue an `app_access` claim on the session token it
+		 * mints. Until it does, {@see token_grants_directory_app()} always
+		 * returns false and the button stays hidden. The shape assumed here
+		 * is an object keyed by Agend account slug, each value an array of
+		 * app id strings, e.g. `{"acme": ["directory"]}`.
+		 */
+		public const DIRECTORY_APP_ACCESS_CLAIM = 'app_access';
+
+		/**
+		 * The app id {@see token_grants_directory_app()} looks for inside the
+		 * assumed `app_access` claim's per-account array.
+		 */
+		public const DIRECTORY_APP_ID = 'directory';
+
+		/**
+		 * Query arg the settings save redirects with when a posted directory
+		 * app link was rejected for not matching this site's Agend API
+		 * environment, so the notice survives the redirect the same way
+		 * `saved` and `filter_saved` do.
+		 */
+		public const QUERY_ARG_DIRECTORY_APP_LINK_ERROR = 'directory_app_link_error';
+
+		/**
 		 * Maximum number of upstream rows to dump verbatim into the page on
 		 * an Upbeat fetch. The full set is fetched but rendering thousands
 		 * of rows in the browser is unhelpful.
@@ -130,6 +155,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS
 			);
 			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
+			$directory_app_link_posted = isset( $_POST['agend_directory_app_link'] )
+				? esc_url_raw( wp_unslash( $_POST['agend_directory_app_link'] ) )
+				: '';
 			$posted_source   = isset( $_POST['agend_directory_sync_source'] ) ? sanitize_key( wp_unslash( $_POST['agend_directory_sync_source'] ) ) : '';
 			$raw_http_api    = isset( $_POST['agend_http_api'] ) && is_array( $_POST['agend_http_api'] )
 				? wp_unslash( $_POST['agend_http_api'] )
@@ -159,6 +187,25 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			// Gateway URL and API key are owned by agend-apps-core, not stored here.
 			update_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, $upbeat_endpoint );
+
+			// The directory app link's only validation is that it points at
+			// this site's own Agend API environment: the path, slug and
+			// query string are the dashboard's business, not this plugin's.
+			// An empty posted value clears the option. A non-empty value
+			// that does not match is refused rather than stored, since a
+			// stale link from the wrong environment would silently send an
+			// operator to someone else's directory app.
+			$directory_app_link_rejected = false;
+
+			if ( '' === $directory_app_link_posted ) {
+				update_option( Agend_Directory_Sync::OPTION_DIRECTORY_APP_LINK, '' );
+			} elseif ( class_exists( 'Agend_Apps_Settings' )
+				&& self::link_matches_environment( $directory_app_link_posted, Agend_Apps_Settings::get_root_url() )
+			) {
+				update_option( Agend_Directory_Sync::OPTION_DIRECTORY_APP_LINK, $directory_app_link_posted );
+			} else {
+				$directory_app_link_rejected = true;
+			}
 
 			// Custom HTTP API settings are sanitised as a single unit by the
 			// source itself (SPEC-DIR-20260731 US-2.4 criterion 2); secrets
@@ -226,7 +273,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				: array();
 			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_locations, $raw_flags );
 
-			wp_safe_redirect( self::redirect_url( array( 'saved' => '1' ) ) );
+			$redirect_args = array( 'saved' => '1' );
+			if ( $directory_app_link_rejected ) {
+				$redirect_args[ self::QUERY_ARG_DIRECTORY_APP_LINK_ERROR ] = '1';
+			}
+
+			wp_safe_redirect( self::redirect_url( $redirect_args ) );
 			exit;
 		}
 
@@ -399,6 +451,14 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$batch_size           = Agend_Directory_Sync_Agend_Client::batch_size();
 			$timeout_seconds      = Agend_Directory_Sync_Agend_Client::timeout_seconds();
 			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
+			$directory_app_link   = (string) get_option( Agend_Directory_Sync::OPTION_DIRECTORY_APP_LINK, '' );
+			// Re-checked at render time, not just on save: the site's Agend
+			// API environment can change (Settings > Agend Apps) after the
+			// link was saved, and a link left over from the previous
+			// environment must not be offered as a button.
+			$directory_app_link_in_environment = '' !== $directory_app_link
+				&& class_exists( 'Agend_Apps_Settings' )
+				&& self::link_matches_environment( $directory_app_link, Agend_Apps_Settings::get_root_url() );
 			$http_api             = Agend_Directory_Sync_Http_Api_Source::resolve_settings();
 			$dataverse            = Agend_Directory_Sync_Dataverse_Source::resolve_settings();
 			$http_token_source   = Agend_Directory_Sync_Secret_Store::source_of( Agend_Directory_Sync_Secret_Store::KEY_HTTP_TOKEN, 'AGEND_DIRECTORY_SYNC_HTTP_TOKEN' );
@@ -427,6 +487,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					<div class="notice notice-success is-dismissible">
 						<p><?php esc_html_e( 'Secondary filter saved. Fetch and sync will use it from now on.', 'agend-directory-sync' ); ?></p>
 					</div>
+				<?php endif; ?>
+
+				<?php if ( isset( $_GET[ self::QUERY_ARG_DIRECTORY_APP_LINK_ERROR ] ) ) : ?>
+					<div class="notice notice-error is-dismissible">
+						<p><?php esc_html_e( 'Directory app link was not saved: it does not point at this site\'s configured Agend API environment.', 'agend-directory-sync' ); ?></p>
+					</div>
+				<?php endif; ?>
+
+				<?php if ( $directory_app_link_in_environment && self::current_user_can_open_directory_app() ) : ?>
+					<p>
+						<a
+							href="<?php echo esc_url( $directory_app_link ); ?>"
+							class="button button-primary"
+							target="_blank"
+							rel="noopener noreferrer"
+						><?php esc_html_e( 'Open directory app', 'agend-directory-sync' ); ?></a>
+					</p>
 				<?php endif; ?>
 
 				<h2><?php esc_html_e( 'Manual sync', 'agend-directory-sync' ); ?></h2>
@@ -517,6 +594,28 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 								<td colspan="2">
 									<p class="description">
 										<?php esc_html_e( 'Gateway connection (base URL and API key) is configured in the Agend Apps Core plugin, under Settings > Agend Apps. This plugin uses that connection.', 'agend-directory-sync' ); ?>
+									</p>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">
+									<label for="agend_directory_app_link"><?php esc_html_e( 'Directory app link', 'agend-directory-sync' ); ?></label>
+								</th>
+								<td>
+									<input
+										name="agend_directory_app_link"
+										id="agend_directory_app_link"
+										type="text"
+										class="large-text code"
+										value="<?php echo esc_attr( $directory_app_link ); ?>"
+										placeholder="https://api.agend.com.au/sso/{account}/directory-home?idp={slug}"
+										autocomplete="off"
+									/>
+									<p class="description">
+										<?php esc_html_e( 'Paste the member directory share link from the Agend dashboard, under Settings > SSO > Share links > Member directory. Rejected on save if it does not point at this site\'s configured Agend API environment. Leave blank to remove the link.', 'agend-directory-sync' ); ?>
+									</p>
+									<p class="description">
+										<?php esc_html_e( 'The "Open directory app" button at the top of this page appears only for users whose Agend session grants directory app access.', 'agend-directory-sync' ); ?>
 									</p>
 								</td>
 							</tr>
@@ -3586,6 +3685,190 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		private static function set_result( int $user_id, array $payload ): void {
 			$payload['ran_at'] = current_time( 'mysql' );
 			set_transient( self::transient_key( $user_id ), $payload, MINUTE_IN_SECONDS * 30 );
+		}
+
+		/**
+		 * Whether $link points at the same scheme, host and port as
+		 * $api_root. The only validation the directory app link gets: the
+		 * path, the account slug and the query string are never inspected.
+		 *
+		 * A pure static method so save-time and render-time both call it
+		 * directly, and so it is testable without a WordPress environment.
+		 *
+		 * @param string $link     The posted or stored directory app link.
+		 * @param string $api_root The current environment's API root, e.g.
+		 *                         `Agend_Apps_Settings::get_root_url()`.
+		 */
+		public static function link_matches_environment( string $link, string $api_root ): bool {
+			$link  = trim( $link );
+			$root  = trim( $api_root );
+
+			if ( '' === $link || '' === $root ) {
+				return false;
+			}
+
+			$link_parts = wp_parse_url( $link );
+			$root_parts = wp_parse_url( $root );
+
+			if ( ! is_array( $link_parts ) || ! is_array( $root_parts ) ) {
+				return false;
+			}
+
+			$link_scheme = strtolower( (string) ( $link_parts['scheme'] ?? '' ) );
+			$root_scheme = strtolower( (string) ( $root_parts['scheme'] ?? '' ) );
+
+			if ( '' === $link_scheme || $link_scheme !== $root_scheme ) {
+				return false;
+			}
+
+			$link_host = strtolower( (string) ( $link_parts['host'] ?? '' ) );
+			$root_host = strtolower( (string) ( $root_parts['host'] ?? '' ) );
+
+			if ( '' === $link_host || $link_host !== $root_host ) {
+				return false;
+			}
+
+			return self::effective_port( $link_parts, $link_scheme ) === self::effective_port( $root_parts, $root_scheme );
+		}
+
+		/**
+		 * The port a parsed URL actually uses: the explicit `port` component
+		 * when present, otherwise the scheme's default (443 for https, 80
+		 * for anything else, matching http).
+		 *
+		 * @param array<string, mixed> $parts A wp_parse_url() result.
+		 */
+		private static function effective_port( array $parts, string $scheme ): int {
+			if ( isset( $parts['port'] ) ) {
+				return (int) $parts['port'];
+			}
+
+			return 'https' === $scheme ? 443 : 80;
+		}
+
+		/**
+		 * Gate for whether the current user should see the "Open directory
+		 * app" button.
+		 *
+		 * NOTHING BACKS THIS TODAY. The Agend dashboard does not issue an
+		 * `app_access` claim on the session token it mints, so
+		 * {@see token_grants_directory_app()} below always returns false for
+		 * a real token and the button stays hidden for everyone until the
+		 * dashboard starts issuing that claim. This method exists so the
+		 * page has one place to flip on, and one filter
+		 * (`agend_directory_sync_can_open_directory_app`) the dashboard-side
+		 * integration can hook once it does.
+		 *
+		 * Not gated on `manage_options`: the page itself already requires
+		 * that capability to be viewed at all (self::CAPABILITY), and that
+		 * requirement is unchanged. This gate is a separate, narrower
+		 * question, whether the signed-in Agend member behind this
+		 * WordPress user is allowed into the directory app, which is not the
+		 * same population as "can administer this WordPress site".
+		 */
+		public static function current_user_can_open_directory_app(): bool {
+			$can = false;
+
+			if ( function_exists( 'agend_apps_get_bearer_token' ) && class_exists( 'Agend_Apps_Settings' ) ) {
+				$token         = agend_apps_get_bearer_token();
+				$account_slug  = Agend_Apps_Settings::get_account_slug();
+
+				if ( '' !== $token && '' !== $account_slug ) {
+					$can = self::token_grants_directory_app( $token, $account_slug );
+				}
+			}
+
+			/**
+			 * Filters whether the current user can open the directory app.
+			 *
+			 * Lets a future dashboard-side integration replace the
+			 * always-false result above once the `app_access` claim exists,
+			 * without this file needing to change.
+			 *
+			 * @param bool $can     Whether the button should render.
+			 * @param int  $user_id The current WordPress user id.
+			 */
+			return (bool) apply_filters( 'agend_directory_sync_can_open_directory_app', $can, get_current_user_id() );
+		}
+
+		/**
+		 * Whether $jwt's payload grants directory app access for
+		 * $account_slug.
+		 *
+		 * Decodes the JWT payload (its second, dot-separated segment) as
+		 * base64url-encoded JSON WITHOUT verifying the signature. That is
+		 * acceptable here only because $jwt never comes from the browser: it
+		 * is read server-side from user meta by
+		 * `agend_apps_get_bearer_token()`, minted and refreshed by the Agend
+		 * gateway, and this method gates nothing but whether a button is
+		 * drawn on an admin page. The directory app itself re-authenticates
+		 * the session and enforces the real access decision; a false
+		 * positive here would only ever produce a visible-but-non-functional
+		 * button, never a bypass.
+		 *
+		 * ASSUMED claim shape, matching {@see self::DIRECTORY_APP_ACCESS_CLAIM}'s
+		 * docblock: no such claim exists on any token issued today, so this
+		 * currently returns false for every real token. A public pure
+		 * function (no WordPress calls) so it is directly testable.
+		 *
+		 * @param string $jwt          The bearer token to inspect.
+		 * @param string $account_slug The Agend account slug to look up
+		 *                             inside the claim.
+		 */
+		public static function token_grants_directory_app( string $jwt, string $account_slug ): bool {
+			if ( '' === $account_slug ) {
+				return false;
+			}
+
+			$segments = explode( '.', $jwt );
+
+			if ( count( $segments ) < 2 || '' === $segments[1] ) {
+				return false;
+			}
+
+			$decoded = self::base64url_decode( $segments[1] );
+
+			if ( null === $decoded ) {
+				return false;
+			}
+
+			$payload = json_decode( $decoded, true );
+
+			if ( ! is_array( $payload ) ) {
+				return false;
+			}
+
+			$app_access = $payload[ self::DIRECTORY_APP_ACCESS_CLAIM ] ?? null;
+
+			if ( ! is_array( $app_access ) ) {
+				return false;
+			}
+
+			$account_apps = $app_access[ $account_slug ] ?? null;
+
+			if ( ! is_array( $account_apps ) ) {
+				return false;
+			}
+
+			return in_array( self::DIRECTORY_APP_ID, $account_apps, true );
+		}
+
+		/**
+		 * Decodes a base64url string (RFC 4648 section 5, the JWT segment
+		 * encoding: `-`/`_` in place of `+`/`/`, padding stripped). Returns
+		 * null on malformed input rather than false, so a caller can use
+		 * `null === $result` without an extra strict-comparison note.
+		 */
+		private static function base64url_decode( string $data ): ?string {
+			$remainder = strlen( $data ) % 4;
+
+			if ( 0 !== $remainder ) {
+				$data .= str_repeat( '=', 4 - $remainder );
+			}
+
+			$decoded = base64_decode( strtr( $data, '-_', '+/' ), true );
+
+			return false === $decoded ? null : $decoded;
 		}
 
 		private static function redirect_url( array $args = array() ): string {
