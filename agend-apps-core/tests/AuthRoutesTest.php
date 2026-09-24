@@ -10,6 +10,7 @@ namespace Agend\Tests\Core;
 use Agend\Tests\TestCase;
 use Agend_Apps_Auth_REST_Controller;
 use Agend_Test_WP;
+use Agend_Apps_Member_Session;
 use PHPUnit\Framework\Attributes\Test;
 use WP_REST_Request;
 use WP_User;
@@ -40,6 +41,55 @@ final class AuthRoutesTest extends TestCase {
 		$request->set_param( 'password', $password );
 
 		return $request;
+	}
+
+	#[Test]
+	public function should_require_mfa_without_creating_a_member_session_then_complete_it_once(): void {
+		Agend_Test_WP::queue_response( 202, array( 'data' => array( 'status' => 'mfa_required', 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp', 'friendly_name' => 'Phone' ) ) ) ) );
+		$pending = $this->controller()->login( $this->loginRequest( 'mfa@example.test', 'secret-password' ) );
+		$this->assertSame( 202, $pending->get_status() );
+		$this->assertSame( 'mfa_required', $pending->get_data()['code'] );
+		$this->assertStringNotContainsString( 'private-token', json_encode( $pending->get_data() ) );
+		$this->assertFalse( Agend_Apps_Member_Session::has_session( 75 ) );
+		$id = $pending->get_data()['challenge_id'];
+		$this->assertArrayNotHasKey( 'password', agend_apps_auth_get_mfa_challenge( $id ) );
+
+		Agend_Test_WP::set_filter( 'agend_apps_member_login_user_id', 75 );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'user' => array( 'id' => 'u1' ), 'session' => array( 'access_token' => 'access', 'refresh_token' => 'refresh', 'expires_at' => time() + 3600 ) ) ) );
+		$request = new WP_REST_Request( 'POST', '/agend-apps/v1/auth/mfa/verify' );
+		$request->set_param( 'challenge_id', $id );
+		$request->set_param( 'factor_id', 'factor-1' );
+		$request->set_param( 'code', '123456' );
+		$done = $this->controller()->verify_mfa( $request );
+		$this->assertSame( 200, $done->get_status() );
+		$this->assertTrue( Agend_Apps_Member_Session::has_session( 75 ) );
+		$this->assertSame( '1', get_user_meta( 75, 'agend_mfa_enrolled', true ) );
+		$this->assertFalse( agend_apps_auth_get_mfa_challenge( $id ) );
+		$this->assertSame( 400, $this->controller()->verify_mfa( $request )->get_status() );
+	}
+
+	#[Test]
+	public function should_leave_the_challenge_available_after_a_wrong_code_without_signing_in(): void {
+		$challenge = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'mfa@example.test' );
+		Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_MFA_CODE', 'message' => 'Invalid code.' ) ) );
+		$request = new WP_REST_Request( 'POST', '/agend-apps/v1/auth/mfa/verify' );
+		$request->set_param( 'challenge_id', $challenge['challenge_id'] );
+		$request->set_param( 'factor_id', 'factor-1' );
+		$request->set_param( 'code', '000000' );
+		$response = $this->controller()->verify_mfa( $request );
+		$this->assertSame( 401, $response->get_status() );
+		$this->assertIsArray( agend_apps_auth_get_mfa_challenge( $challenge['challenge_id'] ) );
+		$this->assertFalse( Agend_Apps_Member_Session::has_session( 76 ) );
+	}
+
+	#[Test]
+	public function should_clear_stale_enrolment_when_rest_login_receives_a_direct_session(): void {
+		update_user_meta( 78, 'agend_mfa_enrolled', '1' );
+		Agend_Test_WP::set_filter( 'agend_apps_member_login_user_id', 78 );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'session' => array( 'access_token' => 'access', 'refresh_token' => 'refresh', 'expires_at' => time() + 3600 ) ) ) );
+		$response = $this->controller()->login( $this->loginRequest( 'removed@example.test', 'password' ) );
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( '', get_user_meta( 78, 'agend_mfa_enrolled', true ) );
 	}
 
 	#[Test]

@@ -16,6 +16,18 @@
 
 declare( strict_types=1 );
 
+if ( ! function_exists( 'wp_unslash' ) ) {
+	function wp_unslash( $value ) {
+		return stripslashes_deep( $value );
+	}
+}
+
+if ( ! function_exists( 'stripslashes_deep' ) ) {
+	function stripslashes_deep( $value ) {
+		return is_array( $value ) ? array_map( 'stripslashes_deep', $value ) : stripslashes( $value );
+	}
+}
+
 /**
  * Mutable state behind the stubs.
  *
@@ -65,6 +77,9 @@ final class Agend_Test_WP {
 
 	/** @var array<int, array{url: string, headers: array<string, string>}> */
 	public static array $requests = array();
+
+	/** @var int[] User ids for which WordPress auth cookies were issued. */
+	public static array $auth_cookie_users = array();
 
 	/** @var mixed Value the next agend_apps_crm_get_tiers() call returns. */
 	public static $tiers_response = array();
@@ -136,6 +151,7 @@ final class Agend_Test_WP {
 		self::$options           = array();
 		self::$object_cache      = array();
 		self::$requests          = array();
+		self::$auth_cookie_users = array();
 		self::$tiers_response    = array();
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
@@ -1078,6 +1094,12 @@ if ( ! function_exists( 'wp_set_current_user' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_set_auth_cookie' ) ) {
+	function wp_set_auth_cookie( int $user_id, bool $remember = false ): void {
+		Agend_Test_WP::$auth_cookie_users[] = $user_id;
+	}
+}
+
 if ( ! function_exists( 'wp_doing_cron' ) ) {
 	/** Never a cron request in the unit harness unless a test says otherwise. */
 	function wp_doing_cron(): bool {
@@ -1127,6 +1149,7 @@ if ( ! class_exists( 'WP_User' ) ) {
 	 */
 	class WP_User {
 		public int $ID;
+		public string $user_login = '';
 		public string $user_email = '';
 		public string $user_pass  = '';
 		public string $first_name = '';
@@ -1147,7 +1170,7 @@ if ( ! function_exists( 'get_user_by' ) ) {
 	 * User lookup stub, backed by the `$GLOBALS['agend_test_users']` registry
 	 * a test populates directly (`$GLOBALS['agend_test_users'][] = $user;`).
 	 *
-	 * @param string     $field 'email' or 'id'.
+	 * @param string     $field 'email', 'login' or 'id'.
 	 * @param string|int $value Value to match.
 	 * @return WP_User|false
 	 */
@@ -1158,6 +1181,10 @@ if ( ! function_exists( 'get_user_by' ) ) {
 			}
 
 			if ( 'email' === $field && strtolower( $user->user_email ) === strtolower( (string) $value ) ) {
+				return $user;
+			}
+
+			if ( 'login' === $field && strtolower( $user->user_login ) === strtolower( (string) $value ) ) {
 				return $user;
 			}
 
