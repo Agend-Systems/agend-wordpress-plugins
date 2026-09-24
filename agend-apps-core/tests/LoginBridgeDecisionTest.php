@@ -616,6 +616,25 @@ final class LoginBridgeDecisionTest extends TestCase {
 		$this->assertSame( 'agend_apps_invalid_credentials', $refused->get_error_code() );
 	}
 
+	#[Test]
+	public function should_refuse_wordpress_password_on_first_attempt_when_gateway_registration_finds_email_conflict(): void {
+		$existing = new WP_User( 102 );
+		$existing->user_email = 'first-conflict@example.test';
+		$existing->user_pass = 'local-password';
+		$GLOBALS['agend_test_users'][] = $existing;
+		$this->assertSame( '', get_user_meta( 102, 'agend_mfa_enrolled', true ) );
+		Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_CREDENTIALS', 'message' => 'Invalid.' ) ) );
+		Agend_Test_WP::queue_response( 409, array( 'error' => array( 'code' => 'EMAIL_ALREADY_REGISTERED', 'message' => 'Email already registered.' ) ) );
+
+		$this->assertTrue( wp_check_password( 'local-password', $existing->user_pass, $existing->ID ) );
+		$this->assertNull( agend_apps_wp_login_authenticate( null, $existing->user_email, 'local-password' ) );
+		$this->assertSame( 1, $this->requestCount( '/auth/login' ) );
+		$this->assertSame( 1, $this->requestCount( '/auth/register' ) );
+		$refused = agend_apps_wp_login_refuse_wordpress_password( $existing, $existing->user_email, 'local-password' );
+		$this->assertInstanceOf( WP_Error::class, $refused );
+		$this->assertSame( 'agend_apps_invalid_credentials', $refused->get_error_code() );
+	}
+
 	/**
 	 * A gateway answer the client cannot read must hand an unlinked login back
 	 * to WordPress without throwing on an empty or scalar body.
