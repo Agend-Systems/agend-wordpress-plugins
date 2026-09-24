@@ -112,6 +112,65 @@ final class SyncRunnerStampingTest extends TestCase {
 	 * admin preview action, and the CLI command) are each asserted to pass
 	 * their own explicit context in the source directly.
 	 */
+	/**
+	 * A row error's own field-level issues (an error_examples entry's
+	 * `fields`, from the gateway's per-row `error.fields`) get the same
+	 * run-wide listing_position/external_id stamping stamp_http_error_
+	 * positions() gives a batch-level 400's `issues`, using the example's
+	 * own batch_index (already run-wide here, one call for the whole
+	 * listings set) and the field issue's record index within that batch.
+	 */
+	#[Test]
+	public function it_stamps_a_row_errors_fields_with_their_run_wide_position_and_external_id(): void {
+		$listings = array(
+			array( 'external_id' => 'ext-0' ),
+			array( 'external_id' => 'ext-1' ),
+			array( 'external_id' => 'ext-2' ),
+			array( 'external_id' => 'ext-3' ),
+			array( 'external_id' => 'ext-4' ),
+		);
+
+		$error_examples = array(
+			array(
+				'batch_index' => 1,
+				'external_id' => 'ext-3',
+				'code'        => 'VALIDATION_ERROR',
+				'message'     => 'Row failed validation',
+				'fields'      => array(
+					array( 'record' => 1, 'field' => 'custom_fields.state', 'reason' => 'Invalid enum value' ),
+				),
+			),
+		);
+
+		$stamped = Agend_Directory_Sync_Runner::stamp_error_example_positions( $error_examples, $listings, 2 );
+
+		$issue = $stamped[0]['fields'][0];
+
+		// batch_index (1) * batch_size (2) + record (1) + 1 = 4.
+		$this->assertSame( 4, $issue['listing_position'] );
+		$this->assertSame( 'ext-3', $issue['external_id'] );
+	}
+
+	/**
+	 * An error_examples entry with no `fields` at all (an older gateway, or a
+	 * row error that carries only a top-level code/message) is left alone.
+	 */
+	#[Test]
+	public function it_leaves_an_error_example_with_no_fields_alone(): void {
+		$error_examples = array(
+			array(
+				'batch_index' => 0,
+				'external_id' => 'ext-0',
+				'code'        => 'UNKNOWN',
+				'message'     => 'Something went wrong',
+			),
+		);
+
+		$stamped = Agend_Directory_Sync_Runner::stamp_error_example_positions( $error_examples, array( array( 'external_id' => 'ext-0' ) ), 1 );
+
+		$this->assertArrayNotHasKey( 'fields', $stamped[0] );
+	}
+
 	#[Test]
 	public function run_defaults_the_timeout_context_to_web(): void {
 		$parameter = ( new \ReflectionMethod( Agend_Directory_Sync_Runner::class, 'run' ) )->getParameters()[2];
