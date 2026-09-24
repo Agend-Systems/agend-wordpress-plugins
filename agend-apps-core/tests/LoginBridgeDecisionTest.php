@@ -91,6 +91,7 @@ final class LoginBridgeDecisionTest extends TestCase {
 		Agend_Test_WP::queue_response( 202, array( 'data' => array( 'status' => 'mfa_required', 'mfa_token' => 'secret-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp', 'friendly_name' => 'Phone' ) ) ) ) );
 		$this->assertNull( agend_apps_wp_login_authenticate( null, 'mfa@example.test', 'same-password' ) );
 		$this->assertFalse( Agend_Apps_Member_Session::has_session( 81 ) );
+		$this->assertSame( '1', get_user_meta( 81, 'agend_mfa_enrolled', true ) );
 		$this->assertSame( array(), Agend_Test_WP::$auth_cookie_users );
 		$refused = agend_apps_wp_login_refuse_wordpress_password( $existing, 'mfa@example.test', 'same-password' );
 		$this->assertSame( 'agend_apps_mfa_required', $refused->get_error_code() );
@@ -113,6 +114,17 @@ final class LoginBridgeDecisionTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_allow_local_password_fallback_when_gateway_is_unreachable_for_an_unmarked_linked_member(): void {
+		$existing = new WP_User( 91 );
+		$existing->user_email = 'linked-outage@example.test';
+		$GLOBALS['agend_test_users'][] = $existing;
+		update_user_meta( 91, '_agend_apps_supabase_user_id', 'agend-user' );
+		Agend_Test_WP::queue_response( 503, array( 'error' => array( 'code' => 'UNAVAILABLE' ) ) );
+		$this->assertNull( agend_apps_wp_login_authenticate( null, 'linked-outage@example.test', 'password' ) );
+		$this->assertSame( $existing, agend_apps_wp_login_refuse_wordpress_password( $existing, 'linked-outage@example.test', 'password' ) );
+	}
+
+	#[Test]
 	public function should_refuse_local_password_when_known_mfa_member_submits_wordpress_username(): void {
 		$existing = new WP_User( 85 );
 		$existing->user_email = 'named@example.test';
@@ -122,6 +134,59 @@ final class LoginBridgeDecisionTest extends TestCase {
 		update_user_meta( 85, 'agend_mfa_enrolled', '1' );
 		$this->assertNull( agend_apps_wp_login_authenticate( null, 'named-member', 'local-password' ) );
 		$this->assertSame( 'agend_apps_invalid_credentials', agend_apps_wp_login_refuse_wordpress_password( $existing, 'named-member', 'local-password' )->get_error_code() );
+		$this->assertSame( 0, $this->requestCount( '/auth/login' ) );
+	}
+
+	#[Test]
+	public function should_require_code_when_unmarked_linked_member_submits_wordpress_username(): void {
+		$existing = new WP_User( 87 );
+		$existing->user_login = 'linked-member';
+		$existing->user_email = 'linked@example.test';
+		$existing->user_pass = 'same-password';
+		$GLOBALS['agend_test_users'][] = $existing;
+		update_user_meta( 87, '_agend_apps_supabase_user_id', 'agend-user' );
+		Agend_Test_WP::queue_response( 202, array( 'data' => array( 'status' => 'mfa_required', 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ) );
+		$this->assertNull( agend_apps_wp_login_authenticate( null, 'linked-member', 'same-password' ) );
+		$this->assertSame( 'agend_apps_mfa_required', agend_apps_wp_login_refuse_wordpress_password( $existing, 'linked-member', 'same-password' )->get_error_code() );
+		$this->assertSame( '1', get_user_meta( 87, 'agend_mfa_enrolled', true ) );
+		$this->assertSame( 1, $this->requestCount( '/auth/login' ) );
+		$this->assertSame( array(), Agend_Test_WP::$auth_cookie_users );
+	}
+
+	#[Test]
+	public function should_use_linked_email_when_wordpress_username_looks_like_an_email(): void {
+		$existing = new WP_User( 92 );
+		$existing->user_login = 'old@example.test';
+		$existing->user_email = 'current@example.test';
+		$GLOBALS['agend_test_users'][] = $existing;
+		update_user_meta( 92, '_agend_apps_supabase_user_id', 'agend-user' );
+		Agend_Test_WP::queue_response( 202, array( 'data' => array( 'status' => 'mfa_required', 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ) );
+		$this->assertNull( agend_apps_wp_login_authenticate( null, 'old@example.test', 'password' ) );
+		$this->assertSame( 'agend_apps_mfa_required', agend_apps_wp_login_refuse_wordpress_password( $existing, 'old@example.test', 'password' )->get_error_code() );
+		$sent = json_decode( Agend_Test_WP::$requests[0]['body'], true );
+		$this->assertSame( 'current@example.test', $sent['email'] );
+	}
+
+	#[Test]
+	public function should_keep_local_login_when_unlinked_wordpress_user_submits_username(): void {
+		$existing = new WP_User( 88 );
+		$existing->user_login = 'wordpress-only';
+		$existing->user_email = 'local@example.test';
+		$GLOBALS['agend_test_users'][] = $existing;
+		$this->assertNull( agend_apps_wp_login_authenticate( null, 'wordpress-only', 'password' ) );
+		$this->assertSame( $existing, agend_apps_wp_login_refuse_wordpress_password( $existing, 'wordpress-only', 'password' ) );
+		$this->assertSame( 0, $this->requestCount( '/auth/login' ) );
+	}
+
+	#[Test]
+	public function should_refuse_local_password_when_gateway_throttle_blocks_a_linked_member(): void {
+		$existing = new WP_User( 89 );
+		$existing->user_email = 'throttled@example.test';
+		$GLOBALS['agend_test_users'][] = $existing;
+		update_user_meta( 89, '_agend_apps_contact_id', 'contact-1' );
+		Agend_Test_WP::set_filter( 'agend_apps_auth_login_limits', array( 'per_ip' => 0, 'per_email' => 0 ) );
+		$this->assertNull( agend_apps_wp_login_authenticate( null, 'throttled@example.test', 'password' ) );
+		$this->assertSame( 'agend_apps_invalid_credentials', agend_apps_wp_login_refuse_wordpress_password( $existing, 'throttled@example.test', 'password' )->get_error_code() );
 		$this->assertSame( 0, $this->requestCount( '/auth/login' ) );
 	}
 
@@ -179,6 +244,79 @@ final class LoginBridgeDecisionTest extends TestCase {
 		$this->assertTrue( Agend_Apps_Member_Session::has_session( 83 ) );
 		$this->assertSame( '1', get_user_meta( 83, 'agend_mfa_enrolled', true ) );
 		$this->assertFalse( agend_apps_auth_get_mfa_challenge( $id ) );
+	}
+
+	#[Test]
+	public function should_fire_wp_login_once_and_honour_remember_and_redirect_when_code_succeeds(): void {
+		$existing = new WP_User( 90 );
+		$existing->user_email = 'action@example.test';
+		$existing->user_login = 'action-member';
+		$GLOBALS['agend_test_users'][] = $existing;
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'action@example.test', true );
+		$id = $public['challenge_id'];
+		Agend_Test_WP::set_filter( 'agend_apps_member_login_user_id', 90 );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'session' => array( 'access_token' => 'access', 'refresh_token' => 'refresh', 'expires_at' => time() + 3600 ) ) ) );
+		Agend_Test_WP::set_filter( 'login_redirect', '/member-home' );
+		$input = array( 'challenge_id' => $id, 'factor_id' => 'factor-1', 'code' => '123456', 'agend_mfa_nonce' => wp_create_nonce( 'agend_apps_mfa_' . $id ), 'redirect_to' => '/original' );
+		$this->assertInstanceOf( WP_User::class, agend_apps_wp_login_mfa_action_result( $input ) );
+		$this->assertSame( array( 90 ), Agend_Test_WP::$auth_cookie_users );
+		$this->assertSame( array( true ), Agend_Test_WP::$auth_cookie_remembers );
+		$this->assertSame( 1, did_action( 'wp_login' ) );
+		$this->assertSame( '/member-home', Agend_Test_WP::$redirects[0]['location'] );
+	}
+
+	#[Test]
+	public function should_issue_nonpersistent_cookie_when_first_form_did_not_select_remember_me(): void {
+		$existing = new WP_User( 93 );
+		$existing->user_email = 'short-session@example.test';
+		$existing->user_login = 'short-session';
+		$GLOBALS['agend_test_users'][] = $existing;
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'short-session@example.test' );
+		$id = $public['challenge_id'];
+		Agend_Test_WP::set_filter( 'agend_apps_member_login_user_id', 93 );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'session' => array( 'access_token' => 'access', 'refresh_token' => 'refresh', 'expires_at' => time() + 3600 ) ) ) );
+		$input = array( 'challenge_id' => $id, 'factor_id' => 'factor-1', 'code' => '123456', 'agend_mfa_nonce' => wp_create_nonce( 'agend_apps_mfa_' . $id ) );
+		$this->assertInstanceOf( WP_User::class, agend_apps_wp_login_mfa_action_result( $input ) );
+		$this->assertSame( array( false ), Agend_Test_WP::$auth_cookie_remembers );
+	}
+
+	#[Test]
+	public function should_keep_code_step_without_wp_login_when_code_is_wrong(): void {
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'wrong@example.test' );
+		$id = $public['challenge_id'];
+		Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_MFA_CODE', 'message' => 'Invalid code.' ) ) );
+		$input = array( 'challenge_id' => $id, 'factor_id' => 'factor-1', 'code' => '000000', 'agend_mfa_nonce' => wp_create_nonce( 'agend_apps_mfa_' . $id ) );
+		$this->assertInstanceOf( WP_Error::class, agend_apps_wp_login_mfa_action_result( $input ) );
+		$this->assertIsArray( agend_apps_auth_get_mfa_challenge( $id ) );
+		$this->assertSame( 0, did_action( 'wp_login' ) );
+	}
+
+	#[Test]
+	public function should_refuse_gateway_check_when_wp_login_mfa_ip_limit_is_reached(): void {
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'limit@example.test' );
+		$id = $public['challenge_id'];
+		$input = array( 'challenge_id' => $id, 'factor_id' => 'factor-1', 'code' => '000000', 'agend_mfa_nonce' => wp_create_nonce( 'agend_apps_mfa_' . $id ) );
+		Agend_Test_WP::set_filter( 'agend_apps_auth_mfa_per_ip_limit', 0 );
+		$this->assertSame( 'agend_apps_mfa_throttled', agend_apps_wp_login_verify_mfa( $input )->get_error_code() );
+		$this->assertSame( 0, $this->requestCount( '/auth/mfa/verify' ) );
+	}
+
+	#[Test]
+	public function should_refuse_code_without_wp_login_when_challenge_is_expired(): void {
+		$id = str_repeat( 'a', 64 );
+		$input = array( 'challenge_id' => $id, 'factor_id' => 'factor-1', 'code' => '123456', 'agend_mfa_nonce' => wp_create_nonce( 'agend_apps_mfa_' . $id ) );
+		$this->assertSame( 'agend_apps_invalid_credentials', agend_apps_wp_login_mfa_action_result( $input )->get_error_code() );
+		$this->assertSame( 0, did_action( 'wp_login' ) );
+	}
+
+	#[Test]
+	public function should_return_generic_error_without_wp_login_when_verified_member_has_no_wordpress_user(): void {
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'unresolved@example.test' );
+		$id = $public['challenge_id'];
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'session' => array( 'access_token' => 'access', 'refresh_token' => 'refresh', 'expires_at' => time() + 3600 ) ) ) );
+		$input = array( 'challenge_id' => $id, 'factor_id' => 'factor-1', 'code' => '123456', 'agend_mfa_nonce' => wp_create_nonce( 'agend_apps_mfa_' . $id ) );
+		$this->assertSame( 'agend_apps_invalid_credentials', agend_apps_wp_login_mfa_action_result( $input )->get_error_code() );
+		$this->assertSame( 0, did_action( 'wp_login' ) );
 	}
 
 	#[Test]
@@ -331,16 +469,11 @@ final class LoginBridgeDecisionTest extends TestCase {
 	}
 
 	/**
-	 * A gateway answer the client cannot read must hand the login back to
-	 * WordPress, exactly as an unreachable gateway does. It previously threw
-	 * an uncaught TypeError instead, because a 2xx with an empty body reached
-	 * the bridge as bare null and `agend_apps_auth_response_session()`
-	 * declared an `array` parameter. There is no route handler on the
-	 * `authenticate` filter, so that surfaced as WordPress's critical-error
-	 * page on every login form submission, for every credential.
+	 * A malformed 2xx is a gateway response, not an outage. The bridge must
+	 * refuse local authentication without throwing on an empty or scalar body.
 	 */
 	#[Test]
-	public function should_hand_the_login_to_wordpress_when_a_2xx_login_response_has_no_body(): void {
+	public function should_refuse_local_password_when_a_2xx_login_response_has_no_body(): void {
 		$existing                      = new WP_User( 51 );
 		$existing->user_email          = 'nobody@example.test';
 		$existing->user_pass           = 'correct-password';
@@ -351,12 +484,12 @@ final class LoginBridgeDecisionTest extends TestCase {
 		$result = agend_apps_wp_login_authenticate( null, 'nobody@example.test', 'correct-password' );
 
 		$this->assertNull( $result );
-		$this->assertSame( '', agend_apps_wp_login_arm_refusal()['email'], 'an unreadable answer must not refuse the WordPress password' );
+		$this->assertSame( 'nobody@example.test', agend_apps_wp_login_arm_refusal()['email'] );
 		$this->assertFalse( Agend_Apps_Member_Session::has_session( 51 ) );
 	}
 
 	#[Test]
-	public function should_hand_the_login_to_wordpress_when_a_2xx_register_response_has_no_body(): void {
+	public function should_refuse_local_password_when_a_2xx_register_response_has_no_body(): void {
 		$existing                      = new WP_User( 52 );
 		$existing->user_email          = 'noregister@example.test';
 		$existing->user_pass           = 'correct-password';
@@ -371,12 +504,12 @@ final class LoginBridgeDecisionTest extends TestCase {
 		$result = agend_apps_wp_login_authenticate( null, 'noregister@example.test', 'correct-password' );
 
 		$this->assertNull( $result );
-		$this->assertSame( '', agend_apps_wp_login_arm_refusal()['email'] );
+		$this->assertSame( 'noregister@example.test', agend_apps_wp_login_arm_refusal()['email'] );
 		$this->assertSame( '', get_user_meta( 52, AGEND_APPS_VERIFICATION_PENDING_META, true ) );
 	}
 
 	#[Test]
-	public function should_hand_the_login_to_wordpress_when_a_2xx_login_body_decodes_to_a_scalar(): void {
+	public function should_refuse_local_password_when_a_2xx_login_body_decodes_to_a_scalar(): void {
 		$existing                      = new WP_User( 53 );
 		$existing->user_email          = 'scalar@example.test';
 		$existing->user_pass           = 'correct-password';
@@ -387,6 +520,6 @@ final class LoginBridgeDecisionTest extends TestCase {
 		$result = agend_apps_wp_login_authenticate( null, 'scalar@example.test', 'correct-password' );
 
 		$this->assertNull( $result );
-		$this->assertSame( '', agend_apps_wp_login_arm_refusal()['email'] );
+		$this->assertSame( 'scalar@example.test', agend_apps_wp_login_arm_refusal()['email'] );
 	}
 }

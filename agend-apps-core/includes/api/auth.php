@@ -125,13 +125,13 @@ function agend_apps_auth_response_is_mfa_required( $response ): bool {
 }
 
 /** Store only the gateway token and identity needed after code verification. */
-function agend_apps_auth_create_mfa_challenge( array $response, string $email ): array {
+function agend_apps_auth_create_mfa_challenge( array $response, string $email, bool $remember = false ): array {
 	$data = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
 	$id   = bin2hex( random_bytes( 32 ) );
 	$factors = array_values( array_filter( isset( $data['factors'] ) && is_array( $data['factors'] ) ? $data['factors'] : array(), static function ( $factor ) {
 		return is_array( $factor ) && isset( $factor['id'], $factor['factor_type'] ) && 'totp' === $factor['factor_type'] && is_string( $factor['id'] );
 	} ) );
-	set_transient( 'agend_apps_mfa_' . $id, array( 'mfa_token' => $data['mfa_token'], 'email' => $email, 'factors' => $factors ), 5 * MINUTE_IN_SECONDS );
+	set_transient( 'agend_apps_mfa_' . $id, array( 'mfa_token' => $data['mfa_token'], 'email' => $email, 'factors' => $factors, 'attempts' => 0, 'created_at' => time(), 'remember' => $remember ), 5 * MINUTE_IN_SECONDS );
 	return array( 'challenge_id' => $id, 'factors' => $factors );
 }
 
@@ -149,6 +149,10 @@ function agend_apps_auth_verify_mfa_challenge( string $id, string $factor_id, st
 	if ( ! is_array( $challenge ) || empty( $challenge['mfa_token'] ) || empty( $challenge['email'] ) ) {
 		return new WP_Error( 'agend_apps_mfa_expired', __( 'Your code step has expired. Please sign in again.', 'agend-apps-core' ) );
 	}
+	if ( (int) ( $challenge['attempts'] ?? 0 ) >= 5 ) {
+		delete_transient( 'agend_apps_mfa_' . $id );
+		return new WP_Error( 'agend_apps_mfa_expired', __( 'Your code step has expired. Please sign in again.', 'agend-apps-core' ) );
+	}
 	$valid = false;
 	foreach ( $challenge['factors'] as $factor ) {
 		if ( hash_equals( (string) $factor['id'], $factor_id ) ) {
@@ -162,6 +166,20 @@ function agend_apps_auth_verify_mfa_challenge( string $id, string $factor_id, st
 	$response = agend_apps_api()->request( 'POST', '/auth/mfa/verify', array( 'body' => array( 'mfa_token' => $challenge['mfa_token'], 'factor_id' => $factor_id, 'code' => $code ) ) );
 	if ( ! is_wp_error( $response ) && ! empty( agend_apps_auth_response_session( $response )['session'] ) ) {
 		delete_transient( 'agend_apps_mfa_' . $id );
+	} else {
+		if ( is_wp_error( $response ) && ( 0 === agend_apps_auth_error_status( $response ) || 429 === agend_apps_auth_error_status( $response ) || agend_apps_auth_error_status( $response ) >= 500 ) ) {
+			return $response;
+		}
+		$challenge['attempts'] = (int) ( $challenge['attempts'] ?? 0 ) + 1;
+		$code = is_wp_error( $response ) ? agend_apps_auth_error_code( $response ) : '';
+		$token_rejected = in_array( $code, array( 'INVALID_MFA_TOKEN', 'MFA_TOKEN_EXPIRED', 'MFA_TOKEN_EXHAUSTED' ), true )
+			|| ( is_wp_error( $response ) && 401 === agend_apps_auth_error_status( $response ) && ! in_array( $code, array( 'INVALID_MFA_CODE', 'INVALID_TOTP_CODE' ), true ) );
+		if ( $challenge['attempts'] >= 5 || $token_rejected ) {
+			delete_transient( 'agend_apps_mfa_' . $id );
+		} else {
+			$remaining = max( 1, 5 * MINUTE_IN_SECONDS - ( time() - (int) ( $challenge['created_at'] ?? time() ) ) );
+			set_transient( 'agend_apps_mfa_' . $id, $challenge, $remaining );
+		}
 	}
 	return $response;
 }

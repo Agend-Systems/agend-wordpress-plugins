@@ -69,6 +69,27 @@ final class AuthApiTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_delete_challenge_when_five_codes_are_wrong(): void {
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'member@example.test' );
+		$id = $public['challenge_id'];
+		for ( $attempt = 0; $attempt < 5; $attempt++ ) {
+			Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_MFA_CODE', 'message' => 'Wrong code.' ) ) );
+			$this->assertInstanceOf( WP_Error::class, agend_apps_auth_verify_mfa_challenge( $id, 'factor-1', '000000' ) );
+		}
+		$this->assertFalse( agend_apps_auth_get_mfa_challenge( $id ) );
+		$this->assertSame( 'agend_apps_mfa_expired', agend_apps_auth_verify_mfa_challenge( $id, 'factor-1', '000000' )->get_error_code() );
+		$this->assertCount( 5, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_delete_challenge_when_gateway_rejects_the_token(): void {
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'member@example.test' );
+		Agend_Test_WP::queue_response( 401, array( 'error' => array( 'code' => 'INVALID_MFA_TOKEN', 'message' => 'Expired.' ) ) );
+		$this->assertInstanceOf( WP_Error::class, agend_apps_auth_verify_mfa_challenge( $public['challenge_id'], 'factor-1', '123456' ) );
+		$this->assertFalse( agend_apps_auth_get_mfa_challenge( $public['challenge_id'] ) );
+	}
+
+	#[Test]
 	public function should_clear_a_stored_member_session_when_refresh_requires_mfa(): void {
 		$GLOBALS['agend_test_current_user_id'] = 77;
 		Agend_Apps_Member_Session::store( 77, array( 'access_token' => 'old', 'refresh_token' => 'refresh', 'expires_at' => time() - 1 ) );
