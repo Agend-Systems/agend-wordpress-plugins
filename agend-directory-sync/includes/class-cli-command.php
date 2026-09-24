@@ -133,8 +133,19 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 			WP_CLI::log( sprintf( 'Updated: %d', (int) ( $send['updated'] ?? 0 ) ) );
 			WP_CLI::log( sprintf( 'Errored: %d', (int) ( $send['errored'] ?? 0 ) ) );
 
+			$examples    = is_array( $send['error_examples'] ?? null ) ? $send['error_examples'] : array();
 			$http_errors = is_array( $send['http_errors'] ?? null ) ? $send['http_errors'] : array();
 			$errored     = (int) ( $send['errored'] ?? 0 );
+
+			$this->log_row_error_examples( $examples );
+			$this->log_notices(
+				is_array( $send['options_created'] ?? null ) ? $send['options_created'] : array(),
+				is_array( $send['other_notices'] ?? null ) ? $send['other_notices'] : array()
+			);
+			$this->log_warnings(
+				(int) ( $send['warnings'] ?? 0 ),
+				is_array( $send['warning_examples'] ?? null ) ? $send['warning_examples'] : array()
+			);
 
 			if ( ! empty( $http_errors ) ) {
 				WP_CLI::warning( sprintf( '%d batch(es) failed at the HTTP level:', count( $http_errors ) ) );
@@ -247,6 +258,71 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 
 					WP_CLI::log( '  ' . Agend_Directory_Sync_Agend_Client::format_issue_line( $issue ) );
 				}
+			}
+		}
+
+		/**
+		 * Print each failed row example's own field-level issues (the
+		 * gateway's per-row `error.fields`), the same
+		 * Agend_Directory_Sync_Agend_Client::format_issue_line() shape
+		 * log_http_errors() uses for a batch-level 400's issues. Absent on
+		 * an older gateway's response, so nothing is printed then.
+		 *
+		 * @param array<int, array<string, mixed>> $examples
+		 */
+		private function log_row_error_examples( array $examples ): void {
+			foreach ( $examples as $example ) {
+				$fields = is_array( $example['fields'] ?? null ) ? $example['fields'] : array();
+
+				foreach ( $fields as $issue ) {
+					if ( ! is_array( $issue ) ) {
+						continue;
+					}
+
+					WP_CLI::log( Agend_Directory_Sync_Agend_Client::format_issue_line( $issue ) );
+				}
+			}
+		}
+
+		/**
+		 * Log the "New options were created" notices a run's rows carried,
+		 * one line per `custom_fields.<key>` path, plus a count for any other
+		 * notice code the gateway sent. Absent on an older gateway's
+		 * response, so both are empty and nothing is printed then.
+		 *
+		 * @param array<string, array{count: int, values: array<int, string>}> $options_created
+		 * @param array<string, int>                                            $other_notices
+		 */
+		private function log_notices( array $options_created, array $other_notices ): void {
+			foreach ( $options_created as $path => $data ) {
+				if ( ! is_array( $data ) ) {
+					continue;
+				}
+				WP_CLI::log( Agend_Directory_Sync_Agend_Client::format_option_created_line( (string) $path, $data ) );
+			}
+
+			foreach ( $other_notices as $code => $count ) {
+				WP_CLI::log( sprintf( 'Notice %s: %d row(s)', (string) $code, (int) $count ) );
+			}
+		}
+
+		/**
+		 * Log the total count of `warnings` the run's rows carried, plus its
+		 * capped sanitised examples. Absent on an older gateway's response,
+		 * so this is a no-op then (count 0).
+		 *
+		 * @param int                $warnings
+		 * @param array<int, string> $warning_examples
+		 */
+		private function log_warnings( int $warnings, array $warning_examples ): void {
+			if ( 0 === $warnings ) {
+				return;
+			}
+
+			WP_CLI::warning( sprintf( '%d row(s) carried a warning from the gateway.', $warnings ) );
+
+			foreach ( $warning_examples as $example ) {
+				WP_CLI::log( '  ' . (string) $example );
 			}
 		}
 	}
