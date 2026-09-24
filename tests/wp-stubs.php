@@ -80,6 +80,8 @@ final class Agend_Test_WP {
 
 	/** @var int[] User ids for which WordPress auth cookies were issued. */
 	public static array $auth_cookie_users = array();
+	/** @var bool[] Remember flags passed to WordPress auth cookies. */
+	public static array $auth_cookie_remembers = array();
 
 	/** @var mixed Value the next agend_apps_crm_get_tiers() call returns. */
 	public static $tiers_response = array();
@@ -152,6 +154,7 @@ final class Agend_Test_WP {
 		self::$object_cache      = array();
 		self::$requests          = array();
 		self::$auth_cookie_users = array();
+		self::$auth_cookie_remembers = array();
 		self::$tiers_response    = array();
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
@@ -1097,6 +1100,7 @@ if ( ! function_exists( 'wp_set_current_user' ) ) {
 if ( ! function_exists( 'wp_set_auth_cookie' ) ) {
 	function wp_set_auth_cookie( int $user_id, bool $remember = false ): void {
 		Agend_Test_WP::$auth_cookie_users[] = $user_id;
+		Agend_Test_WP::$auth_cookie_remembers[] = $remember;
 	}
 }
 

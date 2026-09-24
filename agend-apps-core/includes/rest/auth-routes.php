@@ -79,6 +79,18 @@ function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
 	return $allowed;
 }
 
+/** Limit MFA code checks by client IP before they consume the shared gateway bucket. */
+function agend_apps_auth_mfa_throttle( string $ip ): bool {
+	$max = (int) apply_filters( 'agend_apps_auth_mfa_per_ip_limit', 10 );
+	$key = 'agend_apps_mfa_ip_' . md5( $ip );
+	$count = (int) get_transient( $key );
+	if ( $count >= $max ) {
+		return false;
+	}
+	set_transient( $key, $count + 1, MINUTE_IN_SECONDS );
+	return true;
+}
+
 /**
  * Throttles repeated password-reset requests per client IP and per email.
  *
@@ -454,6 +466,10 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		if ( agend_apps_auth_response_is_mfa_required( $response ) ) {
+			$existing = get_user_by( 'email', $email );
+			if ( $existing instanceof WP_User ) {
+				update_user_meta( $existing->ID, 'agend_mfa_enrolled', '1' );
+			}
 			$challenge = agend_apps_auth_create_mfa_challenge( $response, $email );
 			return new WP_REST_Response( array( 'code' => 'mfa_required', 'challenge_id' => $challenge['challenge_id'], 'factors' => $challenge['factors'] ), 202 );
 		}
@@ -463,6 +479,10 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 
 	/** Verify a stored challenge and finish the same member login flow. */
 	public function verify_mfa( WP_REST_Request $request ): WP_REST_Response {
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		if ( ! agend_apps_auth_mfa_throttle( $ip ) ) {
+			return new WP_REST_Response( array( 'code' => 'too_many_attempts', 'message' => __( 'Too many code attempts. Please wait a minute and try again.', 'agend-apps-core' ) ), 429 );
+		}
 		$id        = (string) $request->get_param( 'challenge_id' );
 		$challenge = agend_apps_auth_get_mfa_challenge( $id );
 		if ( ! is_array( $challenge ) || empty( $challenge['email'] ) ) {

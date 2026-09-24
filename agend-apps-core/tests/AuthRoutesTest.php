@@ -93,6 +93,31 @@ final class AuthRoutesTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_refuse_further_gateway_checks_when_rest_mfa_ip_limit_is_reached(): void {
+		$public = agend_apps_auth_create_mfa_challenge( array( 'data' => array( 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ), 'member@example.test' );
+		Agend_Test_WP::set_filter( 'agend_apps_auth_mfa_per_ip_limit', 1 );
+		Agend_Test_WP::queue_response( 400, array( 'error' => array( 'code' => 'INVALID_MFA_CODE', 'message' => 'Wrong code.' ) ) );
+		$request = new WP_REST_Request( 'POST', '/agend-apps/v1/auth/mfa/verify' );
+		$request->set_param( 'challenge_id', $public['challenge_id'] );
+		$request->set_param( 'factor_id', 'factor-1' );
+		$request->set_param( 'code', '000000' );
+		$this->assertSame( 400, $this->controller()->verify_mfa( $request )->get_status() );
+		$this->assertSame( 429, $this->controller()->verify_mfa( $request )->get_status() );
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_mark_wordpress_user_when_rest_gateway_requires_mfa(): void {
+		$existing = new WP_User( 79 );
+		$existing->user_email = 'marked@example.test';
+		$GLOBALS['agend_test_users'][] = $existing;
+		Agend_Test_WP::queue_response( 202, array( 'data' => array( 'status' => 'mfa_required', 'mfa_token' => 'private-token', 'factors' => array( array( 'id' => 'factor-1', 'factor_type' => 'totp' ) ) ) ) );
+		$this->assertSame( 202, $this->controller()->login( $this->loginRequest( 'marked@example.test', 'password' ) )->get_status() );
+		$this->assertSame( '1', get_user_meta( 79, 'agend_mfa_enrolled', true ) );
+		$this->assertFalse( Agend_Apps_Member_Session::has_session( 79 ) );
+	}
+
+	#[Test]
 	public function should_return_202_verification_required_with_the_gateway_message_on_a_202_login_response(): void {
 		Agend_Test_WP::queue_response(
 			202,
