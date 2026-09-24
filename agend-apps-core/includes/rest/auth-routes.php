@@ -79,6 +79,18 @@ function agend_apps_auth_login_throttle( string $email, string $ip ): bool {
 	return $allowed;
 }
 
+/** Limit MFA code checks by client IP before they consume the shared gateway bucket. */
+function agend_apps_auth_mfa_throttle( string $ip ): bool {
+	$max = (int) apply_filters( 'agend_apps_auth_mfa_per_ip_limit', 10 );
+	$key = 'agend_apps_mfa_ip_' . md5( $ip );
+	$count = (int) get_transient( $key );
+	if ( $count >= $max ) {
+		return false;
+	}
+	set_transient( $key, $count + 1, MINUTE_IN_SECONDS );
+	return true;
+}
+
 /**
  * Throttles repeated password-reset requests per client IP and per email.
  *
@@ -216,6 +228,23 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 							'required' => true,
 							'type'     => 'string',
 						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/mfa/verify',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'verify_mfa' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'challenge_id' => array( 'required' => true, 'type' => 'string' ),
+						'factor_id'    => array( 'required' => true, 'type' => 'string' ),
+						'code'         => array( 'required' => true, 'type' => 'string' ),
 					),
 				),
 			)
@@ -436,6 +465,39 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 			);
 		}
 
+		if ( agend_apps_auth_response_is_mfa_required( $response ) ) {
+			$existing = get_user_by( 'email', $email );
+			if ( $existing instanceof WP_User ) {
+				update_user_meta( $existing->ID, 'agend_mfa_enrolled', '1' );
+			}
+			$challenge = agend_apps_auth_create_mfa_challenge( $response, $email );
+			return new WP_REST_Response( array( 'code' => 'mfa_required', 'challenge_id' => $challenge['challenge_id'], 'factors' => $challenge['factors'] ), 202 );
+		}
+
+		return $this->complete_login( $response, $email, $request, false );
+	}
+
+	/** Verify a stored challenge and finish the same member login flow. */
+	public function verify_mfa( WP_REST_Request $request ): WP_REST_Response {
+		$id        = (string) $request->get_param( 'challenge_id' );
+		$challenge = agend_apps_auth_get_mfa_challenge( $id );
+		if ( ! is_array( $challenge ) || empty( $challenge['email'] ) ) {
+			return new WP_REST_Response( array( 'code' => 'mfa_expired', 'message' => __( 'Your code step has expired. Please sign in again.', 'agend-apps-core' ) ), 400 );
+		}
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		if ( ! agend_apps_auth_mfa_throttle( $ip ) ) {
+			return new WP_REST_Response( array( 'code' => 'too_many_attempts', 'message' => __( 'Too many code attempts. Please wait a minute and try again.', 'agend-apps-core' ) ), 429 );
+		}
+		$response = agend_apps_auth_verify_mfa_challenge( $id, (string) $request->get_param( 'factor_id' ), (string) $request->get_param( 'code' ) );
+		if ( is_wp_error( $response ) ) {
+			return $this->error_to_response( $response );
+		}
+		return $this->complete_login( $response, (string) $challenge['email'], $request, true );
+	}
+
+	/** Establish identity, session, cart and membership after a gateway session exists. */
+	private function complete_login( $response, string $email, WP_REST_Request $request, bool $mfa_verified ): WP_REST_Response {
+
 		$data    = ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response;
 		$session = ( isset( $data['session'] ) && is_array( $data['session'] ) ) ? $data['session'] : array();
 
@@ -490,6 +552,11 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		Agend_Apps_Member_Session::store( $user_id, $session );
+		if ( $mfa_verified ) {
+			update_user_meta( $user_id, 'agend_mfa_enrolled', '1' );
+		} else {
+			delete_user_meta( $user_id, 'agend_mfa_enrolled' );
+		}
 
 		// A credential login supersedes any negative-cached SSO mint state.
 		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );

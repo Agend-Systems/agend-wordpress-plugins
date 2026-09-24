@@ -12,9 +12,10 @@
  * credentials; a 409 (the email already has a dashboard account, so the typed
  * password is a WordPress-only one) fails the login with the generic
  * incorrect-credentials message instead of falling through to WordPress
- * authentication. WordPress's own authentication runs only when the gateway
- * is unavailable, the username is not an email, or no WordPress user with
- * that email exists.
+ * authentication. A username linked to Agend resolves to its email and goes
+ * through the gateway too. WordPress-only users retain their existing local
+ * fallback. Agend-linked users may use the local password only when the
+ * gateway is genuinely unavailable and they are not known to have MFA.
  *
  * A WordPress login is likewise refused, not allowed through, when the
  * gateway withholds the session for email verification (a login 202 or a
@@ -62,9 +63,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * already has a dashboard account and the submitted password is not its
  * password, and the gateway has withheld the session for email verification —
  * are applied by `agend_apps_wp_login_refuse_wordpress_password` at priority
- * 30, after WordPress has run, each with its own error. Every other failure
- * falls through to WordPress authentication, which owns the user-facing
- * error.
+ * 30, after WordPress has run. An Agend-linked user's local password may be
+ * used after a genuine gateway outage only if they are not marked MFA-enrolled.
  *
  * @param null|WP_User|WP_Error $user     Result of earlier authenticate filters.
  * @param string                $username Submitted username or email.
@@ -90,11 +90,34 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	// Each authenticate run starts with no refusal armed, so a refusal from an
 	// earlier attempt in the same process never leaks into this one.
 	agend_apps_wp_login_arm_refusal( '' );
+	$email_user = get_user_by( 'email', $email );
+	$login_user = get_user_by( 'login', $email );
+	// An email address names its email owner for the gateway. A different
+	// user's matching login name never overrides that identity.
+	$local_user = $email_user instanceof WP_User ? $email_user : $login_user;
+	$linked = agend_apps_wp_login_is_agend_linked( $local_user );
+	$marked = $local_user instanceof WP_User && get_user_meta( $local_user->ID, 'agend_mfa_enrolled', true );
+	// On a collision, a failed gateway answer must not let WordPress's
+	// username handler sign in a different Agend-linked user locally.
+	$other_linked = $email_user instanceof WP_User && $login_user instanceof WP_User && $email_user->ID !== $login_user->ID
+		&& ( agend_apps_wp_login_is_agend_linked( $login_user ) || get_user_meta( $login_user->ID, 'agend_mfa_enrolled', true ) );
+	$refuse_local = $linked || $marked || $other_linked;
+	if ( $marked || $other_linked ) {
+		// A known MFA member must never use the local password, including when
+		// the gateway is down, throttled, disabled or a username was submitted.
+		agend_apps_wp_login_arm_refusal( $email );
+	}
 
-	// The gateway authenticates by email; a non-email username belongs to
-	// WordPress.
-	if ( '' === $email || '' === $password || ! is_email( $email ) ) {
+	if ( '' === $email || '' === $password ) {
 		return $user;
+	}
+	if ( ! is_email( $email ) ) {
+		if ( ! $linked || ! $local_user instanceof WP_User || ! is_email( $local_user->user_email ) ) {
+			return $user;
+		}
+		$email = strtolower( $local_user->user_email );
+	} elseif ( ! $email_user instanceof WP_User && $login_user instanceof WP_User && $linked ) {
+		$email = strtolower( $login_user->user_email );
 	}
 
 	/**
@@ -104,15 +127,20 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	 * @param string $email   The submitted email (lower-cased).
 	 */
 	if ( ! apply_filters( 'agend_apps_wp_login_bridge_enabled', true, $email ) ) {
+		if ( $refuse_local ) {
+			agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ) );
+		}
 		return $user;
 	}
 
 	// Same proxy-edge throttle as the member-login REST proxy (per IP and per
-	// email). When throttled, skip the gateway attempt; WordPress
-	// authentication and its own protections still run.
+	// email). A throttle is not an outage and cannot unlock the local password.
 	$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
 
 	if ( ! agend_apps_auth_login_throttle( $email, $ip ) ) {
+		if ( $refuse_local ) {
+			agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ) );
+		}
 		return $user;
 	}
 
@@ -127,7 +155,7 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		// design).
 		if ( agend_apps_auth_response_is_verification_required( $response ) ) {
 			agend_apps_wp_login_mark_verification_pending( $email );
-			agend_apps_wp_login_arm_refusal( $email, AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
+			agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ), AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
 			return $user;
 		}
 
@@ -135,27 +163,72 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 		// login logic takes over. Only the gateway's invalid-credentials answer
 		// continues into registration.
 		if ( ! agend_apps_auth_error_is_invalid_credentials( $response ) ) {
+			$status = agend_apps_auth_error_status( $response );
+			if ( $refuse_local && 0 !== $status && $status < 500 ) {
+				agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ) );
+			}
 			return $user;
 		}
 
 		$response = agend_apps_wp_login_register_existing_user( $email, $password );
 
 		if ( null === $response ) {
+			if ( $refuse_local ) {
+				agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ) );
+			}
 			return $user;
 		}
 	}
+
+	if ( agend_apps_auth_response_is_verification_required( $response ) ) {
+		agend_apps_wp_login_mark_verification_pending( $email );
+		agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ), AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
+		return $user;
+	}
+
+	if ( agend_apps_auth_response_is_mfa_required( $response ) ) {
+		if ( $local_user instanceof WP_User && strtolower( $local_user->user_email ) === $email ) {
+			update_user_meta( $local_user->ID, 'agend_mfa_enrolled', '1' );
+		}
+		$challenge = agend_apps_auth_create_mfa_challenge( $response, $email, ! empty( $_POST['rememberme'] ) );
+		agend_apps_wp_login_mfa_step( $challenge );
+		agend_apps_wp_login_arm_refusal( strtolower( trim( (string) $username ) ), AGEND_APPS_WP_LOGIN_REFUSAL_MFA );
+		return $user;
+	}
+
+	return agend_apps_wp_login_complete( $response, $email, $user, false, strtolower( trim( (string) $username ) ), $refuse_local );
+}
+add_filter( 'authenticate', 'agend_apps_wp_login_authenticate', 15, 3 );
+
+/** Whether a WordPress user has a recorded Agend identity, session or conflict. */
+function agend_apps_wp_login_is_agend_linked( $user ): bool {
+	if ( ! $user instanceof WP_User ) {
+		return false;
+	}
+	// An identity conflict is set after the gateway says the email already has
+	// an Agend account. Its local password must therefore be refused too.
+	foreach ( array( '_agend_apps_managed', '_agend_apps_supabase_user_id', '_agend_apps_contact_id', '_agend_apps_member_session', '_agend_apps_verification_pending', '_agend_apps_identity_conflict' ) as $key ) {
+		if ( get_user_meta( $user->ID, $key, true ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/** Complete the bridge's established login steps after a session is issued. */
+function agend_apps_wp_login_complete( $response, string $email, $user, bool $mfa_verified, string $identifier = '', bool $refuse_local = true ) {
 
 	$parsed  = agend_apps_auth_response_session( $response );
 	$data    = $parsed['data'];
 	$session = $parsed['session'];
 
 	if ( empty( $session ) ) {
-		// Either the login itself answered 202 verification_required, or the
-		// register call above withheld the session pending verification
-		// (SPEC-CORE-20260907 US-4.1 AC3, AC6): both converge here on "no
-		// session", and both are refused the same way (Decision change A).
-		agend_apps_wp_login_mark_verification_pending( $email );
-		agend_apps_wp_login_arm_refusal( $email, AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
+		if ( ! empty( $data['pending_email_confirmation'] ) ) {
+			agend_apps_wp_login_mark_verification_pending( $email );
+			agend_apps_wp_login_arm_refusal( '' !== $identifier ? $identifier : $email, AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION );
+		} elseif ( $refuse_local ) {
+			agend_apps_wp_login_arm_refusal( '' !== $identifier ? $identifier : $email );
+		}
 		return $user;
 	}
 
@@ -192,6 +265,13 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	// stored.
 	delete_user_meta( $user_id, AGEND_APPS_VERIFICATION_PENDING_META );
 	Agend_Apps_Member_Session::store( $user_id, $session );
+	if ( $mfa_verified ) {
+		update_user_meta( $user_id, 'agend_mfa_enrolled', '1' );
+	} else {
+		// The gateway issued a session from the password alone, so its current
+		// factor state supersedes an enrolment marker from an earlier login.
+		delete_user_meta( $user_id, 'agend_mfa_enrolled' );
+	}
 
 	// A credential login supersedes any negative-cached SSO mint state.
 	Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
@@ -211,10 +291,107 @@ function agend_apps_wp_login_authenticate( $user, $username, $password ) {
 	agend_apps_member_sync_membership_meta( $user_id );
 
 	$wp_user = get_user_by( 'id', $user_id );
+	if ( $wp_user instanceof WP_User ) {
+		agend_apps_wp_login_arm_refusal( '' );
+	}
 
 	return ( $wp_user instanceof WP_User ) ? $wp_user : $user;
 }
-add_filter( 'authenticate', 'agend_apps_wp_login_authenticate', 15, 3 );
+
+/** Hold only the public challenge id and factor names for the next login page render. */
+function agend_apps_wp_login_mfa_step( ?array $step = null ): array {
+	static $current = array();
+	if ( null !== $step ) {
+		$current = $step;
+	}
+	return $current;
+}
+
+/** Show a second, nonce-protected form on wp-login.php after password acceptance. */
+function agend_apps_wp_login_mfa_message( string $message ): string {
+	$step = agend_apps_wp_login_mfa_step();
+	if ( empty( $step['challenge_id'] ) || empty( $step['factors'] ) ) {
+		return $message;
+	}
+	$html = '<style>#loginform{display:none}</style><form id="agend-mfa-form" method="post" action="' . esc_url( add_query_arg( 'action', 'agend_mfa', wp_login_url() ) ) . '">';
+	$html .= '<p>' . esc_html__( 'Enter the six-digit code from your authenticator app.', 'agend-apps-core' ) . '</p>';
+	$html .= '<input type="hidden" name="challenge_id" value="' . esc_attr( $step['challenge_id'] ) . '">';
+	$html .= '<input type="hidden" name="agend_mfa_nonce" value="' . esc_attr( wp_create_nonce( 'agend_apps_mfa_' . $step['challenge_id'] ) ) . '">';
+	if ( isset( $_REQUEST['redirect_to'] ) && is_string( $_REQUEST['redirect_to'] ) ) {
+		$html .= '<input type="hidden" name="redirect_to" value="' . esc_attr( wp_unslash( $_REQUEST['redirect_to'] ) ) . '">';
+	}
+	if ( 1 === count( $step['factors'] ) ) {
+		$html .= '<input type="hidden" name="factor_id" value="' . esc_attr( $step['factors'][0]['id'] ) . '">';
+	} else {
+		$html .= '<label for="agend-mfa-factor">' . esc_html__( 'Authenticator', 'agend-apps-core' ) . '</label><select id="agend-mfa-factor" name="factor_id">';
+		foreach ( $step['factors'] as $factor ) {
+			$html .= '<option value="' . esc_attr( $factor['id'] ) . '">' . esc_html( ! empty( $factor['friendly_name'] ) ? $factor['friendly_name'] : __( 'Authenticator app', 'agend-apps-core' ) ) . '</option>';
+		}
+		$html .= '</select>';
+	}
+	$html .= '<label for="agend-mfa-code">' . esc_html__( 'Code', 'agend-apps-core' ) . '</label><input id="agend-mfa-code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required>';
+	$html .= '<p><button type="submit" class="button button-primary button-large">' . esc_html__( 'Verify code', 'agend-apps-core' ) . '</button></p></form>';
+	return $message . $html;
+}
+add_filter( 'login_message', 'agend_apps_wp_login_mfa_message' );
+
+/** Process the second wp-login.php form. WordPress issues its cookie only here. */
+function agend_apps_wp_login_verify_mfa( array $input ) {
+	$id = isset( $input['challenge_id'] ) ? sanitize_text_field( wp_unslash( $input['challenge_id'] ) ) : '';
+	$nonce = isset( $input['agend_mfa_nonce'] ) ? sanitize_text_field( wp_unslash( $input['agend_mfa_nonce'] ) ) : '';
+	if ( ! wp_verify_nonce( $nonce, 'agend_apps_mfa_' . $id ) ) {
+		return new WP_Error( 'agend_apps_mfa_nonce', __( 'Please sign in again.', 'agend-apps-core' ) );
+	}
+	$challenge = agend_apps_auth_get_mfa_challenge( $id );
+	if ( ! is_array( $challenge ) || empty( $challenge['email'] ) ) {
+		return agend_apps_wp_login_generic_error();
+	}
+	$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+	if ( ! agend_apps_auth_mfa_throttle( $ip ) ) {
+		return new WP_Error( 'agend_apps_mfa_throttled', __( 'Too many code attempts. Please wait a minute and try again.', 'agend-apps-core' ) );
+	}
+	$factor_id = isset( $input['factor_id'] ) ? sanitize_text_field( wp_unslash( $input['factor_id'] ) ) : '';
+	$code = isset( $input['code'] ) ? sanitize_text_field( wp_unslash( $input['code'] ) ) : '';
+	$response = agend_apps_auth_verify_mfa_challenge( $id, $factor_id, $code );
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+	$result = agend_apps_wp_login_complete( $response, (string) $challenge['email'], null, true );
+	return $result instanceof WP_User ? $result : agend_apps_wp_login_generic_error();
+}
+
+/** Complete WordPress's sign-in side effects; separated from page rendering for testing. */
+function agend_apps_wp_login_mfa_action_result( array $input ) {
+	$id = isset( $input['challenge_id'] ) && is_string( $input['challenge_id'] ) ? sanitize_text_field( wp_unslash( $input['challenge_id'] ) ) : '';
+	$challenge = agend_apps_auth_get_mfa_challenge( $id );
+	$result = agend_apps_wp_login_verify_mfa( $input );
+	if ( $result instanceof WP_User ) {
+		wp_set_current_user( $result->ID );
+		wp_set_auth_cookie( $result->ID, is_array( $challenge ) && ! empty( $challenge['remember'] ) );
+		do_action( 'wp_login', $result->user_login, $result );
+		$requested = isset( $input['redirect_to'] ) && is_string( $input['redirect_to'] ) ? wp_unslash( $input['redirect_to'] ) : '';
+		$redirect = apply_filters( 'login_redirect', '' !== $requested ? $requested : admin_url(), $requested, $result );
+		wp_safe_redirect( $redirect );
+	}
+	return $result;
+}
+
+function agend_apps_wp_login_mfa_action(): void {
+	$result = agend_apps_wp_login_mfa_action_result( $_POST );
+	if ( $result instanceof WP_User ) {
+		exit;
+	}
+	$id = isset( $_POST['challenge_id'] ) ? sanitize_text_field( wp_unslash( $_POST['challenge_id'] ) ) : '';
+	$challenge = agend_apps_auth_get_mfa_challenge( $id );
+	if ( is_array( $challenge ) && ! empty( $challenge['factors'] ) ) {
+		agend_apps_wp_login_mfa_step( array( 'challenge_id' => $id, 'factors' => $challenge['factors'] ) );
+		login_header( __( 'Verify your code', 'agend-apps-core' ), '<div id="login_error">' . esc_html( $result->get_error_message() ) . '</div>' );
+		login_footer();
+		exit;
+	}
+	wp_die( esc_html( $result->get_error_message() ), esc_html__( 'Sign-in failed', 'agend-apps-core' ), array( 'response' => 400 ) );
+}
+add_action( 'login_form_agend_mfa', 'agend_apps_wp_login_mfa_action' );
 
 /**
  * Records verification-pending on the WordPress user for the submitted email,
@@ -305,6 +482,7 @@ function agend_apps_wp_login_register_existing_user( string $email, string $pass
  */
 const AGEND_APPS_WP_LOGIN_REFUSAL_CONFLICT     = 'conflict';
 const AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION = 'verification';
+const AGEND_APPS_WP_LOGIN_REFUSAL_MFA = 'mfa';
 
 /**
  * Email (and reason) whose WordPress-password login is refused for the
@@ -360,6 +538,9 @@ function agend_apps_wp_login_refuse_wordpress_password( $user, $username, $passw
 
 	if ( AGEND_APPS_WP_LOGIN_REFUSAL_VERIFICATION === $armed['reason'] ) {
 		return agend_apps_wp_login_verification_required_error();
+	}
+	if ( AGEND_APPS_WP_LOGIN_REFUSAL_MFA === $armed['reason'] ) {
+		return new WP_Error( 'agend_apps_mfa_required', __( 'Enter your authenticator code to finish signing in.', 'agend-apps-core' ) );
 	}
 
 	return agend_apps_wp_login_generic_error();
