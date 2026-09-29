@@ -304,7 +304,7 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 	}
 
 	protected function render(): void {
-		$s       = $this->get_settings_for_display();
+		$s       = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 		$mode    = 'dropdown' === ( $s['mode'] ?? 'button' ) ? 'dropdown' : 'button';
 		$reports = agend_apps_records_export_reports_offered_reports( $s );
 

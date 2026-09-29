@@ -233,7 +233,7 @@
         email: email.value,
         password: password.value,
       }).then(function (r) {
-        if (r.ok) {
+        if (r.status === 200 && r.ok) {
           // The sign-in rotated the WordPress session; reload so the fresh
           // nonce and the member's server-rendered widgets take effect.
           window.location.reload();
@@ -241,6 +241,11 @@
         }
         var data = unwrap(r.data);
         if (r.status === 202) {
+          if (data.code === 'mfa_required') {
+            password.value = '';
+            renderMfa(root, cfg, data);
+            return;
+          }
           // Verification pending (SPEC-CORE-20260907 US-4.3 AC1): WordPress
           // has already signed the member in server-side; the form just
           // shows the notice and offers a resend, it never reloads here.
@@ -266,6 +271,64 @@
       });
     });
 
+    wrap.appendChild(form);
+    root.appendChild(wrap);
+  }
+
+  function renderMfa(root, cfg, challenge) {
+    root.innerHTML = '';
+    var wrap = el('div', 'agend-ml-card');
+    var form = el('form', 'agend-ml-form');
+    var codeLabel = el('label', 'agend-ml-form__label', 'Authenticator code');
+    var code = el('input', 'agend-ml-form__input');
+    code.type = 'text';
+    code.inputMode = 'numeric';
+    code.autocomplete = 'one-time-code';
+    code.pattern = '[0-9]{6}';
+    code.required = true;
+    codeLabel.appendChild(code);
+    form.appendChild(codeLabel);
+    var factors = challenge.factors || [];
+    var choice;
+    if (factors.length > 1) {
+      var factorLabel = el('label', 'agend-ml-form__label', 'Authenticator');
+      choice = el('select', 'agend-ml-form__input');
+      factors.forEach(function (factor) {
+        var option = el('option', '', factor.friendly_name || 'Authenticator app');
+        option.value = factor.id;
+        choice.appendChild(option);
+      });
+      factorLabel.appendChild(choice);
+      form.insertBefore(factorLabel, codeLabel);
+    }
+    var error = el('p', 'agend-ml-form__error');
+    error.setAttribute('role', 'alert');
+    var submit = el('button', 'agend-ml-card__button', 'Verify code');
+    submit.type = 'submit';
+    form.appendChild(error);
+    form.appendChild(submit);
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (!/^[0-9]{6}$/.test(code.value)) { return; }
+      submit.disabled = true;
+      request('POST', '/auth/mfa/verify', {
+        challenge_id: challenge.challenge_id,
+        factor_id: choice ? choice.value : (factors[0] && factors[0].id),
+        code: code.value
+      }).then(function (r) {
+        code.value = '';
+        if (r.ok) {
+          window.location.reload();
+          return;
+        }
+        error.textContent = unwrap(r.data).message || cfg.messages.error;
+        submit.disabled = false;
+      }).catch(function () {
+        code.value = '';
+        error.textContent = cfg.messages.error;
+        submit.disabled = false;
+      });
+    });
     wrap.appendChild(form);
     root.appendChild(wrap);
   }

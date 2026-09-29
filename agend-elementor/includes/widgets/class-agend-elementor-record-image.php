@@ -157,7 +157,7 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 	}
 
 	protected function render(): void {
-		$s    = $this->get_settings_for_display();
+		$s    = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 		$opts = $this->render_opts();
 
 		if ( 'no_image' === agend_apps_records_record_image_render_reason( $s, $opts ) ) {

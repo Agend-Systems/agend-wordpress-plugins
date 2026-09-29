@@ -182,7 +182,7 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 	 * the reason it gets back to the translated notice it already owned.
 	 */
 	protected function render(): void {
-		$s = $this->get_settings_for_display();
+		$s = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 
 		$is_editor = $this->is_editor();
 		$opts      = array(

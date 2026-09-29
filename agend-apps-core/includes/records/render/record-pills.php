@@ -118,6 +118,62 @@ function agend_apps_records_record_pills_label_html( array $s, string $key, arra
 }
 
 /**
+ * The colour rule hooks for one term, from the surface's `colour_rules`.
+ *
+ * The first rule whose `rule_match` lists the term (comma-separated, trimmed,
+ * case-insensitive) wins. Each safe colour it sets is written as an inline
+ * declaration, plus a modifier class as a styling hook. Inline, because the
+ * widget's own pill colour controls reach the pill through Elementor's
+ * generated per-element selectors, which a stylesheet rule here could not
+ * outrank without !important; a term no rule matches keeps that style.
+ *
+ * @param array  $settings Surface settings.
+ * @param string $term     The term's display text.
+ * @return array{classes: string[], style: string}
+ */
+function agend_apps_records_record_pills_term_style( array $settings, string $term ): array {
+	$rules  = $settings['colour_rules'] ?? array();
+	$needle = function_exists( 'mb_strtolower' ) ? mb_strtolower( trim( $term ) ) : strtolower( trim( $term ) );
+
+	if ( ! is_array( $rules ) || '' === $needle ) {
+		return array( 'classes' => array(), 'style' => '' );
+	}
+
+	foreach ( $rules as $rule ) {
+		if ( ! is_array( $rule ) ) {
+			continue;
+		}
+		$matches = array_filter(
+			array_map(
+				static function ( $value ) {
+					$value = trim( $value );
+					return function_exists( 'mb_strtolower' ) ? mb_strtolower( $value ) : strtolower( $value );
+				},
+				explode( ',', (string) ( $rule['rule_match'] ?? '' ) )
+			),
+			'strlen'
+		);
+		if ( ! in_array( $needle, $matches, true ) ) {
+			continue;
+		}
+
+		$classes = array();
+		$vars    = array();
+		foreach ( array( 'rule_background' => array( 'background-color', 'agend-pill--rule-bg' ), 'rule_text' => array( 'color', 'agend-pill--rule-text' ) ) as $key => $hook ) {
+			$value = trim( (string) ( $rule[ $key ] ?? '' ) );
+			if ( agend_apps_records_colour_is_safe( $value ) ) {
+				$vars[]    = $hook[0] . ':' . $value;
+				$classes[] = $hook[1];
+			}
+		}
+
+		return array( 'classes' => $classes, 'style' => implode( ';', $vars ) );
+	}
+
+	return array( 'classes' => array(), 'style' => '' );
+}
+
+/**
  * Renders the record pills surface: one pill per term of the terms field the
  * settings name, from the record in scope.
  *
@@ -156,10 +212,15 @@ function agend_apps_records_render_record_pills( array $settings, array $opts = 
 	$html  = '<div class="' . esc_attr( implode( ' ', $classes ) ) . '">';
 	$html .= $label;
 	foreach ( $terms as $term ) {
+		$rule  = agend_apps_records_record_pills_term_style( $settings, (string) $term );
+		$attrs = 'class="' . esc_attr( implode( ' ', array_merge( array( 'agend-pill' ), $rule['classes'] ) ) ) . '"';
+		if ( '' !== $rule['style'] ) {
+			$attrs .= ' style="' . esc_attr( $rule['style'] ) . '"';
+		}
 		if ( '' !== $link && '#' !== $link ) {
-			$html .= '<a class="agend-pill" href="' . esc_url( $link ) . '">' . esc_html( $term ) . '</a>';
+			$html .= '<a ' . $attrs . ' href="' . esc_url( $link ) . '">' . esc_html( $term ) . '</a>';
 		} else {
-			$html .= '<span class="agend-pill">' . esc_html( $term ) . '</span>';
+			$html .= '<span ' . $attrs . '>' . esc_html( $term ) . '</span>';
 		}
 	}
 	$html .= '</div>';
