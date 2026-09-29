@@ -91,6 +91,6 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
-		echo agend_apps_records_render_memberships_catalogue( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
+		echo agend_apps_records_render_memberships_catalogue( Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

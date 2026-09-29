@@ -1093,3 +1093,14 @@
 .agend-dir-filter-slot:empty {
   display: none;
 }
+
+/* Result count (show_result_count). Empty while there is nothing to count. */
+.agend-dir-count {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+  color: var(--agend-dir-heading);
+}
+
+.agend-dir-count:empty {
+  display: none;
+}

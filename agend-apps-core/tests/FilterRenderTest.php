@@ -33,6 +33,7 @@ final class FilterRenderTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/filters.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/filter.php';
 		require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-field-widget-trait.php';
