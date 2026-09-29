@@ -417,6 +417,28 @@
                         "min": 1,
                         "max": 100
                     }
+                },
+                {
+                    "id": "show_result_count",
+                    "args": {
+                        "label": "Show result count",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "A line above the results saying how many listings match the current filters."
+                    }
+                },
+                {
+                    "id": "result_count_text",
+                    "args": {
+                        "label": "Result count text",
+                        "type": "text",
+                        "default": "Showing {from}–{to} of {total}",
+                        "label_block": true,
+                        "description": "{from}, {to} and {total} are replaced with the numbers, for example \"Showing {from}–{to} of {total} members\".",
+                        "condition": {
+                            "show_result_count": "yes"
+                        }
+                    }
                 }
             ]
         }

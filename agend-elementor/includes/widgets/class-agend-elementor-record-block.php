@@ -103,7 +103,7 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 	 * the reason switch below.
 	 */
 	protected function render(): void {
-		$s         = $this->get_settings_for_display();
+		$s         = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 		$is_editor = $this->is_editor();
 		$opts      = array(
 			'preview'      => $is_editor,
