@@ -7,7 +7,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.9.0
+ * Version:         0.10.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Tested up to:      7.1
@@ -103,6 +103,16 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		 * Clamped and defaulted by Agend_Directory_Sync_Agend_Client::timeout_seconds().
 		 */
 		public const OPTION_TIMEOUT_SECONDS = 'agend_directory_sync_timeout_seconds';
+
+		/**
+		 * Option key for the directory app link: a URL pasted from the Agend
+		 * dashboard (Settings > SSO > Share links > Member directory) shaped
+		 * like `{api host}/sso/{account}/directory-home?idp={slug}`. Only the
+		 * scheme, host and port are checked against this site's configured
+		 * Agend API environment on save and at render time; the path, slug
+		 * and query string are stored as pasted and never validated.
+		 */
+		public const OPTION_DIRECTORY_APP_LINK = 'agend_directory_sync_directory_app_link';
 
 		/**
 		 * Default value for external_source if the option is unset. This is the
