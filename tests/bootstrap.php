@@ -20,3 +20,8 @@ require_once __DIR__ . '/wp-stubs.php';
 require_once __DIR__ . '/elementor-stubs.php';
 require_once __DIR__ . '/doubles.php';
 require_once __DIR__ . '/TestCase.php';
+
+// Every Elementor widget passes its settings through this resolver before
+// handing them to a core renderer, so it is loaded once for every suite that
+// requires a widget file.
+require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-global-colours.php';
