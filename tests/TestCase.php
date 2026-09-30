@@ -65,10 +65,13 @@ abstract class TestCase extends PHPUnitTestCase {
 		// test that flips one and does not put it back would otherwise make
 		// every later test in the run a feed (or a checkout) request, and that
 		// only shows up as a failure in the full run.
-		$GLOBALS['agend_test_is_feed']         = false;
-		$GLOBALS['agend_test_is_cart']         = false;
-		$GLOBALS['agend_test_is_checkout']     = false;
-		$GLOBALS['agend_test_is_account_page'] = false;
+		$GLOBALS['agend_test_is_feed']            = false;
+		$GLOBALS['agend_test_is_cart']            = false;
+		$GLOBALS['agend_test_is_checkout']        = false;
+		$GLOBALS['agend_test_is_account_page']    = false;
+		$GLOBALS['agend_test_is_wc_endpoint_url'] = false;
+		$GLOBALS['agend_test_is_admin']           = false;
+		$GLOBALS['agend_test_doing_ajax']         = false;
 
 		// Signed-out by default. Production code impersonates through
 		// `wp_set_current_user()` (the membership snapshot sync does, and

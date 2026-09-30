@@ -59,6 +59,16 @@
  * simply never happens. Minting the nonce only inside the REST response
  * removes the cache from the trust boundary entirely.
  *
+ * Signing in always leads to an attempt. `wp_login` sets a one-time marker
+ * for an eligible member ({@see agend_apps_saml_link_schedule_on_login()}),
+ * and the first page after it renders the placeholder wherever it lands: on
+ * the front end through the flow above, and in wp-admin through
+ * `admin_footer` ({@see agend_apps_saml_link_render_admin_placeholder()}),
+ * where `template_redirect` never runs. wp-admin renders only while that
+ * marker is pending and never takes the visible fallback. When the trigger
+ * stands down for an eligible member, the reason is recorded
+ * ({@see agend_apps_saml_link_record_skip()}) for the diagnostics panel.
+ *
  * That silence is exactly what the one visible-redirect fallback
  * (`AGEND_APPS_SAML_LINK_FALLBACK_VIEWS`, `AGEND_APPS_LINK_MAX_ATTEMPTS`
  * in {@see agend_apps_saml_link_decision()}) exists to rescue: a site whose
@@ -113,6 +123,34 @@ const AGEND_APPS_SAML_LINK_DONE_NONCE = 'agend_apps_saml_link_done';
  * @var int
  */
 const AGEND_APPS_SAML_LINK_FALLBACK_VIEWS = 3;
+
+/**
+ * User meta key for the one-time "signed in, attempt pending" marker set on
+ * `wp_login` ({@see agend_apps_saml_link_schedule_on_login()}). Holds the
+ * sign-in time. The next page that renders the placeholder, in wp-admin or on
+ * the front end, consumes it.
+ *
+ * @var string
+ */
+const AGEND_APPS_SAML_LINK_LOGIN_PENDING_META = '_agend_apps_saml_link_login_pending';
+
+/**
+ * How long a sign-in marker stays usable. A member who signs in and then
+ * leaves should not have wp-admin fire a round trip days later on the strength
+ * of that old sign-in; the next sign-in sets a fresh marker.
+ *
+ * @var int
+ */
+const AGEND_APPS_SAML_LINK_LOGIN_PENDING_TTL = 24 * HOUR_IN_SECONDS;
+
+/**
+ * User meta key for the last reason the trigger stood down for an eligible
+ * member ({@see agend_apps_saml_link_record_skip()}), shown in the Identity
+ * and SSO diagnostics panel so a "Never attempted" member explains itself.
+ *
+ * @var string
+ */
+const AGEND_APPS_SAML_LINK_SKIP_META = '_agend_apps_saml_link_skip';
 
 /**
  * Resolves this site's registered Agend SP entity id from agend-saml-idp's
@@ -294,12 +332,20 @@ function agend_apps_saml_link_request_eligible( string $method, string $path, ar
  *
  * A feed is not a page a browser renders (no `wp_footer` script would ever
  * run there, so scheduling the placeholder would be pure waste), and
- * WooCommerce's cart/checkout/account pages are excluded because a member
- * mid-purchase or mid-account-form must not have a background SSO round trip
- * racing that page's own state (a redirect inside the iframe, a session
- * refresh, or simply the extra request) while it is in flight. Each
+ * WooCommerce's cart, checkout and account form pages are excluded because a
+ * member mid-purchase or mid-account-form must not have a background SSO
+ * round trip racing that page's own state (a redirect inside the iframe, a
+ * session refresh, or simply the extra request) while it is in flight. Each
  * WooCommerce check is behind its own `function_exists()` guard, since
  * WooCommerce may not be installed at all.
+ *
+ * The one account page allowed is the read-only My Account dashboard: an
+ * account page with no endpoint, which holds no form. It is often the first
+ * page a member sees after signing in, so blocking it left members who land
+ * there with no link attempt at all. Every account endpoint (edit-account,
+ * edit-address, payment-methods, orders and the rest) stays blocked, and so
+ * does every account page when `is_wc_endpoint_url()` is unavailable, since
+ * the dashboard cannot then be told apart from a form.
  *
  * @return bool
  */
@@ -317,7 +363,7 @@ function agend_apps_saml_link_surface_blocked(): bool {
 	}
 
 	if ( function_exists( 'is_account_page' ) && is_account_page() ) {
-		return true;
+		return ! function_exists( 'is_wc_endpoint_url' ) || is_wc_endpoint_url();
 	}
 
 	return false;
@@ -826,6 +872,221 @@ function agend_apps_saml_link_pending( ?string $set = null ): string {
 }
 
 /**
+ * `wp_login` handler: sets the one-time sign-in marker for an eligible
+ * member, so the first page after signing in makes a link attempt wherever it
+ * lands. Without it a member who lands in wp-admin never gets one, because the
+ * front-end trigger does not run there.
+ *
+ * Reads eligibility only ({@see agend_apps_saml_link_eligibility()} is a pure
+ * read); the attempt cap and the throttle still apply when the attempt is
+ * actually issued. Also clears the last recorded skip reason, so the
+ * diagnostics panel explains what happened after this sign-in rather than
+ * before it.
+ *
+ * @param string $user_login The signed-in user's login name.
+ * @param mixed  $user       The signed-in `WP_User`, when WordPress passes one.
+ */
+function agend_apps_saml_link_schedule_on_login( string $user_login, $user = null ): void {
+	try {
+		$user_id = ( is_object( $user ) && isset( $user->ID ) ) ? (int) $user->ID : 0;
+
+		if ( 0 === $user_id ) {
+			return;
+		}
+
+		if ( ! agend_apps_saml_link_eligibility( $user_id )['eligible'] ) {
+			return;
+		}
+
+		update_user_meta( $user_id, AGEND_APPS_SAML_LINK_LOGIN_PENDING_META, time() );
+		delete_user_meta( $user_id, AGEND_APPS_SAML_LINK_SKIP_META );
+	} catch ( Throwable $e ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( '[Agend Apps] SAML link sign-in scheduling failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		}
+	}
+}
+add_action( 'wp_login', 'agend_apps_saml_link_schedule_on_login', 10, 2 );
+
+/**
+ * When the member's sign-in marker was set, or 0 when there is none or it is
+ * older than {@see AGEND_APPS_SAML_LINK_LOGIN_PENDING_TTL}.
+ *
+ * @param int $user_id WordPress user id.
+ * @return int Unix time of the sign-in, or 0.
+ */
+function agend_apps_saml_link_login_pending( int $user_id ): int {
+	if ( 0 === $user_id ) {
+		return 0;
+	}
+
+	$signed_in_at = (int) get_user_meta( $user_id, AGEND_APPS_SAML_LINK_LOGIN_PENDING_META, true );
+
+	if ( $signed_in_at <= 0 || ( time() - $signed_in_at ) > AGEND_APPS_SAML_LINK_LOGIN_PENDING_TTL ) {
+		return 0;
+	}
+
+	return $signed_in_at;
+}
+
+/**
+ * Records why the trigger stood down for this member on this request. Writes
+ * only when the reason differs from the one on record, so a member who stays
+ * on a blocked surface costs one write, not one per page view.
+ *
+ * Reasons: `admin_page` (a wp-admin page with no pending sign-in),
+ * `blocked_surface` ({@see agend_apps_saml_link_surface_blocked()}),
+ * `throttled` (inside a backoff window after an earlier attempt) and
+ * `no_nonce` (the page never printed `window.agendApps.nonce`, so the
+ * placeholder script could not call the endpoint). `cached_page` is never
+ * recorded here: a cached page runs no PHP at all, so it is derived by
+ * {@see agend_apps_saml_link_trigger_status()} instead.
+ *
+ * @param int    $user_id WordPress user id.
+ * @param string $reason  The skip reason.
+ */
+function agend_apps_saml_link_record_skip( int $user_id, string $reason ): void {
+	if ( 0 === $user_id ) {
+		return;
+	}
+
+	$stored = get_user_meta( $user_id, AGEND_APPS_SAML_LINK_SKIP_META, true );
+
+	if ( is_array( $stored ) && isset( $stored['reason'] ) && $reason === $stored['reason'] ) {
+		return;
+	}
+
+	update_user_meta(
+		$user_id,
+		AGEND_APPS_SAML_LINK_SKIP_META,
+		array(
+			'reason'    => $reason,
+			'timestamp' => time(),
+		)
+	);
+}
+
+/**
+ * Records a skip only for a member who is otherwise eligible. For anyone else
+ * the eligibility reason the diagnostics panel already shows is the real
+ * explanation, and a skip reason beside it would only mislead.
+ *
+ * @param int    $user_id WordPress user id.
+ * @param string $reason  The skip reason.
+ */
+function agend_apps_saml_link_record_skip_if_eligible( int $user_id, string $reason ): void {
+	if ( agend_apps_saml_link_eligibility( $user_id )['eligible'] ) {
+		agend_apps_saml_link_record_skip( $user_id, $reason );
+	}
+}
+
+/**
+ * Whether this request printed `window.agendApps.nonce`, which the
+ * placeholder script needs to call the sso-url endpoint. `agend-apps-core.php`
+ * prints it on `wp_head` and `admin_head`, so a theme that never calls
+ * `wp_head()` leaves the script without it and the attempt fails silently.
+ *
+ * @param bool $admin Whether this is a wp-admin page.
+ * @return bool
+ */
+function agend_apps_saml_link_nonce_printed( bool $admin ): bool {
+	return did_action( $admin ? 'admin_head' : 'wp_head' ) > 0;
+}
+
+/**
+ * The trigger facts the diagnostics panel shows: the last recorded skip
+ * reason, and whether a sign-in is still waiting for its attempt. Pure read.
+ *
+ * When a sign-in is pending and nothing was recorded after it, the reason is
+ * reported as `cached_page`: the member signed in, but no page they loaded
+ * since has run this plugin's PHP, which is what a full-page cache does. That
+ * is only claimed once the sign-in is more than a minute old, so a member who
+ * is mid-way through their first page load is not misreported, and only for a
+ * member who is still eligible: for anyone else the eligibility reason is the
+ * explanation.
+ *
+ * @param int $user_id WordPress user id.
+ * @return array{reason: string, timestamp: int, login_pending_at: int}
+ */
+function agend_apps_saml_link_trigger_status( int $user_id ): array {
+	$stored = ( 0 !== $user_id ) ? get_user_meta( $user_id, AGEND_APPS_SAML_LINK_SKIP_META, true ) : '';
+
+	$reason    = ( is_array( $stored ) && isset( $stored['reason'] ) ) ? (string) $stored['reason'] : '';
+	$timestamp = ( is_array( $stored ) && isset( $stored['timestamp'] ) ) ? (int) $stored['timestamp'] : 0;
+
+	$login_pending_at = agend_apps_saml_link_login_pending( $user_id );
+
+	if (
+		$login_pending_at > 0 &&
+		$timestamp < $login_pending_at &&
+		( time() - $login_pending_at ) > MINUTE_IN_SECONDS &&
+		agend_apps_saml_link_eligibility( $user_id )['eligible']
+	) {
+		$reason    = 'cached_page';
+		$timestamp = $login_pending_at;
+	}
+
+	return array(
+		'reason'           => $reason,
+		'timestamp'        => $timestamp,
+		'login_pending_at' => $login_pending_at,
+	);
+}
+
+/**
+ * The wp-admin trigger's pure decision. wp-admin only makes an attempt on the
+ * first page after signing in (a pending sign-in marker), never on every admin
+ * page view, and never uses the visible-redirect fallback: a redirect out of
+ * an admin screen would interrupt the member's work.
+ *
+ * Order of evaluation:
+ * 1. No pending sign-in: `skip` / `admin_page`.
+ * 2. {@see agend_apps_saml_link_eligibility()}: ineligible skips with its
+ *    reason, recording the registry error state the same way the front-end
+ *    decision does.
+ * 3. Throttle: `skip` / `throttled` inside a backoff window.
+ * 4. Otherwise: bump `views` and return `render`.
+ *
+ * @param int $user_id WordPress user id.
+ * @return array{action: string, reason: string} `action` is `render` or `skip`.
+ */
+function agend_apps_saml_link_admin_decision( int $user_id ): array {
+	if ( 0 === agend_apps_saml_link_login_pending( $user_id ) ) {
+		return array(
+			'action' => 'skip',
+			'reason' => 'admin_page',
+		);
+	}
+
+	$eligibility = agend_apps_saml_link_eligibility( $user_id );
+
+	if ( ! $eligibility['eligible'] ) {
+		agend_apps_saml_link_record_registry_error( $user_id, $eligibility['reason'] );
+
+		return array(
+			'action' => 'skip',
+			'reason' => $eligibility['reason'],
+		);
+	}
+
+	$stored = agend_apps_wp_idp_link_state( $user_id );
+
+	if ( agend_apps_wp_idp_link_is_throttled( $stored ) ) {
+		return array(
+			'action' => 'skip',
+			'reason' => 'throttled',
+		);
+	}
+
+	agend_apps_wp_idp_merge_link_state( $user_id, array( 'views' => $stored['views'] + 1 ) );
+
+	return array(
+		'action' => 'render',
+		'reason' => '',
+	);
+}
+
+/**
  * Promotes a member's link state on the SAML round trip's own return leg, by
  * asking the gateway directly rather than waiting for the next token mint.
  *
@@ -1068,13 +1329,16 @@ add_action( 'template_redirect', 'agend_apps_saml_link_done', 5 );
  * `template_redirect` handler, default priority: the thin hook wrapper
  * around {@see agend_apps_saml_link_decision()}.
  *
- * Guards run cheapest-first: `is_admin()`, cron, AJAX and REST requests never
- * carry a browser session through to `wp_footer` anyway, then a signed-out
- * visitor, then the request-shape gate
+ * Guards run cheapest-first: `is_admin()` (wp-admin has its own trigger,
+ * {@see agend_apps_saml_link_render_admin_placeholder()}), cron, AJAX and REST
+ * requests never carry a browser session through to `wp_footer` anyway, then
+ * a signed-out visitor, then the request-shape gate
  * ({@see agend_apps_saml_link_request_eligible()}, reusing the exact
  * `phpcs:ignore` comments the original implicit trigger carried -- still
  * accurate, since the values are still read the same way), then the surface
- * gate ({@see agend_apps_saml_link_surface_blocked()}).
+ * gate ({@see agend_apps_saml_link_surface_blocked()}). A blocked surface is
+ * recorded as the `blocked_surface` skip reason for an eligible member, and a
+ * `throttled` decision as `throttled`.
  *
  * On `redirect`: `wp_safe_redirect()` and `exit`. On `render`: stores the
  * identity-link sso-url REST endpoint via
@@ -1100,12 +1364,17 @@ function agend_apps_saml_link_maybe_trigger(): void {
 		}
 
 		if ( agend_apps_saml_link_surface_blocked() ) {
+			agend_apps_saml_link_record_skip_if_eligible( get_current_user_id(), 'blocked_surface' );
 			return;
 		}
 
 		$current_url = home_url( add_query_arg( array() ) );
 
 		$decision = agend_apps_saml_link_decision( get_current_user_id(), $current_url );
+
+		if ( 'skip' === $decision['action'] && 'throttled' === $decision['reason'] ) {
+			agend_apps_saml_link_record_skip( get_current_user_id(), 'throttled' );
+		}
 
 		if ( 'redirect' === $decision['action'] && '' !== $decision['url'] ) {
 			wp_safe_redirect( $decision['url'] );
@@ -1124,26 +1393,51 @@ function agend_apps_saml_link_maybe_trigger(): void {
 add_action( 'template_redirect', 'agend_apps_saml_link_maybe_trigger' );
 
 /**
+ * Emits the placeholder for a scheduled attempt, shared by the front-end and
+ * wp-admin footers. Refuses, recording `no_nonce`, when the page never printed
+ * `window.agendApps.nonce` ({@see agend_apps_saml_link_nonce_printed()}): the
+ * script would only fail silently, and the sign-in marker is kept so a later
+ * page that does print it can still make the attempt.
+ *
+ * Otherwise bumps `renders`, consumes the sign-in marker, clears the last skip
+ * reason and returns the markup.
+ *
+ * @param int    $user_id  WordPress user id.
+ * @param string $endpoint The sso-url REST endpoint.
+ * @param bool   $admin    Whether this is a wp-admin page.
+ * @return string The markup, or '' when nothing is rendered.
+ */
+function agend_apps_saml_link_emit_placeholder( int $user_id, string $endpoint, bool $admin ): string {
+	if ( '' === $endpoint ) {
+		return '';
+	}
+
+	if ( ! agend_apps_saml_link_nonce_printed( $admin ) ) {
+		agend_apps_saml_link_record_skip( $user_id, 'no_nonce' );
+		return '';
+	}
+
+	agend_apps_wp_idp_merge_link_state(
+		$user_id,
+		array( 'renders' => agend_apps_wp_idp_link_state( $user_id )['renders'] + 1 )
+	);
+
+	delete_user_meta( $user_id, AGEND_APPS_SAML_LINK_LOGIN_PENDING_META );
+	delete_user_meta( $user_id, AGEND_APPS_SAML_LINK_SKIP_META );
+
+	return agend_apps_saml_link_placeholder_markup( $endpoint );
+}
+
+/**
  * `wp_footer` handler: echoes the placeholder built by
  * {@see agend_apps_saml_link_placeholder_markup()} when
  * {@see agend_apps_saml_link_maybe_trigger()} scheduled one for this
- * request, and bumps the `renders` counter for the current user.
+ * request, via {@see agend_apps_saml_link_emit_placeholder()}.
  */
 function agend_apps_saml_link_render_placeholder(): void {
 	try {
-		$endpoint = agend_apps_saml_link_pending();
-
-		if ( '' === $endpoint ) {
-			return;
-		}
-
-		agend_apps_wp_idp_merge_link_state(
-			get_current_user_id(),
-			array( 'renders' => agend_apps_wp_idp_link_state( get_current_user_id() )['renders'] + 1 )
-		);
-
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- agend_apps_saml_link_placeholder_markup() escapes the endpoint URL internally (esc_url()) and everything else is fixed, static markup.
-		echo agend_apps_saml_link_placeholder_markup( $endpoint );
+		echo agend_apps_saml_link_emit_placeholder( get_current_user_id(), agend_apps_saml_link_pending(), false );
 	} catch ( Throwable $e ) {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( '[Agend Apps] SAML link placeholder render failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
@@ -1151,3 +1445,58 @@ function agend_apps_saml_link_render_placeholder(): void {
 	}
 }
 add_action( 'wp_footer', 'agend_apps_saml_link_render_placeholder' );
+
+/**
+ * `admin_footer` handler: the wp-admin trigger. A member who signs in through
+ * `wp-login.php` usually lands in wp-admin, where `template_redirect` never
+ * runs, so without this they get no link attempt at all.
+ *
+ * Keeps the front-end trigger's request guards (no cron, AJAX or REST request,
+ * a signed-in member, and {@see agend_apps_saml_link_request_eligible()}'s
+ * request-shape markers), then defers to
+ * {@see agend_apps_saml_link_admin_decision()}. The decision can run at the
+ * footer because wp-admin never takes the redirect fallback, so nothing here
+ * needs to happen before output. Records `admin_page` or `throttled` as the
+ * skip reason for an eligible member the trigger stood down for.
+ */
+function agend_apps_saml_link_render_admin_placeholder(): void {
+	if ( wp_doing_cron() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) || ( defined( 'DOING_AJAX' ) && DOING_AJAX ) ) {
+		return;
+	}
+
+	if ( ! is_user_logged_in() ) {
+		return;
+	}
+
+	try {
+		$method = isset( $_SERVER['REQUEST_METHOD'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) : '';
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash -- REQUEST_URI is a server-set path/query, not user POST data; only its PATH component is used below, and only for a marker-string comparison, never output.
+		$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( (string) $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '';
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- key PRESENCE only (never a value), to detect a request that is itself part of the SAML round trip; never output or stored.
+		if ( ! agend_apps_saml_link_request_eligible( $method, $path, $_GET ) ) {
+			return;
+		}
+
+		$user_id  = get_current_user_id();
+		$decision = agend_apps_saml_link_admin_decision( $user_id );
+
+		if ( 'skip' === $decision['action'] ) {
+			if ( 'admin_page' === $decision['reason'] ) {
+				agend_apps_saml_link_record_skip_if_eligible( $user_id, 'admin_page' );
+			} elseif ( 'throttled' === $decision['reason'] ) {
+				agend_apps_saml_link_record_skip( $user_id, 'throttled' );
+			}
+
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- agend_apps_saml_link_placeholder_markup() escapes the endpoint URL internally (esc_url()) and everything else is fixed, static markup.
+		echo agend_apps_saml_link_emit_placeholder( $user_id, rest_url( 'agend-apps/v1/identity-link/sso-url' ), true );
+	} catch ( Throwable $e ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( '[Agend Apps] SAML link admin trigger failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		}
+	}
+}
+add_action( 'admin_footer', 'agend_apps_saml_link_render_admin_placeholder' );

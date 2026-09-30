@@ -1,16 +1,16 @@
 <?php
 /**
- * Test fixture: declares the three WooCommerce page conditionals
+ * Test fixture: declares the four WooCommerce page conditionals
  * `agend_apps_saml_link_surface_blocked()` consults behind its own
  * `function_exists()` guards (`is_cart()`, `is_checkout()`,
- * `is_account_page()`), so the WooCommerce arms of that gate are reachable
+ * `is_account_page()`, `is_wc_endpoint_url()`), so the WooCommerce arms of that gate are reachable
  * from a test at all. Without this fixture those branches are dead in the
  * unit harness: WooCommerce is absent, every `function_exists()` is false,
  * and the exclusion the brief requires would ship untested.
  *
  * Each is backed by a global defaulting to false, so merely declaring them
  * changes nothing for any other test. That is safe here specifically because
- * `agend_apps_saml_link_surface_blocked()` is the ONLY caller of all three
+ * `agend_apps_saml_link_surface_blocked()` is the ONLY caller of all four
  * anywhere in this repo (verified by grep); a second caller appearing later
  * would inherit these stubs process-wide, which is the usual cost of a
  * fixture that declares functions rather than a class it can name.
@@ -40,5 +40,11 @@ if ( ! function_exists( 'is_checkout' ) ) {
 if ( ! function_exists( 'is_account_page' ) ) {
 	function is_account_page(): bool {
 		return ! empty( $GLOBALS['agend_test_is_account_page'] );
+	}
+}
+
+if ( ! function_exists( 'is_wc_endpoint_url' ) ) {
+	function is_wc_endpoint_url(): bool {
+		return ! empty( $GLOBALS['agend_test_is_wc_endpoint_url'] );
 	}
 }
