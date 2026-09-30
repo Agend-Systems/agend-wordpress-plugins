@@ -142,6 +142,34 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		}
 
 		/**
+		 * Maximum item fields per child list entry, and maximum aggregate
+		 * lines per entry. Generous bounds against a pasted textarea with a
+		 * runaway number of lines; no configuration is expected to approach
+		 * either (SPEC-DIR-20260930-directory-item-list-field US-2.1/US-2.2).
+		 */
+		public const MAX_CHILD_LIST_ITEM_FIELDS = 50;
+		public const MAX_CHILD_LIST_AGGREGATES  = 50;
+		public const MAX_CHILD_LIST_ORDER_BY    = 2;
+
+		/**
+		 * Aggregate operators a child list entry may declare (US-2.2 AC1).
+		 */
+		public const AGGREGATE_OP_COUNT = 'count';
+		public const AGGREGATE_OP_SUM   = 'sum';
+
+		/**
+		 * Default `child_lists`: a second Dataverse FetchXML query per entry,
+		 * grouped by parent asset id and written into one item_list custom
+		 * field (SPEC-DIR-20260930-directory-item-list-field US-2.1). Empty
+		 * by default — configure per client.
+		 *
+		 * @return array<int, array{target: string, fetch_xml: string, parent_key: string, items: array<string,string>, order_by: array<int,string>, aggregates: array<int, array{target: string, op: string, source: string, where_source: string, where_value: string}>}>
+		 */
+		public static function default_child_lists(): array {
+			return array();
+		}
+
+		/**
 		 * Default `flags` map: per-flag invert setting, read mode, value map
 		 * and map default outcome. Most eligibility / opt-in sources are
 		 * true-means-visible; a source that is instead true-means-hide (e.g.
@@ -219,6 +247,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				'custom_fields' => self::default_custom_field_map(),
 				'locations'     => self::default_locations(),
 				'flags'         => self::default_flags(),
+				'child_lists'   => self::default_child_lists(),
 			);
 		}
 
@@ -374,11 +403,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				? self::sanitize_flags( $saved['flags'] )
 				: self::default_flags();
 
+			$child_lists = isset( $saved['child_lists'] ) && is_array( $saved['child_lists'] )
+				? self::sanitize_child_lists( $saved['child_lists'] )
+				: self::default_child_lists();
+
 			return array(
 				'core'          => $core,
 				'custom_fields' => $custom_fields,
 				'locations'     => $locations,
 				'flags'         => $flags,
+				'child_lists'   => $child_lists,
 			);
 		}
 
@@ -394,7 +428,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 *
 		 * @return void
 		 */
-		public static function save( array $raw_core, $raw_custom, $raw_locations = array(), $raw_flags = array() ): void {
+		public static function save( array $raw_core, $raw_custom, $raw_locations = array(), $raw_flags = array(), $raw_child_lists = array() ): void {
 			update_option(
 				self::OPTION_FIELD_MAP,
 				array(
@@ -402,8 +436,208 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 					'custom_fields' => self::sanitize_custom_fields( $raw_custom ),
 					'locations'     => self::sanitize_locations( $raw_locations ),
 					'flags'         => self::sanitize_flags( $raw_flags ),
+					'child_lists'   => self::sanitize_child_lists( $raw_child_lists ),
 				)
 			);
+		}
+
+		/**
+		 * Validate posted child list entries (SPEC-DIR-20260930-directory-item-list-field
+		 * US-2.1 AC1, US-2.2 AC1).
+		 *
+		 * Each posted entry is an associative array: `target` (a custom_fields
+		 * key), `fetch_xml` (a FetchXML query, validated as parseable XML with
+		 * a `<fetch>` root the same way the main Dataverse query is —
+		 * US-2.1 AC2), `parent_key` (the child row column holding the parent
+		 * asset id), `items` (a `item_field_key = source` textarea, same
+		 * format and sanitiser semantics as `custom_fields`), `order_by` (a
+		 * comma-separated list of one or two declared item field keys), and
+		 * `aggregates` (a textarea of `target_key = count` /
+		 * `target_key = sum(<source>)` lines, each with an optional
+		 * `where <source> = <value>` clause).
+		 *
+		 * An entry missing a target, an unparseable FetchXML, or a blank
+		 * parent_key is dropped entirely: a child list with no query or no
+		 * way to attach its rows to an asset cannot run.
+		 *
+		 * @param mixed $raw Posted child list entries.
+		 *
+		 * @return array<int, array{target: string, fetch_xml: string, parent_key: string, items: array<string,string>, order_by: array<int,string>, aggregates: array<int, array{target: string, op: string, source: string, where_source: string, where_value: string}>}>
+		 */
+		public static function sanitize_child_lists( $raw ): array {
+			$raw     = is_array( $raw ) ? $raw : array();
+			$entries = array();
+
+			foreach ( $raw as $posted ) {
+				if ( ! is_array( $posted ) ) {
+					continue;
+				}
+
+				$target     = self::sanitize_key_segment( (string) ( $posted['target'] ?? '' ) );
+				$fetch_xml  = trim( (string) ( $posted['fetch_xml'] ?? '' ) );
+				$parent_key = self::sanitize_source_path( (string) ( $posted['parent_key'] ?? '' ) );
+
+				if ( '' === $target || '' === $parent_key ) {
+					continue;
+				}
+
+				if ( '' === $fetch_xml || ! Agend_Directory_Sync_Dataverse_Source::is_valid_fetch_xml( $fetch_xml ) ) {
+					continue;
+				}
+
+				$items = self::sanitize_custom_fields( $posted['items'] ?? array() );
+				if ( count( $items ) > self::MAX_CHILD_LIST_ITEM_FIELDS ) {
+					$items = array_slice( $items, 0, self::MAX_CHILD_LIST_ITEM_FIELDS, true );
+				}
+
+				$entries[] = array(
+					'target'     => $target,
+					'fetch_xml'  => $fetch_xml,
+					'parent_key' => $parent_key,
+					'items'      => $items,
+					'order_by'   => self::sanitize_order_by( $posted['order_by'] ?? array(), array_keys( $items ) ),
+					'aggregates' => self::sanitize_aggregates( $posted['aggregates'] ?? '' ),
+				);
+			}
+
+			return $entries;
+		}
+
+		/**
+		 * Validate a posted order_by (a comma-separated string, or an array)
+		 * against the entry's own declared item field keys. Capped at
+		 * MAX_CHILD_LIST_ORDER_BY keys; an unknown key is dropped rather than
+		 * kept as a dead sort column (US-2.1 AC11).
+		 *
+		 * @param mixed               $raw
+		 * @param array<int, string>  $known_item_keys
+		 *
+		 * @return array<int, string>
+		 */
+		private static function sanitize_order_by( $raw, array $known_item_keys ): array {
+			if ( is_string( $raw ) ) {
+				$raw = array_filter( array_map( 'trim', explode( ',', $raw ) ) );
+			}
+			$raw = is_array( $raw ) ? $raw : array();
+
+			$order_by = array();
+			foreach ( $raw as $key ) {
+				$key = self::sanitize_key_segment( (string) $key );
+				if ( '' === $key || ! in_array( $key, $known_item_keys, true ) || in_array( $key, $order_by, true ) ) {
+					continue;
+				}
+				$order_by[] = $key;
+				if ( count( $order_by ) >= self::MAX_CHILD_LIST_ORDER_BY ) {
+					break;
+				}
+			}
+
+			return $order_by;
+		}
+
+		/**
+		 * Parse a posted aggregates textarea (or array of rows) into
+		 * validated aggregate definitions (US-2.2 AC1).
+		 *
+		 * Each line is `target_key = count` or `target_key = sum(<source>)`,
+		 * with an optional trailing `where <source> = <value>` clause. A line
+		 * that does not parse against this shape is dropped.
+		 *
+		 * @param mixed $raw Textarea string, or an array of
+		 *                   `{target, op, source, where_source, where_value}` rows.
+		 *
+		 * @return array<int, array{target: string, op: string, source: string, where_source: string, where_value: string}>
+		 */
+		public static function sanitize_aggregates( $raw ): array {
+			$lines = array();
+
+			if ( is_array( $raw ) ) {
+				foreach ( $raw as $row ) {
+					if ( ! is_array( $row ) ) {
+						continue;
+					}
+					$op = self::AGGREGATE_OP_SUM === ( $row['op'] ?? '' ) ? self::AGGREGATE_OP_SUM : self::AGGREGATE_OP_COUNT;
+					$expr = self::AGGREGATE_OP_SUM === $op ? sprintf( 'sum(%s)', (string) ( $row['source'] ?? '' ) ) : 'count';
+					$where = '' !== trim( (string) ( $row['where_source'] ?? '' ) )
+						? sprintf( ' where %s = %s', $row['where_source'], $row['where_value'] ?? '' )
+						: '';
+					$lines[] = sprintf( '%s = %s%s', (string) ( $row['target'] ?? '' ), $expr, $where );
+				}
+			} else {
+				$lines = preg_split( '/\r\n|\r|\n/', (string) $raw );
+			}
+
+			$aggregates = array();
+
+			foreach ( $lines as $line ) {
+				if ( '' === trim( (string) $line ) ) {
+					continue;
+				}
+
+				if ( 1 !== preg_match(
+					'/^\s*([A-Za-z0-9_]+)\s*=\s*(count|sum\(\s*([^()]+?)\s*\))\s*(?:where\s+([^=]+?)\s*=\s*(.+?))?\s*$/i',
+					(string) $line,
+					$matches
+				) ) {
+					continue;
+				}
+
+				$target = self::sanitize_key_segment( $matches[1] );
+				if ( '' === $target ) {
+					continue;
+				}
+
+				$is_sum = 0 === strcasecmp( 'count', $matches[2] ) ? false : true;
+				$source = $is_sum ? self::sanitize_source_path( $matches[3] ?? '' ) : '';
+
+				if ( $is_sum && '' === $source ) {
+					continue;
+				}
+
+				$where_source = isset( $matches[4] ) ? self::sanitize_source_path( trim( $matches[4] ) ) : '';
+				$where_value  = isset( $matches[5] )
+					? ( function_exists( 'sanitize_text_field' ) ? sanitize_text_field( trim( $matches[5] ) ) : trim( $matches[5] ) )
+					: '';
+
+				if ( '' !== $where_source && '' === $where_value ) {
+					$where_source = '';
+				}
+
+				$aggregates[] = array(
+					'target'       => $target,
+					'op'           => $is_sum ? self::AGGREGATE_OP_SUM : self::AGGREGATE_OP_COUNT,
+					'source'       => $source,
+					'where_source' => $where_source,
+					'where_value'  => $where_value,
+				);
+
+				if ( count( $aggregates ) >= self::MAX_CHILD_LIST_AGGREGATES ) {
+					break;
+				}
+			}
+
+			return $aggregates;
+		}
+
+		/**
+		 * Render a child list entry's aggregates as a
+		 * `target_key = count|sum(source) [where source = value]` textarea
+		 * body, one aggregate per line, for redisplay in the admin form.
+		 *
+		 * @param array<int, array{target: string, op: string, source: string, where_source: string, where_value: string}> $aggregates
+		 */
+		public static function aggregates_to_textarea( array $aggregates ): string {
+			$lines = array();
+			foreach ( $aggregates as $aggregate ) {
+				$expr = self::AGGREGATE_OP_SUM === ( $aggregate['op'] ?? '' )
+					? sprintf( 'sum(%s)', $aggregate['source'] ?? '' )
+					: 'count';
+				$where = '' !== ( $aggregate['where_source'] ?? '' )
+					? sprintf( ' where %s = %s', $aggregate['where_source'], $aggregate['where_value'] ?? '' )
+					: '';
+				$lines[] = sprintf( '%s = %s%s', $aggregate['target'] ?? '', $expr, $where );
+			}
+			return implode( "\n", $lines );
 		}
 
 		/**
