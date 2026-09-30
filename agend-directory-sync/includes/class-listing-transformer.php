@@ -988,8 +988,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 
 				$item = array();
 				foreach ( $items_map as $item_key => $source ) {
-					$raw               = Agend_Directory_Sync_Path_Resolver::resolve( $row, (string) $source );
-					$item[ $item_key ] = is_numeric( $raw ) ? $raw + 0 : self::stringy( $raw );
+					$raw = Agend_Directory_Sync_Path_Resolver::resolve( $row, (string) $source );
+
+					if ( is_numeric( $raw ) ) {
+						$item[ $item_key ] = $raw + 0;
+						continue;
+					}
+
+					$value = self::stringy( $raw );
+					// A null or blank-after-trim source is a missing item
+					// field, not an empty string value: the key is omitted
+					// rather than written as '' (US-1.2 AC8 "missing item
+					// field renders empty").
+					if ( '' !== $value ) {
+						$item[ $item_key ] = $value;
+					}
 				}
 				$items[] = $item;
 			}

@@ -115,6 +115,38 @@ final class ListingTransformerChildListsTest extends TestCase {
 		$this->assertSame( 250, $result['listings'][0]['custom_fields']['centre_tenants'][0]['tenant_area'] );
 	}
 
+	/**
+	 * A missing source value is a missing item field, not an empty string
+	 * (US-1.2 AC8): the gateway treats '' as present, so writing it would
+	 * have rendered a real but blank cell instead of no cell at all.
+	 */
+	#[Test]
+	public function it_omits_an_item_field_whose_source_is_missing(): void {
+		$field_map = $this->field_map(
+			array(
+				array(
+					'target'     => 'centre_tenants',
+					'items'      => array(
+						'tenant_name' => 'pca_tenantname',
+						'tenant_area' => 'pca_tenantarea',
+					),
+					'order_by'   => array(),
+					'aggregates' => array(),
+				),
+			)
+		);
+
+		$contact = $this->contact_with_rows(
+			array( 'centre_tenants' => array( array( 'pca_tenantname' => 'Acme' ) ) )
+		);
+
+		$result = Agend_Directory_Sync_Listing_Transformer::transform_all( array( $contact ), $field_map );
+		$item   = $result['listings'][0]['custom_fields']['centre_tenants'][0];
+
+		$this->assertSame( array( 'tenant_name' => 'Acme' ), $item );
+		$this->assertArrayNotHasKey( 'tenant_area', $item );
+	}
+
 	#[Test]
 	public function it_orders_items_by_the_declared_order_by_keys(): void {
 		$field_map = $this->field_map(
