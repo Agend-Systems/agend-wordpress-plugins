@@ -381,6 +381,51 @@
   // True when `listing` is the signed-in member's own listing
   // (SPEC-CORE-20260722 US-2.6): either the gateway enrichment flag, or a
   // ready-computed match against the fetched /directory/me/listing id.
+  // "850 m" under a kilometre, otherwise "12.3 km". Mirrors
+  // agend_apps_records_format_distance() in includes/records/fields.php, so a
+  // built-in card and a templated card print the same text.
+  function formatDistance(km) {
+    var value = Number(km);
+    if (km === null || km === undefined || km === '' || !isFinite(value) || value < 0) {
+      return '';
+    }
+    if (value < 1) {
+      return Math.round(value * 1000) + ' m';
+    }
+    return value.toFixed(1) + ' km';
+  }
+
+  // A Location filter's point and radius, or null when any part is missing
+  // or out of range. Mirrors agend_apps_records_listings_near() in
+  // includes/records/query.php.
+  function nearParams(state) {
+    var near = state.near;
+    if (!near) {
+      return null;
+    }
+    var lat = Number(near.lat);
+    var lng = Number(near.lng);
+    var radius = Number(near.radius);
+    if (!isFinite(lat) || !isFinite(lng) || !isFinite(radius) || lat < -90 || lat > 90 || lng < -180 || lng > 180 || radius <= 0) {
+      return null;
+    }
+    return { lat: lat, lng: lng, radius: radius };
+  }
+
+  // Nearest first for a location search with no Sort choice; "Nearest"
+  // without a location falls back to relevance. Mirrors
+  // agend_apps_records_listings_sort_by() in includes/records/query.php.
+  function effectiveSort(state) {
+    var hasNear = !!nearParams(state);
+    if (!state.sortBy) {
+      return hasNear ? 'distance' : 'relevance';
+    }
+    if (state.sortBy === 'distance' && !hasNear) {
+      return 'relevance';
+    }
+    return state.sortBy;
+  }
+
   function isMyListing(listing, myListing) {
     return !!(listing && (listing.is_mine || (myListing && listing.id === myListing.id)));
   }
@@ -450,6 +495,15 @@
       var loc = [listing.primary_location.city, listing.primary_location.state].filter(Boolean).join(', ');
       if (loc) {
         body.appendChild(el('div', 'agend-dir-card__location', loc));
+      }
+    }
+
+    if (cfg.card.distance !== false) {
+      // On unless the designer turned it off; only a location search
+      // returns a distance, so nothing shows before one.
+      var distance = formatDistance(listing.distance_km);
+      if (distance) {
+        body.appendChild(el('div', 'agend-dir-card__distance', distance));
       }
     }
 
@@ -1494,6 +1548,13 @@
       location_state: [],
       location_postcode: [],
       location_country: [],
+      // A Location filter's {lat, lng, radius, label}, or null.
+      near: null,
+      // An Agend Map viewport, "north,south,east,west", when the map is set
+      // to update results as it moves. Never sent alongside `near`.
+      bbox: '',
+      // 'list' or 'map', written by a List / Map switch.
+      view: 'list',
     };
 
     // The filter template is rendered server-side inside the widget; take it
@@ -1515,8 +1576,25 @@
     // down to. The same object reference is kept, so it stays current as the
     // filters write to it. Several catalogues on one page: the last to
     // initialise is the one an export reads.
+    //
+    // An Agend Map on the page follows the same object: it reads params()
+    // for the question the catalogue last asked, listens for the
+    // agend:directory-results and agend:directory-view events below, and
+    // may write state.bbox and call reload() when it is set to update
+    // results as it moves.
     window.agendCatalogues = window.agendCatalogues || {};
-    window.agendCatalogues.listing = { state: state, config: cfg, root: root };
+    var published = {
+      state: state,
+      config: cfg,
+      root: root,
+      view: 'list',
+      lastParams: null,
+      params: function () { return queryParams(); },
+      reload: function () { state.page = 1; state.append = false; reloadCatalogue(); },
+      hrefFor: function (slug) { return deepLinkUrl(slug); },
+      open: function (slug) { openItem(slug); },
+    };
+    window.agendCatalogues.listing = published;
 
     // Card template mode: the first page arrived server-rendered, so adopt
     // that markup (grid, pager, filter slot) instead of rebuilding it, and
@@ -1662,6 +1740,7 @@
           state: state,
           reload: reloadCatalogue,
           apiGet: apiGet,
+          setView: setView,
         });
         return;
       }
@@ -1751,13 +1830,9 @@
       });
     }
 
-    function reloadCatalogue() {
-      status.style.display = 'none';
-      pager.innerHTML = '';
-      if (!state.append) {
-        grid.innerHTML = '';
-        appendGridSkeletons(grid, cfg);
-      }
+    // The question the catalogue asks the gateway, shared by every reload
+    // and by an Agend Map following this catalogue.
+    function queryParams() {
       var exclusions = cfg.exclusions || {};
       var categoryParam = state.categories && state.categories.length
         ? state.categories.join(',')
@@ -1780,10 +1855,60 @@
         postcode: (state.location_postcode || []).join(','),
         country: (state.location_country || []).join(','),
         custom_fields: state.custom_fields || {},
-        sortBy: state.sortBy || 'relevance',
-        sortOrder: state.sortBy === 'name' ? 'asc' : 'desc',
+        sortBy: effectiveSort(state),
+        sortOrder: effectiveSort(state) === 'name' || effectiveSort(state) === 'distance' ? 'asc' : 'desc',
       };
+      // A point and radius, or a map viewport: the gateway takes one or the
+      // other, and a point wins.
+      var near = nearParams(state);
+      if (near) {
+        params.lat = near.lat;
+        params.lng = near.lng;
+        params.radius = near.radius;
+      } else if (state.bbox) {
+        params.bbox = state.bbox;
+      }
+      return params;
+    }
+
+    function announce(pagination, asked) {
+      var params = asked || queryParams();
+      published.lastParams = params;
+      document.dispatchEvent(new CustomEvent('agend:directory-results', {
+        detail: { params: params, pagination: pagination || null, catalogue: published },
+      }));
+    }
+
+    // List / Map switch: the results list steps aside for an Agend Map set to
+    // follow the switch. The class drives the CSS; the event tells the map.
+    function setView(view) {
+      var next = view === 'map' ? 'map' : 'list';
+      state.view = next;
+      published.view = next;
+      root.classList.toggle('agend-dir--view-map', next === 'map');
+      document.dispatchEvent(new CustomEvent('agend:directory-view', {
+        detail: { view: next, catalogue: published },
+      }));
+    }
+
+    // Every reload is numbered so a slow answer to an earlier question can
+    // never land after the answer to a later one (typing a place, then
+    // changing the radius, asks twice in quick succession).
+    var reloadSeq = 0;
+
+    function reloadCatalogue() {
+      var seq = ++reloadSeq;
+      status.style.display = 'none';
+      pager.innerHTML = '';
+      if (!state.append) {
+        grid.innerHTML = '';
+        appendGridSkeletons(grid, cfg);
+      }
+      var params = queryParams();
       (templated ? fragmentGet(params) : apiGet('/directory/search', params)).then(function (body) {
+        if (seq !== reloadSeq) {
+          return;
+        }
         var result = templated
           ? { items: (body && body.cards) || [], pagination: (body && body.meta && body.meta.pagination) || null }
           : unwrapList(body);
@@ -1795,6 +1920,7 @@
           countEl.textContent = formatCount(cfg.resultCount.text, result.pagination, state.append, cfg.pagination.perPage);
         }
         state.append = false;
+        announce(result.pagination, params);
         if (!result.items.length && !grid.childNodes.length) {
           status.style.display = '';
           status.textContent = 'No listings found.';
@@ -1809,6 +1935,9 @@
         }
         renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);
       }).catch(function () {
+        if (seq !== reloadSeq) {
+          return;
+        }
         if (!state.append) {
           grid.innerHTML = '';
         }
@@ -1850,6 +1979,10 @@
       // The first page is already in the DOM; only wire pagination, and
       // refetch when the server-side fetch failed.
       renderPagination(pager, cfg, state, cfg.initialPagination || null, reloadCatalogue);
+      if (!cfg.initialError) {
+        // Page one arrived with the markup, so no reload announces it.
+        announce(cfg.initialPagination || null);
+      }
       if (deepLinkSlug) {
         showDetail(deepLinkSlug, false);
       } else {

@@ -181,6 +181,13 @@ function agend_apps_records_schema_directory_catalogue(): array {
 						'default' => true,
 					),
 					array(
+						'name'        => 'show_distance',
+						'label'       => __( 'Show distance', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'How far each listing is from the place a visitor searched with a Location filter. Nothing shows until they search.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'show_badges',
 						'label'   => __( 'Show badges', 'agend-apps-core' ),
 						'type'    => 'toggle',

@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.22.1
+ * Version:           1.23.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.22.1' );
+define( 'AGEND_APPS_CORE_VERSION', '1.23.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -210,6 +210,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/record-block.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/filter.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/export-reports.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-map.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';

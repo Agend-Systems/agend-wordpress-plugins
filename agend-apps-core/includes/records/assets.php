@@ -97,6 +97,46 @@ function agend_apps_records_register_dompurify(): void {
 }
 
 /**
+ * Registers the vendored Leaflet (1.9.4) and leaflet.markercluster (1.5.3)
+ * scripts and styles, once.
+ *
+ * The same versions the Agend Directory app draws its map with, so the two
+ * behave alike. Vendored rather than loaded from a CDN, like DOMPurify, so a
+ * site's map never depends on a third-party script host.
+ */
+function agend_apps_records_register_leaflet(): void {
+	if ( wp_script_is( 'agend-apps-records-leaflet', 'registered' ) ) {
+		return;
+	}
+	wp_register_style(
+		'agend-apps-records-leaflet',
+		agend_apps_records_asset_url( 'js/vendor/leaflet/leaflet.css' ),
+		array(),
+		'1.9.4'
+	);
+	wp_register_script(
+		'agend-apps-records-leaflet',
+		agend_apps_records_asset_url( 'js/vendor/leaflet/leaflet.js' ),
+		array(),
+		'1.9.4',
+		true
+	);
+	wp_register_style(
+		'agend-apps-records-leaflet-markercluster',
+		agend_apps_records_asset_url( 'js/vendor/leaflet-markercluster/MarkerCluster.css' ),
+		array( 'agend-apps-records-leaflet' ),
+		'1.5.3'
+	);
+	wp_register_script(
+		'agend-apps-records-leaflet-markercluster',
+		agend_apps_records_asset_url( 'js/vendor/leaflet-markercluster/leaflet.markercluster.js' ),
+		array( 'agend-apps-records-leaflet' ),
+		'1.5.3',
+		true
+	);
+}
+
+/**
  * Registers every shared `agend-apps-records-*` handle so sibling plugins can
  * enqueue them by handle alone.
  *
@@ -106,6 +146,7 @@ function agend_apps_records_register_dompurify(): void {
  */
 function agend_apps_records_register_assets(): void {
 	agend_apps_records_register_dompurify();
+	agend_apps_records_register_leaflet();
 
 	wp_register_style(
 		'agend-apps-records-filters',
@@ -117,6 +158,20 @@ function agend_apps_records_register_assets(): void {
 		'agend-apps-records-filters',
 		agend_apps_records_asset_url( 'js/filters.js' ),
 		array(),
+		agend_apps_records_asset_version(),
+		true
+	);
+
+	wp_register_style(
+		'agend-apps-records-directory-map',
+		agend_apps_records_asset_url( 'css/directory-map.css' ),
+		array( 'agend-apps-records-leaflet-markercluster' ),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-directory-map',
+		agend_apps_records_asset_url( 'js/directory-map.js' ),
+		array( 'agend-apps-records-leaflet-markercluster' ),
 		agend_apps_records_asset_version(),
 		true
 	);

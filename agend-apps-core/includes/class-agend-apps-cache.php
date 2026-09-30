@@ -52,6 +52,18 @@ class Agend_Apps_Cache {
 			'label'       => 'Directory Filter Values',
 			'default_ttl' => 600,
 		),
+		'directory_markers'        => array(
+			'label'       => 'Directory Map Markers',
+			'default_ttl' => 120,
+		),
+		'directory_geocode'        => array(
+			'label'       => 'Directory Place Lookups',
+			'default_ttl' => 86400,
+		),
+		'directory_map_settings'   => array(
+			'label'       => 'Directory Map Settings',
+			'default_ttl' => 600,
+		),
 		'directory_export_reports' => array(
 			'label'       => 'Directory Export Reports',
 			'default_ttl' => 300,
