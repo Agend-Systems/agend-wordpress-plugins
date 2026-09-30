@@ -37,7 +37,9 @@ require_once AGEND_TESTS_ROOT . '/agend-directory-sync/agend-directory-sync.php'
  * A fake source standing in for Dataverse: `fetch_all()` returns asset rows,
  * `fetch_child_list()` returns pre-canned child rows regardless of the
  * FetchXML passed in (paging itself is Dataverse-source-only and already
- * covered by DataverseFetchXmlTest).
+ * covered by DataverseFetchXmlTest) but records the entity set it was
+ * called with, so a test can assert the runner passes through the entry's
+ * own configured entity_set rather than deriving one from the query.
  */
 final class Agend_Test_Child_List_Source implements Agend_Directory_Sync_Source {
 
@@ -46,6 +48,8 @@ final class Agend_Test_Child_List_Source implements Agend_Directory_Sync_Source 
 
 	/** @var array<int, array<string, mixed>> */
 	public array $child_rows = array();
+
+	public ?string $last_entity_set = null;
 
 	public function get_key(): string {
 		return 'test_child_list_source';
@@ -67,7 +71,8 @@ final class Agend_Test_Child_List_Source implements Agend_Directory_Sync_Source 
 		return $this->assets;
 	}
 
-	public function fetch_child_list( string $fetch_xml ): array {
+	public function fetch_child_list( string $entity_set, string $fetch_xml ): array {
+		$this->last_entity_set = $entity_set;
 		return $this->child_rows;
 	}
 
@@ -124,6 +129,7 @@ final class SyncRunnerChildListsTest extends TestCase {
 			array(
 				array(
 					'target'     => 'centre_tenants',
+					'entity_set' => 'pca_majorspecialothertenantses',
 					'fetch_xml'  => '<fetch><entity name="pca_majorspecialothertenants" /></fetch>',
 					'parent_key' => '_pca_asset_value',
 					'items'      => array( 'tenant_name' => 'pca_tenantname' ),
@@ -142,6 +148,9 @@ final class SyncRunnerChildListsTest extends TestCase {
 			array( array( 'tenant_name' => 'Acme' ) ),
 			$summary['listings'][0]['custom_fields']['centre_tenants']
 		);
+		// The runner must pass the entry's own configured entity_set through
+		// unchanged, never a derived/guessed one.
+		$this->assertSame( 'pca_majorspecialothertenantses', $source->last_entity_set );
 	}
 
 	#[Test]
@@ -156,6 +165,7 @@ final class SyncRunnerChildListsTest extends TestCase {
 			array(
 				array(
 					'target'     => 'centre_tenants',
+					'entity_set' => 'pca_majorspecialothertenantses',
 					'fetch_xml'  => '<fetch><entity name="pca_majorspecialothertenants" /></fetch>',
 					'parent_key' => '_pca_asset_value',
 					'items'      => array( 'tenant_name' => 'pca_tenantname' ),
@@ -180,6 +190,7 @@ final class SyncRunnerChildListsTest extends TestCase {
 			array(
 				array(
 					'target'     => 'centre_tenants',
+					'entity_set' => 'pca_majorspecialothertenantses',
 					'fetch_xml'  => '<fetch><entity name="pca_majorspecialothertenants" /></fetch>',
 					'parent_key' => '_pca_asset_value',
 					'items'      => array( 'tenant_name' => 'pca_tenantname' ),
