@@ -54,12 +54,15 @@ final class FieldMapChildListsTest extends TestCase {
 </fetch>
 XML;
 
+	private const VALID_ENTITY_SET = 'pca_majorspecialothertenantses';
+
 	#[Test]
 	public function it_keeps_a_well_formed_entry(): void {
 		$entries = Agend_Directory_Sync_Field_Map::sanitize_child_lists(
 			array(
 				array(
 					'target'     => 'centre_tenants',
+					'entity_set' => self::VALID_ENTITY_SET,
 					'fetch_xml'  => self::VALID_FETCH_XML,
 					'parent_key' => '_pca_asset_value',
 					'items'      => "tenant_name = pca_tenantname\ntenant_type = pca_sctenanttype",
@@ -71,6 +74,7 @@ XML;
 
 		$this->assertCount( 1, $entries );
 		$this->assertSame( 'centre_tenants', $entries[0]['target'] );
+		$this->assertSame( self::VALID_ENTITY_SET, $entries[0]['entity_set'] );
 		$this->assertSame( '_pca_asset_value', $entries[0]['parent_key'] );
 		$this->assertSame(
 			array( 'tenant_name' => 'pca_tenantname', 'tenant_type' => 'pca_sctenanttype' ),
@@ -82,7 +86,37 @@ XML;
 	#[Test]
 	public function it_drops_an_entry_with_no_target(): void {
 		$entries = Agend_Directory_Sync_Field_Map::sanitize_child_lists(
-			array( array( 'target' => '', 'fetch_xml' => self::VALID_FETCH_XML, 'parent_key' => '_pca_asset_value' ) )
+			array(
+				array(
+					'target'     => '',
+					'entity_set' => self::VALID_ENTITY_SET,
+					'fetch_xml'  => self::VALID_FETCH_XML,
+					'parent_key' => '_pca_asset_value',
+				),
+			)
+		);
+
+		$this->assertSame( array(), $entries );
+	}
+
+	/**
+	 * The entity set (Dataverse EntitySetName) is required and never
+	 * guessed: a heuristic guess for pca_majorspecialothertenants (append
+	 * "s" unless already ending in "s") previously returned the logical name
+	 * unchanged, but its verified EntitySetName is
+	 * pca_majorspecialothertenantses, so guessing 404s the request.
+	 */
+	#[Test]
+	public function it_drops_an_entry_with_no_entity_set(): void {
+		$entries = Agend_Directory_Sync_Field_Map::sanitize_child_lists(
+			array(
+				array(
+					'target'     => 'centre_tenants',
+					'entity_set' => '',
+					'fetch_xml'  => self::VALID_FETCH_XML,
+					'parent_key' => '_pca_asset_value',
+				),
+			)
 		);
 
 		$this->assertSame( array(), $entries );
@@ -91,7 +125,14 @@ XML;
 	#[Test]
 	public function it_drops_an_entry_with_no_parent_key(): void {
 		$entries = Agend_Directory_Sync_Field_Map::sanitize_child_lists(
-			array( array( 'target' => 'centre_tenants', 'fetch_xml' => self::VALID_FETCH_XML, 'parent_key' => '' ) )
+			array(
+				array(
+					'target'     => 'centre_tenants',
+					'entity_set' => self::VALID_ENTITY_SET,
+					'fetch_xml'  => self::VALID_FETCH_XML,
+					'parent_key' => '',
+				),
+			)
 		);
 
 		$this->assertSame( array(), $entries );
@@ -103,6 +144,7 @@ XML;
 			array(
 				array(
 					'target'     => 'centre_tenants',
+					'entity_set' => self::VALID_ENTITY_SET,
 					'fetch_xml'  => '<fetch><entity name="pca_majorspecialothertenants">',
 					'parent_key' => '_pca_asset_value',
 				),
@@ -118,6 +160,7 @@ XML;
 			array(
 				array(
 					'target'     => 'centre_tenants',
+					'entity_set' => self::VALID_ENTITY_SET,
 					'fetch_xml'  => self::VALID_FETCH_XML,
 					'parent_key' => '_pca_asset_value',
 					'items'      => 'tenant_name = pca_tenantname',
@@ -207,6 +250,7 @@ XML;
 			array(
 				array(
 					'target'     => 'centre_tenants',
+					'entity_set' => 'pca_majorspecialothertenantses',
 					'fetch_xml'  => self::PCA_FETCH_XML,
 					'parent_key' => '_pca_asset_value',
 					'items'      => implode(
@@ -236,6 +280,7 @@ XML;
 		$entry = $entries[0];
 
 		$this->assertSame( 'centre_tenants', $entry['target'] );
+		$this->assertSame( 'pca_majorspecialothertenantses', $entry['entity_set'] );
 		$this->assertSame( '_pca_asset_value', $entry['parent_key'] );
 		$this->assertSame( array( 'tenant_type', 'tenant_name' ), $entry['order_by'] );
 		$this->assertCount( 5, $entry['items'] );

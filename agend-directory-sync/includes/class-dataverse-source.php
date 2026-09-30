@@ -241,15 +241,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		 * This is the child list query: a second, independent FetchXML read
 		 * against a different Dataverse entity (e.g. centre tenants against
 		 * the asset query's centres), sharing this source's paging and auth
-		 * machinery rather than duplicating it. The entity set (the OData
-		 * collection segment in the request URL) is derived from the query's
-		 * own `<entity name="...">` via `guess_entity_set()`, since a child
-		 * list entry declares only the FetchXML, not a separate collection
-		 * name (Decision 2.6).
+		 * machinery rather than duplicating it. `$entity_set` is the child
+		 * list entry's own configured OData collection name (its Dataverse
+		 * EntitySetName), never derived from the query itself: Dataverse's
+		 * real pluralization is not reliably reproducible from a logical name
+		 * (verified 2026-09-30 against PCA staging metadata: the EntitySetName
+		 * for `pca_majorspecialothertenants` is
+		 * `pca_majorspecialothertenantses`, not the logical name unchanged),
+		 * so guessing it 404s the request.
 		 *
-		 * @param string $fetch_xml Child list FetchXML (paging attributes are
-		 *                          overwritten per page, exactly as the main
-		 *                          query's are).
+		 * @param string $entity_set Child list entry's configured Dataverse
+		 *                           EntitySetName (already sanitised by
+		 *                           Agend_Directory_Sync_Field_Map).
+		 * @param string $fetch_xml  Child list FetchXML (paging attributes are
+		 *                           overwritten per page, exactly as the main
+		 *                           query's are).
 		 *
 		 * @return array<int, array<string, mixed>>
 		 *
@@ -257,13 +263,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		 *                          will not parse, a request fails, or the
 		 *                          hard page cap is hit.
 		 */
-		public function fetch_child_list( string $fetch_xml ): array {
+		public function fetch_child_list( string $entity_set, string $fetch_xml ): array {
 			if ( ! $this->is_available() ) {
 				throw new RuntimeException( $this->get_unavailable_reason() );
 			}
 
-			$settings   = $this->runtime_settings();
-			$entity_set = self::guess_entity_set( self::extract_entity_name( $fetch_xml ) );
+			$settings = $this->runtime_settings();
 
 			return $this->paginate_query( $settings, $entity_set, $fetch_xml );
 		}
@@ -339,32 +344,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			}
 
 			return $records;
-		}
-
-		/**
-		 * Guess a Dataverse entity's OData entity set (collection) name from
-		 * its logical name, for a child list query, which declares only its
-		 * FetchXML and not a separate collection name.
-		 *
-		 * Dataverse's own auto-pluralization (the .NET pluralization service
-		 * applied to the schema name) is not reproduced here in full; this is
-		 * a conservative approximation that is exact for the common case a
-		 * custom entity's logical name is already written in its plural form
-		 * (e.g. "pca_majorspecialothertenants", left unchanged), and falls
-		 * back to appending "s" otherwise. An entity set that does not match
-		 * this guess needs the operator to name the child list's FetchXML
-		 * `<entity>` by its actual collection-derived logical name, or this
-		 * heuristic to grow a real exception table.
-		 */
-		public static function guess_entity_set( string $logical_name ): string {
-			$name = strtolower( trim( $logical_name ) );
-			if ( '' === $name ) {
-				return '';
-			}
-			if ( 1 === preg_match( '/s$/', $name ) ) {
-				return $name;
-			}
-			return $name . 's';
 		}
 
 		/**
@@ -2396,8 +2375,18 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		 * restricted to the characters a Dataverse entity-set name can hold
 		 * rather than escaped: anything else is a configuration mistake, not a
 		 * value to pass through.
+		 *
+		 * Public so a child list entry's own entity_set
+		 * (SPEC-DIR-20260930-directory-item-list-field US-2.1) is sanitised
+		 * identically to the main connection setting, rather than by a second
+		 * copy of this rule in Agend_Directory_Sync_Field_Map. Dataverse's
+		 * EntitySetName is not reliably derivable from the logical name (a
+		 * heuristic guess was wrong for pca_majorspecialothertenants, whose
+		 * verified EntitySetName is pca_majorspecialothertenantses, not
+		 * pca_majorspecialothertenants), so a child list entry declares it
+		 * explicitly rather than having it guessed.
 		 */
-		private static function sanitize_entity_set( string $value ): string {
+		public static function sanitize_entity_set( string $value ): string {
 			return (string) preg_replace( '/[^A-Za-z0-9_]/', '', trim( $value ) );
 		}
 

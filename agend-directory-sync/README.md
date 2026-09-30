@@ -389,6 +389,7 @@ Each entry has:
 | Field | Meaning |
 |-------|---------|
 | Target field | The `custom_fields` key the item list is written to. |
+| Entity set (OData collection name) | **Required.** The child query's own Dataverse EntitySetName (the collection segment in the Web API request URL) — never guessed from the FetchXML's `<entity name>`, because Dataverse's real pluralization is not reliably derivable from the logical name. Find it via Advanced Find > Customizations, or `EntityDefinitions(LogicalName='...')?$select=EntitySetName`. |
 | Parent asset id column | The child row's own column holding the parent asset's id (e.g. `_pca_asset_value`), compared against the asset's `pca_assetid`, case-insensitively and with braces stripped. |
 | Child FetchXML query | A second query, paged through the same Dataverse paginator as the main query. Validated as parseable XML with a `<fetch>` root on save; an entry with an unparseable query is dropped and an admin notice explains why. It must **not** carry a 1:N `link-entity` back onto the asset — that belongs on the main query only if it stays 1:1, and multiplies asset rows if it doesn't. |
 | Item fields | `item_field_key = source` lines, same format as the custom fields map above. A source resolves through the same path resolver, including a Dataverse `@OData.Community.Display.V1.FormattedValue` annotation key. A source whose resolved value is numeric is written as a number, not a numeric string. |
@@ -410,6 +411,7 @@ prints an item count per listing, without calling the gateway.
 
 ```
 Target field:            centre_tenants
+Entity set:               pca_majorspecialothertenantses
 Parent asset id column:  _pca_asset_value
 
 Child FetchXML query:

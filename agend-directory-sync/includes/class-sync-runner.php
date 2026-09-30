@@ -195,7 +195,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 		 * to keep memory bounded on a large child set.
 		 *
 		 * @param array<int, array<string, mixed>>                                                                   $contacts
-		 * @param array{child_lists?: array<int, array{target: string, fetch_xml: string, parent_key: string, items: array<string,string>, aggregates: array<int, array<string,mixed>>}>} $field_map
+		 * @param array{child_lists?: array<int, array{target: string, entity_set: string, fetch_xml: string, parent_key: string, items: array<string,string>, aggregates: array<int, array<string,mixed>>}>} $field_map
 		 *
 		 * @return array{contacts: array<int, array<string, mixed>>, summary: array{child_rows_fetched: int, child_rows_without_parent: int}}
 		 */
@@ -222,10 +222,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 
 			foreach ( $child_lists as $entry ) {
 				$target     = (string) ( $entry['target'] ?? '' );
+				$entity_set = (string) ( $entry['entity_set'] ?? '' );
 				$parent_key = (string) ( $entry['parent_key'] ?? '' );
 				$fetch_xml  = (string) ( $entry['fetch_xml'] ?? '' );
 
-				if ( '' === $target || '' === $parent_key || '' === $fetch_xml ) {
+				if ( '' === $target || '' === $entity_set || '' === $parent_key || '' === $fetch_xml ) {
 					continue;
 				}
 
@@ -233,7 +234,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 					$contacts[ $index ][ Agend_Directory_Sync_Listing_Transformer::CHILD_ROWS_KEY ][ $target ] = array();
 				}
 
-				$rows          = $source->fetch_child_list( $fetch_xml );
+				$rows          = $source->fetch_child_list( $entity_set, $fetch_xml );
 				$rows_fetched += count( $rows );
 				$keep_keys     = self::child_row_keys( $entry );
 

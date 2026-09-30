@@ -446,8 +446,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 * US-2.1 AC1, US-2.2 AC1).
 		 *
 		 * Each posted entry is an associative array: `target` (a custom_fields
-		 * key), `fetch_xml` (a FetchXML query, validated as parseable XML with
-		 * a `<fetch>` root the same way the main Dataverse query is —
+		 * key), `entity_set` (the child query's Dataverse EntitySetName --
+		 * the OData collection segment in the Web API request URL, e.g.
+		 * `pca_majorspecialothertenantses` -- sanitised identically to the
+		 * main connection's own `entity_set` setting via
+		 * Agend_Directory_Sync_Dataverse_Source::sanitize_entity_set()),
+		 * `fetch_xml` (a FetchXML query, validated as parseable XML with a
+		 * `<fetch>` root the same way the main Dataverse query is —
 		 * US-2.1 AC2), `parent_key` (the child row column holding the parent
 		 * asset id), `items` (a `item_field_key = source` textarea, same
 		 * format and sanitiser semantics as `custom_fields`), `order_by` (a
@@ -456,13 +461,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 * `target_key = sum(<source>)` lines, each with an optional
 		 * `where <source> = <value>` clause).
 		 *
-		 * An entry missing a target, an unparseable FetchXML, or a blank
-		 * parent_key is dropped entirely: a child list with no query or no
-		 * way to attach its rows to an asset cannot run.
+		 * `entity_set` is REQUIRED and never guessed from the FetchXML's
+		 * `<entity name>`: Dataverse's real EntitySetName is not reliably
+		 * derivable from the logical name (verified 2026-09-30 against PCA
+		 * staging metadata -- `pca_majorspecialothertenants`'s EntitySetName is
+		 * `pca_majorspecialothertenantses`, not the logical name unchanged), so
+		 * a guess 404s the request instead of failing at save time.
+		 *
+		 * An entry missing a target, an entity_set, an unparseable FetchXML, or
+		 * a blank parent_key is dropped entirely: a child list with no query,
+		 * no known collection to query, or no way to attach its rows to an
+		 * asset cannot run.
 		 *
 		 * @param mixed $raw Posted child list entries.
 		 *
-		 * @return array<int, array{target: string, fetch_xml: string, parent_key: string, items: array<string,string>, order_by: array<int,string>, aggregates: array<int, array{target: string, op: string, source: string, where_source: string, where_value: string}>}>
+		 * @return array<int, array{target: string, entity_set: string, fetch_xml: string, parent_key: string, items: array<string,string>, order_by: array<int,string>, aggregates: array<int, array{target: string, op: string, source: string, where_source: string, where_value: string}>}>
 		 */
 		public static function sanitize_child_lists( $raw ): array {
 			$raw     = is_array( $raw ) ? $raw : array();
@@ -474,10 +487,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				}
 
 				$target     = self::sanitize_key_segment( (string) ( $posted['target'] ?? '' ) );
+				$entity_set = Agend_Directory_Sync_Dataverse_Source::sanitize_entity_set( (string) ( $posted['entity_set'] ?? '' ) );
 				$fetch_xml  = trim( (string) ( $posted['fetch_xml'] ?? '' ) );
 				$parent_key = self::sanitize_source_path( (string) ( $posted['parent_key'] ?? '' ) );
 
-				if ( '' === $target || '' === $parent_key ) {
+				if ( '' === $target || '' === $entity_set || '' === $parent_key ) {
 					continue;
 				}
 
@@ -492,6 +506,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 
 				$entries[] = array(
 					'target'     => $target,
+					'entity_set' => $entity_set,
 					'fetch_xml'  => $fetch_xml,
 					'parent_key' => $parent_key,
 					'items'      => $items,

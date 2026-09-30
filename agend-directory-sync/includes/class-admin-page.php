@@ -1664,6 +1664,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 					for ( $als_cl_i = 0; $als_cl_i < self::CHILD_LIST_SLOTS; $als_cl_i++ ) :
 						$entry = $child_lists[ $als_cl_i ] ?? array(
 							'target'     => '',
+							'entity_set' => '',
 							'fetch_xml'  => '',
 							'parent_key' => '',
 							'items'      => array(),
@@ -1688,6 +1689,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 											class="regular-text code"
 											placeholder="centre_tenants"
 										/>
+									</td>
+								</tr>
+								<tr>
+									<th scope="row"><?php esc_html_e( 'Entity set (OData collection name)', 'agend-directory-sync' ); ?></th>
+									<td>
+										<input
+											type="text"
+											name="agend_child_lists[<?php echo esc_attr( (string) $als_cl_i ); ?>][entity_set]"
+											value="<?php echo esc_attr( (string) ( $entry['entity_set'] ?? '' ) ); ?>"
+											class="regular-text code"
+											placeholder="pca_majorspecialothertenantses"
+										/>
+										<p class="description">
+											<?php esc_html_e( 'The Dataverse EntitySetName for the child query\'s entity, not its logical name (they can differ). Required: find it via Advanced Find > Customizations, or a metadata request to EntityDefinitions(LogicalName=\'...\')?$select=EntitySetName.', 'agend-directory-sync' ); ?>
+										</p>
 									</td>
 								</tr>
 								<tr>
