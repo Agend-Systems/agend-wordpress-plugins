@@ -238,6 +238,37 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</td>
 		</tr>
 		<tr>
+			<th scope="row"><?php esc_html_e( 'Link trigger', 'agend-apps-core' ); ?></th>
+			<td>
+				<?php $trigger_guidance = $diagnostics['trigger_guidance']; ?>
+				<strong><?php echo esc_html( $trigger_guidance['label'] ); ?></strong>
+				(<?php echo esc_html( $trigger_guidance['severity'] ); ?>)
+				<?php if ( $diagnostics['trigger']['timestamp'] > 0 ) : ?>
+					<span class="description">
+						<?php
+						printf(
+							/* translators: %s: human-readable elapsed time, e.g. "3 hours". */
+							esc_html__( '(recorded %s ago)', 'agend-apps-core' ),
+							esc_html( human_time_diff( (int) $diagnostics['trigger']['timestamp'], time() ) )
+						);
+						?>
+					</span>
+				<?php endif; ?>
+				<p class="description"><?php echo esc_html( $trigger_guidance['guidance'] ); ?></p>
+				<?php if ( $diagnostics['trigger']['login_pending_at'] > 0 ) : ?>
+					<p class="description">
+						<?php
+						printf(
+							/* translators: %s: human-readable elapsed time, e.g. "3 hours". */
+							esc_html__( 'Signed in %s ago; the attempt runs on the next page that renders the trigger.', 'agend-apps-core' ),
+							esc_html( human_time_diff( (int) $diagnostics['trigger']['login_pending_at'], time() ) )
+						);
+						?>
+					</p>
+				<?php endif; ?>
+			</td>
+		</tr>
+		<tr>
 			<th scope="row"><?php esc_html_e( 'Bearer token source', 'agend-apps-core' ); ?></th>
 			<td>
 				<?php
