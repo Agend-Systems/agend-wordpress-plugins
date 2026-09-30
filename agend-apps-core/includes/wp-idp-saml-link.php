@@ -1045,7 +1045,13 @@ function agend_apps_saml_link_trigger_status( int $user_id ): array {
  *    reason, recording the registry error state the same way the front-end
  *    decision does.
  * 3. Throttle: `skip` / `throttled` inside a backoff window.
- * 4. Otherwise: bump `views` and return `render`.
+ * 4. Otherwise: `render`.
+ *
+ * It never touches `views` or `renders`. Those are front-end diagnostics, and
+ * `views` is what {@see agend_apps_saml_link_decision()} reads for the visible
+ * fallback redirect: counting wp-admin pages there would let admin activity
+ * trip a front-end redirect with nothing wrong on the front end. A wp-admin
+ * attempt is still counted in `attempts` when the endpoint issues its URL.
  *
  * @param int $user_id WordPress user id.
  * @return array{action: string, reason: string} `action` is `render` or `skip`.
@@ -1069,16 +1075,12 @@ function agend_apps_saml_link_admin_decision( int $user_id ): array {
 		);
 	}
 
-	$stored = agend_apps_wp_idp_link_state( $user_id );
-
-	if ( agend_apps_wp_idp_link_is_throttled( $stored ) ) {
+	if ( agend_apps_wp_idp_link_is_throttled( agend_apps_wp_idp_link_state( $user_id ) ) ) {
 		return array(
 			'action' => 'skip',
 			'reason' => 'throttled',
 		);
 	}
-
-	agend_apps_wp_idp_merge_link_state( $user_id, array( 'views' => $stored['views'] + 1 ) );
 
 	return array(
 		'action' => 'render',
@@ -1399,8 +1401,9 @@ add_action( 'template_redirect', 'agend_apps_saml_link_maybe_trigger' );
  * script would only fail silently, and the sign-in marker is kept so a later
  * page that does print it can still make the attempt.
  *
- * Otherwise bumps `renders`, consumes the sign-in marker, clears the last skip
- * reason and returns the markup.
+ * Otherwise bumps `renders` (front end only, see
+ * {@see agend_apps_saml_link_admin_decision()}), consumes the sign-in marker,
+ * clears the last skip reason and returns the markup.
  *
  * @param int    $user_id  WordPress user id.
  * @param string $endpoint The sso-url REST endpoint.
@@ -1417,10 +1420,12 @@ function agend_apps_saml_link_emit_placeholder( int $user_id, string $endpoint, 
 		return '';
 	}
 
-	agend_apps_wp_idp_merge_link_state(
-		$user_id,
-		array( 'renders' => agend_apps_wp_idp_link_state( $user_id )['renders'] + 1 )
-	);
+	if ( ! $admin ) {
+		agend_apps_wp_idp_merge_link_state(
+			$user_id,
+			array( 'renders' => agend_apps_wp_idp_link_state( $user_id )['renders'] + 1 )
+		);
+	}
 
 	delete_user_meta( $user_id, AGEND_APPS_SAML_LINK_LOGIN_PENDING_META );
 	delete_user_meta( $user_id, AGEND_APPS_SAML_LINK_SKIP_META );
@@ -1453,7 +1458,10 @@ add_action( 'wp_footer', 'agend_apps_saml_link_render_placeholder' );
  *
  * Keeps the front-end trigger's request guards (no cron, AJAX or REST request,
  * a signed-in member, and {@see agend_apps_saml_link_request_eligible()}'s
- * request-shape markers), then defers to
+ * request-shape markers). It also skips iframe and modal admin screens (the
+ * plugin information modal, the media upload frame, the Customizer), which
+ * define `IFRAME_REQUEST` or carry `iframe` in the query: the sign-in marker
+ * is kept for the next ordinary admin page. Then it defers to
  * {@see agend_apps_saml_link_admin_decision()}. The decision can run at the
  * footer because wp-admin never takes the redirect fallback, so nothing here
  * needs to happen before output. Records `admin_page` or `throttled` as the
@@ -1475,6 +1483,11 @@ function agend_apps_saml_link_render_admin_placeholder(): void {
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- key PRESENCE only (never a value), to detect a request that is itself part of the SAML round trip; never output or stored.
 		if ( ! agend_apps_saml_link_request_eligible( $method, $path, $_GET ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- key PRESENCE only, to detect an iframe or modal admin screen; never output or stored.
+		if ( ( defined( 'IFRAME_REQUEST' ) && IFRAME_REQUEST ) || isset( $_GET['iframe'] ) ) {
 			return;
 		}
 

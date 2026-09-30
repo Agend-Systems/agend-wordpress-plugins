@@ -219,8 +219,44 @@ final class WpIdpSamlLinkLoginTriggerTest extends TestCase {
 		$this->assertStringContainsString( 'agend-apps-saml-link-frame', $markup );
 		$this->assertStringContainsString( 'identity-link/sso-url', $markup );
 		$this->assertSame( 0, \agend_apps_saml_link_login_pending( 80 ), 'the marker is consumed' );
-		$this->assertSame( 1, \agend_apps_wp_idp_link_state( 80 )['views'] );
-		$this->assertSame( 1, \agend_apps_wp_idp_link_state( 80 )['renders'] );
+		// views and renders are front-end diagnostics; wp-admin leaves them alone.
+		$this->assertSame( 0, \agend_apps_wp_idp_link_state( 80 )['views'] );
+		$this->assertSame( 0, \agend_apps_wp_idp_link_state( 80 )['renders'] );
+	}
+
+	#[Test]
+	public function should_not_let_wp_admin_sign_ins_trip_the_front_end_fallback_redirect(): void {
+		$this->eligible( 87 );
+		$GLOBALS['agend_test_is_admin'] = true;
+		$this->request( '/wp-admin/' );
+		do_action( 'admin_head' );
+
+		// Three sign-ins that each land in wp-admin, where the script never
+		// reaches the endpoint (attempts stays 0).
+		for ( $i = 0; $i < \AGEND_APPS_SAML_LINK_FALLBACK_VIEWS; $i++ ) {
+			$this->signIn( 87 );
+			$this->adminFooter();
+		}
+
+		$decision = \agend_apps_saml_link_decision( 87, 'https://example.test/page/' );
+
+		$this->assertSame( 'render', $decision['action'], 'the first front-end page renders, it does not redirect' );
+	}
+
+	#[Test]
+	public function should_skip_an_iframe_admin_screen_and_keep_the_marker(): void {
+		$this->eligible( 88 );
+		$this->signIn( 88 );
+		$GLOBALS['agend_test_is_admin'] = true;
+		$this->request( '/wp-admin/plugin-install.php' );
+		$_GET = array(
+			'tab'    => 'plugin-information',
+			'iframe' => 'true',
+		);
+		do_action( 'admin_head' );
+
+		$this->assertSame( '', $this->adminFooter() );
+		$this->assertGreaterThan( 0, \agend_apps_saml_link_login_pending( 88 ) );
 	}
 
 	#[Test]
