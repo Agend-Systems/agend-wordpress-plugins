@@ -260,7 +260,7 @@ function agend_apps_wp_idp_link_state_guidance( string $state ): array {
 			return array(
 				'label'    => __( 'Never attempted', 'agend-apps-core' ),
 				'severity' => 'info',
-				'guidance' => __( 'No link has been attempted yet for this member. Expected until their next front-end page view.', 'agend-apps-core' ),
+				'guidance' => __( 'No link has been attempted yet for this member. Expected until the first page they load after signing in. If it stays this way, the link trigger row below says why.', 'agend-apps-core' ),
 			);
 	}
 }
@@ -282,7 +282,7 @@ function agend_apps_wp_idp_eligibility_guidance( string $reason ): array {
 			return array(
 				'label'    => __( 'Eligible', 'agend-apps-core' ),
 				'severity' => 'success',
-				'guidance' => __( 'This member will be offered the link on their next front-end page view.', 'agend-apps-core' ),
+				'guidance' => __( 'This member will be offered the link on the first page after they sign in, in wp-admin or on the site, and on their next front-end page view.', 'agend-apps-core' ),
 			);
 
 		case 'linked':
@@ -384,6 +384,71 @@ function agend_apps_wp_idp_eligibility_guidance( string $reason ): array {
 }
 
 /**
+ * Plain-language guidance for the link trigger's last skip reason
+ * ({@see agend_apps_saml_link_trigger_status()}), in the same shape as the
+ * two guidance functions above.
+ *
+ * @param string $reason A skip reason, or '' when none is recorded.
+ * @return array{label: string, severity: string, guidance: string}
+ */
+function agend_apps_wp_idp_trigger_guidance( string $reason ): array {
+	switch ( $reason ) {
+		case '':
+			return array(
+				'label'    => __( 'No skip recorded', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'The trigger has not stood down for this member since their last sign-in or attempt.', 'agend-apps-core' ),
+			);
+
+		case 'admin_page':
+			return array(
+				'label'    => __( 'Admin page', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'The last page was in wp-admin with no sign-in waiting. In wp-admin the trigger runs only on the first page after signing in, so signing in again makes an attempt.', 'agend-apps-core' ),
+			);
+
+		case 'blocked_surface':
+			return array(
+				'label'    => __( 'Blocked page', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'The last page was one the trigger never runs on: a feed, the cart, the checkout, or a My Account form page. The next ordinary page makes the attempt.', 'agend-apps-core' ),
+			);
+
+		case 'throttled':
+			return array(
+				'label'    => __( 'Waiting between attempts', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'An earlier attempt was made recently, so the trigger is waiting out its backoff window before trying again.', 'agend-apps-core' ),
+			);
+
+		case 'no_nonce':
+			return array(
+				'label'    => __( 'No REST nonce on the page', 'agend-apps-core' ),
+				'severity' => 'warning',
+				'guidance' => __( 'The page did not print window.agendApps.nonce, so the trigger could not call its endpoint. The theme or admin screen is most likely missing its wp_head or admin_head call.', 'agend-apps-core' ),
+			);
+
+		case 'cached_page':
+			return array(
+				'label'    => __( 'Page likely cached', 'agend-apps-core' ),
+				'severity' => 'warning',
+				'guidance' => __( 'The member signed in, but no page they loaded since has run the trigger. A full-page cache serving signed-in members is the usual cause; exclude signed-in visitors from the cache.', 'agend-apps-core' ),
+			);
+
+		default:
+			return array(
+				'label'    => __( 'Unrecognised reason', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => sprintf(
+					/* translators: %s: the raw, unrecognised skip reason. */
+					__( 'Unrecognised trigger skip reason: %s', 'agend-apps-core' ),
+					$reason
+				),
+			);
+	}
+}
+
+/**
  * Builds every fact the WordPress-IdP diagnostic panel shows for one
  * WordPress user. Pure read: never mints a token, attempts a link, or
  * refreshes the cached key scopes (see the file docblock).
@@ -408,6 +473,8 @@ function agend_apps_wp_idp_eligibility_guidance( string $reason ): array {
  *     eligibility_guidance: array{label: string, severity: string, guidance: string},
  *     connection: array{approval_state: string, slug: string, idp_entity_id: string, site_url: string},
  *     attempts: array{count: int, cap: int, capped: bool},
+ *     trigger: array{reason: string, timestamp: int, login_pending_at: int},
+ *     trigger_guidance: array{label: string, severity: string, guidance: string},
  *     bearer_source: string
  * }
  */
@@ -482,6 +549,16 @@ function agend_apps_wp_idp_diagnostics( int $user_id ): array {
 		'capped' => $attempt_count >= $attempt_cap,
 	);
 
+	// Why the trigger last stood down, so a "Never attempted" member explains
+	// itself. A pure read, guarded like the eligibility call above.
+	$trigger = function_exists( 'agend_apps_saml_link_trigger_status' )
+		? agend_apps_saml_link_trigger_status( $user_id )
+		: array(
+			'reason'           => '',
+			'timestamp'        => 0,
+			'login_pending_at' => 0,
+		);
+
 	// Which path actually serves this member's bearer token right now --
 	// the "still on credentials session fallback vs SSO-linked" distinction
 	// the panel needs to answer.
@@ -530,6 +607,8 @@ function agend_apps_wp_idp_diagnostics( int $user_id ): array {
 		'eligibility_guidance' => agend_apps_wp_idp_eligibility_guidance( $eligibility['reason'] ),
 		'connection'           => $connection,
 		'attempts'             => $attempts,
+		'trigger'              => $trigger,
+		'trigger_guidance'     => agend_apps_wp_idp_trigger_guidance( (string) $trigger['reason'] ),
 		'bearer_source'        => $bearer_source,
 	);
 }

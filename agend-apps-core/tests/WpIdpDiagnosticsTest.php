@@ -597,4 +597,42 @@ final class WpIdpDiagnosticsTest extends TestCase {
 
 		$this->assertSame( $before, $after );
 	}
+
+	// -----------------------------------------------------------------
+	// Link trigger skip reason
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_classify_every_trigger_skip_reason(): void {
+		$cases = array(
+			array( '', 'info', 'has not stood down' ),
+			array( 'admin_page', 'info', 'first page after signing in' ),
+			array( 'blocked_surface', 'info', 'My Account form page' ),
+			array( 'throttled', 'info', 'backoff window' ),
+			array( 'no_nonce', 'warning', 'window.agendApps.nonce' ),
+			array( 'cached_page', 'warning', 'full-page cache' ),
+			array( 'some_future_reason', 'info', 'some_future_reason' ),
+		);
+
+		foreach ( $cases as $case ) {
+			[ $reason, $severity, $needle ] = $case;
+
+			$guidance = \agend_apps_wp_idp_trigger_guidance( $reason );
+
+			$this->assertSame( $severity, $guidance['severity'], "reason: {$reason}" );
+			$this->assertStringContainsString( $needle, $guidance['guidance'], "reason: {$reason}" );
+		}
+	}
+
+	#[Test]
+	public function should_report_the_recorded_trigger_skip_reason(): void {
+		$this->registerUser( 130 );
+		\agend_apps_saml_link_record_skip( 130, 'admin_page' );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 130 );
+
+		$this->assertSame( 'admin_page', $diagnostics['trigger']['reason'] );
+		$this->assertSame( 'Admin page', $diagnostics['trigger_guidance']['label'] );
+		$this->assertSame( 0, $diagnostics['trigger']['login_pending_at'] );
+	}
 }
