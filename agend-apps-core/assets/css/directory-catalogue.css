@@ -285,6 +285,12 @@
   font-size: 0.88rem;
 }
 
+.agend-dir-card__distance {
+  color: var(--agend-dir-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .agend-dir-card__desc {
   margin: 0;
   color: var(--agend-dir-body);
@@ -1103,4 +1109,13 @@
 
 .agend-dir-count:empty {
   display: none;
+}
+
+/* List / Map switch: in map view the results list steps aside for an Agend
+   Map set to follow the switch. The filters stay. */
+.agend-dir--view-map .agend-dir-grid,
+.agend-dir--view-map .agend-dir-pager-slot,
+.agend-dir--view-map .agend-dir-status,
+.agend-dir--view-map .agend-dir-count {
+  display: none !important;
 }

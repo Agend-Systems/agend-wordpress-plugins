@@ -91,6 +91,13 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
 		),
 	);
 
+	// Distance shows by default, so only turning it off writes a key: every
+	// catalogue that leaves it on keeps its existing config (and its pinned
+	// render fixtures) byte for byte.
+	if ( 'yes' !== ( $s['show_distance'] ?? 'yes' ) ) {
+		$config['card']['distance'] = false;
+	}
+
 	// Written only when switched on, so a catalogue without it keeps its
 	// existing config (and its pinned render fixtures) unchanged.
 	if ( 'yes' === ( $s['show_result_count'] ?? '' ) ) {
