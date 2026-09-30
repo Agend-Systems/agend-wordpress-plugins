@@ -83,6 +83,23 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		public const QUERY_ARG_DIRECTORY_APP_LINK_ERROR = 'directory_app_link_error';
 
 		/**
+		 * Query arg set on redirect when at least one posted child list entry
+		 * had a non-blank FetchXML that did not parse
+		 * (SPEC-DIR-20260930-directory-item-list-field US-2.1 AC2). The
+		 * entry itself is still dropped by the sanitiser either way; this is
+		 * only the notice telling the operator why.
+		 */
+		public const QUERY_ARG_CHILD_LIST_XML_ERROR = 'child_list_xml_error';
+
+		/**
+		 * Fixed number of child list entry slots the admin form renders.
+		 * `Agend_Directory_Sync_Field_Map::sanitize_child_lists()` itself
+		 * accepts any number of entries; this is a UI convenience limit, the
+		 * same pattern as `Agend_Directory_Sync_Field_Map::LOCATION_SLOTS`.
+		 */
+		public const CHILD_LIST_SLOTS = 3;
+
+		/**
 		 * Maximum number of upstream rows to dump verbatim into the page on
 		 * an Upbeat fetch. The full set is fetched but rendering thousands
 		 * of rows in the browser is unhelpful.
@@ -271,11 +288,31 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$raw_flags     = isset( $_POST['agend_field_map_flags'] ) && is_array( $_POST['agend_field_map_flags'] )
 				? wp_unslash( $_POST['agend_field_map_flags'] )
 				: array();
-			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_locations, $raw_flags );
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- the fetch_xml sub-field is XML and must survive wp_unslash() intact; Agend_Directory_Sync_Field_Map::sanitize_child_lists() validates and drops anything unparseable.
+			$raw_child_lists = isset( $_POST['agend_child_lists'] ) && is_array( $_POST['agend_child_lists'] )
+				? wp_unslash( $_POST['agend_child_lists'] )
+				: array();
+
+			// A non-blank FetchXML that fails to parse is dropped by the
+			// sanitiser either way (US-2.1 AC2); this only decides whether the
+			// operator sees why an entry they configured did not save.
+			$child_list_xml_invalid = false;
+			foreach ( $raw_child_lists as $posted_entry ) {
+				$posted_fetch_xml = is_array( $posted_entry ) ? trim( (string) ( $posted_entry['fetch_xml'] ?? '' ) ) : '';
+				if ( '' !== $posted_fetch_xml && ! Agend_Directory_Sync_Dataverse_Source::is_valid_fetch_xml( $posted_fetch_xml ) ) {
+					$child_list_xml_invalid = true;
+					break;
+				}
+			}
+
+			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_locations, $raw_flags, $raw_child_lists );
 
 			$redirect_args = array( 'saved' => '1' );
 			if ( $directory_app_link_rejected ) {
 				$redirect_args[ self::QUERY_ARG_DIRECTORY_APP_LINK_ERROR ] = '1';
+			}
+			if ( $child_list_xml_invalid ) {
+				$redirect_args[ self::QUERY_ARG_CHILD_LIST_XML_ERROR ] = '1';
 			}
 
 			wp_safe_redirect( self::redirect_url( $redirect_args ) );
@@ -492,6 +529,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				<?php if ( isset( $_GET[ self::QUERY_ARG_DIRECTORY_APP_LINK_ERROR ] ) ) : ?>
 					<div class="notice notice-error is-dismissible">
 						<p><?php esc_html_e( 'Directory app link was not saved: it does not point at this site\'s configured Agend API environment.', 'agend-directory-sync' ); ?></p>
+					</div>
+				<?php endif; ?>
+
+				<?php if ( isset( $_GET[ self::QUERY_ARG_CHILD_LIST_XML_ERROR ] ) ) : ?>
+					<div class="notice notice-error is-dismissible">
+						<p><?php esc_html_e( 'One or more child list entries were not saved: their FetchXML query did not parse as valid XML with a <fetch> root. Fix the query and save again.', 'agend-directory-sync' ); ?></p>
 					</div>
 				<?php endif; ?>
 
@@ -1611,6 +1654,110 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							</tr>
 						</tbody>
 					</table>
+
+					<h2><?php esc_html_e( 'Child lists', 'agend-directory-sync' ); ?></h2>
+					<p class="description" style="max-width:760px;">
+						<?php esc_html_e( 'A child list runs a second Dataverse FetchXML query, groups its rows by the parent asset id, and writes each group into one item_list custom field. Leave an entry\'s target blank to omit it.', 'agend-directory-sync' ); ?>
+					</p>
+					<?php
+					$child_lists = $field_map['child_lists'] ?? array();
+					for ( $als_cl_i = 0; $als_cl_i < self::CHILD_LIST_SLOTS; $als_cl_i++ ) :
+						$entry = $child_lists[ $als_cl_i ] ?? array(
+							'target'     => '',
+							'fetch_xml'  => '',
+							'parent_key' => '',
+							'items'      => array(),
+							'order_by'   => array(),
+							'aggregates' => array(),
+						);
+						?>
+						<table class="form-table" role="presentation" style="max-width:760px;border:1px solid #dcdcde;padding:0 12px;margin-bottom:16px;">
+							<tbody>
+								<tr>
+									<th scope="row">
+										<?php
+										/* translators: %d: 1-based child list slot number. */
+										echo esc_html( sprintf( __( 'Child list %d target field', 'agend-directory-sync' ), $als_cl_i + 1 ) );
+										?>
+									</th>
+									<td>
+										<input
+											type="text"
+											name="agend_child_lists[<?php echo esc_attr( (string) $als_cl_i ); ?>][target]"
+											value="<?php echo esc_attr( (string) ( $entry['target'] ?? '' ) ); ?>"
+											class="regular-text code"
+											placeholder="centre_tenants"
+										/>
+									</td>
+								</tr>
+								<tr>
+									<th scope="row"><?php esc_html_e( 'Parent asset id column', 'agend-directory-sync' ); ?></th>
+									<td>
+										<input
+											type="text"
+											name="agend_child_lists[<?php echo esc_attr( (string) $als_cl_i ); ?>][parent_key]"
+											value="<?php echo esc_attr( (string) ( $entry['parent_key'] ?? '' ) ); ?>"
+											class="regular-text code"
+											placeholder="_pca_asset_value"
+										/>
+									</td>
+								</tr>
+								<tr>
+									<th scope="row"><?php esc_html_e( 'Child FetchXML query', 'agend-directory-sync' ); ?></th>
+									<td>
+										<textarea
+											name="agend_child_lists[<?php echo esc_attr( (string) $als_cl_i ); ?>][fetch_xml]"
+											rows="8"
+											class="large-text code"
+										><?php echo esc_textarea( (string) ( $entry['fetch_xml'] ?? '' ) ); ?></textarea>
+									</td>
+								</tr>
+								<tr>
+									<th scope="row"><?php esc_html_e( 'Item fields', 'agend-directory-sync' ); ?></th>
+									<td>
+										<textarea
+											name="agend_child_lists[<?php echo esc_attr( (string) $als_cl_i ); ?>][items]"
+											rows="6"
+											class="large-text code"
+											placeholder="tenant_name = _pca_tenantname_value@OData.Community.Display.V1.FormattedValue"
+										><?php echo esc_textarea( Agend_Directory_Sync_Field_Map::custom_fields_to_textarea( is_array( $entry['items'] ?? null ) ? $entry['items'] : array() ) ); ?></textarea>
+										<p class="description">
+											<?php esc_html_e( 'One mapping per line: item_field_key = source. Same format as custom fields above.', 'agend-directory-sync' ); ?>
+										</p>
+									</td>
+								</tr>
+								<tr>
+									<th scope="row"><?php esc_html_e( 'Order items by', 'agend-directory-sync' ); ?></th>
+									<td>
+										<input
+											type="text"
+											name="agend_child_lists[<?php echo esc_attr( (string) $als_cl_i ); ?>][order_by]"
+											value="<?php echo esc_attr( implode( ', ', is_array( $entry['order_by'] ?? null ) ? $entry['order_by'] : array() ) ); ?>"
+											class="regular-text code"
+											placeholder="tenant_type, tenant_name"
+										/>
+										<p class="description">
+											<?php esc_html_e( 'One or two of the item field keys above, comma-separated.', 'agend-directory-sync' ); ?>
+										</p>
+									</td>
+								</tr>
+								<tr>
+									<th scope="row"><?php esc_html_e( 'Aggregates', 'agend-directory-sync' ); ?></th>
+									<td>
+										<textarea
+											name="agend_child_lists[<?php echo esc_attr( (string) $als_cl_i ); ?>][aggregates]"
+											rows="4"
+											class="large-text code"
+											placeholder="no_major_tenants = count where pca_sctenanttype = 1"
+										><?php echo esc_textarea( Agend_Directory_Sync_Field_Map::aggregates_to_textarea( is_array( $entry['aggregates'] ?? null ) ? $entry['aggregates'] : array() ) ); ?></textarea>
+										<p class="description">
+											<?php esc_html_e( 'One per line: target_key = count, or target_key = sum(source), each with an optional "where source = value" clause. Written as number custom fields.', 'agend-directory-sync' ); ?>
+										</p>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+					<?php endfor; ?>
 
 					<h2><?php esc_html_e( 'Address mapping', 'agend-directory-sync' ); ?></h2>
 					<p class="description" style="max-width:760px;">

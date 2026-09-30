@@ -374,6 +374,80 @@ the bulk-upsert API. A typical Upbeat build maps a business address to
 location 1 and a residential address to location 2 — residential addresses
 are sensitive, so map them only when the directory should publish them.
 
+### Child lists and aggregates
+
+SPEC-DIR-20260930-directory-item-list-field US-2.1/US-2.2. A **child list**
+(Microsoft Dataverse source only) runs a second FetchXML query, groups its
+rows by a parent asset id, and writes each group into one listing
+`item_list` custom field. Configured under Tools > Agend Directory Sync >
+**Child lists**, up to `Agend_Directory_Sync_Admin_Page::CHILD_LIST_SLOTS`
+entries (3 today; `Agend_Directory_Sync_Field_Map::sanitize_child_lists()`
+itself accepts any number).
+
+Each entry has:
+
+| Field | Meaning |
+|-------|---------|
+| Target field | The `custom_fields` key the item list is written to. |
+| Parent asset id column | The child row's own column holding the parent asset's id (e.g. `_pca_asset_value`), compared against the asset's `pca_assetid`, case-insensitively and with braces stripped. |
+| Child FetchXML query | A second query, paged through the same Dataverse paginator as the main query. Validated as parseable XML with a `<fetch>` root on save; an entry with an unparseable query is dropped and an admin notice explains why. It must **not** carry a 1:N `link-entity` back onto the asset — that belongs on the main query only if it stays 1:1, and multiplies asset rows if it doesn't. |
+| Item fields | `item_field_key = source` lines, same format as the custom fields map above. A source resolves through the same path resolver, including a Dataverse `@OData.Community.Display.V1.FormattedValue` annotation key. A source whose resolved value is numeric is written as a number, not a numeric string. |
+| Order items by | One or two of the item field keys above, comma-separated. |
+| Aggregates | `target_key = count` or `target_key = sum(<source>)` lines, each with an optional `where <source> = <value>` clause, written as `number` custom fields alongside the item list. The `where` comparison and the summed value are always the **raw** source value, never a FormattedValue label. |
+
+An asset with no matching child rows still gets its target field set, to an
+empty array (`[]`), so a centre that loses every centre tenant is cleared on
+the next sync rather than left holding a stale list. A count/sum aggregate
+with no matching rows sends `0`.
+
+A child row whose parent id does not match any fetched asset is discarded and
+counted in the run summary as "Child rows without a parent". The full run
+summary (admin page and `wp agend-directory-sync run`) additionally reports
+"Child rows fetched" and "Listings with a non-empty list"; `--dry-run` also
+prints an item count per listing, without calling the gateway.
+
+#### Example: PCA centre tenants
+
+```
+Target field:            centre_tenants
+Parent asset id column:  _pca_asset_value
+
+Child FetchXML query:
+<fetch>
+  <entity name="pca_majorspecialothertenants">
+    <attribute name="pca_asset" />
+    <attribute name="pca_tenantname" />
+    <attribute name="pca_sctenanttype" />
+    <attribute name="pca_tenantarea" />
+    <attribute name="pca_tenantclassification" />
+    <attribute name="pca_tenantchainname" />
+    <link-entity name="pca_scperiod" from="pca_scperiodid" to="pca_updateperiod" link-type="inner">
+      <filter>
+        <condition attribute="pca_currentperiod" operator="eq" value="1" />
+      </filter>
+    </link-entity>
+    <filter>
+      <condition attribute="statecode" operator="eq" value="0" />
+    </filter>
+    <order attribute="pca_asset" />
+  </entity>
+</fetch>
+
+Item fields:
+tenant_name = _pca_tenantname_value@OData.Community.Display.V1.FormattedValue
+tenant_type = pca_sctenanttype@OData.Community.Display.V1.FormattedValue
+tenant_area = pca_tenantarea
+tenant_classification = _pca_tenantclassification_value@OData.Community.Display.V1.FormattedValue
+chain_name = pca_tenantchainname
+
+Order items by: tenant_type, tenant_name
+
+Aggregates:
+no_major_tenants = count where pca_sctenanttype = 1
+no_specialty_stores = count where pca_sctenanttype = 2
+specialty_glar = sum(pca_tenantarea) where pca_sctenanttype = 2
+```
+
 ### Visibility flags: truthy mode vs. value map mode
 
 Each of the two visibility flags (eligibility, opt-in) can be read one of
