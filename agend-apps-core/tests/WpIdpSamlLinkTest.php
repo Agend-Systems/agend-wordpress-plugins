@@ -298,17 +298,38 @@ final class WpIdpSamlLinkTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_block_the_woocommerce_cart_checkout_and_account_pages(): void {
+	public function should_block_the_woocommerce_cart_and_checkout_pages(): void {
 		require_once __DIR__ . '/fixtures/woocommerce-page-stub.php';
 
-		foreach ( array( 'agend_test_is_cart', 'agend_test_is_checkout', 'agend_test_is_account_page' ) as $flag ) {
-			$GLOBALS['agend_test_is_cart']         = false;
-			$GLOBALS['agend_test_is_checkout']     = false;
-			$GLOBALS['agend_test_is_account_page'] = false;
-			$GLOBALS[ $flag ]                      = true;
+		foreach ( array( 'agend_test_is_cart', 'agend_test_is_checkout' ) as $flag ) {
+			$GLOBALS['agend_test_is_cart']     = false;
+			$GLOBALS['agend_test_is_checkout'] = false;
+			$GLOBALS[ $flag ]                  = true;
 
 			$this->assertTrue( \agend_apps_saml_link_surface_blocked(), "flag: {$flag}" );
 		}
+	}
+
+	#[Test]
+	public function should_block_a_my_account_endpoint_such_as_edit_account(): void {
+		require_once __DIR__ . '/fixtures/woocommerce-page-stub.php';
+
+		// edit-account, edit-address and payment-methods are all endpoints of
+		// the account page; is_wc_endpoint_url() is true on every one of them.
+		$GLOBALS['agend_test_is_account_page']    = true;
+		$GLOBALS['agend_test_is_wc_endpoint_url'] = true;
+
+		$this->assertTrue( \agend_apps_saml_link_surface_blocked() );
+	}
+
+	#[Test]
+	public function should_allow_the_read_only_my_account_dashboard(): void {
+		require_once __DIR__ . '/fixtures/woocommerce-page-stub.php';
+
+		$GLOBALS['agend_test_is_account_page']    = true;
+		$GLOBALS['agend_test_is_wc_endpoint_url'] = false;
+
+		$this->assertFalse( \agend_apps_saml_link_surface_blocked() );
 	}
 
 	// -----------------------------------------------------------------
