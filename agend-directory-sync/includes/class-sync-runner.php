@@ -183,6 +183,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 		 * `transform_all()` can build the item list and its aggregates purely
 		 * from the contact it already has.
 		 *
+		 * The asset's own id is resolved through `field_map['core']['external_id']`
+		 * (the same configured source `Agend_Directory_Sync_Listing_Transformer`
+		 * uses to build each listing's external_id), not a literal column
+		 * name: a non-PCA Dataverse configuration names its asset id column
+		 * differently, and this file is the field map's runner, not a
+		 * PCA-specific one.
+		 *
 		 * A no-op (returns `$contacts` unchanged) when there are no configured
 		 * child lists, or the active source has no `fetch_child_list()` method
 		 * (child lists are Dataverse-only; US-2.1 "Out of Scope"). Duck-typed
@@ -195,7 +202,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 		 * to keep memory bounded on a large child set.
 		 *
 		 * @param array<int, array<string, mixed>>                                                                   $contacts
-		 * @param array{child_lists?: array<int, array{target: string, entity_set: string, fetch_xml: string, parent_key: string, items: array<string,string>, aggregates: array<int, array<string,mixed>>}>} $field_map
+		 * @param array{core?: array{external_id?: string}, child_lists?: array<int, array{target: string, entity_set: string, fetch_xml: string, parent_key: string, items: array<string,string>, aggregates: array<int, array<string,mixed>>}>} $field_map
 		 *
 		 * @return array{contacts: array<int, array<string, mixed>>, summary: array{child_rows_fetched: int, child_rows_without_parent: int}}
 		 */
@@ -209,9 +216,21 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 				);
 			}
 
+			// Resolved from the configured core external_id source -- the same
+			// source the transformer uses to build each listing's own
+			// external_id -- rather than a literal PCA column name, so a
+			// non-PCA Dataverse configuration (a different asset id key) joins
+			// correctly too. An unconfigured external_id source resolves every
+			// asset id to '', so every child row is counted as an orphan
+			// rather than silently matching on a column that does not exist.
+			$asset_id_source = (string) ( $field_map['core']['external_id'] ?? '' );
+
 			$assets_by_id = array();
 			foreach ( $contacts as $index => $contact ) {
-				$asset_id = self::normalize_guid( (string) ( $contact['pca_assetid'] ?? '' ) );
+				$raw_asset_id = '' !== $asset_id_source
+					? Agend_Directory_Sync_Path_Resolver::resolve( $contact, $asset_id_source )
+					: null;
+				$asset_id     = self::normalize_guid( (string) ( is_scalar( $raw_asset_id ) ? $raw_asset_id : '' ) );
 				if ( '' !== $asset_id ) {
 					$assets_by_id[ $asset_id ][] = $index;
 				}

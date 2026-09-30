@@ -121,13 +121,27 @@ if ( ! class_exists( 'Agend_Directory_Sync_CLI_Command' ) ) :
 			}
 
 			if ( $dry_run && ( $summary['listings_with_child_list'] ?? 0 ) > 0 ) {
+				// Only the configured child_lists targets, never every
+				// array-valued custom field (e.g. `designations`, the badges
+				// source, is also array-valued but is not a child list item).
+				$child_list_targets = array_values(
+					array_filter(
+						array_map(
+							static function ( array $entry ): string {
+								return (string) ( $entry['target'] ?? '' );
+							},
+							Agend_Directory_Sync_Field_Map::resolve()['child_lists'] ?? array()
+						)
+					)
+				);
+
 				WP_CLI::log( 'Item counts per listing:' );
 				foreach ( is_array( $summary['listings'] ?? null ) ? $summary['listings'] : array() as $listing ) {
 					$custom_fields = is_array( $listing['custom_fields'] ?? null ) ? $listing['custom_fields'] : array();
 					$counts        = array();
-					foreach ( $custom_fields as $key => $value ) {
-						if ( is_array( $value ) ) {
-							$counts[] = sprintf( '%s=%d', $key, count( $value ) );
+					foreach ( $child_list_targets as $target ) {
+						if ( is_array( $custom_fields[ $target ] ?? null ) ) {
+							$counts[] = sprintf( '%s=%d', $target, count( $custom_fields[ $target ] ) );
 						}
 					}
 					if ( ! empty( $counts ) ) {
