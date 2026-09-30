@@ -68,6 +68,17 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		public const SKIP_REASON_MISSING_EXTERNAL_ID = 'missing_external_id';
 
 		/**
+		 * Reserved contact key under which a child list's grouped, reduced
+		 * rows are attached before `transform_all()` runs
+		 * (SPEC-DIR-20260930-directory-item-list-field US-2.1 AC4):
+		 * `$contact[CHILD_ROWS_KEY][$target] = array<int, array<string,mixed>>`.
+		 * Chosen to be exceedingly unlikely to collide with a real source
+		 * field name. Public so the runner (the only writer of this key) and
+		 * tests share one literal rather than two copies drifting apart.
+		 */
+		public const CHILD_ROWS_KEY = '__agend_child_list_rows';
+
+		/**
 		 * Status assigned when the member is both eligible AND has opted in to
 		 * the directory. Combined with `auto_publish_approved` on the
 		 * bulk-upsert call this makes the listing visible on the public
@@ -233,12 +244,16 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$flags         = isset( $field_map['flags'] ) && is_array( $field_map['flags'] )
 				? $field_map['flags']
 				: ( $defaults['flags'] ?? array() );
+			$child_lists   = isset( $field_map['child_lists'] ) && is_array( $field_map['child_lists'] )
+				? $field_map['child_lists']
+				: ( $defaults['child_lists'] ?? array() );
 
 			return array(
 				'core'          => $core,
 				'custom_fields' => $custom_fields,
 				'locations'     => $locations,
 				'flags'         => $flags,
+				'child_lists'   => $child_lists,
 			);
 		}
 
@@ -915,7 +930,148 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				}
 			}
 
+			foreach ( $field_map['child_lists'] ?? array() as $entry ) {
+				$target = (string) ( $entry['target'] ?? '' );
+				if ( '' === $target ) {
+					continue;
+				}
+
+				$rows = $contact[ self::CHILD_ROWS_KEY ][ $target ] ?? array();
+				$rows = is_array( $rows ) ? $rows : array();
+
+				// Always set, even empty: a centre that lost every centre
+				// tenant is cleared on the next sync (US-2.1 AC7), never left
+				// holding a stale list because an empty array looked like "no
+				// value" to the ordinary drop-empty rule above.
+				$custom_fields[ $target ] = self::build_child_list_items(
+					$rows,
+					is_array( $entry['items'] ?? null ) ? $entry['items'] : array(),
+					is_array( $entry['order_by'] ?? null ) ? $entry['order_by'] : array()
+				);
+
+				foreach ( is_array( $entry['aggregates'] ?? null ) ? $entry['aggregates'] : array() as $aggregate ) {
+					$aggregate_target = (string) ( $aggregate['target'] ?? '' );
+					if ( '' === $aggregate_target ) {
+						continue;
+					}
+					$custom_fields[ $aggregate_target ] = self::compute_child_list_aggregate( $rows, $aggregate );
+				}
+			}
+
 			return $custom_fields;
+		}
+
+		/**
+		 * Build one child list's items from its grouped, reduced rows
+		 * (SPEC-DIR-20260930-directory-item-list-field US-2.1 AC5, AC6,
+		 * AC11). Each item field's source resolves via the path resolver, the
+		 * same resolution the main field map uses, so a Dataverse
+		 * `@OData.Community.Display.V1.FormattedValue` annotation key
+		 * resolves exactly like any other declared source. A source that
+		 * resolves to a numeric value is kept as a number rather than
+		 * stringified, so a `number`-typed item field round-trips as a
+		 * number, not a numeric string.
+		 *
+		 * @param array<int, array<string, mixed>> $rows
+		 * @param array<string, string>            $items_map Item field key => source.
+		 * @param array<int, string>               $order_by  One or two item field keys to sort by.
+		 *
+		 * @return array<int, array<string, mixed>>
+		 */
+		private static function build_child_list_items( array $rows, array $items_map, array $order_by ): array {
+			$items = array();
+
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+
+				$item = array();
+				foreach ( $items_map as $item_key => $source ) {
+					$raw               = Agend_Directory_Sync_Path_Resolver::resolve( $row, (string) $source );
+					$item[ $item_key ] = is_numeric( $raw ) ? $raw + 0 : self::stringy( $raw );
+				}
+				$items[] = $item;
+			}
+
+			if ( ! empty( $order_by ) ) {
+				usort(
+					$items,
+					static function ( array $a, array $b ) use ( $order_by ): int {
+						foreach ( $order_by as $key ) {
+							$cmp = self::compare_item_values( $a[ $key ] ?? null, $b[ $key ] ?? null );
+							if ( 0 !== $cmp ) {
+								return $cmp;
+							}
+						}
+						return 0;
+					}
+				);
+			}
+
+			return $items;
+		}
+
+		/**
+		 * Order two item field values, numerically when both are numbers,
+		 * case-insensitively as strings otherwise.
+		 *
+		 * @param mixed $a
+		 * @param mixed $b
+		 */
+		private static function compare_item_values( $a, $b ): int {
+			if ( is_numeric( $a ) && is_numeric( $b ) ) {
+				return $a <=> $b;
+			}
+			return strcasecmp( self::stringy( $a ), self::stringy( $b ) );
+		}
+
+		/**
+		 * Compute one aggregate (`count` or `sum(<source>)`, with an optional
+		 * `where <source> = <value>` clause) over a child list's grouped
+		 * rows (SPEC-DIR-20260930-directory-item-list-field US-2.2 AC2 to
+		 * AC5). The `where` comparison, and the value summed, are always the
+		 * RAW resolved source value, never a `FormattedValue` annotation
+		 * (US-2.2 business rule): comparing the formatted label would silently
+		 * stop matching the day Dataverse's display language changes.
+		 *
+		 * @param array<int, array<string, mixed>>                                            $rows
+		 * @param array{target: string, op: string, source: string, where_source: string, where_value: string} $aggregate
+		 *
+		 * @return int|float
+		 */
+		private static function compute_child_list_aggregate( array $rows, array $aggregate ) {
+			$where_source = (string) ( $aggregate['where_source'] ?? '' );
+			$where_value  = (string) ( $aggregate['where_value'] ?? '' );
+
+			$matching = array();
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+				if ( '' !== $where_source ) {
+					$raw = Agend_Directory_Sync_Path_Resolver::resolve( $row, $where_source );
+					if ( trim( self::stringy( $raw ) ) !== trim( $where_value ) ) {
+						continue;
+					}
+				}
+				$matching[] = $row;
+			}
+
+			if ( Agend_Directory_Sync_Field_Map::AGGREGATE_OP_SUM !== ( $aggregate['op'] ?? '' ) ) {
+				return count( $matching );
+			}
+
+			$source = (string) ( $aggregate['source'] ?? '' );
+			$sum    = 0;
+			foreach ( $matching as $row ) {
+				$raw = Agend_Directory_Sync_Path_Resolver::resolve( $row, $source );
+				if ( is_numeric( $raw ) ) {
+					$sum += $raw + 0;
+				}
+			}
+
+			return $sum;
 		}
 
 		/**

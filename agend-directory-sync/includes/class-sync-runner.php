@@ -77,8 +77,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 
 			$contacts = self::cap( $source->fetch_all(), $max_records );
 
+			$child_list_attach = self::attach_child_lists( $contacts, $field_map, $source );
+			$contacts           = $child_list_attach['contacts'];
+
 			$transformed = Agend_Directory_Sync_Listing_Transformer::transform_all( $contacts, $field_map, $source );
 			$listings    = $transformed['listings'];
+
+			$listings_with_child_list = self::count_listings_with_child_list( $listings, $field_map );
 
 			// Rows the source itself dropped before the transformer saw them
 			// (e.g. non-JSON-object rows resolved from the Custom HTTP API
@@ -162,9 +167,179 @@ if ( ! class_exists( 'Agend_Directory_Sync_Runner' ) ) :
 				'max_records'            => $max_records,
 				'pages_fetched'          => $pages_fetched,
 				'page_window_truncated'  => $page_window_truncated,
+				'child_rows_fetched'         => $child_list_attach['summary']['child_rows_fetched'],
+				'child_rows_without_parent'  => $child_list_attach['summary']['child_rows_without_parent'],
+				'listings_with_child_list'   => $listings_with_child_list,
 				'listings'               => $listings,
 				'send'                   => $send_summary,
 			);
+		}
+
+		/**
+		 * Fetch every configured child list (SPEC-DIR-20260930-directory-item-list-field
+		 * US-2.1) and attach each entry's rows, grouped by parent asset id, to
+		 * the asset contact whose configured id column matches
+		 * (`Agend_Directory_Sync_Listing_Transformer::CHILD_ROWS_KEY`), so
+		 * `transform_all()` can build the item list and its aggregates purely
+		 * from the contact it already has.
+		 *
+		 * A no-op (returns `$contacts` unchanged) when there are no configured
+		 * child lists, or the active source has no `fetch_child_list()` method
+		 * (child lists are Dataverse-only; US-2.1 "Out of Scope"). Duck-typed
+		 * via `method_exists()`, matching how this class already tests for
+		 * `get_pages_fetched()` etc., so this file still names no concrete
+		 * source class.
+		 *
+		 * Only the item field sources and the aggregate sources (plus their
+		 * `where` sources) are kept per reduced row, not the whole child row,
+		 * to keep memory bounded on a large child set.
+		 *
+		 * @param array<int, array<string, mixed>>                                                                   $contacts
+		 * @param array{child_lists?: array<int, array{target: string, fetch_xml: string, parent_key: string, items: array<string,string>, aggregates: array<int, array<string,mixed>>}>} $field_map
+		 *
+		 * @return array{contacts: array<int, array<string, mixed>>, summary: array{child_rows_fetched: int, child_rows_without_parent: int}}
+		 */
+		private static function attach_child_lists( array $contacts, array $field_map, Agend_Directory_Sync_Source $source ): array {
+			$child_lists = is_array( $field_map['child_lists'] ?? null ) ? $field_map['child_lists'] : array();
+
+			if ( empty( $child_lists ) || ! method_exists( $source, 'fetch_child_list' ) ) {
+				return array(
+					'contacts' => $contacts,
+					'summary'  => array( 'child_rows_fetched' => 0, 'child_rows_without_parent' => 0 ),
+				);
+			}
+
+			$assets_by_id = array();
+			foreach ( $contacts as $index => $contact ) {
+				$asset_id = self::normalize_guid( (string) ( $contact['pca_assetid'] ?? '' ) );
+				if ( '' !== $asset_id ) {
+					$assets_by_id[ $asset_id ][] = $index;
+				}
+			}
+
+			$rows_fetched = 0;
+			$orphans      = 0;
+
+			foreach ( $child_lists as $entry ) {
+				$target     = (string) ( $entry['target'] ?? '' );
+				$parent_key = (string) ( $entry['parent_key'] ?? '' );
+				$fetch_xml  = (string) ( $entry['fetch_xml'] ?? '' );
+
+				if ( '' === $target || '' === $parent_key || '' === $fetch_xml ) {
+					continue;
+				}
+
+				foreach ( array_keys( $contacts ) as $index ) {
+					$contacts[ $index ][ Agend_Directory_Sync_Listing_Transformer::CHILD_ROWS_KEY ][ $target ] = array();
+				}
+
+				$rows          = $source->fetch_child_list( $fetch_xml );
+				$rows_fetched += count( $rows );
+				$keep_keys     = self::child_row_keys( $entry );
+
+				foreach ( $rows as $row ) {
+					if ( ! is_array( $row ) ) {
+						continue;
+					}
+
+					$normalized = self::normalize_guid( (string) Agend_Directory_Sync_Path_Resolver::resolve( $row, $parent_key ) );
+
+					if ( '' === $normalized || ! isset( $assets_by_id[ $normalized ] ) ) {
+						$orphans++;
+						continue;
+					}
+
+					$reduced = array();
+					foreach ( $keep_keys as $key ) {
+						if ( array_key_exists( $key, $row ) ) {
+							$reduced[ $key ] = $row[ $key ];
+						}
+					}
+
+					foreach ( $assets_by_id[ $normalized ] as $index ) {
+						$contacts[ $index ][ Agend_Directory_Sync_Listing_Transformer::CHILD_ROWS_KEY ][ $target ][] = $reduced;
+					}
+				}
+			}
+
+			return array(
+				'contacts' => $contacts,
+				'summary'  => array(
+					'child_rows_fetched'        => $rows_fetched,
+					'child_rows_without_parent' => $orphans,
+				),
+			);
+		}
+
+		/**
+		 * The exact top-level row keys one child list entry's items and
+		 * aggregates actually read, so `attach_child_lists()` can discard
+		 * everything else from a raw child row before holding onto it.
+		 *
+		 * @param array{items?: array<string,string>, aggregates?: array<int, array<string,mixed>>} $entry
+		 *
+		 * @return array<int, string>
+		 */
+		private static function child_row_keys( array $entry ): array {
+			$keys = array_values( is_array( $entry['items'] ?? null ) ? $entry['items'] : array() );
+
+			foreach ( is_array( $entry['aggregates'] ?? null ) ? $entry['aggregates'] : array() as $aggregate ) {
+				if ( '' !== (string) ( $aggregate['source'] ?? '' ) ) {
+					$keys[] = $aggregate['source'];
+				}
+				if ( '' !== (string) ( $aggregate['where_source'] ?? '' ) ) {
+					$keys[] = $aggregate['where_source'];
+				}
+			}
+
+			return array_values( array_unique( $keys ) );
+		}
+
+		/**
+		 * Normalise a Dataverse GUID for parent/child matching: braces
+		 * stripped, lowercased, trimmed. `''` when the input has no GUID-shaped
+		 * content at all.
+		 */
+		private static function normalize_guid( string $value ): string {
+			return strtolower( trim( trim( $value ), '{}' ) );
+		}
+
+		/**
+		 * Count listings whose custom_fields hold a non-empty array for at
+		 * least one configured child list target (SPEC-DIR-20260930-directory-item-list-field
+		 * US-2.1 AC12).
+		 *
+		 * @param array<int, array<string, mixed>>            $listings
+		 * @param array{child_lists?: array<int, array{target: string}>} $field_map
+		 */
+		private static function count_listings_with_child_list( array $listings, array $field_map ): int {
+			$targets = array_values(
+				array_filter(
+					array_map(
+						static function ( array $entry ): string {
+							return (string) ( $entry['target'] ?? '' );
+						},
+						is_array( $field_map['child_lists'] ?? null ) ? $field_map['child_lists'] : array()
+					)
+				)
+			);
+
+			if ( empty( $targets ) ) {
+				return 0;
+			}
+
+			$count = 0;
+			foreach ( $listings as $listing ) {
+				$custom_fields = is_array( $listing['custom_fields'] ?? null ) ? $listing['custom_fields'] : array();
+				foreach ( $targets as $target ) {
+					if ( ! empty( $custom_fields[ $target ] ) ) {
+						$count++;
+						break;
+					}
+				}
+			}
+
+			return $count;
 		}
 
 		/**

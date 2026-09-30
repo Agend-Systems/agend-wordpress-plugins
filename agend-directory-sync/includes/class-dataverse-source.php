@@ -229,6 +229,67 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 
 			$settings = $this->runtime_settings();
 
+			return $this->paginate_query( $settings, $settings['entity_set'], $settings['fetch_xml'] );
+		}
+
+		/**
+		 * Page through an arbitrary FetchXML query against the same
+		 * connection (environment, auth, timeout, page size, paging-cookie
+		 * behaviour) as the main query, but a caller-supplied entity set and
+		 * document (SPEC-DIR-20260930-directory-item-list-field US-2.1 AC3).
+		 *
+		 * This is the child list query: a second, independent FetchXML read
+		 * against a different Dataverse entity (e.g. centre tenants against
+		 * the asset query's centres), sharing this source's paging and auth
+		 * machinery rather than duplicating it. The entity set (the OData
+		 * collection segment in the request URL) is derived from the query's
+		 * own `<entity name="...">` via `guess_entity_set()`, since a child
+		 * list entry declares only the FetchXML, not a separate collection
+		 * name (Decision 2.6).
+		 *
+		 * @param string $fetch_xml Child list FetchXML (paging attributes are
+		 *                          overwritten per page, exactly as the main
+		 *                          query's are).
+		 *
+		 * @return array<int, array<string, mixed>>
+		 *
+		 * @throws RuntimeException When the source is unavailable, the query
+		 *                          will not parse, a request fails, or the
+		 *                          hard page cap is hit.
+		 */
+		public function fetch_child_list( string $fetch_xml ): array {
+			if ( ! $this->is_available() ) {
+				throw new RuntimeException( $this->get_unavailable_reason() );
+			}
+
+			$settings   = $this->runtime_settings();
+			$entity_set = self::guess_entity_set( self::extract_entity_name( $fetch_xml ) );
+
+			return $this->paginate_query( $settings, $entity_set, $fetch_xml );
+		}
+
+		/**
+		 * Shared paging loop: fetch every page of `$fetch_xml` against
+		 * `$entity_set` under `$settings`'s connection, auth and paging
+		 * behaviour, aggregating rows in fetch order. Extracted from
+		 * `fetch_all()` so the main query and a child list query (US-2.1)
+		 * page identically rather than through two paging implementations
+		 * that could silently diverge.
+		 *
+		 * @param array<string, mixed> $settings   Resolved runtime settings
+		 *                                          (connection, auth, page
+		 *                                          size, paging behaviour).
+		 * @param string                $entity_set OData collection segment
+		 *                                          for the request URL.
+		 * @param string                $fetch_xml  The query to page through.
+		 *
+		 * @return array<int, array<string, mixed>>
+		 *
+		 * @throws RuntimeException When a request fails, the response is not
+		 *                          the expected envelope, or the hard page
+		 *                          cap is hit.
+		 */
+		private function paginate_query( array $settings, string $entity_set, string $fetch_xml ): array {
 			$this->skipped_non_associative_count = 0;
 			$this->pages_fetched                 = 0;
 			$this->stopped_at_page_limit         = false;
@@ -248,9 +309,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 					);
 				}
 
-				$fetch_xml = self::build_page_fetch_xml( $settings['fetch_xml'], $page, $settings['page_size'], $cookie );
-				$response  = $this->request_page( $settings, $fetch_xml );
-				$rows      = $this->resolve_records( $response['decoded'] );
+				$page_fetch_xml = self::build_page_fetch_xml( $fetch_xml, $page, $settings['page_size'], $cookie );
+				$response       = $this->request_page( $settings, $entity_set, $page_fetch_xml );
+				$rows           = $this->resolve_records( $response['decoded'] );
 
 				$records = array_merge( $records, $rows );
 				$this->pages_fetched++;
@@ -278,6 +339,32 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			}
 
 			return $records;
+		}
+
+		/**
+		 * Guess a Dataverse entity's OData entity set (collection) name from
+		 * its logical name, for a child list query, which declares only its
+		 * FetchXML and not a separate collection name.
+		 *
+		 * Dataverse's own auto-pluralization (the .NET pluralization service
+		 * applied to the schema name) is not reproduced here in full; this is
+		 * a conservative approximation that is exact for the common case a
+		 * custom entity's logical name is already written in its plural form
+		 * (e.g. "pca_majorspecialothertenants", left unchanged), and falls
+		 * back to appending "s" otherwise. An entity set that does not match
+		 * this guess needs the operator to name the child list's FetchXML
+		 * `<entity>` by its actual collection-derived logical name, or this
+		 * heuristic to grow a real exception table.
+		 */
+		public static function guess_entity_set( string $logical_name ): string {
+			$name = strtolower( trim( $logical_name ) );
+			if ( '' === $name ) {
+				return '';
+			}
+			if ( 1 === preg_match( '/s$/', $name ) ) {
+				return $name;
+			}
+			return $name . 's';
 		}
 
 		/**
@@ -311,7 +398,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				''
 			);
 
-			$response = $this->request_page( $settings, $fetch_xml );
+			$response = $this->request_page( $settings, $settings['entity_set'], $fetch_xml );
 			$decoded  = $response['decoded'];
 
 			$result = array(
@@ -2060,11 +2147,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		 * @throws RuntimeException On transport failure, non-2xx status, or an
 		 *                          invalid JSON body.
 		 */
-		private function request_page( array $settings, string $fetch_xml ): array {
+		private function request_page( array $settings, string $entity_set, string $fetch_xml ): array {
 			$url = self::build_request_url(
 				$settings['environment_url'],
 				$settings['api_version'],
-				$settings['entity_set'],
+				$entity_set,
 				$fetch_xml
 			);
 
