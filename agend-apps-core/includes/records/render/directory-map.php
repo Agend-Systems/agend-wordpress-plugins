@@ -110,7 +110,8 @@ function agend_apps_records_directory_map_build_config( array $s ): array {
 		'prettyLinks'  => (bool) get_option( 'permalink_structure' ),
 		'text'         => array(
 			'truncated' => __( 'Showing the first {shown} of {total} listings. Zoom in or filter to see the rest.', 'agend-apps-core' ),
-			'failed'    => __( 'The map could not load listings. Please try again.', 'agend-apps-core' ),
+			'failed'    => __( 'The map could not load listings.', 'agend-apps-core' ),
+			'retry'     => __( 'Try again', 'agend-apps-core' ),
 			'region'    => __( 'Map of directory listings', 'agend-apps-core' ),
 			'you'       => __( 'Your search location', 'agend-apps-core' ),
 		),

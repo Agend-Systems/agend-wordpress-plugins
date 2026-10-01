@@ -359,7 +359,30 @@
       }
     }
 
-    function load(params, refit) {
+    // A failed load retries once on its own (a busy gateway or a brief rate
+    // limit usually clears within seconds), then offers the visitor a retry.
+    var RETRY_MS = 4000;
+    var lastLoad = null;
+
+    function sayFailed() {
+      if (!notice) {
+        return;
+      }
+      notice.textContent = cfg.text.failed + ' ';
+      var again = el('button', 'agend-map__retry', cfg.text.retry || 'Try again');
+      again.type = 'button';
+      again.addEventListener('click', function () {
+        if (lastLoad) {
+          load(lastLoad.params, lastLoad.refit, 0);
+        }
+      });
+      notice.appendChild(again);
+      notice.hidden = false;
+    }
+
+    function load(params, refit, attempt) {
+      lastLoad = { params: params, refit: refit };
+      attempt = attempt || 0;
       var query = {};
       Object.keys(params || {}).forEach(function (key) {
         if (key !== 'page' && key !== 'limit' && key !== 'per_page' && key !== 'sortBy' && key !== 'sortOrder') {
@@ -373,11 +396,11 @@
         if (id !== requestId) {
           return;
         }
-        root.removeAttribute('aria-busy');
         if (!body || !Array.isArray(body.data)) {
-          say(cfg.text.failed);
+          retryOrFail();
           return;
         }
+        root.removeAttribute('aria-busy');
         var meta = body.meta || {};
         var total = meta.pagination && typeof meta.pagination.total === 'number' ? meta.pagination.total : body.data.length;
         if (!body.data.length) {
@@ -392,9 +415,21 @@
         if (id !== requestId) {
           return;
         }
-        root.removeAttribute('aria-busy');
-        say(cfg.text.failed);
+        retryOrFail();
       });
+
+      function retryOrFail() {
+        if (attempt < 1) {
+          window.setTimeout(function () {
+            if (id === requestId) {
+              load(params, refit, attempt + 1);
+            }
+          }, RETRY_MS);
+          return;
+        }
+        root.removeAttribute('aria-busy');
+        sayFailed();
+      }
     }
 
     function adopt(published) {
