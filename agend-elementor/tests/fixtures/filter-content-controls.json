@@ -275,6 +275,22 @@
                     }
                 },
                 {
+                    "id": "view_layout",
+                    "args": {
+                        "label": "Layout",
+                        "type": "select",
+                        "default": "separate",
+                        "options": {
+                            "separate": "Separate buttons",
+                            "joined": "Joined (one control)"
+                        },
+                        "description": "Joined puts the two buttons side by side inside one outline, the corner radius rounding only the outer corners.",
+                        "condition": {
+                            "filter": "listing:view"
+                        }
+                    }
+                },
+                {
                     "id": "view_list_label",
                     "args": {
                         "label": "List button text",

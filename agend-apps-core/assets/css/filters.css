@@ -38,7 +38,12 @@
 
 .agend-filter__button {
   cursor: pointer;
+  /* Follow the widget's typography setting: themes commonly reset text
+     case and letter spacing on every button, which `font: inherit` alone
+     does not undo. */
   font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
   color: inherit;
   background: transparent;
   border: 1px solid currentColor;
@@ -138,6 +143,10 @@
 .agend-filter.agend-filter--button-colour .agend-filter__button {
   color: var(--agend-filter-button);
   border-color: var(--agend-filter-button);
+}
+
+.agend-filter.agend-filter--button-bg .agend-filter__button:not(.is-active) {
+  background: var(--agend-filter-button-bg);
 }
 
 .agend-filter.agend-filter--button-active-bg .agend-filter__button.is-active {
@@ -316,4 +325,53 @@
 .agend-filter__location-clear:hover,
 .agend-filter__location-clear:focus-visible {
   background: rgba(0, 0, 0, 0.1);
+}
+
+/* Button alignment (Style tab), for buttons, the view switch and the
+   clear button alike. */
+.agend-filter--align-center .agend-filter__options,
+.agend-filter--align-center .agend-filter__control {
+  justify-content: center;
+  text-align: center;
+}
+
+.agend-filter--align-end .agend-filter__options,
+.agend-filter--align-end .agend-filter__control {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.agend-filter--align-center .agend-filter__label {
+  text-align: center;
+}
+
+.agend-filter--align-end .agend-filter__label {
+  text-align: right;
+}
+
+/* List / Map switch, joined: one outline, no gap, and only the outer
+   corners rounded. The shared edge is drawn once. Prefixed with .agend-filter
+   so these outrank the Style tab's own button radius rule. */
+.agend-filter__view--joined {
+  display: inline-flex;
+  gap: 0;
+}
+
+.agend-filter .agend-filter__view--joined .agend-filter__button {
+  margin: 0;
+  border-radius: 0;
+}
+
+.agend-filter .agend-filter__view--joined .agend-filter__button + .agend-filter__button {
+  border-left-width: 0;
+}
+
+.agend-filter .agend-filter__view--joined .agend-filter__button:first-child {
+  border-top-left-radius: var(--agend-filter-button-radius, 4px);
+  border-bottom-left-radius: var(--agend-filter-button-radius, 4px);
+}
+
+.agend-filter .agend-filter__view--joined .agend-filter__button:last-child {
+  border-top-right-radius: var(--agend-filter-button-radius, 4px);
+  border-bottom-right-radius: var(--agend-filter-button-radius, 4px);
 }

@@ -183,6 +183,18 @@ function agend_apps_records_schema_filter(): array {
 						'condition'   => array( 'filter' => 'listing:view' ),
 					),
 					array(
+						'name'        => 'view_layout',
+						'label'       => __( 'Layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'separate',
+						'options'     => array(
+							'separate' => __( 'Separate buttons', 'agend-apps-core' ),
+							'joined'   => __( 'Joined (one control)', 'agend-apps-core' ),
+						),
+						'description' => __( 'Joined puts the two buttons side by side inside one outline, the corner radius rounding only the outer corners.', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:view' ),
+					),
+					array(
 						'name'        => 'view_list_label',
 						'label'       => __( 'List button text', 'agend-apps-core' ),
 						'type'        => 'text',
@@ -333,6 +345,13 @@ function agend_apps_records_schema_filter(): array {
 						'default' => '',
 					),
 					array(
+						'name'        => 'button_background',
+						'label'       => __( 'Button background', 'agend-apps-core' ),
+						'type'        => 'colour',
+						'default'     => '',
+						'description' => __( 'The fill of a button that is not selected. Leave empty for none.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'button_active_background',
 						'label'   => __( 'Selected button background', 'agend-apps-core' ),
 						'type'    => 'colour',
@@ -350,6 +369,17 @@ function agend_apps_records_schema_filter(): array {
 						'type'    => 'select',
 						'default' => '',
 						'options' => 'agend_apps_records_filter_radius_options',
+					),
+					array(
+						'name'    => 'button_align',
+						'label'   => __( 'Align buttons', 'agend-apps-core' ),
+						'type'    => 'select',
+						'default' => '',
+						'options' => array(
+							''       => __( 'Start', 'agend-apps-core' ),
+							'center' => __( 'Centre', 'agend-apps-core' ),
+							'end'    => __( 'End', 'agend-apps-core' ),
+						),
 					),
 					array(
 						'name'    => 'checkbox_colour',
