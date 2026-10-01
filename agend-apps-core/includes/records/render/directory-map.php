@@ -18,25 +18,39 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * The map tiles every Agend Map draws on: CARTO's light basemap over
- * OpenStreetMap data, the same tiles the Agend Directory app uses. Neither
- * needs an API key.
+ * The map tiles an Agend Map draws on.
+ *
+ * With the site's CARTO basemaps key (Agend Apps settings > Maps), CARTO's
+ * light basemap, the same tiles the Agend Directory app uses. CARTO stopped
+ * serving tiles without a key in September 2026 (a keyless request gets an
+ * "API key required" tile), so without one the map falls back to
+ * OpenStreetMap's own tiles, whose usage policy suits light traffic.
  *
  * @return array{url: string, attribution: string, maxZoom: int}
  */
 function agend_apps_records_directory_map_tiles(): array {
-	$tiles = array(
-		'url'         => 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-		'attribution' => '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-		'maxZoom'     => 19,
-	);
+	$osm = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+	$key = defined( 'AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION' )
+		? agend_apps_records_sanitize_map_tiles_key( get_option( AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION, '' ) )
+		: '';
+
+	$tiles = '' !== $key
+		? array(
+			'url'         => 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key=' . rawurlencode( $key ),
+			'attribution' => $osm . ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
+			'maxZoom'     => 19,
+		)
+		: array(
+			'url'         => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+			'attribution' => $osm,
+			'maxZoom'     => 19,
+		);
 
 	/**
 	 * Filters the tile layer an Agend Map draws on.
 	 *
-	 * A site with its own tile service (or a commercial CARTO plan) swaps the
-	 * URL here. The attribution is shown on the map as HTML, so it must stay
-	 * trusted markup.
+	 * A site with another tile service swaps the URL here. The attribution is
+	 * shown on the map as HTML, so it must stay trusted markup.
 	 *
 	 * @param array $tiles `url` (Leaflet template), `attribution`, `maxZoom`.
 	 */

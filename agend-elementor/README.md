@@ -29,7 +29,7 @@ Cards and detail pages for events, courses and directory listings can be designe
 | Agend Link / Button | Open detail, back to catalogue, register (events), enrol (courses), add to calendar (events), or a custom URL with `{slug}` and `{title}` tokens. |
 | Agend Export Report | A download control for the directory's export reports, in one of two shapes: a button that downloads one nominated report, or a menu whose trigger opens a list of reports where choosing one downloads it. The output format is set in the editor. Report parameters are chosen from a picker listing what the account's reports actually accept, and the catalogue filter each one reads from is paired automatically. A visitor who cannot reach a report is offered a sign in rather than a download, and a refusal explains itself. |
 | Agend Panel | The built-in detail's composite panels: event facts, registration, tickets, sponsors; course details, learning outcomes, pricing and enrolment; listing contact, gallery, locations, badges and reviews. A panel is several values with their own headings and layout. For one value use Agend Field or Agend Pills. Was "Agend Content Block"; templates saved against its single-value blocks (about, categories, tags, hours, custom fields) keep rendering, and the editor names the field each became. |
-| Agend Filter | One catalogue filter control. Directory tag, badge and custom field values come from `GET /v1/directory/facets`, entitlement-scoped, so a visitor never sees a value they may not read. Filter widgets go in a filter template that a catalogue widget is pointed at, so the controls survive the move between the listing and detail views. Each filter either lists every value of a field or sends author-defined choices, where one choice can stand for several values. Style settings cover the field (background, text, border colour, width and sides, radius, height, focus colour) and buttons and checkboxes; anything left unset keeps the theme's form styling. |
+| Agend Filter | One catalogue filter control. The directory also has a **Location search** filter (an address, suburb or postcode, a "Use my location" button and a radius) and a **List / Map switch**; see [Directory map and location search](#directory-map-and-location-search). Directory tag, badge and custom field values come from `GET /v1/directory/facets`, entitlement-scoped, so a visitor never sees a value they may not read. Filter widgets go in a filter template that a catalogue widget is pointed at, so the controls survive the move between the listing and detail views. Each filter either lists every value of a field or sends author-defined choices, where one choice can stand for several values. Style settings cover the field (background, text, border colour, width and sides, radius, height, focus colour) and buttons and checkboxes; anything left unset keeps the theme's form styling. |
 
 There is no record-type control. The chosen field or panel names its own record type: `listing:name` can only be a listing, `event_tickets` can only be an event. Fields marked Common work in any template, resolving to that record type's equivalent, and a field belonging to one type renders nothing inside a template of another, saying so in the editor.
 
@@ -72,6 +72,17 @@ Deferred deliberately, in rough order:
    file is ever produced. Isolated to the gateway route: the underlying RPC returns rows when
    called directly as the anon role with the same arguments, grants are correct and the column
    tokens are valid. Reported to the API side.
+
+## Directory map and location search
+
+Four pieces, each usable on its own, so a directory can be laid out however its design needs:
+
+- **Location search** (Agend Filter, filter "Location", in the catalogue's filter template). A visitor types an address, suburb or postcode, or uses their browser's location, and picks a radius. The place is resolved by the Agend geocoder (`GET /v1/directory/geocode`); the box hides itself on the live page when the account does not include place search, leaving "Use my location". Settings: the radius choices (a single value fixes the radius and hides the dropdown), the default radius, the button texts, and a **Region** added to every lookup (for example "Australia") so a suburb resolves to the right country. The chip under the controls names the active location and clears it.
+- **Nearest sort.** The Sort filter offers "Nearest". A location search with no Sort choice orders nearest first; Nearest without a location falls back to relevance.
+- **Distance on cards.** The built-in card shows "12.3 km" (or "850 m") during a location search (Content > Card fields > Show distance). A card template uses Agend Field > Directory listing > Distance.
+- **Agend Map** (a page widget, not a template widget). Pins every listing the catalogue on the page is showing, follows its filters, location and radius, and groups nearby pins. Each pin's details link to the listing. Place it beside the catalogue in a column for a split layout, or just below it with **Show only in Map view** on and a **List / Map switch** filter in the filter template for Map / List tabs. Options: height (and a phone height), grouping, "Update results as the map moves" (narrows the catalogue to the area shown; never during a location search), mouse-wheel zoom (off by default so the page scrolls past it), the search radius circle, the most pins (up to 2000; the map says when more matched), and which details a pin shows. Colours default to the catalogue's accent colour.
+
+Map tiles come from CARTO when the site has a CARTO basemaps key (Settings > Agend Widgets > Maps), and from OpenStreetMap's own tiles otherwise. CARTO stopped serving tiles without a key in September 2026; OpenStreetMap's tiles suit light traffic only, so a busy directory should have a key.
 
 ## Export report parameters
 
@@ -121,3 +132,12 @@ Detail templates
 Editor
 
 14. Open a card template for editing: field widgets show the preview record and a dashed outline. A Course field inside an event template shows a warning notice; on the live site it renders nothing. A directory template previews a listing throughout, including widgets set to a Common field.
+
+Directory map and location search
+
+15. In a directory filter template add a Location search filter and a List / Map switch, and put an Agend Map with "Show only in Map view" on below the catalogue.
+16. Search a suburb: the chip reads "Within 15 km of <suburb>", the results narrow and order nearest first, and the cards show a distance. Change the radius: results refresh. Clear the chip: everything returns.
+17. Search nonsense: "We could not find that place" shows and the results do not change.
+18. Pick Map view: the list hides and the map shows the same listings, with the radius circle during a location search. Change a filter while on the map: the pins follow. Pick List view: the list returns.
+19. Click a group of pins (it zooms in), then a pin: its details show and the link opens the listing.
+20. With no CARTO key the attribution reads OpenStreetMap; add a key in Settings > Agend Widgets > Maps and the attribution reads OpenStreetMap and CARTO.
