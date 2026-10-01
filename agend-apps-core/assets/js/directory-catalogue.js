@@ -1896,7 +1896,12 @@
     // changing the radius, asks twice in quick succession).
     var reloadSeq = 0;
 
-    function reloadCatalogue() {
+    // A failed load (a busy gateway, a brief rate limit) retries once on its
+    // own before the visitor is told.
+    var RELOAD_RETRY_MS = 4000;
+
+    function reloadCatalogue(attempt) {
+      attempt = typeof attempt === 'number' ? attempt : 0;
       var seq = ++reloadSeq;
       status.style.display = 'none';
       pager.innerHTML = '';
@@ -1908,6 +1913,15 @@
       (templated ? fragmentGet(params) : apiGet('/directory/search', params)).then(function (body) {
         if (seq !== reloadSeq) {
           return;
+        }
+        // An error body (the proxy passes the gateway's status through) is
+        // not an empty result: saying "No listings found" for a refused
+        // request reads as a fact about the directory.
+        var failed = templated
+          ? !(body && Array.isArray(body.cards))
+          : !(body && (Array.isArray(body.data) || Array.isArray(body)));
+        if (failed) {
+          throw new Error('listings request failed');
         }
         var result = templated
           ? { items: (body && body.cards) || [], pagination: (body && body.meta && body.meta.pagination) || null }
@@ -1936,6 +1950,14 @@
         renderPagination(pager, cfg, state, result.pagination, reloadCatalogue);
       }).catch(function () {
         if (seq !== reloadSeq) {
+          return;
+        }
+        if (attempt < 1) {
+          window.setTimeout(function () {
+            if (seq === reloadSeq) {
+              reloadCatalogue(attempt + 1);
+            }
+          }, RELOAD_RETRY_MS);
           return;
         }
         if (!state.append) {
