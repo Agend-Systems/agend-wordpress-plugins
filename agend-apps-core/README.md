@@ -323,6 +323,15 @@ authors in the Agend Elementor README. The pieces here:
   `agend-apps-records-leaflet` and `agend-apps-records-leaflet-markercluster`.
   The root `.gitignore` ignores `vendor/`, so files there are added with
   `git add -f`.
+- **Opening a profile**: with a listing detail template set, catalogue cards
+  and map pins navigate to the server-rendered profile instead of drawing the
+  built-in detail in place (`agend_apps_records_directory_catalogue_ssr_detail()`).
+  `includes/records/speculation.php` adds a speculation rule that prefetches
+  Agend detail links (`a.agend-card-link`, built-in cards, map pin links) as
+  soon as the pointer rests on one ("moderate" eagerness); the
+  `agend_apps_records_detail_link_selector` filter changes or empties the
+  selector. A detail template fetches reviews only if it has a reviews
+  panel, and a signed-in member's profile views are cached per member.
 - **Tiles**: `agend_apps_records_directory_map_tiles()` uses CARTO's light
   basemap with the key in the `agend_apps_map_carto_key` option (Settings >
   Agend Widgets > Maps), otherwise OpenStreetMap's own tiles. The
