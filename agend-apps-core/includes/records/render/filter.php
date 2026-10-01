@@ -243,7 +243,15 @@ function agend_apps_records_render_filter_view_control( array $config, bool $dis
 		'map'  => '' !== $view['mapLabel'] ? $view['mapLabel'] : __( 'Map', 'agend-apps-core' ),
 	);
 
-	$html = '<div class="agend-filter__options agend-filter__view' . ( $disabled ? ' agend-filter__placeholder' : '' ) . '" role="group" aria-label="' . esc_attr( $config['label'] ) . '">';
+	$classes = 'agend-filter__options agend-filter__view';
+	if ( 'joined' === $view['layout'] ) {
+		$classes .= ' agend-filter__view--joined';
+	}
+	if ( $disabled ) {
+		$classes .= ' agend-filter__placeholder';
+	}
+
+	$html = '<div class="' . esc_attr( $classes ) . '" role="group" aria-label="' . esc_attr( $config['label'] ) . '">';
 	foreach ( $buttons as $value => $label ) {
 		$on    = $value === $view['default'];
 		$html .= '<button type="button" class="agend-filter__button' . ( $on ? ' is-active' : '' ) . '" data-agend-view="' . esc_attr( $value ) . '" aria-pressed="' . ( $on ? 'true' : 'false' ) . '"' . $off . '>' . esc_html( $label ) . '</button>';
@@ -386,6 +394,7 @@ function agend_apps_records_filter_style( array $settings ): array {
 		'field_border_colour'      => array( 'border-colour', 'agend-filter--field-border-colour' ),
 		'field_focus_colour'       => array( 'focus', 'agend-filter--field-focus' ),
 		'button_colour'            => array( 'button', 'agend-filter--button-colour' ),
+		'button_background'        => array( 'button-bg', 'agend-filter--button-bg' ),
 		'button_active_background' => array( 'button-active-bg', 'agend-filter--button-active-bg' ),
 		'button_active_text'       => array( 'button-active-text', 'agend-filter--button-active-text' ),
 		'checkbox_colour'          => array( 'checkbox', 'agend-filter--checkbox-colour' ),
@@ -420,6 +429,12 @@ function agend_apps_records_filter_style( array $settings ): array {
 
 	if ( in_array( 'agend-filter--field-border-width', $classes, true ) && 'bottom' === ( $settings['field_border_sides'] ?? 'all' ) ) {
 		$classes[] = 'agend-filter--field-border-bottom';
+	}
+
+	// Alignment needs no value of its own, only the class that applies it.
+	$align = (string) ( $settings['button_align'] ?? '' );
+	if ( in_array( $align, array( 'center', 'end' ), true ) ) {
+		$classes[] = 'agend-filter--align-' . $align;
 	}
 
 	return array(

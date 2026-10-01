@@ -566,11 +566,12 @@ function agend_apps_records_filter_location_config( array $settings ): array {
  * The List / Map switch's runtime settings.
  *
  * @param array $settings Widget settings.
- * @return array{default: string, listLabel: string, mapLabel: string}
+ * @return array{default: string, layout: string, listLabel: string, mapLabel: string}
  */
 function agend_apps_records_filter_view_config( array $settings ): array {
 	return array(
 		'default'   => 'map' === ( $settings['view_default'] ?? 'list' ) ? 'map' : 'list',
+		'layout'    => 'joined' === ( $settings['view_layout'] ?? 'separate' ) ? 'joined' : 'separate',
 		'listLabel' => trim( (string) ( $settings['view_list_label'] ?? '' ) ),
 		'mapLabel'  => trim( (string) ( $settings['view_map_label'] ?? '' ) ),
 	);

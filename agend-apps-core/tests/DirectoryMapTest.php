@@ -160,6 +160,36 @@ final class DirectoryMapTest extends TestCase {
 		$this->assertStringContainsString( 'data-agend-view="list" aria-pressed="false" disabled>List</button>', $html );
 	}
 
+	#[Test]
+	public function should_join_the_view_switch_into_one_control_when_asked(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		$joined   = agend_apps_records_render_filter( array( 'filter' => 'listing:view', 'view_layout' => 'joined' ) );
+		$separate = agend_apps_records_render_filter( array( 'filter' => 'listing:view' ) );
+
+		$this->assertStringContainsString( 'agend-filter__view--joined', $joined );
+		$this->assertStringNotContainsString( 'agend-filter__view--joined', $separate );
+	}
+
+	#[Test]
+	public function should_fill_unselected_buttons_only_when_a_background_is_set(): void {
+		$set   = agend_apps_records_filter_style( array( 'button_background' => '#FFFFFF' ) );
+		$unset = agend_apps_records_filter_style( array() );
+		$bad   = agend_apps_records_filter_style( array( 'button_background' => 'red;x:y' ) );
+
+		$this->assertContains( 'agend-filter--button-bg', $set['classes'] );
+		$this->assertStringContainsString( '--agend-filter-button-bg:#FFFFFF', $set['style'] );
+		$this->assertNotContains( 'agend-filter--button-bg', $unset['classes'] );
+		$this->assertNotContains( 'agend-filter--button-bg', $bad['classes'] );
+	}
+
+	#[Test]
+	public function should_align_buttons_only_to_a_known_side(): void {
+		$this->assertContains( 'agend-filter--align-end', agend_apps_records_filter_style( array( 'button_align' => 'end' ) )['classes'] );
+		$this->assertContains( 'agend-filter--align-center', agend_apps_records_filter_style( array( 'button_align' => 'center' ) )['classes'] );
+		$this->assertSame( array(), agend_apps_records_filter_style( array( 'button_align' => 'sideways' ) )['classes'] );
+	}
+
 	// -- Query ---------------------------------------------------------------
 
 	#[Test]
