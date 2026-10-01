@@ -122,7 +122,8 @@
                                 "",
                                 "search",
                                 "date",
-                                "reset"
+                                "reset",
+                                "location"
                             ]
                         }
                     }

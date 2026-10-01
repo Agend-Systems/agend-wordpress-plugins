@@ -78,7 +78,7 @@ function agend_apps_records_schema_filter(): array {
 						'label'     => __( 'Placeholder', 'agend-apps-core' ),
 						'type'      => 'text',
 						'default'   => '',
-						'condition' => array( 'control' => array( '', 'search', 'date', 'reset' ) ),
+						'condition' => array( 'control' => array( '', 'search', 'date', 'reset', 'location' ) ),
 					),
 					array(
 						'name'        => 'any_label',

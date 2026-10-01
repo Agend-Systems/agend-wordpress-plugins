@@ -25,6 +25,15 @@
   transition: none !important;
 }
 
+/* Leaflet 1.9 blends tiles with plus-lighter to hide gaps at fractional
+   zoom, but when a page builder leaves the map on a half-pixel offset (a
+   centred or percentage-width column) that blend draws light seams along
+   every tile edge on standard-density screens. Normal blending over a
+   background close to the tiles' own colour shows neither. */
+.agend-directory-map .leaflet-container img.leaflet-tile {
+  mix-blend-mode: normal;
+}
+
 .agend-directory-map--awaiting-view {
   display: none;
 }
