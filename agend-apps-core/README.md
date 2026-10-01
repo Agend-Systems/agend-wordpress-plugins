@@ -291,6 +291,52 @@ The member login surface follows the same pattern:
 its own edit-mode notice for that case and otherwise echoes the core
 renderer.
 
+## Directory map
+
+The location search, the Nearest sort, the List / Map switch and the Agend Map
+surface (`directory-map`, an Elementor widget and a block) are described for
+authors in the Agend Elementor README. The pieces here:
+
+- **Proxy routes**: `GET /agend-apps/v1/directory/markers` (the search filters
+  plus `limit` up to 2000 and `bbox`), `/directory/geocode?q=` and
+  `/directory/map-settings`, wrapping the gateway endpoints of the same names
+  in `includes/api/directory-map.php`. `/directory/search` also accepts `bbox`.
+  Gateway statuses pass through (403 without the geocoding feature, 404 for
+  no match, 503 while the geocoder is down), so the browser can tell them
+  apart.
+- **Coordinate rounding**: `agend_apps_directory_round_coordinates()` rounds
+  `lat`/`lng` to 3 decimals (about 110 m), `radius` to 1 and `bbox` edges to 4
+  before a search or markers request, so near-identical searches share one
+  cached response instead of writing a transient each.
+- **Catalogue contract**: the directory catalogue publishes
+  `window.agendCatalogues.listing` (`state`, `params()`, `lastParams`,
+  `reload()`, `hrefFor( slug )`, `open( slug )`, `view`) and dispatches
+  `agend:directory-results` (`detail.params`, the query it just answered) and
+  `agend:directory-view` (`detail.view`, `'list'` or `'map'`) on `document`.
+  `assets/js/directory-map.js` is the only consumer today; anything else that
+  needs to follow a catalogue can use the same events. The state keys are
+  `near` (`{lat, lng, radius, label}`), `bbox` (`"north,south,east,west"`) and
+  `view`; `query.php` builds the same query from them for the server-rendered
+  first page.
+- **Map assets**: Leaflet 1.9.4 and leaflet.markercluster 1.5.3 are vendored
+  under `assets/js/vendor/` (licences alongside) and registered as
+  `agend-apps-records-leaflet` and `agend-apps-records-leaflet-markercluster`.
+  The root `.gitignore` ignores `vendor/`, so files there are added with
+  `git add -f`.
+- **Opening a profile**: with a listing detail template set, catalogue cards
+  and map pins navigate to the server-rendered profile instead of drawing the
+  built-in detail in place (`agend_apps_records_directory_catalogue_ssr_detail()`).
+  `includes/records/speculation.php` adds a speculation rule that prefetches
+  Agend detail links (`a.agend-card-link`, built-in cards, map pin links) as
+  soon as the pointer rests on one ("moderate" eagerness); the
+  `agend_apps_records_detail_link_selector` filter changes or empties the
+  selector. A detail template fetches reviews only if it has a reviews
+  panel, and a signed-in member's profile views are cached per member.
+- **Tiles**: `agend_apps_records_directory_map_tiles()` uses CARTO's light
+  basemap with the key in the `agend_apps_map_carto_key` option (Settings >
+  Agend Widgets > Maps), otherwise OpenStreetMap's own tiles. The
+  `agend_apps_records_directory_map_tiles` filter swaps in another provider.
+
 ## Block editor surface
 
 The block editor is the primary target for new surface work. Elementor is

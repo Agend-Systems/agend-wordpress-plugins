@@ -1,0 +1,191 @@
+/* Agend Map. Colours come from the widget's Style tab as custom properties;
+   anything unset falls back to the catalogue's accent colour (copied onto the
+   map by assets/js/directory-map.js), then to the map's own default. */
+
+.agend-directory-map {
+  --agend-map-accent: var(--agend-dir-accent, #0d9488);
+  position: relative;
+  /* Leaflet's panes use z-indexes up to 1000; a stacking context keeps them
+     under the page's own menus and dropdowns. */
+  isolation: isolate;
+  z-index: 0;
+}
+
+/* Themes and page builders commonly style every img (transitions, borders,
+   max-width, rounded corners). On map tiles that shows as seams between
+   tiles and drifting pins, so the map's own images are reset. */
+.agend-directory-map .leaflet-container img {
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transition: none !important;
+}
+
+/* Leaflet 1.9 blends tiles with plus-lighter to hide gaps at fractional
+   zoom, but when a page builder leaves the map on a half-pixel offset (a
+   centred or percentage-width column) that blend draws light seams along
+   every tile edge on standard-density screens. Normal blending over a
+   background close to the tiles' own colour shows neither. */
+.agend-directory-map .leaflet-container img.leaflet-tile {
+  mix-blend-mode: normal;
+}
+
+.agend-directory-map--awaiting-view {
+  display: none;
+}
+
+.agend-map__canvas {
+  height: var(--agend-map-height, 480px);
+  border: 1px solid var(--agend-map-border, rgba(0, 0, 0, 0.12));
+  border-radius: var(--agend-map-corner, 8px);
+  overflow: hidden;
+  background: #f2f2f0;
+}
+
+@media (max-width: 767px) {
+  .agend-map__canvas {
+    height: var(--agend-map-height-mobile, 360px);
+  }
+}
+
+.agend-map__notice {
+  margin: 0.5rem 0 0;
+  font-size: 0.875em;
+}
+
+.agend-map__notice[hidden] {
+  display: none;
+}
+
+.agend-map__retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agend-map-link, var(--agend-map-accent));
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.agend-directory-map[aria-busy='true'] .agend-map__canvas {
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+
+/* Pins */
+.agend-map-pin {
+  color: var(--agend-map-pin, var(--agend-map-accent));
+  background: none;
+  border: 0;
+}
+
+.agend-map-pin svg {
+  display: block;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+
+.agend-map-pin:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Groups of pins */
+.agend-map-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agend-map-cluster, var(--agend-map-accent)) 35%, transparent);
+}
+
+.agend-map-cluster span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--agend-map-cluster, var(--agend-map-accent));
+  color: var(--agend-map-cluster-text, #fff);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agend-map-cluster--medium span {
+  width: 32px;
+  height: 32px;
+}
+
+.agend-map-cluster--large span {
+  width: 34px;
+  height: 34px;
+}
+
+/* The searched place and its radius */
+.agend-map-radius {
+  stroke: var(--agend-map-radius-colour, var(--agend-map-accent));
+  fill: var(--agend-map-radius-colour, var(--agend-map-accent));
+}
+
+.agend-map-you {
+  stroke: #fff;
+  fill: var(--agend-map-radius-colour, #2563eb);
+}
+
+/* Pin details */
+.agend-map-popup-wrap .leaflet-popup-content {
+  margin: 12px 14px;
+}
+
+.agend-map-popup {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.agend-map-popup__logo {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.agend-map-popup__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agend-map-popup__category,
+.agend-map-popup__distance,
+.agend-map-popup__rating {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.agend-map-popup__title {
+  font-size: 14px;
+}
+
+.agend-map-popup__address {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.agend-directory-map .agend-map-popup__link {
+  margin-top: 4px;
+  color: var(--agend-map-link, var(--agend-map-accent));
+  font-weight: 600;
+}

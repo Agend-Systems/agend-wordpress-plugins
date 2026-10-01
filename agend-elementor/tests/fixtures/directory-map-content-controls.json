@@ -1,0 +1,183 @@
+{
+    "sections": [
+        {
+            "id": "section_map",
+            "args": {
+                "label": "Map",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "map_note",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "Pins every listing the Directory Catalogue on this page is showing, and follows its filters. With no catalogue on the page it pins every listing that has a map location."
+                    }
+                },
+                {
+                    "id": "height",
+                    "args": {
+                        "label": "Height",
+                        "type": "select",
+                        "default": "480",
+                        "options": {
+                            "280": "280px",
+                            "320": "320px",
+                            "360": "360px",
+                            "420": "420px",
+                            "480": "480px",
+                            "560": "560px",
+                            "640": "640px",
+                            "720": "720px",
+                            "800": "800px"
+                        }
+                    }
+                },
+                {
+                    "id": "height_mobile",
+                    "args": {
+                        "label": "Height on phones",
+                        "type": "select",
+                        "default": "360",
+                        "options": {
+                            "280": "280px",
+                            "320": "320px",
+                            "360": "360px",
+                            "420": "420px",
+                            "480": "480px",
+                            "560": "560px",
+                            "640": "640px",
+                            "720": "720px",
+                            "800": "800px"
+                        }
+                    }
+                },
+                {
+                    "id": "follow_view",
+                    "args": {
+                        "label": "Show only in Map view",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Hides the map until a visitor picks Map on the catalogue's List / Map switch, and hides the results list while it shows. Place the map just below the catalogue. Leave off to show the map beside or below the list all the time."
+                    }
+                },
+                {
+                    "id": "cluster",
+                    "args": {
+                        "label": "Group nearby pins",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "update_on_move",
+                    "args": {
+                        "label": "Update results as the map moves",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Dragging or zooming the map narrows the catalogue to the area shown. Not applied during a location search, which already sets the area."
+                    }
+                },
+                {
+                    "id": "scroll_zoom",
+                    "args": {
+                        "label": "Zoom with the mouse wheel",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Off by default so scrolling the page never gets caught by the map. The zoom buttons always work."
+                    }
+                },
+                {
+                    "id": "show_radius",
+                    "args": {
+                        "label": "Show the search radius",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "marker_limit",
+                    "args": {
+                        "label": "Most pins",
+                        "type": "select",
+                        "default": "500",
+                        "options": {
+                            "250": "250",
+                            "500": "500",
+                            "1000": "1000",
+                            "2000": "2000"
+                        },
+                        "description": "When more listings match, the map says so and asks the visitor to zoom in or filter."
+                    }
+                },
+                {
+                    "id": "empty_text",
+                    "args": {
+                        "label": "No results text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "No listings with a map location match these filters."
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_popup",
+            "args": {
+                "label": "Pin details",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "popup_logo",
+                    "args": {
+                        "label": "Show logo",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "popup_category",
+                    "args": {
+                        "label": "Show category",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "popup_address",
+                    "args": {
+                        "label": "Show address",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "popup_distance",
+                    "args": {
+                        "label": "Show distance",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "popup_rating",
+                    "args": {
+                        "label": "Show rating",
+                        "type": "switcher",
+                        "default": ""
+                    }
+                },
+                {
+                    "id": "popup_link_text",
+                    "args": {
+                        "label": "Link text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "View details"
+                    }
+                }
+            ]
+        }
+    ]
+}

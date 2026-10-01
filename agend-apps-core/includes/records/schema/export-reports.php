@@ -337,7 +337,9 @@ function agend_apps_records_export_reports_catalogue_source_options(): array {
 	if ( function_exists( 'agend_apps_records_filter_registry' ) ) {
 		$registry = agend_apps_records_filter_registry();
 		foreach ( $registry['listing'] ?? array() as $key => $descriptor ) {
-			if ( in_array( $key, array( 'reset', 'sort' ), true ) ) {
+			// A location is a point and a radius, and the view switch writes no
+			// query at all: neither is a value a report parameter can take.
+			if ( in_array( $key, array( 'reset', 'sort', 'location', 'view' ), true ) ) {
 				continue;
 			}
 			$options[ $key ] = (string) $descriptor['label'];
@@ -588,7 +590,7 @@ function agend_apps_records_export_reports_filter_state_keys(): array {
 
 	foreach ( $registry['listing'] ?? array() as $key => $descriptor ) {
 		$state = (string) ( $descriptor['state'] ?? '' );
-		if ( '' !== $state ) {
+		if ( '' !== $state && ! in_array( $key, array( 'location', 'view' ), true ) ) {
 			$keys[ (string) $key ] = $state;
 		}
 	}

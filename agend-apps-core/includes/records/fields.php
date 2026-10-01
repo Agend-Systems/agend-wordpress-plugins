@@ -196,6 +196,44 @@ function agend_apps_records_record_listing_location( array $record ): string {
 }
 
 /**
+ * A distance in kilometres as a visitor reads it: metres under 1 km,
+ * otherwise kilometres to one decimal place ("850 m", "12.3 km").
+ *
+ * Mirrors formatDistance() in assets/js/directory-catalogue.js, so a
+ * templated card and a built-in card print the same text.
+ *
+ * @param mixed $km Distance in kilometres.
+ * @return string '' for anything that is not a finite, non-negative number.
+ */
+function agend_apps_records_format_distance( $km ): string {
+	if ( ! is_numeric( $km ) ) {
+		return '';
+	}
+	$km = (float) $km;
+	if ( ! is_finite( $km ) || $km < 0 ) {
+		return '';
+	}
+	if ( $km < 1 ) {
+		/* translators: %d: a distance in metres. */
+		return sprintf( __( '%d m', 'agend-apps-core' ), (int) round( $km * 1000 ) );
+	}
+	/* translators: %s: a distance in kilometres, to one decimal place. */
+	return sprintf( __( '%s km', 'agend-apps-core' ), number_format_i18n( $km, 1 ) );
+}
+
+/**
+ * How far a listing is from the searched place, or '' outside a location
+ * search: the gateway sets `distance_km` (to the listing's nearest geocoded
+ * location) only when a search carries a point and a radius.
+ *
+ * @param array $record The listing record.
+ * @return string
+ */
+function agend_apps_records_record_listing_distance( array $record ): string {
+	return agend_apps_records_format_distance( $record['distance_km'] ?? null );
+}
+
+/**
  * One part of a listing's location.
  *
  * @param array  $record The listing record.
@@ -535,6 +573,7 @@ function agend_apps_records_field_registry(): array {
 		),
 		'listing:street'            => array( 'label' => __( 'Street address', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_listing_street' ),
 		'listing:address'           => array( 'label' => __( 'Full address (one line)', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_listing_address' ),
+		'listing:distance'          => array( 'label' => __( 'Distance (location searches only)', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_listing_distance' ),
 		'listing:updated_at'        => array( 'label' => __( 'Last updated', 'agend-apps-core' ), 'kind' => 'date', 'get' => $text( 'updated_at' ) ),
 		'listing:rating'            => array( 'label' => __( 'Average rating', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'average_rating' ) ),
 		'listing:review_count'      => array( 'label' => __( 'Review count', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'review_count' ) ),
