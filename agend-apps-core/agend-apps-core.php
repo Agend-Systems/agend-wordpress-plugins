@@ -173,6 +173,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/format.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/fragments.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/ssr-detail.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/speculation.php';
 
 	// Template-driven cards and detail pages: the record context the field
 	// widgets read, the field registry, and the editor preview records.

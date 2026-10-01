@@ -394,11 +394,13 @@ function agend_apps_records_ssr_resolve_listing( string $slug, WP_Post $host ): 
 		return null;
 	}
 
-	$name             = isset( $item['name'] ) ? (string) $item['name'] : __( 'Listing', 'agend-apps-core' );
-	$reviews_response = function_exists( 'agend_apps_directory_get_listing_reviews' )
-		? agend_apps_directory_get_listing_reviews( $slug, array( 'limit' => 10 ) )
-		: null;
+	$name = isset( $item['name'] ) ? (string) $item['name'] : __( 'Listing', 'agend-apps-core' );
 
+	// A detail template fetches reviews only if it has a reviews panel: the
+	// panel loads them itself when none are handed in
+	// (agend_apps_records_fragment_listing_reviews()). Fetching them up front
+	// cost every profile a second gateway round trip, in series with the
+	// first, whether the template showed reviews or not.
 	$template_id = Agend_Apps_Records_Pages::detail_template_id( 'listing' );
 	if ( $template_id > 0 && class_exists( 'Agend_Apps_Templates' ) ) {
 		$html = Agend_Apps_Templates::render(
@@ -407,7 +409,7 @@ function agend_apps_records_ssr_resolve_listing( string $slug, WP_Post $host ): 
 			$item,
 			array(
 				'slug'         => $slug,
-				'reviews'      => $reviews_response,
+				'reviews'      => null,
 				'detail_url'   => Agend_Apps_Records_Pages::detail_url( 'listing', $slug, (int) $host->ID ),
 				'is_detail'    => true,
 				'host_page_id' => (int) $host->ID,
@@ -421,6 +423,11 @@ function agend_apps_records_ssr_resolve_listing( string $slug, WP_Post $host ): 
 			);
 		}
 	}
+
+	// The built-in detail always shows reviews.
+	$reviews_response = function_exists( 'agend_apps_directory_get_listing_reviews' )
+		? agend_apps_directory_get_listing_reviews( $slug, array( 'limit' => 10 ) )
+		: null;
 
 	return array(
 		'title'   => $name,
