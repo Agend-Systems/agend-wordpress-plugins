@@ -163,7 +163,7 @@ function agend_apps_account_link_state( int $user_id, string $return_url = '' ):
 	if ( is_wp_error( $result ) ) {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			error_log( 'Agend Apps: account-link status lookup failed: ' . $result->get_error_message() );
+			error_log( 'Agend Apps: account-link status lookup failed: ' . ( class_exists( 'Agend_Apps_Logger' ) ? agend_apps_logger()->redactor()->redact_text( $result->get_error_message() ) : $result->get_error_code() ) );
 		}
 
 		$ids = agend_apps_linked_identity_ids( $user_id );
