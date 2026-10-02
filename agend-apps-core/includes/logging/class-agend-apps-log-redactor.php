@@ -187,6 +187,9 @@ final class Agend_Apps_Log_Redactor {
 		'token'       => 'secret',
 		'password'    => 'secret',
 		'secret'      => 'secret',
+		'signature'   => 'secret',
+		'credential'  => 'secret',
+		'securitytoken' => 'secret',
 		'sessionid'   => 'secret',
 		'session'     => 'secret',
 		'address'     => 'address',
@@ -275,8 +278,13 @@ final class Agend_Apps_Log_Redactor {
 	 * @var array<string, string>
 	 */
 	private const QUERY_ONLY_KEYS = array(
-		'query' => 'text',
-		'term'  => 'text',
+		'query'     => 'text',
+		'term'      => 'text',
+		// OAuth codes, signed-URL signatures and access keys.
+		'code'      => 'secret',
+		'sig'       => 'secret',
+		'key'       => 'secret',
+		'accesskey' => 'secret',
 	);
 
 	/**
@@ -332,11 +340,29 @@ final class Agend_Apps_Log_Redactor {
 	 */
 	private array $known = array();
 
-	/** The known values compiled into one pattern, or null when stale. */
-	private ?string $known_pattern = null;
+	/**
+	 * The known values compiled into one pattern; null when stale, false
+	 * when compiling failed (cached, so the failure is paid once).
+	 *
+	 * @var string|false|null
+	 */
+	private $known_pattern = null;
 
 	/** Bound on remembered values, so one huge payload cannot build a huge pattern. */
 	private const MAX_KNOWN = 2000;
+
+	/**
+	 * Longest value remembered. An identifying value (a name, an email, a
+	 * slug, a token) is short; a 2 KB description is not worth matching
+	 * whole, and its key rule has already removed it where it sat.
+	 */
+	private const MAX_KNOWN_LENGTH = 100;
+
+	/** Budget for the compiled pattern, well under PCRE's compile limit. */
+	private const MAX_PATTERN_BYTES = 30000;
+
+	/** Kinds remembered only when long enough not to collide with ordinary words ("Yes", "Other"). */
+	private const LOOSE_KINDS = array( 'text', 'custom', 'url', 'pii' );
 
 	/**
 	 * Inside a custom-field subtree, the admin-defined description of a field
@@ -406,9 +432,10 @@ final class Agend_Apps_Log_Redactor {
 			}
 		}
 
-		// `billing_address_id` names a record, not an address: a reference
-		// key matched only by a prefix keeps its id.
-		$is_reference = 1 === preg_match( '/ids?$/', $normalised );
+		// `billing_address_id` and `addressId` name a record, not an
+		// address: a reference key matched only by a prefix keeps its id.
+		// Judged on the raw key, so `address_valid` is not mistaken for one.
+		$is_reference = 1 === preg_match( '/(?:[_\-][iI][dD][sS]?|[a-z0-9]Ids?)$/', $key );
 
 		foreach ( self::PREFIX_KEYS as $prefix => $kind ) {
 			if ( str_starts_with( $normalised, $prefix ) ) {
@@ -456,21 +483,38 @@ final class Agend_Apps_Log_Redactor {
 	public function remember_value( string $value, string $kind ): void {
 		$value = trim( $value );
 
-		// Short values ("SA", "4", "Mr") would scrub ordinary words.
-		if ( strlen( $value ) < ( 'secret' === $kind ? 8 : 3 ) || 1 === preg_match( '/^\d{1,3}$/', $value ) || count( $this->known ) >= self::MAX_KNOWN ) {
+		$minimum = 'secret' === $kind ? 8 : ( in_array( $kind, self::LOOSE_KINDS, true ) ? 6 : 3 );
+
+		// Short values ("SA", "4", "Mr") would scrub ordinary words; long
+		// ones are not identifiers. Invalid UTF-8 (a forged path segment)
+		// would make the `/u` pattern fail to compile for the whole row.
+		if (
+			strlen( $value ) < $minimum
+			|| strlen( $value ) > self::MAX_KNOWN_LENGTH
+			|| 1 === preg_match( '/^\d{1,3}$/', $value )
+			|| ( function_exists( 'mb_check_encoding' ) && ! mb_check_encoding( $value, 'UTF-8' ) )
+		) {
 			return;
 		}
 
-		$this->known[ strtolower( $value ) ] = $kind;
-		$this->known_pattern                 = null;
+		$this->add_known( strtolower( $value ), $kind );
 
 		if ( in_array( $kind, self::TOKENISED_KINDS, true ) ) {
 			foreach ( preg_split( '/[^\p{L}\p{N}\'\-]+/u', $value ) ?: array() as $word ) {
 				if ( strlen( $word ) >= self::MIN_TOKEN_LENGTH && 1 !== preg_match( '/^\d+$/', $word ) ) {
-					$this->known[ strtolower( $word ) ] = $kind;
+					$this->add_known( strtolower( $word ), $kind );
 				}
 			}
 		}
+	}
+
+	private function add_known( string $value, string $kind ): void {
+		if ( count( $this->known ) >= self::MAX_KNOWN && ! isset( $this->known[ $value ] ) ) {
+			return;
+		}
+
+		$this->known[ $value ] = $kind;
+		$this->known_pattern   = null;
 	}
 
 	public function forget(): void {
@@ -489,13 +533,15 @@ final class Agend_Apps_Log_Redactor {
 		}
 
 		if ( null === $this->known_pattern ) {
-			$values = array_keys( $this->known );
-			usort( $values, static fn( string $a, string $b ): int => strlen( $b ) <=> strlen( $a ) );
-
-			$this->known_pattern = '/(?<![\p{L}\p{N}])(?:' . implode( '|', array_map( static fn( string $v ): string => preg_quote( $v, '/' ), $values ) ) . ')(?![\p{L}\p{N}])/iu';
+			$this->known_pattern = $this->compile_known();
 		}
 
-		$result = preg_replace_callback(
+		if ( false === $this->known_pattern ) {
+			// The values could not be compiled: fail closed, quietly, once.
+			return '[redacted:text, unscannable]';
+		}
+
+		$result = @preg_replace_callback( // phpcs:ignore WordPress.PHP.NoSilencedErrors -- a failure is handled below.
 			$this->known_pattern,
 			function ( array $m ): string {
 				$kind = $this->known[ strtolower( $m[0] ) ] ?? 'pii';
@@ -508,6 +554,36 @@ final class Agend_Apps_Log_Redactor {
 		// A null result is a PCRE failure (bad UTF-8, backtrack limit): fail
 		// closed rather than return the text unscrubbed.
 		return null === $result ? '[redacted:text, unscannable]' : $result;
+	}
+
+	/**
+	 * Compiles the known values, longest first, within the size budget.
+	 * Values past the budget are dropped, shortest first: the key rules and
+	 * scanners still apply to them where they appear.
+	 *
+	 * @return string|false The pattern, or false when it does not compile.
+	 */
+	private function compile_known() {
+		$values = array_keys( $this->known );
+		usort( $values, static fn( string $a, string $b ): int => strlen( $b ) <=> strlen( $a ) );
+
+		$parts = array();
+		$bytes = 0;
+
+		foreach ( $values as $value ) {
+			$quoted = preg_quote( (string) $value, '/' );
+			$bytes += strlen( $quoted ) + 1;
+
+			if ( $bytes > self::MAX_PATTERN_BYTES ) {
+				break;
+			}
+
+			$parts[] = $quoted;
+		}
+
+		$pattern = '/(?<![\p{L}\p{N}])(?:' . implode( '|', $parts ) . ')(?![\p{L}\p{N}])/iu';
+
+		return false === @preg_match( $pattern, '' ) ? false : $pattern; // phpcs:ignore WordPress.PHP.NoSilencedErrors -- a failure is handled by the caller.
 	}
 
 	/**
@@ -630,7 +706,18 @@ final class Agend_Apps_Log_Redactor {
 			return '';
 		}
 
-		$text = $this->scrub_known( $text );
+		return $this->scan( $this->scrub_known( $text ) );
+	}
+
+	/**
+	 * The value scanners alone, without the known-value pass. Used for URL
+	 * paths, whose fixed route words (`/events/registrations`) must not be
+	 * scrubbed because a body happened to carry the same word.
+	 */
+	private function scan( string $text ): string {
+		if ( '' === $text ) {
+			return '';
+		}
 
 		$text = (string) preg_replace( '/Bearer\s+[A-Za-z0-9\-._~+\/]+=*/i', 'Bearer [redacted:secret]', $text );
 		$text = (string) preg_replace( '/eyJ[A-Za-z0-9_\-]{8,}(?:\.[A-Za-z0-9_\-]*){0,2}/', '[redacted:secret]', $text );
@@ -639,7 +726,7 @@ final class Agend_Apps_Log_Redactor {
 		// A URL inside a value (a checkout link, a signed download) carries
 		// its secrets in the query string and fragment.
 		$text = (string) preg_replace_callback(
-			'#(https?://[^\s?\#"\'<>]+)([?\#][^\s"\'<>]*)#i',
+			'#((?:https?:)?//[^\s?\#"\'<>]+|\bwww\.[^\s?\#"\'<>]+)([?\#][^\s"\'<>]*)#i',
 			static fn( array $m ): string => $m[1] . '?[redacted:query]',
 			$text
 		);
@@ -799,7 +886,7 @@ final class Agend_Apps_Log_Redactor {
 	 */
 	private const TOKEN_COLLECTIONS = array( 'invitations', 'invitation', 'invites', 'verify', 'tokens', 'token', 'confirm', 'reset', 'magic-link', 'unsubscribe', 'claim' );
 
-	private const ROUTE_WORDS = array( 'me', 'my', 'mine', 'search', 'export', 'exports', 'export-reports', 'bulk-upsert', 'bulk-sync', 'sync', 'status', 'geocode', 'map', 'reviews', 'invitations', 'listings', 'listing', 'categories', 'fields', 'count', 'batch', 'by-email', 'by-slug' );
+	private const ROUTE_WORDS = array( 'me', 'my', 'mine', 'search', 'export', 'exports', 'export-reports', 'bulk-upsert', 'bulk-sync', 'sync', 'status', 'geocode', 'map', 'reviews', 'invitations', 'listings', 'listing', 'categories', 'fields', 'count', 'batch', 'by-email', 'by-slug', 'markers', 'map-settings', 'facets', 'bulk', 'settings', 'filters', 'nearby', 'tags', 'types', 'stats', 'summary', 'import', 'imports', 'upload', 'uploads', 'featured', 'recent', 'pending' );
 
 	/**
 	 * Redacts a URL path. UUIDs and numeric ids are kept. A segment carrying
@@ -831,7 +918,7 @@ final class Agend_Apps_Log_Redactor {
 				$this->remember_value( $decoded, 'ref' );
 				$this->remember_value( str_replace( array( '-', '_' ), ' ', $decoded ), 'name' );
 			} else {
-				$segments[ $index ] = $this->redact_text( $decoded );
+				$segments[ $index ] = $this->scan( $decoded );
 			}
 
 			$previous = $lower;

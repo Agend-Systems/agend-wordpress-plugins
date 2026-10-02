@@ -438,6 +438,119 @@ final class ApiLogPiiLeakTest extends TestCase {
 		$this->assertLessThan( 1.0, microtime( true ) - $start );
 	}
 
+	#[Test]
+	public function should_keep_diagnostics_readable_when_a_large_failed_list_is_redacted(): void {
+		$events = array_fill( 0, 40, array( 'title' => 'Gala', 'description' => str_repeat( 'A long public event description. ', 70 ) ) );
+		$row    = ( new Agend_Apps_Logger() )->build_row(
+			array(
+				'url'           => 'https://api.x/v1/crm/contacts/export',
+				'status'        => 500,
+				'response_body' => (string) json_encode( array( 'data' => array_fill( 0, 700, self::person() ), 'events' => $events ) ),
+				'error_message' => 'Export failed for Zelphine Quorrimax',
+			)
+		);
+
+		$this->assertSame( '/v1/crm/contacts/export', $row['path'] );
+		$this->assertStringNotContainsString( 'unscannable', (string) json_encode( $row ) );
+		$this->assertStringStartsWith( 'Export failed for [redacted:name#', $row['error_message'] );
+	}
+
+	#[Test]
+	public function should_not_break_the_row_when_a_path_segment_is_invalid_utf8(): void {
+		$row = ( new Agend_Apps_Logger() )->build_row(
+			array(
+				'url'           => 'https://api.x/v1/directory/listings/%C0%AF%C0%AFxyz/reviews',
+				'status'        => 404,
+				'error_message' => 'Listing not found',
+			)
+		);
+
+		$this->assertSame( 'Listing not found', $row['error_message'] );
+		$this->assertStringEndsWith( '/reviews', $row['path'] );
+	}
+
+	#[Test]
+	public function should_exclude_credential_bodies_even_when_a_body_word_matches_a_path_segment(): void {
+		$row = ( new Agend_Apps_Logger() )->build_row(
+			array(
+				'url'           => 'https://api.x/v1/auth/refresh',
+				'status'        => 200,
+				'request_body'  => '{"organisation":"Refresh Physio"}',
+				'response_body' => '{"access":"opaque-access-value-123","code":"123456"}',
+			)
+		);
+
+		$this->assertSame( '[not stored for this endpoint]', $row['response_body'] );
+		$this->assertSame( '/v1/auth/refresh', $row['path'] );
+	}
+
+	#[Test]
+	public function should_not_scrub_route_words_when_a_body_happens_to_contain_them(): void {
+		$row = ( new Agend_Apps_Logger() )->build_row(
+			array(
+				'url'           => 'https://api.x/v1/events/registrations',
+				'status'        => 200,
+				'response_body' => '{"data":[{"name":"Events Registrations"}]}',
+			)
+		);
+
+		$this->assertSame( '/v1/events/registrations', $row['path'] );
+	}
+
+	#[Test]
+	public function should_stay_bounded_when_one_value_has_thousands_of_words(): void {
+		$start = microtime( true );
+		$row   = ( new Agend_Apps_Logger() )->build_row(
+			array(
+				'url'           => 'https://api.x/v1/crm/contacts',
+				'status'        => 500,
+				'request_body'  => (string) json_encode( array( 'address' => implode( ' ', array_map( static fn( int $i ): string => 'word' . $i, range( 1, 20000 ) ) ) ) ),
+				'error_message' => 'Bad address for Quorrimax',
+			)
+		);
+
+		$this->assertLessThan( 2.0, microtime( true ) - $start );
+		$this->assertStringNotContainsString( 'unscannable', (string) json_encode( $row ) );
+	}
+
+	#[Test]
+	public function should_redact_signed_url_and_oauth_parameters(): void {
+		$row = ( new Agend_Apps_Logger() )->build_row(
+			array(
+				'url'           => 'https://api.x/v1/x?sig=AZSIG123456&X-Amz-Signature=AMZSIG123456&X-Amz-Credential=AKIACRED123&code=OAUTHCODE123&key=MAPKEY123456',
+				'status'        => 500,
+				'response_body' => '{"detail":"see //cdn.example.com/f?token=CDNTOKEN123 or www.example.com/reset?token=WWWTOKEN123"}',
+			)
+		);
+		$haystack = (string) json_encode( $row );
+
+		foreach ( array( 'AZSIG123456', 'AMZSIG123456', 'AKIACRED123', 'OAUTHCODE123', 'MAPKEY123456', 'CDNTOKEN123', 'WWWTOKEN123' ) as $secret ) {
+			$this->assertStringNotContainsString( $secret, $haystack );
+		}
+	}
+
+	#[Test]
+	public function should_keep_fixed_directory_routes_readable(): void {
+		$row = ( new Agend_Apps_Logger() )->build_row( array( 'url' => 'https://api.x/v1/directory/markers', 'status' => 200 ) );
+
+		$this->assertSame( '/v1/directory/markers', $row['path'] );
+	}
+
+	#[Test]
+	public function should_keep_reference_ids_but_not_lookalike_address_keys(): void {
+		$out = ( new Agend_Apps_Log_Redactor( 'salt' ) )->redact_value(
+			array(
+				'billing_address_id' => '7d2b1f0e-1111-4222-8333-944455556666',
+				'addressId'          => '8e3c2a1f-1111-4222-8333-944455556666',
+				'address_valid'      => 'Wombatcrest',
+			)
+		);
+
+		$this->assertSame( '7d2b1f0e-1111-4222-8333-944455556666', $out['billing_address_id'] );
+		$this->assertSame( '8e3c2a1f-1111-4222-8333-944455556666', $out['addressId'] );
+		$this->assertStringStartsWith( '[redacted:address#', $out['address_valid'] );
+	}
+
 	/**
 	 * Every key the documented matrix lists is redacted. Removing one from the
 	 * redactor fails here, not in production.
