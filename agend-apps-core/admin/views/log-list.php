@@ -39,6 +39,9 @@ $agend_apps_query = array_filter(
 	static fn( string $value ): bool => '' !== $value
 );
 $agend_apps_updated = $agend_apps_field( 'updated' );
+// add_query_arg() does not encode values; a path filter with `+` or `&`
+// would change meaning on the next page.
+$agend_apps_query_encoded = array_map( 'rawurlencode', $agend_apps_query );
 // phpcs:enable
 
 $agend_apps_select = static function ( string $name, array $options, string $current ): void {
@@ -141,7 +144,7 @@ $agend_apps_outcomes = array(
 			<input type="text" id="agend-log-request_id" name="request_id" placeholder="<?php esc_attr_e( 'Page request ID', 'agend-apps-core' ); ?>" value="<?php echo esc_attr( $agend_apps_query['request_id'] ?? '' ); ?>" />
 			<?php submit_button( __( 'Filter', 'agend-apps-core' ), 'secondary', '', false ); ?>
 			<a class="button-link" href="<?php echo esc_url( $page_url ); ?>"><?php esc_html_e( 'Clear', 'agend-apps-core' ); ?></a>
-			<a class="button" href="<?php echo esc_url( wp_nonce_url( add_query_arg( array_merge( array( 'action' => 'agend_apps_api_log_export' ), $agend_apps_query ), admin_url( 'admin-post.php' ) ), 'agend_apps_api_log_export' ) ); ?>"><?php esc_html_e( 'Export CSV', 'agend-apps-core' ); ?></a>
+			<a class="button" href="<?php echo esc_url( wp_nonce_url( add_query_arg( array_merge( array( 'action' => 'agend_apps_api_log_export' ), $agend_apps_query_encoded ), admin_url( 'admin-post.php' ) ), 'agend_apps_api_log_export' ) ); ?>"><?php esc_html_e( 'Export CSV', 'agend-apps-core' ); ?></a>
 		</p>
 	</form>
 
@@ -192,10 +195,10 @@ $agend_apps_outcomes = array(
 	<div class="tablenav bottom">
 		<div class="tablenav-pages">
 			<?php if ( $page > 1 ) : ?>
-				<a class="button" href="<?php echo esc_url( add_query_arg( array_merge( $agend_apps_query, array( 'paged' => $page - 1 ) ), $page_url ) ); ?>">&lsaquo; <?php esc_html_e( 'Newer', 'agend-apps-core' ); ?></a>
+				<a class="button" href="<?php echo esc_url( add_query_arg( array_merge( $agend_apps_query_encoded, array( 'paged' => $page - 1 ) ), $page_url ) ); ?>">&lsaquo; <?php esc_html_e( 'Newer', 'agend-apps-core' ); ?></a>
 			<?php endif; ?>
 			<?php if ( $result['has_more'] ) : ?>
-				<a class="button" href="<?php echo esc_url( add_query_arg( array_merge( $agend_apps_query, array( 'paged' => $page + 1 ) ), $page_url ) ); ?>"><?php esc_html_e( 'Older', 'agend-apps-core' ); ?> &rsaquo;</a>
+				<a class="button" href="<?php echo esc_url( add_query_arg( array_merge( $agend_apps_query_encoded, array( 'paged' => $page + 1 ) ), $page_url ) ); ?>"><?php esc_html_e( 'Older', 'agend-apps-core' ); ?> &rsaquo;</a>
 			<?php endif; ?>
 		</div>
 	</div>

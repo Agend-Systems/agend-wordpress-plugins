@@ -371,7 +371,7 @@ class Agend_Apps_API {
 
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-					sprintf( '[Agend Apps] API error %d on %s %s: %s', $status_code, $method, self::debug_path( $path ), self::debug_text( (string) $message ) )
+					sprintf( '[Agend Apps] API error %d on %s %s: %s', $status_code, $method, self::debug_path( $path ), self::debug_text( (string) $message, (string) ( $request_args['body'] ?? '' ) ) )
 				);
 			}
 
@@ -461,10 +461,21 @@ class Agend_Apps_API {
 	}
 
 	/**
-	 * A gateway message safe for debug.log.
+	 * A gateway message safe for debug.log, with the same known-value pass
+	 * as the API log: a message echoing a name from the request is scrubbed.
 	 */
-	private static function debug_text( string $text ): string {
-		return class_exists( 'Agend_Apps_Logger' ) ? agend_apps_logger()->redactor()->redact_text( $text ) : '[message]';
+	private static function debug_text( string $text, string $request_body = '' ): string {
+		if ( ! class_exists( 'Agend_Apps_Logger' ) ) {
+			return '[message]';
+		}
+
+		$redactor = agend_apps_logger()->redactor();
+		$redactor->forget();
+		$redactor->remember( json_decode( $request_body, true ) );
+		$redacted = $redactor->redact_text( $text );
+		$redactor->forget();
+
+		return $redacted;
 	}
 
 	/**

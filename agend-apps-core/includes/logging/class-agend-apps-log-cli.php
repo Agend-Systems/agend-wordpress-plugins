@@ -38,7 +38,7 @@ class Agend_Apps_Log_CLI {
 	 * : Only calls made for this user. Matched by hash; the log holds no emails.
 	 *
 	 * [--limit=<n>]
-	 * : Rows to show. Default 20, maximum 500.
+	 * : Rows to show. Default 20, maximum 5000.
 	 *
 	 * [--format=<format>]
 	 * : table, csv, json or yaml. Default table.

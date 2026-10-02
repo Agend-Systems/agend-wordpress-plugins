@@ -273,6 +273,15 @@ class Agend_Apps_Logger {
 		// key it arrived under.
 		$redactor->forget();
 
+		// Path and query first: each remembers what it redacts (a listing
+		// slug, a search term) so an error echoing it is scrubbed, and both
+		// are redacted before any body value is remembered, so a word that
+		// merely appears in a body (a tier called "Events") cannot scrub a
+		// route segment.
+		$raw_path = (string) ( $parts['path'] ?? '' );
+		$path     = $redactor->redact_path( $raw_path );
+		$query    = $redactor->redact_query( (string) ( $parts['query'] ?? '' ) );
+
 		$request_kept  = $store_bodies && $this->body_within_limits( $request_raw, $failed );
 		$response_kept = $store_bodies && $this->body_within_limits( $response_raw, $failed );
 
@@ -292,19 +301,15 @@ class Agend_Apps_Logger {
 			}
 		}
 
-		// Path and query are redacted before the bodies because both
-		// remember what they redact (a listing slug, a search term) for the
-		// known-value pass over the bodies and the error message.
-		$path  = $redactor->redact_path( (string) ( $parts['path'] ?? '' ) );
-		$query = $redactor->redact_query( (string) ( $parts['query'] ?? '' ) );
-
 		/**
 		 * Filters paths whose request and response bodies are never stored.
 		 *
 		 * @param string[] $paths Paths without the version prefix, e.g. `/auth/login`.
 		 */
 		$excluded_paths = (array) apply_filters( 'agend_apps_log_body_excluded_paths', array() );
-		$body_excluded  = Agend_Apps_Log_Redactor::is_body_excluded( $path, $excluded_paths );
+		// Judged on the path as requested, never the redacted one: a
+		// redacted segment must not be able to defeat the exclusion.
+		$body_excluded = Agend_Apps_Log_Redactor::is_body_excluded( $raw_path, $excluded_paths );
 
 		$request_body  = '';
 		$response_body = '';
