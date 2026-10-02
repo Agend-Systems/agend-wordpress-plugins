@@ -88,34 +88,81 @@ class Agend_Apps_Webhook_Receiver_REST_Controller extends Agend_Apps_REST_Contro
 	}
 
 	/**
-	 * Ingests a signed Agend webhook delivery.
+	 * Ingests a signed Agend webhook delivery and records it in the API log.
 	 *
 	 * @param WP_REST_Request $request Current request.
 	 * @return WP_REST_Response REST response.
 	 */
 	public function ingest( WP_REST_Request $request ): WP_REST_Response {
+		$started = microtime( true );
+
+		list( $response, $outcome ) = $this->process( $request );
+
+		if ( function_exists( 'agend_apps_logger' ) ) {
+			$body     = (string) $request->get_body();
+			$data     = $response->get_data();
+			$verified = ! in_array( $outcome, array( 'not_configured', 'signature_invalid' ), true );
+			$envelope = $verified ? json_decode( $body, true ) : null;
+
+			agend_apps_logger()->record(
+				array(
+					'source'             => 'agend-apps-core',
+					'direction'          => 'inbound',
+					'method'             => 'POST',
+					'url'                => rest_url( $this->namespace . '/' . $this->rest_base . '/incoming' ),
+					'status'             => $response->get_status(),
+					'outcome'            => $outcome,
+					'duration_ms'        => (int) round( ( microtime( true ) - $started ) * 1000 ),
+					// The signature header itself is never passed in.
+					'auth_mode'          => 'signature',
+					// Anyone can POST here: nothing an unverified delivery
+					// claims about itself is recorded, and its body is never
+					// processed, so a forged flood costs one small row each.
+					'store_bodies'       => $verified,
+					'gateway_request_id' => $verified ? (string) $request->get_header( 'X-Agend-Event-Id' ) : '',
+					'event_type'         => is_array( $envelope ) && isset( $envelope['type'] ) && is_string( $envelope['type'] ) ? $envelope['type'] : '',
+					'request_body'       => $body,
+					'response_body'      => (string) wp_json_encode( $data ),
+					'error_code'         => 'success' === $outcome || 'duplicate' === $outcome ? '' : ( is_array( $data ) && isset( $data['code'] ) ? (string) $data['code'] : $outcome ),
+					'error_message'      => is_array( $data ) && isset( $data['message'] ) ? (string) $data['message'] : '',
+					// Server-to-server: there is no signed-in WordPress user.
+					'user_id'            => 0,
+				)
+			);
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Verifies, deduplicates and handles one delivery.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return array{0: WP_REST_Response, 1: string} Response and API log outcome.
+	 */
+	private function process( WP_REST_Request $request ): array {
 		$secret = (string) get_option( 'agend_apps_webhook_secret', '' );
 
 		if ( '' === $secret ) {
-			return new WP_REST_Response(
+			return array( new WP_REST_Response(
 				array(
 					'code'    => 'receiver_not_configured',
 					'message' => __( 'No webhook signing secret is configured.', 'agend-apps-core' ),
 				),
 				503
-			);
+			), 'not_configured' );
 		}
 
 		$body = (string) $request->get_body();
 
 		if ( ! $this->signature_valid( (string) $request->get_header( 'X-Agend-Signature' ), $body, $secret ) ) {
-			return new WP_REST_Response(
+			return array( new WP_REST_Response(
 				array(
 					'code'    => 'invalid_signature',
 					'message' => __( 'The webhook signature could not be verified.', 'agend-apps-core' ),
 				),
 				400
-			);
+			), 'signature_invalid' );
 		}
 
 		// At-least-once delivery: the delivery id is stable across retries, so
@@ -126,13 +173,13 @@ class Agend_Apps_Webhook_Receiver_REST_Controller extends Agend_Apps_REST_Contro
 			$dedupe_key = 'agend_apps_wh_' . md5( $event_id );
 
 			if ( false !== get_transient( $dedupe_key ) ) {
-				return new WP_REST_Response(
+				return array( new WP_REST_Response(
 					array(
 						'ok'        => true,
 						'duplicate' => true,
 					),
 					200
-				);
+				), 'duplicate' );
 			}
 
 			set_transient( $dedupe_key, 1, self::DEDUPE_TTL );
@@ -141,13 +188,13 @@ class Agend_Apps_Webhook_Receiver_REST_Controller extends Agend_Apps_REST_Contro
 		$envelope = json_decode( $body, true );
 
 		if ( ! is_array( $envelope ) ) {
-			return new WP_REST_Response(
+			return array( new WP_REST_Response(
 				array(
 					'code'    => 'invalid_payload',
 					'message' => __( 'The webhook body is not valid JSON.', 'agend-apps-core' ),
 				),
 				400
-			);
+			), 'invalid_payload' );
 		}
 
 		$type   = isset( $envelope['type'] ) ? (string) $envelope['type'] : '';
@@ -171,13 +218,13 @@ class Agend_Apps_Webhook_Receiver_REST_Controller extends Agend_Apps_REST_Contro
 		 */
 		do_action( 'agend_apps_webhook_received', $type, $envelope );
 
-		return new WP_REST_Response(
+		return array( new WP_REST_Response(
 			array(
 				'ok'     => true,
 				'synced' => $synced,
 			),
 			200
-		);
+		), 'success' );
 	}
 
 	/**

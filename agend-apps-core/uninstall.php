@@ -31,3 +31,21 @@ $wpdb->query(
 		$wpdb->esc_like( '_transient_timeout_agend_apps_' ) . '%'
 	)
 );
+
+// Drop the API log table on every site: each site in a network keeps its
+// own. The plugin is not loaded during uninstall, so the table name is
+// spelled out rather than read from Agend_Apps_Log_Store.
+$agend_apps_site_ids = is_multisite() ? get_sites( array( 'fields' => 'ids', 'number' => 0 ) ) : array( 0 );
+
+foreach ( $agend_apps_site_ids as $agend_apps_site_id ) {
+	if ( $agend_apps_site_id ) {
+		switch_to_blog( (int) $agend_apps_site_id );
+	}
+
+	$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}agend_apps_api_log" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	wp_clear_scheduled_hook( 'agend_apps_api_log_prune' );
+
+	if ( $agend_apps_site_id ) {
+		restore_current_blog();
+	}
+}
