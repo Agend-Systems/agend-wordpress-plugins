@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.22.1
+ * Version:           1.24.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.22.1' );
+define( 'AGEND_APPS_CORE_VERSION', '1.24.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -116,6 +116,18 @@ require_once AGEND_APPS_CORE_DIR . 'includes/records/pages.php';
 require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-updater.php';
 agend_apps_updater_boot();
 
+// Redacted API log. Loaded unconditionally, ahead of the bootstrap, so the
+// prune runs from `wp-cron.php` and sibling plugins can call
+// agend_apps_log_http() from their own `plugins_loaded` callbacks.
+require_once AGEND_APPS_CORE_DIR . 'includes/logging/class-agend-apps-log-redactor.php';
+require_once AGEND_APPS_CORE_DIR . 'includes/logging/class-agend-apps-log-store.php';
+require_once AGEND_APPS_CORE_DIR . 'includes/logging/class-agend-apps-logger.php';
+add_action( Agend_Apps_Logger::CRON_HOOK, array( 'Agend_Apps_Logger', 'prune' ) );
+add_action( 'init', array( 'Agend_Apps_Logger', 'ensure_cron' ) );
+// A plugin update does not fire the activation hook, so the schema is also
+// checked in admin. Front-end writes recover on their own (see flush()).
+add_action( 'admin_init', array( 'Agend_Apps_Log_Store', 'maybe_install' ) );
+
 register_activation_hook( __FILE__, 'agend_apps_records_activate_rewrites' );
 register_deactivation_hook( __FILE__, 'agend_apps_records_deactivate_rewrites' );
 
@@ -135,6 +147,9 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 	// (underscore to hyphen), so `scrub_secrets()` becomes `wp agend-apps
 	// scrub-secrets` with no further registration needed.
 	WP_CLI::add_command( 'agend-apps', 'Agend_Apps_CLI' );
+
+	require_once AGEND_APPS_CORE_DIR . 'includes/logging/class-agend-apps-log-cli.php';
+	WP_CLI::add_command( 'agend-apps logs', 'Agend_Apps_Log_CLI' );
 }
 
 /**
@@ -371,6 +386,9 @@ function agend_apps_core_bootstrap() {
 		// rather than a third tab on the page above.
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-identity-admin.php';
 		new Agend_Apps_Identity_Admin();
+
+		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-log-admin.php';
+		new Agend_Apps_Log_Admin();
 	}
 }
 add_action( 'plugins_loaded', 'agend_apps_core_bootstrap' );
@@ -462,14 +480,22 @@ function agend_apps_core_activate() {
 	foreach ( Agend_Apps_Cache::get_all_keys() as $key => $config ) {
 		add_option( 'agend_apps_cache_' . $key, $config['default_ttl'] );
 	}
+
+	add_option( Agend_Apps_Logger::OPTION_ENABLED, '1' );
+	add_option( Agend_Apps_Logger::OPTION_RETENTION, Agend_Apps_Logger::DEFAULT_RETENTION_DAYS );
+	Agend_Apps_Log_Store::install();
+	Agend_Apps_Logger::ensure_cron();
 }
 register_activation_hook( __FILE__, 'agend_apps_core_activate' );
 
 /**
  * Deactivation hook.
  *
- * Intentionally empty — settings persist across deactivation so that
- * re-activating the plugin does not require reconfiguration.
+ * Settings and the API log persist across deactivation so that re-activating
+ * the plugin does not require reconfiguration. Only the prune event is
+ * cleared; `init` reschedules it on reactivation.
  */
-function agend_apps_core_deactivate() {}
+function agend_apps_core_deactivate() {
+	Agend_Apps_Logger::clear_cron();
+}
 register_deactivation_hook( __FILE__, 'agend_apps_core_deactivate' );

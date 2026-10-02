@@ -510,3 +510,119 @@ Clicking it flushes both caches, forces `wp_update_plugins()`, and redirects
 back to the Plugins screen with a dismissible "Checked for Agend plugin
 updates." notice.
 
+
+## API log
+
+Core records every call it makes to the Agend gateway, and every webhook the
+gateway delivers to `agend-apps/v1/webhooks/incoming`, in the
+`{prefix}agend_apps_api_log` table. View it at **Tools > Agend API Log**
+(`manage_options`). It replaces nothing: the Agend Pro membership-kiosk log is
+a separate system.
+
+**Personal data is redacted before anything is stored.** The redactor
+(`includes/logging/class-agend-apps-log-redactor.php`) applies three layers to
+the request and response bodies, query string, URL path, error message and
+page path:
+
+1. **Key rules**, at every depth of the JSON. Emails, phone numbers, dates of
+   birth and demographics, addresses and coordinates, person and company names,
+   ABN/ACN/TFN and licence numbers, member and external ids, IP addresses,
+   free text (notes, bios, messages, content, descriptions, answers, reasons,
+   search terms), profile and social URLs, secrets, tokens and session ids,
+   and payment details. Every leaf beneath a matched key is redacted, so
+   `addresses[]` and `custom_fields` are covered in full. Inside custom fields
+   only the answer goes; `key`, `label` and `type` stay so a failure can be
+   traced to its field.
+2. **Value scanners** on every remaining string: emails, AU, North American
+   and international phone numbers, Luhn-valid card numbers, JWTs, `Bearer`
+   tokens, provider keys (`ag_live_…`, `cs_live_…`), and the query string of
+   any URL inside a value (signed links, checkout URLs).
+3. **Known values.** Every personal value the exchange carries (bodies,
+   query parameters, listing slugs, path tokens), plus the signed-in user's
+   own name and email, is scrubbed from free text anywhere in the same row, so
+   a gateway error echoing a name ("Jane is too short") or a slug ("Listing
+   jane-smith-physio not found") does not leak it.
+
+Paths are redacted too: the segment after `invitations`, `verify`, `tokens`,
+`confirm` or `reset` is a token and is always removed, and a slug after a
+person collection (`listings`, `contacts`, `members`, `users`...) is replaced
+with a correlation marker. Only the first segment of the front-end page path is
+kept readable. The `WP_DEBUG` lines the client writes to `debug.log` use the
+same path and message redaction.
+
+Redacted values read `[redacted:email#a1b2c3]`: the six characters are a keyed
+hash, so the same value correlates across rows but cannot be recovered. Secrets
+carry no hash.
+
+**Never stored:** request headers (the API key, member bearer and cart session
+never reach the logger), the referrer, the full IP address (`/24` or `/48`
+only), the requester's email (a salted `user_hash` instead, which the viewer
+and CLI match when you search by email; the viewer's filter form is posted and
+hashed server-side so the email never appears in a URL), and the webhook
+signature. An unverified webhook delivery (bad signature, or no secret
+configured) stores no body, event id or type: anyone can POST to that route,
+so it is recorded as metadata only. Request and
+response bodies are never stored at all for `/auth/login`, `/auth/register`,
+`/auth/refresh`, `/auth/mfa/verify`, `/auth/reset-password`,
+`/auth/change-password`, `/auth/session-handoff` and `/sso/tokens`.
+
+**What is kept:** method, host, path and path template, status, outcome
+(`success`, `http_error`, `transport_error`, `invalid_response`,
+`rate_limited`, `retried`, and for webhooks `signature_invalid`, `duplicate`,
+`invalid_payload`, `not_configured`), duration, attempt number, the gateway's
+`X-Request-Id` (or `X-Vercel-Id`), the webhook event type and id, a UUID shared
+by every call in one PHP request, and allowlisted response headers. Successful
+calls keep up to 5,000 characters of each redacted body, and a successful body
+over 256 KB is summarised rather than redacted; failed calls keep the whole
+redacted body up to 1 MB.
+
+**What cannot be guaranteed:** a third party's name or street address written
+as prose inside a non-personal field (an event description that names a
+speaker) has no pattern to match. Emails, phone numbers, cards and tokens are
+still caught there.
+
+**Writes** are buffered and flushed in one multi-row INSERT on `shutdown`
+(early, every 50 entries, in WP-CLI and cron), so logging adds no queries
+inside a request. A write failure never breaks the request; a batch that fails
+is retried row by row so one bad row cannot drop the rest.
+
+**Retention:** a daily WP-Cron event (`agend_apps_api_log_prune`) deletes rows
+older than the retention setting (default 30 days, 1 to 365) in batches of
+5,000 using the `created_at` index, up to a million rows a run; a run that
+reaches that cap schedules a follow-up five minutes later.
+
+**Switches and filters:**
+
+- `define( 'AGEND_APPS_API_LOG', false );` in `wp-config.php` turns logging off
+  and locks the setting.
+- `agend_apps_log_sensitive_keys` / `agend_apps_log_safe_keys` widen the key
+  rules. The safe list cannot un-redact a built-in personal key.
+- `agend_apps_log_body_excluded_paths` adds endpoints whose bodies are never
+  stored.
+- `agend_apps_log_entry` sees each redacted row (never the raw entry) before
+  it is buffered; return `false` to drop it.
+
+**WP-CLI:** `wp agend-apps logs list [--status=5xx] [--path=/v1/crm]
+[--since="1 day ago"] [--email=<email>]`, `wp agend-apps logs prune
+[--days=<n>]`, `wp agend-apps logs purge [--yes]`.
+
+**Sibling plugins** that call third-party systems directly can log through the
+same redaction with `agend_apps_log_http()`:
+
+```php
+if ( function_exists( 'agend_apps_log_http' ) ) {
+	agend_apps_log_http(
+		array(
+			'source'        => 'agend-directory-sync',
+			'method'        => 'GET',
+			'url'           => $url,
+			'status'        => is_wp_error( $response ) ? null : wp_remote_retrieve_response_code( $response ),
+			'duration_ms'   => $elapsed_ms,
+			'response_body' => is_wp_error( $response ) ? '' : wp_remote_retrieve_body( $response ),
+			'error'         => is_wp_error( $response ) ? $response->get_error_message() : null,
+		)
+	);
+}
+```
+
+There is deliberately no field for request headers.

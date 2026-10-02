@@ -80,6 +80,13 @@ abstract class TestCase extends PHPUnitTestCase {
 		// test in as that user.
 		$GLOBALS['agend_test_current_user_id'] = 0;
 
+		// The API logger is a per-request singleton holding a buffer and a
+		// request id; a test that leaves entries behind would otherwise make
+		// the next test's assertions count them.
+		if ( class_exists( 'Agend_Apps_Logger' ) ) {
+			\Agend_Apps_Logger::set_instance( null );
+		}
+
 		// A fresh $wpdb double per test: its rows_affected is state from the
 		// last query(), which must not leak into the next test's assertions.
 		if ( class_exists( 'wpdb' ) ) {
