@@ -36,7 +36,23 @@ function agend_apps_service_health() {
 		)
 	);
 
+	$started  = microtime( true );
 	$response = wp_remote_get( $url, $args );
+
+	if ( function_exists( 'agend_apps_log_http' ) ) {
+		agend_apps_log_http(
+			array(
+				'source'        => 'agend-apps-core',
+				'method'        => 'GET',
+				'url'           => $url,
+				'status'        => is_wp_error( $response ) ? null : (int) wp_remote_retrieve_response_code( $response ),
+				'duration_ms'   => (int) round( ( microtime( true ) - $started ) * 1000 ),
+				'auth_mode'     => 'none',
+				'response_body' => is_wp_error( $response ) ? '' : (string) wp_remote_retrieve_body( $response ),
+				'error'         => is_wp_error( $response ) ? $response->get_error_message() : null,
+			)
+		);
+	}
 
 	if ( is_wp_error( $response ) ) {
 		return $response;
