@@ -1,5 +1,17 @@
 # Agend Apps Core
 
+## Opt-in trusted LMS OAuth
+
+The #4114 adapter is disabled by default. Server-only `AGEND_LMS_OAUTH_*`
+constants configure the HTTPS LMS origin, registered client ID/secret and exact
+local admin-post callback. An authenticated, REST-nonce-protected POST to
+`agend-apps/v1/lms/oauth/start` derives the current WordPress user; its callback
+requires the same user and login session and atomically consumes state before
+exchanging once. Tokens remain private user meta and do not replace SAML or
+the general gateway member session. See the repository's
+[configuration, entry point and rollout contract](../docs/LMS-TRUSTED-OAUTH.md).
+Unit tests are separate from real WordPress/LMS round-trip acceptance.
+
 The shared WordPress layer every other Agend plugin builds on: the gateway HTTP
 client, member sessions and bearer resolution, response caching, and the
 per-endpoint REST wrappers.
