@@ -106,6 +106,7 @@ final class Agend_Test_WP {
 	 * @var array<int, array{status:int, body:string}>
 	 */
 	public static array $canned_responses = array();
+	public static array $request_args = array();
 
 	/** @var array<int, array{location: string, status: int}> Recorded `wp_safe_redirect()` calls. */
 	public static array $redirects = array();
@@ -158,6 +159,7 @@ final class Agend_Test_WP {
 		self::$tiers_response    = array();
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
+		self::$request_args = array();
 		self::$redirects         = array();
 		self::$wp_update_plugins_calls = 0;
 		self::$enqueued_styles   = array();
@@ -900,6 +902,7 @@ function plugin_dir_url( string $file ): string {
  * response is always distinguishable from a freshly fetched one.
  */
 function wp_remote_request( string $url, array $args = array() ) {
+	Agend_Test_WP::$request_args[] = $args;
 	// `body` is recorded as sent, i.e. already JSON-encoded by
 	// Agend_Apps_API::request(), so a test asserting on it exercises the whole
 	// encode path rather than the array the caller happened to build. Needed
@@ -1128,10 +1131,14 @@ if ( ! class_exists( 'Agend_Test_User' ) ) {
 	class Agend_Test_User {
 		public array $roles = array();
 		public int $ID;
+		public string $user_email;
+		public string $display_name;
 
 		public function __construct( array $roles = array(), int $id = 0 ) {
 			$this->roles = $roles;
 			$this->ID    = $id;
+			$this->user_email = (string) ( $GLOBALS['agend_test_current_user_email'] ?? '' );
+			$this->display_name = (string) ( $GLOBALS['agend_test_current_user_name'] ?? '' );
 		}
 
 		public function exists(): bool {
@@ -1146,6 +1153,12 @@ if ( ! function_exists( 'wp_get_current_user' ) ) {
 			(array) ( $GLOBALS['agend_test_current_user_roles'] ?? array() ),
 			(int) ( $GLOBALS['agend_test_current_user_id'] ?? 0 )
 		);
+	}
+}
+
+if ( ! function_exists( 'wp_get_session_token' ) ) {
+	function wp_get_session_token(): string {
+		return (string) ( $GLOBALS['agend_test_session_token'] ?? '' );
 	}
 }
 
