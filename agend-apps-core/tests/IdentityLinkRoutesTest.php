@@ -47,6 +47,10 @@ final class IdentityLinkRoutesTest extends TestCase {
 		update_option( 'agend_apps_sso_link_mechanism', Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML );
 		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS );
 
+		// The background link toggle defaults to off; every test in this file
+		// predates it and expects the round trip to be reachable.
+		update_option( 'agend_apps_sso_background_link', true );
+
 		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'sso.identities.read', 'sso.tokens.create' ) ) ) );
 		Agend_Apps_Key_Scopes::refresh();
 		Agend_Test_WP::$requests = array();
@@ -97,6 +101,18 @@ final class IdentityLinkRoutesTest extends TestCase {
 		$this->assertSame( 200, $response->get_status() );
 		$this->assertSame( '', $response->get_data()['url'] );
 		$this->assertSame( 'linked', $response->get_data()['reason'] );
+	}
+
+	#[Test]
+	public function should_return_an_empty_url_and_background_link_disabled_when_the_toggle_is_off(): void {
+		$GLOBALS['agend_test_current_user_id'] = 83;
+		update_option( 'agend_apps_sso_background_link', false );
+
+		$response = $this->controller()->get_sso_url( new WP_REST_Request( 'GET', '/agend-apps/v1/identity-link/sso-url' ) );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( '', $response->get_data()['url'] );
+		$this->assertSame( 'background_link_disabled', $response->get_data()['reason'] );
 	}
 
 	#[Test]

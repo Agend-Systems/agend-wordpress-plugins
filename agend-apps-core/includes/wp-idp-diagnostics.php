@@ -313,6 +313,13 @@ function agend_apps_wp_idp_eligibility_guidance( string $reason ): array {
 				'guidance' => __( 'The configured SSO link mechanism is not SAML, so this flow does not apply.', 'agend-apps-core' ),
 			);
 
+		case 'background_link_disabled':
+			return array(
+				'label'    => __( 'Background link off', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'The automatic link is switched off on Settings > Identity and SSO. Members link only when they sign in to Agend through this site\'s SSO, not automatically in the background.', 'agend-apps-core' ),
+			);
+
 		case 'no_external_id':
 			$meta_key = function_exists( 'agend_apps_external_id_meta_key' ) ? agend_apps_external_id_meta_key() : '';
 

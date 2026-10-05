@@ -153,6 +153,10 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 		public static function get_portal_home_url(): string {
 			return '';
 		}
+
+		public static function background_link_enabled(): bool {
+			return (bool) get_option( 'agend_apps_sso_background_link', false );
+		}
 	}
 }
 

@@ -282,6 +282,27 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_identity_sso_section'
 		);
 
+		// Background (automatic) link toggle: off by default, including for
+		// every existing site that never saved the option -- see
+		// {@see Agend_Apps_Settings::background_link_enabled()}.
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_sso_background_link',
+			array(
+				'type'              => 'boolean',
+				'sanitize_callback' => array( $this, 'sanitize_checkbox' ),
+				'default'           => false,
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_sso_background_link',
+			__( 'Background link', 'agend-apps-core' ),
+			array( $this, 'render_background_link_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_identity_sso_section'
+		);
+
 		// Connection section: the read-only entity id an admin pastes into
 		// the Agend dashboard when creating the connection. Not a registered
 		// setting -- it is derived, and it is HALF of the identity key every
@@ -779,6 +800,34 @@ class Agend_Apps_Identity_Admin {
 			);
 			echo '</p></div>';
 		}
+	}
+
+	/**
+	 * Renders the background (automatic) link checkbox: whether a signed-in,
+	 * not-yet-linked member is passed through this site's SAML identity
+	 * provider automatically, in a hidden frame, with one visible redirect as
+	 * a last resort. Off by default -- see
+	 * {@see Agend_Apps_Settings::background_link_enabled()}.
+	 *
+	 * Only has any effect in `wordpress` account sign-in mode with the SAML
+	 * linking mechanism; the description says so rather than hiding the field
+	 * outright, since an admin switching those on later should find this
+	 * already set the way they expect.
+	 */
+	public function render_background_link_field(): void {
+		$value = Agend_Apps_Settings::background_link_enabled();
+
+		printf(
+			'<label><input type="checkbox" name="agend_apps_sso_background_link" value="1"%s /> %s</label>',
+			checked( $value, true, false ),
+			esc_html__( 'Link members automatically in the background', 'agend-apps-core' )
+		);
+		echo '<p class="description">';
+		esc_html_e(
+			'When on, a signed-in member who is not yet linked is passed through this site\'s SAML identity provider in a hidden frame, with one visible redirect as a last resort. When off, no automatic link attempt is made; a member links only by actively going through this site\'s SSO. Only applies in WordPress account sign-in mode with the SAML linking mechanism. Off by default.',
+			'agend-apps-core'
+		);
+		echo '</p>';
 	}
 
 	/**
