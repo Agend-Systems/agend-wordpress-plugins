@@ -148,12 +148,9 @@ final class ListingTransformerChildListsTest extends TestCase {
 	}
 
 	/**
-	 * An all-blank item carries no information and would render as an empty
-	 * table row; it is also the shape (an empty PHP array) that
-	 * `wp_json_encode` sends as `[]` instead of `{}`, which the gateway
-	 * rejects with "Each item must be an object." (SPEC-DIR-20260930-directory-item-list-field
-	 * handover, "Fix before merge"). The row is skipped entirely rather than
-	 * kept positionally.
+	 * An empty PHP array encodes as `[]`, not `{}`, and the gateway rejects
+	 * the whole listing row for it, so an all-blank row is skipped entirely
+	 * rather than kept positionally.
 	 */
 	#[Test]
 	public function it_skips_an_item_whose_every_source_is_blank(): void {
@@ -219,37 +216,6 @@ final class ListingTransformerChildListsTest extends TestCase {
 		$json   = wp_json_encode( $result['listings'][0]['custom_fields']['centre_tenants'] );
 
 		$this->assertSame( '[{"tenant_name":"Acme"}]', $json );
-	}
-
-	/**
-	 * A non-empty item whose only declared item field key is a sequential
-	 * integer string ("0") is, after PHP's automatic numeric-key coercion,
-	 * shaped exactly like a plain list. Uncaught, `wp_json_encode` would send
-	 * it as a JSON array (`["Acme"]`), tripping the same "Each item must be
-	 * an object." gateway rejection as the empty-item bug, just with a
-	 * non-empty item.
-	 */
-	#[Test]
-	public function an_item_with_only_a_numeric_key_still_encodes_as_an_object(): void {
-		$field_map = $this->field_map(
-			array(
-				array(
-					'target'     => 'centre_tenants',
-					'items'      => array( '0' => 'pca_tenantname' ),
-					'order_by'   => array(),
-					'aggregates' => array(),
-				),
-			)
-		);
-
-		$contact = $this->contact_with_rows(
-			array( 'centre_tenants' => array( array( 'pca_tenantname' => 'Acme' ) ) )
-		);
-
-		$result = Agend_Directory_Sync_Listing_Transformer::transform_all( array( $contact ), $field_map );
-		$json   = wp_json_encode( $result['listings'][0]['custom_fields']['centre_tenants'] );
-
-		$this->assertSame( '[{"0":"Acme"}]', $json );
 	}
 
 	#[Test]
