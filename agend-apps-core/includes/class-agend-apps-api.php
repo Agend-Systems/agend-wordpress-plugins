@@ -77,6 +77,8 @@ class Agend_Apps_API {
 	 *                                401/403-on-GET retry below; callers should not set this.
 	 *     @type bool   $bearer_auto_resolved Internal use only. Set by `get_cached()` when the
 	 *                                `bearer_token` it passes came from the shared resolver.
+	 *     @type int    $log_attempt  Internal use only. The attempt number recorded in the API
+	 *                                log; 2 for the unattended retry.
 	 * }
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
@@ -219,6 +221,9 @@ class Agend_Apps_API {
 		$rate_remaining = get_transient( 'agend_apps_rate_limit_remaining' );
 		if ( false !== $rate_remaining && 0 === (int) $rate_remaining ) {
 			$reset = get_transient( 'agend_apps_rate_limit_reset' );
+
+			$this->log_exchange( $method, $url, $request_args, $bearer_token, $args, null, null, 'rate_limited', null, 'agend_apps_rate_limited', 'Local rate-limit short-circuit; no request sent.' );
+
 			// Carries the same `status_code` a live 429 would, so callers that
 			// branch on status (retry scheduling, sweep pacing) treat the local
 			// short-circuit and the gateway's own refusal identically.
@@ -243,13 +248,21 @@ class Agend_Apps_API {
 		$request_args = (array) apply_filters( 'agend_apps_api_request_args', $request_args, $method, $path );
 
 		// 10. Send the request.
+		$started  = microtime( true );
 		$response = wp_remote_request( $url, $request_args );
+		$elapsed  = (int) round( ( microtime( true ) - $started ) * 1000 );
+
+		// Every exit below records the exchange exactly once.
+		$log = function ( string $outcome, ?int $status, string $error_code = '', string $error_message = '' ) use ( $method, $url, $request_args, $bearer_token, $args, $elapsed, $response ): void {
+			$this->log_exchange( $method, $url, $request_args, $bearer_token, $args, $response, $status, $outcome, $elapsed, $error_code, $error_message );
+		};
 
 		// 11. Propagate transport-level errors.
 		if ( is_wp_error( $response ) ) {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				error_log( '[Agend Apps] HTTP request failed: ' . $response->get_error_message() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
 			}
+			$log( 'transport_error', null, (string) $response->get_error_code(), $response->get_error_message() );
 			return $response;
 		}
 
@@ -271,6 +284,7 @@ class Agend_Apps_API {
 		// controllers can translate them.
 		if ( ! empty( $args['raw'] ) ) {
 			if ( $status_code < 200 || $status_code >= 300 ) {
+				$log( 'http_error', $status_code, 'agend_api_error' );
 				return new WP_Error(
 					'agend_api_error',
 					__( 'The Agend API returned an error for this download.', 'agend-apps-core' ),
@@ -286,6 +300,8 @@ class Agend_Apps_API {
 				);
 			}
 
+			$log( 'success', $status_code );
+
 			return array(
 				'body'                => $body,
 				'status_code'         => $status_code,
@@ -296,6 +312,7 @@ class Agend_Apps_API {
 
 		// 204 No Content — no body to decode.
 		if ( 204 === $status_code ) {
+			$log( 'success', $status_code );
 			return array();
 		}
 
@@ -303,8 +320,11 @@ class Agend_Apps_API {
 
 		if ( null === $decoded && '' !== $body ) {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				error_log( '[Agend Apps] Invalid JSON response from API: ' . $body ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+				// The length, never the body: the body can carry member data,
+				// and the debug log has none of the API log's redaction.
+				error_log( sprintf( '[Agend Apps] Invalid JSON response from API (%d bytes, status %d) on %s %s.', strlen( $body ), $status_code, $method, self::debug_path( $path ) ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
 			}
+			$log( 'invalid_response', $status_code, 'agend_apps_invalid_response' );
 			return new WP_Error(
 				'agend_apps_invalid_response',
 				__( 'Invalid JSON response from Agend API.', 'agend-apps-core' ),
@@ -331,13 +351,16 @@ class Agend_Apps_API {
 			) {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-						sprintf( '[Agend Apps] Gateway rejected the member bearer (%d) on GET %s; retried unattended.', $status_code, $path )
+						sprintf( '[Agend Apps] Gateway rejected the member bearer (%d) on GET %s; retried unattended.', $status_code, self::debug_path( $path ) )
 					);
 				}
+
+				$log( 'retried', $status_code, 'agend_api_error' );
 
 				$retry_args                = $args;
 				$retry_args['bearer_token'] = '';
 				$retry_args['unattended']   = true;
+				$retry_args['log_attempt']  = (int) ( $args['log_attempt'] ?? 1 ) + 1;
 
 				return $this->request( $method, $path, $retry_args );
 			}
@@ -348,9 +371,11 @@ class Agend_Apps_API {
 
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-					sprintf( '[Agend Apps] API error %d on %s %s: %s', $status_code, $method, $path, $message )
+					sprintf( '[Agend Apps] API error %d on %s %s: %s', $status_code, $method, self::debug_path( $path ), self::debug_text( (string) $message, (string) ( $request_args['body'] ?? '' ) ) )
 				);
 			}
+
+			$log( 'http_error', $status_code, isset( $decoded['error']['code'] ) && is_scalar( $decoded['error']['code'] ) ? (string) $decoded['error']['code'] : 'agend_api_error', (string) $message );
 
 			return new WP_Error(
 				'agend_api_error',
@@ -391,12 +416,14 @@ class Agend_Apps_API {
 						'[Agend Apps] Non-array %d response on %s %s (%d bytes, type %s).',
 						$status_code,
 						$method,
-						$path,
+						self::debug_path( $path ),
 						strlen( $body ),
 						gettype( $decoded )
 					)
 				);
 			}
+
+			$log( 'invalid_response', $status_code, 'agend_apps_invalid_response' );
 
 			return new WP_Error(
 				'agend_apps_invalid_response',
@@ -420,7 +447,94 @@ class Agend_Apps_API {
 			$decoded['status_code'] = $status_code;
 		}
 
+		$log( 'success', $status_code );
+
 		return $decoded;
+	}
+
+	/**
+	 * A path safe for debug.log: the same redaction the API log applies, so
+	 * a listing slug or an invitation token does not land there either.
+	 */
+	private static function debug_path( string $path ): string {
+		return class_exists( 'Agend_Apps_Logger' ) ? agend_apps_logger()->redactor()->redact_path( $path ) : '[path]';
+	}
+
+	/**
+	 * A gateway message safe for debug.log, with the same known-value pass
+	 * as the API log: a message echoing a name from the request is scrubbed.
+	 */
+	private static function debug_text( string $text, string $request_body = '' ): string {
+		if ( ! class_exists( 'Agend_Apps_Logger' ) ) {
+			return '[message]';
+		}
+
+		$redactor = agend_apps_logger()->redactor();
+		$redactor->forget();
+		$redactor->remember( json_decode( $request_body, true ) );
+		$redacted = $redactor->redact_text( $text );
+		$redactor->forget();
+
+		return $redacted;
+	}
+
+	/**
+	 * Hands one exchange to the API log.
+	 *
+	 * Request headers are deliberately not passed: the API key and bearer
+	 * never reach the logger, only which of them was used.
+	 *
+	 * @param string              $method        HTTP method.
+	 * @param string              $url           Full request URL.
+	 * @param array               $request_args  The wp_remote_request args.
+	 * @param string              $bearer_token  Bearer attached, or ''.
+	 * @param array               $args          The caller's request() args.
+	 * @param array|WP_Error|null $response      Raw response, when one was received.
+	 * @param int|null            $status        HTTP status.
+	 * @param string              $outcome       Log outcome.
+	 * @param int|null            $duration_ms   Round-trip time.
+	 * @param string              $error_code    Error code.
+	 * @param string              $error_message Error message.
+	 */
+	private function log_exchange( string $method, string $url, array $request_args, string $bearer_token, array $args, $response, ?int $status, string $outcome, ?int $duration_ms, string $error_code = '', string $error_message = '' ): void {
+		if ( ! class_exists( 'Agend_Apps_Logger' ) || ! Agend_Apps_Logger::enabled() ) {
+			return;
+		}
+
+		$headers = array();
+		$body    = '';
+
+		if ( is_array( $response ) ) {
+			$body = (string) wp_remote_retrieve_body( $response );
+
+			foreach ( Agend_Apps_Log_Redactor::SAFE_RESPONSE_HEADERS as $name ) {
+				$value = wp_remote_retrieve_header( $response, $name );
+
+				if ( '' !== $value && null !== $value ) {
+					$headers[ $name ] = $value;
+				}
+			}
+		}
+
+		agend_apps_logger()->record(
+			array(
+				'source'           => 'agend-apps-core',
+				'direction'        => 'outbound',
+				'method'           => strtoupper( $method ),
+				'url'              => $url,
+				'status'           => $status,
+				'outcome'          => $outcome,
+				'duration_ms'      => $duration_ms,
+				'attempt'          => (int) ( $args['log_attempt'] ?? 1 ),
+				'auth_mode'        => '' !== $bearer_token ? 'bearer' : ( ! empty( $args['unattended'] ) ? 'unattended' : 'api_key' ),
+				'request_body'     => is_string( $request_args['body'] ?? null ) ? $request_args['body'] : '',
+				'response_body'    => ! empty( $args['raw'] ) && 'success' === $outcome ? '' : $body,
+				'content_type'     => (string) ( $headers['content-type'] ?? '' ),
+				'response_headers' => $headers,
+				'error_code'       => $error_code,
+				'error_message'    => $error_message,
+			)
+		);
 	}
 
 	/**
