@@ -262,6 +262,280 @@
     ready(list);
   }
 
+  // -- Location -------------------------------------------------------------
+
+  // The directory's map defaults, fetched once per page and shared with the
+  // Agend Map widget (assets/js/directory-map.js reads the same promise), so
+  // a filter and a map on one page cost one request between them.
+  function mapSettings(ctx) {
+    var shared = (window.agendDirectory = window.agendDirectory || {});
+    if (!shared.mapSettings) {
+      shared.mapSettings = ctx.apiGet('/directory/map-settings', {})
+        .then(function (body) {
+          return (body && body.data && typeof body.data === 'object') ? body.data : null;
+        })
+        .catch(function () {
+          return null;
+        });
+    }
+    return shared.mapSettings;
+  }
+
+  function radiusText(km) {
+    return 'Within ' + km + ' km';
+  }
+
+  // Wording matches the Directory app's own toolbar, so a visitor meets the
+  // same messages on either.
+  var GEO_MESSAGES = {
+    empty: 'Enter a suburb, postcode or address.',
+    notFound: 'We could not find that place. Try a suburb or postcode.',
+    busy: 'Place search is busy. Please try again in a moment.',
+    failed: 'Place search failed. Please try again in a moment.',
+    unsupported: 'Your browser does not support finding your location.',
+    denied: 'Location permission was denied. Update your browser settings to use this feature.',
+    timeout: 'Could not get your location. Please try again.',
+    unavailable: 'Your location is unavailable. Check that Location Services are turned on, then try again.',
+  };
+
+  // Nominatim, behind the gateway, allows about one lookup a second.
+  var GEOCODE_MIN_INTERVAL_MS = 1500;
+
+  function buildLocation(shell, cfg, ctx) {
+    var opts = cfg.location || {};
+    var wrap = adopt(shell, '.agend-filter__location', 'div', 'agend-filter__location');
+    var searchRow = wrap.querySelector('.agend-filter__location-row--search');
+    var input = wrap.querySelector('.agend-filter__location-input');
+    var searchBtn = wrap.querySelector('.agend-filter__location-search');
+    var locateBtn = wrap.querySelector('.agend-filter__location-locate');
+    var radiusSel = wrap.querySelector('.agend-filter__location-radius');
+    var status = wrap.querySelector('.agend-filter__location-status');
+    var chip = wrap.querySelector('.agend-filter__location-chip');
+    var chipText = wrap.querySelector('.agend-filter__location-chip-text');
+    var clearBtn = wrap.querySelector('.agend-filter__location-clear');
+    if (!status || !chip || !chipText || !clearBtn) {
+      // Markup older than this control: nothing to adopt, and inventing it
+      // here would drift from the server-drawn version.
+      return;
+    }
+
+    var radii = Array.isArray(opts.radii) && opts.radii.length ? opts.radii : [15];
+    var lastLookup = 0;
+
+    function currentRadius() {
+      var value = radiusSel ? Number(radiusSel.value) : Number(opts.radius);
+      return isFinite(value) && value > 0 ? value : radii[0];
+    }
+
+    function say(message) {
+      status.textContent = message || '';
+      status.hidden = !message;
+    }
+
+    function paintChip() {
+      var near = ctx.state[cfg.state];
+      if (!near) {
+        chip.hidden = true;
+        chipText.textContent = '';
+        return;
+      }
+      chipText.textContent = radiusText(near.radius) + ' of ' + near.label;
+      chip.hidden = false;
+    }
+
+    function busy(on) {
+      [input, searchBtn, locateBtn].forEach(function (node) {
+        if (node) {
+          node.disabled = on;
+        }
+      });
+      wrap.setAttribute('aria-busy', on ? 'true' : 'false');
+    }
+
+    function apply(lat, lng, label) {
+      ctx.state[cfg.state] = { lat: lat, lng: lng, radius: currentRadius(), label: label };
+      // A map viewport and a point cannot be searched together; the point
+      // is the newer question, so it wins.
+      ctx.state.bbox = '';
+      ctx.state.page = 1;
+      say('');
+      paintChip();
+      ctx.reload();
+    }
+
+    function lookup() {
+      var text = input ? input.value.trim() : '';
+      if (!text) {
+        say(GEO_MESSAGES.empty);
+        return;
+      }
+      var now = Date.now();
+      if (now - lastLookup < GEOCODE_MIN_INTERVAL_MS) {
+        return;
+      }
+      lastLookup = now;
+      var query = opts.region ? text + ', ' + opts.region : text;
+      busy(true);
+      ctx.apiGet('/directory/geocode', { q: query.slice(0, 200) })
+        .then(function (body) {
+          busy(false);
+          var point = body && body.data;
+          if (point && isFinite(Number(point.latitude)) && isFinite(Number(point.longitude))) {
+            apply(Number(point.latitude), Number(point.longitude), text);
+            return;
+          }
+          var code = body && body.data && body.data.status_code;
+          if (code === 404) {
+            say(GEO_MESSAGES.notFound);
+          } else if (code === 403) {
+            // The account does not include place search after all; the
+            // button still works.
+            if (searchRow) {
+              searchRow.hidden = true;
+            }
+            say('');
+          } else if (code === 429 || code === 503) {
+            say(GEO_MESSAGES.busy);
+          } else {
+            say(GEO_MESSAGES.failed);
+          }
+        })
+        .catch(function () {
+          busy(false);
+          say(GEO_MESSAGES.failed);
+        });
+    }
+
+    function locate() {
+      if (!navigator.geolocation) {
+        say(GEO_MESSAGES.unsupported);
+        return;
+      }
+      busy(true);
+      var onSuccess = function (position) {
+        busy(false);
+        if (input) {
+          input.value = '';
+        }
+        apply(position.coords.latitude, position.coords.longitude, 'your location');
+      };
+      var onError = function (error, retried) {
+        // A quick, low-accuracy fix fails on some desktops; one precise
+        // attempt is worth making before giving up.
+        if (error && error.code === 2 && !retried) {
+          navigator.geolocation.getCurrentPosition(onSuccess, function (again) {
+            onError(again, true);
+          }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+          return;
+        }
+        busy(false);
+        if (error && error.code === 1) {
+          say(GEO_MESSAGES.denied);
+        } else if (error && error.code === 3) {
+          say(GEO_MESSAGES.timeout);
+        } else {
+          say(GEO_MESSAGES.unavailable);
+        }
+      };
+      navigator.geolocation.getCurrentPosition(onSuccess, function (error) {
+        onError(error, false);
+      }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+    }
+
+    // A rebuild (reset) starts from nothing.
+    if (input) {
+      input.value = '';
+    }
+    say('');
+    paintChip();
+
+    if (input) {
+      once(input, 'keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          lookup();
+        }
+      });
+    }
+    if (searchBtn) {
+      once(searchBtn, 'click', lookup);
+    }
+    if (locateBtn) {
+      once(locateBtn, 'click', locate);
+    }
+    if (radiusSel) {
+      once(radiusSel, 'change', function () {
+        var near = ctx.state[cfg.state];
+        if (near) {
+          near.radius = currentRadius();
+          ctx.state.page = 1;
+          paintChip();
+          ctx.reload();
+        }
+      });
+    }
+    once(clearBtn, 'click', function () {
+      ctx.state[cfg.state] = null;
+      ctx.state.page = 1;
+      if (input) {
+        input.value = '';
+      }
+      say('');
+      paintChip();
+      ctx.reload();
+    });
+
+    ready(wrap);
+
+    // Without the account's place search the box cannot answer, so it is
+    // hidden rather than left to fail on every submit.
+    if (searchRow && opts.search) {
+      mapSettings(ctx).then(function (settings) {
+        if (settings && settings.geocoding_available === false) {
+          searchRow.hidden = true;
+          if (!locateBtn) {
+            shell.hidden = true;
+          }
+        }
+      });
+    }
+  }
+
+  // -- List / Map switch ----------------------------------------------------
+
+  function buildView(shell, cfg, ctx) {
+    var group = adopt(shell, '.agend-filter__view', 'div', 'agend-filter__options agend-filter__view');
+    var buttons = group.querySelectorAll('[data-agend-view]');
+    var initial = (cfg.view && cfg.view.default) === 'map' ? 'map' : 'list';
+
+    function paint(view) {
+      Array.prototype.forEach.call(buttons, function (button) {
+        var on = button.getAttribute('data-agend-view') === view;
+        button.className = 'agend-filter__button' + (on ? ' is-active' : '');
+        button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+
+    function choose(view) {
+      ctx.state[cfg.state] = view;
+      paint(view);
+      if (ctx.setView) {
+        ctx.setView(view);
+      }
+    }
+
+    Array.prototype.forEach.call(buttons, function (button) {
+      once(button, 'click', function () {
+        choose(button.getAttribute('data-agend-view'));
+      });
+    });
+
+    // The view survives a reset: clearing filters is about results, not
+    // about which way the visitor chose to read them.
+    choose(ctx.state[cfg.state] === 'map' || ctx.state[cfg.state] === 'list' ? ctx.state[cfg.state] : initial);
+    ready(group);
+  }
+
   // Endpoint-backed lists are per-account data, so they are fetched at render
   // time rather than saved into the template. One fetch per path per page,
   // shared by every filter reading it.
@@ -354,7 +628,11 @@
       if (!cfg || !cfg.state) {
         return;
       }
-      if (cfg.mode === 'map') {
+      if (cfg.mode === 'view') {
+        // Left as the visitor set it; buildView() repaints it on rebuild.
+      } else if (cfg.mode === 'location') {
+        ctx.state[cfg.state] = null;
+      } else if (cfg.mode === 'map') {
         ctx.state[cfg.state] = {};
       } else {
         ctx.state[cfg.state] = cfg.mode === 'array' ? [] : '';
@@ -412,6 +690,14 @@
       buildDate(slot, cfg, ctx);
       return;
     }
+    if (cfg.control === 'location') {
+      buildLocation(slot, cfg, ctx);
+      return;
+    }
+    if (cfg.control === 'view') {
+      buildView(slot, cfg, ctx);
+      return;
+    }
 
     loadValues(cfg, ctx).then(function (values) {
       if (!values.length) {
@@ -435,7 +721,8 @@
    * Builds every Agend Filter control inside a scope.
    *
    * @param {Element} scope   The catalogue root.
-   * @param {Object}  options state, reload and apiGet from the catalogue.
+   * @param {Object}  options state, reload and apiGet from the catalogue, and
+   *                          optionally setView for a List / Map switch.
    * @return {number} How many filter shells were found.
    */
   function build(scope, options) {

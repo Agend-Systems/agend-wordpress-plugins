@@ -32,7 +32,7 @@ const AGEND_APPS_RECORDS_FRAGMENT_MAX_LIMIT = 100;
  */
 function agend_apps_records_fragment_allowed_params( string $type ): array {
 	if ( 'listing' === $type ) {
-		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories', 'city', 'state', 'postcode', 'country' );
+		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'bbox', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories', 'city', 'state', 'postcode', 'country' );
 	}
 	if ( 'course' === $type ) {
 		return array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'deliveryMode', 'excludeCategories', 'excludeDifficulties', 'excludeDeliveryModes', 'sortBy', 'sortOrder' );
@@ -195,13 +195,73 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 		'country'           => implode( ',', (array) ( $state['location_country'] ?? array() ) ),
 		'custom_fields'     => agend_apps_records_custom_field_filters( $state['custom_fields'] ?? array() ),
 		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
-		// Relevance unless a Sort filter says otherwise; name reads better
-		// ascending, everything else descending.
-		'sortBy'            => '' !== (string) ( $state['sortBy'] ?? '' ) ? (string) $state['sortBy'] : 'relevance',
-		'sortOrder'         => 'name' === (string) ( $state['sortBy'] ?? '' ) ? 'asc' : 'desc',
+		'sortBy'            => agend_apps_records_listings_sort_by( $state ),
+		'sortOrder'         => in_array( agend_apps_records_listings_sort_by( $state ), array( 'name', 'distance' ), true ) ? 'asc' : 'desc',
 	);
 
+	// A Location filter's point and radius, or a map viewport. The gateway
+	// takes one or the other, and a point wins.
+	$near = agend_apps_records_listings_near( $state );
+	if ( null !== $near ) {
+		$args['lat']    = (string) $near['lat'];
+		$args['lng']    = (string) $near['lng'];
+		$args['radius'] = (string) $near['radius'];
+	} elseif ( is_string( $state['bbox'] ?? null ) && '' !== $state['bbox'] ) {
+		$args['bbox'] = (string) $state['bbox'];
+	}
+
 	return agend_apps_records_fragment_query_args( $args, 'listing' );
+}
+
+/**
+ * A Location filter's point and radius from catalogue state, or null when
+ * none is set or any part of it is not a finite number in range.
+ *
+ * Mirrors nearParams() in assets/js/directory-catalogue.js.
+ *
+ * @param array $state Visitor filter state.
+ * @return array{lat: float, lng: float, radius: float}|null
+ */
+function agend_apps_records_listings_near( array $state ): ?array {
+	$near = $state['near'] ?? null;
+	if ( ! is_array( $near ) ) {
+		return null;
+	}
+	foreach ( array( 'lat', 'lng', 'radius' ) as $key ) {
+		if ( ! isset( $near[ $key ] ) || ! is_numeric( $near[ $key ] ) || ! is_finite( (float) $near[ $key ] ) ) {
+			return null;
+		}
+	}
+	$lat    = (float) $near['lat'];
+	$lng    = (float) $near['lng'];
+	$radius = (float) $near['radius'];
+	if ( $lat < -90 || $lat > 90 || $lng < -180 || $lng > 180 || $radius <= 0 ) {
+		return null;
+	}
+	return array( 'lat' => $lat, 'lng' => $lng, 'radius' => $radius );
+}
+
+/**
+ * The listings sort for catalogue state, matching effectiveSort() in
+ * assets/js/directory-catalogue.js.
+ *
+ * A location search with no Sort choice orders nearest first, the way a
+ * "find near me" search is expected to read. "Nearest" without a location
+ * has nothing to measure from, so it falls back to relevance.
+ *
+ * @param array $state Visitor filter state.
+ * @return string
+ */
+function agend_apps_records_listings_sort_by( array $state ): string {
+	$sort     = (string) ( $state['sortBy'] ?? '' );
+	$has_near = null !== agend_apps_records_listings_near( $state );
+	if ( '' === $sort ) {
+		return $has_near ? 'distance' : 'relevance';
+	}
+	if ( 'distance' === $sort && ! $has_near ) {
+		return 'relevance';
+	}
+	return $sort;
 }
 
 /**

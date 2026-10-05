@@ -33,6 +33,11 @@ const AGEND_APPS_RECORDS_SSR_DETAIL_OPTION = 'agend_elementor_ssr_detail';
 const AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION = 'agend_elementor_show_achievements';
 
 /**
+ * Option name for the site's CARTO basemaps API key, used by the Agend Map.
+ */
+const AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION = 'agend_apps_map_carto_key';
+
+/**
  * Option name storing the configured Events catalogue/detail page id (0 = unset).
  *
  * @var string
@@ -247,8 +252,74 @@ function agend_apps_records_settings_init(): void {
 		'agend-elementor',
 		'agend_elementor_section_detail'
 	);
+
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION,
+		array(
+			'type'              => 'string',
+			'sanitize_callback' => 'agend_apps_records_sanitize_map_tiles_key',
+			'default'           => '',
+		)
+	);
+
+	add_settings_section(
+		'agend_apps_section_maps',
+		__( 'Maps', 'agend-apps-core' ),
+		'agend_apps_records_settings_section_maps',
+		'agend-elementor'
+	);
+
+	add_settings_field(
+		AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION,
+		__( 'CARTO basemaps key', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_map_tiles_key',
+		'agend-elementor',
+		'agend_apps_section_maps'
+	);
 }
 add_action( 'admin_init', 'agend_apps_records_settings_init' );
+
+/**
+ * Keeps a CARTO key to the characters a key can contain, so nothing else can
+ * reach the tile URL the map builds from it.
+ *
+ * @param mixed $value Raw submitted value.
+ * @return string
+ */
+function agend_apps_records_sanitize_map_tiles_key( $value ): string {
+	return (string) preg_replace( '/[^A-Za-z0-9_\-.]/', '', trim( (string) $value ) );
+}
+
+/**
+ * Renders the Maps section description.
+ */
+function agend_apps_records_settings_section_maps(): void {
+	echo '<p>';
+	esc_html_e(
+		'The map tiles the Agend Map widget draws on.',
+		'agend-apps-core'
+	);
+	echo '</p>';
+}
+
+/**
+ * Renders the CARTO key field.
+ */
+function agend_apps_records_settings_field_map_tiles_key(): void {
+	$value = (string) get_option( AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION, '' );
+	?>
+	<input type="text" class="regular-text code" name="<?php echo esc_attr( AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION ); ?>" value="<?php echo esc_attr( $value ); ?>" autocomplete="off" spellcheck="false" />
+	<p class="description">
+		<?php
+		esc_html_e(
+			'With a key, maps use CARTO\'s light basemap, the same look as the Agend Directory app. Request a free key at carto.com/basemaps (the free commercial plan allows 1 million tile requests a month). The key is sent with every tile, so visitors can see it, which is normal for map keys. Without a key, maps use OpenStreetMap\'s own tiles, which suit light traffic only.',
+			'agend-apps-core'
+		);
+		?>
+	</p>
+	<?php
+}
 
 /**
  * Normalises a checkbox option to '1' or ''.

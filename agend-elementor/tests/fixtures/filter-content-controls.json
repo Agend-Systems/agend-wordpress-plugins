@@ -51,6 +51,8 @@
                                     "listing:featured": "Featured",
                                     "listing:tag": "Tag",
                                     "listing:badge": "Badge",
+                                    "listing:location": "Location",
+                                    "listing:view": "View",
                                     "listing:custom_field": "Custom field"
                                 }
                             }
@@ -85,7 +87,9 @@
                             "buttons": "Buttons",
                             "date": "Date",
                             "range": "Number range",
-                            "reset": "Clear button"
+                            "reset": "Clear button",
+                            "location": "Location search",
+                            "view": "List / Map switch"
                         },
                         "description": "Presentations the chosen filter does not support fall back to its default."
                     }
@@ -118,7 +122,8 @@
                                 "",
                                 "search",
                                 "date",
-                                "reset"
+                                "reset",
+                                "location"
                             ]
                         }
                     }
@@ -134,7 +139,178 @@
                             "control!": [
                                 "search",
                                 "date"
+                            ],
+                            "filter!": [
+                                "listing:location",
+                                "listing:view"
                             ]
+                        }
+                    }
+                },
+                {
+                    "id": "location_heading",
+                    "args": {
+                        "label": "Location search",
+                        "type": "heading",
+                        "separator": "before",
+                        "condition": {
+                            "filter": "listing:location"
+                        }
+                    }
+                },
+                {
+                    "id": "location_show_search",
+                    "args": {
+                        "label": "Place search box",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "A box for an address, suburb or postcode. It is hidden on the live page when the account does not include place search.",
+                        "condition": {
+                            "filter": "listing:location"
+                        }
+                    }
+                },
+                {
+                    "id": "location_button_text",
+                    "args": {
+                        "label": "Search button text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Search",
+                        "condition": {
+                            "filter": "listing:location",
+                            "location_show_search": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "location_region",
+                    "args": {
+                        "label": "Region",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Australia",
+                        "description": "Added to every place search, so a suburb that exists in several countries resolves to the right one. Leave empty to search worldwide.",
+                        "condition": {
+                            "filter": "listing:location",
+                            "location_show_search": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "location_show_locate",
+                    "args": {
+                        "label": "\"Use my location\" button",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Asks the visitor's browser for their position. Always shown when the place search box is off.",
+                        "condition": {
+                            "filter": "listing:location"
+                        }
+                    }
+                },
+                {
+                    "id": "location_locate_text",
+                    "args": {
+                        "label": "\"Use my location\" text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Use my location",
+                        "condition": {
+                            "filter": "listing:location"
+                        }
+                    }
+                },
+                {
+                    "id": "location_radius_choices",
+                    "args": {
+                        "label": "Radius choices (km)",
+                        "type": "text",
+                        "default": "5,10,15,20,25,50,100",
+                        "description": "Separated by commas. A single value fixes the radius and hides the dropdown.",
+                        "condition": {
+                            "filter": "listing:location"
+                        }
+                    }
+                },
+                {
+                    "id": "location_radius_default",
+                    "args": {
+                        "label": "Default radius (km)",
+                        "type": "number",
+                        "default": 15,
+                        "min": 1,
+                        "max": 1000,
+                        "step": 1,
+                        "condition": {
+                            "filter": "listing:location"
+                        }
+                    }
+                },
+                {
+                    "id": "view_heading",
+                    "args": {
+                        "label": "List / Map switch",
+                        "type": "heading",
+                        "separator": "before",
+                        "condition": {
+                            "filter": "listing:view"
+                        }
+                    }
+                },
+                {
+                    "id": "view_default",
+                    "args": {
+                        "label": "Starts on",
+                        "type": "select",
+                        "default": "list",
+                        "options": {
+                            "list": "List",
+                            "map": "Map"
+                        },
+                        "description": "Pair this with an Agend Map widget set to \"Show only in Map view\". Without one, Map shows nothing.",
+                        "condition": {
+                            "filter": "listing:view"
+                        }
+                    }
+                },
+                {
+                    "id": "view_layout",
+                    "args": {
+                        "label": "Layout",
+                        "type": "select",
+                        "default": "separate",
+                        "options": {
+                            "separate": "Separate buttons",
+                            "joined": "Joined (one control)"
+                        },
+                        "description": "Joined puts the two buttons side by side inside one outline, the corner radius rounding only the outer corners.",
+                        "condition": {
+                            "filter": "listing:view"
+                        }
+                    }
+                },
+                {
+                    "id": "view_list_label",
+                    "args": {
+                        "label": "List button text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "List",
+                        "condition": {
+                            "filter": "listing:view"
+                        }
+                    }
+                },
+                {
+                    "id": "view_map_label",
+                    "args": {
+                        "label": "Map button text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Map",
+                        "condition": {
+                            "filter": "listing:view"
                         }
                     }
                 }
@@ -150,7 +326,13 @@
                         "search",
                         "date",
                         "reset",
-                        "range"
+                        "range",
+                        "location",
+                        "view"
+                    ],
+                    "filter!": [
+                        "listing:location",
+                        "listing:view"
                     ]
                 }
             },

@@ -98,6 +98,9 @@ function agend_apps_records_filter_static_values( string $set ): array {
 				'rating'     => __( 'Highest rated', 'agend-apps-core' ),
 				'created_at' => __( 'Newest', 'agend-apps-core' ),
 				'view_count' => __( 'Most viewed', 'agend-apps-core' ),
+				// Only meaningful once a Location filter has set a point: without
+				// one the catalogue falls back to relevance.
+				'distance'   => __( 'Nearest', 'agend-apps-core' ),
 			);
 		case 'rating':
 			return array(
@@ -116,7 +119,9 @@ function agend_apps_records_filter_static_values( string $set ): array {
  * Descriptor keys:
  * - `label`      default control label.
  * - `state`      the catalogue state key this filter writes.
- * - `mode`       'array' when the state key holds a list, 'scalar' otherwise.
+ * - `mode`       'array' when the state key holds a list, 'scalar' otherwise,
+ *                'map' for one key of a map, 'location' for a {lat, lng,
+ *                radius, label} point, 'view' for the list/map switch.
  * - `controls`   presentations the filter supports, first is the default.
  * - `source`     where "all values" come from: `null` (no value list, e.g. a
  *                free-text search), `array('static' => <set>)`,
@@ -298,6 +303,26 @@ function agend_apps_records_filter_registry(): array {
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
 				'source'   => array( 'facet' => 'badges' ),
 			),
+			// A point and a radius: typed as a place the gateway geocodes, or
+			// taken from the browser. The state is one object, {lat, lng,
+			// radius, label}, because the three only mean something together.
+			'location'     => array(
+				'label'    => __( 'Location', 'agend-apps-core' ),
+				'state'    => 'near',
+				'mode'     => 'location',
+				'controls' => array( 'location' ),
+				'source'   => null,
+			),
+			// Switches the page between the results list and an Agend Map
+			// widget set to follow it. Writes the catalogue's view, not a
+			// query, so changing it never reloads results.
+			'view'         => array(
+				'label'    => __( 'View', 'agend-apps-core' ),
+				'state'    => 'view',
+				'mode'     => 'view',
+				'controls' => array( 'view' ),
+				'source'   => null,
+			),
 			// A custom field is addressed by key, so one registry entry backs
 			// every field an account has configured as a filter. The facet
 			// endpoint decides which keys this viewer may see at all.
@@ -409,6 +434,18 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 		'source'      => null,
 	);
 
+	// The location and view controls carry their own settings rather than a
+	// value list. Written only for those two, so every other filter's config
+	// (and the markup it is pinned in) is unchanged.
+	if ( 'location' === $control ) {
+		$config['location'] = agend_apps_records_filter_location_config( $settings );
+		return $config;
+	}
+	if ( 'view' === $control ) {
+		$config['view'] = agend_apps_records_filter_view_config( $settings );
+		return $config;
+	}
+
 	// A filter whose values cannot be enumerated yet only ever carries author
 	// defined choices, whatever the widget's own mode says.
 	$values_mode = (string) ( $settings['values_mode'] ?? 'all' );
@@ -462,6 +499,82 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 	}
 
 	return $config;
+}
+
+/**
+ * The radius choices a Location filter offers, in kilometres, from the
+ * author's comma-separated list: positive numbers up to the gateway's 1000 km
+ * limit, deduplicated and in ascending order.
+ *
+ * @param mixed $raw The setting value, e.g. "5,10,25,50".
+ * @return float[] Falls back to 5, 10, 15, 20, 25, 50 and 100 when nothing usable is given.
+ */
+function agend_apps_records_filter_radius_choices( $raw ): array {
+	$choices = array();
+	foreach ( explode( ',', (string) $raw ) as $part ) {
+		$part = trim( $part );
+		if ( '' === $part || ! is_numeric( $part ) ) {
+			continue;
+		}
+		$value = (float) $part;
+		if ( $value > 0 && $value <= 1000 ) {
+			$choices[ (string) $value ] = $value;
+		}
+	}
+	if ( empty( $choices ) ) {
+		return array( 5.0, 10.0, 15.0, 20.0, 25.0, 50.0, 100.0 );
+	}
+	sort( $choices );
+	return array_values( $choices );
+}
+
+/**
+ * The Location filter's runtime settings.
+ *
+ * @param array $settings Widget settings.
+ * @return array{search: bool, locate: bool, buttonText: string, locateText: string, region: string, radii: float[], radius: float}
+ */
+function agend_apps_records_filter_location_config( array $settings ): array {
+	$radii   = agend_apps_records_filter_radius_choices( $settings['location_radius_choices'] ?? '' );
+	$default = is_numeric( $settings['location_radius_default'] ?? null ) ? (float) $settings['location_radius_default'] : 15.0;
+	// A default that is not one of the choices would leave the dropdown
+	// showing a value it cannot send, so snap to the nearest choice.
+	$radius = $radii[0];
+	foreach ( $radii as $choice ) {
+		if ( abs( $choice - $default ) < abs( $radius - $default ) ) {
+			$radius = $choice;
+		}
+	}
+
+	$search = 'yes' === ( $settings['location_show_search'] ?? 'yes' );
+	$locate = 'yes' === ( $settings['location_show_locate'] ?? 'yes' );
+
+	return array(
+		'search'     => $search,
+		// With the place box turned off the button is the only way in, so
+		// there is always at least one.
+		'locate'     => $locate || ! $search,
+		'buttonText' => trim( (string) ( $settings['location_button_text'] ?? '' ) ),
+		'locateText' => trim( (string) ( $settings['location_locate_text'] ?? '' ) ),
+		'region'     => trim( (string) ( $settings['location_region'] ?? '' ) ),
+		'radii'      => $radii,
+		'radius'     => $radius,
+	);
+}
+
+/**
+ * The List / Map switch's runtime settings.
+ *
+ * @param array $settings Widget settings.
+ * @return array{default: string, layout: string, listLabel: string, mapLabel: string}
+ */
+function agend_apps_records_filter_view_config( array $settings ): array {
+	return array(
+		'default'   => 'map' === ( $settings['view_default'] ?? 'list' ) ? 'map' : 'list',
+		'layout'    => 'joined' === ( $settings['view_layout'] ?? 'separate' ) ? 'joined' : 'separate',
+		'listLabel' => trim( (string) ( $settings['view_list_label'] ?? '' ) ),
+		'mapLabel'  => trim( (string) ( $settings['view_map_label'] ?? '' ) ),
+	);
 }
 
 /**
