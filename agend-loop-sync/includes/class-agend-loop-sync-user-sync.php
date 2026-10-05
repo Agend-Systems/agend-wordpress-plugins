@@ -26,6 +26,15 @@ class Agend_Loop_Sync_User_Sync {
 	private static $synced_this_request = array();
 
 	/**
+	 * Clears the per-request guard. For tests and long-running CLI.
+	 *
+	 * @return void
+	 */
+	public static function reset_request_state() {
+		self::$synced_this_request = array();
+	}
+
+	/**
 	 * Registers the WordPress hooks that trigger a user sync.
 	 *
 	 * @return void
@@ -139,6 +148,15 @@ class Agend_Loop_Sync_User_Sync {
 			return false;
 		}
 
+		$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $membership_number );
+		if ( null === $external_id || ! is_email( $user->user_email ) ) {
+			Agend_Loop_Sync_Logger::warning(
+				'User has a non-numeric membership number or invalid email; skipping Loop user sync',
+				array( 'wp_id' => (int) $user->ID )
+			);
+			return false;
+		}
+
 		// De-duplicate within a single request: profile_update and set_user_role
 		// can both fire for the same user in one request, and the event-driven
 		// hook may overlap with a WordPress hook. One gateway call per user is
@@ -150,7 +168,7 @@ class Agend_Loop_Sync_User_Sync {
 
 		$payload = array(
 			'idp_entity_id' => Agend_Loop_Sync_Settings::idp_entity_id(),
-			'external_id'   => (int) $membership_number,
+			'external_id'   => $external_id,
 			'email'         => (string) $user->user_email,
 			'display_name'  => (string) $user->display_name,
 			'roles'         => array_values( (array) $user->roles ),
@@ -194,6 +212,7 @@ class Agend_Loop_Sync_User_Sync {
 			'succeeded'         => 0,
 			'failed'            => 0,
 			'skipped_no_number' => 0,
+			'skipped_invalid'   => 0,
 			'batches'           => 0,
 			'dry_run'           => Agend_Loop_Sync_Settings::is_dry_run(),
 			'errors'            => array(),
@@ -227,8 +246,13 @@ class Agend_Loop_Sync_User_Sync {
 				++$summary['skipped_no_number'];
 				continue;
 			}
+			$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $number );
+			if ( null === $external_id || ! is_email( $user->user_email ) ) {
+				++$summary['skipped_invalid'];
+				continue;
+			}
 			$items[] = array(
-				'external_id'  => (int) $number,
+				'external_id'  => $external_id,
 				'email'        => (string) $user->user_email,
 				'display_name' => (string) $user->display_name,
 				'roles'        => array_values( (array) $user->roles ),
