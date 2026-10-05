@@ -26,12 +26,20 @@ class Agend_Loop_Sync_User_Sync {
 	private static $synced_this_request = array();
 
 	/**
-	 * Clears the per-request guard. For tests and long-running CLI.
+	 * Users whose login sync is queued for the shutdown hook.
+	 *
+	 * @var array<int, WP_User>
+	 */
+	private static $pending_logins = array();
+
+	/**
+	 * Clears the per-request guards. For tests and long-running CLI.
 	 *
 	 * @return void
 	 */
 	public static function reset_request_state() {
 		self::$synced_this_request = array();
+		self::$pending_logins      = array();
 	}
 
 	/**
@@ -86,7 +94,37 @@ class Agend_Loop_Sync_User_Sync {
 	 */
 	public function on_login( $user_login, $user ) {
 		unset( $user_login );
-		if ( $user instanceof WP_User ) {
+		if ( ! $user instanceof WP_User ) {
+			return;
+		}
+
+		// The gateway call is a blocking HTTP request; queue it for shutdown so
+		// a slow gateway does not hold up the member's login redirect.
+		if ( array() === self::$pending_logins ) {
+			add_action( 'shutdown', array( $this, 'flush_pending_logins' ) );
+		}
+		self::$pending_logins[ (int) $user->ID ] = $user;
+	}
+
+	/**
+	 * Syncs users queued by on_login(), after the response has been sent where
+	 * the server supports it.
+	 *
+	 * @return void
+	 */
+	public function flush_pending_logins() {
+		$pending               = self::$pending_logins;
+		self::$pending_logins = array();
+
+		if ( array() === $pending ) {
+			return;
+		}
+
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		}
+
+		foreach ( $pending as $user ) {
 			$this->sync_user( $user );
 		}
 	}
@@ -175,7 +213,14 @@ class Agend_Loop_Sync_User_Sync {
 		);
 
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
-			Agend_Loop_Sync_Logger::info( 'Dry run: would sync user', $payload );
+			Agend_Loop_Sync_Logger::info(
+				'Dry run: would sync user',
+				array(
+					'wp_id'       => (int) $user->ID,
+					'external_id' => $external_id,
+					'roles'       => $payload['roles'],
+				)
+			);
 			return true;
 		}
 

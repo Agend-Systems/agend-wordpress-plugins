@@ -179,6 +179,25 @@ class Agend_Loop_Sync_Settings {
 		wp_schedule_event( time() + MINUTE_IN_SECONDS, self::get_committee_schedule(), AGEND_LOOP_SYNC_CRON_HOOK );
 	}
 
+	/**
+	 * Re-creates the committee cron event if it has gone missing.
+	 *
+	 * The event is only scheduled on activation, so a site that received the
+	 * plugin by file sync or an update, or lost the event to a cron reset,
+	 * would otherwise never run the scheduled sync.
+	 *
+	 * @return void
+	 */
+	public static function ensure_committee_cron() {
+		if ( ! defined( 'AGEND_LOOP_SYNC_CRON_HOOK' ) || ! self::is_enabled() || ! self::is_committee_sync_enabled() ) {
+			return;
+		}
+
+		if ( false === wp_next_scheduled( AGEND_LOOP_SYNC_CRON_HOOK ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, self::get_committee_schedule(), AGEND_LOOP_SYNC_CRON_HOOK );
+		}
+	}
+
 	/* ----------------------------------------------------------------------
 	 * Getters
 	 * ------------------------------------------------------------------- */

@@ -278,7 +278,14 @@ class Agend_Loop_Sync_Committee_Sync {
 		);
 
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
-			Agend_Loop_Sync_Logger::info( 'Dry run: would sync committee', $payload );
+			Agend_Loop_Sync_Logger::info(
+				'Dry run: would sync committee',
+				array(
+					'unique_id'   => $payload['unique_id'],
+					'mode'        => $payload['mode'],
+					'roster_size' => count( $roster ),
+				)
+			);
 			return true;
 		}
 
@@ -733,6 +740,14 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return array<string, mixed>
 	 */
 	private function finish( array $summary ): array {
+		// Stored in an option on every run: keep a large membership's unresolved
+		// ids from bloating it.
+		$total = count( $summary['unresolved_external_ids'] );
+		if ( $total > 100 ) {
+			$summary['unresolved_external_ids']       = array_slice( $summary['unresolved_external_ids'], 0, 100 );
+			$summary['unresolved_external_ids_total'] = $total;
+		}
+
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, time(), false );
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, $summary, false );
 
