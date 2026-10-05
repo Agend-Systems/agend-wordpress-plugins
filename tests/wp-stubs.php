@@ -179,11 +179,20 @@ final class Agend_Test_WP {
 	 * @param int          $status HTTP status code.
 	 * @param array|string $body   Response body; arrays are JSON-encoded.
 	 */
-	public static function queue_response( int $status, $body ): void {
+	public static function queue_response( int $status, $body, array $headers = array() ): void {
 		self::$canned_responses[] = array(
-			'status' => $status,
-			'body'   => is_string( $body ) ? $body : (string) json_encode( $body ),
+			'status'  => $status,
+			'body'    => is_string( $body ) ? $body : (string) json_encode( $body ),
+			'headers' => array_change_key_case( $headers, CASE_LOWER ),
 		);
+	}
+
+	/**
+	 * Queues the next `wp_remote_request()` call to fail at the transport
+	 * layer, as a DNS failure or timeout does.
+	 */
+	public static function queue_transport_error( string $code, string $message ): void {
+		self::$canned_responses[] = array( 'error' => new WP_Error( $code, $message ) );
 	}
 
 	/**
@@ -497,6 +506,17 @@ if ( ! class_exists( 'wpdb' ) ) {
 	class wpdb {
 		public string $options = 'wp_options';
 
+		public string $prefix = 'wp_';
+
+		/** @var string[] Every query() passed in, for assertions on SQL the stub does not model. */
+		public array $queries = array();
+
+		/** @var array<int, int|false> Return values for the next query() calls that match no modelled pattern. */
+		public array $query_results = array();
+
+		/** @var array<int, array<string, mixed>> Rows get_results() returns. */
+		public array $results = array();
+
 		/** @var int Rows affected by the most recent query(). */
 		public $rows_affected = 0;
 
@@ -537,6 +557,7 @@ if ( ! class_exists( 'wpdb' ) ) {
 		 */
 		public function query( string $query ) {
 			$this->rows_affected = 0;
+			$this->queries[]     = $query;
 
 			if ( 1 === preg_match( "/^INSERT IGNORE INTO .*? \\(option_name, option_value, autoload\\) VALUES \\('(.*?)', '(.*?)', 'no'\\)$/s", $query, $m ) ) {
 				$name = stripslashes( $m[1] );
@@ -571,7 +592,33 @@ if ( ! class_exists( 'wpdb' ) ) {
 				return 0;
 			}
 
+			if ( ! empty( $this->query_results ) ) {
+				return array_shift( $this->query_results );
+			}
+
 			return false;
+		}
+
+		public function get_charset_collate(): string {
+			return 'DEFAULT CHARACTER SET utf8mb4';
+		}
+
+		/** @return array<int, array<string, mixed>> */
+		public function get_results( string $query, $output = null ): array {
+			$this->queries[] = $query;
+			return $this->results;
+		}
+
+		/** @return array<string, mixed>|null */
+		public function get_row( string $query, $output = null ) {
+			$this->queries[] = $query;
+			return $this->results[0] ?? null;
+		}
+
+		/** @return string[] */
+		public function get_col( string $query ): array {
+			$this->queries[] = $query;
+			return array();
 		}
 
 		/** @return string|null */
@@ -867,9 +914,14 @@ function wp_remote_request( string $url, array $args = array() ) {
 	if ( ! empty( Agend_Test_WP::$canned_responses ) ) {
 		$next = array_shift( Agend_Test_WP::$canned_responses );
 
+		if ( isset( $next['error'] ) ) {
+			return $next['error'];
+		}
+
 		return array(
 			'body'        => $next['body'],
 			'status_code' => $next['status'],
+			'headers'     => $next['headers'] ?? array(),
 		);
 	}
 
@@ -902,6 +954,10 @@ function wp_remote_retrieve_response_code( $response ): int {
  * debugging cycle. Header names are matched explicitly for that reason.
  */
 function wp_remote_retrieve_header( $response, string $header ) {
+	if ( isset( $response['headers'][ strtolower( $header ) ] ) ) {
+		return $response['headers'][ strtolower( $header ) ];
+	}
+
 	switch ( strtolower( $header ) ) {
 		case 'x-ratelimit-remaining':
 			return '999';
@@ -948,6 +1004,14 @@ if ( ! class_exists( 'WP_Error' ) ) {
 // ---------------------------------------------------------------------------
 // WP-Cron
 // ---------------------------------------------------------------------------
+
+if ( ! defined( 'DAY_IN_SECONDS' ) ) {
+	define( 'DAY_IN_SECONDS', 24 * 60 * 60 );
+}
+
+if ( ! defined( 'ARRAY_A' ) ) {
+	define( 'ARRAY_A', 'ARRAY_A' );
+}
 
 if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
 	define( 'HOUR_IN_SECONDS', 60 * 60 );
@@ -1401,6 +1465,16 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 
 		public function get_header( string $key ) {
 			return $this->headers[ strtolower( $key ) ] ?? null;
+		}
+
+		private string $body = '';
+
+		public function set_body( string $body ): void {
+			$this->body = $body;
+		}
+
+		public function get_body(): string {
+			return $this->body;
 		}
 	}
 }
