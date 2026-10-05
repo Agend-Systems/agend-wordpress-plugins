@@ -17,6 +17,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Loop_Sync_Role_Mapper {
 
 	/**
+	 * Orders channel roles so the most privileged one can win a merge.
+	 *
+	 * @param string $channel_role One of 'owner', 'moderator', 'member'.
+	 * @return int Higher means more privileged; unknown roles rank 0.
+	 */
+	public static function rank( string $channel_role ): int {
+		$ranks = array(
+			'owner'     => 3,
+			'moderator' => 2,
+			'member'    => 1,
+		);
+
+		return $ranks[ $channel_role ] ?? 0;
+	}
+
+	/**
 	 * Resolves a committee role string to a Loop channel role.
 	 *
 	 * Matching is exact first, then case-insensitive. An unmapped role

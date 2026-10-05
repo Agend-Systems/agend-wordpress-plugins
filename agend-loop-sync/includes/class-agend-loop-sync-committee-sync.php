@@ -31,6 +31,34 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Loop_Sync_Committee_Sync {
 
 	/**
+	 * Upbeat client override, used by tests. Null means the real
+	 * Iugo_Membership_Kiosk_API singleton.
+	 *
+	 * @var object|null
+	 */
+	private $api_override;
+
+	/**
+	 * @param object|null $api Optional Upbeat client; defaults to the membership plugin's.
+	 */
+	public function __construct( $api = null ) {
+		$this->api_override = $api;
+	}
+
+	/**
+	 * The Upbeat client, or null when the membership plugin is not available.
+	 *
+	 * @return object|null
+	 */
+	private function api() {
+		if ( null !== $this->api_override ) {
+			return $this->api_override;
+		}
+
+		return class_exists( 'Iugo_Membership_Kiosk_API' ) ? Iugo_Membership_Kiosk_API::instance() : null;
+	}
+
+	/**
 	 * Registers the WP-Cron handler.
 	 *
 	 * @return void
@@ -52,6 +80,7 @@ class Agend_Loop_Sync_Committee_Sync {
 			'skipped_committees'      => 0,
 			'applied_members'         => 0,
 			'skipped_members'         => 0,
+			'skipped_invalid_members' => 0,
 			'removed_members'         => 0,
 			'archived'                => 0,
 			'unresolved_external_ids' => array(),
@@ -64,7 +93,7 @@ class Agend_Loop_Sync_Committee_Sync {
 			return $this->finish( $summary );
 		}
 
-		if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) || ! function_exists( 'agend_apps_loop_sync_committee' ) ) {
+		if ( null === $this->api() || ! function_exists( 'agend_apps_loop_sync_committee' ) ) {
 			$summary['errors'][] = 'Required plugins (membership API / agend-apps-core) are unavailable';
 			return $this->finish( $summary );
 		}
@@ -102,12 +131,18 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return array<string, array<int, array<string, mixed>>>
 	 */
 	private function build_rosters( array &$summary ): array {
-		$api     = Iugo_Membership_Kiosk_API::instance();
+		$api     = $this->api();
 		$rosters = array();
 
 		foreach ( $this->get_member_users() as $user ) {
 			$membership_number = trim( (string) get_user_meta( $user->ID, 'imk_membership_number', true ) );
 			if ( '' === $membership_number ) {
+				continue;
+			}
+
+			$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $membership_number );
+			if ( null === $external_id ) {
+				++$summary['skipped_invalid_members'];
 				continue;
 			}
 
@@ -130,22 +165,36 @@ class Agend_Loop_Sync_Committee_Sync {
 
 				$role = method_exists( $activity, 'get_role' ) ? (string) $activity->get_role() : '';
 
-				$rosters[ $committee_name ][ (int) $user->ID ] = array(
+				$channel_role = Agend_Loop_Sync_Role_Mapper::to_channel_role( $role );
+				$existing     = $rosters[ $committee_name ][ (int) $user->ID ] ?? null;
+
+				// A member can hold several roles in one committee (e.g. Chair
+				// and Member). The highest channel role wins so a later, lower
+				// row cannot downgrade them.
+				if ( null !== $existing && Agend_Loop_Sync_Role_Mapper::rank( $existing['channel_role'] ) >= Agend_Loop_Sync_Role_Mapper::rank( $channel_role ) ) {
+					continue;
+				}
+
+				$entry = array(
 					// external_id is the subject the SSO assertion's NameID
 					// carries (for this site the Upbeat membership number), the
 					// value Loop stores on the user, so the gateway can resolve
 					// this roster entry to the right Loop user. (The array key
 					// stays the WP user id only to de-duplicate a member within
 					// a committee.)
-					'external_id'          => (int) $membership_number,
-					// Email is the reliable fallback the gateway uses when
-					// external_id does not resolve (the Loop user's email matches
-					// the WordPress user's email regardless of the SSO NameID
-					// format).
-					'email'                => (string) $user->user_email,
-					'channel_role'         => Agend_Loop_Sync_Role_Mapper::to_channel_role( $role ),
+					'external_id'          => $external_id,
+					'channel_role'         => $channel_role,
 					'committee_role_label' => $role,
 				);
+
+				// Email is the fallback the gateway uses when external_id does
+				// not resolve. The gateway rejects a malformed one, which would
+				// fail the whole committee, so omit it rather than send it.
+				if ( is_email( $user->user_email ) ) {
+					$entry['email'] = (string) $user->user_email;
+				}
+
+				$rosters[ $committee_name ][ (int) $user->ID ] = $entry;
 			}
 		}
 
@@ -299,7 +348,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 */
 	private function build_committee_index(): array {
 		$index      = array();
-		$collection = Iugo_Membership_Kiosk_API::instance()->get_committees();
+		$collection = $this->api()->get_committees();
 		$committees = ( $collection && method_exists( $collection, 'get_results' ) )
 			? (array) $collection->get_results()
 			: array();
@@ -408,12 +457,12 @@ class Agend_Loop_Sync_Committee_Sync {
 			'error'                => '',
 		);
 
-		if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
+		if ( null === $this->api() ) {
 			$report['error'] = 'Membership API unavailable';
 			return $report;
 		}
 
-		$api                 = Iugo_Membership_Kiosk_API::instance();
+		$api                 = $this->api();
 		$report['available'] = true;
 		$users               = $this->get_member_users();
 		$report['members_total'] = count( $users );
@@ -489,12 +538,12 @@ class Agend_Loop_Sync_Committee_Sync {
 			'error'            => '',
 		);
 
-		if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
+		if ( null === $this->api() ) {
 			$preview['error'] = 'Membership API unavailable';
 			return $preview;
 		}
 
-		$collection = Iugo_Membership_Kiosk_API::instance()->get_committees();
+		$collection = $this->api()->get_committees();
 		$committees = ( $collection && method_exists( $collection, 'get_results' ) )
 			? (array) $collection->get_results()
 			: array();
