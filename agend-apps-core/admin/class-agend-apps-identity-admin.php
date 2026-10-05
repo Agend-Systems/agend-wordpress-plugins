@@ -33,6 +33,18 @@ class Agend_Apps_Identity_Admin {
 	const PAGE_SLUG = 'agend-apps-identity';
 
 	/**
+	 * Settings API page key for the sections whose fields carry their own
+	 * `<form>` (Connect this site, the diagnostics member lookup). They are
+	 * rendered after the options.php form closes, never inside it: HTML forms
+	 * cannot nest, so the browser drops the inner `<form>` tag and its button
+	 * submits the outer settings form instead. That is how the member lookup
+	 * used to post to options.php and fall back to the signed-in admin.
+	 *
+	 * @var string
+	 */
+	const TOOLS_PAGE_SLUG = 'agend-apps-identity-tools';
+
+	/**
 	 * Option group name used with `settings_fields()`.
 	 *
 	 * @var string
@@ -280,14 +292,14 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_identity_connection_section',
 			__( 'Connection', 'agend-apps-core' ),
 			array( $this, 'render_connection_section' ),
-			self::PAGE_SLUG
+			self::TOOLS_PAGE_SLUG
 		);
 
 		add_settings_field(
 			'agend_apps_idp_entity_id',
 			__( 'Connection entity id', 'agend-apps-core' ),
 			array( $this, 'render_entity_id_field' ),
-			self::PAGE_SLUG,
+			self::TOOLS_PAGE_SLUG,
 			'agend_apps_identity_connection_section'
 		);
 
@@ -300,7 +312,7 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_connect_site',
 			__( 'Connect this site', 'agend-apps-core' ),
 			array( $this, 'render_connect_site_field' ),
-			self::PAGE_SLUG,
+			self::TOOLS_PAGE_SLUG,
 			'agend_apps_identity_connection_section'
 		);
 
@@ -315,14 +327,14 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_identity_diagnostics_section',
 			__( 'Diagnostics', 'agend-apps-core' ),
 			array( $this, 'render_diagnostics_section' ),
-			self::PAGE_SLUG
+			self::TOOLS_PAGE_SLUG
 		);
 
 		add_settings_field(
 			'agend_apps_wp_idp_diagnostics',
 			__( 'Member lookup', 'agend-apps-core' ),
 			array( $this, 'render_diagnostics_field' ),
-			self::PAGE_SLUG,
+			self::TOOLS_PAGE_SLUG,
 			'agend_apps_identity_diagnostics_section'
 		);
 	}
