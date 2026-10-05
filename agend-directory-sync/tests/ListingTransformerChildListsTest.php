@@ -147,6 +147,111 @@ final class ListingTransformerChildListsTest extends TestCase {
 		$this->assertArrayNotHasKey( 'tenant_area', $item );
 	}
 
+	/**
+	 * An all-blank item carries no information and would render as an empty
+	 * table row; it is also the shape (an empty PHP array) that
+	 * `wp_json_encode` sends as `[]` instead of `{}`, which the gateway
+	 * rejects with "Each item must be an object." (SPEC-DIR-20260930-directory-item-list-field
+	 * handover, "Fix before merge"). The row is skipped entirely rather than
+	 * kept positionally.
+	 */
+	#[Test]
+	public function it_skips_an_item_whose_every_source_is_blank(): void {
+		$field_map = $this->field_map(
+			array(
+				array(
+					'target'     => 'centre_tenants',
+					'items'      => array(
+						'tenant_name' => 'pca_tenantname',
+						'tenant_area' => 'pca_tenantarea',
+					),
+					'order_by'   => array(),
+					'aggregates' => array(),
+				),
+			)
+		);
+
+		$contact = $this->contact_with_rows(
+			array(
+				'centre_tenants' => array(
+					array( 'pca_tenantname' => '', 'pca_tenantarea' => null ),
+					array( 'pca_tenantname' => 'Acme' ),
+				),
+			)
+		);
+
+		$result = Agend_Directory_Sync_Listing_Transformer::transform_all( array( $contact ), $field_map );
+		$items  = $result['listings'][0]['custom_fields']['centre_tenants'];
+
+		$this->assertCount( 1, $items );
+		$this->assertSame( array( 'tenant_name' => 'Acme' ), $items[0] );
+	}
+
+	/**
+	 * Directly proves the fix: an all-blank row contributes nothing to the
+	 * encoded list, so there is no `[]` element sitting alongside the real
+	 * items that would trip the gateway's "Each item must be an object."
+	 * check for the whole listing row.
+	 */
+	#[Test]
+	public function the_encoded_centre_tenants_list_contains_no_empty_array_item(): void {
+		$field_map = $this->field_map(
+			array(
+				array(
+					'target'     => 'centre_tenants',
+					'items'      => array( 'tenant_name' => 'pca_tenantname' ),
+					'order_by'   => array(),
+					'aggregates' => array(),
+				),
+			)
+		);
+
+		$contact = $this->contact_with_rows(
+			array(
+				'centre_tenants' => array(
+					array( 'pca_tenantname' => '' ),
+					array( 'pca_tenantname' => 'Acme' ),
+				),
+			)
+		);
+
+		$result = Agend_Directory_Sync_Listing_Transformer::transform_all( array( $contact ), $field_map );
+		$json   = wp_json_encode( $result['listings'][0]['custom_fields']['centre_tenants'] );
+
+		$this->assertSame( '[{"tenant_name":"Acme"}]', $json );
+	}
+
+	/**
+	 * A non-empty item whose only declared item field key is a sequential
+	 * integer string ("0") is, after PHP's automatic numeric-key coercion,
+	 * shaped exactly like a plain list. Uncaught, `wp_json_encode` would send
+	 * it as a JSON array (`["Acme"]`), tripping the same "Each item must be
+	 * an object." gateway rejection as the empty-item bug, just with a
+	 * non-empty item.
+	 */
+	#[Test]
+	public function an_item_with_only_a_numeric_key_still_encodes_as_an_object(): void {
+		$field_map = $this->field_map(
+			array(
+				array(
+					'target'     => 'centre_tenants',
+					'items'      => array( '0' => 'pca_tenantname' ),
+					'order_by'   => array(),
+					'aggregates' => array(),
+				),
+			)
+		);
+
+		$contact = $this->contact_with_rows(
+			array( 'centre_tenants' => array( array( 'pca_tenantname' => 'Acme' ) ) )
+		);
+
+		$result = Agend_Directory_Sync_Listing_Transformer::transform_all( array( $contact ), $field_map );
+		$json   = wp_json_encode( $result['listings'][0]['custom_fields']['centre_tenants'] );
+
+		$this->assertSame( '[{"0":"Acme"}]', $json );
+	}
+
 	#[Test]
 	public function it_orders_items_by_the_declared_order_by_keys(): void {
 		$field_map = $this->field_map(
