@@ -972,11 +972,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		 * stringified, so a `number`-typed item field round-trips as a
 		 * number, not a numeric string.
 		 *
+		 * A row that resolves no item fields at all (every configured source is
+		 * missing or blank) is skipped entirely rather than added as an empty
+		 * PHP array: an all-blank tenant row carries no information and would
+		 * render as an empty table row, and an empty array is indistinguishable
+		 * from a PHP list, which `wp_json_encode` sends as `[]`, not `{}`. The
+		 * gateway's bulk-upsert validation rejects any item that is not a JSON
+		 * object, failing the whole listing row (SPEC-DIR-20260930-directory-item-list-field
+		 * handover, "Fix before merge").
+		 *
 		 * @param array<int, array<string, mixed>> $rows
 		 * @param array<string, string>            $items_map Item field key => source.
 		 * @param array<int, string>               $order_by  One or two item field keys to sort by.
 		 *
-		 * @return array<int, array<string, mixed>>
+		 * @return array<int, array<string, mixed>|object>
 		 */
 		private static function build_child_list_items( array $rows, array $items_map, array $order_by ): array {
 			$items = array();
@@ -1004,6 +1013,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 						$item[ $item_key ] = $value;
 					}
 				}
+
+				if ( empty( $item ) ) {
+					continue;
+				}
+
 				$items[] = $item;
 			}
 
@@ -1022,7 +1036,33 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				);
 			}
 
-			return $items;
+			// A non-empty item whose declared item field keys all happen to be
+			// sequential integer strings ("0", "1", ...) is, after PHP's
+			// automatic numeric string-key coercion, indistinguishable from a
+			// plain list: `wp_json_encode` would still send it as a JSON array,
+			// not an object, tripping the same gateway rejection as an empty
+			// item. Cast only those items to force object encoding; a normally
+			// string-keyed item (the declared item field keys in practice) is
+			// untouched.
+			return array_map(
+				static function ( array $item ) {
+					return self::is_sequential_int_keyed( $item ) ? (object) $item : $item;
+				},
+				$items
+			);
+		}
+
+		/**
+		 * Whether an array's keys are exactly 0..count-1 in order, i.e. the
+		 * shape PHP (and therefore `wp_json_encode`) treats as a list rather
+		 * than an object. Hand-rolled rather than `array_is_list()` to stay on
+		 * the plugin's declared PHP 7.4 floor (see `agend-directory-sync.php`
+		 * header).
+		 *
+		 * @param array<int|string, mixed> $array
+		 */
+		private static function is_sequential_int_keyed( array $array ): bool {
+			return array_keys( $array ) === range( 0, count( $array ) - 1 );
 		}
 
 		/**
