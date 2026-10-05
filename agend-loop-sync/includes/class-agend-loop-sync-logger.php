@@ -31,6 +31,22 @@ class Agend_Loop_Sync_Logger {
 	const MAX_ENTRIES = 200;
 
 	/**
+	 * Largest JSON size, in bytes, kept for one entry's context. The buffer is a
+	 * single option row, so an unbounded context (a full committee roster) would
+	 * bloat it and be rewritten on every log call.
+	 *
+	 * @var int
+	 */
+	const MAX_CONTEXT_BYTES = 2000;
+
+	/**
+	 * Context keys that carry personal data and are never stored.
+	 *
+	 * @var string[]
+	 */
+	const REDACTED_KEYS = array( 'email', 'display_name', 'first_name', 'last_name', 'avatar_url' );
+
+	/**
 	 * Records a log entry.
 	 *
 	 * @param string $level   One of 'info', 'warning', 'error'.
@@ -39,6 +55,8 @@ class Agend_Loop_Sync_Logger {
 	 * @return void
 	 */
 	public static function log( string $level, string $message, array $context = array() ) {
+		$context = self::sanitize_context( $context );
+
 		$entry = array(
 			'time'    => time(),
 			'level'   => $level,
@@ -63,6 +81,44 @@ class Agend_Loop_Sync_Logger {
 				sprintf( '[Agend Loop Sync][%s] %s %s', $level, $message, wp_json_encode( $context ) )
 			);
 		}
+	}
+
+	/**
+	 * Drops personal data from a context and caps its size.
+	 *
+	 * @param array $context Raw context.
+	 * @return array Context safe to store and to write to the PHP error log.
+	 */
+	public static function sanitize_context( array $context ): array {
+		$context = self::strip_redacted( $context );
+		$json    = wp_json_encode( $context );
+
+		if ( is_string( $json ) && strlen( $json ) > self::MAX_CONTEXT_BYTES ) {
+			return array(
+				'truncated' => true,
+				'preview'   => substr( $json, 0, self::MAX_CONTEXT_BYTES ),
+			);
+		}
+
+		return $context;
+	}
+
+	/**
+	 * Recursively removes the redacted keys.
+	 *
+	 * @param array $data Data to clean.
+	 * @return array
+	 */
+	private static function strip_redacted( array $data ): array {
+		foreach ( $data as $key => $value ) {
+			if ( is_string( $key ) && in_array( $key, self::REDACTED_KEYS, true ) ) {
+				unset( $data[ $key ] );
+			} elseif ( is_array( $value ) ) {
+				$data[ $key ] = self::strip_redacted( $value );
+			}
+		}
+
+		return $data;
 	}
 
 	/**
