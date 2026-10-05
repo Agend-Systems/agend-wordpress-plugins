@@ -160,6 +160,108 @@ function agend_apps_records_filter_any_label( array $config ): string {
 }
 
 /**
+ * Text for a radius choice, e.g. "Within 15 km".
+ *
+ * @param float $km Radius in kilometres.
+ * @return string
+ */
+function agend_apps_records_filter_radius_label( float $km ): string {
+	/* translators: %s: a radius in kilometres. */
+	return sprintf( __( 'Within %s km', 'agend-apps-core' ), agend_apps_records_filter_number( $km ) );
+}
+
+/**
+ * A number without a trailing ".0", for radius values.
+ *
+ * @param float $value The number.
+ * @return string
+ */
+function agend_apps_records_filter_number( float $value ): string {
+	return floor( $value ) === $value ? (string) (int) $value : (string) $value;
+}
+
+/**
+ * The Location filter's markup, shared by the live stand-in and the preview.
+ *
+ * Mirrors buildLocation() in assets/js/filters.js node for node: a place
+ * box and its Search button, the "Use my location" button, the radius
+ * dropdown (only when there is more than one choice), a status line for
+ * lookup errors, and the chip that names the active location.
+ *
+ * @param array $config   The filter config (see agend_apps_records_filter_config()).
+ * @param bool  $disabled Draw every control disabled, as the live stand-in does.
+ * @return string
+ */
+function agend_apps_records_render_filter_location_control( array $config, bool $disabled ): string {
+	$location = $config['location'];
+	$off      = $disabled ? ' disabled' : '';
+	$html     = '<div class="agend-filter__location' . ( $disabled ? ' agend-filter__placeholder' : '' ) . '"' . ( $disabled ? ' aria-busy="true"' : '' ) . '>';
+
+	if ( $location['search'] ) {
+		$placeholder = '' !== $config['placeholder'] ? $config['placeholder'] : __( 'Suburb or postcode', 'agend-apps-core' );
+		$html       .= '<div class="agend-filter__location-row agend-filter__location-row--search">';
+		$html       .= '<input type="search" class="agend-filter__location-input" placeholder="' . esc_attr( $placeholder ) . '" aria-label="' . esc_attr( $placeholder ) . '" maxlength="200"' . $off . ' />';
+		$html       .= '<button type="button" class="agend-filter__button agend-filter__location-search"' . $off . '>' . esc_html( '' !== $location['buttonText'] ? $location['buttonText'] : __( 'Search', 'agend-apps-core' ) ) . '</button>';
+		$html       .= '</div>';
+	}
+
+	$html .= '<div class="agend-filter__location-row agend-filter__location-row--options">';
+	if ( $location['locate'] ) {
+		$html .= '<button type="button" class="agend-filter__button agend-filter__location-locate"' . $off . '>' . esc_html( '' !== $location['locateText'] ? $location['locateText'] : __( 'Use my location', 'agend-apps-core' ) ) . '</button>';
+	}
+	if ( count( $location['radii'] ) > 1 ) {
+		$html .= '<select class="agend-filter__location-radius" aria-label="' . esc_attr__( 'Search radius', 'agend-apps-core' ) . '"' . $off . '>';
+		foreach ( $location['radii'] as $radius ) {
+			$html .= '<option value="' . esc_attr( agend_apps_records_filter_number( $radius ) ) . '"' . ( $radius === $location['radius'] ? ' selected' : '' ) . '>' . esc_html( agend_apps_records_filter_radius_label( $radius ) ) . '</option>';
+		}
+		$html .= '</select>';
+	}
+	$html .= '</div>';
+
+	$html .= '<p class="agend-filter__location-status" role="status" aria-live="polite" hidden></p>';
+	$html .= '<div class="agend-filter__location-chip" hidden><span class="agend-filter__location-chip-text"></span><button type="button" class="agend-filter__location-clear" aria-label="' . esc_attr__( 'Remove location', 'agend-apps-core' ) . '">&times;</button></div>';
+	$html .= '</div>';
+
+	return $html;
+}
+
+/**
+ * The List / Map switch's markup, shared by the live stand-in and the preview.
+ *
+ * Two buttons in the filter's own button styling, so the Style tab's button
+ * colours dress it with no settings of its own.
+ *
+ * @param array $config   The filter config.
+ * @param bool  $disabled Draw both buttons disabled, as the live stand-in does.
+ * @return string
+ */
+function agend_apps_records_render_filter_view_control( array $config, bool $disabled ): string {
+	$view    = $config['view'];
+	$off     = $disabled ? ' disabled' : '';
+	$buttons = array(
+		'list' => '' !== $view['listLabel'] ? $view['listLabel'] : __( 'List', 'agend-apps-core' ),
+		'map'  => '' !== $view['mapLabel'] ? $view['mapLabel'] : __( 'Map', 'agend-apps-core' ),
+	);
+
+	$classes = 'agend-filter__options agend-filter__view';
+	if ( 'joined' === $view['layout'] ) {
+		$classes .= ' agend-filter__view--joined';
+	}
+	if ( $disabled ) {
+		$classes .= ' agend-filter__placeholder';
+	}
+
+	$html = '<div class="' . esc_attr( $classes ) . '" role="group" aria-label="' . esc_attr( $config['label'] ) . '">';
+	foreach ( $buttons as $value => $label ) {
+		$on    = $value === $view['default'];
+		$html .= '<button type="button" class="agend-filter__button' . ( $on ? ' is-active' : '' ) . '" data-agend-view="' . esc_attr( $value ) . '" aria-pressed="' . ( $on ? 'true' : 'false' ) . '"' . $off . '>' . esc_html( $label ) . '</button>';
+	}
+	$html .= '</div>';
+
+	return $html;
+}
+
+/**
  * Builds the disabled control a live page shows until the runtime wires it.
  *
  * A facet or endpoint-backed list arrives one request after the page does,
@@ -176,6 +278,12 @@ function agend_apps_records_render_filter_placeholder_control( array $config ): 
 	$any = agend_apps_records_filter_any_label( $config );
 
 	switch ( $config['control'] ) {
+		case 'location':
+			return agend_apps_records_render_filter_location_control( $config, true );
+
+		case 'view':
+			return agend_apps_records_render_filter_view_control( $config, true );
+
 		case 'search':
 			return sprintf(
 				'<input type="search" class="agend-filter__placeholder" placeholder="%s" disabled />',
@@ -216,6 +324,12 @@ function agend_apps_records_render_filter_preview_control( array $config ): stri
 	$any = agend_apps_records_filter_any_label( $config );
 
 	switch ( $config['control'] ) {
+		case 'location':
+			return agend_apps_records_render_filter_location_control( $config, false );
+
+		case 'view':
+			return agend_apps_records_render_filter_view_control( $config, false );
+
 		case 'search':
 			return sprintf(
 				'<input type="search" placeholder="%s" />',
@@ -280,6 +394,7 @@ function agend_apps_records_filter_style( array $settings ): array {
 		'field_border_colour'      => array( 'border-colour', 'agend-filter--field-border-colour' ),
 		'field_focus_colour'       => array( 'focus', 'agend-filter--field-focus' ),
 		'button_colour'            => array( 'button', 'agend-filter--button-colour' ),
+		'button_background'        => array( 'button-bg', 'agend-filter--button-bg' ),
 		'button_active_background' => array( 'button-active-bg', 'agend-filter--button-active-bg' ),
 		'button_active_text'       => array( 'button-active-text', 'agend-filter--button-active-text' ),
 		'checkbox_colour'          => array( 'checkbox', 'agend-filter--checkbox-colour' ),
@@ -314,6 +429,12 @@ function agend_apps_records_filter_style( array $settings ): array {
 
 	if ( in_array( 'agend-filter--field-border-width', $classes, true ) && 'bottom' === ( $settings['field_border_sides'] ?? 'all' ) ) {
 		$classes[] = 'agend-filter--field-border-bottom';
+	}
+
+	// Alignment needs no value of its own, only the class that applies it.
+	$align = (string) ( $settings['button_align'] ?? '' );
+	if ( in_array( $align, array( 'center', 'end' ), true ) ) {
+		$classes[] = 'agend-filter--align-' . $align;
 	}
 
 	return array(

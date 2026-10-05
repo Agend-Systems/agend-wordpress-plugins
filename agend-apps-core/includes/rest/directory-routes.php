@@ -35,6 +35,9 @@ function agend_apps_register_directory_routes(): void {
  * - `GET  /agend-apps/v1/directory/listings/{slugOrId}/reviews` — approved reviews for a listing.
  * - `GET  /agend-apps/v1/directory/categories`                — category list.
  * - `GET  /agend-apps/v1/directory/search`                    — search listings.
+ * - `GET  /agend-apps/v1/directory/markers`                   — search results as map markers.
+ * - `GET  /agend-apps/v1/directory/geocode`                   — resolve a place to a point.
+ * - `GET  /agend-apps/v1/directory/map-settings`              — map defaults.
  * - `POST /agend-apps/v1/directory/reviews`                   — submit a listing review.
  */
 class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
@@ -212,114 +215,53 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'search' ),
 					'permission_callback' => '__return_true',
+					'args'                => $this->search_args(),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/markers',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_markers' ),
+					'permission_callback' => '__return_true',
+					'args'                => $this->markers_args(),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/geocode',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'geocode' ),
+					'permission_callback' => '__return_true',
 					'args'                => array(
-						'q'                 => array(
+						'q' => array(
+							'required'          => true,
 							'type'              => 'string',
+							'minLength'         => 1,
+							'maxLength'         => 200,
 							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'search'            => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'page'              => array(
-							'type'              => 'integer',
-							'minimum'           => 1,
-							'sanitize_callback' => 'absint',
-						),
-						'limit'             => array(
-							'type'              => 'integer',
-							'minimum'           => 1,
-							'maximum'           => 100,
-							'sanitize_callback' => 'absint',
-						),
-						'per_page'          => array(
-							'type'              => 'integer',
-							'minimum'           => 1,
-							'maximum'           => 100,
-							'sanitize_callback' => 'absint',
-						),
-						'category'          => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'rating'            => array(
-							'type'              => 'number',
-							'minimum'           => 1,
-							'maximum'           => 5,
-							'sanitize_callback' => 'floatval',
-						),
-						'featured'          => array(
-							'type'              => 'boolean',
-							'sanitize_callback' => 'rest_sanitize_boolean',
-						),
-						'sortBy'            => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'sortOrder'         => array(
-							'type'              => 'string',
-							'enum'              => array( 'asc', 'desc' ),
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'excludeCategories' => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						// Comma-separated ids, forwarded verbatim: the gateway
-						// search decoder splits them itself.
-						'tag_ids'           => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'badge_ids'         => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						// Comma-separated location values; the gateway splits them
-						// itself and rejects a bracket-encoded array with a 422.
-						'city'              => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'state'             => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'postcode'          => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'country'           => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'sponsor_level'     => array(
-							'type'              => 'integer',
-							'minimum'           => 0,
-							'maximum'           => 3,
-							'sanitize_callback' => 'absint',
-						),
-						// Proximity search: the gateway applies it only when all
-						// three arrive together.
-						'lat'               => array(
-							'type'              => 'number',
-							'minimum'           => -90,
-							'maximum'           => 90,
-							'sanitize_callback' => 'floatval',
-						),
-						'lng'               => array(
-							'type'              => 'number',
-							'minimum'           => -180,
-							'maximum'           => 180,
-							'sanitize_callback' => 'floatval',
-						),
-						'radius'            => array(
-							'type'              => 'number',
-							'minimum'           => 1,
-							'maximum'           => 1000,
-							'sanitize_callback' => 'floatval',
 						),
 					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/map-settings',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_map_settings' ),
+					'permission_callback' => '__return_true',
 				),
 			)
 		);
@@ -485,6 +427,146 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	}
 
 	/**
+	 * The query arguments `GET /directory/search` accepts, shared with
+	 * `GET /directory/markers` so a map asks exactly the question its
+	 * catalogue asked.
+	 *
+	 * @return array
+	 */
+	private function search_args(): array {
+		return array(
+			'q'                 => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'search'            => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'page'              => array(
+				'type'              => 'integer',
+				'minimum'           => 1,
+				'sanitize_callback' => 'absint',
+			),
+			'limit'             => array(
+				'type'              => 'integer',
+				'minimum'           => 1,
+				'maximum'           => 100,
+				'sanitize_callback' => 'absint',
+			),
+			'per_page'          => array(
+				'type'              => 'integer',
+				'minimum'           => 1,
+				'maximum'           => 100,
+				'sanitize_callback' => 'absint',
+			),
+			'category'          => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'rating'            => array(
+				'type'              => 'number',
+				'minimum'           => 1,
+				'maximum'           => 5,
+				'sanitize_callback' => 'rest_sanitize_request_arg',
+			),
+			'featured'          => array(
+				'type'              => 'boolean',
+				'sanitize_callback' => 'rest_sanitize_boolean',
+			),
+			'sortBy'            => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'sortOrder'         => array(
+				'type'              => 'string',
+				'enum'              => array( 'asc', 'desc' ),
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'excludeCategories' => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			// Comma-separated ids, forwarded verbatim: the gateway
+			// search decoder splits them itself.
+			'tag_ids'           => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'badge_ids'         => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			// Comma-separated location values; the gateway splits them
+			// itself and rejects a bracket-encoded array with a 422.
+			'city'              => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'state'             => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'postcode'          => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'country'           => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'sponsor_level'     => array(
+				'type'              => 'integer',
+				'minimum'           => 0,
+				'maximum'           => 3,
+				'sanitize_callback' => 'absint',
+			),
+			// Proximity search: the gateway applies it only when all
+			// three arrive together. Sanitised by WordPress's own schema
+			// sanitiser (a float for `number`): PHP's built-in floatval()
+			// rejects the three arguments WordPress passes a sanitise
+			// callback, so it fatalled every request carrying one of these.
+			'lat'               => array(
+				'type'              => 'number',
+				'minimum'           => -90,
+				'maximum'           => 90,
+				'sanitize_callback' => 'rest_sanitize_request_arg',
+			),
+			'lng'               => array(
+				'type'              => 'number',
+				'minimum'           => -180,
+				'maximum'           => 180,
+				'sanitize_callback' => 'rest_sanitize_request_arg',
+			),
+			'radius'            => array(
+				'type'              => 'number',
+				'minimum'           => 1,
+				'maximum'           => 1000,
+				'sanitize_callback' => 'rest_sanitize_request_arg',
+			),
+			// A map viewport, north,south,east,west in degrees. The gateway rejects
+			// it alongside lat/lng/radius, so a caller sends one or the other.
+			'bbox'              => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+		);
+	}
+
+	/**
+	 * The query arguments `GET /directory/markers` accepts: every search
+	 * argument, with a page size up to the gateway's 2000 marker cap.
+	 *
+	 * @return array
+	 */
+	private function markers_args(): array {
+		$args = $this->search_args();
+		unset( $args['page'], $args['per_page'], $args['sortBy'], $args['sortOrder'] );
+		$args['limit']['maximum'] = 2000;
+		return $args;
+	}
+
+	/**
 	 * Searches directory listings.
 	 *
 	 * @param WP_REST_Request $request Current request.
@@ -493,6 +575,18 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	public function search( WP_REST_Request $request ): WP_REST_Response {
 		$search_query = (string) ( $request->get_param( 'q' ) ?? $request->get_param( 'search' ) ?? '' );
 
+		$result = agend_apps_directory_search( $search_query, $this->search_filters( $request ) );
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * The catalogue filters a search or markers request forwards to the
+	 * gateway, with `category` translated to the canonical `category_ids`.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return array
+	 */
+	private function search_filters( WP_REST_Request $request ): array {
 		// Forward the widget's catalogue filters to the gateway search. `rating`,
 		// `featured`, `sortBy`, `sortOrder`, and `excludeCategories` are accepted
 		// verbatim by the gateway GET decoder; `category` is translated to the
@@ -521,6 +615,7 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			// PHP, and add_query_arg() re-encodes it the same way for the
 			// gateway: custom_fields[key]=a,b and custom_fields[key][min]=5.
 			'custom_fields',
+			'bbox',
 		);
 		$filters     = array_filter(
 			$request->get_params(),
@@ -538,8 +633,43 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			unset( $filters['category'] );
 		}
 
-		$result = agend_apps_directory_search( $search_query, $filters );
-		return $this->prepare_api_response( $result );
+		return $filters;
+	}
+
+	/**
+	 * Returns the listings matching a search as map markers.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_markers( WP_REST_Request $request ): WP_REST_Response {
+		$search_query = (string) ( $request->get_param( 'q' ) ?? $request->get_param( 'search' ) ?? '' );
+
+		$filters = $this->search_filters( $request );
+		// Paging and ordering mean nothing to a set of pins.
+		unset( $filters['page'], $filters['per_page'], $filters['sortBy'], $filters['sortOrder'] );
+
+		return $this->prepare_api_response( agend_apps_directory_get_markers( $search_query, $filters ) );
+	}
+
+	/**
+	 * Resolves an address, suburb or postcode to a point.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function geocode( WP_REST_Request $request ): WP_REST_Response {
+		return $this->prepare_api_response( agend_apps_directory_geocode( (string) $request->get_param( 'q' ) ) );
+	}
+
+	/**
+	 * Returns the directory's map defaults.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_map_settings( WP_REST_Request $request ): WP_REST_Response { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found -- REST callback signature.
+		return $this->prepare_api_response( agend_apps_directory_get_map_settings() );
 	}
 
 	/**

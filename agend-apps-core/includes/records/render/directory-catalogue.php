@@ -91,6 +91,13 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
 		),
 	);
 
+	// Distance shows by default, so only turning it off writes a key: every
+	// catalogue that leaves it on keeps its existing config (and its pinned
+	// render fixtures) byte for byte.
+	if ( 'yes' !== ( $s['show_distance'] ?? 'yes' ) ) {
+		$config['card']['distance'] = false;
+	}
+
 	// Written only when switched on, so a catalogue without it keeps its
 	// existing config (and its pinned render fixtures) unchanged.
 	if ( 'yes' === ( $s['show_result_count'] ?? '' ) ) {
@@ -103,6 +110,22 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
 	}
 
 	return $config;
+}
+
+/**
+ * Whether a listing opens on its own server-rendered page rather than in
+ * place: the "Server-rendered detail pages" setting, or a listing detail
+ * template, which ssr-detail.php always renders server-side whatever that
+ * setting says. Without the second, a card on the dedicated page drew the
+ * built-in detail in place and the template only showed on a direct visit.
+ *
+ * @return bool
+ */
+function agend_apps_records_directory_catalogue_ssr_detail(): bool {
+	if ( function_exists( 'agend_apps_records_ssr_detail_enabled' ) && agend_apps_records_ssr_detail_enabled() ) {
+		return true;
+	}
+	return class_exists( 'Agend_Apps_Records_Pages' ) && Agend_Apps_Records_Pages::detail_template_id( 'listing' ) > 0;
 }
 
 /**
@@ -175,8 +198,7 @@ function agend_apps_records_render_directory_catalogue( array $settings ): strin
 	// When server-rendered detail pages are on, cards navigate to the
 	// server-rendered detail URL (a real child page) instead of swapping the
 	// detail in client-side, so breadcrumbs and SEO resolve natively.
-	$config['ssrDetail']   = function_exists( 'agend_apps_records_ssr_detail_enabled' )
-		&& agend_apps_records_ssr_detail_enabled();
+	$config['ssrDetail']   = agend_apps_records_directory_catalogue_ssr_detail();
 	// Member LMS achievements ("Badges & Credentials") are opt-in and require
 	// the directory.achievements.browse scope on the account's API key.
 	$config['showAchievements'] = function_exists( 'agend_apps_records_show_achievements_enabled' )

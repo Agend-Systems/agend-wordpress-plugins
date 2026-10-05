@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.24.0
+ * Version:           1.25.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.24.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.25.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -188,6 +188,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/format.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/fragments.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/ssr-detail.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/speculation.php';
 
 	// Template-driven cards and detail pages: the record context the field
 	// widgets read, the field registry, and the editor preview records.
@@ -225,6 +226,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/record-block.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/filter.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/export-reports.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-map.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
@@ -281,6 +283,7 @@ function agend_apps_core_bootstrap() {
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-map.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/auth.php';

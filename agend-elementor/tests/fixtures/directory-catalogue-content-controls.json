@@ -223,6 +223,15 @@
                     }
                 },
                 {
+                    "id": "show_distance",
+                    "args": {
+                        "label": "Show distance",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "How far each listing is from the place a visitor searched with a Location filter. Nothing shows until they search."
+                    }
+                },
+                {
                     "id": "show_badges",
                     "args": {
                         "label": "Show badges",

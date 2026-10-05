@@ -36,6 +36,7 @@ const AGEND_APPS_RECORDS_BLOCK_SURFACES = array(
 	'events-catalogue',
 	'courses-catalogue',
 	'directory-catalogue',
+	'directory-map',
 	'memberships-catalogue',
 	'member-login',
 	'header-auth',
