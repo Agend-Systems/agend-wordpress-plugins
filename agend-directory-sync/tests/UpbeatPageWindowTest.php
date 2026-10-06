@@ -37,7 +37,15 @@ final class UpbeatPageWindowTest extends TestCase {
 			/** @var array<int, string> */
 			public array $urls = array();
 
-			public function __construct( private int $total, private int $per_page, private ?int $drop_on ) {}
+			private int $total;
+			private int $per_page;
+			private ?int $drop_on;
+
+			public function __construct( int $total, int $per_page, ?int $drop_on ) {
+				$this->total    = $total;
+				$this->per_page = $per_page;
+				$this->drop_on  = $drop_on;
+			}
 
 			public function get_raw_json( string $url ): string {
 				$this->urls[] = $url;
