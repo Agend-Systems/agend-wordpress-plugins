@@ -21,6 +21,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * Panel key => [ label, record type, fragment function ].
  *
@@ -74,6 +78,11 @@ function agend_apps_records_record_block_tickets_for( string $slug, array $extra
 	}
 	static $memo = array();
 	if ( '' === $slug || ! function_exists( 'agend_apps_events_get_tickets' ) ) {
+		return array();
+	}
+	// No call for a key known to lack the tickets scope; the panel's own gate
+	// normally stops the render before it gets here.
+	if ( agend_apps_records_surface_gated( 'record-block-event-tickets' ) ) {
 		return array();
 	}
 	if ( ! isset( $memo[ $slug ] ) ) {
@@ -254,6 +263,11 @@ function agend_apps_records_record_block_colour_overrides( array $settings, stri
  *                when a caller needs to know).
  */
 function agend_apps_records_render_record_block( array $settings, array $opts = array() ): string {
+	$gate = agend_apps_records_record_gate( $settings, $opts );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	$resolved = agend_apps_records_record_block_resolve( $settings, $opts );
 	if ( '' === $resolved['html'] ) {
 		return '';

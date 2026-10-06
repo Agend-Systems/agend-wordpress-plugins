@@ -115,6 +115,8 @@ final class CartHeaderRenderTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		require_once AGEND_TESTS_ROOT . '/agend-apps-shop/includes/records/render/cart-header.php';
+		// The widgets ask this loader class for the surface gate and for their category.
+		require_once AGEND_TESTS_ROOT . '/agend-apps-shop/includes/class-agend-apps-shop-elementor.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-shop/includes/widgets/class-agend-apps-shop-cart-header.php';
 	}
 

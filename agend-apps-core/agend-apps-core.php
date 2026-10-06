@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.25.0
+ * Version:           1.28.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.25.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.28.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -256,6 +256,11 @@ function agend_apps_core_bootstrap() {
 	// sent and 403'd.
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-key-scopes.php';
 
+	// The generated endpoint-to-scope map and its matcher, which the API
+	// client uses to refuse a call the stored key is known not to be allowed
+	// to make (regenerate with bin/generate-endpoint-scopes.php).
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-endpoint-scopes.php';
+
 	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
@@ -280,6 +285,11 @@ function agend_apps_core_bootstrap() {
 	// (Agend_Apps_Key_Scopes::refresh() calls agend_apps_verify_api_key()) and
 	// the records settings option constants (loaded unconditionally earlier).
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/features.php';
+
+	// Surface gate: the per-widget requirements map built on the registry and
+	// the stored key scopes above. Already pulled in by the renderers that ask
+	// it; named here so its REST guard is loaded whatever order they load in.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/surface-gate.php';
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';

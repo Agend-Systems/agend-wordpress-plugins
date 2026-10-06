@@ -60,7 +60,7 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-apps-records-courses-catalogue' );
+		return Agend_Elementor_Schema_Controls::depends( 'courses-catalogue', array( 'agend-apps-records-courses-catalogue' ) );
 	}
 
 	/**
@@ -69,7 +69,7 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-apps-records-courses-catalogue' );
+		return Agend_Elementor_Schema_Controls::depends( 'courses-catalogue', array( 'agend-apps-records-courses-catalogue' ) );
 	}
 
 	/**
@@ -84,7 +84,7 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 	 * Registers the Content tab controls (US-LMS.8).
 	 */
 	private function register_content_controls(): void {
-		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'courses-catalogue' ) );
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'courses-catalogue' ), 'courses-catalogue' );
 	}
 
 	/**
@@ -117,6 +117,15 @@ class Agend_Elementor_Courses_Catalogue extends \Elementor\Widget_Base {
 	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
+		// Stays in the panel and the canvas so a developer sees it, but draws
+		// nothing for a visitor and makes no gateway call, while the API key lacks
+		// what this widget needs.
+		$gate = Agend_Elementor_Schema_Controls::render_gate( 'courses-catalogue' );
+		if ( null !== $gate ) {
+			echo $gate; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the surface gate.
+			return;
+		}
+
 		// A catalogue inside a card template would fetch the list once per
 		// card; nothing sensible can come of it.
 		if ( Agend_Apps_Records_Record_Context::has() ) {

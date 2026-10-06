@@ -82,8 +82,15 @@
  * being `saml`, re-evaluated per request like the rest of the plugin: a site
  * on `disabled`, or one where `auto` currently resolves to `disabled` because
  * no SAML IdP plugin is detected, must never render the placeholder or issue
- * an IdP URL. Every hook wraps its work in `try`/`catch`: a defect here must
- * never break a WordPress page view.
+ * an IdP URL. It is also guarded on `Agend_Apps_Settings::background_link_enabled()`,
+ * an admin-controlled toggle that is OFF by default: a site that never saved
+ * it reads as off, so this automatic flow stays silent until an admin
+ * explicitly switches it on under Settings > Identity and SSO. The one
+ * exception is the done-URL handler ({@see agend_apps_saml_link_done()}),
+ * which is deliberately NOT gated on the toggle -- a round trip already in
+ * flight must still be allowed to complete and promote, even if the toggle is
+ * flipped off mid-flight. Every hook wraps its work in `try`/`catch`: a defect
+ * here must never break a WordPress page view.
  *
  * @package Agend_Apps_Core
  */
@@ -460,14 +467,21 @@ function agend_apps_saml_link_idp_url( string $entity_id, string $done_url ): st
  *    can ever short-circuit past it.
  * 3. `mode_not_wordpress` -- this site is not in `wordpress` sign-in mode.
  * 4. `mechanism_not_saml` -- the resolved link mechanism is not `saml`.
- * 5. `linked` -- already linked; nothing to do.
- * 6. `no_external_id` -- no external id resolves for this member.
- * 7. `sp_not_registered` -- {@see agend_apps_saml_agend_sp_entity_id()} found nothing.
- * 8. `sp_not_registered` / `sp_disabled` -- the resolved entity id is not
+ * 5. `background_link_disabled` -- the background link toggle
+ *    ({@see Agend_Apps_Settings::background_link_enabled()}) is off. Checked
+ *    here, immediately after the mode/mechanism checks and before `linked`:
+ *    placing it this early means no later check -- including the
+ *    `sp_not_registered`/`sp_disabled` registry-error recording and the
+ *    attempt counter -- ever runs while the toggle is off, so a member is
+ *    never touched (no user meta write) merely for viewing pages.
+ * 6. `linked` -- already linked; nothing to do.
+ * 7. `no_external_id` -- no external id resolves for this member.
+ * 8. `sp_not_registered` -- {@see agend_apps_saml_agend_sp_entity_id()} found nothing.
+ * 9. `sp_not_registered` / `sp_disabled` -- the resolved entity id is not
  *    registered with agend-saml-idp, or is registered but disabled.
- * 9. `connection_pending_approval` -- the connection this site made
+ * 10. `connection_pending_approval` -- the connection this site made
  *    ({@see agend_apps_connect_stored()}) is still awaiting Agend approval.
- * 10. `attempt_cap` -- the lifetime attempt cap has been reached.
+ * 11. `attempt_cap` -- the lifetime attempt cap has been reached.
  *
  * @param int $user_id WordPress user id (0 = signed out).
  * @return array{eligible: bool, reason: string, entity_id: string} `reason` and
@@ -508,6 +522,10 @@ function agend_apps_saml_link_eligibility( int $user_id ): array {
 
 	if ( Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML !== Agend_Apps_Settings::sso_link_mechanism() ) {
 		return $fail( 'mechanism_not_saml' );
+	}
+
+	if ( ! Agend_Apps_Settings::background_link_enabled() ) {
+		return $fail( 'background_link_disabled' );
 	}
 
 	$stored = agend_apps_wp_idp_link_state( $user_id );

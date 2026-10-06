@@ -42,8 +42,12 @@ final class MembershipSyncTest extends TestCase {
 		// test files (KeyScopesTest/OptionalFeaturesTest exercise the gate
 		// itself) happened to load records/features.php earlier in the run;
 		// class_exists() guards a run where it never loaded at all.
+		//
+		// `crm.memberships.browse` is held too: once the scopes are known the
+		// request guard refuses a call the key lacks a scope for, and the sync
+		// reads `GET /crm/me/memberships`.
 		if ( class_exists( '\Agend_Apps_Key_Scopes' ) && function_exists( 'agend_apps_verify_api_key' ) ) {
-			Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'sso.identities.read', 'sso.tokens.create' ) ) ) );
+			Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'sso.identities.read', 'sso.tokens.create', 'crm.memberships.browse' ) ) ) );
 			\Agend_Apps_Key_Scopes::refresh();
 			Agend_Test_WP::$requests = array();
 		}

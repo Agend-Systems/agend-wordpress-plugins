@@ -113,6 +113,33 @@ final class SsoLinkMechanismTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// Agend_Apps_Settings::background_link_enabled()
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_default_background_link_to_disabled_when_the_option_is_missing(): void {
+		delete_option( 'agend_apps_sso_background_link' );
+
+		$this->assertFalse( Agend_Apps_Settings::background_link_enabled() );
+	}
+
+	#[Test]
+	public function should_enable_background_link_when_the_option_is_truthy(): void {
+		update_option( 'agend_apps_sso_background_link', true );
+
+		$this->assertTrue( Agend_Apps_Settings::background_link_enabled() );
+	}
+
+	#[Test]
+	public function should_treat_any_non_truthy_stored_value_as_disabled(): void {
+		foreach ( array( false, '', '0', 0 ) as $value ) {
+			update_option( 'agend_apps_sso_background_link', $value );
+
+			$this->assertFalse( Agend_Apps_Settings::background_link_enabled(), 'value: ' . var_export( $value, true ) );
+		}
+	}
+
+	// -----------------------------------------------------------------
 	// Detection and the auto resolver -- ABSENCE first (see class docblock).
 	// -----------------------------------------------------------------
 

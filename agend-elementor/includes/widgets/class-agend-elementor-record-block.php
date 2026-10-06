@@ -110,6 +110,10 @@ class Agend_Elementor_Record_Block extends \Elementor\Widget_Base {
 			'preview_type' => $is_editor ? $this->preview_type() : '',
 		);
 
+		if ( $this->render_record_gate( $s, $opts ) ) {
+			return;
+		}
+
 		$reason = agend_apps_records_record_block_render_reason( $s, $opts );
 
 		if ( 'wrong_type' === $reason ) {

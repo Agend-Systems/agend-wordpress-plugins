@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * The scopes come from `GET /v1/health` ({@see agend_apps_verify_api_key()}),
  * which echoes `data.scopes`. Stored in the `agend_apps_key_scopes` option as
- * `array{ scopes: string[], fetched_at: int, key_hash: string }`. The key
+ * `array{ scopes: string[], app_ids: string[], fetched_at: int, key_hash: string }`. The key
  * itself is never logged or stored here — only a one-way hash of the key and
  * environment, used solely to detect that either changed.
  */
@@ -37,6 +37,23 @@ class Agend_Apps_Key_Scopes {
 	 * @var int
 	 */
 	const MAX_AGE = HOUR_IN_SECONDS;
+
+	/**
+	 * Minimum age, in seconds, before the request guard may spend one gateway
+	 * round trip re-checking the scopes it is about to refuse a call on, and
+	 * the minimum gap between two such re-checks.
+	 *
+	 * @var int
+	 */
+	const RECHECK_AFTER = 5 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Transient that throttles the guard's re-check to one per
+	 * {@see RECHECK_AFTER}.
+	 *
+	 * @var string
+	 */
+	const RECHECK_TRANSIENT = 'agend_apps_key_scopes_recheck';
 
 	/**
 	 * Whether a refresh is currently in flight.
@@ -85,12 +102,101 @@ class Agend_Apps_Key_Scopes {
 		$held = self::all();
 
 		foreach ( $scopes as $scope ) {
-			if ( ! in_array( $scope, $held, true ) ) {
+			if ( ! self::satisfies( $held, $scope ) ) {
 				return false;
 			}
 		}
 
 		return true;
+	}
+
+	/**
+	 * Whether a held scope list covers one scope, the way the gateway reads it:
+	 * `*` is superadmin, `app.*` covers every scope under that app, and
+	 * otherwise the scope must be listed exactly.
+	 *
+	 * @param string[] $held  Scopes the key holds.
+	 * @param string   $scope Scope to test.
+	 * @return bool
+	 */
+	public static function satisfies( array $held, string $scope ): bool {
+		if ( in_array( '*', $held, true ) || in_array( $scope, $held, true ) ) {
+			return true;
+		}
+
+		foreach ( $held as $candidate ) {
+			if ( '.*' === substr( $candidate, -2 ) && 0 === strpos( $scope, substr( $candidate, 0, -1 ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * The apps the key is restricted to, as last stored.
+	 *
+	 * Reads the stored option only and never refreshes: the request guard calls
+	 * this from inside {@see Agend_Apps_API::request()}, and a lazy refresh
+	 * would re-enter it. The gateway reports `[]` both for an unrestricted key
+	 * and for one restricted to nothing, so an empty list means "no
+	 * restriction", never "no apps".
+	 *
+	 * @return string[]
+	 */
+	public static function apps(): array {
+		$stored = get_option( self::OPTION, array() );
+
+		return ( is_array( $stored ) && isset( $stored['app_ids'] ) && is_array( $stored['app_ids'] ) )
+			? array_values( array_map( 'strval', $stored['app_ids'] ) )
+			: array();
+	}
+
+	/**
+	 * Whether the key may use the given app. True when the key carries no app
+	 * restriction (an empty list, see {@see apps()}). No lazy refresh.
+	 *
+	 * @param string $app App slug, e.g. `events`.
+	 * @return bool
+	 */
+	public static function has_app( string $app ): bool {
+		$apps = self::apps();
+
+		return empty( $apps ) || in_array( $app, $apps, true );
+	}
+
+	/**
+	 * The stored scopes, with no lazy refresh. For the request guard, which
+	 * cannot call {@see all()} without re-entering the API client.
+	 *
+	 * @return string[]
+	 */
+	public static function stored_scopes(): array {
+		$stored = get_option( self::OPTION, array() );
+
+		return ( is_array( $stored ) && isset( $stored['scopes'] ) && is_array( $stored['scopes'] ) )
+			? array_values( array_map( 'strval', $stored['scopes'] ) )
+			: array();
+	}
+
+	/**
+	 * When the stored scopes were fetched, as a Unix timestamp. Zero when never.
+	 *
+	 * @return int
+	 */
+	public static function fetched_at(): int {
+		$stored = get_option( self::OPTION, array() );
+
+		return ( is_array( $stored ) && isset( $stored['fetched_at'] ) ) ? (int) $stored['fetched_at'] : 0;
+	}
+
+	/**
+	 * Whether a refresh is in flight right now.
+	 *
+	 * @return bool
+	 */
+	public static function refreshing(): bool {
+		return self::$refreshing;
 	}
 
 	/**
@@ -164,10 +270,15 @@ class Agend_Apps_Key_Scopes {
 			? array_values( array_map( 'strval', $data['scopes'] ) )
 			: array();
 
+		$app_ids = ( isset( $data['app_ids'] ) && is_array( $data['app_ids'] ) )
+			? array_values( array_map( 'strval', $data['app_ids'] ) )
+			: array();
+
 		update_option(
 			self::OPTION,
 			array(
 				'scopes'     => $scopes,
+				'app_ids'    => $app_ids,
 				'fetched_at' => time(),
 				'key_hash'   => self::current_key_hash(),
 			)

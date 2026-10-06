@@ -330,6 +330,21 @@ class Agend_Apps_Settings {
 	}
 
 	/**
+	 * Whether the automatic (background) SAML identity link is switched on.
+	 *
+	 * Reads option `agend_apps_sso_background_link`, default off. A site that
+	 * never saved the option -- including every site that existed before this
+	 * setting shipped -- reads as off, not on: any non-truthy stored value
+	 * (missing, `''`, `'0'`, `false`) resolves to `false`, matching
+	 * {@see Agend_Apps_Identity_Admin::sanitize_checkbox()}'s own convention.
+	 *
+	 * @return bool
+	 */
+	public static function background_link_enabled(): bool {
+		return (bool) get_option( 'agend_apps_sso_background_link', false );
+	}
+
+	/**
 	 * Returns the configured API key.
 	 *
 	 * Resolution order: the optional `AGEND_APPS_API_KEY` wp-config.php

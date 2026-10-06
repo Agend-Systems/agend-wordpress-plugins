@@ -13,6 +13,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * Normalises a SELECT2 multiple value to a clean string list.
  *
@@ -88,6 +92,11 @@ function agend_apps_records_courses_catalogue_build_config( array $s ): array {
  * Renders the surface container on the front end, returned as HTML.
  */
 function agend_apps_records_render_courses_catalogue( array $settings ): string {
+	$gate = agend_apps_records_surface_gate( 'courses-catalogue', false );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	ob_start();
 	// A catalogue inside a card template would fetch the list once per
 	// card; nothing sensible can come of it.

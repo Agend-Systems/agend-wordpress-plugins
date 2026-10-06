@@ -12,6 +12,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The option list below makes no gateway call for a key the surface gate has
+// already ruled out.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * The courses catalogue's content-settings schema.
  *
@@ -355,7 +359,7 @@ function agend_apps_records_schema_courses_catalogue(): array {
  * @return array Options keyed by category name.
  */
 function agend_apps_records_courses_catalogue_category_options(): array {
-	if ( ! function_exists( 'agend_apps_lms_get_courses' ) ) {
+	if ( ! function_exists( 'agend_apps_lms_get_courses' ) || agend_apps_records_surface_gated( 'courses-catalogue' ) ) {
 		return array();
 	}
 
