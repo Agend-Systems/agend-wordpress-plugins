@@ -65,7 +65,7 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-apps-records-member-login' );
+		return Agend_Elementor_Schema_Controls::depends( 'member-login', array( 'agend-apps-records-member-login' ) );
 	}
 
 	/**
@@ -74,14 +74,14 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-apps-records-member-login' );
+		return Agend_Elementor_Schema_Controls::depends( 'member-login', array( 'agend-apps-records-member-login' ) );
 	}
 
 	/**
 	 * Registers all Elementor controls for this widget.
 	 */
 	protected function register_controls(): void {
-		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'member-login' ) );
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'member-login' ), 'member-login' );
 	}
 
 	/**
@@ -91,6 +91,15 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 	 * assets/js/member-login.js from the config and the session status.
 	 */
 	protected function render(): void {
+		// Stays in the panel and the canvas so a developer sees it, but draws
+		// nothing for a visitor and makes no gateway call, while the API key lacks
+		// what this widget needs.
+		$gate = Agend_Elementor_Schema_Controls::render_gate( 'member-login' );
+		if ( null !== $gate ) {
+			echo $gate; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the surface gate.
+			return;
+		}
+
 		// SPEC-CORE-20260907 US-4.1 AC7: the credential login surface does not
 		// exist at all in `sso` member sign-in mode. The edit-mode notice stays
 		// here, in the widget: the core renderer's '' return is what a real

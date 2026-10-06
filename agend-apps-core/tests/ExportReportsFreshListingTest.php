@@ -56,7 +56,7 @@ final class ExportReportsFreshListingTest extends TestCase {
 		// The feature is scope-gated (agend_apps_records_optional_features()):
 		// without the browse scope on record, agend_apps_directory_get_export_reports()
 		// short-circuits to an empty list before ever touching get_cached().
-		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'directory.export_reports.browse' ) ) ) );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'directory.export_reports.browse', 'directory.export_reports.run' ) ) ) );
 		\Agend_Apps_Key_Scopes::refresh();
 		Agend_Test_WP::$requests = array();
 	}

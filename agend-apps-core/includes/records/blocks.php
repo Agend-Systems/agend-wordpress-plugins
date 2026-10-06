@@ -23,6 +23,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 // through the shared normaliser below.
 require_once __DIR__ . '/format.php';
 
+// The render path, the editor notices and the preview route all ask the surface
+// gate whether the stored key can use a surface.
+require_once __DIR__ . '/surface-gate.php';
+
 /**
  * Surface ids that ship as blocks, in inserter order: catalogues, then the
  * auth and account surfaces, then export and the filter control, then the
@@ -244,7 +248,46 @@ function agend_apps_records_render_block( string $surface, array $attributes ): 
 		return '';
 	}
 
+	// A surface the stored key cannot use draws nothing for a visitor, and its
+	// view script (WordPress queues it for any block that is rendered) has
+	// nothing to hydrate. The renderer applies the same gate, so a block never
+	// reaches the gateway; this only keeps the script off the page.
+	if ( function_exists( 'agend_apps_records_surface_gated' ) && agend_apps_records_surface_gated( $surface ) ) {
+		agend_apps_records_dequeue_block_assets( $surface );
+		return '';
+	}
+
 	return $render( agend_apps_records_settings_from_attributes( agend_apps_records_surface_schema( $surface ), $attributes ) );
+}
+
+/**
+ * Removes a block's own scripts and styles from the queue.
+ *
+ * Best effort: WordPress queues a block's `viewScript` and `style` handles
+ * around the render callback, and which side of it varies by version, so this
+ * also stands ahead of the print. A handle another surface still needs is
+ * queued again by that surface's own render.
+ *
+ * @param string $surface Surface id, e.g. 'directory-catalogue'.
+ */
+function agend_apps_records_dequeue_block_assets( string $surface ): void {
+	if ( ! class_exists( 'WP_Block_Type_Registry' ) ) {
+		return;
+	}
+
+	$type = WP_Block_Type_Registry::get_instance()->get_registered( 'agend-apps/' . $surface );
+
+	if ( ! $type ) {
+		return;
+	}
+
+	foreach ( (array) ( $type->view_script_handles ?? array() ) as $handle ) {
+		wp_dequeue_script( (string) $handle );
+	}
+
+	foreach ( array_merge( (array) ( $type->style_handles ?? array() ), (array) ( $type->view_style_handles ?? array() ) ) as $handle ) {
+		wp_dequeue_style( (string) $handle );
+	}
 }
 
 /**
@@ -374,6 +417,19 @@ function agend_apps_records_block_surface_notices( string $surface ): array {
 		}
 	}
 
+	// A surface the stored key cannot use: the block stays in the inserter and
+	// the editor, and says why it draws nothing on the front end.
+	if ( function_exists( 'agend_apps_records_surface_notice' ) ) {
+		$gated_notice = agend_apps_records_surface_notice( $surface );
+
+		if ( '' !== $gated_notice ) {
+			$notices[] = array(
+				'status' => 'warning',
+				'text'   => $gated_notice . ' ' . __( 'This block renders nothing for visitors until then.', 'agend-apps-core' ),
+			);
+		}
+	}
+
 	/**
 	 * Filters the editor-only notices shown above a surface's block placeholder.
 	 *
@@ -461,6 +517,19 @@ function agend_apps_records_register_surface_preview_route(): void {
 
 					if ( ! function_exists( $render ) ) {
 						return new WP_Error( 'agend_apps_records_surface_not_previewable', __( 'That surface has no preview.', 'agend-apps-core' ), array( 'status' => 404 ) );
+					}
+
+					// A surface the stored key cannot use previews as the disabled box,
+					// with no fetch behind it.
+					$gate = agend_apps_records_surface_gate( $surface, true );
+
+					if ( null !== $gate ) {
+						return rest_ensure_response(
+							array(
+								'html'   => $gate,
+								'reason' => 'surface_gated',
+							)
+						);
 					}
 
 					$settings = agend_apps_records_settings_from_attributes( $schema, (array) $request->get_param( 'attributes' ) );

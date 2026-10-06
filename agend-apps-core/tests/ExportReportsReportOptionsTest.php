@@ -67,7 +67,7 @@ final class ExportReportsReportOptionsTest extends TestCase {
 
 	#[Test]
 	public function should_request_every_published_report_when_the_key_holds_the_manage_scope(): void {
-		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.listings.manage' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run', 'directory.listings.manage' ) );
 		Agend_Test_WP::queue_response( 200, self::AUTHORING );
 
 		$options = agend_apps_records_export_reports_report_options();
@@ -88,7 +88,7 @@ final class ExportReportsReportOptionsTest extends TestCase {
 
 	#[Test]
 	public function should_use_the_default_listing_when_the_key_lacks_the_manage_scope(): void {
-		$this->set_held_scopes( array( 'directory.export_reports.browse' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run' ) );
 		Agend_Test_WP::queue_response( 200, self::DEFAULT_LISTING );
 
 		$options = agend_apps_records_export_reports_report_options();
@@ -101,7 +101,7 @@ final class ExportReportsReportOptionsTest extends TestCase {
 
 	#[Test]
 	public function should_fall_back_to_the_default_listing_when_the_gateway_refuses_the_scope(): void {
-		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.listings.manage' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run', 'directory.listings.manage' ) );
 		Agend_Test_WP::queue_response( 403, array( 'error' => 'forbidden' ) );
 		Agend_Test_WP::queue_response( 200, self::DEFAULT_LISTING );
 
@@ -116,7 +116,7 @@ final class ExportReportsReportOptionsTest extends TestCase {
 
 	#[Test]
 	public function should_fall_back_to_the_default_listing_on_a_gateway_that_does_not_know_scope(): void {
-		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.listings.manage' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run', 'directory.listings.manage' ) );
 		Agend_Test_WP::queue_response( 422, array( 'error' => 'unprocessable' ) );
 		Agend_Test_WP::queue_response( 200, self::DEFAULT_LISTING );
 
@@ -128,7 +128,7 @@ final class ExportReportsReportOptionsTest extends TestCase {
 
 	#[Test]
 	public function should_not_retry_on_an_unrelated_gateway_error(): void {
-		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.listings.manage' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run', 'directory.listings.manage' ) );
 		Agend_Test_WP::queue_response( 500, array( 'error' => 'boom' ) );
 
 		$options = agend_apps_records_export_reports_report_options();
@@ -139,7 +139,7 @@ final class ExportReportsReportOptionsTest extends TestCase {
 
 	#[Test]
 	public function should_cache_the_authoring_and_default_listings_separately(): void {
-		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.listings.manage' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run', 'directory.listings.manage' ) );
 		Agend_Test_WP::queue_response( 200, self::AUTHORING );
 		Agend_Test_WP::queue_response( 200, self::DEFAULT_LISTING );
 
@@ -154,7 +154,7 @@ final class ExportReportsReportOptionsTest extends TestCase {
 
 	#[Test]
 	public function should_leave_the_request_args_filter_clear_after_the_authoring_call(): void {
-		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.listings.manage' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run', 'directory.listings.manage' ) );
 		Agend_Test_WP::queue_response( 200, self::AUTHORING );
 
 		agend_apps_records_export_reports_report_options();

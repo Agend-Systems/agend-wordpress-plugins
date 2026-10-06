@@ -24,6 +24,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * The image URL for the current record: the record's own field value, or the
  * configured fallback, or ''.
@@ -410,6 +414,11 @@ function agend_apps_records_record_image_render_img( array $settings, array $ctx
  *                when a caller needs to know).
  */
 function agend_apps_records_render_record_image( array $settings, array $opts = array() ): string {
+	$gate = agend_apps_records_record_gate( $settings, $opts );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	$resolved = agend_apps_records_record_image_resolve( $settings, $opts );
 	if ( '' === $resolved['url'] ) {
 		return '';

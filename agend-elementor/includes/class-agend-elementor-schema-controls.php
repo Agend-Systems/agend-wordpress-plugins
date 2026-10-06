@@ -24,11 +24,20 @@ final class Agend_Elementor_Schema_Controls {
 	/**
 	 * Registers every section and control a schema describes on a widget.
 	 *
-	 * @param \Elementor\Widget_Base $widget The widget to register controls on.
-	 * @param array                  $schema Schema (see schema.php for the shape).
+	 * @param \Elementor\Widget_Base $widget  The widget to register controls on.
+	 * @param array                  $schema  Schema (see schema.php for the shape).
+	 * @param string                 $surface Surface id, when the surface can be
+	 *                                        gated on the API key's scopes (see
+	 *                                        surface-gate.php). While it is gated
+	 *                                        a notice leads the first Content
+	 *                                        section and no gateway-backed option
+	 *                                        list is fetched.
 	 * @return void
 	 */
-	public static function register( \Elementor\Widget_Base $widget, array $schema ): void {
+	public static function register( \Elementor\Widget_Base $widget, array $schema, string $surface = '' ): void {
+		$gated          = '' !== $surface && self::surface_gated( $surface );
+		$notice_pending = $gated;
+
 		foreach ( $schema['sections'] ?? array() as $section ) {
 			$section_args = array(
 				'label' => $section['label'] ?? '',
@@ -42,6 +51,20 @@ final class Agend_Elementor_Schema_Controls {
 			}
 
 			$widget->start_controls_section( $section['id'], $section_args );
+
+			// Once, at the top of the first Content section: the panel says why
+			// the canvas shows a disabled box.
+			if ( $notice_pending && 'style' !== ( $section['tab'] ?? '' ) ) {
+				$widget->add_control(
+					'agend_surface_gate_notice',
+					array(
+						'type'            => \Elementor\Controls_Manager::RAW_HTML,
+						'raw'             => esc_html( agend_apps_records_surface_notice( $surface ) ),
+						'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
+					)
+				);
+				$notice_pending = false;
+			}
 
 			foreach ( $section['fields'] ?? array() as $field ) {
 				// A field gated on an optional feature (SPEC-CORE-20260908
@@ -71,7 +94,7 @@ final class Agend_Elementor_Schema_Controls {
 					continue;
 				}
 
-				$args = self::control_args( $field );
+				$args = self::control_args( $field, $gated );
 
 				// A newer core schema may describe a field type this adapter
 				// does not understand yet (Decision 2.10); skip it rather than
@@ -93,9 +116,13 @@ final class Agend_Elementor_Schema_Controls {
 	 * Public so it is testable alone.
 	 *
 	 * @param array $field One field from a schema section's `fields` list.
+	 * @param bool  $gated Whether the widget's surface is gated on the API key's
+	 *                     scopes: option lists sourced from a callable (the
+	 *                     gateway-backed ones) are then left empty rather than
+	 *                     fetched.
 	 * @return array
 	 */
-	public static function control_args( array $field ): array {
+	public static function control_args( array $field, bool $gated = false ): array {
 		$type = $field['type'] ?? '';
 
 		$args = array();
@@ -167,10 +194,10 @@ final class Agend_Elementor_Schema_Controls {
 				$args['type']    = \Elementor\Controls_Manager::SELECT;
 				$args['default'] = $field['default'] ?? '';
 				if ( isset( $field['options'] ) ) {
-					$args['options'] = self::resolve_options( $field['options'] );
+					$args['options'] = self::resolve_options( $field['options'], $gated );
 				}
 				if ( isset( $field['groups'] ) ) {
-					$args['groups'] = self::resolve_options( $field['groups'] );
+					$args['groups'] = self::resolve_options( $field['groups'], $gated );
 				}
 				break;
 
@@ -184,7 +211,7 @@ final class Agend_Elementor_Schema_Controls {
 					$args['default'] = $field['default'];
 				}
 				if ( isset( $field['options'] ) ) {
-					$args['options'] = self::resolve_options( $field['options'] );
+					$args['options'] = self::resolve_options( $field['options'], $gated );
 				}
 				break;
 
@@ -288,11 +315,14 @@ final class Agend_Elementor_Schema_Controls {
 	 * editor opens), returned as-is otherwise.
 	 *
 	 * @param array|string $options Schema options value.
+	 * @param bool         $gated   Whether the surface is gated: a callable is not
+	 *                              invoked, so no gateway call is made for a
+	 *                              control the widget cannot use.
 	 * @return array
 	 */
-	private static function resolve_options( $options ): array {
+	private static function resolve_options( $options, bool $gated = false ): array {
 		if ( is_string( $options ) && function_exists( $options ) ) {
-			return $options();
+			return $gated ? array() : $options();
 		}
 
 		return is_array( $options ) ? $options : array();
@@ -312,5 +342,46 @@ final class Agend_Elementor_Schema_Controls {
 		}
 
 		return Agend_Elementor_Templates::options( $placeholder );
+	}
+
+	/**
+	 * Whether a surface is known to be unusable with the API key's scopes.
+	 * False on a core that predates the surface gate.
+	 *
+	 * @param string $surface Surface id.
+	 * @return bool
+	 */
+	public static function surface_gated( string $surface ): bool {
+		return function_exists( 'agend_apps_records_surface_gated' ) && agend_apps_records_surface_gated( $surface );
+	}
+
+	/**
+	 * The gate a widget asks at the top of render(): null to render as normal;
+	 * else markup to echo and stop (the disabled box in the editor and its
+	 * preview, '' for a visitor).
+	 *
+	 * @param string $surface Surface id.
+	 * @return string|null
+	 */
+	public static function render_gate( string $surface ): ?string {
+		if ( ! function_exists( 'agend_apps_records_surface_gate' ) ) {
+			return null;
+		}
+
+		$plugin = \Elementor\Plugin::$instance;
+
+		return agend_apps_records_surface_gate( $surface, $plugin->editor->is_edit_mode() || $plugin->preview->is_preview_mode() );
+	}
+
+	/**
+	 * A widget's script or style handles, or none while its surface is gated:
+	 * the disabled box and an empty frontend need neither.
+	 *
+	 * @param string   $surface Surface id.
+	 * @param string[] $handles Handles the widget depends on.
+	 * @return string[]
+	 */
+	public static function depends( string $surface, array $handles ): array {
+		return self::surface_gated( $surface ) ? array() : $handles;
 	}
 }

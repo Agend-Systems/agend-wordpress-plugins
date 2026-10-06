@@ -14,6 +14,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The option list below makes no gateway call for a key the surface gate has
+// already ruled out.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * The events catalogue's content-settings schema.
  *
@@ -439,7 +443,7 @@ function agend_apps_records_schema_events_catalogue(): array {
  * @return array Options keyed by category id.
  */
 function agend_apps_records_event_category_options(): array {
-	if ( ! function_exists( 'agend_apps_events_get_categories' ) ) {
+	if ( ! function_exists( 'agend_apps_events_get_categories' ) || agend_apps_records_surface_gated( 'events-catalogue' ) ) {
 		return array();
 	}
 
@@ -470,7 +474,7 @@ function agend_apps_records_event_category_options(): array {
  *               string, not a venue id).
  */
 function agend_apps_records_event_city_options(): array {
-	if ( ! function_exists( 'agend_apps_events_get_venues' ) ) {
+	if ( ! function_exists( 'agend_apps_events_get_venues' ) || agend_apps_records_surface_gated( 'events-catalogue' ) ) {
 		return array();
 	}
 

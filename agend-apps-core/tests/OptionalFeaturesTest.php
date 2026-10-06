@@ -58,7 +58,7 @@ namespace Agend\Tests\Core {
 
 			$this->assertSame( array( 'directory.achievements.browse' ), $features['directory_achievements']['scopes'] );
 			$this->assertSame( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION, $features['directory_achievements']['option'] );
-			$this->assertSame( array( 'directory.export_reports.browse' ), $features['directory_export_reports']['scopes'] );
+			$this->assertSame( array( 'directory.export_reports.browse', 'directory.export_reports.run' ), $features['directory_export_reports']['scopes'] );
 			$this->assertSame( array( 'directory.reviews.manage' ), $features['directory_review_form']['scopes'] );
 			$this->assertSame( array( 'directory.listings.self_update' ), $features['directory_my_listing']['scopes'] );
 			$this->assertSame( array( 'sso.identities.read', 'sso.tokens.create' ), $features['sso_account_link']['scopes'] );
@@ -101,7 +101,7 @@ namespace Agend\Tests\Core {
 
 		#[Test]
 		public function a_feature_should_be_available_once_its_scope_is_confirmed_held(): void {
-			$this->set_held_scopes( array( 'directory.export_reports.browse' ) );
+			$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run' ) );
 
 			$this->assertFalse( agend_apps_records_feature_unknown_scopes() );
 			$this->assertTrue( agend_apps_records_feature_available( 'directory_export_reports' ) );
@@ -114,7 +114,7 @@ namespace Agend\Tests\Core {
 
 			$this->assertFalse( agend_apps_records_feature_available( 'directory_export_reports' ) );
 			$this->assertSame(
-				array( 'directory.export_reports.browse' ),
+				array( 'directory.export_reports.browse', 'directory.export_reports.run' ),
 				agend_apps_records_feature_missing_scopes( 'directory_export_reports' )
 			);
 		}

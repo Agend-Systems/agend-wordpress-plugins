@@ -20,6 +20,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * Resolves the whole "does this pills surface render, and if not why"
  * decision in one pass: the record context in scope, which terms field the
@@ -186,6 +190,11 @@ function agend_apps_records_record_pills_term_style( array $settings, string $te
  *                when a caller needs to know).
  */
 function agend_apps_records_render_record_pills( array $settings, array $opts = array() ): string {
+	$gate = agend_apps_records_record_gate( $settings, $opts );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	$resolved = agend_apps_records_record_pills_resolve( $settings, $opts );
 	if ( ! $resolved['renders'] ) {
 		return '';

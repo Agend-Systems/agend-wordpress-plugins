@@ -124,6 +124,21 @@ class Agend_Apps_Account_Link_REST_Controller extends Agend_Apps_REST_Controller
 			);
 		}
 
+		// The sso_account_link optional feature: the lookup below needs
+		// sso.identities.read. Same check, and same fail-closed reading of an
+		// unknown scope list, as agend_apps_account_link_state() and the token
+		// worker, so this route never spends a call the key cannot make.
+		if ( function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'sso_account_link' ) ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'agend_apps_feature_unavailable',
+					'message' => agend_apps_records_feature_missing_scope_notice( 'sso_account_link' ),
+					'data'    => array( 'status' => 403 ),
+				),
+				403
+			);
+		}
+
 		$result = agend_apps_sso_get_link_status(
 			agend_apps_idp_entity_id(),
 			$external_id

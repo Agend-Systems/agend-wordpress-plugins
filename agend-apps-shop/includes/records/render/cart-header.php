@@ -63,6 +63,15 @@ function agend_apps_records_cart_header_icon_markup( $icon ): string {
  * @return string The rendered markup.
  */
 function agend_apps_records_render_cart_header( array $settings ): string {
+	// The core gate may be absent on an older Agend Apps Core; the call is then
+	// left to the gateway, which stays the authority.
+	if ( function_exists( 'agend_apps_records_surface_gate' ) ) {
+		$gate = agend_apps_records_surface_gate( 'cart-header', false );
+		if ( null !== $gate ) {
+			return $gate;
+		}
+	}
+
 	// cart_page_url is a `url` field, so it arrives as Elementor's
 	// array( 'url' => ... ) or as the plain string a block stores. Core's
 	// shared normaliser reads either, but it only exists from Agend Apps Core

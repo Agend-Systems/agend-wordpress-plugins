@@ -14,6 +14,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The option list below makes no gateway call for a key the surface gate has
+// already ruled out.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * The directory catalogue's content-settings schema.
  *
@@ -413,7 +417,7 @@ function agend_apps_records_schema_directory_catalogue(): array {
  * @return array Options keyed by category id.
  */
 function agend_apps_records_directory_catalogue_category_options(): array {
-	if ( ! function_exists( 'agend_apps_directory_get_categories' ) ) {
+	if ( ! function_exists( 'agend_apps_directory_get_categories' ) || agend_apps_records_surface_gated( 'directory-catalogue' ) ) {
 		return array();
 	}
 

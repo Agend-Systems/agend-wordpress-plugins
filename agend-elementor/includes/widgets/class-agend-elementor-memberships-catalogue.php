@@ -61,7 +61,7 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-apps-records-memberships-catalogue' );
+		return Agend_Elementor_Schema_Controls::depends( 'memberships-catalogue', array( 'agend-apps-records-memberships-catalogue' ) );
 	}
 
 	/**
@@ -70,7 +70,7 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-apps-records-memberships-catalogue' );
+		return Agend_Elementor_Schema_Controls::depends( 'memberships-catalogue', array( 'agend-apps-records-memberships-catalogue' ) );
 	}
 
 	/**
@@ -84,13 +84,22 @@ class Agend_Elementor_Memberships_Catalogue extends \Elementor\Widget_Base {
 	 * Registers the Content tab controls.
 	 */
 	private function register_content_controls(): void {
-		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'memberships-catalogue' ) );
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'memberships-catalogue' ), 'memberships-catalogue' );
 	}
 
 	/**
 	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
+		// Stays in the panel and the canvas so a developer sees it, but draws
+		// nothing for a visitor and makes no gateway call, while the API key lacks
+		// what this widget needs.
+		$gate = Agend_Elementor_Schema_Controls::render_gate( 'memberships-catalogue' );
+		if ( null !== $gate ) {
+			echo $gate; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the surface gate.
+			return;
+		}
+
 		echo agend_apps_records_render_memberships_catalogue( Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

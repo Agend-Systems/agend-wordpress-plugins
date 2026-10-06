@@ -32,7 +32,7 @@ final class ExportReportsParameterPickerTest extends TestCase {
 	 * @param array<int, array<string, mixed>> $reports
 	 */
 	private function seedListing( array $reports ): void {
-		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'directory.export_reports.browse' ) ) ) );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'directory.export_reports.browse', 'directory.export_reports.run' ) ) ) );
 		Agend_Apps_Key_Scopes::refresh();
 		Agend_Test_WP::$requests = array();
 

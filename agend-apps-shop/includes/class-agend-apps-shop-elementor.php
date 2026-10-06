@@ -49,6 +49,72 @@ class Agend_Apps_Shop_Elementor {
 	}
 
 	/**
+	 * Whether a surface is known to be unusable with the API key's scopes.
+	 * False on an Agend Apps Core that predates the surface gate: this plugin
+	 * checks only that core is present, not which version.
+	 *
+	 * @param string $surface Surface id, e.g. 'cart-view'.
+	 * @return bool
+	 */
+	public static function surface_gated( string $surface ): bool {
+		return function_exists( 'agend_apps_records_surface_gated' ) && agend_apps_records_surface_gated( $surface );
+	}
+
+	/**
+	 * The gate a widget asks at the top of render(): null to render as normal;
+	 * else markup to echo and stop (the disabled box in the editor and its
+	 * preview, '' for a visitor).
+	 *
+	 * @param string $surface Surface id.
+	 * @return string|null
+	 */
+	public static function render_gate( string $surface ): ?string {
+		if ( ! function_exists( 'agend_apps_records_surface_gate' ) ) {
+			return null;
+		}
+
+		$plugin = \Elementor\Plugin::$instance;
+
+		return agend_apps_records_surface_gate( $surface, $plugin->editor->is_edit_mode() || $plugin->preview->is_preview_mode() );
+	}
+
+	/**
+	 * A widget's script or style handles, or none while its surface is gated:
+	 * the disabled box and an empty frontend need neither.
+	 *
+	 * @param string   $surface Surface id.
+	 * @param string[] $handles Handles the widget depends on.
+	 * @return string[]
+	 */
+	public static function depends( string $surface, array $handles ): array {
+		return self::surface_gated( $surface ) ? array() : $handles;
+	}
+
+	/**
+	 * Adds the "why is this disabled" notice to a widget's panel, when its
+	 * surface is gated. Call right after opening the first Content section so
+	 * it leads the tab.
+	 *
+	 * @param \Elementor\Widget_Base $widget  Widget being registered.
+	 * @param string                  $surface Surface id.
+	 * @return void
+	 */
+	public static function add_gate_notice( \Elementor\Widget_Base $widget, string $surface ): void {
+		if ( ! self::surface_gated( $surface ) ) {
+			return;
+		}
+
+		$widget->add_control(
+			'agend_surface_gate_notice',
+			array(
+				'type'            => \Elementor\Controls_Manager::RAW_HTML,
+				'raw'             => esc_html( agend_apps_records_surface_notice( $surface ) ),
+				'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
+			)
+		);
+	}
+
+	/**
 	 * Registers all Agend Apps Shop widgets with Elementor.
 	 *
 	 * @param \Elementor\Widgets_Manager $widgets_manager Elementor widgets manager.

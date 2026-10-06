@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.26.0
+ * Version:           1.27.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.26.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.27.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -285,6 +285,11 @@ function agend_apps_core_bootstrap() {
 	// (Agend_Apps_Key_Scopes::refresh() calls agend_apps_verify_api_key()) and
 	// the records settings option constants (loaded unconditionally earlier).
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/features.php';
+
+	// Surface gate: the per-widget requirements map built on the registry and
+	// the stored key scopes above. Already pulled in by the renderers that ask
+	// it; named here so its REST guard is loaded whatever order they load in.
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/surface-gate.php';
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
