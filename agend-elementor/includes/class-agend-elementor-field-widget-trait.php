@@ -158,6 +158,31 @@ trait Agend_Elementor_Field_Widget_Trait {
 	}
 
 	/**
+	 * Echoes the surface gate when the catalogue this widget draws a record
+	 * from cannot be used with the API key's scopes (see surface-gate.php): a
+	 * disabled box in the editor, nothing for a visitor.
+	 *
+	 * @param array $settings Resolved widget settings.
+	 * @param array $opts     Render opts ('preview', 'preview_type').
+	 * @return bool True when the gate was echoed and render() should stop.
+	 */
+	protected function render_record_gate( array $settings, array $opts ): bool {
+		if ( ! function_exists( 'agend_apps_records_record_gate' ) ) {
+			return false;
+		}
+
+		$gate = agend_apps_records_record_gate( $settings, $opts );
+
+		if ( null === $gate ) {
+			return false;
+		}
+
+		echo $gate; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the surface gate.
+
+		return true;
+	}
+
+	/**
 	 * Echoes an editor-only warning notice. No-op on the live frontend, so it
 	 * is safe to call unconditionally from render().
 	 *

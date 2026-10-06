@@ -111,6 +111,8 @@ final class CatalogueRenderTest extends TestCase {
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		foreach ( array_keys( self::SURFACES ) as $surface ) {
 			require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/' . $surface . '-catalogue.php';
+			// The widgets ask this class for the surface gate and their asset handles.
+			require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-schema-controls.php';
 			require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/widgets/class-agend-elementor-' . $surface . '-catalogue.php';
 		}
 	}

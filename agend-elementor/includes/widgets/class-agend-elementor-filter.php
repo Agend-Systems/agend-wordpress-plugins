@@ -111,6 +111,16 @@ class Agend_Elementor_Filter extends \Elementor\Widget_Base {
 		$s       = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 		$context = Agend_Apps_Records_Filter_Context::type();
 
+		// A filter drives its catalogue's list: while that catalogue is gated on
+		// the API key's scopes it has nothing to filter.
+		if ( function_exists( 'agend_apps_records_filter_gate' ) ) {
+			$gate = agend_apps_records_filter_gate( $s, $this->is_editor() );
+			if ( null !== $gate ) {
+				echo $gate; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the surface gate.
+				return;
+			}
+		}
+
 		switch ( agend_apps_records_filter_render_reason( $s, $context ) ) {
 			case 'wrong_catalogue':
 				$this->render_editor_notice( __( 'This filter belongs to a different catalogue, so it renders nothing here.', 'agend-elementor' ) );

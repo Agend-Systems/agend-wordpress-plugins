@@ -27,6 +27,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return string The rendered markup.
  */
 function agend_apps_records_render_cart_view( array $settings ): string {
+	// The core gate may be absent on an older Agend Apps Core; the call is then
+	// left to the gateway, which stays the authority.
+	if ( function_exists( 'agend_apps_records_surface_gate' ) ) {
+		$gate = agend_apps_records_surface_gate( 'cart-view', false );
+		if ( null !== $gate ) {
+			return $gate;
+		}
+	}
+
 	// elementor-widget-container/elementor-button are kept even though this
 	// markup now also renders inside a Gutenberg block: a site's own custom
 	// CSS may already target these classes from the Elementor era, and

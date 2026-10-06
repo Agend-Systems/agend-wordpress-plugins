@@ -13,6 +13,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 // This renderer reads a `url` field through the shared normaliser. The plugin
 // bootstrap already loads format.php ahead of every renderer, so this require
 // is for the callers that load a single renderer on its own, the unit tests
@@ -102,6 +106,11 @@ function agend_apps_records_memberships_catalogue_build_config( array $s ): arra
  * assets/js/memberships-catalogue.js.
  */
 function agend_apps_records_render_memberships_catalogue( array $settings ): string {
+	$gate = agend_apps_records_surface_gate( 'memberships-catalogue', false );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	ob_start();
 	$config   = agend_apps_records_memberships_catalogue_build_config( $settings );
 

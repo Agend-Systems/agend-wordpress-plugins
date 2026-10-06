@@ -98,6 +98,16 @@ function agend_apps_directory_get_export_reports( bool $fresh = false ) {
  *                        `content_disposition`, or WP_Error on failure.
  */
 function agend_apps_directory_run_export_report( string $report_id, array $parameters = array(), string $format = 'csv' ) {
+	// Refused before any gateway call when the stored key is known to lack the
+	// run scope (or the directory app): the download could only fail.
+	if ( function_exists( 'agend_apps_records_surface_gated' ) && agend_apps_records_surface_gated( 'export-reports' ) ) {
+		return new WP_Error(
+			'agend_apps_feature_unavailable',
+			agend_apps_records_surface_notice( 'export-reports' ),
+			array( 'status_code' => 403 )
+		);
+	}
+
 	$query = array( 'format' => in_array( $format, array( 'csv', 'xlsx' ), true ) ? $format : 'csv' );
 
 	foreach ( $parameters as $name => $value ) {

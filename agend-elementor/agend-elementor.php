@@ -182,30 +182,18 @@ function agend_elementor_enqueue_scripts(): void {
 	wp_enqueue_style( 'agend-apps-records-filters' );
 	wp_enqueue_script( 'agend-apps-records-filters' );
 
+	// One style and script per surface, enqueued by handle alone. A surface the
+	// stored API key cannot use (see agend_apps_records_surface_gated()) draws
+	// nothing, so its script would only look for a shell that is not there.
 	// Directory export reports: the list is per-visitor, so it is fetched at
 	// view time rather than rendered into a cacheable page.
-	wp_enqueue_style( 'agend-apps-records-export-reports' );
-	wp_enqueue_script( 'agend-apps-records-export-reports' );
+	foreach ( array( 'export-reports', 'events-catalogue', 'courses-catalogue', 'directory-catalogue', 'account-link', 'member-login', 'memberships-catalogue', 'header-auth' ) as $surface ) {
+		if ( function_exists( 'agend_apps_records_surface_gated' ) && agend_apps_records_surface_gated( $surface ) ) {
+			continue;
+		}
 
-	wp_enqueue_style( 'agend-apps-records-events-catalogue' );
-	wp_enqueue_script( 'agend-apps-records-events-catalogue' );
-
-	wp_enqueue_style( 'agend-apps-records-courses-catalogue' );
-	wp_enqueue_script( 'agend-apps-records-courses-catalogue' );
-
-	wp_enqueue_style( 'agend-apps-records-directory-catalogue' );
-	wp_enqueue_script( 'agend-apps-records-directory-catalogue' );
-
-	wp_enqueue_style( 'agend-apps-records-account-link' );
-	wp_enqueue_script( 'agend-apps-records-account-link' );
-
-	wp_enqueue_style( 'agend-apps-records-member-login' );
-	wp_enqueue_script( 'agend-apps-records-member-login' );
-
-	wp_enqueue_style( 'agend-apps-records-memberships-catalogue' );
-	wp_enqueue_script( 'agend-apps-records-memberships-catalogue' );
-
-	wp_enqueue_style( 'agend-apps-records-header-auth' );
-	wp_enqueue_script( 'agend-apps-records-header-auth' );
+		wp_enqueue_style( 'agend-apps-records-' . $surface );
+		wp_enqueue_script( 'agend-apps-records-' . $surface );
+	}
 }
 add_action( 'wp_enqueue_scripts', 'agend_elementor_enqueue_scripts', 20 );

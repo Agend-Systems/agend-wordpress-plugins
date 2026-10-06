@@ -53,11 +53,11 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 	}
 
 	public function get_script_depends(): array {
-		return array( 'agend-apps-records-export-reports' );
+		return Agend_Elementor_Schema_Controls::depends( 'export-reports', array( 'agend-apps-records-export-reports' ) );
 	}
 
 	public function get_style_depends(): array {
-		return array( 'agend-apps-records-export-reports' );
+		return Agend_Elementor_Schema_Controls::depends( 'export-reports', array( 'agend-apps-records-export-reports' ) );
 	}
 
 	/**
@@ -206,7 +206,7 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 	}
 
 	protected function register_controls(): void {
-		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'export-reports' ) );
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'export-reports' ), 'export-reports' );
 
 		$this->start_controls_section(
 			'section_style',
@@ -304,6 +304,15 @@ class Agend_Elementor_Export_Reports extends \Elementor\Widget_Base {
 	}
 
 	protected function render(): void {
+		// Stays in the panel and the canvas so a developer sees it, but draws
+		// nothing for a visitor and makes no gateway call, while the API key lacks
+		// what this widget needs.
+		$gate = Agend_Elementor_Schema_Controls::render_gate( 'export-reports' );
+		if ( null !== $gate ) {
+			echo $gate; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the surface gate.
+			return;
+		}
+
 		$s       = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 		$mode    = 'dropdown' === ( $s['mode'] ?? 'button' ) ? 'dropdown' : 'button';
 		$reports = agend_apps_records_export_reports_offered_reports( $s );

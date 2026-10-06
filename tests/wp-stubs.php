@@ -116,6 +116,9 @@ final class Agend_Test_WP {
 	/** @var string[] Style handles recorded by `wp_enqueue_style()`, in call order. */
 	public static array $enqueued_styles = array();
 
+	/** @var string[] Script handles recorded by `wp_enqueue_script()`, in call order. */
+	public static array $enqueued_scripts = array();
+
 	/**
 	 * Value `wp_style_engine_get_stylesheet_from_context()` returns. A test
 	 * sets this directly to simulate block-supports layout CSS having been
@@ -171,6 +174,7 @@ final class Agend_Test_WP {
 		self::$redirects         = array();
 		self::$wp_update_plugins_calls = 0;
 		self::$enqueued_styles   = array();
+		self::$enqueued_scripts  = array();
 		self::$style_engine_stylesheet = '';
 		self::$settings_sections = array();
 		self::$roles             = array(
@@ -1462,6 +1466,14 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 			$this->route  = $route;
 		}
 
+		public function get_method(): string {
+			return $this->method;
+		}
+
+		public function get_route(): string {
+			return $this->route;
+		}
+
 		public function set_param( string $key, $value ): void {
 			$this->params[ $key ] = $value;
 		}
@@ -1889,6 +1901,9 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 		/** @var string[] */
 		public array $style_handles = array();
 
+		/** @var string[] */
+		public array $view_script_handles = array();
+
 		/** @var callable|null */
 		public $render_callback = null;
 
@@ -1899,6 +1914,12 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 				$this->style_handles = (array) $args['style_handles'];
 			} elseif ( isset( $args['style'] ) ) {
 				$this->style_handles = (array) $args['style'];
+			}
+
+			if ( isset( $args['view_script_handles'] ) ) {
+				$this->view_script_handles = (array) $args['view_script_handles'];
+			} elseif ( isset( $args['viewScript'] ) ) {
+				$this->view_script_handles = (array) $args['viewScript'];
 			}
 
 			if ( isset( $args['render_callback'] ) ) {
@@ -2256,6 +2277,27 @@ if ( ! function_exists( 'wp_enqueue_style' ) ) {
 	/** Records the handle so a test can assert on exactly what was enqueued. */
 	function wp_enqueue_style( string $handle, string $src = '', array $deps = array(), $ver = false, string $media = 'all' ): void {
 		Agend_Test_WP::$enqueued_styles[] = $handle;
+	}
+}
+
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+	/** Records the handle so a test can assert on exactly what was enqueued. */
+	function wp_enqueue_script( string $handle, string $src = '', array $deps = array(), $ver = false, $args = array() ): void {
+		Agend_Test_WP::$enqueued_scripts[] = $handle;
+	}
+}
+
+if ( ! function_exists( 'wp_dequeue_script' ) ) {
+	/** Drops the handle from the recorded enqueues, as WordPress drops it from its queue. */
+	function wp_dequeue_script( string $handle ): void {
+		Agend_Test_WP::$enqueued_scripts = array_values( array_diff( Agend_Test_WP::$enqueued_scripts, array( $handle ) ) );
+	}
+}
+
+if ( ! function_exists( 'wp_dequeue_style' ) ) {
+	/** Drops the handle from the recorded enqueues, as WordPress drops it from its queue. */
+	function wp_dequeue_style( string $handle ): void {
+		Agend_Test_WP::$enqueued_styles = array_values( array_diff( Agend_Test_WP::$enqueued_styles, array( $handle ) ) );
 	}
 }
 

@@ -19,6 +19,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The option list below makes no gateway call for a key the surface gate has
+// already ruled out.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * The Agend Export Report widget's content-settings schema.
  *
@@ -252,6 +256,13 @@ function agend_apps_records_export_reports_report_options(): array {
  * @return array|WP_Error Decoded response body, or the gateway error.
  */
 function agend_apps_records_export_reports_authoring_listing() {
+	// The report pickers all read this listing; none of them has anything to
+	// offer a key that cannot run reports, and none should spend a call finding
+	// that out.
+	if ( agend_apps_records_surface_gated( 'export-reports' ) ) {
+		return array( 'data' => array() );
+	}
+
 	if ( ! agend_apps_records_export_reports_authoring_scope_held() ) {
 		return agend_apps_directory_get_export_reports();
 	}

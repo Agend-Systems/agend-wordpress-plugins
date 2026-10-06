@@ -46,9 +46,10 @@ final class DirectoryCatalogueControlsTest extends TestCase {
 		// classes, the schema adapter would otherwise swap this fixture's
 		// control for a missing-scope notice. Seeded as held so this fixture
 		// keeps asserting the ordinary control; the gate itself is exercised
-		// in OptionalFeaturesTest.
+		// in OptionalFeaturesTest. The catalogue's own scope is seeded too, or the
+		// surface gate would put its notice at the top of the tab.
 		if ( class_exists( '\Agend_Apps_Key_Scopes' ) && function_exists( 'agend_apps_verify_api_key' ) ) {
-			\Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'directory.reviews.manage' ) ) ) );
+			\Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'directory.reviews.manage', 'directory.listings.search' ) ) ) );
 			\Agend_Apps_Key_Scopes::refresh();
 			\Agend_Test_WP::$requests = array();
 		}

@@ -13,6 +13,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 // This renderer reads a `url` field through the shared normaliser. The plugin
 // bootstrap already loads format.php ahead of every renderer, so this require
 // is for the callers that load a single renderer on its own, the unit tests
@@ -96,6 +100,14 @@ function agend_apps_records_render_header_auth( array $settings ): string {
 
 	if ( ! $credential_enabled && ! $wordpress_enabled ) {
 		return '';
+	}
+
+	// The credential form and its session probe call the gateway; `wordpress`
+	// mode never does, so it is not held to the key's scopes (the gate itself
+	// stands down there).
+	$gate = agend_apps_records_surface_gate( 'header-auth', false );
+	if ( null !== $gate ) {
+		return $gate;
 	}
 
 	$config = agend_apps_records_header_auth_build_config( $settings );
