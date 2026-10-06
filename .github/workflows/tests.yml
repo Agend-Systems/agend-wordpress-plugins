@@ -85,6 +85,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Header/constant/semver check
         run: .github/scripts/detect-releases.sh --check-only
+      - name: Version bump check script tests
+        run: .github/scripts/tests/check-version-bumps.test.sh
 
   bump:
     # Guardrail for the release workflow: a PR that changes a plugin's
@@ -100,6 +102,10 @@ jobs:
     # about the main-only release trigger, needs to skip for non-main PRs.
     name: Plugin version bumped for changed plugins
     runs-on: ubuntu-latest
+    # Reads the other open PRs (via gh) to compare version bumps against.
+    permissions:
+      contents: read
+      pull-requests: read
     # skip-version-bump: a maintainer applies this label, on review, for the
     # rare PR that legitimately ships no release (e.g. CI/tooling-only
     # changes under a plugin directory that don't warrant a version bump).
@@ -117,4 +123,6 @@ jobs:
           # directly, per the convention in release.yml: github.base_ref is
           # attacker-influenceable branch-name text on a pull_request event.
           BASE_REF: ${{ github.base_ref }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: .github/scripts/check-version-bumps.sh --base "origin/${BASE_REF}"
