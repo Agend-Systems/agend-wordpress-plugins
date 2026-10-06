@@ -228,17 +228,114 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 			}
 
 			$settings = $this->runtime_settings();
+			$result   = $this->paginate_query( $settings, $settings['entity_set'], $settings['fetch_xml'] );
 
-			$this->skipped_non_associative_count = 0;
-			$this->pages_fetched                 = 0;
-			$this->stopped_at_page_limit         = false;
+			// Only the main (asset) query's run writes the instance-level
+			// stats the admin preview and Agend_Directory_Sync_Runner read
+			// (get_pages_fetched(), stopped_at_page_limit(),
+			// get_skipped_non_associative_count()). A child list query pages
+			// through the same paginate_query() but must never overwrite
+			// these: the run summary describes the asset fetch, and a
+			// truncated asset sync must not be masked by whatever a later
+			// child list query's own page count happened to be.
+			$this->skipped_non_associative_count = $result['skipped_non_associative_count'];
+			$this->pages_fetched                 = $result['pages_fetched'];
+			$this->stopped_at_page_limit         = $result['stopped_at_page_limit'];
+
+			return $result['records'];
+		}
+
+		/**
+		 * Page through an arbitrary FetchXML query against the same
+		 * connection (environment, auth, timeout, page size, paging-cookie
+		 * behaviour) as the main query, but a caller-supplied entity set and
+		 * document (SPEC-DIR-20260930-directory-item-list-field US-2.1 AC3).
+		 *
+		 * This is the child list query: a second, independent FetchXML read
+		 * against a different Dataverse entity (e.g. centre tenants against
+		 * the asset query's centres), sharing this source's paging and auth
+		 * machinery rather than duplicating it. `$entity_set` is the child
+		 * list entry's own configured OData collection name (its Dataverse
+		 * EntitySetName), never derived from the query itself: Dataverse's
+		 * real pluralization is not reliably reproducible from a logical name
+		 * (verified 2026-09-30 against PCA staging metadata: the EntitySetName
+		 * for `pca_majorspecialothertenants` is
+		 * `pca_majorspecialothertenantses`, not the logical name unchanged),
+		 * so guessing it 404s the request.
+		 *
+		 * @param string $entity_set Child list entry's configured Dataverse
+		 *                           EntitySetName (already sanitised by
+		 *                           Agend_Directory_Sync_Field_Map).
+		 * @param string $fetch_xml  Child list FetchXML (paging attributes are
+		 *                           overwritten per page, exactly as the main
+		 *                           query's are).
+		 *
+		 * @return array<int, array<string, mixed>>
+		 *
+		 * @throws RuntimeException When the source is unavailable, the query
+		 *                          will not parse, a request fails, or the
+		 *                          hard page cap is hit.
+		 */
+		public function fetch_child_list( string $entity_set, string $fetch_xml ): array {
+			if ( ! $this->is_available() ) {
+				throw new RuntimeException( $this->get_unavailable_reason() );
+			}
+
+			$settings = $this->runtime_settings();
+
+			// Deliberately does not touch $this->pages_fetched,
+			// $this->stopped_at_page_limit or
+			// $this->skipped_non_associative_count: those describe the main
+			// (asset) query for the run summary, and a child list query is a
+			// second, independent paging run that must not overwrite them
+			// (see fetch_all()'s docblock).
+			return $this->paginate_query( $settings, $entity_set, $fetch_xml )['records'];
+		}
+
+		/**
+		 * Shared paging loop: fetch every page of `$fetch_xml` against
+		 * `$entity_set` under `$settings`'s connection, auth and paging
+		 * behaviour, aggregating rows in fetch order. Extracted from
+		 * `fetch_all()` so the main query and a child list query (US-2.1)
+		 * page identically rather than through two paging implementations
+		 * that could silently diverge.
+		 *
+		 * Purely local: it reads and mutates only its own local variables,
+		 * never `$this->pages_fetched` / `$this->stopped_at_page_limit` /
+		 * `$this->skipped_non_associative_count`. A child list query (US-2.1)
+		 * pages through this same method after the main query already has,
+		 * within the same request; if this method wrote those instance
+		 * properties itself, the child list's own page count would silently
+		 * overwrite the asset query's before `Agend_Directory_Sync_Runner`
+		 * ever reads them, masking a truncated asset sync. Each caller
+		 * decides for itself which of its own stats (if any) to keep --
+		 * `fetch_all()` keeps its result's stats, `fetch_child_list()`
+		 * discards them.
+		 *
+		 * @param array<string, mixed> $settings   Resolved runtime settings
+		 *                                          (connection, auth, page
+		 *                                          size, paging behaviour).
+		 * @param string                $entity_set OData collection segment
+		 *                                          for the request URL.
+		 * @param string                $fetch_xml  The query to page through.
+		 *
+		 * @return array{records: array<int, array<string, mixed>>, skipped_non_associative_count: int, pages_fetched: int, stopped_at_page_limit: bool}
+		 *
+		 * @throws RuntimeException When a request fails, the response is not
+		 *                          the expected envelope, or the hard page
+		 *                          cap is hit.
+		 */
+		private function paginate_query( array $settings, string $entity_set, string $fetch_xml ): array {
+			$skipped_non_associative_count = 0;
+			$pages_fetched                 = 0;
+			$stopped_at_page_limit         = false;
 
 			$records = array();
 			$page    = $settings['start_page'];
 			$cookie  = '';
 
 			while ( true ) {
-				if ( $this->pages_fetched >= self::MAX_PAGES ) {
+				if ( $pages_fetched >= self::MAX_PAGES ) {
 					throw new RuntimeException(
 						sprintf(
 							/* translators: %d: the pagination hard cap (pages). */
@@ -248,18 +345,18 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 					);
 				}
 
-				$fetch_xml = self::build_page_fetch_xml( $settings['fetch_xml'], $page, $settings['page_size'], $cookie );
-				$response  = $this->request_page( $settings, $fetch_xml );
-				$rows      = $this->resolve_records( $response['decoded'] );
+				$page_fetch_xml = self::build_page_fetch_xml( $fetch_xml, $page, $settings['page_size'], $cookie );
+				$response       = $this->request_page( $settings, $entity_set, $page_fetch_xml );
+				$rows           = $this->resolve_records( $response['decoded'], $skipped_non_associative_count );
 
 				$records = array_merge( $records, $rows );
-				$this->pages_fetched++;
+				$pages_fetched++;
 
 				// A page window is an operator instruction, not a failure: stop
 				// quietly, but record that the set is partial so the summary can
 				// say so.
-				if ( $settings['max_pages'] > 0 && $this->pages_fetched >= $settings['max_pages'] ) {
-					$this->stopped_at_page_limit = self::has_more_records( $response['decoded'], count( $rows ), $settings['page_size'] );
+				if ( $settings['max_pages'] > 0 && $pages_fetched >= $settings['max_pages'] ) {
+					$stopped_at_page_limit = self::has_more_records( $response['decoded'], count( $rows ), $settings['page_size'] );
 					break;
 				}
 
@@ -277,7 +374,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				$page      = null !== $next_page ? $next_page : $page + 1;
 			}
 
-			return $records;
+			return array(
+				'records'                        => $records,
+				'skipped_non_associative_count'  => $skipped_non_associative_count,
+				'pages_fetched'                  => $pages_fetched,
+				'stopped_at_page_limit'          => $stopped_at_page_limit,
+			);
 		}
 
 		/**
@@ -302,8 +404,6 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 
 			$settings = $this->runtime_settings();
 
-			$this->skipped_non_associative_count = 0;
-
 			$fetch_xml = self::build_page_fetch_xml(
 				$settings['fetch_xml'],
 				$settings['start_page'],
@@ -311,7 +411,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				''
 			);
 
-			$response = $this->request_page( $settings, $fetch_xml );
+			$response = $this->request_page( $settings, $settings['entity_set'], $fetch_xml );
 			$decoded  = $response['decoded'];
 
 			$result = array(
@@ -334,12 +434,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				return $result;
 			}
 
-			$records = $this->resolve_records( $decoded );
+			$preview_skipped_count = 0;
+			$records               = $this->resolve_records( $decoded, $preview_skipped_count );
 
 			$result['path_resolved']           = true;
 			$result['resolved_count']          = count( $records );
 			$result['resolved_records']        = array_slice( $records, 0, self::PREVIEW_RECORD_LIMIT );
-			$result['skipped_non_associative'] = $this->skipped_non_associative_count;
+			$result['skipped_non_associative'] = $preview_skipped_count;
 
 			return $result;
 		}
@@ -2060,11 +2161,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		 * @throws RuntimeException On transport failure, non-2xx status, or an
 		 *                          invalid JSON body.
 		 */
-		private function request_page( array $settings, string $fetch_xml ): array {
+		private function request_page( array $settings, string $entity_set, string $fetch_xml ): array {
 			$url = self::build_request_url(
 				$settings['environment_url'],
 				$settings['api_version'],
-				$settings['entity_set'],
+				$entity_set,
 				$fetch_xml
 			);
 
@@ -2202,15 +2303,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 
 		/**
 		 * The `value` array from a page's decoded body, counting (and skipping)
-		 * rows that are not JSON objects.
+		 * rows that are not JSON objects into `$skipped_count` (incremented,
+		 * never reset, so a caller accumulates it across several pages or
+		 * several calls in one local variable rather than this method
+		 * touching instance state itself -- see `paginate_query()`'s own
+		 * docblock for why that separation matters).
 		 *
 		 * @param array<string, mixed> $decoded
+		 * @param int                  $skipped_count Incremented by reference.
 		 *
 		 * @return array<int, array<string, mixed>>
 		 *
 		 * @throws RuntimeException When the response has no `value` array.
 		 */
-		private function resolve_records( array $decoded ): array {
+		private function resolve_records( array $decoded, int &$skipped_count ): array {
 			$value = $decoded[ self::DATA_PATH ] ?? null;
 
 			if ( ! is_array( $value ) ) {
@@ -2229,7 +2335,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 				if ( Agend_Directory_Sync_Config::is_associative_array( $row ) ) {
 					$records[] = $row;
 				} else {
-					$this->skipped_non_associative_count++;
+					$skipped_count++;
 				}
 			}
 
@@ -2309,8 +2415,18 @@ if ( ! class_exists( 'Agend_Directory_Sync_Dataverse_Source' ) ) :
 		 * restricted to the characters a Dataverse entity-set name can hold
 		 * rather than escaped: anything else is a configuration mistake, not a
 		 * value to pass through.
+		 *
+		 * Public so a child list entry's own entity_set
+		 * (SPEC-DIR-20260930-directory-item-list-field US-2.1) is sanitised
+		 * identically to the main connection setting, rather than by a second
+		 * copy of this rule in Agend_Directory_Sync_Field_Map. Dataverse's
+		 * EntitySetName is not reliably derivable from the logical name (a
+		 * heuristic guess was wrong for pca_majorspecialothertenants, whose
+		 * verified EntitySetName is pca_majorspecialothertenantses, not
+		 * pca_majorspecialothertenants), so a child list entry declares it
+		 * explicitly rather than having it guessed.
 		 */
-		private static function sanitize_entity_set( string $value ): string {
+		public static function sanitize_entity_set( string $value ): string {
 			return (string) preg_replace( '/[^A-Za-z0-9_]/', '', trim( $value ) );
 		}
 
