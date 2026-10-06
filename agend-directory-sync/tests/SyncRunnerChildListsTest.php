@@ -139,7 +139,7 @@ final class SyncRunnerChildListsTest extends TestCase {
 			array(
 				'core'          => array( 'external_id' => $external_id_source ),
 				'custom_fields' => array(),
-				'locations'     => Agend_Directory_Sync_Field_Map::default_locations(),
+				'primary_location' => Agend_Directory_Sync_Field_Map::default_primary_location(),
 				'flags'         => Agend_Directory_Sync_Field_Map::default_flags(),
 				'child_lists'   => $child_lists,
 			)

@@ -360,19 +360,57 @@ default. The key is stored under the listing's `custom_fields`.
 
 ### Address mapping
 
-Under Tools > Agend Directory Sync > **Address mapping** you can map one or
-more addresses to the listing. Each configured location slot has a static
-**Label** (stored as the location name) plus a source field per address
-component (`address_line_1`, `address_line_2`, `city`, `state`, `postcode`,
-`country`, `latitude`, `longitude`). A slot that resolves any address data
-becomes one listing location; the first with data is marked primary. Blank
-slots are omitted.
+Under Tools > Agend Directory Sync > **Address mapping** you map the listing's
+addresses. The directory treats one location as the listing's **primary**
+location and any others as additional locations, and the mapping mirrors that.
 
-This maps to the directory's multi-location support
-(SPEC-DIR-20260521-directory-multi-location) via the `locations[]` array on
-the bulk-upsert API. A typical Upbeat build maps a business address to
-location 1 and a residential address to location 2 — residential addresses
-are sensitive, so map them only when the directory should publish them.
+**Primary location.** A static **Label** (stored as the location name) plus a
+source field per address component (`address_line_1`, `address_line_2`,
+`city`, `state`, `postcode`, `country`, `latitude`, `longitude`). It is always
+sent as the primary location. If it resolves no data for a record, the first
+additional location that does is promoted to primary so a listing is never
+left without one.
+
+**Additional locations.** A repeater of rows, up to
+`Agend_Directory_Sync_Field_Map::MAX_ADDITIONAL_LOCATION_ROWS`. Each row is
+one of two types:
+
+- **Single location:** one address mapped from individual source fields, the
+  same fields as the primary location.
+- **Array of locations:** a **List source** dot-path (for example
+  `addresses`) naming a list in the source record. Each item in the list
+  becomes one location, and the field sources are read relative to each item
+  (`street`, or a template such as `{unit}/{street}`). An optional
+  `label_source` names each location from the item; the static label is the
+  fallback. A source holding one object rather than a list counts as one item.
+
+Any source field accepts a field name, a dot-path or a `{template}`. Rows that
+resolve no address data are skipped.
+
+**De-duplication.** An address that repeats an earlier one (same street,
+suburb and postcode, ignoring case and punctuation, or the same coordinates
+when there is no address text) is sent once. The plugin sends at most 50
+locations per listing, the gateway's cap. agend-apps-core applies the same
+normalisation again before the request is sent, so neither side relies on the
+other.
+
+**Locations mode.** Under **Settings > Locations mode**:
+
+- **Replace** (default): the sync is the source of truth. Each listing's
+  locations become exactly what the sync sends; an address removed upstream, or
+  added by hand in Agend, is removed.
+- **Merge:** only the primary location is updated in place. Other locations on
+  the listing are left alone, and the additional locations mapped here are
+  ignored by the gateway.
+
+**Upgrading.** A field map saved before this split (a flat list of location
+slots) is migrated on read: slot 1 becomes the primary location, and a later
+slot with any mapping becomes a single-location row. Nothing needs re-entering.
+
+The `locations[]` array is the directory's multi-location support
+(SPEC-DIR-20260521-directory-multi-location) on the bulk-upsert API. Residential
+addresses are sensitive, so map them only when the directory should publish
+them.
 
 ### Child lists and aggregates
 

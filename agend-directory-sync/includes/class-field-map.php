@@ -192,11 +192,19 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		}
 
 		/**
-		 * Number of configurable address (location) slots exposed for mapping.
-		 * A directory listing supports multiple locations; each configured slot
-		 * that has address data becomes one listing location.
+		 * Cap on the additional-location rows the field map accepts. The gateway
+		 * caps a listing at 50 locations in total; an array row can expand to many
+		 * locations, so this only bounds the number of mapping rows.
 		 */
-		public const LOCATION_SLOTS = 2;
+		public const MAX_ADDITIONAL_LOCATION_ROWS = 20;
+
+		/**
+		 * Row types of the additional-locations repeater. A `single` row maps one
+		 * location from individual source fields; an `array` row maps a source
+		 * list (e.g. `addresses`), producing one location per list item.
+		 */
+		public const LOCATION_ROW_SINGLE = 'single';
+		public const LOCATION_ROW_ARRAY  = 'array';
 
 		/**
 		 * Source-mappable sub-fields of a single location. `label` is a static
@@ -218,36 +226,86 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		}
 
 		/**
-		 * Default (empty) location slots: each a static `label` plus a blank
-		 * source field per location_field_keys().
+		 * Default (empty) primary location: a static `label` plus a blank source
+		 * field per location_field_keys().
 		 *
-		 * @return array<int, array<string, string>>
+		 * @return array<string, string>
 		 */
-		public static function default_locations(): array {
-			$slot = array( 'label' => '' );
+		public static function default_primary_location(): array {
+			$location = array( 'label' => '' );
 			foreach ( self::location_field_keys() as $key ) {
-				$slot[ $key ] = '';
+				$location[ $key ] = '';
 			}
-
-			$locations = array();
-			for ( $i = 0; $i < self::LOCATION_SLOTS; $i++ ) {
-				$locations[] = $slot;
-			}
-			return $locations;
+			return $location;
 		}
 
 		/**
-		 * The full default map (core + custom_fields + locations + flags).
+		 * A blank additional-location row of the given type. `source` (the list
+		 * path) and `label_source` (a per-item name) only apply to array rows; on
+		 * an array row the field values are read relative to each list item.
 		 *
-		 * @return array{core: array<string,string>, custom_fields: array<string,string>, locations: array<int, array<string,string>>, flags: array<string,bool>}
+		 * @return array<string, string>
+		 */
+		public static function blank_location_row( string $type = self::LOCATION_ROW_SINGLE ): array {
+			$row = array(
+				'type'         => self::LOCATION_ROW_ARRAY === $type ? self::LOCATION_ROW_ARRAY : self::LOCATION_ROW_SINGLE,
+				'source'       => '',
+				'label_source' => '',
+			);
+			return array_merge( $row, self::default_primary_location() );
+		}
+
+		/**
+		 * Default additional locations: none.
+		 *
+		 * @return array<int, array<string, string>>
+		 */
+		public static function default_additional_locations(): array {
+			return array();
+		}
+
+		/**
+		 * Split a legacy `locations` slot list (saved before the primary and
+		 * additional split) into the new shape. Slot 0 becomes the primary
+		 * location; later slots with any mapping become single-location rows.
+		 * A map already in the new shape never reaches this method.
+		 *
+		 * @param array<int|string, mixed> $legacy
+		 *
+		 * @return array{primary_location: array<string,string>, additional_locations: array<int, array<string,string>>}
+		 */
+		public static function migrate_legacy_locations( array $legacy ): array {
+			$legacy = array_values( $legacy );
+
+			$primary = self::sanitize_primary_location( is_array( $legacy[0] ?? null ) ? $legacy[0] : array() );
+
+			$rows = array();
+			foreach ( array_slice( $legacy, 1 ) as $slot ) {
+				if ( is_array( $slot ) ) {
+					$rows[] = $slot;
+				}
+			}
+
+			return array(
+				'primary_location'     => $primary,
+				'additional_locations' => self::sanitize_additional_locations( $rows ),
+			);
+		}
+
+		/**
+		 * The full default map (core + custom_fields + primary and additional
+		 * locations + flags + child lists).
+		 *
+		 * @return array{core: array<string,string>, custom_fields: array<string,string>, primary_location: array<string,string>, additional_locations: array<int, array<string,string>>, flags: array<string,bool>}
 		 */
 		public static function defaults(): array {
 			return array(
-				'core'          => self::default_core_map(),
-				'custom_fields' => self::default_custom_field_map(),
-				'locations'     => self::default_locations(),
-				'flags'         => self::default_flags(),
-				'child_lists'   => self::default_child_lists(),
+				'core'                 => self::default_core_map(),
+				'custom_fields'        => self::default_custom_field_map(),
+				'primary_location'     => self::default_primary_location(),
+				'additional_locations' => self::default_additional_locations(),
+				'flags'                => self::default_flags(),
+				'child_lists'          => self::default_child_lists(),
 			);
 		}
 
@@ -351,7 +409,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 * has no `flags` key at all, and resolves to the non-inverted
 		 * defaults rather than an error.
 		 *
-		 * @return array{core: array<string, string>, custom_fields: array<string, string>, locations: array<int, array<string,string>>, flags: array<string, bool>}
+		 * @return array{core: array<string, string>, custom_fields: array<string, string>, primary_location: array<string,string>, additional_locations: array<int, array<string,string>>, flags: array<string, bool>}
 		 */
 		public static function resolve(): array {
 			$saved = get_option( self::OPTION_FIELD_MAP, null );
@@ -381,18 +439,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				}
 			}
 
-			$locations = self::default_locations();
-			if ( isset( $saved['locations'] ) && is_array( $saved['locations'] ) ) {
-				foreach ( $locations as $i => $slot ) {
-					if ( ! isset( $saved['locations'][ $i ] ) || ! is_array( $saved['locations'][ $i ] ) ) {
-						continue;
-					}
-					foreach ( $slot as $field => $default ) {
-						if ( array_key_exists( $field, $saved['locations'][ $i ] ) ) {
-							$locations[ $i ][ $field ] = (string) $saved['locations'][ $i ][ $field ];
-						}
-					}
-				}
+			// A map saved before the primary/additional split carries a flat
+			// `locations` slot list; migrate it so nothing mapped is lost.
+			if ( isset( $saved['primary_location'] ) && is_array( $saved['primary_location'] ) ) {
+				$primary_location     = self::sanitize_primary_location( $saved['primary_location'] );
+				$additional_locations = isset( $saved['additional_locations'] ) && is_array( $saved['additional_locations'] )
+					? self::sanitize_additional_locations( $saved['additional_locations'] )
+					: self::default_additional_locations();
+			} elseif ( isset( $saved['locations'] ) && is_array( $saved['locations'] ) ) {
+				$migrated             = self::migrate_legacy_locations( $saved['locations'] );
+				$primary_location     = $migrated['primary_location'];
+				$additional_locations = $migrated['additional_locations'];
+			} else {
+				$primary_location     = self::default_primary_location();
+				$additional_locations = self::default_additional_locations();
 			}
 
 			// sanitize_flags() already fills in every key from the defaults,
@@ -408,11 +468,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 				: self::default_child_lists();
 
 			return array(
-				'core'          => $core,
-				'custom_fields' => $custom_fields,
-				'locations'     => $locations,
-				'flags'         => $flags,
-				'child_lists'   => $child_lists,
+				'core'                 => $core,
+				'custom_fields'        => $custom_fields,
+				'primary_location'     => $primary_location,
+				'additional_locations' => $additional_locations,
+				'flags'                => $flags,
+				'child_lists'          => $child_lists,
 			);
 		}
 
@@ -423,20 +484,22 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		 *
 		 * @param array<string, mixed> $raw_core      Posted core map (key => source).
 		 * @param mixed                $raw_custom    Posted custom map (textarea string or array).
-		 * @param mixed                $raw_locations Posted location slots (array of slot => field => source).
+		 * @param mixed                $raw_primary    Posted primary location (field => source).
+		 * @param mixed                $raw_additional Posted additional location rows (row => field => source).
 		 * @param mixed                $raw_flags     Posted flag invert checkboxes (key => '1' when checked).
 		 *
 		 * @return void
 		 */
-		public static function save( array $raw_core, $raw_custom, $raw_locations = array(), $raw_flags = array(), $raw_child_lists = array() ): void {
+		public static function save( array $raw_core, $raw_custom, $raw_primary = array(), $raw_additional = array(), $raw_flags = array(), $raw_child_lists = array() ): void {
 			update_option(
 				self::OPTION_FIELD_MAP,
 				array(
-					'core'          => self::sanitize_core( $raw_core ),
-					'custom_fields' => self::sanitize_custom_fields( $raw_custom ),
-					'locations'     => self::sanitize_locations( $raw_locations ),
-					'flags'         => self::sanitize_flags( $raw_flags ),
-					'child_lists'   => self::sanitize_child_lists( $raw_child_lists ),
+					'core'                 => self::sanitize_core( $raw_core ),
+					'custom_fields'        => self::sanitize_custom_fields( $raw_custom ),
+					'primary_location'     => self::sanitize_primary_location( $raw_primary ),
+					'additional_locations' => self::sanitize_additional_locations( $raw_additional ),
+					'flags'                => self::sanitize_flags( $raw_flags ),
+					'child_lists'          => self::sanitize_child_lists( $raw_child_lists ),
 				)
 			);
 		}
@@ -743,33 +806,84 @@ if ( ! class_exists( 'Agend_Directory_Sync_Field_Map' ) ) :
 		}
 
 		/**
-		 * Validate posted location slots against the known slot count and
-		 * field keys. `label` is free text; the address sub-fields are source
-		 * paths.
+		 * Validate the posted primary location. `label` is free text; the
+		 * address sub-fields are source paths or templates.
 		 *
-		 * @param mixed $raw Posted locations (array of slot index => field => value).
+		 * @param mixed $raw Posted primary location (field => value).
+		 *
+		 * @return array<string, string>
+		 */
+		public static function sanitize_primary_location( $raw ): array {
+			$raw      = is_array( $raw ) ? $raw : array();
+			$location = self::default_primary_location();
+
+			$location['label'] = isset( $raw['label'] ) ? sanitize_text_field( (string) $raw['label'] ) : '';
+			foreach ( self::location_field_keys() as $key ) {
+				$location[ $key ] = isset( $raw[ $key ] ) ? self::sanitize_source_path( (string) $raw[ $key ] ) : '';
+			}
+
+			return $location;
+		}
+
+		/**
+		 * Validate the posted additional-location rows. Rows are re-indexed;
+		 * a row with no mapping at all is dropped, and so is an array row with no
+		 * list `source` (it could produce nothing). An unknown type is a single
+		 * row. At most MAX_ADDITIONAL_LOCATION_ROWS rows are kept.
+		 *
+		 * @param mixed $raw Posted rows (index => field => value).
 		 *
 		 * @return array<int, array<string, string>>
 		 */
-		public static function sanitize_locations( $raw ): array {
-			$raw       = is_array( $raw ) ? $raw : array();
-			$locations = self::default_locations();
+		public static function sanitize_additional_locations( $raw ): array {
+			$raw  = is_array( $raw ) ? $raw : array();
+			$rows = array();
 
-			foreach ( $locations as $i => $slot ) {
-				$posted = isset( $raw[ $i ] ) && is_array( $raw[ $i ] ) ? $raw[ $i ] : array();
+			foreach ( $raw as $posted ) {
+				if ( ! is_array( $posted ) ) {
+					continue;
+				}
 
-				$locations[ $i ]['label'] = isset( $posted['label'] )
-					? sanitize_text_field( (string) $posted['label'] )
-					: '';
+				$is_array_row = isset( $posted['type'] ) && self::LOCATION_ROW_ARRAY === (string) $posted['type'];
+				$row          = array_merge(
+					self::blank_location_row( $is_array_row ? self::LOCATION_ROW_ARRAY : self::LOCATION_ROW_SINGLE ),
+					self::sanitize_primary_location( $posted )
+				);
 
-				foreach ( self::location_field_keys() as $key ) {
-					$locations[ $i ][ $key ] = isset( $posted[ $key ] )
-						? self::sanitize_source_path( (string) $posted[ $key ] )
-						: '';
+				if ( $is_array_row ) {
+					$row['source']       = isset( $posted['source'] ) ? self::sanitize_list_path( (string) $posted['source'] ) : '';
+					$row['label_source'] = isset( $posted['label_source'] ) ? self::sanitize_source_path( (string) $posted['label_source'] ) : '';
+					if ( '' === $row['source'] ) {
+						continue;
+					}
+				} else {
+					$mapped = false;
+					foreach ( self::location_field_keys() as $key ) {
+						if ( '' !== $row[ $key ] ) {
+							$mapped = true;
+							break;
+						}
+					}
+					if ( ! $mapped ) {
+						continue;
+					}
+				}
+
+				$rows[] = $row;
+				if ( count( $rows ) >= self::MAX_ADDITIONAL_LOCATION_ROWS ) {
+					break;
 				}
 			}
 
-			return $locations;
+			return $rows;
+		}
+
+		/**
+		 * Sanitize the list path of an array row. A list path is a plain
+		 * dot-path only: a template resolves to a string, never a list.
+		 */
+		private static function sanitize_list_path( string $value ): string {
+			return (string) preg_replace( '/[^A-Za-z0-9_.\-@]/', '', trim( $value ) );
 		}
 
 		/**

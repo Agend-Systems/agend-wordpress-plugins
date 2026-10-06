@@ -99,6 +99,13 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		public const OPTION_BATCH_SIZE = 'agend_directory_sync_batch_size';
 
 		/**
+		 * Option key for how the gateway applies each listing's locations[]:
+		 * `replace` (default) or `merge`. Resolved and validated by
+		 * Agend_Directory_Sync_Agend_Client::locations_mode().
+		 */
+		public const OPTION_LOCATIONS_MODE = 'agend_directory_sync_locations_mode';
+
+		/**
 		 * Option key for the per-batch gateway request timeout, in seconds.
 		 * Clamped and defaulted by Agend_Directory_Sync_Agend_Client::timeout_seconds().
 		 */
