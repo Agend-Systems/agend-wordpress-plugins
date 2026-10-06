@@ -160,6 +160,10 @@ class Agend_Elementor_Record_Image extends \Elementor\Widget_Base {
 		$s    = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 		$opts = $this->render_opts();
 
+		if ( $this->render_record_gate( $s, $opts ) ) {
+			return;
+		}
+
 		if ( 'no_image' === agend_apps_records_record_image_render_reason( $s, $opts ) ) {
 			$this->render_editor_notice( __( 'This record has no image and no fallback image is set.', 'agend-elementor' ) );
 			return;

@@ -20,6 +20,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * Resolves the whole "does this filter render, and if not why" decision in
  * one pass, from a type and key already parsed out of the `filter` setting.
@@ -444,6 +448,25 @@ function agend_apps_records_filter_style( array $settings ): array {
 }
 
 /**
+ * The gate for a filter control, which inherits its catalogue's surface.
+ *
+ * The catalogue in scope wins (a filter inside its filter template), else the
+ * type the filter itself declares, so a filter previewed in the editor still
+ * names the catalogue it will need.
+ *
+ * @param array $settings Surface settings (`filter` is `type:key`).
+ * @param bool  $editor   Whether an editor is drawing this.
+ * @return string|null Null when open; see {@see agend_apps_records_surface_gate()}.
+ */
+function agend_apps_records_filter_gate( array $settings, bool $editor ): ?string {
+	$context  = Agend_Apps_Records_Filter_Context::type();
+	$selected = (string) ( $settings['filter'] ?? '' );
+	$type     = '' !== $context ? $context : (string) strtok( $selected, ':' );
+
+	return agend_apps_records_surface_gate( agend_apps_records_type_surface( $type ), $editor );
+}
+
+/**
  * Renders the catalogue filter surface: a labelled shell around the control
  * a catalogue's script fills in at runtime, or, with `$opts['preview']` on,
  * the stand-in control markup itself.
@@ -464,6 +487,11 @@ function agend_apps_records_render_filter( array $settings, array $opts = array(
 		return '';
 	}
 	list( $type, $key ) = explode( ':', $selected, 2 );
+
+	$gate = agend_apps_records_filter_gate( $settings, $preview );
+	if ( null !== $gate ) {
+		return $gate;
+	}
 
 	$context = Agend_Apps_Records_Filter_Context::type();
 

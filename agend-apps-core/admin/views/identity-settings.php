@@ -23,4 +23,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 		submit_button();
 		?>
 	</form>
+
+	<?php do_settings_sections( Agend_Apps_Identity_Admin::TOOLS_PAGE_SLUG ); ?>
 </div>

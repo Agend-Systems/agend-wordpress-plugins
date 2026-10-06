@@ -45,7 +45,9 @@ function agend_apps_records_optional_features(): array {
 		),
 		'directory_export_reports' => array(
 			'label'       => __( 'Export Reports', 'agend-apps-core' ),
-			'scopes'      => array( 'directory.export_reports.browse' ),
+			// `.run` is the download itself: a key that can list reports but not
+			// run one offers a button that always fails.
+			'scopes'      => array( 'directory.export_reports.browse', 'directory.export_reports.run' ),
 			'description' => __( 'The Agend Export Report widget\'s report list and downloads.', 'agend-apps-core' ),
 		),
 		'directory_review_form'   => array(

@@ -65,7 +65,7 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-apps-records-header-auth' );
+		return Agend_Elementor_Schema_Controls::depends( 'header-auth', array( 'agend-apps-records-header-auth' ) );
 	}
 
 	/**
@@ -74,14 +74,14 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-apps-records-header-auth' );
+		return Agend_Elementor_Schema_Controls::depends( 'header-auth', array( 'agend-apps-records-header-auth' ) );
 	}
 
 	/**
 	 * Registers all Elementor controls for this widget.
 	 */
 	protected function register_controls(): void {
-		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'header-auth' ) );
+		Agend_Elementor_Schema_Controls::register( $this, agend_apps_records_surface_schema( 'header-auth' ), 'header-auth' );
 
 		$this->start_controls_section(
 			'section_style',
@@ -304,6 +304,15 @@ class Agend_Elementor_Header_Auth extends \Elementor\Widget_Base {
 	 * (docs/PLAN-wordpress-idp-option-b.md section 4.5).
 	 */
 	protected function render(): void {
+		// Stays in the panel and the canvas so a developer sees it, but draws
+		// nothing for a visitor and makes no gateway call, while the API key lacks
+		// what this widget needs.
+		$gate = Agend_Elementor_Schema_Controls::render_gate( 'header-auth' );
+		if ( null !== $gate ) {
+			echo $gate; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the surface gate.
+			return;
+		}
+
 		$credential_enabled = ! class_exists( 'Agend_Apps_Settings' ) || Agend_Apps_Settings::credential_login_enabled();
 		$wordpress_enabled  = class_exists( 'Agend_Apps_Settings' ) && Agend_Apps_Settings::wordpress_idp_enabled();
 

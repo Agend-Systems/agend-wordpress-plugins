@@ -13,6 +13,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * Colour role defaults the member login surface exposes: the same four roles
  * as the catalogues, minus accent, which the login form's CSS has no use for
@@ -119,6 +123,14 @@ function agend_apps_records_render_member_login( array $settings ): string {
 
 	if ( ! $credential_enabled && ! $wordpress_enabled ) {
 		return '';
+	}
+
+	// The credential form and its session probe call the gateway; `wordpress`
+	// mode never does, so it is not held to the key's scopes (the gate itself
+	// stands down there).
+	$gate = agend_apps_records_surface_gate( 'member-login', false );
+	if ( null !== $gate ) {
+		return $gate;
 	}
 
 	$colours = agend_apps_records_resolve_colours(

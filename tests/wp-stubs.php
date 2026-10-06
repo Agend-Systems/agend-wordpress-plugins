@@ -116,12 +116,25 @@ final class Agend_Test_WP {
 	/** @var string[] Style handles recorded by `wp_enqueue_style()`, in call order. */
 	public static array $enqueued_styles = array();
 
+	/** @var string[] Script handles recorded by `wp_enqueue_script()`, in call order. */
+	public static array $enqueued_scripts = array();
+
 	/**
 	 * Value `wp_style_engine_get_stylesheet_from_context()` returns. A test
 	 * sets this directly to simulate block-supports layout CSS having been
 	 * generated during a render; '' (the default) simulates an empty store.
 	 */
 	public static string $style_engine_stylesheet = '';
+
+	/**
+	 * Settings API registry, page => section id => {title, callback, fields}.
+	 * Backs the `add_settings_section()`/`add_settings_field()`/
+	 * `do_settings_sections()` stubs, so a test can render a settings page the
+	 * way WordPress lays it out.
+	 *
+	 * @var array<string, array<string, array{title: string, callback: mixed, fields: array<string, array{title: string, callback: mixed}>}>>
+	 */
+	public static array $settings_sections = array();
 
 	/**
 	 * Registered role slug => display name, as `wp_roles()->get_names()`
@@ -161,7 +174,9 @@ final class Agend_Test_WP {
 		self::$redirects         = array();
 		self::$wp_update_plugins_calls = 0;
 		self::$enqueued_styles   = array();
+		self::$enqueued_scripts  = array();
 		self::$style_engine_stylesheet = '';
+		self::$settings_sections = array();
 		self::$roles             = array(
 			'administrator' => 'Administrator',
 			'editor'        => 'Editor',
@@ -1451,6 +1466,14 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 			$this->route  = $route;
 		}
 
+		public function get_method(): string {
+			return $this->method;
+		}
+
+		public function get_route(): string {
+			return $this->route;
+		}
+
 		public function set_param( string $key, $value ): void {
 			$this->params[ $key ] = $value;
 		}
@@ -1878,6 +1901,9 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 		/** @var string[] */
 		public array $style_handles = array();
 
+		/** @var string[] */
+		public array $view_script_handles = array();
+
 		/** @var callable|null */
 		public $render_callback = null;
 
@@ -1888,6 +1914,12 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 				$this->style_handles = (array) $args['style_handles'];
 			} elseif ( isset( $args['style'] ) ) {
 				$this->style_handles = (array) $args['style'];
+			}
+
+			if ( isset( $args['view_script_handles'] ) ) {
+				$this->view_script_handles = (array) $args['view_script_handles'];
+			} elseif ( isset( $args['viewScript'] ) ) {
+				$this->view_script_handles = (array) $args['viewScript'];
 			}
 
 			if ( isset( $args['render_callback'] ) ) {
@@ -2248,6 +2280,27 @@ if ( ! function_exists( 'wp_enqueue_style' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+	/** Records the handle so a test can assert on exactly what was enqueued. */
+	function wp_enqueue_script( string $handle, string $src = '', array $deps = array(), $ver = false, $args = array() ): void {
+		Agend_Test_WP::$enqueued_scripts[] = $handle;
+	}
+}
+
+if ( ! function_exists( 'wp_dequeue_script' ) ) {
+	/** Drops the handle from the recorded enqueues, as WordPress drops it from its queue. */
+	function wp_dequeue_script( string $handle ): void {
+		Agend_Test_WP::$enqueued_scripts = array_values( array_diff( Agend_Test_WP::$enqueued_scripts, array( $handle ) ) );
+	}
+}
+
+if ( ! function_exists( 'wp_dequeue_style' ) ) {
+	/** Drops the handle from the recorded enqueues, as WordPress drops it from its queue. */
+	function wp_dequeue_style( string $handle ): void {
+		Agend_Test_WP::$enqueued_styles = array_values( array_diff( Agend_Test_WP::$enqueued_styles, array( $handle ) ) );
+	}
+}
+
 if ( ! function_exists( 'wp_style_engine_get_stylesheet_from_context' ) ) {
 	/**
 	 * Test double for the style engine's block-supports capture.
@@ -2260,5 +2313,91 @@ if ( ! function_exists( 'wp_style_engine_get_stylesheet_from_context' ) ) {
 	 */
 	function wp_style_engine_get_stylesheet_from_context( string $context, array $options = array() ): string {
 		return Agend_Test_WP::$style_engine_stylesheet;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Settings API: records sections and fields, and renders them in the same
+// <h2> / section callback / form-table shape WordPress uses.
+// ---------------------------------------------------------------------------
+
+if ( ! function_exists( 'add_settings_section' ) ) {
+	function add_settings_section( string $id, string $title, $callback, string $page ): void {
+		Agend_Test_WP::$settings_sections[ $page ][ $id ] = array(
+			'title'    => $title,
+			'callback' => $callback,
+			'fields'   => Agend_Test_WP::$settings_sections[ $page ][ $id ]['fields'] ?? array(),
+		);
+	}
+}
+
+if ( ! function_exists( 'add_settings_field' ) ) {
+	function add_settings_field( string $id, string $title, $callback, string $page, string $section = 'default', array $args = array() ): void {
+		Agend_Test_WP::$settings_sections[ $page ][ $section ]['fields'][ $id ] = array(
+			'title'    => $title,
+			'callback' => $callback,
+		);
+	}
+}
+
+if ( ! function_exists( 'register_setting' ) ) {
+	function register_setting( string $option_group, string $option_name, array $args = array() ): void {
+	}
+}
+
+if ( ! function_exists( 'settings_fields' ) ) {
+	function settings_fields( string $option_group ): void {
+		echo '<input type="hidden" name="option_page" value="' . esc_attr( $option_group ) . '" />';
+		echo '<input type="hidden" name="action" value="update" />';
+	}
+}
+
+if ( ! function_exists( 'do_settings_sections' ) ) {
+	function do_settings_sections( string $page ): void {
+		foreach ( Agend_Test_WP::$settings_sections[ $page ] ?? array() as $section ) {
+			echo '<h2>' . esc_html( $section['title'] ) . '</h2>';
+
+			if ( is_callable( $section['callback'] ) ) {
+				call_user_func( $section['callback'] );
+			}
+
+			echo '<table class="form-table" role="presentation">';
+			foreach ( $section['fields'] ?? array() as $field ) {
+				echo '<tr><th scope="row">' . esc_html( $field['title'] ) . '</th><td>';
+				call_user_func( $field['callback'] );
+				echo '</td></tr>';
+			}
+			echo '</table>';
+		}
+	}
+}
+
+if ( ! function_exists( 'submit_button' ) ) {
+	function submit_button( $text = null, $type = 'primary', $name = 'submit', $wrap = true, $other_attributes = null ): void {
+		echo '<input type="submit" class="button" value="' . esc_attr( (string) ( $text ?? 'Save Changes' ) ) . '" />';
+	}
+}
+
+if ( ! function_exists( 'wp_nonce_field' ) ) {
+	function wp_nonce_field( $action = -1, string $name = '_wpnonce', bool $referer = true, bool $display = true ): string {
+		$field = '<input type="hidden" name="' . esc_attr( $name ) . '" value="nonce" />';
+
+		if ( $display ) {
+			echo $field; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		return $field;
+	}
+}
+
+if ( ! function_exists( 'checked' ) ) {
+	function checked( $checked, $current = true, bool $display = true ): string {
+		$result = ( (string) $checked === (string) $current ) ? " checked='checked'" : '';
+
+		if ( $display ) {
+			echo $result; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		return $result;
 	}
 }

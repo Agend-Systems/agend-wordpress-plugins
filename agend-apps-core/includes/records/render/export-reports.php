@@ -20,6 +20,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 // The parameter vocabulary, the automatic filter pairing and the report
 // listing reader all live with the surface's schema, and this file now reads
 // all three. Required explicitly rather than relying on the plugin's include
@@ -178,6 +182,11 @@ function agend_apps_records_export_reports_offered_reports( array $settings ): a
  * @return string The rendered markup, or '' when the instance offers no report.
  */
 function agend_apps_records_render_export_reports( array $settings, array $opts = array() ): string {
+	$gate = agend_apps_records_surface_gate( 'export-reports', false );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	$mode    = 'dropdown' === ( $settings['mode'] ?? 'button' ) ? 'dropdown' : 'button';
 	$reports = agend_apps_records_export_reports_offered_reports( $settings );
 

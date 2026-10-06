@@ -25,6 +25,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return string The rendered markup.
  */
 function agend_apps_records_render_add_to_cart( array $settings ): string {
+	// The core gate may be absent on an older Agend Apps Core; the call is then
+	// left to the gateway, which stays the authority.
+	if ( function_exists( 'agend_apps_records_surface_gate' ) ) {
+		$gate = agend_apps_records_surface_gate( 'add-to-cart', false );
+		if ( null !== $gate ) {
+			return $gate;
+		}
+	}
+
 	$product_type = sanitize_text_field( (string) ( $settings['product_type'] ?? 'event_tickets' ) );
 	$product_id   = sanitize_text_field( (string) ( $settings['product_id'] ?? '' ) );
 	$button_label = sanitize_text_field( (string) ( $settings['button_label'] ?? __( 'Add to Cart', 'agend-apps-shop' ) ) );

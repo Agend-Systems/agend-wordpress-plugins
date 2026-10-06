@@ -13,6 +13,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * Normalises a SELECT2 multiple value to a clean string list.
  *
@@ -172,6 +176,11 @@ function agend_apps_records_directory_catalogue_count_text( string $text, ?array
  * assets/js/directory-catalogue.js.
  */
 function agend_apps_records_render_directory_catalogue( array $settings ): string {
+	$gate = agend_apps_records_surface_gate( 'directory-catalogue', false );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	ob_start();
 	// A catalogue inside a card template would fetch the list once per
 	// card; nothing sensible can come of it.

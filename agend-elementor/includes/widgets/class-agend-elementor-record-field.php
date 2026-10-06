@@ -132,6 +132,10 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 			'preview_type' => $is_editor ? $this->preview_type() : '',
 		);
 
+		if ( $this->render_record_gate( $s, $opts ) ) {
+			return;
+		}
+
 		switch ( agend_apps_records_record_field_render_reason( $s, $opts ) ) {
 			case 'field_not_applicable':
 				$this->render_editor_notice( __( 'This field does not exist on the record type this template renders.', 'agend-elementor' ) );

@@ -61,6 +61,14 @@ final class WpIdpSamlLinkTest extends TestCase {
 		update_option( 'agend_apps_sso_link_mechanism', Agend_Apps_Settings::SSO_LINK_MECHANISM_SAML );
 		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS );
 
+		// The background link toggle defaults to off (SPEC: the "Background
+		// link" admin toggle). Every test in this file predates the toggle and
+		// expects the round trip to be reachable, so it is turned on here,
+		// once, rather than per test; the dedicated
+		// should_report_background_link_disabled_* tests below turn it back
+		// off to exercise the new gate itself.
+		update_option( 'agend_apps_sso_background_link', true );
+
 		// agend_apps_idp_entity_id() falls back to site_url(), unstubbed in
 		// this harness, when this option is absent -- same seed
 		// AccountLinkIdentityRecordTest/the old WpIdpLinkTest used for the
@@ -392,6 +400,28 @@ final class WpIdpSamlLinkTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_report_background_link_disabled_when_the_option_is_unset(): void {
+		delete_option( 'agend_apps_sso_background_link' );
+
+		$this->assertSame( 'background_link_disabled', \agend_apps_saml_link_eligibility( 420 )['reason'] );
+	}
+
+	#[Test]
+	public function should_report_background_link_disabled_when_the_option_is_explicitly_false(): void {
+		update_option( 'agend_apps_sso_background_link', false );
+
+		$this->assertSame( 'background_link_disabled', \agend_apps_saml_link_eligibility( 421 )['reason'] );
+	}
+
+	#[Test]
+	public function should_report_background_link_disabled_before_linked(): void {
+		update_option( 'agend_apps_sso_background_link', false );
+		\agend_apps_wp_idp_record_link_state( 422, \AGEND_APPS_LINK_STATE_LINKED );
+
+		$this->assertSame( 'background_link_disabled', \agend_apps_saml_link_eligibility( 422 )['reason'] );
+	}
+
+	#[Test]
 	public function should_report_linked(): void {
 		\agend_apps_wp_idp_record_link_state( 42, \AGEND_APPS_LINK_STATE_LINKED );
 
@@ -645,6 +675,19 @@ final class WpIdpSamlLinkTest extends TestCase {
 
 		$this->assertSame( 'skip', $decision['action'] );
 		$this->assertSame( 'mechanism_not_saml', $decision['reason'] );
+	}
+
+	#[Test]
+	public function should_skip_and_write_no_link_state_when_the_background_link_is_disabled(): void {
+		$this->mintExternalId( 423 );
+		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata' );
+		update_option( 'agend_apps_sso_background_link', false );
+
+		$decision = \agend_apps_saml_link_decision( 423, 'https://example.test/page/' );
+
+		$this->assertSame( array( 'action' => 'skip', 'url' => '', 'reason' => 'background_link_disabled' ), $decision );
+		$this->assertSame( '', \agend_apps_wp_idp_link_state( 423 )['state'] );
+		$this->assertSame( 0, \agend_apps_wp_idp_link_state( 423 )['views'] );
 	}
 
 	#[Test]

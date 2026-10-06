@@ -167,6 +167,10 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 		$s    = Agend_Elementor_Global_Colours::resolve( $this->get_settings_for_display() );
 		$opts = $this->render_opts();
 
+		if ( $this->render_record_gate( $s, $opts ) ) {
+			return;
+		}
+
 		switch ( agend_apps_records_record_link_render_reason( $s, $opts ) ) {
 			case 'ical_wrong_type':
 				$this->render_editor_notice( __( 'Add to calendar is only available for events.', 'agend-elementor' ) );

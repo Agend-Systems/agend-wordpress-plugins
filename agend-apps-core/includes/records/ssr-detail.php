@@ -50,6 +50,7 @@ function agend_apps_records_ssr_detail_registry(): array {
 			'segment'   => 'listing/',
 			'enqueue'   => 'agend_apps_records_ssr_enqueue_directory',
 			'type'      => 'listing',
+			'surface'   => 'directory-catalogue',
 		),
 		array(
 			'query_var' => 'event',
@@ -58,6 +59,7 @@ function agend_apps_records_ssr_detail_registry(): array {
 			'segment'   => 'event/',
 			'enqueue'   => 'agend_apps_records_ssr_enqueue_events',
 			'type'      => 'event',
+			'surface'   => 'events-catalogue',
 		),
 		array(
 			'query_var' => 'course',
@@ -66,6 +68,7 @@ function agend_apps_records_ssr_detail_registry(): array {
 			'segment'   => 'course/',
 			'enqueue'   => 'agend_apps_records_ssr_enqueue_courses',
 			'type'      => 'course',
+			'surface'   => 'courses-catalogue',
 		),
 	);
 }
@@ -122,6 +125,11 @@ function agend_apps_records_ssr_maybe_render_detail(): void {
 
 	foreach ( agend_apps_records_ssr_detail_registry() as $type ) {
 		if ( ! function_exists( $type['available'] ) ) {
+			continue;
+		}
+		// The resolver fetches the item from the gateway. A key that cannot
+		// use the catalogue gets the host page as it is, with no call made.
+		if ( function_exists( 'agend_apps_records_surface_gated' ) && agend_apps_records_surface_gated( $type['surface'] ) ) {
 			continue;
 		}
 		if ( ! $ssr_enabled && ( '' === $type['type'] || 0 === Agend_Apps_Records_Pages::detail_template_id( $type['type'] ) ) ) {

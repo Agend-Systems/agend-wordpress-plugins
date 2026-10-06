@@ -20,6 +20,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * The record's detail URL from context, falling back to the page resolver.
  *
@@ -308,6 +312,11 @@ function agend_apps_records_record_link_render_reason( array $settings, array $o
  *                when a caller needs to know).
  */
 function agend_apps_records_render_record_link( array $settings, array $opts = array() ): string {
+	$gate = agend_apps_records_record_gate( $settings, $opts );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	$resolved = agend_apps_records_record_link_resolve( $settings, $opts );
 
 	if ( 'button' === $resolved['kind'] ) {

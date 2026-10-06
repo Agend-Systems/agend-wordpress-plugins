@@ -23,6 +23,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The preview fetchers below make no gateway call for a key the surface gate
+// has already ruled out.
+require_once __DIR__ . '/surface-gate.php';
+
 // WordPress core defines these; guarded here (rather than assumed) because
 // this file is also loaded by the unit-test stub harness, which does not
 // bootstrap wp-includes/default-constants.php.
@@ -250,6 +254,13 @@ function agend_apps_records_preview_record( string $type ): array {
 		return array();
 	}
 
+	// A catalogue the key cannot use has no records to preview: the synthetic
+	// placeholder, with no gateway call and no cache entry, so the real record
+	// is fetched as soon as the scopes are fixed rather than after the TTL.
+	if ( agend_apps_records_surface_gated( agend_apps_records_type_surface( $type ) ) ) {
+		return agend_apps_records_preview_placeholder_record( $type );
+	}
+
 	$cache_key = 'agend_elementor_preview_record_' . $type;
 	$cached    = get_transient( $cache_key );
 	if ( is_array( $cached ) ) {
@@ -334,7 +345,7 @@ function agend_apps_records_resolve_record_context( array $opts = array() ): arr
  *                               wrapper is unavailable or nothing is found.
  */
 function agend_apps_records_fetch_preview_event(): array {
-	if ( ! function_exists( 'agend_apps_events_get_events' ) ) {
+	if ( ! function_exists( 'agend_apps_events_get_events' ) || agend_apps_records_surface_gated( 'events-catalogue' ) ) {
 		return array();
 	}
 
@@ -367,7 +378,7 @@ function agend_apps_records_fetch_preview_event(): array {
  *                               wrapper is unavailable or nothing is found.
  */
 function agend_apps_records_fetch_preview_course(): array {
-	if ( ! function_exists( 'agend_apps_lms_get_courses' ) ) {
+	if ( ! function_exists( 'agend_apps_lms_get_courses' ) || agend_apps_records_surface_gated( 'courses-catalogue' ) ) {
 		return array();
 	}
 
@@ -396,7 +407,7 @@ function agend_apps_records_fetch_preview_course(): array {
  *                               wrapper is unavailable or nothing is found.
  */
 function agend_apps_records_fetch_preview_listing(): array {
-	if ( ! function_exists( 'agend_apps_directory_get_listings' ) ) {
+	if ( ! function_exists( 'agend_apps_directory_get_listings' ) || agend_apps_records_surface_gated( 'directory-catalogue' ) ) {
 		return array();
 	}
 

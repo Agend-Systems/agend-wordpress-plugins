@@ -60,7 +60,7 @@ class Agend_Apps_Shop_Add_To_Cart extends \Elementor\Widget_Base {
 	 * @return array Script handles.
 	 */
 	public function get_script_depends(): array {
-		return array( 'agend-apps-shop-add-to-cart' );
+		return Agend_Apps_Shop_Elementor::depends( 'add-to-cart', array( 'agend-apps-shop-add-to-cart' ) );
 	}
 
 	/**
@@ -69,7 +69,7 @@ class Agend_Apps_Shop_Add_To_Cart extends \Elementor\Widget_Base {
 	 * @return array Style handles.
 	 */
 	public function get_style_depends(): array {
-		return array( 'agend-apps-shop-add-to-cart' );
+		return Agend_Apps_Shop_Elementor::depends( 'add-to-cart', array( 'agend-apps-shop-add-to-cart' ) );
 	}
 
 	/**
@@ -92,6 +92,8 @@ class Agend_Apps_Shop_Add_To_Cart extends \Elementor\Widget_Base {
 				'tab'   => \Elementor\Controls_Manager::TAB_CONTENT,
 			)
 		);
+
+		Agend_Apps_Shop_Elementor::add_gate_notice( $this, 'add-to-cart' );
 
 		$this->add_control(
 			'product_type',
@@ -154,6 +156,14 @@ class Agend_Apps_Shop_Add_To_Cart extends \Elementor\Widget_Base {
 	 * Echoes the surface, rendered by Agend Apps Core from this widget's settings.
 	 */
 	protected function render(): void {
+		// Stays in the panel and the canvas so a developer sees it, but draws
+		// nothing for a visitor while the API key lacks what this widget needs.
+		$gate = Agend_Apps_Shop_Elementor::render_gate( 'add-to-cart' );
+		if ( null !== $gate ) {
+			echo $gate; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the surface gate.
+			return;
+		}
+
 		echo agend_apps_records_render_add_to_cart( $this->get_settings_for_display() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

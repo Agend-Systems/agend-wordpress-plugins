@@ -55,7 +55,7 @@ final class ExportReportsControlsTest extends TestCase {
 		// missing-scope notice instead of this fixture's generic "no reports"
 		// text. Seeded as held so this fixture keeps asserting that generic
 		// text; the gate itself is exercised in OptionalFeaturesTest.
-		$this->set_held_scopes( array( 'directory.export_reports.browse' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run' ) );
 	}
 
 	/**
@@ -96,7 +96,7 @@ final class ExportReportsControlsTest extends TestCase {
 
 	#[Test]
 	public function should_offer_every_published_report_with_its_audience_when_the_key_can_author(): void {
-		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.listings.manage' ) );
+		$this->set_held_scopes( array( 'directory.export_reports.browse', 'directory.export_reports.run', 'directory.listings.manage' ) );
 		\Agend_Test_WP::queue_response(
 			200,
 			array(

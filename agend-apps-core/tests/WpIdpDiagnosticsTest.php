@@ -396,6 +396,7 @@ final class WpIdpDiagnosticsTest extends TestCase {
 			'signed_out'                  => array( 'signed_out', 'info', 'does not apply' ),
 			'mode_not_wordpress'          => array( 'mode_not_wordpress', 'info', 'does not apply' ),
 			'mechanism_not_saml'          => array( 'mechanism_not_saml', 'info', 'does not apply' ),
+			'background_link_disabled'   => array( 'background_link_disabled', 'info', 'Identity and SSO' ),
 			'no_external_id'              => array( 'no_external_id', 'error', 'no external id at all' ),
 			'sp_not_registered'           => array( 'sp_not_registered', 'error', 'Connect this site' ),
 			'sp_disabled'                 => array( 'sp_disabled', 'error', 'Re-enable it' ),

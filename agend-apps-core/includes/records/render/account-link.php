@@ -13,6 +13,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Every renderer asks the surface gate before it fetches or draws anything;
+// callers that load one renderer on its own (the unit tests) need it present.
+require_once __DIR__ . '/../surface-gate.php';
+
 /**
  * Builds the client-side config object from the surface settings.
  *
@@ -54,6 +58,11 @@ function agend_apps_records_account_link_build_config( array $s ): array {
  * @return string The rendered markup.
  */
 function agend_apps_records_render_account_link( array $settings ): string {
+	$gate = agend_apps_records_surface_gate( 'account-link', false );
+	if ( null !== $gate ) {
+		return $gate;
+	}
+
 	$config = agend_apps_records_account_link_build_config( $settings );
 
 	$style = sprintf(

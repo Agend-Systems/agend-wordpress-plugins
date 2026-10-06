@@ -52,6 +52,10 @@ final class WpIdpSamlLinkLoginTriggerTest extends TestCase {
 		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS );
 		update_option( 'wp_saml_idp_settings', array( 'entity_id' => 'https://example.test/saml/metadata' ) );
 
+		// The background link toggle defaults to off; every test in this file
+		// predates it and expects the round trip to be reachable.
+		update_option( 'agend_apps_sso_background_link', true );
+
 		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'scopes' => array( 'sso.identities.read', 'sso.tokens.create' ) ) ) );
 		Agend_Apps_Key_Scopes::refresh();
 		Agend_Test_WP::$requests = array();
