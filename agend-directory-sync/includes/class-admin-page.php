@@ -95,7 +95,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 		 * Fixed number of child list entry slots the admin form renders.
 		 * `Agend_Directory_Sync_Field_Map::sanitize_child_lists()` itself
 		 * accepts any number of entries; this is a UI convenience limit, the
-		 * same pattern as `Agend_Directory_Sync_Field_Map::LOCATION_SLOTS`.
+		 * same pattern as the other fixed-slot lists on this page.
 		 */
 		public const CHILD_LIST_SLOTS = 3;
 
@@ -150,6 +150,113 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			);
 		}
 
+		/**
+		 * Render the label and source-field rows of one location mapping as a
+		 * form table, named `{$name}[field]`.
+		 *
+		 * @param string               $name        Form field name prefix, e.g. `agend_primary_location`.
+		 * @param array<string,mixed>  $values      Current values.
+		 * @param array<int,string>    $fields      Source-mappable sub-field keys.
+		 * @param bool                 $per_item    True for an array row, where fields are read per list item.
+		 */
+		private static function render_location_fields( string $name, array $values, array $fields, bool $per_item ): void {
+			?>
+			<table class="form-table" role="presentation">
+				<tbody>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Label', 'agend-directory-sync' ); ?></th>
+						<td>
+							<input
+								name="<?php echo esc_attr( $name ); ?>[label]"
+								type="text"
+								class="regular-text"
+								value="<?php echo esc_attr( (string) ( $values['label'] ?? '' ) ); ?>"
+								placeholder="<?php esc_attr_e( 'e.g. Head office, Branch', 'agend-directory-sync' ); ?>"
+								autocomplete="off"
+							/>
+							<p class="description"><?php esc_html_e( 'Static name for this address (stored as the location name). Not a source field.', 'agend-directory-sync' ); ?></p>
+						</td>
+					</tr>
+					<?php if ( $per_item ) : ?>
+						<tr class="agend-location-array-only">
+							<th scope="row"><?php esc_html_e( 'label_source', 'agend-directory-sync' ); ?></th>
+							<td>
+								<input
+									name="<?php echo esc_attr( $name ); ?>[label_source]"
+									type="text"
+									class="regular-text"
+									value="<?php echo esc_attr( (string) ( $values['label_source'] ?? '' ) ); ?>"
+									autocomplete="off"
+								/>
+								<p class="description"><?php esc_html_e( 'Optional item field used as each location\'s name. The static label is the fallback.', 'agend-directory-sync' ); ?></p>
+							</td>
+						</tr>
+					<?php endif; ?>
+					<?php foreach ( $fields as $field ) : ?>
+						<tr>
+							<th scope="row"><?php echo esc_html( $field ); ?></th>
+							<td>
+								<input
+									name="<?php echo esc_attr( $name ); ?>[<?php echo esc_attr( $field ); ?>]"
+									type="text"
+									class="regular-text"
+									value="<?php echo esc_attr( (string) ( $values[ $field ] ?? '' ) ); ?>"
+									autocomplete="off"
+								/>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+			<?php
+		}
+
+		/**
+		 * Render one row of the additional-locations repeater: a type select,
+		 * the list path (array rows), the mapping fields, and a remove button.
+		 *
+		 * @param string              $index  Row index, or the `__INDEX__` placeholder for the JS template.
+		 * @param array<string,mixed> $row    Row values.
+		 * @param array<int,string>   $fields Source-mappable sub-field keys.
+		 */
+		private static function render_additional_location_row( string $index, array $row, array $fields ): void {
+			$name     = 'agend_additional_locations[' . $index . ']';
+			$is_array = Agend_Directory_Sync_Field_Map::LOCATION_ROW_ARRAY === ( $row['type'] ?? '' );
+			?>
+			<div class="agend-location-row" style="border:1px solid #c3c4c7;background:#fff;padding:0 16px 8px;margin:0 0 12px;max-width:900px;">
+				<table class="form-table" role="presentation">
+					<tbody>
+						<tr>
+							<th scope="row"><?php esc_html_e( 'Row type', 'agend-directory-sync' ); ?></th>
+							<td>
+								<select name="<?php echo esc_attr( $name ); ?>[type]" class="agend-location-type">
+									<option value="<?php echo esc_attr( Agend_Directory_Sync_Field_Map::LOCATION_ROW_SINGLE ); ?>" <?php selected( ! $is_array ); ?>><?php esc_html_e( 'Single location', 'agend-directory-sync' ); ?></option>
+									<option value="<?php echo esc_attr( Agend_Directory_Sync_Field_Map::LOCATION_ROW_ARRAY ); ?>" <?php selected( $is_array ); ?>><?php esc_html_e( 'Array of locations', 'agend-directory-sync' ); ?></option>
+								</select>
+								<button type="button" class="button-link button-link-delete agend-remove-location-row" style="margin-left:12px;"><?php esc_html_e( 'Remove row', 'agend-directory-sync' ); ?></button>
+							</td>
+						</tr>
+						<tr class="agend-location-array-only" <?php echo $is_array ? '' : 'hidden'; ?>>
+							<th scope="row"><?php esc_html_e( 'List source', 'agend-directory-sync' ); ?></th>
+							<td>
+								<input
+									name="<?php echo esc_attr( $name ); ?>[source]"
+									type="text"
+									class="regular-text"
+									value="<?php echo esc_attr( (string) ( $row['source'] ?? '' ) ); ?>"
+									placeholder="addresses"
+									autocomplete="off"
+								/>
+								<p class="description"><?php esc_html_e( 'Dot-path to the list of addresses. The fields below are read relative to each item in it.', 'agend-directory-sync' ); ?></p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+				<?php self::render_location_fields( $name, $row, $fields, true ); ?>
+			</div>
+			<?php
+		}
+
 		public static function handle_save_settings(): void {
 			self::assert_can();
 			check_admin_referer( self::NONCE_ACTION_SETTINGS );
@@ -171,7 +278,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				Agend_Directory_Sync_Agend_Client::MAX_TIMEOUT_SECONDS,
 				Agend_Directory_Sync_Agend_Client::DEFAULT_TIMEOUT_SECONDS
 			);
+			$locations_mode  = Agend_Directory_Sync_Agend_Client::sanitize_locations_mode(
+				isset( $_POST['agend_locations_mode'] ) ? (string) wp_unslash( $_POST['agend_locations_mode'] ) : ''
+			);
 			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
+			$upbeat_paging   = Agend_Directory_Sync_Upbeat_Client::sanitize_paging(
+				isset( $_POST['agend_upbeat_paging'] ) && is_array( $_POST['agend_upbeat_paging'] ) ? wp_unslash( $_POST['agend_upbeat_paging'] ) : array()
+			);
 			$directory_app_link_posted = isset( $_POST['agend_directory_app_link'] )
 				? esc_url_raw( wp_unslash( $_POST['agend_directory_app_link'] ) )
 				: '';
@@ -193,6 +306,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			update_option( Agend_Directory_Sync::OPTION_AUTO_PUBLISH_APPROVED, $auto_publish );
 			update_option( Agend_Directory_Sync::OPTION_BATCH_SIZE, $batch_size );
 			update_option( Agend_Directory_Sync::OPTION_TIMEOUT_SECONDS, $timeout_seconds );
+			update_option( Agend_Directory_Sync::OPTION_LOCATIONS_MODE, $locations_mode );
 
 			// Only persist a source key that is actually registered; an
 			// unknown or blank posted value is dropped so the registry's
@@ -204,6 +318,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			// Gateway URL and API key are owned by agend-apps-core, not stored here.
 			update_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, $upbeat_endpoint );
+			update_option( Agend_Directory_Sync::OPTION_UPBEAT_PAGING, $upbeat_paging );
 
 			// The directory app link's only validation is that it points at
 			// this site's own Agend API environment: the path, slug and
@@ -274,16 +389,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			// Persist the configurable field mapping. The core map arrives as an
 			// array of source-field names keyed by Agend target; the custom
-			// fields arrive as a `target = source` textarea; the location slots
-			// arrive as an array of slot => field => source.
+			// fields arrive as a `target = source` textarea; the primary location
+			// arrives as field => source and the additional locations as an array of
+			// row => field => source.
 			$raw_core      = isset( $_POST['agend_field_map'] ) && is_array( $_POST['agend_field_map'] )
 				? wp_unslash( $_POST['agend_field_map'] )
 				: array();
 			$raw_custom    = isset( $_POST['agend_custom_field_map'] )
 				? wp_unslash( $_POST['agend_custom_field_map'] )
 				: '';
-			$raw_locations = isset( $_POST['agend_location_map'] ) && is_array( $_POST['agend_location_map'] )
-				? wp_unslash( $_POST['agend_location_map'] )
+			$raw_primary   = isset( $_POST['agend_primary_location'] ) && is_array( $_POST['agend_primary_location'] )
+				? wp_unslash( $_POST['agend_primary_location'] )
+				: array();
+			$raw_additional = isset( $_POST['agend_additional_locations'] ) && is_array( $_POST['agend_additional_locations'] )
+				? wp_unslash( $_POST['agend_additional_locations'] )
 				: array();
 			$raw_flags     = isset( $_POST['agend_field_map_flags'] ) && is_array( $_POST['agend_field_map_flags'] )
 				? wp_unslash( $_POST['agend_field_map_flags'] )
@@ -305,7 +424,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				}
 			}
 
-			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_locations, $raw_flags, $raw_child_lists );
+			Agend_Directory_Sync_Field_Map::save( $raw_core, $raw_custom, $raw_primary, $raw_additional, $raw_flags, $raw_child_lists );
 
 			$redirect_args = array( 'saved' => '1' );
 			if ( $directory_app_link_rejected ) {
@@ -486,8 +605,10 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$external_source      = Agend_Directory_Sync_Runner::resolve_external_source();
 			$auto_publish         = Agend_Directory_Sync_Runner::resolve_auto_publish_approved();
 			$batch_size           = Agend_Directory_Sync_Agend_Client::batch_size();
+			$locations_mode       = Agend_Directory_Sync_Agend_Client::locations_mode();
 			$timeout_seconds      = Agend_Directory_Sync_Agend_Client::timeout_seconds();
 			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
+			$upbeat_paging        = Agend_Directory_Sync_Upbeat_Client::paging_settings();
 			$directory_app_link   = (string) get_option( Agend_Directory_Sync::OPTION_DIRECTORY_APP_LINK, '' );
 			// Re-checked at render time, not just on save: the site's Agend
 			// API environment can change (Settings > Agend Apps) after the
@@ -726,6 +847,52 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 												/>
 												<p class="description">
 													<?php esc_html_e( 'Upbeat endpoint path for the member directory. Varies per client. Leave blank to use the default "membershipDirectoryContacts".', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Page window', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_upbeat_page_size"><?php esc_html_e( 'Page size', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_upbeat_paging[page_size]"
+														id="agend_upbeat_page_size"
+														type="number"
+														min="<?php echo esc_attr( (string) Agend_Directory_Sync_Upbeat_Client::MIN_PAGE_SIZE ); ?>"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Upbeat_Client::MAX_PAGE_SIZE ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $upbeat_paging['page_size'] ); ?>"
+													/>
+													<label for="agend_upbeat_start_page" style="margin-left:1em;"><?php esc_html_e( 'Start page', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_upbeat_paging[start_page]"
+														id="agend_upbeat_start_page"
+														type="number"
+														min="1"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $upbeat_paging['start_page'] ); ?>"
+													/>
+													<label for="agend_upbeat_max_pages" style="margin-left:1em;"><?php esc_html_e( 'Max pages', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_upbeat_paging[max_pages]"
+														id="agend_upbeat_max_pages"
+														type="number"
+														min="0"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Upbeat_Client::MAX_PAGES ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $upbeat_paging['max_pages'] ); ?>"
+													/>
+												</p>
+												<p class="description">
+													<?php
+													printf(
+														/* translators: 1: maximum page size, 2: hard page cap per run. */
+														esc_html__( 'Page size is how many contacts Upbeat returns per request (1-%1$d). Start page and max pages define the window this run fetches, and the whole window is transformed and sent as one run, so a small max pages keeps each run short on a large directory. Start page 3 with max pages 1 fetches page 3 alone. Max pages 0 means "keep going until Upbeat reports no more records", still bounded by a %2$d page safety cap that aborts rather than returning a partial set. When the window ends with more records available, the run is flagged as a partial fetch.', 'agend-directory-sync' ),
+														(int) Agend_Directory_Sync_Upbeat_Client::MAX_PAGE_SIZE,
+														(int) Agend_Directory_Sync_Upbeat_Client::MAX_PAGES
+													);
+													?>
 												</p>
 											</td>
 										</tr>
@@ -1413,6 +1580,24 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 							</tr>
 							<tr>
 								<th scope="row">
+									<label for="agend_locations_mode"><?php esc_html_e( 'Locations mode', 'agend-directory-sync' ); ?></label>
+								</th>
+								<td>
+									<select name="agend_locations_mode" id="agend_locations_mode">
+										<option value="<?php echo esc_attr( Agend_Directory_Sync_Agend_Client::LOCATIONS_MODE_REPLACE ); ?>" <?php selected( $locations_mode, Agend_Directory_Sync_Agend_Client::LOCATIONS_MODE_REPLACE ); ?>>
+											<?php esc_html_e( 'Replace (the sync is the source of truth)', 'agend-directory-sync' ); ?>
+										</option>
+										<option value="<?php echo esc_attr( Agend_Directory_Sync_Agend_Client::LOCATIONS_MODE_MERGE ); ?>" <?php selected( $locations_mode, Agend_Directory_Sync_Agend_Client::LOCATIONS_MODE_MERGE ); ?>>
+											<?php esc_html_e( 'Merge (update the primary location only)', 'agend-directory-sync' ); ?>
+										</option>
+									</select>
+									<p class="description">
+										<?php esc_html_e( 'Replace rewrites each listing\'s locations to exactly what this sync sends, so an address removed upstream, or added by hand in Agend, is removed. Merge updates only the primary location in place and leaves every other location on the listing untouched; the additional locations mapped below are ignored by the gateway in this mode.', 'agend-directory-sync' ); ?>
+									</p>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">
 									<label for="agend_batch_size"><?php esc_html_e( 'Batch size (listings per request)', 'agend-directory-sync' ); ?></label>
 								</th>
 								<td>
@@ -1777,60 +1962,75 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 					<h2><?php esc_html_e( 'Address mapping', 'agend-directory-sync' ); ?></h2>
 					<p class="description" style="max-width:760px;">
-						<?php esc_html_e( 'Map one or more addresses to the listing. Each configured location becomes a listing address; the first with data is the primary. Leave a location blank to omit it.', 'agend-directory-sync' ); ?>
+						<?php esc_html_e( 'The primary location is the listing\'s main address and is always marked primary. Additional locations are any further addresses. An address repeating one already mapped is sent only once. Source fields accept a field name, a dot-path, or a template such as {unit}/{street}.', 'agend-directory-sync' ); ?>
 					</p>
 					<?php $als_loc_fields = Agend_Directory_Sync_Field_Map::location_field_keys(); ?>
-					<?php foreach ( ( $field_map['locations'] ?? array() ) as $loc_index => $loc_slot ) : ?>
-						<h3>
-							<?php
-							printf(
-								/* translators: %d is the location slot number. */
-								esc_html__( 'Location %d', 'agend-directory-sync' ),
-								(int) $loc_index + 1
-							);
-							?>
-							<?php if ( 0 === (int) $loc_index ) : ?>
-								<span class="description">(<?php esc_html_e( 'primary', 'agend-directory-sync' ); ?>)</span>
-							<?php endif; ?>
-						</h3>
-						<table class="form-table" role="presentation">
-							<tbody>
-								<tr>
-									<th scope="row"><?php esc_html_e( 'Label', 'agend-directory-sync' ); ?></th>
-									<td>
-										<input
-											name="agend_location_map[<?php echo (int) $loc_index; ?>][label]"
-											type="text"
-											class="regular-text"
-											value="<?php echo esc_attr( (string) ( $loc_slot['label'] ?? '' ) ); ?>"
-											placeholder="<?php esc_attr_e( 'e.g. Business, Residential', 'agend-directory-sync' ); ?>"
-											autocomplete="off"
-										/>
-										<p class="description"><?php esc_html_e( 'Static name for this address (stored as the location name). Not a source field.', 'agend-directory-sync' ); ?></p>
-									</td>
-								</tr>
-								<?php foreach ( $als_loc_fields as $loc_field ) : ?>
-									<tr>
-										<th scope="row"><?php echo esc_html( $loc_field ); ?></th>
-										<td>
-											<input
-												name="agend_location_map[<?php echo (int) $loc_index; ?>][<?php echo esc_attr( $loc_field ); ?>]"
-												type="text"
-												class="regular-text"
-												value="<?php echo esc_attr( (string) ( $loc_slot[ $loc_field ] ?? '' ) ); ?>"
-												autocomplete="off"
-											/>
-										</td>
-									</tr>
-								<?php endforeach; ?>
-							</tbody>
-						</table>
-					<?php endforeach; ?>
+
+					<h3><?php esc_html_e( 'Primary location', 'agend-directory-sync' ); ?></h3>
+					<?php
+					self::render_location_fields(
+						'agend_primary_location',
+						$field_map['primary_location'] ?? Agend_Directory_Sync_Field_Map::default_primary_location(),
+						$als_loc_fields,
+						false
+					);
+					?>
+
+					<h3><?php esc_html_e( 'Additional locations', 'agend-directory-sync' ); ?></h3>
+					<p class="description" style="max-width:760px;">
+						<?php esc_html_e( 'Add a row per address. A single location row maps one address from individual source fields. An array row reads a list from the source (for example "addresses") and makes one location for each item, with the fields below read relative to each item.', 'agend-directory-sync' ); ?>
+					</p>
+					<div id="agend-additional-locations">
+						<?php foreach ( ( $field_map['additional_locations'] ?? array() ) as $als_row_index => $als_row ) : ?>
+							<?php self::render_additional_location_row( (string) $als_row_index, $als_row, $als_loc_fields ); ?>
+						<?php endforeach; ?>
+					</div>
+					<p>
+						<button type="button" class="button" id="agend-add-location-row"><?php esc_html_e( 'Add location row', 'agend-directory-sync' ); ?></button>
+					</p>
+					<template id="agend-location-row-template">
+						<?php self::render_additional_location_row( '__INDEX__', Agend_Directory_Sync_Field_Map::blank_location_row(), $als_loc_fields ); ?>
+					</template>
 
 					<?php submit_button( __( 'Save settings', 'agend-directory-sync' ) ); ?>
 				</form>
 
 				<script>
+					(function () {
+						var list = document.getElementById('agend-additional-locations');
+						var tpl = document.getElementById('agend-location-row-template');
+						var addBtn = document.getElementById('agend-add-location-row');
+						if (!list || !tpl || !addBtn) { return; }
+
+						function applyType(row) {
+							var select = row.querySelector('.agend-location-type');
+							var isArray = select && select.value === 'array';
+							row.querySelectorAll('.agend-location-array-only').forEach(function (el) { el.hidden = !isArray; });
+						}
+						list.querySelectorAll('.agend-location-row').forEach(applyType);
+
+						list.addEventListener('change', function (e) {
+							if (e.target.classList && e.target.classList.contains('agend-location-type')) {
+								applyType(e.target.closest('.agend-location-row'));
+							}
+						});
+						list.addEventListener('click', function (e) {
+							if (e.target.classList && e.target.classList.contains('agend-remove-location-row')) {
+								e.target.closest('.agend-location-row').remove();
+							}
+						});
+						addBtn.addEventListener('click', function () {
+							// A fresh index every time: rows removed from the middle
+							// leave gaps, which the server re-indexes on save.
+							var index = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+							var holder = document.createElement('div');
+							holder.innerHTML = tpl.innerHTML.split('__INDEX__').join(index);
+							var row = holder.firstElementChild;
+							list.appendChild(row);
+							applyType(row);
+						});
+					})();
+
 					(function () {
 						var input = document.getElementById('agend_max_records');
 						var mirrors = [
