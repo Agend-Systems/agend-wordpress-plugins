@@ -59,10 +59,52 @@ touches them never needs a bump:
 - dotfiles and build artefacts build-zip.sh also drops: `.git*`,
   `phpunit*`, `.phpunit.cache`, `.DS_Store`, `composer.lock`
 
-The check also rejects two other cases: a `Version` that goes down
-instead of up (an accidental downgrade), and a `Version` that already
-has a matching release tag (that version already shipped, so the
-release workflow would skip it and this change would ship nowhere).
+The check also rejects a `Version` that goes down instead of up (an
+accidental downgrade), and enforces two more rules for each plugin the
+PR bumps.
+
+**The Version must be above the latest release.** The highest released
+version is read from the plugin's git tags (`<slug>-v*`, the glob built
+from `agend_tag_for` in `.github/scripts/lib.sh`), and the PR's `Version`
+must be strictly greater. This catches a branch cut before a release:
+cut at `1.20.0`, main has since released `1.25.0`, and the PR bumps to
+`1.21.0`. That is greater than where the branch started but already
+behind what shipped, so it fails. A `Version` equal to the latest tag
+fails as well (that version already shipped, so the release workflow
+would skip it and this change would ship nowhere). A plugin with no tags
+yet has no floor. The job needs tags fetched (`fetch-tags: true` on
+checkout); run locally without tags, the script prints a notice instead
+of passing silently.
+
+**No other open PR may bump the same plugin to the same version.** The
+check lists the other open PRs whose base is `main` (drafts included,
+this PR excluded) and reads each one's header `Version` for the plugin
+from `refs/pull/<n>/head`. A PR counts as bumping the plugin only when
+its `Version` differs from `main`'s current one. Then:
+
+- the same `Version` is an error naming the other PR;
+- a higher `Version` is a warning annotation only, since the released
+  version rule already stops the higher PR merging first;
+- a lower `Version` is ignored.
+
+A PR stacked on another PR's branch (base is not `main`) is not listed,
+so it is ignored until it is retargeted to `main`.
+
+The job gets `pull-requests: read` for this, and `gh` is given
+`GH_TOKEN`, `PR_NUMBER` and `GITHUB_REPOSITORY` through `env`. When `gh`
+or the token is missing (a local run) the comparison is skipped with a
+notice; pass `--skip-open-prs` to skip it deliberately, or set
+`GH_TOKEN=$(gh auth token) PR_NUMBER=<n> GITHUB_REPOSITORY=<owner/repo>`
+to run it locally.
+
+Known limitation: the job runs only on events for its own PR. If two
+PRs end up at the same version because one of them was bumped later,
+the PR that was not touched does not re-run, so its check can be stale.
+Re-run the `bump` job on the other PR (or push to it) to refresh it. The
+check on the PR you are about to merge is the one that counts.
+
+The script has its own tests, run by the `versions` job:
+`.github/scripts/tests/check-version-bumps.test.sh`.
 
 For the rare PR that legitimately changes shipped files without a
 release, e.g. CI or tooling changes that live inside a plugin directory,
