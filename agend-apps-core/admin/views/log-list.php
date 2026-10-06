@@ -61,6 +61,7 @@ $agend_apps_outcomes = array(
 	'transport_error'   => 'transport_error',
 	'invalid_response'  => 'invalid_response',
 	'rate_limited'      => 'rate_limited',
+	'blocked'           => __( 'Blocked locally: key lacks access', 'agend-apps-core' ),
 	'retried'           => 'retried',
 	'signature_invalid' => 'signature_invalid',
 	'duplicate'         => 'duplicate',

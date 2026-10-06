@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.25.0
+ * Version:           1.26.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.25.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.26.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -255,6 +255,11 @@ function agend_apps_core_bootstrap() {
 	// scope the connected key does not hold can be switched off rather than
 	// sent and 403'd.
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-key-scopes.php';
+
+	// The generated endpoint-to-scope map and its matcher, which the API
+	// client uses to refuse a call the stored key is known not to be allowed
+	// to make (regenerate with bin/generate-endpoint-scopes.php).
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-endpoint-scopes.php';
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/identity.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
