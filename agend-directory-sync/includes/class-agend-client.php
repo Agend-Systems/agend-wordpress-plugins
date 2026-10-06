@@ -67,11 +67,18 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		public const MAX_ISSUES_PER_BATCH = 20;
 
 		/**
-		 * How the gateway applies each listing's locations[]. The sync builds the
-		 * full, authoritative set of addresses for every member on each run, so
-		 * `replace` is correct: an address removed upstream is removed in Agend.
+		 * How the gateway applies each listing's locations[] (the Locations mode
+		 * setting, Agend_Directory_Sync::OPTION_LOCATIONS_MODE).
+		 *
+		 * `replace` treats the sync as the authoritative set of addresses: an
+		 * address removed upstream, or added by hand in Agend, is removed.
+		 * `merge` updates only the primary location in place and leaves every
+		 * other location on the listing alone, so additional locations are
+		 * neither sent nor removed.
 		 */
-		public const LOCATIONS_MODE = 'replace';
+		public const LOCATIONS_MODE_REPLACE = 'replace';
+		public const LOCATIONS_MODE_MERGE   = 'merge';
+		public const DEFAULT_LOCATIONS_MODE = self::LOCATIONS_MODE_REPLACE;
 
 		/**
 		 * Default, minimum and maximum for the "listings per request" setting
@@ -107,6 +114,27 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 		 * decode, the AJAX response).
 		 */
 		public const STEP_REQUEST_BUDGET_SECONDS = 50;
+
+		/**
+		 * Validate a locations mode, falling back to the default for anything
+		 * that is not one of the two known modes.
+		 *
+		 * @param mixed $value
+		 */
+		public static function sanitize_locations_mode( $value ): string {
+			$value = is_string( $value ) ? strtolower( trim( $value ) ) : '';
+
+			return in_array( $value, array( self::LOCATIONS_MODE_REPLACE, self::LOCATIONS_MODE_MERGE ), true )
+				? $value
+				: self::DEFAULT_LOCATIONS_MODE;
+		}
+
+		/**
+		 * The configured locations mode, defaulting to `replace`.
+		 */
+		public static function locations_mode(): string {
+			return self::sanitize_locations_mode( get_option( Agend_Directory_Sync::OPTION_LOCATIONS_MODE, self::DEFAULT_LOCATIONS_MODE ) );
+		}
 
 		/**
 		 * The number of listings per bulk-upsert request, resolved from
@@ -469,7 +497,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Agend_Client' ) ) :
 					$batch,
 					$external_source,
 					$auto_publish_approved,
-					self::LOCATIONS_MODE
+					self::locations_mode()
 				);
 			} finally {
 				remove_filter( 'agend_apps_directory_bulk_upsert_listings_args', $inject_args, 20 );

@@ -238,9 +238,20 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$custom_fields = isset( $field_map['custom_fields'] ) && is_array( $field_map['custom_fields'] )
 				? $field_map['custom_fields']
 				: $defaults['custom_fields'];
-			$locations     = isset( $field_map['locations'] ) && is_array( $field_map['locations'] )
-				? $field_map['locations']
-				: ( $defaults['locations'] ?? array() );
+			if ( isset( $field_map['primary_location'] ) && is_array( $field_map['primary_location'] ) ) {
+				$primary_location     = $field_map['primary_location'];
+				$additional_locations = isset( $field_map['additional_locations'] ) && is_array( $field_map['additional_locations'] )
+					? $field_map['additional_locations']
+					: array();
+			} elseif ( isset( $field_map['locations'] ) && is_array( $field_map['locations'] ) && class_exists( 'Agend_Directory_Sync_Field_Map' ) ) {
+				// A caller still passing the flat pre-split slot list.
+				$migrated             = Agend_Directory_Sync_Field_Map::migrate_legacy_locations( $field_map['locations'] );
+				$primary_location     = $migrated['primary_location'];
+				$additional_locations = $migrated['additional_locations'];
+			} else {
+				$primary_location     = $defaults['primary_location'] ?? array();
+				$additional_locations = array();
+			}
 			$flags         = isset( $field_map['flags'] ) && is_array( $field_map['flags'] )
 				? $field_map['flags']
 				: ( $defaults['flags'] ?? array() );
@@ -249,11 +260,12 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 				: ( $defaults['child_lists'] ?? array() );
 
 			return array(
-				'core'          => $core,
-				'custom_fields' => $custom_fields,
-				'locations'     => $locations,
-				'flags'         => $flags,
-				'child_lists'   => $child_lists,
+				'core'                 => $core,
+				'custom_fields'        => $custom_fields,
+				'primary_location'     => $primary_location,
+				'additional_locations' => $additional_locations,
+				'flags'                => $flags,
+				'child_lists'          => $child_lists,
 			);
 		}
 
@@ -829,66 +841,163 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 		}
 
 		/**
-		 * Build the listing `locations` array from the configured location
-		 * slots. Each slot maps address sub-fields to source fields; a slot with
-		 * any resolved address data becomes one location. The first non-empty
-		 * slot is marked primary. Empty slots are skipped, so an unconfigured
-		 * mapping produces no locations.
+		 * Gateway cap on locations per listing (bulkUpsertListingItemSchema).
+		 */
+		public const MAX_LOCATIONS_PER_LISTING = 50;
+
+		/**
+		 * Build the listing `locations` array: the primary location first, then
+		 * every additional-location row. A `single` row resolves one location
+		 * from individual source fields; an `array` row resolves its list and
+		 * maps each item (fields read relative to the item) to one location.
+		 * Locations that resolve no data are skipped and a location repeating an
+		 * earlier address is dropped, so the same address is never sent twice.
+		 * Exactly one location is marked primary: the primary mapping when it
+		 * resolves data, otherwise the first additional location that does.
 		 *
-		 * @param array<string, mixed>                                                                                        $contact
-		 * @param array{core: array<string,string>, custom_fields: array<string,string>, locations: array<int, array<string,string>>} $field_map
+		 * @param array<string, mixed> $contact
+		 * @param array<string, mixed> $field_map
 		 *
 		 * @return array<int, array<string, mixed>>
 		 */
 		private static function build_locations( array $contact, array $field_map ): array {
-			$slots = isset( $field_map['locations'] ) && is_array( $field_map['locations'] )
-				? $field_map['locations']
-				: array();
+			$candidates = array();
 
-			$locations = array();
-			foreach ( $slots as $slot ) {
-				if ( ! is_array( $slot ) ) {
+			$primary_map = isset( $field_map['primary_location'] ) && is_array( $field_map['primary_location'] )
+				? $field_map['primary_location']
+				: array();
+			$primary     = self::resolve_location( $contact, $primary_map );
+			if ( null !== $primary ) {
+				$candidates[] = $primary;
+			}
+
+			$rows = isset( $field_map['additional_locations'] ) && is_array( $field_map['additional_locations'] )
+				? $field_map['additional_locations']
+				: array();
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
 					continue;
 				}
 
-				$location = array();
-
-				foreach ( array( 'address_line_1', 'address_line_2', 'city', 'state', 'postcode', 'country' ) as $key ) {
-					$source = (string) ( $slot[ $key ] ?? '' );
-					$value  = '' !== $source ? self::stringy( self::resolve_configured( $contact, $source ) ) : '';
-					if ( '' !== $value ) {
-						$location[ $key ] = $value;
+				if ( Agend_Directory_Sync_Field_Map::LOCATION_ROW_ARRAY !== ( $row['type'] ?? '' ) ) {
+					$location = self::resolve_location( $contact, $row );
+					if ( null !== $location ) {
+						$candidates[] = $location;
 					}
+					continue;
 				}
 
-				foreach ( array( 'latitude', 'longitude' ) as $key ) {
-					$source = (string) ( $slot[ $key ] ?? '' );
-					if ( '' === $source ) {
+				$source = (string) ( $row['source'] ?? '' );
+				if ( '' === $source ) {
+					continue;
+				}
+				$list = Agend_Directory_Sync_Path_Resolver::resolve( $contact, $source );
+				if ( ! is_array( $list ) ) {
+					continue;
+				}
+				// A source holding one object rather than a list is one item.
+				if ( array_keys( $list ) !== range( 0, count( $list ) - 1 ) ) {
+					$list = array( $list );
+				}
+				foreach ( $list as $item ) {
+					if ( ! is_array( $item ) ) {
 						continue;
 					}
-					$raw = self::resolve_configured( $contact, $source );
-					if ( is_numeric( $raw ) ) {
-						$location[ $key ] = (float) $raw;
+					$location = self::resolve_location( $item, $row );
+					if ( null !== $location ) {
+						$candidates[] = $location;
 					}
 				}
+			}
 
-				// A slot that resolved no address data contributes nothing.
-				if ( empty( $location ) ) {
+			$locations = array();
+			$seen      = array();
+			foreach ( $candidates as $location ) {
+				$key = self::location_identity( $location );
+				if ( isset( $seen[ $key ] ) ) {
 					continue;
 				}
+				$seen[ $key ] = true;
 
-				$label = self::stringy( $slot['label'] ?? '' );
-				if ( '' !== $label ) {
-					$location['name'] = $label;
-				}
-
-				// The first location that carries data is the primary.
 				$location['is_primary'] = empty( $locations );
+				$locations[]            = $location;
 
-				$locations[] = $location;
+				if ( count( $locations ) >= self::MAX_LOCATIONS_PER_LISTING ) {
+					break;
+				}
 			}
 
 			return $locations;
+		}
+
+		/**
+		 * Resolve one location from a mapping against a data array (the whole
+		 * contact, or one list item for an array row). Returns null when no
+		 * address data resolves.
+		 *
+		 * @param array<string, mixed>  $data
+		 * @param array<string, mixed>  $map  Field => source, plus `label` and, for an array row, `label_source`.
+		 *
+		 * @return array<string, mixed>|null
+		 */
+		private static function resolve_location( array $data, array $map ): ?array {
+			$location = array();
+
+			foreach ( array( 'address_line_1', 'address_line_2', 'city', 'state', 'postcode', 'country' ) as $key ) {
+				$source = (string) ( $map[ $key ] ?? '' );
+				$value  = '' !== $source ? self::stringy( self::resolve_configured( $data, $source ) ) : '';
+				if ( '' !== $value ) {
+					$location[ $key ] = $value;
+				}
+			}
+
+			foreach ( array( 'latitude', 'longitude' ) as $key ) {
+				$source = (string) ( $map[ $key ] ?? '' );
+				if ( '' === $source ) {
+					continue;
+				}
+				$raw = self::resolve_configured( $data, $source );
+				if ( is_numeric( $raw ) ) {
+					$location[ $key ] = (float) $raw;
+				}
+			}
+
+			if ( empty( $location ) ) {
+				return null;
+			}
+
+			$name_source = (string) ( $map['label_source'] ?? '' );
+			$name        = '' !== $name_source ? self::stringy( self::resolve_configured( $data, $name_source ) ) : '';
+			if ( '' === $name ) {
+				$name = self::stringy( $map['label'] ?? '' );
+			}
+			if ( '' !== $name ) {
+				$location['name'] = $name;
+			}
+
+			return $location;
+		}
+
+		/**
+		 * Identity of a location for de-duplication: the street, suburb and
+		 * postcode lower-cased with everything but letters and digits removed,
+		 * so "1 Main St." and "1 main st" match. A location with no address text
+		 * (coordinates only) is identified by its rounded coordinates.
+		 *
+		 * @param array<string, mixed> $location
+		 */
+		private static function location_identity( array $location ): string {
+			$parts = array();
+			foreach ( array( 'address_line_1', 'address_line_2', 'city', 'postcode' ) as $key ) {
+				$parts[] = strtolower( (string) preg_replace( '/[^A-Za-z0-9]/', '', (string) ( $location[ $key ] ?? '' ) ) );
+			}
+			$text = implode( '|', $parts );
+
+			if ( '|||' === $text && isset( $location['latitude'], $location['longitude'] ) ) {
+				return sprintf( 'geo:%.5f,%.5f', (float) $location['latitude'], (float) $location['longitude'] );
+			}
+
+			return 'addr:' . $text;
 		}
 
 		/**
