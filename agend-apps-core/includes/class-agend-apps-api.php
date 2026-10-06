@@ -237,6 +237,29 @@ class Agend_Apps_API {
 			);
 		}
 
+		// 8b. Refuse a call the stored key is known not to be allowed to make.
+		// The gateway would answer 403 anyway; refusing here saves the round
+		// trip, and the log row says why a developer got nothing back.
+		$refusal = $this->unauthorised_call( $method, $path );
+
+		if ( null !== $refusal ) {
+			$this->log_exchange( $method, $url, $request_args, $bearer_token, $args, null, null, 'blocked', null, $refusal['code'], $refusal['message'] );
+
+			// Carries the same `status_code` a live 403 would, so callers that
+			// branch on status treat the local refusal and the gateway's own
+			// identically.
+			return new WP_Error(
+				$refusal['code'],
+				$refusal['message'],
+				array(
+					'status_code' => 403,
+					'path'        => $path,
+					'missing'     => $refusal['missing'],
+					'app'         => $refusal['app'],
+				)
+			);
+		}
+
 		// 9. Allow final request arg overrides.
 		/**
 		 * Filters the full wp_remote_request args array before the request is sent.
@@ -450,6 +473,153 @@ class Agend_Apps_API {
 		$log( 'success', $status_code );
 
 		return $decoded;
+	}
+
+	/**
+	 * Decides whether a call must be refused because the stored API key is
+	 * known not to be allowed to make it.
+	 *
+	 * Never refuses unless every one of these holds: the key's scopes are
+	 * known for the configured key, no scope refresh is in flight, the path is
+	 * not `/health` (the refresh itself), the endpoint is in the generated map,
+	 * the key lacks the endpoint's app or a required scope, and the
+	 * `agend_apps_api_block_unauthorised` filter agrees. Anything uncertain
+	 * lets the call through to the gateway, which stays the authority.
+	 *
+	 * The cached scopes can be up to an hour old, and an admin may just have
+	 * added a scope in the dashboard. So before refusing on data older than
+	 * {@see Agend_Apps_Key_Scopes::RECHECK_AFTER}, one throttled refresh is
+	 * made and the verdict re-evaluated against it.
+	 *
+	 * @param string $method HTTP method.
+	 * @param string $path   Relative path, as filtered.
+	 * @return array{code: string, message: string, missing: string[], app: string}|null Null to send.
+	 */
+	private function unauthorised_call( string $method, string $path ): ?array {
+		if ( ! class_exists( 'Agend_Apps_Key_Scopes' ) || ! class_exists( 'Agend_Apps_Endpoint_Scopes' ) ) {
+			return null;
+		}
+
+		if ( Agend_Apps_Key_Scopes::refreshing() || ! Agend_Apps_Key_Scopes::known() ) {
+			return null;
+		}
+
+		$route = '/' . trim( (string) strtok( $path, '?' ), '/' );
+
+		if ( '/health' === $route ) {
+			return null;
+		}
+
+		$endpoint = Agend_Apps_Endpoint_Scopes::lookup( $method, $route );
+
+		if ( null === $endpoint ) {
+			return null;
+		}
+
+		$verdict = self::key_verdict( $endpoint );
+
+		if ( null === $verdict ) {
+			return null;
+		}
+
+		/**
+		 * Filters whether a call the stored API key is known not to be allowed
+		 * to make is refused locally instead of being sent.
+		 *
+		 * @param bool     $block   Whether to refuse the call. Default true.
+		 * @param string   $method  HTTP method.
+		 * @param string   $path    Relative path.
+		 * @param string[] $missing Scopes the key lacks (empty when the app is
+		 *                          what is not allowed).
+		 */
+		if ( ! apply_filters( 'agend_apps_api_block_unauthorised', true, strtoupper( $method ), $path, $verdict['missing'] ) ) {
+			return null;
+		}
+
+		$age = time() - Agend_Apps_Key_Scopes::fetched_at();
+
+		if ( $age >= Agend_Apps_Key_Scopes::RECHECK_AFTER && false === get_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT ) ) {
+			// Set first, so a failing gateway is not asked again for five
+			// minutes either.
+			set_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT, 1, Agend_Apps_Key_Scopes::RECHECK_AFTER );
+			Agend_Apps_Key_Scopes::refresh();
+
+			if ( ! Agend_Apps_Key_Scopes::known() ) {
+				return null;
+			}
+
+			$verdict = self::key_verdict( $endpoint );
+
+			if ( null === $verdict ) {
+				return null;
+			}
+		}
+
+		return $verdict;
+	}
+
+	/**
+	 * Compares the stored key against what an endpoint needs.
+	 *
+	 * Reads the stored option only, with no lazy refresh, because this runs
+	 * inside `request()`.
+	 *
+	 * @param array{app: string, scopes: array<int, string[]>} $endpoint Map entry.
+	 * @return array{code: string, message: string, missing: string[], app: string}|null Null when allowed.
+	 */
+	private static function key_verdict( array $endpoint ): ?array {
+		$app = (string) $endpoint['app'];
+
+		if ( ! Agend_Apps_Key_Scopes::has_app( $app ) ) {
+			return array(
+				'code'    => 'agend_apps_app_not_allowed',
+				'message' => sprintf(
+					/* translators: %s: app slug, e.g. events. */
+					__( 'Not sent: the API key is not allowed to use the "%s" app.', 'agend-apps-core' ),
+					$app
+				),
+				'missing' => array(),
+				'app'     => $app,
+			);
+		}
+
+		$held    = Agend_Apps_Key_Scopes::stored_scopes();
+		$missing = null;
+
+		// Any one alternative fully held is enough; report the closest miss.
+		foreach ( $endpoint['scopes'] as $alternative ) {
+			$lacking = array_values(
+				array_filter(
+					$alternative,
+					static function ( $scope ) use ( $held ): bool {
+						return ! Agend_Apps_Key_Scopes::satisfies( $held, (string) $scope );
+					}
+				)
+			);
+
+			if ( ! $lacking ) {
+				return null;
+			}
+
+			if ( null === $missing || count( $lacking ) < count( $missing ) ) {
+				$missing = $lacking;
+			}
+		}
+
+		if ( null === $missing ) {
+			return null;
+		}
+
+		return array(
+			'code'    => 'agend_apps_scope_missing',
+			'message' => sprintf(
+				/* translators: %s: comma-separated scope names. */
+				__( 'Not sent: the API key lacks the required scope: %s.', 'agend-apps-core' ),
+				implode( ', ', $missing )
+			),
+			'missing' => $missing,
+			'app'     => $app,
+		);
 	}
 
 	/**

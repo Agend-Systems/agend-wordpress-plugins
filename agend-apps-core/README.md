@@ -557,6 +557,46 @@ back to the Plugins screen with a dismissible "Checked for Agend plugin
 updates." notice.
 
 
+## Endpoint scope guard
+
+Core refuses to send a gateway call that the stored API key is known not to be
+allowed to make. The refused call still appears in the API log, with outcome
+`blocked` ("Blocked locally: key lacks access"), no status, and an error code of
+`agend_apps_scope_missing` or `agend_apps_app_not_allowed` whose message names
+the missing scope or app. Callers get a `WP_Error` with the same code and a
+`status_code` of 403 (plus `path`, `missing` and `app`), so they treat it as the
+gateway's own 403.
+
+The guard only acts when it is sure. It never blocks when the key's scopes are
+not known for the configured key, when the endpoint is not in the map, for
+`/health`, or while a scope refresh is in flight. An empty `app_ids` list from
+`/v1/health` means "unrestricted" (the gateway reports `[]` for both that and
+"restricted to nothing"), so apps are never blocked on it. A `*` scope, or an
+`app.*` scope, satisfies every scope it covers. Because the cached scopes can be
+up to an hour old, a call about to be blocked on data older than five minutes
+triggers one throttled refresh (at most once per five minutes) and is
+re-checked against the fresh scopes first.
+
+Switch it off for a site with:
+
+    add_filter( 'agend_apps_api_block_unauthorised', '__return_false' );
+
+The filter receives `( bool $block, string $method, string $path, string[] $missing )`.
+
+### Regenerating the endpoint scope map
+
+`includes/api/endpoint-scopes.php` is generated from the gateway's OpenAPI
+contract and committed. Rerun it whenever the gateway adds or changes an
+endpoint or its scopes:
+
+    php agend-apps-core/bin/generate-endpoint-scopes.php /path/to/agend-dashboard/apps/api/openapi.json
+
+The output is deterministic, so an unchanged contract produces no diff. Keys
+are `METHOD /path` relative to the `/v1` base URL, with `app` (the first path
+segment) and `scopes` (a list of alternatives: any one fully held is enough).
+Only `apiKey` security requirements are mapped. The matcher is
+`Agend_Apps_Endpoint_Scopes` and prefers literal segments over parameters.
+
 ## API log
 
 Core records every call it makes to the Agend gateway, and every webhook the
@@ -614,7 +654,7 @@ response bodies are never stored at all for `/auth/login`, `/auth/register`,
 
 **What is kept:** method, host, path and path template, status, outcome
 (`success`, `http_error`, `transport_error`, `invalid_response`,
-`rate_limited`, `retried`, and for webhooks `signature_invalid`, `duplicate`,
+`rate_limited`, `blocked`, `retried`, and for webhooks `signature_invalid`, `duplicate`,
 `invalid_payload`, `not_configured`), duration, attempt number, the gateway's
 `X-Request-Id` (or `X-Vercel-Id`), the webhook event type and id, a UUID shared
 by every call in one PHP request, and allowlisted response headers. Successful
