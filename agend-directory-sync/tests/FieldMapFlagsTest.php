@@ -52,6 +52,7 @@ final class FieldMapFlagsTest extends TestCase {
 			array(),
 			'',
 			array(),
+			array(),
 			array( 'opt_in_flag_invert' => '1' )
 		);
 
@@ -67,7 +68,7 @@ final class FieldMapFlagsTest extends TestCase {
 		Agend_Test_WP::$options[ Agend_Directory_Sync_Field_Map::OPTION_FIELD_MAP ] = array(
 			'core'          => array( 'external_id' => 'id' ),
 			'custom_fields' => array(),
-			'locations'     => Agend_Directory_Sync_Field_Map::default_locations(),
+			'primary_location' => Agend_Directory_Sync_Field_Map::default_primary_location(),
 		);
 
 		$resolved = Agend_Directory_Sync_Field_Map::resolve();

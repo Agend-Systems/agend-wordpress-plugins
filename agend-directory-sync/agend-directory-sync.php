@@ -7,7 +7,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.11.0
+ * Version:         0.13.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Tested up to:      7.1
@@ -92,11 +92,24 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		public const OPTION_AUTO_PUBLISH_APPROVED = 'agend_directory_sync_auto_publish_approved';
 
 		/**
+		 * Option key for the Upbeat page window: page size, start page and max
+		 * pages. Read and clamped by Agend_Directory_Sync_Upbeat_Client::paging_settings().
+		 */
+		public const OPTION_UPBEAT_PAGING = 'agend_directory_sync_upbeat_paging';
+
+		/**
 		 * Option key for how many listings go in one bulk-upsert request.
 		 * Clamped and defaulted by Agend_Directory_Sync_Agend_Client::batch_size(),
 		 * which is the single place that reads it.
 		 */
 		public const OPTION_BATCH_SIZE = 'agend_directory_sync_batch_size';
+
+		/**
+		 * Option key for how the gateway applies each listing's locations[]:
+		 * `replace` (default) or `merge`. Resolved and validated by
+		 * Agend_Directory_Sync_Agend_Client::locations_mode().
+		 */
+		public const OPTION_LOCATIONS_MODE = 'agend_directory_sync_locations_mode';
 
 		/**
 		 * Option key for the per-batch gateway request timeout, in seconds.
