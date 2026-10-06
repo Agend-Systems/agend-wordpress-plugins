@@ -282,6 +282,9 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 				isset( $_POST['agend_locations_mode'] ) ? (string) wp_unslash( $_POST['agend_locations_mode'] ) : ''
 			);
 			$upbeat_endpoint = isset( $_POST['agend_upbeat_endpoint'] ) ? sanitize_text_field( wp_unslash( $_POST['agend_upbeat_endpoint'] ) ) : '';
+			$upbeat_paging   = Agend_Directory_Sync_Upbeat_Client::sanitize_paging(
+				isset( $_POST['agend_upbeat_paging'] ) && is_array( $_POST['agend_upbeat_paging'] ) ? wp_unslash( $_POST['agend_upbeat_paging'] ) : array()
+			);
 			$directory_app_link_posted = isset( $_POST['agend_directory_app_link'] )
 				? esc_url_raw( wp_unslash( $_POST['agend_directory_app_link'] ) )
 				: '';
@@ -315,6 +318,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 
 			// Gateway URL and API key are owned by agend-apps-core, not stored here.
 			update_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, $upbeat_endpoint );
+			update_option( Agend_Directory_Sync::OPTION_UPBEAT_PAGING, $upbeat_paging );
 
 			// The directory app link's only validation is that it points at
 			// this site's own Agend API environment: the path, slug and
@@ -604,6 +608,7 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 			$locations_mode       = Agend_Directory_Sync_Agend_Client::locations_mode();
 			$timeout_seconds      = Agend_Directory_Sync_Agend_Client::timeout_seconds();
 			$upbeat_endpoint      = (string) get_option( Agend_Directory_Sync::OPTION_UPBEAT_ENDPOINT, '' );
+			$upbeat_paging        = Agend_Directory_Sync_Upbeat_Client::paging_settings();
 			$directory_app_link   = (string) get_option( Agend_Directory_Sync::OPTION_DIRECTORY_APP_LINK, '' );
 			// Re-checked at render time, not just on save: the site's Agend
 			// API environment can change (Settings > Agend Apps) after the
@@ -842,6 +847,52 @@ if ( ! class_exists( 'Agend_Directory_Sync_Admin_Page' ) ) :
 												/>
 												<p class="description">
 													<?php esc_html_e( 'Upbeat endpoint path for the member directory. Varies per client. Leave blank to use the default "membershipDirectoryContacts".', 'agend-directory-sync' ); ?>
+												</p>
+											</td>
+										</tr>
+										<tr>
+											<th scope="row"><?php esc_html_e( 'Page window', 'agend-directory-sync' ); ?></th>
+											<td>
+												<p>
+													<label for="agend_upbeat_page_size"><?php esc_html_e( 'Page size', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_upbeat_paging[page_size]"
+														id="agend_upbeat_page_size"
+														type="number"
+														min="<?php echo esc_attr( (string) Agend_Directory_Sync_Upbeat_Client::MIN_PAGE_SIZE ); ?>"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Upbeat_Client::MAX_PAGE_SIZE ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $upbeat_paging['page_size'] ); ?>"
+													/>
+													<label for="agend_upbeat_start_page" style="margin-left:1em;"><?php esc_html_e( 'Start page', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_upbeat_paging[start_page]"
+														id="agend_upbeat_start_page"
+														type="number"
+														min="1"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $upbeat_paging['start_page'] ); ?>"
+													/>
+													<label for="agend_upbeat_max_pages" style="margin-left:1em;"><?php esc_html_e( 'Max pages', 'agend-directory-sync' ); ?></label>
+													<input
+														name="agend_upbeat_paging[max_pages]"
+														id="agend_upbeat_max_pages"
+														type="number"
+														min="0"
+														max="<?php echo esc_attr( (string) Agend_Directory_Sync_Upbeat_Client::MAX_PAGES ); ?>"
+														class="small-text"
+														value="<?php echo esc_attr( (string) $upbeat_paging['max_pages'] ); ?>"
+													/>
+												</p>
+												<p class="description">
+													<?php
+													printf(
+														/* translators: 1: maximum page size, 2: hard page cap per run. */
+														esc_html__( 'Page size is how many contacts Upbeat returns per request (1-%1$d). Start page and max pages define the window this run fetches, and the whole window is transformed and sent as one run, so a small max pages keeps each run short on a large directory. Start page 3 with max pages 1 fetches page 3 alone. Max pages 0 means "keep going until Upbeat reports no more records", still bounded by a %2$d page safety cap that aborts rather than returning a partial set. When the window ends with more records available, the run is flagged as a partial fetch.', 'agend-directory-sync' ),
+														(int) Agend_Directory_Sync_Upbeat_Client::MAX_PAGE_SIZE,
+														(int) Agend_Directory_Sync_Upbeat_Client::MAX_PAGES
+													);
+													?>
 												</p>
 											</td>
 										</tr>

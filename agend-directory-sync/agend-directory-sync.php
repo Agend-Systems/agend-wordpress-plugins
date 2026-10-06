@@ -7,7 +7,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.12.0
+ * Version:         0.13.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Tested up to:      7.1
@@ -90,6 +90,12 @@ if ( ! class_exists( 'Agend_Directory_Sync' ) ) :
 		 * approved rows and they appear on the public directory.
 		 */
 		public const OPTION_AUTO_PUBLISH_APPROVED = 'agend_directory_sync_auto_publish_approved';
+
+		/**
+		 * Option key for the Upbeat page window: page size, start page and max
+		 * pages. Read and clamped by Agend_Directory_Sync_Upbeat_Client::paging_settings().
+		 */
+		public const OPTION_UPBEAT_PAGING = 'agend_directory_sync_upbeat_paging';
 
 		/**
 		 * Option key for how many listings go in one bulk-upsert request.

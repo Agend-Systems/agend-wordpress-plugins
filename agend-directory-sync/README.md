@@ -58,6 +58,15 @@ Tools > Agend Directory Sync:
 - **Upbeat directory endpoint** (Upbeat source) — the Upbeat endpoint path
   for the member directory. The path varies per client. Leave blank to use
   the default `membershipDirectoryContacts`.
+- **Page window** (Upbeat source) — **Page size** (1-1000, default 1000,
+  sent as `pageCount`), **Start page** and **Max pages**. A run fetches only
+  that window, then transforms and sends it as one run, the same model as the
+  Dataverse source. Start page 3 with max pages 1 fetches page 3 alone. Max
+  pages `0` (the default) fetches until Upbeat reports no more records,
+  bounded by a 500 page safety cap. When the window ends while Upbeat still
+  has more records, the run summary, preview and WP-CLI output flag a partial
+  fetch. A page missing `ResponseData.Results` after a page that reported
+  more records fails the run rather than returning a short set.
 - **external_source** string sent with each bulk-upsert batch. This is
   part of the upsert key (`external_source` + `external_id`), so keep it
   stable for a given directory. Defaults to `upbeat-directory` if left
@@ -808,8 +817,9 @@ preview / send.
   the WP-CLI command.
 - `includes/class-field-map.php` - configurable field-mapping defaults,
   resolution, validation, and persistence.
-- `includes/class-upbeat-client.php` - thin wrapper around the kiosk
-  API's paginated GET helper.
+- `includes/class-upbeat-client.php` - the Upbeat source: owns the paging
+  loop and page window, using the kiosk API's `get_raw_json()` for the
+  request.
 - `includes/class-http-api-source.php` - the generic JSON API source
   (configurable URL, response data path, auth mode, pagination mode).
 - `includes/class-dataverse-source.php` - the Dataverse source: FetchXML
