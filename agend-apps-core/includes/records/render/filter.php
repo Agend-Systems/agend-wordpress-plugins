@@ -199,7 +199,15 @@ function agend_apps_records_filter_number( float $value ): string {
 function agend_apps_records_render_filter_location_control( array $config, bool $disabled ): string {
 	$location = $config['location'];
 	$off      = $disabled ? ' disabled' : '';
-	$html     = '<div class="agend-filter__location' . ( $disabled ? ' agend-filter__placeholder' : '' ) . '"' . ( $disabled ? ' aria-busy="true"' : '' ) . '>';
+	$row      = 'row' === ( $location['layout'] ?? '' );
+	$html     = '<div class="agend-filter__location' . ( $row ? ' agend-filter__location--row' : '' ) . ( $disabled ? ' agend-filter__placeholder' : '' ) . '"' . ( $disabled ? ' aria-busy="true"' : '' ) . '>';
+
+	// The one-row layout needs both rows inside one element it can wrap as a
+	// line, with the status line and chip left outside it, beneath. Stacked
+	// has no such element, so its markup is unchanged.
+	if ( $row ) {
+		$html .= '<div class="agend-filter__location-fields">';
+	}
 
 	if ( $location['search'] ) {
 		$placeholder = '' !== $config['placeholder'] ? $config['placeholder'] : __( 'Suburb or postcode', 'agend-apps-core' );
@@ -221,6 +229,10 @@ function agend_apps_records_render_filter_location_control( array $config, bool 
 		$html .= '</select>';
 	}
 	$html .= '</div>';
+
+	if ( $row ) {
+		$html .= '</div>';
+	}
 
 	$html .= '<p class="agend-filter__location-status" role="status" aria-live="polite" hidden></p>';
 	$html .= '<div class="agend-filter__location-chip" hidden><span class="agend-filter__location-chip-text"></span><button type="button" class="agend-filter__location-clear" aria-label="' . esc_attr__( 'Remove location', 'agend-apps-core' ) . '">&times;</button></div>';

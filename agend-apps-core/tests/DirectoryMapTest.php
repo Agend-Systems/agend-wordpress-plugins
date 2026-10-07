@@ -145,6 +145,66 @@ final class DirectoryMapTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_leave_the_location_filter_stacked_unless_one_row_is_chosen(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		$default = agend_apps_records_render_filter( array( 'filter' => 'listing:location' ) );
+
+		$this->assertStringStartsWith( '<div class="agend-filter agend-filter--location agend-filter--location"', $default );
+		$this->assertStringContainsString( '<div class="agend-filter__location agend-filter__placeholder" aria-busy="true"><div class="agend-filter__location-row agend-filter__location-row--search">', $default );
+		$this->assertStringNotContainsString( 'agend-filter__location--row', $default );
+		$this->assertStringNotContainsString( 'agend-filter__location-fields', $default );
+		$this->assertArrayNotHasKey( 'layout', agend_apps_records_filter_location_config( array() ) );
+
+		foreach ( array( 'stacked', 'diagonal', '', 'ROW', 1 ) as $value ) {
+			$this->assertSame(
+				$default,
+				agend_apps_records_render_filter( array( 'filter' => 'listing:location', 'location_layout' => $value ) ),
+				'a layout that is not exactly "row" changes nothing: ' . var_export( $value, true )
+			);
+		}
+	}
+
+	#[Test]
+	public function should_wrap_the_location_rows_in_one_fields_element_for_the_one_row_layout(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		$settings = array( 'filter' => 'listing:location', 'location_layout' => 'row' );
+		$html     = agend_apps_records_render_filter( $settings );
+
+		$this->assertSame( 'row', agend_apps_records_filter_location_config( $settings )['layout'] );
+		$this->assertStringContainsString( 'class="agend-filter__location agend-filter__location--row agend-filter__placeholder"', $html );
+
+		// Both rows sit inside the fields element; the status line and chip
+		// come after it, so they stay beneath the one line.
+		$open   = strpos( $html, '<div class="agend-filter__location-fields">' );
+		$search = strpos( $html, 'agend-filter__location-row--search' );
+		$more   = strpos( $html, 'agend-filter__location-row--options' );
+		$close  = strpos( $html, '</div></div><p class="agend-filter__location-status"' );
+		$chip   = strpos( $html, 'agend-filter__location-chip"' );
+		$this->assertNotFalse( $open );
+		$this->assertNotFalse( $close );
+		$this->assertTrue( $open < $search && $search < $more && $more < $close && $close < $chip );
+
+		// The preview a designer sees is drawn from the same markup.
+		$preview = agend_apps_records_render_filter( $settings, array( 'preview' => true ) );
+		$this->assertStringContainsString( 'agend-filter__location agend-filter__location--row"', $preview );
+		$this->assertStringContainsString( '<div class="agend-filter__location-fields">', $preview );
+	}
+
+	#[Test]
+	public function should_ignore_the_location_layout_on_a_filter_that_is_not_the_location_search(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		$settings = array( 'filter' => 'listing:search' );
+
+		$this->assertSame(
+			agend_apps_records_render_filter( $settings ),
+			agend_apps_records_render_filter( $settings + array( 'location_layout' => 'row' ) )
+		);
+	}
+
+	#[Test]
 	public function should_draw_the_view_switch_with_the_starting_view_pressed(): void {
 		Agend_Apps_Records_Filter_Context::set( 'listing' );
 

@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\Core;
 
+use Agend_Apps_Records_Filter_Context;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversFunction;
 use PHPUnit\Framework\Attributes\Test;
@@ -19,6 +20,7 @@ final class FilterStyleTest extends TestCase {
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/filters.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/filter.php';
+		Agend_Apps_Records_Filter_Context::reset();
 	}
 
 	#[Test]
@@ -65,6 +67,48 @@ final class FilterStyleTest extends TestCase {
 
 		$this->assertSame( array( 'agend-filter--button-radius' ), $style['classes'] );
 		$this->assertSame( '--agend-filter-button-radius:999px', $style['style'] );
+	}
+
+	#[Test]
+	public function should_give_a_filter_with_a_height_the_hook_its_action_buttons_follow(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		$html = agend_apps_records_render_filter( array( 'filter' => 'listing:location', 'field_height' => '48' ) );
+
+		$this->assertMatchesRegularExpression( '/class="agend-filter [^"]*agend-filter--field-height"/', $html );
+		$this->assertStringContainsString( 'style="--agend-filter-height:48px"', $html );
+		$this->assertStringContainsString( 'agend-filter__location-search', $html );
+
+		foreach ( array( '', '41', 'tall' ) as $value ) {
+			$plain = agend_apps_records_render_filter( array( 'filter' => 'listing:location', 'field_height' => $value ) );
+			$this->assertStringNotContainsString( 'agend-filter--field-height', $plain );
+			$this->assertStringNotContainsString( '--agend-filter-height', $plain );
+			$this->assertSame( agend_apps_records_render_filter( array( 'filter' => 'listing:location' ) ), $plain );
+		}
+	}
+
+	#[Test]
+	public function should_size_the_action_buttons_but_not_the_choice_buttons_in_the_stylesheet(): void {
+		$css = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/assets/css/filters.css' );
+
+		preg_match_all( '/^(\.agend-filter\.agend-filter--field-height[^{]*)\{([^}]*)\}/m', $css, $rules, PREG_SET_ORDER );
+		$buttons = array_filter(
+			$rules,
+			static fn( array $rule ): bool => false !== strpos( $rule[1], 'button' ) || false !== strpos( $rule[1], '__reset' )
+		);
+
+		$this->assertCount( 1, $buttons, 'one rule carries the height to the action buttons' );
+		$rule = reset( $buttons );
+
+		foreach ( array( '.agend-filter__location-search', '.agend-filter__location-locate', '.agend-filter__reset', '.agend-filter__view .agend-filter__button' ) as $selector ) {
+			$this->assertStringContainsString( $selector, $rule[1] );
+		}
+		$this->assertStringContainsString( 'height: var(--agend-filter-height)', $rule[2] );
+
+		// What is left once the view switch's buttons are accounted for must
+		// not name a bare button: the Buttons presentation's choices stay as
+		// they were.
+		$this->assertStringNotContainsString( '.agend-filter__button', str_replace( '.agend-filter__view .agend-filter__button', '', $rule[1] ) );
 	}
 
 	#[Test]

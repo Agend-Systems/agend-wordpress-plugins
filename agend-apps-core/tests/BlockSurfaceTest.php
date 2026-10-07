@@ -276,6 +276,14 @@ final class BlockSurfaceTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_derive_the_location_layout_attribute_for_the_filter_block_from_the_schema(): void {
+		$attributes = agend_apps_records_block_attributes( agend_apps_records_surface_schema( 'filter' ) );
+
+		self::assertSame( array( 'type' => 'string', 'default' => 'stacked' ), $attributes['location_layout'] );
+		self::assertSame( 'row', agend_apps_records_settings_from_attributes( agend_apps_records_surface_schema( 'filter' ), array( 'location_layout' => 'row' ) )['location_layout'] );
+	}
+
+	#[Test]
 	public function should_report_no_notices_for_the_filter_surface(): void {
 		// The filter surface's render-nothing reasons are all per-instance
 		// (which filter is chosen, its custom field key, its choices), and
