@@ -26,6 +26,23 @@ class Agend_Loop_Sync_User_Sync {
 	private static $synced_this_request = array();
 
 	/**
+	 * Users whose login sync is queued for the shutdown hook.
+	 *
+	 * @var array<int, WP_User>
+	 */
+	private static $pending_logins = array();
+
+	/**
+	 * Clears the per-request guards. For tests and long-running CLI.
+	 *
+	 * @return void
+	 */
+	public static function reset_request_state() {
+		self::$synced_this_request = array();
+		self::$pending_logins      = array();
+	}
+
+	/**
 	 * Registers the WordPress hooks that trigger a user sync.
 	 *
 	 * @return void
@@ -77,7 +94,37 @@ class Agend_Loop_Sync_User_Sync {
 	 */
 	public function on_login( $user_login, $user ) {
 		unset( $user_login );
-		if ( $user instanceof WP_User ) {
+		if ( ! $user instanceof WP_User ) {
+			return;
+		}
+
+		// The gateway call is a blocking HTTP request; queue it for shutdown so
+		// a slow gateway does not hold up the member's login redirect.
+		if ( array() === self::$pending_logins ) {
+			add_action( 'shutdown', array( $this, 'flush_pending_logins' ) );
+		}
+		self::$pending_logins[ (int) $user->ID ] = $user;
+	}
+
+	/**
+	 * Syncs users queued by on_login(), after the response has been sent where
+	 * the server supports it.
+	 *
+	 * @return void
+	 */
+	public function flush_pending_logins() {
+		$pending               = self::$pending_logins;
+		self::$pending_logins = array();
+
+		if ( array() === $pending ) {
+			return;
+		}
+
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		}
+
+		foreach ( $pending as $user ) {
 			$this->sync_user( $user );
 		}
 	}
@@ -139,6 +186,15 @@ class Agend_Loop_Sync_User_Sync {
 			return false;
 		}
 
+		$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $membership_number );
+		if ( null === $external_id || ! is_email( $user->user_email ) ) {
+			Agend_Loop_Sync_Logger::warning(
+				'User has a non-numeric membership number or invalid email; skipping Loop user sync',
+				array( 'wp_id' => (int) $user->ID )
+			);
+			return false;
+		}
+
 		// De-duplicate within a single request: profile_update and set_user_role
 		// can both fire for the same user in one request, and the event-driven
 		// hook may overlap with a WordPress hook. One gateway call per user is
@@ -150,14 +206,21 @@ class Agend_Loop_Sync_User_Sync {
 
 		$payload = array(
 			'idp_entity_id' => Agend_Loop_Sync_Settings::idp_entity_id(),
-			'external_id'   => (int) $membership_number,
+			'external_id'   => $external_id,
 			'email'         => (string) $user->user_email,
 			'display_name'  => (string) $user->display_name,
 			'roles'         => array_values( (array) $user->roles ),
 		);
 
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
-			Agend_Loop_Sync_Logger::info( 'Dry run: would sync user', $payload );
+			Agend_Loop_Sync_Logger::info(
+				'Dry run: would sync user',
+				array(
+					'wp_id'       => (int) $user->ID,
+					'external_id' => $external_id,
+					'roles'       => $payload['roles'],
+				)
+			);
 			return true;
 		}
 
@@ -194,6 +257,7 @@ class Agend_Loop_Sync_User_Sync {
 			'succeeded'         => 0,
 			'failed'            => 0,
 			'skipped_no_number' => 0,
+			'skipped_invalid'   => 0,
 			'batches'           => 0,
 			'dry_run'           => Agend_Loop_Sync_Settings::is_dry_run(),
 			'errors'            => array(),
@@ -227,8 +291,13 @@ class Agend_Loop_Sync_User_Sync {
 				++$summary['skipped_no_number'];
 				continue;
 			}
+			$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $number );
+			if ( null === $external_id || ! is_email( $user->user_email ) ) {
+				++$summary['skipped_invalid'];
+				continue;
+			}
 			$items[] = array(
-				'external_id'  => (int) $number,
+				'external_id'  => $external_id,
 				'email'        => (string) $user->user_email,
 				'display_name' => (string) $user->display_name,
 				'roles'        => array_values( (array) $user->roles ),

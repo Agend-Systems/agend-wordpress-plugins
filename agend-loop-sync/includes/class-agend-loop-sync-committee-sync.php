@@ -31,6 +31,34 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Loop_Sync_Committee_Sync {
 
 	/**
+	 * Upbeat client override, used by tests. Null means the real
+	 * Iugo_Membership_Kiosk_API singleton.
+	 *
+	 * @var object|null
+	 */
+	private $api_override;
+
+	/**
+	 * @param object|null $api Optional Upbeat client; defaults to the membership plugin's.
+	 */
+	public function __construct( $api = null ) {
+		$this->api_override = $api;
+	}
+
+	/**
+	 * The Upbeat client, or null when the membership plugin is not available.
+	 *
+	 * @return object|null
+	 */
+	private function api() {
+		if ( null !== $this->api_override ) {
+			return $this->api_override;
+		}
+
+		return class_exists( 'Iugo_Membership_Kiosk_API' ) ? Iugo_Membership_Kiosk_API::instance() : null;
+	}
+
+	/**
 	 * Registers the WP-Cron handler.
 	 *
 	 * @return void
@@ -52,8 +80,11 @@ class Agend_Loop_Sync_Committee_Sync {
 			'skipped_committees'      => 0,
 			'applied_members'         => 0,
 			'skipped_members'         => 0,
+			'skipped_invalid_members' => 0,
 			'removed_members'         => 0,
 			'archived'                => 0,
+			'failed_members'          => 0,
+			'mode'                    => 'replace',
 			'unresolved_external_ids' => array(),
 			'errors'                  => array(),
 			'dry_run'                 => Agend_Loop_Sync_Settings::is_dry_run(),
@@ -64,13 +95,41 @@ class Agend_Loop_Sync_Committee_Sync {
 			return $this->finish( $summary );
 		}
 
-		if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) || ! function_exists( 'agend_apps_loop_sync_committee' ) ) {
+		if ( null === $this->api() || ! function_exists( 'agend_apps_loop_sync_committee' ) ) {
 			$summary['errors'][] = 'Required plugins (membership API / agend-apps-core) are unavailable';
 			return $this->finish( $summary );
 		}
 
-		$index   = $this->build_committee_index();
+		$index = $this->build_committee_index();
+		if ( null === $index ) {
+			// Without the committee index nothing below can be trusted: an empty
+			// one would archive every committee in Loop.
+			$summary['errors'][] = 'Could not read committees from Upbeat; run aborted before any change';
+			Agend_Loop_Sync_Logger::error( 'Committee sync aborted: Upbeat committee list unavailable' );
+			return $this->finish( $summary );
+		}
+
 		$rosters = $this->build_rosters( $summary );
+
+		// Replace mode and archiving both treat the data as complete. If any
+		// member's lookup failed, or nothing was read at all, a missing member
+		// is indistinguishable from one who left, so only add and update.
+		$complete = 0 === $summary['failed_members'] && $summary['members_scanned'] > 0 && array() !== $index;
+		if ( ! $complete ) {
+			$summary['mode']     = 'merge';
+			$summary['errors'][] = 'Upbeat data was incomplete; ran in merge mode with no removals or archiving';
+			Agend_Loop_Sync_Logger::warning(
+				'Committee sync ran in merge mode: Upbeat data incomplete',
+				array(
+					'failed_members'  => $summary['failed_members'],
+					'members_scanned' => $summary['members_scanned'],
+				)
+			);
+		}
+
+		// Loop's view of the committees this site has synced. Needed to clear a
+		// committee whose last member left, and to archive removed ones.
+		$loop_committees = $complete ? $this->fetch_loop_committees( $summary ) : null;
 
 		foreach ( $rosters as $committee_name => $members ) {
 			if ( ! $this->passes_filter( $committee_name, $index ) ) {
@@ -85,8 +144,25 @@ class Agend_Loop_Sync_Committee_Sync {
 			}
 		}
 
-		// Archive Loop committees that no longer exist upstream (deprovisioning).
-		$this->archive_removed_committees( $index, $summary );
+		if ( null !== $loop_committees ) {
+			// A committee still in Upbeat but with no local member left has no
+			// roster, so the loop above never visits it and its last members
+			// would keep access. Push an empty roster for those already in Loop.
+			foreach ( $this->committees_to_empty( $index, $rosters, $loop_committees ) as $committee_name ) {
+				if ( ! $this->passes_filter( $committee_name, $index ) ) {
+					continue;
+				}
+
+				++$summary['committees'];
+
+				if ( $this->sync_committee_roster( $committee_name, array(), $summary ) ) {
+					++$summary['synced'];
+				}
+			}
+
+			// Archive Loop committees that no longer exist upstream (deprovisioning).
+			$this->archive_removed_committees( $index, $loop_committees, $summary );
+		}
 
 		Agend_Loop_Sync_Logger::info( 'Committee sync run complete', $summary );
 
@@ -102,7 +178,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return array<string, array<int, array<string, mixed>>>
 	 */
 	private function build_rosters( array &$summary ): array {
-		$api     = Iugo_Membership_Kiosk_API::instance();
+		$api     = $this->api();
 		$rosters = array();
 
 		foreach ( $this->get_member_users() as $user ) {
@@ -111,12 +187,24 @@ class Agend_Loop_Sync_Committee_Sync {
 				continue;
 			}
 
+			$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $membership_number );
+			if ( null === $external_id ) {
+				++$summary['skipped_invalid_members'];
+				continue;
+			}
+
 			++$summary['members_scanned'];
 
 			$activities = $api->get_member_committee_activities( $membership_number );
-			$rows       = ( $activities && method_exists( $activities, 'get_results' ) )
-				? (array) $activities->get_results()
-				: array();
+
+			// A failed lookup is not an empty one: the member may still be on
+			// committees. Count it so the run does not remove them.
+			if ( ! is_object( $activities ) || ! method_exists( $activities, 'get_results' ) ) {
+				++$summary['failed_members'];
+				continue;
+			}
+
+			$rows = (array) $activities->get_results();
 
 			foreach ( $rows as $activity ) {
 				if ( ! is_object( $activity ) || ! method_exists( $activity, 'get_committee' ) ) {
@@ -130,22 +218,36 @@ class Agend_Loop_Sync_Committee_Sync {
 
 				$role = method_exists( $activity, 'get_role' ) ? (string) $activity->get_role() : '';
 
-				$rosters[ $committee_name ][ (int) $user->ID ] = array(
+				$channel_role = Agend_Loop_Sync_Role_Mapper::to_channel_role( $role );
+				$existing     = $rosters[ $committee_name ][ (int) $user->ID ] ?? null;
+
+				// A member can hold several roles in one committee (e.g. Chair
+				// and Member). The highest channel role wins so a later, lower
+				// row cannot downgrade them.
+				if ( null !== $existing && Agend_Loop_Sync_Role_Mapper::rank( $existing['channel_role'] ) >= Agend_Loop_Sync_Role_Mapper::rank( $channel_role ) ) {
+					continue;
+				}
+
+				$entry = array(
 					// external_id is the subject the SSO assertion's NameID
 					// carries (for this site the Upbeat membership number), the
 					// value Loop stores on the user, so the gateway can resolve
 					// this roster entry to the right Loop user. (The array key
 					// stays the WP user id only to de-duplicate a member within
 					// a committee.)
-					'external_id'          => (int) $membership_number,
-					// Email is the reliable fallback the gateway uses when
-					// external_id does not resolve (the Loop user's email matches
-					// the WordPress user's email regardless of the SSO NameID
-					// format).
-					'email'                => (string) $user->user_email,
-					'channel_role'         => Agend_Loop_Sync_Role_Mapper::to_channel_role( $role ),
+					'external_id'          => $external_id,
+					'channel_role'         => $channel_role,
 					'committee_role_label' => $role,
 				);
+
+				// Email is the fallback the gateway uses when external_id does
+				// not resolve. The gateway rejects a malformed one, which would
+				// fail the whole committee, so omit it rather than send it.
+				if ( is_email( $user->user_email ) ) {
+					$entry['email'] = (string) $user->user_email;
+				}
+
+				$rosters[ $committee_name ][ (int) $user->ID ] = $entry;
 			}
 		}
 
@@ -167,15 +269,23 @@ class Agend_Loop_Sync_Committee_Sync {
 			'name'          => $committee_name,
 			'is_active'     => true,
 			'roster'        => $roster,
-			// The roster built here is the authoritative membership for this
-			// committee, so use replace mode: a member dropped upstream is
-			// removed from the Loop channel (deprovisioning). Requires the
-			// gateway committee-sync replace mode.
-			'mode'          => 'replace',
+			// When every Upbeat read succeeded the roster is the authoritative
+			// membership, so replace mode removes a member dropped upstream
+			// (deprovisioning). When any read failed the run uses merge mode, so
+			// a missing member is never mistaken for a departed one. Replace mode
+			// requires the gateway committee-sync replace mode.
+			'mode'          => $summary['mode'],
 		);
 
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
-			Agend_Loop_Sync_Logger::info( 'Dry run: would sync committee', $payload );
+			Agend_Loop_Sync_Logger::info(
+				'Dry run: would sync committee',
+				array(
+					'unique_id'   => $payload['unique_id'],
+					'mode'        => $payload['mode'],
+					'roster_size' => count( $roster ),
+				)
+			);
 			return true;
 		}
 
@@ -203,6 +313,12 @@ class Agend_Loop_Sync_Committee_Sync {
 		$removed    = (int) ( $data['removed'] ?? 0 );
 		$unresolved = is_array( $data['skipped_external_ids'] ?? null ) ? $data['skipped_external_ids'] : array();
 
+		// A gateway without roster replace mode ignores `mode` and returns none
+		// of these counts, so removals silently never happen. Surface it.
+		if ( 'replace' === $summary['mode'] && is_array( $data ) && ! array_key_exists( 'removed', $data ) && ! in_array( 'Gateway did not confirm replace mode; departed members are not being removed', $summary['errors'], true ) ) {
+			$summary['errors'][] = 'Gateway did not confirm replace mode; departed members are not being removed';
+		}
+
 		$summary['applied_members'] += $applied;
 		$summary['skipped_members'] += $skipped;
 		$summary['removed_members'] += $removed;
@@ -225,17 +341,95 @@ class Agend_Loop_Sync_Committee_Sync {
 	}
 
 	/**
+	 * Reads every committee Loop holds for this site, following pagination.
+	 *
+	 * Returns null (with the reason recorded) when the list cannot be read in
+	 * full, so callers skip the work that depends on it rather than act on a
+	 * partial list.
+	 *
+	 * @param array<string, mixed> $summary Run summary, by reference.
+	 * @return array<int, array<string, mixed>>|null
+	 */
+	private function fetch_loop_committees( array &$summary ): ?array {
+		if ( ! function_exists( 'agend_apps_loop_list_committees' ) ) {
+			return null;
+		}
+
+		$per_page = 100;
+		$items    = array();
+
+		// Hard stop so a gateway that never reports the last page cannot loop forever.
+		for ( $page = 1; $page <= 50; $page++ ) {
+			$response = agend_apps_loop_list_committees( $page, $per_page );
+			if ( is_wp_error( $response ) ) {
+				$summary['errors'][] = 'List committees failed: ' . $response->get_error_message();
+				return null;
+			}
+
+			$data = is_array( $response ) && is_array( $response['data'] ?? null ) ? $response['data'] : array();
+			foreach ( $data as $item ) {
+				if ( is_array( $item ) ) {
+					$items[] = $item;
+				}
+			}
+
+			$pagination = is_array( $response ) ? ( $response['meta']['pagination'] ?? null ) : null;
+			$has_next   = is_array( $pagination ) ? ! empty( $pagination['has_next'] ) : count( $data ) >= $per_page;
+
+			if ( ! $has_next ) {
+				return $items;
+			}
+		}
+
+		$summary['errors'][] = 'List committees did not finish within 50 pages';
+
+		return null;
+	}
+
+	/**
+	 * Committee names that exist in Upbeat and are live in Loop but received no
+	 * roster this run (every member left, or none are local).
+	 *
+	 * @param array<string, array<string, mixed>> $index           Upbeat committee index.
+	 * @param array<string, mixed>                $rosters         Rosters built this run, keyed by name.
+	 * @param array<int, array<string, mixed>>    $loop_committees Committees Loop holds.
+	 * @return string[]
+	 */
+	private function committees_to_empty( array $index, array $rosters, array $loop_committees ): array {
+		$live = array();
+		foreach ( $loop_committees as $item ) {
+			if ( empty( $item['is_archived'] ) && '' !== (string) ( $item['unique_id'] ?? '' ) ) {
+				$live[ (string) $item['unique_id'] ] = true;
+			}
+		}
+
+		$names = array();
+		foreach ( array_keys( $index ) as $name ) {
+			$name = (string) $name;
+			if ( isset( $rosters[ $name ] ) ) {
+				continue;
+			}
+			if ( isset( $live[ sanitize_title( $name ) ] ) ) {
+				$names[] = $name;
+			}
+		}
+
+		return $names;
+	}
+
+	/**
 	 * Archives Loop committee channels that no longer exist upstream. Every
 	 * IMK-managed committee present in Loop whose unique_id is not among the
 	 * current Upbeat committees is archived (hidden), so a committee removed
 	 * upstream stops appearing in Loop. Skipped in dry-run (logged only).
 	 *
-	 * @param array<string, array<string, mixed>> $index   Current Upbeat committee index (keyed by name).
-	 * @param array<string, mixed>                $summary Run summary, by reference.
+	 * @param array<string, array<string, mixed>> $index           Current Upbeat committee index (keyed by name).
+	 * @param array<int, array<string, mixed>>    $loop_committees Every committee Loop holds, all pages.
+	 * @param array<string, mixed>                $summary         Run summary, by reference.
 	 * @return void
 	 */
-	private function archive_removed_committees( array $index, array &$summary ): void {
-		if ( ! function_exists( 'agend_apps_loop_list_committees' ) || ! function_exists( 'agend_apps_loop_archive_committee' ) ) {
+	private function archive_removed_committees( array $index, array $loop_committees, array &$summary ): void {
+		if ( ! function_exists( 'agend_apps_loop_archive_committee' ) ) {
 			return;
 		}
 
@@ -245,16 +439,7 @@ class Agend_Loop_Sync_Committee_Sync {
 			$current[] = sanitize_title( (string) $name );
 		}
 
-		$response = agend_apps_loop_list_committees( 1, 100 );
-		if ( is_wp_error( $response ) ) {
-			$summary['errors'][] = 'List committees for archive failed: ' . $response->get_error_message();
-			return;
-		}
-
-		$items = array();
-		if ( is_array( $response ) ) {
-			$items = is_array( $response['data'] ?? null ) ? $response['data'] : array();
-		}
+		$items = $loop_committees;
 
 		foreach ( $items as $item ) {
 			if ( ! is_array( $item ) ) {
@@ -295,14 +480,16 @@ class Agend_Loop_Sync_Committee_Sync {
 	/**
 	 * Reads get_committees() once to index committee metadata for filtering.
 	 *
-	 * @return array<string, array<string, mixed>> name => { allow_on_web, groups }.
+	 * @return array<string, array<string, mixed>>|null name => { allow_on_web, groups }; null when Upbeat could not be read.
 	 */
-	private function build_committee_index(): array {
+	private function build_committee_index(): ?array {
 		$index      = array();
-		$collection = Iugo_Membership_Kiosk_API::instance()->get_committees();
-		$committees = ( $collection && method_exists( $collection, 'get_results' ) )
-			? (array) $collection->get_results()
-			: array();
+		$collection = $this->api()->get_committees();
+		if ( ! is_object( $collection ) || ! method_exists( $collection, 'get_results' ) ) {
+			return null;
+		}
+
+		$committees = (array) $collection->get_results();
 
 		foreach ( $committees as $committee ) {
 			if ( ! is_object( $committee ) || ! method_exists( $committee, 'get_name' ) ) {
@@ -408,12 +595,12 @@ class Agend_Loop_Sync_Committee_Sync {
 			'error'                => '',
 		);
 
-		if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
+		if ( null === $this->api() ) {
 			$report['error'] = 'Membership API unavailable';
 			return $report;
 		}
 
-		$api                 = Iugo_Membership_Kiosk_API::instance();
+		$api                 = $this->api();
 		$report['available'] = true;
 		$users               = $this->get_member_users();
 		$report['members_total'] = count( $users );
@@ -489,12 +676,12 @@ class Agend_Loop_Sync_Committee_Sync {
 			'error'            => '',
 		);
 
-		if ( ! class_exists( 'Iugo_Membership_Kiosk_API' ) ) {
+		if ( null === $this->api() ) {
 			$preview['error'] = 'Membership API unavailable';
 			return $preview;
 		}
 
-		$collection = Iugo_Membership_Kiosk_API::instance()->get_committees();
+		$collection = $this->api()->get_committees();
 		$committees = ( $collection && method_exists( $collection, 'get_results' ) )
 			? (array) $collection->get_results()
 			: array();
@@ -553,6 +740,14 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return array<string, mixed>
 	 */
 	private function finish( array $summary ): array {
+		// Stored in an option on every run: keep a large membership's unresolved
+		// ids from bloating it.
+		$total = count( $summary['unresolved_external_ids'] );
+		if ( $total > 100 ) {
+			$summary['unresolved_external_ids']       = array_slice( $summary['unresolved_external_ids'], 0, 100 );
+			$summary['unresolved_external_ids_total'] = $total;
+		}
+
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, time(), false );
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, $summary, false );
 
