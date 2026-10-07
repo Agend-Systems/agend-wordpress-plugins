@@ -19,6 +19,46 @@ if ( ! defined( 'ABSPATH' ) ) {
 require_once __DIR__ . '/../surface-gate.php';
 
 /**
+ * Filter column width choices: the share of the catalogue's width a side
+ * filter column takes, '' leaving the stylesheet's 260px.
+ *
+ * The keys carry their unit rather than being bare numbers. PHP turns a bare
+ * numeric key into an integer, and an editor reading the list back as a
+ * JavaScript object puts integer-like keys ahead of the rest, which would
+ * send the "Default" entry to the bottom of the dropdown. A saved value is
+ * also then the CSS length itself.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_directory_catalogue_filter_column_options(): array {
+	return array(
+		''    => __( 'Default (260px)', 'agend-apps-core' ),
+		'25%' => '25%',
+		'33%' => __( 'One third (33%)', 'agend-apps-core' ),
+		'40%' => '40%',
+		'50%' => __( 'Half (50%)', 'agend-apps-core' ),
+		'60%' => '60%',
+		'67%' => __( 'Two thirds (67%)', 'agend-apps-core' ),
+		'70%' => '70%',
+		'75%' => '75%',
+	);
+}
+
+/**
+ * Results list height choices, in pixels, '' for no limit. Keyed with the
+ * unit for the reason given on the filter column choices above.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_directory_catalogue_results_height_options(): array {
+	$options = array( '' => __( 'No limit', 'agend-apps-core' ) );
+	foreach ( array( 480, 560, 640, 720, 800, 880, 960, 1040 ) as $height ) {
+		$options[ $height . 'px' ] = $height . 'px';
+	}
+	return $options;
+}
+
+/**
  * The directory catalogue's content-settings schema.
  *
  * @return array
@@ -108,6 +148,14 @@ function agend_apps_records_schema_directory_catalogue(): array {
 						'min'     => 0,
 						'max'     => 48,
 					),
+					array(
+						'name'        => 'results_max_height',
+						'label'       => __( 'Results list height', 'agend-apps-core' ),
+						'type'        => 'select',
+						'options'     => 'agend_apps_records_directory_catalogue_results_height_options',
+						'default'     => '',
+						'description' => __( 'Cap the height of the results list so it scrolls inside itself, for example to sit level with an Agend Map. Applies from tablet width up; on a phone the list runs at full height.', 'agend-apps-core' ),
+					),
 				),
 			),
 			array(
@@ -150,8 +198,20 @@ function agend_apps_records_schema_directory_catalogue(): array {
 							'left'  => __( 'Down the left', 'agend-apps-core' ),
 							'right' => __( 'Down the right', 'agend-apps-core' ),
 						),
-						'description' => __( 'A side position puts the filters in their own column beside the results. Set the column width on the filter template itself.', 'agend-apps-core' ),
+						'description' => __( 'A side position puts the filters in their own column beside the results. Set the width of that column with Filter column width below.', 'agend-apps-core' ),
 						'condition'   => array( 'filter_template!' => '' ),
+					),
+					array(
+						'name'        => 'filter_column_width',
+						'label'       => __( 'Filter column width', 'agend-apps-core' ),
+						'type'        => 'select',
+						'options'     => 'agend_apps_records_directory_catalogue_filter_column_options',
+						'default'     => '',
+						'description' => __( 'How much of the catalogue\'s width the filter column takes. The results list takes the rest.', 'agend-apps-core' ),
+						'condition'   => array(
+							'filter_template!' => '',
+							'filter_position'  => array( 'left', 'right' ),
+						),
 					),
 				),
 			),
