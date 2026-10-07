@@ -57,6 +57,30 @@ class Agend_Loop_Sync_Contact_Resolver {
 	}
 
 	/**
+	 * Converts a membership number to the gateway's `external_id`.
+	 *
+	 * The gateway requires a positive integer. A casual `(int)` cast turns a
+	 * non-numeric number ("ABC123") into 0, which the gateway rejects and which
+	 * fails a whole committee roster, so anything that is not plain digits is
+	 * refused here and the caller skips that member.
+	 *
+	 * @param string $membership_number Upbeat membership number.
+	 * @return int|null A positive integer, or null when the number is unusable.
+	 */
+	public static function to_external_id( string $membership_number ): ?int {
+		$membership_number = trim( $membership_number );
+
+		// 18 digits is the longest run that always fits a 64-bit PHP int.
+		if ( '' === $membership_number || strlen( $membership_number ) > 18 || ! ctype_digit( $membership_number ) ) {
+			return null;
+		}
+
+		$id = (int) $membership_number;
+
+		return $id > 0 ? $id : null;
+	}
+
+	/**
 	 * Clears the per-request cache. Primarily for tests and long-running CLI.
 	 *
 	 * @return void

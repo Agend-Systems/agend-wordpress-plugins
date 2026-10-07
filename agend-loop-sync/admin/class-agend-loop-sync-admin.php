@@ -85,6 +85,12 @@ class Agend_Loop_Sync_Admin {
 
 		check_admin_referer( 'agend_loop_sync_run_committees' );
 
+		// One Upbeat call per member: lift the time limit as the backfill does.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		ignore_user_abort( true );
+
 		$summary = $this->committee_sync->run();
 
 		wp_safe_redirect(

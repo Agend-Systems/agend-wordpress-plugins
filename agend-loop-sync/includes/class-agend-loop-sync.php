@@ -64,6 +64,8 @@ class Agend_Loop_Sync {
 		$this->user_sync      = new Agend_Loop_Sync_User_Sync();
 		$this->committee_sync = new Agend_Loop_Sync_Committee_Sync();
 
+		add_action( 'init', array( 'Agend_Loop_Sync_Settings', 'ensure_committee_cron' ) );
+
 		$this->user_sync->register();
 		$this->committee_sync->register();
 
