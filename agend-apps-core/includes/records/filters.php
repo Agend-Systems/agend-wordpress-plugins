@@ -532,7 +532,7 @@ function agend_apps_records_filter_radius_choices( $raw ): array {
  * The Location filter's runtime settings.
  *
  * @param array $settings Widget settings.
- * @return array{search: bool, locate: bool, buttonText: string, locateText: string, region: string, radii: float[], radius: float}
+ * @return array{search: bool, locate: bool, buttonText: string, locateText: string, region: string, radii: float[], radius: float, layout?: string}
  */
 function agend_apps_records_filter_location_config( array $settings ): array {
 	$radii   = agend_apps_records_filter_radius_choices( $settings['location_radius_choices'] ?? '' );
@@ -549,7 +549,7 @@ function agend_apps_records_filter_location_config( array $settings ): array {
 	$search = 'yes' === ( $settings['location_show_search'] ?? 'yes' );
 	$locate = 'yes' === ( $settings['location_show_locate'] ?? 'yes' );
 
-	return array(
+	$config = array(
 		'search'     => $search,
 		// With the place box turned off the button is the only way in, so
 		// there is always at least one.
@@ -560,6 +560,14 @@ function agend_apps_records_filter_location_config( array $settings ): array {
 		'radii'      => $radii,
 		'radius'     => $radius,
 	);
+
+	// Written only for the one-row layout, so a stacked filter's config (and
+	// the markup it is pinned in) is unchanged.
+	if ( 'row' === ( $settings['location_layout'] ?? 'stacked' ) ) {
+		$config['layout'] = 'row';
+	}
+
+	return $config;
 }
 
 /**

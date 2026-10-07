@@ -113,6 +113,26 @@
                         "min": 0,
                         "max": 48
                     }
+                },
+                {
+                    "id": "results_max_height",
+                    "args": {
+                        "label": "Results list height",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "No limit",
+                            "480px": "480px",
+                            "560px": "560px",
+                            "640px": "640px",
+                            "720px": "720px",
+                            "800px": "800px",
+                            "880px": "880px",
+                            "960px": "960px",
+                            "1040px": "1040px"
+                        },
+                        "description": "Cap the height of the results list so it scrolls inside itself, for example to sit level with an Agend Map. Applies from tablet width up; on a phone the list runs at full height."
+                    }
                 }
             ]
         },
@@ -172,9 +192,36 @@
                             "left": "Down the left",
                             "right": "Down the right"
                         },
-                        "description": "A side position puts the filters in their own column beside the results. Set the column width on the filter template itself.",
+                        "description": "A side position puts the filters in their own column beside the results. Set the width of that column with Filter column width below.",
                         "condition": {
                             "filter_template!": ""
+                        }
+                    }
+                },
+                {
+                    "id": "filter_column_width",
+                    "args": {
+                        "label": "Filter column width",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Default (260px)",
+                            "25%": "25%",
+                            "33%": "One third (33%)",
+                            "40%": "40%",
+                            "50%": "Half (50%)",
+                            "60%": "60%",
+                            "67%": "Two thirds (67%)",
+                            "70%": "70%",
+                            "75%": "75%"
+                        },
+                        "description": "How much of the catalogue's width the filter column takes. The results list takes the rest.",
+                        "condition": {
+                            "filter_template!": "",
+                            "filter_position": [
+                                "left",
+                                "right"
+                            ]
                         }
                     }
                 }
