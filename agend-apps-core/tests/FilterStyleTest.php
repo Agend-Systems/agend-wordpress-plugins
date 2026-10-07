@@ -112,6 +112,16 @@ final class FilterStyleTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_start_the_results_level_with_a_right_hand_filter_column(): void {
+		$css = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/assets/css/filters.css' );
+
+		// The slot comes first in the markup but sits in column two, so only
+		// dense placement lets the results back into the first row.
+		$this->assertMatchesRegularExpression( '/^\.agend-filters-right \{[^}]*grid-auto-flow: row dense;/m', $css );
+		$this->assertDoesNotMatchRegularExpression( '/^\.agend-filters-left \{[^}]*grid-auto-flow/m', $css );
+	}
+
+	#[Test]
 	public function should_expose_horizontal_padding(): void {
 		$style = agend_apps_records_filter_style( array( 'field_padding' => '12' ) );
 
