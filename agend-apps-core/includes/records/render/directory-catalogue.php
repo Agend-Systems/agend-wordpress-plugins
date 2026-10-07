@@ -17,6 +17,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
 
+// The sizing settings are sanitised against the schema's own option lists, so
+// the two cannot drift; a caller loading this renderer alone needs them too.
+require_once __DIR__ . '/../schema/directory-catalogue.php';
+
 /**
  * Normalises a SELECT2 multiple value to a clean string list.
  *
@@ -29,6 +33,40 @@ function agend_apps_records_directory_catalogue_string_list( $value ): array {
 	}
 
 	return array_values( array_filter( array_map( 'strval', $value ), 'strlen' ) );
+}
+
+/**
+ * A choice-list setting's value, or '' when it is not one of the list's
+ * non-empty choices.
+ *
+ * @param mixed $value   Raw setting value.
+ * @param array $options The schema's choices, keyed by value.
+ * @return string
+ */
+function agend_apps_records_directory_catalogue_choice( $value, array $options ): string {
+	$value = is_scalar( $value ) ? (string) $value : '';
+
+	return ( '' !== $value && array_key_exists( $value, $options ) ) ? $value : '';
+}
+
+/**
+ * The width of a side filter column as a share of the catalogue, or '' for
+ * the stylesheet's own width.
+ *
+ * Only a catalogue with a filter template placed down the left or right has a
+ * column to size. The editor hides the setting otherwise, so a value left over
+ * from a layout the author has since changed is ignored rather than carried
+ * into the markup.
+ *
+ * @param array $s Surface settings.
+ * @return string A CSS percentage such as '33%', or ''.
+ */
+function agend_apps_records_directory_catalogue_filter_column( array $s ): string {
+	if ( (int) ( $s['filter_template'] ?? 0 ) < 1 || ! in_array( $s['filter_position'] ?? 'top', array( 'left', 'right' ), true ) ) {
+		return '';
+	}
+
+	return agend_apps_records_directory_catalogue_choice( $s['filter_column_width'] ?? '', agend_apps_records_directory_catalogue_filter_column_options() );
 }
 
 /**
@@ -94,6 +132,19 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
 			'colourSource' => $colours['source'],
 		),
 	);
+
+	// Both sizing settings write a key only when set, like the two below, so a
+	// catalogue that leaves them alone keeps its existing config (and its
+	// pinned render fixtures) byte for byte.
+	$filter_column = agend_apps_records_directory_catalogue_filter_column( $s );
+	if ( '' !== $filter_column ) {
+		$config['layout']['filterColumn'] = $filter_column;
+	}
+
+	$results_height = agend_apps_records_directory_catalogue_choice( $s['results_max_height'] ?? '', agend_apps_records_directory_catalogue_results_height_options() );
+	if ( '' !== $results_height ) {
+		$config['layout']['resultsMaxHeight'] = $results_height;
+	}
 
 	// Distance shows by default, so only turning it off writes a key: every
 	// catalogue that leaves it on keeps its existing config (and its pinned
@@ -251,7 +302,7 @@ function agend_apps_records_render_directory_catalogue( array $settings ): strin
 	// text flashes before the script takes over.
 	$skeletons = ( 1 === $columns ) ? 3 : $columns;
 	?>
-		<div class="agend-directory-catalogue" style="<?php echo esc_attr( $style ); ?>" data-agend-directory-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
+		<div class="agend-directory-catalogue<?php echo esc_attr( agend_apps_records_directory_catalogue_scroll_class( $config ) ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-directory-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<span class="agend-visually-hidden" role="status"><?php esc_html_e( 'Loading listings…', 'agend-apps-core' ); ?></span>
 			<div class="agend-dir-filter-slot"><?php echo agend_apps_records_directory_catalogue_render_filters( (int) $config['filterTemplate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Template output. ?></div>
 			<div class="agend-dir-grid agend-dir-grid--<?php echo esc_attr( $config['layout']['style'] ); ?>" style="--agend-dir-cols-desktop:<?php echo (int) $columns; ?>;">
@@ -308,7 +359,7 @@ function agend_apps_records_directory_catalogue_render_filters( int $template_id
  * @return string
  */
 function agend_apps_records_directory_catalogue_inline_style( array $config ): string {
-	return sprintf(
+	$style = sprintf(
 		'--agend-dir-heading:%1$s;--agend-dir-body:%2$s;--agend-dir-accent:%3$s;--agend-dir-button:%4$s;--agend-dir-button-text:%5$s;--agend-dir-card-radius:%6$dpx;',
 		esc_attr( $config['colours']['heading'] ),
 		esc_attr( $config['colours']['body'] ),
@@ -317,6 +368,29 @@ function agend_apps_records_directory_catalogue_inline_style( array $config ): s
 		esc_attr( $config['colours']['buttonText'] ),
 		(int) $config['layout']['cardRadius']
 	);
+
+	// Set on the root, so the grid the filters sit in and the results list pick
+	// them up wherever the script has since moved them.
+	if ( ! empty( $config['layout']['filterColumn'] ) ) {
+		$style .= '--agend-filter-column:' . esc_attr( $config['layout']['filterColumn'] ) . ';';
+	}
+	if ( ! empty( $config['layout']['resultsMaxHeight'] ) ) {
+		$style .= '--agend-dir-results-max-height:' . esc_attr( $config['layout']['resultsMaxHeight'] ) . ';';
+	}
+
+	return $style;
+}
+
+/**
+ * The root's modifier class when the results list has a height cap, with its
+ * leading space, or '' for none. The stylesheet makes the list scroll only
+ * under this class, so an uncapped catalogue never clips its card shadows.
+ *
+ * @param array $config The widget config.
+ * @return string
+ */
+function agend_apps_records_directory_catalogue_scroll_class( array $config ): string {
+	return empty( $config['layout']['resultsMaxHeight'] ) ? '' : ' agend-directory-catalogue--scroll-results';
 }
 
 /**
@@ -344,7 +418,7 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 	$config['initialPagination'] = $list['pagination'];
 	$config['initialError']      = $list['error'];
 	?>
-		<div class="agend-directory-catalogue agend-directory-catalogue--templated agend-filters-<?php echo esc_attr( $config['filterPosition'] ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-directory-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
+		<div class="agend-directory-catalogue agend-directory-catalogue--templated agend-filters-<?php echo esc_attr( $config['filterPosition'] ); ?><?php echo esc_attr( agend_apps_records_directory_catalogue_scroll_class( $config ) ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-directory-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<?php if ( ! empty( $config['heading']['show'] ) && ( '' !== $config['heading']['title'] || '' !== $config['heading']['subtitle'] ) ) : ?>
 				<div class="agend-dir-heading">
 					<?php if ( '' !== $config['heading']['title'] ) : ?>
