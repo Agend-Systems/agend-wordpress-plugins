@@ -120,6 +120,14 @@ final class Agend_Test_WP {
 	public static array $enqueued_scripts = array();
 
 	/**
+	 * The arguments of each `wp_enqueue_style()` call, keyed by handle, for a
+	 * test that needs the src or version and not just the handle.
+	 *
+	 * @var array<string, array{src: string, deps: array, ver: string|bool|null, media: string}>
+	 */
+	public static array $enqueued_style_args = array();
+
+	/**
 	 * Value `wp_style_engine_get_stylesheet_from_context()` returns. A test
 	 * sets this directly to simulate block-supports layout CSS having been
 	 * generated during a render; '' (the default) simulates an empty store.
@@ -175,6 +183,7 @@ final class Agend_Test_WP {
 		self::$wp_update_plugins_calls = 0;
 		self::$enqueued_styles   = array();
 		self::$enqueued_scripts  = array();
+		self::$enqueued_style_args = array();
 		self::$style_engine_stylesheet = '';
 		self::$settings_sections = array();
 		self::$roles             = array(
@@ -2274,9 +2283,16 @@ if ( ! function_exists( 'render_block' ) ) {
 }
 
 if ( ! function_exists( 'wp_enqueue_style' ) ) {
-	/** Records the handle so a test can assert on exactly what was enqueued. */
+	/** Records the handle, and its src and version, so a test can assert on exactly what was enqueued. */
 	function wp_enqueue_style( string $handle, string $src = '', array $deps = array(), $ver = false, string $media = 'all' ): void {
 		Agend_Test_WP::$enqueued_styles[] = $handle;
+
+		Agend_Test_WP::$enqueued_style_args[ $handle ] = array(
+			'src'   => $src,
+			'deps'  => $deps,
+			'ver'   => $ver,
+			'media' => $media,
+		);
 	}
 }
 

@@ -141,3 +141,7 @@ Directory map and location search
 18. Pick Map view: the list hides and the map shows the same listings, with the radius circle during a location search. Change a filter while on the map: the pins follow. Pick List view: the list returns.
 19. Click a group of pins (it zooms in), then a pin: its details show and the link opens the listing.
 20. With no CARTO key the attribution reads OpenStreetMap; add a key in Settings > Agend Widgets > Maps and the attribution reads OpenStreetMap and CARTO.
+
+Editor selection
+
+21. In the Elementor editor, click an Export Reports button, a catalogue card, a pagination link, a filter input and the Agend Map: each selects the widget and opens its controls, and nothing downloads, opens, focuses or pans. Edit handles and resize grips still work. Toggle Elementor's Preview (eye icon): the widgets respond to clicks again. The live page and the block editor are unaffected.
