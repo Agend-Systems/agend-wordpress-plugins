@@ -29,6 +29,24 @@ class Agend_Elementor {
 	public function __construct() {
 		add_action( 'elementor/elements/categories_registered', array( $this, 'register_category' ) );
 		add_action( 'elementor/widgets/register', array( $this, 'register_widgets' ) );
+		add_action( 'elementor/preview/enqueue_styles', array( $this, 'enqueue_editor_preview_styles' ) );
+	}
+
+	/**
+	 * Enqueues the stylesheet that keeps Agend widgets inert in the editor.
+	 *
+	 * Elementor fires this hook only while building the editor's preview
+	 * iframe, so the live front end, Elementor's own post preview and the
+	 * block editor never load it. See the stylesheet for why the widgets are
+	 * switched off there.
+	 */
+	public function enqueue_editor_preview_styles(): void {
+		wp_enqueue_style(
+			'agend-elementor-editor-preview',
+			AGEND_ELEMENTOR_URL . 'assets/css/editor-preview.css',
+			array(),
+			AGEND_ELEMENTOR_VERSION
+		);
 	}
 
 	/**
