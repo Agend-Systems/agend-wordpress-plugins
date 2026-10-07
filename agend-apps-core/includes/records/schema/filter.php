@@ -164,6 +164,18 @@ function agend_apps_records_schema_filter(): array {
 						'condition' => array( 'filter' => 'listing:location' ),
 					),
 					array(
+						'name'        => 'location_layout',
+						'label'       => __( 'Layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'stacked',
+						'options'     => array(
+							'stacked' => __( 'Stacked', 'agend-apps-core' ),
+							'row'     => __( 'One row', 'agend-apps-core' ),
+						),
+						'description' => __( 'One row puts the place box, buttons and radius on one line, wrapping when there is not enough width. The status line and location chip stay beneath.', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:location' ),
+					),
+					array(
 						'name'      => 'view_heading',
 						'label'     => __( 'List / Map switch', 'agend-apps-core' ),
 						'type'      => 'heading',

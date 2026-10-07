@@ -1,0 +1,32 @@
+/**
+ * Agend widgets inside the Elementor editor preview.
+ *
+ * Loaded only in the editor's preview iframe, never on the live front end.
+ *
+ * Agend widgets are live: the Export Reports button really downloads a report
+ * through the gateway, catalogue cards and pagination react, filters take
+ * focus and the map pans. In the editor that makes them hard to select,
+ * because a click meant to open the widget's controls operates the widget
+ * instead.
+ *
+ * Switching pointer events off on everything inside the widget lets the click
+ * fall through to the widget's own element, which is the one Elementor
+ * listens on to select it. Hover outlines and drag handles keep working for
+ * the same reason.
+ *
+ * Elementor's own editing UI sits beside the content as direct children of
+ * the widget element (the overlay holding the edit handles, and the resize
+ * handles), so those are excluded. The rule takes the widget's direct
+ * children rather than naming .elementor-widget-container, because Elementor's
+ * optimised markup leaves that wrapper out.
+ *
+ * !important is needed because descendants set pointer-events themselves:
+ * Leaflet turns it back on for the map panes, markers and controls.
+ *
+ * Scoped to body.elementor-editor-active, which Elementor removes while the
+ * editor's own Preview toggle is on, so the widgets work again there.
+ */
+body.elementor-editor-active .elementor-widget[data-widget_type^="agend-"] > :not(.elementor-element-overlay):not(.ui-resizable-handle),
+body.elementor-editor-active .elementor-widget[data-widget_type^="agend-"] > :not(.elementor-element-overlay):not(.ui-resizable-handle) * {
+  pointer-events: none !important;
+}

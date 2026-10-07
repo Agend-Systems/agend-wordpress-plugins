@@ -166,6 +166,22 @@
   }
 }
 
+/* Results list height (results_max_height). The list scrolls inside itself so
+   it can sit level with an Agend Map. The class is on the root only when a
+   height is set, because a scrolling grid clips card shadows and focus rings
+   and an uncapped one should not. Tablet width up only: below 768px the side
+   filter layout is already one column, and a scroller nested in the page is
+   awkward on a phone. The end padding keeps the scrollbar off the cards'
+   borders, and the block padding leaves room for a card's lift on hover. */
+@media (min-width: 768px) {
+  .agend-directory-catalogue--scroll-results .agend-dir-grid {
+    max-height: var(--agend-dir-results-max-height);
+    overflow-y: auto;
+    padding-block: 4px;
+    padding-inline-end: 12px;
+  }
+}
+
 .agend-dir-card {
   display: flex;
   flex-direction: column;

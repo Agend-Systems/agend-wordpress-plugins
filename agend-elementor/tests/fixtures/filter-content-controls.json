@@ -248,6 +248,22 @@
                     }
                 },
                 {
+                    "id": "location_layout",
+                    "args": {
+                        "label": "Layout",
+                        "type": "select",
+                        "default": "stacked",
+                        "options": {
+                            "stacked": "Stacked",
+                            "row": "One row"
+                        },
+                        "description": "One row puts the place box, buttons and radius on one line, wrapping when there is not enough width. The status line and location chip stay beneath.",
+                        "condition": {
+                            "filter": "listing:location"
+                        }
+                    }
+                },
+                {
                     "id": "view_heading",
                     "args": {
                         "label": "List / Map switch",

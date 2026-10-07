@@ -112,6 +112,19 @@
   line-height: normal;
 }
 
+/* The Height setting reaches the filter's action buttons too, so a Search
+   button, "Use my location", the clear button and the List / Map switch line
+   up with the fields beside them. The choice buttons of the Buttons
+   presentation are left out: they are pills in a list, not a row of fields. */
+.agend-filter.agend-filter--field-height .agend-filter__control :is(.agend-filter__location-search, .agend-filter__location-locate, .agend-filter__reset, .agend-filter__view .agend-filter__button) {
+  box-sizing: border-box;
+  height: var(--agend-filter-height);
+  min-height: var(--agend-filter-height);
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: normal;
+}
+
 .agend-filter.agend-filter--field-padding .agend-filter__control :is(input[type='search'], input[type='date'], input[type='number'], select) {
   padding-left: var(--agend-filter-padding-x);
   padding-right: var(--agend-filter-padding-x);
@@ -325,6 +338,23 @@
 .agend-filter__location-clear:hover,
 .agend-filter__location-clear:focus-visible {
   background: rgba(0, 0, 0, 0.1);
+}
+
+/* One-row layout (the "Layout" setting). The renderer draws the fields
+   wrapper only in this layout, around both rows; the rows dissolve into it so
+   the place box, Search, "Use my location" and the radius share one wrapping
+   line. The place box keeps its own flex rule above, so it takes the spare
+   width. The status line and chip sit outside the wrapper and stay beneath. A
+   row the runtime hides (an account without place search) stays hidden. */
+.agend-filter__location-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agend-filter__location-fields > .agend-filter__location-row:not([hidden]) {
+  display: contents;
 }
 
 /* Button alignment (Style tab), for buttons, the view switch and the
