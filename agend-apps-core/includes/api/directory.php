@@ -9,6 +9,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/directory-locations.php';
+
 /**
  * Retrieves a paginated, filterable list of directory listings.
  *
@@ -458,7 +460,8 @@ function agend_apps_directory_delete_listing( string $listing_id ) {
  * Bulk creates or updates directory listings.
  *
  * Requires the `directory.listings.bulk_upsert` scope on the API key. The
- * cache is flushed after a successful call.
+ * cache is flushed after a successful call. Each listing's `locations` is
+ * normalised first (see agend_apps_directory_normalize_locations()).
  *
  * @param array  $listings              Array of listing payloads (1 to 100 items). Each item follows the gateway `bulkUpsertListingItemSchema`.
  * @param string $external_source       Caller identifier and part of the upsert key (external_source + external_id). Required by the gateway.
@@ -467,6 +470,12 @@ function agend_apps_directory_delete_listing( string $listing_id ) {
  * @return array|WP_Error Decoded bulk-upsert result on success, or WP_Error on failure.
  */
 function agend_apps_directory_bulk_upsert_listings( array $listings, string $external_source, bool $auto_publish_approved = false, string $locations_mode = 'replace' ) {
+	foreach ( $listings as $i => $listing ) {
+		if ( is_array( $listing ) && isset( $listing['locations'] ) && is_array( $listing['locations'] ) ) {
+			$listings[ $i ]['locations'] = agend_apps_directory_normalize_locations( $listing['locations'] );
+		}
+	}
+
 	/**
 	 * Filters the directory bulk-upsert request args before the request is sent.
 	 *
