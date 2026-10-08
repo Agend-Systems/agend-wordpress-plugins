@@ -47,6 +47,7 @@ In the editor the widgets preview against a real record: the first upcoming even
   so it scrolls inside itself from 768px up, for a list beside an Agend Map. The built-in Visitor
   Filter Bar controls are hidden while a filter template is chosen, because nothing reads them then.
 - **Detail template**: chosen once per type in Settings > Agend Widgets, beside the dedicated page. A configured detail template is always server-rendered on the dedicated page, whatever the legacy "Server-rendered detail pages" toggle says.
+- **Require sign-in to view details** (Directory, Detail View): sends visitors who are not signed in to the sign-in page, then back to the listing, both from links to a listing and from a direct detail URL. The switch is copied to a flag on the page each time the page is saved in Elementor, because a detail request cannot read a widget. Any one Directory widget on the page with the switch on is enough. A Directory widget that lives only inside a saved template or theme-builder template is not detected, so the direct URL stays open for it. See the Agend Apps Core README.
 
 Choosing no template keeps the built-in card and detail layouts.
 
