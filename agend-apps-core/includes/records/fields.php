@@ -294,6 +294,10 @@ function agend_apps_records_record_listing_address( array $record ): string {
  * present for one viewer can be absent for the next; a missing key renders as
  * empty rather than warning.
  *
+ * A field the viewer may not see arrives as a gated entry with no `value`, so
+ * it returns '' here exactly as a missing key does. Use
+ * agend_apps_records_record_custom_field_gate() to tell the two apart.
+ *
  * @param array  $record The record.
  * @param string $key    The custom-field key.
  * @return string The value, or ''.
@@ -313,6 +317,37 @@ function agend_apps_records_record_custom_field( array $record, string $key ): s
 		return is_scalar( $value ) ? trim( (string) $value ) : '';
 	}
 	return '';
+}
+
+/**
+ * Why a custom field's value was withheld from the viewer, by its key.
+ *
+ * A field the viewer is not entitled to arrives in `custom_fields` as
+ * `{key,label,mode,state,gated:true}` with no `value`, whereas a field with no
+ * data is absent from the list altogether. agend_apps_records_record_custom_field()
+ * returns '' for both, so this is what tells a restricted field from an empty
+ * one.
+ *
+ * @param array  $record The record.
+ * @param string $key    The custom-field key.
+ * @return string|null The gateway's gate `state` ('' when the entry names none)
+ *                     when the entry for the key is gated, or null when the
+ *                     record has no entry for it or the entry is visible.
+ */
+function agend_apps_records_record_custom_field_gate( array $record, string $key ): ?string {
+	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
+		return null;
+	}
+	foreach ( $record['custom_fields'] as $entry ) {
+		if ( ! is_array( $entry ) || ( $entry['key'] ?? '' ) !== $key ) {
+			continue;
+		}
+		if ( empty( $entry['gated'] ) ) {
+			return null;
+		}
+		return isset( $entry['state'] ) && is_scalar( $entry['state'] ) ? (string) $entry['state'] : '';
+	}
+	return null;
 }
 
 /**

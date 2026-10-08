@@ -28,6 +28,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The custom-field renderer below words a gated value through
+// agend_apps_records_gated_field_label(), which lives with the shared
+// formatters so the Agend Field surface can use it without loading this file.
+require_once __DIR__ . '/format.php';
+
 /**
  * The catalogue detail types eligible for server-side rendering.
  *
@@ -694,40 +699,6 @@ function agend_apps_records_ssr_custom_fields( $fields ): string {
 	return '<section class="agend-dir-detail__section"><h2 class="agend-dir-detail__section-title">'
 		. esc_html__( 'Details', 'agend-apps-core' )
 		. '</h2><div class="agend-dir-cf">' . $rows . '</div></section>';
-}
-
-/**
- * The short label shown in place of a gated custom field's value.
- *
- * Mirrors the gateway's `state` vocabulary for a withheld field. The plain
- * words are deliberately non-specific: the gateway never discloses which tier,
- * segment or entitlement would unlock the field, and neither does this.
- *
- * @param string $state The gateway's gate state for the field.
- * @return string The label.
- */
-function agend_apps_records_gated_field_label( string $state ): string {
-	switch ( $state ) {
-		case 'authentication_required':
-			$label = __( 'Sign in to view', 'agend-apps-core' );
-			break;
-		case 'membership_required':
-			$label = __( 'Members only', 'agend-apps-core' );
-			break;
-		case 'plan_required':
-			$label = __( 'Not included in your subscription', 'agend-apps-core' );
-			break;
-		default:
-			$label = __( 'Restricted', 'agend-apps-core' );
-	}
-
-	/**
-	 * Filters the label shown for a gated custom field.
-	 *
-	 * @param string $label The label.
-	 * @param string $state The gateway's gate state.
-	 */
-	return (string) apply_filters( 'agend_apps_records_gated_field_label', $label, $state );
 }
 
 /**

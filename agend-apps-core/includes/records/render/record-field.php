@@ -24,6 +24,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
 
+// A restricted custom field is worded by agend_apps_records_gated_field_label(),
+// shared with the built-in detail and kept in the formatters file.
+require_once __DIR__ . '/../format.php';
+
 /**
  * Resolves the whole "does this field render, and if not why" decision in one
  * pass: the record context in scope, which field key and kind the settings
@@ -139,6 +143,25 @@ function agend_apps_records_record_field_custom_field_key( array $s ): string {
 }
 
 /**
+ * The text shown in place of a custom field the viewer is not entitled to.
+ *
+ * The surface's own "Restricted text" when the author set one; otherwise the
+ * label for the gateway's gate state, which sites can already reword through
+ * the `agend_apps_records_gated_field_label` filter (the same wording the
+ * built-in detail uses).
+ *
+ * @param array  $s     Surface settings.
+ * @param string $state The gateway's gate state for the field.
+ * @return string Plain text; '' when a filter blanked the default label, which
+ *                the caller treats as "render nothing".
+ */
+function agend_apps_records_record_field_restricted_text( array $s, string $state ): string {
+	$text = trim( (string) ( $s['restricted_text'] ?? '' ) );
+
+	return '' !== $text ? $text : trim( agend_apps_records_gated_field_label( $state ) );
+}
+
+/**
  * The label element, or '' when the surface is not showing one.
  *
  * @param array  $s      Surface settings.
@@ -169,6 +192,10 @@ function agend_apps_records_record_field_label_html( array $s, string $key, arra
  * in scope, with the label, before/after text and detail link the settings
  * ask for.
  *
+ * A record with no data for the field renders the fallback text. A custom
+ * field the gateway withheld from the viewer renders the restricted text
+ * instead, so "not entitled" and "nothing recorded" no longer read alike.
+ *
  * @param array $settings Surface settings (see agend_apps_records_surface_schema( 'record-field' )).
  * @param array $opts     Passed straight through to
  *                        agend_apps_records_resolve_record_context(): 'preview'
@@ -196,13 +223,28 @@ function agend_apps_records_render_record_field( array $settings, array $opts = 
 	$extra                     = $ctx['extra'];
 	$extra['custom_field_key'] = agend_apps_records_record_field_custom_field_key( $settings );
 
-	$html = agend_apps_records_render_field( $key, $ctx['type'], $ctx['record'], $extra, agend_apps_records_record_field_format_options( $settings ) );
-	if ( '' === $html ) {
-		$fallback = trim( (string) ( $settings['fallback_text'] ?? '' ) );
-		if ( '' === $fallback ) {
+	// A custom field the gateway withheld from this viewer is not the same as
+	// one with no data: it reads as restricted, never as the fallback text.
+	$gate_state = 'common:custom_field' === $key
+		? agend_apps_records_record_custom_field_gate( $ctx['record'], $extra['custom_field_key'] )
+		: null;
+	$is_gated   = null !== $gate_state;
+
+	if ( $is_gated ) {
+		$restricted = agend_apps_records_record_field_restricted_text( $settings, $gate_state );
+		if ( '' === $restricted ) {
 			return '';
 		}
-		$html = esc_html( $fallback );
+		$html = '<span class="agend-field__value agend-field__value--gated">' . esc_html( $restricted ) . '</span>';
+	} else {
+		$html = agend_apps_records_render_field( $key, $ctx['type'], $ctx['record'], $extra, agend_apps_records_record_field_format_options( $settings ) );
+		if ( '' === $html ) {
+			$fallback = trim( (string) ( $settings['fallback_text'] ?? '' ) );
+			if ( '' === $fallback ) {
+				return '';
+			}
+			$html = esc_html( $fallback );
+		}
 	}
 
 	$before = (string) ( $settings['before_text'] ?? '' );
@@ -229,6 +271,9 @@ function agend_apps_records_render_record_field( array $settings, array $opts = 
 	$classes = array( 'agend-field', 'agend-field--' . $kind, 'agend-field--' . str_replace( ':', '-', $key ) );
 	if ( $ctx['is_preview'] ) {
 		$classes[] = 'agend-field--preview';
+	}
+	if ( $is_gated ) {
+		$classes[] = 'agend-field--gated';
 	}
 
 	$label = agend_apps_records_record_field_label_html( $settings, $key, $ctx['record'], $extra );
