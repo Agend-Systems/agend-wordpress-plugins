@@ -1362,8 +1362,15 @@ if ( ! function_exists( 'current_user_can' ) ) {
 }
 
 if ( ! function_exists( 'wp_create_nonce' ) ) {
+	/**
+	 * A deterministic nonce per action. Real WordPress binds a nonce to the
+	 * session token in the request's auth cookie; `agend_test_session_token`
+	 * models that (empty by default, so every existing nonce is unchanged), so
+	 * a test can show a nonce minted before and after the cookie changes
+	 * differs, as it does in production during a sign-in.
+	 */
 	function wp_create_nonce( $action = -1 ): string {
-		return 'test-nonce-' . md5( (string) $action );
+		return 'test-nonce-' . md5( (string) $action . (string) ( $GLOBALS['agend_test_session_token'] ?? '' ) );
 	}
 }
 
@@ -1417,6 +1424,23 @@ if ( ! function_exists( 'check_admin_referer' ) ) {
 	 */
 	function check_admin_referer( $action = -1, $query_arg = '_wpnonce' ) {
 		return true;
+	}
+}
+
+if ( ! function_exists( 'human_time_diff' ) ) {
+	/**
+	 * Minimal stand-in for WordPress's human_time_diff(): the elapsed time
+	 * rounded to a single whole unit ("2 mins", "3 hours"), enough for a view
+	 * under test to render without asserting on exact wording.
+	 */
+	function human_time_diff( int $from, int $to = 0 ): string {
+		$diff = abs( ( 0 === $to ? time() : $to ) - $from );
+
+		if ( $diff < HOUR_IN_SECONDS ) {
+			return max( 1, (int) round( $diff / MINUTE_IN_SECONDS ) ) . ' mins';
+		}
+
+		return ( $diff < DAY_IN_SECONDS ? (int) round( $diff / HOUR_IN_SECONDS ) . ' hours' : (int) round( $diff / DAY_IN_SECONDS ) . ' days' );
 	}
 }
 

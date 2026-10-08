@@ -345,6 +345,39 @@ class Agend_Apps_Settings {
 	}
 
 	/**
+	 * Whether a signing-in or registering member is linked as part of that
+	 * sign-in: the post-sign-in redirect is routed through a top-level link
+	 * round trip, so the member is linked before the first page they see.
+	 *
+	 * Reads option `agend_apps_sso_signin_link`, default ON: a site that never
+	 * saved the option reads as on. Inert unless the background link
+	 * ({@see self::background_link_enabled()}) is on and the site is in
+	 * `wordpress` sign-in mode with the SAML mechanism, because the one
+	 * eligibility gate ({@see agend_apps_saml_link_eligibility()}) every
+	 * trigger shares fails closed on those first.
+	 *
+	 * @return bool
+	 */
+	public static function signin_link_enabled(): bool {
+		return (bool) get_option( 'agend_apps_sso_signin_link', true );
+	}
+
+	/**
+	 * Whether a signed-in, not-yet-linked member is linked BEFORE a directory
+	 * page is built: a request for the directory page or a listing detail is
+	 * sent through a top-level link round trip first, so no directory data is
+	 * fetched without the member's bearer.
+	 *
+	 * Reads option `agend_apps_sso_prerender_link`, default ON, and is inert on
+	 * the same terms as {@see self::signin_link_enabled()}.
+	 *
+	 * @return bool
+	 */
+	public static function prerender_link_enabled(): bool {
+		return (bool) get_option( 'agend_apps_sso_prerender_link', true );
+	}
+
+	/**
 	 * Returns the configured API key.
 	 *
 	 * Resolution order: the optional `AGEND_APPS_API_KEY` wp-config.php

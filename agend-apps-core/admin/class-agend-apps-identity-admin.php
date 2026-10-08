@@ -303,6 +303,47 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_identity_sso_section'
 		);
 
+		// The two top-level link triggers, both ON by default (including for a
+		// site that never saved them): see
+		// {@see Agend_Apps_Settings::signin_link_enabled()} and
+		// {@see Agend_Apps_Settings::prerender_link_enabled()}. Both are inert
+		// unless the background link above is on.
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_sso_signin_link',
+			array(
+				'type'              => 'boolean',
+				'sanitize_callback' => array( $this, 'sanitize_checkbox' ),
+				'default'           => true,
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_sso_signin_link',
+			__( 'Link on sign-in', 'agend-apps-core' ),
+			array( $this, 'render_signin_link_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_identity_sso_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_sso_prerender_link',
+			array(
+				'type'              => 'boolean',
+				'sanitize_callback' => array( $this, 'sanitize_checkbox' ),
+				'default'           => true,
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_sso_prerender_link',
+			__( 'Link before directory pages', 'agend-apps-core' ),
+			array( $this, 'render_prerender_link_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_identity_sso_section'
+		);
+
 		// Connection section: the read-only entity id an admin pastes into
 		// the Agend dashboard when creating the connection. Not a registered
 		// setting -- it is derived, and it is HALF of the identity key every
@@ -825,6 +866,58 @@ class Agend_Apps_Identity_Admin {
 		echo '<p class="description">';
 		esc_html_e(
 			'When on, a signed-in member who is not yet linked is passed through this site\'s SAML identity provider in a hidden frame, with one visible redirect as a last resort. When off, no automatic link attempt is made; a member links only by actively going through this site\'s SSO. Only applies in WordPress account sign-in mode with the SAML linking mechanism. Off by default.',
+			'agend-apps-core'
+		);
+		echo '</p>';
+	}
+
+	/**
+	 * Renders the "link members as they sign in" checkbox: whether the redirect
+	 * that follows a sign-in or registration is routed through the SAML round
+	 * trip first, so a member is linked before the first page they see. On by
+	 * default -- see {@see Agend_Apps_Settings::signin_link_enabled()}.
+	 *
+	 * Inert unless the background link above is on, in WordPress account
+	 * sign-in mode with the SAML linking mechanism; the description says so
+	 * rather than hiding the field. A member signing in to a cart, checkout,
+	 * account form page or wp-admin is never detoured.
+	 */
+	public function render_signin_link_field(): void {
+		$value = Agend_Apps_Settings::signin_link_enabled();
+
+		printf(
+			'<label><input type="checkbox" name="agend_apps_sso_signin_link" value="1"%s /> %s</label>',
+			checked( $value, true, false ),
+			esc_html__( 'Link members as they sign in', 'agend-apps-core' )
+		);
+		echo '<p class="description">';
+		esc_html_e(
+			'When on, signing in or registering sends a not-yet-linked member through this site\'s SAML identity provider once, before the first page they see, so their member-only content is right from that first view. A member signing in to the cart, checkout, an account form page or wp-admin is not detoured. Only applies when the background link above is on, in WordPress account sign-in mode with the SAML linking mechanism. On by default.',
+			'agend-apps-core'
+		);
+		echo '</p>';
+	}
+
+	/**
+	 * Renders the "link members before directory pages load" checkbox: whether
+	 * a signed-in, not-yet-linked member who requests the directory page or a
+	 * listing detail is sent through the SAML round trip BEFORE the page is
+	 * built, so no directory data is fetched without their identity. On by
+	 * default -- see {@see Agend_Apps_Settings::prerender_link_enabled()}.
+	 *
+	 * Inert on the same terms as {@see self::render_signin_link_field()}.
+	 */
+	public function render_prerender_link_field(): void {
+		$value = Agend_Apps_Settings::prerender_link_enabled();
+
+		printf(
+			'<label><input type="checkbox" name="agend_apps_sso_prerender_link" value="1"%s /> %s</label>',
+			checked( $value, true, false ),
+			esc_html__( 'Link members before directory pages load', 'agend-apps-core' )
+		);
+		echo '<p class="description">';
+		esc_html_e(
+			'When on, a signed-in member who is not yet linked and opens the directory page or a listing is passed through this site\'s SAML identity provider before the page is built, then returned to the same page, so restricted fields show their real state on the first view instead of "Sign in to view". A member who has just come back from a round trip is shown the page, never sent round again. Only applies when the background link above is on, in WordPress account sign-in mode with the SAML linking mechanism. On by default.',
 			'agend-apps-core'
 		);
 		echo '</p>';
