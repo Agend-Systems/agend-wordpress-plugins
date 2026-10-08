@@ -330,7 +330,7 @@ function agend_apps_records_filter_registry(): array {
 				'label'      => __( 'Custom field', 'agend-apps-core' ),
 				'state'      => 'custom_fields',
 				'mode'       => 'map',
-				'controls'   => array( 'checkboxes', 'select', 'buttons', 'range' ),
+				'controls'   => array( 'checkboxes', 'select', 'buttons', 'range', 'range_brackets' ),
 				'source'     => array( 'facet' => 'custom' ),
 				'needs_key'  => true,
 			),
@@ -443,6 +443,15 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 	}
 	if ( 'view' === $control ) {
 		$config['view'] = agend_apps_records_filter_view_config( $settings );
+		return $config;
+	}
+	// Range brackets write the same {min, max} the Number range control does,
+	// from a facet that may carry Agend's own brackets, so the source is named
+	// here whatever the widget's Values setting says (a Values choice list has
+	// no meaning for a bracket control).
+	if ( 'range_brackets' === $control ) {
+		$config['rangeBrackets'] = agend_apps_records_filter_range_brackets_config( $settings );
+		$config['source']        = array( 'facet' => 'custom.' . $config['fieldKey'] );
 		return $config;
 	}
 
@@ -582,6 +591,255 @@ function agend_apps_records_filter_view_config( array $settings ): array {
 		'layout'    => 'joined' === ( $settings['view_layout'] ?? 'separate' ) ? 'joined' : 'separate',
 		'listLabel' => trim( (string) ( $settings['view_list_label'] ?? '' ) ),
 		'mapLabel'  => trim( (string) ( $settings['view_map_label'] ?? '' ) ),
+	);
+}
+
+/**
+ * The most brackets an author's own list may carry. Further valid lines are
+ * dropped, with a notice in the editor.
+ */
+const AGEND_APPS_RECORDS_RANGE_BRACKETS_MAX = 12;
+
+/**
+ * The largest bound, in either direction, a bracket accepts. Keeps every bound
+ * an exact integer or a short decimal in JavaScript's number type too, and
+ * well clear of the exponent notation the gateway would not read.
+ */
+const AGEND_APPS_RECORDS_RANGE_BRACKETS_BOUND_LIMIT = 1.0e15;
+
+/**
+ * One bracket bound as a number.
+ *
+ * Open ends are `null`: an absent value, `null` (the facet contract allows an
+ * explicit null) and an empty string all mean "no limit on this side". A bound
+ * is otherwise a plain number, as a number or as numeric text. Thousands
+ * separators are rejected rather than guessed at, because "1,500" is fifteen
+ * hundred in one locale and one and a half in another.
+ *
+ * @param mixed $value The raw bound.
+ * @return int|float|null|false The number, `null` for an open end, or `false`
+ *                              when the value is not a usable number.
+ */
+function agend_apps_records_filter_range_brackets_bound( $value ) {
+	if ( null === $value ) {
+		return null;
+	}
+	if ( is_string( $value ) ) {
+		$value = trim( $value );
+		if ( '' === $value ) {
+			return null;
+		}
+		if ( 1 !== preg_match( '/^-?\d+(\.\d+)?$/', $value ) ) {
+			return false;
+		}
+		$value = (float) $value;
+	} elseif ( is_int( $value ) ) {
+		$value = (float) $value;
+	} elseif ( ! is_float( $value ) ) {
+		return false;
+	}
+
+	if ( ! is_finite( $value ) || abs( $value ) > AGEND_APPS_RECORDS_RANGE_BRACKETS_BOUND_LIMIT ) {
+		return false;
+	}
+
+	// Whole numbers stay integers so the JSON the script reads is 10000, not 10000.0.
+	return floor( $value ) === $value ? (int) $value : $value;
+}
+
+/**
+ * A bracket's label as plain text: real tags removed, control characters and
+ * runs of whitespace collapsed to one space.
+ *
+ * sanitize_text_field() is deliberately not used. It rewrites a leading "<" to
+ * an entity, so a label like "<10,000" would reach the script as "&lt;10,000"
+ * and be shown that way. A label is only ever written with textContent in the
+ * script and esc_html() here, so what it needs is to be clean text, not
+ * pre-escaped.
+ *
+ * @param mixed $label The raw label.
+ * @return string '' when it is not a string or nothing is left.
+ */
+function agend_apps_records_filter_range_brackets_label( $label ): string {
+	if ( ! is_string( $label ) ) {
+		return '';
+	}
+	$label = (string) preg_replace( '/<\/?[a-z][^>]*>/i', '', $label );
+	$label = (string) preg_replace( '/[\x00-\x1F\x7F\s]+/', ' ', $label );
+	return trim( $label );
+}
+
+/**
+ * Validates one bracket.
+ *
+ * The one rule set shared by an author's own lines and by the presets the
+ * facets endpoint returns, so a bracket means the same wherever it came from:
+ * a label, at least one bound, bounds that are numbers, and a minimum that is
+ * not above the maximum. Bounds are inclusive.
+ *
+ * @param mixed $label The label.
+ * @param mixed $min   The minimum, or an open end.
+ * @param mixed $max   The maximum, or an open end.
+ * @return array{code: string, bracket?: array{label: string, min: int|float|null, max: int|float|null}}
+ *               `code` is '' for a valid bracket (carried in `bracket`), else
+ *               'label', 'number', 'open' or 'order'.
+ */
+function agend_apps_records_filter_range_brackets_entry( $label, $min, $max ): array {
+	$label = agend_apps_records_filter_range_brackets_label( $label );
+	if ( '' === $label ) {
+		return array( 'code' => 'label' );
+	}
+
+	$min = agend_apps_records_filter_range_brackets_bound( $min );
+	$max = agend_apps_records_filter_range_brackets_bound( $max );
+	if ( false === $min || false === $max ) {
+		return array( 'code' => 'number' );
+	}
+	if ( null === $min && null === $max ) {
+		// Both ends open is every value, which is what "Any" already is.
+		return array( 'code' => 'open' );
+	}
+	if ( null !== $min && null !== $max && $min > $max ) {
+		return array( 'code' => 'order' );
+	}
+
+	return array(
+		'code'    => '',
+		'bracket' => array(
+			'label' => $label,
+			'min'   => $min,
+			'max'   => $max,
+		),
+	);
+}
+
+/**
+ * Parses an author's bracket list, one bracket per line as `Label | min | max`.
+ *
+ * A blank bound is an open end: `Under 10,000 | | 9999`. Blank lines are
+ * ignored. A line that is not exactly three parts, or that fails the rules in
+ * agend_apps_records_filter_range_brackets_entry(), is skipped and reported
+ * rather than guessed at: a two-part line such as `Under 10,000 | 9999` would
+ * silently read as a minimum, the opposite of what its author meant. Only the
+ * first AGEND_APPS_RECORDS_RANGE_BRACKETS_MAX valid lines are kept.
+ *
+ * @param mixed $raw The textarea value.
+ * @return array{brackets: array<int, array{label: string, min: int|float|null, max: int|float|null}>, issues: array<int, array{line: int, code: string}>}
+ *               `issues` names each skipped line (1-based) and why: 'format',
+ *               'label', 'number', 'open', 'order', or 'limit' for the first
+ *               valid line past the cap (every later line is dropped with it).
+ */
+function agend_apps_records_filter_range_brackets_parse( $raw ): array {
+	$brackets = array();
+	$issues   = array();
+	$lines    = preg_split( '/\r\n|\r|\n/', is_string( $raw ) ? $raw : '' );
+
+	foreach ( (array) $lines as $index => $line ) {
+		$number = $index + 1;
+		if ( '' === trim( (string) $line ) ) {
+			continue;
+		}
+
+		$parts = explode( '|', (string) $line );
+		if ( 3 !== count( $parts ) ) {
+			$issues[] = array( 'line' => $number, 'code' => 'format' );
+			continue;
+		}
+
+		$entry = agend_apps_records_filter_range_brackets_entry( $parts[0], $parts[1], $parts[2] );
+		if ( '' !== $entry['code'] ) {
+			$issues[] = array( 'line' => $number, 'code' => $entry['code'] );
+			continue;
+		}
+
+		if ( count( $brackets ) >= AGEND_APPS_RECORDS_RANGE_BRACKETS_MAX ) {
+			$issues[] = array( 'line' => $number, 'code' => 'limit' );
+			break;
+		}
+		$brackets[] = $entry['bracket'];
+	}
+
+	return array( 'brackets' => $brackets, 'issues' => $issues );
+}
+
+/**
+ * The brackets in a facet's `presets` list, validated.
+ *
+ * The facet contract is `[ { label, min?, max? } ]`, an omitted or null bound
+ * being open. A preset that fails the rules is dropped quietly: it is data
+ * from the gateway, not something an author can fix in the widget.
+ *
+ * @param mixed $presets The facet's `presets`, or anything when it has none.
+ * @return array<int, array{label: string, min: int|float|null, max: int|float|null}>
+ */
+function agend_apps_records_filter_range_brackets_presets( $presets ): array {
+	$brackets = array();
+	if ( ! is_array( $presets ) ) {
+		return $brackets;
+	}
+
+	foreach ( $presets as $preset ) {
+		if ( ! is_array( $preset ) ) {
+			continue;
+		}
+		$entry = agend_apps_records_filter_range_brackets_entry( $preset['label'] ?? '', $preset['min'] ?? null, $preset['max'] ?? null );
+		if ( '' === $entry['code'] ) {
+			$brackets[] = $entry['bracket'];
+		}
+	}
+
+	return $brackets;
+}
+
+/**
+ * Which brackets a Range brackets filter offers.
+ *
+ * "Agend" uses the facet's presets; "custom" uses the widget's own rows. An
+ * "agend" filter whose facet has no presets falls back to the widget's rows
+ * when there are any. Custom never falls back to Agend: an author who chose
+ * their own brackets and wrote none has an empty list to fix, not a reason to
+ * show someone else's. When nothing is left the control has nothing to offer
+ * and is not drawn.
+ *
+ * assets/js/filters.js resolveBrackets() states the same rule for the visitor,
+ * where the facet is only known once the page has asked for it.
+ *
+ * @param string $source  'agend' or 'custom'.
+ * @param array  $presets The facet's validated presets (empty when it has none).
+ * @param array  $custom  The widget's validated rows.
+ * @return array{origin: string, brackets: array} `origin` is 'agend', 'custom' or 'none'.
+ */
+function agend_apps_records_filter_range_brackets_resolve( string $source, array $presets, array $custom ): array {
+	if ( 'custom' !== $source && ! empty( $presets ) ) {
+		return array( 'origin' => 'agend', 'brackets' => $presets );
+	}
+	if ( ! empty( $custom ) ) {
+		return array( 'origin' => 'custom', 'brackets' => $custom );
+	}
+	return array( 'origin' => 'none', 'brackets' => array() );
+}
+
+/**
+ * The Range brackets filter's runtime settings.
+ *
+ * Handed to the script as `rangeBrackets`: the source, how to draw the choice,
+ * the "Any" label, and the author's own rows already validated, so the script
+ * never parses the textarea. Written only for this control, so every other
+ * filter's config (and the markup it is pinned in) is unchanged.
+ *
+ * @param array $settings Widget settings.
+ * @return array{source: string, display: string, anyLabel: string, custom: array}
+ */
+function agend_apps_records_filter_range_brackets_config( array $settings ): array {
+	$display = (string) ( $settings['range_brackets_display'] ?? 'select' );
+	$any     = trim( (string) ( $settings['range_brackets_any_label'] ?? '' ) );
+
+	return array(
+		'source'   => 'custom' === ( $settings['range_brackets_source'] ?? 'agend' ) ? 'custom' : 'agend',
+		'display'  => in_array( $display, array( 'buttons', 'radio' ), true ) ? $display : 'select',
+		// An unset Elementor text control is an empty string, not its default.
+		'anyLabel' => '' !== $any ? $any : __( 'Any', 'agend-apps-core' ),
+		'custom'   => agend_apps_records_filter_range_brackets_parse( $settings['range_brackets_custom'] ?? '' )['brackets'],
 	);
 }
 

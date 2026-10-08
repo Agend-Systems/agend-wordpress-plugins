@@ -87,6 +87,7 @@
                             "buttons": "Buttons",
                             "date": "Date",
                             "range": "Number range",
+                            "range_brackets": "Range brackets",
                             "reset": "Clear button",
                             "location": "Location search",
                             "view": "List / Map switch"
@@ -138,12 +139,86 @@
                         "condition": {
                             "control!": [
                                 "search",
-                                "date"
+                                "date",
+                                "range_brackets"
                             ],
                             "filter!": [
                                 "listing:location",
                                 "listing:view"
                             ]
+                        }
+                    }
+                },
+                {
+                    "id": "range_brackets_heading",
+                    "args": {
+                        "label": "Range brackets",
+                        "type": "heading",
+                        "separator": "before",
+                        "condition": {
+                            "filter": "listing:custom_field",
+                            "control": "range_brackets"
+                        }
+                    }
+                },
+                {
+                    "id": "range_brackets_source",
+                    "args": {
+                        "label": "Bracket source",
+                        "type": "select",
+                        "default": "agend",
+                        "options": {
+                            "agend": "Use Agend's brackets",
+                            "custom": "Custom brackets"
+                        },
+                        "description": "Bounds are inclusive: a bracket from 10,000 to 30,000 includes both 10,000 and 30,000.",
+                        "condition": {
+                            "filter": "listing:custom_field",
+                            "control": "range_brackets"
+                        }
+                    }
+                },
+                {
+                    "id": "range_brackets_custom",
+                    "args": {
+                        "label": "Custom brackets",
+                        "type": "textarea",
+                        "default": "",
+                        "placeholder": "Under 10,000 | | 9999\n10,000 to 30,000 | 10000 | 30000\nOver 30,000 | 30001 |",
+                        "description": "One bracket per line as Label | min | max. Leave a bound blank to leave that end open, for example Under 10,000 | | 9999. Bounds are plain numbers, a minimum cannot be above its maximum, and lines that do not fit are skipped. At most 12 brackets. Used when Custom brackets is chosen, and as the fallback when Agend has none for this field.",
+                        "condition": {
+                            "filter": "listing:custom_field",
+                            "control": "range_brackets"
+                        }
+                    }
+                },
+                {
+                    "id": "range_brackets_display",
+                    "args": {
+                        "label": "Display",
+                        "type": "select",
+                        "default": "select",
+                        "options": {
+                            "select": "Dropdown",
+                            "buttons": "Buttons",
+                            "radio": "Radio buttons"
+                        },
+                        "condition": {
+                            "filter": "listing:custom_field",
+                            "control": "range_brackets"
+                        }
+                    }
+                },
+                {
+                    "id": "range_brackets_any_label",
+                    "args": {
+                        "label": "\"Any\" label",
+                        "type": "text",
+                        "default": "Any",
+                        "description": "The option that clears the range.",
+                        "condition": {
+                            "filter": "listing:custom_field",
+                            "control": "range_brackets"
                         }
                     }
                 },
@@ -343,6 +418,7 @@
                         "date",
                         "reset",
                         "range",
+                        "range_brackets",
                         "location",
                         "view"
                     ],
