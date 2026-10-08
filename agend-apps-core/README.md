@@ -295,21 +295,55 @@ renderer.
 
 The directory catalogue's `require_login_for_detail` setting (Detail View, off by
 default) puts listing details behind a sign-in for a visitor who is not signed in
-(`is_user_logged_in()`). For that visitor every link to a listing points at
+(`is_user_logged_in()`). It works on two levels.
+
+**Links.** For that visitor every link to a listing points at
 `wp_login_url( $detail_url )` instead: the card anchor and every field built from
 `common:detail_url` (Agend Link, Agend Field and Agend Image `link to detail`) in
 `agend_apps_records_render_cards()`, the cards the script builds itself, and a
 click on a card in a catalogue that opens details in place. A direct load of a
 detail path on a client-rendered catalogue sends the visitor to the same sign-in
-page before anything is drawn. The decision lives in
-`Agend_Apps_Records_Pages::login_target()`, so links and any request-time
-redirect cannot disagree. A signed-in visitor, or the setting off, gets exactly
-the previous markup and config (`requireLogin` is only written when it applies).
+page before anything is drawn. A signed-in visitor, or the setting off, gets
+exactly the previous markup and config (`requireLogin` is only written when it
+applies).
+
+**Direct detail URLs.** A request for `/{page}/listing/{slug}/` (query var
+`agend_dir_listing`, or the legacy `agend_listing`) is answered with a 302 to
+`wp_login_url( $detail_url )` before anything renders and before any gateway
+call: `agend_apps_records_maybe_redirect_directory_detail_to_login()`, on `wp` at
+priority 4, ahead of the server-rendered detail swap at priority 5. It only acts
+on a front-end GET for the main query. The setting lives on a widget, and a
+server-rendered detail page never renders the widget, so the request cannot read
+it there. Instead the setting is **mirrored on save** to a post meta flag on the
+page, `_agend_apps_directory_require_login`, and the request reads that flag with
+`agend_apps_records_directory_detail_requires_login( $page_id )`. The page is the
+dedicated directory page when one is set, the queried page otherwise.
+
+- The flag holds the list of builder sources that have the setting on, so one
+  builder saving a page never clears what another recorded. Core records the
+  `blocks` source on `save_post_page` (`parse_blocks`); Agend Elementor records
+  `elementor` on `elementor/document/after_save`, through
+  `agend_apps_records_directory_set_login_source()`. Core never reads
+  `_elementor_data`.
+- A page with several catalogues is flagged when **any one** of them has the
+  setting on. Turning the last one off, or removing it, deletes the flag.
+- A page saved before this existed has no flag. On the first request after an
+  update the dedicated directory page is re-derived once
+  (`agend_apps_records_directory_maybe_backfill_login_flag()`, per
+  `AGEND_APPS_RECORDS_LOGIN_BACKFILL_VERSION`), and again whenever the dedicated
+  directory page is changed. A builder takes part by listening to the
+  `agend_apps_records_directory_backfill_login_flag` action.
+- **Known blind spot:** only a catalogue placed in the page's own content is
+  detected. One that lives only inside a saved template, an Elementor
+  theme-builder template, a synced pattern or a block-theme template is not, and
+  the setting then protects the links but not the direct detail URL. For a
+  catalogue on a page that is not the dedicated directory page, save that page
+  once after upgrading.
 
 This setting gates navigation, not data: the directory proxy routes stay public,
-like the catalogue itself. It does not yet redirect a direct request for a
-server-rendered detail URL (`/{page}/listing/{slug}/`), because that request has
-no way to read a setting that lives on a widget on the page.
+like the catalogue itself. The decision lives in
+`Agend_Apps_Records_Pages::login_target()`, so rendered links and the redirect
+cannot disagree.
 
 ## Directory map
 
