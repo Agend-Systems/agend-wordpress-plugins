@@ -36,6 +36,22 @@
   cursor: pointer;
 }
 
+/* Range brackets as radio buttons: one choice per line, like checkboxes. */
+.agend-filter__brackets--radio {
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Editor-only notes under a Range brackets preview (never drawn on a live
+   page): skipped lines, and why a filter with no brackets draws nothing. */
+.agend-filter__notice {
+  margin: 0.5rem 0 0;
+  padding: 0.4rem 0.6rem 0.4rem 1.6rem;
+  border-left: 3px solid #dba617;
+  background: rgba(219, 166, 23, 0.1);
+  font-size: 0.875em;
+}
+
 .agend-filter__button {
   cursor: pointer;
   /* Follow the widget's typography setting: themes commonly reset text
@@ -176,7 +192,7 @@
   border-radius: var(--agend-filter-button-radius);
 }
 
-.agend-filter.agend-filter--checkbox-colour .agend-filter__option input[type='checkbox'] {
+.agend-filter.agend-filter--checkbox-colour .agend-filter__option :is(input[type='checkbox'], input[type='radio']) {
   accent-color: var(--agend-filter-checkbox);
 }
 
