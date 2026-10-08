@@ -166,6 +166,270 @@
     ready(wrap);
   }
 
+  // -- Range brackets ------------------------------------------------------
+  //
+  // Preset brackets ("Under 10,000", "10,000 to 30,000", "Over 30,000") that
+  // fill in the same {min, max} the Number range control writes. A bracket is
+  // { label, min, max }; a bound is a number, or null for an open end, and
+  // both ends are inclusive. Choosing a bracket writes those bounds as strings
+  // exactly as typing them would, so the catalogue's request, Reset and
+  // pagination cannot tell the two controls apart.
+  //
+  // The helpers up to buildRangeBrackets() are pure and state the same rules
+  // as includes/records/filters.php (agend_apps_records_filter_range_brackets_*),
+  // which validates the author's own list on the server. Keep the two in step.
+
+  var BRACKET_BOUND_LIMIT = 1e15;
+
+  // A bound as a number; null for an open end (absent, null or blank);
+  // undefined for a value that is not a usable plain number.
+  function toBound(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      value = value.trim();
+      if (value === '') {
+        return null;
+      }
+      if (!/^-?\d+(\.\d+)?$/.test(value)) {
+        return undefined;
+      }
+      value = Number(value);
+    } else if (typeof value !== 'number') {
+      return undefined;
+    }
+    return isFinite(value) && Math.abs(value) <= BRACKET_BOUND_LIMIT ? value : undefined;
+  }
+
+  // The usable brackets in a list: a label, at least one bound, bounds that
+  // are numbers, and a minimum not above the maximum. Anything else is dropped.
+  function normaliseBrackets(list) {
+    var out = [];
+    (Array.isArray(list) ? list : []).forEach(function (entry) {
+      if (!entry || typeof entry.label !== 'string') {
+        return;
+      }
+      var label = entry.label.replace(/<\/?[a-z][^>]*>/gi, '').replace(/\s+/g, ' ').trim();
+      var min = toBound(entry.min);
+      var max = toBound(entry.max);
+      if (!label || min === undefined || max === undefined) {
+        return;
+      }
+      if (min === null && max === null) {
+        return;
+      }
+      if (min !== null && max !== null && min > max) {
+        return;
+      }
+      out.push({ label: label, min: min, max: max });
+    });
+    return out;
+  }
+
+  // Which brackets to offer. "agend" takes the facet's presets and falls back
+  // to the widget's own list when the facet has none; "custom" takes the
+  // widget's list and never Agend's. An empty answer means the filter has
+  // nothing to offer.
+  function resolveBrackets(source, presets, custom) {
+    var fromAgend = source === 'custom' ? [] : normaliseBrackets(presets);
+    if (fromAgend.length) {
+      return { origin: 'agend', brackets: fromAgend };
+    }
+    var own = normaliseBrackets(custom);
+    return own.length ? { origin: 'custom', brackets: own } : { origin: 'none', brackets: [] };
+  }
+
+  // The {min, max} a bracket writes: strings, and only the bounds it has.
+  function boundsOf(bracket) {
+    var bounds = {};
+    if (bracket.min !== null) {
+      bounds.min = String(bracket.min);
+    }
+    if (bracket.max !== null) {
+      bounds.max = String(bracket.max);
+    }
+    return bounds;
+  }
+
+  // The index of the bracket whose bounds are exactly these, or -1. Both ends
+  // must agree, so a manual 10000 to 25000 does not match 10000 to 30000, and
+  // an empty range matches nothing. This is also what a chip that names an
+  // active range would call to show a bracket's label.
+  function findBracket(brackets, bounds) {
+    var min = toBound(bounds && bounds.min);
+    var max = toBound(bounds && bounds.max);
+    if (min === undefined || max === undefined) {
+      return -1;
+    }
+    for (var i = 0; i < brackets.length; i++) {
+      if (brackets[i].min === min && brackets[i].max === max) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function sameBounds(a, b) {
+    return toBound(a && a.min) === toBound(b && b.min) && toBound(a && a.max) === toBound(b && b.max);
+  }
+
+  function isEmptyBounds(bounds) {
+    return toBound(bounds && bounds.min) === null && toBound(bounds && bounds.max) === null;
+  }
+
+  var bracketGroups = 0;
+
+  // The control is drawn in one of three displays, all single choice: the
+  // first choice is "Any", which clears the range.
+  //
+  // Restoring a selection. When the control is built, the range already in the
+  // catalogue state decides what shows as selected, so a range put there
+  // before the controls are built (a shared link, a rebuild after Reset) is
+  // reflected rather than ignored. If its bounds match a bracket exactly that
+  // bracket is selected. If they match none (a hand-edited or shared range, or
+  // a bracket Agend has since changed) "Any" is shown, but the state is left
+  // alone: the results stay filtered by that range, and choosing "Any" clears
+  // it. The control never rewrites the state to suit itself.
+  function buildRangeBrackets(shell, slot, cfg, ctx, facet) {
+    var opts = cfg.rangeBrackets || {};
+    var resolved = resolveBrackets(opts.source, facet && facet.presets, opts.custom);
+    if (!resolved.brackets.length) {
+      // Nothing to choose from: hide the filter rather than leave a control
+      // that cannot do anything, as the value-list controls do. Hidden, not
+      // removed, so a later rebuild can show it again.
+      shell.hidden = true;
+      return;
+    }
+
+    var anyText = opts.anyLabel || 'Any';
+    var display = opts.display === 'buttons' || opts.display === 'radio' ? opts.display : 'select';
+    var choices = [{ label: anyText, bracket: null }].concat(resolved.brackets.map(function (bracket) {
+      return { label: bracket.label, bracket: bracket };
+    }));
+    var host = display === 'select'
+      ? adopt(slot, 'select', 'select')
+      : adopt(slot, '.agend-filter__options', 'div', 'agend-filter__options');
+    if (!host.getAttribute('aria-label') && cfg.label) {
+      host.setAttribute('aria-label', cfg.label);
+    }
+
+    function currentBounds() {
+      var map = ctx.state[cfg.state];
+      return (map && map[cfg.fieldKey]) || {};
+    }
+
+    // Writes the choice's bounds as the Number range control would, and asks
+    // the catalogue to reload only when they differ from what is already set.
+    // Handlers are bound once per node and read the current build through
+    // host.agendBrackets, so a rebuild (Reset) never leaves one painting an
+    // earlier build.
+    function choose(index) {
+      var live = host.agendBrackets;
+      // Fresh bounds each time: the state must not share an object with the
+      // choice list.
+      var next = live.choices[index].bracket ? boundsOf(live.choices[index].bracket) : {};
+      var changed = !sameBounds(currentBounds(), next);
+      if (changed) {
+        applyBounds(ctx.state, cfg, next);
+      }
+      live.paint(index, false);
+      if (changed) {
+        ctx.reload();
+      }
+    }
+
+    var model = { choices: choices, selected: 0, paint: null };
+    host.agendBrackets = model;
+
+    if (display === 'select') {
+      host.innerHTML = '';
+      choices.forEach(function (choice, index) {
+        host.appendChild(new Option(choice.label, String(index)));
+      });
+      // A selected "Any" cannot be chosen again, so a range no bracket matches
+      // would be impossible to clear from the dropdown. Showing it on a hidden
+      // stand-in "Any" keeps the real one a change away.
+      model.paint = function (index, held) {
+        var old = host.querySelector('[data-agend-held]');
+        if (old) {
+          old.parentNode.removeChild(old);
+        }
+        model.selected = index;
+        if (held) {
+          var stand = new Option(anyText, 'held');
+          stand.hidden = true;
+          stand.disabled = true;
+          stand.setAttribute('data-agend-held', '');
+          host.appendChild(stand);
+          host.value = 'held';
+        } else {
+          host.value = String(index);
+        }
+      };
+      once(host, 'change', function () {
+        choose(Number(host.value));
+      });
+    } else if (display === 'buttons') {
+      // The stand-in already holds the "Any" pill; it stays the first button
+      // so the node a designer styled is the one that remains.
+      var existing = host.querySelector('.agend-filter__button');
+      host.innerHTML = '';
+      var buttons = choices.map(function (choice, index) {
+        var button = index === 0 && existing ? existing : el('button', 'agend-filter__button');
+        button.textContent = choice.label;
+        button.type = 'button';
+        button.disabled = false;
+        button.agendBracketIndex = index;
+        host.appendChild(button);
+        // Choosing the bracket already selected clears it, as the Buttons
+        // presentation does for any other value.
+        once(button, 'click', function () {
+          var live = host.agendBrackets;
+          choose(button.agendBracketIndex !== 0 && live.selected === button.agendBracketIndex ? 0 : button.agendBracketIndex);
+        });
+        return button;
+      });
+      model.paint = function (index) {
+        model.selected = index;
+        buttons.forEach(function (button, i) {
+          button.className = 'agend-filter__button' + (i === index ? ' is-active' : '');
+          button.setAttribute('aria-pressed', i === index ? 'true' : 'false');
+        });
+      };
+    } else {
+      host.innerHTML = '';
+      bracketGroups += 1;
+      var inputs = choices.map(function (choice, index) {
+        var label = el('label', 'agend-filter__option');
+        var input = el('input');
+        input.type = 'radio';
+        input.name = 'agend-filter-brackets-' + bracketGroups;
+        input.value = String(index);
+        // click, not change: it also fires on a radio that is already checked,
+        // which is how a range no bracket matches (shown as "Any") is cleared.
+        input.addEventListener('click', function () {
+          choose(index);
+        });
+        label.appendChild(input);
+        label.appendChild(el('span', null, choice.label));
+        host.appendChild(label);
+        return input;
+      });
+      model.paint = function (index) {
+        model.selected = index;
+        inputs.forEach(function (input, i) {
+          input.checked = i === index;
+        });
+      };
+    }
+
+    var bounds = currentBounds();
+    var index = findBracket(resolved.brackets, bounds) + 1;
+    model.paint(index, index === 0 && !isEmptyBounds(bounds));
+    ready(host);
+  }
+
   function buildSelect(shell, cfg, ctx, values) {
     var select = adopt(shell, 'select', 'select');
     // The option list is the one thing that changes between the stand-in
@@ -682,6 +946,12 @@
       });
       return;
     }
+    if (cfg.control === 'range_brackets') {
+      loadFacets(ctx).then(function (facets) {
+        buildRangeBrackets(shell, slot, cfg, ctx, cfg.source && cfg.source.facet ? facets[cfg.source.facet] : null);
+      });
+      return;
+    }
     if (cfg.control === 'search') {
       buildSearch(slot, cfg, ctx);
       return;
@@ -751,4 +1021,13 @@
 
   window.agendFilters = window.agendFilters || {};
   window.agendFilters.build = build;
+  // The pure bracket helpers, exposed so a layer that shows the active range
+  // (a chip) can name the matching bracket, and so they can be exercised on
+  // their own.
+  window.agendFilters.rangeBrackets = {
+    normalise: normaliseBrackets,
+    resolve: resolveBrackets,
+    find: findBracket,
+    boundsOf: boundsOf,
+  };
 })();
