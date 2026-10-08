@@ -385,6 +385,49 @@ like the catalogue itself. The decision lives in
 `Agend_Apps_Records_Pages::login_target()`, so rendered links and the redirect
 cannot disagree.
 
+### Filter: range brackets (custom field)
+
+The Agend Filter's **Range brackets** presentation (`range_brackets`, offered by
+the custom field filter beside **Number range**) lets a visitor pick one preset
+bracket, "Under 10,000", "10,000 to 30,000", "Over 30,000", instead of typing a
+minimum and maximum. Both bounds are inclusive and either may be open. It is
+only a way of filling in the existing `custom_fields[<key>][min]` and `[max]`:
+choosing a bracket writes exactly the `{min, max}` strings the Number range
+control writes, so the request, Reset and pagination are unchanged. No gateway
+or proxy change is involved.
+
+- **Where the brackets come from.** *Use Agend's brackets* (the default) reads the
+  `presets` of the field's entry in `GET /v1/directory/facets`, an array of
+  `{ label, min?, max? }` where an omitted or `null` bound is open. *Custom
+  brackets* uses the widget's own list instead. If Agend is chosen but the facet
+  has no presets, the widget's list is the fallback. Custom never falls back to
+  Agend. With nothing to offer, a visitor sees no control (the script hides it,
+  or the server draws nothing for an empty custom list) and an editor preview
+  says why in place of the control.
+- **The custom list** is one bracket per line, `Label | min | max`, a blank bound
+  being open: `Under 10,000 | | 9999`. A bound is a plain number (no thousands
+  separators), a minimum may not be above its maximum, and at least one bound is
+  required. Lines that do not fit are skipped, not guessed at, and the editor
+  preview lists them; at most 12 brackets are used. The same rules validate
+  Agend's presets, quietly. Parsing is
+  `agend_apps_records_filter_range_brackets_parse()`; the validated rows reach the
+  script as `rangeBrackets.custom` in the filter's `data-agend-filter` config, so
+  the script never parses the text.
+- **Display** is a dropdown, buttons or radio buttons, each with an "Any" choice
+  (label configurable, default "Any") that clears the range.
+- **Restoring a selection.** When the control is built, the range already in the
+  catalogue state decides what is selected. Bounds that exactly match a bracket
+  select it. Bounds that match none (a hand-edited or shared range, or a
+  bracket Agend has since changed) show **Any**, but the state is left alone, so
+  the results stay filtered by that range and choosing **Any** clears it. The
+  control never rewrites the state to suit itself. Catalogue state is not yet
+  read from or written to the URL by these scripts; anything that puts a range
+  into `state.custom_fields` before the controls are built is reflected.
+  `window.agendFilters.rangeBrackets.find()` is the exact-match rule, for a layer
+  that wants to name the active bracket (a chip).
+- **The first paint** is the same disabled, `aria-busy` stand-in the other
+  controls use, drawn in the final shape of the chosen display with only "Any".
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map
