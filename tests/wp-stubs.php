@@ -1220,6 +1220,20 @@ if ( ! function_exists( 'is_feed' ) ) {
 	}
 }
 
+if ( ! function_exists( 'is_embed' ) ) {
+	/** Never an embed request in the unit harness unless a test says otherwise. */
+	function is_embed(): bool {
+		return ! empty( $GLOBALS['agend_test_is_embed'] );
+	}
+}
+
+if ( ! function_exists( 'is_main_query' ) ) {
+	/** The main query unless a test says otherwise (a secondary query on the same request). */
+	function is_main_query(): bool {
+		return empty( $GLOBALS['agend_test_not_main_query'] );
+	}
+}
+
 if ( ! function_exists( 'nocache_headers' ) ) {
 	/** No-op: the unit harness sends no real HTTP headers. */
 	function nocache_headers(): void {}

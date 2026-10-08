@@ -441,6 +441,15 @@
                             "show_reviews": "yes"
                         }
                     }
+                },
+                {
+                    "id": "require_login_for_detail",
+                    "args": {
+                        "label": "Require sign-in to view details",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Visitors who are not signed in are sent to the sign-in page when they open a listing, or follow a link to one, and return to the listing afterwards. The cards themselves stay visible. Only detected when this catalogue is placed on the page itself, not inside a saved or theme-builder template."
+                    }
                 }
             ]
         },

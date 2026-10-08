@@ -250,6 +250,51 @@ function agend_apps_records_normalise_url_setting( $value ): string {
 }
 
 /**
+ * The labels the gateway gave an option-backed custom field's stored value.
+ *
+ * A dropdown, multi-select, radio or checkbox-group entry stores option KEYS
+ * in `value` (what filters match on, and what a URL parameter carries) and
+ * carries the labels a person should read beside it in `value_label`: a
+ * string next to a single `value`, a list in the same order next to a list of
+ * values. The entry's own `label` is the FIELD's name, a different thing.
+ *
+ * This is for DISPLAY only. Anything that filters, compares or builds a query
+ * from an entry keeps reading `value`.
+ *
+ * An entry with no usable label yields an empty list, so callers fall back to
+ * `value` exactly as before the gateway sent labels: an older gateway, a field
+ * type with no options, or a label that is blank. A gated entry carries
+ * neither `value` nor `value_label`, and one that somehow does is never read,
+ * so a withheld field cannot leak through its label.
+ *
+ * @param array $entry A `custom_fields` entry: { key, label, type, value, value_label? }.
+ * @return string[] The non-blank labels in order, or array() when there is none to show.
+ */
+function agend_apps_records_custom_field_value_labels( array $entry ): array {
+	if ( ! empty( $entry['gated'] ) || ! isset( $entry['value_label'] ) ) {
+		return array();
+	}
+
+	$labels = $entry['value_label'];
+
+	if ( is_string( $labels ) ) {
+		$labels = trim( $labels );
+		return '' !== $labels ? array( $labels ) : array();
+	}
+
+	if ( ! is_array( $labels ) ) {
+		return array();
+	}
+
+	return array_values(
+		array_filter(
+			array_map( 'trim', array_map( 'strval', array_filter( $labels, 'is_scalar' ) ) ),
+			'strlen'
+		)
+	);
+}
+
+/**
  * The short label shown in place of a gated custom field's value.
  *
  * Mirrors the gateway's `state` vocabulary for a withheld field. The plain
