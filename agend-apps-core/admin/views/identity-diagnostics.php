@@ -269,6 +269,52 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</td>
 		</tr>
 		<tr>
+			<th scope="row"><?php esc_html_e( 'Sign-in and pre-render link', 'agend-apps-core' ); ?></th>
+			<td>
+				<?php
+				printf(
+					/* translators: 1: On or Off for the sign-in link toggle, 2: On or Off for the directory pre-render toggle. */
+					esc_html__( 'Link as members sign in: %1$s. Link before directory pages load: %2$s.', 'agend-apps-core' ),
+					esc_html( $diagnostics['link_toggles']['signin'] ? __( 'on', 'agend-apps-core' ) : __( 'off', 'agend-apps-core' ) ),
+					esc_html( $diagnostics['link_toggles']['prerender'] ? __( 'on', 'agend-apps-core' ) : __( 'off', 'agend-apps-core' ) )
+				);
+				?>
+				<br />
+				<?php if ( $diagnostics['toplevel']['issued_at'] > 0 ) : ?>
+					<?php
+					printf(
+						/* translators: 1: when, e.g. "3 minutes", 2: which trigger, e.g. "as the member signed in". */
+						esc_html__( 'Last round trip issued %1$s ago, %2$s.', 'agend-apps-core' ),
+						esc_html( human_time_diff( (int) $diagnostics['toplevel']['issued_at'], time() ) ),
+						esc_html( $diagnostics['toplevel_via_label'] )
+					);
+					?>
+				<?php else : ?>
+					<?php esc_html_e( 'No sign-in or pre-render round trip has been issued for this member.', 'agend-apps-core' ); ?>
+				<?php endif; ?>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Sign-in and pre-render skip', 'agend-apps-core' ); ?></th>
+			<td>
+				<?php $toplevel_guidance = $diagnostics['toplevel_guidance']; ?>
+				<strong><?php echo esc_html( $toplevel_guidance['label'] ); ?></strong>
+				(<?php echo esc_html( $toplevel_guidance['severity'] ); ?>)
+				<?php if ( $diagnostics['toplevel']['skip_at'] > 0 ) : ?>
+					<span class="description">
+						<?php
+						printf(
+							/* translators: %s: human-readable elapsed time, e.g. "3 hours". */
+							esc_html__( '(recorded %s ago)', 'agend-apps-core' ),
+							esc_html( human_time_diff( (int) $diagnostics['toplevel']['skip_at'], time() ) )
+						);
+						?>
+					</span>
+				<?php endif; ?>
+				<p class="description"><?php echo esc_html( $toplevel_guidance['guidance'] ); ?></p>
+			</td>
+		</tr>
+		<tr>
 			<th scope="row"><?php esc_html_e( 'Bearer token source', 'agend-apps-core' ); ?></th>
 			<td>
 				<?php

@@ -625,6 +625,159 @@ final class WpIdpDiagnosticsTest extends TestCase {
 		}
 	}
 
+	// -----------------------------------------------------------------
+	// Sign-in and pre-render round trips
+	// -----------------------------------------------------------------
+
+	/** @return array<string, array{0: string, 1: string, 2: string}> reason => [severity, needle in guidance] */
+	public static function topLevelReasonProvider(): array {
+		return array(
+			'none recorded'                => array( '', 'info', 'has stood down' ),
+			'sign-in to wp-admin'          => array( 'signin_admin_destination', 'info', 'wp-admin' ),
+			'sign-in to a form page'       => array( 'signin_blocked_destination', 'info', 'mid-purchase' ),
+			'sign-in round trip done'      => array( 'signin_round_trip_done', 'warning', 'still not linked' ),
+			'pre-render round trip done'   => array( 'prerender_round_trip_done', 'warning', 'still not linked' ),
+			'sign-in recent round trip'    => array( 'signin_recent_round_trip', 'info', 'last half hour' ),
+			'pre-render recent round trip' => array( 'prerender_recent_round_trip', 'info', 'last half hour' ),
+			'sign-in throttled'            => array( 'signin_throttled', 'info', 'backoff window' ),
+			'pre-render throttled'         => array( 'prerender_throttled', 'info', 'backoff window' ),
+			'unrecognised'                 => array( 'some_future_reason', 'info', 'some_future_reason' ),
+		);
+	}
+
+	#[Test]
+	public function should_classify_every_sign_in_and_pre_render_skip_reason(): void {
+		foreach ( self::topLevelReasonProvider() as $case ) {
+			[ $reason, $severity, $needle ] = $case;
+
+			$guidance = \agend_apps_wp_idp_toplevel_guidance( $reason );
+
+			$this->assertNotSame( '', $guidance['label'], "reason: {$reason}" );
+			$this->assertSame( $severity, $guidance['severity'], "reason: {$reason}" );
+			$this->assertStringContainsString( $needle, $guidance['guidance'], "reason: {$reason}" );
+		}
+	}
+
+	#[Test]
+	public function should_label_which_trigger_issued_a_round_trip(): void {
+		$this->assertSame( 'as the member signed in', \agend_apps_wp_idp_toplevel_via_label( 'signin' ) );
+		$this->assertSame( 'before a directory page loaded', \agend_apps_wp_idp_toplevel_via_label( 'prerender' ) );
+		$this->assertSame( '', \agend_apps_wp_idp_toplevel_via_label( '' ) );
+	}
+
+	#[Test]
+	public function should_report_when_and_how_a_round_trip_was_issued(): void {
+		$this->registerUser( 140 );
+		\agend_apps_wp_idp_merge_link_state( 140, array( 'toplevel_at' => 1700000000, 'toplevel_via' => 'prerender' ) );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 140 );
+
+		$this->assertSame( 1700000000, $diagnostics['toplevel']['issued_at'] );
+		$this->assertSame( 'prerender', $diagnostics['toplevel']['via'] );
+		$this->assertSame( 'before a directory page loaded', $diagnostics['toplevel_via_label'] );
+	}
+
+	#[Test]
+	public function should_report_the_recorded_sign_in_and_pre_render_skip_reason(): void {
+		$this->registerUser( 141 );
+		update_user_meta( 141, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, array( 'reason' => 'signin_blocked_destination', 'timestamp' => 1700000100 ) );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 141 );
+
+		$this->assertSame( 'signin_blocked_destination', $diagnostics['toplevel']['skip_reason'] );
+		$this->assertSame( 1700000100, $diagnostics['toplevel']['skip_at'] );
+		$this->assertSame( \agend_apps_wp_idp_toplevel_guidance( 'signin_blocked_destination' ), $diagnostics['toplevel_guidance'] );
+	}
+
+	#[Test]
+	public function should_report_nothing_issued_or_skipped_for_a_member_who_has_none(): void {
+		$this->registerUser( 142 );
+
+		$diagnostics = \agend_apps_wp_idp_diagnostics( 142 );
+
+		$this->assertSame( array( 'via' => '', 'issued_at' => 0, 'skip_reason' => '', 'skip_at' => 0 ), $diagnostics['toplevel'] );
+		$this->assertSame( '', $diagnostics['toplevel_via_label'] );
+		$this->assertSame( \agend_apps_wp_idp_toplevel_guidance( '' ), $diagnostics['toplevel_guidance'] );
+	}
+
+	#[Test]
+	public function should_report_both_link_toggles_on_by_default_and_off_when_switched_off(): void {
+		$this->registerUser( 143 );
+
+		$this->assertSame( array( 'signin' => true, 'prerender' => true ), \agend_apps_wp_idp_diagnostics( 143 )['link_toggles'] );
+
+		update_option( 'agend_apps_sso_signin_link', false );
+
+		$this->assertSame( array( 'signin' => false, 'prerender' => true ), \agend_apps_wp_idp_diagnostics( 143 )['link_toggles'] );
+
+		update_option( 'agend_apps_sso_prerender_link', false );
+
+		$this->assertSame( array( 'signin' => false, 'prerender' => false ), \agend_apps_wp_idp_diagnostics( 143 )['link_toggles'] );
+	}
+
+	/**
+	 * Renders the panel's view partial for a member, bound to an admin instance
+	 * exactly as `render_diagnostics_field()` includes it (the view reads `$this`,
+	 * `$lookup` and `$diagnostics`), without needing the plugin's directory
+	 * constant the full method uses to locate it.
+	 */
+	private function renderPanel( int $user_id ): string {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/admin/class-agend-apps-identity-admin.php';
+
+		$render = function ( array $lookup, array $diagnostics ): string {
+			ob_start();
+			require AGEND_TESTS_ROOT . '/agend-apps-core/admin/views/identity-diagnostics.php';
+
+			return (string) ob_get_clean();
+		};
+
+		return \Closure::bind( $render, new \Agend_Apps_Identity_Admin(), \Agend_Apps_Identity_Admin::class )(
+			array( 'user_id' => $user_id, 'query' => '', 'not_found' => false ),
+			\agend_apps_wp_idp_diagnostics( $user_id )
+		);
+	}
+
+	#[Test]
+	public function should_show_the_sign_in_and_pre_render_facts_in_the_panel(): void {
+		$this->registerUser( 144 );
+		\agend_apps_wp_idp_merge_link_state( 144, array( 'toplevel_at' => time() - 120, 'toplevel_via' => 'signin' ) );
+		update_user_meta( 144, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, array( 'reason' => 'prerender_throttled', 'timestamp' => time() - 60 ) );
+		update_option( 'agend_apps_sso_prerender_link', false );
+
+		$html = $this->renderPanel( 144 );
+
+		$this->assertStringContainsString( 'Link as members sign in: on. Link before directory pages load: off.', $html );
+		$this->assertStringContainsString( 'Last round trip issued', $html );
+		$this->assertStringContainsString( 'as the member signed in', $html );
+		$this->assertStringContainsString( 'Waiting between attempts', $html );
+		$this->assertStringContainsString( 'backoff window', $html );
+	}
+
+	#[Test]
+	public function should_say_so_in_the_panel_when_no_round_trip_has_been_issued(): void {
+		$this->registerUser( 145 );
+
+		$html = $this->renderPanel( 145 );
+
+		$this->assertStringContainsString( 'No sign-in or pre-render round trip has been issued for this member.', $html );
+		$this->assertStringContainsString( 'No skip recorded', $html );
+	}
+
+	#[Test]
+	public function should_record_nothing_when_building_the_top_level_diagnostics(): void {
+		$this->registerUser( 146 );
+		\agend_apps_wp_idp_merge_link_state( 146, array( 'toplevel_at' => 1700000000, 'toplevel_via' => 'signin' ) );
+		update_user_meta( 146, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, array( 'reason' => 'signin_throttled', 'timestamp' => 1 ) );
+
+		$state_before = get_user_meta( 146, \AGEND_APPS_LINK_STATE_META, true );
+		$skip_before  = get_user_meta( 146, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, true );
+
+		\agend_apps_wp_idp_diagnostics( 146 );
+
+		$this->assertSame( $state_before, get_user_meta( 146, \AGEND_APPS_LINK_STATE_META, true ) );
+		$this->assertSame( $skip_before, get_user_meta( 146, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, true ) );
+	}
+
 	#[Test]
 	public function should_report_the_recorded_trigger_skip_reason(): void {
 		$this->registerUser( 130 );
