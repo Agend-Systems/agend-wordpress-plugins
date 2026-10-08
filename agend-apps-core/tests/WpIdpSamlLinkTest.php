@@ -269,6 +269,7 @@ final class WpIdpSamlLinkTest extends TestCase {
 			'saml_action'   => array( 'saml_action' ),
 			'option'        => array( 'option' ),
 			'done flag'     => array( \AGEND_APPS_SAML_LINK_DONE_FLAG ),
+			'start flag'    => array( \AGEND_APPS_SAML_LINK_START_FLAG ),
 		);
 	}
 
@@ -561,6 +562,67 @@ final class WpIdpSamlLinkTest extends TestCase {
 		$stored = \agend_apps_wp_idp_link_state( 50 );
 		$this->assertSame( \AGEND_APPS_LINK_STATE_ASSERTED, $stored['state'] );
 		$this->assertSame( 1, $stored['attempts'] );
+	}
+
+	#[Test]
+	public function should_stamp_the_top_level_marker_in_the_same_write_as_the_attempt(): void {
+		$this->mintExternalId( 55 );
+		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata' );
+		update_user_meta( 55, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, array( 'reason' => 'prerender_throttled', 'timestamp' => 1 ) );
+
+		$issued = \agend_apps_saml_link_issue_url( 55, 'https://example.test/directory/', false, 'prerender' );
+
+		$stored = \agend_apps_wp_idp_link_state( 55 );
+
+		$this->assertNotSame( '', $issued['url'] );
+		$this->assertSame( 1, $stored['attempts'] );
+		$this->assertSame( \AGEND_APPS_LINK_STATE_ASSERTED, $stored['state'] );
+		$this->assertSame( 'prerender', $stored['toplevel_via'] );
+		$this->assertEqualsWithDelta( time(), $stored['toplevel_at'], 2 );
+		$this->assertSame( '', get_user_meta( 55, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, true ), 'a stale skip reason is cleared once a trip is issued' );
+	}
+
+	#[Test]
+	public function should_not_stamp_the_top_level_marker_for_a_framed_trip_or_an_unknown_trigger(): void {
+		$this->mintExternalId( 56 );
+		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata' );
+
+		\agend_apps_saml_link_issue_url( 56, '', true, 'signin' );
+		$this->assertSame( 0, \agend_apps_wp_idp_link_state( 56 )['toplevel_at'], 'framed' );
+
+		\agend_apps_wp_idp_merge_link_state( 56, array( 'timestamp' => time() - ( 24 * HOUR_IN_SECONDS ) ) );
+
+		\agend_apps_saml_link_issue_url( 56, 'https://example.test/', false, 'something_else' );
+		$this->assertSame( 0, \agend_apps_wp_idp_link_state( 56 )['toplevel_at'], 'unknown trigger' );
+		$this->assertSame( '', \agend_apps_wp_idp_link_state( 56 )['toplevel_via'] );
+	}
+
+	#[Test]
+	public function should_leave_the_marker_alone_for_the_existing_fallback_redirect(): void {
+		$this->mintExternalId( 57 );
+		$this->samlServiceProvider( 'https://gw.example.test/api/auth/sso/wdaa/metadata' );
+		\agend_apps_wp_idp_merge_link_state( 57, array( 'views' => \AGEND_APPS_SAML_LINK_FALLBACK_VIEWS ) );
+
+		$decision = \agend_apps_saml_link_decision( 57, 'https://example.test/page/' );
+
+		$this->assertSame( 'redirect', $decision['action'] );
+		$this->assertSame( 0, \agend_apps_wp_idp_link_state( 57 )['toplevel_at'], 'the late fallback is not a sign-in or pre-render trip' );
+	}
+
+	#[Test]
+	public function should_report_the_top_level_status_for_diagnostics(): void {
+		$this->assertSame(
+			array( 'via' => '', 'issued_at' => 0, 'skip_reason' => '', 'skip_at' => 0 ),
+			\agend_apps_saml_link_toplevel_status( 58 )
+		);
+
+		\agend_apps_wp_idp_merge_link_state( 58, array( 'toplevel_at' => 1700000000, 'toplevel_via' => 'signin' ) );
+		update_user_meta( 58, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, array( 'reason' => 'signin_throttled', 'timestamp' => 1700000100 ) );
+
+		$this->assertSame(
+			array( 'via' => 'signin', 'issued_at' => 1700000000, 'skip_reason' => 'signin_throttled', 'skip_at' => 1700000100 ),
+			\agend_apps_saml_link_toplevel_status( 58 )
+		);
 	}
 
 	#[Test]

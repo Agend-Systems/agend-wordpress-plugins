@@ -70,6 +70,8 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_is_checkout']        = false;
 		$GLOBALS['agend_test_is_account_page']    = false;
 		$GLOBALS['agend_test_is_wc_endpoint_url'] = false;
+		$GLOBALS['agend_test_session_token']      = '';
+		$GLOBALS['agend_test_wc_pages']           = array();
 		$GLOBALS['agend_test_is_admin']           = false;
 		$GLOBALS['agend_test_doing_ajax']         = false;
 		$GLOBALS['agend_test_doing_cron']         = false;

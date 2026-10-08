@@ -52,6 +52,8 @@ final class WpIdpLinkTest extends TestCase {
 				'renders'       => 0,
 				'completed'     => false,
 				'fallback_done' => false,
+				'toplevel_at'   => 0,
+				'toplevel_via'  => '',
 			),
 			\agend_apps_wp_idp_link_state( 1 )
 		);
@@ -100,6 +102,37 @@ final class WpIdpLinkTest extends TestCase {
 		$this->assertSame( 3, $stored['renders'] );
 		$this->assertTrue( $stored['completed'] );
 		$this->assertTrue( $stored['fallback_done'] );
+	}
+
+	#[Test]
+	public function should_preserve_the_top_level_marker_across_a_recorded_state(): void {
+		\agend_apps_wp_idp_merge_link_state(
+			8,
+			array(
+				'toplevel_at'  => 1700000000,
+				'toplevel_via' => 'prerender',
+			)
+		);
+
+		// Recording `asserted` rebuilds the whole array; the marker that stops a
+		// member being sent round twice must survive it.
+		\agend_apps_wp_idp_record_link_state( 8, \AGEND_APPS_LINK_STATE_ASSERTED );
+
+		$stored = \agend_apps_wp_idp_link_state( 8 );
+
+		$this->assertSame( 1700000000, $stored['toplevel_at'] );
+		$this->assertSame( 'prerender', $stored['toplevel_via'] );
+	}
+
+	#[Test]
+	public function should_read_a_state_stored_before_the_top_level_marker_existed(): void {
+		update_user_meta( 9, \AGEND_APPS_LINK_STATE_META, array( 'state' => \AGEND_APPS_LINK_STATE_ASSERTED, 'attempts' => 2 ) );
+
+		$stored = \agend_apps_wp_idp_link_state( 9 );
+
+		$this->assertSame( 0, $stored['toplevel_at'] );
+		$this->assertSame( '', $stored['toplevel_via'] );
+		$this->assertSame( 2, $stored['attempts'] );
 	}
 
 	#[Test]

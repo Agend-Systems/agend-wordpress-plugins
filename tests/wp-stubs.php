@@ -1362,8 +1362,15 @@ if ( ! function_exists( 'current_user_can' ) ) {
 }
 
 if ( ! function_exists( 'wp_create_nonce' ) ) {
+	/**
+	 * A deterministic nonce per action. Real WordPress binds a nonce to the
+	 * session token in the request's auth cookie; `agend_test_session_token`
+	 * models that (empty by default, so every existing nonce is unchanged), so
+	 * a test can show a nonce minted before and after the cookie changes
+	 * differs, as it does in production during a sign-in.
+	 */
 	function wp_create_nonce( $action = -1 ): string {
-		return 'test-nonce-' . md5( (string) $action );
+		return 'test-nonce-' . md5( (string) $action . (string) ( $GLOBALS['agend_test_session_token'] ?? '' ) );
 	}
 }
 

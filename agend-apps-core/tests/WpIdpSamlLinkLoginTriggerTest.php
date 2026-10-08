@@ -188,6 +188,16 @@ final class WpIdpSamlLinkLoginTriggerTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_clear_the_last_top_level_skip_reason_on_sign_in(): void {
+		$this->eligible( 77 );
+		update_user_meta( 77, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, array( 'reason' => 'prerender_throttled', 'timestamp' => 1 ) );
+
+		$this->signIn( 77 );
+
+		$this->assertSame( '', get_user_meta( 77, \AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, true ) );
+	}
+
+	#[Test]
 	public function should_treat_an_expired_sign_in_marker_as_absent(): void {
 		update_user_meta( 75, \AGEND_APPS_SAML_LINK_LOGIN_PENDING_META, time() - \AGEND_APPS_SAML_LINK_LOGIN_PENDING_TTL - 1 );
 

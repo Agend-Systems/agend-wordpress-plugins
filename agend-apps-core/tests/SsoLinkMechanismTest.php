@@ -140,6 +140,38 @@ final class SsoLinkMechanismTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// Agend_Apps_Settings::signin_link_enabled() / prerender_link_enabled()
+	//
+	// Both default ON: a site that never saved the option reads as on.
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_default_the_sign_in_and_pre_render_toggles_to_on_when_never_saved(): void {
+		delete_option( 'agend_apps_sso_signin_link' );
+		delete_option( 'agend_apps_sso_prerender_link' );
+
+		$this->assertTrue( Agend_Apps_Settings::signin_link_enabled() );
+		$this->assertTrue( Agend_Apps_Settings::prerender_link_enabled() );
+	}
+
+	#[Test]
+	public function should_turn_each_toggle_off_independently(): void {
+		foreach ( array( false, '', '0', 0 ) as $value ) {
+			update_option( 'agend_apps_sso_signin_link', $value );
+			update_option( 'agend_apps_sso_prerender_link', true );
+
+			$this->assertFalse( Agend_Apps_Settings::signin_link_enabled(), 'sign-in, value: ' . var_export( $value, true ) );
+			$this->assertTrue( Agend_Apps_Settings::prerender_link_enabled() );
+
+			update_option( 'agend_apps_sso_signin_link', true );
+			update_option( 'agend_apps_sso_prerender_link', $value );
+
+			$this->assertTrue( Agend_Apps_Settings::signin_link_enabled() );
+			$this->assertFalse( Agend_Apps_Settings::prerender_link_enabled(), 'pre-render, value: ' . var_export( $value, true ) );
+		}
+	}
+
+	// -----------------------------------------------------------------
 	// Detection and the auto resolver -- ABSENCE first (see class docblock).
 	// -----------------------------------------------------------------
 
