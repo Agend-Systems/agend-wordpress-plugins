@@ -377,7 +377,7 @@ function agend_apps_records_schema_directory_catalogue(): array {
 						'label'       => __( 'Require sign-in to view details', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => false,
-						'description' => __( 'Links to a listing send visitors who are not signed in to the sign-in page first, then bring them back to the listing. The cards themselves stay visible.', 'agend-apps-core' ),
+						'description' => __( 'Visitors who are not signed in are sent to the sign-in page when they open a listing, or follow a link to one, and return to the listing afterwards. The cards themselves stay visible. Only detected when this catalogue is placed on the page itself, not inside a saved or theme-builder template.', 'agend-apps-core' ),
 					),
 				),
 			),

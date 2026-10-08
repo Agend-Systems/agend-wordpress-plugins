@@ -109,6 +109,12 @@ require_once AGEND_APPS_CORE_DIR . 'includes/records/settings.php';
 // runs.
 require_once AGEND_APPS_CORE_DIR . 'includes/records/pages.php';
 
+// "Require sign-in to view details" on the Directory Catalogue: the flag a
+// widget or block mirrors to its page on save, and the wp:4 redirect that
+// reads it. Loaded unconditionally for the same reason as pages.php: the
+// redirect needs neither the gateway nor a page builder.
+require_once AGEND_APPS_CORE_DIR . 'includes/records/detail-login.php';
+
 // GitHub Releases updater, shared by every Agend plugin (Core is a
 // dependency of all of them). Loaded and booted unconditionally, ahead of
 // `agend_apps_core_bootstrap()`, because update checks run in admin and
