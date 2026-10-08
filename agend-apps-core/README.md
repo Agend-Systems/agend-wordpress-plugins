@@ -71,6 +71,46 @@ the `agend_apps_idp_plugin` setting (Identity and SSO settings page) lets an
 admin pin it to `saml`, `miniorange`, or `none` -- for a site running a SAML
 IdP plugin for an unrelated purpose that must stay out of this connection.
 
+### Linking members in `wordpress` sign-in mode
+
+In `wordpress` mode a signed-in member is linked to their Agend identity by an
+IdP-initiated SAML round trip through the site's own identity provider plugin
+(`includes/wp-idp-saml-link.php`). Three triggers run that same round trip,
+all gated by one eligibility check (`agend_apps_saml_link_eligibility()`), the
+member's recorded link state and its throttle, and all inert unless the
+**Background link** toggle on Settings > Identity and SSO is on (it is off by
+default):
+
+- **Background.** A hidden iframe, started from `wp_footer` after the page has
+  loaded. Invisible, but late: a page that reads a member's restricted data on
+  the server (the directory's listing detail and first page of cards) has
+  already been built without their bearer, and shows the logged-out
+  placeholders until the next load.
+- **Link members as they sign in** (default on). `login_redirect`,
+  `woocommerce_login_redirect` and `woocommerce_registration_redirect` are
+  rewritten to a same-origin start step
+  (`/?agend_apps_saml_link_start=1&redirect_to=...`). The start step runs on the
+  next, authenticated request and only then issues the IdP URL, because the
+  IdP nonce is bound to the session and the new auth cookie is not in
+  `$_COOKIE` while the sign-in request is still running. The member comes back
+  linked, to the page they were heading for. wp-admin, the cart, the checkout
+  and WooCommerce account form pages are never detoured. Other sign-in code
+  that ends in a redirect can call `agend_apps_saml_link_signin_redirect()` with
+  its destination and the member's id.
+- **Link members before directory pages load** (default on). A signed-in,
+  unlinked member's request for the dedicated directory page or a listing
+  detail is redirected through the round trip on `wp` priority 3, before the
+  priority 4 sign-in gate and the priority 5 server-rendered detail swap fetch
+  anything, and returned to the same URL. Filter
+  `agend_apps_saml_link_prerender_required` (`$required`, `$context`) to add
+  other member content pages.
+
+A member who has just come back from a top-level round trip, linked or not, is
+shown the page rather than sent round again: the loop guard is the link state's
+`toplevel_at` marker, its `completed` flag and the existing throttle. The
+diagnostics panel on the same settings page shows when a sign-in or pre-render
+round trip was issued, and why one was skipped.
+
 ### Caching and identity
 
 `Agend_Apps_Cache::build_key()` and `Agend_Apps_Settings::get_cache_ttl()` are
