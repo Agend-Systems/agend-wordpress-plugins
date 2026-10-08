@@ -20,6 +20,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The custom-field reader below shows an option-backed field's labels through
+// agend_apps_records_custom_field_value_labels(), which lives with the shared
+// formatters so the built-in detail can use it without loading this file.
+require_once __DIR__ . '/format.php';
+
 /**
  * Field kinds. `agend_apps_records_format_field()` switches on these.
  */
@@ -298,9 +303,17 @@ function agend_apps_records_record_listing_address( array $record ): string {
  * it returns '' here exactly as a missing key does. Use
  * agend_apps_records_record_custom_field_gate() to tell the two apart.
  *
+ * This is the text to SHOW. For an option-backed field (dropdown, multi-select,
+ * radio, checkbox group) the gateway adds `value_label` beside `value`, and
+ * that is returned when usable: the label for one value, or the labels in
+ * order, joined as values are. `value` itself stays the stored option key, so
+ * nothing that filters or compares should read through this function; it
+ * reads the entry's `value`. No usable `value_label` (an older gateway, or a
+ * field with no options) returns the value as it always has.
+ *
  * @param array  $record The record.
  * @param string $key    The custom-field key.
- * @return string The value, or ''.
+ * @return string The text to show, or ''.
  */
 function agend_apps_records_record_custom_field( array $record, string $key ): string {
 	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
@@ -309,6 +322,12 @@ function agend_apps_records_record_custom_field( array $record, string $key ): s
 	foreach ( $record['custom_fields'] as $entry ) {
 		if ( ! is_array( $entry ) || ( $entry['key'] ?? '' ) !== $key ) {
 			continue;
+		}
+		// An option-backed field carries the labels to show beside its stored
+		// option keys. Used when usable; otherwise the value, as it always was.
+		$labels = agend_apps_records_custom_field_value_labels( $entry );
+		if ( ! empty( $labels ) ) {
+			return implode( ', ', $labels );
 		}
 		$value = $entry['value'] ?? '';
 		if ( is_array( $value ) ) {
