@@ -10,6 +10,7 @@ namespace Agend\Tests\Core;
 use Agend_Apps_Records_Record_Context;
 use Agend_Elementor_Record_Field;
 use Agend\Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -177,6 +178,269 @@ final class RecordFieldRenderTest extends TestCase {
 		$settings = array( 'field' => 'event:name' );
 
 		self::assertSame( '', agend_apps_records_render_record_field( $settings ) );
+	}
+
+	// -------------------------------------------------------------------
+	// Restricted custom fields: gated is not the same as empty
+	// -------------------------------------------------------------------
+
+	/**
+	 * The entry the gateway sends for a custom field the viewer may not see:
+	 * no value, a `state` naming why, and `gated`.
+	 *
+	 * @param string $state The gateway's gate state.
+	 * @return array
+	 */
+	private function gated_entry( string $state = 'access_restricted' ): array {
+		return array(
+			'key'   => 'sco_subregion',
+			'label' => 'SCD-Sub Region',
+			'mode'  => 'selected_entitlements',
+			'state' => $state,
+			'gated' => true,
+		);
+	}
+
+	/**
+	 * Settings for an Agend Field reading the `sco_subregion` custom field.
+	 *
+	 * @param array $overrides Settings to add or replace.
+	 * @return array
+	 */
+	private function custom_field_settings( array $overrides = array() ): array {
+		return array_merge( array( 'field' => 'common:custom_field', 'custom_field_key' => 'sco_subregion' ), $overrides );
+	}
+
+	/**
+	 * What the widget prints for a restricted custom field with this text.
+	 *
+	 * @param string $text Already-escaped restricted text.
+	 * @return string
+	 */
+	private function restricted_html( string $text ): string {
+		return '<div class="agend-field agend-field--text agend-field--common-custom_field agend-field--gated">'
+			. '<span class="agend-field__value agend-field__value--gated">' . $text . '</span></div>';
+	}
+
+	/**
+	 * @return array<string, array{string, string}>
+	 */
+	public static function gate_state_labels(): array {
+		return array(
+			'sign in'               => array( 'authentication_required', 'Sign in to view' ),
+			'members only'          => array( 'membership_required', 'Members only' ),
+			'plan'                  => array( 'plan_required', 'Not included in your subscription' ),
+			'selected entitlements' => array( 'access_restricted', 'Restricted' ),
+			'unknown state'         => array( 'something_new', 'Restricted' ),
+			'no state'              => array( '', 'Restricted' ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'gate_state_labels' )]
+	public function should_name_the_gate_reason_for_a_restricted_custom_field( string $state, string $expected ): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry( $state ) ) ) );
+
+		self::assertSame( $this->restricted_html( $expected ), agend_apps_records_render_record_field( $this->custom_field_settings() ) );
+	}
+
+	#[Test]
+	public function should_read_a_gated_entry_with_no_state_key_at_all_as_restricted(): void {
+		$entry = $this->gated_entry();
+		unset( $entry['state'] );
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $entry ) ) );
+
+		self::assertSame( $this->restricted_html( 'Restricted' ), agend_apps_records_render_record_field( $this->custom_field_settings() ) );
+	}
+
+	#[Test]
+	public function should_let_the_gated_label_filter_reword_a_restricted_custom_field(): void {
+		$seen = array();
+		add_filter(
+			'agend_apps_records_gated_field_label',
+			static function ( string $label, string $state ) use ( &$seen ): string {
+				$seen = array( $label, $state );
+				return 'Locked';
+			},
+			10,
+			2
+		);
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry( 'membership_required' ) ) ) );
+
+		self::assertSame( $this->restricted_html( 'Locked' ), agend_apps_records_render_record_field( $this->custom_field_settings() ) );
+		self::assertSame( array( 'Members only', 'membership_required' ), $seen );
+	}
+
+	#[Test]
+	public function should_render_nothing_when_the_gated_label_filter_blanks_the_label(): void {
+		add_filter( 'agend_apps_records_gated_field_label', static fn(): string => '', 10, 2 );
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry() ) ) );
+
+		self::assertSame( '', agend_apps_records_render_record_field( $this->custom_field_settings( array( 'fallback_text' => 'n/a' ) ) ) );
+	}
+
+	#[Test]
+	public function should_prefer_the_restricted_text_setting_over_the_default_label_and_the_filter(): void {
+		add_filter( 'agend_apps_records_gated_field_label', static fn(): string => 'Locked', 10, 2 );
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry( 'authentication_required' ) ) ) );
+
+		$settings = $this->custom_field_settings( array( 'restricted_text' => '  Members of the PCA only  ' ) );
+
+		self::assertSame( $this->restricted_html( 'Members of the PCA only' ), agend_apps_records_render_record_field( $settings ) );
+	}
+
+	#[Test]
+	public function should_escape_the_restricted_text(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry() ) ) );
+
+		$html = agend_apps_records_render_record_field( $this->custom_field_settings( array( 'restricted_text' => '<b>Hidden</b>' ) ) );
+
+		self::assertStringNotContainsString( '<b>', $html );
+		self::assertStringContainsString( '&lt;b&gt;Hidden&lt;/b&gt;', $html );
+	}
+
+	#[Test]
+	public function should_show_the_restricted_text_rather_than_the_fallback_for_a_gated_entry(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry() ) ) );
+
+		$html = agend_apps_records_render_record_field( $this->custom_field_settings( array( 'fallback_text' => 'Not recorded' ) ) );
+
+		self::assertSame( $this->restricted_html( 'Restricted' ), $html );
+		self::assertStringNotContainsString( 'Not recorded', $html );
+	}
+
+	#[Test]
+	public function should_keep_the_before_and_after_text_around_a_restricted_value(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry( 'plan_required' ) ) ) );
+
+		$html = agend_apps_records_render_record_field( $this->custom_field_settings( array( 'before_text' => 'Region: ', 'after_text' => '.' ) ) );
+
+		self::assertStringContainsString(
+			'Region: <span class="agend-field__value agend-field__value--gated">Not included in your subscription</span>.',
+			$html
+		);
+	}
+
+	#[Test]
+	public function should_use_the_fallback_text_when_the_custom_field_is_absent_from_the_record(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array( 'custom_fields' => array( array( 'key' => 'abn', 'label' => 'ABN', 'type' => 'text', 'value' => '12 345 678 901' ) ) )
+		);
+
+		$html = agend_apps_records_render_record_field( $this->custom_field_settings( array( 'fallback_text' => 'Not recorded', 'restricted_text' => 'Restricted' ) ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--text agend-field--common-custom_field">Not recorded</div>',
+			$html
+		);
+	}
+
+	#[Test]
+	public function should_use_the_fallback_text_for_a_listing_with_no_custom_fields_at_all(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'name' => 'Sample Centre' ) );
+
+		$settings = $this->custom_field_settings( array( 'fallback_text' => 'Not recorded' ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--text agend-field--common-custom_field">Not recorded</div>',
+			agend_apps_records_render_record_field( $settings )
+		);
+		self::assertSame( '', agend_apps_records_render_record_field( $this->custom_field_settings() ) );
+	}
+
+	#[Test]
+	public function should_render_a_visible_custom_field_unchanged_whatever_the_restricted_text(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array(
+				'custom_fields' => array(
+					array( 'key' => 'sco_subregion', 'label' => 'SCD-Sub Region', 'type' => 'text', 'value' => 'North' ),
+				),
+			)
+		);
+
+		$html = agend_apps_records_render_record_field( $this->custom_field_settings( array( 'restricted_text' => 'Members only', 'fallback_text' => 'n/a' ) ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--text agend-field--common-custom_field">North</div>',
+			$html
+		);
+	}
+
+	#[Test]
+	public function should_not_treat_an_entry_flagged_gated_false_as_restricted(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array( 'custom_fields' => array( array( 'key' => 'sco_subregion', 'label' => 'SCD-Sub Region', 'type' => 'text', 'value' => 'North', 'gated' => false ) ) )
+		);
+
+		self::assertStringNotContainsString( 'gated', agend_apps_records_render_record_field( $this->custom_field_settings() ) );
+	}
+
+	#[Test]
+	public function should_still_show_the_label_of_a_restricted_custom_field(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry() ) ) );
+
+		$html = agend_apps_records_render_record_field( $this->custom_field_settings( array( 'show_label' => 'yes', 'label_separator' => ': ' ) ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--text agend-field--common-custom_field agend-field--gated agend-field--labelled">'
+				. '<span class="agend-field__label">SCD-Sub Region: </span>'
+				. '<span class="agend-field__value agend-field__value--gated">Restricted</span></div>',
+			$html
+		);
+	}
+
+	#[Test]
+	public function should_leave_the_label_only_field_alone_for_a_restricted_custom_field(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry() ) ) );
+
+		$settings = $this->custom_field_settings( array( 'field' => 'common:custom_field_label', 'restricted_text' => 'Members only' ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--text agend-field--common-custom_field_label">SCD-Sub Region</div>',
+			agend_apps_records_render_record_field( $settings )
+		);
+	}
+
+	#[Test]
+	public function should_not_apply_the_restricted_text_to_a_field_that_is_not_a_custom_field(): void {
+		Agend_Apps_Records_Record_Context::push( 'event', array() );
+
+		$settings = array( 'field' => 'event:name', 'fallback_text' => 'No name yet', 'restricted_text' => 'Members only' );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--text agend-field--event-name">No name yet</div>',
+			agend_apps_records_render_record_field( $settings )
+		);
+	}
+
+	#[Test]
+	public function should_tell_a_gated_entry_from_a_missing_one_and_a_visible_one(): void {
+		$record = array(
+			'custom_fields' => array(
+				$this->gated_entry( 'plan_required' ),
+				array( 'key' => 'abn', 'label' => 'ABN', 'type' => 'text', 'value' => '12 345 678 901' ),
+			),
+		);
+
+		self::assertSame( 'plan_required', agend_apps_records_record_custom_field_gate( $record, 'sco_subregion' ) );
+		self::assertNull( agend_apps_records_record_custom_field_gate( $record, 'abn' ), 'visible entry' );
+		self::assertNull( agend_apps_records_record_custom_field_gate( $record, 'missing' ), 'no entry' );
+		self::assertNull( agend_apps_records_record_custom_field_gate( $record, '' ), 'no key' );
+		self::assertNull( agend_apps_records_record_custom_field_gate( array(), 'sco_subregion' ), 'no custom_fields' );
+		self::assertSame( '', agend_apps_records_record_custom_field( $record, 'sco_subregion' ), 'the value reader keeps returning an empty string' );
+	}
+
+	#[Test]
+	public function should_carry_the_gated_state_through_the_elementor_widget(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'custom_fields' => array( $this->gated_entry( 'membership_required' ) ) ) );
+		\Elementor\Plugin::$instance->editor->is_edit_mode = false;
+
+		$settings = $this->custom_field_settings( array( 'fallback_text' => 'Not recorded' ) );
+
+		self::assertSame( $this->restricted_html( 'Members only' ), $this->render_widget( $settings ) );
 	}
 
 	// -------------------------------------------------------------------
