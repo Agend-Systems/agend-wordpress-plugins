@@ -112,18 +112,20 @@ const AGEND_APPS_LINK_STATE_PENDING_APPROVAL = 'pending_approval';
 /**
  * User-meta key holding the recorded link state
  * `array{state: string, error_code: string, timestamp: int, attempts: int,
- * views: int, renders: int, completed: bool, fallback_done: bool}`.
+ * views: int, renders: int, completed: bool, fallback_done: bool,
+ * toplevel_at: int, toplevel_via: string}`.
  * Underscore-prefixed like the other identity meta in `includes/identity.php`
  * -- hidden from the profile UI, never sent to the browser.
  *
- * The five counters (`attempts`, `views`, `renders`, `completed`,
- * `fallback_done`) live in this same array rather than five separate meta
- * keys: every read this file's callers need is "the whole picture for this
- * member", never a single counter in isolation, so one `get_user_meta()` call
- * and one `update_user_meta()` call (as close to atomic as WordPress user
- * meta gets) is both cheaper and keeps a stale partial read from ever
- * happening. It also means `includes/wp-idp-diagnostics.php`'s panel reads a
- * single fact per member instead of assembling one from five.
+ * The counters and flags (`attempts`, `views`, `renders`, `completed`,
+ * `fallback_done`, and the two top-level round trip marker fields
+ * `toplevel_at` / `toplevel_via`) live in this same array rather than in
+ * separate meta keys: every read this file's callers need is "the whole
+ * picture for this member", never a single counter in isolation, so one
+ * `get_user_meta()` call and one `update_user_meta()` call (as close to atomic
+ * as WordPress user meta gets) is both cheaper and keeps a stale partial read
+ * from ever happening. It also means `includes/wp-idp-diagnostics.php`'s
+ * panel reads a single fact per member instead of assembling one from many.
  *
  * @var string
  */
@@ -229,11 +231,17 @@ const AGEND_APPS_LINK_BACKOFF_ASSERTED = 5 * MINUTE_IN_SECONDS;
  *   visible-redirect fallback exists for.
  * - `fallback_done`: whether the one permitted visible redirect has already
  *   been spent, so it is never fired twice for the same member.
+ * - `toplevel_at` / `toplevel_via`: when, and through which trigger (`signin`
+ *   or `prerender`), a top-level (non-framed) round trip was last issued ahead
+ *   of a page (see `includes/wp-idp-saml-link-toplevel.php`). A short-lived
+ *   marker, not a counter: it is what stops a member who has just come back
+ *   from such a round trip, successfully or not, being sent round again.
  *
  * @param int $user_id WordPress user id.
  * @return array{state: string, error_code: string, timestamp: int, attempts: int,
- *         views: int, renders: int, completed: bool, fallback_done: bool} Defaults to
- *         an empty/zeroed state when nothing has been recorded.
+ *         views: int, renders: int, completed: bool, fallback_done: bool,
+ *         toplevel_at: int, toplevel_via: string} Defaults to an empty/zeroed
+ *         state when nothing has been recorded.
  */
 function agend_apps_wp_idp_link_state( int $user_id ): array {
 	$default = array(
@@ -245,6 +253,8 @@ function agend_apps_wp_idp_link_state( int $user_id ): array {
 		'renders'       => 0,
 		'completed'     => false,
 		'fallback_done' => false,
+		'toplevel_at'   => 0,
+		'toplevel_via'  => '',
 	);
 
 	if ( 0 === $user_id ) {
@@ -266,12 +276,14 @@ function agend_apps_wp_idp_link_state( int $user_id ): array {
 		'renders'       => isset( $stored['renders'] ) ? (int) $stored['renders'] : 0,
 		'completed'     => isset( $stored['completed'] ) ? (bool) $stored['completed'] : false,
 		'fallback_done' => isset( $stored['fallback_done'] ) ? (bool) $stored['fallback_done'] : false,
+		'toplevel_at'   => isset( $stored['toplevel_at'] ) ? (int) $stored['toplevel_at'] : 0,
+		'toplevel_via'  => isset( $stored['toplevel_via'] ) ? (string) $stored['toplevel_via'] : '',
 	);
 }
 
 /**
  * Records a WordPress user's link state and stamps the attempt time,
- * PRESERVING the five counters already on record.
+ * PRESERVING the counters, flags and top-level marker already on record.
  *
  * This is a read-modify-write, not a blind overwrite, and that is load-
  * bearing: `includes/wp-idp-saml-link.php` calls this to record `asserted`
@@ -302,6 +314,8 @@ function agend_apps_wp_idp_record_link_state( int $user_id, string $state, strin
 			'renders'       => $current['renders'],
 			'completed'     => $current['completed'],
 			'fallback_done' => $current['fallback_done'],
+			'toplevel_at'   => $current['toplevel_at'],
+			'toplevel_via'  => $current['toplevel_via'],
 		)
 	);
 }
@@ -313,20 +327,20 @@ function agend_apps_wp_idp_record_link_state( int $user_id, string $state, strin
  * restate `state`/`error_code`/`timestamp` on every call the way
  * {@see agend_apps_wp_idp_record_link_state()} does.
  *
- * Only the eight known keys are honoured; anything else in `$changes` is
+ * Only the ten known keys are honoured; anything else in `$changes` is
  * silently ignored, so a typo'd key can never smuggle an arbitrary value
  * into user meta.
  *
  * @param int   $user_id WordPress user id.
- * @param array $changes Any subset of the eight state keys to overwrite.
+ * @param array $changes Any subset of the ten state keys to overwrite.
  * @return array{state: string, error_code: string, timestamp: int, attempts: int,
- *         views: int, renders: int, completed: bool, fallback_done: bool} The full
- *         state after the merge.
+ *         views: int, renders: int, completed: bool, fallback_done: bool,
+ *         toplevel_at: int, toplevel_via: string} The full state after the merge.
  */
 function agend_apps_wp_idp_merge_link_state( int $user_id, array $changes ): array {
 	$current = agend_apps_wp_idp_link_state( $user_id );
 
-	$known = array( 'state', 'error_code', 'timestamp', 'attempts', 'views', 'renders', 'completed', 'fallback_done' );
+	$known = array( 'state', 'error_code', 'timestamp', 'attempts', 'views', 'renders', 'completed', 'fallback_done', 'toplevel_at', 'toplevel_via' );
 
 	foreach ( $known as $key ) {
 		if ( array_key_exists( $key, $changes ) ) {
@@ -343,6 +357,8 @@ function agend_apps_wp_idp_merge_link_state( int $user_id, array $changes ): arr
 		'renders'       => (int) $current['renders'],
 		'completed'     => (bool) $current['completed'],
 		'fallback_done' => (bool) $current['fallback_done'],
+		'toplevel_at'   => (int) $current['toplevel_at'],
+		'toplevel_via'  => (string) $current['toplevel_via'],
 	);
 
 	if ( 0 !== $user_id ) {

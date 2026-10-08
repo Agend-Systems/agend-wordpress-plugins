@@ -157,6 +157,14 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 		public static function background_link_enabled(): bool {
 			return (bool) get_option( 'agend_apps_sso_background_link', false );
 		}
+
+		public static function signin_link_enabled(): bool {
+			return (bool) get_option( 'agend_apps_sso_signin_link', true );
+		}
+
+		public static function prerender_link_enabled(): bool {
+			return (bool) get_option( 'agend_apps_sso_prerender_link', true );
+		}
 	}
 }
 
