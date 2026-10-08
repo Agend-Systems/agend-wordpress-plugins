@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.33.0
+ * Version:           1.34.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.33.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.34.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -331,6 +331,10 @@ function agend_apps_core_bootstrap() {
 	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
 		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-link.php';
 		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-saml-link.php';
+		// The top-level triggers (link during sign-in, link before directory
+		// pages load) reuse wp-idp-saml-link.php's eligibility, issue_url() and
+		// state, so they load straight after it.
+		require_once AGEND_APPS_CORE_DIR . 'includes/wp-idp-saml-link-toplevel.php';
 	}
 
 	// WordPress-IdP diagnostics (docs/PLAN-wordpress-idp-option-b.md section

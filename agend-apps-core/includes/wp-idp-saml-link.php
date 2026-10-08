@@ -78,6 +78,18 @@
  * once per member, for the guarantee that a mis-configured site still
  * eventually gets a shot at linking every member.
  *
+ * Two further triggers run the SAME round trip at the top level (no iframe),
+ * in `includes/wp-idp-saml-link-toplevel.php`, so a member is linked before
+ * the first page that needs their identity is built, not after it has loaded:
+ * a sign-in or registration redirect is rewritten to a same-origin "start"
+ * step ({@see AGEND_APPS_SAML_LINK_START_FLAG}) that, on the next, now
+ * authenticated, request, calls {@see agend_apps_saml_link_issue_url()} with
+ * `$frame = false`; and a signed-in member's request for a directory page is
+ * sent through the round trip before any directory data is fetched. Both are
+ * gated on {@see agend_apps_saml_link_eligibility()}, the link state and the
+ * throttle, and both come back through the done handler below, which already
+ * returns the browser to the original destination for a non-framed trip.
+ *
  * Every hook here is guarded on `Agend_Apps_Settings::sso_link_mechanism()`
  * being `saml`, re-evaluated per request like the rest of the plugin: a site
  * on `disabled`, or one where `auto` currently resolves to `disabled` because
@@ -158,6 +170,51 @@ const AGEND_APPS_SAML_LINK_LOGIN_PENDING_TTL = 24 * HOUR_IN_SECONDS;
  * @var string
  */
 const AGEND_APPS_SAML_LINK_SKIP_META = '_agend_apps_saml_link_skip';
+
+/**
+ * Query key on the same-origin "start link" URL a sign-in or registration
+ * redirect is rewritten to ({@see agend_apps_saml_link_signin_redirect()}).
+ * Its presence marks a request that is itself part of the top-level link round
+ * trip, so {@see agend_apps_saml_link_request_eligible()} excludes it exactly
+ * as it excludes the done flag: the start step must never re-arm a trigger.
+ *
+ * @var string
+ */
+const AGEND_APPS_SAML_LINK_START_FLAG = 'agend_apps_saml_link_start';
+
+/**
+ * Which trigger issued a top-level round trip, as recorded in the link
+ * state's `toplevel_via` and shown in the diagnostics panel.
+ *
+ * @var string
+ */
+const AGEND_APPS_SAML_LINK_VIA_SIGNIN    = 'signin';
+const AGEND_APPS_SAML_LINK_VIA_PRERENDER = 'prerender';
+
+/**
+ * How long after a top-level round trip was issued the sign-in and pre-render
+ * triggers will not issue another for the same member. The loop guard behind
+ * a round trip that came back, or never did: a member back from the identity
+ * provider with the link still unconfirmed (a failed trip) is shown the page,
+ * not sent round again. Deliberately longer than the `asserted` backoff
+ * ({@see AGEND_APPS_LINK_BACKOFF_ASSERTED}), which on its own would let a
+ * failing trip repeat every five minutes. The lifetime attempt cap still
+ * bounds the total.
+ *
+ * @var int
+ */
+const AGEND_APPS_SAML_LINK_TOPLEVEL_WINDOW = 30 * MINUTE_IN_SECONDS;
+
+/**
+ * User meta key for the last reason a sign-in or pre-render round trip was
+ * skipped for an otherwise eligible member. Its own key rather than
+ * {@see AGEND_APPS_SAML_LINK_SKIP_META}: that one is cleared the moment the
+ * background placeholder renders, which on the very next page would wipe the
+ * explanation these triggers exist to leave behind.
+ *
+ * @var string
+ */
+const AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META = '_agend_apps_saml_link_toplevel_skip';
 
 /**
  * Resolves this site's registered Agend SP entity id from agend-saml-idp's
@@ -306,7 +363,9 @@ function agend_apps_saml_sp_ready( string $entity_id ): array {
  * ({@see AGEND_APPS_SAML_LINK_DONE_FLAG}) is excluded for the same reason:
  * the same-origin done URL this file itself builds must never re-arm the
  * trigger that produced it, or a frame landing on it would schedule another
- * placeholder on the very page that is supposed to end the round trip.
+ * placeholder on the very page that is supposed to end the round trip. The
+ * start-step flag ({@see AGEND_APPS_SAML_LINK_START_FLAG}) is excluded for the
+ * same reason.
  *
  * @param string $method Request method, e.g. `$_SERVER['REQUEST_METHOD']`.
  * @param string $path   Request path only (no query string), e.g. from
@@ -324,7 +383,7 @@ function agend_apps_saml_link_request_eligible( string $method, string $path, ar
 		return false;
 	}
 
-	foreach ( array( 'saml', 'idp_initiated', 'SAMLRequest', 'saml_action', 'option', AGEND_APPS_SAML_LINK_DONE_FLAG ) as $marker ) {
+	foreach ( array( 'saml', 'idp_initiated', 'SAMLRequest', 'saml_action', 'option', AGEND_APPS_SAML_LINK_DONE_FLAG, AGEND_APPS_SAML_LINK_START_FLAG ) as $marker ) {
 		if ( isset( $query[ $marker ] ) ) {
 			return false;
 		}
@@ -667,12 +726,20 @@ function agend_apps_saml_link_record_registry_error( int $user_id, string $reaso
  * token worker's negative cache (so a fresh attempt is not held back by an
  * earlier failed mint) -- then returns the URL.
  *
+ * `$via` names the top-level trigger issuing a NON-framed trip (`signin` or
+ * `prerender`, see `includes/wp-idp-saml-link-toplevel.php`). When given, the
+ * same state write that counts the attempt also stamps the link state's
+ * `toplevel_at` / `toplevel_via` marker and clears the last top-level skip
+ * reason, so the trip and the record of it can never disagree. It is ignored
+ * for a framed trip, and for anything but the two known values.
+ *
  * @param int    $user_id    WordPress user id.
  * @param string $return_url Where a non-framed round trip should land once done. Ignored when `$frame` is true.
  * @param bool   $frame      Whether this URL is meant to run inside a hidden iframe.
+ * @param string $via        The top-level trigger issuing this trip, or '' (the default).
  * @return array{url: string, reason: string}
  */
-function agend_apps_saml_link_issue_url( int $user_id, string $return_url, bool $frame ): array {
+function agend_apps_saml_link_issue_url( int $user_id, string $return_url, bool $frame, string $via = '' ): array {
 	$eligibility = agend_apps_saml_link_eligibility( $user_id );
 
 	$capped_fallback = ( ! $frame && ! $eligibility['eligible'] && 'attempt_cap' === $eligibility['reason'] && '' !== $eligibility['entity_id'] );
@@ -696,8 +763,21 @@ function agend_apps_saml_link_issue_url( int $user_id, string $return_url, bool 
 	$done_url = agend_apps_saml_link_done_url( $return_url, $frame );
 	$idp_url  = agend_apps_saml_link_idp_url( $eligibility['entity_id'], $done_url );
 
-	agend_apps_wp_idp_merge_link_state( $user_id, array( 'attempts' => agend_apps_wp_idp_link_state( $user_id )['attempts'] + 1 ) );
+	$changes = array( 'attempts' => agend_apps_wp_idp_link_state( $user_id )['attempts'] + 1 );
+
+	$toplevel = ( ! $frame && in_array( $via, array( AGEND_APPS_SAML_LINK_VIA_SIGNIN, AGEND_APPS_SAML_LINK_VIA_PRERENDER ), true ) );
+
+	if ( $toplevel ) {
+		$changes['toplevel_at']  = time();
+		$changes['toplevel_via'] = $via;
+	}
+
+	agend_apps_wp_idp_merge_link_state( $user_id, $changes );
 	agend_apps_wp_idp_record_link_state( $user_id, AGEND_APPS_LINK_STATE_ASSERTED );
+
+	if ( $toplevel ) {
+		delete_user_meta( $user_id, AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META );
+	}
 
 	if ( class_exists( 'Agend_Apps_Token_Worker' ) ) {
 		Agend_Apps_Token_Worker::clear_negative_cache( $user_id );
@@ -918,6 +998,7 @@ function agend_apps_saml_link_schedule_on_login( string $user_login, $user = nul
 
 		update_user_meta( $user_id, AGEND_APPS_SAML_LINK_LOGIN_PENDING_META, time() );
 		delete_user_meta( $user_id, AGEND_APPS_SAML_LINK_SKIP_META );
+		delete_user_meta( $user_id, AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META );
 	} catch ( Throwable $e ) {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( '[Agend Apps] SAML link sign-in scheduling failed: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
@@ -1048,6 +1129,27 @@ function agend_apps_saml_link_trigger_status( int $user_id ): array {
 		'reason'           => $reason,
 		'timestamp'        => $timestamp,
 		'login_pending_at' => $login_pending_at,
+	);
+}
+
+/**
+ * The facts the diagnostics panel shows about the top-level (sign-in and
+ * pre-render) round trips: when and through which trigger one was last issued
+ * (from the link state's marker), and the last reason one was skipped for an
+ * otherwise eligible member. Pure read.
+ *
+ * @param int $user_id WordPress user id.
+ * @return array{via: string, issued_at: int, skip_reason: string, skip_at: int}
+ */
+function agend_apps_saml_link_toplevel_status( int $user_id ): array {
+	$state  = agend_apps_wp_idp_link_state( $user_id );
+	$stored = ( 0 !== $user_id ) ? get_user_meta( $user_id, AGEND_APPS_SAML_LINK_TOPLEVEL_SKIP_META, true ) : '';
+
+	return array(
+		'via'         => (string) $state['toplevel_via'],
+		'issued_at'   => (int) $state['toplevel_at'],
+		'skip_reason' => ( is_array( $stored ) && isset( $stored['reason'] ) ) ? (string) $stored['reason'] : '',
+		'skip_at'     => ( is_array( $stored ) && isset( $stored['timestamp'] ) ) ? (int) $stored['timestamp'] : 0,
 	);
 }
 
