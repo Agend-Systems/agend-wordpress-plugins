@@ -291,6 +291,26 @@ The member login surface follows the same pattern:
 its own edit-mode notice for that case and otherwise echoes the core
 renderer.
 
+### Directory: require sign-in to view details
+
+The directory catalogue's `require_login_for_detail` setting (Detail View, off by
+default) puts listing details behind a sign-in for a visitor who is not signed in
+(`is_user_logged_in()`). For that visitor every link to a listing points at
+`wp_login_url( $detail_url )` instead: the card anchor and every field built from
+`common:detail_url` (Agend Link, Agend Field and Agend Image `link to detail`) in
+`agend_apps_records_render_cards()`, the cards the script builds itself, and a
+click on a card in a catalogue that opens details in place. A direct load of a
+detail path on a client-rendered catalogue sends the visitor to the same sign-in
+page before anything is drawn. The decision lives in
+`Agend_Apps_Records_Pages::login_target()`, so links and any request-time
+redirect cannot disagree. A signed-in visitor, or the setting off, gets exactly
+the previous markup and config (`requireLogin` is only written when it applies).
+
+This setting gates navigation, not data: the directory proxy routes stay public,
+like the catalogue itself. It does not yet redirect a direct request for a
+server-rendered detail URL (`/{page}/listing/{slug}/`), because that request has
+no way to read a setting that lives on a widget on the page.
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map

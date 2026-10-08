@@ -372,6 +372,13 @@ function agend_apps_records_schema_directory_catalogue(): array {
 						// (SPEC-CORE-20260908 scope-gated features).
 						'requires_feature' => 'directory_review_form',
 					),
+					array(
+						'name'        => 'require_login_for_detail',
+						'label'       => __( 'Require sign-in to view details', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Links to a listing send visitors who are not signed in to the sign-in page first, then bring them back to the listing. The cards themselves stay visible.', 'agend-apps-core' ),
+					),
 				),
 			),
 			array(

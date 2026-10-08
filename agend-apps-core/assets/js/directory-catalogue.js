@@ -432,8 +432,10 @@
 
   function renderCard(listing, cfg, onOpen, hrefFor, myListing) {
     // In server-rendered detail mode the card is a real link to the detail
-    // page (full navigation), so breadcrumbs and SEO resolve server-side.
-    var href = cfg.ssrDetail && hrefFor ? hrefFor(listing.slug) : null;
+    // page (full navigation), so breadcrumbs and SEO resolve server-side. A
+    // catalogue that needs the visitor signed in is a real link too, to the
+    // sign-in page.
+    var href = (cfg.ssrDetail || cfg.requireLogin) && hrefFor ? hrefFor(listing.slug) : null;
     var card = el(href ? 'a' : 'article', 'agend-dir-card');
     if (href) {
       card.href = href;
@@ -1703,7 +1705,23 @@
       });
     }
 
+    // The sign-in page for a detail URL, returning to it afterwards. Mirrors
+    // Agend_Apps_Records_Pages::login_target() in includes/records/pages.php,
+    // which builds the same link for the server-rendered cards.
+    function signInUrl(url) {
+      var base = cfg.loginUrl || '/wp-login.php';
+      return base + (base.indexOf('?') === -1 ? '?' : '&') + 'redirect_to=' + encodeURIComponent(url);
+    }
+
+    // Where a listing's link goes: its detail URL, or the sign-in page that
+    // returns to it when the visitor must be signed in to see it.
     function deepLinkUrl(slug) {
+      var url = detailUrl(slug);
+      return cfg.requireLogin ? signInUrl(url) : url;
+    }
+
+    // A listing's own detail URL: what the address bar shows once it is open.
+    function detailUrl(slug) {
       // The dedicated Directory page wins over the host page when configured.
       if (cfg.detailBase) {
         var detailBase = cfg.detailBase;
@@ -1732,7 +1750,7 @@
       try {
         var target;
         if (slug) {
-          target = deepLinkUrl(slug);
+          target = detailUrl(slug);
         } else if (cfg.prettyLinks && cfg.basePath) {
           target = cfg.basePath;
         } else {
@@ -1780,7 +1798,7 @@
     }
 
     function openItem(slug) {
-      if (cfg.onDetailPage === false || cfg.ssrDetail) {
+      if (cfg.onDetailPage === false || cfg.ssrDetail || cfg.requireLogin) {
         window.location.assign(deepLinkUrl(slug));
         return;
       }
@@ -1799,7 +1817,7 @@
       }
       // Off the dedicated page the anchor navigates natively, so middle-click
       // and open-in-new-tab keep working.
-      if ((cfg.onDetailPage === false || cfg.ssrDetail) && card.tagName === 'A') {
+      if ((cfg.onDetailPage === false || cfg.ssrDetail || cfg.requireLogin) && card.tagName === 'A') {
         return;
       }
       e.preventDefault();
@@ -1808,6 +1826,9 @@
 
     function fragmentGet(params) {
       var query = { template: cfg.cardTemplate, detail_page: cfg.hostPageId || 0, card_link_whole: cfg.cardLinkWhole ? 1 : 0 };
+      if (cfg.requireLogin) {
+        query.require_login = 1;
+      }
       Object.keys(params || {}).forEach(function (key) {
         query[key] = params[key];
       });
@@ -1832,6 +1853,13 @@
     }
 
     function showDetail(slug, updateUrl) {
+      // Never draw a detail for a visitor who must sign in to see it. Replace
+      // rather than assign, so Back from the sign-in page does not land on a
+      // detail URL that sends them straight back.
+      if (cfg.requireLogin) {
+        window.location.replace(deepLinkUrl(slug));
+        return;
+      }
       root.innerHTML = '';
       root.appendChild(renderDetailSkeleton());
       if (updateUrl) {
@@ -2029,6 +2057,12 @@
     // In server-rendered detail mode the detail is its own page, so the
     // catalogue widget only ever renders the grid (cards are links).
     var deepLinkSlug = cfg.ssrDetail ? '' : (cfg.deepLink || currentDeepLink());
+    if (cfg.requireLogin && deepLinkSlug) {
+      // A direct visit to a listing that needs a sign-in: leave before the
+      // catalogue draws or fetches anything.
+      window.location.replace(deepLinkUrl(deepLinkSlug));
+      return;
+    }
     if (templated) {
       // The first page is already in the DOM; only wire pagination, and
       // refetch when the server-side fetch failed.
