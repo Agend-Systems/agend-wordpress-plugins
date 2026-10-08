@@ -131,7 +131,7 @@
                             "services": "Services"
                         },
                         "label_block": true,
-                        "description": "The custom fields this site can read. Which of them a visitor receives depends on their entitlements, so a field renders empty for a visitor who is not entitled to it.",
+                        "description": "The custom fields this site can read. Which of them a visitor can see depends on their entitlements: one they are not entitled to shows the Restricted text in place of its value.",
                         "condition": {
                             "field": [
                                 "common:custom_field",
@@ -198,7 +198,19 @@
                         "label": "Fallback text",
                         "type": "text",
                         "default": "",
-                        "description": "Shown when the record has no value for this field. Leave empty to render nothing."
+                        "description": "Shown when the record has no data for this field. A custom field the visitor is not entitled to shows the Restricted text instead. Leave empty to render nothing."
+                    }
+                },
+                {
+                    "id": "restricted_text",
+                    "args": {
+                        "label": "Restricted text",
+                        "type": "text",
+                        "default": "",
+                        "description": "Shown when the visitor is not entitled to this custom field. Leave empty to use the standard wording, such as \"Members only\".",
+                        "condition": {
+                            "field": "common:custom_field"
+                        }
                     }
                 },
                 {

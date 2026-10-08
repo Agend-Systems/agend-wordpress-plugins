@@ -46,7 +46,7 @@ function agend_apps_records_schema_record_field(): array {
 						'default'     => '',
 						'options'     => 'agend_apps_records_custom_field_key_options',
 						'label_block' => true,
-						'description' => __( 'The custom fields this site can read. Which of them a visitor receives depends on their entitlements, so a field renders empty for a visitor who is not entitled to it.', 'agend-apps-core' ),
+						'description' => __( 'The custom fields this site can read. Which of them a visitor can see depends on their entitlements: one they are not entitled to shows the Restricted text in place of its value.', 'agend-apps-core' ),
 						'condition'   => array( 'field' => array( 'common:custom_field', 'common:custom_field_label' ) ),
 					),
 					array(
@@ -95,7 +95,15 @@ function agend_apps_records_schema_record_field(): array {
 						'label'       => __( 'Fallback text', 'agend-apps-core' ),
 						'type'        => 'text',
 						'default'     => '',
-						'description' => __( 'Shown when the record has no value for this field. Leave empty to render nothing.', 'agend-apps-core' ),
+						'description' => __( 'Shown when the record has no data for this field. A custom field the visitor is not entitled to shows the Restricted text instead. Leave empty to render nothing.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'restricted_text',
+						'label'       => __( 'Restricted text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'description' => __( 'Shown when the visitor is not entitled to this custom field. Leave empty to use the standard wording, such as "Members only".', 'agend-apps-core' ),
+						'condition'   => array( 'field' => 'common:custom_field' ),
 					),
 					array(
 						'name'        => 'link_to_detail',
