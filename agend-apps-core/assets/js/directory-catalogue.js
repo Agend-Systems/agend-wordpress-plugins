@@ -668,6 +668,31 @@
     return panel;
   }
 
+  // The labels the gateway gave an option-backed custom field's stored value:
+  // a string beside a single value, a list in the same order beside a list. A
+  // blank or absent label yields an empty list, so the caller falls back to
+  // `value`. Mirrors agend_apps_records_custom_field_value_labels() in PHP.
+  function customFieldValueLabels(field) {
+    var raw = field && field.value_label;
+    if (typeof raw === 'string') {
+      raw = raw.trim();
+      return raw ? [raw] : [];
+    }
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return raw
+      .filter(function (item) {
+        return typeof item === 'string' || typeof item === 'number';
+      })
+      .map(function (item) {
+        return String(item).trim();
+      })
+      .filter(function (item) {
+        return item !== '';
+      });
+  }
+
   // Renders a single public custom-field value by its type (US-4.x / Part A).
   function renderCustomFieldValue(field) {
     // A gated field arrives without a value; the gateway says why (`state`).
@@ -683,10 +708,14 @@
 
     var type = field.type || 'text';
     var value = field.value;
+    // An option-backed field stores option keys in `value` and carries the
+    // labels to show in `value_label`. Display only: the typed cases below that
+    // are not option lists (url, email, boolean, date) keep reading `value`.
+    var labels = customFieldValueLabels(field);
     if (type === 'array' && Array.isArray(value)) {
       var wrap = el('span', 'agend-dir-cf__value');
       var pills = el('span', 'agend-dir-card__pills');
-      value.forEach(function (item) {
+      (labels.length ? labels : value).forEach(function (item) {
         pills.appendChild(el('span', 'agend-dir-pill agend-dir-pill--tag', String(item)));
       });
       wrap.appendChild(pills);
@@ -713,6 +742,9 @@
     }
     if (type === 'date') {
       return el('span', 'agend-dir-cf__value', formatDate(String(value)));
+    }
+    if (labels.length) {
+      return el('span', 'agend-dir-cf__value', labels.join(', '));
     }
     return el('span', 'agend-dir-cf__value', String(value));
   }
