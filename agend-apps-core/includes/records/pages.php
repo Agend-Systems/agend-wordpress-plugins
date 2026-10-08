@@ -226,6 +226,31 @@ class Agend_Apps_Records_Pages {
 	}
 
 	/**
+	 * Decides where a visitor is sent instead of an item's detail URL when
+	 * the detail is behind a sign-in.
+	 *
+	 * The pure decision a catalogue's rendered detail links and a request-time
+	 * redirect share, so the two cannot disagree about who is gated. The
+	 * sign-in URL carries the detail URL as its return address, so a visitor
+	 * lands back on the detail once they have signed in.
+	 *
+	 * Empty when the detail is not gated (`$require_login` off), when the
+	 * visitor is already signed in, or when there is no detail URL to return
+	 * to; the caller then keeps the detail URL as it is.
+	 *
+	 * @param string $detail_url    The item's detail URL.
+	 * @param bool   $require_login Whether the detail requires a signed-in visitor.
+	 * @return string The sign-in URL to use instead, or ''.
+	 */
+	public static function login_target( string $detail_url, bool $require_login ): string {
+		if ( ! $require_login || '' === $detail_url || is_user_logged_in() ) {
+			return '';
+		}
+
+		return wp_login_url( $detail_url );
+	}
+
+	/**
 	 * The configured Elementor detail template id for a type, or 0 when none.
 	 *
 	 * Nothing reads this until the detail-template settings fields exist; the

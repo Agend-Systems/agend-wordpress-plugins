@@ -19,7 +19,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  * `host_page_id` (int, the page the catalogue sits on; the detail URL falls
  * back to it when no dedicated page is configured), `with_css` (bool, inline
  * the template CSS with the first card; for fragments requested from a page
- * that did not carry the stylesheet).
+ * that did not carry the stylesheet), and `require_login_for_detail` (bool,
+ * listings only: a card's detail link, and every field built from it, points
+ * at the sign-in page for a visitor who is not signed in, returning to the
+ * detail afterwards).
  *
  * @param string $type        'event' or 'course'.
  * @param int    $template_id The card template (a registered {@see Agend_Apps_Template_Renderer} template id).
@@ -28,10 +31,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return array<int, array{slug: string, url: string, html: string}>
  */
 function agend_apps_records_render_cards( string $type, int $template_id, array $records, array $opts = array() ): array {
-	$whole_link   = ! isset( $opts['card_link_whole'] ) || (bool) $opts['card_link_whole'];
-	$host_page_id = (int) ( $opts['host_page_id'] ?? 0 );
-	$with_css     = ! empty( $opts['with_css'] );
-	$cards        = array();
+	$whole_link    = ! isset( $opts['card_link_whole'] ) || (bool) $opts['card_link_whole'];
+	$host_page_id  = (int) ( $opts['host_page_id'] ?? 0 );
+	$with_css      = ! empty( $opts['with_css'] );
+	$require_login = 'listing' === $type && ! empty( $opts['require_login_for_detail'] );
+	$cards         = array();
 
 	Agend_Apps_Templates::ensure_styles( $template_id );
 
@@ -41,6 +45,13 @@ function agend_apps_records_render_cards( string $type, int $template_id, array 
 		}
 		$slug = isset( $record['slug'] ) ? (string) $record['slug'] : '';
 		$url  = '' !== $slug ? Agend_Apps_Records_Pages::detail_url( $type, $slug, $host_page_id ) : '';
+
+		// Swapped in before the URL reaches the context, so the card's own
+		// anchor and every field that reads common:detail_url agree.
+		$login = Agend_Apps_Records_Pages::login_target( $url, $require_login );
+		if ( '' !== $login ) {
+			$url = $login;
+		}
 
 		$extra = array(
 			'slug'         => $slug,

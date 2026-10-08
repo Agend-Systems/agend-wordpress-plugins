@@ -70,6 +70,21 @@ function agend_apps_records_directory_catalogue_filter_column( array $s ): strin
 }
 
 /**
+ * Whether this catalogue's listing details are behind a sign-in for the
+ * visitor being served: the "Require sign-in to view details" setting is on
+ * and nobody is signed in.
+ *
+ * Visitor-specific by design, so a signed-in visitor gets exactly the markup
+ * and config they got before the setting existed.
+ *
+ * @param array $s Surface settings.
+ * @return bool
+ */
+function agend_apps_records_directory_catalogue_login_gate( array $s ): bool {
+	return 'yes' === ( $s['require_login_for_detail'] ?? '' ) && ! is_user_logged_in();
+}
+
+/**
  * Builds the client-side config object from the widget settings.
  *
  * @param array $s Surface settings (Elementor-shaped values: toggles are 'yes'/'').
@@ -151,6 +166,16 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
 	// render fixtures) byte for byte.
 	if ( 'yes' !== ( $s['show_distance'] ?? 'yes' ) ) {
 		$config['card']['distance'] = false;
+	}
+
+	// Written only for a visitor the sign-in requirement applies to, so every
+	// other catalogue keeps its existing config (and its pinned render
+	// fixtures) unchanged. The script sends that visitor to the sign-in page
+	// instead of opening a listing, and builds its own links the same way
+	// agend_apps_records_render_cards() does.
+	if ( agend_apps_records_directory_catalogue_login_gate( $s ) ) {
+		$config['requireLogin'] = true;
+		$config['loginUrl']     = wp_login_url();
 	}
 
 	// Written only when switched on, so a catalogue without it keeps its
@@ -411,8 +436,9 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 		$template_id,
 		$list['items'],
 		array(
-			'card_link_whole' => $config['cardLinkWhole'],
-			'host_page_id'    => $config['hostPageId'],
+			'card_link_whole'          => $config['cardLinkWhole'],
+			'host_page_id'             => $config['hostPageId'],
+			'require_login_for_detail' => ! empty( $config['requireLogin'] ),
 		)
 	);
 	$config['initialPagination'] = $list['pagination'];
