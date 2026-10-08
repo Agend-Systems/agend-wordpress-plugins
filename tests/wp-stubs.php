@@ -1427,6 +1427,23 @@ if ( ! function_exists( 'check_admin_referer' ) ) {
 	}
 }
 
+if ( ! function_exists( 'human_time_diff' ) ) {
+	/**
+	 * Minimal stand-in for WordPress's human_time_diff(): the elapsed time
+	 * rounded to a single whole unit ("2 mins", "3 hours"), enough for a view
+	 * under test to render without asserting on exact wording.
+	 */
+	function human_time_diff( int $from, int $to = 0 ): string {
+		$diff = abs( ( 0 === $to ? time() : $to ) - $from );
+
+		if ( $diff < HOUR_IN_SECONDS ) {
+			return max( 1, (int) round( $diff / MINUTE_IN_SECONDS ) ) . ' mins';
+		}
+
+		return ( $diff < DAY_IN_SECONDS ? (int) round( $diff / HOUR_IN_SECONDS ) . ' hours' : (int) round( $diff / DAY_IN_SECONDS ) . ' days' );
+	}
+}
+
 if ( ! function_exists( 'wp_safe_redirect' ) ) {
 	/** Records the redirect location rather than sending real headers. */
 	function wp_safe_redirect( string $location, int $status = 302 ): bool {

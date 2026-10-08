@@ -456,6 +456,100 @@ function agend_apps_wp_idp_trigger_guidance( string $reason ): array {
 }
 
 /**
+ * Plain-language guidance for why a top-level link round trip (the one run as
+ * a member signs in, or before a directory page loads) was skipped for an
+ * otherwise eligible member
+ * ({@see agend_apps_saml_link_toplevel_status()}'s `skip_reason`), in the same
+ * shape as the guidance functions above.
+ *
+ * Every reason is prefixed with the trigger that stood down: `signin` (the
+ * redirect after signing in or registering) or `prerender` (the request for a
+ * directory page). Eligibility reasons (linked, attempt cap, mode, and the
+ * rest) are never recorded here; the eligibility row already explains those.
+ *
+ * @param string $reason A recorded reason, or '' when none is recorded.
+ * @return array{label: string, severity: string, guidance: string}
+ */
+function agend_apps_wp_idp_toplevel_guidance( string $reason ): array {
+	switch ( $reason ) {
+		case '':
+			return array(
+				'label'    => __( 'No skip recorded', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'Neither the sign-in link step nor the directory pre-render link step has stood down for this member since their last sign-in or round trip.', 'agend-apps-core' ),
+			);
+
+		case 'signin_admin_destination':
+			return array(
+				'label'    => __( 'Sign-in went to wp-admin', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'The member signed in to wp-admin, which is never detoured. The link attempt runs on the first admin page instead, and again on their first directory page.', 'agend-apps-core' ),
+			);
+
+		case 'signin_blocked_destination':
+			return array(
+				'label'    => __( 'Sign-in went to a purchase or account form page', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'The member signed in to the cart, the checkout or a My Account form page, so they were not detoured mid-purchase. The background link, or the directory pre-render step, links them on a later page.', 'agend-apps-core' ),
+			);
+
+		case 'signin_round_trip_done':
+		case 'prerender_round_trip_done':
+			return array(
+				'label'    => __( 'A round trip already came back', 'agend-apps-core' ),
+				'severity' => 'warning',
+				'guidance' => __( 'A link round trip has already returned for this member, yet they are still not linked, so repeating it was skipped. The gateway did not confirm the link: check the connection is approved and the API key can read identities. The background link keeps trying on its own schedule.', 'agend-apps-core' ),
+			);
+
+		case 'signin_recent_round_trip':
+		case 'prerender_recent_round_trip':
+			return array(
+				'label'    => __( 'A round trip was issued moments ago', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'A link round trip was issued for this member within the last half hour, so the page was shown rather than sending them round again. If it failed at the identity provider, the next attempt waits out this window.', 'agend-apps-core' ),
+			);
+
+		case 'signin_throttled':
+		case 'prerender_throttled':
+			return array(
+				'label'    => __( 'Waiting between attempts', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => __( 'A link attempt was made recently, so this step is waiting out its backoff window before trying again.', 'agend-apps-core' ),
+			);
+
+		default:
+			return array(
+				'label'    => __( 'Unrecognised reason', 'agend-apps-core' ),
+				'severity' => 'info',
+				'guidance' => sprintf(
+					/* translators: %s: the raw, unrecognised skip reason. */
+					__( 'Unrecognised link round trip skip reason: %s', 'agend-apps-core' ),
+					$reason
+				),
+			);
+	}
+}
+
+/**
+ * A short label for which trigger last issued a top-level round trip.
+ *
+ * @param string $via `signin`, `prerender`, or ''.
+ * @return string
+ */
+function agend_apps_wp_idp_toplevel_via_label( string $via ): string {
+	switch ( $via ) {
+		case 'signin':
+			return __( 'as the member signed in', 'agend-apps-core' );
+
+		case 'prerender':
+			return __( 'before a directory page loaded', 'agend-apps-core' );
+
+		default:
+			return '';
+	}
+}
+
+/**
  * Builds every fact the WordPress-IdP diagnostic panel shows for one
  * WordPress user. Pure read: never mints a token, attempts a link, or
  * refreshes the cached key scopes (see the file docblock).
@@ -482,6 +576,10 @@ function agend_apps_wp_idp_trigger_guidance( string $reason ): array {
  *     attempts: array{count: int, cap: int, capped: bool},
  *     trigger: array{reason: string, timestamp: int, login_pending_at: int},
  *     trigger_guidance: array{label: string, severity: string, guidance: string},
+ *     toplevel: array{via: string, issued_at: int, skip_reason: string, skip_at: int},
+ *     toplevel_via_label: string,
+ *     toplevel_guidance: array{label: string, severity: string, guidance: string},
+ *     link_toggles: array{signin: bool, prerender: bool},
  *     bearer_source: string
  * }
  */
@@ -566,6 +664,27 @@ function agend_apps_wp_idp_diagnostics( int $user_id ): array {
 			'login_pending_at' => 0,
 		);
 
+	// The top-level (sign-in and pre-render) round trips: when one was last
+	// issued and through which trigger, and why one was last skipped. A pure
+	// read, guarded like the trigger call above.
+	$toplevel = function_exists( 'agend_apps_saml_link_toplevel_status' )
+		? agend_apps_saml_link_toplevel_status( $user_id )
+		: array(
+			'via'         => '',
+			'issued_at'   => 0,
+			'skip_reason' => '',
+			'skip_at'     => 0,
+		);
+
+	// The two top-level toggles, both on unless an admin switched them off.
+	// Read through the same getters the triggers use (guarded: the settings
+	// class is always present in a real request, but a read-only panel must
+	// never fatal on it).
+	$link_toggles = array(
+		'signin'    => class_exists( 'Agend_Apps_Settings' ) && method_exists( 'Agend_Apps_Settings', 'signin_link_enabled' ) && Agend_Apps_Settings::signin_link_enabled(),
+		'prerender' => class_exists( 'Agend_Apps_Settings' ) && method_exists( 'Agend_Apps_Settings', 'prerender_link_enabled' ) && Agend_Apps_Settings::prerender_link_enabled(),
+	);
+
 	// Which path actually serves this member's bearer token right now --
 	// the "still on credentials session fallback vs SSO-linked" distinction
 	// the panel needs to answer.
@@ -616,6 +735,10 @@ function agend_apps_wp_idp_diagnostics( int $user_id ): array {
 		'attempts'             => $attempts,
 		'trigger'              => $trigger,
 		'trigger_guidance'     => agend_apps_wp_idp_trigger_guidance( (string) $trigger['reason'] ),
+		'toplevel'             => $toplevel,
+		'toplevel_via_label'   => agend_apps_wp_idp_toplevel_via_label( (string) $toplevel['via'] ),
+		'toplevel_guidance'    => agend_apps_wp_idp_toplevel_guidance( (string) $toplevel['skip_reason'] ),
+		'link_toggles'         => $link_toggles,
 		'bearer_source'        => $bearer_source,
 	);
 }
