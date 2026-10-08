@@ -102,6 +102,14 @@ function agend_apps_records_filter_resolve( string $type, string $key, string $c
  * preview of the very same settings renders fine (see
  * agend_apps_records_render_filter()).
  *
+ * A Range brackets filter with nothing to offer is the same kind of silent
+ * case. Live, "Custom brackets" with no usable line renders nothing, and an
+ * "Agend" filter whose facet has no presets is hidden by the script once it
+ * has asked (the server cannot know that without a gateway call on every
+ * page view). In an editor preview the same cases draw their explanation in
+ * place of the control, from this renderer, so no reason code is needed and
+ * neither adapter has a message of its own to keep in step.
+ *
  * @param array  $settings Surface settings (see agend_apps_records_surface_schema( 'filter' )).
  * @param string $context  The record type in scope, from
  *                         Agend_Apps_Records_Filter_Context::type(), or ''
@@ -278,6 +286,171 @@ function agend_apps_records_render_filter_view_control( array $config, bool $dis
 }
 
 /**
+ * The brackets a facet carries for one custom field, read from the gateway.
+ *
+ * Only an editor preview asks: a visitor's script reads the same facet from
+ * the page's own request, and a live render must never cost a gateway call.
+ * The facets endpoint is entitlement-scoped, so a field the person editing may
+ * not read comes back absent and previews as having no brackets.
+ *
+ * @param string $field_key The custom field key.
+ * @return array The validated presets, empty when the facet has none, cannot be read, or the API is unavailable.
+ */
+function agend_apps_records_filter_range_brackets_agend_presets( string $field_key ): array {
+	if ( '' === $field_key || ! function_exists( 'agend_apps_directory_get_facets' ) ) {
+		return array();
+	}
+
+	$facet    = 'custom.' . $field_key;
+	$response = agend_apps_directory_get_facets( array( $facet ) );
+	if ( is_wp_error( $response ) || ! is_array( $response ) || ! is_array( $response['data'] ?? null ) ) {
+		return array();
+	}
+
+	$entry = $response['data'][ $facet ] ?? null;
+	return is_array( $entry ) ? agend_apps_records_filter_range_brackets_presets( $entry['presets'] ?? null ) : array();
+}
+
+/**
+ * What a Range brackets preview has to draw: which brackets, where they came
+ * from, and which of the author's lines were skipped.
+ *
+ * @param array $config   The filter config (see agend_apps_records_filter_config()).
+ * @param array $settings Surface settings, for the raw textarea the skipped lines are read from.
+ * @return array{origin: string, brackets: array, issues: array}
+ */
+function agend_apps_records_filter_range_brackets_preview_view( array $config, array $settings ): array {
+	$opts    = $config['rangeBrackets'];
+	$presets = 'custom' === $opts['source'] ? array() : agend_apps_records_filter_range_brackets_agend_presets( (string) $config['fieldKey'] );
+	$parsed  = agend_apps_records_filter_range_brackets_parse( $settings['range_brackets_custom'] ?? '' );
+
+	return array_merge(
+		agend_apps_records_filter_range_brackets_resolve( $opts['source'], $presets, $opts['custom'] ),
+		array( 'issues' => $parsed['issues'] )
+	);
+}
+
+/**
+ * The editor-only notes under a Range brackets preview, as list markup.
+ *
+ * @param array $config The filter config.
+ * @param array $view   See agend_apps_records_filter_range_brackets_preview_view().
+ * @return string '' when there is nothing to say.
+ */
+function agend_apps_records_filter_range_brackets_notes( array $config, array $view ): string {
+	$opts  = $config['rangeBrackets'];
+	$notes = array();
+
+	if ( 'none' === $view['origin'] ) {
+		$notes[] = 'custom' === $opts['source']
+			? __( 'No brackets are configured. Add at least one line under Custom brackets, for example Under 10,000 | | 9999. Visitors see nothing until you do.', 'agend-apps-core' )
+			: __( 'No brackets are configured. Agend has none for this field (or you cannot read it here) and no custom brackets are set, so visitors see nothing. Set brackets up in Agend, or add them under Custom brackets.', 'agend-apps-core' );
+	} elseif ( 'custom' === $view['origin'] && 'custom' !== $opts['source'] ) {
+		$notes[] = __( 'Agend has no brackets for this field, so the custom brackets are used.', 'agend-apps-core' );
+	}
+
+	$messages = array(
+		/* translators: %d: a line number in the Custom brackets box. */
+		'format' => __( 'Line %d was skipped: write it as Label | min | max.', 'agend-apps-core' ),
+		/* translators: %d: a line number in the Custom brackets box. */
+		'label'  => __( 'Line %d was skipped: it has no label.', 'agend-apps-core' ),
+		/* translators: %d: a line number in the Custom brackets box. */
+		'number' => __( 'Line %d was skipped: a bound must be a plain number such as 9999 or 12.5.', 'agend-apps-core' ),
+		/* translators: %d: a line number in the Custom brackets box. */
+		'open'   => __( 'Line %d was skipped: give a minimum, a maximum, or both.', 'agend-apps-core' ),
+		/* translators: %d: a line number in the Custom brackets box. */
+		'order'  => __( 'Line %d was skipped: the minimum is above the maximum.', 'agend-apps-core' ),
+		/* translators: 1: a line number in the Custom brackets box, 2: the most brackets allowed. */
+		'limit'  => __( 'Line %1$d and any after it were skipped: at most %2$d brackets are used.', 'agend-apps-core' ),
+	);
+
+	// A long paste of bad lines should not bury the preview.
+	$shown = array_slice( $view['issues'], 0, 5 );
+	foreach ( $shown as $issue ) {
+		if ( isset( $messages[ $issue['code'] ] ) ) {
+			$notes[] = sprintf( $messages[ $issue['code'] ], $issue['line'], AGEND_APPS_RECORDS_RANGE_BRACKETS_MAX );
+		}
+	}
+	if ( count( $view['issues'] ) > count( $shown ) ) {
+		/* translators: %d: how many more custom bracket lines were skipped. */
+		$notes[] = sprintf( __( '%d more lines were skipped.', 'agend-apps-core' ), count( $view['issues'] ) - count( $shown ) );
+	}
+
+	if ( empty( $notes ) ) {
+		return '';
+	}
+
+	$html = '<ul class="agend-filter__notice" role="note">';
+	foreach ( $notes as $note ) {
+		$html .= '<li>' . esc_html( $note ) . '</li>';
+	}
+	return $html . '</ul>';
+}
+
+/**
+ * The Range brackets control's markup, shared by the live stand-in and the preview.
+ *
+ * Mirrors buildRangeBrackets() in assets/js/filters.js node for node. The first
+ * choice is always "Any", selected; a visitor's script fills in the rest, so
+ * the live stand-in draws "Any" alone, disabled and busy, in the final shape of
+ * the chosen display.
+ *
+ * @param array $config   The filter config (see agend_apps_records_filter_config()).
+ * @param array $brackets The brackets to draw after "Any" (none for the live stand-in).
+ * @param bool  $disabled Draw it disabled and busy, as the live stand-in does.
+ * @return string
+ */
+function agend_apps_records_render_filter_range_brackets_control( array $config, array $brackets, bool $disabled ): string {
+	$opts    = $config['rangeBrackets'];
+	$labels  = array_merge( array( $opts['anyLabel'] ), array_column( $brackets, 'label' ) );
+	$off     = $disabled ? ' disabled' : '';
+	$busy    = $disabled ? ' aria-busy="true"' : '';
+	$holder  = $disabled ? ' agend-filter__placeholder' : '';
+	$aria    = ' aria-label="' . esc_attr( $config['label'] ) . '"';
+	$display = $opts['display'];
+
+	if ( 'buttons' === $display ) {
+		$html = '<div class="agend-filter__options agend-filter__brackets agend-filter__brackets--buttons' . $holder . '" role="group"' . $aria . $busy . '>';
+		foreach ( $labels as $index => $label ) {
+			$html .= '<button type="button" class="agend-filter__button' . ( 0 === $index ? ' is-active' : '' ) . '" aria-pressed="' . ( 0 === $index ? 'true' : 'false' ) . '"' . $off . '>' . esc_html( $label ) . '</button>';
+		}
+		return $html . '</div>';
+	}
+
+	if ( 'radio' === $display ) {
+		$name = 'agend-filter-brackets-' . sanitize_html_class( (string) $config['fieldKey'] );
+		$html = '<div class="agend-filter__options agend-filter__brackets agend-filter__brackets--radio' . $holder . '" role="radiogroup"' . $aria . $busy . '>';
+		foreach ( $labels as $index => $label ) {
+			$html .= '<label class="agend-filter__option"><input type="radio" name="' . esc_attr( $name ) . '"' . ( 0 === $index ? ' checked' : '' ) . $off . ' /><span>' . esc_html( $label ) . '</span></label>';
+		}
+		return $html . '</div>';
+	}
+
+	$html = '<select class="agend-filter__brackets' . $holder . '"' . $aria . $busy . $off . '>';
+	foreach ( $labels as $label ) {
+		$html .= '<option>' . esc_html( $label ) . '</option>';
+	}
+	return $html . '</select>';
+}
+
+/**
+ * A Range brackets preview: the control with the brackets it would offer, and
+ * the notes an author needs, or only the notes when there is nothing to offer.
+ *
+ * @param array $config   The filter config.
+ * @param array $settings Surface settings.
+ * @return string
+ */
+function agend_apps_records_render_filter_range_brackets_preview( array $config, array $settings ): string {
+	$view = agend_apps_records_filter_range_brackets_preview_view( $config, $settings );
+	$html = empty( $view['brackets'] )
+		? ''
+		: agend_apps_records_render_filter_range_brackets_control( $config, $view['brackets'], false );
+
+	return $html . agend_apps_records_filter_range_brackets_notes( $config, $view );
+}
+
+/**
  * Builds the disabled control a live page shows until the runtime wires it.
  *
  * A facet or endpoint-backed list arrives one request after the page does,
@@ -312,6 +485,9 @@ function agend_apps_records_render_filter_placeholder_control( array $config ): 
 		case 'reset':
 			return '<button type="button" class="agend-filter__button agend-filter__reset agend-filter__placeholder" disabled>' . esc_html( '' !== $config['label'] ? $config['label'] : __( 'Clear filters', 'agend-apps-core' ) ) . '</button>';
 
+		case 'range_brackets':
+			return agend_apps_records_render_filter_range_brackets_control( $config, array(), true );
+
 		case 'range':
 			return '<div class="agend-filter__range agend-filter__placeholder" aria-busy="true"><input type="number" placeholder="' . esc_attr__( 'Min', 'agend-apps-core' ) . '" disabled /><input type="number" placeholder="' . esc_attr__( 'Max', 'agend-apps-core' ) . '" disabled /></div>';
 
@@ -333,10 +509,12 @@ function agend_apps_records_render_filter_placeholder_control( array $config ): 
  * for class, so every style control on the filter surface lands on the same
  * nodes in a preview as on the live page.
  *
- * @param array $config The filter config.
+ * @param array $config   The filter config.
+ * @param array $settings Surface settings. Only Range brackets reads them, for
+ *                        the lines of the author's list it had to skip.
  * @return string
  */
-function agend_apps_records_render_filter_preview_control( array $config ): string {
+function agend_apps_records_render_filter_preview_control( array $config, array $settings = array() ): string {
 	$any = agend_apps_records_filter_any_label( $config );
 
 	switch ( $config['control'] ) {
@@ -354,6 +532,9 @@ function agend_apps_records_render_filter_preview_control( array $config ): stri
 
 		case 'date':
 			return '<input type="date" />';
+
+		case 'range_brackets':
+			return agend_apps_records_render_filter_range_brackets_preview( $config, $settings );
 
 		case 'range':
 			return '<div class="agend-filter__range"><input type="number" placeholder="' . esc_attr__( 'Min', 'agend-apps-core' ) . '" /><input type="number" placeholder="' . esc_attr__( 'Max', 'agend-apps-core' ) . '" /></div>';
@@ -522,6 +703,13 @@ function agend_apps_records_render_filter( array $settings, array $opts = array(
 	// alongside a non-null config, so this is safe to use as-is.
 	$config = $resolved['config'];
 
+	// "Custom brackets" with no usable line leaves a visitor nothing to choose
+	// from, so there is no control to draw. An editor preview still draws, to
+	// say why (agend_apps_records_filter_range_brackets_notes()).
+	if ( ! $preview && 'range_brackets' === $config['control'] && 'custom' === $config['rangeBrackets']['source'] && empty( $config['rangeBrackets']['custom'] ) ) {
+		return '';
+	}
+
 	$classes = 'agend-filter agend-filter--' . sanitize_html_class( $config['control'] ) . ' agend-filter--' . sanitize_html_class( $key );
 	if ( $preview ) {
 		$classes .= ' agend-filter--preview';
@@ -543,7 +731,7 @@ function agend_apps_records_render_filter( array $settings, array $opts = array(
 		// drives it. Nothing does that in a preview, so the same markup is
 		// drawn here instead: a designer styles and positions exactly what a
 		// visitor will see.
-		echo agend_apps_records_render_filter_preview_control( $config ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the helper.
+		echo agend_apps_records_render_filter_preview_control( $config, $settings ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the helper.
 	} else {
 		echo agend_apps_records_render_filter_placeholder_control( $config ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the helper.
 	}
