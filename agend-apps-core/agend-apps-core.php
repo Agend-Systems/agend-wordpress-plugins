@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.31.2
+ * Version:           1.32.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.31.2' );
+define( 'AGEND_APPS_CORE_VERSION', '1.32.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -108,6 +108,12 @@ require_once AGEND_APPS_CORE_DIR . 'includes/records/settings.php';
 // page_url()/detail_url() calls work even before this plugin's own bootstrap
 // runs.
 require_once AGEND_APPS_CORE_DIR . 'includes/records/pages.php';
+
+// "Require sign-in to view details" on the Directory Catalogue: the flag a
+// widget or block mirrors to its page on save, and the wp:4 redirect that
+// reads it. Loaded unconditionally for the same reason as pages.php: the
+// redirect needs neither the gateway nor a page builder.
+require_once AGEND_APPS_CORE_DIR . 'includes/records/detail-login.php';
 
 // GitHub Releases updater, shared by every Agend plugin (Core is a
 // dependency of all of them). Loaded and booted unconditionally, ahead of

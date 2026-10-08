@@ -704,7 +704,9 @@ function agend_apps_records_ssr_custom_fields( $fields ): string {
 /**
  * Renders a single custom-field value by its type.
  *
- * @param array $field { key, label, type, value }.
+ * @param array $field { key, label, type, value, value_label? }. `value_label`
+ *                     is the label(s) for an option-backed field's stored
+ *                     `value`, shown in place of it when present.
  * @return string Value HTML.
  */
 function agend_apps_records_ssr_cf_value( array $field ): string {
@@ -720,13 +722,20 @@ function agend_apps_records_ssr_cf_value( array $field ): string {
 	$type  = $field['type'] ?? 'text';
 	$value = $field['value'] ?? '';
 
+	// An option-backed field (dropdown, multi-select, radio, checkbox group)
+	// stores option keys in `value` and carries the labels to show in
+	// `value_label`. Read here for display only; the typed cases below that are
+	// not option lists (url, email, boolean, date) keep reading `value`.
+	$labels = agend_apps_records_custom_field_value_labels( $field );
+
 	switch ( $type ) {
 		case 'array':
 			if ( ! is_array( $value ) ) {
 				return '';
 			}
 			$chips = '';
-			foreach ( $value as $item ) {
+			$items = ! empty( $labels ) ? $labels : $value;
+			foreach ( $items as $item ) {
 				$chips .= '<span class="agend-dir-pill agend-dir-pill--tag">' . esc_html( (string) $item ) . '</span>';
 			}
 			return '<span class="agend-dir-cf__value"><span class="agend-dir-card__pills">' . $chips . '</span></span>';
@@ -747,6 +756,9 @@ function agend_apps_records_ssr_cf_value( array $field ): string {
 		case 'date':
 			return '<span class="agend-dir-cf__value">' . esc_html( agend_apps_records_ssr_date( (string) $value ) ) . '</span>';
 		default:
+			if ( ! empty( $labels ) ) {
+				return '<span class="agend-dir-cf__value">' . esc_html( implode( ', ', $labels ) ) . '</span>';
+			}
 			return '<span class="agend-dir-cf__value">' . esc_html( (string) $value ) . '</span>';
 	}
 }

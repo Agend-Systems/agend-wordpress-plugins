@@ -165,6 +165,23 @@ final class ApiLogRedactorTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_redact_the_option_label_of_a_custom_field_as_it_does_the_value(): void {
+		$out = $this->redactor()->redact_value(
+			array(
+				'custom_fields' => array(
+					array( 'key' => 'dietary', 'label' => 'Dietary needs', 'type' => 'dropdown', 'value' => 'coeliac', 'value_label' => 'Coeliac' ),
+					array( 'key' => 'access', 'label' => 'Access needs', 'type' => 'multi_select', 'value' => array( 'wheelchair' ), 'value_label' => array( 'Wheelchair access' ) ),
+				),
+			)
+		);
+
+		$this->assertSame( 'Dietary needs', $out['custom_fields'][0]['label'], 'the field name is kept' );
+		$this->assertSame( '[redacted:custom]', $out['custom_fields'][0]['value'] );
+		$this->assertSame( '[redacted:custom]', $out['custom_fields'][0]['value_label'], 'a label is the answer in words and goes with it' );
+		$this->assertSame( array( '[redacted:custom]' ), $out['custom_fields'][1]['value_label'] );
+	}
+
+	#[Test]
 	public function should_keep_a_gateway_error_message_readable_when_it_is_a_diagnostic(): void {
 		$out = $this->redactor()->redact_value(
 			array(

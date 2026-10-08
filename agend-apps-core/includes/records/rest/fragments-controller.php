@@ -85,6 +85,14 @@ class Agend_Apps_Records_Fragments_Controller {
 				'type'    => 'boolean',
 				'default' => false,
 			),
+			// Listings only. Sent by the catalogue script when the widget's
+			// "Require sign-in to view details" setting applies to the
+			// visitor, the same way it sends card_link_whole: the setting
+			// lives on the widget, not in anything this request can read.
+			'require_login'   => array(
+				'type'    => 'boolean',
+				'default' => false,
+			),
 		);
 	}
 
@@ -117,9 +125,10 @@ class Agend_Apps_Records_Fragments_Controller {
 			$template_id,
 			$list['items'],
 			array(
-				'card_link_whole' => rest_sanitize_boolean( $request->get_param( 'card_link_whole' ) ),
-				'host_page_id'    => (int) $request->get_param( 'detail_page' ),
-				'with_css'        => rest_sanitize_boolean( $request->get_param( 'with_css' ) ),
+				'card_link_whole'          => rest_sanitize_boolean( $request->get_param( 'card_link_whole' ) ),
+				'host_page_id'             => (int) $request->get_param( 'detail_page' ),
+				'with_css'                 => rest_sanitize_boolean( $request->get_param( 'with_css' ) ),
+				'require_login_for_detail' => rest_sanitize_boolean( $request->get_param( 'require_login' ) ),
 			)
 		);
 

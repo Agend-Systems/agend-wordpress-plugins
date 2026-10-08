@@ -432,8 +432,10 @@
 
   function renderCard(listing, cfg, onOpen, hrefFor, myListing) {
     // In server-rendered detail mode the card is a real link to the detail
-    // page (full navigation), so breadcrumbs and SEO resolve server-side.
-    var href = cfg.ssrDetail && hrefFor ? hrefFor(listing.slug) : null;
+    // page (full navigation), so breadcrumbs and SEO resolve server-side. A
+    // catalogue that needs the visitor signed in is a real link too, to the
+    // sign-in page.
+    var href = (cfg.ssrDetail || cfg.requireLogin) && hrefFor ? hrefFor(listing.slug) : null;
     var card = el(href ? 'a' : 'article', 'agend-dir-card');
     if (href) {
       card.href = href;
@@ -668,6 +670,31 @@
     return panel;
   }
 
+  // The labels the gateway gave an option-backed custom field's stored value:
+  // a string beside a single value, a list in the same order beside a list. A
+  // blank or absent label yields an empty list, so the caller falls back to
+  // `value`. Mirrors agend_apps_records_custom_field_value_labels() in PHP.
+  function customFieldValueLabels(field) {
+    var raw = field && field.value_label;
+    if (typeof raw === 'string') {
+      raw = raw.trim();
+      return raw ? [raw] : [];
+    }
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return raw
+      .filter(function (item) {
+        return typeof item === 'string' || typeof item === 'number';
+      })
+      .map(function (item) {
+        return String(item).trim();
+      })
+      .filter(function (item) {
+        return item !== '';
+      });
+  }
+
   // Renders a single public custom-field value by its type (US-4.x / Part A).
   function renderCustomFieldValue(field) {
     // A gated field arrives without a value; the gateway says why (`state`).
@@ -683,10 +710,14 @@
 
     var type = field.type || 'text';
     var value = field.value;
+    // An option-backed field stores option keys in `value` and carries the
+    // labels to show in `value_label`. Display only: the typed cases below that
+    // are not option lists (url, email, boolean, date) keep reading `value`.
+    var labels = customFieldValueLabels(field);
     if (type === 'array' && Array.isArray(value)) {
       var wrap = el('span', 'agend-dir-cf__value');
       var pills = el('span', 'agend-dir-card__pills');
-      value.forEach(function (item) {
+      (labels.length ? labels : value).forEach(function (item) {
         pills.appendChild(el('span', 'agend-dir-pill agend-dir-pill--tag', String(item)));
       });
       wrap.appendChild(pills);
@@ -713,6 +744,9 @@
     }
     if (type === 'date') {
       return el('span', 'agend-dir-cf__value', formatDate(String(value)));
+    }
+    if (labels.length) {
+      return el('span', 'agend-dir-cf__value', labels.join(', '));
     }
     return el('span', 'agend-dir-cf__value', String(value));
   }
@@ -1671,7 +1705,23 @@
       });
     }
 
+    // The sign-in page for a detail URL, returning to it afterwards. Mirrors
+    // Agend_Apps_Records_Pages::login_target() in includes/records/pages.php,
+    // which builds the same link for the server-rendered cards.
+    function signInUrl(url) {
+      var base = cfg.loginUrl || '/wp-login.php';
+      return base + (base.indexOf('?') === -1 ? '?' : '&') + 'redirect_to=' + encodeURIComponent(url);
+    }
+
+    // Where a listing's link goes: its detail URL, or the sign-in page that
+    // returns to it when the visitor must be signed in to see it.
     function deepLinkUrl(slug) {
+      var url = detailUrl(slug);
+      return cfg.requireLogin ? signInUrl(url) : url;
+    }
+
+    // A listing's own detail URL: what the address bar shows once it is open.
+    function detailUrl(slug) {
       // The dedicated Directory page wins over the host page when configured.
       if (cfg.detailBase) {
         var detailBase = cfg.detailBase;
@@ -1700,7 +1750,7 @@
       try {
         var target;
         if (slug) {
-          target = deepLinkUrl(slug);
+          target = detailUrl(slug);
         } else if (cfg.prettyLinks && cfg.basePath) {
           target = cfg.basePath;
         } else {
@@ -1748,7 +1798,7 @@
     }
 
     function openItem(slug) {
-      if (cfg.onDetailPage === false || cfg.ssrDetail) {
+      if (cfg.onDetailPage === false || cfg.ssrDetail || cfg.requireLogin) {
         window.location.assign(deepLinkUrl(slug));
         return;
       }
@@ -1767,7 +1817,7 @@
       }
       // Off the dedicated page the anchor navigates natively, so middle-click
       // and open-in-new-tab keep working.
-      if ((cfg.onDetailPage === false || cfg.ssrDetail) && card.tagName === 'A') {
+      if ((cfg.onDetailPage === false || cfg.ssrDetail || cfg.requireLogin) && card.tagName === 'A') {
         return;
       }
       e.preventDefault();
@@ -1776,6 +1826,9 @@
 
     function fragmentGet(params) {
       var query = { template: cfg.cardTemplate, detail_page: cfg.hostPageId || 0, card_link_whole: cfg.cardLinkWhole ? 1 : 0 };
+      if (cfg.requireLogin) {
+        query.require_login = 1;
+      }
       Object.keys(params || {}).forEach(function (key) {
         query[key] = params[key];
       });
@@ -1800,6 +1853,13 @@
     }
 
     function showDetail(slug, updateUrl) {
+      // Never draw a detail for a visitor who must sign in to see it. Replace
+      // rather than assign, so Back from the sign-in page does not land on a
+      // detail URL that sends them straight back.
+      if (cfg.requireLogin) {
+        window.location.replace(deepLinkUrl(slug));
+        return;
+      }
       root.innerHTML = '';
       root.appendChild(renderDetailSkeleton());
       if (updateUrl) {
@@ -1997,6 +2057,12 @@
     // In server-rendered detail mode the detail is its own page, so the
     // catalogue widget only ever renders the grid (cards are links).
     var deepLinkSlug = cfg.ssrDetail ? '' : (cfg.deepLink || currentDeepLink());
+    if (cfg.requireLogin && deepLinkSlug) {
+      // A direct visit to a listing that needs a sign-in: leave before the
+      // catalogue draws or fetches anything.
+      window.location.replace(deepLinkUrl(deepLinkSlug));
+      return;
+    }
     if (templated) {
       // The first page is already in the DOM; only wire pagination, and
       // refetch when the server-side fetch failed.
