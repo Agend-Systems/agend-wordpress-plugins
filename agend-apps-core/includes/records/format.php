@@ -398,8 +398,8 @@ function agend_apps_records_item_list_columns( array $entry, array $only = array
  * The text of one item cell, unescaped; '' when there is nothing to show.
  *
  * A `number` cell takes thousands separators and keeps the decimals the value
- * has (12500 reads 12,500 and 3.75 reads 3.75). A value that is not numeric
- * stays as it was written.
+ * has (12500 reads 12,500 and 3.75 reads 3.75). A value that is not numeric, or
+ * is too large to be a number (1e999), stays as it was written.
  *
  * @param mixed  $value The item's value for the column.
  * @param string $type  The column type, 'text' or 'number'.
@@ -411,7 +411,7 @@ function agend_apps_records_item_list_cell_text( $value, string $type ): string 
 	}
 
 	$text = trim( (string) $value );
-	if ( '' === $text || 'number' !== $type || ! is_numeric( $text ) ) {
+	if ( '' === $text || 'number' !== $type || ! is_numeric( $text ) || ! is_finite( (float) $text ) ) {
 		return $text;
 	}
 
@@ -473,7 +473,7 @@ function agend_apps_records_render_item_list( array $entry, array $options = arr
 
 	$head = '';
 	foreach ( $columns as $column ) {
-		$head .= '<th scope="col"' . ( 'number' === $column['type'] ? ' class="agend-dir-cf__item-list-cell--number"' : '' ) . '>' . esc_html( $column['label'] ) . '</th>';
+		$head .= '<th' . ( 'number' === $column['type'] ? ' class="agend-dir-cf__item-list-cell--number"' : '' ) . ' scope="col">' . esc_html( $column['label'] ) . '</th>';
 	}
 
 	$body = '';
@@ -485,7 +485,12 @@ function agend_apps_records_render_item_list( array $entry, array $options = arr
 		$body .= '</tr>';
 	}
 
-	return '<div class="agend-dir-cf__item-list-wrap"><table class="agend-dir-cf__item-list agend-dir-cf__item-list--table"><thead><tr>' . $head . '</tr></thead><tbody>' . $body . '</tbody></table></div>';
+	// The wrapper scrolls, so it takes keyboard focus for a browser that does not
+	// focus a scroller itself, and is named for a screen reader by the field.
+	$name = isset( $entry['label'] ) && is_scalar( $entry['label'] ) ? trim( (string) $entry['label'] ) : '';
+	$wrap = '<div class="agend-dir-cf__item-list-wrap" tabindex="0"' . ( '' !== $name ? ' role="region" aria-label="' . esc_attr( $name ) . '"' : '' ) . '>';
+
+	return $wrap . '<table class="agend-dir-cf__item-list agend-dir-cf__item-list--table"><thead><tr>' . $head . '</tr></thead><tbody>' . $body . '</tbody></table></div>';
 }
 
 /**

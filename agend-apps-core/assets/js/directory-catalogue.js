@@ -817,7 +817,15 @@
       return list;
     }
 
+    // The wrapper scrolls, so it takes keyboard focus for a browser that does not
+    // focus a scroller itself, and is named for a screen reader by the field.
     var wrap = el('div', 'agend-dir-cf__item-list-wrap');
+    wrap.setAttribute('tabindex', '0');
+    var name = typeof field.label === 'string' || typeof field.label === 'number' ? String(field.label).trim() : '';
+    if (name) {
+      wrap.setAttribute('role', 'region');
+      wrap.setAttribute('aria-label', name);
+    }
     var table = el('table', 'agend-dir-cf__item-list agend-dir-cf__item-list--table');
     var headRow = el('tr');
     columns.forEach(function (column) {

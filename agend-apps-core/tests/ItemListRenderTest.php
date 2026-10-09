@@ -110,7 +110,7 @@ final class ItemListRenderTest extends TestCase {
 	public function should_draw_a_header_row_of_item_field_labels_and_a_row_per_item_in_stored_order(): void {
 		$html = \agend_apps_records_render_item_list( $this->tenants() );
 
-		self::assertStringStartsWith( '<div class="agend-dir-cf__item-list-wrap"><table class="agend-dir-cf__item-list agend-dir-cf__item-list--table">', $html );
+		self::assertStringStartsWith( '<div class="agend-dir-cf__item-list-wrap" tabindex="0" role="region" aria-label="Tenants"><table class="agend-dir-cf__item-list agend-dir-cf__item-list--table">', $html );
 		self::assertSame( array( 'Tenant', 'Category', 'Area (sqm)' ), $this->headings( $html ) );
 		self::assertSame(
 			array(
@@ -150,7 +150,7 @@ final class ItemListRenderTest extends TestCase {
 	public function should_mark_number_columns_so_they_can_align_right(): void {
 		$html = \agend_apps_records_render_item_list( $this->tenants() );
 
-		self::assertStringContainsString( '<th scope="col" class="agend-dir-cf__item-list-cell--number">Area (sqm)</th>', $html );
+		self::assertStringContainsString( '<th class="agend-dir-cf__item-list-cell--number" scope="col">Area (sqm)</th>', $html );
 		self::assertStringContainsString( '<td class="agend-dir-cf__item-list-cell--number">12,500</td>', $html );
 		self::assertStringContainsString( '<th scope="col">Tenant</th>', $html );
 	}
@@ -192,6 +192,84 @@ final class ItemListRenderTest extends TestCase {
 
 		self::assertCount( 2, $this->bodyRows( \agend_apps_records_render_item_list( $entry ) ) );
 		self::assertCount( 1, $this->bodyRows( \agend_apps_records_render_item_list( $entry, array( 'fields' => array( 'name' ) ) ) ) );
+	}
+
+	#[Test]
+	public function should_leave_a_number_too_large_to_be_one_as_written(): void {
+		self::assertSame( '1e999', \agend_apps_records_item_list_cell_text( '1e999', 'number' ) );
+		self::assertSame( '-1e999', \agend_apps_records_item_list_cell_text( '-1e999', 'number' ) );
+		self::assertSame( '1,000', \agend_apps_records_item_list_cell_text( '1e3', 'number' ) );
+	}
+
+	// -- the scrolling wrapper -------------------------------------------------
+
+	#[Test]
+	public function should_make_the_scrolling_wrapper_focusable_and_named_by_the_field_label(): void {
+		$html = \agend_apps_records_render_item_list( $this->tenants( array( 'label' => 'Centre tenants' ) ) );
+
+		self::assertStringStartsWith( '<div class="agend-dir-cf__item-list-wrap" tabindex="0" role="region" aria-label="Centre tenants">', $html );
+	}
+
+	#[Test]
+	public function should_escape_the_field_label_in_the_wrapper_name(): void {
+		$html = \agend_apps_records_render_item_list( $this->tenants( array( 'label' => 'A "B" <i>C</i>' ) ) );
+
+		self::assertStringContainsString( 'aria-label="A &quot;B&quot; &lt;i&gt;C&lt;/i&gt;"', $html );
+		self::assertStringNotContainsString( '<i>', $html );
+	}
+
+	#[Test]
+	public function should_keep_the_wrapper_focusable_but_not_claim_a_region_when_the_field_has_no_label(): void {
+		$entry = $this->tenants();
+		unset( $entry['label'] );
+
+		self::assertStringStartsWith( '<div class="agend-dir-cf__item-list-wrap" tabindex="0"><table', \agend_apps_records_render_item_list( $entry ) );
+		self::assertStringNotContainsString( 'role=', \agend_apps_records_render_item_list( $entry ) );
+	}
+
+	#[Test]
+	public function should_not_make_a_list_a_scrolling_region(): void {
+		self::assertStringNotContainsString( 'tabindex', \agend_apps_records_render_item_list( $this->tenants(), array( 'layout' => 'list' ) ) );
+	}
+
+	// -- shared markup fixture -------------------------------------------------
+
+	/**
+	 * Every case of tests/fixtures/item-list-render.json: an entry, the options
+	 * and the markup both renderers must draw. The catalogue script is held to
+	 * the same file by tests/js/item-list-render.test.mjs.
+	 *
+	 * @return array<string, array{array<string, mixed>, array<string, mixed>, string}>
+	 */
+	public static function fixture_cases(): array {
+		$fixture = json_decode( (string) file_get_contents( __DIR__ . '/fixtures/item-list-render.json' ), true );
+		$cases   = array();
+		foreach ( $fixture['cases'] as $case ) {
+			$cases[ $case['name'] ] = array( $case['entry'], $case['options'], $case['html'] );
+		}
+
+		return $cases;
+	}
+
+	/**
+	 * @param array<string, mixed> $entry   The custom field entry.
+	 * @param array<string, mixed> $options The renderer's options.
+	 * @param string               $html    The markup the fixture expects.
+	 */
+	#[DataProvider( 'fixture_cases' )]
+	#[Test]
+	public function should_draw_the_shared_fixture_markup( array $entry, array $options, string $html ): void {
+		self::assertSame( $html, \agend_apps_records_render_item_list( $entry, $options ) );
+	}
+
+	#[Test]
+	public function should_cover_every_layout_and_edge_the_two_renderers_must_agree_on(): void {
+		$names = array_keys( self::fixture_cases() );
+
+		self::assertGreaterThanOrEqual( 15, count( $names ) );
+		foreach ( array( 'table_default', 'list_layout', 'fields_filter_keeps_declared_order', 'fields_filter_ignores_unknown_keys', 'fields_filter_with_no_match_shows_every_field', 'without_item_fields_uses_first_seen_keys_as_columns', 'number_formatting_in_a_table', 'hostile_cells_and_labels_in_a_table', 'empty_list_renders_nothing' ) as $required ) {
+			self::assertContains( $required, $names );
+		}
 	}
 
 	// -- item fields filter ----------------------------------------------------
@@ -328,7 +406,7 @@ final class ItemListRenderTest extends TestCase {
 	public function should_show_an_item_list_in_the_detail_as_a_table_by_default(): void {
 		$html = \agend_apps_records_ssr_cf_value( $this->tenants() );
 
-		self::assertStringStartsWith( '<div class="agend-dir-cf__value"><div class="agend-dir-cf__item-list-wrap"><table', $html );
+		self::assertStringStartsWith( '<div class="agend-dir-cf__value"><div class="agend-dir-cf__item-list-wrap" tabindex="0" role="region" aria-label="Tenants"><table', $html );
 		self::assertStringContainsString( '<td>Cafe</td>', $html );
 		self::assertStringNotContainsString( 'Array', $html );
 	}

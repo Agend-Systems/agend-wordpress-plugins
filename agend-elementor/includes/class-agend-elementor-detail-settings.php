@@ -29,6 +29,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Agend_Elementor_Detail_Settings {
 
 	/**
+	 * The Directory Catalogue's Elementor widget name.
+	 */
+	const WIDGET_TYPE = 'agend-directory-catalogue';
+
+	/**
+	 * The post meta Elementor stores a document's element tree in.
+	 */
+	const DATA_META_KEY = '_elementor_data';
+
+	/**
+	 * The post meta that says which editor builds a page. `builder` while
+	 * Elementor does; a page switched back to the block editor keeps its
+	 * element data but loses this value.
+	 */
+	const EDIT_MODE_META_KEY = '_elementor_edit_mode';
+
+	/**
 	 * Registers the filter. Called from the plugin bootstrap.
 	 */
 	public static function init(): void {
@@ -50,7 +67,7 @@ final class Agend_Elementor_Detail_Settings {
 				continue;
 			}
 
-			if ( 'widget' === ( $element['elType'] ?? '' ) && Agend_Elementor_Detail_Login_Flag::WIDGET_TYPE === ( $element['widgetType'] ?? '' ) ) {
+			if ( 'widget' === ( $element['elType'] ?? '' ) && self::WIDGET_TYPE === ( $element['widgetType'] ?? '' ) ) {
 				return is_array( $element['settings'] ?? null ) ? $element['settings'] : array();
 			}
 
@@ -69,14 +86,22 @@ final class Agend_Elementor_Detail_Settings {
 	 * The Directory Catalogue settings saved on an Elementor page.
 	 *
 	 * The element data is read as post meta rather than through the Elementor
-	 * document, for the reason Agend_Elementor_Detail_Login_Flag::DATA_META_KEY
-	 * gives: a read here must never write to the document.
+	 * document: in edit mode the document API converts a document with no
+	 * element data into one and saves it, and a read here must never write. A
+	 * page Elementor no longer builds is skipped, because its element data is
+	 * left behind when it is switched back to the block editor and would give a
+	 * stale choice.
 	 *
 	 * @param int $post_id The page's post id.
-	 * @return array|null The settings, or null when the page holds no catalogue.
+	 * @return array|null The settings, or null when the page is not built with
+	 *                    Elementor or holds no catalogue.
 	 */
 	public static function for_post( int $post_id ): ?array {
-		$data = get_post_meta( $post_id, Agend_Elementor_Detail_Login_Flag::DATA_META_KEY, true );
+		if ( 'builder' !== get_post_meta( $post_id, self::EDIT_MODE_META_KEY, true ) ) {
+			return null;
+		}
+
+		$data = get_post_meta( $post_id, self::DATA_META_KEY, true );
 
 		if ( is_string( $data ) && '' !== $data ) {
 			$data = json_decode( $data, true );
