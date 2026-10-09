@@ -379,6 +379,25 @@ function agend_apps_records_schema_directory_catalogue(): array {
 						'default'     => false,
 						'description' => __( 'Visitors who are not signed in are sent to the sign-in page when they open a listing, or follow a link to one, and return to the listing afterwards. The cards themselves stay visible. Only detected when this catalogue is placed on the page itself, not inside a saved or theme-builder template.', 'agend-apps-core' ),
 					),
+					array(
+						'name'        => 'item_list_layout',
+						'label'       => __( 'Item list layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'table',
+						'options'     => array(
+							'table' => __( 'Table', 'agend-apps-core' ),
+							'list'  => __( 'List', 'agend-apps-core' ),
+						),
+						'description' => __( 'How the listing detail shows an item list custom field, such as a centre\'s tenants: a table with a column per item field, or a list with one line per item. Applies to every item list on the detail. Server-rendered detail pages read this from the catalogue on the page itself, not inside a saved or theme-builder template.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'item_list_fields',
+						'label'       => __( 'Item fields', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'label_block' => true,
+						'description' => __( 'The item field keys to show in every item list, separated by commas, for example name,area. Leave empty to show them all. They keep the order they are declared in, and a key the list does not have is ignored.', 'agend-apps-core' ),
+					),
 				),
 			),
 			array(

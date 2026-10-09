@@ -165,6 +165,23 @@ function agend_apps_records_preview_placeholder_record( string $type ): array {
 				array( 'key' => 'abn', 'label' => 'ABN', 'type' => 'text', 'value' => '00 000 000 000' ),
 				array( 'key' => 'established', 'label' => 'Established', 'type' => 'text', 'value' => '2014' ),
 				array( 'key' => 'services', 'label' => 'Services', 'type' => 'array', 'value' => array( 'Advisory', 'Audit' ) ),
+				// An item list in the gateway's shape: `value` is the items in
+				// stored order, `item_fields` declares their fields.
+				array(
+					'key'         => 'tenants',
+					'label'       => 'Tenants',
+					'type'        => 'item_list',
+					'value'       => array(
+						array( 'name' => 'Sample Cafe', 'category' => 'Food and beverage', 'area_sqm' => 85 ),
+						array( 'name' => 'Sample Pharmacy', 'category' => 'Health', 'area_sqm' => 120 ),
+						array( 'name' => 'Sample Department Store', 'category' => 'Retail', 'area_sqm' => 12500 ),
+					),
+					'item_fields' => array(
+						array( 'key' => 'name', 'label' => 'Tenant', 'type' => 'text' ),
+						array( 'key' => 'category', 'label' => 'Category', 'type' => 'text' ),
+						array( 'key' => 'area_sqm', 'label' => 'Area (sqm)', 'type' => 'number' ),
+					),
+				),
 			),
 			'achievements'               => array(
 				array( 'name' => 'Sample Credential', 'type' => 'certificate', 'earned_at' => gmdate( 'c', time() - ( 30 * DAY_IN_SECONDS ) ) ),

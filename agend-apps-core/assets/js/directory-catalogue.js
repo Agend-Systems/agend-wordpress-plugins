@@ -695,8 +695,155 @@
       });
   }
 
+  // Item list custom fields. These mirror agend_apps_records_item_list_*() in
+  // includes/records/format.php, which draws the same markup server-side.
+
+  // The item field keys to show, and the layout, from the catalogue config.
+  // Anything unrecognised is the default: a table of every item field.
+  function itemListOptions(cfg) {
+    var set = (cfg && cfg.detail && cfg.detail.itemList) || {};
+    return {
+      layout: set.layout === 'list' ? 'list' : 'table',
+      fields: Array.isArray(set.fields) ? set.fields.map(String) : [],
+    };
+  }
+
+  // The columns an item list shows, in declared order. `item_fields` is the
+  // gateway's declaration ({ key, label, type }); a gateway that predates it
+  // sends none, so the item keys in first-seen order are both order and
+  // headings. `only` limits the columns to the named keys without reordering
+  // them, and is dropped when it names nothing the list has.
+  function itemListColumns(field, only) {
+    var columns = [];
+    var seen = Object.create(null);
+    if (Array.isArray(field.item_fields)) {
+      field.item_fields.forEach(function (declared) {
+        if (!declared || (typeof declared.key !== 'string' && typeof declared.key !== 'number')) {
+          return;
+        }
+        var key = String(declared.key).trim();
+        if (!key || seen[key]) {
+          return;
+        }
+        seen[key] = true;
+        var label = typeof declared.label === 'string' ? declared.label.trim() : '';
+        columns.push({ key: key, label: label || key, type: declared.type === 'number' ? 'number' : 'text' });
+      });
+    }
+    if (!columns.length) {
+      field.value.forEach(function (item) {
+        if (!item || typeof item !== 'object') {
+          return;
+        }
+        Object.keys(item).forEach(function (key) {
+          if (!seen[key]) {
+            seen[key] = true;
+            columns.push({ key: key, label: key, type: 'text' });
+          }
+        });
+      });
+    }
+    if (only.length) {
+      var chosen = columns.filter(function (column) {
+        return only.indexOf(column.key) !== -1;
+      });
+      if (chosen.length) {
+        return chosen;
+      }
+    }
+    return columns;
+  }
+
+  // The page's own language (WordPress sets <html lang>), so numbers group the
+  // way the server-rendered detail groups them rather than by the visitor's
+  // browser locale.
+  function formatItemNumber(number) {
+    var options = { maximumFractionDigits: 10 };
+    try {
+      return number.toLocaleString(document.documentElement.lang || undefined, options);
+    } catch (e) {
+      return number.toLocaleString(undefined, options);
+    }
+  }
+
+  // The text of one item cell; '' when there is nothing to show. A number cell
+  // takes thousands separators and keeps the decimals the value has, and a value
+  // that is not numeric stays as written.
+  function itemListCellText(value, type) {
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      return '';
+    }
+    var text = String(value).trim();
+    if (!text || type !== 'number' || !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(text) || !isFinite(Number(text))) {
+      return text;
+    }
+    return formatItemNumber(Number(text));
+  }
+
+  // Draws an item list as a table (header row of item field labels, one row per
+  // item in stored order, scrolling sideways inside its own container) or as a
+  // list (one entry per item, the shown values joined by ", "). An item with
+  // nothing to show is left out; null when nothing is left. Every cell is set
+  // as text, never markup.
+  function renderItemList(field, options) {
+    if (!Array.isArray(field.value)) {
+      return null;
+    }
+    var columns = itemListColumns(field, options.fields);
+    if (!columns.length) {
+      return null;
+    }
+    var rows = [];
+    field.value.forEach(function (item) {
+      if (!item || typeof item !== 'object') {
+        return;
+      }
+      var cells = columns.map(function (column) {
+        return itemListCellText(item[column.key], column.type);
+      });
+      if (cells.join('')) {
+        rows.push(cells);
+      }
+    });
+    if (!rows.length) {
+      return null;
+    }
+
+    if (options.layout === 'list') {
+      var list = el('ul', 'agend-dir-cf__item-list agend-dir-cf__item-list--list');
+      rows.forEach(function (cells) {
+        list.appendChild(el('li', '', cells.filter(Boolean).join(', ')));
+      });
+      return list;
+    }
+
+    var wrap = el('div', 'agend-dir-cf__item-list-wrap');
+    var table = el('table', 'agend-dir-cf__item-list agend-dir-cf__item-list--table');
+    var headRow = el('tr');
+    columns.forEach(function (column) {
+      var th = el('th', column.type === 'number' ? 'agend-dir-cf__item-list-cell--number' : '', column.label);
+      th.setAttribute('scope', 'col');
+      headRow.appendChild(th);
+    });
+    var thead = el('thead');
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    var tbody = el('tbody');
+    rows.forEach(function (cells) {
+      var tr = el('tr');
+      cells.forEach(function (text, index) {
+        tr.appendChild(el('td', columns[index].type === 'number' ? 'agend-dir-cf__item-list-cell--number' : '', text));
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+  }
+
   // Renders a single public custom-field value by its type (US-4.x / Part A).
-  function renderCustomFieldValue(field) {
+  // Null for an item list with nothing to show, so the caller leaves the row out.
+  function renderCustomFieldValue(field, cfg) {
     // A gated field arrives without a value; the gateway says why (`state`).
     // Mirror the server-rendered detail: name the reason, never a blank.
     if (field && field.gated) {
@@ -710,6 +857,15 @@
 
     var type = field.type || 'text';
     var value = field.value;
+    if (type === 'item_list') {
+      var itemList = renderItemList(field, itemListOptions(cfg));
+      if (!itemList) {
+        return null;
+      }
+      var itemListValue = el('div', 'agend-dir-cf__value');
+      itemListValue.appendChild(itemList);
+      return itemListValue;
+    }
     // An option-backed field stores option keys in `value` and carries the
     // labels to show in `value_label`. Display only: the typed cases below that
     // are not option lists (url, email, boolean, date) keep reading `value`.
@@ -799,7 +955,7 @@
   }
 
   // Renders the public custom fields as a "Details" section, or null if none.
-  function renderCustomFields(fields) {
+  function renderCustomFields(fields, cfg) {
     if (!Array.isArray(fields) || !fields.length) {
       return null;
     }
@@ -811,10 +967,14 @@
       if (!field || !field.label) {
         return;
       }
+      var value = renderCustomFieldValue(field, cfg);
+      if (!value) {
+        return;
+      }
       any = true;
-      var row = el('div', 'agend-dir-cf__row');
+      var row = el('div', field.type === 'item_list' && !field.gated ? 'agend-dir-cf__row agend-dir-cf__row--item-list' : 'agend-dir-cf__row');
       row.appendChild(el('span', 'agend-dir-cf__label', field.label));
-      row.appendChild(renderCustomFieldValue(field));
+      row.appendChild(value);
       list.appendChild(row);
     });
     if (!any) {
@@ -877,7 +1037,7 @@
       main.appendChild(about);
     }
 
-    var detailsSection = renderCustomFields(listing.custom_fields);
+    var detailsSection = renderCustomFields(listing.custom_fields, cfg);
     if (detailsSection) {
       main.appendChild(detailsSection);
     }
