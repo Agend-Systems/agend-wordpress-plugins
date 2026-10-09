@@ -405,14 +405,23 @@ and now renders as one of two layouts:
 
 - **Table** (the default). A header row of the item field labels and one row per
   item in stored order, inside `.agend-dir-cf__item-list-wrap`, which scrolls
-  sideways on a narrow screen so the page itself does not.
+  sideways on a narrow screen so the page itself does not. The wrapper takes
+  keyboard focus (`tabindex="0"`) and is a named region (`role="region"`,
+  `aria-label` is the field's label) so it can be scrolled without a mouse.
 - **List**. One entry per item: the shown fields' values in declared order,
   joined by ", ", empty values skipped.
 
 `number` cells take thousands separators (`number_format_i18n()` on the server,
 the page's own `lang` in the script) and keep the value's own decimals. Every
 cell is escaped. An item with nothing to show in the chosen fields is left out,
-and a list with no item left renders nothing, not even its label.
+and a list with no item left renders nothing, not even its label. A number too
+large to be one (`1e999`) stays as written.
+
+`tests/fixtures/item-list-render.json` pins the markup. `ItemListRenderTest` holds
+the PHP renderer to every case, and `tests/js/item-list-render.test.mjs` (run with
+`node --test`, no dependencies, wired into the `blocks` CI job) loads the script's
+renderer into a fake `document` and holds it to the same cases. Change the markup in
+both renderers and re-record the fixture together.
 
 Two controls choose how, both with new names that nothing else uses:
 
@@ -446,6 +455,11 @@ Where each reaches the page:
   flattened text. It always renders in a `div`, whatever HTML tag is chosen, and
   without the before and after text. An empty or missing list shows the
   widget's fallback text; a restricted one shows its restricted text and no values.
+- **Retired panel and templated details.** The retired `listing_custom_fields`
+  panel, and any templated detail that still renders the whole Details section,
+  always use the default table of every item field, since the Detail View controls
+  belong to the catalogue widget. For a layout or fields chosen per widget, use an
+  Agend Field pointed at the custom field.
 
 The table and list styles are `assets/css/item-list.css`, registered as
 `agend-apps-records-item-list` and a dependency of both the directory catalogue

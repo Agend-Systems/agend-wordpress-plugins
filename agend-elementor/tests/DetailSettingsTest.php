@@ -20,7 +20,6 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/detail-login.
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/format.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/fragments.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/ssr-detail.php';
-require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-detail-login-flag.php';
 require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-detail-settings.php';
 
 /**
@@ -61,7 +60,7 @@ final class DetailSettingsTest extends TestCase {
 		);
 	}
 
-	private function seedPage( int $id, ?array $tree ): WP_Post {
+	private function seedPage( int $id, ?array $tree, bool $built_with_elementor = true ): WP_Post {
 		$GLOBALS['agend_test_posts'][ $id ] = array(
 			'ID'          => $id,
 			'post_type'   => 'page',
@@ -70,6 +69,9 @@ final class DetailSettingsTest extends TestCase {
 
 		if ( null !== $tree ) {
 			$GLOBALS['agend_test_post_meta'][ $id ]['_elementor_data'] = wp_json_encode( $tree );
+		}
+		if ( $built_with_elementor ) {
+			$GLOBALS['agend_test_post_meta'][ $id ]['_elementor_edit_mode'] = 'builder';
 		}
 
 		return new WP_Post( array( 'ID' => $id ) );
@@ -141,6 +143,29 @@ final class DetailSettingsTest extends TestCase {
 		self::assertSame( array( 'item_list_layout' => 'list' ), Agend_Elementor_Detail_Settings::for_post( 42 ) );
 		self::assertNull( Agend_Elementor_Detail_Settings::for_post( 43 ) );
 		self::assertNull( Agend_Elementor_Detail_Settings::for_post( 44 ) );
+	}
+
+	#[Test]
+	public function should_ignore_element_data_left_on_a_page_elementor_no_longer_builds(): void {
+		$tree = array( $this->widget( 'agend-directory-catalogue', array( 'item_list_layout' => 'list' ) ) );
+		$host = $this->seedPage( 42, $tree, false );
+
+		self::assertNull( Agend_Elementor_Detail_Settings::for_post( 42 ) );
+		self::assertSame( array(), Agend_Elementor_Detail_Settings::filter( array(), $host ) );
+
+		$GLOBALS['agend_test_post_meta'][42]['_elementor_edit_mode'] = '';
+		self::assertNull( Agend_Elementor_Detail_Settings::for_post( 42 ) );
+
+		$GLOBALS['agend_test_post_meta'][42]['_elementor_edit_mode'] = 'builder';
+		self::assertSame( array( 'item_list_layout' => 'list' ), Agend_Elementor_Detail_Settings::for_post( 42 ) );
+	}
+
+	#[Test]
+	public function should_use_the_defaults_in_the_server_rendered_detail_for_a_page_switched_back_to_the_block_editor(): void {
+		Agend_Elementor_Detail_Settings::init();
+		$host = $this->seedPage( 42, array( $this->widget( 'agend-directory-catalogue', array( 'item_list_layout' => 'list' ) ) ), false );
+
+		self::assertSame( array( 'layout' => 'table', 'fields' => array() ), agend_apps_records_ssr_item_list_options( $this->listing(), $host ) );
 	}
 
 	#[Test]

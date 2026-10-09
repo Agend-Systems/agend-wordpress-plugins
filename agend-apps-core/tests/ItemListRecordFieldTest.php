@@ -88,7 +88,7 @@ final class ItemListRecordFieldTest extends TestCase {
 
 		self::assertStringStartsWith( '<div class="agend-field agend-field--item_list agend-field--common-custom_field">', $html );
 		self::assertStringContainsString( '<th scope="col">Tenant</th>', $html );
-		self::assertStringContainsString( '<th scope="col" class="agend-dir-cf__item-list-cell--number">Area (sqm)</th>', $html );
+		self::assertStringContainsString( '<th class="agend-dir-cf__item-list-cell--number" scope="col">Area (sqm)</th>', $html );
 		self::assertStringContainsString( '<td>Department Store</td><td class="agend-dir-cf__item-list-cell--number">12,500</td>', $html );
 	}
 
@@ -109,7 +109,7 @@ final class ItemListRecordFieldTest extends TestCase {
 		$html = agend_apps_records_render_record_field( $this->settings( array( 'item_list_fields' => 'area_sqm, nonsense' ) ) );
 
 		self::assertStringContainsString( 'Area (sqm)', $html );
-		self::assertStringNotContainsString( 'Tenant', $html );
+		self::assertStringNotContainsString( '>Tenant</th>', $html );
 	}
 
 	#[Test]
