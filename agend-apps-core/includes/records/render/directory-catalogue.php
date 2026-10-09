@@ -21,6 +21,10 @@ require_once __DIR__ . '/../surface-gate.php';
 // the two cannot drift; a caller loading this renderer alone needs them too.
 require_once __DIR__ . '/../schema/directory-catalogue.php';
 
+// The Detail View's item list options are read through the shared item list
+// helpers, which live with the formatters.
+require_once __DIR__ . '/../format.php';
+
 /**
  * Normalises a SELECT2 multiple value to a clean string list.
  *
@@ -166,6 +170,14 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
 	// render fixtures) byte for byte.
 	if ( 'yes' !== ( $s['show_distance'] ?? 'yes' ) ) {
 		$config['card']['distance'] = false;
+	}
+
+	// Written only when it differs from the defaults (a table of every item
+	// field), like the two above, so a catalogue that leaves item lists alone
+	// keeps its existing config (and its pinned render fixtures) unchanged.
+	$item_list = agend_apps_records_item_list_options( $s );
+	if ( 'table' !== $item_list['layout'] || ! empty( $item_list['fields'] ) ) {
+		$config['detail']['itemList'] = $item_list;
 	}
 
 	// Written only for a visitor the sign-in requirement applies to, so every

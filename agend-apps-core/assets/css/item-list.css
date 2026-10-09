@@ -1,0 +1,67 @@
+/* Item list custom field: a table or a list. Shared by the Directory listing
+   detail and the Agend Field surface, so the colour tokens fall back for a page
+   that is not inside a catalogue. */
+
+.agend-dir-cf__item-list-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.agend-dir-cf__item-list--table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.agend-dir-cf__item-list--table th,
+.agend-dir-cf__item-list--table td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--agend-dir-border, rgba(0, 0, 0, 0.12));
+}
+
+.agend-dir-cf__item-list--table th {
+  color: var(--agend-dir-muted, inherit);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.agend-dir-cf__item-list--table .agend-dir-cf__item-list-cell--number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agend-dir-cf__item-list--table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.agend-dir-cf__item-list--list {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.agend-dir-cf__item-list--list li {
+  margin: 0 0 4px;
+}
+
+/* In a listing's Details grid an item list takes the whole row, and may shrink
+   below its content so the table scrolls inside its container rather than
+   widening the page. */
+.agend-dir-cf__row--item-list {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+/* Agend Field: the field is a block, and may sit in a flex or grid container
+   that would otherwise stretch to the table's width. */
+.agend-field--item_list {
+  min-width: 0;
+  max-width: 100%;
+}

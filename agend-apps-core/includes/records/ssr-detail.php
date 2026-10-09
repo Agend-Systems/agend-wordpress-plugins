@@ -675,12 +675,93 @@ function agend_apps_records_ssr_achievements( $achievements ): string {
 }
 
 /**
+ * The attributes of the first block with the given name, depth first.
+ *
+ * @param array  $blocks Blocks as parse_blocks() returns them.
+ * @param string $name   Block name, e.g. 'agend-apps/directory-catalogue'.
+ * @return array|null The block's attributes, or null when the tree has none.
+ */
+function agend_apps_records_ssr_first_block_attrs( array $blocks, string $name ): ?array {
+	foreach ( $blocks as $block ) {
+		if ( ! is_array( $block ) ) {
+			continue;
+		}
+		if ( $name === ( $block['blockName'] ?? null ) ) {
+			return is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+		}
+		if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+			$found = agend_apps_records_ssr_first_block_attrs( $block['innerBlocks'], $name );
+			if ( null !== $found ) {
+				return $found;
+			}
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Display options for the item lists on a server-rendered listing detail.
+ *
+ * The built-in detail never renders the Directory catalogue widget, so the
+ * "Item list layout" and "Item fields" chosen on it are read back from the
+ * catalogue on the host page: the first block-editor catalogue in the page's
+ * content, or whatever a page builder supplies through the
+ * `agend_apps_records_directory_detail_settings` filter (Agend Elementor reads
+ * its own element data there; core never parses another builder's data). Only a
+ * catalogue placed in the page's own content is seen, as with the sign-in
+ * switch (detail-login.php). Skipped, at no cost, for a listing with no item
+ * list.
+ *
+ * @param array   $item Listing detail (gateway shape).
+ * @param WP_Post $host The catalogue (host) page.
+ * @return array{layout: string, fields: string[]}|array{} Options as
+ *         agend_apps_records_item_list_options() returns them, or array() when
+ *         the listing has no item list.
+ */
+function agend_apps_records_ssr_item_list_options( array $item, WP_Post $host ): array {
+	$has_item_list = false;
+	foreach ( is_array( $item['custom_fields'] ?? null ) ? $item['custom_fields'] : array() as $field ) {
+		if ( is_array( $field ) && empty( $field['gated'] ) && 'item_list' === ( $field['type'] ?? '' ) ) {
+			$has_item_list = true;
+			break;
+		}
+	}
+	if ( ! $has_item_list ) {
+		return array();
+	}
+
+	$settings = array();
+	$content  = (string) $host->post_content;
+	if ( false !== strpos( $content, 'wp:' . AGEND_APPS_RECORDS_DIRECTORY_BLOCK ) ) {
+		$settings = (array) agend_apps_records_ssr_first_block_attrs( parse_blocks( $content ), AGEND_APPS_RECORDS_DIRECTORY_BLOCK );
+	}
+
+	/**
+	 * Filters the Directory catalogue settings the server-rendered listing
+	 * detail reads for the host page.
+	 *
+	 * Keyed by the surface schema's field names. Only `item_list_layout` and
+	 * `item_list_fields` are read today. Already filled from a block-editor
+	 * catalogue when the page has one; a page builder fills it in otherwise.
+	 *
+	 * @param array   $settings The catalogue's settings, or array() when none was found.
+	 * @param WP_Post $host     The catalogue (host) page.
+	 */
+	$settings = apply_filters( 'agend_apps_records_directory_detail_settings', $settings, $host );
+
+	return agend_apps_records_item_list_options( is_array( $settings ) ? $settings : array() );
+}
+
+/**
  * Renders the public custom fields ("Details" section) as a label/value list.
  *
  * @param mixed $fields Array of { key, label, type, value }, or null.
+ * @param array $opts   Display options for an `item_list` field, as
+ *                      agend_apps_records_item_list_options() returns.
  * @return string Section HTML, or empty string.
  */
-function agend_apps_records_ssr_custom_fields( $fields ): string {
+function agend_apps_records_ssr_custom_fields( $fields, array $opts = array() ): string {
 	if ( ! is_array( $fields ) || empty( $fields ) ) {
 		return '';
 	}
@@ -689,9 +770,14 @@ function agend_apps_records_ssr_custom_fields( $fields ): string {
 		if ( empty( $field['label'] ) ) {
 			continue;
 		}
-		$rows .= '<div class="agend-dir-cf__row"><span class="agend-dir-cf__label">'
+		$is_item_list = empty( $field['gated'] ) && 'item_list' === ( $field['type'] ?? '' );
+		$value        = agend_apps_records_ssr_cf_value( $field, $opts );
+		if ( $is_item_list && '' === $value ) {
+			continue;
+		}
+		$rows .= '<div class="agend-dir-cf__row' . ( $is_item_list ? ' agend-dir-cf__row--item-list' : '' ) . '"><span class="agend-dir-cf__label">'
 			. esc_html( $field['label'] ) . '</span>'
-			. agend_apps_records_ssr_cf_value( $field ) . '</div>';
+			. $value . '</div>';
 	}
 	if ( '' === $rows ) {
 		return '';
@@ -704,12 +790,16 @@ function agend_apps_records_ssr_custom_fields( $fields ): string {
 /**
  * Renders a single custom-field value by its type.
  *
- * @param array $field { key, label, type, value, value_label? }. `value_label`
- *                     is the label(s) for an option-backed field's stored
- *                     `value`, shown in place of it when present.
+ * @param array $field { key, label, type, value, value_label?, item_fields? }.
+ *                     `value_label` is the label(s) for an option-backed
+ *                     field's stored `value`, shown in place of it when
+ *                     present. An `item_list` field's `value` is its items and
+ *                     `item_fields` the declaration of their fields.
+ * @param array $opts  Display options for an `item_list` field, as
+ *                     agend_apps_records_item_list_options() returns.
  * @return string Value HTML.
  */
-function agend_apps_records_ssr_cf_value( array $field ): string {
+function agend_apps_records_ssr_cf_value( array $field, array $opts = array() ): string {
 	// A gated field arrives without a value: the gateway withholds it and says
 	// why (`state`). Show that reason in place of a blank, so a visitor can tell
 	// "you may not see this" from "nothing recorded".
@@ -755,6 +845,9 @@ function agend_apps_records_ssr_cf_value( array $field ): string {
 				. '</span>';
 		case 'date':
 			return '<span class="agend-dir-cf__value">' . esc_html( agend_apps_records_ssr_date( (string) $value ) ) . '</span>';
+		case 'item_list':
+			$list = agend_apps_records_render_item_list( $field, $opts );
+			return '' !== $list ? '<div class="agend-dir-cf__value">' . $list . '</div>' : '';
 		default:
 			if ( ! empty( $labels ) ) {
 				return '<span class="agend-dir-cf__value">' . esc_html( implode( ', ', $labels ) ) . '</span>';
@@ -832,7 +925,7 @@ function agend_apps_records_render_directory_detail( array $item, string $slug, 
 				<div class="agend-dir-detail__main">
 					<?php echo agend_apps_records_fragment_listing_about( $item ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
-					<?php echo agend_apps_records_ssr_custom_fields( $item['custom_fields'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+					<?php echo agend_apps_records_ssr_custom_fields( $item['custom_fields'] ?? array(), agend_apps_records_ssr_item_list_options( $item, $host ) ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 
 					<?php echo agend_apps_records_ssr_achievements( $item['achievements'] ?? array() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 

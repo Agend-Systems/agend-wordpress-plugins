@@ -28,7 +28,7 @@ require_once __DIR__ . '/format.php';
 /**
  * Field kinds. `agend_apps_records_format_field()` switches on these.
  */
-const AGEND_APPS_RECORDS_FIELD_KINDS = array( 'text', 'html', 'url', 'date', 'date_range', 'date_time', 'price', 'list', 'bool', 'number' );
+const AGEND_APPS_RECORDS_FIELD_KINDS = array( 'text', 'html', 'url', 'date', 'date_range', 'date_time', 'price', 'list', 'bool', 'number', 'item_list' );
 
 /**
  * Reads the first non-empty string at the given paths of a record.
@@ -336,6 +336,36 @@ function agend_apps_records_record_custom_field( array $record, string $key ): s
 		return is_scalar( $value ) ? trim( (string) $value ) : '';
 	}
 	return '';
+}
+
+/**
+ * An `item_list` custom field entry from a record, by its key.
+ *
+ * An item list is a list of objects, so agend_apps_records_record_custom_field()
+ * cannot flatten it to text. This returns the whole entry, `value` (the items)
+ * and `item_fields` (their declaration) together, for
+ * agend_apps_records_render_item_list(). A gated entry, an entry of another
+ * type and a missing key all return null, so a withheld field never reaches the
+ * renderer.
+ *
+ * @param array  $record The record.
+ * @param string $key    The custom-field key.
+ * @return array|null The entry, or null when the key is not a readable item list.
+ */
+function agend_apps_records_record_custom_field_item_list( array $record, string $key ): ?array {
+	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
+		return null;
+	}
+	foreach ( $record['custom_fields'] as $entry ) {
+		if ( ! is_array( $entry ) || ( $entry['key'] ?? '' ) !== $key ) {
+			continue;
+		}
+		if ( ! empty( $entry['gated'] ) || 'item_list' !== ( $entry['type'] ?? '' ) ) {
+			return null;
+		}
+		return $entry;
+	}
+	return null;
 }
 
 /**
@@ -680,7 +710,11 @@ function agend_apps_records_field_registry(): array {
 			'label' => __( 'Custom field (by key)', 'agend-apps-core' ),
 			'kind'  => 'text',
 			'get'   => static function ( array $record, string $type, array $extra ) {
-				return agend_apps_records_record_custom_field( $record, (string) ( $extra['custom_field_key'] ?? '' ) );
+				$key = (string) ( $extra['custom_field_key'] ?? '' );
+				// An item list is the one custom field that is not text: its
+				// kind follows the record, see agend_apps_records_field_kind_for_record().
+				$item_list = agend_apps_records_record_custom_field_item_list( $record, $key );
+				return null !== $item_list ? $item_list : agend_apps_records_record_custom_field( $record, $key );
 			},
 		),
 		'common:custom_field_label' => array(
@@ -732,6 +766,28 @@ function agend_apps_records_field_registry(): array {
 function agend_apps_records_field_kind( string $key ): string {
 	$registry = agend_apps_records_field_registry();
 	return isset( $registry[ $key ] ) ? (string) $registry[ $key ]['kind'] : '';
+}
+
+/**
+ * The kind a field renders as for one record.
+ *
+ * The registry's kind, except that a custom field is `text` only until the
+ * record says otherwise: when the key names an `item_list` entry the field is
+ * an item list, and agend_apps_records_field_value() returns that entry for
+ * agend_apps_records_format_field() to draw as a table or list.
+ *
+ * @param string $key    Field key.
+ * @param array  $record The record.
+ * @param array  $extra  Render context; `custom_field_key` when the field is a
+ *                       custom one.
+ * @return string The kind, or '' for an unknown key.
+ */
+function agend_apps_records_field_kind_for_record( string $key, array $record, array $extra = array() ): string {
+	if ( 'common:custom_field' === $key && null !== agend_apps_records_record_custom_field_item_list( $record, (string) ( $extra['custom_field_key'] ?? '' ) ) ) {
+		return 'item_list';
+	}
+
+	return agend_apps_records_field_kind( $key );
 }
 
 /**
@@ -898,7 +954,9 @@ function agend_apps_records_field_options( ?array $kinds = null ): array {
  * `timezone` (DateTimeZone), `list_separator` (default ', '), `list_max`
  * (0 = all), `price_prefix`, `price_free_label` (default 'Free'),
  * `bool_true` / `bool_false` (default 'Yes' / ''), `number_suffix`,
- * `truncate` (characters, 0 = off; applies to text and stripped html).
+ * `truncate` (characters, 0 = off; applies to text and stripped html),
+ * `item_list` (display options for the item_list kind, as
+ * agend_apps_records_item_list_options() returns them).
  *
  * @param mixed  $value The raw value from agend_apps_records_field_value().
  * @param string $kind  The field kind.
@@ -964,6 +1022,9 @@ function agend_apps_records_format_field( $value, string $kind, array $opts = ar
 		case 'bool':
 			return esc_html( (string) ( $value ? ( $opts['bool_true'] ?? __( 'Yes', 'agend-apps-core' ) ) : ( $opts['bool_false'] ?? '' ) ) );
 
+		case 'item_list':
+			return is_array( $value ) ? agend_apps_records_render_item_list( $value, is_array( $opts['item_list'] ?? null ) ? $opts['item_list'] : array() ) : '';
+
 		case 'number':
 			if ( ! is_numeric( $value ) ) {
 				return '';
@@ -1014,7 +1075,7 @@ function agend_apps_records_truncate_text( string $text, int $limit ): string {
  * @return string Escaped HTML, or ''.
  */
 function agend_apps_records_render_field( string $key, string $type, array $record, array $extra = array(), array $opts = array() ): string {
-	$kind = agend_apps_records_field_kind( $key );
+	$kind = agend_apps_records_field_kind_for_record( $key, $record, $extra );
 	if ( '' === $kind ) {
 		return '';
 	}

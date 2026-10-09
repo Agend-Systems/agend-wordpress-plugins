@@ -295,6 +295,200 @@ function agend_apps_records_custom_field_value_labels( array $entry ): array {
 }
 
 /**
+ * Display options for an item list from a surface's settings.
+ *
+ * Both the Directory catalogue's Detail View and the Agend Field surface
+ * declare the same two controls, `item_list_layout` and `item_list_fields`, so
+ * every caller reads them here. An unrecognised layout is the table, and the
+ * fields control is a comma-separated list of item field keys.
+ *
+ * @param array $settings Surface settings.
+ * @return array{layout: string, fields: string[]} `layout` is 'table' or 'list'; `fields`
+ *         is empty when every item field should show.
+ */
+function agend_apps_records_item_list_options( array $settings ): array {
+	$layout = isset( $settings['item_list_layout'] ) && 'list' === $settings['item_list_layout'] ? 'list' : 'table';
+	$raw    = isset( $settings['item_list_fields'] ) && is_scalar( $settings['item_list_fields'] ) ? (string) $settings['item_list_fields'] : '';
+
+	return array(
+		'layout' => $layout,
+		'fields' => array_values( array_unique( array_filter( array_map( 'trim', explode( ',', $raw ) ), 'strlen' ) ) ),
+	);
+}
+
+/**
+ * The items of an `item_list` custom field entry, in stored order.
+ *
+ * @param array $entry A `custom_fields` entry: { key, label, type, value, item_fields? }.
+ * @return array<int, array> The items that are objects; anything else in `value` is dropped.
+ */
+function agend_apps_records_item_list_items( array $entry ): array {
+	$value = $entry['value'] ?? array();
+
+	return is_array( $value ) ? array_values( array_filter( $value, 'is_array' ) ) : array();
+}
+
+/**
+ * The columns an item list shows, in declared order.
+ *
+ * `item_fields` is the gateway's declaration of the list's fields, as
+ * `{ key, label, type }` in the order the account declared them. A gateway
+ * that predates it sends none, so the item keys in first-seen order stand in
+ * for both order and headings. `$only` limits the columns to the named keys but
+ * never reorders them, ignores a key the list does not have, and is dropped
+ * altogether when it names nothing the list has.
+ *
+ * @param array    $entry A `custom_fields` entry.
+ * @param string[] $only  Item field keys to show; empty shows all.
+ * @return array<int, array{key: string, label: string, type: string}> `type` is 'text' or 'number'.
+ */
+function agend_apps_records_item_list_columns( array $entry, array $only = array() ): array {
+	$columns = array();
+
+	if ( isset( $entry['item_fields'] ) && is_array( $entry['item_fields'] ) ) {
+		foreach ( $entry['item_fields'] as $field ) {
+			if ( ! is_array( $field ) || ! isset( $field['key'] ) || ! is_scalar( $field['key'] ) ) {
+				continue;
+			}
+			$key = trim( (string) $field['key'] );
+			if ( '' === $key || isset( $columns[ $key ] ) ) {
+				continue;
+			}
+			$label = isset( $field['label'] ) && is_scalar( $field['label'] ) ? trim( (string) $field['label'] ) : '';
+
+			$columns[ $key ] = array(
+				'key'   => $key,
+				'label' => '' !== $label ? $label : $key,
+				'type'  => isset( $field['type'] ) && 'number' === $field['type'] ? 'number' : 'text',
+			);
+		}
+	}
+
+	if ( empty( $columns ) ) {
+		foreach ( agend_apps_records_item_list_items( $entry ) as $item ) {
+			foreach ( array_keys( $item ) as $key ) {
+				$key = (string) $key;
+				if ( ! isset( $columns[ $key ] ) ) {
+					$columns[ $key ] = array( 'key' => $key, 'label' => $key, 'type' => 'text' );
+				}
+			}
+		}
+	}
+
+	$columns = array_values( $columns );
+
+	if ( ! empty( $only ) ) {
+		$chosen = array_values(
+			array_filter(
+				$columns,
+				static function ( array $column ) use ( $only ): bool {
+					return in_array( $column['key'], $only, true );
+				}
+			)
+		);
+		if ( ! empty( $chosen ) ) {
+			return $chosen;
+		}
+	}
+
+	return $columns;
+}
+
+/**
+ * The text of one item cell, unescaped; '' when there is nothing to show.
+ *
+ * A `number` cell takes thousands separators and keeps the decimals the value
+ * has (12500 reads 12,500 and 3.75 reads 3.75). A value that is not numeric
+ * stays as it was written.
+ *
+ * @param mixed  $value The item's value for the column.
+ * @param string $type  The column type, 'text' or 'number'.
+ * @return string
+ */
+function agend_apps_records_item_list_cell_text( $value, string $type ): string {
+	if ( ! is_scalar( $value ) || is_bool( $value ) ) {
+		return '';
+	}
+
+	$text = trim( (string) $value );
+	if ( '' === $text || 'number' !== $type || ! is_numeric( $text ) ) {
+		return $text;
+	}
+
+	$number = (float) $text;
+	$plain  = preg_match( '/^[+-]?\d*\.?\d*$/', $text ) ? $text : number_format( $number, 10, '.', '' );
+	$dot    = strpos( $plain, '.' );
+
+	return number_format_i18n( $number, false === $dot ? 0 : strlen( rtrim( substr( $plain, $dot + 1 ), '0' ) ) );
+}
+
+/**
+ * Renders an `item_list` custom field as a table or a list.
+ *
+ * The one PHP renderer for an item list, shared by the built-in detail and the
+ * Agend Field surface; assets/js/directory-catalogue.js draws the same markup
+ * client-side. Table (the default) is a header row of the item field labels and
+ * one row per item in stored order, in a container that scrolls sideways so a
+ * wide table never widens the page. List is one entry per item, the shown
+ * values joined by ", " in declared order. An item with nothing to show in the
+ * chosen fields is left out of both, and a list with no item left renders
+ * nothing. Every cell is escaped.
+ *
+ * @param array $entry   A `custom_fields` entry: { key, label, type, value, item_fields? }.
+ * @param array $options `layout` ('table' or 'list') and `fields` (item field
+ *                       keys to show), as agend_apps_records_item_list_options() returns.
+ * @return string Escaped HTML, or '' when there is nothing to show.
+ */
+function agend_apps_records_render_item_list( array $entry, array $options = array() ): string {
+	if ( ! empty( $entry['gated'] ) ) {
+		return '';
+	}
+
+	$columns = agend_apps_records_item_list_columns( $entry, isset( $options['fields'] ) && is_array( $options['fields'] ) ? $options['fields'] : array() );
+	if ( empty( $columns ) ) {
+		return '';
+	}
+
+	$rows = array();
+	foreach ( agend_apps_records_item_list_items( $entry ) as $item ) {
+		$cells = array();
+		foreach ( $columns as $column ) {
+			$cells[] = agend_apps_records_item_list_cell_text( $item[ $column['key'] ] ?? '', $column['type'] );
+		}
+		if ( '' !== implode( '', $cells ) ) {
+			$rows[] = $cells;
+		}
+	}
+	if ( empty( $rows ) ) {
+		return '';
+	}
+
+	if ( 'list' === ( $options['layout'] ?? 'table' ) ) {
+		$entries = '';
+		foreach ( $rows as $cells ) {
+			$entries .= '<li>' . esc_html( implode( ', ', array_filter( $cells, 'strlen' ) ) ) . '</li>';
+		}
+		return '<ul class="agend-dir-cf__item-list agend-dir-cf__item-list--list">' . $entries . '</ul>';
+	}
+
+	$head = '';
+	foreach ( $columns as $column ) {
+		$head .= '<th scope="col"' . ( 'number' === $column['type'] ? ' class="agend-dir-cf__item-list-cell--number"' : '' ) . '>' . esc_html( $column['label'] ) . '</th>';
+	}
+
+	$body = '';
+	foreach ( $rows as $cells ) {
+		$body .= '<tr>';
+		foreach ( $cells as $index => $text ) {
+			$body .= '<td' . ( 'number' === $columns[ $index ]['type'] ? ' class="agend-dir-cf__item-list-cell--number"' : '' ) . '>' . esc_html( $text ) . '</td>';
+		}
+		$body .= '</tr>';
+	}
+
+	return '<div class="agend-dir-cf__item-list-wrap"><table class="agend-dir-cf__item-list agend-dir-cf__item-list--table"><thead><tr>' . $head . '</tr></thead><tbody>' . $body . '</tbody></table></div>';
+}
+
+/**
  * The short label shown in place of a gated custom field's value.
  *
  * Mirrors the gateway's `state` vocabulary for a withheld field. The plain
