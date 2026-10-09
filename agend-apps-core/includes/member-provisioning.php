@@ -330,3 +330,137 @@ function agend_apps_member_provision_on_user_register( $user_id, $userdata = arr
 	);
 }
 add_action( 'user_register', 'agend_apps_member_provision_on_user_register', 10, 2 );
+
+/**
+ * Emails whose Agend password-reset link was requested during this request.
+ *
+ * @param string|null $email Email to record, or null to read.
+ * @return string[] Lower-cased emails recorded so far.
+ */
+function agend_apps_member_reset_requested( ?string $email = null ): array {
+	static $emails = array();
+
+	if ( null !== $email && '' !== $email ) {
+		$emails[ $email ] = true;
+	}
+
+	return array_keys( $emails );
+}
+
+/**
+ * Requests the Agend password-reset email for a user the login bridge
+ * authenticates against the gateway.
+ *
+ * The user_register hook above registers a dashboard account with a random
+ * password, and the login bridge then checks every sign-in against that
+ * account first. WordPress's own reset and invite emails only change the
+ * WordPress password, which the gateway never sees and has no endpoint to
+ * accept, so a person could set a password through them and still be refused
+ * at sign-in. The Agend reset email is the one that lets them in.
+ *
+ * Asks the gateway at most once per email per request. Never discloses whether
+ * the gateway knows the email.
+ *
+ * @param WP_User $user User being reset or invited.
+ * @return bool True when the Agend reset was requested, so WordPress's own
+ *              email can stand down; false to leave WordPress's email alone.
+ */
+function agend_apps_member_request_agend_reset( WP_User $user ): bool {
+	$email = strtolower( trim( (string) $user->user_email ) );
+
+	if ( '' === $email || ! is_email( $email ) ) {
+		return false;
+	}
+
+	if ( in_array( $email, agend_apps_member_reset_requested(), true ) ) {
+		return true;
+	}
+
+	/** This filter is documented in includes/wp-login-bridge.php. */
+	if ( ! apply_filters( 'agend_apps_wp_login_bridge_enabled', true, $email ) ) {
+		return false;
+	}
+
+	$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+
+	if ( function_exists( 'agend_apps_auth_forgot_password_throttle' ) && ! agend_apps_auth_forgot_password_throttle( $email, $ip ) ) {
+		return false;
+	}
+
+	$payload = array( 'email' => $email );
+
+	// Same landing page as the member-login widget's forgot-password request.
+	$reset_url = Agend_Apps_Settings::get_member_reset_url();
+	if ( '' !== $reset_url ) {
+		$payload['redirect_to'] = $reset_url;
+	}
+
+	$response = agend_apps_auth_forgot_password( $payload );
+
+	if ( is_wp_error( $response ) ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+				sprintf( '[Agend Apps] Agend password reset request failed for user %d (status %d).', $user->ID, agend_apps_auth_error_status( $response ) )
+			);
+		}
+		return false;
+	}
+
+	agend_apps_member_reset_requested( $email );
+
+	return true;
+}
+
+/**
+ * Requests the Agend reset when WordPress starts a password reset
+ * (Users > Send password reset, wp-login.php?action=lostpassword). Both call
+ * `retrieve_password()`, which fires this action before it sends its email.
+ *
+ * @param string $user_login Login name of the user being reset.
+ */
+function agend_apps_member_reset_on_retrieve_password( $user_login ): void {
+	$user = get_user_by( 'login', (string) $user_login );
+
+	if ( $user instanceof WP_User ) {
+		agend_apps_member_request_agend_reset( $user );
+	}
+}
+add_action( 'retrieve_password', 'agend_apps_member_reset_on_retrieve_password', 10, 1 );
+
+/**
+ * Stops WordPress's own password-reset email once the Agend one has been
+ * requested, so the person is not sent a link that cannot sign them in.
+ *
+ * @param bool    $send       Whether to send the email.
+ * @param string  $user_login Login name.
+ * @param WP_User $user_data  User being reset.
+ * @return bool
+ */
+function agend_apps_member_skip_wordpress_reset_email( $send, $user_login = '', $user_data = null ) {
+	if ( ! $send || ! $user_data instanceof WP_User ) {
+		return $send;
+	}
+
+	return ! in_array( strtolower( trim( (string) $user_data->user_email ) ), agend_apps_member_reset_requested(), true );
+}
+add_filter( 'send_retrieve_password_email', 'agend_apps_member_skip_wordpress_reset_email', 10, 3 );
+
+/**
+ * Sends the Agend reset in place of WordPress's new-user invite.
+ *
+ * WordPress decides whether to send the invite before it creates the reset key
+ * (so before `retrieve_password` fires), which is why the invite needs its own
+ * hook. A throttled or failed gateway call leaves the invite to go out.
+ *
+ * @param bool    $send Whether to send the invite.
+ * @param WP_User $user The new user.
+ * @return bool
+ */
+function agend_apps_member_skip_wordpress_invite( $send, $user = null ) {
+	if ( true !== $send || ! $user instanceof WP_User ) {
+		return $send;
+	}
+
+	return ! agend_apps_member_request_agend_reset( $user );
+}
+add_filter( 'wp_send_new_user_notification_to_user', 'agend_apps_member_skip_wordpress_invite', 10, 2 );
