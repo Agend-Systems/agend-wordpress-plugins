@@ -385,6 +385,74 @@ like the catalogue itself. The decision lives in
 `Agend_Apps_Records_Pages::login_target()`, so rendered links and the redirect
 cannot disagree.
 
+### Directory: item list custom fields
+
+A listing's `item_list` custom field, for example a shopping centre's tenants, is
+a list of objects. `GET /v1/directory/listings/{slugOrId}` returns it as
+`{ key, label, type: 'item_list', value, item_fields }`: `value` is the items in
+stored order, each `{ <item_key>: string | number }`, and `item_fields` is the
+list's declaration, `{ key, label, type: 'text' | 'number' }` in declared order.
+The gateway omits an empty list, and sends a restricted one as the usual gated
+entry with no `value`. A gateway that predates `item_fields` sends none, and the
+renderers then use the item keys in first-seen order as both the column order
+and the headings.
+
+Every surface that shows a custom field draws an item list through one PHP
+renderer, `agend_apps_records_render_item_list()` in `includes/records/format.php`
+(the catalogue script, `assets/js/directory-catalogue.js`, draws the same markup
+client-side), so a list used to render as "Array", "[object Object]" or nothing
+and now renders as one of two layouts:
+
+- **Table** (the default). A header row of the item field labels and one row per
+  item in stored order, inside `.agend-dir-cf__item-list-wrap`, which scrolls
+  sideways on a narrow screen so the page itself does not.
+- **List**. One entry per item: the shown fields' values in declared order,
+  joined by ", ", empty values skipped.
+
+`number` cells take thousands separators (`number_format_i18n()` on the server,
+the page's own `lang` in the script) and keep the value's own decimals. Every
+cell is escaped. An item with nothing to show in the chosen fields is left out,
+and a list with no item left renders nothing, not even its label.
+
+Two controls choose how, both with new names that nothing else uses:
+
+- `item_list_layout` (Table or List) and `item_list_fields` (item field keys,
+  comma separated; blank shows all). **Item fields** limits the columns, or the
+  list's values, to the named keys *in declared order*, ignores a key the list
+  does not have, and shows every field when none of them match.
+- On the **Directory catalogue** (Detail View) they apply to every item list on
+  the detail. On the **Agend Field** surface (shown for a custom field) they
+  apply to that one field.
+
+Where each reaches the page:
+
+- **Client-rendered detail.** The catalogue config carries
+  `detail.itemList = { layout, fields }`, written only when it is not the default,
+  so an existing catalogue's config is unchanged.
+- **Server-rendered detail.** The detail never renders the widget, so
+  `agend_apps_records_ssr_item_list_options()` reads the choice back from the
+  catalogue on the host page, and only for a listing that has an item list. Core
+  reads the first block-editor catalogue in the page's content; any other page
+  builder answers the `agend_apps_records_directory_detail_settings` filter
+  (Agend Elementor reads its own element data there; core never parses another
+  builder's data). Nothing is mirrored or backfilled, unlike the sign-in flag.
+  Only a catalogue in the page's own content is seen, so one inside a saved
+  template, a synced pattern or a theme-builder template gives the defaults.
+  A page with several catalogues uses the first.
+- **Agend Field.** `common:custom_field` is `text` in the field registry, but a
+  record whose entry for the key is an `item_list` makes it one:
+  `agend_apps_records_field_kind_for_record()` settles the kind from the record
+  (the `item_list` kind), and the field getter returns the whole entry rather than
+  flattened text. It always renders in a `div`, whatever HTML tag is chosen, and
+  without the before and after text. An empty or missing list shows the
+  widget's fallback text; a restricted one shows its restricted text and no values.
+
+The table and list styles are `assets/css/item-list.css`, registered as
+`agend-apps-records-item-list` and a dependency of both the directory catalogue
+and the Agend Field stylesheets, so each loads it with no further wiring. The
+editor's preview listing carries a `tenants` item list, which also puts it in the
+custom field picker.
+
 ### Filter: range brackets (custom field)
 
 The Agend Filter's **Range brackets** presentation (`range_brackets`, offered by
