@@ -65,6 +65,17 @@ Elementor member-login and header-auth widgets render nothing on the front end.
 `agend_apps_auth_*()` gateway wrappers remain available in both modes, so a
 consumer plugin never needs to branch on the mode itself.
 
+In `credentials` mode the gateway, not WordPress, holds the password a member
+signs in with. A user created in wp-admin is registered with a random gateway
+password, so a WordPress-only reset would leave them unable to sign in. The
+new-user invite, Users > Send password reset, and wp-login.php's lost-password
+form therefore request the Agend reset email through `/auth/forgot-password`
+instead (landing on the configured member reset page when one is set), and
+WordPress's own email is not sent. If the gateway call fails or is throttled,
+WordPress's email goes out as before. Users the
+`agend_apps_wp_login_bridge_enabled` filter excludes are left to WordPress
+alone.
+
 Which SAML IdP plugin, if any, takes part in the Agend connection is decided by
 `Agend_Apps_Settings::detected_idp_plugin()`. It auto-detects by default, but
 the `agend_apps_idp_plugin` setting (Identity and SSO settings page) lets an
