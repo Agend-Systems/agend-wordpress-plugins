@@ -121,6 +121,7 @@ function agend_apps_records_record_field_format_options( array $s ): array {
 		'bool_false'       => (string) ( $s['bool_false'] ?? '' ),
 		'number_suffix'    => (string) ( $s['number_suffix'] ?? '' ),
 		'truncate'         => (int) ( $s['truncate_chars'] ?? 0 ),
+		'item_list'        => agend_apps_records_item_list_options( $s ),
 	);
 }
 
@@ -215,13 +216,15 @@ function agend_apps_records_render_record_field( array $settings, array $opts = 
 		return '';
 	}
 	// agend_apps_records_record_field_resolve() only ever returns renders =>
-	// true alongside a known key and kind, so both are safe to use as-is.
+	// true alongside a known key and kind, so both are safe to use as-is. The
+	// kind is settled again below once the custom field key is known.
 	$ctx  = $resolved['ctx'];
 	$key  = $resolved['key'];
 	$kind = $resolved['kind'];
 
 	$extra                     = $ctx['extra'];
 	$extra['custom_field_key'] = agend_apps_records_record_field_custom_field_key( $settings );
+	$kind                      = agend_apps_records_field_kind_for_record( $key, $ctx['record'], $extra );
 
 	// A custom field the gateway withheld from this viewer is not the same as
 	// one with no data: it reads as restricted, never as the fallback text.
@@ -249,7 +252,7 @@ function agend_apps_records_render_record_field( array $settings, array $opts = 
 
 	$before = (string) ( $settings['before_text'] ?? '' );
 	$after  = (string) ( $settings['after_text'] ?? '' );
-	if ( 'html' === $kind ) {
+	if ( 'html' === $kind || 'item_list' === $kind ) {
 		$inner = $html;
 	} else {
 		$inner = esc_html( $before ) . $html . esc_html( $after );
@@ -264,7 +267,7 @@ function agend_apps_records_render_record_field( array $settings, array $opts = 
 	}
 
 	$tag = (string) ( $settings['html_tag'] ?? 'div' );
-	if ( ! in_array( $tag, array( 'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true ) ) {
+	if ( ! in_array( $tag, array( 'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true ) || 'item_list' === $kind ) {
 		$tag = 'div';
 	}
 

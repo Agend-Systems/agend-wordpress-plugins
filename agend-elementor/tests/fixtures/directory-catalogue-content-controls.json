@@ -450,6 +450,29 @@
                         "default": "",
                         "description": "Visitors who are not signed in are sent to the sign-in page when they open a listing, or follow a link to one, and return to the listing afterwards. The cards themselves stay visible. Only detected when this catalogue is placed on the page itself, not inside a saved or theme-builder template."
                     }
+                },
+                {
+                    "id": "item_list_layout",
+                    "args": {
+                        "label": "Item list layout",
+                        "type": "select",
+                        "options": {
+                            "table": "Table",
+                            "list": "List"
+                        },
+                        "default": "table",
+                        "description": "How the listing detail shows an item list custom field, such as a centre's tenants: a table with a column per item field, or a list with one line per item. Applies to every item list on the detail. Server-rendered detail pages read this from the catalogue on the page itself, not inside a saved or theme-builder template."
+                    }
+                },
+                {
+                    "id": "item_list_fields",
+                    "args": {
+                        "label": "Item fields",
+                        "type": "text",
+                        "default": "",
+                        "label_block": true,
+                        "description": "The item field keys to show in every item list, separated by commas, for example name,area. Leave empty to show them all. They keep the order they are declared in, and a key the list does not have is ignored."
+                    }
                 }
             ]
         },

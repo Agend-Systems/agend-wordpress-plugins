@@ -66,7 +66,7 @@ final class FieldLabelTest extends TestCase {
 		// The empty key is the "not listed" escape the free-text control is
 		// conditioned on, so it must stay first and must stay empty-keyed.
 		$this->assertSame( '', array_key_first( $options ) );
-		$this->assertSame( array( '', 'abn', 'established', 'services' ), array_keys( $options ) );
+		$this->assertSame( array( '', 'abn', 'established', 'services', 'tenants' ), array_keys( $options ) );
 		$this->assertSame( 'ABN', $options['abn'] );
 	}
 

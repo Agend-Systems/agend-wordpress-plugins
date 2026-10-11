@@ -229,10 +229,19 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// The item list table and list, shared by the listing detail and the Agend
+	// Field surface, which each depend on it.
+	wp_register_style(
+		'agend-apps-records-item-list',
+		agend_apps_records_asset_url( 'css/item-list.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+
 	wp_register_style(
 		'agend-apps-records-directory-catalogue',
 		agend_apps_records_asset_url( 'css/directory-catalogue.css' ),
-		array(),
+		array( 'agend-apps-records-item-list' ),
 		agend_apps_records_asset_version()
 	);
 	wp_register_script(
@@ -300,7 +309,7 @@ function agend_apps_records_register_assets(): void {
 	wp_register_style(
 		'agend-apps-records-record-fields',
 		agend_apps_records_asset_url( 'css/record-fields.css' ),
-		array(),
+		array( 'agend-apps-records-item-list' ),
 		agend_apps_records_asset_version()
 	);
 	wp_register_script(

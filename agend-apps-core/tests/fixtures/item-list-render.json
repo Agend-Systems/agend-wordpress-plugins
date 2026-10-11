@@ -1,0 +1,720 @@
+{
+    "description": "Shared markup fixture for the item list renderers. PHP (ItemListRenderTest) and the catalogue script (tests/js/item-list-render.test.mjs) must both produce each case's html from its entry and options. The script is compared through a fake document that serialises with the same escaping as esc_html()/esc_attr().",
+    "cases": [
+        {
+            "name": "table_default",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "Cafe",
+                        "category": "Food",
+                        "area_sqm": 85
+                    },
+                    {
+                        "name": "Department Store",
+                        "category": "Retail",
+                        "area_sqm": 12500
+                    },
+                    {
+                        "name": "Kiosk",
+                        "category": "",
+                        "area_sqm": "3.75"
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": []
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Tenants\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">Tenant</th><th scope=\"col\">Category</th><th class=\"agend-dir-cf__item-list-cell--number\" scope=\"col\">Area (sqm)</th></tr></thead><tbody><tr><td>Cafe</td><td>Food</td><td class=\"agend-dir-cf__item-list-cell--number\">85</td></tr><tr><td>Department Store</td><td>Retail</td><td class=\"agend-dir-cf__item-list-cell--number\">12,500</td></tr><tr><td>Kiosk</td><td></td><td class=\"agend-dir-cf__item-list-cell--number\">3.75</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "list_layout",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "Cafe",
+                        "category": "Food",
+                        "area_sqm": 85
+                    },
+                    {
+                        "name": "Department Store",
+                        "category": "Retail",
+                        "area_sqm": 12500
+                    },
+                    {
+                        "name": "Kiosk",
+                        "category": "",
+                        "area_sqm": "3.75"
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "list",
+                "fields": []
+            },
+            "html": "<ul class=\"agend-dir-cf__item-list agend-dir-cf__item-list--list\"><li>Cafe, Food, 85</li><li>Department Store, Retail, 12,500</li><li>Kiosk, 3.75</li></ul>"
+        },
+        {
+            "name": "fields_filter_keeps_declared_order",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "Cafe",
+                        "category": "Food",
+                        "area_sqm": 85
+                    },
+                    {
+                        "name": "Department Store",
+                        "category": "Retail",
+                        "area_sqm": 12500
+                    },
+                    {
+                        "name": "Kiosk",
+                        "category": "",
+                        "area_sqm": "3.75"
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": [
+                    "area_sqm",
+                    "name"
+                ]
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Tenants\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">Tenant</th><th class=\"agend-dir-cf__item-list-cell--number\" scope=\"col\">Area (sqm)</th></tr></thead><tbody><tr><td>Cafe</td><td class=\"agend-dir-cf__item-list-cell--number\">85</td></tr><tr><td>Department Store</td><td class=\"agend-dir-cf__item-list-cell--number\">12,500</td></tr><tr><td>Kiosk</td><td class=\"agend-dir-cf__item-list-cell--number\">3.75</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "fields_filter_in_list_layout",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "Cafe",
+                        "category": "Food",
+                        "area_sqm": 85
+                    },
+                    {
+                        "name": "Department Store",
+                        "category": "Retail",
+                        "area_sqm": 12500
+                    },
+                    {
+                        "name": "Kiosk",
+                        "category": "",
+                        "area_sqm": "3.75"
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "list",
+                "fields": [
+                    "area_sqm",
+                    "name"
+                ]
+            },
+            "html": "<ul class=\"agend-dir-cf__item-list agend-dir-cf__item-list--list\"><li>Cafe, 85</li><li>Department Store, 12,500</li><li>Kiosk, 3.75</li></ul>"
+        },
+        {
+            "name": "fields_filter_ignores_unknown_keys",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "Cafe",
+                        "category": "Food",
+                        "area_sqm": 85
+                    },
+                    {
+                        "name": "Department Store",
+                        "category": "Retail",
+                        "area_sqm": 12500
+                    },
+                    {
+                        "name": "Kiosk",
+                        "category": "",
+                        "area_sqm": "3.75"
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": [
+                    "category",
+                    "nonsense"
+                ]
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Tenants\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">Category</th></tr></thead><tbody><tr><td>Food</td></tr><tr><td>Retail</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "fields_filter_with_no_match_shows_every_field",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "Cafe",
+                        "category": "Food",
+                        "area_sqm": 85
+                    },
+                    {
+                        "name": "Department Store",
+                        "category": "Retail",
+                        "area_sqm": 12500
+                    },
+                    {
+                        "name": "Kiosk",
+                        "category": "",
+                        "area_sqm": "3.75"
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": [
+                    "nonsense"
+                ]
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Tenants\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">Tenant</th><th scope=\"col\">Category</th><th class=\"agend-dir-cf__item-list-cell--number\" scope=\"col\">Area (sqm)</th></tr></thead><tbody><tr><td>Cafe</td><td>Food</td><td class=\"agend-dir-cf__item-list-cell--number\">85</td></tr><tr><td>Department Store</td><td>Retail</td><td class=\"agend-dir-cf__item-list-cell--number\">12,500</td></tr><tr><td>Kiosk</td><td></td><td class=\"agend-dir-cf__item-list-cell--number\">3.75</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "fields_filter_leaves_out_an_item_with_nothing_to_show",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "Cafe",
+                        "category": "Food",
+                        "area_sqm": 85
+                    },
+                    {
+                        "name": "",
+                        "category": "Retail",
+                        "area_sqm": ""
+                    },
+                    {
+                        "name": "",
+                        "category": "",
+                        "area_sqm": ""
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": [
+                    "name"
+                ]
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Tenants\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">Tenant</th></tr></thead><tbody><tr><td>Cafe</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "without_item_fields_uses_first_seen_keys_as_columns",
+            "entry": {
+                "key": "x",
+                "label": "Things",
+                "type": "item_list",
+                "value": [
+                    {
+                        "b_key": "B1",
+                        "a_key": "A1"
+                    },
+                    {
+                        "c_key": "C2",
+                        "b_key": "B2"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": []
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Things\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">b_key</th><th scope=\"col\">a_key</th><th scope=\"col\">c_key</th></tr></thead><tbody><tr><td>B1</td><td>A1</td><td></td></tr><tr><td>B2</td><td></td><td>C2</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "without_item_fields_in_list_layout",
+            "entry": {
+                "key": "x",
+                "label": "Things",
+                "type": "item_list",
+                "value": [
+                    {
+                        "b_key": "B1",
+                        "a_key": "A1"
+                    },
+                    {
+                        "c_key": "C2",
+                        "b_key": "B2"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "list",
+                "fields": []
+            },
+            "html": "<ul class=\"agend-dir-cf__item-list agend-dir-cf__item-list--list\"><li>B1, A1</li><li>B2, C2</li></ul>"
+        },
+        {
+            "name": "without_item_fields_and_a_fields_filter",
+            "entry": {
+                "key": "x",
+                "label": "Things",
+                "type": "item_list",
+                "value": [
+                    {
+                        "b_key": "B1",
+                        "a_key": "A1"
+                    },
+                    {
+                        "c_key": "C2",
+                        "b_key": "B2"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": [
+                    "c_key"
+                ]
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Things\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">c_key</th></tr></thead><tbody><tr><td>C2</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "number_formatting_in_a_table",
+            "entry": {
+                "key": "n",
+                "label": "Numbers",
+                "type": "item_list",
+                "item_fields": [
+                    {
+                        "key": "as_text",
+                        "label": "As text",
+                        "type": "text"
+                    },
+                    {
+                        "key": "as_number",
+                        "label": "As number",
+                        "type": "number"
+                    }
+                ],
+                "value": [
+                    {
+                        "as_text": 85,
+                        "as_number": 85
+                    },
+                    {
+                        "as_text": 12500,
+                        "as_number": 12500
+                    },
+                    {
+                        "as_text": "3.75",
+                        "as_number": "3.75"
+                    },
+                    {
+                        "as_text": 1234567.891,
+                        "as_number": 1234567.891
+                    },
+                    {
+                        "as_text": "1000.00",
+                        "as_number": "1000.00"
+                    },
+                    {
+                        "as_text": -2500,
+                        "as_number": -2500
+                    },
+                    {
+                        "as_text": "TBC",
+                        "as_number": "TBC"
+                    },
+                    {
+                        "as_text": "1e999",
+                        "as_number": "1e999"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": []
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Numbers\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">As text</th><th class=\"agend-dir-cf__item-list-cell--number\" scope=\"col\">As number</th></tr></thead><tbody><tr><td>85</td><td class=\"agend-dir-cf__item-list-cell--number\">85</td></tr><tr><td>12500</td><td class=\"agend-dir-cf__item-list-cell--number\">12,500</td></tr><tr><td>3.75</td><td class=\"agend-dir-cf__item-list-cell--number\">3.75</td></tr><tr><td>1234567.891</td><td class=\"agend-dir-cf__item-list-cell--number\">1,234,567.891</td></tr><tr><td>1000.00</td><td class=\"agend-dir-cf__item-list-cell--number\">1,000</td></tr><tr><td>-2500</td><td class=\"agend-dir-cf__item-list-cell--number\">-2,500</td></tr><tr><td>TBC</td><td class=\"agend-dir-cf__item-list-cell--number\">TBC</td></tr><tr><td>1e999</td><td class=\"agend-dir-cf__item-list-cell--number\">1e999</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "number_formatting_in_a_list",
+            "entry": {
+                "key": "n",
+                "label": "Numbers",
+                "type": "item_list",
+                "item_fields": [
+                    {
+                        "key": "as_text",
+                        "label": "As text",
+                        "type": "text"
+                    },
+                    {
+                        "key": "as_number",
+                        "label": "As number",
+                        "type": "number"
+                    }
+                ],
+                "value": [
+                    {
+                        "as_text": 85,
+                        "as_number": 85
+                    },
+                    {
+                        "as_text": 12500,
+                        "as_number": 12500
+                    },
+                    {
+                        "as_text": "3.75",
+                        "as_number": "3.75"
+                    },
+                    {
+                        "as_text": 1234567.891,
+                        "as_number": 1234567.891
+                    },
+                    {
+                        "as_text": "1000.00",
+                        "as_number": "1000.00"
+                    },
+                    {
+                        "as_text": -2500,
+                        "as_number": -2500
+                    },
+                    {
+                        "as_text": "TBC",
+                        "as_number": "TBC"
+                    },
+                    {
+                        "as_text": "1e999",
+                        "as_number": "1e999"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "list",
+                "fields": []
+            },
+            "html": "<ul class=\"agend-dir-cf__item-list agend-dir-cf__item-list--list\"><li>85, 85</li><li>12500, 12,500</li><li>3.75, 3.75</li><li>1234567.891, 1,234,567.891</li><li>1000.00, 1,000</li><li>-2500, -2,500</li><li>TBC, TBC</li><li>1e999, 1e999</li></ul>"
+        },
+        {
+            "name": "hostile_cells_and_labels_in_a_table",
+            "entry": {
+                "key": "h",
+                "label": "Ten\"ants & <b>Co</b>",
+                "type": "item_list",
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "<b>Tenant</b>",
+                        "type": "text"
+                    },
+                    {
+                        "key": "note",
+                        "label": "Note",
+                        "type": "text"
+                    }
+                ],
+                "value": [
+                    {
+                        "name": "<script>alert(1)</script>",
+                        "note": "\"><img src=x onerror=1>"
+                    },
+                    {
+                        "name": "O'Neil & Sons",
+                        "note": "&lt;already&gt;"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": []
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\" role=\"region\" aria-label=\"Ten&quot;ants &amp; &lt;b&gt;Co&lt;/b&gt;\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">&lt;b&gt;Tenant&lt;/b&gt;</th><th scope=\"col\">Note</th></tr></thead><tbody><tr><td>&lt;script&gt;alert(1)&lt;/script&gt;</td><td>&quot;&gt;&lt;img src=x onerror=1&gt;</td></tr><tr><td>O&#039;Neil &amp; Sons</td><td>&amp;lt;already&amp;gt;</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "hostile_cells_in_a_list",
+            "entry": {
+                "key": "h",
+                "label": "Ten\"ants & <b>Co</b>",
+                "type": "item_list",
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "<b>Tenant</b>",
+                        "type": "text"
+                    },
+                    {
+                        "key": "note",
+                        "label": "Note",
+                        "type": "text"
+                    }
+                ],
+                "value": [
+                    {
+                        "name": "<script>alert(1)</script>",
+                        "note": "\"><img src=x onerror=1>"
+                    },
+                    {
+                        "name": "O'Neil & Sons",
+                        "note": "&lt;already&gt;"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "list",
+                "fields": []
+            },
+            "html": "<ul class=\"agend-dir-cf__item-list agend-dir-cf__item-list--list\"><li>&lt;script&gt;alert(1)&lt;/script&gt;, &quot;&gt;&lt;img src=x onerror=1&gt;</li><li>O&#039;Neil &amp; Sons, &amp;lt;already&amp;gt;</li></ul>"
+        },
+        {
+            "name": "table_for_an_entry_without_a_label",
+            "entry": {
+                "key": "tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "Cafe",
+                        "category": "Food",
+                        "area_sqm": 85
+                    },
+                    {
+                        "name": "Department Store",
+                        "category": "Retail",
+                        "area_sqm": 12500
+                    },
+                    {
+                        "name": "Kiosk",
+                        "category": "",
+                        "area_sqm": "3.75"
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": []
+            },
+            "html": "<div class=\"agend-dir-cf__item-list-wrap\" tabindex=\"0\"><table class=\"agend-dir-cf__item-list agend-dir-cf__item-list--table\"><thead><tr><th scope=\"col\">Tenant</th><th scope=\"col\">Category</th><th class=\"agend-dir-cf__item-list-cell--number\" scope=\"col\">Area (sqm)</th></tr></thead><tbody><tr><td>Cafe</td><td>Food</td><td class=\"agend-dir-cf__item-list-cell--number\">85</td></tr><tr><td>Department Store</td><td>Retail</td><td class=\"agend-dir-cf__item-list-cell--number\">12,500</td></tr><tr><td>Kiosk</td><td></td><td class=\"agend-dir-cf__item-list-cell--number\">3.75</td></tr></tbody></table></div>"
+        },
+        {
+            "name": "empty_list_renders_nothing",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "table",
+                "fields": []
+            },
+            "html": ""
+        },
+        {
+            "name": "items_with_only_blank_values_render_nothing",
+            "entry": {
+                "key": "tenants",
+                "label": "Tenants",
+                "type": "item_list",
+                "value": [
+                    {
+                        "name": "",
+                        "category": " ",
+                        "area_sqm": ""
+                    }
+                ],
+                "item_fields": [
+                    {
+                        "key": "name",
+                        "label": "Tenant",
+                        "type": "text"
+                    },
+                    {
+                        "key": "category",
+                        "label": "Category",
+                        "type": "text"
+                    },
+                    {
+                        "key": "area_sqm",
+                        "label": "Area (sqm)",
+                        "type": "number"
+                    }
+                ]
+            },
+            "options": {
+                "layout": "list",
+                "fields": []
+            },
+            "html": ""
+        }
+    ]
+}

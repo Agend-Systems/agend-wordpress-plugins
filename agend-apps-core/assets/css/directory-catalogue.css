@@ -569,6 +569,9 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  /* Lets the single-column layout shrink below an item list table's width, so
+     the table scrolls inside its own container instead of widening the page. */
+  min-width: 0;
 }
 
 /* Each main section is a white card on the light detail page. */
