@@ -106,6 +106,27 @@ function agend_apps_records_schema_record_field(): array {
 						'condition'   => array( 'field' => 'common:custom_field' ),
 					),
 					array(
+						'name'        => 'item_list_layout',
+						'label'       => __( 'Item list layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'table',
+						'options'     => array(
+							'table' => __( 'Table', 'agend-apps-core' ),
+							'list'  => __( 'List', 'agend-apps-core' ),
+						),
+						'description' => __( 'For an item list custom field, such as a centre\'s tenants: a table with a column per item field, or a list with one line per item.', 'agend-apps-core' ),
+						'condition'   => array( 'field' => 'common:custom_field' ),
+					),
+					array(
+						'name'        => 'item_list_fields',
+						'label'       => __( 'Item fields', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'label_block' => true,
+						'description' => __( 'For an item list custom field: the item field keys to show, separated by commas, for example name,area. Leave empty to show them all. They keep the order they are declared in.', 'agend-apps-core' ),
+						'condition'   => array( 'field' => 'common:custom_field' ),
+					),
+					array(
 						'name'        => 'link_to_detail',
 						'label'       => __( 'Link to detail page', 'agend-apps-core' ),
 						'type'        => 'toggle',

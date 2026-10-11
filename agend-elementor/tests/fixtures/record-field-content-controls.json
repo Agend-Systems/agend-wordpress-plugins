@@ -128,7 +128,8 @@
                             "": "Not listed (enter a key below)",
                             "abn": "ABN",
                             "established": "Established",
-                            "services": "Services"
+                            "services": "Services",
+                            "tenants": "Tenants"
                         },
                         "label_block": true,
                         "description": "The custom fields this site can read. Which of them a visitor can see depends on their entitlements: one they are not entitled to shows the Restricted text in place of its value.",
@@ -208,6 +209,35 @@
                         "type": "text",
                         "default": "",
                         "description": "Shown when the visitor is not entitled to this custom field. Leave empty to use the standard wording, such as \"Members only\".",
+                        "condition": {
+                            "field": "common:custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "item_list_layout",
+                    "args": {
+                        "label": "Item list layout",
+                        "type": "select",
+                        "default": "table",
+                        "options": {
+                            "table": "Table",
+                            "list": "List"
+                        },
+                        "description": "For an item list custom field, such as a centre's tenants: a table with a column per item field, or a list with one line per item.",
+                        "condition": {
+                            "field": "common:custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "item_list_fields",
+                    "args": {
+                        "label": "Item fields",
+                        "type": "text",
+                        "default": "",
+                        "label_block": true,
+                        "description": "For an item list custom field: the item field keys to show, separated by commas, for example name,area. Leave empty to show them all. They keep the order they are declared in.",
                         "condition": {
                             "field": "common:custom_field"
                         }
