@@ -919,6 +919,33 @@ Switch it off for a site with:
 
 The filter receives `( bool $block, string $method, string $path, string[] $missing )`.
 
+### How the cached scopes refresh
+
+The scopes come from `GET /v1/health` and are cached in the
+`agend_apps_key_scopes` option (`Agend_Apps_Key_Scopes`). `all()` and `has()`
+call `maybe_refresh()` first, and that runs on ordinary visitor requests, so a
+refresh on the request path would make an unlucky visitor wait on the gateway
+once an hour.
+
+- **Never fetched, or the key or environment changed.** Refreshed inline. There
+  is nothing trustworthy to answer from, so the one gateway round trip stays on
+  the request.
+- **Stored but older than an hour.** The stored scopes are served as they are,
+  and a single WP-Cron event (`agend_apps_key_scopes_refresh`) refreshes them.
+  `wp_next_scheduled()` keeps it to one event however many requests notice the
+  staleness. The event is scheduled during a request, so WordPress cron picks it
+  up from the next request's `init`, or from the system cron on a site with
+  `DISABLE_WP_CRON`.
+- **After a failed refresh.** A five minute back-off transient
+  (`agend_apps_key_scopes_backoff`) stops `maybe_refresh()` retrying, because a
+  failure does not advance `fetched_at` and every request would otherwise try
+  again. The transient records the key hash it failed for, so saving a new key
+  or switching environment is never held back by a failure against the old one.
+  A successful fetch, including the admin Verify Key button, clears it.
+
+The explicit refreshes (saving the key or environment, and the endpoint scope
+guard's throttled re-check above) are not gated by the back-off.
+
 ### Regenerating the endpoint scope map
 
 `includes/api/endpoint-scopes.php` is generated from the gateway's OpenAPI
