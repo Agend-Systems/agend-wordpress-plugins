@@ -124,6 +124,42 @@ cross-member leak on `/events`, `/lms/courses` and `/cart`, fixed centrally in
 varies by who is asking, confirm the identity bypass covers your endpoint
 before relying on it.
 
+### One member token mint at a time
+
+The token worker mints a member's bearer with `POST /v1/sso/tokens` when the
+token cached in the `_agend_apps_sso_token` user meta is within 60 seconds of
+its 300 second expiry. A mint takes between about 0.4 and 3 seconds, and the
+gateway allows 30 a minute per site key. Two tabs, or a page and its REST
+fragment calls, used to mint once each. A 429 then negative-caches the member
+for 60 seconds and they render as logged out.
+
+Since 1.37.3 concurrent requests for one WordPress user share one mint:
+
+- **The lock.** A `wp_options` row named `agend_apps_sso_mint_lock_<user id>`,
+  autoload off, written with `INSERT IGNORE` straight against the table. Core's
+  `add_option()` is `INSERT ... ON DUPLICATE KEY UPDATE` and can report success
+  to two racing requests, so it is not used. The value is `timestamp:owner`, so a
+  request deletes only its own row. It holds no token and nothing about the
+  member.
+- **The winner** mints exactly as before, writes the user meta, and releases the
+  lock in every path: success, `WP_Error`, malformed response.
+- **A loser** waits up to about 3 seconds (30 re-reads, 100 ms apart), re-reading
+  the user meta from the store each time, and uses the winner's token only when
+  it was minted for the same `external_id`. When the wait runs out it mints for
+  itself, so a lost lock never renders a member anonymous.
+- **A stale lock** (older than 20 seconds, which outlasts the 15 second API timeout; left by a request that died mid-mint)
+  is replaced with a compare-and-swap, so two requests cannot both break it.
+- **The negative cache** still wins: a loser that finds it set returns `''`.
+
+The lock is per WordPress user. It never moves a token between users or between
+`external_id` values: every read checks the cached token's `external_id` against
+the member's current one. The token stays in user meta, never in the lock, a
+transient or the browser (see `agend_apps_sso_mint_token()`).
+
+`agend_apps_token_worker_sleeper` replaces the sleep between re-reads, as
+`agend_entitlement_mirror_sleeper` does for the entitlement mirror. It exists so
+tests never block on a real sleep.
+
 ## What is NOT an authority
 
 The membership snapshot usermeta written by `member-membership-sync.php`
