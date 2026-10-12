@@ -47,6 +47,27 @@
     return node;
   }
 
+  // Controls are built once and rebuilt only on Clear, so a control whose
+  // options follow another filter's choice (a Subcategories of selected
+  // filter) registers here and is redrawn whenever a filter writes the state
+  // it reads. One entry per shell, so a rebuild replaces rather than adds.
+  var watchers = [];
+
+  function watch(state, shell, redraw) {
+    watchers = watchers.filter(function (watcher) {
+      return watcher.shell !== shell;
+    });
+    watchers.push({ state: state, shell: shell, redraw: redraw });
+  }
+
+  function changed(state) {
+    watchers.slice().forEach(function (watcher) {
+      if (watcher.state === state) {
+        watcher.redraw();
+      }
+    });
+  }
+
   // A filter writes either a list or a single value, and clearing it must
   // restore the shape the catalogue's query builder expects.
   function applyValue(state, cfg, values) {
@@ -61,6 +82,7 @@
       state[cfg.state] = values.length ? values[0] : '';
     }
     state.page = 1;
+    changed(state);
   }
 
   function applyBounds(state, cfg, bounds) {
@@ -526,6 +548,94 @@
     ready(list);
   }
 
+  // -- Category levels ------------------------------------------------------
+
+  function categoryLevels() {
+    return window.agendFilters && window.agendFilters.categoryLevels;
+  }
+
+  // Options carry the category id as their value, not an index, because the
+  // list is redrawn as the selection changes.
+  function drawLevelSelect(slot, cfg, view, pick) {
+    var select = adopt(slot, 'select', 'select');
+    select.innerHTML = '';
+    select.appendChild(new Option(anyLabel(cfg), ''));
+    view.options.forEach(function (option) {
+      select.appendChild(new Option(option.name, option.id));
+    });
+    select.value = view.selected;
+    select.agendLevelPick = pick;
+    once(select, 'change', function () {
+      select.agendLevelPick(select.value);
+    });
+    ready(select);
+  }
+
+  function drawLevelButtons(slot, cfg, view, pick) {
+    var list = adopt(slot, '.agend-filter__options', 'div', 'agend-filter__options');
+    // The stand-in's "Any" pill is kept across redraws, as buildButtons()
+    // keeps it, so the pill a designer styled is the one that stays.
+    var any = list.agendLevelAny || list.querySelector('.agend-filter__button') || el('button', 'agend-filter__button');
+    list.agendLevelAny = any;
+    list.agendLevelPick = pick;
+    list.innerHTML = '';
+
+    var entries = [{ node: any, id: '' }];
+    any.textContent = anyLabel(cfg);
+    any.type = 'button';
+    any.disabled = false;
+    list.appendChild(any);
+    view.options.forEach(function (option) {
+      var button = el('button', 'agend-filter__button', option.name);
+      button.type = 'button';
+      list.appendChild(button);
+      entries.push({ node: button, id: option.id });
+    });
+
+    entries.forEach(function (entry) {
+      var on = entry.id === view.selected;
+      entry.node.className = 'agend-filter__button' + (on ? ' is-active' : '');
+      entry.node.setAttribute('aria-pressed', on ? 'true' : 'false');
+      once(entry.node, 'click', function () {
+        list.agendLevelPick(entry.id);
+      });
+    });
+    ready(list);
+  }
+
+  // A Top level or Subcategories of selected filter. Both write the shared
+  // categories selection; what each offers and shows is derived from it on
+  // every change, so the subcategory list follows the top-level choice.
+  function buildCategoryLevel(shell, slot, cfg, ctx, nodes) {
+    var levels = categoryLevels();
+    var which = levels.level(cfg.categoryLevel);
+
+    function pick(id) {
+      var current = levels.view(nodes, ctx.state[cfg.state], which).selected;
+      // Clicking the active button clears it, as other button filters do.
+      var chosen = id === current ? '' : id;
+      applyValue(ctx.state, cfg, levels.choose(nodes, ctx.state[cfg.state], which, chosen));
+      ctx.reload();
+    }
+
+    function draw() {
+      var view = levels.view(nodes, ctx.state[cfg.state], which);
+      if (!view.options.length) {
+        shell.hidden = true;
+        return;
+      }
+      shell.hidden = false;
+      if (cfg.control === 'buttons') {
+        drawLevelButtons(slot, cfg, view, pick);
+      } else {
+        drawLevelSelect(slot, cfg, view, pick);
+      }
+    }
+
+    watch(ctx.state, shell, draw);
+    draw();
+  }
+
   // -- Location -------------------------------------------------------------
 
   // The directory's map defaults, fetched once per page and shared with the
@@ -835,6 +945,20 @@
     });
   }
 
+  // The raw records of an endpoint-backed source, one request per page.
+  function loadItems(cfg, ctx) {
+    var params = cfg.source.limit ? { limit: cfg.source.limit } : {};
+    var cacheKey = cfg.source.path + '|' + JSON.stringify(params);
+    if (!pending[cacheKey]) {
+      pending[cacheKey] = ctx.apiGet(cfg.source.path, params).catch(function () {
+        return null;
+      });
+    }
+    return pending[cacheKey].then(function (body) {
+      return (body && Array.isArray(body.data)) ? body.data : (Array.isArray(body) ? body : []);
+    });
+  }
+
   function loadValues(cfg, ctx) {
     if (cfg.source && cfg.source.facet) {
       return loadFacets(ctx).then(function (facets) {
@@ -844,15 +968,7 @@
     if (!cfg.source || !cfg.source.path) {
       return Promise.resolve(cfg.values || []);
     }
-    var params = cfg.source.limit ? { limit: cfg.source.limit } : {};
-    var cacheKey = cfg.source.path + '|' + JSON.stringify(params);
-    if (!pending[cacheKey]) {
-      pending[cacheKey] = ctx.apiGet(cfg.source.path, params).catch(function () {
-        return null;
-      });
-    }
-    return pending[cacheKey].then(function (body) {
-      var items = (body && Array.isArray(body.data)) ? body.data : (Array.isArray(body) ? body : []);
+    return loadItems(cfg, ctx).then(function (items) {
       var seen = {};
       var values = [];
       items.forEach(function (item) {
@@ -969,22 +1085,41 @@
       return;
     }
 
+    if (cfg.categoryLevel && cfg.source && cfg.source.path && categoryLevels()) {
+      loadItems(cfg, ctx).then(function (items) {
+        var levels = categoryLevels();
+        var nodes = levels.tree(items);
+        if (levels.level(cfg.categoryLevel) !== 'all') {
+          buildCategoryLevel(shell, slot, cfg, ctx, nodes);
+          return;
+        }
+        buildValues(shell, slot, cfg, ctx, levels.view(nodes, [], 'all').options.map(function (option) {
+          return { label: option.name, value: [option.id] };
+        }));
+      });
+      return;
+    }
+
     loadValues(cfg, ctx).then(function (values) {
-      if (!values.length) {
-        // Nothing to choose from: hide the filter rather than leaving a
-        // control that cannot do anything. Hidden, not removed, so a later
-        // rebuild can show it again.
-        shell.hidden = true;
-        return;
-      }
-      if (cfg.control === 'checkboxes') {
-        buildCheckboxes(slot, cfg, ctx, values);
-      } else if (cfg.control === 'buttons') {
-        buildButtons(slot, cfg, ctx, values);
-      } else {
-        buildSelect(slot, cfg, ctx, values);
-      }
+      buildValues(shell, slot, cfg, ctx, values);
     });
+  }
+
+  function buildValues(shell, slot, cfg, ctx, values) {
+    if (!values.length) {
+      // Nothing to choose from: hide the filter rather than leaving a
+      // control that cannot do anything. Hidden, not removed, so a later
+      // rebuild can show it again.
+      shell.hidden = true;
+      return;
+    }
+    if (cfg.control === 'checkboxes') {
+      buildCheckboxes(slot, cfg, ctx, values);
+    } else if (cfg.control === 'buttons') {
+      buildButtons(slot, cfg, ctx, values);
+    } else {
+      buildSelect(slot, cfg, ctx, values);
+    }
   }
 
   /**

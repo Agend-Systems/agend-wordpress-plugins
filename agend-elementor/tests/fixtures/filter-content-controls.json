@@ -74,6 +74,23 @@
                     }
                 },
                 {
+                    "id": "category_level",
+                    "args": {
+                        "label": "Category level",
+                        "type": "select",
+                        "default": "all",
+                        "options": {
+                            "all": "All categories",
+                            "top": "Top level",
+                            "sub": "Subcategories of selected"
+                        },
+                        "description": "Top level offers only categories with no parent. Subcategories of selected offers the subcategories of the category chosen in a Top level filter on the same page, and stays hidden until one with subcategories is chosen. Both levels show as a dropdown or buttons, never checkboxes, and apply when Values is \"Every value that exists\".",
+                        "condition": {
+                            "filter": "listing:category"
+                        }
+                    }
+                },
+                {
                     "id": "control",
                     "args": {
                         "label": "Presentation",
