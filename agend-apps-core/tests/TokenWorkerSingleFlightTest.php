@@ -314,6 +314,29 @@ final class TokenWorkerSingleFlightTest extends TestCase {
 		$this->assertSame( $taken_over, Agend_Test_WP::$options[ $this->lockName() ] );
 	}
 
+	#[Test]
+	public function should_release_the_lock_and_mint_again_when_the_previous_mint_threw(): void {
+		$this->onMint(
+			static function (): void {
+				throw new \RuntimeException( 'transport failure' );
+			}
+		);
+
+		try {
+			$this->worker->provide_token( '' );
+			$this->fail( 'The mint should have thrown.' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'transport failure', $e->getMessage() );
+		}
+
+		$this->assertArrayNotHasKey( $this->lockName(), Agend_Test_WP::$options );
+
+		unset( Agend_Test_WP::$filters['agend_apps_api_path'] );
+		Agend_Test_WP::queue_response( 200, $this->mintBody( 'minted-after-throw' ) );
+
+		$this->assertSame( 'minted-after-throw', $this->worker->provide_token( '' ) );
+	}
+
 	private function lockName(): string {
 		return Agend_Apps_Token_Worker::MINT_LOCK_PREFIX . self::USER_ID;
 	}

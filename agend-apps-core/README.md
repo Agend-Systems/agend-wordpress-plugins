@@ -147,7 +147,7 @@ Since 1.37.3 concurrent requests for one WordPress user share one mint:
   the user meta from the store each time, and uses the winner's token only when
   it was minted for the same `external_id`. When the wait runs out it mints for
   itself, so a lost lock never renders a member anonymous.
-- **A stale lock** (older than 10 seconds, left by a request that died mid-mint)
+- **A stale lock** (older than 20 seconds, which outlasts the 15 second API timeout; left by a request that died mid-mint)
   is replaced with a compare-and-swap, so two requests cannot both break it.
 - **The negative cache** still wins: a loser that finds it set returns `''`.
 

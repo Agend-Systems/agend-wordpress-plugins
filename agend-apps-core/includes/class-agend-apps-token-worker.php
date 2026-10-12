@@ -82,13 +82,14 @@ class Agend_Apps_Token_Worker {
 	const MINT_LOCK_PREFIX = 'agend_apps_sso_mint_lock_';
 
 	/**
-	 * Seconds a held mint lock is honoured. A request killed mid-mint cannot
-	 * release its lock, and the gateway call it guards normally completes in
-	 * well under this.
+	 * Seconds a held mint lock is honoured. Longer than the API client's 15 s
+	 * request timeout, so a slow but live mint is never broken as stale and
+	 * minted twice. A lock stranded by a killed request costs a waiter no more
+	 * than the bounded wait, after which it mints for itself.
 	 *
 	 * @var int
 	 */
-	const MINT_LOCK_TTL = 10;
+	const MINT_LOCK_TTL = 20;
 
 	/**
 	 * How many times a request that lost the lock re-reads the member's token
@@ -284,6 +285,10 @@ class Agend_Apps_Token_Worker {
 
 			return (string) $minted['access_token'];
 		} finally {
+			// A mint that throws would otherwise leave the guard set and switch
+			// the worker off for the rest of the request.
+			self::$resolving = false;
+
 			if ( null !== $lock ) {
 				self::release_mint_lock( $user_id, $lock );
 			}
