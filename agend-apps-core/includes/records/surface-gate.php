@@ -316,6 +316,45 @@ function agend_apps_records_surface_gate( string $surface, bool $editor ): ?stri
 }
 
 /**
+ * Whether an editor, not a visitor, is behind this request.
+ *
+ * For schema option lists that cost a gateway call. Elementor registers a
+ * widget's controls on every front-end render of it too, and an `options`
+ * callable takes no arguments, so unlike the renderers' `preview` opt the
+ * answer cannot be passed in. Elementor is asked for edit mode and the preview
+ * frame, plus the `elementor_ajax` request that loads every widget's controls
+ * into the panel, which is neither. The block editor is the schema route its
+ * inspector reads. Both ajax and REST need `edit_posts`, so a visitor never
+ * qualifies.
+ *
+ * @return bool
+ */
+function agend_apps_records_is_editor_request(): bool {
+	if ( class_exists( '\Elementor\Plugin' ) && isset( \Elementor\Plugin::$instance->editor, \Elementor\Plugin::$instance->preview ) ) {
+		$plugin = \Elementor\Plugin::$instance;
+
+		if ( $plugin->editor->is_edit_mode() || $plugin->preview->is_preview_mode() ) {
+			return true;
+		}
+	}
+
+	if ( ! current_user_can( 'edit_posts' ) ) {
+		return false;
+	}
+
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Compared with a constant, never stored or output.
+	$action = isset( $_REQUEST['action'] ) && is_string( $_REQUEST['action'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['action'] ) ) : '';
+
+	if ( wp_doing_ajax() && 'elementor_ajax' === $action ) {
+		return true;
+	}
+
+	$route = isset( $GLOBALS['wp']->query_vars['rest_route'] ) ? (string) $GLOBALS['wp']->query_vars['rest_route'] : '';
+
+	return 1 === preg_match( '#^/agend-apps/v1/surfaces/[a-z-]+/schema/?$#', $route );
+}
+
+/**
  * The catalogue surface that owns a record type. Record fields, pills, images,
  * links, panels and filters have no gateway call of their own: they draw a
  * record the catalogue fetched, so they inherit its surface.

@@ -498,12 +498,13 @@ function agend_apps_records_schema_directory_catalogue(): array {
 /**
  * Category exclusion options for the directory catalogue.
  *
- * Moved from the widget's category_options() method verbatim.
+ * Moved from the widget's category_options() method verbatim. Empty outside
+ * an editor {@see agend_apps_records_is_editor_request()}.
  *
  * @return array Options keyed by category id.
  */
 function agend_apps_records_directory_catalogue_category_options(): array {
-	if ( ! function_exists( 'agend_apps_directory_get_categories' ) || agend_apps_records_surface_gated( 'directory-catalogue' ) ) {
+	if ( ! function_exists( 'agend_apps_directory_get_categories' ) || ! agend_apps_records_is_editor_request() || agend_apps_records_surface_gated( 'directory-catalogue' ) ) {
 		return array();
 	}
 

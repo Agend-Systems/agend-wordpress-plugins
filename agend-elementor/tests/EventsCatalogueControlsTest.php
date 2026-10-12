@@ -109,6 +109,8 @@ final class EventsCatalogueControlsTest extends TestCase {
 			true
 		);
 
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
 		$widget = new Events_Catalogue_Controls_Test_Harness();
 		$widget->run();
 

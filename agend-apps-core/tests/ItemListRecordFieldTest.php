@@ -251,6 +251,8 @@ final class ItemListRecordFieldTest extends TestCase {
 	public function should_offer_the_item_list_in_the_editor_custom_field_picker(): void {
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/record-field.php';
 
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
 		self::assertSame( 'Tenants', agend_apps_records_custom_field_key_options()['tenants'] ?? null );
 	}
 }

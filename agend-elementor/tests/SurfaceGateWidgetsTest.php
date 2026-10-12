@@ -190,6 +190,8 @@ final class SurfaceGateWidgetsTest extends TestCase {
 
 	#[Test]
 	public function should_not_call_the_gateway_for_option_lists_while_gated(): void {
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
 		$options_of = function ( string $name ): array {
 			foreach ( $this->sections( Agend_Elementor_Events_Catalogue::class ) as $section ) {
 				foreach ( $section['controls'] as $control ) {

@@ -147,6 +147,42 @@ default on upgrade, with no activation step.
   old config is served. To see a change straight away, clear the "Site Config"
   row on the Cache tab, or use "Clear All Caches".
 
+### One member token mint at a time
+
+The token worker mints a member's bearer with `POST /v1/sso/tokens` when the
+token cached in the `_agend_apps_sso_token` user meta is within 60 seconds of
+its 300 second expiry. A mint takes between about 0.4 and 3 seconds, and the
+gateway allows 30 a minute per site key. Two tabs, or a page and its REST
+fragment calls, used to mint once each. A 429 then negative-caches the member
+for 60 seconds and they render as logged out.
+
+Since 1.37.3 concurrent requests for one WordPress user share one mint:
+
+- **The lock.** A `wp_options` row named `agend_apps_sso_mint_lock_<user id>`,
+  autoload off, written with `INSERT IGNORE` straight against the table. Core's
+  `add_option()` is `INSERT ... ON DUPLICATE KEY UPDATE` and can report success
+  to two racing requests, so it is not used. The value is `timestamp:owner`, so a
+  request deletes only its own row. It holds no token and nothing about the
+  member.
+- **The winner** mints exactly as before, writes the user meta, and releases the
+  lock in every path: success, `WP_Error`, malformed response.
+- **A loser** waits up to about 3 seconds (30 re-reads, 100 ms apart), re-reading
+  the user meta from the store each time, and uses the winner's token only when
+  it was minted for the same `external_id`. When the wait runs out it mints for
+  itself, so a lost lock never renders a member anonymous.
+- **A stale lock** (older than 20 seconds, which outlasts the 15 second API timeout; left by a request that died mid-mint)
+  is replaced with a compare-and-swap, so two requests cannot both break it.
+- **The negative cache** still wins: a loser that finds it set returns `''`.
+
+The lock is per WordPress user. It never moves a token between users or between
+`external_id` values: every read checks the cached token's `external_id` against
+the member's current one. The token stays in user meta, never in the lock, a
+transient or the browser (see `agend_apps_sso_mint_token()`).
+
+`agend_apps_token_worker_sleeper` replaces the sleep between re-reads, as
+`agend_entitlement_mirror_sleeper` does for the entitlement mirror. It exists so
+tests never block on a real sleep.
+
 ## What is NOT an authority
 
 The membership snapshot usermeta written by `member-membership-sync.php`
@@ -329,6 +365,36 @@ When a Content-tab control genuinely has no schema equivalent, it becomes an
 `adapter` field rather than forcing a bad fit into the vocabulary; the
 vocabulary itself is extended (as `heading` was) only when the control is in
 fact generic across page builders and not an Elementor-specific concept.
+
+**An option list that costs a gateway call is resolved only in the editor.**
+Elementor registers a widget's controls on every front-end render of it too,
+and an `options` or `groups` callable takes no arguments, so each such callable
+asks `agend_apps_records_is_editor_request()` and, outside an editor, returns
+what a gated or empty list returns: no gateway call and no transient. The check
+is true in Elementor's edit mode and preview frame, in the `elementor_ajax`
+request that loads every widget's controls into the panel, and on the block
+editor's schema route; the last two also need `edit_posts`. Nothing on a
+visitor's render reads these lists: a stored choice renders without consulting
+the list it was picked from.
+
+The lists it covers:
+
+- Agend Field: `agend_apps_records_custom_field_key_options()`, which reads the
+  editor preview listing's custom fields, two gateway calls on a miss of that
+  record's 10 minute cache, made with whichever member's bearer is present.
+- Catalogue exclusions: `agend_apps_records_directory_catalogue_category_options()`,
+  `agend_apps_records_event_category_options()`,
+  `agend_apps_records_event_city_options()` and
+  `agend_apps_records_courses_catalogue_category_options()`.
+- Export Report: `agend_apps_records_export_reports_report_options()` and
+  `agend_apps_records_export_reports_declared_parameters()`, which the parameter
+  picker and the declared-parameters notice build on.
+
+`agend_apps_records_export_reports_authoring_listing()` is deliberately not
+editor-only: a signed-out visitor's render reads each report's audience from it
+to decide who is offered a sign-in link. A new gateway-backed list gets the same
+check; a list that is only a registry (`agend_apps_records_export_reports_catalogue_source_options()`)
+makes no call and needs none.
 
 ## Catalogue renderers (page-builder-agnostic)
 
@@ -941,6 +1007,33 @@ Switch it off for a site with:
     add_filter( 'agend_apps_api_block_unauthorised', '__return_false' );
 
 The filter receives `( bool $block, string $method, string $path, string[] $missing )`.
+
+### How the cached scopes refresh
+
+The scopes come from `GET /v1/health` and are cached in the
+`agend_apps_key_scopes` option (`Agend_Apps_Key_Scopes`). `all()` and `has()`
+call `maybe_refresh()` first, and that runs on ordinary visitor requests, so a
+refresh on the request path would make an unlucky visitor wait on the gateway
+once an hour.
+
+- **Never fetched, or the key or environment changed.** Refreshed inline. There
+  is nothing trustworthy to answer from, so the one gateway round trip stays on
+  the request.
+- **Stored but older than an hour.** The stored scopes are served as they are,
+  and a single WP-Cron event (`agend_apps_key_scopes_refresh`) refreshes them.
+  `wp_next_scheduled()` keeps it to one event however many requests notice the
+  staleness. The event is scheduled during a request, so WordPress cron picks it
+  up from the next request's `init`, or from the system cron on a site with
+  `DISABLE_WP_CRON`.
+- **After a failed refresh.** A five minute back-off transient
+  (`agend_apps_key_scopes_backoff`) stops `maybe_refresh()` retrying, because a
+  failure does not advance `fetched_at` and every request would otherwise try
+  again. The transient records the key hash it failed for, so saving a new key
+  or switching environment is never held back by a failure against the old one.
+  A successful fetch, including the admin Verify Key button, clears it.
+
+The explicit refreshes (saving the key or environment, and the endpoint scope
+guard's throttled re-check above) are not gated by the back-off.
 
 ### Regenerating the endpoint scope map
 

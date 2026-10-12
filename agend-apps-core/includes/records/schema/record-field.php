@@ -269,7 +269,11 @@ function agend_apps_records_schema_record_field(): array {
  * cannot enumerate or that does not exist yet.
  *
  * Sourced from the editor preview record, so opening a panel costs no gateway
- * call the editor was not already making.
+ * call the editor was not already making. Only an editor gets the list: the
+ * preview fetch is two gateway calls on a cache miss, made with whichever
+ * member's bearer is present and cached site-wide, and a front-end render of
+ * the widget registers this control too. Its stored value is rendered without
+ * consulting the choices.
  *
  * @return array<string, string> '' => the "not listed" placeholder, then
  *                                key => label.
@@ -277,7 +281,7 @@ function agend_apps_records_schema_record_field(): array {
 function agend_apps_records_custom_field_key_options(): array {
 	$options = array( '' => __( 'Not listed (enter a key below)', 'agend-apps-core' ) );
 
-	if ( ! function_exists( 'agend_apps_records_preview_record' ) ) {
+	if ( ! function_exists( 'agend_apps_records_preview_record' ) || ! agend_apps_records_is_editor_request() ) {
 		return $options;
 	}
 
