@@ -56,6 +56,30 @@ class Agend_Apps_Key_Scopes {
 	const RECHECK_TRANSIENT = 'agend_apps_key_scopes_recheck';
 
 	/**
+	 * Cron hook that refreshes scopes which are stored but past
+	 * {@see MAX_AGE}, so no visitor's request waits on the gateway for it.
+	 *
+	 * @var string
+	 */
+	const REFRESH_HOOK = 'agend_apps_key_scopes_refresh';
+
+	/**
+	 * Transient a failed refresh sets, holding the key hash it failed for.
+	 * Failure does not advance `fetched_at`, so without it every request
+	 * would retry a gateway that is slow or down.
+	 *
+	 * @var string
+	 */
+	const BACKOFF_TRANSIENT = 'agend_apps_key_scopes_backoff';
+
+	/**
+	 * How long, in seconds, {@see maybe_refresh()} leaves a failing key alone.
+	 *
+	 * @var int
+	 */
+	const BACKOFF = 5 * MINUTE_IN_SECONDS;
+
+	/**
 	 * Whether a refresh is currently in flight.
 	 *
 	 * The refresh itself calls the gateway, and anything on that path that
@@ -248,6 +272,8 @@ class Agend_Apps_Key_Scopes {
 		}
 
 		if ( is_wp_error( $result ) ) {
+			set_transient( self::BACKOFF_TRANSIENT, self::current_key_hash(), self::BACKOFF );
+
 			return $result;
 		}
 
@@ -284,6 +310,8 @@ class Agend_Apps_Key_Scopes {
 			)
 		);
 
+		delete_transient( self::BACKOFF_TRANSIENT );
+
 		return $scopes;
 	}
 
@@ -292,9 +320,17 @@ class Agend_Apps_Key_Scopes {
 	 * environment has changed since the last fetch, or when the cache is
 	 * older than {@see MAX_AGE}. A failed refresh leaves the stale value in
 	 * place (see {@see refresh()}).
+	 *
+	 * Unknown scopes and a changed key refresh inline, because the caller has
+	 * nothing trustworthy to answer from. Scopes that are merely stale are
+	 * served as stored and refreshed by a single cron event, because this runs
+	 * on visitor requests (including anonymous ones) and the gateway call must
+	 * not be one of them.
+	 *
+	 * Does nothing while the current key is in back-off after a failed refresh.
 	 */
 	public static function maybe_refresh(): void {
-		if ( self::$refreshing ) {
+		if ( self::$refreshing || self::backing_off() ) {
 			return;
 		}
 
@@ -310,9 +346,20 @@ class Agend_Apps_Key_Scopes {
 			return;
 		}
 
-		if ( (int) $stored['fetched_at'] < ( time() - self::MAX_AGE ) ) {
-			self::refresh();
+		if ( (int) $stored['fetched_at'] < ( time() - self::MAX_AGE ) && ! wp_next_scheduled( self::REFRESH_HOOK ) ) {
+			wp_schedule_single_event( time(), self::REFRESH_HOOK );
 		}
+	}
+
+	/**
+	 * Whether the currently configured key failed its last refresh within
+	 * {@see BACKOFF}. Keyed on the hash so that changing the key or environment
+	 * is never held back by a failure recorded against the old one.
+	 *
+	 * @return bool
+	 */
+	private static function backing_off(): bool {
+		return get_transient( self::BACKOFF_TRANSIENT ) === self::current_key_hash();
 	}
 
 	/**
@@ -333,6 +380,7 @@ class Agend_Apps_Key_Scopes {
 }
 
 add_action( 'admin_init', array( 'Agend_Apps_Key_Scopes', 'maybe_refresh' ) );
+add_action( Agend_Apps_Key_Scopes::REFRESH_HOOK, array( 'Agend_Apps_Key_Scopes', 'refresh' ) );
 
 // A saved API key or environment change invalidates the cached scopes
 // immediately, rather than waiting on the next admin_init/all() lazy check.
