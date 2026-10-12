@@ -77,7 +77,7 @@ final class ExportReportsRenderTest extends TestCase {
 	// -------------------------------------------------------------------
 
 	#[Test]
-	public function should_not_list_organisation_among_the_catalogue_filters_a_parameter_can_read(): void {
+	public function should_not_list_organisation_when_an_author_picks_a_parameter_source(): void {
 		$options = agend_apps_records_export_reports_catalogue_source_options();
 
 		self::assertArrayNotHasKey( 'organisation', $options );
@@ -87,7 +87,7 @@ final class ExportReportsRenderTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_not_map_organisation_to_a_state_key_at_click_time(): void {
+	public function should_not_map_organisation_to_a_state_key_when_a_report_is_clicked(): void {
 		$keys = agend_apps_records_export_reports_filter_state_keys();
 
 		self::assertArrayNotHasKey( 'organisation', $keys );

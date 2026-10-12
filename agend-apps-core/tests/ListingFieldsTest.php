@@ -248,7 +248,7 @@ final class ListingFieldsTest extends TestCase {
 	 */
 	#[DataProvider( 'location_name_cases' )]
 	#[Test]
-	public function should_send_the_location_name_the_browser_script_sends_for_the_same_state( array $state, ?string $location_name ): void {
+	public function should_send_the_location_name_the_browser_script_sends_when_given_the_same_state( array $state, ?string $location_name ): void {
 		$args = agend_apps_records_listings_list_args( array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() ), 1, $state );
 
 		if ( null === $location_name ) {
@@ -259,14 +259,7 @@ final class ListingFieldsTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_not_add_a_backslash_to_an_apostrophe_in_a_practice_name(): void {
-		$args = agend_apps_records_listings_list_args( array(), 1, array( 'location_name' => "St Vincent's" ) );
-
-		$this->assertSame( "St Vincent's", $args['locationName'] );
-	}
-
-	#[Test]
-	public function should_unslash_a_location_name_that_arrives_slashed(): void {
+	public function should_unslash_the_location_name_when_it_arrives_slashed(): void {
 		$args = agend_apps_records_listings_list_args( array(), 1, array( 'location_name' => "St Vincent\\'s" ) );
 
 		$this->assertSame( "St Vincent's", $args['locationName'] );

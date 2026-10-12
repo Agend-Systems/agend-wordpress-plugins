@@ -1,54 +1,96 @@
 {
-  "description": "The Organisation filter's state and the locationName both parameter builders must send for it: agend_apps_records_listings_list_args() (includes/records/query.php) asserted by ListingFieldsTest.php, and queryParams() (assets/js/directory-catalogue.js) asserted by tests/js/directory-query-params.test.mjs. 'locationName' is the value on the wire, or null when the parameter must be absent.",
+  "description": "The Organisation filter's state and the locationName both parameter builders must send for it: agend_apps_records_listings_list_args() (includes/records/query.php) asserted by ListingFieldsTest.php, and queryParams() (assets/js/directory-catalogue.js) asserted by tests/js/directory-query-params.test.mjs. 'locationName' is the value on the wire, or null when the parameter must be absent. Each case also carries 'outcome' and 'when', which the JavaScript test reads to name its test as: should <outcome> when <when>.",
   "cases": [
     {
       "name": "a_plain_practice_name",
-      "state": { "location_name": "Sunrise Physio" },
+      "outcome": "send the name unchanged",
+      "when": "the state holds a plain practice name",
+      "state": {
+        "location_name": "Sunrise Physio"
+      },
       "locationName": "Sunrise Physio"
     },
     {
       "name": "an_ascii_apostrophe_arrives_without_an_added_backslash",
-      "state": { "location_name": "St Vincent's" },
+      "outcome": "send the name without an added backslash",
+      "when": "the name has an ASCII apostrophe",
+      "state": {
+        "location_name": "St Vincent's"
+      },
       "locationName": "St Vincent's"
     },
     {
       "name": "a_typographic_apostrophe_is_left_for_the_api_to_fold",
-      "state": { "location_name": "St Vincent’s" },
+      "outcome": "send the typographic apostrophe unchanged",
+      "when": "the name has a typographic apostrophe",
+      "state": {
+        "location_name": "St Vincent’s"
+      },
       "locationName": "St Vincent’s"
     },
     {
       "name": "a_comma_is_never_a_separator",
-      "state": { "location_name": "Smith, Jones and Partners" },
+      "outcome": "send the whole name as one value",
+      "when": "the name contains a comma",
+      "state": {
+        "location_name": "Smith, Jones and Partners"
+      },
       "locationName": "Smith, Jones and Partners"
     },
     {
       "name": "percent_and_underscore_are_ordinary_characters",
-      "state": { "location_name": "100%_Health" },
+      "outcome": "send the characters unchanged",
+      "when": "the name contains a percent sign and an underscore",
+      "state": {
+        "location_name": "100%_Health"
+      },
       "locationName": "100%_Health"
     },
     {
       "name": "surrounding_whitespace_is_trimmed",
-      "state": { "location_name": "  Sunrise Physio  " },
+      "outcome": "send the name without surrounding whitespace",
+      "when": "the name has leading and trailing spaces",
+      "state": {
+        "location_name": "  Sunrise Physio  "
+      },
       "locationName": "Sunrise Physio"
     },
     {
       "name": "an_empty_value_is_omitted",
-      "state": { "location_name": "" },
+      "outcome": "send no locationName",
+      "when": "the name is empty",
+      "state": {
+        "location_name": ""
+      },
       "locationName": null
     },
     {
       "name": "a_whitespace_only_value_is_omitted",
-      "state": { "location_name": "   " },
+      "outcome": "send no locationName",
+      "when": "the name is only whitespace",
+      "state": {
+        "location_name": "   "
+      },
       "locationName": null
     },
     {
       "name": "a_state_without_the_key_is_omitted",
-      "state": { "search": "sarah" },
+      "outcome": "send no locationName",
+      "when": "the state has no location_name",
+      "state": {
+        "search": "sarah"
+      },
       "locationName": null
     },
     {
       "name": "a_list_value_is_omitted",
-      "state": { "location_name": ["Sunrise Physio"] },
+      "outcome": "send no locationName",
+      "when": "the name is a list",
+      "state": {
+        "location_name": [
+          "Sunrise Physio"
+        ]
+      },
       "locationName": null
     }
   ]

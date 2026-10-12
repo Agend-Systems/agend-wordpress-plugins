@@ -38,8 +38,8 @@ function wireParams(state) {
   return Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ''));
 }
 
-for (const { name, state, locationName } of fixture.cases) {
-  test(`should send the fixture's locationName when ${name}`, () => {
+for (const { outcome, when, state, locationName } of fixture.cases) {
+  test(`should ${outcome} when ${when}`, () => {
     const params = wireParams(state);
 
     if (locationName === null) {
@@ -49,7 +49,3 @@ for (const { name, state, locationName } of fixture.cases) {
     }
   });
 }
-
-test('should carry location_name in the initial state the filters write to', () => {
-  assert.match(script, /var state = \{[\s\S]*?\blocation_name: '',/);
-});

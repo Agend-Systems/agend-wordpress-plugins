@@ -245,7 +245,7 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_offer_organisation_under_the_directory_group_with_the_search_box_as_its_default(): void {
+	public function should_offer_organisation_with_the_search_box_as_its_default_when_an_author_picks_a_directory_filter(): void {
 		$groups    = agend_apps_records_filter_options();
 		$directory = $groups[2]['options'];
 
@@ -265,7 +265,7 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_offer_organisation_to_the_directory_only(): void {
+	public function should_offer_organisation_only_when_the_catalogue_is_the_directory(): void {
 		$this->assertNull( agend_apps_records_filter_descriptor( 'event', 'organisation' ) );
 		$this->assertNull( agend_apps_records_filter_descriptor( 'course', 'organisation' ) );
 	}

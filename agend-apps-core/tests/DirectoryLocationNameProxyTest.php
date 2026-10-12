@@ -49,7 +49,7 @@ final class DirectoryLocationNameProxyTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_accept_location_name_on_search_and_markers_as_sanitised_text(): void {
+	public function should_declare_location_name_as_sanitised_text_when_search_and_markers_register_their_args(): void {
 		foreach ( array( 'search_args', 'markers_args' ) as $method ) {
 			$args = $this->route_args( $method );
 
@@ -60,7 +60,7 @@ final class DirectoryLocationNameProxyTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_forward_location_name_from_a_search_request(): void {
+	public function should_forward_location_name_when_a_search_request_carries_it(): void {
 		$reflection = new ReflectionMethod( Agend_Apps_Directory_REST_Controller::class, 'search_filters' );
 		$reflection->setAccessible( true );
 
@@ -75,7 +75,7 @@ final class DirectoryLocationNameProxyTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_ask_the_api_markers_with_location_name_and_no_added_backslash(): void {
+	public function should_ask_the_api_markers_without_an_added_backslash_when_the_name_has_an_apostrophe(): void {
 		Agend_Test_WP::queue_response( 200, array( 'data' => array(), 'meta' => array( 'truncated' => false ) ) );
 
 		( new Agend_Apps_Directory_REST_Controller() )->get_markers( $this->request( array( 'locationName' => "St Vincent's", 'limit' => 500 ) ) );

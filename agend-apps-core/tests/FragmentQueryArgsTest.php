@@ -94,12 +94,12 @@ final class FragmentQueryArgsTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_drop_a_blank_location_name_param(): void {
+	public function should_drop_the_location_name_param_when_it_is_blank(): void {
 		$this->assertSame( array(), agend_apps_records_fragment_query_args( array( 'locationName' => '' ), 'listing' ) );
 	}
 
 	#[Test]
-	public function should_not_offer_the_location_name_param_to_events_or_courses(): void {
+	public function should_not_offer_the_location_name_param_when_the_type_is_event_or_course(): void {
 		$this->assertNotContains( 'locationName', agend_apps_records_fragment_allowed_params( 'event' ) );
 		$this->assertNotContains( 'locationName', agend_apps_records_fragment_allowed_params( 'course' ) );
 	}
