@@ -307,6 +307,19 @@ When a Content-tab control genuinely has no schema equivalent, it becomes an
 vocabulary itself is extended (as `heading` was) only when the control is in
 fact generic across page builders and not an Elementor-specific concept.
 
+**An option list that costs a gateway call is for editors only.** Elementor
+registers a widget's controls on every front-end render of it too, and an
+`options` callable takes no arguments, so such a callable asks
+`agend_apps_records_is_editor_request()` and returns its placeholder-only list
+otherwise. The check is true in Elementor's edit mode and preview frame, in the
+`elementor_ajax` request that loads every widget's controls into the panel, and
+on the block editor's schema route; the last two also need `edit_posts`.
+`agend_apps_records_custom_field_key_options()` is the one such list today: it
+reads the editor preview listing's custom fields, which on a miss of that
+record's 10 minute cache is two gateway calls made with whichever member's
+bearer is present. An Agend Field's stored custom field choice renders without
+consulting the list, so a visitor's page needs none of it.
+
 ## Catalogue renderers (page-builder-agnostic)
 
 The events, courses, directory and memberships catalogues are rendered by core,
