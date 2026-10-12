@@ -46,6 +46,7 @@
                                     "listing:state": "State",
                                     "listing:postcode": "Postcode",
                                     "listing:country": "Country",
+                                    "listing:organisation": "Organisation",
                                     "listing:rating": "Minimum rating",
                                     "listing:sort": "Sort by",
                                     "listing:featured": "Featured",

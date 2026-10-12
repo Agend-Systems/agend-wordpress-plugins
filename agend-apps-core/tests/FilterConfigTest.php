@@ -245,6 +245,32 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_offer_organisation_under_the_directory_group_with_the_search_box_as_its_default(): void {
+		$groups    = agend_apps_records_filter_options();
+		$directory = $groups[2]['options'];
+
+		$this->assertSame( 'Organisation', $directory['listing:organisation'] );
+
+		$descriptor = agend_apps_records_filter_descriptor( 'listing', 'organisation' );
+		$this->assertSame( 'location_name', $descriptor['state'] );
+		$this->assertSame( 'scalar', $descriptor['mode'] );
+		$this->assertSame( array( 'search' ), $descriptor['controls'] );
+		$this->assertNull( $descriptor['source'] );
+
+		$config = agend_apps_records_filter_config( 'listing', 'organisation', array() );
+		$this->assertSame( 'search', $config['control'] );
+		$this->assertSame( 'location_name', $config['state'] );
+		$this->assertSame( 'scalar', $config['mode'] );
+		$this->assertSame( 'Organisation', $config['label'] );
+	}
+
+	#[Test]
+	public function should_offer_organisation_to_the_directory_only(): void {
+		$this->assertNull( agend_apps_records_filter_descriptor( 'event', 'organisation' ) );
+		$this->assertNull( agend_apps_records_filter_descriptor( 'course', 'organisation' ) );
+	}
+
+	#[Test]
 	public function should_not_offer_a_suburb_filter_because_the_api_treats_it_as_a_city_alias(): void {
 		$this->assertNull( agend_apps_records_filter_descriptor( 'listing', 'suburb' ) );
 	}

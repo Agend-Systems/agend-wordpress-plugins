@@ -1,0 +1,55 @@
+{
+  "description": "The Organisation filter's state and the locationName both parameter builders must send for it: agend_apps_records_listings_list_args() (includes/records/query.php) asserted by ListingFieldsTest.php, and queryParams() (assets/js/directory-catalogue.js) asserted by tests/js/directory-query-params.test.mjs. 'locationName' is the value on the wire, or null when the parameter must be absent.",
+  "cases": [
+    {
+      "name": "a_plain_practice_name",
+      "state": { "location_name": "Sunrise Physio" },
+      "locationName": "Sunrise Physio"
+    },
+    {
+      "name": "an_ascii_apostrophe_arrives_without_an_added_backslash",
+      "state": { "location_name": "St Vincent's" },
+      "locationName": "St Vincent's"
+    },
+    {
+      "name": "a_typographic_apostrophe_is_left_for_the_api_to_fold",
+      "state": { "location_name": "St Vincent’s" },
+      "locationName": "St Vincent’s"
+    },
+    {
+      "name": "a_comma_is_never_a_separator",
+      "state": { "location_name": "Smith, Jones and Partners" },
+      "locationName": "Smith, Jones and Partners"
+    },
+    {
+      "name": "percent_and_underscore_are_ordinary_characters",
+      "state": { "location_name": "100%_Health" },
+      "locationName": "100%_Health"
+    },
+    {
+      "name": "surrounding_whitespace_is_trimmed",
+      "state": { "location_name": "  Sunrise Physio  " },
+      "locationName": "Sunrise Physio"
+    },
+    {
+      "name": "an_empty_value_is_omitted",
+      "state": { "location_name": "" },
+      "locationName": null
+    },
+    {
+      "name": "a_whitespace_only_value_is_omitted",
+      "state": { "location_name": "   " },
+      "locationName": null
+    },
+    {
+      "name": "a_state_without_the_key_is_omitted",
+      "state": { "search": "sarah" },
+      "locationName": null
+    },
+    {
+      "name": "a_list_value_is_omitted",
+      "state": { "location_name": ["Sunrise Physio"] },
+      "locationName": null
+    }
+  ]
+}

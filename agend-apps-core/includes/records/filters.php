@@ -268,6 +268,17 @@ function agend_apps_records_filter_registry(): array {
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
 				'source'   => array( 'facet' => 'location.country' ),
 			),
+			// A practice or organisation name typed into a search box. The
+			// state key is the API's location name filter: it matches the
+			// names of a listing's locations, not the listing itself, so the
+			// visible label is client website copy only.
+			'organisation' => array(
+				'label'    => __( 'Organisation', 'agend-apps-core' ),
+				'state'    => 'location_name',
+				'mode'     => 'scalar',
+				'controls' => array( 'search' ),
+				'source'   => null,
+			),
 			'rating'   => array(
 				'label'    => __( 'Minimum rating', 'agend-apps-core' ),
 				'state'    => 'rating',

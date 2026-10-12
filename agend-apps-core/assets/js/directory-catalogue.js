@@ -1750,6 +1750,9 @@
       location_state: [],
       location_postcode: [],
       location_country: [],
+      // The Organisation filter's text: matched against listing location
+      // names by the API, sent as locationName.
+      location_name: '',
       // A Location filter's {lat, lng, radius, label}, or null.
       near: null,
       // An Agend Map viewport, "north,south,east,west", when the map is set
@@ -2082,6 +2085,7 @@
         state: (state.location_state || []).join(','),
         postcode: (state.location_postcode || []).join(','),
         country: (state.location_country || []).join(','),
+        locationName: typeof state.location_name === 'string' ? state.location_name.trim() : '',
         custom_fields: state.custom_fields || {},
         sortBy: effectiveSort(state),
         sortOrder: effectiveSort(state) === 'name' || effectiveSort(state) === 'distance' ? 'asc' : 'desc',
