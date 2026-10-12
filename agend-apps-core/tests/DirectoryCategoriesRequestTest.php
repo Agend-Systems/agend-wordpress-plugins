@@ -141,14 +141,14 @@ final class DirectoryCategoriesRequestTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_not_retry_a_failed_request_whose_limit_is_already_100_or_less(): void {
+	public function should_not_retry_a_rejected_request_whose_limit_is_already_100_or_less(): void {
 		add_filter(
 			'agend_apps_directory_get_categories_args',
 			static function (): array {
 				return array( 'query' => array( 'limit' => 100, 'active_only' => true, 'counts' => false ) );
 			}
 		);
-		Agend_Test_WP::queue_response( 500, array( 'error' => array( 'message' => 'Internal server error' ) ) );
+		Agend_Test_WP::queue_response( 400, array( 'error' => array( 'message' => 'Invalid query parameters' ) ) );
 		Agend_Test_WP::queue_response( 200, $this->categories( 2 ) );
 
 		$this->assertInstanceOf( \WP_Error::class, agend_apps_directory_get_categories() );
@@ -168,5 +168,40 @@ final class DirectoryCategoriesRequestTest extends TestCase {
 		Agend_Test_WP::queue_response( 200, $this->categories( 3 ) );
 
 		$this->assertTrue( agend_apps_directory_get_categories()['filtered'] );
+	}
+	#[Test]
+	public function should_retry_at_100_when_the_gateway_answers_a_limit_of_500_with_a_422(): void {
+		Agend_Test_WP::queue_response( 422, array( 'error' => array( 'message' => 'Unprocessable query' ) ) );
+		Agend_Test_WP::queue_response( 200, $this->categories( 100 ) );
+
+		$response = agend_apps_directory_get_categories();
+
+		$this->assertCount( 2, Agend_Test_WP::$requests );
+		$this->assertStringEndsWith( '/directory/categories?limit=100&active_only=true&counts=false', Agend_Test_WP::$requests[1]['url'] );
+		$this->assertCount( 100, $response['data'] );
+	}
+
+	#[Test]
+	public function should_make_one_request_and_return_the_error_when_the_gateway_fails_with_a_500(): void {
+		Agend_Test_WP::queue_response( 500, array( 'error' => array( 'message' => 'Internal server error' ) ) );
+		Agend_Test_WP::queue_response( 200, $this->categories( 100 ) );
+
+		$response = agend_apps_directory_get_categories();
+
+		$this->assertInstanceOf( \WP_Error::class, $response );
+		$this->assertSame( 500, $response->get_error_data()['status_code'] );
+		$this->assertCount( 1, Agend_Test_WP::$requests, 'a failing gateway is not asked twice' );
+	}
+
+	#[Test]
+	public function should_make_one_request_and_return_the_error_when_the_request_fails_in_transport(): void {
+		Agend_Test_WP::queue_transport_error( 'http_request_failed', 'Operation timed out' );
+		Agend_Test_WP::queue_response( 200, $this->categories( 100 ) );
+
+		$response = agend_apps_directory_get_categories();
+
+		$this->assertInstanceOf( \WP_Error::class, $response );
+		$this->assertSame( 'http_request_failed', $response->get_error_code() );
+		$this->assertCount( 1, Agend_Test_WP::$requests, 'an unreachable gateway is not asked twice' );
 	}
 }

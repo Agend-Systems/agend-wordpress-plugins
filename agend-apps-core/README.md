@@ -526,9 +526,10 @@ author defined choices carry no category tree.
   The response is cached under a key that includes those arguments, so a list
   cached by an earlier release is not served after upgrading. The legacy filter
   bar and the catalogue's category exclusion options read the same function and
-  so also receive up to 500 active categories. An API version that rejects a
-  `limit` above 100 is retried once at 100, cached under its own key, so the
-  filters still get a list, capped at 100, instead of none.
+  so also receive up to 500 active categories. When an API version rejects a
+  `limit` above 100 (a 400 or 422 response), the request is retried once at 100,
+  cached under its own key, so the filters still get a list, capped at 100,
+  instead of none; any other failure is not retried.
 
 ### Filter: range brackets (custom field)
 

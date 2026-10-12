@@ -34,8 +34,10 @@ if ( ! defined( 'AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT' ) ) {
  * list) is never served for these. Category lists change infrequently, so
  * the default TTL is higher than other endpoints.
  *
- * When the request fails with a limit above 100, it is retried once at 100,
- * under that request's own cache entry.
+ * When the gateway rejects the query (400 or 422) and the limit is above 100,
+ * it is retried once at 100, under that request's own cache entry. Any other
+ * failure is returned as it is, so an unreachable or failing gateway is not
+ * asked twice.
  *
  * @return array|WP_Error Decoded categories array on success, or WP_Error on failure.
  */
@@ -64,7 +66,7 @@ function agend_apps_directory_get_categories() {
 	// outright, so one retry at its ceiling keeps the filters populated, if
 	// capped, rather than empty.
 	$limit = (int) ( $args['query']['limit'] ?? 0 );
-	if ( is_wp_error( $response ) && $limit > AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT ) {
+	if ( $limit > AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT && agend_apps_directory_categories_query_rejected( $response ) ) {
 		$args['query']['limit'] = AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT;
 		$response               = agend_apps_api()->get_cached( '/directory/categories', $args, Agend_Apps_Cache::build_key( 'directory_categories', $args ), $ttl );
 	}
@@ -79,4 +81,22 @@ function agend_apps_directory_get_categories() {
 	 * @param array $response Decoded response body.
 	 */
 	return apply_filters( 'agend_apps_directory_get_categories_response', $response );
+}
+
+/**
+ * Whether a categories response is the gateway refusing the query itself, as
+ * a version that predates the 500 ceiling does for a larger limit: an
+ * `agend_api_error` carrying a 400 or 422 status. A transport failure or a
+ * server error is not.
+ *
+ * @param mixed $response A get_cached() result.
+ * @return bool
+ */
+function agend_apps_directory_categories_query_rejected( $response ): bool {
+	if ( ! is_wp_error( $response ) || 'agend_api_error' !== $response->get_error_code() ) {
+		return false;
+	}
+
+	$data = $response->get_error_data();
+	return is_array( $data ) && in_array( (int) ( $data['status_code'] ?? 0 ), array( 400, 422 ), true );
 }
