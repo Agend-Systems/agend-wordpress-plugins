@@ -273,6 +273,19 @@ final class ListingFieldsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_remove_every_backslash_from_a_location_name_when_it_arrives_slashed(): void {
+		// The PHP builder reads WordPress's slashed form, so a slashed backslash
+		// ("Smith\\Jones") comes back as one. This deliberately differs from the
+		// browser script, which keeps a backslash as typed, and is why the shared
+		// fixture holds no backslash case.
+		$slashed = agend_apps_records_listings_list_args( array(), 1, array( 'location_name' => 'Smith\\\\Jones' ) );
+		$bare    = agend_apps_records_listings_list_args( array(), 1, array( 'location_name' => 'Smith\\Jones' ) );
+
+		$this->assertSame( 'Smith\\Jones', $slashed['locationName'] );
+		$this->assertSame( 'SmithJones', $bare['locationName'], 'an unslashed value must not be passed in: its backslash is lost' );
+	}
+
+	#[Test]
 	public function should_send_no_location_name_when_the_state_is_untouched(): void {
 		$args = agend_apps_records_listings_list_args( array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() ), 1 );
 

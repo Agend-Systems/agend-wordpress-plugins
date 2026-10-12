@@ -221,10 +221,21 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
  * The Organisation filter's text from catalogue state, unslashed and trimmed.
  *
  * One value: the gateway never splits it on commas. Blank when the state holds
- * no usable string, so the caller drops it from the query. Mirrors
- * `state.location_name` in queryParams() in assets/js/directory-catalogue.js.
+ * no usable string, so the caller drops it from the query.
  *
- * @param array $state Visitor filter state.
+ * The state is expected in WordPress's slashed form, as read from a superglobal,
+ * so `wp_unslash()` removes every backslash. Do not feed it REST parameters:
+ * WordPress has already unslashed those, and a name containing a real backslash
+ * would lose it. This is a deliberate divergence from `queryParams()` in
+ * assets/js/directory-catalogue.js, which only trims and keeps a backslash. The
+ * two agree on every value a visitor types in practice, and the shared fixture
+ * holds only those.
+ *
+ * `trim()` strips ASCII whitespace only, where the script's `String.trim()` also
+ * strips a non-breaking space and U+FEFF. The filter box is unaffected, because
+ * filters.js trims before it stores the state.
+ *
+ * @param array $state Visitor filter state, slashed.
  * @return string
  */
 function agend_apps_records_listings_location_name( array $state ): string {
