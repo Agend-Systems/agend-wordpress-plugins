@@ -32,7 +32,7 @@ const AGEND_APPS_RECORDS_FRAGMENT_MAX_LIMIT = 100;
  */
 function agend_apps_records_fragment_allowed_params( string $type ): array {
 	if ( 'listing' === $type ) {
-		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'bbox', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories', 'city', 'state', 'postcode', 'country' );
+		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'bbox', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories', 'city', 'state', 'postcode', 'country', 'locationName' );
 	}
 	if ( 'course' === $type ) {
 		return array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'deliveryMode', 'excludeCategories', 'excludeDifficulties', 'excludeDeliveryModes', 'sortBy', 'sortOrder' );
@@ -171,7 +171,8 @@ function agend_apps_records_courses_list_args( array $config, int $page = 1, arr
  * @param array $config The widget's build_config() output.
  * @param int   $page   Page number.
  * @param array $state  Visitor filter state (search, category, categories, rating,
- *                      location_city, location_state, location_postcode, location_country).
+ *                      location_city, location_state, location_postcode, location_country,
+ *                      location_name).
  * @return array
  */
 function agend_apps_records_listings_list_args( array $config, int $page = 1, array $state = array() ): array {
@@ -193,6 +194,9 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 		'state'             => implode( ',', (array) ( $state['location_state'] ?? array() ) ),
 		'postcode'          => implode( ',', (array) ( $state['location_postcode'] ?? array() ) ),
 		'country'           => implode( ',', (array) ( $state['location_country'] ?? array() ) ),
+		// One free-text value, never joined or split. Dropped when blank by
+		// agend_apps_records_fragment_query_args() below.
+		'locationName'      => agend_apps_records_listings_location_name( $state ),
 		'custom_fields'     => agend_apps_records_custom_field_filters( $state['custom_fields'] ?? array() ),
 		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
 		'sortBy'            => agend_apps_records_listings_sort_by( $state ),
@@ -211,6 +215,21 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 	}
 
 	return agend_apps_records_fragment_query_args( $args, 'listing' );
+}
+
+/**
+ * The Organisation filter's text from catalogue state, unslashed and trimmed.
+ *
+ * One value: the gateway never splits it on commas. Blank when the state holds
+ * no usable string, so the caller drops it from the query. Mirrors
+ * `state.location_name` in queryParams() in assets/js/directory-catalogue.js.
+ *
+ * @param array $state Visitor filter state.
+ * @return string
+ */
+function agend_apps_records_listings_location_name( array $state ): string {
+	$name = $state['location_name'] ?? '';
+	return is_string( $name ) ? trim( wp_unslash( $name ) ) : '';
 }
 
 /**

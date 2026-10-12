@@ -515,6 +515,12 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 				'type'              => 'string',
 				'sanitize_callback' => 'sanitize_text_field',
 			),
+			// One free-text value matched against the names of a listing's
+			// locations. Never comma-split, so it is forwarded as typed.
+			'locationName'      => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
 			'sponsor_level'     => array(
 				'type'              => 'integer',
 				'minimum'           => 0,
@@ -602,6 +608,7 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			'state',
 			'postcode',
 			'country',
+			'locationName',
 			'sponsor_level',
 			'lat',
 			'lng',

@@ -85,6 +85,26 @@ final class FragmentQueryArgsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_keep_the_location_name_param_when_type_is_listing(): void {
+		$this->assertContains( 'locationName', agend_apps_records_fragment_allowed_params( 'listing' ) );
+		$this->assertSame(
+			array( 'locationName' => "St Vincent's" ),
+			agend_apps_records_fragment_query_args( array( 'locationName' => "St Vincent's", 'template' => 42, 'location_name' => 'x' ), 'listing' )
+		);
+	}
+
+	#[Test]
+	public function should_drop_a_blank_location_name_param(): void {
+		$this->assertSame( array(), agend_apps_records_fragment_query_args( array( 'locationName' => '' ), 'listing' ) );
+	}
+
+	#[Test]
+	public function should_not_offer_the_location_name_param_to_events_or_courses(): void {
+		$this->assertNotContains( 'locationName', agend_apps_records_fragment_allowed_params( 'event' ) );
+		$this->assertNotContains( 'locationName', agend_apps_records_fragment_allowed_params( 'course' ) );
+	}
+
+	#[Test]
 	public function should_unwrap_gateway_list_shape_and_errors(): void {
 		$list = agend_apps_records_unwrap_list( array( 'data' => array( array( 'slug' => 'a' ), 'junk' ), 'meta' => array( 'pagination' => array( 'page' => 1 ) ) ) );
 
