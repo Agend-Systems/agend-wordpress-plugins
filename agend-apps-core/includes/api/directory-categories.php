@@ -13,6 +13,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * The most categories a gateway that predates the 500 ceiling returns.
+ */
+if ( ! defined( 'AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT' ) ) {
+	define( 'AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT', 100 );
+}
+
+/**
  * Retrieves the account's active directory categories.
  *
  * Asks for up to 500, the gateway's ceiling, so a two-level tree larger than
@@ -26,6 +33,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * response cached for different arguments (an earlier release's 50-category
  * list) is never served for these. Category lists change infrequently, so
  * the default TTL is higher than other endpoints.
+ *
+ * When the request fails with a limit above 100, it is retried once at 100,
+ * under that request's own cache entry.
  *
  * @return array|WP_Error Decoded categories array on success, or WP_Error on failure.
  */
@@ -47,10 +57,17 @@ function agend_apps_directory_get_categories() {
 		)
 	);
 
-	$cache_key = Agend_Apps_Cache::build_key( 'directory_categories', $args );
-	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_categories' );
+	$ttl      = Agend_Apps_Settings::get_cache_ttl( 'directory_categories' );
+	$response = agend_apps_api()->get_cached( '/directory/categories', $args, Agend_Apps_Cache::build_key( 'directory_categories', $args ), $ttl );
 
-	$response = agend_apps_api()->get_cached( '/directory/categories', $args, $cache_key, $ttl );
+	// An older gateway caps the list at 100 and rejects a larger limit
+	// outright, so one retry at its ceiling keeps the filters populated, if
+	// capped, rather than empty.
+	$limit = (int) ( $args['query']['limit'] ?? 0 );
+	if ( is_wp_error( $response ) && $limit > AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT ) {
+		$args['query']['limit'] = AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT;
+		$response               = agend_apps_api()->get_cached( '/directory/categories', $args, Agend_Apps_Cache::build_key( 'directory_categories', $args ), $ttl );
+	}
 
 	if ( is_wp_error( $response ) ) {
 		return $response;

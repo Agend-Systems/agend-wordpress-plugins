@@ -101,4 +101,72 @@ final class DirectoryCategoriesRequestTest extends TestCase {
 		$this->assertArrayHasKey( 'agend_apps_' . Agend_Apps_Cache::build_key( 'directory_categories', $filtered ), Agend_Test_WP::$transients );
 		$this->assertArrayNotHasKey( 'agend_apps_' . Agend_Apps_Cache::build_key( 'directory_categories', self::DEFAULT_ARGS ), Agend_Test_WP::$transients );
 	}
+	#[Test]
+	public function should_retry_once_at_100_under_its_own_cache_entry_when_the_gateway_rejects_a_limit_of_500(): void {
+		Agend_Test_WP::queue_response( 400, array( 'error' => array( 'message' => 'Invalid query parameters' ) ) );
+		Agend_Test_WP::queue_response( 200, $this->categories( 100 ) );
+
+		$response = agend_apps_directory_get_categories();
+
+		$capped = array( 'query' => array( 'limit' => 100, 'active_only' => true, 'counts' => false ) );
+		$this->assertCount( 2, Agend_Test_WP::$requests );
+		$this->assertStringEndsWith( '/directory/categories?limit=500&active_only=true&counts=false', Agend_Test_WP::$requests[0]['url'] );
+		$this->assertStringEndsWith( '/directory/categories?limit=100&active_only=true&counts=false', Agend_Test_WP::$requests[1]['url'] );
+		$this->assertCount( 100, $response['data'] );
+		$this->assertArrayHasKey( 'agend_apps_' . Agend_Apps_Cache::build_key( 'directory_categories', $capped ), Agend_Test_WP::$transients );
+		$this->assertArrayNotHasKey( 'agend_apps_' . Agend_Apps_Cache::build_key( 'directory_categories', self::DEFAULT_ARGS ), Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function should_not_retry_when_the_first_request_succeeds(): void {
+		Agend_Test_WP::queue_response( 200, $this->categories( 160 ) );
+		Agend_Test_WP::queue_response( 200, $this->categories( 100 ) );
+
+		$response = agend_apps_directory_get_categories();
+
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+		$this->assertCount( 160, $response['data'] );
+	}
+
+	#[Test]
+	public function should_return_the_error_after_one_retry_when_the_capped_request_also_fails(): void {
+		Agend_Test_WP::queue_response( 400, array( 'error' => array( 'message' => 'Invalid query parameters' ) ) );
+		Agend_Test_WP::queue_response( 500, array( 'error' => array( 'message' => 'Internal server error' ) ) );
+		Agend_Test_WP::queue_response( 200, $this->categories( 2 ) );
+
+		$response = agend_apps_directory_get_categories();
+
+		$this->assertInstanceOf( \WP_Error::class, $response );
+		$this->assertCount( 2, Agend_Test_WP::$requests, 'one retry, never a loop' );
+	}
+
+	#[Test]
+	public function should_not_retry_a_failed_request_whose_limit_is_already_100_or_less(): void {
+		add_filter(
+			'agend_apps_directory_get_categories_args',
+			static function (): array {
+				return array( 'query' => array( 'limit' => 100, 'active_only' => true, 'counts' => false ) );
+			}
+		);
+		Agend_Test_WP::queue_response( 500, array( 'error' => array( 'message' => 'Internal server error' ) ) );
+		Agend_Test_WP::queue_response( 200, $this->categories( 2 ) );
+
+		$this->assertInstanceOf( \WP_Error::class, agend_apps_directory_get_categories() );
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_pass_the_capped_response_through_the_response_filter(): void {
+		add_filter(
+			'agend_apps_directory_get_categories_response',
+			static function ( array $response ): array {
+				$response['filtered'] = true;
+				return $response;
+			}
+		);
+		Agend_Test_WP::queue_response( 400, array( 'error' => array( 'message' => 'Invalid query parameters' ) ) );
+		Agend_Test_WP::queue_response( 200, $this->categories( 3 ) );
+
+		$this->assertTrue( agend_apps_directory_get_categories()['filtered'] );
+	}
 }
