@@ -354,12 +354,13 @@ function agend_apps_records_schema_courses_catalogue(): array {
  *
  * Course categories are free text on the course row (no categories
  * endpoint), so the distinct set is derived from a wide, cached list fetch.
- * Moved from the widget's category_options() method verbatim.
+ * Moved from the widget's category_options() method verbatim. Empty outside
+ * an editor {@see agend_apps_records_is_editor_request()}.
  *
  * @return array Options keyed by category name.
  */
 function agend_apps_records_courses_catalogue_category_options(): array {
-	if ( ! function_exists( 'agend_apps_lms_get_courses' ) || agend_apps_records_surface_gated( 'courses-catalogue' ) ) {
+	if ( ! function_exists( 'agend_apps_lms_get_courses' ) || ! agend_apps_records_is_editor_request() || agend_apps_records_surface_gated( 'courses-catalogue' ) ) {
 		return array();
 	}
 
