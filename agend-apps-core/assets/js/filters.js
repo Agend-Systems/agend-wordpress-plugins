@@ -638,10 +638,7 @@
     var which = levels.level(cfg.categoryLevel);
 
     function pick(id) {
-      var current = levels.view(nodes, ctx.state[cfg.state], which).selected;
-      // Clicking the active button clears it, as other button filters do.
-      var chosen = id === current ? '' : id;
-      applyValue(ctx.state, cfg, levels.choose(nodes, ctx.state[cfg.state], which, chosen));
+      applyValue(ctx.state, cfg, levels.pick(nodes, ctx.state[cfg.state], which, id));
       ctx.reload();
     }
 
@@ -1077,7 +1074,11 @@
     // disabled until its values arrive and is then filled and enabled in
     // place, so the node a designer styled is the node a visitor uses.
     var slot = shell.querySelector('.agend-filter__control') || shell;
-    shell.hidden = false;
+    // A Subcategories of selected filter starts hidden and is shown by its
+    // own draw once it has something to offer.
+    if (cfg.categoryLevel !== 'sub') {
+      shell.hidden = false;
+    }
 
     if (cfg.control === 'reset') {
       buildReset(slot, cfg, ctx, scope || document);
@@ -1115,7 +1116,7 @@
     if (cfg.categoryLevel && cfg.source && cfg.source.path && categoryLevels()) {
       loadItems(cfg, ctx).then(function (items) {
         var levels = categoryLevels();
-        var nodes = levels.tree(items);
+        var nodes = levels.tree(items, { value: cfg.source.value, label: cfg.source.labelKey, parent: cfg.source.parentKey });
         if (levels.level(cfg.categoryLevel) !== 'all') {
           buildCategoryLevel(shell, slot, cfg, ctx, nodes);
           return;

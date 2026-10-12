@@ -493,14 +493,16 @@ author defined choices carry no category tree.
   and its children are offered by the other; a selected subcategory is shown by
   the Subcategories filter, with its parent shown by the Top level filter.
   Choosing the Subcategories filter's "Any" sets the selection back to the
-  parent, and choosing a different top-level category replaces the selection, so
-  a stale subcategory never lingers. When another Category filter on the page
-  leaves several categories selected, both levels show "Any" (the Subcategories
-  filter only while every selected category sits under one top-level category;
-  otherwise it is hidden), and a choice in either replaces the selection with
-  that one category. A top-level category is sent alone; the API widens it to
-  listings linked to any of its subcategories. Buttons are kept per category
-  across redraws, so keyboard focus stays on the chosen button.
+  parent, choosing the option a level already shows clears it the same way (on
+  Top level, to no category), and choosing a different top-level category
+  replaces the selection, so a stale subcategory never lingers. When another
+  Category filter on the page leaves several categories selected, both levels
+  show "Any" (the Subcategories filter only while every selected category sits
+  under one top-level category; otherwise it is hidden), and a choice in either
+  replaces the selection with that one category. A top-level category is sent
+  alone; the API widens it to listings linked to any of its subcategories.
+  Buttons are kept per category across redraws, so keyboard focus stays on the
+  chosen button.
 - **The derivation** is a pure module, `assets/js/category-levels.js`
   (`window.agendFilters.categoryLevels`), registered as
   `agend-apps-records-category-levels` and a dependency of
@@ -511,8 +513,11 @@ author defined choices carry no category tree.
   module under Node, and CI runs it.
 - **The runtime config.** `agend_apps_records_filter_config()` writes
   `categoryLevel` (`all`, `top` or `sub`) for the directory Category filter, and
-  its source carries `parentKey: 'parent_id'` (the registry entry's `parent`), so
-  the script keeps each category's parent from the categories response.
+  its source carries `parentKey: 'parent_id'` (the registry entry's `parent`).
+  The script reads each category's id, name and parent through the source's
+  `value`, `labelKey` and `parentKey`. A Subcategories of selected filter is
+  drawn hidden by the server and shown by the script only once it has
+  subcategories to offer.
 - **The categories request.** `agend_apps_directory_get_categories()`, now in
   `includes/api/directory-categories.php`, asks `GET /v1/directory/categories`
   for `limit=500&active_only=true&counts=false` (still filterable through

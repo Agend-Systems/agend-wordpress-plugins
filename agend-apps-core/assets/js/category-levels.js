@@ -32,26 +32,32 @@
   /**
    * The categories as the levels read them, in the order given.
    *
-   * @param {Array} items Categories as the API returns them: id, name,
-   *                      parent_id, and is_active when the response carries it.
+   * @param {Array}  items Categories as the API returns them, with is_active
+   *                       when the response carries it.
+   * @param {Object} keys  Optional: the keys holding each category's `value`
+   *                       (id), `label` (name) and `parent` (parent id).
+   *                       Default `id`, `name` and `parent_id`.
    * @return {Array<{id: string, name: string, parentId: string}>} `parentId`
    *         is '' for a category with no parent. A category marked inactive is
    *         left out even though the request already asks for active ones only.
    */
-  function tree(items) {
+  function tree(items, keys) {
+    var valueKey = (keys && keys.value) || 'id';
+    var labelKey = (keys && keys.label) || 'name';
+    var parentKey = (keys && keys.parent) || 'parent_id';
     var nodes = [];
     var seen = {};
     (Array.isArray(items) ? items : []).forEach(function (item) {
       if (!item || typeof item !== 'object' || item.is_active === false) {
         return;
       }
-      var id = idOf(item.id);
+      var id = idOf(item[valueKey]);
       if (id === '' || seen[id]) {
         return;
       }
       seen[id] = true;
-      var name = idOf(item.name);
-      nodes.push({ id: id, name: name !== '' ? name : id, parentId: idOf(item.parent_id) });
+      var name = idOf(item[labelKey]);
+      nodes.push({ id: id, name: name !== '' ? name : id, parentId: idOf(item[parentKey]) });
     });
     return nodes;
   }
@@ -178,11 +184,29 @@
     return [];
   }
 
+  /**
+   * The selection after a visitor chooses an option in a level's control.
+   * Choosing the option the level already shows clears it, as choosing its
+   * any option does, so a button set behaves like a toggle.
+   *
+   * @param {Array}  nodes     tree() output.
+   * @param {Array}  selection The catalogue's `categories` selection.
+   * @param {string} which     'all', 'top' or 'sub'.
+   * @param {string} id        The option chosen, '' for the any option.
+   * @return {string[]} A new selection; the one given is never changed.
+   */
+  function pick(nodes, selection, which, id) {
+    var picked = idOf(id);
+    var shown = view(nodes, selection, which).selected;
+    return choose(nodes, selection, which, picked === shown ? '' : picked);
+  }
+
   root.agendFilters = root.agendFilters || {};
   root.agendFilters.categoryLevels = {
     level: level,
     tree: tree,
     view: view,
     choose: choose,
+    pick: pick,
   };
 })(typeof window !== 'undefined' ? window : this);

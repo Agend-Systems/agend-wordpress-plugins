@@ -100,18 +100,31 @@ final class FilterRenderTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_render_a_subcategories_filter_as_buttons_with_the_any_pill_stand_in(): void {
+	public function should_render_a_subcategories_filter_hidden_as_buttons_with_the_any_pill_stand_in(): void {
 		Agend_Apps_Records_Filter_Context::set( 'listing' );
 
 		$settings = array( 'filter' => 'listing:category', 'category_level' => 'sub', 'control' => 'buttons', 'label' => 'Sub-area' );
 		$json     = '{"choicesOnly":false,"needsKey":false,"fieldKey":"","type":"listing","filter":"category","state":"categories","mode":"array","control":"buttons","label":"Sub-area","showLabel":true,"placeholder":"","anyLabel":"","values":[],"source":{"path":"\/directory\/categories","value":"id","labelKey":"name","distinct":false,"limit":0,"parentKey":"parent_id"},"categoryLevel":"sub"}';
 
-		$expected = '<div class="agend-filter agend-filter--buttons agend-filter--category" data-agend-filter="' . esc_attr( $json ) . '">'
+		$expected = '<div class="agend-filter agend-filter--buttons agend-filter--category" data-agend-filter="' . esc_attr( $json ) . '" hidden>'
 			. '<span class="agend-filter__label">Sub-area</span>'
 			. '<div class="agend-filter__control"><div class="agend-filter__options agend-filter__placeholder" aria-busy="true"><button type="button" class="agend-filter__button is-active" aria-pressed="true" disabled>Any Sub-area</button></div></div>'
 			. '</div>';
 
 		self::assertSame( $expected, agend_apps_records_render_filter( $settings ) );
+	}
+
+	#[Test]
+	public function should_keep_a_subcategories_filter_visible_in_a_preview_and_other_levels_visible_live(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		$preview = agend_apps_records_render_filter( array( 'filter' => 'listing:category', 'category_level' => 'sub' ), array( 'preview' => true ) );
+		$top     = agend_apps_records_render_filter( array( 'filter' => 'listing:category', 'category_level' => 'top' ) );
+		$all     = agend_apps_records_render_filter( array( 'filter' => 'listing:category' ) );
+
+		self::assertStringNotContainsString( '" hidden>', $preview );
+		self::assertStringNotContainsString( '" hidden>', $top );
+		self::assertStringNotContainsString( '" hidden>', $all );
 	}
 
 	#[Test]

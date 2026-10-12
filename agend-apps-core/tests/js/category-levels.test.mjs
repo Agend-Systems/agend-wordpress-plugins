@@ -191,3 +191,48 @@ test('should read ids as text and leave the given selection unchanged', () => {
   levels.choose(tree, selection, 'sub', '');
   assert.deepEqual(selection, ['autism']);
 });
+
+test('should read the id, name and parent through the keys the filter config names', () => {
+  const custom = levels.tree(
+    [
+      { uuid: 'p', title: 'Parent', parent_uuid: null, id: 'ignored', name: 'Ignored', parent_id: 'ignored' },
+      { uuid: 'c', title: 'Child', parent_uuid: 'p' },
+    ],
+    { value: 'uuid', label: 'title', parent: 'parent_uuid' }
+  );
+
+  assert.deepEqual(custom, [
+    { id: 'p', name: 'Parent', parentId: '' },
+    { id: 'c', name: 'Child', parentId: 'p' },
+  ]);
+  assert.deepEqual(ids(levels.view(custom, ['p'], 'sub')), ['c']);
+});
+
+test('should fall back to id, name and parent_id when the config names no keys', () => {
+  assert.deepEqual(levels.tree(items, {}), tree);
+  assert.deepEqual(levels.tree(items, { value: '', label: undefined }), tree);
+});
+
+test('should replace the selection with the chosen option when it is not the one shown', () => {
+  assert.deepEqual(levels.pick(tree, [], 'top', 'paed'), ['paed']);
+  assert.deepEqual(levels.pick(tree, ['paed'], 'sub', 'autism'), ['autism']);
+  assert.deepEqual(levels.pick(tree, ['autism'], 'sub', 'feeding'), ['feeding']);
+});
+
+test('should empty the selection when the Top level option already shown is chosen again', () => {
+  assert.deepEqual(levels.pick(tree, ['paed'], 'top', 'paed'), []);
+  assert.deepEqual(levels.pick(tree, ['autism'], 'top', 'paed'), [], 'the parent shown for a selected subcategory clears too');
+});
+
+test('should go back to the parent when the subcategory already shown is chosen again', () => {
+  const selection = levels.pick(tree, ['autism'], 'sub', 'autism');
+
+  assert.deepEqual(selection, ['paed']);
+  assert.equal(levels.view(tree, selection, 'top').selected, 'paed');
+});
+
+test("should treat choosing a level's any option as clearing it", () => {
+  assert.deepEqual(levels.pick(tree, ['paed'], 'top', ''), []);
+  assert.deepEqual(levels.pick(tree, ['autism'], 'sub', ''), ['paed']);
+  assert.deepEqual(levels.pick(tree, ['paed'], 'sub', ''), ['paed']);
+});
