@@ -72,6 +72,29 @@ final class ExportReportsRenderTest extends TestCase {
 		self::assertSame( $expected, agend_apps_records_render_export_reports( $settings ) );
 	}
 
+	// -------------------------------------------------------------------
+	// Organisation is never offered as a report parameter source
+	// -------------------------------------------------------------------
+
+	#[Test]
+	public function should_not_list_organisation_when_an_author_picks_a_parameter_source(): void {
+		$options = agend_apps_records_export_reports_catalogue_source_options();
+
+		self::assertArrayNotHasKey( 'organisation', $options );
+		self::assertNotContains( 'Organisation', $options );
+		// A neighbouring filter is still offered, so the exclusion is specific.
+		self::assertArrayHasKey( 'city', $options );
+	}
+
+	#[Test]
+	public function should_not_map_organisation_to_a_state_key_when_a_report_is_clicked(): void {
+		$keys = agend_apps_records_export_reports_filter_state_keys();
+
+		self::assertArrayNotHasKey( 'organisation', $keys );
+		self::assertNotContains( 'location_name', $keys );
+		self::assertSame( 'location_city', $keys['city'] );
+	}
+
 	#[Test]
 	public function should_render_a_menu_for_dropdown_mode(): void {
 		$settings = array(

@@ -69,6 +69,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: node --test agend-apps-core/tests/js/item-list-render.test.mjs
+      - run: node --test agend-apps-core/tests/js/directory-query-params.test.mjs
       - name: Committed build is up to date
         run: |
           git add -N agend-apps-core/build agend-apps-shop/build
