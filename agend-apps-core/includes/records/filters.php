@@ -126,7 +126,9 @@ function agend_apps_records_filter_static_values( string $set ): array {
  * - `source`     where "all values" come from: `null` (no value list, e.g. a
  *                free-text search), `array('static' => <set>)`,
  *                `array('endpoint' => <rest path>, 'value' => k, 'label' => k)`
- *                with optional `distinct` for a payload that repeats values,
+ *                with optional `distinct` for a payload that repeats values
+ *                and optional `parent` naming the key that holds a record's
+ *                parent id, which also gives the filter a Category level,
  *                or `array('facet' => <facet name>)` for a value list the
  *                facets endpoint enumerates, entitlement-scoped.
  * - `approximate` true when the source cannot enumerate reliably today.
@@ -234,7 +236,7 @@ function agend_apps_records_filter_registry(): array {
 				'state'    => 'categories',
 				'mode'     => 'array',
 				'controls' => array( 'checkboxes', 'select', 'buttons' ),
-				'source'   => array( 'endpoint' => '/directory/categories', 'value' => 'id', 'label' => 'name' ),
+				'source'   => array( 'endpoint' => '/directory/categories', 'value' => 'id', 'label' => 'name', 'parent' => 'parent_id' ),
 			),
 			// The gateway takes these as comma-joined named params; a PHP array
 			// value would be bracket-encoded by http_build_query() and 422. There
@@ -419,9 +421,24 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 		return null;
 	}
 
+	// A filter whose values cannot be enumerated yet only ever carries author
+	// defined choices, whatever the widget's own mode says.
+	$values_mode = (string) ( $settings['values_mode'] ?? 'all' );
+	if ( ! empty( $descriptor['choices_only'] ) ) {
+		$values_mode = 'choices';
+	}
+
+	$level    = agend_apps_records_filter_category_level( $descriptor, $settings, $values_mode );
+	$controls = $descriptor['controls'];
+	if ( in_array( $level, array( 'top', 'sub' ), true ) ) {
+		// One category at a time: a level derives what it shows from a single
+		// selected id, which checkboxes cannot promise.
+		$controls = array_values( array_intersect( $controls, array( 'select', 'buttons' ) ) );
+	}
+
 	$control = (string) ( $settings['control'] ?? '' );
-	if ( ! in_array( $control, $descriptor['controls'], true ) ) {
-		$control = $descriptor['controls'][0];
+	if ( ! in_array( $control, $controls, true ) ) {
+		$control = $controls[0];
 	}
 
 	$config = array(
@@ -445,6 +462,10 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 		'source'      => null,
 	);
 
+	if ( '' !== $level ) {
+		$config['categoryLevel'] = $level;
+	}
+
 	// The location and view controls carry their own settings rather than a
 	// value list. Written only for those two, so every other filter's config
 	// (and the markup it is pinned in) is unchanged.
@@ -464,13 +485,6 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 		$config['rangeBrackets'] = agend_apps_records_filter_range_brackets_config( $settings );
 		$config['source']        = array( 'facet' => 'custom.' . $config['fieldKey'] );
 		return $config;
-	}
-
-	// A filter whose values cannot be enumerated yet only ever carries author
-	// defined choices, whatever the widget's own mode says.
-	$values_mode = (string) ( $settings['values_mode'] ?? 'all' );
-	if ( ! empty( $descriptor['choices_only'] ) ) {
-		$values_mode = 'choices';
 	}
 
 	if ( 'choices' === $values_mode ) {
@@ -516,9 +530,37 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 			'distinct' => ! empty( $source['distinct'] ),
 			'limit'    => (int) ( $source['limit'] ?? 0 ),
 		);
+		if ( isset( $source['parent'] ) ) {
+			$config['source']['parentKey'] = (string) $source['parent'];
+		}
 	}
 
 	return $config;
+}
+
+/**
+ * The Category level a filter uses: 'all', 'top' or 'sub', or '' for a filter
+ * that has no levels.
+ *
+ * Levels need the category tree, which only the endpoint's own values carry,
+ * so author defined choices always offer the choices as written.
+ *
+ * @param array  $descriptor  The filter descriptor.
+ * @param array  $settings    Widget settings.
+ * @param string $values_mode 'all' or 'choices'.
+ * @return string
+ */
+function agend_apps_records_filter_category_level( array $descriptor, array $settings, string $values_mode ): string {
+	if ( ! isset( $descriptor['source']['parent'] ) ) {
+		return '';
+	}
+
+	$level = (string) ( $settings['category_level'] ?? 'all' );
+	if ( 'choices' === $values_mode || ! in_array( $level, array( 'top', 'sub' ), true ) ) {
+		return 'all';
+	}
+
+	return $level;
 }
 
 /**

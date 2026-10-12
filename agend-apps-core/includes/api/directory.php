@@ -10,6 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/directory-locations.php';
+require_once __DIR__ . '/directory-categories.php';
 
 /**
  * Retrieves a paginated, filterable list of directory listings.
@@ -121,39 +122,6 @@ function agend_apps_directory_get_listing( string $listing_id, array $query = ar
 	 * @param array  $query      Query parameters.
 	 */
 	return apply_filters( 'agend_apps_directory_get_listing_response', $response, $listing_id, $query );
-}
-
-/**
- * Retrieves all directory categories.
- *
- * Results are cached. Category lists change infrequently so the default
- * TTL is higher than other endpoints.
- *
- * @return array|WP_Error Decoded categories array on success, or WP_Error on failure.
- */
-function agend_apps_directory_get_categories() {
-	/**
-	 * Filters the directory categories request args before the request is sent.
-	 *
-	 * @param array $args Request args.
-	 */
-	$args = (array) apply_filters( 'agend_apps_directory_get_categories_args', array() );
-
-	$cache_key = Agend_Apps_Cache::build_key( 'directory_categories' );
-	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_categories' );
-
-	$response = agend_apps_api()->get_cached( '/directory/categories', $args, $cache_key, $ttl );
-
-	if ( is_wp_error( $response ) ) {
-		return $response;
-	}
-
-	/**
-	 * Filters the decoded directory categories response before it is returned.
-	 *
-	 * @param array $response Decoded response body.
-	 */
-	return apply_filters( 'agend_apps_directory_get_categories_response', $response );
 }
 
 /**
