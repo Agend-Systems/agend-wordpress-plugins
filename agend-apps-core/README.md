@@ -124,6 +124,29 @@ cross-member leak on `/events`, `/lms/courses` and `/cart`, fixed centrally in
 varies by who is asking, confirm the identity bypass covers your endpoint
 before relying on it.
 
+### How long site config is cached
+
+`agend_apps_sites_get_config()`, and the `GET /agend-apps/v1/sites/config`
+route over it, cache the gateway's published brand, theme and enabled-apps
+config under the `sites_config` key. The catalogue widgets fetch it on every
+page load to inherit site fonts, and it rarely changes.
+
+Before 1.37.4 the key was missing from the `Agend_Apps_Cache` map, so
+`Agend_Apps_Settings::get_cache_ttl()` fell back to 60 seconds and the config
+was refetched about once a minute. Since 1.37.4 it has its own entry with a
+one hour default, shown as "Site Config" on the Cache tab and adjustable there
+like every other entry. A site that never saved a TTL for it picks up the
+default on upgrade, with no activation step.
+
+- **Per member.** A signed-in visitor's response is cached under that member's
+  own entry (see "Caching and identity"), so each member still costs one
+  gateway fetch an hour.
+- **No automatic flush.** Nothing clears `sites_config` when the config changes
+  in the Agend dashboard, or when the site's API key, environment or custom URL
+  changes, because the cache key carries none of them. Until the hour is up the
+  old config is served. To see a change straight away, clear the "Site Config"
+  row on the Cache tab, or use "Clear All Caches".
+
 ## What is NOT an authority
 
 The membership snapshot usermeta written by `member-membership-sync.php`
