@@ -344,6 +344,7 @@ final class SurfaceGateTest extends TestCase {
 
 	#[Test]
 	public function should_offer_no_gateway_backed_options_for_a_gated_catalogue(): void {
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
 		$this->know( array( 'crm.contacts.browse' ) );
 
 		self::assertSame( array(), agend_apps_records_event_category_options() );

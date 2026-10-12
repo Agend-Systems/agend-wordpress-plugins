@@ -217,14 +217,15 @@ const AGEND_APPS_RECORDS_EXPORT_REPORTS_AUTHORING_SCOPE = 'directory.listings.ma
  * Falls back to the default (audience-filtered) listing when the key is not
  * known to hold the manage scope, or when the gateway answers 403 (scope not
  * granted) or 422 (a gateway predating `scope`), so an older gateway keeps
- * the behaviour it had. The download path never goes through here.
+ * the behaviour it had. The download path never goes through here. Only the
+ * placeholder outside an editor {@see agend_apps_records_is_editor_request()}.
  *
  * @return array<string, string> Report id => label, plus the "select" placeholder.
  */
 function agend_apps_records_export_reports_report_options(): array {
 	$reports = array();
 
-	if ( function_exists( 'agend_apps_directory_get_export_reports' ) ) {
+	if ( function_exists( 'agend_apps_directory_get_export_reports' ) && agend_apps_records_is_editor_request() ) {
 		$response = agend_apps_records_export_reports_authoring_listing();
 
 		if ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) ) {
@@ -252,6 +253,11 @@ function agend_apps_records_export_reports_report_options(): array {
  * one call, so the API function stays the single place that knows the path,
  * and its cache key follows the query (a separate transient from the
  * visitor listing).
+ *
+ * Not editor-only itself: a signed-out visitor's render reads each report's
+ * audience from it to decide who is offered a sign-in link
+ * {@see agend_apps_records_export_reports_declared_parameters_source()}. The
+ * option lists built on it are the editor-only part.
  *
  * @return array|WP_Error Decoded response body, or the gateway error.
  */
@@ -381,12 +387,13 @@ const AGEND_APPS_RECORDS_EXPORT_REPORTS_FILTER_AUTO = '__auto';
  *
  * Read from the same cached authoring listing the Report select already uses,
  * so the picker, the declared-parameters notice and the report list all cost
- * one gateway call between them.
+ * one gateway call between them. Empty outside an editor
+ * {@see agend_apps_records_is_editor_request()}; nothing on a render reads it.
  *
  * @return array<int, array{id: string, name: string, fields: array<int, string>}>
  */
 function agend_apps_records_export_reports_declared_parameters(): array {
-	if ( ! function_exists( 'agend_apps_directory_get_export_reports' ) ) {
+	if ( ! function_exists( 'agend_apps_directory_get_export_reports' ) || ! agend_apps_records_is_editor_request() ) {
 		return array();
 	}
 
