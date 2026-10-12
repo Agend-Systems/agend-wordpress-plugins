@@ -1529,6 +1529,13 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 			return $this->params[ $key ] ?? null;
 		}
 
+		/**
+		 * @return array<string, mixed>
+		 */
+		public function get_params(): array {
+			return $this->params;
+		}
+
 		public function set_header( string $key, string $value ): void {
 			$this->headers[ strtolower( $key ) ] = $value;
 		}

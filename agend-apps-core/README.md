@@ -574,6 +574,59 @@ or proxy change is involved.
 - **The first paint** is the same disabled, `aria-busy` stand-in the other
   controls use, drawn in the final shape of the chosen display with only "Any".
 
+### Filter: Organisation (directory)
+
+The Agend Filter widget and block offer **Directory > Organisation**: a Search
+box that narrows a directory catalogue, and an Agend Map following it, to the
+listings that have at least one location whose name contains the typed text.
+It is how a visitor finds practitioners by the practice they work at. There is
+no settings toggle: a site turns it on by adding a filter to the catalogue's
+filter template and choosing Organisation. The label is translatable through the
+`agend-apps-core` text domain, and the placeholder can be set on the filter.
+
+- **Registry entry.** `organisation` in `agend_apps_records_filter_registry()`
+  (`includes/records/filters.php`), listing catalogues only. Scalar, with the
+  Search box as its only control, so it keeps the Search box's 300 ms debounce
+  and writes the `location_name` catalogue state. Everywhere except the visible
+  label the filter is called location name, because that is what the API
+  matches.
+- **The request.** Both parameter builders send the state as the API's
+  `locationName`: `agend_apps_records_listings_list_args()`
+  (`includes/records/query.php`) and `queryParams()`
+  (`assets/js/directory-catalogue.js`). The value is trimmed, sent unslashed (an
+  apostrophe, as in `St Vincent's`, arrives with no added backslash), sent as one
+  value that is never split on commas, and left out entirely when blank. The
+  gateway does the matching: case-insensitive, a literal substring, and per
+  listing rather than per location.
+- **Parity.** The two builders must stay in step key for key.
+  `tests/fixtures/directory-location-name-params.json` holds the filter states
+  and the value each must send; `ListingFieldsTest` asserts the PHP side and
+  `tests/js/directory-query-params.test.mjs` the script, and CI runs both. A
+  filtered page is not reloaded from the URL (filter state is not carried
+  there), and the server-rendered first page is always built with no filter
+  state, so this is proved by test rather than by reloading.
+- **Allow-lists.** `locationName` is in
+  `agend_apps_records_fragment_allowed_params()` for `listing`, which the
+  server-built request and the card-template fragment route both pass through,
+  and in `search_args()` and `search_filters()` of the REST proxy
+  (`includes/rest/directory-routes.php`), which the markers route shares, so
+  the map follows the catalogue. The proxy sanitises it with
+  `sanitize_text_field`, which collapses runs of inner whitespace and strips
+  `%XX` octets; a visitor does not type either on purpose. The card-template
+  fragment route forwards `locationName` without `sanitize_text_field`, so a
+  value such as `100%Beef` can ask the list and the markers slightly different
+  questions; the sibling filters behave the same way.
+- **Export reports.** The Export Report widget never offers Organisation: no
+  report declares a parameter it would fill. It is excluded from both registry
+  walks in `includes/records/schema/export-reports.php`,
+  `agend_apps_records_export_reports_catalogue_source_options()` (the editor's
+  picker) and `agend_apps_records_export_reports_filter_state_keys()` (the
+  click-time map). Excluding it from only one would leave it in the editor and
+  resolving to an empty value when clicked.
+- **Needs the API.** The parameter does nothing until the gateway accepts
+  `locationName` on `GET /v1/directory/search` and `/v1/directory/markers`
+  (`SPEC-DIR-20261012-directory-organisation-filter`).
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map

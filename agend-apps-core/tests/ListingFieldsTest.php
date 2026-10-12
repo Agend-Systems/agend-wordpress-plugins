@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace Agend\Tests\Elementor;
 
 use Agend\Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/format.php';
@@ -219,6 +220,69 @@ final class ListingFieldsTest extends TestCase {
 		$this->assertArrayNotHasKey( 'state', $args );
 		$this->assertArrayNotHasKey( 'postcode', $args );
 		$this->assertArrayNotHasKey( 'country', $args );
+	}
+
+	// -- Organisation filter (location name) ----------------------------------
+
+	/**
+	 * Every case of tests/fixtures/directory-location-name-params.json: a filter
+	 * state and the locationName both parameter builders must send for it. The
+	 * catalogue script's queryParams() is held to the same file by
+	 * tests/js/directory-query-params.test.mjs.
+	 *
+	 * @return array<string, array{array<string, mixed>, string|null}>
+	 */
+	public static function location_name_cases(): array {
+		$fixture = json_decode( (string) file_get_contents( __DIR__ . '/fixtures/directory-location-name-params.json' ), true );
+		$cases   = array();
+		foreach ( $fixture['cases'] as $case ) {
+			$cases[ $case['name'] ] = array( $case['state'], $case['locationName'] );
+		}
+
+		return $cases;
+	}
+
+	/**
+	 * @param array<string, mixed> $state        The catalogue filter state.
+	 * @param string|null          $location_name What the browser script sends for it, or null for no parameter.
+	 */
+	#[DataProvider( 'location_name_cases' )]
+	#[Test]
+	public function should_send_the_location_name_the_browser_script_sends_when_given_the_same_state( array $state, ?string $location_name ): void {
+		$args = agend_apps_records_listings_list_args( array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() ), 1, $state );
+
+		if ( null === $location_name ) {
+			$this->assertArrayNotHasKey( 'locationName', $args );
+			return;
+		}
+		$this->assertSame( $location_name, $args['locationName'] );
+	}
+
+	#[Test]
+	public function should_unslash_the_location_name_when_it_arrives_slashed(): void {
+		$args = agend_apps_records_listings_list_args( array(), 1, array( 'location_name' => "St Vincent\\'s" ) );
+
+		$this->assertSame( "St Vincent's", $args['locationName'] );
+	}
+
+	#[Test]
+	public function should_remove_every_backslash_from_a_location_name_when_it_arrives_slashed(): void {
+		// The PHP builder reads WordPress's slashed form, so a slashed backslash
+		// ("Smith\\Jones") comes back as one. This deliberately differs from the
+		// browser script, which keeps a backslash as typed, and is why the shared
+		// fixture holds no backslash case.
+		$slashed = agend_apps_records_listings_list_args( array(), 1, array( 'location_name' => 'Smith\\\\Jones' ) );
+		$bare    = agend_apps_records_listings_list_args( array(), 1, array( 'location_name' => 'Smith\\Jones' ) );
+
+		$this->assertSame( 'Smith\\Jones', $slashed['locationName'] );
+		$this->assertSame( 'SmithJones', $bare['locationName'], 'an unslashed value must not be passed in: its backslash is lost' );
+	}
+
+	#[Test]
+	public function should_send_no_location_name_when_the_state_is_untouched(): void {
+		$args = agend_apps_records_listings_list_args( array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() ), 1 );
+
+		$this->assertArrayNotHasKey( 'locationName', $args );
 	}
 
 	#[Test]

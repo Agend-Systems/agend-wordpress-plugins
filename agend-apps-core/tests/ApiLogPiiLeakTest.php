@@ -31,6 +31,24 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-a
 final class ApiLogPiiLeakTest extends TestCase {
 
 	/**
+	 * The stored row as one lower-cased, URL-decoded string to search.
+	 *
+	 * Every column is searched except the two the logger generates fresh for
+	 * each row and that carry nothing about the exchange: `request_id` (a random
+	 * UUID, whose hex digits can spell a short canary such as a four-digit
+	 * postcode by chance) and `created_at` (the clock). Every other column,
+	 * including the ones derived from the exchange (bytes, path, page path,
+	 * hashes, headers), stays in.
+	 *
+	 * @param array<string, mixed> $row A row from Agend_Apps_Logger::build_row().
+	 */
+	private static function haystack( array $row ): string {
+		unset( $row['request_id'], $row['created_at'] );
+
+		return strtolower( rawurldecode( (string) json_encode( $row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ) );
+	}
+
+	/**
 	 * Distinctive values, one per personal-data class. Each is searched for,
 	 * lower-cased, in the serialised row.
 	 */
@@ -310,7 +328,7 @@ final class ApiLogPiiLeakTest extends TestCase {
 			unset( $_SERVER['REQUEST_URI'], $_SERVER['REMOTE_ADDR'] );
 		}
 
-		$haystack = strtolower( rawurldecode( (string) json_encode( $row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ) );
+		$haystack = self::haystack( $row );
 		$digits   = (string) preg_replace( '/\D/', '', $haystack );
 
 		foreach ( self::CANARIES as $class => $canary ) {
@@ -385,7 +403,7 @@ final class ApiLogPiiLeakTest extends TestCase {
 	#[DataProvider( 'reviewRegressions' )]
 	public function should_not_store_the_value_when_it_arrives_in_a_shape_the_review_found( array $entry, array $forbidden ): void {
 		$row      = ( new Agend_Apps_Logger() )->build_row( $entry + array( 'user_id' => 0 ) );
-		$haystack = strtolower( rawurldecode( (string) json_encode( $row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ) );
+		$haystack = self::haystack( $row );
 
 		foreach ( $forbidden as $needle ) {
 			$this->assertStringNotContainsString( strtolower( $needle ), $haystack );
