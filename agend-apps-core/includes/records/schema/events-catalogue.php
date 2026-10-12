@@ -438,12 +438,13 @@ function agend_apps_records_schema_events_catalogue(): array {
  * gateway. Empty when the API is unreachable — the control still renders, it
  * just has nothing to offer.
  *
- * Moved from the widget's category_options() method verbatim.
+ * Moved from the widget's category_options() method verbatim. Empty outside
+ * an editor {@see agend_apps_records_is_editor_request()}.
  *
  * @return array Options keyed by category id.
  */
 function agend_apps_records_event_category_options(): array {
-	if ( ! function_exists( 'agend_apps_events_get_categories' ) || agend_apps_records_surface_gated( 'events-catalogue' ) ) {
+	if ( ! function_exists( 'agend_apps_events_get_categories' ) || ! agend_apps_records_is_editor_request() || agend_apps_records_surface_gated( 'events-catalogue' ) ) {
 		return array();
 	}
 
@@ -468,13 +469,14 @@ function agend_apps_records_event_category_options(): array {
  * City exclusion options for the events catalogue, built from the venues
  * catalogue.
  *
- * Moved from the widget's city_options() method verbatim.
+ * Moved from the widget's city_options() method verbatim. Empty outside an
+ * editor {@see agend_apps_records_is_editor_request()}.
  *
  * @return array Options keyed by city name (the gateway filters on the city
  *               string, not a venue id).
  */
 function agend_apps_records_event_city_options(): array {
-	if ( ! function_exists( 'agend_apps_events_get_venues' ) || agend_apps_records_surface_gated( 'events-catalogue' ) ) {
+	if ( ! function_exists( 'agend_apps_events_get_venues' ) || ! agend_apps_records_is_editor_request() || agend_apps_records_surface_gated( 'events-catalogue' ) ) {
 		return array();
 	}
 

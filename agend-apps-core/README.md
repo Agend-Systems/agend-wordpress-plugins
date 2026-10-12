@@ -307,18 +307,35 @@ When a Content-tab control genuinely has no schema equivalent, it becomes an
 vocabulary itself is extended (as `heading` was) only when the control is in
 fact generic across page builders and not an Elementor-specific concept.
 
-**An option list that costs a gateway call is for editors only.** Elementor
-registers a widget's controls on every front-end render of it too, and an
-`options` callable takes no arguments, so such a callable asks
-`agend_apps_records_is_editor_request()` and returns its placeholder-only list
-otherwise. The check is true in Elementor's edit mode and preview frame, in the
-`elementor_ajax` request that loads every widget's controls into the panel, and
-on the block editor's schema route; the last two also need `edit_posts`.
-`agend_apps_records_custom_field_key_options()` is the one such list today: it
-reads the editor preview listing's custom fields, which on a miss of that
-record's 10 minute cache is two gateway calls made with whichever member's
-bearer is present. An Agend Field's stored custom field choice renders without
-consulting the list, so a visitor's page needs none of it.
+**An option list that costs a gateway call is resolved only in the editor.**
+Elementor registers a widget's controls on every front-end render of it too,
+and an `options` or `groups` callable takes no arguments, so each such callable
+asks `agend_apps_records_is_editor_request()` and, outside an editor, returns
+what a gated or empty list returns: no gateway call and no transient. The check
+is true in Elementor's edit mode and preview frame, in the `elementor_ajax`
+request that loads every widget's controls into the panel, and on the block
+editor's schema route; the last two also need `edit_posts`. Nothing on a
+visitor's render reads these lists: a stored choice renders without consulting
+the list it was picked from.
+
+The lists it covers:
+
+- Agend Field: `agend_apps_records_custom_field_key_options()`, which reads the
+  editor preview listing's custom fields, two gateway calls on a miss of that
+  record's 10 minute cache, made with whichever member's bearer is present.
+- Catalogue exclusions: `agend_apps_records_directory_catalogue_category_options()`,
+  `agend_apps_records_event_category_options()`,
+  `agend_apps_records_event_city_options()` and
+  `agend_apps_records_courses_catalogue_category_options()`.
+- Export Report: `agend_apps_records_export_reports_report_options()` and
+  `agend_apps_records_export_reports_declared_parameters()`, which the parameter
+  picker and the declared-parameters notice build on.
+
+`agend_apps_records_export_reports_authoring_listing()` is deliberately not
+editor-only: a signed-out visitor's render reads each report's audience from it
+to decide who is offered a sign-in link. A new gateway-backed list gets the same
+check; a list that is only a registry (`agend_apps_records_export_reports_catalogue_source_options()`)
+makes no call and needs none.
 
 ## Catalogue renderers (page-builder-agnostic)
 

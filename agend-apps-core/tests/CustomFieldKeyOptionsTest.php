@@ -93,6 +93,23 @@ final class CustomFieldKeyOptionsTest extends TestCase {
 			case 'signed_in_editor_card_fragment':
 				$GLOBALS['wp'] = (object) array( 'query_vars' => array( 'rest_route' => '/agend-apps/v1/cards/listings' ) );
 				break;
+
+			case 'elementor_action_outside_ajax':
+				$_REQUEST['action'] = 'elementor_ajax';
+				break;
+
+			case 'array_valued_action':
+				$GLOBALS['agend_test_doing_ajax'] = true;
+				$_REQUEST['action']               = array( 'elementor_ajax' );
+				break;
+
+			case 'block_editor_preview_route':
+				$GLOBALS['wp'] = (object) array( 'query_vars' => array( 'rest_route' => '/agend-apps/v1/surfaces/record-field/preview' ) );
+				break;
+
+			case 'front_end_without_edit_posts':
+				$GLOBALS['agend_test_current_user_can']['edit_posts'] = false;
+				break;
 		}
 	}
 
@@ -110,8 +127,12 @@ final class CustomFieldKeyOptionsTest extends TestCase {
 	public static function visitor_contexts(): array {
 		return array(
 			'front-end page render'                => array( '' ),
+			'front-end render without edit_posts'  => array( 'front_end_without_edit_posts' ),
 			'elementor_ajax by a visitor'          => array( 'visitor_elementor_ajax' ),
+			'elementor_ajax action outside ajax'   => array( 'elementor_action_outside_ajax' ),
+			'array-valued ajax action'             => array( 'array_valued_action' ),
 			'schema route by a visitor'            => array( 'visitor_schema_route' ),
+			'block editor preview route'           => array( 'block_editor_preview_route' ),
 			'another ajax action by an editor'     => array( 'other_ajax_action' ),
 			'card fragment route for an editor'    => array( 'signed_in_editor_card_fragment' ),
 		);
