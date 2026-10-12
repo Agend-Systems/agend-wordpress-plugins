@@ -467,6 +467,62 @@ and the Agend Field stylesheets, so each loads it with no further wiring. The
 editor's preview listing carries a `tenants` item list, which also puts it in the
 custom field picker.
 
+### Filter: category levels (directory)
+
+The directory **Category** filter has a **Category level** setting
+(`category_level`, shown only when the filter is Directory > Category) so two
+filters on one page offer a category and then its subcategories:
+
+- **All categories** (the default) is the filter as it was: every category the
+  API returns, in the order it returns them, with checkboxes, a dropdown or
+  buttons.
+- **Top level** offers only categories with no parent.
+- **Subcategories of selected** offers the children of the category chosen in
+  the Top level filter, in API order, and is hidden until a top-level category
+  with children is chosen. Its "Any" option uses the filter's own **"Any" option
+  label** setting.
+
+Top level and Subcategories of selected show as a dropdown or buttons only; a
+saved Checkboxes presentation falls back to the dropdown, because a level shows
+one category at a time. With **Choices I define** the level is ignored, since
+author defined choices carry no category tree.
+
+- **One selection.** Both levels write the catalogue's existing
+  `state.categories`, so the query builders, the Agend Map and **Clear filters**
+  need no change. A selected top-level category is shown by the Top level filter
+  and its children are offered by the other; a selected subcategory is shown by
+  the Subcategories filter, with its parent shown by the Top level filter.
+  Choosing the Subcategories filter's "Any" sets the selection back to the
+  parent, and choosing a different top-level category replaces the selection, so
+  a stale subcategory never lingers. When another Category filter on the page
+  leaves several categories selected, both levels show "Any" (the Subcategories
+  filter only while every selected category sits under one top-level category;
+  otherwise it is hidden), and a choice in either replaces the selection with
+  that one category. A top-level category is sent alone; the API widens it to
+  listings linked to any of its subcategories.
+- **The derivation** is a pure module, `assets/js/category-levels.js`
+  (`window.agendFilters.categoryLevels`), registered as
+  `agend-apps-records-category-levels` and a dependency of
+  `agend-apps-records-filters`, so it always loads first. `assets/js/filters.js`
+  draws the two levels from it and redraws them on a state-change notification
+  that every filter's write raises, because controls are otherwise built once
+  and rebuilt only by Clear. `tests/js/category-levels.test.mjs` exercises the
+  module under Node, and CI runs it.
+- **The runtime config.** `agend_apps_records_filter_config()` writes
+  `categoryLevel` (`all`, `top` or `sub`) for the directory Category filter, and
+  its source carries `parentKey: 'parent_id'` (the registry entry's `parent`), so
+  the script keeps each category's parent from the categories response.
+- **The categories request.** `agend_apps_directory_get_categories()`, now in
+  `includes/api/directory-categories.php`, asks `GET /v1/directory/categories`
+  for `limit=500&active_only=true&counts=false` (still filterable through
+  `agend_apps_directory_get_categories_args`), so a tree larger than the API's
+  default page of 50 arrives whole and an inactive category is never offered.
+  The response is cached under a key that includes those arguments, so a list
+  cached by an earlier release is not served after upgrading. The legacy filter
+  bar and the catalogue's category exclusion options read the same function and
+  so also receive up to 500 active categories. It needs an API version that
+  accepts `limit` up to 500.
+
 ### Filter: range brackets (custom field)
 
 The Agend Filter's **Range brackets** presentation (`range_brackets`, offered by
