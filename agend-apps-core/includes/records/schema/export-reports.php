@@ -351,8 +351,9 @@ function agend_apps_records_export_reports_catalogue_source_options(): array {
 			// A location is a point and a radius, and the view switch writes no
 			// query at all: neither is a value a report parameter can take.
 			// Organisation is a visitor-facing search box on the catalogue; no
-			// report declares a parameter it would fill. Keep this list in step
-			// with agend_apps_records_export_reports_filter_state_keys().
+			// report declares a parameter it would fill. Both registry walks must
+			// exclude it: this one and
+			// agend_apps_records_export_reports_filter_state_keys().
 			if ( in_array( $key, array( 'reset', 'sort', 'location', 'view', 'organisation' ), true ) ) {
 				continue;
 			}

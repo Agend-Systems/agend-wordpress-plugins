@@ -548,7 +548,10 @@ filter template and choosing Organisation. The label is translatable through the
   (`includes/rest/directory-routes.php`), which the markers route shares, so
   the map follows the catalogue. The proxy sanitises it with
   `sanitize_text_field`, which collapses runs of inner whitespace and strips
-  `%XX` octets; a visitor does not type either on purpose.
+  `%XX` octets; a visitor does not type either on purpose. The card-template
+  fragment route forwards `locationName` without `sanitize_text_field`, so a
+  value such as `100%Beef` can ask the list and the markers slightly different
+  questions; the sibling filters behave the same way.
 - **Export reports.** The Export Report widget never offers Organisation: no
   report declares a parameter it would fill. It is excluded from both registry
   walks in `includes/records/schema/export-reports.php`,
