@@ -28,6 +28,11 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/export
  */
 final class ExportReportsParameterPickerTest extends TestCase {
 
+	protected function setUp(): void {
+		parent::setUp();
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+	}
+
 	/**
 	 * @param array<int, array<string, mixed>> $reports
 	 */

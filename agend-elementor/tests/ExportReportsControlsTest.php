@@ -108,6 +108,8 @@ final class ExportReportsControlsTest extends TestCase {
 			)
 		);
 
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
 		$widget = new Export_Reports_Controls_Test_Harness();
 		$widget->run();
 

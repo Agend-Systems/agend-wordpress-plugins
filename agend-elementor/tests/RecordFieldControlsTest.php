@@ -51,6 +51,10 @@ final class RecordFieldControlsTest extends TestCase {
 			true
 		);
 
+		// The fixture is the panel an author sees, and the custom field choices
+		// are resolved for an editor only.
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
 		$widget = new Record_Field_Controls_Test_Harness();
 		$widget->run();
 
