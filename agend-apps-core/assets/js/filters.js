@@ -576,22 +576,45 @@
     // The stand-in's "Any" pill is kept across redraws, as buildButtons()
     // keeps it, so the pill a designer styled is the one that stays.
     var any = list.agendLevelAny || list.querySelector('.agend-filter__button') || el('button', 'agend-filter__button');
+    var kept = list.agendLevelButtons || {};
+    var focused = document.activeElement;
+    var hadFocus = !!focused && focused !== list && list.contains(focused);
     list.agendLevelAny = any;
     list.agendLevelPick = pick;
-    list.innerHTML = '';
 
+    // Buttons are keyed by category id and reused while still offered, so a
+    // redraw after a choice repaints the nodes a keyboard user is on rather
+    // than replacing them.
     var entries = [{ node: any, id: '' }];
-    any.textContent = anyLabel(cfg);
-    any.type = 'button';
-    any.disabled = false;
-    list.appendChild(any);
+    var next = {};
     view.options.forEach(function (option) {
-      var button = el('button', 'agend-filter__button', option.name);
+      var button = kept[option.id] || el('button', 'agend-filter__button');
       button.type = 'button';
-      list.appendChild(button);
+      button.textContent = option.name;
+      next[option.id] = button;
       entries.push({ node: button, id: option.id });
     });
+    list.agendLevelButtons = next;
 
+    var wanted = entries.map(function (entry) {
+      return entry.node;
+    });
+    Array.prototype.slice.call(list.children).forEach(function (child) {
+      if (wanted.indexOf(child) === -1) {
+        list.removeChild(child);
+      }
+    });
+    // Only a node out of place is moved, because moving a node takes focus
+    // off it.
+    wanted.forEach(function (node, index) {
+      if (list.children[index] !== node) {
+        list.insertBefore(node, list.children[index] || null);
+      }
+    });
+
+    any.textContent = anyLabel(cfg);
+    any.disabled = false;
+    any.type = 'button';
     entries.forEach(function (entry) {
       var on = entry.id === view.selected;
       entry.node.className = 'agend-filter__button' + (on ? ' is-active' : '');
@@ -601,6 +624,10 @@
       });
     });
     ready(list);
+
+    if (hadFocus && document.activeElement !== focused) {
+      (list.contains(focused) ? focused : any).focus();
+    }
   }
 
   // A Top level or Subcategories of selected filter. Both write the shared

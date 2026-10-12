@@ -499,7 +499,8 @@ author defined choices carry no category tree.
   filter only while every selected category sits under one top-level category;
   otherwise it is hidden), and a choice in either replaces the selection with
   that one category. A top-level category is sent alone; the API widens it to
-  listings linked to any of its subcategories.
+  listings linked to any of its subcategories. Buttons are kept per category
+  across redraws, so keyboard focus stays on the chosen button.
 - **The derivation** is a pure module, `assets/js/category-levels.js`
   (`window.agendFilters.categoryLevels`), registered as
   `agend-apps-records-category-levels` and a dependency of
