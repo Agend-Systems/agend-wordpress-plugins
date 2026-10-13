@@ -251,13 +251,18 @@ function agend_apps_records_normalise_url_setting( $value ): string {
 
 /**
  * The `tel:` href for a phone number as people write it, keeping only the
- * digits and a `+`.
+ * digits and a `+` of the first number.
+ *
+ * An extension or a second number would otherwise run into the first and
+ * dial something else, and the "(0)" written after a country code is not
+ * dialled from abroad.
  *
  * @param string $phone The phone number, e.g. "(03) 9876-5432".
  * @return string The unescaped href, or '' when no digit is left to dial.
  */
 function agend_apps_records_tel_href( string $phone ): string {
-	$digits = (string) preg_replace( '/[^+\d]/', '', $phone );
+	$first  = (string) preg_split( '/\s*(?:ext\.?|extn\.?|x|,|;|\/)\s*/i', $phone, 2 )[0];
+	$digits = (string) preg_replace( '/[^+\d]/', '', str_replace( '(0)', '', $first ) );
 
 	return preg_match( '/\d/', $digits ) ? 'tel:' . $digits : '';
 }

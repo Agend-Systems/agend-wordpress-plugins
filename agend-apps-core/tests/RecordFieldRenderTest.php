@@ -571,7 +571,6 @@ final class RecordFieldRenderTest extends TestCase {
 	public static function unlinkable_websites(): array {
 		return array(
 			'script scheme'    => array( 'javascript:alert(1)' ),
-			'no scheme'        => array( 'www.example.test' ),
 			'another protocol' => array( 'ftp://example.test/' ),
 		);
 	}
@@ -584,6 +583,15 @@ final class RecordFieldRenderTest extends TestCase {
 		$html = agend_apps_records_render_record_field( array( 'field' => 'listing:website', 'link_value' => 'yes' ) );
 
 		self::assertStringNotContainsString( '<a ', $html );
+	}
+
+	#[Test]
+	public function should_link_a_website_stored_without_a_scheme_over_http(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'website' => 'www.example.test' ) );
+
+		$html = agend_apps_records_render_record_field( array( 'field' => 'listing:website', 'link_value' => 'yes' ) );
+
+		self::assertStringContainsString( 'href="http://www.example.test"', $html );
 	}
 
 	#[Test]

@@ -166,6 +166,19 @@ final class FormatTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_dial_only_the_first_number_without_its_extension(): void {
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '03 9876 5432 ext 12' ) );
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '03 9876 5432 x12' ) );
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '03 9876 5432 / 0400 111 222' ) );
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '03 9876 5432, 0400 111 222' ) );
+	}
+
+	#[Test]
+	public function should_drop_the_bracketed_trunk_zero_after_a_country_code(): void {
+		$this->assertSame( 'tel:+61398765432', \agend_apps_records_tel_href( '+61 (0)3 9876 5432' ) );
+	}
+
+	#[Test]
 	public function should_return_no_tel_href_when_no_digit_is_left_to_dial(): void {
 		$this->assertSame( '', \agend_apps_records_tel_href( 'On request' ) );
 		$this->assertSame( '', \agend_apps_records_tel_href( '+' ) );

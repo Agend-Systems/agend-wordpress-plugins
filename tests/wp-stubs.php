@@ -717,9 +717,16 @@ function esc_url( $url ): string {
 }
 
 if ( ! function_exists( 'esc_url_raw' ) ) {
-	/** Minimal stand-in: trims only, no kses/scheme allow-listing. */
+	/**
+	 * Minimal stand-in: trims, and adds `http://` to a schemeless address as
+	 * WordPress does. No kses/scheme allow-listing.
+	 */
 	function esc_url_raw( $url ): string {
-		return trim( (string) $url );
+		$url = trim( (string) $url );
+		if ( '' !== $url && false === strpos( $url, ':' ) && ! in_array( $url[0], array( '/', '#', '?' ), true ) && ! preg_match( '/^[a-z0-9-]+?\.php/i', $url ) ) {
+			$url = 'http://' . $url;
+		}
+		return $url;
 	}
 }
 
