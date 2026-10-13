@@ -988,6 +988,12 @@
       if (!card || !grid.contains(card)) {
         return;
       }
+      // A link out of the site inside the card (a phone number, a listing's
+      // website) keeps its own behaviour instead of opening the detail.
+      var inner = e.target.closest('a[href]');
+      if (inner && inner !== card && inner.origin !== window.location.origin) {
+        return;
+      }
       var slug = card.getAttribute('data-agend-slug');
       if (!slug) {
         return;
