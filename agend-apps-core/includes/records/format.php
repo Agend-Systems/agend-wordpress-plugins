@@ -261,8 +261,8 @@ function agend_apps_records_normalise_url_setting( $value ): string {
  * @return string The unescaped href, or '' when no digit is left to dial.
  */
 function agend_apps_records_tel_href( string $phone ): string {
-	$first  = (string) preg_split( '/\s*(?:ext\.?|extn\.?|x|,|;|\/)\s*/i', $phone, 2 )[0];
-	$digits = (string) preg_replace( '/[^+\d]/', '', str_replace( '(0)', '', $first ) );
+	$first  = (string) preg_split( '/(?<=\d)\s*(?:ext\.?|extn\.?|x|,|;|\/)/i', $phone, 2 )[0];
+	$digits = (string) preg_replace( '/[^+\d]/', '', (string) preg_replace( '/^(\s*\+\d+)\s*\(0\)/', '$1', $first ) );
 
 	return preg_match( '/\d/', $digits ) ? 'tel:' . $digits : '';
 }

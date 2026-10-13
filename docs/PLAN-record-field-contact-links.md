@@ -163,14 +163,17 @@ catalogue scripts delegate clicks on it to open the detail, calling
 `preventDefault()` on any click inside, inner links included. So a phone or
 website link in such a card would open the detail instead. In
 `onTemplatedCardClick` (`directory-catalogue.js`, `events-catalogue.js`,
-`courses-catalogue.js`), a click on an inner link whose `origin` differs from
-the page's (a `tel:` link, another site) now keeps its own behaviour.
-Same-site links, such as an Agend Link "Open detail" button, still open the
-in-page detail.
+`courses-catalogue.js`), a click on an inner link that goes anywhere but the
+card's own detail (the card's `data-agend-href`) now keeps its own behaviour:
+a `tel:` link, a website, an Agend Link "Add to Calendar", "Enrol" or custom
+URL. Links to the detail, such as an Agend Link "Open detail" button, still
+open the in-page detail. The events "Register" action is a button, not a link,
+so it is unaffected.
 
 The `tel:` helper takes only the first number: it stops at an extension or a
-second number (`ext`, `x`, `,`, `;`, `/`) and drops a `(0)` written after a
-country code.
+second number (`ext`, `x`, `,`, `;`, `/`) that follows a digit, so a label such
+as "Ph/Fax" before the number is not cut, and drops a `(0)` written after a
+`+` country code.
 
 ### 6. Optional style control
 

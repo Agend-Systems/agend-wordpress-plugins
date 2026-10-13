@@ -988,10 +988,10 @@
       if (!card || !grid.contains(card)) {
         return;
       }
-      // A link out of the site inside the card (a phone number, a listing's
-      // website) keeps its own behaviour instead of opening the detail.
+      // A link inside the card to anywhere but the card's own detail (a phone
+      // number, a website, a calendar file) keeps its own behaviour.
       var inner = e.target.closest('a[href]');
-      if (inner && inner !== card && inner.origin !== window.location.origin) {
+      if (inner && inner !== card && inner.href !== new URL(card.getAttribute('data-agend-href') || '', window.location.href).href) {
         return;
       }
       var slug = card.getAttribute('data-agend-slug');

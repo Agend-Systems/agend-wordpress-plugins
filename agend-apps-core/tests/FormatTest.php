@@ -174,6 +174,13 @@ final class FormatTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_dial_the_number_after_a_label_that_contains_a_separator(): void {
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( 'Phone/Fax: 03 9876 5432' ) );
+		$this->assertSame( 'tel:0212345678', \agend_apps_records_tel_href( 'Ph/Fax 02 1234 5678' ) );
+		$this->assertSame( 'tel:0400111222', \agend_apps_records_tel_href( 'Text or call 0400 111 222' ) );
+	}
+
+	#[Test]
 	public function should_drop_the_bracketed_trunk_zero_after_a_country_code(): void {
 		$this->assertSame( 'tel:+61398765432', \agend_apps_records_tel_href( '+61 (0)3 9876 5432' ) );
 	}
