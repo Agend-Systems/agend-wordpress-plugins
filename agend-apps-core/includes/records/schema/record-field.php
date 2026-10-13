@@ -18,6 +18,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The link-value conditions name the registry's linkable fields.
+require_once __DIR__ . '/../fields.php';
+
 /**
  * The Agend Field widget's content-settings schema.
  *
@@ -132,6 +135,43 @@ function agend_apps_records_schema_record_field(): array {
 						'type'        => 'toggle',
 						'default'     => false,
 						'description' => __( 'Ignored when the whole card is already a link.', 'agend-apps-core' ),
+					),
+					// Off by default: Elementor does not store a setting left at
+					// its default, so a default of on would link every existing
+					// Agend Field on every site at the next release.
+					array(
+						'name'        => 'link_value',
+						'label'       => __( 'Link the value', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Websites link to the address. Phone numbers become tap-to-call links. Ignored when the whole card is already a link.', 'agend-apps-core' ),
+						'condition'   => array(
+							'field'           => agend_apps_records_linkable_field_keys(),
+							'link_to_detail!' => 'yes',
+						),
+					),
+					array(
+						'name'        => 'link_text',
+						'label'       => __( 'Link text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'description' => __( 'Shown instead of the value, for example Visit website or Call us. Leave empty to show the value.', 'agend-apps-core' ),
+						'condition'   => array(
+							'field'           => agend_apps_records_linkable_field_keys(),
+							'link_to_detail!' => 'yes',
+							'link_value'      => 'yes',
+						),
+					),
+					array(
+						'name'      => 'link_new_tab',
+						'label'     => __( 'Open in new tab', 'agend-apps-core' ),
+						'type'      => 'toggle',
+						'default'   => true,
+						'condition' => array(
+							'field'           => agend_apps_records_linkable_field_keys( array( 'url' ) ),
+							'link_to_detail!' => 'yes',
+							'link_value'      => 'yes',
+						),
 					),
 					array(
 						'name'      => 'label_heading',

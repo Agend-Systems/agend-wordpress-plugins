@@ -250,6 +250,19 @@ function agend_apps_records_normalise_url_setting( $value ): string {
 }
 
 /**
+ * The `tel:` href for a phone number as people write it, keeping only the
+ * digits and a `+`.
+ *
+ * @param string $phone The phone number, e.g. "(03) 9876-5432".
+ * @return string The unescaped href, or '' when no digit is left to dial.
+ */
+function agend_apps_records_tel_href( string $phone ): string {
+	$digits = (string) preg_replace( '/[^+\d]/', '', $phone );
+
+	return preg_match( '/\d/', $digits ) ? 'tel:' . $digits : '';
+}
+
+/**
  * The labels the gateway gave an option-backed custom field's stored value.
  *
  * A dropdown, multi-select, radio or checkbox-group entry stores option KEYS

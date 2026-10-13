@@ -517,6 +517,208 @@ final class RecordFieldRenderTest extends TestCase {
 	}
 
 	// -------------------------------------------------------------------
+	// Linking the value itself: websites and tap-to-call phone numbers
+	// -------------------------------------------------------------------
+
+	/**
+	 * @return array<string, array{0: string, 1: string}>
+	 */
+	public static function phone_numbers(): array {
+		return array(
+			'international' => array( '+61 3 9876 5432', 'tel:+61398765432' ),
+			'local'         => array( '(03) 9876-5432', 'tel:0398765432' ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'phone_numbers' )]
+	public function should_link_a_phone_number_as_tap_to_call_when_link_value_is_on( string $phone, string $href ): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'phone' => $phone ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--phone agend-field--listing-phone">'
+				. '<a class="agend-field__link agend-field__link--phone" href="' . $href . '">' . $phone . '</a></div>',
+			agend_apps_records_render_record_field( array( 'field' => 'listing:phone', 'link_value' => 'yes' ) )
+		);
+	}
+
+	#[Test]
+	public function should_open_a_linked_website_in_a_new_tab_by_default(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'website' => 'https://example.test/' ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--url agend-field--listing-website">'
+				. '<a class="agend-field__link agend-field__link--url" href="https://example.test/" target="_blank" rel="noopener noreferrer">https://example.test/</a></div>',
+			agend_apps_records_render_record_field( array( 'field' => 'listing:website', 'link_value' => 'yes' ) )
+		);
+	}
+
+	#[Test]
+	public function should_open_a_linked_website_in_the_same_tab_when_new_tab_is_off(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'website' => 'https://example.test/' ) );
+
+		$html = agend_apps_records_render_record_field(
+			array( 'field' => 'listing:website', 'link_value' => 'yes', 'link_new_tab' => '' )
+		);
+
+		self::assertStringContainsString( '<a class="agend-field__link agend-field__link--url" href="https://example.test/">', $html );
+		self::assertStringNotContainsString( 'target=', $html );
+	}
+
+	/**
+	 * @return array<string, array{0: string}>
+	 */
+	public static function unlinkable_websites(): array {
+		return array(
+			'script scheme'    => array( 'javascript:alert(1)' ),
+			'no scheme'        => array( 'www.example.test' ),
+			'another protocol' => array( 'ftp://example.test/' ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'unlinkable_websites' )]
+	public function should_render_a_website_without_a_web_scheme_as_text( string $website ): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'website' => $website ) );
+
+		$html = agend_apps_records_render_record_field( array( 'field' => 'listing:website', 'link_value' => 'yes' ) );
+
+		self::assertStringNotContainsString( '<a ', $html );
+	}
+
+	#[Test]
+	public function should_render_a_phone_with_no_digits_as_text(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'phone' => 'On request' ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--phone agend-field--listing-phone">On request</div>',
+			agend_apps_records_render_record_field( array( 'field' => 'listing:phone', 'link_value' => 'yes' ) )
+		);
+	}
+
+	#[Test]
+	public function should_show_the_escaped_link_text_in_place_of_the_value(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'phone' => '03 9876 5432' ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--phone agend-field--listing-phone">'
+				. '<a class="agend-field__link agend-field__link--phone" href="tel:0398765432">Call &amp; &lt;ask&gt;</a></div>',
+			agend_apps_records_render_record_field(
+				array( 'field' => 'listing:phone', 'link_value' => 'yes', 'link_text' => '  Call & <ask> ' )
+			)
+		);
+	}
+
+	#[Test]
+	public function should_show_the_value_when_the_link_text_is_blank(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'phone' => '03 9876 5432' ) );
+
+		$html = agend_apps_records_render_record_field(
+			array( 'field' => 'listing:phone', 'link_value' => 'yes', 'link_text' => '   ' )
+		);
+
+		self::assertStringContainsString( 'href="tel:0398765432">03 9876 5432</a>', $html );
+	}
+
+	#[Test]
+	public function should_keep_the_before_and_after_text_outside_the_value_link(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'phone' => '03 9876 5432' ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--phone agend-field--listing-phone">Phone: '
+				. '<a class="agend-field__link agend-field__link--phone" href="tel:0398765432">03 9876 5432</a> (business hours)</div>',
+			agend_apps_records_render_record_field(
+				array(
+					'field'       => 'listing:phone',
+					'link_value'  => 'yes',
+					'before_text' => 'Phone: ',
+					'after_text'  => ' (business hours)',
+				)
+			)
+		);
+	}
+
+	#[Test]
+	public function should_show_the_plain_value_and_not_the_link_text_inside_a_card_link(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'phone' => '03 9876 5432' ), array( 'in_card_link' => true ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--phone agend-field--listing-phone">03 9876 5432</div>',
+			agend_apps_records_render_record_field(
+				array( 'field' => 'listing:phone', 'link_value' => 'yes', 'link_text' => 'Call us' )
+			)
+		);
+	}
+
+	#[Test]
+	public function should_link_only_to_the_detail_page_when_link_to_detail_is_also_on(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array( 'website' => 'https://example.test/' ),
+			array( 'detail_url' => 'https://example.test/directory/listing/sample/' )
+		);
+
+		self::assertSame(
+			'<div class="agend-field agend-field--url agend-field--listing-website">'
+				. '<a class="agend-field__link" href="https://example.test/directory/listing/sample/">https://example.test/</a></div>',
+			agend_apps_records_render_record_field(
+				array( 'field' => 'listing:website', 'link_to_detail' => 'yes', 'link_value' => 'yes', 'link_text' => 'Visit website' )
+			)
+		);
+	}
+
+	#[Test]
+	public function should_render_the_value_unlinked_when_link_value_is_off(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'phone' => '03 9876 5432', 'website' => 'https://example.test/' ) );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--phone agend-field--listing-phone">03 9876 5432</div>',
+			agend_apps_records_render_record_field( array( 'field' => 'listing:phone', 'link_text' => 'Call us' ) )
+		);
+		self::assertSame(
+			'<div class="agend-field agend-field--url agend-field--listing-website">https://example.test/</div>',
+			agend_apps_records_render_record_field( array( 'field' => 'listing:website', 'link_value' => '' ) )
+		);
+	}
+
+	#[Test]
+	public function should_never_link_the_fallback_text(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array() );
+
+		self::assertSame(
+			'<div class="agend-field agend-field--phone agend-field--listing-phone">No phone listed</div>',
+			agend_apps_records_render_record_field(
+				array( 'field' => 'listing:phone', 'link_value' => 'yes', 'fallback_text' => 'No phone listed' )
+			)
+		);
+	}
+
+	#[Test]
+	public function should_not_link_a_url_field_that_is_not_marked_linkable(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', array( 'logo_url' => 'https://example.test/logo.png' ) );
+
+		$html = agend_apps_records_render_record_field( array( 'field' => 'listing:logo_url', 'link_value' => 'yes' ) );
+
+		self::assertStringNotContainsString( '<a ', $html );
+	}
+
+	#[Test]
+	public function should_offer_link_value_only_for_contact_fields_and_new_tab_only_for_web_addresses(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/record-field.php';
+
+		$fields = array_column( agend_apps_records_schema_record_field()['sections'][0]['fields'], null, 'name' );
+
+		self::assertFalse( $fields['link_value']['default'] );
+		self::assertSame( 'yes', $fields['link_value']['condition']['link_to_detail!'] );
+		self::assertContains( 'listing:phone', $fields['link_value']['condition']['field'] );
+		self::assertContains( 'listing:website', $fields['link_value']['condition']['field'] );
+		self::assertNotContains( 'listing:logo_url', $fields['link_value']['condition']['field'] );
+		self::assertNotContains( 'common:detail_url', $fields['link_value']['condition']['field'] );
+		self::assertNotContains( 'listing:phone', $fields['link_new_tab']['condition']['field'] );
+		self::assertContains( 'listing:website', $fields['link_new_tab']['condition']['field'] );
+	}
+
+	// -------------------------------------------------------------------
 	// The Elementor widget delegating to the core renderer
 	// -------------------------------------------------------------------
 
