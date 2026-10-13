@@ -131,7 +131,9 @@ before `$inner` is assembled with before/after text:
    (`agend_apps_records_field_value( $key, $ctx['type'], $ctx['record'], $extra )`),
    not the formatted `$html`:
    - kind `url`: `esc_url_raw()`, and only if it matches `#^https?://#i`
-     (as `fragments.php` does). Otherwise no link.
+     (as `fragments.php` does). Otherwise no link. `esc_url_raw()` adds
+     `http://` to a schemeless `www.example.com`, so that is linked over
+     http, as the built-in detail already does.
    - kind `phone`: `'tel:' . preg_replace( '/[^+\d]/', '', $raw )`. No link if
      no digit is left after stripping.
 3. Label: `esc_html( trim( $settings['link_text'] ) )` when set, otherwise the
@@ -154,7 +156,23 @@ it is unit-testable on its own.
 which both renderers already load) and use it in the two `fragments.php` call
 sites as well, so all three stay identical.
 
-### 5. Optional style control
+### 5. Links inside a catalogue card
+
+When "Link the whole card" is off, a templated card is a `<div>` and the
+catalogue scripts delegate clicks on it to open the detail, calling
+`preventDefault()` on any click inside, inner links included. So a phone or
+website link in such a card would open the detail instead. In
+`onTemplatedCardClick` (`directory-catalogue.js`, `events-catalogue.js`,
+`courses-catalogue.js`), a click on an inner link whose `origin` differs from
+the page's (a `tel:` link, another site) now keeps its own behaviour.
+Same-site links, such as an Agend Link "Open detail" button, still open the
+in-page detail.
+
+The `tel:` helper takes only the first number: it stops at an extension or a
+second number (`ext`, `x`, `,`, `;`, `/`) and drops a `(0)` written after a
+country code.
+
+### 6. Optional style control
 
 A "Link hover colour" control in the widget's Style tab
 (`{{WRAPPER}} .agend-field a:hover`). This would be the one change in
@@ -176,8 +194,9 @@ someone asks.
   `href="tel:0398765432"`.
 - Website with `link_value` on renders an anchor with `target="_blank"` and
   `rel="noopener noreferrer"`; with `link_new_tab` off, no `target`.
-- A website value without `http(s)://` (e.g. `javascript:alert(1)`, `www.x.com`)
-  renders as text, no anchor.
+- A website value with another scheme (e.g. `javascript:alert(1)`,
+  `ftp://`) renders as text, no anchor. A schemeless `www.x.com` links over
+  http.
 - `link_text` replaces the label and is escaped; empty `link_text` shows the
   value.
 - Before/after text stays outside the anchor.
