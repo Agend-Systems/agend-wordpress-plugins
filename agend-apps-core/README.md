@@ -361,6 +361,16 @@ surrounding template is caught where it is read, by
 `agend_apps_records_field_applies()` and by the panel's own type check, both of
 which can say WHICH field is wrong rather than only that something is.
 
+**Linked contact fields.** A field the registry marks `linkable` (a listing's
+phone, website and social profile URLs) offers Agend Field's "Link the value"
+setting: a website links to its address, a phone number becomes a `tel:` link,
+and optional link text replaces the displayed value. It is off by default and
+never links inside a card that is already one big link. Since 1.38.0 the phone
+field has its own `phone` kind, so its wrapper class is `agend-field--phone`
+where it was `agend-field--text`; custom CSS that styled the phone through
+`.agend-field--text` should target `.agend-field--phone` or
+`.agend-field--listing-phone`.
+
 When a Content-tab control genuinely has no schema equivalent, it becomes an
 `adapter` field rather than forcing a bad fit into the vocabulary; the
 vocabulary itself is extended (as `heading` was) only when the control is in

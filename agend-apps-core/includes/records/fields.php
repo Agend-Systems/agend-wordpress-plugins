@@ -28,7 +28,7 @@ require_once __DIR__ . '/format.php';
 /**
  * Field kinds. `agend_apps_records_format_field()` switches on these.
  */
-const AGEND_APPS_RECORDS_FIELD_KINDS = array( 'text', 'html', 'url', 'date', 'date_range', 'date_time', 'price', 'list', 'bool', 'number', 'item_list' );
+const AGEND_APPS_RECORDS_FIELD_KINDS = array( 'text', 'phone', 'html', 'url', 'date', 'date_range', 'date_time', 'price', 'list', 'bool', 'number', 'item_list' );
 
 /**
  * Reads the first non-empty string at the given paths of a record.
@@ -466,6 +466,9 @@ function agend_apps_records_record_excerpt( array $record ): string {
  * AGEND_APPS_RECORDS_FIELD_KINDS), `types` (record types the field applies to;
  * `common:*` fields apply to both and resolve per type), `get` (callable
  * `( array $record, string $type, array $extra )` returning the raw value).
+ * Optional flags: `pill` (offered to the pills widget) and `linkable` (a phone
+ * or web address an Agend Field can link to; kind alone cannot say, since
+ * `url` also covers images and the detail URL).
  *
  * @return array<string, array<string, mixed>>
  */
@@ -662,13 +665,13 @@ function agend_apps_records_field_registry(): array {
 		'listing:rating'            => array( 'label' => __( 'Average rating', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'average_rating' ) ),
 		'listing:review_count'      => array( 'label' => __( 'Review count', 'agend-apps-core' ), 'kind' => 'number', 'get' => $num( 'review_count' ) ),
 		'listing:is_featured'       => array( 'label' => __( 'Featured', 'agend-apps-core' ), 'kind' => 'bool', 'get' => $flag( 'is_featured' ) ),
-		'listing:phone'             => array( 'label' => __( 'Phone', 'agend-apps-core' ), 'kind' => 'text', 'get' => $text( 'phone' ) ),
-		'listing:website'           => array( 'label' => __( 'Website', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'website' ) ),
-		'listing:linkedin_url'      => array( 'label' => __( 'LinkedIn', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'linkedin_url' ) ),
-		'listing:facebook_url'      => array( 'label' => __( 'Facebook', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'facebook_url' ) ),
-		'listing:instagram_url'     => array( 'label' => __( 'Instagram', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'instagram_url' ) ),
-		'listing:twitter_url'       => array( 'label' => __( 'X (Twitter)', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'twitter_url' ) ),
-		'listing:youtube_url'       => array( 'label' => __( 'YouTube', 'agend-apps-core' ), 'kind' => 'url', 'get' => $text( 'youtube_url' ) ),
+		'listing:phone'             => array( 'label' => __( 'Phone', 'agend-apps-core' ), 'kind' => 'phone', 'linkable' => true, 'get' => $text( 'phone' ) ),
+		'listing:website'           => array( 'label' => __( 'Website', 'agend-apps-core' ), 'kind' => 'url', 'linkable' => true, 'get' => $text( 'website' ) ),
+		'listing:linkedin_url'      => array( 'label' => __( 'LinkedIn', 'agend-apps-core' ), 'kind' => 'url', 'linkable' => true, 'get' => $text( 'linkedin_url' ) ),
+		'listing:facebook_url'      => array( 'label' => __( 'Facebook', 'agend-apps-core' ), 'kind' => 'url', 'linkable' => true, 'get' => $text( 'facebook_url' ) ),
+		'listing:instagram_url'     => array( 'label' => __( 'Instagram', 'agend-apps-core' ), 'kind' => 'url', 'linkable' => true, 'get' => $text( 'instagram_url' ) ),
+		'listing:twitter_url'       => array( 'label' => __( 'X (Twitter)', 'agend-apps-core' ), 'kind' => 'url', 'linkable' => true, 'get' => $text( 'twitter_url' ) ),
+		'listing:youtube_url'       => array( 'label' => __( 'YouTube', 'agend-apps-core' ), 'kind' => 'url', 'linkable' => true, 'get' => $text( 'youtube_url' ) ),
 		'listing:hours'             => array(
 			'label' => __( 'Opening hours', 'agend-apps-core' ),
 			'kind'  => 'html',
@@ -926,6 +929,24 @@ function agend_apps_records_pill_field_options(): array {
 }
 
 /**
+ * The keys of fields an Agend Field can link to, optionally only those of the
+ * given kinds.
+ *
+ * @param string[]|null $kinds Restrict to these kinds; null for all.
+ * @return string[]
+ */
+function agend_apps_records_linkable_field_keys( ?array $kinds = null ): array {
+	$keys = array();
+	foreach ( agend_apps_records_field_registry() as $key => $descriptor ) {
+		if ( empty( $descriptor['linkable'] ) || ( null !== $kinds && ! in_array( $descriptor['kind'], $kinds, true ) ) ) {
+			continue;
+		}
+		$keys[] = $key;
+	}
+	return $keys;
+}
+
+/**
  * Field picker options grouped for an Elementor SELECT `groups` control.
  *
  * @param string[]|null $kinds Restrict to these kinds (e.g. array( 'url' ) for
@@ -1033,6 +1054,7 @@ function agend_apps_records_format_field( $value, string $kind, array $opts = ar
 			$decimals = ( floor( $num ) === $num ) ? 0 : 2;
 			return esc_html( number_format_i18n( $num, $decimals ) . (string) ( $opts['number_suffix'] ?? '' ) );
 
+		case 'phone':
 		case 'text':
 		default:
 			$text = is_scalar( $value ) ? (string) $value : '';

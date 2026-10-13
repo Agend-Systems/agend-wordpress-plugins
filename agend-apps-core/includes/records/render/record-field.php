@@ -189,6 +189,66 @@ function agend_apps_records_record_field_label_html( array $s, string $key, arra
 }
 
 /**
+ * Where a linkable field's raw value links to.
+ *
+ * Only web addresses are linked, never another scheme a stored value happens
+ * to carry, matching the built-in listing detail.
+ *
+ * @param string $kind The field kind.
+ * @param string $raw  The raw value, before formatting.
+ * @return string The unescaped href, or '' when the value cannot be linked.
+ */
+function agend_apps_records_record_field_value_href( string $kind, string $raw ): string {
+	if ( 'phone' === $kind ) {
+		return agend_apps_records_tel_href( $raw );
+	}
+	if ( 'url' === $kind ) {
+		$url = esc_url_raw( trim( $raw ) );
+		return preg_match( '#^https?://#i', $url ) ? $url : '';
+	}
+	return '';
+}
+
+/**
+ * The formatted value as a link to itself (a website, or a tap-to-call
+ * number) when the settings ask for one, or unchanged.
+ *
+ * Unchanged inside a card that is already one big link, where the custom link
+ * text is dropped too: "Call us" that cannot be tapped tells a visitor less
+ * than the number itself. "Link to detail page" keeps precedence.
+ *
+ * @param string $html     The formatted, escaped value.
+ * @param array  $settings Surface settings.
+ * @param string $key      Field key.
+ * @param string $kind     Field kind.
+ * @param array  $ctx      The resolved record context.
+ * @param array  $extra    Render context.
+ * @return string Escaped HTML.
+ */
+function agend_apps_records_record_field_linked_value( string $html, array $settings, string $key, string $kind, array $ctx, array $extra ): string {
+	if ( 'yes' !== ( $settings['link_value'] ?? '' )
+		|| 'yes' === ( $settings['link_to_detail'] ?? '' )
+		|| ! empty( $extra['in_card_link'] )
+		|| ! in_array( $key, agend_apps_records_linkable_field_keys(), true ) ) {
+		return $html;
+	}
+
+	$raw  = agend_apps_records_field_value( $key, $ctx['type'], $ctx['record'], $extra );
+	$href = is_scalar( $raw ) ? agend_apps_records_record_field_value_href( $kind, (string) $raw ) : '';
+	if ( '' === $href ) {
+		return $html;
+	}
+
+	$text   = trim( (string) ( $settings['link_text'] ?? '' ) );
+	$label  = '' !== $text ? esc_html( $text ) : $html;
+	$target = ( 'url' === $kind && 'yes' === ( $settings['link_new_tab'] ?? 'yes' ) )
+		? ' target="_blank" rel="noopener noreferrer"'
+		: '';
+
+	return '<a class="agend-field__link agend-field__link--' . esc_attr( $kind ) . '" href="' . esc_url( $href ) . '"' . $target . '>' . $label . '</a>';
+}
+
+/**
  * Renders the record field surface: a single formatted value from the record
  * in scope, with the label, before/after text and detail link the settings
  * ask for.
@@ -247,6 +307,8 @@ function agend_apps_records_render_record_field( array $settings, array $opts = 
 				return '';
 			}
 			$html = esc_html( $fallback );
+		} else {
+			$html = agend_apps_records_record_field_linked_value( $html, $settings, $key, $kind, $ctx, $extra );
 		}
 	}
 

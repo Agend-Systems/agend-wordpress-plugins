@@ -253,6 +253,69 @@
                     }
                 },
                 {
+                    "id": "link_value",
+                    "args": {
+                        "label": "Link the value",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Websites link to the address. Phone numbers become tap-to-call links. Ignored when the whole card is already a link.",
+                        "condition": {
+                            "field": [
+                                "listing:phone",
+                                "listing:website",
+                                "listing:linkedin_url",
+                                "listing:facebook_url",
+                                "listing:instagram_url",
+                                "listing:twitter_url",
+                                "listing:youtube_url"
+                            ],
+                            "link_to_detail!": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "link_text",
+                    "args": {
+                        "label": "Link text",
+                        "type": "text",
+                        "default": "",
+                        "description": "Shown instead of the value, for example Visit website or Call us. Leave empty to show the value.",
+                        "condition": {
+                            "field": [
+                                "listing:phone",
+                                "listing:website",
+                                "listing:linkedin_url",
+                                "listing:facebook_url",
+                                "listing:instagram_url",
+                                "listing:twitter_url",
+                                "listing:youtube_url"
+                            ],
+                            "link_to_detail!": "yes",
+                            "link_value": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "link_new_tab",
+                    "args": {
+                        "label": "Open in new tab",
+                        "type": "switcher",
+                        "default": "yes",
+                        "condition": {
+                            "field": [
+                                "listing:website",
+                                "listing:linkedin_url",
+                                "listing:facebook_url",
+                                "listing:instagram_url",
+                                "listing:twitter_url",
+                                "listing:youtube_url"
+                            ],
+                            "link_to_detail!": "yes",
+                            "link_value": "yes"
+                        }
+                    }
+                },
+                {
                     "id": "label_heading",
                     "args": {
                         "label": "Label",
