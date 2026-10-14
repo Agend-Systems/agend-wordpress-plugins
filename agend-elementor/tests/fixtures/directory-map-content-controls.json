@@ -84,7 +84,7 @@
                         "label": "Zoom with the mouse wheel",
                         "type": "switcher",
                         "default": "",
-                        "description": "Off by default so scrolling the page never gets caught by the map. The zoom buttons always work."
+                        "description": "Off by default so scrolling the page never gets caught by the map: visitors zoom by holding Ctrl (or Command on a Mac) as they scroll, and on phones move the map with two fingers. The map shows them how when they try. The zoom buttons always work."
                     }
                 },
                 {
@@ -93,6 +93,23 @@
                         "label": "Show the search radius",
                         "type": "switcher",
                         "default": "yes"
+                    }
+                },
+                {
+                    "id": "fullscreen_button",
+                    "args": {
+                        "label": "Full screen button",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "locate_button",
+                    "args": {
+                        "label": "My location button",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Centres the map on where the visitor is, after their browser asks their permission. It moves the map only; the Location filter is what searches near them."
                     }
                 },
                 {
@@ -175,6 +192,27 @@
                         "type": "text",
                         "default": "",
                         "placeholder": "View details"
+                    }
+                },
+                {
+                    "id": "popup_directions",
+                    "args": {
+                        "label": "Show directions link",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Opens directions to the listing in Google Maps, in a new tab."
+                    }
+                },
+                {
+                    "id": "popup_directions_text",
+                    "args": {
+                        "label": "Directions link text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Get directions",
+                        "condition": {
+                            "popup_directions": "yes"
+                        }
                     }
                 }
             ]
