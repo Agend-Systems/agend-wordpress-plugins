@@ -1758,8 +1758,10 @@
       // An Agend Map viewport, "north,south,east,west", when the map is set
       // to update results as it moves. Never sent alongside `near`.
       bbox: '',
-      // 'list' or 'map', written by a List / Map switch.
-      view: 'list',
+      // 'list' or 'map', written by a List / Map switch. Empty until the
+      // switch sets it, so the switch's "Starts on" setting is what applies
+      // on first load; a reset leaves the visitor's choice alone.
+      view: '',
     };
 
     // The filter template is rendered server-side inside the widget; take it

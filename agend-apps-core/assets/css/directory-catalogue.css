@@ -1115,6 +1115,31 @@
   position: relative;
 }
 
+/* Grid layout: every card is as tall as the tallest in its row. The grid
+   already stretches the shell; these pass that height down to the template,
+   so a card's own background and border reach the bottom of the row. A
+   template with one top-level wrapper (a single Group block, an Elementor
+   document) grows to fill the shell. */
+.agend-dir-grid--grid.agend-dir-grid--templated > .agend-card-link {
+  display: flex;
+  flex-direction: column;
+}
+
+.agend-dir-grid--grid.agend-dir-grid--templated > .agend-card-link > div:only-of-type {
+  flex: 1 1 auto;
+}
+
+/* An Elementor document wraps its sections in one div; the last section
+   takes up the extra height. */
+.agend-dir-grid--grid.agend-dir-grid--templated > .agend-card-link > .elementor {
+  display: flex;
+  flex-direction: column;
+}
+
+.agend-dir-grid--grid.agend-dir-grid--templated > .agend-card-link > .elementor > :last-child {
+  flex: 1 1 auto;
+}
+
 .agend-dir-filter-slot:empty {
   display: none;
 }

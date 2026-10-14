@@ -821,7 +821,10 @@ authors in the Agend Elementor README. The pieces here:
   needs to follow a catalogue can use the same events. The state keys are
   `near` (`{lat, lng, radius, label}`), `bbox` (`"north,south,east,west"`) and
   `view`; `query.php` builds the same query from them for the server-rendered
-  first page.
+  first page. `state.view` is empty until a List / Map switch sets it, so the
+  switch's "Starts on" setting decides the first view (before 1.38.1 the state
+  started as `'list'` and "Starts on: Map" was ignored). The published `view`
+  still starts as `'list'`.
 - **Map assets**: Leaflet 1.9.4 and leaflet.markercluster 1.5.3 are vendored
   under `assets/js/vendor/` (licences alongside) and registered as
   `agend-apps-records-leaflet` and `agend-apps-records-leaflet-markercluster`.
