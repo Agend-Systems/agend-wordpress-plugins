@@ -32,6 +32,13 @@ $wpdb->query(
 	)
 );
 
+// Remove every member's stored Agend session and SSO token. User meta is
+// network-wide, so one pass covers a multisite network. The plugin is not
+// loaded here and the API key has just been deleted, so the sessions cannot be
+// revoked at the gateway: they are removed from this database only.
+delete_metadata( 'user', 0, '_agend_apps_member_session', '', true );
+delete_metadata( 'user', 0, '_agend_apps_sso_token', '', true );
+
 // Drop the API log table on every site: each site in a network keeps its
 // own. The plugin is not loaded during uninstall, so the table name is
 // spelled out rather than read from Agend_Apps_Log_Store.

@@ -528,9 +528,10 @@ function agend_apps_connect_filter_nameid_empty_count( int $count, string $meta_
  * (`POST /api/auth/sso/{account}/link` issues an emailed code, verifies it,
  * and only then attaches the identity to the live session), so what is missing
  * is purely a WordPress surface that walks a member through it. Until that
- * exists, a site migrating off `credentials` mode keeps every existing member
- * on their credentials session indefinitely, which works but never completes
- * the migration. Do NOT "solve" this by allow-listing member email domains on
+ * exists, switching a site off `credentials` mode ends every stored credential
+ * session ({@see Agend_Apps_Member_Session::handle_mode_updated()}, operator
+ * ruling 2026-10-14), so those members lose Agend features on the site until
+ * they can link through SSO. Do NOT "solve" this by allow-listing member email domains on
  * the connection: that converts a cloned or compromised WordPress site from
  * "impersonate already-linked members" into "take over any Agend account on an
  * allow-listed domain", which on a consumer-email member base is every member.

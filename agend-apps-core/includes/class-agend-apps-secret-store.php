@@ -80,11 +80,8 @@ if ( ! class_exists( 'Agend_Apps_Secret_Store' ) ) :
 				return false;
 			}
 
-			$nonce  = random_bytes( SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
-			$cipher = sodium_crypto_secretbox( $plaintext, $nonce, self::key() );
-
 			$secrets               = static::all();
-			$secrets[ $store_key ] = base64_encode( $nonce . $cipher );
+			$secrets[ $store_key ] = self::encrypt( $plaintext );
 
 			return update_option( static::OPTION_SECRETS, $secrets, false );
 		}
@@ -96,16 +93,41 @@ if ( ! class_exists( 'Agend_Apps_Secret_Store' ) ) :
 		 */
 		public static function get( string $store_key ): string {
 			$secrets = static::all();
-			$blob    = isset( $secrets[ $store_key ] ) ? base64_decode( (string) $secrets[ $store_key ], true ) : false;
+
+			return isset( $secrets[ $store_key ] ) ? self::decrypt( (string) $secrets[ $store_key ] ) : '';
+		}
+
+		/**
+		 * Encrypts a value under this scheme, for a secret held somewhere other
+		 * than the options map (a member session in user meta).
+		 *
+		 * @param string $plaintext Value to encrypt.
+		 * @return string Base64 nonce and ciphertext.
+		 */
+		public static function encrypt( string $plaintext ): string {
+			$nonce = random_bytes( SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
+
+			return base64_encode( $nonce . sodium_crypto_secretbox( $plaintext, $nonce, self::key() ) );
+		}
+
+		/**
+		 * Reverses {@see encrypt()}.
+		 *
+		 * @param string $sealed Base64 nonce and ciphertext.
+		 * @return string The plaintext, or '' when the value is malformed or does not decrypt (the salts rotated since it was written).
+		 */
+		public static function decrypt( string $sealed ): string {
+			$blob = base64_decode( $sealed, true );
 
 			if ( false === $blob || strlen( $blob ) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ) {
 				return '';
 			}
 
-			$nonce  = substr( $blob, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
-			$cipher = substr( $blob, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
-
-			$plaintext = sodium_crypto_secretbox_open( $cipher, $nonce, self::key() );
+			$plaintext = sodium_crypto_secretbox_open(
+				substr( $blob, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ),
+				substr( $blob, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ),
+				self::key()
+			);
 
 			return false === $plaintext ? '' : $plaintext;
 		}

@@ -518,6 +518,13 @@ class Agend_Apps_Admin {
 	public function sanitize_api_key_setting( $value ): string {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- options.php has already verified the settings nonce before sanitize callbacks run.
 		if ( ! empty( $_POST['agend_apps_api_key_clear'] ) ) {
+			// Disconnecting the site ends every stored member session, revoked
+			// while the key can still reach the gateway. A wp-config.php key
+			// keeps the site connected, so its sessions stay.
+			if ( ! defined( 'AGEND_APPS_API_KEY' ) ) {
+				Agend_Apps_Member_Session::end_all();
+			}
+
 			Agend_Apps_Secret_Store::delete( Agend_Apps_Secret_Store::KEY_API_KEY );
 			return '';
 		}
