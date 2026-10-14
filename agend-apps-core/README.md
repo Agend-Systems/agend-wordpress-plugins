@@ -40,8 +40,9 @@ treats it as an error will break every logged-out pageload.
 
 ### `Agend_Apps_Member_Session::has_session()`
 
-Answers whether a stored session envelope exists for a user. It does NOT
-validate the token, and it says nothing about entitlements.
+Answers whether a usable stored session exists for a user: one that decrypts
+and belongs to that user. It does NOT check the token with the gateway, and it
+says nothing about entitlements.
 
 Use it to decide whether a member-scoped call is worth attempting. Never use it
 as an authorisation check.
@@ -182,6 +183,74 @@ transient or the browser (see `agend_apps_sso_mint_token()`).
 `agend_apps_token_worker_sleeper` replaces the sleep between re-reads, as
 `agend_entitlement_mirror_sleeper` does for the entitlement mirror. It exists so
 tests never block on a real sleep.
+
+### Member sessions: storage, refresh and sign-out
+
+A member who signs in with their Agend email and password (`credentials` mode)
+gets a Supabase session, which the plugin keeps in the
+`_agend_apps_member_session` user meta. Its refresh token can be redeemed at
+Supabase Auth directly, without the gateway or the site's API key, and it never
+expires on its own. Since 1.38.1 the plugin treats it as a credential:
+
+- **Encrypted at rest.** The session is encrypted with the same libsodium scheme
+  and `wp_salt( 'auth' )` key as the site API key (`Agend_Apps_Secret_Store::encrypt()`),
+  so a database copy alone (a backup, an export, a staging clone, a Redis dump)
+  holds no usable session. The encrypted value names its WordPress user, so a
+  value copied onto another user's row is refused. A session stored in plain
+  text by an earlier version is encrypted the first time it is read. A value
+  that no longer decrypts, for example after the salts change, counts as no
+  session and is deleted.
+- **One refresh at a time.** Concurrent requests for one member share a single
+  `POST /v1/auth/refresh`, through a `wp_options` lock row named
+  `agend_apps_member_refresh_lock_<user id>`. It works like the token mint lock
+  above. The rotated session is written only over the value the request read,
+  so a sign-out or a newer refresh that lands meanwhile is never overwritten.
+- **Deleted only when the token is dead.** The stored session is deleted only
+  when the gateway answers 401 `UNAUTHORIZED` or `MFA_REQUIRED`. A timeout, a
+  transport error, a 5xx, a 429, or an API key or scope refusal leaves it in
+  place, and the request goes out unattended. The gateway reports an Auth
+  outage as a 500 from agend-dashboard PR #4651 onwards. Before that, an outage
+  also arrived as a 401.
+- **Never refreshed for someone else.** `is_live()` and `has_session()` are
+  read-only, so an admin viewing a member's profile never rotates that member's
+  session. The refresh call is always sent unattended, so no other user's bearer
+  rides it.
+- **Ended, not just forgotten.** `Agend_Apps_Member_Session::end_session()`
+  revokes the session at the gateway with the member's own access token
+  (`POST /v1/auth/logout`, which ends every session the member holds), then
+  deletes it locally whatever the gateway answers. It runs on:
+  - `wp_logout`;
+  - user deletion (`delete_user`, `wpmu_delete_user`);
+  - a password reset or change (`after_password_reset`, `wp_set_password`, and
+    a `profile_update` that changes the password);
+  - the widget's REST sign-out.
+
+  Clearing the site's API key, or switching the member sign-in mode away from
+  `credentials`, ends every stored session (`end_all()`). Revocation is
+  time-boxed to 20 seconds; the rest are deleted locally only.
+  Revocation needs agend-dashboard PR #4651 deployed, because before it the
+  gateway's logout revoked nothing.
+- **Removed with the plugin.** Uninstall and `wp agend-apps scrub-secrets`
+  delete `_agend_apps_member_session` and `_agend_apps_sso_token` for every
+  user. Neither can revoke: on uninstall the plugin is not loaded and the key is
+  gone, and on a clone the stored sessions are the live site's own, so revoking
+  them would sign those members out of the live site.
+
+The public filters `agend_apps_auth_login_response`,
+`agend_apps_auth_register_response`, `agend_apps_auth_refresh_args` and
+`agend_apps_auth_refresh_response` no longer receive session tokens. Since
+1.38.1:
+
+- the response filters get a copy without `access_token` and `refresh_token`,
+  and cannot change the session;
+- `agend_apps_auth_refresh_args` gets args without the request body;
+- the second argument of both refresh filters is always `''`.
+
+`agend_apps_auth_logout()` accepts the member's access token explicitly. It is
+added after `agend_apps_auth_logout_args` runs.
+
+`agend_apps_member_session_sleeper` replaces the sleep between re-reads, as
+`agend_apps_token_worker_sleeper` does for the token worker.
 
 ## What is NOT an authority
 

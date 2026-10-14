@@ -12,6 +12,7 @@ use Agend_Apps_Admin;
 use PHPUnit\Framework\Attributes\Test;
 use WP_User;
 
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-secret-store.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/member-provisioning.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/auth.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-member-session.php';
@@ -59,7 +60,7 @@ final class AdminProfileTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_show_not_linked_when_the_stored_session_is_dead(): void {
+	public function should_show_linked_without_refreshing_the_members_session_when_it_is_stale(): void {
 		$user             = new WP_User( 44 );
 		$user->user_email = 'stale@example.test';
 
@@ -73,6 +74,7 @@ final class AdminProfileTest extends TestCase {
 				'stored_at'     => time() - 7200,
 			)
 		);
+		$stored = get_user_meta( 44, '_agend_apps_member_session', true );
 
 		$admin = new Agend_Apps_Admin();
 
@@ -80,9 +82,28 @@ final class AdminProfileTest extends TestCase {
 		$admin->render_user_agend_account( $user );
 		$html = ob_get_clean();
 
-		// The stored refresh fails (no gateway to answer), so the session is
-		// treated as dead rather than "Linked" (US-4.4 AC3).
+		// Viewing a profile never refreshes, and so rotates, another user's
+		// session from the admin's request. A dead session is cleared by the
+		// member's own next request instead.
+		$this->assertStringContainsString( '>Linked<', $html );
+		$this->assertSame( array(), \Agend_Test_WP::$requests );
+		$this->assertSame( $stored, get_user_meta( 44, '_agend_apps_member_session', true ) );
+	}
+
+	#[Test]
+	public function should_show_not_linked_when_the_stored_session_cannot_be_decrypted(): void {
+		$user             = new WP_User( 45 );
+		$user->user_email = 'rotated-salts@example.test';
+
+		update_user_meta( 45, '_agend_apps_member_session', base64_encode( random_bytes( 64 ) ) );
+
+		$admin = new Agend_Apps_Admin();
+
+		ob_start();
+		$admin->render_user_agend_account( $user );
+		$html = ob_get_clean();
+
 		$this->assertStringContainsString( 'Not linked', $html );
-		$this->assertStringNotContainsString( '>Linked<', $html );
+		$this->assertSame( array(), \Agend_Test_WP::$requests );
 	}
 }

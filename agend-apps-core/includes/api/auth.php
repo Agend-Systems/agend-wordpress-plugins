@@ -220,12 +220,14 @@ function agend_apps_auth_login( string $email, string $password ) {
 	}
 
 	/**
-	 * Filters the decoded login response before it is returned.
+	 * Filters the decoded login response before it is returned. The filter
+	 * receives a copy without the session's access and refresh tokens, and
+	 * cannot change the session: see {@see agend_apps_auth_filter_without_tokens()}.
 	 *
-	 * @param array  $response Decoded response body.
+	 * @param array  $response Decoded response body, session tokens removed.
 	 * @param string $email    User email address.
 	 */
-	return apply_filters( 'agend_apps_auth_login_response', $response, $email );
+	return agend_apps_auth_filter_without_tokens( 'agend_apps_auth_login_response', $response, $email );
 }
 
 /**
@@ -258,12 +260,14 @@ function agend_apps_auth_register( array $payload ) {
 	}
 
 	/**
-	 * Filters the decoded register response before it is returned.
+	 * Filters the decoded register response before it is returned. The filter
+	 * receives a copy without the session's access and refresh tokens, and
+	 * cannot change the session: see {@see agend_apps_auth_filter_without_tokens()}.
 	 *
-	 * @param array $response Decoded response body.
+	 * @param array $response Decoded response body, session tokens removed.
 	 * @param array $payload  Registration payload.
 	 */
-	return apply_filters( 'agend_apps_auth_register_response', $response, $payload );
+	return agend_apps_auth_filter_without_tokens( 'agend_apps_auth_register_response', $response, $payload );
 }
 
 /**
@@ -271,25 +275,27 @@ function agend_apps_auth_register( array $payload ) {
  *
  * Scope: `auth.sessions.refresh`.
  *
+ * Always sent unattended: the refresh token is the credential, and no other
+ * user's bearer may ride the call (an admin viewing a member's profile would
+ * otherwise attach their own).
+ *
  * @param string $refresh_token Valid refresh token from a previous session.
  * @return array|WP_Error Decoded response with new session on success, or WP_Error on failure.
  */
 function agend_apps_auth_refresh( string $refresh_token ) {
 	/**
-	 * Filters the refresh request args before the request is sent.
+	 * Filters the refresh request args before the request is sent. The args
+	 * carry no body: the refresh token is added after the filter, so it never
+	 * reaches a filter and cannot be rewritten.
 	 *
-	 * @param array  $args           Request args.
-	 * @param string $refresh_token Refresh token.
+	 * @param array  $args          Request args.
+	 * @param string $refresh_token Always ''. Kept so existing two-argument callbacks still run; the token is never passed to a filter.
 	 */
-	$args = (array) apply_filters(
-		'agend_apps_auth_refresh_args',
-		array(
-			'body' => array(
-				'refresh_token' => $refresh_token,
-			),
-		),
-		$refresh_token
-	);
+	$args = (array) apply_filters( 'agend_apps_auth_refresh_args', array(), '' );
+
+	$args['body']       = array( 'refresh_token' => $refresh_token );
+	$args['unattended'] = true;
+	unset( $args['bearer_token'] );
 
 	$response = agend_apps_api()->request( 'POST', '/auth/refresh', $args );
 
@@ -298,28 +304,88 @@ function agend_apps_auth_refresh( string $refresh_token ) {
 	}
 
 	/**
-	 * Filters the decoded refresh response before it is returned.
+	 * Filters the decoded refresh response before it is returned. The filter
+	 * receives a copy without the session's access and refresh tokens, and
+	 * cannot change the session: see {@see agend_apps_auth_filter_without_tokens()}.
 	 *
-	 * @param array  $response      Decoded response body.
-	 * @param string $refresh_token Refresh token.
+	 * @param array  $response      Decoded response body, session tokens removed.
+	 * @param string $refresh_token Always ''. Kept so existing two-argument callbacks still run.
 	 */
-	return apply_filters( 'agend_apps_auth_refresh_response', $response, $refresh_token );
+	return agend_apps_auth_filter_without_tokens( 'agend_apps_auth_refresh_response', $response, '' );
 }
 
 /**
- * Logs out the current authenticated user.
+ * Runs a public response filter over a copy of a gateway auth response with
+ * the session's access and refresh tokens removed, then puts the original
+ * session back. A filter is extension surface: a plugin hooking it to log or
+ * inspect a response must never receive a member's session, which is
+ * redeemable at Supabase Auth without the gateway.
+ *
+ * A filter may still change every other field, or return a `WP_Error` to
+ * refuse the response.
+ *
+ * @param string $hook     Filter name.
+ * @param mixed  $response Decoded gateway response.
+ * @param mixed  ...$args  Further filter arguments.
+ * @return mixed The filtered response, carrying the original session.
+ */
+function agend_apps_auth_filter_without_tokens( string $hook, $response, ...$args ) {
+	if ( ! is_array( $response ) ) {
+		return apply_filters( $hook, $response, ...$args );
+	}
+
+	$enveloped = isset( $response['data'] ) && is_array( $response['data'] );
+	$data      = $enveloped ? $response['data'] : $response;
+	$session   = ( isset( $data['session'] ) && is_array( $data['session'] ) ) ? $data['session'] : null;
+
+	if ( null === $session ) {
+		return apply_filters( $hook, $response, ...$args );
+	}
+
+	$data['session'] = array_diff_key( $session, array_flip( array( 'access_token', 'refresh_token' ) ) );
+	$redacted        = $enveloped ? array_merge( $response, array( 'data' => $data ) ) : $data;
+
+	$filtered = apply_filters( $hook, $redacted, ...$args );
+
+	if ( ! is_array( $filtered ) ) {
+		return $filtered;
+	}
+
+	if ( $enveloped ) {
+		$filtered['data']            = ( isset( $filtered['data'] ) && is_array( $filtered['data'] ) ) ? $filtered['data'] : array();
+		$filtered['data']['session'] = $session;
+	} else {
+		$filtered['session'] = $session;
+	}
+
+	return $filtered;
+}
+
+/**
+ * Logs a member out at the gateway, which revokes every session they hold.
  *
  * Scope: `auth.sessions.delete`. Requires a member bearer token.
  *
+ * @param string $bearer_token The member's access token. '' resolves the
+ *                             current user's bearer, as before; pass the
+ *                             token explicitly when the member is not the
+ *                             current user (a deletion by an admin, or a
+ *                             `wp_logout` that has already reset the user).
  * @return array|WP_Error Decoded confirmation response on success, or WP_Error on failure.
  */
-function agend_apps_auth_logout() {
+function agend_apps_auth_logout( string $bearer_token = '' ) {
 	/**
-	 * Filters the logout request args before the request is sent.
+	 * Filters the logout request args before the request is sent. An explicit
+	 * bearer is added after the filter, so it never reaches a filter.
 	 *
 	 * @param array $args Request args.
 	 */
 	$args = (array) apply_filters( 'agend_apps_auth_logout_args', array() );
+
+	if ( '' !== $bearer_token ) {
+		$args['bearer_token'] = $bearer_token;
+		unset( $args['unattended'] );
+	}
 
 	$response = agend_apps_api()->request( 'POST', '/auth/logout', $args );
 

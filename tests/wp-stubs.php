@@ -530,6 +530,8 @@ if ( ! class_exists( 'wpdb' ) ) {
 	class wpdb {
 		public string $options = 'wp_options';
 
+		public string $usermeta = 'wp_usermeta';
+
 		public string $prefix = 'wp_';
 
 		/** @var string[] Every query() passed in, for assertions on SQL the stub does not model. */
@@ -616,6 +618,30 @@ if ( ! class_exists( 'wpdb' ) ) {
 				return 0;
 			}
 
+			// The member session's compare-and-set write and compare-and-delete,
+			// against the same registry get_user_meta() reads.
+			if ( 1 === preg_match( "/^UPDATE wp_usermeta SET meta_value = '(.*?)' WHERE user_id = (\\d+) AND meta_key = '(.*?)' AND meta_value = '(.*?)'$/s", $query, $m ) ) {
+				$user_id = (int) $m[2];
+				$key     = stripslashes( $m[3] );
+				if ( stripslashes( $m[4] ) === ( $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] ?? null ) ) {
+					$GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] = stripslashes( $m[1] );
+					$this->rows_affected                                  = 1;
+					return 1;
+				}
+				return 0;
+			}
+
+			if ( 1 === preg_match( "/^DELETE FROM wp_usermeta WHERE user_id = (\\d+) AND meta_key = '(.*?)' AND meta_value = '(.*?)'$/s", $query, $m ) ) {
+				$user_id = (int) $m[1];
+				$key     = stripslashes( $m[2] );
+				if ( stripslashes( $m[3] ) === ( $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] ?? null ) ) {
+					unset( $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] );
+					$this->rows_affected = 1;
+					return 1;
+				}
+				return 0;
+			}
+
 			if ( ! empty( $this->query_results ) ) {
 				return array_shift( $this->query_results );
 			}
@@ -642,6 +668,18 @@ if ( ! class_exists( 'wpdb' ) ) {
 		/** @return string[] */
 		public function get_col( string $query ): array {
 			$this->queries[] = $query;
+
+			if ( 1 === preg_match( "/^SELECT user_id FROM wp_usermeta WHERE meta_key = '(.*?)'$/s", $query, $m ) ) {
+				$key = stripslashes( $m[1] );
+				$ids = array();
+				foreach ( (array) ( $GLOBALS['agend_test_user_meta'] ?? array() ) as $user_id => $meta ) {
+					if ( is_array( $meta ) && array_key_exists( $key, $meta ) ) {
+						$ids[] = (string) $user_id;
+					}
+				}
+				return $ids;
+			}
+
 			return array();
 		}
 
@@ -1670,6 +1708,33 @@ if ( ! function_exists( 'add_user_meta' ) ) {
 		$GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] = $value;
 
 		return true;
+	}
+}
+
+if ( ! function_exists( 'delete_metadata' ) ) {
+	/**
+	 * Models only the `$delete_all` user-meta form the plugin uses: remove a
+	 * key from every user.
+	 */
+	function delete_metadata( string $meta_type, int $object_id, string $meta_key, $meta_value = '', bool $delete_all = false ): bool {
+		if ( 'user' !== $meta_type ) {
+			return false;
+		}
+
+		$targets = $delete_all ? array_keys( (array) ( $GLOBALS['agend_test_user_meta'] ?? array() ) ) : array( $object_id );
+
+		foreach ( $targets as $user_id ) {
+			unset( $GLOBALS['agend_test_user_meta'][ $user_id ][ $meta_key ] );
+		}
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_salt' ) ) {
+	/** A fixed salt per scheme, so the encrypted-at-rest stores round-trip. */
+	function wp_salt( string $scheme = 'auth' ): string {
+		return 'agend-test-salt-' . $scheme;
 	}
 }
 

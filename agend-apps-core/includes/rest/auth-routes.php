@@ -813,15 +813,8 @@ class Agend_Apps_Auth_REST_Controller extends Agend_Apps_REST_Controller {
 		$user_id     = get_current_user_id();
 		$had_session = 0 !== $user_id && Agend_Apps_Member_Session::has_session( $user_id );
 
-		// Best-effort global revoke at the gateway while the bearer is still
-		// resolvable; a failure must not stop the local session being cleared.
-		if ( $had_session ) {
-			agend_apps_auth_logout();
-		}
-
-		if ( 0 !== $user_id ) {
-			Agend_Apps_Member_Session::clear( $user_id );
-		}
+		// Revokes at the gateway, then clears locally whatever the gateway says.
+		Agend_Apps_Member_Session::end_session( $user_id );
 
 		// End the WordPress session too, so the widget's "sign out" fully signs
 		// the member out of the site.
