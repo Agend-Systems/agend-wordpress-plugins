@@ -184,8 +184,124 @@
   overflow: hidden;
 }
 
-.agend-directory-map .agend-map-popup__link {
+.agend-directory-map .agend-map-popup__link,
+.agend-directory-map .agend-map-popup__directions {
   margin-top: 4px;
   color: var(--agend-map-link, var(--agend-map-accent));
   font-weight: 600;
+}
+
+.agend-directory-map .agend-map-popup__link + .agend-map-popup__directions {
+  margin-top: 0;
+}
+
+/* The map data's credit, kept small and quiet: the OpenStreetMap (and CARTO)
+   attribution is a licence requirement, so it is restyled, never hidden. */
+.agend-directory-map .leaflet-control-attribution {
+  padding: 1px 6px;
+  border-top-left-radius: 4px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #5f6368;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.agend-directory-map .leaflet-control-attribution a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.agend-directory-map .leaflet-control-attribution a:hover,
+.agend-directory-map .leaflet-control-attribution a:focus-visible {
+  text-decoration: underline;
+}
+
+/* Full screen and My location buttons, sized like Leaflet's zoom buttons. */
+.agend-directory-map .agend-map-control a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+
+.agend-directory-map .agend-map-control svg {
+  display: block;
+}
+
+.agend-directory-map .agend-map-control a[aria-busy='true'] {
+  color: var(--agend-map-accent);
+  animation: agend-map-locating 1s ease-in-out infinite alternate;
+}
+
+@keyframes agend-map-locating {
+  to {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agend-directory-map .agend-map-control a[aria-busy='true'] {
+    animation: none;
+  }
+}
+
+.agend-map-here {
+  stroke: #fff;
+  fill: #1a73e8;
+}
+
+/* "Use Ctrl + scroll to zoom the map" and friends, over the map. */
+.agend-map__hint {
+  position: absolute;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 1.125rem;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.agend-map__hint--shown {
+  opacity: 1;
+  transition-duration: 0.15s;
+}
+
+/* Full screen: the browser's own where it has one, and otherwise the map
+   fixed over the page (iPhone Safari has no full screen for a map). */
+.agend-map-fullscreen-open {
+  overflow: hidden;
+}
+
+.agend-directory-map.agend-directory-map--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: #fff;
+}
+
+.agend-directory-map--fullscreen .agend-map__canvas {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.agend-directory-map--fullscreen .agend-map__notice {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 1000;
+  max-width: calc(100% - 140px);
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  transform: translateX(-50%);
 }

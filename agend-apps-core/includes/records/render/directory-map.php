@@ -36,7 +36,9 @@ function agend_apps_records_directory_map_tiles(): array {
 
 	$tiles = '' !== $key
 		? array(
-			'url'         => 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key=' . rawurlencode( $key ),
+			// {r} asks for CARTO's double-resolution tiles on a high
+				// density screen, which would otherwise draw the map blurred.
+				'url'         => 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=' . rawurlencode( $key ),
 			'attribution' => $osm . ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
 			'maxZoom'     => 19,
 		)
@@ -64,6 +66,28 @@ function agend_apps_records_directory_map_tiles(): array {
 }
 
 /**
+ * The directions link a pin's details offer, as a template with `{lat}` and
+ * `{lng}` placeholders. Google Maps by default, which opens the visitor's own
+ * Google Maps app where they have one.
+ *
+ * @return string An https URL template, or '' for no directions link.
+ */
+function agend_apps_records_directory_map_directions_url(): string {
+	/**
+	 * Filters the directions link on a map pin's details.
+	 *
+	 * A site that prefers another maps service returns its URL here, with
+	 * `{lat}` and `{lng}` where the listing's coordinates go. Anything but an
+	 * https URL drops the link.
+	 *
+	 * @param string $url URL template.
+	 */
+	$url = (string) apply_filters( 'agend_apps_records_directory_map_directions_url', 'https://www.google.com/maps/dir/?api=1&destination={lat},{lng}' );
+
+	return 0 === stripos( $url, 'https://' ) ? $url : '';
+}
+
+/**
  * A height setting in pixels, or the fallback when it is not one of the
  * schema's choices.
  *
@@ -86,6 +110,7 @@ function agend_apps_records_directory_map_build_config( array $s ): array {
 	$limit = (string) ( $s['marker_limit'] ?? '500' );
 	$empty = trim( (string) ( $s['empty_text'] ?? '' ) );
 	$link  = trim( (string) ( $s['popup_link_text'] ?? '' ) );
+	$route = trim( (string) ( $s['popup_directions_text'] ?? '' ) );
 
 	return array(
 		'followView'   => 'yes' === ( $s['follow_view'] ?? '' ),
@@ -93,15 +118,19 @@ function agend_apps_records_directory_map_build_config( array $s ): array {
 		'updateOnMove' => 'yes' === ( $s['update_on_move'] ?? '' ),
 		'scrollZoom'   => 'yes' === ( $s['scroll_zoom'] ?? '' ),
 		'showRadius'   => 'yes' === ( $s['show_radius'] ?? 'yes' ),
+		'fullscreen'   => 'yes' === ( $s['fullscreen_button'] ?? 'yes' ),
+		'locate'       => 'yes' === ( $s['locate_button'] ?? 'yes' ),
 		'limit'        => in_array( $limit, array( '250', '500', '1000', '2000' ), true ) ? (int) $limit : 500,
 		'emptyText'    => '' !== $empty ? $empty : __( 'No listings with a map location match these filters.', 'agend-apps-core' ),
 		'popup'        => array(
-			'logo'     => 'yes' === ( $s['popup_logo'] ?? 'yes' ),
-			'category' => 'yes' === ( $s['popup_category'] ?? 'yes' ),
-			'address'  => 'yes' === ( $s['popup_address'] ?? 'yes' ),
-			'distance' => 'yes' === ( $s['popup_distance'] ?? 'yes' ),
-			'rating'   => 'yes' === ( $s['popup_rating'] ?? '' ),
-			'linkText' => '' !== $link ? $link : __( 'View details', 'agend-apps-core' ),
+			'logo'           => 'yes' === ( $s['popup_logo'] ?? 'yes' ),
+			'category'       => 'yes' === ( $s['popup_category'] ?? 'yes' ),
+			'address'        => 'yes' === ( $s['popup_address'] ?? 'yes' ),
+			'distance'       => 'yes' === ( $s['popup_distance'] ?? 'yes' ),
+			'rating'         => 'yes' === ( $s['popup_rating'] ?? '' ),
+			'linkText'       => '' !== $link ? $link : __( 'View details', 'agend-apps-core' ),
+			'directions'     => 'yes' === ( $s['popup_directions'] ?? 'yes' ) ? agend_apps_records_directory_map_directions_url() : '',
+			'directionsText' => '' !== $route ? $route : __( 'Get directions', 'agend-apps-core' ),
 		),
 		'tiles'        => agend_apps_records_directory_map_tiles(),
 		// A pin's "View details" link, for a map with no catalogue on the
@@ -109,11 +138,21 @@ function agend_apps_records_directory_map_build_config( array $s ): array {
 		'detailBase'   => class_exists( 'Agend_Apps_Records_Pages' ) ? Agend_Apps_Records_Pages::page_url( 'listing' ) : '',
 		'prettyLinks'  => (bool) get_option( 'permalink_structure' ),
 		'text'         => array(
-			'truncated' => __( 'Showing the first {shown} of {total} listings. Zoom in or filter to see the rest.', 'agend-apps-core' ),
-			'failed'    => __( 'The map could not load listings.', 'agend-apps-core' ),
-			'retry'     => __( 'Try again', 'agend-apps-core' ),
-			'region'    => __( 'Map of directory listings', 'agend-apps-core' ),
-			'you'       => __( 'Your search location', 'agend-apps-core' ),
+			'truncated'      => __( 'Showing the first {shown} of {total} listings. Zoom in or filter to see the rest.', 'agend-apps-core' ),
+			'failed'         => __( 'The map could not load listings.', 'agend-apps-core' ),
+			'retry'          => __( 'Try again', 'agend-apps-core' ),
+			'region'         => __( 'Map of directory listings', 'agend-apps-core' ),
+			'you'            => __( 'Your search location', 'agend-apps-core' ),
+			/* translators: shown over the map when a visitor scrolls the page across it. */
+			'scrollHint'     => __( 'Use Ctrl + scroll to zoom the map', 'agend-apps-core' ),
+			/* translators: the Mac version of the scroll hint; ⌘ is the Command key. */
+			'scrollHintMac'  => __( 'Use ⌘ + scroll to zoom the map', 'agend-apps-core' ),
+			'touchHint'      => __( 'Use two fingers to move the map', 'agend-apps-core' ),
+			'fullscreen'     => __( 'Full screen', 'agend-apps-core' ),
+			'exitFullscreen' => __( 'Exit full screen', 'agend-apps-core' ),
+			'locate'         => __( 'Show my location', 'agend-apps-core' ),
+			'here'           => __( 'You are here', 'agend-apps-core' ),
+			'locateFailed'   => __( 'Your location is not available.', 'agend-apps-core' ),
 		),
 	);
 }
