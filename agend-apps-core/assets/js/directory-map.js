@@ -221,8 +221,35 @@
     if (!template || !validPoint(lat, lng)) {
       return '';
     }
-    return safeUrl(template.replace('{lat}', String(lat)).replace('{lng}', String(lng)));
+    // split / join replaces every placeholder, not only the first.
+    return safeUrl(template.split('{lat}').join(String(lat)).split('{lng}').join(String(lng)));
   }
+
+  // The map in full screen, or asking for it; one at a time. A single set
+  // of document listeners serves every map, so a map re-rendered by an
+  // editor leaves none behind pointing at it.
+  var fullscreenMap = null;
+
+  function onFullscreenChange() {
+    if (!fullscreenMap) {
+      return;
+    }
+    var current = document.fullscreenElement || document.webkitFullscreenElement;
+    if (current === fullscreenMap.root) {
+      fullscreenMap.enteredApi();
+    } else if (fullscreenMap.viaApi) {
+      fullscreenMap.close();
+    }
+  }
+
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+  document.addEventListener('keydown', function (e) {
+    // The browser's own full screen handles Escape itself.
+    if (e.key === 'Escape' && fullscreenMap && !fullscreenMap.viaApi) {
+      fullscreenMap.close();
+    }
+  });
 
   function initMap(root) {
     var cfg;
@@ -245,6 +272,10 @@
     var cooperative = !cfg.scrollZoom;
     var touchFirst = cooperative && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
     var isFullscreen = false;
+    // On a touch-first device, the pointer the visitor last pressed with: a
+    // mouse or trackpad (a tablet's keyboard cover, a Chromebook) drags the
+    // map as on any desktop.
+    var lastPointer = 'touch';
 
     var map = L.map(canvas, {
       // Wheel zoom stays on; the cooperative listener below decides which
@@ -264,15 +295,21 @@
     L.tileLayer(cfg.tiles.url, { maxZoom: cfg.tiles.maxZoom, attribution: cfg.tiles.attribution }).addTo(map);
     L.control.scale({ position: 'bottomleft', metric: true, imperial: false, maxWidth: 200 }).addTo(map);
 
-    var hint = null;
+    function syncDragging() {
+      if (!touchFirst) {
+        return;
+      }
+      map.dragging[isFullscreen || lastPointer === 'mouse' ? 'enable' : 'disable']();
+    }
+
+    // A live region is only reliably announced when its text changes after
+    // it is in the page, so the hint goes in empty now and is filled later.
+    var hint = el('div', 'agend-map__hint');
+    hint.setAttribute('role', 'status');
+    canvas.appendChild(hint);
     var hintTimer = null;
 
     function showHint(message, ms) {
-      if (!hint) {
-        hint = el('div', 'agend-map__hint');
-        hint.setAttribute('role', 'status');
-        canvas.appendChild(hint);
-      }
       hint.textContent = message;
       hint.classList.add('agend-map__hint--shown');
       window.clearTimeout(hintTimer);
@@ -287,20 +324,43 @@
       // a plain wheel goes on scrolling the page. A trackpad pinch arrives
       // as a wheel with ctrlKey set, so it zooms the map as it would on
       // Google Maps. A full-screen map has no page behind it to scroll.
+      // Over a popup or a button the wheel carries on to it (a long popup
+      // scrolls), and the listener below keeps it from the map.
       root.addEventListener('wheel', function (e) {
-        if (e.ctrlKey || e.metaKey || isFullscreen || !canvas.contains(e.target)) {
+        if (e.ctrlKey || e.metaKey || isFullscreen || !canvas.contains(e.target) || e.target.closest('.leaflet-popup, .leaflet-control')) {
           return;
         }
         e.stopPropagation();
         showHint(isMac ? cfg.text.scrollHintMac : cfg.text.scrollHint);
       }, { capture: true, passive: true });
 
+      // Leaflet stops the wheel only inside a popup's content, so a wheel
+      // over its edge or over a button would otherwise zoom the map.
+      [map.getPane('popupPane'), canvas.querySelector('.leaflet-control-container')].forEach(function (node) {
+        if (node) {
+          node.addEventListener('wheel', function (e) {
+            if (!e.ctrlKey && !e.metaKey && !isFullscreen) {
+              e.stopPropagation();
+            }
+          }, { passive: true });
+        }
+      });
+
       if (touchFirst) {
         canvas.addEventListener('touchmove', function (e) {
-          if (e.touches.length === 1 && !isFullscreen) {
+          if (e.touches.length === 1 && !isFullscreen && lastPointer !== 'mouse') {
             showHint(cfg.text.touchHint);
           }
         }, { passive: true });
+
+        // Pointer events come before Leaflet's mousedown and touchstart, so
+        // the first mouse drag already moves the map.
+        if (window.PointerEvent) {
+          root.addEventListener('pointerdown', function (e) {
+            lastPointer = e.pointerType === 'mouse' ? 'mouse' : 'touch';
+            syncDragging();
+          }, { capture: true, passive: true });
+        }
       }
     }
 
@@ -336,10 +396,13 @@
     }
 
     if (cfg.fullscreen) {
-      // The browser's own full screen where it has one for any element;
-      // otherwise (an iPhone) the map is fixed over the page instead.
-      var viaApi = false;
+      // The browser's own full screen where it has one for any element.
+      // Otherwise (an iPhone) the map is fixed over the page, moved to the
+      // end of <body> while it is: position: fixed inside a transformed
+      // ancestor (an Elementor entrance animation) would only fill that
+      // ancestor, and an ancestor's stacking context would cap its z-index.
       var fullscreenButton = null;
+      var placeholder = null;
 
       var setFullscreen = function (on) {
         if (on === isFullscreen) {
@@ -348,57 +411,79 @@
         isFullscreen = on;
         root.classList.toggle('agend-directory-map--fullscreen', on);
         document.documentElement.classList.toggle('agend-map-fullscreen-open', on);
-        if (touchFirst) {
-          map.dragging[on ? 'enable' : 'disable']();
-        }
-        var label = on ? cfg.text.exitFullscreen : cfg.text.fullscreen;
-        fullscreenButton.title = label;
-        fullscreenButton.setAttribute('aria-label', label);
+        syncDragging();
+        // One label, with its state in aria-pressed.
         fullscreenButton.setAttribute('aria-pressed', on ? 'true' : 'false');
         fullscreenButton.innerHTML = on ? EXIT_FULLSCREEN_SVG : FULLSCREEN_SVG;
-        map.invalidateSize();
+        // A resize, not the visitor moving the map: with "Update results as
+        // the map moves" on it must not narrow the results.
+        moveQuietly(function () {
+          map.invalidateSize();
+        });
       };
 
-      var onFullscreenChange = function () {
-        var current = document.fullscreenElement || document.webkitFullscreenElement;
-        if (current === root) {
-          viaApi = true;
-        } else if (viaApi) {
-          viaApi = false;
+      var state = {
+        root: root,
+        viaApi: false,
+        enteredApi: function () {
+          state.viaApi = true;
+          setFullscreen(true);
+        },
+        close: function () {
+          state.viaApi = false;
+          if (placeholder) {
+            if (placeholder.parentNode) {
+              placeholder.parentNode.replaceChild(root, placeholder);
+            } else {
+              // The map's place on the page has gone (an editor re-render).
+              root.parentNode && root.parentNode.removeChild(root);
+            }
+            placeholder = null;
+          }
           setFullscreen(false);
-        }
+          if (fullscreenMap === state) {
+            fullscreenMap = null;
+          }
+        },
       };
-      document.addEventListener('fullscreenchange', onFullscreenChange);
-      document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-      document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && isFullscreen && !viaApi) {
-          setFullscreen(false);
+      var enterFallback = function () {
+        if (fullscreenMap !== state || isFullscreen) {
+          return;
         }
-      });
+        placeholder = document.createComment('agend-map');
+        root.parentNode.insertBefore(placeholder, root);
+        document.body.appendChild(root);
+        setFullscreen(true);
+      };
 
       fullscreenButton = addButton('topright', 'agend-map-control--fullscreen', cfg.text.fullscreen, FULLSCREEN_SVG, function () {
         if (isFullscreen) {
           var exit = document.exitFullscreen || document.webkitExitFullscreen;
-          if (viaApi && exit) {
+          if (state.viaApi && exit) {
+            // fullscreenchange closes it.
             exit.call(document);
           } else {
-            setFullscreen(false);
+            state.close();
           }
           return;
         }
-        setFullscreen(true);
+        if (fullscreenMap && fullscreenMap !== state) {
+          fullscreenMap.close();
+        }
+        fullscreenMap = state;
         var request = root.requestFullscreen || root.webkitRequestFullscreen;
-        if (request) {
-          try {
-            var asked = request.call(root);
-            if (asked && typeof asked.catch === 'function') {
-              // Refused: the map stays fixed over the page instead.
-              asked.catch(function () {});
-            }
-          } catch (e) {
-            // As above.
+        if (!request) {
+          enterFallback();
+          return;
+        }
+        try {
+          var asked = request.call(root);
+          if (asked && typeof asked.catch === 'function') {
+            asked.catch(enterFallback);
           }
+        } catch (e) {
+          enterFallback();
         }
       });
       fullscreenButton.setAttribute('aria-pressed', 'false');
@@ -705,7 +790,11 @@
     // column that reflows) leaves Leaflet with the wrong size.
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(function () {
-        map.invalidateSize();
+        // A resize (full screen, a column reflowing) is not the visitor
+        // moving the map, so it never narrows the results.
+        moveQuietly(function () {
+          map.invalidateSize();
+        });
         if (fitPending && lastBounds && visible()) {
           fitTo(lastBounds);
         }

@@ -855,11 +855,17 @@ authors in the Agend Elementor README. The pieces here:
   shows "Use Ctrl + scroll to zoom the map" (Command on a Mac); Ctrl or
   Command + wheel, and a trackpad pinch, zoom. On a coarse-pointer device
   (a phone or tablet) one finger scrolls the page and shows "Use two fingers
-  to move the map", and two fingers pan and pinch. A full-screen map takes
-  every gesture, as it has no page behind it.
+  to move the map", and two fingers pan and pinch; once the visitor presses
+  with a mouse or trackpad there, it drags the map as on a desktop. A wheel
+  over a popup or a map button reaches it and never zooms the map. A
+  full-screen map takes every gesture, as it has no page behind it. Resizing
+  the map (full screen, a reflowing column) never counts as the visitor
+  moving it, so "Update results as the map moves" ignores it.
 - **Buttons and directions**: a full-screen button (the browser's Fullscreen
-  API where it has one for an element, otherwise the map fixed over the page,
-  as on an iPhone), a My location button (moves the map to the visitor's
+  API where it has one for an element; otherwise, as on an iPhone, the map is
+  moved to the end of `<body>` and fixed over the page, so a transformed or
+  stacking ancestor cannot trap it, and put back on exit; one set of document
+  listeners serves every map), a My location button (moves the map to the visitor's
   position; it is not a location search), and a "Get directions" link on each
   pin's details. Each has its own setting, on by default. The directions link
   is Google Maps unless the

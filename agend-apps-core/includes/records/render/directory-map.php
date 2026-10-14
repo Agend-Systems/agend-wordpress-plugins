@@ -37,8 +37,8 @@ function agend_apps_records_directory_map_tiles(): array {
 	$tiles = '' !== $key
 		? array(
 			// {r} asks for CARTO's double-resolution tiles on a high
-				// density screen, which would otherwise draw the map blurred.
-				'url'         => 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=' . rawurlencode( $key ),
+			// density screen, which would otherwise draw the map blurred.
+			'url'         => 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=' . rawurlencode( $key ),
 			'attribution' => $osm . ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
 			'maxZoom'     => 19,
 		)
@@ -149,7 +149,6 @@ function agend_apps_records_directory_map_build_config( array $s ): array {
 			'scrollHintMac'  => __( 'Use ⌘ + scroll to zoom the map', 'agend-apps-core' ),
 			'touchHint'      => __( 'Use two fingers to move the map', 'agend-apps-core' ),
 			'fullscreen'     => __( 'Full screen', 'agend-apps-core' ),
-			'exitFullscreen' => __( 'Exit full screen', 'agend-apps-core' ),
 			'locate'         => __( 'Show my location', 'agend-apps-core' ),
 			'here'           => __( 'You are here', 'agend-apps-core' ),
 			'locateFailed'   => __( 'Your location is not available.', 'agend-apps-core' ),
