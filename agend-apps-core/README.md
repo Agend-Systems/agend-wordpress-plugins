@@ -190,7 +190,7 @@ A member who signs in with their Agend email and password (`credentials` mode)
 gets a Supabase session, which the plugin keeps in the
 `_agend_apps_member_session` user meta. Its refresh token can be redeemed at
 Supabase Auth directly, without the gateway or the site's API key, and it never
-expires on its own. Since 1.38.1 the plugin treats it as a credential:
+expires on its own. Since 1.38.2 the plugin treats it as a credential:
 
 - **Encrypted at rest.** The session is encrypted with the same libsodium scheme
   and `wp_salt( 'auth' )` key as the site API key (`Agend_Apps_Secret_Store::encrypt()`),
@@ -239,7 +239,7 @@ expires on its own. Since 1.38.1 the plugin treats it as a credential:
 The public filters `agend_apps_auth_login_response`,
 `agend_apps_auth_register_response`, `agend_apps_auth_refresh_args` and
 `agend_apps_auth_refresh_response` no longer receive session tokens. Since
-1.38.1:
+1.38.2:
 
 - the response filters get a copy without `access_token` and `refresh_token`,
   and cannot change the session;
