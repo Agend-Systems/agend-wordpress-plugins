@@ -126,6 +126,21 @@
                     }
                 },
                 {
+                    "id": "rest_style",
+                    "args": {
+                        "label": "Show the rest as",
+                        "type": "select",
+                        "default": "pill",
+                        "options": {
+                            "link": "Text link",
+                            "pill": "Pill"
+                        },
+                        "condition": {
+                            "show_rest": "yes"
+                        }
+                    }
+                },
+                {
                     "id": "link_to_detail",
                     "args": {
                         "label": "Link pills to the detail page",

@@ -267,7 +267,7 @@ function agend_apps_records_render_record_pills( array $settings, array $opts = 
 		$html .= agend_apps_records_record_pills_pill_html( $settings, (string) $term, $link, true );
 	}
 	if ( ! empty( $rest ) ) {
-		$html .= agend_apps_records_rest_toggle_html( count( $rest ), (string) ( $settings['overflow_text'] ?? '' ), (string) ( $settings['collapse_text'] ?? '' ) );
+		$html .= agend_apps_records_rest_toggle_html( count( $rest ), (string) ( $settings['overflow_text'] ?? '' ), (string) ( $settings['collapse_text'] ?? '' ), (string) ( $settings['rest_style'] ?? 'pill' ) );
 	}
 	$html .= '</div>';
 

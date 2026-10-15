@@ -78,6 +78,17 @@ final class RecordListOverflowTest extends TestCase {
 		}
 	}
 
+	#[Test]
+	public function should_default_the_control_to_a_text_link_on_agend_field_and_a_pill_on_agend_pills(): void {
+		$this->assertSame( 'link', $this->schemaDefault( agend_apps_records_schema_record_field(), 'rest_style' ) );
+		$this->assertSame( 'pill', $this->schemaDefault( agend_apps_records_schema_record_pills(), 'rest_style' ) );
+	}
+
+	#[Test]
+	public function should_render_the_control_as_a_text_link_when_the_style_is_unknown(): void {
+		$this->assertStringContainsString( 'class="agend-rest-toggle agend-rest-toggle--link"', agend_apps_records_rest_toggle_html( 2, '', '', 'button' ) );
+	}
+
 	// -- Agend Field ---------------------------------------------------------------
 
 	#[Test]
@@ -92,7 +103,7 @@ final class RecordListOverflowTest extends TestCase {
 		$this->assertSame(
 			'<span class="agend-list" data-agend-rest-group>Bakeries, Cafes'
 			. '<span class="agend-list__rest" data-agend-rest hidden>, Delis, Florists</span>'
-			. '<button type="button" class="agend-rest-toggle" aria-expanded="false" data-agend-rest-toggle data-agend-more="+2" data-agend-less="Show less">+2</button>'
+			. '<button type="button" class="agend-rest-toggle agend-rest-toggle--link" aria-expanded="false" data-agend-rest-toggle data-agend-more="+2" data-agend-less="Show less">+2</button>'
 			. '</span>',
 			$html
 		);
@@ -125,6 +136,13 @@ final class RecordListOverflowTest extends TestCase {
 		$this->assertSame( '+{n} more', $opts['list_overflow_text'] );
 		$this->assertSame( 'Less', $opts['list_collapse_text'] );
 		$this->assertFalse( agend_apps_records_record_field_format_options( array() )['list_show_rest'] );
+	}
+
+	#[Test]
+	public function should_render_an_agend_field_control_as_a_pill_when_the_widget_chooses_pill(): void {
+		$opts = agend_apps_records_record_field_format_options( array( 'list_max' => 2, 'show_rest' => 'yes', 'rest_style' => 'pill' ) );
+
+		$this->assertStringContainsString( 'class="agend-rest-toggle agend-rest-toggle--pill"', $this->formatList( $opts ) );
 	}
 
 	#[Test]
@@ -183,10 +201,19 @@ final class RecordListOverflowTest extends TestCase {
 			'<div class="agend-pills" data-agend-rest-group>'
 			. '<span class="agend-pill">Bakeries</span><span class="agend-pill">Cafes</span>'
 			. '<span class="agend-pill" data-agend-rest hidden>Delis</span><span class="agend-pill" data-agend-rest hidden>Florists</span>'
-			. '<button type="button" class="agend-rest-toggle" aria-expanded="false" data-agend-rest-toggle data-agend-more="+2" data-agend-less="Show less">+2</button>'
+			. '<button type="button" class="agend-rest-toggle agend-rest-toggle--pill" aria-expanded="false" data-agend-rest-toggle data-agend-more="+2" data-agend-less="Show less">+2</button>'
 			. '</div>',
 			agend_apps_records_render_record_pills( array( 'field' => 'listing:categories', 'max_items' => 2, 'show_rest' => 'yes' ) )
 		);
+	}
+
+	#[Test]
+	public function should_render_an_agend_pills_control_as_a_text_link_when_the_widget_chooses_text_link(): void {
+		Agend_Apps_Records_Record_Context::push( 'listing', $this->listingWithCategories() );
+
+		$html = agend_apps_records_render_record_pills( array( 'field' => 'listing:categories', 'max_items' => 2, 'show_rest' => 'yes', 'rest_style' => 'link' ) );
+
+		$this->assertStringContainsString( 'class="agend-rest-toggle agend-rest-toggle--link"', $html );
 	}
 
 	#[Test]

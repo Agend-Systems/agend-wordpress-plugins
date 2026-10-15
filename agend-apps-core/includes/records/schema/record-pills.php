@@ -88,6 +88,17 @@ function agend_apps_records_schema_record_pills(): array {
 						'condition' => array( 'show_rest' => 'yes' ),
 					),
 					array(
+						'name'      => 'rest_style',
+						'label'     => __( 'Show the rest as', 'agend-apps-core' ),
+						'type'      => 'select',
+						'default'   => 'pill',
+						'options'   => array(
+							'link' => __( 'Text link', 'agend-apps-core' ),
+							'pill' => __( 'Pill', 'agend-apps-core' ),
+						),
+						'condition' => array( 'show_rest' => 'yes' ),
+					),
+					array(
 						'name'    => 'link_to_detail',
 						'label'   => __( 'Link pills to the detail page', 'agend-apps-core' ),
 						'type'    => 'toggle',

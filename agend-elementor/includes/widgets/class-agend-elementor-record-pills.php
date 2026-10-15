@@ -91,7 +91,10 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 				'label'     => __( 'Text colour', 'agend-elementor' ),
 				'type'      => \Elementor\Controls_Manager::COLOR,
 				'default'   => '#FF6B55',
-				'selectors' => array( '{{WRAPPER}} .agend-pill' => 'color: {{VALUE}};' ),
+				'selectors' => array(
+					'{{WRAPPER}} .agend-pill' => 'color: {{VALUE}};',
+					'{{WRAPPER}}'             => '--agend-pill-colour: {{VALUE}};',
+				),
 			)
 		);
 
@@ -101,7 +104,10 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 				'label'     => __( 'Background colour', 'agend-elementor' ),
 				'type'      => \Elementor\Controls_Manager::COLOR,
 				'default'   => 'rgba(255, 107, 85, 0.12)',
-				'selectors' => array( '{{WRAPPER}} .agend-pill' => 'background-color: {{VALUE}};' ),
+				'selectors' => array(
+					'{{WRAPPER}} .agend-pill' => 'background-color: {{VALUE}};',
+					'{{WRAPPER}}'             => '--agend-pill-bg: {{VALUE}};',
+				),
 			)
 		);
 
@@ -109,7 +115,7 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 			\Elementor\Group_Control_Typography::get_type(),
 			array(
 				'name'     => 'typography',
-				'selector' => '{{WRAPPER}} .agend-pill',
+				'selector' => '{{WRAPPER}} .agend-pill, {{WRAPPER}} .agend-pills button.agend-rest-toggle--pill.agend-rest-toggle',
 			)
 		);
 
@@ -120,7 +126,10 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 				'type'       => \Elementor\Controls_Manager::DIMENSIONS,
 				'size_units' => array( 'px', 'em' ),
 				'default'    => array( 'top' => '3', 'right' => '8', 'bottom' => '3', 'left' => '8', 'unit' => 'px', 'isLinked' => false ),
-				'selectors'  => array( '{{WRAPPER}} .agend-pill' => 'padding: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};' ),
+				'selectors'  => array(
+					'{{WRAPPER}} .agend-pill' => 'padding: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};',
+					'{{WRAPPER}}'             => '--agend-pill-padding: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};',
+				),
 			)
 		);
 
@@ -131,7 +140,10 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 				'type'       => \Elementor\Controls_Manager::DIMENSIONS,
 				'size_units' => array( 'px', '%' ),
 				'default'    => array( 'top' => '999', 'right' => '999', 'bottom' => '999', 'left' => '999', 'unit' => 'px', 'isLinked' => true ),
-				'selectors'  => array( '{{WRAPPER}} .agend-pill' => 'border-radius: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};' ),
+				'selectors'  => array(
+					'{{WRAPPER}} .agend-pill' => 'border-radius: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};',
+					'{{WRAPPER}}'             => '--agend-pill-radius: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};',
+				),
 			)
 		);
 
@@ -139,7 +151,7 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 			\Elementor\Group_Control_Border::get_type(),
 			array(
 				'name'     => 'pill_border',
-				'selector' => '{{WRAPPER}} .agend-pill',
+				'selector' => '{{WRAPPER}} .agend-pill, {{WRAPPER}} .agend-pills button.agend-rest-toggle--pill.agend-rest-toggle',
 			)
 		);
 
@@ -173,6 +185,8 @@ class Agend_Elementor_Record_Pills extends \Elementor\Widget_Base {
 		);
 
 		$this->end_controls_section();
+
+		$this->register_rest_toggle_style_controls( '{{WRAPPER}} .agend-pills button.agend-rest-toggle.agend-rest-toggle' );
 	}
 
 	/**

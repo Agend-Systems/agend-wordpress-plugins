@@ -585,14 +585,16 @@ function agend_apps_records_record_excerpt( array $record ): string {
  * @param string $overflow_text The control's text while collapsed; `{n}` is
  *                              replaced by $hidden. '' uses "+{n}".
  * @param string $collapse_text The control's text while expanded. '' uses "Show less".
+ * @param string $style         'link' or 'pill'; anything else is 'link'.
  * @return string
  */
-function agend_apps_records_rest_toggle_html( int $hidden, string $overflow_text, string $collapse_text ): string {
+function agend_apps_records_rest_toggle_html( int $hidden, string $overflow_text, string $collapse_text, string $style = 'link' ): string {
 	$overflow_text = '' !== trim( $overflow_text ) ? $overflow_text : __( '+{n}', 'agend-apps-core' );
 	$collapse_text = '' !== trim( $collapse_text ) ? $collapse_text : __( 'Show less', 'agend-apps-core' );
 	$more          = str_replace( '{n}', (string) $hidden, $overflow_text );
+	$style         = in_array( $style, array( 'link', 'pill' ), true ) ? $style : 'link';
 
-	return '<button type="button" class="agend-rest-toggle" aria-expanded="false" data-agend-rest-toggle'
+	return '<button type="button" class="agend-rest-toggle agend-rest-toggle--' . $style . '" aria-expanded="false" data-agend-rest-toggle'
 		. ' data-agend-more="' . esc_attr( $more ) . '" data-agend-less="' . esc_attr( $collapse_text ) . '">'
 		. esc_html( $more ) . '</button>';
 }
@@ -1257,7 +1259,7 @@ function agend_apps_records_format_field( $value, string $kind, array $opts = ar
 				return '<span class="agend-list" data-agend-rest-group>'
 					. implode( $separator, array_map( 'esc_html', array_slice( $items, 0, $max ) ) )
 					. '<span class="agend-list__rest" data-agend-rest hidden>' . $separator . implode( $separator, array_map( 'esc_html', $rest ) ) . '</span>'
-					. agend_apps_records_rest_toggle_html( count( $rest ), (string) ( $opts['list_overflow_text'] ?? '' ), (string) ( $opts['list_collapse_text'] ?? '' ) )
+					. agend_apps_records_rest_toggle_html( count( $rest ), (string) ( $opts['list_overflow_text'] ?? '' ), (string) ( $opts['list_collapse_text'] ?? '' ), (string) ( $opts['list_rest_style'] ?? '' ) )
 					. '</span>';
 			}
 			if ( $max > 0 ) {

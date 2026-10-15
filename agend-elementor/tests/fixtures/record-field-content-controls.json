@@ -471,6 +471,21 @@
                     }
                 },
                 {
+                    "id": "rest_style",
+                    "args": {
+                        "label": "Show the rest as",
+                        "type": "select",
+                        "default": "link",
+                        "options": {
+                            "link": "Text link",
+                            "pill": "Pill"
+                        },
+                        "condition": {
+                            "show_rest": "yes"
+                        }
+                    }
+                },
+                {
                     "id": "bool_true",
                     "args": {
                         "label": "Text when true",

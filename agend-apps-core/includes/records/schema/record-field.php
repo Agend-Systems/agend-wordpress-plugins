@@ -286,6 +286,17 @@ function agend_apps_records_schema_record_field(): array {
 						'condition' => array( 'show_rest' => 'yes' ),
 					),
 					array(
+						'name'      => 'rest_style',
+						'label'     => __( 'Show the rest as', 'agend-apps-core' ),
+						'type'      => 'select',
+						'default'   => 'link',
+						'options'   => array(
+							'link' => __( 'Text link', 'agend-apps-core' ),
+							'pill' => __( 'Pill', 'agend-apps-core' ),
+						),
+						'condition' => array( 'show_rest' => 'yes' ),
+					),
+					array(
 						'name'        => 'bool_true',
 						'label'       => __( 'Text when true', 'agend-apps-core' ),
 						'type'        => 'text',

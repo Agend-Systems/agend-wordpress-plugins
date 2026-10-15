@@ -115,6 +115,8 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 		);
 
 		$this->end_controls_section();
+
+		$this->register_rest_toggle_style_controls( '{{WRAPPER}} button.agend-rest-toggle.agend-rest-toggle' );
 	}
 
 	/**

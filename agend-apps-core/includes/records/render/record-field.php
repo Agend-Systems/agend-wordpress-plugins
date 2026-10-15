@@ -120,6 +120,7 @@ function agend_apps_records_record_field_format_options( array $s ): array {
 		'list_show_rest'     => 'yes' === ( $s['show_rest'] ?? '' ),
 		'list_overflow_text' => (string) ( $s['overflow_text'] ?? '' ),
 		'list_collapse_text' => (string) ( $s['collapse_text'] ?? '' ),
+		'list_rest_style'    => (string) ( $s['rest_style'] ?? '' ),
 		'bool_true'          => (string) ( $s['bool_true'] ?? '' ),
 		'bool_false'         => (string) ( $s['bool_false'] ?? '' ),
 		'number_suffix'      => (string) ( $s['number_suffix'] ?? '' ),
