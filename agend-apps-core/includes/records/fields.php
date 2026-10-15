@@ -177,27 +177,168 @@ function agend_apps_records_record_names( array $record, string $key ): array {
 }
 
 /**
- * A listing's location as "City, STATE", from the card payload's
- * primary_location or the detail payload's locations list.
+ * The listing's locations, as the payload lists them, skipping anything that
+ * is not a location object.
+ *
+ * @param array $record The listing record.
+ * @return array<int, array<string, mixed>>
+ */
+function agend_apps_records_record_listing_locations( array $record ): array {
+	if ( empty( $record['locations'] ) || ! is_array( $record['locations'] ) ) {
+		return array();
+	}
+
+	return array_values( array_filter( $record['locations'], 'is_array' ) );
+}
+
+/**
+ * The one location a listing presents when it shows one: the location the
+ * search selected (`selected_location_id`), otherwise the one marked primary,
+ * otherwise the first. Every single-location field reads this, so no address
+ * is ever spliced from two locations.
+ *
+ * A payload without a `locations` list (an older card) falls back to its
+ * `primary_location`, which carries only the city and state.
+ *
+ * @param array $record The listing record.
+ * @return array<string, mixed> The location, or an empty array.
+ */
+function agend_apps_records_record_listing_selected_location( array $record ): array {
+	$locations = agend_apps_records_record_listing_locations( $record );
+
+	if ( empty( $locations ) ) {
+		return ( ! empty( $record['primary_location'] ) && is_array( $record['primary_location'] ) ) ? $record['primary_location'] : array();
+	}
+
+	$selected_id = isset( $record['selected_location_id'] ) && is_scalar( $record['selected_location_id'] ) ? (string) $record['selected_location_id'] : '';
+	if ( '' !== $selected_id ) {
+		foreach ( $locations as $location ) {
+			if ( isset( $location['id'] ) && (string) $location['id'] === $selected_id ) {
+				return $location;
+			}
+		}
+	}
+
+	foreach ( $locations as $location ) {
+		if ( ! empty( $location['is_primary'] ) ) {
+			return $location;
+		}
+	}
+
+	return $locations[0];
+}
+
+/**
+ * A string part of one location, trimmed, or ''.
+ *
+ * @param array  $location The location.
+ * @param string $part     The part's key.
+ * @return string
+ */
+function agend_apps_records_location_part( array $location, string $part ): string {
+	$value = $location[ $part ] ?? null;
+	return is_scalar( $value ) ? trim( (string) $value ) : '';
+}
+
+/**
+ * A location's street address: address line 1, then line 2 when present.
+ *
+ * @param array $location The location.
+ * @return string
+ */
+function agend_apps_records_location_street( array $location ): string {
+	return implode(
+		', ',
+		array_filter(
+			array(
+				agend_apps_records_location_part( $location, 'address_line_1' ),
+				agend_apps_records_location_part( $location, 'address_line_2' ),
+			),
+			'strlen'
+		)
+	);
+}
+
+/**
+ * A location's full address on one line: "1 Example St, Sydney NSW 2000".
+ * Each part is optional, so a location with only a suburb renders just that.
+ *
+ * @param array $location The location.
+ * @return string
+ */
+function agend_apps_records_location_address( array $location ): string {
+	$locality = implode(
+		' ',
+		array_filter(
+			array(
+				agend_apps_records_location_part( $location, 'city' ),
+				agend_apps_records_location_part( $location, 'state' ),
+				agend_apps_records_location_part( $location, 'postcode' ),
+			),
+			'strlen'
+		)
+	);
+	return implode( ', ', array_filter( array( agend_apps_records_location_street( $location ), $locality ), 'strlen' ) );
+}
+
+/**
+ * A listing's location as "City, STATE", from its selected location.
  *
  * @param array $record The listing record.
  * @return string
  */
 function agend_apps_records_record_listing_location( array $record ): string {
-	$source = array();
-	if ( ! empty( $record['primary_location'] ) && is_array( $record['primary_location'] ) ) {
-		$source = $record['primary_location'];
-	} elseif ( ! empty( $record['locations'][0] ) && is_array( $record['locations'][0] ) ) {
-		$source = $record['locations'][0];
-	}
-	$parts = array_filter(
+	$location = agend_apps_records_record_listing_selected_location( $record );
+	$parts    = array_filter(
 		array(
-			isset( $source['city'] ) ? trim( (string) $source['city'] ) : '',
-			isset( $source['state'] ) ? trim( (string) $source['state'] ) : '',
+			agend_apps_records_location_part( $location, 'city' ),
+			agend_apps_records_location_part( $location, 'state' ),
 		),
 		'strlen'
 	);
 	return implode( ', ', $parts );
+}
+
+/**
+ * Every listing location as one line each, "Location name, one-line address",
+ * leaving out whichever half is empty. The selected location comes first and
+ * the rest follow in the order the payload lists them; a location with neither
+ * a name nor any address part is skipped.
+ *
+ * @param array $record The listing record.
+ * @return string[]
+ */
+function agend_apps_records_record_listing_all_locations( array $record ): array {
+	$locations = agend_apps_records_record_listing_locations( $record );
+	if ( empty( $locations ) ) {
+		return array();
+	}
+
+	$selected = agend_apps_records_record_listing_selected_location( $record );
+	usort(
+		$locations,
+		static function ( array $a, array $b ) use ( $selected ): int {
+			return (int) ( $b === $selected ) - (int) ( $a === $selected );
+		}
+	);
+
+	$entries = array();
+	foreach ( $locations as $location ) {
+		$entry = implode(
+			', ',
+			array_filter(
+				array(
+					agend_apps_records_location_part( $location, 'name' ),
+					agend_apps_records_location_address( $location ),
+				),
+				'strlen'
+			)
+		);
+		if ( '' !== $entry ) {
+			$entries[] = $entry;
+		}
+	}
+	return $entries;
 }
 
 /**
@@ -239,56 +380,34 @@ function agend_apps_records_record_listing_distance( array $record ): string {
 }
 
 /**
- * One part of a listing's location.
+ * One part of a listing's selected location.
  *
  * @param array  $record The listing record.
- * @param string $part   'city', 'state', 'postcode' or 'country'.
+ * @param string $part   'name', 'city', 'state', 'postcode', 'country' or an address line.
  * @return string
  */
 function agend_apps_records_record_listing_location_part( array $record, string $part ): string {
-	$value = agend_apps_records_record_path( $record, array( 'primary_location.' . $part, 'locations.0.' . $part ) );
-	return is_scalar( $value ) ? trim( (string) $value ) : '';
+	return agend_apps_records_location_part( agend_apps_records_record_listing_selected_location( $record ), $part );
 }
 
 /**
- * A listing's street address: address line 1, then line 2 when present.
+ * A listing's street address, from its selected location.
  *
  * @param array $record The listing record.
  * @return string
  */
 function agend_apps_records_record_listing_street( array $record ): string {
-	$parts = array_filter(
-		array(
-			agend_apps_records_record_listing_location_part( $record, 'address_line_1' ),
-			agend_apps_records_record_listing_location_part( $record, 'address_line_2' ),
-		),
-		'strlen'
-	);
-	return implode( ', ', $parts );
+	return agend_apps_records_location_street( agend_apps_records_record_listing_selected_location( $record ) );
 }
 
 /**
- * A listing's full address on one line: "1 Example St, Sydney NSW 2000".
- *
- * Each part is optional, so a listing with only a suburb renders just that.
+ * A listing's full address on one line, from its selected location.
  *
  * @param array $record The listing record.
  * @return string
  */
 function agend_apps_records_record_listing_address( array $record ): string {
-	$street   = agend_apps_records_record_listing_street( $record );
-	$locality = implode(
-		' ',
-		array_filter(
-			array(
-				agend_apps_records_record_listing_location_part( $record, 'city' ),
-				agend_apps_records_record_listing_location_part( $record, 'state' ),
-				agend_apps_records_record_listing_location_part( $record, 'postcode' ),
-			),
-			'strlen'
-		)
-	);
-	return implode( ', ', array_filter( array( $street, $locality ), 'strlen' ) );
+	return agend_apps_records_location_address( agend_apps_records_record_listing_selected_location( $record ) );
 }
 
 /**
@@ -636,6 +755,14 @@ function agend_apps_records_field_registry(): array {
 			},
 		),
 		'listing:location'          => array( 'label' => __( 'Location (city, state)', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_listing_location' ),
+		'listing:location_name'     => array(
+			'label' => __( 'Location name', 'agend-apps-core' ),
+			'kind'  => 'text',
+			'get'   => static function ( array $record ) {
+				return agend_apps_records_record_listing_location_part( $record, 'name' );
+			},
+		),
+		'listing:locations'         => array( 'label' => __( 'All locations', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_listing_all_locations' ),
 		'listing:city'              => array(
 			'label' => __( 'City', 'agend-apps-core' ),
 			'kind'  => 'text',

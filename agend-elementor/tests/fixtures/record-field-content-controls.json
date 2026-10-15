@@ -60,7 +60,9 @@
                                     "listing:twitter_url": "X (Twitter)",
                                     "listing:youtube_url": "YouTube",
                                     "listing:hours": "Opening hours",
-                                    "listing:distance": "Distance (location searches only)"
+                                    "listing:distance": "Distance (location searches only)",
+                                    "listing:location_name": "Location name",
+                                    "listing:locations": "All locations"
                                 }
                             },
                             {

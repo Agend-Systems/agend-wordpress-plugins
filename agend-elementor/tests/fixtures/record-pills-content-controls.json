@@ -27,7 +27,8 @@
                                     "listing:categories": "All categories",
                                     "listing:tags": "Tags",
                                     "listing:badges": "Badges",
-                                    "listing:state": "State"
+                                    "listing:state": "State",
+                                    "listing:locations": "All locations"
                                 }
                             },
                             {
