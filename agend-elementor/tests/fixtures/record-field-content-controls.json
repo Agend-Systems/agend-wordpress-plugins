@@ -43,11 +43,14 @@
                                     "listing:tags": "Tags",
                                     "listing:badges": "Badges",
                                     "listing:location": "Location (city, state)",
+                                    "listing:location_name": "Location name",
+                                    "listing:locations": "All locations",
                                     "listing:city": "City",
                                     "listing:state": "State",
                                     "listing:postcode": "Postcode",
                                     "listing:street": "Street address",
                                     "listing:address": "Full address (one line)",
+                                    "listing:distance": "Distance (location searches only)",
                                     "listing:updated_at": "Last updated",
                                     "listing:rating": "Average rating",
                                     "listing:review_count": "Review count",
@@ -59,10 +62,7 @@
                                     "listing:instagram_url": "Instagram",
                                     "listing:twitter_url": "X (Twitter)",
                                     "listing:youtube_url": "YouTube",
-                                    "listing:hours": "Opening hours",
-                                    "listing:distance": "Distance (location searches only)",
-                                    "listing:location_name": "Location name",
-                                    "listing:locations": "All locations"
+                                    "listing:hours": "Opening hours"
                                 }
                             },
                             {
@@ -436,6 +436,38 @@
                         "default": 0,
                         "min": 0,
                         "description": "0 shows every item."
+                    }
+                },
+                {
+                    "id": "show_rest",
+                    "args": {
+                        "label": "Show the rest",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "With a maximum set, adds a control after the last item shown that reveals the rest in place, and hides them again."
+                    }
+                },
+                {
+                    "id": "overflow_text",
+                    "args": {
+                        "label": "Overflow text",
+                        "type": "text",
+                        "default": "+{n}",
+                        "description": "{n} is replaced by the number of hidden items.",
+                        "condition": {
+                            "show_rest": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "collapse_text",
+                    "args": {
+                        "label": "Collapse text",
+                        "type": "text",
+                        "default": "Show less",
+                        "condition": {
+                            "show_rest": "yes"
+                        }
                     }
                 },
                 {

@@ -132,3 +132,25 @@ a.agend-pill:hover,
 a.agend-pill:focus {
   filter: brightness(0.95);
 }
+
+/* A capped list's overflow control. The held-back items carry `hidden`, which
+   a widget's own display rule (inline-block on a pill) would otherwise win. */
+[data-agend-rest][hidden] {
+  display: none !important;
+}
+
+.agend-rest-toggle {
+  margin: 0 0 0 0.35em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.agend-pills .agend-rest-toggle {
+  font-size: 0.72rem;
+}

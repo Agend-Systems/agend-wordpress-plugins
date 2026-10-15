@@ -264,6 +264,28 @@ function agend_apps_records_schema_record_field(): array {
 						'description' => __( '0 shows every item.', 'agend-apps-core' ),
 					),
 					array(
+						'name'        => 'show_rest',
+						'label'       => __( 'Show the rest', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'With a maximum set, adds a control after the last item shown that reveals the rest in place, and hides them again.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'overflow_text',
+						'label'       => __( 'Overflow text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => __( '+{n}', 'agend-apps-core' ),
+						'description' => __( '{n} is replaced by the number of hidden items.', 'agend-apps-core' ),
+						'condition'   => array( 'show_rest' => 'yes' ),
+					),
+					array(
+						'name'      => 'collapse_text',
+						'label'     => __( 'Collapse text', 'agend-apps-core' ),
+						'type'      => 'text',
+						'default'   => __( 'Show less', 'agend-apps-core' ),
+						'condition' => array( 'show_rest' => 'yes' ),
+					),
+					array(
 						'name'        => 'bool_true',
 						'label'       => __( 'Text when true', 'agend-apps-core' ),
 						'type'        => 'text',

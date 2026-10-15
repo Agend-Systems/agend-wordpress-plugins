@@ -257,7 +257,8 @@
                             {
                                 "label": "Common (any record)",
                                 "options": {
-                                    "common:category": "Category"
+                                    "common:category": "Category",
+                                    "common:custom_field": "Custom field (by key)"
                                 }
                             },
                             {
@@ -267,8 +268,8 @@
                                     "listing:categories": "All categories",
                                     "listing:tags": "Tags",
                                     "listing:badges": "Badges",
-                                    "listing:state": "State",
-                                    "listing:locations": "All locations"
+                                    "listing:locations": "All locations",
+                                    "listing:state": "State"
                                 }
                             },
                             {

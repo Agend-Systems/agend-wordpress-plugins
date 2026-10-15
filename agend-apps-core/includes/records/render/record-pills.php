@@ -23,6 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Every renderer asks the surface gate before it fetches or draws anything;
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
+require_once __DIR__ . '/record-field.php';
 
 /**
  * Resolves the whole "does this pills surface render, and if not why"
@@ -59,25 +60,33 @@ function agend_apps_records_record_pills_resolve( array $settings, array $opts =
 	$ctx = agend_apps_records_resolve_record_context( $opts );
 
 	if ( '' === $ctx['type'] ) {
-		return array( 'renders' => false, 'reason' => '', 'ctx' => $ctx, 'key' => '', 'terms' => array() );
+		return array( 'renders' => false, 'reason' => '', 'ctx' => $ctx, 'key' => '', 'terms' => array(), 'rest' => array() );
 	}
 
 	$key = (string) ( $settings['field'] ?? 'common:category' );
 	if ( ! agend_apps_records_field_applies( $key, $ctx['type'] ) ) {
-		return array( 'renders' => false, 'reason' => 'field_not_applicable', 'ctx' => $ctx, 'key' => $key, 'terms' => array() );
+		return array( 'renders' => false, 'reason' => 'field_not_applicable', 'ctx' => $ctx, 'key' => $key, 'terms' => array(), 'rest' => array() );
+	}
+
+	if ( 'common:custom_field' === $key ) {
+		$ctx['extra']['custom_field_key'] = agend_apps_records_record_field_custom_field_key( $settings );
 	}
 
 	$terms = agend_apps_records_field_terms( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );
 	$max   = (int) ( $settings['max_items'] ?? 0 );
+	$rest  = array();
 	if ( $max > 0 ) {
+		if ( 'yes' === ( $settings['show_rest'] ?? '' ) ) {
+			$rest = array_slice( $terms, $max );
+		}
 		$terms = array_slice( $terms, 0, $max );
 	}
 
 	if ( empty( $terms ) ) {
-		return array( 'renders' => false, 'reason' => 'no_terms', 'ctx' => $ctx, 'key' => $key, 'terms' => array() );
+		return array( 'renders' => false, 'reason' => 'no_terms', 'ctx' => $ctx, 'key' => $key, 'terms' => array(), 'rest' => array() );
 	}
 
-	return array( 'renders' => true, 'reason' => '', 'ctx' => $ctx, 'key' => $key, 'terms' => $terms );
+	return array( 'renders' => true, 'reason' => '', 'ctx' => $ctx, 'key' => $key, 'terms' => $terms, 'rest' => $rest );
 }
 
 /**
@@ -178,6 +187,31 @@ function agend_apps_records_record_pills_term_style( array $settings, string $te
 }
 
 /**
+ * One pill. A pill held back by the item limit is in the page but hidden,
+ * for the overflow control to reveal.
+ *
+ * @param array  $settings Surface settings.
+ * @param string $term     The pill's text.
+ * @param string $link     The detail URL each pill links to, or ''.
+ * @param bool   $hidden   Whether the pill is held back.
+ * @return string
+ */
+function agend_apps_records_record_pills_pill_html( array $settings, string $term, string $link, bool $hidden ): string {
+	$rule  = agend_apps_records_record_pills_term_style( $settings, $term );
+	$attrs = 'class="' . esc_attr( implode( ' ', array_merge( array( 'agend-pill' ), $rule['classes'] ) ) ) . '"';
+	if ( '' !== $rule['style'] ) {
+		$attrs .= ' style="' . esc_attr( $rule['style'] ) . '"';
+	}
+	if ( $hidden ) {
+		$attrs .= ' data-agend-rest hidden';
+	}
+	if ( '' !== $link && '#' !== $link ) {
+		return '<a ' . $attrs . ' href="' . esc_url( $link ) . '">' . esc_html( $term ) . '</a>';
+	}
+	return '<span ' . $attrs . '>' . esc_html( $term ) . '</span>';
+}
+
+/**
  * Renders the record pills surface: one pill per term of the terms field the
  * settings name, from the record in scope.
  *
@@ -218,19 +252,17 @@ function agend_apps_records_render_record_pills( array $settings, array $opts = 
 		}
 	}
 
-	$html  = '<div class="' . esc_attr( implode( ' ', $classes ) ) . '">';
+	$rest  = $resolved['rest'];
+	$html  = '<div class="' . esc_attr( implode( ' ', $classes ) ) . '"' . ( empty( $rest ) ? '' : ' data-agend-rest-group' ) . '>';
 	$html .= $label;
 	foreach ( $terms as $term ) {
-		$rule  = agend_apps_records_record_pills_term_style( $settings, (string) $term );
-		$attrs = 'class="' . esc_attr( implode( ' ', array_merge( array( 'agend-pill' ), $rule['classes'] ) ) ) . '"';
-		if ( '' !== $rule['style'] ) {
-			$attrs .= ' style="' . esc_attr( $rule['style'] ) . '"';
-		}
-		if ( '' !== $link && '#' !== $link ) {
-			$html .= '<a ' . $attrs . ' href="' . esc_url( $link ) . '">' . esc_html( $term ) . '</a>';
-		} else {
-			$html .= '<span ' . $attrs . '>' . esc_html( $term ) . '</span>';
-		}
+		$html .= agend_apps_records_record_pills_pill_html( $settings, (string) $term, $link, false );
+	}
+	foreach ( $rest as $term ) {
+		$html .= agend_apps_records_record_pills_pill_html( $settings, (string) $term, $link, true );
+	}
+	if ( ! empty( $rest ) ) {
+		$html .= agend_apps_records_rest_toggle_html( count( $rest ), (string) ( $settings['overflow_text'] ?? '' ), (string) ( $settings['collapse_text'] ?? '' ) );
 	}
 	$html .= '</div>';
 
