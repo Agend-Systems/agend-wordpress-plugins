@@ -82,13 +82,13 @@ function cfg(popup) {
   };
 }
 
-const marker = { name: 'Jordan Lee', slug: '', distance_km: null };
-const namedLocation = { name: 'Harbour Clinic', city: 'Sydney', state: 'NSW', latitude: -33.86, longitude: 151.2 };
+const marker = { name: 'Sample Listing', slug: '', distance_km: null };
+const namedLocation = { name: 'Harbour Office', city: 'Sydney', state: 'NSW', latitude: -33.86, longitude: 151.2 };
 
 test('should show the location name when the control is on and the location has one', () => {
   const box = popupContent(cfg({ locationName: true }), null, marker, namedLocation);
 
-  assert.equal(box.find('agend-map-popup__location-name')?.text, 'Harbour Clinic');
+  assert.equal(box.find('agend-map-popup__location-name')?.text, 'Harbour Office');
 });
 
 test('should show no location name line when the control is on and the location has no name', () => {

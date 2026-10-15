@@ -55,13 +55,13 @@ final class TemplateFieldKeysAdapterTest extends TestCase {
 						$this->widget( 'agend-record-pills', array( 'field' => 'listing:categories' ) ),
 						$this->container( $this->widget( 'agend-record-field', array( 'field' => 'listing:phone' ) ) )
 					),
-					$this->widget( 'agend-record-field', array( 'field' => 'common:custom_field', 'custom_field_key_choice' => 'funding_ndis' ) ),
+					$this->widget( 'agend-record-field', array( 'field' => 'common:custom_field', 'custom_field_key_choice' => 'payment_options' ) ),
 				)
 			)
 		);
 
 		$this->assertSame( array( 'common:custom_field', 'listing:categories', 'listing:phone' ), $keys['fields'] );
-		$this->assertSame( array( 'funding_ndis' ), $keys['custom_fields'] );
+		$this->assertSame( array( 'payment_options' ), $keys['custom_fields'] );
 	}
 
 	#[Test]

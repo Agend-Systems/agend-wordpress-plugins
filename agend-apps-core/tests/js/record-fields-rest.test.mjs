@@ -86,7 +86,7 @@ function card() {
   });
   button.textContent = '+2';
   const group = new FakeElement({ 'data-agend-rest-group': '' }, [new FakeElement(), new FakeElement(), restA, restB, button]);
-  const link = new FakeElement({ href: '/listing/jordan-lee/' }, [group]);
+  const link = new FakeElement({ href: '/listing/sample-listing/' }, [group]);
   return { link, group, rest: [restA, restB], button };
 }
 

@@ -167,7 +167,7 @@
                         "label": "Show location name",
                         "type": "switcher",
                         "default": "",
-                        "description": "The name of the location the pin marks, such as the practice or branch."
+                        "description": "The name of the location the pin marks, such as the office or branch."
                     }
                 },
                 {

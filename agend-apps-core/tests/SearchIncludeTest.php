@@ -100,11 +100,11 @@ final class SearchIncludeTest extends TestCase {
 	public function should_report_the_picked_custom_field_key_over_the_typed_one_when_both_are_set(): void {
 		$keys = agend_apps_records_template_binding_keys(
 			'record-field',
-			array( 'field' => 'common:custom_field', 'custom_field_key_choice' => 'funding_ndis', 'custom_field_key' => 'typed_key' )
+			array( 'field' => 'common:custom_field', 'custom_field_key_choice' => 'payment_options', 'custom_field_key' => 'typed_key' )
 		);
 
 		$this->assertSame( array( 'common:custom_field' ), $keys['fields'] );
-		$this->assertSame( array( 'funding_ndis' ), $keys['custom_fields'] );
+		$this->assertSame( array( 'payment_options' ), $keys['custom_fields'] );
 	}
 
 	#[Test]

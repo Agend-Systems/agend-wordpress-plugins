@@ -350,7 +350,7 @@ final class ListingFieldsTest extends TestCase {
 			'locations'            => array(
 				array(
 					'id'             => 'loc-a',
-					'name'           => 'Harbour Clinic',
+					'name'           => 'Harbour Office',
 					'address_line_1' => '1 Wharf Road',
 					'city'           => 'Sydney',
 					'state'          => 'NSW',
@@ -359,7 +359,7 @@ final class ListingFieldsTest extends TestCase {
 				),
 				array(
 					'id'             => 'loc-b',
-					'name'           => 'Hunter Practice',
+					'name'           => 'Hunter Branch',
 					'address_line_1' => '9 Hunter Street',
 					'address_line_2' => 'Suite 4',
 					'city'           => 'Newcastle',
@@ -384,13 +384,13 @@ final class ListingFieldsTest extends TestCase {
 	public function should_offer_a_location_name_field_reading_the_selected_location_when_the_search_selected_one(): void {
 		$this->assertSame( 'Location name', agend_apps_records_field_label( 'listing:location_name' ) );
 		$this->assertTrue( agend_apps_records_field_applies( 'listing:location_name', 'listing' ) );
-		$this->assertSame( 'Harbour Clinic', agend_apps_records_field_value( 'listing:location_name', 'listing', $this->threeLocationCard( 'loc-a' ) ) );
+		$this->assertSame( 'Harbour Office', agend_apps_records_field_value( 'listing:location_name', 'listing', $this->threeLocationCard( 'loc-a' ) ) );
 	}
 
 	#[Test]
 	public function should_read_the_primary_location_when_the_selected_location_names_none_of_the_locations(): void {
-		$this->assertSame( 'Hunter Practice', agend_apps_records_field_value( 'listing:location_name', 'listing', $this->threeLocationCard( 'loc-missing' ) ) );
-		$this->assertSame( 'Hunter Practice', agend_apps_records_field_value( 'listing:location_name', 'listing', $this->threeLocationCard( null ) ) );
+		$this->assertSame( 'Hunter Branch', agend_apps_records_field_value( 'listing:location_name', 'listing', $this->threeLocationCard( 'loc-missing' ) ) );
+		$this->assertSame( 'Hunter Branch', agend_apps_records_field_value( 'listing:location_name', 'listing', $this->threeLocationCard( null ) ) );
 	}
 
 	#[Test]
@@ -400,7 +400,7 @@ final class ListingFieldsTest extends TestCase {
 			$record['locations'][ $index ]['is_primary'] = false;
 		}
 
-		$this->assertSame( 'Harbour Clinic', agend_apps_records_field_value( 'listing:location_name', 'listing', $record ) );
+		$this->assertSame( 'Harbour Office', agend_apps_records_field_value( 'listing:location_name', 'listing', $record ) );
 	}
 
 	#[Test]
@@ -443,8 +443,8 @@ final class ListingFieldsTest extends TestCase {
 	public function should_list_each_location_as_its_name_then_its_one_line_address_omitting_an_empty_half(): void {
 		$this->assertSame(
 			array(
-				'Harbour Clinic, 1 Wharf Road, Sydney NSW 2000',
-				'Hunter Practice, 9 Hunter Street, Suite 4, Newcastle NSW 2300',
+				'Harbour Office, 1 Wharf Road, Sydney NSW 2000',
+				'Hunter Branch, 9 Hunter Street, Suite 4, Newcastle NSW 2300',
 				'Parramatta NSW 2150',
 			),
 			agend_apps_records_field_value( 'listing:locations', 'listing', $this->threeLocationCard( 'loc-a' ) )
@@ -464,8 +464,8 @@ final class ListingFieldsTest extends TestCase {
 		$this->assertSame(
 			array(
 				'Parramatta NSW 2150',
-				'Harbour Clinic, 1 Wharf Road, Sydney NSW 2000',
-				'Hunter Practice, 9 Hunter Street, Suite 4, Newcastle NSW 2300',
+				'Harbour Office, 1 Wharf Road, Sydney NSW 2000',
+				'Hunter Branch, 9 Hunter Street, Suite 4, Newcastle NSW 2300',
 			),
 			agend_apps_records_field_value( 'listing:locations', 'listing', $this->threeLocationCard( 'loc-c' ) )
 		);
@@ -475,22 +475,22 @@ final class ListingFieldsTest extends TestCase {
 	public function should_list_the_primary_location_first_when_the_search_selected_none(): void {
 		$entries = agend_apps_records_field_value( 'listing:locations', 'listing', $this->threeLocationCard( null ) );
 
-		$this->assertSame( 'Hunter Practice, 9 Hunter Street, Suite 4, Newcastle NSW 2300', $entries[0] );
-		$this->assertSame( 'Harbour Clinic, 1 Wharf Road, Sydney NSW 2000', $entries[1] );
+		$this->assertSame( 'Hunter Branch, 9 Hunter Street, Suite 4, Newcastle NSW 2300', $entries[0] );
+		$this->assertSame( 'Harbour Office, 1 Wharf Road, Sydney NSW 2000', $entries[1] );
 	}
 
 	#[Test]
 	public function should_list_every_category_of_a_search_card_in_the_order_the_api_returns_them(): void {
 		$record = array(
-			'primary_category' => array( 'id' => 'c2', 'name' => 'Ageing' ),
+			'primary_category' => array( 'id' => 'c2', 'name' => 'Bakeries' ),
 			'categories'       => array(
-				array( 'id' => 'c2', 'name' => 'Ageing', 'slug' => 'ageing', 'parent_id' => null ),
-				array( 'id' => 'c9', 'name' => 'Paediatrics', 'slug' => 'paediatrics', 'parent_id' => 'c1' ),
-				array( 'id' => 'c4', 'name' => 'Hand therapy', 'slug' => 'hand-therapy', 'parent_id' => null ),
+				array( 'id' => 'c2', 'name' => 'Bakeries', 'slug' => 'bakeries', 'parent_id' => null ),
+				array( 'id' => 'c9', 'name' => 'Florists', 'slug' => 'florists', 'parent_id' => 'c1' ),
+				array( 'id' => 'c4', 'name' => 'Delis', 'slug' => 'delis', 'parent_id' => null ),
 			),
 		);
 
-		$this->assertSame( array( 'Ageing', 'Paediatrics', 'Hand therapy' ), agend_apps_records_field_value( 'listing:categories', 'listing', $record ) );
+		$this->assertSame( array( 'Bakeries', 'Florists', 'Delis' ), agend_apps_records_field_value( 'listing:categories', 'listing', $record ) );
 	}
 
 	// -- Card custom fields from the search payload ------------------------------
@@ -499,11 +499,11 @@ final class ListingFieldsTest extends TestCase {
 	 * A search card as the directory search returns it: `custom_fields` holds
 	 * the fields the organisation flagged Show on Card.
 	 */
-	private function searchCardWithFundingSchemes( array $custom_fields ): array {
+	private function searchCardWithPaymentOptions( array $custom_fields ): array {
 		return array(
 			'id'                   => 'l1',
-			'slug'                 => 'jordan-lee',
-			'name'                 => 'Jordan Lee',
+			'slug'                 => 'sample-listing',
+			'name'                 => 'Sample Listing',
 			'primary_location'     => array( 'city' => 'Sydney', 'state' => 'NSW' ),
 			'locations'            => array(),
 			'selected_location_id' => null,
@@ -513,35 +513,35 @@ final class ListingFieldsTest extends TestCase {
 
 	#[Test]
 	public function should_render_a_card_custom_field_from_the_search_payload_when_the_template_places_it(): void {
-		$record = $this->searchCardWithFundingSchemes(
-			array( array( 'key' => 'insurer', 'label' => 'Insurer', 'type' => 'text', 'value' => 'Private health' ) )
+		$record = $this->searchCardWithPaymentOptions(
+			array( array( 'key' => 'billing', 'label' => 'Billing', 'type' => 'text', 'value' => 'Monthly account' ) )
 		);
 
-		$this->assertSame( 'Private health', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'insurer' ) ) );
+		$this->assertSame( 'Monthly account', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'billing' ) ) );
 	}
 
 	#[Test]
 	public function should_render_every_selected_option_label_when_a_card_custom_field_is_a_multi_select(): void {
-		$record = $this->searchCardWithFundingSchemes(
+		$record = $this->searchCardWithPaymentOptions(
 			array(
 				array(
-					'key'         => 'funding_schemes',
-					'label'       => 'Funding schemes',
+					'key'         => 'payment_options',
+					'label'       => 'Payment options',
 					'type'        => 'multi_select',
-					'value'       => array( 'ndis', 'dva', 'medicare' ),
-					'value_label' => array( 'NDIS', 'DVA', 'Medicare' ),
+					'value'       => array( 'cash', 'card', 'invoice' ),
+					'value_label' => array( 'Cash', 'Card', 'Invoice' ),
 				),
 			)
 		);
 
-		$this->assertSame( 'NDIS, DVA, Medicare', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'funding_schemes' ) ) );
+		$this->assertSame( 'Cash, Card, Invoice', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'payment_options' ) ) );
 	}
 
 	#[Test]
 	public function should_render_a_card_custom_field_empty_when_the_listing_has_no_value_for_it(): void {
-		$record = $this->searchCardWithFundingSchemes( array() );
+		$record = $this->searchCardWithPaymentOptions( array() );
 
-		$this->assertSame( '', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'funding_schemes' ) ) );
+		$this->assertSame( '', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'payment_options' ) ) );
 	}
 
 	#[Test]
