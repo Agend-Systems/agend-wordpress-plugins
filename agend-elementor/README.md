@@ -59,7 +59,7 @@ Choosing no template keeps the built-in card and detail layouts.
 - Elementor's element cache is keyed by document only, so the renderer disables it for the duration of each template render. Do not remove that filter: every card would show the first record.
 - A catalogue widget cannot be placed inside a card or detail template (it renders nothing on the live site and a notice in the editor).
 - Record images are remote URLs, not media-library attachments; WordPress image sizes do not apply.
-- Directory `custom_fields` are returned on the single-listing payload only, not on the search payload the catalogue reads, so a custom field placed on a card renders empty until the search endpoint returns them.
+- A directory search card carries `custom_fields` for every custom field the organisation has flagged Show on Card, so a custom field placed on a card template renders from the search payload. A field not flagged for cards is not on the card, and renders empty there; the single-listing payload carries the fields flagged for the detail page.
 - Responses for a signed-in member bypass the shared transient cache centrally in `Agend_Apps_API::get_cached()`, so entitlement-shaped fields are never served to the next visitor.
 
 ## Next follow-ups

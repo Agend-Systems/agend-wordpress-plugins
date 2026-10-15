@@ -493,6 +493,57 @@ final class ListingFieldsTest extends TestCase {
 		$this->assertSame( array( 'Ageing', 'Paediatrics', 'Hand therapy' ), agend_apps_records_field_value( 'listing:categories', 'listing', $record ) );
 	}
 
+	// -- Card custom fields from the search payload ------------------------------
+
+	/**
+	 * A search card as the directory search returns it: `custom_fields` holds
+	 * the fields the organisation flagged Show on Card.
+	 */
+	private function searchCardWithFundingSchemes( array $custom_fields ): array {
+		return array(
+			'id'                   => 'l1',
+			'slug'                 => 'jordan-lee',
+			'name'                 => 'Jordan Lee',
+			'primary_location'     => array( 'city' => 'Sydney', 'state' => 'NSW' ),
+			'locations'            => array(),
+			'selected_location_id' => null,
+			'custom_fields'        => $custom_fields,
+		);
+	}
+
+	#[Test]
+	public function should_render_a_card_custom_field_from_the_search_payload_when_the_template_places_it(): void {
+		$record = $this->searchCardWithFundingSchemes(
+			array( array( 'key' => 'insurer', 'label' => 'Insurer', 'type' => 'text', 'value' => 'Private health' ) )
+		);
+
+		$this->assertSame( 'Private health', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'insurer' ) ) );
+	}
+
+	#[Test]
+	public function should_render_every_selected_option_label_when_a_card_custom_field_is_a_multi_select(): void {
+		$record = $this->searchCardWithFundingSchemes(
+			array(
+				array(
+					'key'         => 'funding_schemes',
+					'label'       => 'Funding schemes',
+					'type'        => 'multi_select',
+					'value'       => array( 'ndis', 'dva', 'medicare' ),
+					'value_label' => array( 'NDIS', 'DVA', 'Medicare' ),
+				),
+			)
+		);
+
+		$this->assertSame( 'NDIS, DVA, Medicare', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'funding_schemes' ) ) );
+	}
+
+	#[Test]
+	public function should_render_a_card_custom_field_empty_when_the_listing_has_no_value_for_it(): void {
+		$record = $this->searchCardWithFundingSchemes( array() );
+
+		$this->assertSame( '', agend_apps_records_render_field( 'common:custom_field', 'listing', $record, array( 'custom_field_key' => 'funding_schemes' ) ) );
+	}
+
 	#[Test]
 	public function should_expose_updated_at_as_a_date_field(): void {
 		$this->assertSame( 'date', agend_apps_records_field_kind( 'listing:updated_at' ) );
