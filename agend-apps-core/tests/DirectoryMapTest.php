@@ -486,7 +486,15 @@ final class DirectoryMapTest extends TestCase {
 		$this->assertTrue( $config['locate'] );
 		$this->assertSame( 'https://www.google.com/maps/dir/?api=1&destination={lat},{lng}', $config['popup']['directions'] );
 		$this->assertSame( 'Get directions', $config['popup']['directionsText'] );
+		$this->assertFalse( $config['popup']['locationName'], 'an existing map is unchanged after the plugin updates' );
 		$this->assertNotSame( '', $config['text']['scrollHint'], 'a wheel the map lets pass says how to zoom' );
+	}
+
+	#[Test]
+	public function should_show_the_location_name_in_pin_details_when_the_control_is_on(): void {
+		$config = agend_apps_records_directory_map_build_config( array( 'popup_location_name' => 'yes' ) );
+
+		$this->assertTrue( $config['popup']['locationName'] );
 	}
 
 	#[Test]
