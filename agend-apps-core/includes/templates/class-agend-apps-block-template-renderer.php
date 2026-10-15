@@ -49,10 +49,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/interface-agend-apps-template-field-keys.php';
+require_once __DIR__ . '/template-field-keys.php';
+
 /**
  * Renders card/detail templates authored in the block editor.
  */
-final class Agend_Apps_Block_Template_Renderer implements Agend_Apps_Template_Renderer {
+final class Agend_Apps_Block_Template_Renderer implements Agend_Apps_Template_Renderer, Agend_Apps_Template_Field_Keys {
 
 	/**
 	 * Maximum nesting depth allowed for a render()/render_plain() call.
@@ -251,6 +254,47 @@ final class Agend_Apps_Block_Template_Renderer implements Agend_Apps_Template_Re
 		}
 
 		return self::with_supports_css( $html, $with_css );
+	}
+
+	/**
+	 * The record field keys and custom field keys the template's Agend blocks
+	 * bind, at any nesting depth.
+	 *
+	 * @param int $template_id The wp_block post id.
+	 * @return array{fields: string[], custom_fields: string[]}|null Null when the id is not a block-editor template.
+	 */
+	public function field_keys( int $template_id ): ?array {
+		if ( ! $this->is_valid_template( $template_id ) ) {
+			return null;
+		}
+
+		return agend_apps_records_merge_binding_keys( ...self::bound_keys( self::parsed_blocks( $template_id ) ) );
+	}
+
+	/**
+	 * The key set each Agend block in a parsed tree binds.
+	 *
+	 * @param array<int, array<string, mixed>> $blocks Parsed blocks.
+	 * @return array<int, array{fields: string[], custom_fields: string[]}>
+	 */
+	private static function bound_keys( array $blocks ): array {
+		$sets = array();
+
+		foreach ( $blocks as $block ) {
+			$name = (string) ( $block['blockName'] ?? '' );
+			if ( 0 === strpos( $name, 'agend-apps/' ) ) {
+				$sets[] = agend_apps_records_template_binding_keys(
+					substr( $name, strlen( 'agend-apps/' ) ),
+					is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array()
+				);
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$sets = array_merge( $sets, self::bound_keys( $block['innerBlocks'] ) );
+			}
+		}
+
+		return $sets;
 	}
 
 	/**

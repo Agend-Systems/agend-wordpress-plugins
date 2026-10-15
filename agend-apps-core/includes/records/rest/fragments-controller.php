@@ -109,7 +109,10 @@ class Agend_Apps_Records_Fragments_Controller {
 			return new WP_Error( 'agend_apps_records_invalid_template', __( 'The card template does not exist or is not published.', 'agend-apps-core' ), array( 'status' => 400 ) );
 		}
 
-		$query    = agend_apps_records_fragment_query_args( $request->get_params(), $type );
+		$query = agend_apps_records_fragment_query_args( $request->get_params(), $type );
+		if ( 'listing' === $type ) {
+			$query = agend_apps_records_with_search_include( $query, $template_id );
+		}
 		$response = agend_apps_records_fetch_list( $type, $query );
 		if ( null === $response ) {
 			return new WP_Error( 'agend_apps_records_unavailable', __( 'Agend Apps Core is not available.', 'agend-apps-core' ), array( 'status' => 503 ) );

@@ -218,6 +218,30 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 }
 
 /**
+ * A listing search query carrying the `include` its card template needs.
+ *
+ * Derived on the server from the fields the template binds, and never taken
+ * from the request: any `include` already on the query is replaced. The
+ * transient cache key is built from the whole query, so it covers the include.
+ *
+ * @param array $query       A listing search query.
+ * @param int   $template_id The card template the results render through.
+ * @return array
+ */
+function agend_apps_records_with_search_include( array $query, int $template_id ): array {
+	unset( $query['include'] );
+	if ( ! class_exists( 'Agend_Apps_Templates' ) || ! function_exists( 'agend_apps_records_search_include_for_keys' ) ) {
+		return $query;
+	}
+
+	$include = agend_apps_records_search_include_for_keys( Agend_Apps_Templates::field_keys( $template_id ) );
+	if ( '' !== $include ) {
+		$query['include'] = $include;
+	}
+	return $query;
+}
+
+/**
  * The Organisation filter's text from catalogue state, unslashed and trimmed.
  *
  * One value: the gateway never splits it on commas. Blank when the state holds

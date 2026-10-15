@@ -95,6 +95,14 @@ function agend_elementor_bootstrap(): void {
 		require_once AGEND_ELEMENTOR_DIR . 'includes/adapters/class-agend-elementor-template-source-adapter.php';
 		Agend_Apps_Templates::register_renderer( new Agend_Elementor_Template_Renderer_Adapter() );
 		Agend_Apps_Templates::register_source( new Agend_Elementor_Template_Source_Adapter() );
+
+		// Lets a card template ask the directory search for the optional data
+		// its fields render. An older core has no such contract: its searches
+		// simply request none.
+		if ( interface_exists( 'Agend_Apps_Template_Field_Keys' ) && method_exists( 'Agend_Apps_Templates', 'register_field_key_reader' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/adapters/class-agend-elementor-template-field-keys-adapter.php';
+			Agend_Apps_Templates::register_field_key_reader( new Agend_Elementor_Template_Field_Keys_Adapter() );
+		}
 	}
 
 	// Elementor-only: labels the live detail templates in the Saved Templates

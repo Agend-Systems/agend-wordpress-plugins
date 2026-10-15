@@ -480,6 +480,20 @@ final class ListingFieldsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_list_every_category_of_a_search_card_in_the_order_the_api_returns_them(): void {
+		$record = array(
+			'primary_category' => array( 'id' => 'c2', 'name' => 'Ageing' ),
+			'categories'       => array(
+				array( 'id' => 'c2', 'name' => 'Ageing', 'slug' => 'ageing', 'parent_id' => null ),
+				array( 'id' => 'c9', 'name' => 'Paediatrics', 'slug' => 'paediatrics', 'parent_id' => 'c1' ),
+				array( 'id' => 'c4', 'name' => 'Hand therapy', 'slug' => 'hand-therapy', 'parent_id' => null ),
+			),
+		);
+
+		$this->assertSame( array( 'Ageing', 'Paediatrics', 'Hand therapy' ), agend_apps_records_field_value( 'listing:categories', 'listing', $record ) );
+	}
+
+	#[Test]
 	public function should_expose_updated_at_as_a_date_field(): void {
 		$this->assertSame( 'date', agend_apps_records_field_kind( 'listing:updated_at' ) );
 		$this->assertSame( '2026-09-02T04:41:29+00:00', agend_apps_records_field_value( 'listing:updated_at', 'listing', array( 'updated_at' => '2026-09-02T04:41:29+00:00' ) ) );

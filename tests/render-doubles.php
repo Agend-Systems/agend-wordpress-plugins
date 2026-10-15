@@ -64,6 +64,7 @@ if ( ! function_exists( 'agend_apps_lms_get_courses' ) ) {
 }
 if ( ! function_exists( 'agend_apps_directory_search' ) ) {
 	function agend_apps_directory_search( string $term = '', array $args = array() ) {
+		$GLOBALS['agend_render_test_directory_search_args'][] = $args;
 		return agend_render_test_list( 'listing' );
 	}
 }
@@ -71,6 +72,7 @@ if ( ! function_exists( 'agend_apps_directory_search' ) ) {
 /** Resets the registry and request context to the state every render snapshot assumes. */
 function agend_render_test_reset(): void {
 	Agend_Test_WP::reset();
+	$GLOBALS['agend_render_test_directory_search_args'] = array();
 	Agend_Apps_Templates::reset();
 	$adapter = new Agend_Render_Test_Adapter();
 	Agend_Apps_Templates::register_renderer( $adapter );
