@@ -168,6 +168,21 @@ final class SearchIncludeTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_report_the_term_field_when_a_block_agend_image_chooses_its_picture_by_term(): void {
+		$GLOBALS['agend_test_posts'][33] = array(
+			'ID'           => 33,
+			'post_type'    => 'wp_block',
+			'post_status'  => 'publish',
+			'post_content' => '<!-- wp:agend-apps/record-image {"use_term_images":true,"term_field":"listing:categories"} /-->',
+		);
+
+		$keys = ( new Agend_Apps_Block_Template_Renderer() )->field_keys( 33 );
+
+		$this->assertContains( 'listing:categories', $keys['fields'] );
+		$this->assertSame( 'categories', agend_apps_records_search_include_for_keys( $keys ) );
+	}
+
+	#[Test]
 	public function should_own_no_keys_for_an_id_that_is_not_a_block_template(): void {
 		$GLOBALS['agend_test_posts'][32] = array( 'ID' => 32, 'post_type' => 'page', 'post_status' => 'publish', 'post_content' => '' );
 

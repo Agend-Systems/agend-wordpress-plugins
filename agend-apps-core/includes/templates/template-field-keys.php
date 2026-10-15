@@ -96,7 +96,8 @@ function agend_apps_records_template_binding_keys( string $element, array $setti
 
 	// Agend Image chooses its picture by a term field when "Choose the image by
 	// term" is on, and that field (for example All categories) needs its data.
-	if ( 'record-image' === $element && 'yes' === ( $settings['use_term_images'] ?? '' ) ) {
+	// A block stores the toggle as a boolean, an Elementor widget as 'yes'.
+	if ( 'record-image' === $element && in_array( $settings['use_term_images'] ?? '', array( true, 'yes' ), true ) ) {
 		$term_field = is_scalar( $settings['term_field'] ?? null ) ? trim( (string) $settings['term_field'] ) : '';
 		$term_field = '' !== $term_field ? $term_field : agend_apps_records_binding_default_field( $element, 'term_field' );
 		if ( '' !== $term_field ) {
