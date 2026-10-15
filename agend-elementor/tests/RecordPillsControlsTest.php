@@ -56,4 +56,19 @@ final class RecordPillsControlsTest extends TestCase {
 
 		$this->assertEquals( $fixture, $this->contentTabRecordings( $widget->recordings ) );
 	}
+
+	#[Test]
+	public function should_hand_the_pill_values_to_a_pill_style_show_the_rest_control(): void {
+		$widget = new Record_Pills_Controls_Test_Harness();
+		$widget->run();
+		$toggle = '{{WRAPPER}} .agend-pills button.agend-rest-toggle--pill.agend-rest-toggle';
+
+		$this->assertSame( '--agend-pill-colour: {{VALUE}};', $this->recordedArgs( $widget->recordings, 'pill_colour' )['selectors']['{{WRAPPER}}'] );
+		$this->assertSame( '--agend-pill-bg: {{VALUE}};', $this->recordedArgs( $widget->recordings, 'pill_background' )['selectors']['{{WRAPPER}}'] );
+		$this->assertArrayHasKey( '{{WRAPPER}}', $this->recordedArgs( $widget->recordings, 'pill_padding' )['selectors'] );
+		$this->assertArrayHasKey( '{{WRAPPER}}', $this->recordedArgs( $widget->recordings, 'pill_radius' )['selectors'] );
+		$this->assertStringContainsString( $toggle, $this->recordedArgs( $widget->recordings, 'typography' )['selector'] );
+		$this->assertStringContainsString( $toggle, $this->recordedArgs( $widget->recordings, 'pill_border' )['selector'] );
+		$this->assertSame( '{{WRAPPER}} .agend-pills button.agend-rest-toggle.agend-rest-toggle', $this->recordedArgs( $widget->recordings, 'rest_typography' )['selector'] );
+	}
 }

@@ -253,6 +253,16 @@ trait Agend_Elementor_Field_Widget_Trait {
 		);
 
 		$this->add_control(
+			'rest_focus_colour',
+			array(
+				'label'       => __( 'Focus outline colour', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::COLOR,
+				'description' => __( 'Shown when the control is reached by keyboard. Defaults to the text colour.', 'agend-elementor' ),
+				'selectors'   => array( '{{WRAPPER}}' => '--agend-rest-focus: {{VALUE}};' ),
+			)
+		);
+
+		$this->add_control(
 			'rest_background',
 			array(
 				'label'     => __( 'Background colour', 'agend-elementor' ),
