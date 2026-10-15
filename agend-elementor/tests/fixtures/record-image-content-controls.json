@@ -257,8 +257,7 @@
                             {
                                 "label": "Common (any record)",
                                 "options": {
-                                    "common:category": "Category",
-                                    "common:custom_field": "Custom field (by key)"
+                                    "common:category": "Category"
                                 }
                             },
                             {

@@ -314,13 +314,12 @@ function agend_apps_records_record_listing_all_locations( array $record ): array
 		return array();
 	}
 
-	$selected = agend_apps_records_record_listing_selected_location( $record );
-	usort(
-		$locations,
-		static function ( array $a, array $b ) use ( $selected ): int {
-			return (int) ( $b === $selected ) - (int) ( $a === $selected );
-		}
-	);
+	$selected_index = array_search( agend_apps_records_record_listing_selected_location( $record ), $locations, true );
+	if ( false !== $selected_index ) {
+		$selected  = $locations[ $selected_index ];
+		unset( $locations[ $selected_index ] );
+		$locations = array_merge( array( $selected ), array_values( $locations ) );
+	}
 
 	$entries = array();
 	foreach ( $locations as $location ) {
@@ -1124,6 +1123,23 @@ function agend_apps_records_pill_field_options(): array {
 		$groups[ $group ]['options'][ $key ] = (string) $descriptor['label'];
 	}
 	return array_values( $groups );
+}
+
+/**
+ * Picker options for the term field Agend Image chooses its picture by: the
+ * pill fields, less the custom field, which that widget has no key control for.
+ *
+ * @return array<int, array{label: string, options: array<string, string>}>
+ */
+function agend_apps_records_term_image_field_options(): array {
+	$groups = array();
+	foreach ( agend_apps_records_pill_field_options() as $group ) {
+		unset( $group['options']['common:custom_field'] );
+		if ( ! empty( $group['options'] ) ) {
+			$groups[] = $group;
+		}
+	}
+	return $groups;
 }
 
 /**

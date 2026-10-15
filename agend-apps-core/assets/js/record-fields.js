@@ -54,6 +54,8 @@
   // page change inserts later. It listens in the capture phase so it runs
   // before a card's own click handling: the control usually sits inside a
   // card that links as a whole, and activating it must not follow that link.
+  // stopPropagation (not stopImmediatePropagation) and only for the control
+  // itself: every other click on the page is left alone.
   function toggleRest(button) {
     var group = button.closest('[data-agend-rest-group]');
     if (!group) {

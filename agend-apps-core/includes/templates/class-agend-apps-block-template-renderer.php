@@ -164,6 +164,15 @@ final class Agend_Apps_Block_Template_Renderer implements Agend_Apps_Template_Re
 					wp_enqueue_style( $handle );
 				}
 			}
+
+			// A block's view script is enqueued only when the block renders, so a
+			// first page with no cards would leave cards a filter inserts later
+			// without their behaviour (an Agend Field's "+n" control).
+			foreach ( (array) ( $block_type->view_script_handles ?? array() ) as $handle ) {
+				if ( is_string( $handle ) && '' !== $handle ) {
+					wp_enqueue_script( $handle );
+				}
+			}
 		}
 	}
 

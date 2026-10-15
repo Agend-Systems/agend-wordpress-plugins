@@ -472,6 +472,21 @@ final class ListingFieldsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_keep_payload_order_after_the_selected_location_when_a_listing_has_many_locations(): void {
+		$locations = array();
+		for ( $i = 1; $i <= 20; $i++ ) {
+			$locations[] = array( 'id' => 'loc-' . $i, 'name' => 'Office ' . $i, 'is_primary' => false );
+		}
+		$record = array( 'selected_location_id' => 'loc-12', 'locations' => $locations );
+
+		$expected = array_merge(
+			array( 'Office 12' ),
+			array_map( static fn ( $i ) => 'Office ' . $i, array_merge( range( 1, 11 ), range( 13, 20 ) ) )
+		);
+		$this->assertSame( $expected, agend_apps_records_field_value( 'listing:locations', 'listing', $record ) );
+	}
+
+	#[Test]
 	public function should_list_the_primary_location_first_when_the_search_selected_none(): void {
 		$entries = agend_apps_records_field_value( 'listing:locations', 'listing', $this->threeLocationCard( null ) );
 

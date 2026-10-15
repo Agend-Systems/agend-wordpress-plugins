@@ -200,6 +200,28 @@ final class RecordListOverflowTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_render_no_pills_when_the_custom_field_is_an_item_list(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array(
+				'custom_fields' => array(
+					array(
+						'key'         => 'services',
+						'label'       => 'Services',
+						'type'        => 'item_list',
+						'value'       => array( array( 'name' => 'Repairs' ) ),
+						'item_fields' => array( array( 'key' => 'name', 'label' => 'Name', 'type' => 'text' ) ),
+					),
+				),
+			)
+		);
+		$settings = array( 'field' => 'common:custom_field', 'custom_field_key_choice' => 'services' );
+
+		$this->assertSame( '', agend_apps_records_render_record_pills( $settings ) );
+		$this->assertSame( 'field_not_applicable', agend_apps_records_record_pills_render_reason( $settings ) );
+	}
+
+	#[Test]
 	public function should_offer_custom_fields_to_pills_and_render_one_pill_per_selected_option(): void {
 		$this->assertTrue( agend_apps_records_field_registry()['common:custom_field']['pill'] );
 

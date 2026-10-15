@@ -59,9 +59,10 @@ final class Agend_Apps_Templates {
 	 * The record field keys and custom field keys a template binds. Empty when
 	 * no registered reader owns the id.
 	 *
-	 * Cached against the template's last modification time, so an edited
-	 * template is read afresh while every search of an unchanged one reuses
-	 * the last reading.
+	 * Cached against the template's last modification time, the registered
+	 * readers and the core version, so an edited template, a page builder's
+	 * reader arriving after a plugin update, or a changed schema default is
+	 * read afresh, while every search of an unchanged one reuses the reading.
 	 *
 	 * @param int $template_id The template's post id.
 	 * @return array{fields: string[], custom_fields: string[]}
@@ -73,7 +74,9 @@ final class Agend_Apps_Templates {
 
 		$post      = get_post( $template_id );
 		$revision  = $post ? (string) ( $post->post_modified_gmt ?? '' ) : '';
-		$cache_key = $template_id . ':' . $revision;
+		$readers   = implode( ',', array_map( 'get_class', self::$field_key_readers ) );
+		$version   = defined( 'AGEND_APPS_CORE_VERSION' ) ? (string) AGEND_APPS_CORE_VERSION : '';
+		$cache_key = md5( $template_id . ':' . $revision . ':' . $readers . ':' . $version );
 		$cached    = wp_cache_get( $cache_key, 'agend_apps_template_field_keys', false, $found );
 		if ( $found && is_array( $cached ) ) {
 			return $cached;
@@ -88,7 +91,7 @@ final class Agend_Apps_Templates {
 			}
 		}
 
-		wp_cache_set( $cache_key, $keys, 'agend_apps_template_field_keys' );
+		wp_cache_set( $cache_key, $keys, 'agend_apps_template_field_keys', DAY_IN_SECONDS );
 		return $keys;
 	}
 

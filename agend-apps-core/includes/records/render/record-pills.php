@@ -70,6 +70,11 @@ function agend_apps_records_record_pills_resolve( array $settings, array $opts =
 
 	if ( 'common:custom_field' === $key ) {
 		$ctx['extra']['custom_field_key'] = agend_apps_records_record_field_custom_field_key( $settings );
+		// An item list's value is the whole entry, whose key, label and type
+		// would otherwise come out as pills.
+		if ( 'item_list' === agend_apps_records_field_kind_for_record( $key, $ctx['record'], $ctx['extra'] ) ) {
+			return array( 'renders' => false, 'reason' => 'field_not_applicable', 'ctx' => $ctx, 'key' => $key, 'terms' => array(), 'rest' => array() );
+		}
 	}
 
 	$terms = agend_apps_records_field_terms( $key, $ctx['type'], $ctx['record'], $ctx['extra'] );

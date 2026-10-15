@@ -23,8 +23,13 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/interface-a
 final class Search_Include_Test_Reader implements Agend_Apps_Template_Field_Keys {
 	public int $reads = 0;
 
+	/** @var string[] */
+	private array $fields;
+
 	/** @param string[] $fields Bound record field keys. */
-	public function __construct( private array $fields ) {}
+	public function __construct( array $fields ) {
+		$this->fields = $fields;
+	}
 
 	public function field_keys( int $template_id ): ?array {
 		if ( 7 !== $template_id ) {
@@ -108,6 +113,17 @@ final class SearchIncludeTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_report_the_term_field_when_an_agend_image_chooses_its_picture_by_term(): void {
+		$by_term = agend_apps_records_template_binding_keys( 'record-image', array( 'use_term_images' => 'yes', 'term_field' => 'listing:categories' ) );
+		$default = agend_apps_records_template_binding_keys( 'record-image', array( 'use_term_images' => 'yes' ) );
+		$off     = agend_apps_records_template_binding_keys( 'record-image', array( 'term_field' => 'listing:categories' ) );
+
+		$this->assertSame( 'categories', agend_apps_records_search_include_for_keys( $by_term ) );
+		$this->assertContains( 'common:category', $default['fields'] );
+		$this->assertSame( '', agend_apps_records_search_include_for_keys( $off ), 'the term field is unused while the toggle is off' );
+	}
+
+	#[Test]
 	public function should_report_nothing_for_an_element_that_binds_no_record_field(): void {
 		$this->assertSame( agend_apps_records_empty_binding_keys(), agend_apps_records_template_binding_keys( 'record-block', array( 'block' => 'listing_about' ) ) );
 	}
@@ -177,6 +193,16 @@ final class SearchIncludeTest extends TestCase {
 		$GLOBALS['agend_test_posts'][7]['post_modified_gmt'] = '2026-10-02 00:00:00';
 		Agend_Apps_Templates::field_keys( 7 );
 		$this->assertSame( 2, $reader->reads );
+	}
+
+	#[Test]
+	public function should_read_a_template_afresh_when_another_reader_registers_after_an_empty_reading(): void {
+		$GLOBALS['agend_test_posts'][7] = array( 'ID' => 7, 'post_modified_gmt' => '2026-10-01 00:00:00' );
+		$this->assertSame( array(), Agend_Apps_Templates::field_keys( 7 )['fields'] );
+
+		$this->useTemplateBinding( 'listing:phone' );
+
+		$this->assertSame( array( 'listing:phone' ), Agend_Apps_Templates::field_keys( 7 )['fields'] );
 	}
 
 	// -- The searches a catalogue makes -----------------------------------------

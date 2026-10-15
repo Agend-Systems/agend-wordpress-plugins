@@ -48,12 +48,13 @@ function agend_apps_records_empty_binding_keys(): array {
 }
 
 /**
- * The `field` default an element's schema declares, or ''.
+ * The default an element's schema declares for one of its settings, or ''.
  *
  * @param string $element Element kind, e.g. 'record-field'.
+ * @param string $setting The setting's name.
  * @return string
  */
-function agend_apps_records_binding_default_field( string $element ): string {
+function agend_apps_records_binding_default_field( string $element, string $setting = 'field' ): string {
 	$schema_function = AGEND_APPS_RECORDS_FIELD_BINDING_SCHEMAS[ $element ] ?? '';
 	if ( '' === $schema_function || ! function_exists( $schema_function ) ) {
 		return '';
@@ -61,7 +62,7 @@ function agend_apps_records_binding_default_field( string $element ): string {
 
 	foreach ( $schema_function()['sections'] ?? array() as $section ) {
 		foreach ( $section['fields'] ?? array() as $field ) {
-			if ( 'field' === ( $field['name'] ?? '' ) ) {
+			if ( $setting === ( $field['name'] ?? '' ) ) {
 				return (string) ( $field['default'] ?? '' );
 			}
 		}
@@ -92,6 +93,16 @@ function agend_apps_records_template_binding_keys( string $element, array $setti
 		return $keys;
 	}
 	$keys['fields'][] = $field;
+
+	// Agend Image chooses its picture by a term field when "Choose the image by
+	// term" is on, and that field (for example All categories) needs its data.
+	if ( 'record-image' === $element && 'yes' === ( $settings['use_term_images'] ?? '' ) ) {
+		$term_field = is_scalar( $settings['term_field'] ?? null ) ? trim( (string) $settings['term_field'] ) : '';
+		$term_field = '' !== $term_field ? $term_field : agend_apps_records_binding_default_field( $element, 'term_field' );
+		if ( '' !== $term_field ) {
+			$keys['fields'][] = $term_field;
+		}
+	}
 
 	if ( in_array( $field, array( 'common:custom_field', 'common:custom_field_label' ), true ) ) {
 		// The same precedence as agend_apps_records_record_field_custom_field_key():

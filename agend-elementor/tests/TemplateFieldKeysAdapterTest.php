@@ -16,6 +16,7 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/interface-a
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/templates/template-field-keys.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/record-field.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/record-pills.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/record-image.php';
 require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-template-renderer.php';
 require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/adapters/class-agend-elementor-template-field-keys-adapter.php';
 
@@ -85,6 +86,25 @@ final class TemplateFieldKeysAdapterTest extends TestCase {
 		);
 
 		$this->assertSame( array(), $keys['fields'] );
+	}
+
+	#[Test]
+	public function should_read_the_bound_fields_when_the_saved_element_data_is_a_json_string(): void {
+		$meta = wp_json_encode(
+			array( $this->container( $this->widget( 'agend-record-pills', array( 'field' => 'listing:categories' ) ) ) )
+		);
+
+		$this->assertSame( array( 'listing:categories' ), Agend_Elementor_Template_Field_Keys_Adapter::from_meta( $meta )['fields'] );
+		$this->assertSame( array(), Agend_Elementor_Template_Field_Keys_Adapter::from_meta( '' )['fields'] );
+	}
+
+	#[Test]
+	public function should_report_the_term_field_when_an_agend_image_chooses_its_picture_by_term(): void {
+		$keys = Agend_Elementor_Template_Field_Keys_Adapter::from_meta(
+			array( $this->widget( 'agend-record-image', array( 'use_term_images' => 'yes', 'term_field' => 'listing:categories' ) ) )
+		);
+
+		$this->assertContains( 'listing:categories', $keys['fields'] );
 	}
 
 	#[Test]

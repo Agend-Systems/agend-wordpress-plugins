@@ -26,7 +26,17 @@ final class Agend_Elementor_Template_Field_Keys_Adapter implements Agend_Apps_Te
 
 		// Read the meta directly, as Agend_Elementor_Preview_Type does: the
 		// document API can convert and save a post it reads in edit mode.
-		$data = get_post_meta( $template_id, '_elementor_data', true );
+		return self::from_meta( get_post_meta( $template_id, '_elementor_data', true ) );
+	}
+
+	/**
+	 * The keys a saved `_elementor_data` value binds. Elementor stores it as a
+	 * JSON string; an already-decoded tree is accepted too.
+	 *
+	 * @param mixed $data The meta value.
+	 * @return array{fields: string[], custom_fields: string[]}
+	 */
+	public static function from_meta( $data ): array {
 		if ( is_string( $data ) && '' !== $data ) {
 			$data = json_decode( $data, true );
 		}
