@@ -599,9 +599,11 @@ function agend_apps_records_rest_toggle_html( int $hidden, string $overflow_text
 
 /**
  * Custom field types whose value is several selected options, read as a list
- * so a list's separator, item limit and overflow control apply to it.
+ * so a list's separator, item limit and overflow control apply to it. The API
+ * publishes a multi-select and a checkbox group both as `array`; the canonical
+ * names are accepted too.
  */
-const AGEND_APPS_RECORDS_LIST_CUSTOM_FIELD_TYPES = array( 'multi_select', 'checkbox_group' );
+const AGEND_APPS_RECORDS_LIST_CUSTOM_FIELD_TYPES = array( 'array', 'multi_select', 'checkbox_group' );
 
 /**
  * A multi-select or checkbox-group custom field's selected option labels, by

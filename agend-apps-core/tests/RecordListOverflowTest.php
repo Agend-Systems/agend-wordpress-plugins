@@ -129,7 +129,7 @@ final class RecordListOverflowTest extends TestCase {
 
 	#[Test]
 	public function should_render_a_multi_select_or_checkbox_group_custom_field_as_a_list_capped_with_the_control(): void {
-		foreach ( array( 'multi_select', 'checkbox_group' ) as $type ) {
+		foreach ( array( 'array', 'multi_select', 'checkbox_group' ) as $type ) {
 			$record = $this->listingWithPaymentOptions( $type );
 			$extra  = array( 'custom_field_key' => 'payment_options' );
 
@@ -147,7 +147,7 @@ final class RecordListOverflowTest extends TestCase {
 
 	#[Test]
 	public function should_render_a_multi_select_custom_field_as_the_same_text_as_before_with_no_limit_and_the_default_separator(): void {
-		$record = $this->listingWithPaymentOptions( 'multi_select' );
+		$record = $this->listingWithPaymentOptions( 'array' );
 
 		$this->assertSame(
 			'Cash, Card, Invoice',
@@ -225,7 +225,7 @@ final class RecordListOverflowTest extends TestCase {
 	public function should_offer_custom_fields_to_pills_and_render_one_pill_per_selected_option(): void {
 		$this->assertTrue( agend_apps_records_field_registry()['common:custom_field']['pill'] );
 
-		foreach ( array( 'multi_select', 'checkbox_group' ) as $type ) {
+		foreach ( array( 'array', 'multi_select', 'checkbox_group' ) as $type ) {
 			Agend_Apps_Records_Record_Context::reset();
 			Agend_Apps_Records_Record_Context::push( 'listing', $this->listingWithPaymentOptions( $type ) );
 

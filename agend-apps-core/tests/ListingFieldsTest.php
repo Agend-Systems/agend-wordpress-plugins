@@ -542,7 +542,7 @@ final class ListingFieldsTest extends TestCase {
 				array(
 					'key'         => 'payment_options',
 					'label'       => 'Payment options',
-					'type'        => 'multi_select',
+					'type'        => 'array',
 					'value'       => array( 'cash', 'card', 'invoice' ),
 					'value_label' => array( 'Cash', 'Card', 'Invoice' ),
 				),
