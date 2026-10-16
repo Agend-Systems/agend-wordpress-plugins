@@ -156,6 +156,11 @@ class Agend_Apps_Cache {
 			'label'       => 'Single Job',
 			'default_ttl' => 300,
 		),
+		// Every catalogue page load fetches this, and brand and theme config rarely changes.
+		'sites_config'             => array(
+			'label'       => 'Site Config',
+			'default_ttl' => 3600,
+		),
 	);
 
 	/**

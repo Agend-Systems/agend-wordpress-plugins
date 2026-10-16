@@ -46,6 +46,7 @@
                                     "listing:state": "State",
                                     "listing:postcode": "Postcode",
                                     "listing:country": "Country",
+                                    "listing:organisation": "Organisation",
                                     "listing:rating": "Minimum rating",
                                     "listing:sort": "Sort by",
                                     "listing:featured": "Featured",
@@ -70,6 +71,23 @@
                         "description": "The key as configured in Agend, for example education_level. The field must be configured as a search filter on the account, and a visitor who is not entitled to read it never sees this control.",
                         "condition": {
                             "filter": "listing:custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "category_level",
+                    "args": {
+                        "label": "Category level",
+                        "type": "select",
+                        "default": "all",
+                        "options": {
+                            "all": "All categories",
+                            "top": "Top level",
+                            "sub": "Subcategories of selected"
+                        },
+                        "description": "Top level offers only categories with no parent. Subcategories of selected offers the subcategories of the category chosen in a Top level filter on the same page, and stays hidden until one with subcategories is chosen. Both levels show as a dropdown or buttons, never checkboxes, and apply when Values is \"Every value that exists\".",
+                        "condition": {
+                            "filter": "listing:category"
                         }
                     }
                 },

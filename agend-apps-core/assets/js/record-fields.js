@@ -48,6 +48,40 @@
     }
   }
 
+  // A capped list's overflow control (Agend Field and Agend Pills). The held-
+  // back items are already in the page; this only shows and hides them. One
+  // listener on the document serves every card, including cards a filter or
+  // page change inserts later. It listens in the capture phase so it runs
+  // before a card's own click handling: the control usually sits inside a
+  // card that links as a whole, and activating it must not follow that link.
+  // stopPropagation (not stopImmediatePropagation) and only for the control
+  // itself: every other click on the page is left alone.
+  function toggleRest(button) {
+    var group = button.closest('[data-agend-rest-group]');
+    if (!group) {
+      return;
+    }
+    var expand = button.getAttribute('aria-expanded') !== 'true';
+    var rest = group.querySelectorAll('[data-agend-rest]');
+    for (var i = 0; i < rest.length; i++) {
+      rest[i].hidden = !expand;
+    }
+    button.setAttribute('aria-expanded', expand ? 'true' : 'false');
+    button.textContent = button.getAttribute(expand ? 'data-agend-less' : 'data-agend-more') || '';
+  }
+
+  function onRestToggleClick(e) {
+    var button = e.target && e.target.closest ? e.target.closest('[data-agend-rest-toggle]') : null;
+    if (!button) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    toggleRest(button);
+  }
+
+  document.addEventListener('click', onRestToggleClick, true);
+
   window.agendRecordFields = window.agendRecordFields || {};
   window.agendRecordFields.apply = apply;
 

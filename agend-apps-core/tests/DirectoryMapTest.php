@@ -461,7 +461,7 @@ final class DirectoryMapTest extends TestCase {
 		update_option( AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION, 'abc123' );
 		$tiles = agend_apps_records_directory_map_tiles();
 
-		$this->assertSame( 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key=abc123', $tiles['url'] );
+		$this->assertSame( 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=abc123', $tiles['url'], 'sharp tiles on a high density screen' );
 		$this->assertStringContainsString( 'CARTO', $tiles['attribution'] );
 	}
 
@@ -482,6 +482,60 @@ final class DirectoryMapTest extends TestCase {
 		$this->assertFalse( $config['scrollZoom'], 'the page should scroll past a map by default' );
 		$this->assertSame( 500, $config['limit'] );
 		$this->assertSame( 'View details', $config['popup']['linkText'] );
+		$this->assertTrue( $config['fullscreen'] );
+		$this->assertTrue( $config['locate'] );
+		$this->assertSame( 'https://www.google.com/maps/dir/?api=1&destination={lat},{lng}', $config['popup']['directions'] );
+		$this->assertSame( 'Get directions', $config['popup']['directionsText'] );
+		$this->assertFalse( $config['popup']['locationName'], 'an existing map is unchanged after the plugin updates' );
+		$this->assertNotSame( '', $config['text']['scrollHint'], 'a wheel the map lets pass says how to zoom' );
+	}
+
+	#[Test]
+	public function should_show_the_location_name_in_pin_details_when_the_control_is_on(): void {
+		$config = agend_apps_records_directory_map_build_config( array( 'popup_location_name' => 'yes' ) );
+
+		$this->assertTrue( $config['popup']['locationName'] );
+	}
+
+	#[Test]
+	public function should_leave_out_the_map_buttons_and_directions_when_turned_off(): void {
+		$config = agend_apps_records_directory_map_build_config(
+			array(
+				'fullscreen_button' => '',
+				'locate_button'     => '',
+				'popup_directions'  => '',
+			)
+		);
+
+		$this->assertFalse( $config['fullscreen'] );
+		$this->assertFalse( $config['locate'] );
+		$this->assertSame( '', $config['popup']['directions'] );
+	}
+
+	#[Test]
+	public function should_use_the_directions_text_a_site_sets(): void {
+		$config = agend_apps_records_directory_map_build_config( array( 'popup_directions_text' => ' Directions ' ) );
+
+		$this->assertSame( 'Directions', $config['popup']['directionsText'] );
+	}
+
+	#[Test]
+	public function should_let_a_site_swap_the_directions_service_but_only_for_https(): void {
+		add_filter(
+			'agend_apps_records_directory_map_directions_url',
+			static function () {
+				return 'https://maps.apple.com/?daddr={lat},{lng}';
+			}
+		);
+		$this->assertSame( 'https://maps.apple.com/?daddr={lat},{lng}', agend_apps_records_directory_map_directions_url() );
+
+		add_filter(
+			'agend_apps_records_directory_map_directions_url',
+			static function () {
+				return 'javascript:alert(1)//{lat}';
+			}
+		);
+		$this->assertSame( '', agend_apps_records_directory_map_directions_url() );
 	}
 
 	#[Test]
@@ -539,7 +593,7 @@ final class DirectoryMapTest extends TestCase {
 			}
 		}
 
-		foreach ( array( 'height', 'follow_view', 'update_on_move', 'marker_limit', 'popup_link_text', 'pin_colour' ) as $name ) {
+		foreach ( array( 'height', 'follow_view', 'update_on_move', 'marker_limit', 'popup_link_text', 'pin_colour', 'fullscreen_button', 'locate_button', 'popup_directions', 'popup_directions_text' ) as $name ) {
 			$this->assertContains( $name, $names );
 		}
 	}

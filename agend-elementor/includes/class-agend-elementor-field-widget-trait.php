@@ -210,4 +210,108 @@ trait Agend_Elementor_Field_Widget_Trait {
 
 		return null === $value ? $default : $value;
 	}
+
+	/**
+	 * The Style tab section for a capped list's "Show the rest" control.
+	 * Colours and box values are set as the custom properties record-fields.css
+	 * reads, so they apply whatever a theme's button styling does.
+	 *
+	 * @param string $typography_selector A selector that out-ranks the
+	 *                                    control's own rule in record-fields.css.
+	 */
+	protected function register_rest_toggle_style_controls( string $typography_selector ): void {
+		$pill = array(
+			'show_rest'  => 'yes',
+			'rest_style' => 'pill',
+		);
+
+		$this->start_controls_section(
+			'section_rest_style',
+			array(
+				'label'     => __( 'Show the rest', 'agend-elementor' ),
+				'tab'       => \Elementor\Controls_Manager::TAB_STYLE,
+				'condition' => array( 'show_rest' => 'yes' ),
+			)
+		);
+
+		$this->add_control(
+			'rest_colour',
+			array(
+				'label'     => __( 'Colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array( '{{WRAPPER}}' => '--agend-rest-colour: {{VALUE}};' ),
+			)
+		);
+
+		$this->add_control(
+			'rest_colour_hover',
+			array(
+				'label'     => __( 'Hover colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array( '{{WRAPPER}}' => '--agend-rest-colour-hover: {{VALUE}};' ),
+			)
+		);
+
+		$this->add_control(
+			'rest_focus_colour',
+			array(
+				'label'       => __( 'Focus outline colour', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::COLOR,
+				'description' => __( 'Shown when the control is reached by keyboard. Defaults to the text colour.', 'agend-elementor' ),
+				'selectors'   => array( '{{WRAPPER}}' => '--agend-rest-focus: {{VALUE}};' ),
+			)
+		);
+
+		$this->add_control(
+			'rest_background',
+			array(
+				'label'     => __( 'Background colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array( '{{WRAPPER}}' => '--agend-rest-bg: {{VALUE}};' ),
+				'condition' => $pill,
+			)
+		);
+
+		$this->add_control(
+			'rest_background_hover',
+			array(
+				'label'     => __( 'Hover background colour', 'agend-elementor' ),
+				'type'      => \Elementor\Controls_Manager::COLOR,
+				'selectors' => array( '{{WRAPPER}}' => '--agend-rest-bg-hover: {{VALUE}};' ),
+				'condition' => $pill,
+			)
+		);
+
+		$this->add_group_control(
+			\Elementor\Group_Control_Typography::get_type(),
+			array(
+				'name'     => 'rest_typography',
+				'selector' => $typography_selector,
+			)
+		);
+
+		$this->add_responsive_control(
+			'rest_padding',
+			array(
+				'label'      => __( 'Padding', 'agend-elementor' ),
+				'type'       => \Elementor\Controls_Manager::DIMENSIONS,
+				'size_units' => array( 'px', 'em' ),
+				'selectors'  => array( '{{WRAPPER}}' => '--agend-rest-padding: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};' ),
+				'condition'  => $pill,
+			)
+		);
+
+		$this->add_responsive_control(
+			'rest_radius',
+			array(
+				'label'      => __( 'Border radius', 'agend-elementor' ),
+				'type'       => \Elementor\Controls_Manager::DIMENSIONS,
+				'size_units' => array( 'px', '%' ),
+				'selectors'  => array( '{{WRAPPER}}' => '--agend-rest-radius: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};' ),
+				'condition'  => $pill,
+			)
+		);
+
+		$this->end_controls_section();
+	}
 }

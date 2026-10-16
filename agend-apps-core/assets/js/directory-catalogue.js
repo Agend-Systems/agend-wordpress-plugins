@@ -1750,13 +1750,18 @@
       location_state: [],
       location_postcode: [],
       location_country: [],
+      // The Organisation filter's text: matched against listing location
+      // names by the API, sent as locationName.
+      location_name: '',
       // A Location filter's {lat, lng, radius, label}, or null.
       near: null,
       // An Agend Map viewport, "north,south,east,west", when the map is set
       // to update results as it moves. Never sent alongside `near`.
       bbox: '',
-      // 'list' or 'map', written by a List / Map switch.
-      view: 'list',
+      // 'list' or 'map', written by a List / Map switch. Empty until the
+      // switch sets it, so the switch's "Starts on" setting is what applies
+      // on first load; a reset leaves the visitor's choice alone.
+      view: '',
     };
 
     // The filter template is rendered server-side inside the widget; take it
@@ -1979,6 +1984,12 @@
       if (!card || !grid.contains(card)) {
         return;
       }
+      // A link inside the card to anywhere but the card's own detail (a phone
+      // number, a website, a calendar file) keeps its own behaviour.
+      var inner = e.target.closest('a[href]');
+      if (inner && inner !== card && inner.href !== new URL(card.getAttribute('data-agend-href') || '', window.location.href).href) {
+        return;
+      }
       var slug = card.getAttribute('data-agend-slug');
       if (!slug) {
         return;
@@ -2082,6 +2093,7 @@
         state: (state.location_state || []).join(','),
         postcode: (state.location_postcode || []).join(','),
         country: (state.location_country || []).join(','),
+        locationName: typeof state.location_name === 'string' ? state.location_name.trim() : '',
         custom_fields: state.custom_fields || {},
         sortBy: effectiveSort(state),
         sortOrder: effectiveSort(state) === 'name' || effectiveSort(state) === 'distance' ? 'asc' : 'desc',

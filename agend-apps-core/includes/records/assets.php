@@ -155,9 +155,16 @@ function agend_apps_records_register_assets(): void {
 		agend_apps_records_asset_version()
 	);
 	wp_register_script(
+		'agend-apps-records-category-levels',
+		agend_apps_records_asset_url( 'js/category-levels.js' ),
+		array(),
+		agend_apps_records_asset_version(),
+		true
+	);
+	wp_register_script(
 		'agend-apps-records-filters',
 		agend_apps_records_asset_url( 'js/filters.js' ),
-		array(),
+		array( 'agend-apps-records-category-levels' ),
 		agend_apps_records_asset_version(),
 		true
 	);

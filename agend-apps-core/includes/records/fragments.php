@@ -15,6 +15,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Phone links share agend_apps_records_tel_href() with the Agend Field.
+require_once __DIR__ . '/format.php';
+
 /**
  * Reads a ticket's first pricing-tier value for a group key.
  *
@@ -548,8 +551,11 @@ function agend_apps_records_fragment_listing_locations( array $item ): string {
 						<?php if ( ! empty( $address ) ) : ?>
 							<div class="agend-dir-location__address"><?php echo esc_html( implode( ', ', $address ) ); ?></div>
 						<?php endif; ?>
-						<?php if ( ! empty( $location['phone'] ) ) : ?>
-							<a class="agend-dir-location__phone" href="tel:<?php echo esc_attr( preg_replace( '/[^+\d]/', '', (string) $location['phone'] ) ); ?>"><?php echo esc_html( $location['phone'] ); ?></a>
+						<?php $tel = ! empty( $location['phone'] ) ? agend_apps_records_tel_href( (string) $location['phone'] ) : ''; ?>
+						<?php if ( '' !== $tel ) : ?>
+							<a class="agend-dir-location__phone" href="<?php echo esc_attr( $tel ); ?>"><?php echo esc_html( $location['phone'] ); ?></a>
+						<?php elseif ( ! empty( $location['phone'] ) ) : ?>
+							<span class="agend-dir-location__phone"><?php echo esc_html( $location['phone'] ); ?></span>
 						<?php endif; ?>
 						<?php echo agend_apps_records_ssr_hours( $location['hours'] ?? null ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 					</div>
@@ -602,7 +608,10 @@ function agend_apps_records_fragment_listing_contact( array $item ): string {
 
 	$rows = '';
 	if ( ! empty( $item['phone'] ) ) {
-		$rows .= '<a class="agend-dir-detail__contact" href="tel:' . esc_attr( preg_replace( '/[^+\d]/', '', (string) $item['phone'] ) ) . '">' . esc_html( $item['phone'] ) . '</a>';
+		$tel   = agend_apps_records_tel_href( (string) $item['phone'] );
+		$rows .= '' !== $tel
+			? '<a class="agend-dir-detail__contact" href="' . esc_attr( $tel ) . '">' . esc_html( $item['phone'] ) . '</a>'
+			: '<span class="agend-dir-detail__contact">' . esc_html( $item['phone'] ) . '</span>';
 	}
 	foreach ( $socials as $field => $label ) {
 		$url = isset( $item[ $field ] ) ? esc_url_raw( (string) $item[ $field ] ) : '';

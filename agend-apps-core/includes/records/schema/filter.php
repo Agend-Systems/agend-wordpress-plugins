@@ -42,6 +42,19 @@ function agend_apps_records_schema_filter(): array {
 						'condition'   => array( 'filter' => 'listing:custom_field' ),
 					),
 					array(
+						'name'        => 'category_level',
+						'label'       => __( 'Category level', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'all',
+						'options'     => array(
+							'all' => __( 'All categories', 'agend-apps-core' ),
+							'top' => __( 'Top level', 'agend-apps-core' ),
+							'sub' => __( 'Subcategories of selected', 'agend-apps-core' ),
+						),
+						'description' => __( 'Top level offers only categories with no parent. Subcategories of selected offers the subcategories of the category chosen in a Top level filter on the same page, and stays hidden until one with subcategories is chosen. Both levels show as a dropdown or buttons, never checkboxes, and apply when Values is "Every value that exists".', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:category' ),
+					),
+					array(
 						'name'        => 'control',
 						'label'       => __( 'Presentation', 'agend-apps-core' ),
 						'type'        => 'select',

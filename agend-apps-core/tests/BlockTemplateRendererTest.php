@@ -216,6 +216,16 @@ final class BlockTemplateRendererTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_enqueue_a_block_types_registered_view_script_handles(): void {
+		$this->seedTemplate( 40, '<!-- wp:agend-test/scripted /-->' );
+		register_block_type( 'agend-test/scripted', array( 'view_script_handles' => array( 'test-view-script' ) ) );
+
+		$this->renderer->ensure_styles( 40 );
+
+		$this->assertSame( array( 'test-view-script' ), Agend_Test_WP::$enqueued_scripts );
+	}
+
+	#[Test]
 	public function should_only_enqueue_styles_once_per_template_id_per_request(): void {
 		$this->seedTemplate( 16, '<!-- wp:agend-test/styled /-->' );
 		register_block_type( 'agend-test/styled', array( 'style_handles' => array( 'test-style-handle' ) ) );

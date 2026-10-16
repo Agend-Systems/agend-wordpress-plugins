@@ -154,4 +154,41 @@ final class FormatTest extends TestCase {
 	public function should_return_raw_value_when_venue_type_is_unrecognised(): void {
 		$this->assertSame( 'pop-up', \agend_apps_records_ssr_ev_type_label( 'pop-up' ) );
 	}
+
+	// -------------------------------------------------------------------
+	// agend_apps_records_tel_href()
+	// -------------------------------------------------------------------
+
+	#[Test]
+	public function should_keep_only_digits_and_plus_in_the_tel_href(): void {
+		$this->assertSame( 'tel:+61398765432', \agend_apps_records_tel_href( '+61 3 9876 5432' ) );
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '(03) 9876-5432' ) );
+	}
+
+	#[Test]
+	public function should_dial_only_the_first_number_without_its_extension(): void {
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '03 9876 5432 ext 12' ) );
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '03 9876 5432 x12' ) );
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '03 9876 5432 / 0400 111 222' ) );
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( '03 9876 5432, 0400 111 222' ) );
+	}
+
+	#[Test]
+	public function should_dial_the_number_after_a_label_that_contains_a_separator(): void {
+		$this->assertSame( 'tel:0398765432', \agend_apps_records_tel_href( 'Phone/Fax: 03 9876 5432' ) );
+		$this->assertSame( 'tel:0212345678', \agend_apps_records_tel_href( 'Ph/Fax 02 1234 5678' ) );
+		$this->assertSame( 'tel:0400111222', \agend_apps_records_tel_href( 'Text or call 0400 111 222' ) );
+	}
+
+	#[Test]
+	public function should_drop_the_bracketed_trunk_zero_after_a_country_code(): void {
+		$this->assertSame( 'tel:+61398765432', \agend_apps_records_tel_href( '+61 (0)3 9876 5432' ) );
+	}
+
+	#[Test]
+	public function should_return_no_tel_href_when_no_digit_is_left_to_dial(): void {
+		$this->assertSame( '', \agend_apps_records_tel_href( 'On request' ) );
+		$this->assertSame( '', \agend_apps_records_tel_href( '+' ) );
+		$this->assertSame( '', \agend_apps_records_tel_href( '' ) );
+	}
 }

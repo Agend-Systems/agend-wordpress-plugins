@@ -581,11 +581,11 @@ class Agend_Apps_Identity_Admin {
 			),
 			Agend_Apps_Settings::MEMBER_AUTH_SSO         => array(
 				'label' => __( 'SSO connection only', 'agend-apps-core' ),
-				'help'  => __( 'Members reach Agend only through your SSO connection. Credential sign-in, account provisioning on user creation, and the /auth REST routes are switched off. Existing member sessions are kept until they expire.', 'agend-apps-core' ),
+				'help'  => __( 'Members reach Agend only through your SSO connection. Credential sign-in, account provisioning on user creation, and the /auth REST routes are switched off. Switching to this mode from Agend credentials ends every stored Agend credential session on this site.', 'agend-apps-core' ),
 			),
 			Agend_Apps_Settings::MEMBER_AUTH_WORDPRESS   => array(
 				'label' => __( 'WordPress account', 'agend-apps-core' ),
-				'help'  => __( 'Members sign in with their WordPress password, which is never sent to Agend. On first sign-in they are passed once through this site\'s SAML identity provider to link their Agend identity; a bearer is then minted server to server from that link for the member widgets. Requires a SAML identity provider plugin (see Linking mechanism below).', 'agend-apps-core' ),
+				'help'  => __( 'Members sign in with their WordPress password, which is never sent to Agend. On first sign-in they are passed once through this site\'s SAML identity provider to link their Agend identity; a bearer is then minted server to server from that link for the member widgets. Requires a SAML identity provider plugin (see Linking mechanism below). Switching to this mode from Agend credentials ends every stored Agend credential session on this site.', 'agend-apps-core' ),
 			),
 		);
 

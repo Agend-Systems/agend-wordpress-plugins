@@ -18,6 +18,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// The link-value conditions name the registry's linkable fields.
+require_once __DIR__ . '/../fields.php';
+
 /**
  * The Agend Field widget's content-settings schema.
  *
@@ -133,6 +136,43 @@ function agend_apps_records_schema_record_field(): array {
 						'default'     => false,
 						'description' => __( 'Ignored when the whole card is already a link.', 'agend-apps-core' ),
 					),
+					// Off by default: Elementor does not store a setting left at
+					// its default, so a default of on would link every existing
+					// Agend Field on every site at the next release.
+					array(
+						'name'        => 'link_value',
+						'label'       => __( 'Link the value', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Websites link to the address. Phone numbers become tap-to-call links. Ignored when the whole card is already a link.', 'agend-apps-core' ),
+						'condition'   => array(
+							'field'           => agend_apps_records_linkable_field_keys(),
+							'link_to_detail!' => 'yes',
+						),
+					),
+					array(
+						'name'        => 'link_text',
+						'label'       => __( 'Link text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'description' => __( 'Shown instead of the value, for example Visit website or Call us. Leave empty to show the value.', 'agend-apps-core' ),
+						'condition'   => array(
+							'field'           => agend_apps_records_linkable_field_keys(),
+							'link_to_detail!' => 'yes',
+							'link_value'      => 'yes',
+						),
+					),
+					array(
+						'name'      => 'link_new_tab',
+						'label'     => __( 'Open in new tab', 'agend-apps-core' ),
+						'type'      => 'toggle',
+						'default'   => true,
+						'condition' => array(
+							'field'           => agend_apps_records_linkable_field_keys( array( 'url' ) ),
+							'link_to_detail!' => 'yes',
+							'link_value'      => 'yes',
+						),
+					),
 					array(
 						'name'      => 'label_heading',
 						'label'     => __( 'Label', 'agend-apps-core' ),
@@ -224,6 +264,39 @@ function agend_apps_records_schema_record_field(): array {
 						'description' => __( '0 shows every item.', 'agend-apps-core' ),
 					),
 					array(
+						'name'        => 'show_rest',
+						'label'       => __( 'Show the rest', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'With a maximum set, adds a control after the last item shown that reveals the rest in place, and hides them again.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'overflow_text',
+						'label'       => __( 'Overflow text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => __( '+{n}', 'agend-apps-core' ),
+						'description' => __( '{n} is replaced by the number of hidden items.', 'agend-apps-core' ),
+						'condition'   => array( 'show_rest' => 'yes' ),
+					),
+					array(
+						'name'      => 'collapse_text',
+						'label'     => __( 'Collapse text', 'agend-apps-core' ),
+						'type'      => 'text',
+						'default'   => __( 'Show less', 'agend-apps-core' ),
+						'condition' => array( 'show_rest' => 'yes' ),
+					),
+					array(
+						'name'      => 'rest_style',
+						'label'     => __( 'Show the rest as', 'agend-apps-core' ),
+						'type'      => 'select',
+						'default'   => 'link',
+						'options'   => array(
+							'link' => __( 'Text link', 'agend-apps-core' ),
+							'pill' => __( 'Pill', 'agend-apps-core' ),
+						),
+						'condition' => array( 'show_rest' => 'yes' ),
+					),
+					array(
 						'name'        => 'bool_true',
 						'label'       => __( 'Text when true', 'agend-apps-core' ),
 						'type'        => 'text',
@@ -295,7 +368,11 @@ function agend_apps_records_schema_record_field(): array {
  * cannot enumerate or that does not exist yet.
  *
  * Sourced from the editor preview record, so opening a panel costs no gateway
- * call the editor was not already making.
+ * call the editor was not already making. Only an editor gets the list: the
+ * preview fetch is two gateway calls on a cache miss, made with whichever
+ * member's bearer is present and cached site-wide, and a front-end render of
+ * the widget registers this control too. Its stored value is rendered without
+ * consulting the choices.
  *
  * @return array<string, string> '' => the "not listed" placeholder, then
  *                                key => label.
@@ -303,7 +380,7 @@ function agend_apps_records_schema_record_field(): array {
 function agend_apps_records_custom_field_key_options(): array {
 	$options = array( '' => __( 'Not listed (enter a key below)', 'agend-apps-core' ) );
 
-	if ( ! function_exists( 'agend_apps_records_preview_record' ) ) {
+	if ( ! function_exists( 'agend_apps_records_preview_record' ) || ! agend_apps_records_is_editor_request() ) {
 		return $options;
 	}
 

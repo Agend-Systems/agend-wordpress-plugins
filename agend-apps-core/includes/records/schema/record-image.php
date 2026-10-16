@@ -206,7 +206,7 @@ function agend_apps_records_schema_record_image(): array {
 						'label'       => __( 'Terms', 'agend-apps-core' ),
 						'type'        => 'select',
 						'default'     => 'common:category',
-						'groups'      => 'agend_apps_records_pill_field_options',
+						'groups'      => 'agend_apps_records_term_image_field_options',
 						'label_block' => true,
 						'condition'   => array( 'use_term_images' => 'yes' ),
 					),

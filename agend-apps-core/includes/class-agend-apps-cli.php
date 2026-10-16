@@ -45,6 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @param bool $include_idp      Whether the operator passed `--include-idp`.
  * @return array{
  *     options_to_delete: string[],
+ *     user_meta_to_delete: string[],
  *     per_user_notice: string,
  *     idp_advisory: string,
  *     should_chain_idp: bool,
@@ -57,15 +58,23 @@ function agend_apps_cli_scrub_secrets_plan( bool $idp_class_exists, bool $includ
 		AGEND_APPS_CONNECT_OPTION,
 	);
 
+	// Literal fallbacks: neither class is guaranteed to be loaded where this
+	// pure function runs.
+	$user_meta_to_delete = array(
+		class_exists( 'Agend_Apps_Member_Session' ) ? Agend_Apps_Member_Session::META_KEY : '_agend_apps_member_session',
+		class_exists( 'Agend_Apps_Token_Worker' ) ? Agend_Apps_Token_Worker::META_KEY : '_agend_apps_sso_token',
+	);
+
 	$per_user_notice = __(
-		'Per-user link state and cached tokens are NOT deleted by this command. Those are per-user rows a clone will simply re-derive on its next request, so deleting them across every user on this site would be a destructive mass operation this command deliberately does not perform.',
+		'Every member\'s stored Agend session and cached SSO token were deleted from this database. They were deleted, not revoked: on a copy of a live site they are the live site\'s own sessions, and revoking them would sign those members out of the live site. A refresh token cannot be re-derived, so a copy that keeps one holds a working credential. Per-user link state is kept, because it holds no credential and is re-derived on the next request.',
 		'agend-apps-core'
 	);
 
 	if ( $include_idp && ! $idp_class_exists ) {
 		return array(
-			'options_to_delete' => $options_to_delete,
-			'per_user_notice'   => $per_user_notice,
+			'options_to_delete'   => $options_to_delete,
+			'user_meta_to_delete' => $user_meta_to_delete,
+			'per_user_notice'     => $per_user_notice,
 			'idp_advisory'      => __(
 				'--include-idp was passed, but the agend-saml-idp plugin is not active here, so there is no "wp saml-idp scrub-secrets" command to chain. Nothing on the IdP side was touched.',
 				'agend-apps-core'
@@ -77,8 +86,9 @@ function agend_apps_cli_scrub_secrets_plan( bool $idp_class_exists, bool $includ
 
 	if ( $include_idp ) {
 		return array(
-			'options_to_delete' => $options_to_delete,
-			'per_user_notice'   => $per_user_notice,
+			'options_to_delete'   => $options_to_delete,
+			'user_meta_to_delete' => $user_meta_to_delete,
+			'per_user_notice'     => $per_user_notice,
 			'idp_advisory'      => __(
 				'Chaining "wp saml-idp scrub-secrets" to also clear the SAML signing key and IdP entity id.',
 				'agend-apps-core'
@@ -99,8 +109,9 @@ function agend_apps_cli_scrub_secrets_plan( bool $idp_class_exists, bool $includ
 		);
 
 	return array(
-		'options_to_delete' => $options_to_delete,
-		'per_user_notice'   => $per_user_notice,
+		'options_to_delete'   => $options_to_delete,
+		'user_meta_to_delete' => $user_meta_to_delete,
+		'per_user_notice'     => $per_user_notice,
 		'idp_advisory'      => $idp_advisory,
 		'should_chain_idp'  => false,
 		'ok'                => true,
@@ -147,7 +158,7 @@ if ( ! class_exists( 'Agend_Apps_CLI' ) ) :
 				$include_idp = ! empty( $assoc_args['include-idp'] );
 
 				WP_CLI::confirm(
-					__( 'This permanently deletes this site\'s stored Agend gateway API key and connection record. Continue?', 'agend-apps-core' ),
+					__( 'This permanently deletes this site\'s stored Agend gateway API key, its connection record, and every member\'s stored Agend session and SSO token. Continue?', 'agend-apps-core' ),
 					$assoc_args
 				);
 
@@ -157,6 +168,12 @@ if ( ! class_exists( 'Agend_Apps_CLI' ) ) :
 					delete_option( $option_name );
 					// translators: %s: the deleted option name.
 					WP_CLI::log( sprintf( __( 'Deleted option: %s', 'agend-apps-core' ), $option_name ) );
+				}
+
+				foreach ( $plan['user_meta_to_delete'] as $meta_key ) {
+					delete_metadata( 'user', 0, $meta_key, '', true );
+					// translators: %s: the deleted user meta key.
+					WP_CLI::log( sprintf( __( 'Deleted user meta for every user: %s', 'agend-apps-core' ), $meta_key ) );
 				}
 
 				WP_CLI::log( $plan['per_user_notice'] );

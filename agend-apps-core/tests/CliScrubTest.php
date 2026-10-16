@@ -72,10 +72,17 @@ final class CliScrubTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_always_report_the_per_user_data_notice(): void {
+	public function should_delete_every_members_stored_session_and_sso_token(): void {
 		$plan = \agend_apps_cli_scrub_secrets_plan( true, false );
 
-		$this->assertNotSame( '', $plan['per_user_notice'] );
-		$this->assertStringContainsString( 'NOT deleted', $plan['per_user_notice'] );
+		$this->assertSame( array( '_agend_apps_member_session', '_agend_apps_sso_token' ), $plan['user_meta_to_delete'] );
+	}
+
+	#[Test]
+	public function should_tell_the_operator_the_sessions_were_deleted_not_revoked(): void {
+		$plan = \agend_apps_cli_scrub_secrets_plan( true, false );
+
+		$this->assertStringContainsString( 'deleted, not revoked', $plan['per_user_notice'] );
+		$this->assertStringNotContainsString( 'NOT deleted', $plan['per_user_notice'] );
 	}
 }

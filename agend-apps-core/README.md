@@ -40,8 +40,9 @@ treats it as an error will break every logged-out pageload.
 
 ### `Agend_Apps_Member_Session::has_session()`
 
-Answers whether a stored session envelope exists for a user. It does NOT
-validate the token, and it says nothing about entitlements.
+Answers whether a usable stored session exists for a user: one that decrypts
+and belongs to that user. It does NOT check the token with the gateway, and it
+says nothing about entitlements.
 
 Use it to decide whether a member-scoped call is worth attempting. Never use it
 as an authorisation check.
@@ -123,6 +124,142 @@ cross-member leak on `/events`, `/lms/courses` and `/cart`, fixed centrally in
 `Agend_Apps_API::get_cached()`. If you are caching anything whose content
 varies by who is asking, confirm the identity bypass covers your endpoint
 before relying on it.
+
+### How long site config is cached
+
+`agend_apps_sites_get_config()`, and the `GET /agend-apps/v1/sites/config`
+route over it, cache the gateway's published brand, theme and enabled-apps
+config under the `sites_config` key. The catalogue widgets fetch it on every
+page load to inherit site fonts, and it rarely changes.
+
+Before 1.37.4 the key was missing from the `Agend_Apps_Cache` map, so
+`Agend_Apps_Settings::get_cache_ttl()` fell back to 60 seconds and the config
+was refetched about once a minute. Since 1.37.4 it has its own entry with a
+one hour default, shown as "Site Config" on the Cache tab and adjustable there
+like every other entry. A site that never saved a TTL for it picks up the
+default on upgrade, with no activation step.
+
+- **Per member.** A signed-in visitor's response is cached under that member's
+  own entry (see "Caching and identity"), so each member still costs one
+  gateway fetch an hour.
+- **No automatic flush.** Nothing clears `sites_config` when the config changes
+  in the Agend dashboard, or when the site's API key, environment or custom URL
+  changes, because the cache key carries none of them. Until the hour is up the
+  old config is served. To see a change straight away, clear the "Site Config"
+  row on the Cache tab, or use "Clear All Caches".
+
+### One member token mint at a time
+
+The token worker mints a member's bearer with `POST /v1/sso/tokens` when the
+token cached in the `_agend_apps_sso_token` user meta is within 60 seconds of
+its 300 second expiry. A mint takes between about 0.4 and 3 seconds, and the
+gateway allows 30 a minute per site key. Two tabs, or a page and its REST
+fragment calls, used to mint once each. A 429 then negative-caches the member
+for 60 seconds and they render as logged out.
+
+Since 1.37.3 concurrent requests for one WordPress user share one mint:
+
+- **The lock.** A `wp_options` row named `agend_apps_sso_mint_lock_<user id>`,
+  autoload off, written with `INSERT IGNORE` straight against the table. Core's
+  `add_option()` is `INSERT ... ON DUPLICATE KEY UPDATE` and can report success
+  to two racing requests, so it is not used. The value is `timestamp:owner`, so a
+  request deletes only its own row. It holds no token and nothing about the
+  member.
+- **The winner** mints exactly as before, writes the user meta, and releases the
+  lock in every path: success, `WP_Error`, malformed response.
+- **A loser** waits up to about 3 seconds (30 re-reads, 100 ms apart), re-reading
+  the user meta from the store each time, and uses the winner's token only when
+  it was minted for the same `external_id`. When the wait runs out it mints for
+  itself, so a lost lock never renders a member anonymous.
+- **A stale lock** (older than 20 seconds, which outlasts the 15 second API timeout; left by a request that died mid-mint)
+  is replaced with a compare-and-swap, so two requests cannot both break it.
+- **The negative cache** still wins: a loser that finds it set returns `''`.
+
+The lock is per WordPress user. It never moves a token between users or between
+`external_id` values: every read checks the cached token's `external_id` against
+the member's current one. The token stays in user meta, never in the lock, a
+transient or the browser (see `agend_apps_sso_mint_token()`).
+
+`agend_apps_token_worker_sleeper` replaces the sleep between re-reads, as
+`agend_entitlement_mirror_sleeper` does for the entitlement mirror. It exists so
+tests never block on a real sleep.
+
+**A revoked token is re-minted.** Since 1.40.1 a token the gateway rejects with
+a 401 is discarded and re-minted once for that request, instead of the member
+getting the public view until the cached token's own expiry (a sign-out
+anywhere revokes the session server side). The API client announces the
+rejection on `agend_apps_bearer_rejected`, which the worker uses to clear the
+cache; a 403, or a token that is not the worker's, leaves it alone. A freshly
+minted token that is rejected too is negative-cached for 60 seconds, so a
+gateway that refuses every token costs one mint a minute per member.
+
+### Member sessions: storage, refresh and sign-out
+
+A member who signs in with their Agend email and password (`credentials` mode)
+gets a Supabase session, which the plugin keeps in the
+`_agend_apps_member_session` user meta. Its refresh token can be redeemed at
+Supabase Auth directly, without the gateway or the site's API key, and it never
+expires on its own. Since 1.38.2 the plugin treats it as a credential:
+
+- **Encrypted at rest.** The session is encrypted with the same libsodium scheme
+  and `wp_salt( 'auth' )` key as the site API key (`Agend_Apps_Secret_Store::encrypt()`),
+  so a database copy alone (a backup, an export, a staging clone, a Redis dump)
+  holds no usable session. The encrypted value names its WordPress user, so a
+  value copied onto another user's row is refused. A session stored in plain
+  text by an earlier version is encrypted the first time it is read. A value
+  that no longer decrypts, for example after the salts change, counts as no
+  session and is deleted.
+- **One refresh at a time.** Concurrent requests for one member share a single
+  `POST /v1/auth/refresh`, through a `wp_options` lock row named
+  `agend_apps_member_refresh_lock_<user id>`. It works like the token mint lock
+  above. The rotated session is written only over the value the request read,
+  so a sign-out or a newer refresh that lands meanwhile is never overwritten.
+- **Deleted only when the token is dead.** The stored session is deleted only
+  when the gateway answers 401 `UNAUTHORIZED` or `MFA_REQUIRED`. A timeout, a
+  transport error, a 5xx, a 429, or an API key or scope refusal leaves it in
+  place, and the request goes out unattended. The gateway reports an Auth
+  outage as a 500 from agend-dashboard PR #4651 onwards. Before that, an outage
+  also arrived as a 401.
+- **Never refreshed for someone else.** `is_live()` and `has_session()` are
+  read-only, so an admin viewing a member's profile never rotates that member's
+  session. The refresh call is always sent unattended, so no other user's bearer
+  rides it.
+- **Ended, not just forgotten.** `Agend_Apps_Member_Session::end_session()`
+  revokes the session at the gateway with the member's own access token
+  (`POST /v1/auth/logout`, which ends every session the member holds), then
+  deletes it locally whatever the gateway answers. It runs on:
+  - `wp_logout`;
+  - user deletion (`delete_user`, `wpmu_delete_user`);
+  - a password reset or change (`after_password_reset`, `wp_set_password`, and
+    a `profile_update` that changes the password);
+  - the widget's REST sign-out.
+
+  Clearing the site's API key, or switching the member sign-in mode away from
+  `credentials`, ends every stored session (`end_all()`). Revocation is
+  time-boxed to 20 seconds; the rest are deleted locally only.
+  Revocation needs agend-dashboard PR #4651 deployed, because before it the
+  gateway's logout revoked nothing.
+- **Removed with the plugin.** Uninstall and `wp agend-apps scrub-secrets`
+  delete `_agend_apps_member_session` and `_agend_apps_sso_token` for every
+  user. Neither can revoke: on uninstall the plugin is not loaded and the key is
+  gone, and on a clone the stored sessions are the live site's own, so revoking
+  them would sign those members out of the live site.
+
+The public filters `agend_apps_auth_login_response`,
+`agend_apps_auth_register_response`, `agend_apps_auth_refresh_args` and
+`agend_apps_auth_refresh_response` no longer receive session tokens. Since
+1.38.2:
+
+- the response filters get a copy without `access_token` and `refresh_token`,
+  and cannot change the session;
+- `agend_apps_auth_refresh_args` gets args without the request body;
+- the second argument of both refresh filters is always `''`.
+
+`agend_apps_auth_logout()` accepts the member's access token explicitly. It is
+added after `agend_apps_auth_logout_args` runs.
+
+`agend_apps_member_session_sleeper` replaces the sleep between re-reads, as
+`agend_apps_token_worker_sleeper` does for the token worker.
 
 ## What is NOT an authority
 
@@ -302,10 +439,50 @@ surrounding template is caught where it is read, by
 `agend_apps_records_field_applies()` and by the panel's own type check, both of
 which can say WHICH field is wrong rather than only that something is.
 
+**Linked contact fields.** A field the registry marks `linkable` (a listing's
+phone, website and social profile URLs) offers Agend Field's "Link the value"
+setting: a website links to its address, a phone number becomes a `tel:` link,
+and optional link text replaces the displayed value. It is off by default and
+never links inside a card that is already one big link. Since 1.38.0 the phone
+field has its own `phone` kind, so its wrapper class is `agend-field--phone`
+where it was `agend-field--text`; custom CSS that styled the phone through
+`.agend-field--text` should target `.agend-field--phone` or
+`.agend-field--listing-phone`.
+
 When a Content-tab control genuinely has no schema equivalent, it becomes an
 `adapter` field rather than forcing a bad fit into the vocabulary; the
 vocabulary itself is extended (as `heading` was) only when the control is in
 fact generic across page builders and not an Elementor-specific concept.
+
+**An option list that costs a gateway call is resolved only in the editor.**
+Elementor registers a widget's controls on every front-end render of it too,
+and an `options` or `groups` callable takes no arguments, so each such callable
+asks `agend_apps_records_is_editor_request()` and, outside an editor, returns
+what a gated or empty list returns: no gateway call and no transient. The check
+is true in Elementor's edit mode and preview frame, in the `elementor_ajax`
+request that loads every widget's controls into the panel, and on the block
+editor's schema route; the last two also need `edit_posts`. Nothing on a
+visitor's render reads these lists: a stored choice renders without consulting
+the list it was picked from.
+
+The lists it covers:
+
+- Agend Field: `agend_apps_records_custom_field_key_options()`, which reads the
+  editor preview listing's custom fields, two gateway calls on a miss of that
+  record's 10 minute cache, made with whichever member's bearer is present.
+- Catalogue exclusions: `agend_apps_records_directory_catalogue_category_options()`,
+  `agend_apps_records_event_category_options()`,
+  `agend_apps_records_event_city_options()` and
+  `agend_apps_records_courses_catalogue_category_options()`.
+- Export Report: `agend_apps_records_export_reports_report_options()` and
+  `agend_apps_records_export_reports_declared_parameters()`, which the parameter
+  picker and the declared-parameters notice build on.
+
+`agend_apps_records_export_reports_authoring_listing()` is deliberately not
+editor-only: a signed-out visitor's render reads each report's audience from it
+to decide who is offered a sign-in link. A new gateway-backed list gets the same
+check; a list that is only a registry (`agend_apps_records_export_reports_catalogue_source_options()`)
+makes no call and needs none.
 
 ## Catalogue renderers (page-builder-agnostic)
 
@@ -477,8 +654,9 @@ renders it as a `bool` instead, with the wrapper class `agend-field--bool`.
 
 `common:custom_field` is `text` in the field registry, and
 `agend_apps_records_field_kind_for_record()` settles the kind from the record, as
-it does for an item list: a `boolean` entry whose value reads as true or false is
-`bool`, and the field getter returns that bool rather than flattened text.
+it does for an item list or a multi-select: a `boolean` entry whose value reads
+as true or false is `bool`, and the field getter returns that bool rather than
+flattened text.
 `agend_apps_records_custom_field_bool_value()` decides what reads as which:
 
 - A PHP bool is itself. A number is true unless it is zero.
@@ -512,6 +690,70 @@ Fallback text and "False" is only ever a recorded no. A restricted entry (gated)
 is never read as a bool: it shows the Restricted text and no value, as for any
 other custom field. Before and after text, the label, the link to the detail page
 and the HTML tag behave as for any other field.
+
+### Filter: category levels (directory)
+
+The directory **Category** filter has a **Category level** setting
+(`category_level`, shown only when the filter is Directory > Category) so two
+filters on one page offer a category and then its subcategories:
+
+- **All categories** (the default) is the filter as it was: every category the
+  API returns, in the order it returns them, with checkboxes, a dropdown or
+  buttons.
+- **Top level** offers only categories with no parent.
+- **Subcategories of selected** offers the children of the category chosen in
+  the Top level filter, in API order, and is hidden until a top-level category
+  with children is chosen. Its "Any" option uses the filter's own **"Any" option
+  label** setting.
+
+Top level and Subcategories of selected show as a dropdown or buttons only; a
+saved Checkboxes presentation falls back to the dropdown, because a level shows
+one category at a time. With **Choices I define** the level is ignored, since
+author defined choices carry no category tree.
+
+- **One selection.** Both levels write the catalogue's existing
+  `state.categories`, so the query builders, the Agend Map and **Clear filters**
+  need no change. A selected top-level category is shown by the Top level filter
+  and its children are offered by the other; a selected subcategory is shown by
+  the Subcategories filter, with its parent shown by the Top level filter.
+  Choosing the Subcategories filter's "Any" sets the selection back to the
+  parent, choosing the option a level already shows clears it the same way (on
+  Top level, to no category), and choosing a different top-level category
+  replaces the selection, so a stale subcategory never lingers. When another
+  Category filter on the page leaves several categories selected, both levels
+  show "Any" (the Subcategories filter only while every selected category sits
+  under one top-level category; otherwise it is hidden), and a choice in either
+  replaces the selection with that one category. A top-level category is sent
+  alone; the API widens it to listings linked to any of its subcategories.
+  Buttons are kept per category across redraws, so keyboard focus stays on the
+  chosen button.
+- **The derivation** is a pure module, `assets/js/category-levels.js`
+  (`window.agendFilters.categoryLevels`), registered as
+  `agend-apps-records-category-levels` and a dependency of
+  `agend-apps-records-filters`, so it always loads first. `assets/js/filters.js`
+  draws the two levels from it and redraws them on a state-change notification
+  that every filter's write raises, because controls are otherwise built once
+  and rebuilt only by Clear. `tests/js/category-levels.test.mjs` exercises the
+  module under Node, and CI runs it.
+- **The runtime config.** `agend_apps_records_filter_config()` writes
+  `categoryLevel` (`all`, `top` or `sub`) for the directory Category filter, and
+  its source carries `parentKey: 'parent_id'` (the registry entry's `parent`).
+  The script reads each category's id, name and parent through the source's
+  `value`, `labelKey` and `parentKey`. A Subcategories of selected filter is
+  drawn hidden by the server and shown by the script only once it has
+  subcategories to offer.
+- **The categories request.** `agend_apps_directory_get_categories()`, now in
+  `includes/api/directory-categories.php`, asks `GET /v1/directory/categories`
+  for `limit=500&active_only=true&counts=false` (still filterable through
+  `agend_apps_directory_get_categories_args`), so a tree larger than the API's
+  default page of 50 arrives whole and an inactive category is never offered.
+  The response is cached under a key that includes those arguments, so a list
+  cached by an earlier release is not served after upgrading. The legacy filter
+  bar and the catalogue's category exclusion options read the same function and
+  so also receive up to 500 active categories. When an API version rejects a
+  `limit` above 100 (a 400 or 422 response), the request is retried once at 100,
+  cached under its own key, so the filters still get a list, capped at 100,
+  instead of none; any other failure is not retried.
 
 ### Filter: range brackets (custom field)
 
@@ -556,6 +798,59 @@ or proxy change is involved.
 - **The first paint** is the same disabled, `aria-busy` stand-in the other
   controls use, drawn in the final shape of the chosen display with only "Any".
 
+### Filter: Organisation (directory)
+
+The Agend Filter widget and block offer **Directory > Organisation**: a Search
+box that narrows a directory catalogue, and an Agend Map following it, to the
+listings that have at least one location whose name contains the typed text.
+It is how a visitor finds practitioners by the practice they work at. There is
+no settings toggle: a site turns it on by adding a filter to the catalogue's
+filter template and choosing Organisation. The label is translatable through the
+`agend-apps-core` text domain, and the placeholder can be set on the filter.
+
+- **Registry entry.** `organisation` in `agend_apps_records_filter_registry()`
+  (`includes/records/filters.php`), listing catalogues only. Scalar, with the
+  Search box as its only control, so it keeps the Search box's 300 ms debounce
+  and writes the `location_name` catalogue state. Everywhere except the visible
+  label the filter is called location name, because that is what the API
+  matches.
+- **The request.** Both parameter builders send the state as the API's
+  `locationName`: `agend_apps_records_listings_list_args()`
+  (`includes/records/query.php`) and `queryParams()`
+  (`assets/js/directory-catalogue.js`). The value is trimmed, sent unslashed (an
+  apostrophe, as in `St Vincent's`, arrives with no added backslash), sent as one
+  value that is never split on commas, and left out entirely when blank. The
+  gateway does the matching: case-insensitive, a literal substring, and per
+  listing rather than per location.
+- **Parity.** The two builders must stay in step key for key.
+  `tests/fixtures/directory-location-name-params.json` holds the filter states
+  and the value each must send; `ListingFieldsTest` asserts the PHP side and
+  `tests/js/directory-query-params.test.mjs` the script, and CI runs both. A
+  filtered page is not reloaded from the URL (filter state is not carried
+  there), and the server-rendered first page is always built with no filter
+  state, so this is proved by test rather than by reloading.
+- **Allow-lists.** `locationName` is in
+  `agend_apps_records_fragment_allowed_params()` for `listing`, which the
+  server-built request and the card-template fragment route both pass through,
+  and in `search_args()` and `search_filters()` of the REST proxy
+  (`includes/rest/directory-routes.php`), which the markers route shares, so
+  the map follows the catalogue. The proxy sanitises it with
+  `sanitize_text_field`, which collapses runs of inner whitespace and strips
+  `%XX` octets; a visitor does not type either on purpose. The card-template
+  fragment route forwards `locationName` without `sanitize_text_field`, so a
+  value such as `100%Beef` can ask the list and the markers slightly different
+  questions; the sibling filters behave the same way.
+- **Export reports.** The Export Report widget never offers Organisation: no
+  report declares a parameter it would fill. It is excluded from both registry
+  walks in `includes/records/schema/export-reports.php`,
+  `agend_apps_records_export_reports_catalogue_source_options()` (the editor's
+  picker) and `agend_apps_records_export_reports_filter_state_keys()` (the
+  click-time map). Excluding it from only one would leave it in the editor and
+  resolving to an empty value when clicked.
+- **Needs the API.** The parameter does nothing until the gateway accepts
+  `locationName` on `GET /v1/directory/search` and `/v1/directory/markers`
+  (`SPEC-DIR-20261012-directory-organisation-filter`).
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map
@@ -582,7 +877,10 @@ authors in the Agend Elementor README. The pieces here:
   needs to follow a catalogue can use the same events. The state keys are
   `near` (`{lat, lng, radius, label}`), `bbox` (`"north,south,east,west"`) and
   `view`; `query.php` builds the same query from them for the server-rendered
-  first page.
+  first page. `state.view` is empty until a List / Map switch sets it, so the
+  switch's "Starts on" setting decides the first view (before 1.38.1 the state
+  started as `'list'` and "Starts on: Map" was ignored). The published `view`
+  still starts as `'list'`.
 - **Map assets**: Leaflet 1.9.4 and leaflet.markercluster 1.5.3 are vendored
   under `assets/js/vendor/` (licences alongside) and registered as
   `agend-apps-records-leaflet` and `agend-apps-records-leaflet-markercluster`.
@@ -599,8 +897,36 @@ authors in the Agend Elementor README. The pieces here:
   panel, and a signed-in member's profile views are cached per member.
 - **Tiles**: `agend_apps_records_directory_map_tiles()` uses CARTO's light
   basemap with the key in the `agend_apps_map_carto_key` option (Settings >
-  Agend Widgets > Maps), otherwise OpenStreetMap's own tiles. The
+  Agend Widgets > Maps), double-resolution (`{r}`) on a high-density screen,
+  otherwise OpenStreetMap's own tiles. The
   `agend_apps_records_directory_map_tiles` filter swaps in another provider.
+  OpenStreetMap's tile servers are for light use only, so a live site needs
+  a CARTO key.
+- **Attribution**: the map drops Leaflet's own credit (and its flag) and
+  keeps the tile layer's attribution, restyled small. The OpenStreetMap
+  credit (and CARTO's, with a key) is a licence requirement of the map data:
+  restyle it, never hide it.
+- **Gestures**: with "Zoom with the mouse wheel" off (the default) the map
+  uses Google Maps' cooperative gestures. A plain wheel scrolls the page and
+  shows "Use Ctrl + scroll to zoom the map" (Command on a Mac); Ctrl or
+  Command + wheel, and a trackpad pinch, zoom. On a coarse-pointer device
+  (a phone or tablet) one finger scrolls the page and shows "Use two fingers
+  to move the map", and two fingers pan and pinch; once the visitor presses
+  with a mouse or trackpad there, it drags the map as on a desktop. A wheel
+  over a popup or a map button reaches it and never zooms the map. A
+  full-screen map takes every gesture, as it has no page behind it. Resizing
+  the map (full screen, a reflowing column) never counts as the visitor
+  moving it, so "Update results as the map moves" ignores it.
+- **Buttons and directions**: a full-screen button (the browser's Fullscreen
+  API where it has one for an element; otherwise, as on an iPhone, the map is
+  moved to the end of `<body>` and fixed over the page, so a transformed or
+  stacking ancestor cannot trap it, and put back on exit; one set of document
+  listeners serves every map), a My location button (moves the map to the visitor's
+  position; it is not a location search), and a "Get directions" link on each
+  pin's details. Each has its own setting, on by default. The directions link
+  is Google Maps unless the
+  `agend_apps_records_directory_map_directions_url` filter returns another
+  https URL template with `{lat}` and `{lng}`.
 
 ## Block editor surface
 
@@ -847,6 +1173,33 @@ Switch it off for a site with:
     add_filter( 'agend_apps_api_block_unauthorised', '__return_false' );
 
 The filter receives `( bool $block, string $method, string $path, string[] $missing )`.
+
+### How the cached scopes refresh
+
+The scopes come from `GET /v1/health` and are cached in the
+`agend_apps_key_scopes` option (`Agend_Apps_Key_Scopes`). `all()` and `has()`
+call `maybe_refresh()` first, and that runs on ordinary visitor requests, so a
+refresh on the request path would make an unlucky visitor wait on the gateway
+once an hour.
+
+- **Never fetched, or the key or environment changed.** Refreshed inline. There
+  is nothing trustworthy to answer from, so the one gateway round trip stays on
+  the request.
+- **Stored but older than an hour.** The stored scopes are served as they are,
+  and a single WP-Cron event (`agend_apps_key_scopes_refresh`) refreshes them.
+  `wp_next_scheduled()` keeps it to one event however many requests notice the
+  staleness. The event is scheduled during a request, so WordPress cron picks it
+  up from the next request's `init`, or from the system cron on a site with
+  `DISABLE_WP_CRON`.
+- **After a failed refresh.** A five minute back-off transient
+  (`agend_apps_key_scopes_backoff`) stops `maybe_refresh()` retrying, because a
+  failure does not advance `fetched_at` and every request would otherwise try
+  again. The transient records the key hash it failed for, so saving a new key
+  or switching environment is never held back by a failure against the old one.
+  A successful fetch, including the admin Verify Key button, clears it.
+
+The explicit refreshes (saving the key or environment, and the endpoint scope
+guard's throttled re-check above) are not gated by the back-off.
 
 ### Regenerating the endpoint scope map
 

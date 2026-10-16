@@ -245,6 +245,32 @@ final class FilterConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_offer_organisation_with_the_search_box_as_its_default_when_an_author_picks_a_directory_filter(): void {
+		$groups    = agend_apps_records_filter_options();
+		$directory = $groups[2]['options'];
+
+		$this->assertSame( 'Organisation', $directory['listing:organisation'] );
+
+		$descriptor = agend_apps_records_filter_descriptor( 'listing', 'organisation' );
+		$this->assertSame( 'location_name', $descriptor['state'] );
+		$this->assertSame( 'scalar', $descriptor['mode'] );
+		$this->assertSame( array( 'search' ), $descriptor['controls'] );
+		$this->assertNull( $descriptor['source'] );
+
+		$config = agend_apps_records_filter_config( 'listing', 'organisation', array() );
+		$this->assertSame( 'search', $config['control'] );
+		$this->assertSame( 'location_name', $config['state'] );
+		$this->assertSame( 'scalar', $config['mode'] );
+		$this->assertSame( 'Organisation', $config['label'] );
+	}
+
+	#[Test]
+	public function should_offer_organisation_only_when_the_catalogue_is_the_directory(): void {
+		$this->assertNull( agend_apps_records_filter_descriptor( 'event', 'organisation' ) );
+		$this->assertNull( agend_apps_records_filter_descriptor( 'course', 'organisation' ) );
+	}
+
+	#[Test]
 	public function should_not_offer_a_suburb_filter_because_the_api_treats_it_as_a_city_alias(): void {
 		$this->assertNull( agend_apps_records_filter_descriptor( 'listing', 'suburb' ) );
 	}
@@ -255,5 +281,133 @@ final class FilterConfigTest extends TestCase {
 
 		$this->assertTrue( $descriptor['approximate'] );
 		$this->assertSame( 100, $descriptor['source']['limit'] );
+	}
+
+	// -- Category level --
+
+	/**
+	 * @return array<string, mixed> The filter schema's category_level field.
+	 */
+	private function categoryLevelField(): array {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema.php';
+
+		foreach ( agend_apps_records_surface_schema( 'filter' )['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				if ( 'category_level' === $field['name'] ) {
+					return $field;
+				}
+			}
+		}
+		$this->fail( 'the filter schema has no category_level field' );
+	}
+
+	#[Test]
+	public function should_offer_a_category_level_setting_defaulting_to_all_categories_on_the_directory_category_filter(): void {
+		$field = $this->categoryLevelField();
+
+		$this->assertSame( 'Category level', $field['label'] );
+		$this->assertSame( 'select', $field['type'] );
+		$this->assertSame( 'all', $field['default'] );
+		$this->assertSame(
+			array(
+				'all' => 'All categories',
+				'top' => 'Top level',
+				'sub' => 'Subcategories of selected',
+			),
+			$field['options']
+		);
+		$this->assertSame( array( 'filter' => 'listing:category' ), $field['condition'], 'shown only for the directory Category filter' );
+	}
+
+	#[Test]
+	public function should_hand_the_runtime_all_categories_when_the_level_is_unset_or_unknown(): void {
+		$unset   = agend_apps_records_filter_config( 'listing', 'category', array() );
+		$unknown = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => 'grandchildren' ) );
+
+		$this->assertSame( 'all', $unset['categoryLevel'] );
+		$this->assertSame( 'all', $unknown['categoryLevel'] );
+		$this->assertSame( 'checkboxes', $unset['control'], 'All categories keeps the filter\'s own default presentation' );
+	}
+
+	#[Test]
+	public function should_hand_the_runtime_the_chosen_level_when_it_is_top_level_or_subcategories(): void {
+		$top = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => 'top' ) );
+		$sub = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => 'sub' ) );
+
+		$this->assertSame( 'top', $top['categoryLevel'] );
+		$this->assertSame( 'sub', $sub['categoryLevel'] );
+		$this->assertSame( 'categories', $top['state'], 'both levels write the one shared selection' );
+		$this->assertSame( 'categories', $sub['state'] );
+		$this->assertSame( 'array', $sub['mode'] );
+	}
+
+	#[Test]
+	public function should_offer_only_the_select_and_buttons_controls_when_the_level_is_top_level_or_subcategories(): void {
+		foreach ( array( 'top', 'sub' ) as $level ) {
+			$checkboxes = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => $level, 'control' => 'checkboxes' ) );
+			$default    = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => $level ) );
+			$buttons    = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => $level, 'control' => 'buttons' ) );
+			$select     = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => $level, 'control' => 'select' ) );
+
+			$this->assertSame( 'select', $checkboxes['control'], $level . ': checkboxes are never offered' );
+			$this->assertSame( 'select', $default['control'], $level . ': the default is a dropdown, not checkboxes' );
+			$this->assertSame( 'buttons', $buttons['control'], $level );
+			$this->assertSame( 'select', $select['control'], $level );
+		}
+
+		$all = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => 'all', 'control' => 'checkboxes' ) );
+		$this->assertSame( 'checkboxes', $all['control'], 'All categories still offers checkboxes' );
+	}
+
+	#[Test]
+	public function should_keep_parent_id_in_the_directory_category_source_so_the_runtime_has_the_tree(): void {
+		$descriptor = agend_apps_records_filter_descriptor( 'listing', 'category' );
+		$this->assertSame( 'parent_id', $descriptor['source']['parent'] );
+
+		foreach ( array( 'all', 'top', 'sub' ) as $level ) {
+			$config = agend_apps_records_filter_config( 'listing', 'category', array( 'category_level' => $level ) );
+
+			$this->assertSame(
+				array(
+					'path'      => '/directory/categories',
+					'value'     => 'id',
+					'labelKey'  => 'name',
+					'distinct'  => false,
+					'limit'     => 0,
+					'parentKey' => 'parent_id',
+				),
+				$config['source'],
+				$level
+			);
+		}
+	}
+
+	#[Test]
+	public function should_ignore_the_level_when_the_author_defines_the_choices(): void {
+		$config = agend_apps_records_filter_config(
+			'listing',
+			'category',
+			array(
+				'category_level' => 'top',
+				'control'        => 'checkboxes',
+				'values_mode'    => 'choices',
+				'choices'        => array( array( 'choice_label' => 'Paediatrics', 'choice_value' => 'c1,c2' ) ),
+			)
+		);
+
+		$this->assertSame( 'all', $config['categoryLevel'] );
+		$this->assertSame( 'checkboxes', $config['control'] );
+		$this->assertSame( array( 'c1', 'c2' ), $config['values'][0]['value'] );
+	}
+
+	#[Test]
+	public function should_give_no_category_level_to_a_filter_without_a_category_tree(): void {
+		$event = agend_apps_records_filter_config( 'event', 'category', array( 'category_level' => 'top' ) );
+		$state = agend_apps_records_filter_config( 'listing', 'state', array( 'category_level' => 'top', 'control' => 'checkboxes' ) );
+
+		$this->assertArrayNotHasKey( 'categoryLevel', $event );
+		$this->assertArrayNotHasKey( 'parentKey', $event['source'] );
+		$this->assertArrayNotHasKey( 'categoryLevel', $state );
+		$this->assertSame( 'checkboxes', $state['control'] );
 	}
 }

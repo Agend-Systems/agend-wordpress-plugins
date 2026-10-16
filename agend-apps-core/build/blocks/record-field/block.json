@@ -21,6 +21,9 @@
     "multiple": true
   },
   "editorScript": "file:./index.js",
+  "viewScript": [
+    "agend-apps-records-record-fields"
+  ],
   "style": [
     "agend-apps-records-record-fields"
   ],

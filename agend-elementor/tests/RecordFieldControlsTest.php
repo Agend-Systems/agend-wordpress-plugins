@@ -51,9 +51,25 @@ final class RecordFieldControlsTest extends TestCase {
 			true
 		);
 
+		// The fixture is the panel an author sees, and the custom field choices
+		// are resolved for an editor only.
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
 		$widget = new Record_Field_Controls_Test_Harness();
 		$widget->run();
 
 		$this->assertEquals( $fixture, $this->contentTabRecordings( $widget->recordings ) );
+	}
+
+	#[Test]
+	public function should_style_the_show_the_rest_control_through_custom_properties_and_an_out_ranking_typography_selector(): void {
+		$widget = new Record_Field_Controls_Test_Harness();
+		$widget->run();
+
+		$this->assertSame( array( 'show_rest' => 'yes' ), $this->recordedArgs( $widget->recordings, 'section_rest_style' )['condition'] );
+		$this->assertSame( array( '{{WRAPPER}}' => '--agend-rest-colour: {{VALUE}};' ), $this->recordedArgs( $widget->recordings, 'rest_colour' )['selectors'] );
+		$this->assertSame( array( '{{WRAPPER}}' => '--agend-rest-focus: {{VALUE}};' ), $this->recordedArgs( $widget->recordings, 'rest_focus_colour' )['selectors'] );
+		$this->assertSame( array( 'show_rest' => 'yes', 'rest_style' => 'pill' ), $this->recordedArgs( $widget->recordings, 'rest_background' )['condition'] );
+		$this->assertSame( '{{WRAPPER}} button.agend-rest-toggle.agend-rest-toggle', $this->recordedArgs( $widget->recordings, 'rest_typography' )['selector'] );
 	}
 }

@@ -77,8 +77,12 @@ class Agend_Apps_API {
 	 *                                401/403-on-GET retry below; callers should not set this.
 	 *     @type bool   $bearer_auto_resolved Internal use only. Set by `get_cached()` when the
 	 *                                `bearer_token` it passes came from the shared resolver.
+	 *     @type bool   $bearer_reminted Internal use only. Set on the one retry made with a
+	 *                                re-resolved bearer after a 401, so a second rejection falls
+	 *                                back to the unattended retry instead of resolving again.
 	 *     @type int    $log_attempt  Internal use only. The attempt number recorded in the API
-	 *                                log; 2 for the unattended retry.
+	 *                                log; 2 for the first retry, 3 for the unattended retry that
+	 *                                follows a re-resolved bearer.
 	 * }
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
@@ -372,6 +376,47 @@ class Agend_Apps_API {
 				&& '' !== $bearer_token
 				&& ( 401 === $status_code || 403 === $status_code )
 			) {
+				/**
+				 * Fires when the gateway rejects a bearer this client resolved
+				 * itself, before the request is retried. A provider that caches
+				 * the token it supplies through `agend_apps_bearer_token` hooks
+				 * this to discard it: a Supabase session is revoked whenever the
+				 * member signs out anywhere, so a cached token can be dead long
+				 * before its recorded expiry.
+				 *
+				 * @param string $bearer_token The rejected bearer.
+				 * @param int    $status_code  HTTP status: 401 or 403.
+				 * @param string $path         Relative path that was requested.
+				 */
+				do_action( 'agend_apps_bearer_rejected', $bearer_token, $status_code, $path );
+
+				// Only a 401 says the token itself is bad, so only a 401 is worth
+				// a fresh one; a 403 is a permission answer no new token changes.
+				// Once per request: a second rejection goes unattended below.
+				$fresh_bearer = '';
+
+				if ( 401 === $status_code && empty( $args['bearer_reminted'] ) ) {
+					$fresh_bearer = agend_apps_get_bearer_token();
+				}
+
+				if ( '' !== $fresh_bearer && $fresh_bearer !== $bearer_token ) {
+					if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+						error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+							sprintf( '[Agend Apps] Gateway rejected the member bearer (401) on GET %s; retried with a re-resolved bearer.', self::debug_path( $path ) )
+						);
+					}
+
+					$log( 'retried', $status_code, 'agend_api_error' );
+
+					$retry_args                         = $args;
+					$retry_args['bearer_token']         = $fresh_bearer;
+					$retry_args['bearer_auto_resolved'] = true;
+					$retry_args['bearer_reminted']      = true;
+					$retry_args['log_attempt']          = (int) ( $args['log_attempt'] ?? 1 ) + 1;
+
+					return $this->request( $method, $path, $retry_args );
+				}
+
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions
 						sprintf( '[Agend Apps] Gateway rejected the member bearer (%d) on GET %s; retried unattended.', $status_code, self::debug_path( $path ) )

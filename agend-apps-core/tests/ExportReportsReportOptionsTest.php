@@ -27,6 +27,11 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/export
  */
 final class ExportReportsReportOptionsTest extends TestCase {
 
+	protected function setUp(): void {
+		parent::setUp();
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+	}
+
 	private const AUTHORING = array(
 		'success' => true,
 		'data'    => array(

@@ -251,7 +251,7 @@ final class CustomFieldValueLabelTest extends TestCase {
 			agend_apps_records_render_record_field( $this->field_settings( 'centre_type' ) )
 		);
 		self::assertSame(
-			'<div class="agend-field agend-field--text agend-field--common-custom_field">Car Park, Food Court, Cinema</div>',
+			'<div class="agend-field agend-field--list agend-field--common-custom_field">Car Park, Food Court, Cinema</div>',
 			agend_apps_records_render_record_field( $this->field_settings( 'facilities' ) )
 		);
 	}

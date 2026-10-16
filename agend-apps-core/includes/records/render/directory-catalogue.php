@@ -442,7 +442,8 @@ function agend_apps_records_directory_catalogue_scroll_class( array $config ): s
  * @param int    $columns     Desktop column count.
  */
 function agend_apps_records_directory_catalogue_render_templated( array $config, int $template_id, string $style, int $columns ): void {
-	$list  = agend_apps_records_unwrap_list( agend_apps_records_fetch_list( 'listing', agend_apps_records_listings_list_args( $config, 1 ) ) );
+	$query = agend_apps_records_with_search_include( agend_apps_records_listings_list_args( $config, 1 ), $template_id );
+	$list  = agend_apps_records_unwrap_list( agend_apps_records_fetch_list( 'listing', $query ) );
 	$cards = agend_apps_records_render_cards(
 		'listing',
 		$template_id,

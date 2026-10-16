@@ -720,8 +720,13 @@ function agend_apps_records_render_filter( array $settings, array $opts = array(
 		$classes .= ' ' . implode( ' ', $style['classes'] );
 	}
 
+	// A Subcategories of selected filter has nothing to offer until a
+	// top-level category is chosen, so live it starts hidden and the script
+	// shows it; a preview stays visible for the designer.
+	$hidden = ! $preview && 'sub' === ( $config['categoryLevel'] ?? '' );
+
 	ob_start();
-	echo '<div class="' . esc_attr( $classes ) . '"' . ( '' !== $style['style'] ? ' style="' . esc_attr( $style['style'] ) . '"' : '' ) . ' data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '">';
+	echo '<div class="' . esc_attr( $classes ) . '"' . ( '' !== $style['style'] ? ' style="' . esc_attr( $style['style'] ) . '"' : '' ) . ' data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '"' . ( $hidden ? ' hidden' : '' ) . '>';
 	if ( $config['showLabel'] && '' !== $config['label'] ) {
 		echo '<span class="agend-filter__label">' . esc_html( $config['label'] ) . '</span>';
 	}

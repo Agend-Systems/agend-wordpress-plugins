@@ -17,7 +17,8 @@
                             {
                                 "label": "Common (any record)",
                                 "options": {
-                                    "common:category": "Category"
+                                    "common:category": "Category",
+                                    "common:custom_field": "Custom field (by key)"
                                 }
                             },
                             {
@@ -27,6 +28,7 @@
                                     "listing:categories": "All categories",
                                     "listing:tags": "Tags",
                                     "listing:badges": "Badges",
+                                    "listing:locations": "All locations",
                                     "listing:state": "State"
                                 }
                             },
@@ -53,6 +55,35 @@
                     }
                 },
                 {
+                    "id": "custom_field_key_choice",
+                    "args": {
+                        "label": "Custom field",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "Not listed (enter a key below)"
+                        },
+                        "label_block": true,
+                        "description": "A multi-select or checkbox field renders one pill per selected option.",
+                        "condition": {
+                            "field": "common:custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "custom_field_key",
+                    "args": {
+                        "label": "Custom field key",
+                        "type": "text",
+                        "default": "",
+                        "description": "The key as configured in Agend, for a field this site's key cannot enumerate.",
+                        "condition": {
+                            "field": "common:custom_field",
+                            "custom_field_key_choice": ""
+                        }
+                    }
+                },
+                {
                     "id": "max_items",
                     "args": {
                         "label": "Maximum pills",
@@ -60,6 +91,53 @@
                         "default": 0,
                         "min": 0,
                         "description": "0 shows every term."
+                    }
+                },
+                {
+                    "id": "show_rest",
+                    "args": {
+                        "label": "Show the rest",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "With a maximum set, adds a control after the last item shown that reveals the rest in place, and hides them again."
+                    }
+                },
+                {
+                    "id": "overflow_text",
+                    "args": {
+                        "label": "Overflow text",
+                        "type": "text",
+                        "default": "+{n}",
+                        "description": "{n} is replaced by the number of hidden items.",
+                        "condition": {
+                            "show_rest": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "collapse_text",
+                    "args": {
+                        "label": "Collapse text",
+                        "type": "text",
+                        "default": "Show less",
+                        "condition": {
+                            "show_rest": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "rest_style",
+                    "args": {
+                        "label": "Show the rest as",
+                        "type": "select",
+                        "default": "pill",
+                        "options": {
+                            "link": "Text link",
+                            "pill": "Pill"
+                        },
+                        "condition": {
+                            "show_rest": "yes"
+                        }
                     }
                 },
                 {

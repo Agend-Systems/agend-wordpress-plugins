@@ -32,7 +32,7 @@ const AGEND_APPS_RECORDS_FRAGMENT_MAX_LIMIT = 100;
  */
 function agend_apps_records_fragment_allowed_params( string $type ): array {
 	if ( 'listing' === $type ) {
-		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'bbox', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories', 'city', 'state', 'postcode', 'country' );
+		return array( 'q', 'search', 'page', 'limit', 'per_page', 'category', 'tag_ids', 'badge_ids', 'custom_fields', 'sponsor_level', 'lat', 'lng', 'radius', 'bbox', 'rating', 'featured', 'sortBy', 'sortOrder', 'excludeCategories', 'city', 'state', 'postcode', 'country', 'locationName' );
 	}
 	if ( 'course' === $type ) {
 		return array( 'page', 'per_page', 'limit', 'search', 'category', 'difficulty', 'deliveryMode', 'excludeCategories', 'excludeDifficulties', 'excludeDeliveryModes', 'sortBy', 'sortOrder' );
@@ -171,7 +171,8 @@ function agend_apps_records_courses_list_args( array $config, int $page = 1, arr
  * @param array $config The widget's build_config() output.
  * @param int   $page   Page number.
  * @param array $state  Visitor filter state (search, category, categories, rating,
- *                      location_city, location_state, location_postcode, location_country).
+ *                      location_city, location_state, location_postcode, location_country,
+ *                      location_name).
  * @return array
  */
 function agend_apps_records_listings_list_args( array $config, int $page = 1, array $state = array() ): array {
@@ -193,6 +194,9 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 		'state'             => implode( ',', (array) ( $state['location_state'] ?? array() ) ),
 		'postcode'          => implode( ',', (array) ( $state['location_postcode'] ?? array() ) ),
 		'country'           => implode( ',', (array) ( $state['location_country'] ?? array() ) ),
+		// One free-text value, never joined or split. Dropped when blank by
+		// agend_apps_records_fragment_query_args() below.
+		'locationName'      => agend_apps_records_listings_location_name( $state ),
 		'custom_fields'     => agend_apps_records_custom_field_filters( $state['custom_fields'] ?? array() ),
 		'excludeCategories' => implode( ',', (array) ( $exclusions['categories'] ?? array() ) ),
 		'sortBy'            => agend_apps_records_listings_sort_by( $state ),
@@ -211,6 +215,56 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 	}
 
 	return agend_apps_records_fragment_query_args( $args, 'listing' );
+}
+
+/**
+ * A listing search query carrying the `include` its card template needs.
+ *
+ * Derived on the server from the fields the template binds, and never taken
+ * from the request: any `include` already on the query is replaced. The
+ * transient cache key is built from the whole query, so it covers the include.
+ *
+ * @param array $query       A listing search query.
+ * @param int   $template_id The card template the results render through.
+ * @return array
+ */
+function agend_apps_records_with_search_include( array $query, int $template_id ): array {
+	unset( $query['include'] );
+	if ( ! class_exists( 'Agend_Apps_Templates' ) || ! function_exists( 'agend_apps_records_search_include_for_keys' ) ) {
+		return $query;
+	}
+
+	$include = agend_apps_records_search_include_for_keys( Agend_Apps_Templates::field_keys( $template_id ) );
+	if ( '' !== $include ) {
+		$query['include'] = $include;
+	}
+	return $query;
+}
+
+/**
+ * The Organisation filter's text from catalogue state, unslashed and trimmed.
+ *
+ * One value: the gateway never splits it on commas. Blank when the state holds
+ * no usable string, so the caller drops it from the query.
+ *
+ * The state is expected in WordPress's slashed form, as read from a superglobal,
+ * so `wp_unslash()` removes every backslash. Do not feed it REST parameters:
+ * WordPress has already unslashed those, and a name containing a real backslash
+ * would lose it. This is a deliberate divergence from `queryParams()` in
+ * assets/js/directory-catalogue.js, which only trims and keeps a backslash. The
+ * two agree on every value a visitor types in practice, and the shared fixture
+ * holds only those.
+ *
+ * `trim()` strips ASCII whitespace only, where the script's `String.trim()` also
+ * strips a non-breaking space and U+FEFF. The filter box is unaffected, because
+ * filters.js trims before it stores the state.
+ *
+ * @param array $state Visitor filter state, slashed.
+ * @return string
+ */
+function agend_apps_records_listings_location_name( array $state ): string {
+	$name = $state['location_name'] ?? '';
+	return is_string( $name ) ? trim( wp_unslash( $name ) ) : '';
 }
 
 /**

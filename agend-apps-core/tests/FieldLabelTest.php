@@ -60,7 +60,9 @@ final class FieldLabelTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_offer_the_custom_field_keys_the_preview_record_carries(): void {
+	public function should_offer_the_custom_field_keys_the_preview_record_carries_when_the_editor_is_open(): void {
+		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
 		$options = \agend_apps_records_custom_field_key_options();
 
 		// The empty key is the "not listed" escape the free-text control is
