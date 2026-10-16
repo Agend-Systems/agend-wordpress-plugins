@@ -73,6 +73,16 @@ class Agend_Apps_Token_Worker {
 	const NEGATIVE_TTL_ERROR = 60;
 
 	/**
+	 * A token the gateway rejects within this many seconds of being minted is
+	 * not a stale token but a gateway that refuses ours. Minting another would
+	 * be rejected too, so the failure is negative-cached for
+	 * {@see NEGATIVE_TTL_ERROR} instead of costing a mint on every request.
+	 *
+	 * @var int
+	 */
+	const REJECTED_REMINT_GRACE = 60;
+
+	/**
 	 * `wp_options` name prefix for the per-user mint lock, completed by the
 	 * WordPress user id. Autoload is off, so the row never enters the
 	 * autoloaded options set.
@@ -119,10 +129,11 @@ class Agend_Apps_Token_Worker {
 
 	/**
 	 * Hooks the worker into the bearer-token filter and clears its cached
-	 * state on logout.
+	 * state on logout or when the gateway rejects the token it supplied.
 	 */
 	public function __construct() {
 		add_filter( 'agend_apps_bearer_token', array( $this, 'provide_token' ) );
+		add_action( 'agend_apps_bearer_rejected', array( $this, 'handle_rejected' ), 10, 2 );
 
 		// docs/PLAN-wordpress-idp-option-b.md section 4.5: a minted token and
 		// its negative cache are keyed to the session that requested them, but
@@ -163,6 +174,56 @@ class Agend_Apps_Token_Worker {
 			self::clear_negative_cache( $user_id );
 		} catch ( \Throwable $e ) {
 			// Never let cleanup break logout.
+		}
+	}
+
+	/**
+	 * Discards the cached token when the gateway rejects it with a 401.
+	 *
+	 * A Supabase session is revoked server side whenever the member signs out
+	 * anywhere with global scope, so a cached token can be dead well before
+	 * its recorded expiry. Only an exact match clears the cache: the rejected
+	 * bearer may be another provider's (the credentials-mode member session),
+	 * and a 403 is a permission answer a new token cannot change.
+	 *
+	 * A token rejected straight after being minted also sets the negative
+	 * cache, so a gateway that refuses every token we mint costs one mint per
+	 * member per minute rather than one per request. Failure here must never
+	 * break the request, so any unexpected error is swallowed.
+	 *
+	 * @param mixed $token       The bearer the gateway rejected.
+	 * @param int   $status_code HTTP status of the rejection.
+	 */
+	public function handle_rejected( $token, $status_code = 0 ): void {
+		try {
+			if ( 401 !== (int) $status_code ) {
+				return;
+			}
+
+			$user_id = get_current_user_id();
+
+			if ( 0 === $user_id ) {
+				return;
+			}
+
+			$cached = get_user_meta( $user_id, self::META_KEY, true );
+
+			if (
+				! is_array( $cached )
+				|| ! isset( $cached['access_token'] )
+				|| ! is_string( $cached['access_token'] )
+				|| $cached['access_token'] !== (string) $token
+			) {
+				return;
+			}
+
+			self::clear_token( $user_id );
+
+			if ( isset( $cached['minted_at'] ) && ( time() - (int) $cached['minted_at'] ) < self::REJECTED_REMINT_GRACE ) {
+				set_transient( self::NEGATIVE_PREFIX . $user_id, 1, self::NEGATIVE_TTL_ERROR );
+			}
+		} catch ( \Throwable $e ) {
+			// Never let cleanup break the request.
 		}
 	}
 
