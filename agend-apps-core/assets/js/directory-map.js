@@ -172,6 +172,9 @@
       body.appendChild(el('span', 'agend-map-popup__category', marker.primary_category.name));
     }
     body.appendChild(el('strong', 'agend-map-popup__title', marker.name || ''));
+    if (cfg.popup.locationName && location && typeof location.name === 'string' && location.name.trim()) {
+      body.appendChild(el('span', 'agend-map-popup__location-name', location.name.trim()));
+    }
     if (cfg.popup.address) {
       var address = addressOf(location);
       if (address) {

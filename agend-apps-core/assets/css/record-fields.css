@@ -132,3 +132,98 @@ a.agend-pill:hover,
 a.agend-pill:focus {
   filter: brightness(0.95);
 }
+
+/* A capped list's overflow control. The held-back items carry `hidden`, which
+   a widget's own display rule (inline-block on a pill) would otherwise win. */
+[data-agend-rest][hidden] {
+  display: none !important;
+}
+
+/*
+ * Element plus doubled class (0,2,1), with every hover and focus state at
+ * (0,3,1) or above, so a theme's or an Elementor kit's global button styling
+ * (`.elementor-kit-N button`, 0,1,1, and its `:hover` and `:focus`, 0,2,1)
+ * cannot repaint the control as a site button. Colours and box values come
+ * from custom properties, which a builder's style controls set on the
+ * element's wrapper without having to out-rank these selectors:
+ * --agend-rest-colour, --agend-rest-colour-hover, --agend-rest-bg,
+ * --agend-rest-bg-hover, --agend-rest-padding, --agend-rest-radius,
+ * --agend-rest-focus. Agend Pills also sets --agend-pill-* from its pill
+ * controls, so a pill control matches the pills beside it unless its own
+ * values are set.
+ */
+button.agend-rest-toggle.agend-rest-toggle {
+  display: inline-block;
+  margin: 0 0 0 0.35em;
+  padding: var(--agend-rest-padding, 0);
+  border: 0;
+  border-radius: var(--agend-rest-radius, 0);
+  background: var(--agend-rest-bg, none);
+  box-shadow: none;
+  color: var(--agend-rest-colour, inherit);
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  text-transform: none;
+  text-shadow: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  vertical-align: baseline;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+button.agend-rest-toggle.agend-rest-toggle:hover,
+button.agend-rest-toggle.agend-rest-toggle:focus {
+  border: 0;
+  border-radius: var(--agend-rest-radius, 0);
+  background: var(--agend-rest-bg-hover, var(--agend-rest-bg, none));
+  box-shadow: none;
+  color: var(--agend-rest-colour-hover, var(--agend-rest-colour, inherit));
+}
+
+button.agend-rest-toggle.agend-rest-toggle:focus-visible {
+  outline: 2px solid var(--agend-rest-focus, currentColor);
+  outline-offset: 2px;
+}
+
+button.agend-rest-toggle.agend-rest-toggle--pill {
+  padding: var(--agend-rest-padding, var(--agend-pill-padding, 0.15em 0.6em));
+  border-radius: var(--agend-rest-radius, var(--agend-pill-radius, 999px));
+  background: var(--agend-rest-bg, var(--agend-pill-bg, rgba(0, 0, 0, 0.06)));
+  color: var(--agend-rest-colour, var(--agend-pill-colour, inherit));
+  font-size: 0.85em;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+button.agend-rest-toggle.agend-rest-toggle--pill:hover,
+button.agend-rest-toggle.agend-rest-toggle--pill:focus {
+  border-radius: var(--agend-rest-radius, var(--agend-pill-radius, 999px));
+  background: var(--agend-rest-bg-hover, var(--agend-rest-bg, var(--agend-pill-bg, rgba(0, 0, 0, 0.06))));
+  color: var(--agend-rest-colour-hover, var(--agend-rest-colour, var(--agend-pill-colour, inherit)));
+  filter: brightness(0.95);
+}
+
+/* The pills row spaces its items with `gap`. */
+.agend-pills button.agend-rest-toggle.agend-rest-toggle {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+/* In a pills row with no pill box set (a block's pills are unboxed), a
+   pill-style control reads as one more pill rather than the only box. */
+.agend-pills button.agend-rest-toggle.agend-rest-toggle--pill {
+  padding: var(--agend-rest-padding, var(--agend-pill-padding, 0));
+  border-radius: var(--agend-rest-radius, var(--agend-pill-radius, 0));
+  background: var(--agend-rest-bg, var(--agend-pill-bg, none));
+}
+
+.agend-pills button.agend-rest-toggle.agend-rest-toggle--pill:hover,
+.agend-pills button.agend-rest-toggle.agend-rest-toggle--pill:focus {
+  border-radius: var(--agend-rest-radius, var(--agend-pill-radius, 0));
+  background: var(--agend-rest-bg-hover, var(--agend-rest-bg, var(--agend-pill-bg, none)));
+}

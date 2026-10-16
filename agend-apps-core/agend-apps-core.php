@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.39.0
+ * Version:           1.40.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.39.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.40.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -167,6 +167,8 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/interface-agend-apps-template-renderer.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/interface-agend-apps-template-source.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/templates/interface-agend-apps-template-field-keys.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/templates/template-field-keys.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/class-agend-apps-templates.php';
 
 	// The block editor's own implementation of the two template contracts.
@@ -177,7 +179,9 @@ function agend_apps_core_bootstrap() {
 	// titles while a site also running Elementor gets both lists.
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/class-agend-apps-block-template-renderer.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/templates/class-agend-apps-block-template-source.php';
-	Agend_Apps_Templates::register_renderer( new Agend_Apps_Block_Template_Renderer() );
+	$agend_apps_block_template_renderer = new Agend_Apps_Block_Template_Renderer();
+	Agend_Apps_Templates::register_renderer( $agend_apps_block_template_renderer );
+	Agend_Apps_Templates::register_field_key_reader( $agend_apps_block_template_renderer );
 	Agend_Apps_Templates::register_source( new Agend_Apps_Block_Template_Source() );
 
 	// Labels a wp_block that is in use as a card or detail template in the

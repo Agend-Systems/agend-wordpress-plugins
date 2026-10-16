@@ -28,6 +28,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/interface-agend-apps-template-field-keys.php';
+require_once __DIR__ . '/template-field-keys.php';
+
 /**
  * Holds the registered renderers and sources, in registration order.
  */
@@ -38,6 +41,59 @@ final class Agend_Apps_Templates {
 
 	/** @var Agend_Apps_Template_Source[] */
 	private static array $sources = array();
+
+	/** @var Agend_Apps_Template_Field_Keys[] */
+	private static array $field_key_readers = array();
+
+	/**
+	 * Registers a reader of the fields a template binds.
+	 *
+	 * @param Agend_Apps_Template_Field_Keys $reader Reader implementation.
+	 * @return void
+	 */
+	public static function register_field_key_reader( Agend_Apps_Template_Field_Keys $reader ): void {
+		self::$field_key_readers[] = $reader;
+	}
+
+	/**
+	 * The record field keys and custom field keys a template binds. Empty when
+	 * no registered reader owns the id.
+	 *
+	 * Cached against the template's last modification time, the registered
+	 * readers and the core version, so an edited template, a page builder's
+	 * reader arriving after a plugin update, or a changed schema default is
+	 * read afresh, while every search of an unchanged one reuses the reading.
+	 *
+	 * @param int $template_id The template's post id.
+	 * @return array{fields: string[], custom_fields: string[]}
+	 */
+	public static function field_keys( int $template_id ): array {
+		if ( $template_id <= 0 ) {
+			return agend_apps_records_empty_binding_keys();
+		}
+
+		$post      = get_post( $template_id );
+		$revision  = $post ? (string) ( $post->post_modified_gmt ?? '' ) : '';
+		$readers   = implode( ',', array_map( 'get_class', self::$field_key_readers ) );
+		$version   = defined( 'AGEND_APPS_CORE_VERSION' ) ? (string) AGEND_APPS_CORE_VERSION : '';
+		$cache_key = md5( $template_id . ':' . $revision . ':' . $readers . ':' . $version );
+		$cached    = wp_cache_get( $cache_key, 'agend_apps_template_field_keys', false, $found );
+		if ( $found && is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$keys = agend_apps_records_empty_binding_keys();
+		foreach ( self::$field_key_readers as $reader ) {
+			$read = $reader->field_keys( $template_id );
+			if ( null !== $read ) {
+				$keys = agend_apps_records_merge_binding_keys( $read );
+				break;
+			}
+		}
+
+		wp_cache_set( $cache_key, $keys, 'agend_apps_template_field_keys', DAY_IN_SECONDS );
+		return $keys;
+	}
 
 	/**
 	 * Registers a template renderer. Registration order is resolution order,
@@ -119,8 +175,9 @@ final class Agend_Apps_Templates {
 	 * @return void
 	 */
 	public static function reset(): void {
-		self::$renderers = array();
-		self::$sources   = array();
+		self::$renderers         = array();
+		self::$sources           = array();
+		self::$field_key_readers = array();
 	}
 
 	/**

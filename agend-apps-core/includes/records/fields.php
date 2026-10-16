@@ -177,27 +177,167 @@ function agend_apps_records_record_names( array $record, string $key ): array {
 }
 
 /**
- * A listing's location as "City, STATE", from the card payload's
- * primary_location or the detail payload's locations list.
+ * The listing's locations, as the payload lists them, skipping anything that
+ * is not a location object.
+ *
+ * @param array $record The listing record.
+ * @return array<int, array<string, mixed>>
+ */
+function agend_apps_records_record_listing_locations( array $record ): array {
+	if ( empty( $record['locations'] ) || ! is_array( $record['locations'] ) ) {
+		return array();
+	}
+
+	return array_values( array_filter( $record['locations'], 'is_array' ) );
+}
+
+/**
+ * The one location a listing presents when it shows one: the location the
+ * search selected (`selected_location_id`), otherwise the one marked primary,
+ * otherwise the first. Every single-location field reads this, so no address
+ * is ever spliced from two locations.
+ *
+ * A payload without a `locations` list (an older card) falls back to its
+ * `primary_location`, which carries only the city and state.
+ *
+ * @param array $record The listing record.
+ * @return array<string, mixed> The location, or an empty array.
+ */
+function agend_apps_records_record_listing_selected_location( array $record ): array {
+	$locations = agend_apps_records_record_listing_locations( $record );
+
+	if ( empty( $locations ) ) {
+		return ( ! empty( $record['primary_location'] ) && is_array( $record['primary_location'] ) ) ? $record['primary_location'] : array();
+	}
+
+	$selected_id = isset( $record['selected_location_id'] ) && is_scalar( $record['selected_location_id'] ) ? (string) $record['selected_location_id'] : '';
+	if ( '' !== $selected_id ) {
+		foreach ( $locations as $location ) {
+			if ( isset( $location['id'] ) && (string) $location['id'] === $selected_id ) {
+				return $location;
+			}
+		}
+	}
+
+	foreach ( $locations as $location ) {
+		if ( ! empty( $location['is_primary'] ) ) {
+			return $location;
+		}
+	}
+
+	return $locations[0];
+}
+
+/**
+ * A string part of one location, trimmed, or ''.
+ *
+ * @param array  $location The location.
+ * @param string $part     The part's key.
+ * @return string
+ */
+function agend_apps_records_location_part( array $location, string $part ): string {
+	$value = $location[ $part ] ?? null;
+	return is_scalar( $value ) ? trim( (string) $value ) : '';
+}
+
+/**
+ * A location's street address: address line 1, then line 2 when present.
+ *
+ * @param array $location The location.
+ * @return string
+ */
+function agend_apps_records_location_street( array $location ): string {
+	return implode(
+		', ',
+		array_filter(
+			array(
+				agend_apps_records_location_part( $location, 'address_line_1' ),
+				agend_apps_records_location_part( $location, 'address_line_2' ),
+			),
+			'strlen'
+		)
+	);
+}
+
+/**
+ * A location's full address on one line: "1 Example St, Sydney NSW 2000".
+ * Each part is optional, so a location with only a suburb renders just that.
+ *
+ * @param array $location The location.
+ * @return string
+ */
+function agend_apps_records_location_address( array $location ): string {
+	$locality = implode(
+		' ',
+		array_filter(
+			array(
+				agend_apps_records_location_part( $location, 'city' ),
+				agend_apps_records_location_part( $location, 'state' ),
+				agend_apps_records_location_part( $location, 'postcode' ),
+			),
+			'strlen'
+		)
+	);
+	return implode( ', ', array_filter( array( agend_apps_records_location_street( $location ), $locality ), 'strlen' ) );
+}
+
+/**
+ * A listing's location as "City, STATE", from its selected location.
  *
  * @param array $record The listing record.
  * @return string
  */
 function agend_apps_records_record_listing_location( array $record ): string {
-	$source = array();
-	if ( ! empty( $record['primary_location'] ) && is_array( $record['primary_location'] ) ) {
-		$source = $record['primary_location'];
-	} elseif ( ! empty( $record['locations'][0] ) && is_array( $record['locations'][0] ) ) {
-		$source = $record['locations'][0];
-	}
-	$parts = array_filter(
+	$location = agend_apps_records_record_listing_selected_location( $record );
+	$parts    = array_filter(
 		array(
-			isset( $source['city'] ) ? trim( (string) $source['city'] ) : '',
-			isset( $source['state'] ) ? trim( (string) $source['state'] ) : '',
+			agend_apps_records_location_part( $location, 'city' ),
+			agend_apps_records_location_part( $location, 'state' ),
 		),
 		'strlen'
 	);
 	return implode( ', ', $parts );
+}
+
+/**
+ * Every listing location as one line each, "Location name, one-line address",
+ * leaving out whichever half is empty. The selected location comes first and
+ * the rest follow in the order the payload lists them; a location with neither
+ * a name nor any address part is skipped.
+ *
+ * @param array $record The listing record.
+ * @return string[]
+ */
+function agend_apps_records_record_listing_all_locations( array $record ): array {
+	$locations = agend_apps_records_record_listing_locations( $record );
+	if ( empty( $locations ) ) {
+		return array();
+	}
+
+	$selected_index = array_search( agend_apps_records_record_listing_selected_location( $record ), $locations, true );
+	if ( false !== $selected_index ) {
+		$selected  = $locations[ $selected_index ];
+		unset( $locations[ $selected_index ] );
+		$locations = array_merge( array( $selected ), array_values( $locations ) );
+	}
+
+	$entries = array();
+	foreach ( $locations as $location ) {
+		$entry = implode(
+			', ',
+			array_filter(
+				array(
+					agend_apps_records_location_part( $location, 'name' ),
+					agend_apps_records_location_address( $location ),
+				),
+				'strlen'
+			)
+		);
+		if ( '' !== $entry ) {
+			$entries[] = $entry;
+		}
+	}
+	return $entries;
 }
 
 /**
@@ -239,56 +379,34 @@ function agend_apps_records_record_listing_distance( array $record ): string {
 }
 
 /**
- * One part of a listing's location.
+ * One part of a listing's selected location.
  *
  * @param array  $record The listing record.
- * @param string $part   'city', 'state', 'postcode' or 'country'.
+ * @param string $part   'name', 'city', 'state', 'postcode', 'country' or an address line.
  * @return string
  */
 function agend_apps_records_record_listing_location_part( array $record, string $part ): string {
-	$value = agend_apps_records_record_path( $record, array( 'primary_location.' . $part, 'locations.0.' . $part ) );
-	return is_scalar( $value ) ? trim( (string) $value ) : '';
+	return agend_apps_records_location_part( agend_apps_records_record_listing_selected_location( $record ), $part );
 }
 
 /**
- * A listing's street address: address line 1, then line 2 when present.
+ * A listing's street address, from its selected location.
  *
  * @param array $record The listing record.
  * @return string
  */
 function agend_apps_records_record_listing_street( array $record ): string {
-	$parts = array_filter(
-		array(
-			agend_apps_records_record_listing_location_part( $record, 'address_line_1' ),
-			agend_apps_records_record_listing_location_part( $record, 'address_line_2' ),
-		),
-		'strlen'
-	);
-	return implode( ', ', $parts );
+	return agend_apps_records_location_street( agend_apps_records_record_listing_selected_location( $record ) );
 }
 
 /**
- * A listing's full address on one line: "1 Example St, Sydney NSW 2000".
- *
- * Each part is optional, so a listing with only a suburb renders just that.
+ * A listing's full address on one line, from its selected location.
  *
  * @param array $record The listing record.
  * @return string
  */
 function agend_apps_records_record_listing_address( array $record ): string {
-	$street   = agend_apps_records_record_listing_street( $record );
-	$locality = implode(
-		' ',
-		array_filter(
-			array(
-				agend_apps_records_record_listing_location_part( $record, 'city' ),
-				agend_apps_records_record_listing_location_part( $record, 'state' ),
-				agend_apps_records_record_listing_location_part( $record, 'postcode' ),
-			),
-			'strlen'
-		)
-	);
-	return implode( ', ', array_filter( array( $street, $locality ), 'strlen' ) );
+	return agend_apps_records_location_address( agend_apps_records_record_listing_selected_location( $record ) );
 }
 
 /**
@@ -457,6 +575,68 @@ function agend_apps_records_record_excerpt( array $record ): string {
 	}
 	$long = agend_apps_records_record_path( $record, array( 'description' ) );
 	return is_string( $long ) ? trim( preg_replace( '/\s+/', ' ', strip_tags( $long ) ) ) : '';
+}
+
+/**
+ * The control that reveals the items a capped list holds back, and hides them
+ * again. The items are already in the page; record-fields.js only toggles them.
+ *
+ * @param int    $hidden        How many items are held back.
+ * @param string $overflow_text The control's text while collapsed; `{n}` is
+ *                              replaced by $hidden. '' uses "+{n}".
+ * @param string $collapse_text The control's text while expanded. '' uses "Show less".
+ * @param string $style         'link' or 'pill'; anything else is 'link'.
+ * @return string
+ */
+function agend_apps_records_rest_toggle_html( int $hidden, string $overflow_text, string $collapse_text, string $style = 'link' ): string {
+	$overflow_text = '' !== trim( $overflow_text ) ? $overflow_text : __( '+{n}', 'agend-apps-core' );
+	$collapse_text = '' !== trim( $collapse_text ) ? $collapse_text : __( 'Show less', 'agend-apps-core' );
+	$more          = str_replace( '{n}', (string) $hidden, $overflow_text );
+	$style         = in_array( $style, array( 'link', 'pill' ), true ) ? $style : 'link';
+
+	return '<button type="button" class="agend-rest-toggle agend-rest-toggle--' . $style . '" aria-expanded="false" data-agend-rest-toggle'
+		. ' data-agend-more="' . esc_attr( $more ) . '" data-agend-less="' . esc_attr( $collapse_text ) . '">'
+		. esc_html( $more ) . '</button>';
+}
+
+/**
+ * Custom field types whose value is several selected options, read as a list
+ * so a list's separator, item limit and overflow control apply to it. The API
+ * publishes a multi-select and a checkbox group both as `array`; the canonical
+ * names are accepted too.
+ */
+const AGEND_APPS_RECORDS_LIST_CUSTOM_FIELD_TYPES = array( 'array', 'multi_select', 'checkbox_group' );
+
+/**
+ * A multi-select or checkbox-group custom field's selected option labels, by
+ * its key: the `value_label` the gateway adds when usable, otherwise the
+ * stored values. Null for any other type, a gated entry or a missing key.
+ *
+ * @param array  $record The record.
+ * @param string $key    The custom-field key.
+ * @return string[]|null
+ */
+function agend_apps_records_record_custom_field_list( array $record, string $key ): ?array {
+	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
+		return null;
+	}
+	foreach ( $record['custom_fields'] as $entry ) {
+		if ( ! is_array( $entry ) || ( $entry['key'] ?? '' ) !== $key ) {
+			continue;
+		}
+		if ( ! empty( $entry['gated'] ) || ! in_array( $entry['type'] ?? '', AGEND_APPS_RECORDS_LIST_CUSTOM_FIELD_TYPES, true ) ) {
+			return null;
+		}
+		$labels = agend_apps_records_custom_field_value_labels( $entry );
+		if ( ! empty( $labels ) ) {
+			return $labels;
+		}
+		$value = $entry['value'] ?? array();
+		return is_array( $value )
+			? array_values( array_filter( array_map( 'trim', array_map( 'strval', array_filter( $value, 'is_scalar' ) ) ), 'strlen' ) )
+			: ( is_scalar( $value ) && '' !== trim( (string) $value ) ? array( trim( (string) $value ) ) : array() );
+	}
+	return null;
 }
 
 /**
@@ -636,6 +816,14 @@ function agend_apps_records_field_registry(): array {
 			},
 		),
 		'listing:location'          => array( 'label' => __( 'Location (city, state)', 'agend-apps-core' ), 'kind' => 'text', 'get' => 'agend_apps_records_record_listing_location' ),
+		'listing:location_name'     => array(
+			'label' => __( 'Location name', 'agend-apps-core' ),
+			'kind'  => 'text',
+			'get'   => static function ( array $record ) {
+				return agend_apps_records_record_listing_location_part( $record, 'name' );
+			},
+		),
+		'listing:locations'         => array( 'label' => __( 'All locations', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_listing_all_locations' ),
 		'listing:city'              => array(
 			'label' => __( 'City', 'agend-apps-core' ),
 			'kind'  => 'text',
@@ -712,12 +900,18 @@ function agend_apps_records_field_registry(): array {
 		'common:custom_field' => array(
 			'label' => __( 'Custom field (by key)', 'agend-apps-core' ),
 			'kind'  => 'text',
+			'pill'  => true,
 			'get'   => static function ( array $record, string $type, array $extra ) {
 				$key = (string) ( $extra['custom_field_key'] ?? '' );
-				// An item list is the one custom field that is not text: its
-				// kind follows the record, see agend_apps_records_field_kind_for_record().
+				// An item list, a multi-select and a checkbox group are the custom
+				// fields that are not text: their kind follows the record, see
+				// agend_apps_records_field_kind_for_record().
 				$item_list = agend_apps_records_record_custom_field_item_list( $record, $key );
-				return null !== $item_list ? $item_list : agend_apps_records_record_custom_field( $record, $key );
+				if ( null !== $item_list ) {
+					return $item_list;
+				}
+				$list = agend_apps_records_record_custom_field_list( $record, $key );
+				return null !== $list ? $list : agend_apps_records_record_custom_field( $record, $key );
 			},
 		),
 		'common:custom_field_label' => array(
@@ -777,7 +971,8 @@ function agend_apps_records_field_kind( string $key ): string {
  * The registry's kind, except that a custom field is `text` only until the
  * record says otherwise: when the key names an `item_list` entry the field is
  * an item list, and agend_apps_records_field_value() returns that entry for
- * agend_apps_records_format_field() to draw as a table or list.
+ * agend_apps_records_format_field() to draw as a table or list; when it names a
+ * multi-select or checkbox-group entry the field is a list of option labels.
  *
  * @param string $key    Field key.
  * @param array  $record The record.
@@ -786,8 +981,14 @@ function agend_apps_records_field_kind( string $key ): string {
  * @return string The kind, or '' for an unknown key.
  */
 function agend_apps_records_field_kind_for_record( string $key, array $record, array $extra = array() ): string {
-	if ( 'common:custom_field' === $key && null !== agend_apps_records_record_custom_field_item_list( $record, (string) ( $extra['custom_field_key'] ?? '' ) ) ) {
-		return 'item_list';
+	if ( 'common:custom_field' === $key ) {
+		$custom_key = (string) ( $extra['custom_field_key'] ?? '' );
+		if ( null !== agend_apps_records_record_custom_field_item_list( $record, $custom_key ) ) {
+			return 'item_list';
+		}
+		if ( null !== agend_apps_records_record_custom_field_list( $record, $custom_key ) ) {
+			return 'list';
+		}
 	}
 
 	return agend_apps_records_field_kind( $key );
@@ -929,6 +1130,23 @@ function agend_apps_records_pill_field_options(): array {
 }
 
 /**
+ * Picker options for the term field Agend Image chooses its picture by: the
+ * pill fields, less the custom field, which that widget has no key control for.
+ *
+ * @return array<int, array{label: string, options: array<string, string>}>
+ */
+function agend_apps_records_term_image_field_options(): array {
+	$groups = array();
+	foreach ( agend_apps_records_pill_field_options() as $group ) {
+		unset( $group['options']['common:custom_field'] );
+		if ( ! empty( $group['options'] ) ) {
+			$groups[] = $group;
+		}
+	}
+	return $groups;
+}
+
+/**
  * The keys of fields an Agend Field can link to, optionally only those of the
  * given kinds.
  *
@@ -1033,12 +1251,21 @@ function agend_apps_records_format_field( $value, string $kind, array $opts = ar
 			return esc_html( (string) ( $opts['price_prefix'] ?? '' ) . '$' . number_format( $num, 2, '.', '' ) );
 
 		case 'list':
-			$items = is_array( $value ) ? array_values( array_filter( array_map( 'strval', array_filter( $value, 'is_scalar' ) ) ) ) : array( (string) $value );
-			$max   = isset( $opts['list_max'] ) ? (int) $opts['list_max'] : 0;
+			$items     = is_array( $value ) ? array_values( array_filter( array_map( 'strval', array_filter( $value, 'is_scalar' ) ) ) ) : array( (string) $value );
+			$max       = isset( $opts['list_max'] ) ? (int) $opts['list_max'] : 0;
+			$separator = esc_html( (string) ( $opts['list_separator'] ?? ', ' ) );
+			if ( $max > 0 && count( $items ) > $max && ! empty( $opts['list_show_rest'] ) ) {
+				$rest = array_slice( $items, $max );
+				return '<span class="agend-list" data-agend-rest-group>'
+					. implode( $separator, array_map( 'esc_html', array_slice( $items, 0, $max ) ) )
+					. '<span class="agend-list__rest" data-agend-rest hidden>' . $separator . implode( $separator, array_map( 'esc_html', $rest ) ) . '</span>'
+					. agend_apps_records_rest_toggle_html( count( $rest ), (string) ( $opts['list_overflow_text'] ?? '' ), (string) ( $opts['list_collapse_text'] ?? '' ), (string) ( $opts['list_rest_style'] ?? '' ) )
+					. '</span>';
+			}
 			if ( $max > 0 ) {
 				$items = array_slice( $items, 0, $max );
 			}
-			return implode( esc_html( (string) ( $opts['list_separator'] ?? ', ' ) ), array_map( 'esc_html', $items ) );
+			return implode( $separator, array_map( 'esc_html', $items ) );
 
 		case 'bool':
 			return esc_html( (string) ( $value ? ( $opts['bool_true'] ?? __( 'Yes', 'agend-apps-core' ) ) : ( $opts['bool_false'] ?? '' ) ) );

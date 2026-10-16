@@ -125,6 +125,7 @@ function agend_apps_records_directory_map_build_config( array $s ): array {
 		'popup'        => array(
 			'logo'           => 'yes' === ( $s['popup_logo'] ?? 'yes' ),
 			'category'       => 'yes' === ( $s['popup_category'] ?? 'yes' ),
+			'locationName'   => 'yes' === ( $s['popup_location_name'] ?? '' ),
 			'address'        => 'yes' === ( $s['popup_address'] ?? 'yes' ),
 			'distance'       => 'yes' === ( $s['popup_distance'] ?? 'yes' ),
 			'rating'         => 'yes' === ( $s['popup_rating'] ?? '' ),

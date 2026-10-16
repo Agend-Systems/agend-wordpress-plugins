@@ -177,6 +177,11 @@
   font-size: 14px;
 }
 
+.agend-map-popup__location-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .agend-map-popup__address {
   display: -webkit-box;
   -webkit-line-clamp: 2;

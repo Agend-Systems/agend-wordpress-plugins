@@ -1760,6 +1760,7 @@ if ( ! class_exists( 'WP_Post' ) ) {
 		public string $post_content = '';
 		public string $post_title = '';
 		public string $post_type = 'page';
+		public string $post_modified_gmt = '';
 
 		public function __construct( array $fields = array() ) {
 			foreach ( $fields as $key => $value ) {
@@ -1768,6 +1769,25 @@ if ( ! class_exists( 'WP_Post' ) ) {
 				}
 			}
 		}
+	}
+}
+
+if ( ! function_exists( 'rest_sanitize_boolean' ) ) {
+	/**
+	 * Matches WordPress: the strings 'false', '0' and '' are false, anything
+	 * else is cast.
+	 *
+	 * @param mixed $value Value to read as a boolean.
+	 * @return bool
+	 */
+	function rest_sanitize_boolean( $value ): bool {
+		if ( is_string( $value ) ) {
+			$value = strtolower( $value );
+			if ( in_array( $value, array( 'false', '0', '' ), true ) ) {
+				return false;
+			}
+		}
+		return (bool) $value;
 	}
 }
 

@@ -138,6 +138,13 @@ function agend_apps_records_schema_directory_map(): array {
 						'default' => true,
 					),
 					array(
+						'name'        => 'popup_location_name',
+						'label'       => __( 'Show location name', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'The name of the location the pin marks, such as the office or branch.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'popup_address',
 						'label'   => __( 'Show address', 'agend-apps-core' ),
 						'type'    => 'toggle',

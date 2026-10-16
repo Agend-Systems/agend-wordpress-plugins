@@ -73,4 +73,21 @@ trait Content_Tab_Recording_Trait {
 
 		return array( 'sections' => $sections );
 	}
+
+	/**
+	 * The args one recorded control was registered with, on any tab: by id,
+	 * or by `name` for a group control.
+	 *
+	 * @param array<int, array<string, mixed>> $recordings Widget_Base::$recordings.
+	 * @param string                           $id         Control id or group control name.
+	 * @return array<string, mixed>
+	 */
+	private function recordedArgs( array $recordings, string $id ): array {
+		foreach ( $recordings as $entry ) {
+			if ( $id === ( $entry['id'] ?? $entry['args']['name'] ?? null ) ) {
+				return $entry['args'];
+			}
+		}
+		$this->fail( "No control {$id} was registered." );
+	}
 }

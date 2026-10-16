@@ -113,15 +113,19 @@ function agend_apps_records_record_field_format_options( array $s ): array {
 		$date_format = (string) ( $s['date_format_custom'] ?? '' );
 	}
 	return array(
-		'date_format'      => $date_format,
-		'price_free_label' => (string) ( $s['price_free_label'] ?? '' ),
-		'list_separator'   => (string) ( $s['list_separator'] ?? ', ' ),
-		'list_max'         => (int) ( $s['list_max'] ?? 0 ),
-		'bool_true'        => (string) ( $s['bool_true'] ?? '' ),
-		'bool_false'       => (string) ( $s['bool_false'] ?? '' ),
-		'number_suffix'    => (string) ( $s['number_suffix'] ?? '' ),
-		'truncate'         => (int) ( $s['truncate_chars'] ?? 0 ),
-		'item_list'        => agend_apps_records_item_list_options( $s ),
+		'date_format'        => $date_format,
+		'price_free_label'   => (string) ( $s['price_free_label'] ?? '' ),
+		'list_separator'     => (string) ( $s['list_separator'] ?? ', ' ),
+		'list_max'           => (int) ( $s['list_max'] ?? 0 ),
+		'list_show_rest'     => 'yes' === ( $s['show_rest'] ?? '' ),
+		'list_overflow_text' => (string) ( $s['overflow_text'] ?? '' ),
+		'list_collapse_text' => (string) ( $s['collapse_text'] ?? '' ),
+		'list_rest_style'    => (string) ( $s['rest_style'] ?? '' ),
+		'bool_true'          => (string) ( $s['bool_true'] ?? '' ),
+		'bool_false'         => (string) ( $s['bool_false'] ?? '' ),
+		'number_suffix'      => (string) ( $s['number_suffix'] ?? '' ),
+		'truncate'           => (int) ( $s['truncate_chars'] ?? 0 ),
+		'item_list'          => agend_apps_records_item_list_options( $s ),
 	);
 }
 
