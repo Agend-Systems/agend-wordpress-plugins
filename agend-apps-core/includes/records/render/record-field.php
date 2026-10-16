@@ -112,13 +112,23 @@ function agend_apps_records_record_field_format_options( array $s ): array {
 	if ( 'custom' === $date_format ) {
 		$date_format = (string) ( $s['date_format_custom'] ?? '' );
 	}
+	// A yes/no custom field has wording of its own, so the built-in bool
+	// fields keep Yes and nothing while a custom one reads True and False.
+	// An empty string is the author's choice, so only an absent key defaults.
+	if ( 'common:custom_field' === ( $s['field'] ?? '' ) ) {
+		$bool_true  = (string) ( $s['custom_field_bool_true'] ?? __( 'True', 'agend-apps-core' ) );
+		$bool_false = (string) ( $s['custom_field_bool_false'] ?? __( 'False', 'agend-apps-core' ) );
+	} else {
+		$bool_true  = (string) ( $s['bool_true'] ?? '' );
+		$bool_false = (string) ( $s['bool_false'] ?? '' );
+	}
 	return array(
 		'date_format'      => $date_format,
 		'price_free_label' => (string) ( $s['price_free_label'] ?? '' ),
 		'list_separator'   => (string) ( $s['list_separator'] ?? ', ' ),
 		'list_max'         => (int) ( $s['list_max'] ?? 0 ),
-		'bool_true'        => (string) ( $s['bool_true'] ?? '' ),
-		'bool_false'       => (string) ( $s['bool_false'] ?? '' ),
+		'bool_true'        => $bool_true,
+		'bool_false'       => $bool_false,
 		'number_suffix'    => (string) ( $s['number_suffix'] ?? '' ),
 		'truncate'         => (int) ( $s['truncate_chars'] ?? 0 ),
 		'item_list'        => agend_apps_records_item_list_options( $s ),
@@ -222,9 +232,10 @@ function agend_apps_records_render_record_field( array $settings, array $opts = 
 	$key  = $resolved['key'];
 	$kind = $resolved['kind'];
 
-	$extra                     = $ctx['extra'];
-	$extra['custom_field_key'] = agend_apps_records_record_field_custom_field_key( $settings );
-	$kind                      = agend_apps_records_field_kind_for_record( $key, $ctx['record'], $extra );
+	$extra                      = $ctx['extra'];
+	$extra['custom_field_key']  = agend_apps_records_record_field_custom_field_key( $settings );
+	$extra['custom_field_bool'] = 'yes' === ( $settings['custom_field_bool'] ?? '' );
+	$kind                       = agend_apps_records_field_kind_for_record( $key, $ctx['record'], $extra );
 
 	// A custom field the gateway withheld from this viewer is not the same as
 	// one with no data: it reads as restricted, never as the fallback text.
