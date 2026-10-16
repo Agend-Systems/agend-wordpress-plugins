@@ -7,7 +7,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-directory-sync
- * Version:         0.13.0
+ * Version:         0.13.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Tested up to:      7.1
