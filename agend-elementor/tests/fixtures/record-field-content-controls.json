@@ -491,7 +491,10 @@
                         "label": "Text when true",
                         "type": "text",
                         "default": "Yes",
-                        "description": "Applies to yes\/no fields such as Sold out."
+                        "description": "Applies to yes\/no fields such as Sold out.",
+                        "condition": {
+                            "field!": "common:custom_field"
+                        }
                     }
                 },
                 {
@@ -500,7 +503,46 @@
                         "label": "Text when false",
                         "type": "text",
                         "default": "",
-                        "description": "Leave empty to render nothing when false."
+                        "description": "Leave empty to render nothing when false.",
+                        "condition": {
+                            "field!": "common:custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "custom_field_bool",
+                    "args": {
+                        "label": "Show as true or false",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Yes\/no custom fields are detected automatically. Turn this on for a custom field stored as text, such as 1 and 0 or yes and no. A value that does not read as true or false shows as written.",
+                        "condition": {
+                            "field": "common:custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "custom_field_bool_true",
+                    "args": {
+                        "label": "Text when true",
+                        "type": "text",
+                        "default": "True",
+                        "description": "Applies to a yes\/no custom field.",
+                        "condition": {
+                            "field": "common:custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "custom_field_bool_false",
+                    "args": {
+                        "label": "Text when false",
+                        "type": "text",
+                        "default": "False",
+                        "description": "Leave empty to show the Fallback text instead.",
+                        "condition": {
+                            "field": "common:custom_field"
+                        }
                     }
                 },
                 {

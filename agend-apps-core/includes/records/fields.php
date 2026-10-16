@@ -487,6 +487,72 @@ function agend_apps_records_record_custom_field_item_list( array $record, string
 }
 
 /**
+ * Reads a custom field value as true or false, when it reads as either.
+ *
+ * A PHP bool is itself. A number is true unless it is zero. A string, trimmed
+ * and lowercased, is true for `1`, `true`, `yes`, `y` and `on`, and false for
+ * `0`, `false`, `no`, `n` and `off`. Anything else (an empty string, null, an
+ * array, or text such as "Approved") is neither, so the caller keeps it as text
+ * rather than guessing.
+ *
+ * @param mixed $value A custom field entry's `value`.
+ * @return bool|null The bool, or null when the value does not read as true or false.
+ */
+function agend_apps_records_custom_field_bool_value( $value ): ?bool {
+	if ( is_bool( $value ) ) {
+		return $value;
+	}
+	if ( is_int( $value ) || is_float( $value ) ) {
+		return 0.0 !== (float) $value;
+	}
+	if ( ! is_string( $value ) ) {
+		return null;
+	}
+	$text = strtolower( trim( $value ) );
+	if ( in_array( $text, array( '1', 'true', 'yes', 'y', 'on' ), true ) ) {
+		return true;
+	}
+	if ( in_array( $text, array( '0', 'false', 'no', 'n', 'off' ), true ) ) {
+		return false;
+	}
+	return null;
+}
+
+/**
+ * A yes/no custom field entry from a record, read as a bool, by its key.
+ *
+ * The gateway types such a field `boolean`, and agend_apps_records_record_custom_field()
+ * would flatten it to "1" or ''. This reads the entry's `value` through
+ * agend_apps_records_custom_field_bool_value() instead, for the `bool` kind. A
+ * custom field stored as text (`1` and `0`, `yes` and `no`) is only read this
+ * way when `$force` is set, which is the Agend Field's "Show as true or false"
+ * control. A gated entry, a missing key, an entry of another type without
+ * `$force`, and a value that does not read as true or false all return null, so
+ * they stay text: no data still shows the fallback, and a withheld field never
+ * reaches the formatter.
+ *
+ * @param array  $record The record.
+ * @param string $key    The custom-field key.
+ * @param bool   $force  Read an entry of any type, not only `boolean`.
+ * @return bool|null The bool, or null when the key is not a readable yes/no field.
+ */
+function agend_apps_records_record_custom_field_bool( array $record, string $key, bool $force = false ): ?bool {
+	if ( '' === $key || empty( $record['custom_fields'] ) || ! is_array( $record['custom_fields'] ) ) {
+		return null;
+	}
+	foreach ( $record['custom_fields'] as $entry ) {
+		if ( ! is_array( $entry ) || ( $entry['key'] ?? '' ) !== $key ) {
+			continue;
+		}
+		if ( ! empty( $entry['gated'] ) || ( 'boolean' !== ( $entry['type'] ?? '' ) && ! $force ) ) {
+			return null;
+		}
+		return agend_apps_records_custom_field_bool_value( $entry['value'] ?? null );
+	}
+	return null;
+}
+
+/**
  * Why a custom field's value was withheld from the viewer, by its key.
  *
  * A field the viewer is not entitled to arrives in `custom_fields` as
@@ -911,7 +977,13 @@ function agend_apps_records_field_registry(): array {
 					return $item_list;
 				}
 				$list = agend_apps_records_record_custom_field_list( $record, $key );
-				return null !== $list ? $list : agend_apps_records_record_custom_field( $record, $key );
+				if ( null !== $list ) {
+					return $list;
+				}
+				// A yes/no custom field is not text either: its kind is `bool`
+				// when the record says so, and it returns the bool itself.
+				$bool = agend_apps_records_record_custom_field_bool( $record, $key, ! empty( $extra['custom_field_bool'] ) );
+				return null !== $bool ? $bool : agend_apps_records_record_custom_field( $record, $key );
 			},
 		),
 		'common:custom_field_label' => array(
@@ -973,11 +1045,15 @@ function agend_apps_records_field_kind( string $key ): string {
  * an item list, and agend_apps_records_field_value() returns that entry for
  * agend_apps_records_format_field() to draw as a table or list; when it names a
  * multi-select or checkbox-group entry the field is a list of option labels.
+ * When it names a yes/no entry (typed `boolean`, or any other entry whose value
+ * reads as true or false while `custom_field_bool` is set) the field is a
+ * `bool`, and the value is the bool itself.
  *
  * @param string $key    Field key.
  * @param array  $record The record.
  * @param array  $extra  Render context; `custom_field_key` when the field is a
- *                       custom one.
+ *                       custom one, and `custom_field_bool` to read a custom
+ *                       field stored as text as true or false.
  * @return string The kind, or '' for an unknown key.
  */
 function agend_apps_records_field_kind_for_record( string $key, array $record, array $extra = array() ): string {
@@ -988,6 +1064,9 @@ function agend_apps_records_field_kind_for_record( string $key, array $record, a
 		}
 		if ( null !== agend_apps_records_record_custom_field_list( $record, $custom_key ) ) {
 			return 'list';
+		}
+		if ( null !== agend_apps_records_record_custom_field_bool( $record, $custom_key, ! empty( $extra['custom_field_bool'] ) ) ) {
+			return 'bool';
 		}
 	}
 

@@ -644,6 +644,53 @@ and the Agend Field stylesheets, so each loads it with no further wiring. The
 editor's preview listing carries a `tenants` item list, which also puts it in the
 custom field picker.
 
+### Agend Field: yes/no custom fields
+
+A custom field entry with `type: 'boolean'` is a yes/no field. Its `value` is
+usually a bool, but the gateway may send a string or a number. Read as text it
+showed "1" for true and nothing for false, and the nothing fell through to the
+widget's Fallback text, so a "no" looked like missing data. The Agend Field now
+renders it as a `bool` instead, with the wrapper class `agend-field--bool`.
+
+`common:custom_field` is `text` in the field registry, and
+`agend_apps_records_field_kind_for_record()` settles the kind from the record, as
+it does for an item list or a multi-select: a `boolean` entry whose value reads
+as true or false is `bool`, and the field getter returns that bool rather than
+flattened text.
+`agend_apps_records_custom_field_bool_value()` decides what reads as which:
+
+- A PHP bool is itself. A number is true unless it is zero.
+- A string, trimmed and lowercased, is true for `1`, `true`, `yes`, `y` and `on`,
+  and false for `0`, `false`, `no`, `n` and `off`.
+- Anything else (an empty string, null, an array, text such as "Approved") is
+  neither, so the field stays text and shows as written.
+
+A custom field stored as text, such as `1` and `0` or `yes` and `no`, is not
+detected, because the entry's type says text. The **Show as true or false**
+toggle (`custom_field_bool`, off by default) reads any custom field's value by
+the same rules. With it on, a value that does not read as true or false still
+shows as written.
+
+Two controls word the result, in the Formatting section and shown only for a
+custom field:
+
+- `custom_field_bool_true` (**Text when true**, default "True").
+- `custom_field_bool_false` (**Text when false**, default "False"). Leave it empty
+  to show the Fallback text for a false value instead.
+
+An empty wording stays empty; only an absent setting takes the default. These
+are separate from `bool_true` and `bool_false`, which keep their defaults ("Yes"
+and nothing) and still word the built-in yes/no fields such as Sold out. The
+two pairs never show together: `bool_true` and `bool_false` are hidden for a
+custom field, and the custom field controls are hidden for any other field.
+
+A custom field with no entry for the key, an entry with no value, and a value
+that does not read as true or false stay text, so "no data" still shows the
+Fallback text and "False" is only ever a recorded no. A restricted entry (gated)
+is never read as a bool: it shows the Restricted text and no value, as for any
+other custom field. Before and after text, the label, the link to the detail page
+and the HTML tag behave as for any other field.
+
 ### Filter: category levels (directory)
 
 The directory **Category** filter has a **Category level** setting
