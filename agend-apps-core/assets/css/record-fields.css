@@ -141,7 +141,7 @@ a.agend-pill:focus {
 
 /*
  * Element plus doubled class (0,2,1), with every hover and focus state at
- * (0,3,1), so a theme's or an Elementor kit's global button styling
+ * (0,3,1) or above, so a theme's or an Elementor kit's global button styling
  * (`.elementor-kit-N button`, 0,1,1, and its `:hover` and `:focus`, 0,2,1)
  * cannot repaint the control as a site button. Colours and box values come
  * from custom properties, which a builder's style controls set on the

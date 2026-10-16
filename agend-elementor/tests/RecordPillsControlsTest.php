@@ -65,8 +65,8 @@ final class RecordPillsControlsTest extends TestCase {
 
 		$this->assertSame( '--agend-pill-colour: {{VALUE}};', $this->recordedArgs( $widget->recordings, 'pill_colour' )['selectors']['{{WRAPPER}}'] );
 		$this->assertSame( '--agend-pill-bg: {{VALUE}};', $this->recordedArgs( $widget->recordings, 'pill_background' )['selectors']['{{WRAPPER}}'] );
-		$this->assertArrayHasKey( '{{WRAPPER}}', $this->recordedArgs( $widget->recordings, 'pill_padding' )['selectors'] );
-		$this->assertArrayHasKey( '{{WRAPPER}}', $this->recordedArgs( $widget->recordings, 'pill_radius' )['selectors'] );
+		$this->assertSame( '--agend-pill-padding: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};', $this->recordedArgs( $widget->recordings, 'pill_padding' )['selectors']['{{WRAPPER}}'] );
+		$this->assertSame( '--agend-pill-radius: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};', $this->recordedArgs( $widget->recordings, 'pill_radius' )['selectors']['{{WRAPPER}}'] );
 		$this->assertStringContainsString( $toggle, $this->recordedArgs( $widget->recordings, 'typography' )['selector'] );
 		$this->assertStringContainsString( $toggle, $this->recordedArgs( $widget->recordings, 'pill_border' )['selector'] );
 		$this->assertSame( '{{WRAPPER}} .agend-pills button.agend-rest-toggle.agend-rest-toggle', $this->recordedArgs( $widget->recordings, 'rest_typography' )['selector'] );
