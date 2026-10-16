@@ -184,6 +184,15 @@ transient or the browser (see `agend_apps_sso_mint_token()`).
 `agend_entitlement_mirror_sleeper` does for the entitlement mirror. It exists so
 tests never block on a real sleep.
 
+**A revoked token is re-minted.** Since 1.40.1 a token the gateway rejects with
+a 401 is discarded and re-minted once for that request, instead of the member
+getting the public view until the cached token's own expiry (a sign-out
+anywhere revokes the session server side). The API client announces the
+rejection on `agend_apps_bearer_rejected`, which the worker uses to clear the
+cache; a 403, or a token that is not the worker's, leaves it alone. A freshly
+minted token that is rejected too is negative-cached for 60 seconds, so a
+gateway that refuses every token costs one mint a minute per member.
+
 ### Member sessions: storage, refresh and sign-out
 
 A member who signs in with their Agend email and password (`credentials` mode)
