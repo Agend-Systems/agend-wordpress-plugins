@@ -366,6 +366,8 @@ illustrative examples of a typical Upbeat build, not defaults.
 
 A `custom_fields_key = source_field` mapping, one per line, blank by
 default. The key is stored under the listing's `custom_fields`.
+A source value that is true or false is sent as true or false, so a "no"
+reaches Agend as false. A blank or missing source value is still omitted.
 
 ### Address mapping
 

@@ -1002,9 +1002,11 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 
 		/**
 		 * Build the custom_fields map from the configured custom-field sources.
-		 * Drops empty values to avoid storing useless rows on the Agend side.
-		 * The badges source is additionally preserved verbatim under
-		 * `designations`.
+		 * A true/false source value is sent as a bool, so a false value is kept
+		 * (a string cast would turn it into '' and drop it, deleting the key on
+		 * the Agend side). Other empty values are still dropped to avoid storing
+		 * useless rows. The badges source is additionally preserved verbatim
+		 * under `designations`.
 		 *
 		 * @param array<string, mixed>                                  $contact
 		 * @param array{core: array<string,string>, custom_fields: array<string,string>} $field_map
@@ -1015,7 +1017,13 @@ if ( ! class_exists( 'Agend_Directory_Sync_Listing_Transformer' ) ) :
 			$custom_fields = array();
 
 			foreach ( $field_map['custom_fields'] as $target => $source ) {
-				$value = self::stringy( self::resolve_configured( $contact, $source ) );
+				$raw = self::resolve_configured( $contact, $source );
+				if ( is_bool( $raw ) ) {
+					$custom_fields[ $target ] = $raw;
+					continue;
+				}
+
+				$value = self::stringy( $raw );
 				if ( '' !== $value ) {
 					$custom_fields[ $target ] = $value;
 				}
