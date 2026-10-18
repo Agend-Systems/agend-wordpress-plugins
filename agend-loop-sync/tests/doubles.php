@@ -38,14 +38,59 @@ final class Loop_Sync_Test_State {
 	/** @var array<string, object[]|false> Upbeat activities per membership number; false simulates failure. */
 	public static array $upbeat_activities = array();
 
+	/**
+	 * @var int|null Total the fake committee list reports on every page; null
+	 *               reports the real count, 0 reports none (the kiosk's default).
+	 */
+	public static ?int $upbeat_committee_total = null;
+
+	/**
+	 * @var array<int, array{rows?:object[],more?:bool,total?:int}|false> Whole
+	 *      committee pages by page number that replace the paged ones the fake
+	 *      builds from $upbeat_committees. false is a response that is not a
+	 *      collection; empty rows is what the kiosk returns for a failed call.
+	 */
+	public static array $upbeat_committee_pages = array();
+
+	/** @var int Activities per page the fake serves; 0 serves every row as one page. */
+	public static int $upbeat_activities_page_size = 0;
+
+	/**
+	 * @var array<string, array<int, array{rows?:object[],more?:bool,total?:int}|false>> Whole
+	 *      activity pages per membership number and page number that replace the
+	 *      paged ones the fake builds from $upbeat_activities.
+	 */
+	public static array $upbeat_activity_pages = array();
+
+	/** @var array<int, array{0:string,1:array}> Upbeat calls: [ method, args exactly as passed ]. */
+	public static array $upbeat_calls = array();
+
 	public static function reset(): void {
-		self::$users             = array();
-		self::$calls             = array();
-		self::$responses         = array();
-		self::$loop_committees   = array();
-		self::$list_page_size    = 100;
-		self::$upbeat_committees = array();
-		self::$upbeat_activities = array();
+		self::$users                       = array();
+		self::$calls                       = array();
+		self::$responses                   = array();
+		self::$loop_committees             = array();
+		self::$list_page_size              = 100;
+		self::$upbeat_committees           = array();
+		self::$upbeat_activities           = array();
+		self::$upbeat_committee_total      = null;
+		self::$upbeat_committee_pages      = array();
+		self::$upbeat_activities_page_size = 0;
+		self::$upbeat_activity_pages       = array();
+		self::$upbeat_calls                = array();
+	}
+
+	/**
+	 * @return array<int, array> Args, exactly as passed, of every Upbeat call to $method, in order.
+	 */
+	public static function upbeat_calls_to( string $method ): array {
+		$out = array();
+		foreach ( self::$upbeat_calls as $call ) {
+			if ( $call[0] === $method ) {
+				$out[] = $call[1];
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -218,31 +263,114 @@ if ( ! class_exists( 'Loop_Sync_Test_Upbeat' ) ) {
 	/**
 	 * Upbeat client double driven by Loop_Sync_Test_State. Deliberately not named
 	 * Iugo_Membership_Kiosk_API: other suites rely on that class being undefined.
+	 *
+	 * Pages the way Upbeat does when asked to (more records and a total on every
+	 * page), and records the arguments of each call so tests can assert on them.
 	 */
 	class Loop_Sync_Test_Upbeat {
 
-		/** @return Loop_Sync_Test_Collection|false */
-		public function get_committees() {
+		/**
+		 * Mirrors the kiosk: paging arguments are strings and empty means unset.
+		 *
+		 * @return Loop_Sync_Test_Collection|false
+		 */
+		public function get_committees( string $page_count = '', string $page_number = '', string $sort_col = '', string $sort_order = '' ) {
+			Loop_Sync_Test_State::$upbeat_calls[] = array( __FUNCTION__, func_get_args() );
+
+			$page = '' === $page_number ? 1 : (int) $page_number;
+			if ( array_key_exists( $page, Loop_Sync_Test_State::$upbeat_committee_pages ) ) {
+				return $this->page_from_spec( Loop_Sync_Test_State::$upbeat_committee_pages[ $page ] );
+			}
+
 			$rows = Loop_Sync_Test_State::$upbeat_committees;
-			return false === $rows ? false : new Loop_Sync_Test_Collection( $rows );
+			if ( false === $rows ) {
+				return false;
+			}
+
+			// Rows are served in the order the test set them, whatever the sort
+			// asked for: tests assert on the sort arguments, not on Upbeat's ordering.
+			$collection = $this->page( $rows, '' === $page_count ? 0 : (int) $page_count, $page );
+			if ( null !== Loop_Sync_Test_State::$upbeat_committee_total ) {
+				$collection->set_total_record_count( Loop_Sync_Test_State::$upbeat_committee_total );
+			}
+
+			return $collection;
 		}
 
-		/** @return Loop_Sync_Test_Collection|false */
-		public function get_member_committee_activities( $membership_number = '' ) {
+		/**
+		 * @return Loop_Sync_Test_Collection|false
+		 */
+		public function get_member_committee_activities( $membership_number = '', $page_count = '', $page_number = '', $sort_col = '', $sort_order = '' ) {
+			Loop_Sync_Test_State::$upbeat_calls[] = array( __FUNCTION__, func_get_args() );
+
+			$page = '' === $page_number ? 1 : (int) $page_number;
+			if ( isset( Loop_Sync_Test_State::$upbeat_activity_pages[ (string) $membership_number ] ) && array_key_exists( $page, Loop_Sync_Test_State::$upbeat_activity_pages[ (string) $membership_number ] ) ) {
+				return $this->page_from_spec( Loop_Sync_Test_State::$upbeat_activity_pages[ (string) $membership_number ][ $page ] );
+			}
+
 			$rows = Loop_Sync_Test_State::$upbeat_activities[ (string) $membership_number ] ?? array();
-			return false === $rows ? false : new Loop_Sync_Test_Collection( $rows );
+			if ( false === $rows ) {
+				return false;
+			}
+
+			return $this->page( $rows, Loop_Sync_Test_State::$upbeat_activities_page_size, $page );
+		}
+
+		/**
+		 * One page of $rows, as Upbeat reports it. A size of 0 means one page of everything.
+		 */
+		private function page( array $rows, int $size, int $page ): Loop_Sync_Test_Collection {
+			$total = count( $rows );
+			if ( $size > 0 ) {
+				$start = ( $page - 1 ) * $size;
+				$more  = $start + $size < $total;
+				$rows  = array_slice( $rows, $start, $size );
+			} else {
+				$more = false;
+			}
+
+			return new Loop_Sync_Test_Collection( array_values( $rows ), $more, $total );
+		}
+
+		/**
+		 * @param array{rows?:object[],more?:bool,total?:int}|false $spec
+		 * @return Loop_Sync_Test_Collection|false
+		 */
+		private function page_from_spec( $spec ) {
+			if ( false === $spec ) {
+				return false;
+			}
+
+			return new Loop_Sync_Test_Collection( $spec['rows'] ?? array(), (bool) ( $spec['more'] ?? false ), (int) ( $spec['total'] ?? 0 ) );
 		}
 	}
 
 	class Loop_Sync_Test_Collection {
 		private array $rows;
+		private bool $more_records;
+		private int $total_record_count;
 
-		public function __construct( array $rows ) {
-			$this->rows = $rows;
+		public function __construct( array $rows, bool $more_records = false, int $total_record_count = 0 ) {
+			$this->rows               = $rows;
+			$this->more_records       = $more_records;
+			$this->total_record_count = $total_record_count;
 		}
 
 		public function get_results(): array {
 			return $this->rows;
+		}
+
+		public function get_more_records(): bool {
+			return $this->more_records;
+		}
+
+		public function get_total_record_count(): int {
+			return $this->total_record_count;
+		}
+
+		public function set_total_record_count( int $total_record_count ): self {
+			$this->total_record_count = $total_record_count;
+			return $this;
 		}
 	}
 
