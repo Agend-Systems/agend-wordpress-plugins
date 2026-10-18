@@ -250,8 +250,9 @@ The screen also shows:
 - **Last run:** time of the last committee sync and a summary of committees
   synced and committees archived. Member counts (applied, skipped because
   they have no Loop account, removed) and the membership numbers that did
-  not match a Loop account appear only when the gateway reports them; the
-  current gateway does not, so they read 0.
+  not match a Loop account appear only when the gateway reports them. The
+  current gateway does not, and the screen says so rather than showing
+  zeros.
 - **Recent activity:** the 30 most recent log entries (the last 200 are
   kept). With `WP_DEBUG` on, entries also go to the PHP error log.
 
