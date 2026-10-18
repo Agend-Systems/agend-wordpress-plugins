@@ -119,9 +119,15 @@ sync works member by member:
 Because rosters are built from local users, a channel only ever contains
 members who exist on this WordPress site.
 
-Each committee is keyed in Loop by a slug of its name (for example
-"Finance & Audit Committee" becomes `finance-audit-committee`), since Upbeat
-committees have no numeric ID.
+Each committee is keyed in Loop by its Upbeat unique ID, so renaming a
+committee in Upbeat renames its channel rather than creating a new one.
+Member activities name their committee but carry no ID, so the ID is looked
+up in the committee list by name. As a result:
+
+- A committee with no unique ID in Upbeat, or whose name is shared by another
+  committee, is skipped and a warning is logged.
+- A new or renamed committee is skipped until the committee list catches up
+  (see [Things to know](#things-to-know)).
 
 #### Role mapping
 
@@ -171,7 +177,8 @@ complete:
 - **Committees with no local members left** are sent an empty roster. This
   currently has no effect in Loop.
 
-If any lookup fails, the run switches to **merge mode**: members are added
+If any lookup fails, or member activities name a committee the committee
+list does not have yet, the run switches to **merge mode**: members are added
 and updated, but nothing is removed or archived, because a missing member
 cannot be told apart from one who left. The settings screen and log record
 when this happens. If the committee list itself cannot be read from Upbeat,
@@ -243,7 +250,7 @@ nonce-protected.
 | Sync committees now | Runs a full committee sync immediately. | Yes (unless dry run) |
 | Backfill all users | Pushes every member to Loop in batches of 100. | Yes (unless dry run) |
 | Scan members for committees | Lists local members who sit on a committee, with their committees, roles, email and membership number, plus a count of each role name. Up to 200 members are listed. | No |
-| Inspect committee catalogue | Lists every Upbeat committee with its web flag, groups and activity count, plus every role name in use. | No |
+| Inspect committee catalogue | Lists every Upbeat committee with its unique ID, web flag, groups and activity count, plus every role name in use. | No |
 
 The screen also shows:
 
@@ -278,10 +285,10 @@ them.
 
 ## Things to know
 
-- **Renaming a committee in Upbeat creates a new channel.** Committees are
-  keyed by name, so a renamed committee gets a new channel and the old one is
-  archived on the next complete run. Channel history stays with the archived
-  channel.
+- **New and renamed committees can take up to a day to sync.** Until the
+  cached committee list includes the new name, that committee is skipped and
+  each run makes no removals or archiving. Once the list refreshes, the
+  committee syncs, and a renamed committee keeps its existing channel.
 - **Removing a committee from the filter freezes its channel.** It stops
   being updated but is not emptied or archived while the committee still
   exists in Upbeat.

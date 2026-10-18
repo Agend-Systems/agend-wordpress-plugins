@@ -25,10 +25,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  * unique id. Loop channels are keyed by that id, so renaming a committee in
  * Upbeat renames its channel instead of creating a new one. Activities name
  * their committee but carry no id, so the id is joined from the committee list
- * by name. Upbeat caches that list for 24 hours and each member's activities
- * for 1 hour, so just after a committee is created or renamed the two can
- * disagree; a run that finds a name missing from the list syncs nothing for it
- * and makes no removals or archiving (see run()).
+ * by name. The membership plugin caches that list for 24 hours and each
+ * member's activities for 1 hour, so just after a committee is created or
+ * renamed the two can disagree; a run that finds a name missing from the list
+ * syncs nothing for it and makes no removals or archiving (see run()).
  *
  * Note: this makes one membership-activities API call per local member (the
  * Upbeat client caches each), so on a very large membership the run is best
