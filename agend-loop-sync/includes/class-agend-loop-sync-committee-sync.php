@@ -955,11 +955,11 @@ class Agend_Loop_Sync_Committee_Sync {
 	}
 
 	/**
-	 * Read-only committee catalogue from the full committee list: committee names, unique
-	 * ids, web flag, groups, raw activity count, and the distinct role strings
-	 * (the mapping vocabulary). Does NOT resolve members: Upbeat returns contact
-	 * names rather than ids, so member resolution is done per-member by the
-	 * sync and by scan_members(), not here.
+	 * Read-only committee catalogue from the full committee list: committee
+	 * names, unique ids, web flag, groups, raw activity count, and the distinct
+	 * role strings (the mapping vocabulary). Does NOT resolve members: Upbeat
+	 * returns contact names rather than ids, so member resolution is done
+	 * per-member by the sync and by scan_members(), not here.
 	 *
 	 * @return array<string, mixed>
 	 */

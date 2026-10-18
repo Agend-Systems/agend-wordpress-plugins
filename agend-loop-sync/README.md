@@ -303,8 +303,14 @@ them.
   channel synced into the Agend account, so two WordPress sites syncing
   committees into the same account would archive each other's channels.
 - **Run time grows with membership size.** A committee sync makes one Upbeat
-  call per member (cached by the membership plugin). On large memberships,
-  leave it to the schedule; manual runs lift the PHP time limit.
+  call per member (cached by the membership plugin), plus one call per page
+  of the committee list. On large memberships, leave it to the schedule;
+  manual runs lift the PHP time limit.
+- **Upbeat results are read in full or not at all.** Upbeat returns results
+  in pages, and the sync reads every page. If any page of the committee list
+  cannot be read, or the pages do not add up to the total Upbeat reports,
+  the run stops before making any change. If a member's committee pages
+  cannot all be read, the run drops to merge mode.
 - **WP-Cron depends on site traffic.** On low-traffic sites, or for
   predictable timing, trigger WP-Cron from a server cron job.
 - **Role-based channels come from Loop, not WordPress.** Which channels a
@@ -325,5 +331,9 @@ them.
   are the extension points.
 - Settings are stored as individual `agend_loop_sync_*` options. The cron
   hook is `agend_loop_sync_committee_event`.
+- The committee list is read 5 committees per page, sorted by name, because
+  each committee in Upbeat's response carries its full roster and a large
+  page can outrun the HTTP timeout. Change the page size with the
+  `agend_loop_sync_committee_page_size` filter.
 - Tests live in `tests/` and run as part of the repository's PHPUnit suite
   (`composer test` from the repository root).
