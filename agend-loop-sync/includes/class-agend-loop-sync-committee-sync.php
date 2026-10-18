@@ -91,6 +91,7 @@ class Agend_Loop_Sync_Committee_Sync {
 			'skipped_invalid_members'     => 0,
 			'removed_members'             => 0,
 			'archived'                    => 0,
+			'archived_empty'              => 0,
 			'failed_members'              => 0,
 			'mode'                        => 'replace',
 			'unresolved_external_ids'     => array(),
@@ -153,7 +154,7 @@ class Agend_Loop_Sync_Committee_Sync {
 			}
 		}
 
-		// Loop's view of the committees this site has synced. Needed to clear a
+		// Loop's view of the committees this site has synced. Needed to archive a
 		// committee whose last member left, and to archive removed ones.
 		$loop_committees = $complete ? $this->fetch_loop_committees( $summary ) : null;
 
@@ -197,16 +198,16 @@ class Agend_Loop_Sync_Committee_Sync {
 		if ( null !== $loop_committees ) {
 			// A committee still in Upbeat but with no local member left has no
 			// roster, so the loop above never visits it and its last members
-			// would keep access. Push an empty roster for those already in Loop.
-			foreach ( $this->committees_to_empty( $index, $rosters, $loop_committees ) as $committee ) {
+			// would keep access. The gateway ignores an empty roster, so archive
+			// the channel instead. That is reversible: once the committee has a
+			// local member again the roster sync upserts it as active.
+			foreach ( $this->committees_without_local_members( $index, $rosters, $loop_committees ) as $committee ) {
 				if ( ! $this->passes_filter( $committee['name'], $index ) ) {
 					continue;
 				}
 
-				++$summary['committees'];
-
-				if ( $this->sync_committee_roster( $committee['unique_id'], $committee['name'], array(), $summary ) ) {
-					++$summary['synced'];
+				if ( $this->archive_committee( $committee['unique_id'], 'no local member left', $summary ) ) {
+					++$summary['archived_empty'];
 				}
 			}
 
@@ -445,15 +446,16 @@ class Agend_Loop_Sync_Committee_Sync {
 
 	/**
 	 * Committees that exist in Upbeat and are live in Loop but received no
-	 * roster this run (every member left, or none are local). Matched by unique
-	 * id, so a committee without one is never touched.
+	 * roster this run (every member left, or none are local), so they are due
+	 * to be archived. Matched by unique id, so a committee without one is never
+	 * touched.
 	 *
 	 * @param array<string, array<string, mixed>> $index           Upbeat committee index.
 	 * @param array<string, mixed>                $rosters         Rosters built this run, keyed by name.
 	 * @param array<int, array<string, mixed>>    $loop_committees Committees Loop holds.
 	 * @return array<int, array{unique_id: string, name: string}>
 	 */
-	private function committees_to_empty( array $index, array $rosters, array $loop_committees ): array {
+	private function committees_without_local_members( array $index, array $rosters, array $loop_committees ): array {
 		$live = array();
 		foreach ( $loop_committees as $item ) {
 			if ( empty( $item['is_archived'] ) && '' !== (string) ( $item['unique_id'] ?? '' ) ) {
@@ -510,10 +512,6 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * @return void
 	 */
 	private function archive_removed_committees( array $index, array $loop_committees, array &$summary ): void {
-		if ( ! function_exists( 'agend_apps_loop_archive_committee' ) ) {
-			return;
-		}
-
 		// The unique_id of every current Upbeat committee. A name shared by
 		// several committees is not synced, but its ids are still current.
 		$current = array();
@@ -537,28 +535,61 @@ class Agend_Loop_Sync_Committee_Sync {
 				continue; // Still present upstream.
 			}
 
-			if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
-				Agend_Loop_Sync_Logger::info( 'Dry run: would archive committee removed upstream', array( 'unique_id' => $uid ) );
-				++$summary['archived'];
-				continue;
-			}
-
-			$res = agend_apps_loop_archive_committee( $uid );
-			if ( is_wp_error( $res ) ) {
-				$summary['errors'][] = sprintf( 'Archive %s: %s', $uid, $res->get_error_message() );
-				Agend_Loop_Sync_Logger::error(
-					'Committee archive failed',
-					array(
-						'unique_id' => $uid,
-						'error'     => $res->get_error_message(),
-					)
-				);
-				continue;
-			}
-
-			++$summary['archived'];
-			Agend_Loop_Sync_Logger::info( 'Committee archived (removed upstream)', array( 'unique_id' => $uid ) );
+			$this->archive_committee( $uid, 'removed upstream', $summary );
 		}
+	}
+
+	/**
+	 * Archives one Loop committee channel (hidden) by unique id, or logs it in
+	 * dry run. Counts it in the summary's `archived` total and records a failure
+	 * in its errors. The caller adds any count specific to its reason.
+	 *
+	 * @param string               $unique_id Upbeat committee unique id, the channel's key in Loop.
+	 * @param string               $reason    Why it is archived, for the log.
+	 * @param array<string, mixed> $summary   Run summary, by reference.
+	 * @return bool True when archived or, in dry run, would be; false when it failed or archiving is unavailable.
+	 */
+	private function archive_committee( string $unique_id, string $reason, array &$summary ): bool {
+		if ( ! function_exists( 'agend_apps_loop_archive_committee' ) ) {
+			return false;
+		}
+
+		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
+			Agend_Loop_Sync_Logger::info(
+				'Dry run: would archive committee',
+				array(
+					'unique_id' => $unique_id,
+					'reason'    => $reason,
+				)
+			);
+			++$summary['archived'];
+			return true;
+		}
+
+		$res = agend_apps_loop_archive_committee( $unique_id );
+		if ( is_wp_error( $res ) ) {
+			$summary['errors'][] = sprintf( 'Archive %s: %s', $unique_id, $res->get_error_message() );
+			Agend_Loop_Sync_Logger::error(
+				'Committee archive failed',
+				array(
+					'unique_id' => $unique_id,
+					'reason'    => $reason,
+					'error'     => $res->get_error_message(),
+				)
+			);
+			return false;
+		}
+
+		++$summary['archived'];
+		Agend_Loop_Sync_Logger::info(
+			'Committee archived',
+			array(
+				'unique_id' => $unique_id,
+				'reason'    => $reason,
+			)
+		);
+
+		return true;
 	}
 
 	/**

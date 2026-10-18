@@ -19,8 +19,7 @@ require_once __DIR__ . '/LoopSyncTestCase.php';
  * Loop channels are keyed by Upbeat's stable committee unique id, not the
  * committee name, so a rename keeps its channel. Activities carry the name
  * only, and Upbeat caches the committee list longer than the activities, so a
- * name the list does not know yet must never be synced, archived or emptied
- * around.
+ * name the list does not know yet must never be synced or archived around.
  */
 final class StableCommitteeIdTest extends LoopSyncTestCase {
 
@@ -111,7 +110,7 @@ final class StableCommitteeIdTest extends LoopSyncTestCase {
 			new Loop_Sync_Test_Activity( 'Brand New Committee', 'Member' ),
 		);
 		// Audit has no roster this run and gone is absent upstream: on complete
-		// data these would be emptied and archived.
+		// data both would be archived.
 		Loop_Sync_Test_State::$loop_committees          = array(
 			$this->loop_committee( 'uid-board' ),
 			$this->loop_committee( 'uid-audit' ),
@@ -236,7 +235,7 @@ final class StableCommitteeIdTest extends LoopSyncTestCase {
 	}
 
 	#[Test]
-	public function an_ambiguous_committee_without_a_roster_is_not_emptied(): void {
+	public function an_ambiguous_committee_without_a_roster_is_not_archived(): void {
 		loop_sync_test_user( 1, '100' );
 		Loop_Sync_Test_State::$upbeat_committees        = array(
 			new Loop_Sync_Test_Committee( 'Board', 'uid-board-a' ),
@@ -250,9 +249,11 @@ final class StableCommitteeIdTest extends LoopSyncTestCase {
 			$this->loop_committee( 'uid-audit' ),
 		);
 
-		$this->committee_sync()->run();
+		$summary = $this->committee_sync()->run();
 
 		$this->assertSame( array( 'uid-audit' ), array_column( $this->synced_payloads(), 'unique_id' ) );
+		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_archive_committee' ) );
+		$this->assertSame( 0, $summary['archived_empty'] );
 	}
 
 	#[Test]
@@ -279,7 +280,7 @@ final class StableCommitteeIdTest extends LoopSyncTestCase {
 	}
 
 	#[Test]
-	public function a_committee_emptied_of_local_members_is_cleared_by_its_unique_id_and_name(): void {
+	public function a_committee_emptied_of_local_members_is_archived_by_its_unique_id(): void {
 		loop_sync_test_user( 1, '100' );
 		Loop_Sync_Test_State::$upbeat_committees        = array(
 			new Loop_Sync_Test_Committee( 'Board', 'uid-board' ),
@@ -289,16 +290,20 @@ final class StableCommitteeIdTest extends LoopSyncTestCase {
 		Loop_Sync_Test_State::$loop_committees          = array(
 			$this->loop_committee( 'uid-board' ),
 			$this->loop_committee( 'uid-audit' ),
-			// The old slug-keyed channel for Audit is not matched.
+			// The old slug-keyed channel for Audit is not matched as the emptied
+			// committee: it is archived as removed upstream.
 			$this->loop_committee( 'audit' ),
 		);
 
-		$this->committee_sync()->run();
+		$summary = $this->committee_sync()->run();
 
-		$by_id = array_column( $this->synced_payloads(), null, 'unique_id' );
-		$this->assertSame( array( 'uid-board', 'uid-audit' ), array_keys( $by_id ) );
-		$this->assertSame( 'Audit', $by_id['uid-audit']['name'] );
-		$this->assertSame( array(), $by_id['uid-audit']['roster'] );
+		$this->assertSame( array( 'uid-board' ), array_column( $this->synced_payloads(), 'unique_id' ) );
+		$this->assertSame(
+			array( array( 'uid-audit', 'hidden' ), array( 'audit', 'hidden' ) ),
+			Loop_Sync_Test_State::calls_to( 'agend_apps_loop_archive_committee' )
+		);
+		$this->assertSame( 2, $summary['archived'] );
+		$this->assertSame( 1, $summary['archived_empty'] );
 	}
 
 	#[Test]

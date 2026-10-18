@@ -15,7 +15,7 @@ use PHPUnit\Framework\Attributes\Test;
 require_once __DIR__ . '/LoopSyncTestCase.php';
 
 /**
- * Deprovisioning (replace mode, archiving, clearing an emptied committee) must
+ * Deprovisioning (replace mode, archiving, archiving an emptied committee) must
  * only act on complete data. A failed Upbeat read looks like "nobody is
  * there", and acting on it would strip real members and archive live channels.
  */
@@ -108,7 +108,7 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 	}
 
 	#[Test]
-	public function a_committee_whose_last_local_member_left_is_cleared_with_an_empty_roster(): void {
+	public function a_committee_whose_last_local_member_left_is_archived_rather_than_sent_an_empty_roster(): void {
 		loop_sync_test_user( 1, '100' );
 		Loop_Sync_Test_State::$upbeat_committees        = array(
 			new Loop_Sync_Test_Committee( 'Board', 'uid-board' ),
@@ -117,13 +117,16 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
 		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'uid-board' ), $this->loop_committee( 'uid-audit' ) );
 
-		$this->committee_sync()->run();
+		$summary = $this->committee_sync()->run();
 
+		// The gateway ignores an empty roster, so none is pushed.
 		$payloads = array_column( Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_committee' ), 0 );
-		$by_id    = array_column( $payloads, null, 'unique_id' );
-		$this->assertSame( array(), $by_id['uid-audit']['roster'] );
-		$this->assertSame( 'replace', $by_id['uid-audit']['mode'] );
-		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_archive_committee' ) );
+		$this->assertSame( array( 'uid-board' ), array_column( $payloads, 'unique_id' ) );
+		$this->assertSame( array( array( 'uid-audit', 'hidden' ) ), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_archive_committee' ) );
+		$this->assertSame( 1, $summary['committees'] );
+		$this->assertSame( 1, $summary['synced'] );
+		$this->assertSame( 1, $summary['archived'] );
+		$this->assertSame( 1, $summary['archived_empty'] );
 	}
 
 	#[Test]
