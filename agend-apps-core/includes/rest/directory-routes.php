@@ -61,23 +61,7 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'get_listings' ),
 					'permission_callback' => '__return_true',
-					'args'                => array(
-						'page'     => array(
-							'type'              => 'integer',
-							'minimum'           => 1,
-							'sanitize_callback' => 'absint',
-						),
-						'per_page' => array(
-							'type'              => 'integer',
-							'minimum'           => 1,
-							'maximum'           => 100,
-							'sanitize_callback' => 'absint',
-						),
-						'category' => array(
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-					),
+					'args'                => $this->listings_args(),
 				),
 			)
 		);
@@ -113,24 +97,7 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 					'methods'             => WP_REST_Server::READABLE,
 					'callback'            => array( $this, 'get_listing_reviews' ),
 					'permission_callback' => '__return_true',
-					'args'                => array(
-						'listing_id' => array(
-							'required'          => true,
-							'type'              => 'string',
-							'sanitize_callback' => 'sanitize_text_field',
-						),
-						'page'       => array(
-							'type'              => 'integer',
-							'minimum'           => 1,
-							'sanitize_callback' => 'absint',
-						),
-						'limit'      => array(
-							'type'              => 'integer',
-							'minimum'           => 1,
-							'maximum'           => 100,
-							'sanitize_callback' => 'absint',
-						),
-					),
+					'args'                => $this->reviews_args(),
 				),
 			)
 		);
@@ -443,23 +410,9 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 				'type'              => 'string',
 				'sanitize_callback' => 'sanitize_text_field',
 			),
-			'page'              => array(
-				'type'              => 'integer',
-				'minimum'           => 1,
-				'sanitize_callback' => 'absint',
-			),
-			'limit'             => array(
-				'type'              => 'integer',
-				'minimum'           => 1,
-				'maximum'           => 100,
-				'sanitize_callback' => 'absint',
-			),
-			'per_page'          => array(
-				'type'              => 'integer',
-				'minimum'           => 1,
-				'maximum'           => 100,
-				'sanitize_callback' => 'absint',
-			),
+			'page'              => self::bounded_integer_arg( 1 ),
+			'limit'             => self::bounded_integer_arg( 1, 100 ),
+			'per_page'          => self::bounded_integer_arg( 1, 100 ),
 			'category'          => array(
 				'type'              => 'string',
 				'sanitize_callback' => 'sanitize_text_field',
@@ -568,8 +521,68 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	private function markers_args(): array {
 		$args = $this->search_args();
 		unset( $args['page'], $args['per_page'], $args['sortBy'], $args['sortOrder'] );
-		$args['limit']['maximum'] = 2000;
+		$args['limit'] = self::bounded_integer_arg( 1, 2000 );
 		return $args;
+	}
+
+	/**
+	 * The query arguments `GET /directory/listings` accepts.
+	 *
+	 * @return array
+	 */
+	private function listings_args(): array {
+		return array(
+			'page'     => self::bounded_integer_arg( 1 ),
+			'per_page' => self::bounded_integer_arg( 1, 100 ),
+			'category' => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+		);
+	}
+
+	/**
+	 * The arguments `GET /directory/listings/{slugOrId}/reviews` accepts.
+	 *
+	 * @return array
+	 */
+	private function reviews_args(): array {
+		return array(
+			'listing_id' => array(
+				'required'          => true,
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'page'       => self::bounded_integer_arg( 1 ),
+			'limit'      => self::bounded_integer_arg( 1, 100 ),
+		);
+	}
+
+	/**
+	 * An integer argument whose declared bounds are enforced.
+	 *
+	 * WordPress checks `minimum` and `maximum` only for an argument with no
+	 * sanitize callback of its own, so the callback applies them itself. A
+	 * value outside the range is moved to the nearest bound rather than
+	 * refused, so a request asking for a larger page still gets a page.
+	 *
+	 * @param int      $minimum Smallest accepted value.
+	 * @param int|null $maximum Largest accepted value, or null for no upper bound.
+	 * @return array
+	 */
+	private static function bounded_integer_arg( int $minimum, ?int $maximum = null ): array {
+		$arg = array(
+			'type'              => 'integer',
+			'minimum'           => $minimum,
+			'sanitize_callback' => static function ( $value ) use ( $minimum, $maximum ): int {
+				$value = max( $minimum, (int) $value );
+				return null === $maximum ? $value : min( $maximum, $value );
+			},
+		);
+		if ( null !== $maximum ) {
+			$arg['maximum'] = $maximum;
+		}
+		return $arg;
 	}
 
 	/**
