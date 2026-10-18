@@ -51,7 +51,7 @@ final class LoggingAndSchedulingTest extends LoopSyncTestCase {
 	public function a_dry_run_logs_no_email_for_a_user_or_committee(): void {
 		update_option( 'agend_loop_sync_dry_run', '1' );
 		$user = loop_sync_test_user( 1, '100', 'secret@example.com' );
-		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board' ) );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
 
 		( new Agend_Loop_Sync_User_Sync() )->sync_user( $user );
@@ -64,7 +64,7 @@ final class LoggingAndSchedulingTest extends LoopSyncTestCase {
 	#[Test]
 	public function the_stored_summary_caps_unresolved_ids(): void {
 		loop_sync_test_user( 1, '100' );
-		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board' ) );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
 		Loop_Sync_Test_State::$responses['agend_apps_loop_sync_committee'] = array(
 			'success' => true,

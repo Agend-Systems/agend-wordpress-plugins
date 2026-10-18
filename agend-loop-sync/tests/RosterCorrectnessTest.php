@@ -10,6 +10,7 @@ namespace Agend\Tests\LoopSync;
 use Agend_Loop_Sync_Contact_Resolver;
 use Agend_Loop_Sync_User_Sync;
 use Loop_Sync_Test_Activity;
+use Loop_Sync_Test_Committee;
 use Loop_Sync_Test_State;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -87,6 +88,7 @@ final class RosterCorrectnessTest extends LoopSyncTestCase {
 	public function committee_roster_skips_a_member_with_a_non_numeric_number(): void {
 		loop_sync_test_user( 1, '100' );
 		loop_sync_test_user( 2, 'ABC' );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Member' ) );
 		Loop_Sync_Test_State::$upbeat_activities['ABC'] = array( new Loop_Sync_Test_Activity( 'Board', 'Member' ) );
 
@@ -100,6 +102,7 @@ final class RosterCorrectnessTest extends LoopSyncTestCase {
 	#[Test]
 	public function committee_roster_omits_an_invalid_email_rather_than_failing_the_committee(): void {
 		loop_sync_test_user( 1, '100', 'bad-email' );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Member' ) );
 
 		$this->committee_sync()->run();
@@ -128,6 +131,7 @@ final class RosterCorrectnessTest extends LoopSyncTestCase {
 	#[DataProvider( 'role_orders' )]
 	public function a_member_with_several_roles_keeps_the_highest( array $roles, string $channel_role, string $label ): void {
 		loop_sync_test_user( 1, '100' );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array_map(
 			static fn( $role ) => new Loop_Sync_Test_Activity( 'Board', $role ),
 			$roles

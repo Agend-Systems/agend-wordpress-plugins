@@ -24,7 +24,7 @@ Syncs directory contacts from a pluggable data source into the Agend directory v
 
 ## Agend Loop Sync (`agend-loop-sync/`)
 
-Dedicated plugin to sync WordPress users, roles and Upbeat committee entitlements into Agend Loop roles and channel access. Users sync on login and role change with a configurable role-to-channel mapping; committees sync on a WP-Cron schedule or on demand from the admin settings screen.
+Syncs members and Upbeat committees into Agend Loop through the gateway's Loop integration endpoints. Member syncs (on login, profile or role change, and Upbeat change events, plus a bulk backfill) refresh existing Loop accounts and apply Loop's role-based channel joins. Each Upbeat committee becomes a private Loop channel whose roster follows Upbeat, with a configurable committee-role to channel-role mapping, committee filtering and archiving of deleted committees (removing departed members awaits gateway roster replace-mode support); committees sync on a WP-Cron schedule or on demand from the admin settings screen. Ships disabled and in dry-run mode. See `agend-loop-sync/README.md`.
 
 ## Agend Content Access (`agend-content-access/`)
 
@@ -36,7 +36,7 @@ Mirrors Upbeat entitlement grants into Agend CRM entitlement grants so directory
 
 ## Testing
 
-A repo-level PHPUnit 10.5 harness (`composer test`) runs fast, WordPress-free unit tests against stubs in `tests/`. Test suites exist for agend-apps-core, agend-apps-shop, agend-content-access, agend-elementor, agend-entitlement-mirror and agend-directory-sync; the remaining plugins have no suites yet, and there is no integration suite against a real WordPress install.
+A repo-level PHPUnit 10.5 harness (`composer test`) runs fast, WordPress-free unit tests against stubs in `tests/`. Test suites exist for agend-apps-core, agend-apps-shop, agend-content-access, agend-elementor, agend-entitlement-mirror, agend-directory-sync and agend-loop-sync; the remaining plugins have no suites yet, and there is no integration suite against a real WordPress install.
 
 Run the whole suite, not one testsuite at a time: `--testsuite agend-elementor` on its own fails, because those tests depend on function definitions that other suites load into the shared process. `./vendor/bin/phpunit` with no arguments is the authoritative check, and is what CI runs.
 
