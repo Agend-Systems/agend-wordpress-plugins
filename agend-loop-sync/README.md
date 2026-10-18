@@ -279,11 +279,15 @@ them.
    committee filter.
 4. Run **Backfill all users** and **Sync committees now**, then check
    **Recent activity** to confirm the payloads look right.
-5. Turn **Dry run** off. Run **Backfill all users**, then **Sync committees
-   now**.
-6. Review the backfill result. Members counted as failed do not have a Loop
+5. Until Agend confirms the gateway supports removing departed members, untick
+   **Committee sync** before the next step, so only member sync goes live.
+   Committee memberships the plugin adds before then will not be removed or
+   demoted automatically later.
+6. Turn **Dry run** off. Run **Backfill all users**, then (once committee sync
+   is enabled) **Sync committees now**.
+7. Review the backfill result. Members counted as failed do not have a Loop
    account yet; they are picked up after their first SSO sign-in.
-7. Confirm the schedule, and make sure WP-Cron fires (see below).
+8. Confirm the schedule, and make sure WP-Cron fires (see below).
 
 ## Things to know
 
