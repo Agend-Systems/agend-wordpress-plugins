@@ -245,8 +245,10 @@ class Agend_Loop_Sync_User_Sync {
 	/**
 	 * Backfills every local member into Loop in one pass, using the bulk-sync
 	 * endpoint in batches of 100. Unlike the per-login trigger this is intended
-	 * for the initial rollout (so committee roster resolution has Loop users to
-	 * match against). Honours dry-run.
+	 * for the initial rollout. It never creates Loop accounts (those appear at a
+	 * member's first SSO sign-in to Loop): it only refreshes display names and
+	 * role-based channels on existing accounts, and a member with no account
+	 * comes back as failed. Honours dry-run.
 	 *
 	 * @return array<string, mixed> A summary of the backfill.
 	 */

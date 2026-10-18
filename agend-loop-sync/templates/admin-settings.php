@@ -184,17 +184,35 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 
 	<?php if ( ! empty( $als_last_summary ) ) : ?>
 		<p>
-			<?php
-			printf(
-				/* translators: 1: committees synced, 2: members applied, 3: members skipped (no Loop user), 4: memberships removed, 5: committees archived. */
-				esc_html__( 'Last run: %1$d committees synced, %2$d members applied, %3$d skipped (no Loop user yet), %4$d memberships removed, %5$d committees archived.', 'agend-loop-sync' ),
-				(int) ( $als_last_summary['synced'] ?? 0 ),
-				(int) ( $als_last_summary['applied_members'] ?? 0 ),
-				(int) ( $als_last_summary['skipped_members'] ?? 0 ),
-				(int) ( $als_last_summary['removed_members'] ?? 0 ),
-				(int) ( $als_last_summary['archived'] ?? 0 )
-			);
-			?>
+			<?php if ( ! empty( $als_last_summary['member_counts_reported'] ) ) : ?>
+				<?php
+				printf(
+					/* translators: 1: committees synced, 2: members applied, 3: members skipped (no Loop user), 4: memberships removed, 5: committees archived. */
+					esc_html__( 'Last run: %1$d committees synced, %2$d members applied, %3$d skipped (no Loop user yet), %4$d memberships removed, %5$d committees archived.', 'agend-loop-sync' ),
+					(int) ( $als_last_summary['synced'] ?? 0 ),
+					(int) ( $als_last_summary['applied_members'] ?? 0 ),
+					(int) ( $als_last_summary['skipped_members'] ?? 0 ),
+					(int) ( $als_last_summary['removed_members'] ?? 0 ),
+					(int) ( $als_last_summary['archived'] ?? 0 )
+				);
+				?>
+			<?php else : ?>
+				<?php
+				printf(
+					/* translators: 1: committees synced, 2: committees archived. */
+					esc_html__( 'Last run: %1$d committees synced, %2$d committees archived.', 'agend-loop-sync' ),
+					(int) ( $als_last_summary['synced'] ?? 0 ),
+					(int) ( $als_last_summary['archived'] ?? 0 )
+				);
+				?>
+				<span class="description">
+					<?php if ( ! empty( $als_last_summary['dry_run'] ) ) : ?>
+						<?php esc_html_e( '(dry run: nothing was sent, so there are no member counts)', 'agend-loop-sync' ); ?>
+					<?php else : ?>
+						<?php esc_html_e( '(member counts were not reported by the gateway)', 'agend-loop-sync' ); ?>
+					<?php endif; ?>
+				</span>
+			<?php endif; ?>
 			<?php
 			$als_unresolved = isset( $als_last_summary['unresolved_external_ids'] ) ? array_values( array_unique( (array) $als_last_summary['unresolved_external_ids'] ) ) : array();
 			if ( ! empty( $als_unresolved ) ) :
@@ -204,7 +222,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 					<?php
 					printf(
 						/* translators: %s: comma-separated list of membership numbers. */
-						esc_html__( 'Members not yet in Loop (they must log in / be backfilled first): %s', 'agend-loop-sync' ),
+						esc_html__( 'Members not yet in Loop (they must sign in to Loop through SSO first): %s', 'agend-loop-sync' ),
 						esc_html( implode( ', ', array_map( 'strval', $als_unresolved ) ) )
 					);
 					?>
@@ -226,7 +244,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 		</form>
 	</p>
 	<p class="description">
-		<?php esc_html_e( 'Backfill pushes every local member with a membership number to Loop in one pass (batches of 100). Run this once before the first committee sync so members can be matched to Loop users. Honours dry run.', 'agend-loop-sync' ); ?>
+		<?php esc_html_e( 'Backfill refreshes every local member with a membership number in Loop in one pass (batches of 100), updating display names and role-based channels. It does not create Loop accounts, so members who have not yet signed in to Loop through SSO are counted as failed. Honours dry run.', 'agend-loop-sync' ); ?>
 	</p>
 
 	<?php
@@ -247,7 +265,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 				);
 				?>
 				<?php if ( ! empty( $als_backfill['dry_run'] ) ) : ?>
-					<em><?php esc_html_e( '(dry run — nothing was sent)', 'agend-loop-sync' ); ?></em>
+					<em><?php esc_html_e( '(dry run: nothing was sent)', 'agend-loop-sync' ); ?></em>
 				<?php endif; ?>
 			</p>
 		</div>

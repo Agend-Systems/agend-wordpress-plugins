@@ -88,6 +88,7 @@ class Agend_Loop_Sync_Committee_Sync {
 			'unresolved_external_ids' => array(),
 			'errors'                  => array(),
 			'dry_run'                 => Agend_Loop_Sync_Settings::is_dry_run(),
+			'member_counts_reported'  => false,
 		);
 
 		if ( ! Agend_Loop_Sync_Settings::is_enabled() || ! Agend_Loop_Sync_Settings::is_committee_sync_enabled() ) {
@@ -317,6 +318,12 @@ class Agend_Loop_Sync_Committee_Sync {
 		// of these counts, so removals silently never happen. Surface it.
 		if ( 'replace' === $summary['mode'] && is_array( $data ) && ! array_key_exists( 'removed', $data ) && ! in_array( 'Gateway did not confirm replace mode; departed members are not being removed', $summary['errors'], true ) ) {
 			$summary['errors'][] = 'Gateway did not confirm replace mode; departed members are not being removed';
+		}
+
+		// Without these counts the member totals stay at zero, which would read
+		// as "nothing happened". Record whether the gateway actually reported them.
+		if ( is_array( $data ) && array_key_exists( 'applied', $data ) ) {
+			$summary['member_counts_reported'] = true;
 		}
 
 		$summary['applied_members'] += $applied;
