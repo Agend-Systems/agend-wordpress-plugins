@@ -36,7 +36,7 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 		loop_sync_test_user( 1, '100' );
 		Loop_Sync_Test_State::$upbeat_committees        = false;
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
-		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'board' ) );
+		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'uid-board' ) );
 
 		$summary = $this->committee_sync()->run();
 
@@ -49,10 +49,10 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 	public function a_failed_member_lookup_downgrades_the_run_to_merge_and_skips_archiving(): void {
 		loop_sync_test_user( 1, '100' );
 		loop_sync_test_user( 2, '200' );
-		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board' ) );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
 		Loop_Sync_Test_State::$upbeat_activities['200'] = false;
-		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'board' ), $this->loop_committee( 'gone' ) );
+		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'uid-board' ), $this->loop_committee( 'gone' ) );
 
 		$summary = $this->committee_sync()->run();
 
@@ -65,9 +65,9 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 	#[Test]
 	public function a_complete_run_uses_replace_mode_and_archives_removed_committees(): void {
 		loop_sync_test_user( 1, '100' );
-		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board' ) );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
-		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'board' ), $this->loop_committee( 'gone' ) );
+		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'uid-board' ), $this->loop_committee( 'gone' ) );
 
 		$summary = $this->committee_sync()->run();
 
@@ -79,10 +79,10 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 	#[Test]
 	public function archiving_follows_pagination_past_the_first_page(): void {
 		loop_sync_test_user( 1, '100' );
-		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board' ) );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
 
-		$loop = array( $this->loop_committee( 'board' ) );
+		$loop = array( $this->loop_committee( 'uid-board' ) );
 		for ( $i = 1; $i <= 120; $i++ ) {
 			$loop[] = $this->loop_committee( 'stale-' . $i );
 		}
@@ -97,7 +97,7 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 	#[Test]
 	public function a_failed_page_skips_archiving_rather_than_acting_on_a_partial_list(): void {
 		loop_sync_test_user( 1, '100' );
-		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board' ) );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
 		Loop_Sync_Test_State::$responses['agend_apps_loop_list_committees'] = new \WP_Error( 'boom', 'gateway down' );
 
@@ -111,18 +111,18 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 	public function a_committee_whose_last_local_member_left_is_cleared_with_an_empty_roster(): void {
 		loop_sync_test_user( 1, '100' );
 		Loop_Sync_Test_State::$upbeat_committees        = array(
-			new Loop_Sync_Test_Committee( 'Board' ),
-			new Loop_Sync_Test_Committee( 'Audit' ),
+			new Loop_Sync_Test_Committee( 'Board', 'uid-board' ),
+			new Loop_Sync_Test_Committee( 'Audit', 'uid-audit' ),
 		);
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
-		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'board' ), $this->loop_committee( 'audit' ) );
+		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'uid-board' ), $this->loop_committee( 'uid-audit' ) );
 
 		$this->committee_sync()->run();
 
 		$payloads = array_column( Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_committee' ), 0 );
 		$by_id    = array_column( $payloads, null, 'unique_id' );
-		$this->assertSame( array(), $by_id['audit']['roster'] );
-		$this->assertSame( 'replace', $by_id['audit']['mode'] );
+		$this->assertSame( array(), $by_id['uid-audit']['roster'] );
+		$this->assertSame( 'replace', $by_id['uid-audit']['mode'] );
 		$this->assertSame( array(), Loop_Sync_Test_State::calls_to( 'agend_apps_loop_archive_committee' ) );
 	}
 
@@ -130,24 +130,24 @@ final class UpstreamFailureSafetyTest extends LoopSyncTestCase {
 	public function an_empty_committee_not_yet_in_loop_is_not_created(): void {
 		loop_sync_test_user( 1, '100' );
 		Loop_Sync_Test_State::$upbeat_committees        = array(
-			new Loop_Sync_Test_Committee( 'Board' ),
-			new Loop_Sync_Test_Committee( 'Audit' ),
+			new Loop_Sync_Test_Committee( 'Board', 'uid-board' ),
+			new Loop_Sync_Test_Committee( 'Audit', 'uid-audit' ),
 		);
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
-		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'board' ) );
+		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'uid-board' ) );
 
 		$this->committee_sync()->run();
 
 		$ids = array_column( array_column( Loop_Sync_Test_State::calls_to( 'agend_apps_loop_sync_committee' ), 0 ), 'unique_id' );
-		$this->assertSame( array( 'board' ), $ids );
+		$this->assertSame( array( 'uid-board' ), $ids );
 	}
 
 	#[Test]
 	public function a_gateway_that_ignores_replace_mode_is_reported(): void {
 		loop_sync_test_user( 1, '100' );
-		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board' ) );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
-		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'board' ) );
+		Loop_Sync_Test_State::$loop_committees          = array( $this->loop_committee( 'uid-board' ) );
 		Loop_Sync_Test_State::$responses['agend_apps_loop_sync_committee'] = array(
 			'success' => true,
 			'data'    => array( 'committee' => array(), 'created' => false ),

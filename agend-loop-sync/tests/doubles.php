@@ -266,15 +266,21 @@ if ( ! class_exists( 'Loop_Sync_Test_Upbeat' ) ) {
 
 	class Loop_Sync_Test_Committee {
 		private string $name;
+		private string $unique_id;
 		private bool $allow_on_web;
 
-		public function __construct( string $name, bool $allow_on_web = true ) {
+		public function __construct( string $name, string $unique_id = '', bool $allow_on_web = true ) {
 			$this->name         = $name;
+			$this->unique_id    = $unique_id;
 			$this->allow_on_web = $allow_on_web;
 		}
 
 		public function get_name(): string {
 			return $this->name;
+		}
+
+		public function get_unique_id(): string {
+			return $this->unique_id;
 		}
 
 		public function get_allow_on_web(): bool {

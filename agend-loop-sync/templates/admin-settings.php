@@ -386,6 +386,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			<thead>
 				<tr>
 					<th><?php esc_html_e( 'Committee', 'agend-loop-sync' ); ?></th>
+					<th><?php esc_html_e( 'Unique ID', 'agend-loop-sync' ); ?></th>
 					<th><?php esc_html_e( 'On web', 'agend-loop-sync' ); ?></th>
 					<th><?php esc_html_e( 'Groups', 'agend-loop-sync' ); ?></th>
 					<th><?php esc_html_e( 'Activities', 'agend-loop-sync' ); ?></th>
@@ -396,13 +397,14 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 				$als_committees = isset( $als_preview['committees'] ) ? (array) $als_preview['committees'] : array();
 				if ( array() === $als_committees ) :
 					?>
-					<tr><td colspan="4"><?php esc_html_e( 'No committees returned.', 'agend-loop-sync' ); ?></td></tr>
+					<tr><td colspan="5"><?php esc_html_e( 'No committees returned.', 'agend-loop-sync' ); ?></td></tr>
 					<?php
 				else :
 					foreach ( $als_committees as $als_c ) :
 						?>
 						<tr>
 							<td><?php echo esc_html( (string) $als_c['name'] ); ?></td>
+							<td><?php echo esc_html( (string) ( $als_c['unique_id'] ?? '' ) ); ?></td>
 							<td><?php echo $als_c['allow_on_web'] ? esc_html__( 'yes', 'agend-loop-sync' ) : esc_html__( 'no', 'agend-loop-sync' ); ?></td>
 							<td><?php echo esc_html( implode( ', ', (array) $als_c['groups'] ) ); ?></td>
 							<td><?php echo (int) $als_c['members']; ?></td>

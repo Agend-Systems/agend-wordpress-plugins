@@ -21,8 +21,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  * become a Loop user).
  *
  * get_committees() is still read once to index committee metadata
- * (allow_on_web, groups) for filtering. Each committee is keyed by
- * sanitize_title(name) since Upbeat committees have no numeric id.
+ * (allow_on_web, groups) for filtering, plus each committee's stable Upbeat
+ * unique id. Loop channels are keyed by that id, so renaming a committee in
+ * Upbeat renames its channel instead of creating a new one. Activities name
+ * their committee but carry no id, so the id is joined from the committee list
+ * by name. Upbeat caches that list for 24 hours and each member's activities
+ * for 1 hour, so just after a committee is created or renamed the two can
+ * disagree; a run that finds a name missing from the list syncs nothing for it
+ * and makes no removals or archiving (see run()).
  *
  * Note: this makes one membership-activities API call per local member (the
  * Upbeat client caches each), so on a very large membership the run is best
@@ -74,21 +80,23 @@ class Agend_Loop_Sync_Committee_Sync {
 	 */
 	public function run(): array {
 		$summary = array(
-			'members_scanned'         => 0,
-			'committees'              => 0,
-			'synced'                  => 0,
-			'skipped_committees'      => 0,
-			'applied_members'         => 0,
-			'skipped_members'         => 0,
-			'skipped_invalid_members' => 0,
-			'removed_members'         => 0,
-			'archived'                => 0,
-			'failed_members'          => 0,
-			'mode'                    => 'replace',
-			'unresolved_external_ids' => array(),
-			'errors'                  => array(),
-			'dry_run'                 => Agend_Loop_Sync_Settings::is_dry_run(),
-			'member_counts_reported'  => false,
+			'members_scanned'             => 0,
+			'committees'                  => 0,
+			'synced'                      => 0,
+			'skipped_committees'          => 0,
+			'skipped_unlisted_committees' => 0,
+			'skipped_no_id_committees'    => 0,
+			'applied_members'             => 0,
+			'skipped_members'             => 0,
+			'skipped_invalid_members'     => 0,
+			'removed_members'             => 0,
+			'archived'                    => 0,
+			'failed_members'              => 0,
+			'mode'                        => 'replace',
+			'unresolved_external_ids'     => array(),
+			'errors'                      => array(),
+			'dry_run'                     => Agend_Loop_Sync_Settings::is_dry_run(),
+			'member_counts_reported'      => false,
 		);
 
 		if ( ! Agend_Loop_Sync_Settings::is_enabled() || ! Agend_Loop_Sync_Settings::is_committee_sync_enabled() ) {
@@ -115,17 +123,34 @@ class Agend_Loop_Sync_Committee_Sync {
 		// Replace mode and archiving both treat the data as complete. If any
 		// member's lookup failed, or nothing was read at all, a missing member
 		// is indistinguishable from one who left, so only add and update.
-		$complete = 0 === $summary['failed_members'] && $summary['members_scanned'] > 0 && array() !== $index;
+		$data_complete = 0 === $summary['failed_members'] && $summary['members_scanned'] > 0 && array() !== $index;
+
+		// A committee named in the activities but absent from the committee list
+		// means the list is behind (it is cached longer than the activities), so
+		// the list cannot be trusted to say which committees still exist.
+		$unlisted = $this->unlisted_committee_names( $rosters, $index );
+		$complete = $data_complete && array() === $unlisted;
 		if ( ! $complete ) {
-			$summary['mode']     = 'merge';
-			$summary['errors'][] = 'Upbeat data was incomplete; ran in merge mode with no removals or archiving';
-			Agend_Loop_Sync_Logger::warning(
-				'Committee sync ran in merge mode: Upbeat data incomplete',
-				array(
-					'failed_members'  => $summary['failed_members'],
-					'members_scanned' => $summary['members_scanned'],
-				)
-			);
+			$summary['mode'] = 'merge';
+
+			if ( ! $data_complete ) {
+				$summary['errors'][] = 'Upbeat data was incomplete; ran in merge mode with no removals or archiving';
+				Agend_Loop_Sync_Logger::warning(
+					'Committee sync ran in merge mode: Upbeat data incomplete',
+					array(
+						'failed_members'  => $summary['failed_members'],
+						'members_scanned' => $summary['members_scanned'],
+					)
+				);
+			}
+
+			if ( array() !== $unlisted ) {
+				$summary['errors'][] = 'Upbeat committee list is out of date compared with member activities; ran in merge mode with no removals or archiving';
+				Agend_Loop_Sync_Logger::warning(
+					'Committee sync ran in merge mode: committees in member activities are missing from the committee list',
+					array( 'committees' => $unlisted )
+				);
+			}
 		}
 
 		// Loop's view of the committees this site has synced. Needed to clear a
@@ -133,6 +158,30 @@ class Agend_Loop_Sync_Committee_Sync {
 		$loop_committees = $complete ? $this->fetch_loop_committees( $summary ) : null;
 
 		foreach ( $rosters as $committee_name => $members ) {
+			$committee_name = (string) $committee_name;
+			$entry          = $index[ $committee_name ] ?? null;
+
+			// Not in the committee list, so it has no id to sync under. The run
+			// is already in merge mode for this (see above).
+			if ( null === $entry ) {
+				++$summary['skipped_unlisted_committees'];
+				continue;
+			}
+
+			// Activities join to the list by name, so a name shared by two
+			// committees cannot be tied to either id.
+			if ( $entry['ambiguous'] || '' === $entry['unique_id'] ) {
+				++$summary['skipped_no_id_committees'];
+				Agend_Loop_Sync_Logger::warning(
+					'Committee skipped: no usable Upbeat unique id',
+					array(
+						'committee' => $committee_name,
+						'reason'    => $entry['ambiguous'] ? 'name shared by several committees' : 'empty unique id',
+					)
+				);
+				continue;
+			}
+
 			if ( ! $this->passes_filter( $committee_name, $index ) ) {
 				++$summary['skipped_committees'];
 				continue;
@@ -140,7 +189,7 @@ class Agend_Loop_Sync_Committee_Sync {
 
 			++$summary['committees'];
 
-			if ( $this->sync_committee_roster( $committee_name, array_values( $members ), $summary ) ) {
+			if ( $this->sync_committee_roster( $entry['unique_id'], $committee_name, array_values( $members ), $summary ) ) {
 				++$summary['synced'];
 			}
 		}
@@ -149,14 +198,14 @@ class Agend_Loop_Sync_Committee_Sync {
 			// A committee still in Upbeat but with no local member left has no
 			// roster, so the loop above never visits it and its last members
 			// would keep access. Push an empty roster for those already in Loop.
-			foreach ( $this->committees_to_empty( $index, $rosters, $loop_committees ) as $committee_name ) {
-				if ( ! $this->passes_filter( $committee_name, $index ) ) {
+			foreach ( $this->committees_to_empty( $index, $rosters, $loop_committees ) as $committee ) {
+				if ( ! $this->passes_filter( $committee['name'], $index ) ) {
 					continue;
 				}
 
 				++$summary['committees'];
 
-				if ( $this->sync_committee_roster( $committee_name, array(), $summary ) ) {
+				if ( $this->sync_committee_roster( $committee['unique_id'], $committee['name'], array(), $summary ) ) {
 					++$summary['synced'];
 				}
 			}
@@ -258,15 +307,16 @@ class Agend_Loop_Sync_Committee_Sync {
 	/**
 	 * Pushes a single committee roster to the gateway (or logs it in dry run).
 	 *
-	 * @param string                      $committee_name Committee name.
+	 * @param string                      $unique_id      Upbeat committee unique id, the channel's key in Loop.
+	 * @param string                      $committee_name Committee name, the channel's display name.
 	 * @param array<int, array<string,mixed>> $roster     Resolved roster entries.
 	 * @param array<string, mixed>        $summary        Run summary, by reference.
 	 * @return bool True on success or dry-run; false on failure.
 	 */
-	private function sync_committee_roster( string $committee_name, array $roster, array &$summary ): bool {
+	private function sync_committee_roster( string $unique_id, string $committee_name, array $roster, array &$summary ): bool {
 		$payload = array(
 			'idp_entity_id' => Agend_Loop_Sync_Settings::idp_entity_id(),
-			'unique_id'     => sanitize_title( $committee_name ),
+			'unique_id'     => $unique_id,
 			'name'          => $committee_name,
 			'is_active'     => true,
 			'roster'        => $roster,
@@ -394,13 +444,14 @@ class Agend_Loop_Sync_Committee_Sync {
 	}
 
 	/**
-	 * Committee names that exist in Upbeat and are live in Loop but received no
-	 * roster this run (every member left, or none are local).
+	 * Committees that exist in Upbeat and are live in Loop but received no
+	 * roster this run (every member left, or none are local). Matched by unique
+	 * id, so a committee without one is never touched.
 	 *
 	 * @param array<string, array<string, mixed>> $index           Upbeat committee index.
 	 * @param array<string, mixed>                $rosters         Rosters built this run, keyed by name.
 	 * @param array<int, array<string, mixed>>    $loop_committees Committees Loop holds.
-	 * @return string[]
+	 * @return array<int, array{unique_id: string, name: string}>
 	 */
 	private function committees_to_empty( array $index, array $rosters, array $loop_committees ): array {
 		$live = array();
@@ -410,14 +461,37 @@ class Agend_Loop_Sync_Committee_Sync {
 			}
 		}
 
-		$names = array();
-		foreach ( array_keys( $index ) as $name ) {
-			$name = (string) $name;
-			if ( isset( $rosters[ $name ] ) ) {
+		$committees = array();
+		foreach ( $index as $name => $entry ) {
+			$name      = (string) $name;
+			$unique_id = (string) $entry['unique_id'];
+			if ( '' === $unique_id || isset( $rosters[ $name ] ) ) {
 				continue;
 			}
-			if ( isset( $live[ sanitize_title( $name ) ] ) ) {
-				$names[] = $name;
+			if ( isset( $live[ $unique_id ] ) ) {
+				$committees[] = array(
+					'unique_id' => $unique_id,
+					'name'      => $name,
+				);
+			}
+		}
+
+		return $committees;
+	}
+
+	/**
+	 * Committee names that member activities mention but the committee list does
+	 * not. Names only, so the result is safe to log.
+	 *
+	 * @param array<string, mixed>                $rosters Rosters built this run, keyed by name.
+	 * @param array<string, array<string, mixed>> $index   Upbeat committee index.
+	 * @return string[]
+	 */
+	private function unlisted_committee_names( array $rosters, array $index ): array {
+		$names = array();
+		foreach ( array_keys( $rosters ) as $name ) {
+			if ( ! isset( $index[ $name ] ) ) {
+				$names[] = (string) $name;
 			}
 		}
 
@@ -426,9 +500,9 @@ class Agend_Loop_Sync_Committee_Sync {
 
 	/**
 	 * Archives Loop committee channels that no longer exist upstream. Every
-	 * IMK-managed committee present in Loop whose unique_id is not among the
-	 * current Upbeat committees is archived (hidden), so a committee removed
-	 * upstream stops appearing in Loop. Skipped in dry-run (logged only).
+	 * IMK-managed committee present in Loop whose unique_id is not the Upbeat
+	 * unique id of a current committee is archived (hidden), so a committee
+	 * removed upstream stops appearing in Loop. Skipped in dry-run (logged only).
 	 *
 	 * @param array<string, array<string, mixed>> $index           Current Upbeat committee index (keyed by name).
 	 * @param array<int, array<string, mixed>>    $loop_committees Every committee Loop holds, all pages.
@@ -440,10 +514,13 @@ class Agend_Loop_Sync_Committee_Sync {
 			return;
 		}
 
-		// The unique_id the sync uses for every current Upbeat committee.
+		// The unique_id of every current Upbeat committee. A name shared by
+		// several committees is not synced, but its ids are still current.
 		$current = array();
-		foreach ( array_keys( $index ) as $name ) {
-			$current[] = sanitize_title( (string) $name );
+		foreach ( $index as $entry ) {
+			foreach ( $entry['unique_ids'] as $unique_id ) {
+				$current[] = $unique_id;
+			}
 		}
 
 		$items = $loop_committees;
@@ -485,12 +562,18 @@ class Agend_Loop_Sync_Committee_Sync {
 	}
 
 	/**
-	 * Reads get_committees() once to index committee metadata for filtering.
+	 * Reads get_committees() once to index committee metadata for filtering and
+	 * each committee's Upbeat unique id.
 	 *
-	 * @return array<string, array<string, mixed>>|null name => { allow_on_web, groups }; null when Upbeat could not be read.
+	 * A name shared by several committees is marked ambiguous with an empty
+	 * unique_id, since activities join by name and cannot tell them apart. Its
+	 * ids stay in unique_ids so they still count as current.
+	 *
+	 * @return array<string, array<string, mixed>>|null name => { allow_on_web, groups, unique_id, unique_ids, ambiguous }; null when Upbeat could not be read.
 	 */
 	private function build_committee_index(): ?array {
 		$index      = array();
+		$ambiguous  = array();
 		$collection = $this->api()->get_committees();
 		if ( ! is_object( $collection ) || ! method_exists( $collection, 'get_results' ) ) {
 			return null;
@@ -503,7 +586,21 @@ class Agend_Loop_Sync_Committee_Sync {
 				continue;
 			}
 
-			$name   = trim( (string) $committee->get_name() );
+			$name      = trim( (string) $committee->get_name() );
+			$unique_id = method_exists( $committee, 'get_unique_id' ) ? trim( (string) $committee->get_unique_id() ) : '';
+
+			if ( isset( $index[ $name ] ) ) {
+				if ( ! $index[ $name ]['ambiguous'] ) {
+					$index[ $name ]['ambiguous'] = true;
+					$index[ $name ]['unique_id'] = '';
+					$ambiguous[]                 = $name;
+				}
+				if ( '' !== $unique_id ) {
+					$index[ $name ]['unique_ids'][] = $unique_id;
+				}
+				continue;
+			}
+
 			$groups = array();
 			if ( method_exists( $committee, 'get_groups' ) ) {
 				foreach ( (array) $committee->get_groups() as $group ) {
@@ -516,6 +613,16 @@ class Agend_Loop_Sync_Committee_Sync {
 			$index[ $name ] = array(
 				'allow_on_web' => method_exists( $committee, 'get_allow_on_web' ) ? (bool) $committee->get_allow_on_web() : true,
 				'groups'       => $groups,
+				'unique_id'    => $unique_id,
+				'unique_ids'   => '' === $unique_id ? array() : array( $unique_id ),
+				'ambiguous'    => false,
+			);
+		}
+
+		if ( array() !== $ambiguous ) {
+			Agend_Loop_Sync_Logger::warning(
+				'Committees sharing a name cannot be told apart; they will not be synced',
+				array( 'committees' => $ambiguous )
 			);
 		}
 
@@ -665,9 +772,9 @@ class Agend_Loop_Sync_Committee_Sync {
 	}
 
 	/**
-	 * Read-only committee catalogue from get_committees(): committee names, web
-	 * flag, groups, raw activity count, and the distinct role strings (the
-	 * mapping vocabulary). Does NOT resolve members — Upbeat returns contact
+	 * Read-only committee catalogue from get_committees(): committee names, unique
+	 * ids, web flag, groups, raw activity count, and the distinct role strings
+	 * (the mapping vocabulary). Does NOT resolve members: Upbeat returns contact
 	 * names rather than ids, so member resolution is done per-member by the
 	 * sync and by scan_members(), not here.
 	 *
@@ -701,8 +808,9 @@ class Agend_Loop_Sync_Committee_Sync {
 				continue;
 			}
 
-			$name  = (string) $committee->get_name();
-			$allow = method_exists( $committee, 'get_allow_on_web' ) ? (bool) $committee->get_allow_on_web() : true;
+			$name      = (string) $committee->get_name();
+			$unique_id = method_exists( $committee, 'get_unique_id' ) ? trim( (string) $committee->get_unique_id() ) : '';
+			$allow     = method_exists( $committee, 'get_allow_on_web' ) ? (bool) $committee->get_allow_on_web() : true;
 
 			$groups = array();
 			if ( method_exists( $committee, 'get_groups' ) ) {
@@ -729,6 +837,7 @@ class Agend_Loop_Sync_Committee_Sync {
 
 			$preview['committees'][] = array(
 				'name'         => $name,
+				'unique_id'    => $unique_id,
 				'allow_on_web' => $allow,
 				'groups'       => $groups,
 				'members'      => $members,

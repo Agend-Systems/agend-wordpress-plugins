@@ -27,7 +27,7 @@ final class MemberCountReportingTest extends LoopSyncTestCase {
 		parent::setUp();
 
 		loop_sync_test_user( 1, '100' );
-		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board' ) );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
 		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
 	}
 
