@@ -20,8 +20,8 @@ directly and never modifies the membership plugin.
 - **Committee roles become channel roles.** Committee positions such as
   Chair, Secretary or Member map to Loop channel roles (owner, moderator,
   member) through an editable mapping.
-- **Retiring deleted committees.** Channels for committees deleted in Upbeat
-  are archived (hidden). Removing members who leave a committee is built in
+- **Retiring committees.** Channels for committees deleted in Upbeat, or
+  left with no members on this site, are archived (hidden). Removing members who leave a committee is built in
   and takes effect once the Agend gateway supports it (see
   [Removing access](#removing-access)).
 - **Choose which committees sync.** All web-visible committees, committees in
@@ -174,8 +174,10 @@ complete:
   does, the settings screen shows "Gateway did not confirm replace mode;
   departed members are not being removed", and departed members must be
   removed from the channel in Loop by hand.
-- **Committees with no local members left** are sent an empty roster. This
-  currently has no effect in Loop.
+- **Committees with no local members left are archived.** A committee that
+  still exists in Upbeat but no longer has any member on this site has its
+  channel archived, like a deleted committee. If local members return, the
+  next sync restores the channel.
 
 If any lookup fails, or member activities name a committee the committee
 list does not have yet, the run switches to **merge mode**: members are added
@@ -290,7 +292,7 @@ them.
   each run makes no removals or archiving. Once the list refreshes, the
   committee syncs, and a renamed committee keeps its existing channel.
 - **Removing a committee from the filter freezes its channel.** It stops
-  being updated but is not emptied or archived while the committee still
+  being updated but is not archived while the committee still
   exists in Upbeat.
 - **Members need a Loop account first.** Syncs update existing accounts;
   they do not create them.
