@@ -9,8 +9,6 @@ All traffic goes through the Agend gateway (`/v1/loop/integration/*`) using
 the connection configured in Agend Apps Core. The plugin never talks to Loop
 directly and never modifies the membership plugin.
 
-Current version: 1.0.3.
-
 ## Capabilities at a glance
 
 - **Member sync.** When a member signs in, changes their profile, has their
