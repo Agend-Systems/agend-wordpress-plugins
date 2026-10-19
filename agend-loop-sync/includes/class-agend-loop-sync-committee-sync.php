@@ -66,7 +66,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 *
 	 * @var string[]
 	 */
-	private const ADOPTION_OUTCOMES = array( 'adopted', 'already_managed', 'inserted', 'managed_elsewhere', 'not_in_roster', 'unresolved' );
+	private const ADOPTION_OUTCOMES = array( 'adopted', 'already_managed', 'held', 'inserted', 'managed_elsewhere', 'not_in_roster', 'unresolved' );
 
 	/**
 	 * Most per-member outcomes kept in the stored run summary, so a large
@@ -78,6 +78,38 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * Most per-member outcomes written to one log entry, which is capped in size.
 	 */
 	private const ADOPTION_RESULTS_LOGGED = 25;
+
+	/**
+	 * The kinds of sync hold a Loop administrator can place. Anything else is
+	 * recorded as 'unknown'.
+	 *
+	 * @var string[]
+	 */
+	private const HOLD_KINDS = array( 'removal', 'role_cap' );
+
+	/**
+	 * The channel roles a role cap can name. Anything else is dropped.
+	 *
+	 * @var string[]
+	 */
+	private const HOLD_ROLES = array( 'owner', 'admin', 'moderator', 'member' );
+
+	/**
+	 * Longest hold reason kept. The reason is free text an administrator typed in
+	 * Loop, and it lands in the stored run summary, the log and the member picker.
+	 */
+	private const HOLD_REASON_MAX = 500;
+
+	/**
+	 * Most held members kept in the stored run summary, so a committee with many
+	 * holds cannot bloat the option. The total is always kept.
+	 */
+	private const HOLD_RESULTS_KEPT = 100;
+
+	/**
+	 * Most held members written to the log for one committee.
+	 */
+	private const HOLD_RESULTS_LOGGED = 25;
 
 	/**
 	 * Upbeat client override, used by tests. Null means the real
@@ -140,6 +172,8 @@ class Agend_Loop_Sync_Committee_Sync {
 			'adoption_outcomes'           => array(),
 			'adoption_results'            => array(),
 			'adoption_errors'             => array(),
+			'held_members'                => 0,
+			'held_results'                => array(),
 			'mode'                        => 'replace',
 			'unresolved_external_ids'     => array(),
 			'errors'                      => array(),
@@ -262,7 +296,10 @@ class Agend_Loop_Sync_Committee_Sync {
 			$this->archive_removed_committees( $index, $loop_committees, $summary );
 		}
 
-		Agend_Loop_Sync_Logger::info( 'Committee sync run complete', $summary );
+		// The held members are logged one by one as each committee syncs, and their
+		// reasons are free text, so leave them out of this entry rather than let
+		// them push it over the size the logger keeps.
+		Agend_Loop_Sync_Logger::info( 'Committee sync run complete', array_diff_key( $summary, array( 'held_results' => true ) ) );
 
 		return $this->finish( $summary );
 	}
@@ -475,11 +512,104 @@ class Agend_Loop_Sync_Committee_Sync {
 			)
 		);
 
+		$this->record_holds( $committee_name, is_array( $data ) ? $data : array(), $summary );
+
 		if ( array() !== $adopt_ids ) {
 			$this->record_adoption( $unique_id, $committee_name, count( $adopt_ids ), is_array( $data ) ? $data : array(), $summary );
 		}
 
 		return true;
+	}
+
+	/**
+	 * Records the members the gateway skipped or capped because a Loop
+	 * administrator placed a sync hold on them.
+	 *
+	 * The gateway reports `held` on every committee sync, `[]` when nothing is
+	 * held. A response without it comes from a gateway that does not know about
+	 * holds, and is read as no holds.
+	 *
+	 * Logs membership numbers, the kind, the role cap, the reason and the date,
+	 * never a name or an email.
+	 *
+	 * @param string               $committee_name Committee name, for the summary and log.
+	 * @param array<string, mixed> $data           The gateway's response data.
+	 * @param array<string, mixed> $summary        Run summary, by reference.
+	 * @return void
+	 */
+	private function record_holds( string $committee_name, array $data, array &$summary ): void {
+		$held = is_array( $data['held'] ?? null ) ? $data['held'] : array();
+
+		$total = 0;
+		foreach ( $held as $entry ) {
+			$hold = self::normalise_hold( $entry );
+			if ( null === $hold ) {
+				continue;
+			}
+
+			++$total;
+			++$summary['held_members'];
+			$summary['held_results'][] = array( 'committee' => $committee_name ) + $hold;
+
+			if ( $total <= self::HOLD_RESULTS_LOGGED ) {
+				Agend_Loop_Sync_Logger::info(
+					'Committee member held by a Loop administrator',
+					array(
+						'committee'   => $committee_name,
+						'external_id' => $hold['external_id'],
+						'kind'        => $hold['kind'],
+						'role_cap'    => $hold['role_cap'],
+						'reason'      => $hold['reason'],
+						'held_since'  => $hold['held_since'],
+					)
+				);
+			}
+		}
+
+		if ( $total > self::HOLD_RESULTS_LOGGED ) {
+			Agend_Loop_Sync_Logger::info(
+				'More held members than the log lists',
+				array(
+					'committee' => $committee_name,
+					'held'      => $total,
+					'logged'    => self::HOLD_RESULTS_LOGGED,
+				)
+			);
+		}
+	}
+
+	/**
+	 * Reads one hold as the gateway reports it: { external_id, kind, role_cap,
+	 * reason, held_since }. Pure.
+	 *
+	 * @param mixed $hold One entry of the gateway's `held` or `holds` list.
+	 * @return array<string, mixed>|null external_id (int), kind ('removal', 'role_cap' or 'unknown'), role_cap (a channel role, '' when none), reason (capped) and held_since (as sent); null when the entry names no member.
+	 */
+	private static function normalise_hold( $hold ): ?array {
+		if ( ! is_array( $hold ) ) {
+			return null;
+		}
+
+		$external_id = (int) ( $hold['external_id'] ?? 0 );
+		if ( $external_id <= 0 ) {
+			return null;
+		}
+
+		$kind     = (string) ( $hold['kind'] ?? '' );
+		$role_cap = (string) ( $hold['role_cap'] ?? '' );
+		$reason   = trim( (string) ( $hold['reason'] ?? '' ) );
+
+		if ( mb_strlen( $reason ) > self::HOLD_REASON_MAX ) {
+			$reason = mb_substr( $reason, 0, self::HOLD_REASON_MAX ) . '...';
+		}
+
+		return array(
+			'external_id' => $external_id,
+			'kind'        => in_array( $kind, self::HOLD_KINDS, true ) ? $kind : 'unknown',
+			'role_cap'    => in_array( $role_cap, self::HOLD_ROLES, true ) ? $role_cap : '',
+			'reason'      => $reason,
+			'held_since'  => (string) ( $hold['held_since'] ?? '' ),
+		);
 	}
 
 	/**
@@ -1549,6 +1679,11 @@ class Agend_Loop_Sync_Committee_Sync {
 		if ( $adoption_total > self::ADOPTION_RESULTS_KEPT ) {
 			$summary['adoption_results']       = array_slice( $summary['adoption_results'], 0, self::ADOPTION_RESULTS_KEPT );
 			$summary['adoption_results_total'] = $adoption_total;
+		}
+
+		// And for the held members; `held_members` keeps the full count.
+		if ( count( $summary['held_results'] ?? array() ) > self::HOLD_RESULTS_KEPT ) {
+			$summary['held_results'] = array_slice( $summary['held_results'], 0, self::HOLD_RESULTS_KEPT );
 		}
 
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, time(), false );

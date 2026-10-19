@@ -31,6 +31,7 @@ $als_last_summary = is_array( $als_last_summary ) ? $als_last_summary : array();
 $als_outcome_labels = array(
 	'adopted'           => __( 'adopted', 'agend-loop-sync' ),
 	'already_managed'   => __( 'already managed by the sync', 'agend-loop-sync' ),
+	'held'              => __( 'held by a Loop administrator, not adopted', 'agend-loop-sync' ),
 	'inserted'          => __( 'added as a new member', 'agend-loop-sync' ),
 	'managed_elsewhere' => __( 'managed by another source, not adopted', 'agend-loop-sync' ),
 	'not_in_roster'     => __( 'not on the committee roster', 'agend-loop-sync' ),

@@ -332,6 +332,33 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 	}
 
 	#[Test]
+	public function a_held_outcome_is_labelled_in_the_summary_and_the_member_list(): void {
+		update_option(
+			Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY,
+			array(
+				'synced'                 => 1,
+				'archived'               => 0,
+				'member_counts_reported' => true,
+				'adopted'                => 1,
+				'adoption_outcomes'      => array(
+					'adopted' => 1,
+					'held'    => 1,
+				),
+				'adoption_results'       => array(
+					array( 'committee' => 'Board', 'external_id' => 100, 'outcome' => 'adopted' ),
+					array( 'committee' => 'Board', 'external_id' => 200, 'outcome' => 'held' ),
+				),
+			)
+		);
+
+		$html = $this->render_page();
+
+		$this->assertStringContainsString( 'Outcomes: 1 adopted, 1 held by a Loop administrator, not adopted.', $html );
+		$this->assertStringContainsString( 'Board: membership number 200, held by a Loop administrator, not adopted', $html );
+		$this->assertStringNotContainsString( 'unknown outcome', $html );
+	}
+
+	#[Test]
 	public function a_last_run_without_a_hand_over_adds_nothing_to_the_summary(): void {
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, array( 'synced' => 1, 'archived' => 0, 'member_counts_reported' => true ) );
 
