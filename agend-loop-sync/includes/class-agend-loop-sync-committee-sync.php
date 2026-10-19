@@ -1522,7 +1522,7 @@ class Agend_Loop_Sync_Committee_Sync {
 		}
 
 		if ( 403 === $status ) {
-			return __( 'The gateway refused to list the committee channel members. The API key needs the loop.committees.browse scope.', 'agend-loop-sync' );
+			return __( 'The gateway refused to list the committee channel members. Reading them needs the loop.committees.update scope on the API key, the same scope the hand-over itself needs.', 'agend-loop-sync' );
 		}
 
 		/* translators: %s: error message from the gateway. */

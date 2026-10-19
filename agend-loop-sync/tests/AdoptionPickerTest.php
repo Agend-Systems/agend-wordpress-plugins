@@ -302,12 +302,12 @@ final class AdoptionPickerTest extends LoopSyncTestCase {
 	}
 
 	#[Test]
-	public function a_refused_read_names_the_browse_scope(): void {
+	public function a_refused_read_names_the_update_scope(): void {
 		Loop_Sync_Test_State::$responses['agend_apps_loop_get_committee_members'] = new WP_Error( 'agend_api_error', 'Forbidden', array( 'status_code' => 403 ) );
 
 		$picker = $this->committee_sync()->adoption_picker( 'uid-board' );
 
-		$this->assertStringContainsString( 'loop.committees.browse', $picker['error'] );
+		$this->assertStringContainsString( 'loop.committees.update', $picker['error'] );
 		$this->assertSame( array(), $picker['members'] );
 	}
 

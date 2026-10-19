@@ -256,8 +256,9 @@ The outcome for each member is one of:
 
 Requirements and failure handling:
 
-- The API key needs the `loop.committees.update` scope as well, but only
-  while members are queued. A sync with an empty queue needs no extra scope.
+- The API key needs the `loop.committees.update` scope as well, both to load
+  the member list and while members are queued. A sync with an empty queue
+  needs no extra scope.
   If the gateway refuses the request for the missing scope, the queue is
   kept, the last-run summary names the scope, and the committee's roster is
   sent again without the hand-over so the committee still syncs.
