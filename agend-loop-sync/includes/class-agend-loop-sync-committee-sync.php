@@ -61,6 +61,25 @@ class Agend_Loop_Sync_Committee_Sync {
 	private const ACTIVITY_MAX_PAGES = 20;
 
 	/**
+	 * What the gateway can report for one member named in `adopt_external_ids`.
+	 * Anything else is recorded as 'unknown'.
+	 *
+	 * @var string[]
+	 */
+	private const ADOPTION_OUTCOMES = array( 'adopted', 'already_managed', 'inserted', 'managed_elsewhere', 'not_in_roster', 'unresolved' );
+
+	/**
+	 * Most per-member outcomes kept in the stored run summary, so a large
+	 * hand-over cannot bloat the option.
+	 */
+	private const ADOPTION_RESULTS_KEPT = 100;
+
+	/**
+	 * Most per-member outcomes written to one log entry, which is capped in size.
+	 */
+	private const ADOPTION_RESULTS_LOGGED = 25;
+
+	/**
 	 * Upbeat client override, used by tests. Null means the real
 	 * Iugo_Membership_Kiosk_API singleton.
 	 *
@@ -117,6 +136,10 @@ class Agend_Loop_Sync_Committee_Sync {
 			'archived'                    => 0,
 			'archived_empty'              => 0,
 			'failed_members'              => 0,
+			'adopted'                     => 0,
+			'adoption_outcomes'           => array(),
+			'adoption_results'            => array(),
+			'adoption_errors'             => array(),
 			'mode'                        => 'replace',
 			'unresolved_external_ids'     => array(),
 			'errors'                      => array(),
@@ -352,19 +375,53 @@ class Agend_Loop_Sync_Committee_Sync {
 			'mode'          => $summary['mode'],
 		);
 
+		// Members an administrator handed to the sync (Settings > Loop Sync). They
+		// ride along only while queued, and only for their own committee.
+		$adopt_ids = Agend_Loop_Sync_Settings::get_adopt_queue_for( $unique_id );
+		if ( array() !== $adopt_ids ) {
+			$payload['adopt_external_ids'] = $adopt_ids;
+		}
+
 		if ( Agend_Loop_Sync_Settings::is_dry_run() ) {
-			Agend_Loop_Sync_Logger::info(
-				'Dry run: would sync committee',
-				array(
-					'unique_id'   => $payload['unique_id'],
-					'mode'        => $payload['mode'],
-					'roster_size' => count( $roster ),
-				)
+			$context = array(
+				'unique_id'   => $payload['unique_id'],
+				'mode'        => $payload['mode'],
+				'roster_size' => count( $roster ),
 			);
+
+			// The queue is kept: a dry run sends nothing, so nothing is handed over.
+			if ( array() !== $adopt_ids ) {
+				$context['adopt_total']        = count( $adopt_ids );
+				$context['adopt_external_ids'] = array_slice( $adopt_ids, 0, self::ADOPTION_RESULTS_LOGGED );
+			}
+
+			Agend_Loop_Sync_Logger::info( 'Dry run: would sync committee', $context );
 			return true;
 		}
 
 		$response = agend_apps_loop_sync_committee( $payload );
+
+		// A key without `loop.committees.update` is refused outright when the
+		// request names members to adopt, and nothing is written. Keep the queue,
+		// say why, and send the roster again without the hand-over, so a queue
+		// the key cannot act on never stops the committee from syncing.
+		if ( array() !== $adopt_ids && is_wp_error( $response ) && 403 === self::error_status( $response ) ) {
+			$message = sprintf( '%s: the gateway refused the hand-over (HTTP 403); handing members to the sync needs the loop.committees.update scope on the API key. The queue was kept', $committee_name );
+
+			$summary['errors'][]          = $message;
+			$summary['adoption_errors'][] = $message;
+			Agend_Loop_Sync_Logger::error(
+				'Committee hand-over refused: the API key needs the loop.committees.update scope',
+				array(
+					'committee' => $committee_name,
+					'queued'    => count( $adopt_ids ),
+				)
+			);
+
+			unset( $payload['adopt_external_ids'] );
+			$adopt_ids = array();
+			$response  = agend_apps_loop_sync_committee( $payload );
+		}
 
 		if ( is_wp_error( $response ) ) {
 			$message             = $response->get_error_message();
@@ -418,7 +475,115 @@ class Agend_Loop_Sync_Committee_Sync {
 			)
 		);
 
+		if ( array() !== $adopt_ids ) {
+			$this->record_adoption( $unique_id, $committee_name, count( $adopt_ids ), is_array( $data ) ? $data : array(), $summary );
+		}
+
 		return true;
+	}
+
+	/**
+	 * Settles a committee's hand-over queue against what the gateway reported.
+	 *
+	 * Every member the gateway returned an outcome for leaves the queue, whatever
+	 * the outcome: it has been decided, and sending it again would change
+	 * nothing. A member with no outcome stays. A response with no
+	 * `adoption_results` at all comes from a gateway that does not know about
+	 * hand-over, so nothing was decided and the whole queue stays.
+	 *
+	 * Logs membership numbers and outcomes only, never a name or an email.
+	 *
+	 * @param string               $unique_id      Upbeat committee unique id.
+	 * @param string               $committee_name Committee name, for the summary and log.
+	 * @param int                  $sent           How many members the request named.
+	 * @param array<string, mixed> $data           The gateway's response data.
+	 * @param array<string, mixed> $summary        Run summary, by reference.
+	 * @return void
+	 */
+	private function record_adoption( string $unique_id, string $committee_name, int $sent, array $data, array &$summary ): void {
+		$results = $data['adoption_results'] ?? null;
+
+		if ( ! is_array( $results ) ) {
+			$message = sprintf( '%s: the gateway does not support hand-over (its response has no adoption_results); the queue was kept', $committee_name );
+
+			$summary['errors'][]          = $message;
+			$summary['adoption_errors'][] = $message;
+			Agend_Loop_Sync_Logger::warning(
+				'Committee hand-over not confirmed: the gateway returned no adoption results',
+				array(
+					'committee' => $committee_name,
+					'queued'    => $sent,
+				)
+			);
+			return;
+		}
+
+		$settled = array();
+		$counts  = array();
+		$logged  = array();
+
+		foreach ( $results as $result ) {
+			if ( ! is_array( $result ) ) {
+				continue;
+			}
+
+			$external_id = (int) ( $result['external_id'] ?? 0 );
+			if ( $external_id <= 0 ) {
+				continue;
+			}
+
+			$outcome = (string) ( $result['outcome'] ?? '' );
+			if ( ! in_array( $outcome, self::ADOPTION_OUTCOMES, true ) ) {
+				$outcome = 'unknown';
+			}
+
+			$settled[]          = $external_id;
+			$counts[ $outcome ] = ( $counts[ $outcome ] ?? 0 ) + 1;
+
+			$summary['adoption_outcomes'][ $outcome ] = ( $summary['adoption_outcomes'][ $outcome ] ?? 0 ) + 1;
+			$summary['adoption_results'][]            = array(
+				'committee'   => $committee_name,
+				'external_id' => $external_id,
+				'outcome'     => $outcome,
+			);
+
+			if ( count( $logged ) < self::ADOPTION_RESULTS_LOGGED ) {
+				$logged[ $external_id ] = $outcome;
+			}
+		}
+
+		Agend_Loop_Sync_Settings::dequeue_adoptions( $unique_id, $settled );
+
+		$adopted = isset( $data['adopted'] ) ? (int) $data['adopted'] : ( $counts['adopted'] ?? 0 );
+
+		$summary['adopted'] += $adopted;
+
+		Agend_Loop_Sync_Logger::info(
+			'Committee hand-over processed',
+			array(
+				'committee' => $committee_name,
+				'queued'    => $sent,
+				'adopted'   => $adopted,
+				'outcomes'  => $counts,
+				'results'   => $logged,
+			)
+		);
+	}
+
+	/**
+	 * The HTTP status a gateway call failed with.
+	 *
+	 * Apps Core carries it as `status_code` in the WP_Error data, on the
+	 * gateway's own refusals and on the ones it makes locally for a key that is
+	 * known to lack a scope, so both read the same.
+	 *
+	 * @param WP_Error $error The failed call.
+	 * @return int The status, or 0 when the error carries none (a transport failure).
+	 */
+	private static function error_status( $error ): int {
+		$data = $error->get_error_data();
+
+		return is_array( $data ) && isset( $data['status_code'] ) ? (int) $data['status_code'] : 0;
 	}
 
 	/**
@@ -1036,6 +1201,335 @@ class Agend_Loop_Sync_Committee_Sync {
 	}
 
 	/**
+	 * Committees an administrator can hand members of: every Upbeat committee the
+	 * sync covers, meaning it has a usable unique id (a name shared by several
+	 * committees has none) and passes the committee filter. Read-only; no gateway
+	 * calls.
+	 *
+	 * @return array<string, mixed> `committees` is a list of { unique_id, name }, sorted by name; `error` is empty unless Upbeat could not be read in full.
+	 */
+	public function adoption_committees(): array {
+		$result = array(
+			'generated_at' => time(),
+			'committees'   => array(),
+			'error'        => '',
+		);
+
+		if ( null === $this->api() ) {
+			$result['error'] = __( 'Membership API unavailable.', 'agend-loop-sync' );
+			return $result;
+		}
+
+		$index = $this->build_committee_index();
+		if ( null === $index ) {
+			// Show the failure rather than a partial list that reads as complete.
+			$result['error'] = __( 'Could not read the full committee list from Upbeat.', 'agend-loop-sync' );
+			return $result;
+		}
+
+		foreach ( $index as $name => $entry ) {
+			$name = (string) $name;
+
+			if ( $entry['ambiguous'] || '' === $entry['unique_id'] || ! $this->passes_filter( $name, $index ) ) {
+				continue;
+			}
+
+			$result['committees'][] = array(
+				'unique_id' => $entry['unique_id'],
+				'name'      => $name,
+			);
+		}
+
+		usort(
+			$result['committees'],
+			static function ( $a, $b ) {
+				return strcasecmp( $a['name'], $b['name'] );
+			}
+		);
+
+		return $result;
+	}
+
+	/**
+	 * Builds the member picker for one committee: its local roster members with
+	 * their committee role and the channel role the roster gives them, joined to
+	 * what Loop reports for the committee channel (current role and what manages
+	 * each membership).
+	 *
+	 * Reads only: Upbeat for the roster, the gateway's committee members route
+	 * for Loop. Any failure comes back as `error` with no members, never as a
+	 * table with rows missing.
+	 *
+	 * @param string $unique_id Upbeat committee unique id.
+	 * @return array<string, mixed> { generated_at, unique_id, committee, unlinked_count, members, error }; see join_adoption_members() for a member row.
+	 */
+	public function adoption_picker( string $unique_id ): array {
+		$picker = array(
+			'generated_at'   => time(),
+			'unique_id'      => $unique_id,
+			'committee'      => '',
+			'unlinked_count' => 0,
+			'members'        => array(),
+			'error'          => '',
+		);
+
+		if ( null === $this->api() ) {
+			$picker['error'] = __( 'Membership API unavailable.', 'agend-loop-sync' );
+			return $picker;
+		}
+
+		if ( ! function_exists( 'agend_apps_loop_get_committee_members' ) ) {
+			$picker['error'] = __( 'Agend Apps Core is too old to read a committee channel from Loop. Update it to choose members.', 'agend-loop-sync' );
+			return $picker;
+		}
+
+		$index = $this->build_committee_index();
+		if ( null === $index ) {
+			$picker['error'] = __( 'Could not read the full committee list from Upbeat.', 'agend-loop-sync' );
+			return $picker;
+		}
+
+		$committee_name = null;
+		foreach ( $index as $name => $entry ) {
+			if ( ! $entry['ambiguous'] && '' !== $entry['unique_id'] && $unique_id === $entry['unique_id'] ) {
+				$committee_name = (string) $name;
+				break;
+			}
+		}
+
+		if ( null === $committee_name ) {
+			$picker['error'] = __( 'Upbeat has no committee with that unique id that the sync can match to its members.', 'agend-loop-sync' );
+			return $picker;
+		}
+
+		$picker['committee'] = $committee_name;
+
+		$local = $this->fetch_committee_local_members( $committee_name );
+		if ( null === $local ) {
+			$picker['error'] = __( 'Could not read every member\'s committee activities from Upbeat, so the member list would be incomplete. Try again.', 'agend-loop-sync' );
+			return $picker;
+		}
+
+		$response = agend_apps_loop_get_committee_members( $unique_id, Agend_Loop_Sync_Settings::idp_entity_id() );
+
+		if ( is_wp_error( $response ) ) {
+			$picker['error'] = $this->loop_members_error( $response );
+			return $picker;
+		}
+
+		$data = is_array( $response ) ? ( $response['data'] ?? $response ) : array();
+		if ( ! is_array( $data ) || ! is_array( $data['members'] ?? null ) ) {
+			$picker['error'] = __( 'Loop returned a response this plugin does not understand, so the members cannot be listed.', 'agend-loop-sync' );
+			return $picker;
+		}
+
+		$picker['unlinked_count'] = (int) ( $data['unlinked_count'] ?? 0 );
+		$picker['members']        = self::join_adoption_members( $local, $data['members'] );
+
+		return $picker;
+	}
+
+	/**
+	 * Joins a committee's local roster members to Loop's view of the channel, by
+	 * membership number. Pure: no Upbeat, gateway or WordPress calls, so it can be
+	 * tested on its own.
+	 *
+	 * A row is selectable only when Loop reports the member's membership as
+	 * managed by nothing (`managed_by` is `none`). Otherwise `reason` says why not:
+	 *
+	 * - number_unusable: the membership number is not a plain positive integer, so
+	 *   the sync cannot name the member.
+	 * - no_loop_membership: Loop lists no membership for them in this channel (they
+	 *   have not joined it, or have no identity on this site's SSO connection).
+	 * - already_managed: the sync already manages the membership (`wordpress_sync`).
+	 * - managed_by_group: an active CRM group grant manages it (`group`).
+	 * - managed_by_upbeat: Upbeat committee provenance manages it (`upbeat`).
+	 * - managed_elsewhere: any other manager the gateway might add.
+	 *
+	 * `demotion` is set on a selectable row when the channel role the roster gives
+	 * the member ranks below their current Loop role, which is the role they would
+	 * be moved to once handed over (owner > admin > moderator > member).
+	 *
+	 * @param array<int, array<string, mixed>> $local_members Local roster members: wp_id, name, membership_number, committee_role, channel_role.
+	 * @param array<int, array<string, mixed>> $loop_members  Members as the gateway reports them: external_id, role, managed_by.
+	 * @return array<int, array<string, mixed>> One row per local member, sorted by name: the local fields plus external_id (int or null), loop_role ('' when none), managed_by ('' when none), selectable, reason ('' when selectable) and demotion.
+	 */
+	public static function join_adoption_members( array $local_members, array $loop_members ): array {
+		$by_external_id = array();
+		foreach ( $loop_members as $loop_member ) {
+			if ( is_array( $loop_member ) && isset( $loop_member['external_id'] ) ) {
+				$by_external_id[ (int) $loop_member['external_id'] ] = $loop_member;
+			}
+		}
+
+		$reasons = array(
+			'wordpress_sync' => 'already_managed',
+			'group'          => 'managed_by_group',
+			'upbeat'         => 'managed_by_upbeat',
+		);
+
+		$rows = array();
+		foreach ( $local_members as $member ) {
+			$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( (string) ( $member['membership_number'] ?? '' ) );
+			$loop        = null === $external_id ? null : ( $by_external_id[ $external_id ] ?? null );
+
+			$row = array(
+				'wp_id'             => (int) ( $member['wp_id'] ?? 0 ),
+				'name'              => (string) ( $member['name'] ?? '' ),
+				'membership_number' => (string) ( $member['membership_number'] ?? '' ),
+				'external_id'       => $external_id,
+				'committee_role'    => (string) ( $member['committee_role'] ?? '' ),
+				'channel_role'      => (string) ( $member['channel_role'] ?? '' ),
+				'loop_role'         => '',
+				'managed_by'        => '',
+				'selectable'        => false,
+				'reason'            => '',
+				'demotion'          => false,
+			);
+
+			if ( null === $external_id ) {
+				$row['reason'] = 'number_unusable';
+			} elseif ( null === $loop ) {
+				$row['reason'] = 'no_loop_membership';
+			} else {
+				$row['loop_role']  = (string) ( $loop['role'] ?? '' );
+				$row['managed_by'] = (string) ( $loop['managed_by'] ?? '' );
+
+				if ( 'none' === $row['managed_by'] ) {
+					$row['selectable'] = true;
+					$row['demotion']   = Agend_Loop_Sync_Role_Mapper::rank( $row['channel_role'] ) < Agend_Loop_Sync_Role_Mapper::rank( $row['loop_role'] );
+				} else {
+					$row['reason'] = $reasons[ $row['managed_by'] ] ?? 'managed_elsewhere';
+				}
+			}
+
+			$rows[] = $row;
+		}
+
+		usort(
+			$rows,
+			static function ( $a, $b ) {
+				$by_name = strcasecmp( $a['name'], $b['name'] );
+
+				return 0 !== $by_name ? $by_name : strcmp( $a['membership_number'], $b['membership_number'] );
+			}
+		);
+
+		return $rows;
+	}
+
+	/**
+	 * The membership numbers from a posted selection that the picker allowed.
+	 *
+	 * The picker is the only thing that decides who can be handed over, so a
+	 * posted number that is not a selectable row of the picker for the same
+	 * committee is dropped, whatever the form said.
+	 *
+	 * @param array<string, mixed> $picker    The picker as adoption_picker() returned it.
+	 * @param string               $unique_id Committee the selection was posted for.
+	 * @param array                $posted    Posted membership numbers.
+	 * @return int[] Distinct membership numbers that may be queued.
+	 */
+	public static function selectable_external_ids( array $picker, string $unique_id, array $posted ): array {
+		if ( ( $picker['unique_id'] ?? null ) !== $unique_id || '' !== (string) ( $picker['error'] ?? '' ) ) {
+			return array();
+		}
+
+		$allowed = array();
+		foreach ( (array) ( $picker['members'] ?? array() ) as $row ) {
+			if ( ! empty( $row['selectable'] ) && isset( $row['external_id'] ) ) {
+				$allowed[ (int) $row['external_id'] ] = true;
+			}
+		}
+
+		$ids = array();
+		foreach ( Agend_Loop_Sync_Settings::sanitize_external_ids( $posted ) as $external_id ) {
+			if ( isset( $allowed[ $external_id ] ) ) {
+				$ids[] = $external_id;
+			}
+		}
+
+		return $ids;
+	}
+
+	/**
+	 * Reads the local members on one committee: every WordPress user with a
+	 * membership number whose Upbeat committee activities name it, with the
+	 * highest channel role they hold there (as build_rosters() does).
+	 *
+	 * Unlike build_rosters() this keeps a member whose membership number the
+	 * gateway cannot use, so the picker can show them and say why they cannot be
+	 * handed over.
+	 *
+	 * @param string $committee_name Committee name as Upbeat reports it.
+	 * @return array<int, array<string, mixed>>|null Local members; null when any member's lookup failed, since a missing one may be on the committee.
+	 */
+	private function fetch_committee_local_members( string $committee_name ): ?array {
+		$members = array();
+
+		foreach ( $this->get_member_users() as $user ) {
+			$membership_number = trim( (string) get_user_meta( $user->ID, 'imk_membership_number', true ) );
+			if ( '' === $membership_number ) {
+				continue;
+			}
+
+			$rows = $this->fetch_member_activities( $membership_number );
+			if ( null === $rows ) {
+				return null;
+			}
+
+			$member = null;
+			foreach ( $rows as $activity ) {
+				if ( ! is_object( $activity ) || ! method_exists( $activity, 'get_committee' ) || trim( (string) $activity->get_committee() ) !== $committee_name ) {
+					continue;
+				}
+
+				$role         = method_exists( $activity, 'get_role' ) ? (string) $activity->get_role() : '';
+				$channel_role = Agend_Loop_Sync_Role_Mapper::to_channel_role( $role );
+
+				if ( null !== $member && Agend_Loop_Sync_Role_Mapper::rank( $member['channel_role'] ) >= Agend_Loop_Sync_Role_Mapper::rank( $channel_role ) ) {
+					continue;
+				}
+
+				$member = array(
+					'wp_id'             => (int) $user->ID,
+					'name'              => (string) $user->display_name,
+					'membership_number' => $membership_number,
+					'committee_role'    => $role,
+					'channel_role'      => $channel_role,
+				);
+			}
+
+			if ( null !== $member ) {
+				$members[] = $member;
+			}
+		}
+
+		return $members;
+	}
+
+	/**
+	 * A message for a failed read of a committee channel's members.
+	 *
+	 * @param WP_Error $error The failed call.
+	 * @return string
+	 */
+	private function loop_members_error( $error ): string {
+		$status = self::error_status( $error );
+
+		if ( 404 === $status ) {
+			return __( 'Loop has no channel for this committee yet. Run a committee sync first, then load the members again.', 'agend-loop-sync' );
+		}
+
+		if ( 403 === $status ) {
+			return __( 'The gateway refused to list the committee channel members. The API key needs the loop.committees.browse scope.', 'agend-loop-sync' );
+		}
+
+		/* translators: %s: error message from the gateway. */
+		return sprintf( __( 'Could not read the committee channel from Loop: %s', 'agend-loop-sync' ), $error->get_error_message() );
+	}
+
+	/**
 	 * Persists the run timestamp and summary, then returns the summary.
 	 *
 	 * @param array<string, mixed> $summary Run summary.
@@ -1048,6 +1542,13 @@ class Agend_Loop_Sync_Committee_Sync {
 		if ( $total > 100 ) {
 			$summary['unresolved_external_ids']       = array_slice( $summary['unresolved_external_ids'], 0, 100 );
 			$summary['unresolved_external_ids_total'] = $total;
+		}
+
+		// Same for the per-member hand-over outcomes, which a large queue can make long.
+		$adoption_total = count( $summary['adoption_results'] ?? array() );
+		if ( $adoption_total > self::ADOPTION_RESULTS_KEPT ) {
+			$summary['adoption_results']       = array_slice( $summary['adoption_results'], 0, self::ADOPTION_RESULTS_KEPT );
+			$summary['adoption_results_total'] = $adoption_total;
 		}
 
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, time(), false );
