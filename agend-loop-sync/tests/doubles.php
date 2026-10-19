@@ -175,6 +175,46 @@ if ( ! function_exists( 'get_users' ) ) {
 	}
 }
 
+/*
+ * Form helpers the settings template calls and the shared stubs do not define.
+ * They behave as WordPress's do: print the attribute and return it.
+ */
+if ( ! function_exists( 'selected' ) ) {
+	function selected( $selected, $current = true, bool $display = true ): string {
+		$result = ( (string) $selected === (string) $current ) ? " selected='selected'" : '';
+
+		if ( $display ) {
+			echo $result; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		return $result;
+	}
+}
+
+if ( ! function_exists( 'disabled' ) ) {
+	function disabled( $disabled, $current = true, bool $display = true ): string {
+		$result = ( (string) $disabled === (string) $current ) ? " disabled='disabled'" : '';
+
+		if ( $display ) {
+			echo $result; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		return $result;
+	}
+}
+
+if ( ! function_exists( 'esc_textarea' ) ) {
+	function esc_textarea( $text ): string {
+		return htmlspecialchars( (string) $text, ENT_QUOTES );
+	}
+}
+
+if ( ! function_exists( 'sanitize_key' ) ) {
+	function sanitize_key( $key ): string {
+		return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $key ) );
+	}
+}
+
 if ( ! function_exists( 'get_userdata' ) ) {
 	function get_userdata( int $id ) {
 		foreach ( Loop_Sync_Test_State::$users as $user ) {

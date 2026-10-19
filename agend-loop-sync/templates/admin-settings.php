@@ -27,6 +27,17 @@ $als_last_sync      = (int) get_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC,
 $als_last_summary = get_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, array() );
 $als_last_summary = is_array( $als_last_summary ) ? $als_last_summary : array();
 
+// What the gateway can answer for a member handed over, in words.
+$als_outcome_labels = array(
+	'adopted'           => __( 'adopted', 'agend-loop-sync' ),
+	'already_managed'   => __( 'already managed by the sync', 'agend-loop-sync' ),
+	'inserted'          => __( 'added as a new member', 'agend-loop-sync' ),
+	'managed_elsewhere' => __( 'managed by another source, not adopted', 'agend-loop-sync' ),
+	'not_in_roster'     => __( 'not on the committee roster', 'agend-loop-sync' ),
+	'unresolved'        => __( 'no Loop user yet', 'agend-loop-sync' ),
+	'unknown'           => __( 'unknown outcome', 'agend-loop-sync' ),
+);
+
 // Staleness: warn when the last committee sync is older than ~2x the schedule
 // interval, which usually means WP-Cron is not firing.
 $als_schedule_seconds = array(
@@ -229,6 +240,68 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 				</span>
 			<?php endif; ?>
 		</p>
+
+		<?php
+		$als_adoption_outcomes = isset( $als_last_summary['adoption_outcomes'] ) ? (array) $als_last_summary['adoption_outcomes'] : array();
+		$als_adoption_results  = isset( $als_last_summary['adoption_results'] ) ? (array) $als_last_summary['adoption_results'] : array();
+		$als_adoption_errors   = isset( $als_last_summary['adoption_errors'] ) ? (array) $als_last_summary['adoption_errors'] : array();
+
+		if ( array() !== $als_adoption_outcomes ) :
+			$als_outcome_parts = array();
+			foreach ( $als_adoption_outcomes as $als_outcome => $als_outcome_count ) {
+				$als_outcome_parts[] = (int) $als_outcome_count . ' ' . ( $als_outcome_labels[ $als_outcome ] ?? $als_outcome_labels['unknown'] );
+			}
+			?>
+			<p>
+				<?php
+				printf(
+					/* translators: 1: members adopted, 2: comma-separated outcomes, for example "2 adopted, 1 not on the committee roster". */
+					esc_html__( 'Hand-over in the last run: %1$d adopted. Outcomes: %2$s.', 'agend-loop-sync' ),
+					(int) ( $als_last_summary['adopted'] ?? 0 ),
+					esc_html( implode( ', ', $als_outcome_parts ) )
+				);
+				?>
+			</p>
+			<?php if ( array() !== $als_adoption_results ) : ?>
+				<details>
+					<summary><?php esc_html_e( 'Show each member handed over', 'agend-loop-sync' ); ?></summary>
+					<ul>
+						<?php foreach ( $als_adoption_results as $als_adoption_result ) : ?>
+							<li>
+								<?php
+								printf(
+									/* translators: 1: committee name, 2: membership number, 3: what happened to the member. */
+									esc_html__( '%1$s: membership number %2$d, %3$s', 'agend-loop-sync' ),
+									esc_html( (string) ( $als_adoption_result['committee'] ?? '' ) ),
+									(int) ( $als_adoption_result['external_id'] ?? 0 ),
+									esc_html( $als_outcome_labels[ $als_adoption_result['outcome'] ?? '' ] ?? $als_outcome_labels['unknown'] )
+								);
+								?>
+							</li>
+						<?php endforeach; ?>
+					</ul>
+					<?php
+					$als_adoption_total = (int) ( $als_last_summary['adoption_results_total'] ?? 0 );
+					if ( $als_adoption_total > count( $als_adoption_results ) ) :
+						?>
+						<p class="description">
+							<?php
+							printf(
+								/* translators: 1: members listed, 2: members handed over in all. */
+								esc_html__( 'Showing the first %1$d of %2$d members.', 'agend-loop-sync' ),
+								(int) count( $als_adoption_results ),
+								(int) $als_adoption_total
+							);
+							?>
+						</p>
+					<?php endif; ?>
+				</details>
+			<?php endif; ?>
+		<?php endif; ?>
+
+		<?php foreach ( $als_adoption_errors as $als_adoption_error ) : ?>
+			<div class="notice notice-warning inline"><p><?php echo esc_html( (string) $als_adoption_error ); ?></p></div>
+		<?php endforeach; ?>
 	<?php endif; ?>
 
 	<p style="display:flex; gap:8px; align-items:flex-start;">
@@ -413,6 +486,282 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 					endforeach;
 				endif;
 				?>
+			</tbody>
+		</table>
+	<?php endif; ?>
+
+	<hr id="als-adopt" />
+
+	<h2><?php esc_html_e( 'Hand members to the sync', 'agend-loop-sync' ); ?></h2>
+	<p>
+		<?php esc_html_e( 'The committee sync only manages the Loop memberships it added itself. A member added by hand, or by an earlier version of this sync, is never demoted or removed by it. Hand a member to the sync here to bring their membership under the committee roster: from the next sync it follows their Upbeat role, including losing access if they leave the committee.', 'agend-loop-sync' ); ?>
+	</p>
+	<p class="description">
+		<?php esc_html_e( 'Nothing is handed over until you tick a member and queue them, and nobody is handed over automatically. Hand-over needs the loop.committees.update scope on the API key (on top of the scopes the sync already uses) and a gateway that supports it. Only a member that nothing manages can be chosen.', 'agend-loop-sync' ); ?>
+	</p>
+
+	<?php
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	$als_adopt_state = isset( $_GET['adopt'] ) ? sanitize_key( wp_unslash( $_GET['adopt'] ) ) : '';
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	$als_adopt_selected = isset( $_GET['selected'] ) ? (int) $_GET['selected'] : 0;
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	$als_adopt_queued_now = isset( $_GET['queued'] ) ? (int) $_GET['queued'] : 0;
+
+	if ( 'queued' === $als_adopt_state ) :
+		?>
+		<div class="notice notice-success inline">
+			<p>
+				<?php
+				printf(
+					/* translators: 1: members ticked, 2: members newly added to the queue. */
+					esc_html__( 'Hand-over queued. Members chosen: %1$d. Newly queued: %2$d. The next committee sync that reaches this committee hands them over.', 'agend-loop-sync' ),
+					(int) $als_adopt_selected,
+					(int) $als_adopt_queued_now
+				);
+				?>
+			</p>
+		</div>
+	<?php elseif ( 'cleared' === $als_adopt_state ) : ?>
+		<div class="notice notice-success inline"><p><?php esc_html_e( 'Queue cleared for that committee.', 'agend-loop-sync' ); ?></p></div>
+	<?php elseif ( 'none_selected' === $als_adopt_state ) : ?>
+		<div class="notice notice-warning inline"><p><?php esc_html_e( 'No member was queued. Tick at least one member the list allows.', 'agend-loop-sync' ); ?></p></div>
+	<?php elseif ( 'expired' === $als_adopt_state ) : ?>
+		<div class="notice notice-warning inline"><p><?php esc_html_e( 'The member list has expired. Load the members again, then queue.', 'agend-loop-sync' ); ?></p></div>
+	<?php elseif ( 'unknown_committee' === $als_adopt_state ) : ?>
+		<div class="notice notice-warning inline"><p><?php esc_html_e( 'That committee is not in the loaded list. Load the committees again.', 'agend-loop-sync' ); ?></p></div>
+	<?php endif; ?>
+
+	<?php
+	$als_adopt_loaded = get_transient( 'agend_loop_sync_adopt_committees' );
+	$als_adopt_loaded = is_array( $als_adopt_loaded ) ? $als_adopt_loaded : null;
+	$als_adopt_names  = array();
+	if ( null !== $als_adopt_loaded ) {
+		foreach ( (array) ( $als_adopt_loaded['committees'] ?? array() ) as $als_adopt_committee ) {
+			$als_adopt_names[ (string) $als_adopt_committee['unique_id'] ] = (string) $als_adopt_committee['name'];
+		}
+	}
+
+	if ( ! function_exists( 'agend_apps_loop_get_committee_members' ) ) :
+		?>
+		<div class="notice notice-warning inline">
+			<p><?php esc_html_e( 'Choosing members needs Agend Apps Core 1.42.0 or later, which can read a committee channel from Loop. Update Agend Apps Core to use this section.', 'agend-loop-sync' ); ?></p>
+		</div>
+	<?php else : ?>
+		<?php if ( null !== $als_adopt_loaded && '' !== (string) ( $als_adopt_loaded['error'] ?? '' ) ) : ?>
+			<div class="notice notice-warning inline"><p><?php echo esc_html( (string) $als_adopt_loaded['error'] ); ?></p></div>
+		<?php endif; ?>
+
+		<?php if ( null === $als_adopt_loaded || '' !== (string) ( $als_adopt_loaded['error'] ?? '' ) ) : ?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="agend_loop_sync_adopt_load_committees" />
+				<?php wp_nonce_field( 'agend_loop_sync_adopt_load_committees' ); ?>
+				<?php submit_button( __( 'Load committees', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
+				<span class="description"><?php esc_html_e( 'Reads the committee list from Upbeat, which can take a moment.', 'agend-loop-sync' ); ?></span>
+			</form>
+		<?php elseif ( array() === $als_adopt_names ) : ?>
+			<p><?php esc_html_e( 'No committees are covered by the sync. Check the committee filter above.', 'agend-loop-sync' ); ?></p>
+		<?php else : ?>
+			<?php
+			$als_adopt_picker = get_transient( 'agend_loop_sync_adopt_picker' );
+			$als_adopt_picker = is_array( $als_adopt_picker ) ? $als_adopt_picker : null;
+			?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+				<input type="hidden" name="action" value="agend_loop_sync_adopt_load_members" />
+				<?php wp_nonce_field( 'agend_loop_sync_adopt_load_members' ); ?>
+				<label for="als-adopt-committee"><strong><?php esc_html_e( 'Committee', 'agend-loop-sync' ); ?></strong></label>
+				<select id="als-adopt-committee" name="unique_id">
+					<?php foreach ( $als_adopt_names as $als_adopt_uid => $als_adopt_name ) : ?>
+						<option value="<?php echo esc_attr( (string) $als_adopt_uid ); ?>" <?php selected( (string) ( $als_adopt_picker['unique_id'] ?? '' ), (string) $als_adopt_uid ); ?>>
+							<?php
+							/* translators: 1: committee name, 2: Upbeat committee unique id. */
+							echo esc_html( sprintf( __( '%1$s (%2$s)', 'agend-loop-sync' ), $als_adopt_name, (string) $als_adopt_uid ) );
+							?>
+						</option>
+					<?php endforeach; ?>
+				</select>
+				<?php submit_button( __( 'Load members', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
+			</form>
+			<p class="description">
+				<?php esc_html_e( 'Reads each local member\'s committee activities from Upbeat and the committee channel from Loop, so it can take a moment. The committee must already have a channel in Loop.', 'agend-loop-sync' ); ?>
+			</p>
+
+			<?php if ( null !== $als_adopt_picker ) : ?>
+				<?php
+				$als_adopt_queue_now = Agend_Loop_Sync_Settings::get_adopt_queue_for( (string) ( $als_adopt_picker['unique_id'] ?? '' ) );
+				$als_adopt_reasons   = array(
+					'already_managed'    => __( 'Already managed by this sync.', 'agend-loop-sync' ),
+					'managed_by_group'   => __( 'Managed by a CRM group.', 'agend-loop-sync' ),
+					'managed_by_upbeat'  => __( 'Managed by the Upbeat committee sync.', 'agend-loop-sync' ),
+					'managed_elsewhere'  => __( 'Managed by another source.', 'agend-loop-sync' ),
+					'no_loop_membership' => __( 'Not in the Loop channel. The sync adds them itself once they have a Loop account.', 'agend-loop-sync' ),
+					'number_unusable'    => __( 'The membership number is not a plain number, so the sync cannot name this member.', 'agend-loop-sync' ),
+				);
+				$als_adopt_managers  = array(
+					'none'           => __( 'Nothing', 'agend-loop-sync' ),
+					'wordpress_sync' => __( 'This sync', 'agend-loop-sync' ),
+					'group'          => __( 'CRM group', 'agend-loop-sync' ),
+					'upbeat'         => __( 'Upbeat committee sync', 'agend-loop-sync' ),
+				);
+				$als_adopt_rows      = (array) ( $als_adopt_picker['members'] ?? array() );
+				?>
+				<h3>
+					<?php
+					/* translators: %s: committee name. */
+					echo esc_html( sprintf( __( 'Members of %s', 'agend-loop-sync' ), (string) ( $als_adopt_picker['committee'] ?? '' ) ) );
+					?>
+				</h3>
+
+				<?php if ( '' !== (string) ( $als_adopt_picker['error'] ?? '' ) ) : ?>
+					<div class="notice notice-warning inline"><p><?php echo esc_html( (string) $als_adopt_picker['error'] ); ?></p></div>
+				<?php elseif ( array() === $als_adopt_rows ) : ?>
+					<p><?php esc_html_e( 'No local member with a membership number is on this committee.', 'agend-loop-sync' ); ?></p>
+				<?php else : ?>
+					<?php if ( (int) ( $als_adopt_picker['unlinked_count'] ?? 0 ) > 0 ) : ?>
+						<p class="description">
+							<?php
+							printf(
+								/* translators: %d: number of Loop channel members. */
+								esc_html__( '%d member(s) of the Loop channel have no identity on this site\'s SSO connection. They are not listed and cannot be handed over.', 'agend-loop-sync' ),
+								(int) $als_adopt_picker['unlinked_count']
+							);
+							?>
+						</p>
+					<?php endif; ?>
+					<p class="description">
+						<?php esc_html_e( 'A member flagged as a demotion holds a higher role in Loop than the roster gives them. Once handed over they are moved to the roster role at the next sync (the last owner is never demoted).', 'agend-loop-sync' ); ?>
+					</p>
+
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+						<input type="hidden" name="action" value="agend_loop_sync_adopt_queue" />
+						<input type="hidden" name="unique_id" value="<?php echo esc_attr( (string) $als_adopt_picker['unique_id'] ); ?>" />
+						<?php wp_nonce_field( 'agend_loop_sync_adopt_queue' ); ?>
+						<table class="widefat striped">
+							<thead>
+								<tr>
+									<th><span class="screen-reader-text"><?php esc_html_e( 'Hand over', 'agend-loop-sync' ); ?></span></th>
+									<th><?php esc_html_e( 'Member', 'agend-loop-sync' ); ?></th>
+									<th><?php esc_html_e( 'Membership #', 'agend-loop-sync' ); ?></th>
+									<th><?php esc_html_e( 'Committee role', 'agend-loop-sync' ); ?></th>
+									<th><?php esc_html_e( 'Roster channel role', 'agend-loop-sync' ); ?></th>
+									<th><?php esc_html_e( 'Loop role now', 'agend-loop-sync' ); ?></th>
+									<th><?php esc_html_e( 'Managed by', 'agend-loop-sync' ); ?></th>
+									<th><?php esc_html_e( 'Note', 'agend-loop-sync' ); ?></th>
+								</tr>
+							</thead>
+							<tbody>
+								<?php
+								foreach ( $als_adopt_rows as $als_adopt_row ) :
+									$als_adopt_queued = ! empty( $als_adopt_row['selectable'] ) && in_array( (int) $als_adopt_row['external_id'], $als_adopt_queue_now, true );
+									?>
+									<tr>
+										<td>
+											<input
+												type="checkbox"
+												name="external_ids[]"
+												value="<?php echo esc_attr( isset( $als_adopt_row['external_id'] ) ? (string) (int) $als_adopt_row['external_id'] : '' ); ?>"
+												<?php disabled( empty( $als_adopt_row['selectable'] ) || $als_adopt_queued ); ?>
+												<?php checked( $als_adopt_queued ); ?>
+											/>
+										</td>
+										<td><?php echo esc_html( (string) $als_adopt_row['name'] ); ?></td>
+										<td><?php echo esc_html( (string) $als_adopt_row['membership_number'] ); ?></td>
+										<td><?php echo esc_html( (string) $als_adopt_row['committee_role'] ); ?></td>
+										<td><?php echo esc_html( (string) $als_adopt_row['channel_role'] ); ?></td>
+										<td><?php echo '' === (string) $als_adopt_row['loop_role'] ? esc_html__( 'None', 'agend-loop-sync' ) : esc_html( (string) $als_adopt_row['loop_role'] ); ?></td>
+										<td>
+											<?php
+											echo '' === (string) $als_adopt_row['managed_by']
+												? esc_html__( 'Not applicable', 'agend-loop-sync' )
+												: esc_html( $als_adopt_managers[ $als_adopt_row['managed_by'] ] ?? $als_adopt_row['managed_by'] );
+											?>
+										</td>
+										<td>
+											<?php if ( $als_adopt_queued ) : ?>
+												<?php esc_html_e( 'Queued for the next sync.', 'agend-loop-sync' ); ?>
+											<?php elseif ( empty( $als_adopt_row['selectable'] ) ) : ?>
+												<?php echo esc_html( $als_adopt_reasons[ $als_adopt_row['reason'] ] ?? $als_adopt_reasons['managed_elsewhere'] ); ?>
+											<?php endif; ?>
+											<?php if ( ! empty( $als_adopt_row['demotion'] ) ) : ?>
+												<strong>
+													<?php
+													printf(
+														/* translators: 1: current Loop role, 2: role the roster gives them, for example "owner to member". */
+														esc_html__( 'Demotion: %1$s to %2$s.', 'agend-loop-sync' ),
+														esc_html( (string) $als_adopt_row['loop_role'] ),
+														esc_html( (string) $als_adopt_row['channel_role'] )
+													);
+													?>
+												</strong>
+											<?php endif; ?>
+										</td>
+									</tr>
+								<?php endforeach; ?>
+							</tbody>
+						</table>
+						<p>
+							<?php submit_button( __( 'Queue hand-over', 'agend-loop-sync' ), 'primary', 'submit', false ); ?>
+						</p>
+					</form>
+				<?php endif; ?>
+			<?php endif; ?>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="agend_loop_sync_adopt_load_committees" />
+				<?php wp_nonce_field( 'agend_loop_sync_adopt_load_committees' ); ?>
+				<?php submit_button( __( 'Reload committees', 'agend-loop-sync' ), 'link', 'submit', false ); ?>
+			</form>
+		<?php endif; ?>
+	<?php endif; ?>
+
+	<h3><?php esc_html_e( 'Queued for the next sync', 'agend-loop-sync' ); ?></h3>
+	<?php $als_adopt_queue_all = Agend_Loop_Sync_Settings::get_adopt_queue(); ?>
+	<?php if ( array() === $als_adopt_queue_all ) : ?>
+		<p><?php esc_html_e( 'Nothing is queued.', 'agend-loop-sync' ); ?></p>
+	<?php else : ?>
+		<?php if ( Agend_Loop_Sync_Settings::is_dry_run() ) : ?>
+			<div class="notice notice-info inline"><p><?php esc_html_e( 'Dry run is on, so the next committee sync only logs what it would hand over and keeps this queue.', 'agend-loop-sync' ); ?></p></div>
+		<?php endif; ?>
+		<table class="widefat striped">
+			<thead>
+				<tr>
+					<th><?php esc_html_e( 'Committee', 'agend-loop-sync' ); ?></th>
+					<th><?php esc_html_e( 'Unique ID', 'agend-loop-sync' ); ?></th>
+					<th><?php esc_html_e( 'Members', 'agend-loop-sync' ); ?></th>
+					<th><?php esc_html_e( 'Membership numbers', 'agend-loop-sync' ); ?></th>
+					<th><span class="screen-reader-text"><?php esc_html_e( 'Actions', 'agend-loop-sync' ); ?></span></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $als_adopt_queue_all as $als_adopt_uid => $als_adopt_ids ) : ?>
+					<tr>
+						<td><?php echo esc_html( $als_adopt_names[ (string) $als_adopt_uid ] ?? '' ); ?></td>
+						<td><?php echo esc_html( (string) $als_adopt_uid ); ?></td>
+						<td><?php echo (int) count( $als_adopt_ids ); ?></td>
+						<td>
+							<?php
+							echo esc_html( implode( ', ', array_slice( $als_adopt_ids, 0, 50 ) ) );
+							if ( count( $als_adopt_ids ) > 50 ) {
+								echo esc_html(
+									sprintf(
+										/* translators: %d: number of membership numbers not listed. */
+										__( ' and %d more', 'agend-loop-sync' ),
+										count( $als_adopt_ids ) - 50
+									)
+								);
+							}
+							?>
+						</td>
+						<td>
+							<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+								<input type="hidden" name="action" value="agend_loop_sync_adopt_clear" />
+								<input type="hidden" name="unique_id" value="<?php echo esc_attr( (string) $als_adopt_uid ); ?>" />
+								<?php wp_nonce_field( 'agend_loop_sync_adopt_clear' ); ?>
+								<?php submit_button( __( 'Clear', 'agend-loop-sync' ), 'secondary small', 'submit', false ); ?>
+							</form>
+						</td>
+					</tr>
+				<?php endforeach; ?>
 			</tbody>
 		</table>
 	<?php endif; ?>
