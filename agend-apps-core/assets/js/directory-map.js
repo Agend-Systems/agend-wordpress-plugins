@@ -121,6 +121,19 @@
     return isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
   }
 
+  // The viewport as the `bbox` query value, north,south,east,west. Leaflet
+  // keeps counting longitude past 180 once the view reaches the date line,
+  // and the API takes -180 to 180 only and cannot match a box that crosses
+  // it. So the box moves to the copy of the world its centre is on, and
+  // whatever still lies past the line, on the side away from the centre, is
+  // left out.
+  function bboxParam(north, south, east, west) {
+    var shift = Math.round((east + west) / 2 / 360) * 360;
+    return [north, south, Math.min(east - shift, 180), Math.max(west - shift, -180)].map(function (edge) {
+      return Number(edge).toFixed(5);
+    }).join(',');
+  }
+
   function addressOf(location) {
     var street = [location.address_line_1, location.address_line_2].filter(Boolean).join(', ');
     var locality = [location.city, location.state, location.postcode].filter(Boolean).join(' ');
@@ -287,6 +300,9 @@
       // Without one-finger dragging, Leaflet leaves the page free to scroll
       // under one finger, and its pinch handler moves the map under two.
       dragging: !touchFirst,
+      // Pins are drawn on one copy of the world only, so a visitor dragging
+      // onto the next copy is moved back to the same place on this one.
+      worldCopyJump: true,
       zoomControl: true,
       attributionControl: true,
       center: FALLBACK_CENTRE,
@@ -781,9 +797,7 @@
           return;
         }
         var b = map.getBounds();
-        state.bbox = [b.getNorth(), b.getSouth(), b.getEast(), b.getWest()].map(function (edge) {
-          return Number(edge).toFixed(5);
-        }).join(',');
+        state.bbox = bboxParam(b.getNorth(), b.getSouth(), b.getEast(), b.getWest());
         userMoved = true;
         catalogue.reload();
       }, MOVE_DEBOUNCE_MS);
