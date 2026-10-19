@@ -17,14 +17,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Loop_Sync_Role_Mapper {
 
 	/**
-	 * Orders channel roles so the most privileged one can win a merge.
+	 * Orders channel roles so the most privileged one can win a merge. Also ranks
+	 * 'admin', a role Loop can hold but this plugin never maps to, so a member's
+	 * current Loop role can be compared with the one the roster gives them.
 	 *
-	 * @param string $channel_role One of 'owner', 'moderator', 'member'.
+	 * @param string $channel_role One of 'owner', 'admin', 'moderator', 'member'.
 	 * @return int Higher means more privileged; unknown roles rank 0.
 	 */
 	public static function rank( string $channel_role ): int {
 		$ranks = array(
-			'owner'     => 3,
+			'owner'     => 4,
+			'admin'     => 3,
 			'moderator' => 2,
 			'member'    => 1,
 		);

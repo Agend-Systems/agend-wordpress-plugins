@@ -31,6 +31,14 @@ class Agend_Loop_Sync_Settings {
 	const OPT_DRY_RUN          = 'agend_loop_sync_dry_run';
 	const OPT_LAST_SYNC        = 'agend_loop_sync_last_committee_sync';
 	const OPT_LAST_SUMMARY     = 'agend_loop_sync_last_sync_summary';
+	const OPT_ADOPT_QUEUE      = 'agend_loop_sync_adopt_queue';
+
+	/**
+	 * Most members one committee sync can hand over. The gateway refuses a longer
+	 * `adopt_external_ids` list, so a queue is capped here rather than failing a
+	 * whole committee.
+	 */
+	const ADOPT_MAX_IDS = 2000;
 
 	/**
 	 * Allowed Loop channel roles a committee role may map to.
@@ -273,6 +281,89 @@ class Agend_Loop_Sync_Settings {
 		return is_array( $value ) ? $value : array();
 	}
 
+	/**
+	 * The hand-over queue: members an administrator chose to hand to the
+	 * committee sync, not yet sent. Cleaned on every read, so a damaged option
+	 * can never put a bad value into a gateway request.
+	 *
+	 * @return array<string, int[]> Upbeat committee unique id => membership numbers (external ids).
+	 */
+	public static function get_adopt_queue(): array {
+		return self::sanitize_adopt_queue( get_option( self::OPT_ADOPT_QUEUE, array() ) );
+	}
+
+	/**
+	 * @param string $unique_id Upbeat committee unique id.
+	 * @return int[] Membership numbers queued for that committee.
+	 */
+	public static function get_adopt_queue_for( string $unique_id ): array {
+		$queue = self::get_adopt_queue();
+
+		return $queue[ $unique_id ] ?? array();
+	}
+
+	/* ----------------------------------------------------------------------
+	 * Hand-over queue changes
+	 * ------------------------------------------------------------------- */
+
+	/**
+	 * Adds membership numbers to one committee's queue, keeping what is already
+	 * queued. Anything beyond ADOPT_MAX_IDS is dropped.
+	 *
+	 * @param string $unique_id    Upbeat committee unique id.
+	 * @param array  $external_ids Membership numbers to queue.
+	 * @return int How many were newly queued.
+	 */
+	public static function queue_adoptions( string $unique_id, array $external_ids ): int {
+		$unique_id = trim( $unique_id );
+		if ( '' === $unique_id ) {
+			return 0;
+		}
+
+		$queue  = self::get_adopt_queue();
+		$before = $queue[ $unique_id ] ?? array();
+		$merged = self::sanitize_external_ids( array_merge( $before, $external_ids ) );
+
+		$queue[ $unique_id ] = $merged;
+		update_option( self::OPT_ADOPT_QUEUE, self::sanitize_adopt_queue( $queue ), false );
+
+		return count( $merged ) - count( $before );
+	}
+
+	/**
+	 * Removes membership numbers from one committee's queue. Re-reads the queue
+	 * first, so a number queued while a sync was running is not lost.
+	 *
+	 * @param string $unique_id    Upbeat committee unique id.
+	 * @param array  $external_ids Membership numbers to remove.
+	 * @return void
+	 */
+	public static function dequeue_adoptions( string $unique_id, array $external_ids ) {
+		$queue = self::get_adopt_queue();
+		if ( ! isset( $queue[ $unique_id ] ) ) {
+			return;
+		}
+
+		$queue[ $unique_id ] = array_values( array_diff( $queue[ $unique_id ], self::sanitize_external_ids( $external_ids ) ) );
+		update_option( self::OPT_ADOPT_QUEUE, self::sanitize_adopt_queue( $queue ), false );
+	}
+
+	/**
+	 * Empties one committee's queue.
+	 *
+	 * @param string $unique_id Upbeat committee unique id.
+	 * @return void
+	 */
+	public static function clear_adopt_queue( string $unique_id ) {
+		$queue = self::get_adopt_queue();
+		if ( ! isset( $queue[ $unique_id ] ) ) {
+			return;
+		}
+
+		unset( $queue[ $unique_id ] );
+		update_option( self::OPT_ADOPT_QUEUE, $queue, false );
+	}
+
 	/* ----------------------------------------------------------------------
 	 * Sanitizers
 	 * ------------------------------------------------------------------- */
@@ -371,5 +462,62 @@ class Agend_Loop_Sync_Settings {
 		}
 
 		return array_values( array_unique( $out ) );
+	}
+
+	/**
+	 * Cleans the hand-over queue: committees with a non-empty unique id, each
+	 * with its distinct positive membership numbers. A committee left with none
+	 * is dropped.
+	 *
+	 * @param mixed $value Raw option value.
+	 * @return array<string, int[]> The sanitized queue.
+	 */
+	public static function sanitize_adopt_queue( $value ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+
+		$queue = array();
+		foreach ( $value as $unique_id => $external_ids ) {
+			// PHP turns a numeric string key into an int, so cast it back.
+			$unique_id = trim( (string) $unique_id );
+			if ( '' === $unique_id || ! is_array( $external_ids ) ) {
+				continue;
+			}
+
+			$external_ids = self::sanitize_external_ids( $external_ids );
+			if ( array() !== $external_ids ) {
+				$queue[ $unique_id ] = $external_ids;
+			}
+		}
+
+		return $queue;
+	}
+
+	/**
+	 * Reduces a list to distinct positive integers (at most ADOPT_MAX_IDS),
+	 * the shape the gateway accepts. A value that is not plain digits, or does
+	 * not fit a 64-bit int, is dropped.
+	 *
+	 * @param array $values Raw values.
+	 * @return int[] The sanitized list.
+	 */
+	public static function sanitize_external_ids( array $values ): array {
+		$out = array();
+		foreach ( $values as $value ) {
+			if ( is_int( $value ) ) {
+				$id = $value;
+			} elseif ( is_string( $value ) ) {
+				$id = Agend_Loop_Sync_Contact_Resolver::to_external_id( $value );
+			} else {
+				continue;
+			}
+
+			if ( null !== $id && $id > 0 ) {
+				$out[ $id ] = $id;
+			}
+		}
+
+		return array_slice( array_values( $out ), 0, self::ADOPT_MAX_IDS );
 	}
 }

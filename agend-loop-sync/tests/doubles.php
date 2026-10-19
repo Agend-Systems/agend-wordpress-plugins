@@ -26,6 +26,14 @@ final class Loop_Sync_Test_State {
 	/** @var array<string, mixed> Canned response per gateway function (default: success envelope). */
 	public static array $responses = array();
 
+	/**
+	 * @var array<string, callable> Per-function responder, called with the args
+	 *      the function received. Takes precedence over $responses, so a test can
+	 *      answer differently depending on the request (a 403 only when the
+	 *      payload names members to adopt, say).
+	 */
+	public static array $responders = array();
+
 	/** @var array<int, array<string, mixed>> Loop committees returned by the list endpoint, in order. */
 	public static array $loop_committees = array();
 
@@ -69,6 +77,7 @@ final class Loop_Sync_Test_State {
 		self::$users                       = array();
 		self::$calls                       = array();
 		self::$responses                   = array();
+		self::$responders                  = array();
 		self::$loop_committees             = array();
 		self::$list_page_size              = 100;
 		self::$upbeat_committees           = array();
@@ -166,6 +175,46 @@ if ( ! function_exists( 'get_users' ) ) {
 	}
 }
 
+/*
+ * Form helpers the settings template calls and the shared stubs do not define.
+ * They behave as WordPress's do: print the attribute and return it.
+ */
+if ( ! function_exists( 'selected' ) ) {
+	function selected( $selected, $current = true, bool $display = true ): string {
+		$result = ( (string) $selected === (string) $current ) ? " selected='selected'" : '';
+
+		if ( $display ) {
+			echo $result; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		return $result;
+	}
+}
+
+if ( ! function_exists( 'disabled' ) ) {
+	function disabled( $disabled, $current = true, bool $display = true ): string {
+		$result = ( (string) $disabled === (string) $current ) ? " disabled='disabled'" : '';
+
+		if ( $display ) {
+			echo $result; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		return $result;
+	}
+}
+
+if ( ! function_exists( 'esc_textarea' ) ) {
+	function esc_textarea( $text ): string {
+		return htmlspecialchars( (string) $text, ENT_QUOTES );
+	}
+}
+
+if ( ! function_exists( 'sanitize_key' ) ) {
+	function sanitize_key( $key ): string {
+		return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $key ) );
+	}
+}
+
 if ( ! function_exists( 'get_userdata' ) ) {
 	function get_userdata( int $id ) {
 		foreach ( Loop_Sync_Test_State::$users as $user ) {
@@ -207,6 +256,10 @@ if ( ! function_exists( 'wp_unschedule_event' ) ) {
 function loop_sync_test_gateway( string $function, array $args, array $default = array( 'success' => true, 'data' => array() ) ) {
 	Loop_Sync_Test_State::$calls[] = array( $function, $args );
 
+	if ( isset( Loop_Sync_Test_State::$responders[ $function ] ) ) {
+		return ( Loop_Sync_Test_State::$responders[ $function ] )( $args );
+	}
+
 	return Loop_Sync_Test_State::$responses[ $function ] ?? $default;
 }
 
@@ -225,6 +278,21 @@ if ( ! function_exists( 'agend_apps_loop_sync_user' ) ) {
 
 	function agend_apps_loop_archive_committee( string $unique_id, string $visibility = 'hidden' ) {
 		return loop_sync_test_gateway( __FUNCTION__, array( $unique_id, $visibility ) );
+	}
+
+	function agend_apps_loop_get_committee_members( string $unique_id, string $idp_entity_id ) {
+		return loop_sync_test_gateway(
+			__FUNCTION__,
+			array( $unique_id, $idp_entity_id ),
+			array(
+				'success' => true,
+				'data'    => array(
+					'unique_id'      => $unique_id,
+					'members'        => array(),
+					'unlinked_count' => 0,
+				),
+			)
+		);
 	}
 
 	/**

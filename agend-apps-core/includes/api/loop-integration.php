@@ -179,6 +179,54 @@ function agend_apps_loop_get_committee( string $unique_id ) {
 }
 
 /**
+ * Lists a committee channel's members with their Loop role and what manages them.
+ *
+ * Only members who have an identity in the site's SSO connection are listed,
+ * keyed by the same external id the roster sync sends (the Upbeat membership
+ * number). Members without one are counted in `unlinked_count` only. The
+ * response carries no names, emails or Loop user ids.
+ *
+ * @param string $unique_id     Committee unique id.
+ * @param string $idp_entity_id The site's SAML IdP entity id (Issuer). Required.
+ * @return array|WP_Error Decoded { unique_id, members, unlinked_count } on success, or WP_Error on failure.
+ *                        Each member is { external_id, role, managed_by }: `role` is one of owner, admin,
+ *                        moderator or member; `managed_by` is one of wordpress_sync, group, upbeat or none.
+ *                        The gateway answers 400 for an unknown IdP and 404 for an unknown committee.
+ */
+function agend_apps_loop_get_committee_members( string $unique_id, string $idp_entity_id ) {
+	$path = '/loop/integration/committees/' . rawurlencode( $unique_id ) . '/members';
+
+	/**
+	 * Filters the committee-members request args before the request is sent.
+	 *
+	 * @param array  $args          Request args.
+	 * @param string $unique_id     Committee unique id.
+	 * @param string $idp_entity_id Site IdP entity id.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_loop_get_committee_members_args',
+		array( 'query' => array( 'idp_entity_id' => $idp_entity_id ) ),
+		$unique_id,
+		$idp_entity_id
+	);
+
+	$response = agend_apps_api()->request( 'GET', $path, $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded committee-members response before it is returned.
+	 *
+	 * @param array  $response      Decoded response body.
+	 * @param string $unique_id     Committee unique id.
+	 * @param string $idp_entity_id Site IdP entity id.
+	 */
+	return apply_filters( 'agend_apps_loop_get_committee_members_response', $response, $unique_id, $idp_entity_id );
+}
+
+/**
  * Creates or updates a committee channel (idempotent on unique_id).
  *
  * When a `roster` is supplied it supersedes the chair/secretary/member
@@ -197,6 +245,11 @@ function agend_apps_loop_get_committee( string $unique_id ) {
  *     @type array  $member_external_ids   Optional. Legacy member external ids.
  *     @type string $color                 Optional. Channel colour.
  *     @type bool   $is_active             Whether the committee is active. Defaults true server-side.
+ *     @type int[]  $adopt_external_ids    Optional. Up to 2000 distinct roster external ids whose existing,
+ *                                         unmanaged membership the sync should take over. A non-empty list
+ *                                         also needs the `loop.committees.update` scope, else the gateway
+ *                                         answers 403. The response then carries `adopted` and
+ *                                         `adoption_results` ({ external_id, outcome } per id).
  * }
  * @return array|WP_Error Decoded { committee, created } on success, or WP_Error on failure.
  */
