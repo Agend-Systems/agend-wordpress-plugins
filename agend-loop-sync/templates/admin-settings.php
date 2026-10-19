@@ -333,6 +333,55 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			<?php endif; ?>
 		<?php endif; ?>
 
+		<?php
+		$als_held_total   = (int) ( $als_last_summary['held_members'] ?? 0 );
+		$als_held_results = isset( $als_last_summary['held_results'] ) ? (array) $als_last_summary['held_results'] : array();
+
+		if ( $als_held_total > 0 ) :
+			?>
+			<p>
+				<?php
+				printf(
+					/* translators: %d: members the sync skipped or capped in the last run because a Loop administrator holds them. */
+					esc_html__( 'Held by a Loop administrator in the last run: %d member(s). The sync does not re-add a removed member and never raises a capped member above the cap, until a Loop administrator lifts the hold in Loop.', 'agend-loop-sync' ),
+					(int) $als_held_total
+				);
+				?>
+			</p>
+			<?php if ( array() !== $als_held_results ) : ?>
+				<details>
+					<summary><?php esc_html_e( 'Show each held member', 'agend-loop-sync' ); ?></summary>
+					<ul>
+						<?php foreach ( $als_held_results as $als_held_result ) : ?>
+							<li>
+								<?php
+								printf(
+									/* translators: 1: committee name, 2: membership number, 3: what the hold does, since when and why, for example "Removed from the channel. Since 2026-10-19 10:30. Reason: Under review". */
+									esc_html__( '%1$s: membership number %2$d. %3$s', 'agend-loop-sync' ),
+									esc_html( (string) ( $als_held_result['committee'] ?? '' ) ),
+									(int) ( $als_held_result['external_id'] ?? 0 ),
+									esc_html( $als_describe_hold( (array) $als_held_result ) )
+								);
+								?>
+							</li>
+						<?php endforeach; ?>
+					</ul>
+					<?php if ( $als_held_total > count( $als_held_results ) ) : ?>
+						<p class="description">
+							<?php
+							printf(
+								/* translators: 1: members listed, 2: members held in all. */
+								esc_html__( 'Showing the first %1$d of %2$d members.', 'agend-loop-sync' ),
+								(int) count( $als_held_results ),
+								(int) $als_held_total
+							);
+							?>
+						</p>
+					<?php endif; ?>
+				</details>
+			<?php endif; ?>
+		<?php endif; ?>
+
 		<?php foreach ( $als_adoption_errors as $als_adoption_error ) : ?>
 			<div class="notice notice-warning inline"><p><?php echo esc_html( (string) $als_adoption_error ); ?></p></div>
 		<?php endforeach; ?>

@@ -12,6 +12,9 @@ use Agend_Loop_Sync_Settings;
 use Agend_Test_WP;
 use DOMDocument;
 use DOMXPath;
+use Loop_Sync_Test_Activity;
+use Loop_Sync_Test_Committee;
+use Loop_Sync_Test_State;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once __DIR__ . '/LoopSyncTestCase.php';
@@ -463,7 +466,121 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 	public function a_last_run_without_a_hand_over_adds_nothing_to_the_summary(): void {
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, array( 'synced' => 1, 'archived' => 0, 'member_counts_reported' => true ) );
 
-		$this->assertStringNotContainsString( 'Hand-over in the last run', $this->render_page() );
+		$html = $this->render_page();
+
+		$this->assertStringNotContainsString( 'Hand-over in the last run', $html );
+		$this->assertStringNotContainsString( 'Held by a Loop administrator in the last run', $html );
+	}
+
+	#[Test]
+	public function the_last_run_summary_lists_the_held_members_with_the_kind_the_date_and_the_reason(): void {
+		update_option(
+			Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY,
+			array(
+				'synced'                 => 2,
+				'archived'               => 0,
+				'member_counts_reported' => true,
+				'held_members'           => 2,
+				'held_results'           => array(
+					array( 'committee' => 'Board', 'external_id' => 200, 'kind' => 'removal', 'role_cap' => '', 'reason' => 'Conduct complaint', 'held_since' => '2026-10-19T01:30:00Z' ),
+					array( 'committee' => 'Audit', 'external_id' => 100, 'kind' => 'role_cap', 'role_cap' => 'member', 'reason' => 'Pending review', 'held_since' => '2026-10-18T22:00:00Z' ),
+				),
+			)
+		);
+
+		$html = $this->render_page();
+		$text = trim( preg_replace( '/\s+/', ' ', strip_tags( $html ) ) );
+
+		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 2 member(s).', $text );
+		$this->assertStringContainsString( 'until a Loop administrator lifts the hold in Loop', $text );
+		$this->assertStringContainsString( 'Board: membership number 200. Removed from the channel. Since ' . wp_date( 'Y-m-d H:i', strtotime( '2026-10-19T01:30:00Z' ) ) . '. Reason: Conduct complaint', $text );
+		$this->assertStringContainsString( 'Audit: membership number 100. Role capped at member. Since ' . wp_date( 'Y-m-d H:i', strtotime( '2026-10-18T22:00:00Z' ) ) . '. Reason: Pending review', $text );
+		$this->assertStringNotContainsString( 'Showing the first', $text );
+	}
+
+	#[Test]
+	public function a_long_held_list_says_how_many_are_left_out(): void {
+		update_option(
+			Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY,
+			array(
+				'synced'                 => 1,
+				'archived'               => 0,
+				'member_counts_reported' => true,
+				'held_members'           => 150,
+				'held_results'           => array(
+					array( 'committee' => 'Board', 'external_id' => 200, 'kind' => 'removal', 'role_cap' => '', 'reason' => '', 'held_since' => '' ),
+				),
+			)
+		);
+
+		$html = $this->render_page();
+
+		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 150 member(s).', $html );
+		$this->assertStringContainsString( 'Showing the first 1 of 150 members.', $html );
+	}
+
+	#[Test]
+	public function a_held_total_without_a_detail_list_still_shows_the_count(): void {
+		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, array( 'synced' => 1, 'archived' => 0, 'member_counts_reported' => true, 'held_members' => 3 ) );
+
+		$html = $this->render_page();
+
+		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 3 member(s).', $html );
+		$this->assertStringNotContainsString( 'Show each held member', $html );
+	}
+
+	#[Test]
+	public function a_last_run_with_no_held_members_shows_no_held_summary(): void {
+		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, array( 'synced' => 1, 'archived' => 0, 'member_counts_reported' => true, 'held_members' => 0, 'held_results' => array() ) );
+
+		$this->assertStringNotContainsString( 'Held by a Loop administrator in the last run', $this->render_page() );
+	}
+
+	#[Test]
+	public function the_held_summary_escapes_the_committee_and_the_reason(): void {
+		update_option(
+			Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY,
+			array(
+				'synced'                 => 1,
+				'archived'               => 0,
+				'member_counts_reported' => true,
+				'held_members'           => 1,
+				'held_results'           => array(
+					array( 'committee' => 'Board <b>', 'external_id' => 200, 'kind' => 'removal', 'role_cap' => '', 'reason' => '<script>alert(1)</script>', 'held_since' => '' ),
+				),
+			)
+		);
+
+		$html = $this->render_page();
+
+		$this->assertStringNotContainsString( '<script>alert(1)</script>', $html );
+		$this->assertStringNotContainsString( 'Board <b>:', $html );
+		$this->assertStringContainsString( 'Board &lt;b&gt;: membership number 200. Removed from the channel. Reason: &lt;script&gt;alert(1)&lt;/script&gt;', $html );
+	}
+
+	#[Test]
+	public function a_real_run_with_holds_shows_them_on_the_page(): void {
+		loop_sync_test_user( 1, '100' );
+		Loop_Sync_Test_State::$upbeat_committees        = array( new Loop_Sync_Test_Committee( 'Board', 'uid-board' ) );
+		Loop_Sync_Test_State::$upbeat_activities['100'] = array( new Loop_Sync_Test_Activity( 'Board', 'Chair' ) );
+
+		Loop_Sync_Test_State::$responses['agend_apps_loop_sync_committee'] = array(
+			'success' => true,
+			'data'    => array(
+				'applied' => 1,
+				'held'    => array(
+					array( 'external_id' => 100, 'kind' => 'role_cap', 'role_cap' => 'moderator', 'reason' => 'Pending review', 'held_since' => '2026-10-19T01:30:00Z' ),
+				),
+			),
+		);
+
+		$this->committee_sync()->run();
+
+		$text = trim( preg_replace( '/\s+/', ' ', strip_tags( $this->render_page() ) ) );
+
+		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 1 member(s).', $text );
+		$this->assertStringContainsString( 'Board: membership number 100. Role capped at moderator.', $text );
+		$this->assertStringContainsString( 'Reason: Pending review', $text );
 	}
 
 	#[Test]
@@ -479,6 +596,20 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 			array( $this->hold( 200, 'removal' ), $this->hold( 100, 'role_cap', 'member' ) )
 		);
 		Agend_Loop_Sync_Settings::queue_adoptions( 'uid-board', array( 100 ) );
+		update_option(
+			Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY,
+			array(
+				'synced'                 => 1,
+				'archived'               => 0,
+				'member_counts_reported' => true,
+				'adoption_outcomes'      => array( 'held' => 1 ),
+				'adoption_results'       => array( array( 'committee' => 'Board', 'external_id' => 200, 'outcome' => 'held' ) ),
+				'held_members'           => 1,
+				'held_results'           => array(
+					array( 'committee' => 'Board', 'external_id' => 200, 'kind' => 'removal', 'role_cap' => '', 'reason' => 'Under review', 'held_since' => '2026-10-19T01:30:00Z' ),
+				),
+			)
+		);
 
 		$this->assertStringNotContainsString( "\u{2014}", $this->render_page() );
 	}
