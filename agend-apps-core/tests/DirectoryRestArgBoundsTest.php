@@ -27,9 +27,12 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/rest/directory-routes
  */
 final class DirectoryRestArgBoundsTest extends TestCase {
 
-	private const ROUTE_ARG_METHODS = array( 'search_args', 'markers_args', 'listings_args', 'reviews_args' );
-
-	private const PAGING_ARGS = array( 'page', 'limit', 'per_page' );
+	private const PAGING_ARGS_BY_METHOD = array(
+		'search_args'   => array( 'page', 'limit', 'per_page' ),
+		'markers_args'  => array( 'limit' ),
+		'listings_args' => array( 'page', 'per_page' ),
+		'reviews_args'  => array( 'page', 'limit' ),
+	);
 
 	/**
 	 * @return array<string, array<string, mixed>>
@@ -39,6 +42,19 @@ final class DirectoryRestArgBoundsTest extends TestCase {
 		$reflection->setAccessible( true );
 
 		return $reflection->invoke( new Agend_Apps_Directory_REST_Controller() );
+	}
+
+	/**
+	 * The paging arguments a route method declares, pinned to the expected
+	 * names so a renamed or dropped argument fails rather than skipping.
+	 *
+	 * @return array<string, array<string, mixed>>
+	 */
+	private function paging_args( string $method ): array {
+		$paging = array_intersect_key( $this->route_args( $method ), array_flip( array( 'page', 'limit', 'per_page' ) ) );
+		$this->assertSame( self::PAGING_ARGS_BY_METHOD[ $method ], array_keys( $paging ), $method );
+
+		return $paging;
 	}
 
 	/**
@@ -106,12 +122,35 @@ final class DirectoryRestArgBoundsTest extends TestCase {
 
 	#[Test]
 	public function should_raise_a_paging_value_to_the_minimum_when_it_is_zero_or_negative(): void {
-		foreach ( self::ROUTE_ARG_METHODS as $method ) {
-			foreach ( array_intersect_key( $this->route_args( $method ), array_flip( self::PAGING_ARGS ) ) as $name => $arg ) {
+		foreach ( array_keys( self::PAGING_ARGS_BY_METHOD ) as $method ) {
+			foreach ( $this->paging_args( $method ) as $name => $arg ) {
 				$this->assertSame( 1, $this->sanitise( $method, $name, '0' ), "{$method} {$name}" );
 				$this->assertSame( 1, $this->sanitise( $method, $name, '-5' ), "{$method} {$name}" );
 			}
 		}
+	}
+
+	/**
+	 * @return array<string, array{mixed, int}>
+	 */
+	public static function irregular_values(): array {
+		return array(
+			'empty'          => array( '', 1 ),
+			'non-numeric'    => array( 'abc', 1 ),
+			'decimal'        => array( '1.5', 1 ),
+			'exponent'       => array( '1e3', 100 ),
+			'leading digits' => array( '50abc', 50 ),
+			'array'          => array( array( '5' ), 1 ),
+		);
+	}
+
+	/**
+	 * @param mixed $value Raw query value.
+	 */
+	#[Test]
+	#[DataProvider( 'irregular_values' )]
+	public function should_clamp_a_page_size_into_the_declared_bounds_when_the_value_is_not_a_plain_integer( $value, int $expected ): void {
+		$this->assertSame( $expected, $this->sanitise( 'search_args', 'limit', $value ) );
 	}
 
 	#[Test]
@@ -124,8 +163,8 @@ final class DirectoryRestArgBoundsTest extends TestCase {
 
 	#[Test]
 	public function should_enforce_the_declared_bounds_when_any_paging_argument_declares_them(): void {
-		foreach ( self::ROUTE_ARG_METHODS as $method ) {
-			foreach ( array_intersect_key( $this->route_args( $method ), array_flip( self::PAGING_ARGS ) ) as $name => $arg ) {
+		foreach ( array_keys( self::PAGING_ARGS_BY_METHOD ) as $method ) {
+			foreach ( $this->paging_args( $method ) as $name => $arg ) {
 				$this->assertNotSame( 'absint', $arg['sanitize_callback'], "{$method} {$name}" );
 				$this->assertSame( $arg['minimum'], $this->sanitise( $method, $name, (string) ( $arg['minimum'] - 1 ) ), "{$method} {$name}" );
 				if ( isset( $arg['maximum'] ) ) {
