@@ -69,8 +69,9 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 	 *
 	 * @param array<int, array<string, mixed>> $local Local members.
 	 * @param array<int, array<string, mixed>> $loop  Loop members.
+	 * @param array<int, array<string, mixed>> $holds Sync holds.
 	 */
-	private function load_picker( array $local, array $loop, string $error = '' ): void {
+	private function load_picker( array $local, array $loop, string $error = '', array $holds = array() ): void {
 		set_transient(
 			'agend_loop_sync_adopt_picker',
 			array(
@@ -78,7 +79,7 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 				'unique_id'      => 'uid-board',
 				'committee'      => 'Board <b>',
 				'unlinked_count' => 2,
-				'members'        => Agend_Loop_Sync_Committee_Sync::join_adoption_members( $local, $loop ),
+				'members'        => Agend_Loop_Sync_Committee_Sync::join_adoption_members( $local, $loop, $holds ),
 				'error'          => $error,
 			),
 			300
@@ -100,6 +101,16 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 			'external_id' => $external_id,
 			'role'        => $role,
 			'managed_by'  => $managed_by,
+		);
+	}
+
+	private function hold( int $external_id, string $kind = 'removal', ?string $role_cap = null, string $reason = 'Under review', string $held_since = '2026-10-19T01:30:00Z' ): array {
+		return array(
+			'external_id' => $external_id,
+			'kind'        => $kind,
+			'role_cap'    => $role_cap,
+			'reason'      => $reason,
+			'held_since'  => $held_since,
 		);
 	}
 
@@ -217,6 +228,96 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 
 		$this->assertStringContainsString( 'Demotion: owner to member.', $boxes['100']['row'] );
 		$this->assertStringNotContainsString( 'Demotion', $boxes['200']['row'] );
+	}
+
+	#[Test]
+	public function a_held_member_is_shown_disabled_with_the_kind_the_date_and_the_reason(): void {
+		$this->load_committees();
+		$this->load_picker(
+			array(
+				$this->local_member( 1, 'Ada', '100', 'Member', 'member' ),
+				$this->local_member( 2, 'Bea', '200', 'Chair', 'owner' ),
+				$this->local_member( 3, 'Cy', '300', 'Member', 'member' ),
+			),
+			array(
+				$this->loop_member( 100, 'member', 'none' ),
+				$this->loop_member( 300, 'member', 'wordpress_sync' ),
+			),
+			'',
+			array(
+				// 200 was removed in Loop, so the members list no longer has them.
+				$this->hold( 200, 'removal', null, 'Conduct complaint', '2026-10-19T01:30:00Z' ),
+				$this->hold( 300, 'role_cap', 'moderator', 'Pending review', '2026-10-18T22:00:00Z' ),
+			)
+		);
+
+		$boxes = $this->checkboxes( $this->render_page() );
+
+		$this->assertFalse( $boxes['100']['disabled'] );
+		$this->assertStringNotContainsString( 'Held by a Loop administrator.', $boxes['100']['row'] );
+
+		$this->assertTrue( $boxes['200']['disabled'] );
+		$this->assertStringContainsString( 'Bea', $boxes['200']['row'], 'A removed member is still listed.' );
+		$this->assertStringContainsString( 'Held by a Loop administrator. Removed from the channel.', $boxes['200']['row'] );
+		$this->assertStringContainsString( 'Since ' . wp_date( 'Y-m-d H:i', strtotime( '2026-10-19T01:30:00Z' ) ) . '.', $boxes['200']['row'] );
+		$this->assertStringContainsString( 'Reason: Conduct complaint', $boxes['200']['row'] );
+		$this->assertStringNotContainsString( 'Not in the Loop channel.', $boxes['200']['row'], 'The hold, not the missing membership, is the note.' );
+
+		$this->assertTrue( $boxes['300']['disabled'] );
+		$this->assertStringContainsString( 'Held by a Loop administrator. Role capped at moderator.', $boxes['300']['row'] );
+		$this->assertStringContainsString( 'Reason: Pending review', $boxes['300']['row'] );
+		$this->assertStringNotContainsString( 'Already managed by this sync.', $boxes['300']['row'] );
+	}
+
+	#[Test]
+	public function a_hold_reason_is_escaped(): void {
+		$this->load_committees();
+		$this->load_picker(
+			array( $this->local_member( 1, 'Ada', '100', 'Member', 'member' ) ),
+			array(),
+			'',
+			array( $this->hold( 100, 'removal', null, '<script>alert(1)</script>' ) )
+		);
+
+		$html = $this->render_page();
+
+		$this->assertStringNotContainsString( '<script>alert(1)</script>', $html );
+		$this->assertStringContainsString( 'Reason: &lt;script&gt;alert(1)&lt;/script&gt;', $html );
+	}
+
+	#[Test]
+	public function the_picker_explains_holds_only_when_one_is_shown(): void {
+		$this->load_committees();
+		$this->load_picker( array( $this->local_member( 1, 'Ada', '100', 'Member', 'member' ) ), array( $this->loop_member( 100, 'member', 'none' ) ) );
+
+		$this->assertStringNotContainsString( 'A member held by a Loop administrator', $this->render_page() );
+
+		$this->load_picker( array( $this->local_member( 1, 'Ada', '100', 'Member', 'member' ) ), array(), '', array( $this->hold( 100 ) ) );
+
+		$this->assertStringContainsString( 'until a Loop administrator lifts the hold in Loop', $this->render_page() );
+	}
+
+	#[Test]
+	public function a_held_member_is_never_ticked_even_when_their_number_is_queued(): void {
+		$this->load_committees();
+		$this->load_picker( array( $this->local_member( 1, 'Ada', '100', 'Member', 'member' ) ), array( $this->loop_member( 100, 'member', 'none' ) ), '', array( $this->hold( 100, 'role_cap', 'member' ) ) );
+		Agend_Loop_Sync_Settings::queue_adoptions( 'uid-board', array( 100 ) );
+
+		$boxes = $this->checkboxes( $this->render_page() );
+
+		$this->assertTrue( $boxes['100']['disabled'] );
+		$this->assertFalse( $boxes['100']['checked'] );
+		$this->assertStringNotContainsString( 'Queued for the next sync.', $boxes['100']['row'] );
+	}
+
+	#[Test]
+	public function a_hold_without_a_date_or_a_reason_still_reads_as_a_sentence(): void {
+		$this->load_committees();
+		$this->load_picker( array( $this->local_member( 1, 'Ada', '100', 'Member', 'member' ) ), array(), '', array( $this->hold( 100, 'removal', null, '', '' ) ) );
+
+		$boxes = $this->checkboxes( $this->render_page() );
+
+		$this->assertStringEndsWith( 'Held by a Loop administrator. Removed from the channel.', $boxes['100']['row'] );
 	}
 
 	#[Test]
@@ -368,7 +469,15 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 	#[Test]
 	public function the_page_has_no_em_dash(): void {
 		$this->load_committees();
-		$this->load_picker( array( $this->local_member( 1, 'Ada', '100', 'Member', 'member' ) ), array( $this->loop_member( 100, 'owner', 'none' ) ) );
+		$this->load_picker(
+			array(
+				$this->local_member( 1, 'Ada', '100', 'Member', 'member' ),
+				$this->local_member( 2, 'Bea', '200', 'Member', 'member' ),
+			),
+			array( $this->loop_member( 100, 'owner', 'none' ) ),
+			'',
+			array( $this->hold( 200, 'removal' ), $this->hold( 100, 'role_cap', 'member' ) )
+		);
 		Agend_Loop_Sync_Settings::queue_adoptions( 'uid-board', array( 100 ) );
 
 		$this->assertStringNotContainsString( "\u{2014}", $this->render_page() );

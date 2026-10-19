@@ -1453,8 +1453,11 @@ class Agend_Loop_Sync_Committee_Sync {
 			return $picker;
 		}
 
+		// `holds` is absent from a gateway that does not know about sync holds.
+		$holds = is_array( $data['holds'] ?? null ) ? $data['holds'] : array();
+
 		$picker['unlinked_count'] = (int) ( $data['unlinked_count'] ?? 0 );
-		$picker['members']        = self::join_adoption_members( $local, $data['members'] );
+		$picker['members']        = self::join_adoption_members( $local, $data['members'], $holds );
 
 		return $picker;
 	}
@@ -1465,10 +1468,16 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * tested on its own.
 	 *
 	 * A row is selectable only when Loop reports the member's membership as
-	 * managed by nothing (`managed_by` is `none`). Otherwise `reason` says why not:
+	 * managed by nothing (`managed_by` is `none`) and no sync hold names them.
+	 * Otherwise `reason` says why not:
 	 *
 	 * - number_unusable: the membership number is not a plain positive integer, so
 	 *   the sync cannot name the member.
+	 * - held: a Loop administrator removed the member or capped their role in an
+	 *   emergency, and the sync honours that until an administrator lifts it. This
+	 *   wins over every reason below, and the row carries the hold in `hold`. The
+	 *   member may be absent from `$loop_members`, because a removed member is no
+	 *   longer in the channel.
 	 * - no_loop_membership: Loop lists no membership for them in this channel (they
 	 *   have not joined it, or have no identity on this site's SSO connection).
 	 * - already_managed: the sync already manages the membership (`wordpress_sync`).
@@ -1482,13 +1491,22 @@ class Agend_Loop_Sync_Committee_Sync {
 	 *
 	 * @param array<int, array<string, mixed>> $local_members Local roster members: wp_id, name, membership_number, committee_role, channel_role.
 	 * @param array<int, array<string, mixed>> $loop_members  Members as the gateway reports them: external_id, role, managed_by.
-	 * @return array<int, array<string, mixed>> One row per local member, sorted by name: the local fields plus external_id (int or null), loop_role ('' when none), managed_by ('' when none), selectable, reason ('' when selectable) and demotion.
+	 * @param array<int, array<string, mixed>> $holds         Sync holds as the gateway reports them: external_id, kind, role_cap, reason, held_since. Empty from a gateway that does not report holds.
+	 * @return array<int, array<string, mixed>> One row per local member, sorted by name: the local fields plus external_id (int or null), loop_role ('' when none), managed_by ('' when none), selectable, reason ('' when selectable), demotion and hold (the member's hold as normalise_hold() reads it, null when none).
 	 */
-	public static function join_adoption_members( array $local_members, array $loop_members ): array {
+	public static function join_adoption_members( array $local_members, array $loop_members, array $holds = array() ): array {
 		$by_external_id = array();
 		foreach ( $loop_members as $loop_member ) {
 			if ( is_array( $loop_member ) && isset( $loop_member['external_id'] ) ) {
 				$by_external_id[ (int) $loop_member['external_id'] ] = $loop_member;
+			}
+		}
+
+		$held_by_external_id = array();
+		foreach ( $holds as $hold ) {
+			$hold = self::normalise_hold( $hold );
+			if ( null !== $hold ) {
+				$held_by_external_id[ $hold['external_id'] ] = $hold;
 			}
 		}
 
@@ -1502,6 +1520,7 @@ class Agend_Loop_Sync_Committee_Sync {
 		foreach ( $local_members as $member ) {
 			$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( (string) ( $member['membership_number'] ?? '' ) );
 			$loop        = null === $external_id ? null : ( $by_external_id[ $external_id ] ?? null );
+			$hold        = null === $external_id ? null : ( $held_by_external_id[ $external_id ] ?? null );
 
 			$row = array(
 				'wp_id'             => (int) ( $member['wp_id'] ?? 0 ),
@@ -1515,10 +1534,18 @@ class Agend_Loop_Sync_Committee_Sync {
 				'selectable'        => false,
 				'reason'            => '',
 				'demotion'          => false,
+				'hold'              => null,
 			);
 
 			if ( null === $external_id ) {
 				$row['reason'] = 'number_unusable';
+			} elseif ( null !== $hold ) {
+				// Held, whether or not they are still in the channel: a removed member
+				// is not, and a capped one is, and neither can be handed over.
+				$row['hold']       = $hold;
+				$row['reason']     = 'held';
+				$row['loop_role']  = (string) ( $loop['role'] ?? '' );
+				$row['managed_by'] = (string) ( $loop['managed_by'] ?? '' );
 			} elseif ( null === $loop ) {
 				$row['reason'] = 'no_loop_membership';
 			} else {

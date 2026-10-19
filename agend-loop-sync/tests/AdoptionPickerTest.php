@@ -73,12 +73,26 @@ final class AdoptionPickerTest extends LoopSyncTestCase {
 	}
 
 	/**
+	 * One entry of `holds`, in the shape the contract gives.
+	 */
+	private function loop_hold( int $external_id, string $kind = 'removal', ?string $role_cap = null, string $reason = 'Under review', string $held_since = '2026-10-19T01:30:00Z' ): array {
+		return array(
+			'external_id' => $external_id,
+			'kind'        => $kind,
+			'role_cap'    => $role_cap,
+			'reason'      => $reason,
+			'held_since'  => $held_since,
+		);
+	}
+
+	/**
 	 * Joins one local member (given a channel role and membership number) to the
 	 * Loop member list, and returns the single row.
 	 *
 	 * @param array<int, array<string, mixed>> $loop_members Members as the gateway reports them.
+	 * @param array<int, array<string, mixed>> $holds        Holds as the gateway reports them.
 	 */
-	private function join_one( string $membership_number, string $channel_role, array $loop_members ): array {
+	private function join_one( string $membership_number, string $channel_role, array $loop_members, array $holds = array() ): array {
 		$rows = Agend_Loop_Sync_Committee_Sync::join_adoption_members(
 			array(
 				array(
@@ -89,7 +103,8 @@ final class AdoptionPickerTest extends LoopSyncTestCase {
 					'channel_role'      => $channel_role,
 				),
 			),
-			$loop_members
+			$loop_members,
+			$holds
 		);
 
 		$this->assertCount( 1, $rows );
@@ -400,6 +415,203 @@ final class AdoptionPickerTest extends LoopSyncTestCase {
 		$picker = $this->committee_sync()->adoption_picker( 'uid-board' );
 
 		$this->assertSame( array(), Agend_Loop_Sync_Committee_Sync::selectable_external_ids( $picker, 'uid-board', array( '100' ) ) );
+	}
+
+	#[Test]
+	public function a_removal_held_member_who_is_no_longer_in_the_channel_is_shown_and_cannot_be_selected(): void {
+		$row = $this->join_one( '100', 'member', array( $this->loop_member( 999, 'member', 'none' ) ), array( $this->loop_hold( 100, 'removal', null, 'Conduct complaint', '2026-10-19T01:30:00Z' ) ) );
+
+		$this->assertFalse( $row['selectable'] );
+		$this->assertSame( 'held', $row['reason'], 'The hold, not the missing membership, is the reason.' );
+		$this->assertSame( 100, $row['external_id'] );
+		$this->assertSame( '', $row['loop_role'] );
+		$this->assertSame( '', $row['managed_by'] );
+		$this->assertFalse( $row['demotion'] );
+		$this->assertSame(
+			array(
+				'external_id' => 100,
+				'kind'        => 'removal',
+				'role_cap'    => '',
+				'reason'      => 'Conduct complaint',
+				'held_since'  => '2026-10-19T01:30:00Z',
+			),
+			$row['hold']
+		);
+	}
+
+	#[Test]
+	public function a_role_capped_member_is_shown_with_their_current_role_and_cannot_be_selected(): void {
+		$row = $this->join_one( '100', 'owner', array( $this->loop_member( 100, 'member', 'wordpress_sync' ) ), array( $this->loop_hold( 100, 'role_cap', 'member', 'Pending review' ) ) );
+
+		$this->assertFalse( $row['selectable'] );
+		$this->assertSame( 'held', $row['reason'] );
+		$this->assertSame( 'member', $row['loop_role'] );
+		$this->assertSame( 'wordpress_sync', $row['managed_by'] );
+		$this->assertSame( 'role_cap', $row['hold']['kind'] );
+		$this->assertSame( 'member', $row['hold']['role_cap'] );
+		$this->assertSame( 'Pending review', $row['hold']['reason'] );
+	}
+
+	#[Test]
+	public function a_hold_stops_a_member_nothing_manages_from_being_selected(): void {
+		$row = $this->join_one( '100', 'member', array( $this->loop_member( 100, 'owner', 'none' ) ), array( $this->loop_hold( 100, 'role_cap', 'member' ) ) );
+
+		$this->assertFalse( $row['selectable'] );
+		$this->assertSame( 'held', $row['reason'] );
+		$this->assertFalse( $row['demotion'] );
+	}
+
+	#[Test]
+	public function a_hold_wins_over_what_manages_the_membership(): void {
+		foreach ( array( 'wordpress_sync', 'group', 'upbeat', 'some_future_source' ) as $managed_by ) {
+			$row = $this->join_one( '100', 'member', array( $this->loop_member( 100, 'member', $managed_by ) ), array( $this->loop_hold( 100 ) ) );
+
+			$this->assertFalse( $row['selectable'], $managed_by );
+			$this->assertSame( 'held', $row['reason'], $managed_by );
+			$this->assertSame( $managed_by, $row['managed_by'], $managed_by );
+		}
+	}
+
+	#[Test]
+	public function only_the_held_member_is_held_and_the_others_join_as_before(): void {
+		$local = array(
+			array( 'wp_id' => 1, 'name' => 'Ada', 'membership_number' => '100', 'committee_role' => 'Member', 'channel_role' => 'member' ),
+			array( 'wp_id' => 2, 'name' => 'Bea', 'membership_number' => '200', 'committee_role' => 'Member', 'channel_role' => 'member' ),
+		);
+
+		$rows = Agend_Loop_Sync_Committee_Sync::join_adoption_members(
+			$local,
+			array( $this->loop_member( 100, 'member', 'none' ), $this->loop_member( 200, 'member', 'none' ) ),
+			array( $this->loop_hold( 200 ) )
+		);
+
+		$this->assertTrue( $rows[0]['selectable'] );
+		$this->assertNull( $rows[0]['hold'] );
+		$this->assertFalse( $rows[1]['selectable'] );
+		$this->assertSame( 'held', $rows[1]['reason'] );
+	}
+
+	#[Test]
+	public function a_row_without_a_hold_has_no_hold(): void {
+		$row = $this->join_one( '100', 'member', array( $this->loop_member( 100, 'member', 'none' ) ) );
+
+		$this->assertNull( $row['hold'] );
+	}
+
+	#[Test]
+	public function a_hold_for_someone_not_on_the_roster_adds_no_row(): void {
+		$rows = Agend_Loop_Sync_Committee_Sync::join_adoption_members(
+			array( array( 'wp_id' => 1, 'name' => 'Ada', 'membership_number' => '100', 'committee_role' => 'Member', 'channel_role' => 'member' ) ),
+			array( $this->loop_member( 100, 'member', 'none' ) ),
+			array( $this->loop_hold( 999 ) )
+		);
+
+		$this->assertCount( 1, $rows );
+		$this->assertTrue( $rows[0]['selectable'] );
+	}
+
+	#[Test]
+	public function a_hold_that_names_no_member_is_ignored(): void {
+		$row = $this->join_one(
+			'100',
+			'member',
+			array( $this->loop_member( 100, 'member', 'none' ) ),
+			array( 'not a hold', array( 'kind' => 'removal', 'reason' => 'No id' ), $this->loop_hold( 0 ) )
+		);
+
+		$this->assertTrue( $row['selectable'] );
+		$this->assertNull( $row['hold'] );
+	}
+
+	#[Test]
+	public function a_hold_of_a_kind_the_plugin_does_not_know_still_holds_the_member(): void {
+		$row = $this->join_one( '100', 'member', array( $this->loop_member( 100, 'member', 'none' ) ), array( $this->loop_hold( 100, 'freeze', 'superuser' ) ) );
+
+		$this->assertFalse( $row['selectable'] );
+		$this->assertSame( 'held', $row['reason'] );
+		$this->assertSame( 'unknown', $row['hold']['kind'] );
+		$this->assertSame( '', $row['hold']['role_cap'] );
+	}
+
+	#[Test]
+	public function the_picker_joins_the_holds_the_gateway_reports_by_membership_number(): void {
+		$response                                                                 = $this->loop_members(
+			array(
+				$this->loop_member( 100, 'member', 'none' ),
+				$this->loop_member( 500, 'member', 'wordpress_sync' ),
+			)
+		);
+		$response['data']['holds']                                                = array(
+			// 200 was removed in Loop, so the members list no longer has them.
+			$this->loop_hold( 200, 'removal', null, 'Conduct complaint', '2026-10-19T01:30:00Z' ),
+			$this->loop_hold( 500, 'role_cap', 'member', 'Pending review', '2026-10-18T22:00:00Z' ),
+		);
+		Loop_Sync_Test_State::$responses['agend_apps_loop_get_committee_members'] = $response;
+
+		$picker = $this->committee_sync()->adoption_picker( 'uid-board' );
+
+		$this->assertSame( '', $picker['error'] );
+		$by_number = array_column( $picker['members'], null, 'membership_number' );
+		$this->assertEqualsCanonicalizing( array( '100', '200', '500', 'ABC123' ), array_keys( $by_number ), 'The removal-held member is on the roster, so still listed.' );
+
+		$this->assertTrue( $by_number['100']['selectable'] );
+		$this->assertNull( $by_number['100']['hold'] );
+
+		$this->assertFalse( $by_number['200']['selectable'] );
+		$this->assertSame( 'held', $by_number['200']['reason'] );
+		$this->assertSame( 'removal', $by_number['200']['hold']['kind'] );
+		$this->assertSame( 'Conduct complaint', $by_number['200']['hold']['reason'] );
+		$this->assertSame( '2026-10-19T01:30:00Z', $by_number['200']['hold']['held_since'] );
+
+		$this->assertFalse( $by_number['500']['selectable'] );
+		$this->assertSame( 'held', $by_number['500']['reason'] );
+		$this->assertSame( 'member', $by_number['500']['hold']['role_cap'] );
+		$this->assertSame( 'member', $by_number['500']['loop_role'] );
+	}
+
+	#[Test]
+	public function a_gateway_that_reports_no_holds_gives_a_picker_with_no_hold(): void {
+		Loop_Sync_Test_State::$responses['agend_apps_loop_get_committee_members'] = $this->loop_members( array( $this->loop_member( 100, 'member', 'none' ) ) );
+
+		$picker = $this->committee_sync()->adoption_picker( 'uid-board' );
+
+		$this->assertSame( '', $picker['error'] );
+		$this->assertNotSame( array(), $picker['members'] );
+		foreach ( $picker['members'] as $row ) {
+			$this->assertNull( $row['hold'], $row['membership_number'] );
+		}
+	}
+
+	#[Test]
+	public function a_holds_value_that_is_not_a_list_is_read_as_no_holds(): void {
+		$response                                                                 = $this->loop_members( array( $this->loop_member( 100, 'member', 'none' ) ) );
+		$response['data']['holds']                                                = 'none';
+		Loop_Sync_Test_State::$responses['agend_apps_loop_get_committee_members'] = $response;
+
+		$picker = $this->committee_sync()->adoption_picker( 'uid-board' );
+
+		$this->assertSame( '', $picker['error'] );
+		$this->assertSame( array( '100' ), array_column( array_filter( $picker['members'], static fn( $row ) => $row['selectable'] ), 'membership_number' ) );
+	}
+
+	#[Test]
+	public function a_held_member_cannot_be_queued_even_when_the_form_posts_them(): void {
+		$response                                                                 = $this->loop_members(
+			array(
+				$this->loop_member( 100, 'member', 'none' ),
+				$this->loop_member( 200, 'member', 'none' ),
+			)
+		);
+		$response['data']['holds']                                                = array(
+			$this->loop_hold( 200, 'role_cap', 'member' ),
+			$this->loop_hold( 500, 'removal' ),
+		);
+		Loop_Sync_Test_State::$responses['agend_apps_loop_get_committee_members'] = $response;
+		$picker                                                                   = $this->committee_sync()->adoption_picker( 'uid-board' );
+
+		$ids = Agend_Loop_Sync_Committee_Sync::selectable_external_ids( $picker, 'uid-board', array( '100', '200', '500' ) );
+
+		$this->assertSame( array( 100 ), $ids );
 	}
 
 	#[Test]
