@@ -559,7 +559,6 @@ class Agend_Loop_Sync_Committee_Sync {
 						'external_id' => $hold['external_id'],
 						'kind'        => $hold['kind'],
 						'role_cap'    => $hold['role_cap'],
-						'reason'      => $hold['reason'],
 						'held_since'  => $hold['held_since'],
 					)
 				);
@@ -590,14 +589,18 @@ class Agend_Loop_Sync_Committee_Sync {
 			return null;
 		}
 
-		$external_id = (int) ( $hold['external_id'] ?? 0 );
+		if ( ! is_scalar( $hold['external_id'] ?? null ) ) {
+			return null;
+		}
+
+		$external_id = (int) $hold['external_id'];
 		if ( $external_id <= 0 ) {
 			return null;
 		}
 
-		$kind     = (string) ( $hold['kind'] ?? '' );
-		$role_cap = (string) ( $hold['role_cap'] ?? '' );
-		$reason   = trim( (string) ( $hold['reason'] ?? '' ) );
+		$kind     = self::scalar_string( $hold['kind'] ?? '' );
+		$role_cap = self::scalar_string( $hold['role_cap'] ?? '' );
+		$reason   = trim( self::scalar_string( $hold['reason'] ?? '' ) );
 
 		if ( mb_strlen( $reason ) > self::HOLD_REASON_MAX ) {
 			$reason = mb_substr( $reason, 0, self::HOLD_REASON_MAX ) . '...';
@@ -608,8 +611,18 @@ class Agend_Loop_Sync_Committee_Sync {
 			'kind'        => in_array( $kind, self::HOLD_KINDS, true ) ? $kind : 'unknown',
 			'role_cap'    => in_array( $role_cap, self::HOLD_ROLES, true ) ? $role_cap : '',
 			'reason'      => $reason,
-			'held_since'  => (string) ( $hold['held_since'] ?? '' ),
+			'held_since'  => self::scalar_string( $hold['held_since'] ?? '' ),
 		);
+	}
+
+	/**
+	 * A gateway value as a string, or '' when it is not a scalar.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	private static function scalar_string( $value ): string {
+		return is_scalar( $value ) ? (string) $value : '';
 	}
 
 	/**

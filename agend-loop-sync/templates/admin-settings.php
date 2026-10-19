@@ -342,8 +342,8 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			<p>
 				<?php
 				printf(
-					/* translators: %d: members the sync skipped or capped in the last run because a Loop administrator holds them. */
-					esc_html__( 'Held by a Loop administrator in the last run: %d member(s). The sync does not re-add a removed member and never raises a capped member above the cap, until a Loop administrator lifts the hold in Loop.', 'agend-loop-sync' ),
+					/* translators: %d: holds the sync honoured in the last run (one per member per committee). */
+					esc_html__( 'Held by a Loop administrator in the last run: %d hold(s). The sync does not re-add a removed member and never raises a capped member above the cap, until a Loop administrator lifts the hold in Loop.', 'agend-loop-sync' ),
 					(int) $als_held_total
 				);
 				?>

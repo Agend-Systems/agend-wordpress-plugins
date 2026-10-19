@@ -361,9 +361,10 @@ picked up after their first SSO sign-in. It honours dry-run mode.
 - **Stale-sync warning.** The settings screen warns when the last committee
   sync is more than twice the scheduled interval old, which usually means
   WP-Cron is not running.
-- **Privacy-aware logging.** The activity log never stores emails, names or
-  avatar URLs, and caps each entry's size. The one piece of free text it
-  keeps is the reason a Loop administrator gave for a hold.
+- **Privacy-aware logging.** The activity log never stores emails, names,
+  avatar URLs or the free-text reason a Loop administrator gave for a hold,
+  and caps each entry's size. Hold reasons appear only in the last-run
+  summary on the settings screen.
 - **Settings survive deactivation.** Deactivating clears the scheduled event
   but keeps all settings.
 

@@ -491,7 +491,7 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 		$html = $this->render_page();
 		$text = trim( preg_replace( '/\s+/', ' ', strip_tags( $html ) ) );
 
-		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 2 member(s).', $text );
+		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 2 hold(s).', $text );
 		$this->assertStringContainsString( 'until a Loop administrator lifts the hold in Loop', $text );
 		$this->assertStringContainsString( 'Board: membership number 200. Removed from the channel. Since ' . wp_date( 'Y-m-d H:i', strtotime( '2026-10-19T01:30:00Z' ) ) . '. Reason: Conduct complaint', $text );
 		$this->assertStringContainsString( 'Audit: membership number 100. Role capped at member. Since ' . wp_date( 'Y-m-d H:i', strtotime( '2026-10-18T22:00:00Z' ) ) . '. Reason: Pending review', $text );
@@ -515,7 +515,7 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 
 		$html = $this->render_page();
 
-		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 150 member(s).', $html );
+		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 150 hold(s).', $html );
 		$this->assertStringContainsString( 'Showing the first 1 of 150 members.', $html );
 	}
 
@@ -525,7 +525,7 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 
 		$html = $this->render_page();
 
-		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 3 member(s).', $html );
+		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 3 hold(s).', $html );
 		$this->assertStringNotContainsString( 'Show each held member', $html );
 	}
 
@@ -578,7 +578,7 @@ final class AdoptionSettingsPageTest extends LoopSyncTestCase {
 
 		$text = trim( preg_replace( '/\s+/', ' ', strip_tags( $this->render_page() ) ) );
 
-		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 1 member(s).', $text );
+		$this->assertStringContainsString( 'Held by a Loop administrator in the last run: 1 hold(s).', $text );
 		$this->assertStringContainsString( 'Board: membership number 100. Role capped at moderator.', $text );
 		$this->assertStringContainsString( 'Reason: Pending review', $text );
 	}

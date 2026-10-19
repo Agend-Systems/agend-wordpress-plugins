@@ -136,7 +136,7 @@ final class HoldSyncTest extends LoopSyncTestCase {
 	}
 
 	#[Test]
-	public function each_held_member_is_logged_with_the_hold_and_no_personal_data(): void {
+	public function each_held_member_is_logged_with_the_hold_but_not_its_reason_or_personal_data(): void {
 		Loop_Sync_Test_State::$responses['agend_apps_loop_sync_committee'] = $this->held_response(
 			array(
 				$this->hold( 100, 'role_cap', 'moderator', 'Pending review', '2026-10-18T22:00:00Z' ),
@@ -158,11 +158,11 @@ final class HoldSyncTest extends LoopSyncTestCase {
 				'external_id' => 100,
 				'kind'        => 'role_cap',
 				'role_cap'    => 'moderator',
-				'reason'      => 'Pending review',
 				'held_since'  => '2026-10-18T22:00:00Z',
 			),
 			$entries[0]['context']
 		);
+		$this->assertStringNotContainsString( 'Pending review', wp_json_encode( Agend_Loop_Sync_Logger::recent() ) );
 		$this->assertStringNotContainsString( 'chair@example.com', wp_json_encode( Agend_Loop_Sync_Logger::recent() ) );
 		$this->assertStringNotContainsString( 'Member 1', wp_json_encode( Agend_Loop_Sync_Logger::recent() ) );
 	}
@@ -235,6 +235,33 @@ final class HoldSyncTest extends LoopSyncTestCase {
 		$this->assertSame( 'unknown', $summary['held_results'][0]['kind'] );
 		$this->assertSame( '', $summary['held_results'][0]['role_cap'], 'A role the plugin does not know is dropped.' );
 		$this->assertSame( 200, $summary['held_results'][0]['external_id'] );
+	}
+
+	#[Test]
+	public function a_hold_with_non_scalar_values_is_read_without_notices(): void {
+		Loop_Sync_Test_State::$responses['agend_apps_loop_sync_committee'] = $this->held_response(
+			array(
+				array(
+					'external_id' => array( 300 ),
+					'kind'        => 'removal',
+				),
+				array(
+					'external_id' => 301,
+					'kind'        => array( 'removal' ),
+					'role_cap'    => array( 'member' ),
+					'reason'      => array( 'text' ),
+					'held_since'  => array( 'when' ),
+				),
+			)
+		);
+
+		$summary = $this->committee_sync()->run();
+
+		$this->assertSame( 301, $summary['held_results'][0]['external_id'], 'An array external id is ignored.' );
+		$this->assertSame( 'unknown', $summary['held_results'][0]['kind'] );
+		$this->assertSame( '', $summary['held_results'][0]['role_cap'] );
+		$this->assertSame( '', $summary['held_results'][0]['reason'] );
+		$this->assertSame( '', $summary['held_results'][0]['held_since'] );
 	}
 
 	#[Test]
