@@ -26,6 +26,10 @@ directly and never modifies the membership plugin.
   [Removing access](#removing-access)).
 - **Choose which committees sync.** All web-visible committees, committees in
   selected Upbeat groups, or an explicit allow-list.
+- **Hand members to the sync.** Bring a member who is already in a channel
+  (added by hand, or before removal existed) under the committee roster, one
+  chosen member at a time (see
+  [Handing members to the sync](#handing-members-to-the-sync)).
 - **Scheduled and on demand.** Committees sync hourly, twice daily or daily,
   and an administrator can run a sync at any time.
 - **One-click backfill.** Refreshes every member's Loop account in batches
@@ -42,7 +46,9 @@ directly and never modifies the membership plugin.
 - **Agend Apps Core**, active and connected to the Agend gateway. Provides
   the gateway client and Loop API bindings. The gateway API key needs the
   `loop.users.sync`, `loop.committees.browse`, `loop.committees.create` and
-  `loop.committees.delete` scopes.
+  `loop.committees.delete` scopes. Handing members to the sync (optional)
+  also needs `loop.committees.update` and Agend Apps Core 1.42.0 or later
+  (see [Handing members to the sync](#handing-members-to-the-sync)).
 - **Agend Membership** (`iugo-membership-kiosk`), active. Provides access to
   Upbeat and the `imk_membership_number` user meta used to identify members.
 - Single sign-on from this site into Loop (the Agend SAML IdP). The plugin
@@ -186,6 +192,86 @@ cannot be told apart from one who left. The settings screen and log record
 when this happens. If the committee list itself cannot be read from Upbeat,
 the run stops before making any change.
 
+### Handing members to the sync
+
+The committee sync only manages the Loop memberships it added itself. A
+member who was added to the channel in Loop by hand, or by an earlier version
+of this plugin, is left alone: the sync never demotes or removes them,
+whatever Upbeat says. **Hand members to the sync** puts chosen members back
+under the roster without removing them from the channel and adding them
+again, which would drop their access in between and reset their personal
+channel settings.
+
+How it works:
+
+1. On **Settings > Loop Sync**, under **Hand members to the sync**, choose
+   **Load committees**, pick a committee (listed by name and Upbeat unique
+   ID), and choose **Load members**. The committee must already have a
+   channel in Loop.
+2. The table lists the committee's local members with their committee role,
+   the channel role the roster gives them, their current Loop role, and what
+   manages their membership.
+3. Tick the members to hand over and choose **Queue hand-over**. The queue is
+   listed per committee, each with a **Clear** action.
+4. The next committee sync that reaches that committee sends the queued
+   members. Each one gets an outcome, and every member who got one leaves
+   the queue. The outcomes appear in the last-run summary and the activity
+   log.
+
+The choice is per member. Nothing is handed over automatically and there is
+no "everyone" option. Only a member that nothing manages can be ticked; the
+others are shown with the reason:
+
+| Shown as | Why it cannot be ticked |
+|---|---|
+| Already managed by this sync | The sync inserted this membership itself, so it already follows the roster. |
+| Managed by a CRM group, or by the Upbeat committee sync | Another source manages the membership. It is never taken from it, so two managers cannot fight over one membership. |
+| Not in the Loop channel | There is no membership to hand over. The sync adds them itself once they have a Loop account. |
+| Membership number is not a plain number | The sync cannot name the member to Loop. |
+
+**Demotion.** The roster, not the member's current Loop role, decides the role
+they hold once handed over. A member whose roster role ranks below their
+current Loop role (owner, then admin, then moderator, then member) is flagged
+with the change, for example "Demotion: owner to member", and is moved down at
+the next sync. A channel's last owner and last administrator are never
+demoted or removed. Check the flags before you queue.
+
+**After hand-over** a member is treated like any member the sync added: they
+follow the roster, including promotion, demotion, and removal when they leave
+the committee (removal applies when the run is in replace mode, see
+[Removing access](#removing-access)). Hand-over cannot be undone from
+WordPress. To stop the sync managing a member, remove them from the channel
+in Loop.
+
+The outcome for each member is one of:
+
+| Outcome | Meaning |
+|---|---|
+| adopted | Their existing membership is now managed by the sync. |
+| inserted | They had no membership, so the sync added them as a managed member. |
+| already_managed | The sync already managed the membership. |
+| managed_elsewhere | A CRM group or the Upbeat committee sync manages it, so nothing changed. |
+| not_in_roster | They are no longer on the committee roster, so nothing changed. |
+| unresolved | They have no Loop user yet, so nothing changed. |
+
+Requirements and failure handling:
+
+- The API key needs the `loop.committees.update` scope as well, but only
+  while members are queued. A sync with an empty queue needs no extra scope.
+  If the gateway refuses the request for the missing scope, the queue is
+  kept, the last-run summary names the scope, and the committee's roster is
+  sent again without the hand-over so the committee still syncs.
+- The gateway must support adoption. If its response has no adoption
+  results, the queue is kept and the last-run summary says the gateway does
+  not support hand-over.
+- In dry run the sync logs what it would hand over and keeps the queue.
+- Loading the members needs Agend Apps Core 1.42.0 or later, which can read a
+  committee channel from Loop. With an older version the section shows a
+  notice instead of the picker.
+- Loading the members reads each local member's committee activities from
+  Upbeat (one call per member, as the committee sync does) and the committee
+  channel from Loop, so it can take a moment. It changes nothing in Loop.
+
 ### Initial backfill
 
 **Backfill all users** runs the member sync for every member with a
@@ -222,9 +308,13 @@ picked up after their first SSO sign-in. It honours dry-run mode.
 | Sync | Fields |
 |---|---|
 | Member | IdP entity ID, membership number, email, display name, WordPress role slugs. Loop stores only the display name; the email is used to find the account when the membership number does not match. |
-| Committee | IdP entity ID, committee slug and name, active flag, sync mode, and for each member: membership number, channel role, the original committee role name, and email (when valid). Loop uses the email only if the membership number does not match an account. |
+| Committee | IdP entity ID, committee slug and name, active flag, sync mode, and for each member: membership number, channel role, the original committee role name, and email (when valid). Loop uses the email only if the membership number does not match an account. While members are queued for hand-over, also their membership numbers. |
 
 No other profile data is sent.
+
+Loading the members for a hand-over asks Loop for a committee channel's
+members. Loop answers with a membership number, a Loop role and what manages
+the membership for each; it returns no names or emails.
 
 ## Settings
 
@@ -253,6 +343,7 @@ nonce-protected.
 | Backfill all users | Pushes every member to Loop in batches of 100. | Yes (unless dry run) |
 | Scan members for committees | Lists local members who sit on a committee, with their committees, roles, email and membership number, plus a count of each role name. Up to 200 members are listed. | No |
 | Inspect committee catalogue | Lists every Upbeat committee with its unique ID, web flag, groups and activity count, plus every role name in use. | No |
+| Hand members to the sync | Loads a committee's members with their roles and management state, and queues the ticked ones for the next committee sync. See [Handing members to the sync](#handing-members-to-the-sync). | Reads only. The hand-over itself is sent by the next committee sync. |
 
 The screen also shows:
 
@@ -261,12 +352,16 @@ The screen also shows:
   they have no Loop account, removed) and the membership numbers that did
   not match a Loop account appear only when the gateway reports them. The
   current gateway does not, and the screen says so rather than showing
-  zeros.
+  zeros. When members were handed over, the summary also shows how many were
+  adopted, the count for each outcome, the first 100 members with their
+  outcome, and any hand-over error.
 - **Recent activity:** the 30 most recent log entries (the last 200 are
   kept). With `WP_DEBUG` on, entries also go to the PHP error log.
 
 Scan and inspect results are kept for 5 minutes so the screen can display
-them.
+them. The committee list for the hand-over section is kept for 15 minutes and
+a loaded member list for 5. The queue itself is kept until the committee sync
+settles it or you clear it.
 
 ## Go-live checklist
 
@@ -327,10 +422,15 @@ them.
   `agend-apps-core/includes/api/loop-integration.php`
   (`agend_apps_loop_sync_user()`, `agend_apps_loop_bulk_sync_users()`,
   `agend_apps_loop_sync_committee()`, `agend_apps_loop_list_committees()`,
+  `agend_apps_loop_get_committee_members()`,
   `agend_apps_loop_archive_committee()`). Their request and response filters
-  are the extension points.
+  are the extension points. `agend_apps_loop_get_committee_members()` is
+  Apps Core 1.42.0 or later; the plugin checks for it before offering the
+  hand-over picker.
 - Settings are stored as individual `agend_loop_sync_*` options. The cron
-  hook is `agend_loop_sync_committee_event`.
+  hook is `agend_loop_sync_committee_event`. The hand-over queue is the
+  `agend_loop_sync_adopt_queue` option, a map of Upbeat committee unique ID to
+  membership numbers (at most 2000 per committee, the gateway's limit).
 - The committee list is read 5 committees per page, sorted by name, because
   each committee in Upbeat's response carries its full roster and a large
   page can outrun the HTTP timeout. Change the page size with the
