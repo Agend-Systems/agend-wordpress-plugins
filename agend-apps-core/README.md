@@ -202,6 +202,39 @@ cache; a 403, or a token that is not the worker's, leaves it alone. A freshly
 minted token that is rejected too is negative-cached for 60 seconds, so a
 gateway that refuses every token costs one mint a minute per member.
 
+### The next token is minted after the page is sent
+
+A request that finds the member's token with more than 60 and at most 120
+seconds left uses it for every gateway call it makes, then mints the next one
+at `shutdown` (priority 9000), after `fastcgi_finish_request()` or
+`litespeed_finish_request()` has sent the response. A member who keeps
+browsing therefore never waits for a mint; one who returns after the token
+has expired still mints inline, once, through the lock. The token's 300 second
+lifetime and the 60 second inline threshold are unchanged.
+
+- At most one refresh-ahead mint is scheduled per request, and none for a
+  visitor who is not signed in, under WP-CLI, during WP-cron, after the gateway
+  has rejected a token in that request, or on a host with neither finish
+  function, where it would make the visitor wait.
+- It tries the mint lock once and never waits for it. It re-reads the stored
+  token from the store first, and mints nothing when that token has changed,
+  belongs to another external id, has more than 120 seconds left, or is gone.
+- The new token is written with a compare-and-set against the token it started
+  from, so a sign-out during the mint leaves no token stored.
+- A failed refresh-ahead mint never makes the member anonymous: it leaves the
+  current token and the negative cache alone, and sets
+  `agend_apps_sso_refresh_ahead_backoff_<user id>` for 60 seconds, during which
+  no refresh-ahead mint is scheduled for that member.
+
+The worker's invariants: every mint, inline or refresh-ahead, goes through the
+mint lock; a refresh-ahead mint never writes the negative cache; and a token is
+stored only in user meta.
+
+`agend_apps_token_refresh_ahead_enabled` returning false switches refresh-ahead
+off. `agend_apps_token_worker_finisher` and `agend_apps_token_worker_clock`
+replace the finish function and the clock, so tests can observe the order and
+pin the expiry boundaries.
+
 ### Member sessions: storage, refresh and sign-out
 
 A member who signs in with their Agend email and password (`credentials` mode)
