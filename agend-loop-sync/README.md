@@ -21,9 +21,9 @@ directly and never modifies the membership plugin.
   Chair, Secretary or Member map to Loop channel roles (owner, moderator,
   member) through an editable mapping.
 - **Retiring committees.** Channels for committees deleted in Upbeat, or
-  left with no members on this site, are archived (hidden). Removing members who leave a committee is built in
-  and takes effect once the Agend gateway supports it (see
-  [Removing access](#removing-access)).
+  left with no members on this site, are archived (hidden). A member who
+  leaves a committee is removed from its channel, when the sync manages their
+  membership (see [Removing access](#removing-access)).
 - **Choose which committees sync.** All web-visible committees, committees in
   selected Upbeat groups, or an explicit allow-list.
 - **Hand members to the sync.** Bring a member who is already in a channel
@@ -178,13 +178,20 @@ complete:
   committee no longer exists in Upbeat is archived and hidden from members.
   Archiving is reversible: if the committee comes back, the next sync
   restores its channel.
-- **Departed members are removed (pending gateway support).** The plugin
-  asks Loop to replace each channel's roster with the current one, which
-  would remove members who left. The Agend gateway does not support this
-  yet: it adds and updates roster members but never removes them. Until it
-  does, the settings screen shows "Gateway did not confirm replace mode;
-  departed members are not being removed", and departed members must be
-  removed from the channel in Loop by hand.
+- **Departed members are removed.** The plugin asks Loop to replace each
+  channel's roster with the current one, so a member who has left the
+  committee in Upbeat loses access to the channel. The last-run summary
+  counts them as memberships removed. Only memberships the sync manages are
+  removed: the ones it added itself and the ones handed to it (see
+  [Handing members to the sync](#handing-members-to-the-sync)). A member
+  added any other way, such as by hand in Loop, through a role-based channel
+  join, by a CRM group or by an earlier version of this plugin, is never
+  removed or demoted until they are handed over. A channel's last owner is
+  never removed. Loop users can no longer remove a member by hand. The one
+  exception is an organisation administrator's emergency removal, which
+  places a hold: the sync does not re-add that member, even though Upbeat
+  still lists them, until the hold is lifted (see
+  [Who can change a synced channel](#who-can-change-a-synced-channel)).
 - **Committees with no local members left are archived.** A committee that
   still exists in Upbeat but no longer has any member on this site has its
   channel archived, like a deleted committee. If local members return, the
@@ -196,6 +203,15 @@ and updated, but nothing is removed or archived, because a missing member
 cannot be told apart from one who left. The settings screen and log record
 when this happens. If the committee list itself cannot be read from Upbeat,
 the run stops before making any change.
+
+A site connected to an older gateway, one without roster replace mode, still
+has members added and updated, but nobody is removed. After a live run the
+last-run summary then ends with "(member counts were not reported by the
+gateway)". When the run was in replace mode, the plugin also records
+"Gateway did not confirm replace mode; departed members are not being
+removed" in the run summary it stores (the `errors` list of the
+`agend_loop_sync_last_sync_summary` option). The settings screen does not
+show that message.
 
 #### Who can change a synced channel
 
@@ -418,13 +434,14 @@ The screen also shows:
 - **Last run:** time of the last committee sync and a summary of committees
   synced and committees archived. Member counts (applied, skipped because
   they have no Loop account, removed) and the membership numbers that did
-  not match a Loop account appear only when the gateway reports them. The
-  current gateway does not, and the screen says so rather than showing
-  zeros. When members were handed over, the summary also shows how many were
-  adopted, the count for each outcome, the first 100 members with their
-  outcome, and any hand-over error. When a Loop administrator holds members
-  the sync skipped or capped, the summary also shows how many and lists the
-  first 100 (see [Who can change a synced channel](#who-can-change-a-synced-channel)).
+  not match a Loop account appear only when the gateway reports them. A
+  gateway without roster replace mode does not, and the screen says so
+  rather than showing zeros. When members were handed over, the summary also
+  shows how many were adopted, the count for each outcome, the first 100
+  members with their outcome, and any hand-over error. When a Loop
+  administrator holds members the sync skipped or capped, the summary also
+  shows how many and lists the first 100 (see
+  [Who can change a synced channel](#who-can-change-a-synced-channel)).
 - **Recent activity:** the 30 most recent log entries (the last 200 are
   kept). With `WP_DEBUG` on, entries also go to the PHP error log.
 
@@ -444,14 +461,15 @@ settles it or you clear it.
    committee filter.
 4. Run **Backfill all users** and **Sync committees now**, then check
    **Recent activity** to confirm the payloads look right.
-5. Until Agend confirms the gateway supports removing departed members, untick
-   **Committee sync** before the next step, so only member sync goes live.
-   Committee memberships the plugin adds before then will not be removed or
-   demoted automatically later.
-6. Turn **Dry run** off. Run **Backfill all users**, then (once committee sync
-   is enabled) **Sync committees now**.
-7. Review the backfill result. Members counted as failed do not have a Loop
+5. Turn **Dry run** off. Run **Backfill all users**, then **Sync committees
+   now**.
+6. Review the backfill result. Members counted as failed do not have a Loop
    account yet; they are picked up after their first SSO sign-in.
+7. If a synced committee channel already had members before go-live, added by
+   hand in Loop or by an earlier version of this plugin, they stay
+   unmanaged: the sync never removes or demotes them. Use **Hand members to
+   the sync** for any who should follow the roster (see
+   [Handing members to the sync](#handing-members-to-the-sync)).
 8. Confirm the schedule, and make sure WP-Cron fires (see below).
 
 ## Things to know
