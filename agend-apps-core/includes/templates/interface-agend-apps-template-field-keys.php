@@ -19,16 +19,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  * plugins are updated independently on live sites, and a method added to an
  * interface another plugin implements would fatal that plugin until it caught
  * up. A renderer that does not implement this reports no keys, which asks for
- * no optional data.
+ * no optional data and every custom field.
  */
 interface Agend_Apps_Template_Field_Keys {
 
 	/**
 	 * The keys a template binds, or null when the id is not a template this
-	 * reader owns.
+	 * reader owns. Build it from agend_apps_records_template_binding_keys()
+	 * and agend_apps_records_merge_binding_keys(), which also set
+	 * `all_custom_fields` when the template shows custom fields it does not
+	 * name; a reader that omits the flag is read as naming every one it shows.
 	 *
 	 * @param int $template_id The template's post id.
-	 * @return array{fields: string[], custom_fields: string[]}|null
+	 * @return array{fields: string[], custom_fields: string[], all_custom_fields?: bool}|null
 	 */
 	public function field_keys( int $template_id ): ?array;
 }

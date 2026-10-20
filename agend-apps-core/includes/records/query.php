@@ -218,25 +218,33 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 }
 
 /**
- * A listing search query carrying the `include` its card template needs.
+ * A listing search query carrying the `include` and the custom-field `fields`
+ * its card template needs.
  *
  * Derived on the server from the fields the template binds, and never taken
- * from the request: any `include` already on the query is replaced. The
- * transient cache key is built from the whole query, so it covers the include.
+ * from the request: any `include` or `fields` already on the query is
+ * replaced. `fields` is left off when the template shows custom fields it does
+ * not name, and sent empty when it shows none. The transient cache key is
+ * built from the whole query, so it covers both.
  *
  * @param array $query       A listing search query.
  * @param int   $template_id The card template the results render through.
  * @return array
  */
 function agend_apps_records_with_search_include( array $query, int $template_id ): array {
-	unset( $query['include'] );
+	unset( $query['include'], $query['fields'] );
 	if ( ! class_exists( 'Agend_Apps_Templates' ) || ! function_exists( 'agend_apps_records_search_include_for_keys' ) ) {
 		return $query;
 	}
 
-	$include = agend_apps_records_search_include_for_keys( Agend_Apps_Templates::field_keys( $template_id ) );
+	$keys    = Agend_Apps_Templates::field_keys( $template_id );
+	$include = agend_apps_records_search_include_for_keys( $keys );
 	if ( '' !== $include ) {
 		$query['include'] = $include;
+	}
+	$fields = agend_apps_records_search_fields_for_keys( $keys );
+	if ( null !== $fields ) {
+		$query['fields'] = $fields;
 	}
 	return $query;
 }
