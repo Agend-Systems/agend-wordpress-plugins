@@ -31,12 +31,46 @@ $als_last_summary = is_array( $als_last_summary ) ? $als_last_summary : array();
 $als_outcome_labels = array(
 	'adopted'           => __( 'adopted', 'agend-loop-sync' ),
 	'already_managed'   => __( 'already managed by the sync', 'agend-loop-sync' ),
+	'held'              => __( 'held by a Loop administrator, not adopted', 'agend-loop-sync' ),
 	'inserted'          => __( 'added as a new member', 'agend-loop-sync' ),
 	'managed_elsewhere' => __( 'managed by another source, not adopted', 'agend-loop-sync' ),
 	'not_in_roster'     => __( 'not on the committee roster', 'agend-loop-sync' ),
 	'unresolved'        => __( 'no Loop user yet', 'agend-loop-sync' ),
 	'unknown'           => __( 'unknown outcome', 'agend-loop-sync' ),
 );
+
+// A sync hold in words: what it does, since when and why. Plain text, so escape
+// it where it is printed.
+$als_describe_hold = static function ( array $hold ): string {
+	$kind     = (string) ( $hold['kind'] ?? '' );
+	$role_cap = (string) ( $hold['role_cap'] ?? '' );
+
+	if ( 'removal' === $kind ) {
+		$parts = array( __( 'Removed from the channel.', 'agend-loop-sync' ) );
+	} elseif ( 'role_cap' === $kind && '' !== $role_cap ) {
+		/* translators: %s: the highest channel role the sync may give the member, for example "moderator". */
+		$parts = array( sprintf( __( 'Role capped at %s.', 'agend-loop-sync' ), $role_cap ) );
+	} elseif ( 'role_cap' === $kind ) {
+		$parts = array( __( 'Role capped.', 'agend-loop-sync' ) );
+	} else {
+		$parts = array( __( 'Held.', 'agend-loop-sync' ) );
+	}
+
+	$since = (string) ( $hold['held_since'] ?? '' );
+	if ( '' !== $since ) {
+		$timestamp = strtotime( $since );
+		/* translators: %s: date and time the hold was placed. */
+		$parts[] = sprintf( __( 'Since %s.', 'agend-loop-sync' ), false === $timestamp ? $since : wp_date( 'Y-m-d H:i', $timestamp ) );
+	}
+
+	$reason = (string) ( $hold['reason'] ?? '' );
+	if ( '' !== $reason ) {
+		/* translators: %s: the reason the Loop administrator gave. */
+		$parts[] = sprintf( __( 'Reason: %s', 'agend-loop-sync' ), $reason );
+	}
+
+	return implode( ' ', $parts );
+};
 
 // Staleness: warn when the last committee sync is older than ~2x the schedule
 // interval, which usually means WP-Cron is not firing.
@@ -291,6 +325,55 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 								esc_html__( 'Showing the first %1$d of %2$d members.', 'agend-loop-sync' ),
 								(int) count( $als_adoption_results ),
 								(int) $als_adoption_total
+							);
+							?>
+						</p>
+					<?php endif; ?>
+				</details>
+			<?php endif; ?>
+		<?php endif; ?>
+
+		<?php
+		$als_held_total   = (int) ( $als_last_summary['held_members'] ?? 0 );
+		$als_held_results = isset( $als_last_summary['held_results'] ) ? (array) $als_last_summary['held_results'] : array();
+
+		if ( $als_held_total > 0 ) :
+			?>
+			<p>
+				<?php
+				printf(
+					/* translators: %d: holds the sync honoured in the last run (one per member per committee). */
+					esc_html__( 'Held by a Loop administrator in the last run: %d hold(s). The sync does not re-add a removed member and never raises a capped member above the cap, until a Loop administrator lifts the hold in Loop.', 'agend-loop-sync' ),
+					(int) $als_held_total
+				);
+				?>
+			</p>
+			<?php if ( array() !== $als_held_results ) : ?>
+				<details>
+					<summary><?php esc_html_e( 'Show each held member', 'agend-loop-sync' ); ?></summary>
+					<ul>
+						<?php foreach ( $als_held_results as $als_held_result ) : ?>
+							<li>
+								<?php
+								printf(
+									/* translators: 1: committee name, 2: membership number, 3: what the hold does, since when and why, for example "Removed from the channel. Since 2026-10-19 10:30. Reason: Under review". */
+									esc_html__( '%1$s: membership number %2$d. %3$s', 'agend-loop-sync' ),
+									esc_html( (string) ( $als_held_result['committee'] ?? '' ) ),
+									(int) ( $als_held_result['external_id'] ?? 0 ),
+									esc_html( $als_describe_hold( (array) $als_held_result ) )
+								);
+								?>
+							</li>
+						<?php endforeach; ?>
+					</ul>
+					<?php if ( $als_held_total > count( $als_held_results ) ) : ?>
+						<p class="description">
+							<?php
+							printf(
+								/* translators: 1: members listed, 2: members held in all. */
+								esc_html__( 'Showing the first %1$d of %2$d members.', 'agend-loop-sync' ),
+								(int) count( $als_held_results ),
+								(int) $als_held_total
 							);
 							?>
 						</p>
@@ -591,6 +674,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 				$als_adopt_queue_now = Agend_Loop_Sync_Settings::get_adopt_queue_for( (string) ( $als_adopt_picker['unique_id'] ?? '' ) );
 				$als_adopt_reasons   = array(
 					'already_managed'    => __( 'Already managed by this sync.', 'agend-loop-sync' ),
+					'held'               => __( 'Held by a Loop administrator.', 'agend-loop-sync' ),
 					'managed_by_group'   => __( 'Managed by a CRM group.', 'agend-loop-sync' ),
 					'managed_by_upbeat'  => __( 'Managed by the Upbeat committee sync.', 'agend-loop-sync' ),
 					'managed_elsewhere'  => __( 'Managed by another source.', 'agend-loop-sync' ),
@@ -604,6 +688,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 					'upbeat'         => __( 'Upbeat committee sync', 'agend-loop-sync' ),
 				);
 				$als_adopt_rows      = (array) ( $als_adopt_picker['members'] ?? array() );
+				$als_adopt_has_holds = array() !== array_filter( array_column( $als_adopt_rows, 'hold' ) );
 				?>
 				<h3>
 					<?php
@@ -631,6 +716,11 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 					<p class="description">
 						<?php esc_html_e( 'A member flagged as a demotion holds a higher role in Loop than the roster gives them. Once handed over they are moved to the roster role at the next sync (the last owner is never demoted).', 'agend-loop-sync' ); ?>
 					</p>
+					<?php if ( $als_adopt_has_holds ) : ?>
+						<p class="description">
+							<?php esc_html_e( 'A member held by a Loop administrator was removed from the channel, or had their role capped, in Loop. The sync keeps them out, or at or below the cap, until a Loop administrator lifts the hold in Loop, so they cannot be handed over.', 'agend-loop-sync' ); ?>
+						</p>
+					<?php endif; ?>
 
 					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 						<input type="hidden" name="action" value="agend_loop_sync_adopt_queue" />
@@ -681,6 +771,9 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 												<?php esc_html_e( 'Queued for the next sync.', 'agend-loop-sync' ); ?>
 											<?php elseif ( empty( $als_adopt_row['selectable'] ) ) : ?>
 												<?php echo esc_html( $als_adopt_reasons[ $als_adopt_row['reason'] ] ?? $als_adopt_reasons['managed_elsewhere'] ); ?>
+											<?php endif; ?>
+											<?php if ( ! empty( $als_adopt_row['hold'] ) ) : ?>
+												<?php echo esc_html( $als_describe_hold( (array) $als_adopt_row['hold'] ) ); ?>
 											<?php endif; ?>
 											<?php if ( ! empty( $als_adopt_row['demotion'] ) ) : ?>
 												<strong>

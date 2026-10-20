@@ -66,7 +66,7 @@ class Agend_Loop_Sync_Committee_Sync {
 	 *
 	 * @var string[]
 	 */
-	private const ADOPTION_OUTCOMES = array( 'adopted', 'already_managed', 'inserted', 'managed_elsewhere', 'not_in_roster', 'unresolved' );
+	private const ADOPTION_OUTCOMES = array( 'adopted', 'already_managed', 'held', 'inserted', 'managed_elsewhere', 'not_in_roster', 'unresolved' );
 
 	/**
 	 * Most per-member outcomes kept in the stored run summary, so a large
@@ -78,6 +78,38 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * Most per-member outcomes written to one log entry, which is capped in size.
 	 */
 	private const ADOPTION_RESULTS_LOGGED = 25;
+
+	/**
+	 * The kinds of sync hold a Loop administrator can place. Anything else is
+	 * recorded as 'unknown'.
+	 *
+	 * @var string[]
+	 */
+	private const HOLD_KINDS = array( 'removal', 'role_cap' );
+
+	/**
+	 * The channel roles a role cap can name. Anything else is dropped.
+	 *
+	 * @var string[]
+	 */
+	private const HOLD_ROLES = array( 'owner', 'admin', 'moderator', 'member' );
+
+	/**
+	 * Longest hold reason kept. The reason is free text an administrator typed in
+	 * Loop, and it lands in the stored run summary, the log and the member picker.
+	 */
+	private const HOLD_REASON_MAX = 500;
+
+	/**
+	 * Most held members kept in the stored run summary, so a committee with many
+	 * holds cannot bloat the option. The total is always kept.
+	 */
+	private const HOLD_RESULTS_KEPT = 100;
+
+	/**
+	 * Most held members written to the log for one committee.
+	 */
+	private const HOLD_RESULTS_LOGGED = 25;
 
 	/**
 	 * Upbeat client override, used by tests. Null means the real
@@ -140,6 +172,8 @@ class Agend_Loop_Sync_Committee_Sync {
 			'adoption_outcomes'           => array(),
 			'adoption_results'            => array(),
 			'adoption_errors'             => array(),
+			'held_members'                => 0,
+			'held_results'                => array(),
 			'mode'                        => 'replace',
 			'unresolved_external_ids'     => array(),
 			'errors'                      => array(),
@@ -262,7 +296,10 @@ class Agend_Loop_Sync_Committee_Sync {
 			$this->archive_removed_committees( $index, $loop_committees, $summary );
 		}
 
-		Agend_Loop_Sync_Logger::info( 'Committee sync run complete', $summary );
+		// The held members are logged one by one as each committee syncs, and their
+		// reasons are free text, so leave them out of this entry rather than let
+		// them push it over the size the logger keeps.
+		Agend_Loop_Sync_Logger::info( 'Committee sync run complete', array_diff_key( $summary, array( 'held_results' => true ) ) );
 
 		return $this->finish( $summary );
 	}
@@ -475,11 +512,117 @@ class Agend_Loop_Sync_Committee_Sync {
 			)
 		);
 
+		$this->record_holds( $committee_name, is_array( $data ) ? $data : array(), $summary );
+
 		if ( array() !== $adopt_ids ) {
 			$this->record_adoption( $unique_id, $committee_name, count( $adopt_ids ), is_array( $data ) ? $data : array(), $summary );
 		}
 
 		return true;
+	}
+
+	/**
+	 * Records the members the gateway skipped or capped because a Loop
+	 * administrator placed a sync hold on them.
+	 *
+	 * The gateway reports `held` on every committee sync, `[]` when nothing is
+	 * held. A response without it comes from a gateway that does not know about
+	 * holds, and is read as no holds.
+	 *
+	 * Logs membership numbers, the kind, the role cap, the reason and the date,
+	 * never a name or an email.
+	 *
+	 * @param string               $committee_name Committee name, for the summary and log.
+	 * @param array<string, mixed> $data           The gateway's response data.
+	 * @param array<string, mixed> $summary        Run summary, by reference.
+	 * @return void
+	 */
+	private function record_holds( string $committee_name, array $data, array &$summary ): void {
+		$held = is_array( $data['held'] ?? null ) ? $data['held'] : array();
+
+		$total = 0;
+		foreach ( $held as $entry ) {
+			$hold = self::normalise_hold( $entry );
+			if ( null === $hold ) {
+				continue;
+			}
+
+			++$total;
+			++$summary['held_members'];
+			$summary['held_results'][] = array( 'committee' => $committee_name ) + $hold;
+
+			if ( $total <= self::HOLD_RESULTS_LOGGED ) {
+				Agend_Loop_Sync_Logger::info(
+					'Committee member held by a Loop administrator',
+					array(
+						'committee'   => $committee_name,
+						'external_id' => $hold['external_id'],
+						'kind'        => $hold['kind'],
+						'role_cap'    => $hold['role_cap'],
+						'held_since'  => $hold['held_since'],
+					)
+				);
+			}
+		}
+
+		if ( $total > self::HOLD_RESULTS_LOGGED ) {
+			Agend_Loop_Sync_Logger::info(
+				'More held members than the log lists',
+				array(
+					'committee' => $committee_name,
+					'held'      => $total,
+					'logged'    => self::HOLD_RESULTS_LOGGED,
+				)
+			);
+		}
+	}
+
+	/**
+	 * Reads one hold as the gateway reports it: { external_id, kind, role_cap,
+	 * reason, held_since }. Pure.
+	 *
+	 * @param mixed $hold One entry of the gateway's `held` or `holds` list.
+	 * @return array<string, mixed>|null external_id (int), kind ('removal', 'role_cap' or 'unknown'), role_cap (a channel role, '' when none), reason (capped) and held_since (as sent); null when the entry names no member.
+	 */
+	private static function normalise_hold( $hold ): ?array {
+		if ( ! is_array( $hold ) ) {
+			return null;
+		}
+
+		if ( ! is_scalar( $hold['external_id'] ?? null ) ) {
+			return null;
+		}
+
+		$external_id = (int) $hold['external_id'];
+		if ( $external_id <= 0 ) {
+			return null;
+		}
+
+		$kind     = self::scalar_string( $hold['kind'] ?? '' );
+		$role_cap = self::scalar_string( $hold['role_cap'] ?? '' );
+		$reason   = trim( self::scalar_string( $hold['reason'] ?? '' ) );
+
+		if ( mb_strlen( $reason ) > self::HOLD_REASON_MAX ) {
+			$reason = mb_substr( $reason, 0, self::HOLD_REASON_MAX ) . '...';
+		}
+
+		return array(
+			'external_id' => $external_id,
+			'kind'        => in_array( $kind, self::HOLD_KINDS, true ) ? $kind : 'unknown',
+			'role_cap'    => in_array( $role_cap, self::HOLD_ROLES, true ) ? $role_cap : '',
+			'reason'      => $reason,
+			'held_since'  => self::scalar_string( $hold['held_since'] ?? '' ),
+		);
+	}
+
+	/**
+	 * A gateway value as a string, or '' when it is not a scalar.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	private static function scalar_string( $value ): string {
+		return is_scalar( $value ) ? (string) $value : '';
 	}
 
 	/**
@@ -1323,8 +1466,11 @@ class Agend_Loop_Sync_Committee_Sync {
 			return $picker;
 		}
 
+		// `holds` is absent from a gateway that does not know about sync holds.
+		$holds = is_array( $data['holds'] ?? null ) ? $data['holds'] : array();
+
 		$picker['unlinked_count'] = (int) ( $data['unlinked_count'] ?? 0 );
-		$picker['members']        = self::join_adoption_members( $local, $data['members'] );
+		$picker['members']        = self::join_adoption_members( $local, $data['members'], $holds );
 
 		return $picker;
 	}
@@ -1335,10 +1481,16 @@ class Agend_Loop_Sync_Committee_Sync {
 	 * tested on its own.
 	 *
 	 * A row is selectable only when Loop reports the member's membership as
-	 * managed by nothing (`managed_by` is `none`). Otherwise `reason` says why not:
+	 * managed by nothing (`managed_by` is `none`) and no sync hold names them.
+	 * Otherwise `reason` says why not:
 	 *
 	 * - number_unusable: the membership number is not a plain positive integer, so
 	 *   the sync cannot name the member.
+	 * - held: a Loop administrator removed the member or capped their role in an
+	 *   emergency, and the sync honours that until an administrator lifts it. This
+	 *   wins over every reason below, and the row carries the hold in `hold`. The
+	 *   member may be absent from `$loop_members`, because a removed member is no
+	 *   longer in the channel.
 	 * - no_loop_membership: Loop lists no membership for them in this channel (they
 	 *   have not joined it, or have no identity on this site's SSO connection).
 	 * - already_managed: the sync already manages the membership (`wordpress_sync`).
@@ -1352,13 +1504,22 @@ class Agend_Loop_Sync_Committee_Sync {
 	 *
 	 * @param array<int, array<string, mixed>> $local_members Local roster members: wp_id, name, membership_number, committee_role, channel_role.
 	 * @param array<int, array<string, mixed>> $loop_members  Members as the gateway reports them: external_id, role, managed_by.
-	 * @return array<int, array<string, mixed>> One row per local member, sorted by name: the local fields plus external_id (int or null), loop_role ('' when none), managed_by ('' when none), selectable, reason ('' when selectable) and demotion.
+	 * @param array<int, array<string, mixed>> $holds         Sync holds as the gateway reports them: external_id, kind, role_cap, reason, held_since. Empty from a gateway that does not report holds.
+	 * @return array<int, array<string, mixed>> One row per local member, sorted by name: the local fields plus external_id (int or null), loop_role ('' when none), managed_by ('' when none), selectable, reason ('' when selectable), demotion and hold (the member's hold as normalise_hold() reads it, null when none).
 	 */
-	public static function join_adoption_members( array $local_members, array $loop_members ): array {
+	public static function join_adoption_members( array $local_members, array $loop_members, array $holds = array() ): array {
 		$by_external_id = array();
 		foreach ( $loop_members as $loop_member ) {
 			if ( is_array( $loop_member ) && isset( $loop_member['external_id'] ) ) {
 				$by_external_id[ (int) $loop_member['external_id'] ] = $loop_member;
+			}
+		}
+
+		$held_by_external_id = array();
+		foreach ( $holds as $hold ) {
+			$hold = self::normalise_hold( $hold );
+			if ( null !== $hold ) {
+				$held_by_external_id[ $hold['external_id'] ] = $hold;
 			}
 		}
 
@@ -1372,6 +1533,7 @@ class Agend_Loop_Sync_Committee_Sync {
 		foreach ( $local_members as $member ) {
 			$external_id = Agend_Loop_Sync_Contact_Resolver::to_external_id( (string) ( $member['membership_number'] ?? '' ) );
 			$loop        = null === $external_id ? null : ( $by_external_id[ $external_id ] ?? null );
+			$hold        = null === $external_id ? null : ( $held_by_external_id[ $external_id ] ?? null );
 
 			$row = array(
 				'wp_id'             => (int) ( $member['wp_id'] ?? 0 ),
@@ -1385,10 +1547,18 @@ class Agend_Loop_Sync_Committee_Sync {
 				'selectable'        => false,
 				'reason'            => '',
 				'demotion'          => false,
+				'hold'              => null,
 			);
 
 			if ( null === $external_id ) {
 				$row['reason'] = 'number_unusable';
+			} elseif ( null !== $hold ) {
+				// Held, whether or not they are still in the channel: a removed member
+				// is not, and a capped one is, and neither can be handed over.
+				$row['hold']       = $hold;
+				$row['reason']     = 'held';
+				$row['loop_role']  = (string) ( $loop['role'] ?? '' );
+				$row['managed_by'] = (string) ( $loop['managed_by'] ?? '' );
 			} elseif ( null === $loop ) {
 				$row['reason'] = 'no_loop_membership';
 			} else {
@@ -1549,6 +1719,11 @@ class Agend_Loop_Sync_Committee_Sync {
 		if ( $adoption_total > self::ADOPTION_RESULTS_KEPT ) {
 			$summary['adoption_results']       = array_slice( $summary['adoption_results'], 0, self::ADOPTION_RESULTS_KEPT );
 			$summary['adoption_results_total'] = $adoption_total;
+		}
+
+		// And for the held members; `held_members` keeps the full count.
+		if ( count( $summary['held_results'] ?? array() ) > self::HOLD_RESULTS_KEPT ) {
+			$summary['held_results'] = array_slice( $summary['held_results'], 0, self::HOLD_RESULTS_KEPT );
 		}
 
 		update_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, time(), false );
