@@ -40,6 +40,26 @@ class Agend_Apps_API {
 	private $vercel_bypass_token;
 
 	/**
+	 * Member-token GET responses already fetched in this PHP request, keyed by
+	 * the cache key plus the digest of the token that fetched them. Never
+	 * persisted: a member's response is resolved against their entitlements on
+	 * every request, so it lives only as long as the request that fetched it.
+	 *
+	 * @var array<string, array>
+	 */
+	private $identity_memo = array();
+
+	/**
+	 * The bearer the last successful exchange actually carried, '' for none.
+	 * A rejected token is retried with a re-resolved one or with none, so the
+	 * bearer a caller resolved beforehand is not always the one a response
+	 * belongs to.
+	 *
+	 * @var string|null
+	 */
+	private $sent_bearer = null;
+
+	/**
 	 * Initialises the client from current plugin settings.
 	 */
 	public function __construct() {
@@ -328,6 +348,7 @@ class Agend_Apps_API {
 			}
 
 			$log( 'success', $status_code );
+			$this->sent_bearer = $bearer_token;
 
 			return array(
 				'body'                => $body,
@@ -340,6 +361,7 @@ class Agend_Apps_API {
 		// 204 No Content — no body to decode.
 		if ( 204 === $status_code ) {
 			$log( 'success', $status_code );
+			$this->sent_bearer = $bearer_token;
 			return array();
 		}
 
@@ -516,6 +538,7 @@ class Agend_Apps_API {
 		}
 
 		$log( 'success', $status_code );
+		$this->sent_bearer = $bearer_token;
 
 		return $decoded;
 	}
@@ -753,48 +776,6 @@ class Agend_Apps_API {
 	}
 
 	/**
-	 * Performs a cached GET request.
-	 *
-	 * Checks the transient store first; on a miss calls `request()` and caches
-	 * the successful response.
-	 *
-	 * IDENTITY BYPASS. Transients are SHARED across every visitor to the site,
-	 * so a response computed for one signed-in member must never be stored in
-	 * or served from them. When a member bearer is attached the shared cache is
-	 * skipped entirely, in both directions.
-	 *
-	 * This matters because several gateway endpoints enrich their response when
-	 * a bearer is present, and the cache key does not include the member:
-	 *
-	 *   - `/events` and `/events/{slug}` add `viewer_price_group` and
-	 *     `my_registration`, which is the caller's OWN ticket and registration
-	 *     id.
-	 *   - `/lms/courses` and `/lms/courses/{id}` add the caller's enrolment
-	 *     context.
-	 *   - `/cart` is per-identity in its entirety.
-	 *   - `/cms/content` and `/cms/content/{slug}` add the caller's access
-	 *     projection (SPEC-CMS-20260727 US-2.3).
-	 *
-	 * Without this bypass, member A loading an event page would populate a
-	 * shared transient with their registration details, and the next visitor to
-	 * that page inside the TTL would be served them.
-	 *
-	 * The bearer is resolved ONCE here and passed through in `$args`, because
-	 * the resolver reads user meta and can trigger a token refresh; letting
-	 * `request()` resolve it a second time would double that work.
-	 *
-	 * The cost is that signed-in members do not benefit from the shared cache
-	 * on catalogue reads that would in fact have been identical for them. That
-	 * is the correct trade: we cannot tell from here which endpoints vary by
-	 * identity, and guessing wrong leaks one member's data to another.
-	 *
-	 * @param string $path      Relative path, e.g. `/directory/listings`.
-	 * @param array  $args      Request args passed through to `request()`.
-	 * @param string $cache_key Unique cache identifier (without the `agend_apps_` prefix).
-	 * @param int    $ttl       Cache lifetime in seconds.
-	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
-	 */
-	/**
 	 * Encodes query parameters as name=value pairs, nesting arrays in bracket
 	 * notation.
 	 *
@@ -837,28 +818,23 @@ class Agend_Apps_API {
 	}
 
 	/**
-	 * Cache-key prefixes whose responses change faster than any useful TTL, so
-	 * an identity-scoped entry would serve the same member a stale answer. A
-	 * cart mutates on the visitor's own next click.
+	 * Cache-key prefixes never held even for the rest of the request: a cart
+	 * mutates on the visitor's own next action, which may be in this request.
 	 *
 	 * @var string[]
 	 */
 	private const IDENTITY_UNCACHEABLE_PREFIXES = array( 'cart' );
 
 	/**
-	 * Suffix that binds a transient to one member, so an identity-attached
-	 * response is never readable by another visitor.
+	 * Suffix that binds a memo entry to one member token, so a response is
+	 * never returned for a different token or for a call without one.
 	 *
 	 * Derived from the bearer itself, never from the WordPress user id. The
 	 * token is the identity the response was actually fetched under, and the
 	 * two can diverge: a shared or generic WordPress login, or a bearer
 	 * resolved for someone other than the current user, collapses distinct
-	 * members onto one id and reinstates the leak this scoping exists to
-	 * prevent. A refreshed token simply starts a new entry, which costs a
-	 * fetch rather than correctness.
-	 *
-	 * The digest is truncated only for key length; it is never reversed and
-	 * never leaves the options table.
+	 * members onto one id. The digest is truncated only for key length and
+	 * never leaves the PHP process.
 	 */
 	private function identity_cache_suffix( string $bearer_token ): string {
 		return '_b' . substr( hash( 'sha256', $bearer_token ), 0, 16 );
@@ -879,19 +855,34 @@ class Agend_Apps_API {
 	}
 
 	/**
-	 * Fetches a GET response, serving a transient when one is fresh enough.
+	 * Fetches a GET response, serving a stored copy where one may be shared.
+	 *
+	 * A read without a member token goes through the transient store, which
+	 * every visitor to the site shares.
+	 *
+	 * A read with a member token (a bearer read) never touches the store, in
+	 * either direction. Several gateway endpoints enrich their response for
+	 * the member: `/events` adds the caller's own registration and price
+	 * group, `/lms/courses` their enrolment, `/cms/content` their access
+	 * projection, and directory reads the gated fields their grants cover. A
+	 * member's results are resolved against their entitlements on every
+	 * request, and gated values must not sit in `wp_options`, its backups and
+	 * its clones. Within one PHP request a bearer read is held in memory, so
+	 * one page render never asks the gateway the same question twice; nothing
+	 * outlives the request. Cart reads are not held at all.
+	 *
+	 * The bearer is resolved once here and passed through in `$args`, because
+	 * the resolver reads user meta and can mint a token.
 	 *
 	 * @param string $path      Relative path, e.g. `/directory/export-reports`.
 	 * @param array  $args      Request args, as accepted by `request()`.
 	 * @param string $cache_key Cache key the caller derived from the query.
-	 * @param int    $ttl       Transient lifetime in seconds.
-	 * @param bool   $fresh     When true, skip the transient read and always
-	 *                          call the gateway live, still writing the result
-	 *                          back into the same transient on success so a
-	 *                          later cached read picks up the new value too.
-	 *                          Used where a caller needs this call's own
-	 *                          answer to be current, not merely to warm the
-	 *                          cache for others.
+	 * @param int    $ttl       Transient lifetime in seconds, for a read
+	 *                          without a member token. 0 stores nothing.
+	 * @param bool   $fresh     When true, skip the stored or held copy and
+	 *                          always call the gateway live. A read without a
+	 *                          member token still writes the result back, so
+	 *                          a later cached read picks up the new value too.
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
 	public function get_cached( string $path, array $args, string $cache_key, int $ttl, bool $fresh = false ) {
@@ -909,13 +900,7 @@ class Agend_Apps_API {
 				return $this->request( 'GET', $path, $args );
 			}
 
-			// Identity-scoped rather than bypassed: the original defect was
-			// that the key carried the query but not the member, so one
-			// member's response was served to the next visitor. Naming the
-			// member in the key keeps that impossible while restoring a cache
-			// for signed-in visitors, who otherwise pay a live round trip on
-			// every page render.
-			$cache_key .= $this->identity_cache_suffix( $bearer_token );
+			return $this->get_memoised( $path, $args, $cache_key, $fresh );
 		}
 
 		$transient_name = 'agend_apps_' . $cache_key;
@@ -930,11 +915,41 @@ class Agend_Apps_API {
 
 		$response = $this->request( 'GET', $path, $args );
 
-		if ( ! is_wp_error( $response ) ) {
-			// Always written, even on a forced-fresh call: the point of
-			// $fresh is that THIS call cannot serve a stale answer, not that
-			// the shared cache stays stale until it next expires on its own.
+		// Always written, even on a forced-fresh call: the point of $fresh is
+		// that THIS call cannot serve a stale answer, not that the shared cache
+		// stays stale until it next expires on its own. A TTL of 0 would store
+		// the entry with no expiry and autoloaded, so it is not written at all.
+		if ( ! is_wp_error( $response ) && $ttl > 0 ) {
 			set_transient( $transient_name, $response, $ttl );
+		}
+
+		return $response;
+	}
+
+	/**
+	 * A bearer read through the in-request memo. The entry is keyed on the
+	 * bearer the exchange actually carried: a retry after a rejected token is
+	 * held under the re-minted token, never the rejected one, and a retry that
+	 * carried no token is not held.
+	 *
+	 * @param string $path      Relative path.
+	 * @param array  $args      Request args with the resolved `bearer_token`.
+	 * @param string $cache_key Cache key the caller derived from the query.
+	 * @param bool   $fresh     Skip a held copy.
+	 * @return array|WP_Error
+	 */
+	private function get_memoised( string $path, array $args, string $cache_key, bool $fresh ) {
+		$memo_key = $cache_key . $this->identity_cache_suffix( (string) $args['bearer_token'] );
+
+		if ( ! $fresh && array_key_exists( $memo_key, $this->identity_memo ) ) {
+			return $this->identity_memo[ $memo_key ];
+		}
+
+		$this->sent_bearer = null;
+		$response          = $this->request( 'GET', $path, $args );
+
+		if ( ! is_wp_error( $response ) && null !== $this->sent_bearer && '' !== $this->sent_bearer ) {
+			$this->identity_memo[ $cache_key . $this->identity_cache_suffix( $this->sent_bearer ) ] = $response;
 		}
 
 		return $response;

@@ -125,6 +125,15 @@ cross-member leak on `/events`, `/lms/courses` and `/cart`, fixed centrally in
 varies by who is asking, confirm the identity bypass covers your endpoint
 before relying on it.
 
+**A bearer read is never stored.** A read that carries a signed-in member's
+token is resolved against that member's entitlements on every PHP request.
+`get_cached()` never writes it to a transient, an option, user meta or the
+object cache, and never reads it from one. Within a single PHP request it is
+held in memory under a digest of the token that fetched it, so one page
+render does not ask the gateway the same question twice; a cart read is not
+held even that long. Add any new member-token read through `get_cached()` and
+never write your own cache entry for it.
+
 ### How long site config is cached
 
 `agend_apps_sites_get_config()`, and the `GET /agend-apps/v1/sites/config`

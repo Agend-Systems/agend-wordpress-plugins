@@ -91,12 +91,8 @@ function agend_apps_directory_get_listing( string $listing_id, array $query = ar
 		$query
 	);
 
-	// A member bearer makes the response IDENTITY-SPECIFIC
-	// (SPEC-CORE-20260722 US-2.2: the viewer's own listing is flagged
-	// is_mine). get_cached() scopes the transient to the bearer, so a
-	// member's response is only ever served back to that member. This used
-	// to bypass the cache for members entirely, which cost a signed-in
-	// visitor a live gateway round trip on every profile they opened.
+	// A member bearer makes the response identity-specific (the viewer's own
+	// listing is flagged is_mine), so get_cached() never stores it.
 	$cache_key = Agend_Apps_Cache::build_key(
 		'directory_listing_single',
 		array_merge( array( 'id' => $listing_id ), $query )
