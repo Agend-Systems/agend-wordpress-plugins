@@ -260,6 +260,13 @@ final class ApiLogRedactorTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_keep_the_gateway_instance_header_when_filtering_response_headers(): void {
+		$out = $this->redactor()->filter_response_headers( array( 'X-Agend-Instance' => 'cold' ) );
+
+		$this->assertSame( array( 'x-agend-instance' => 'cold' ), $out );
+	}
+
+	#[Test]
 	public function should_not_let_a_site_unredact_a_built_in_personal_key(): void {
 		$redactor = new Agend_Apps_Log_Redactor( 'test-salt', array( 'favourite_colour' ), array( 'email', 'internal_code' ) );
 		$out      = $redactor->redact_value( array( 'email' => 'jane@example.com', 'favourite_colour' => 'teal', 'internal_code' => 'X1' ) );

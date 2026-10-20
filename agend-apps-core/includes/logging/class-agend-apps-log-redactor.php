@@ -320,6 +320,7 @@ final class Agend_Apps_Log_Redactor {
 		'x-ratelimit-reset',
 		'x-vercel-id',
 		'x-vercel-cache',
+		'x-agend-instance',
 	);
 
 	/** Key for the correlation hashes. Never leaves the options table. */
