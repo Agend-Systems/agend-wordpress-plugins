@@ -12,6 +12,7 @@ use Agend_Apps_Logger;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-apps-log-redactor.php';
@@ -91,6 +92,84 @@ final class ApiLoggingTest extends TestCase {
 		$this->assertSame( Agend_Apps_Logger::SUCCESS_BODY_LIMIT, strlen( $row['response_body'] ) );
 		$this->assertSame( 1, $row['truncated'] );
 		$this->assertSame( 9011, $row['response_bytes'], 'the original size is still recorded' );
+	}
+
+	#[Test]
+	public function should_summarise_a_successful_body_over_the_redact_limit_and_keep_its_metadata(): void {
+		Agend_Test_WP::queue_response( 200, array( 'data' => str_repeat( 'y', 20000 ) ), array( 'X-Request-Id' => 'req-big' ) );
+
+		( new Agend_Apps_API() )->request( 'GET', '/directory/search' );
+
+		$row = $this->rows()[0];
+		$this->assertSame( '[body not stored: 20011 bytes, over the size limit]', $row['response_body'] );
+		$this->assertSame( 20011, $row['response_bytes'] );
+		$this->assertSame( 0, $row['truncated'] );
+		$this->assertSame( array( 200, 'success', 'req-big' ), array( $row['status'], $row['outcome'], $row['gateway_request_id'] ) );
+		$this->assertSame( agend_apps_logger()->request_id(), $row['request_id'] );
+	}
+
+	#[Test]
+	public function should_store_a_failed_body_over_the_success_redact_limit_whole(): void {
+		$big = str_repeat( 'x', 20000 );
+		Agend_Test_WP::queue_response( 500, array( 'error' => array( 'message' => 'boom' ), 'detail' => $big ) );
+
+		( new Agend_Apps_API() )->request( 'GET', '/directory/search' );
+
+		$this->assertStringContainsString( $big, $this->rows()[0]['response_body'] );
+	}
+
+	#[Test]
+	#[RunInSeparateProcess]
+	public function should_redact_and_cap_a_large_successful_body_when_full_bodies_are_switched_on(): void {
+		define( 'AGEND_APPS_API_LOG_FULL_BODIES', true );
+		Agend_Test_WP::queue_response( 200, array( 'data' => str_repeat( 'y', 20000 ) ) );
+
+		( new Agend_Apps_API() )->request( 'GET', '/directory/search' );
+
+		$row = $this->rows()[0];
+		$this->assertSame( Agend_Apps_Logger::SUCCESS_BODY_LIMIT, strlen( $row['response_body'] ) );
+		$this->assertStringStartsWith( '{"data":"yyy', $row['response_body'] );
+		$this->assertSame( 1, $row['truncated'] );
+	}
+
+	/**
+	 * A decoded body leaves one trace in a row: its values are remembered and
+	 * scrubbed from the error message. A success row carries no message of
+	 * its own, so these two entries pass one only to make that trace visible.
+	 */
+	#[Test]
+	public function should_not_decode_either_body_when_a_successful_call_is_on_an_excluded_path(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_log_body_excluded_paths', array( '/crm/notes' ) );
+
+		$row = agend_apps_logger()->build_row( $this->excludedPathEntry( 200 ) );
+
+		$this->assertSame( 'success', $row['outcome'] );
+		$this->assertStringContainsString( 'Zelphine', $row['error_message'] );
+		$this->assertSame( '[not stored for this endpoint]', $row['response_body'] );
+	}
+
+	#[Test]
+	public function should_scrub_the_error_message_with_body_values_when_a_failed_call_is_on_an_excluded_path(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_log_body_excluded_paths', array( '/crm/notes' ) );
+
+		$row = agend_apps_logger()->build_row( $this->excludedPathEntry( 422 ) );
+
+		$this->assertStringNotContainsString( 'Zelphine', $row['error_message'] );
+		$this->assertSame( '[not stored for this endpoint]', $row['response_body'] );
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	private function excludedPathEntry( int $status ): array {
+		return array(
+			'method'        => 'POST',
+			'url'           => 'https://api.example.test/v1/crm/notes',
+			'status'        => $status,
+			'request_body'  => '{"note":"call back"}',
+			'response_body' => '{"data":{"first_name":"Zelphine"}}',
+			'error_message' => 'Zelphine could not be saved',
+		);
 	}
 
 	#[Test]

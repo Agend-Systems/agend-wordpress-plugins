@@ -1275,10 +1275,15 @@ response bodies are never stored at all for `/auth/login`, `/auth/register`,
 `rate_limited`, `blocked`, `retried`, and for webhooks `signature_invalid`, `duplicate`,
 `invalid_payload`, `not_configured`), duration, attempt number, the gateway's
 `X-Request-Id` (or `X-Vercel-Id`), the webhook event type and id, a UUID shared
-by every call in one PHP request, and allowlisted response headers. Successful
-calls keep up to 5,000 characters of each redacted body, and a successful body
-over 256 KB is summarised rather than redacted; failed calls keep the whole
-redacted body up to 1 MB.
+by every call in one PHP request, and allowlisted response headers, including
+the gateway's `X-Agend-Instance` (`cold` on the first call a newly started
+gateway instance serves, `warm` after). Successful calls keep up to 5,000
+characters of each redacted body, and a successful body over 16 KB is
+summarised as its size rather than redacted, because the logger runs inside
+the page render that made the call; failed calls keep the whole redacted body
+up to 1 MB. On an endpoint whose bodies are never stored, a successful call's
+bodies are not decoded at all, while a failed call's bodies are still read to
+scrub its error message.
 
 **What cannot be guaranteed:** a third party's name or street address written
 as prose inside a non-personal field (an event description that names a
@@ -1299,6 +1304,10 @@ reaches that cap schedules a follow-up five minutes later.
 
 - `define( 'AGEND_APPS_API_LOG', false );` in `wp-config.php` turns logging off
   and locks the setting.
+- `define( 'AGEND_APPS_API_LOG_FULL_BODIES', true );` in `wp-config.php`
+  redacts and keeps the first 5,000 characters of successful bodies up to
+  256 KB, for debugging. It costs every page render that calls the gateway, so
+  remove it when you are done.
 - `agend_apps_log_sensitive_keys` / `agend_apps_log_safe_keys` widen the key
   rules. The safe list cannot un-redact a built-in personal key.
 - `agend_apps_log_body_excluded_paths` adds endpoints whose bodies are never
