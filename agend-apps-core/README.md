@@ -134,6 +134,21 @@ render does not ask the gateway the same question twice; a cart read is not
 held even that long. Add any new member-token read through `get_cached()` and
 never write your own cache entry for it.
 
+**A response that is the same for every viewer is read anonymously.** Passing
+`'anonymous' => true` in `get_cached()`'s `$args` resolves and sends no member
+token and reads and writes the shared anonymous entry, for signed-in visitors
+too. Directory categories always use it, and so do facet requests that name at
+least one facet and no `custom.<key>` facet; a custom facet, or no facet named,
+depends on the member's grants. Use it for nothing that varies by viewer.
+
+**Directory filters work at first paint.** A directory catalogue reads the
+shared facets and categories entries its filter template needs from
+transients, read-only, and inlines them into its config with the time they
+were fetched, so `filters.js` builds those controls without a REST request. A
+cold entry is left out and fetched by the browser as before, so the render
+never calls the gateway for them. An entry a page cache serves after its
+lifetime is used for first paint and refreshed once.
+
 ### How long site config is cached
 
 `agend_apps_sites_get_config()`, and the `GET /agend-apps/v1/sites/config`

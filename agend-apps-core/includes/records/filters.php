@@ -36,12 +36,21 @@ final class Agend_Apps_Records_Filter_Context {
 	private static $type = '';
 
 	/**
+	 * The config of each filter rendered since set(), in render order, which
+	 * is the order the shells appear in the page.
+	 *
+	 * @var array<int, array>
+	 */
+	private static $rendered = array();
+
+	/**
 	 * Sets the record type for the template render in progress.
 	 *
 	 * @param string $type 'event', 'course' or 'listing'.
 	 */
 	public static function set( string $type ): void {
-		self::$type = $type;
+		self::$type     = $type;
+		self::$rendered = array();
 	}
 
 	/**
@@ -54,11 +63,65 @@ final class Agend_Apps_Records_Filter_Context {
 	}
 
 	/**
+	 * Notes a filter shell drawn for a visitor.
+	 *
+	 * @param array $config The config its `data-agend-filter` attribute carries.
+	 */
+	public static function record( array $config ): void {
+		self::$rendered[] = $config;
+	}
+
+	/**
+	 * The configs recorded since set().
+	 *
+	 * @return array<int, array>
+	 */
+	public static function rendered(): array {
+		return self::$rendered;
+	}
+
+	/**
 	 * Clears the context. Paired with set() in a try/finally by the renderer.
 	 */
 	public static function reset(): void {
-		self::$type = '';
+		self::$type     = '';
+		self::$rendered = array();
 	}
+}
+
+/**
+ * The facet names a filter template's shells ask for, in the order the
+ * browser gathers them (assets/js/filters.js build()): each shell's
+ * `source.facet` in page order, the first time it appears.
+ *
+ * @param array<int, array> $configs Filter configs in render order.
+ * @return string[]
+ */
+function agend_apps_records_filter_facet_names( array $configs ): array {
+	$names = array();
+	foreach ( $configs as $config ) {
+		$facet = $config['source']['facet'] ?? '';
+		if ( is_string( $facet ) && '' !== $facet && ! in_array( $facet, $names, true ) ) {
+			$names[] = $facet;
+		}
+	}
+	return $names;
+}
+
+/**
+ * Whether any filter shell reads a list from the given endpoint.
+ *
+ * @param array<int, array> $configs Filter configs in render order.
+ * @param string            $path    Endpoint path, e.g. `/directory/categories`.
+ * @return bool
+ */
+function agend_apps_records_filters_read_endpoint( array $configs, string $path ): bool {
+	foreach ( $configs as $config ) {
+		if ( $path === ( $config['source']['path'] ?? '' ) ) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /**

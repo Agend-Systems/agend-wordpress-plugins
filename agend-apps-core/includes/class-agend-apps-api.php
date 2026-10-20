@@ -826,6 +826,16 @@ class Agend_Apps_API {
 	private const IDENTITY_UNCACHEABLE_PREFIXES = array( 'cart' );
 
 	/**
+	 * Cache-key prefixes whose shared entries also record when they were
+	 * fetched, in a companion `<name>_at` transient, so a page render can
+	 * inline them with their age ({@see peek_cached()}). A page cache can
+	 * serve that HTML long after the entry itself expired.
+	 *
+	 * @var string[]
+	 */
+	private const FETCH_TIME_PREFIXES = array( 'directory_facets', 'directory_categories' );
+
+	/**
 	 * Suffix that binds a memo entry to one member token, so a response is
 	 * never returned for a different token or for a call without one.
 	 *
@@ -874,8 +884,16 @@ class Agend_Apps_API {
 	 * The bearer is resolved once here and passed through in `$args`, because
 	 * the resolver reads user meta and can mint a token.
 	 *
+	 * A response that is the same for every visitor (a category list, a facet
+	 * set with no custom field in it) is read with `anonymous` set: no member
+	 * token is resolved or sent, and the shared entry an anonymous visitor
+	 * uses is read and written, for signed-in visitors too.
+	 *
 	 * @param string $path      Relative path, e.g. `/directory/export-reports`.
-	 * @param array  $args      Request args, as accepted by `request()`.
+	 * @param array  $args      Request args, as accepted by `request()`, plus
+	 *                          `anonymous` (bool): read as an anonymous visitor
+	 *                          would. Only for a response that does not vary by
+	 *                          viewer.
 	 * @param string $cache_key Cache key the caller derived from the query.
 	 * @param int    $ttl       Transient lifetime in seconds, for a read
 	 *                          without a member token. 0 stores nothing.
@@ -886,9 +904,18 @@ class Agend_Apps_API {
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
 	public function get_cached( string $path, array $args, string $cache_key, int $ttl, bool $fresh = false ) {
-		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
-			? (string) $args['bearer_token']
-			: agend_apps_get_bearer_token();
+		$anonymous = ! empty( $args['anonymous'] );
+		unset( $args['anonymous'] );
+
+		if ( $anonymous ) {
+			$args['bearer_token'] = '';
+			$args['unattended']   = true;
+			$bearer_token         = '';
+		} else {
+			$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
+				? (string) $args['bearer_token']
+				: agend_apps_get_bearer_token();
+		}
 
 		if ( '' !== $bearer_token ) {
 			// Record whether the bearer was ours, so request() may drop it and
@@ -921,9 +948,49 @@ class Agend_Apps_API {
 		// the entry with no expiry and autoloaded, so it is not written at all.
 		if ( ! is_wp_error( $response ) && $ttl > 0 ) {
 			set_transient( $transient_name, $response, $ttl );
+
+			if ( $this->records_fetch_time( $cache_key ) ) {
+				set_transient( $transient_name . '_at', time(), $ttl );
+			}
 		}
 
 		return $response;
+	}
+
+	/**
+	 * The shared entry for a cache key and when it was fetched, read without
+	 * calling the gateway, or null when either is missing. For a key whose
+	 * fetch time is recorded ({@see FETCH_TIME_PREFIXES}).
+	 *
+	 * @param string $cache_key Cache key, as passed to get_cached().
+	 * @return array{fetched_at: int, response: array}|null
+	 */
+	public function peek_cached( string $cache_key ): ?array {
+		if ( ! $this->records_fetch_time( $cache_key ) ) {
+			return null;
+		}
+
+		$response   = get_transient( 'agend_apps_' . $cache_key );
+		$fetched_at = get_transient( 'agend_apps_' . $cache_key . '_at' );
+
+		if ( ! is_array( $response ) || ! is_numeric( $fetched_at ) ) {
+			return null;
+		}
+
+		return array(
+			'fetched_at' => (int) $fetched_at,
+			'response'   => $response,
+		);
+	}
+
+	private function records_fetch_time( string $cache_key ): bool {
+		foreach ( self::FETCH_TIME_PREFIXES as $prefix ) {
+			if ( 0 === strpos( $cache_key, $prefix ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

@@ -725,6 +725,10 @@ function agend_apps_records_render_filter( array $settings, array $opts = array(
 	// shows it; a preview stays visible for the designer.
 	$hidden = ! $preview && 'sub' === ( $config['categoryLevel'] ?? '' );
 
+	if ( ! $preview ) {
+		Agend_Apps_Records_Filter_Context::record( $config );
+	}
+
 	ob_start();
 	echo '<div class="' . esc_attr( $classes ) . '"' . ( '' !== $style['style'] ? ' style="' . esc_attr( $style['style'] ) . '"' : '' ) . ' data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '"' . ( $hidden ? ' hidden' : '' ) . '>';
 	if ( $config['showLabel'] && '' !== $config['label'] ) {

@@ -254,6 +254,39 @@ final class CachedRequestIdentityTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_read_and_write_the_shared_entry_without_resolving_a_token_when_anonymous_is_set(): void {
+		$resolved = 0;
+		Agend_Test_WP::$filters['agend_apps_bearer_token'] = static function () use ( &$resolved ): string {
+			++$resolved;
+			return 'member-a-token';
+		};
+		$api = $this->api();
+
+		$first  = $api->get_cached( '/directory/categories', array( 'anonymous' => true ), 'directory_categories_x', 60 );
+		$second = $api->get_cached( '/directory/categories', array( 'anonymous' => true ), 'directory_categories_x', 60 );
+
+		$this->assertSame( 0, $resolved, 'resolving the bearer can mint a token' );
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+		$this->assertArrayNotHasKey( 'Authorization', Agend_Test_WP::$requests[0]['headers'] );
+		$this->assertSame( $first, $second );
+		$this->assertSame( $first, Agend_Test_WP::$transients['agend_apps_directory_categories_x'] ?? null );
+	}
+
+	#[Test]
+	public function should_record_when_a_shared_facets_or_categories_entry_was_fetched(): void {
+		$api = $this->api();
+
+		$api->get_cached( '/directory/categories', array(), 'directory_categories_x', 60 );
+		$api->get_cached( '/cms/content/x', array(), 'cms_x', 60 );
+
+		$this->assertIsInt( Agend_Test_WP::$transients['agend_apps_directory_categories_x_at'] ?? null );
+		$this->assertSame( 60, Agend_Test_WP::$transient_ttls['agend_apps_directory_categories_x_at'] ?? null );
+		$this->assertArrayNotHasKey( 'agend_apps_cms_x_at', Agend_Test_WP::$transients );
+		$this->assertSame( Agend_Test_WP::$transients['agend_apps_directory_categories_x'], $api->peek_cached( 'directory_categories_x' )['response'] ?? null );
+		$this->assertNull( $api->peek_cached( 'cms_x' ) );
+	}
+
+	#[Test]
 	public function should_store_nothing_when_an_anonymous_read_has_a_zero_ttl(): void {
 		$this->api()->get_cached( '/cms/content/x', array(), 'cms_x', 0 );
 
