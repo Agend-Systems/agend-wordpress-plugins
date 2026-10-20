@@ -157,6 +157,10 @@ return array(
 		'app'    => 'atlas',
 		'scopes' => array( array( 'atlas.pages.browse' ) ),
 	),
+	'GET /atlas/me/pages/{id}/images/{imageId}' => array(
+		'app'    => 'atlas',
+		'scopes' => array( array( 'atlas.pages.browse' ) ),
+	),
 	'GET /atlas/me/tree' => array(
 		'app'    => 'atlas',
 		'scopes' => array( array( 'atlas.pages.browse' ) ),
@@ -166,6 +170,14 @@ return array(
 		'scopes' => array( array( 'atlas.pages.search' ) ),
 	),
 	'GET /cart' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.browse' ) ),
+	),
+	'GET /cart/checkout-options' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.browse' ) ),
+	),
+	'GET /cart/invoices/{orderId}' => array(
 		'app'    => 'cart',
 		'scopes' => array( array( 'cart.items.browse' ) ),
 	),
@@ -553,6 +565,10 @@ return array(
 		'app'    => 'loop',
 		'scopes' => array( array( 'loop.committees.browse' ) ),
 	),
+	'GET /loop/integration/committees/{uniqueId}/members' => array(
+		'app'    => 'loop',
+		'scopes' => array( array( 'loop.committees.update' ) ),
+	),
 	'GET /loop/me/channels' => array(
 		'app'    => 'loop',
 		'scopes' => array( array( 'loop.channels.browse' ) ),
@@ -832,6 +848,10 @@ return array(
 	'POST /cart/checkout/complete' => array(
 		'app'    => 'cart',
 		'scopes' => array( array( 'cart.checkout.manage' ) ),
+	),
+	'POST /cart/checkout/invoice' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.checkout.create' ) ),
 	),
 	'POST /cart/checkout/simulate-success' => array(
 		'app'    => 'cart',
@@ -1116,6 +1136,10 @@ return array(
 	'POST /loop/integration/committees' => array(
 		'app'    => 'loop',
 		'scopes' => array( array( 'loop.committees.create' ) ),
+	),
+	'POST /loop/integration/committees/member-refresh' => array(
+		'app'    => 'loop',
+		'scopes' => array( array( 'loop.committees.sync' ) ),
 	),
 	'POST /loop/integration/users/bulk-sync' => array(
 		'app'    => 'loop',
