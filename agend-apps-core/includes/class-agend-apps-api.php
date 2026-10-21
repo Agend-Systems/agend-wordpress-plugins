@@ -962,57 +962,232 @@ class Agend_Apps_API {
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
 	public function get_cached( string $path, array $args, string $cache_key, int $ttl, bool $fresh = false ) {
+		$plan = $this->plan_read( $args, $cache_key, 'agend_apps_get_bearer_token' );
+		$held = $fresh ? null : $this->held( $plan, $cache_key );
+
+		if ( null !== $held ) {
+			return $held;
+		}
+
+		$this->sent_bearer = null;
+		$response          = $this->request( 'GET', $path, $plan['args'] );
+		$this->keep( $plan, $cache_key, $ttl, $response );
+
+		return $response;
+	}
+
+	/**
+	 * Fetches several independent GET responses, sending those not already
+	 * held together, so the slowest one sets the wait rather than their sum.
+	 *
+	 * Each read is served exactly as get_cached() would serve it alone: the
+	 * same stored and held copies, the same refusals by the local rate limit
+	 * and the scope guard, and the same retry after a rejected member token,
+	 * sent as a further batch. The member token is resolved once for the
+	 * batch, and again at most once after a 401. Each exchange is its own row
+	 * in the API log.
+	 *
+	 * @param array<string|int, array{path: string, args?: array, cache_key: string, ttl: int, fresh?: bool}> $reads
+	 *        Keyed by caller id; each entry takes get_cached()'s arguments.
+	 * @return array<string|int, array|WP_Error> Keyed and ordered as given.
+	 */
+	public function get_cached_many( array $reads ): array {
+		$resolved = null;
+		$resolve  = static function () use ( &$resolved ): string {
+			if ( null === $resolved ) {
+				$resolved = agend_apps_get_bearer_token();
+			}
+			return $resolved;
+		};
+
+		$reresolved = null;
+		$reresolve  = static function () use ( &$reresolved ): string {
+			if ( null === $reresolved ) {
+				$reresolved = agend_apps_get_bearer_token();
+			}
+			return $reresolved;
+		};
+
+		$results = array();
+		$batch   = array();
+
+		foreach ( $reads as $id => $read ) {
+			$cache_key = (string) $read['cache_key'];
+			$plan      = $this->plan_read( (array) ( $read['args'] ?? array() ), $cache_key, $resolve );
+			$held      = empty( $read['fresh'] ) ? $this->held( $plan, $cache_key ) : null;
+
+			if ( null !== $held ) {
+				$results[ $id ] = $held;
+				continue;
+			}
+
+			$batch[ $id ] = array(
+				'path'      => (string) $read['path'],
+				'args'      => $plan['args'],
+				'plan'      => $plan,
+				'cache_key' => $cache_key,
+				'ttl'       => (int) $read['ttl'],
+			);
+		}
+
+		while ( ! empty( $batch ) ) {
+			$prepared = array();
+
+			foreach ( $batch as $id => $item ) {
+				$exchange = $this->prepare_request( 'GET', $item['path'], $item['args'] );
+
+				if ( is_wp_error( $exchange ) ) {
+					$results[ $id ] = $exchange;
+					continue;
+				}
+
+				$prepared[ $id ] = $exchange;
+			}
+
+			$sent = Agend_Apps_Http_Batch::send(
+				array_map(
+					static function ( array $exchange ): array {
+						return array(
+							'url'  => $exchange['url'],
+							'args' => $exchange['request_args'],
+						);
+					},
+					$prepared
+				)
+			);
+
+			$retries = array();
+
+			foreach ( $prepared as $id => $exchange ) {
+				$retry             = null;
+				$this->sent_bearer = null;
+				$result            = $this->finish_request( $exchange, $sent[ $id ]['response'], $sent[ $id ]['elapsed'], $retry, $reresolve );
+
+				if ( null !== $retry ) {
+					$retries[ $id ]         = $batch[ $id ];
+					$retries[ $id ]['path'] = $exchange['path'];
+					$retries[ $id ]['args'] = $retry;
+					continue;
+				}
+
+				$this->keep( $batch[ $id ]['plan'], $batch[ $id ]['cache_key'], $batch[ $id ]['ttl'], $result );
+				$results[ $id ] = $result;
+			}
+
+			$batch = $retries;
+		}
+
+		$ordered = array();
+		foreach ( array_keys( $reads ) as $id ) {
+			$ordered[ $id ] = $results[ $id ];
+		}
+		return $ordered;
+	}
+
+	/**
+	 * How a cached read is served: its request args with the member token
+	 * resolved, and its store: `shared` (the transient every visitor without a
+	 * token shares), `memo` (held for this PHP request under the token), or
+	 * `none` (a cart read with a token).
+	 *
+	 * @param array    $args      Request args, as get_cached() accepts them.
+	 * @param string   $cache_key Cache key the caller derived from the query.
+	 * @param callable $resolve   Returns the member token, or ''.
+	 * @return array{args: array, store: string}
+	 */
+	private function plan_read( array $args, string $cache_key, callable $resolve ): array {
 		$anonymous = ! empty( $args['anonymous'] );
 		unset( $args['anonymous'] );
 
 		if ( $anonymous ) {
 			$args['bearer_token'] = '';
 			$args['unattended']   = true;
-			$bearer_token         = '';
-		} else {
-			$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
-				? (string) $args['bearer_token']
-				: agend_apps_get_bearer_token();
+
+			return array(
+				'args'  => $args,
+				'store' => 'shared',
+			);
 		}
 
-		if ( '' !== $bearer_token ) {
-			// Record whether the bearer was ours, so request() may drop it and
-			// retry unattended when the gateway rejects it (401/403).
-			$args['bearer_auto_resolved'] = empty( $args['bearer_token'] );
-			$args['bearer_token']         = $bearer_token;
+		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
+			? (string) $args['bearer_token']
+			: (string) $resolve();
 
-			if ( $this->is_identity_uncacheable( $cache_key ) ) {
-				return $this->request( 'GET', $path, $args );
-			}
-
-			return $this->get_memoised( $path, $args, $cache_key, $fresh );
+		if ( '' === $bearer_token ) {
+			return array(
+				'args'  => $args,
+				'store' => 'shared',
+			);
 		}
 
-		$transient_name = 'agend_apps_' . $cache_key;
+		// Record whether the bearer was ours, so request() may drop it and
+		// retry unattended when the gateway rejects it (401/403).
+		$args['bearer_auto_resolved'] = empty( $args['bearer_token'] );
+		$args['bearer_token']         = $bearer_token;
 
-		if ( ! $fresh ) {
-			$cached = get_transient( $transient_name );
+		return array(
+			'args'  => $args,
+			'store' => $this->is_identity_uncacheable( $cache_key ) ? 'none' : 'memo',
+		);
+	}
 
-			if ( false !== $cached ) {
-				return $cached;
-			}
+	/**
+	 * The copy a planned read can be served from, or null.
+	 *
+	 * @param array  $plan      What plan_read() returned.
+	 * @param string $cache_key Cache key the caller derived from the query.
+	 * @return array|null
+	 */
+	private function held( array $plan, string $cache_key ): ?array {
+		if ( 'shared' === $plan['store'] ) {
+			$cached = get_transient( 'agend_apps_' . $cache_key );
+			return false !== $cached ? $cached : null;
 		}
 
-		$response = $this->request( 'GET', $path, $args );
+		if ( 'memo' === $plan['store'] ) {
+			$memo_key = $cache_key . $this->identity_cache_suffix( (string) $plan['args']['bearer_token'] );
+			return array_key_exists( $memo_key, $this->identity_memo ) ? $this->identity_memo[ $memo_key ] : null;
+		}
 
-		// Always written, even on a forced-fresh call: the point of $fresh is
-		// that THIS call cannot serve a stale answer, not that the shared cache
-		// stays stale until it next expires on its own. A TTL of 0 would store
-		// the entry with no expiry and autoloaded, so it is not written at all.
-		if ( ! is_wp_error( $response ) && $ttl > 0 ) {
-			set_transient( $transient_name, $response, $ttl );
+		return null;
+	}
+
+	/**
+	 * Keeps a planned read's successful response in its store.
+	 *
+	 * A shared entry is written even on a forced-fresh call: the point of
+	 * `$fresh` is that THIS call cannot serve a stale answer, not that the
+	 * shared cache stays stale until it next expires on its own. A TTL of 0
+	 * would store the entry with no expiry and autoloaded, so it is not
+	 * written at all.
+	 *
+	 * A memo entry is keyed on the bearer the exchange actually carried, which
+	 * request() reports in `sent_bearer`: a retry after a rejected token is
+	 * held under the re-minted token, never the rejected one, and a retry that
+	 * carried no token is not held.
+	 *
+	 * @param array          $plan      What plan_read() returned.
+	 * @param string         $cache_key Cache key the caller derived from the query.
+	 * @param int            $ttl       Transient lifetime in seconds.
+	 * @param array|WP_Error $response  The response.
+	 */
+	private function keep( array $plan, string $cache_key, int $ttl, $response ): void {
+		if ( is_wp_error( $response ) ) {
+			return;
+		}
+
+		if ( 'shared' === $plan['store'] && $ttl > 0 ) {
+			set_transient( 'agend_apps_' . $cache_key, $response, $ttl );
 
 			if ( $this->records_fetch_time( $cache_key ) ) {
-				set_transient( $transient_name . '_at', time(), $ttl );
+				set_transient( 'agend_apps_' . $cache_key . '_at', time(), $ttl );
 			}
+			return;
 		}
 
-		return $response;
+		if ( 'memo' === $plan['store'] && null !== $this->sent_bearer && '' !== $this->sent_bearer ) {
+			$this->identity_memo[ $cache_key . $this->identity_cache_suffix( $this->sent_bearer ) ] = $response;
+		}
 	}
 
 	/**
@@ -1049,35 +1224,6 @@ class Agend_Apps_API {
 		}
 
 		return false;
-	}
-
-	/**
-	 * A bearer read through the in-request memo. The entry is keyed on the
-	 * bearer the exchange actually carried: a retry after a rejected token is
-	 * held under the re-minted token, never the rejected one, and a retry that
-	 * carried no token is not held.
-	 *
-	 * @param string $path      Relative path.
-	 * @param array  $args      Request args with the resolved `bearer_token`.
-	 * @param string $cache_key Cache key the caller derived from the query.
-	 * @param bool   $fresh     Skip a held copy.
-	 * @return array|WP_Error
-	 */
-	private function get_memoised( string $path, array $args, string $cache_key, bool $fresh ) {
-		$memo_key = $cache_key . $this->identity_cache_suffix( (string) $args['bearer_token'] );
-
-		if ( ! $fresh && array_key_exists( $memo_key, $this->identity_memo ) ) {
-			return $this->identity_memo[ $memo_key ];
-		}
-
-		$this->sent_bearer = null;
-		$response          = $this->request( 'GET', $path, $args );
-
-		if ( ! is_wp_error( $response ) && null !== $this->sent_bearer && '' !== $this->sent_bearer ) {
-			$this->identity_memo[ $cache_key . $this->identity_cache_suffix( $this->sent_bearer ) ] = $response;
-		}
-
-		return $response;
 	}
 }
 

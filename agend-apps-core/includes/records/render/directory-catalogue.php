@@ -401,6 +401,20 @@ function agend_apps_records_directory_catalogue_filters( int $template_id ): arr
 }
 
 /**
+ * Whether the page render fetches this visitor's facets itself: a signed-in
+ * visitor whose filter template names a custom field facet. A template that
+ * names no facet has no control that asks for one.
+ *
+ * @param string[] $names The filter template's facet names.
+ * @return bool
+ */
+function agend_apps_records_directory_catalogue_member_facets_due( array $names ): bool {
+	return ! empty( $names ) && is_user_logged_in()
+		&& function_exists( 'agend_apps_directory_facets_viewer_independent' )
+		&& ! agend_apps_directory_facets_viewer_independent( $names );
+}
+
+/**
  * The catalogue config with the filters' shared facets and categories
  * entries inlined, so the filters work at first paint without a REST request.
  *
@@ -496,9 +510,16 @@ function agend_apps_records_directory_catalogue_scroll_class( array $config ): s
  * @param int    $columns     Desktop column count.
  */
 function agend_apps_records_directory_catalogue_render_templated( array $config, int $template_id, string $style, int $columns ): void {
-	$query = agend_apps_records_with_search_include( agend_apps_records_listings_list_args( $config, 1 ), $template_id );
-	$list  = agend_apps_records_unwrap_list( agend_apps_records_fetch_list( 'listing', $query ) );
-	$cards = agend_apps_records_render_cards(
+	$filters = agend_apps_records_directory_catalogue_filters( (int) $config['filterTemplate'] );
+	$names   = agend_apps_records_filter_facet_names( $filters['configs'] );
+	$query   = agend_apps_records_with_search_include( agend_apps_records_listings_list_args( $config, 1 ), $template_id );
+
+	// A signed-in visitor's custom facets depend on their grants, so they are
+	// never in the shared entry; fetched beside the search, they cost the page
+	// nothing it was not already waiting for.
+	$fetched = agend_apps_records_directory_catalogue_member_facets_due( $names ) ? agend_apps_records_fetch_listings_with_facets( $query, $names ) : null;
+	$list    = agend_apps_records_unwrap_list( null !== $fetched ? $fetched['list'] : agend_apps_records_fetch_list( 'listing', $query ) );
+	$cards   = agend_apps_records_render_cards(
 		'listing',
 		$template_id,
 		$list['items'],
@@ -511,8 +532,15 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 	$config['initialPagination'] = $list['pagination'];
 	$config['initialError']      = $list['error'];
 
-	$filters = agend_apps_records_directory_catalogue_filters( (int) $config['filterTemplate'] );
-	$config  = agend_apps_records_directory_catalogue_with_preload( $config, $filters['configs'] );
+	$config = agend_apps_records_directory_catalogue_with_preload( $config, $filters['configs'] );
+	if ( null !== $fetched && is_array( $fetched['facets'] ) ) {
+		$config['preload']['facets'] = array(
+			'names'      => $names,
+			'fetched_at' => time(),
+			'ttl'        => Agend_Apps_Settings::get_cache_ttl( 'directory_facets' ),
+			'body'       => $fetched['facets'],
+		);
+	}
 	?>
 		<div class="agend-directory-catalogue agend-directory-catalogue--templated agend-filters-<?php echo esc_attr( $config['filterPosition'] ); ?><?php echo esc_attr( agend_apps_records_directory_catalogue_scroll_class( $config ) ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-directory-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<?php if ( ! empty( $config['heading']['show'] ) && ( '' !== $config['heading']['title'] || '' !== $config['heading']['subtitle'] ) ) : ?>

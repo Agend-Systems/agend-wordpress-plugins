@@ -149,6 +149,25 @@ cold entry is left out and fetched by the browser as before, so the render
 never calls the gateway for them. An entry a page cache serves after its
 lifetime is used for first paint and refreshed once.
 
+**A page render sends independent gateway reads together.**
+`Agend_Apps_API::get_cached_many()` takes several reads in `get_cached()`'s
+terms and serves each exactly as `get_cached()` would alone (the same stored
+and held copies, the same rate-limit and scope refusals, the same retry after
+a rejected member token), but sends the ones not already held at once through
+`Agend_Apps_Http_Batch`, so the page waits for the slowest rather than the
+sum. The member token is resolved once per batch, and each exchange is its own
+row in the API log. A signed-in visitor's custom-field facets depend on their
+grants and are never shared, so the directory catalogue fetches them beside
+its first-page search and inlines them; the page arrives no later than before.
+
+`Agend_Apps_Http_Batch` repeats what `WP_Http::request()` does for each
+request around the Requests library WordPress bundles, firing the same filters
+and actions with the same arguments, including `http_api_curl`, which core
+fires only for a single request. `agend_apps_api_parallel` returning false
+sends the same requests one after another through `wp_remote_request()`, and
+so does a site without the library. Any new page-render read that does not
+depend on another one goes through `get_cached_many()`.
+
 ### How long site config is cached
 
 `agend_apps_sites_get_config()`, and the `GET /agend-apps/v1/sites/config`

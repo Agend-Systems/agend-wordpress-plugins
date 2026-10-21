@@ -32,6 +32,22 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @return array|WP_Error Decoded response, or WP_Error on failure.
  */
 function agend_apps_directory_get_facets( array $fields = array() ) {
+	$read = agend_apps_directory_facets_read( $fields );
+
+	return agend_apps_directory_facets_response(
+		agend_apps_api()->get_cached( $read['path'], $read['args'], $read['cache_key'], $read['ttl'] ),
+		$fields
+	);
+}
+
+/**
+ * The facets request for a list of facet names, as get_cached() and
+ * get_cached_many() take it, so a single and a batched read send the same.
+ *
+ * @param string[] $fields Facet names.
+ * @return array{path: string, args: array, cache_key: string, ttl: int}
+ */
+function agend_apps_directory_facets_read( array $fields ): array {
 	$query = agend_apps_directory_facets_query( $fields );
 
 	/**
@@ -46,17 +62,28 @@ function agend_apps_directory_get_facets( array $fields = array() ) {
 		$fields
 	);
 
-	$cache_key = Agend_Apps_Cache::build_key( 'directory_facets', $query );
-	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_facets' );
-
 	// Otherwise the member's grants decide which custom facets come back, so
 	// get_cached() sends their token and never shares the response.
 	if ( agend_apps_directory_facets_viewer_independent( $fields ) ) {
 		$args['anonymous'] = true;
 	}
 
-	$response = agend_apps_api()->get_cached( '/directory/facets', $args, $cache_key, $ttl );
+	return array(
+		'path'      => '/directory/facets',
+		'args'      => $args,
+		'cache_key' => Agend_Apps_Cache::build_key( 'directory_facets', $query ),
+		'ttl'       => Agend_Apps_Settings::get_cache_ttl( 'directory_facets' ),
+	);
+}
 
+/**
+ * A facets read's result as agend_apps_directory_get_facets() returns it.
+ *
+ * @param array|WP_Error $response The get_cached() result.
+ * @param string[]       $fields   Requested facet names.
+ * @return array|WP_Error
+ */
+function agend_apps_directory_facets_response( $response, array $fields ) {
 	if ( is_wp_error( $response ) ) {
 		return $response;
 	}

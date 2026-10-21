@@ -344,18 +344,51 @@ function agend_apps_records_fetch_list( string $type, array $query ) {
 		if ( ! function_exists( 'agend_apps_directory_search' ) ) {
 			return null;
 		}
-		$term = (string) ( $query['q'] ?? $query['search'] ?? '' );
-		unset( $query['q'], $query['search'] );
-		if ( isset( $query['category'] ) ) {
-			$query['category_ids'] = $query['category'];
-			unset( $query['category'] );
-		}
-		return agend_apps_directory_search( $term, $query );
+		[ $term, $filters ] = agend_apps_records_listing_search_args( $query );
+		return agend_apps_directory_search( $term, $filters );
 	}
 	if ( 'course' === $type ) {
 		return function_exists( 'agend_apps_lms_get_courses' ) ? agend_apps_lms_get_courses( $query ) : null;
 	}
 	return function_exists( 'agend_apps_events_get_events' ) ? agend_apps_events_get_events( $query ) : null;
+}
+
+/**
+ * Fetches a page of listings and the directory facets together, for a page
+ * render that needs both; each as agend_apps_records_fetch_list() and the
+ * facets REST route would fetch it.
+ *
+ * @param array    $query  Allow-listed listing query parameters.
+ * @param string[] $fields Facet names.
+ * @return array{list: mixed, facets: array|WP_Error}|null Null when unavailable.
+ */
+function agend_apps_records_fetch_listings_with_facets( array $query, array $fields ): ?array {
+	if ( ! function_exists( 'agend_apps_directory_search_and_facets' ) ) {
+		return null;
+	}
+	[ $term, $filters ] = agend_apps_records_listing_search_args( $query );
+	$results            = agend_apps_directory_search_and_facets( $term, $filters, $fields );
+	return array(
+		'list'   => $results['search'],
+		'facets' => $results['facets'],
+	);
+}
+
+/**
+ * A listing query as the directory search takes it: the term apart, and
+ * `category` translated to the gateway's canonical `category_ids`.
+ *
+ * @param array $query Allow-listed listing query parameters.
+ * @return array{0: string, 1: array}
+ */
+function agend_apps_records_listing_search_args( array $query ): array {
+	$term = (string) ( $query['q'] ?? $query['search'] ?? '' );
+	unset( $query['q'], $query['search'] );
+	if ( isset( $query['category'] ) ) {
+		$query['category_ids'] = $query['category'];
+		unset( $query['category'] );
+	}
+	return array( $term, $query );
 }
 
 /**

@@ -1,0 +1,199 @@
+<?php
+/**
+ * @package Agend\Tests
+ */
+
+declare( strict_types=1 );
+
+namespace Agend\Tests\Core;
+
+use Agend_Apps_Http_Batch;
+use Agend_Test_Requests_Transport;
+use Agend_Test_WP;
+use Agend\Tests\TestCase;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
+use PHPUnit\Framework\Attributes\Test;
+use WP_Error;
+
+/**
+ * The Requests adapter sends a batch through the real Requests library with
+ * an injected transport, and treats each request exactly as
+ * wp_remote_request() would: the same filters and actions, with the same
+ * arguments, around each one.
+ *
+ * Each case runs in its own process: the WordPress HTTP stand-ins it loads
+ * would otherwise be visible to every later test.
+ */
+#[CoversClass( Agend_Apps_Http_Batch::class )]
+#[RunTestsInSeparateProcesses]
+final class HttpBatchAdapterTest extends TestCase {
+
+	private const SEARCH = 'https://api.example.test/v1/directory/search?q=';
+	private const FACETS = 'https://api.example.test/v1/directory/facets?fields=custom.size';
+
+	protected function setUp(): void {
+		parent::setUp();
+		require_once AGEND_TESTS_ROOT . '/tests/http-doubles.php';
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-http-batch.php';
+		if ( ! defined( 'WPINC' ) ) {
+			define( 'WPINC', 'wp-includes' );
+		}
+		Agend_Test_Requests_Transport::reset();
+		Agend_Test_WP::set_filter( 'agend_apps_api_batch_transport', new Agend_Test_Requests_Transport() );
+	}
+
+	/**
+	 * @return array<string, array{url: string, args: array}>
+	 */
+	private function requests(): array {
+		$args = array(
+			'method'  => 'GET',
+			'headers' => array( 'x-api-key' => 'test-api-key', 'Authorization' => 'Bearer member-token' ),
+			'timeout' => 15,
+		);
+
+		return array(
+			'search' => array( 'url' => self::SEARCH, 'args' => $args ),
+			'facets' => array( 'url' => self::FACETS, 'args' => $args ),
+		);
+	}
+
+	/**
+	 * Records every call of a filter, passing the value through.
+	 *
+	 * @return \ArrayObject<int, array>
+	 */
+	private function recordFilter( string $hook ): \ArrayObject {
+		$calls                            = new \ArrayObject();
+		Agend_Test_WP::$filters[ $hook ] = static function ( ...$args ) use ( $calls ) {
+			$calls[] = $args;
+			return $args[0];
+		};
+		return $calls;
+	}
+
+	/**
+	 * @return \ArrayObject<int, array>
+	 */
+	private function recordAction( string $hook ): \ArrayObject {
+		$calls = new \ArrayObject();
+		add_action(
+			$hook,
+			static function ( ...$args ) use ( $calls ): void {
+				$calls[] = $args;
+			}
+		);
+		return $calls;
+	}
+
+	#[Test]
+	public function should_send_every_request_together_and_return_each_answer_as_wp_remote_request_would(): void {
+		Agend_Test_Requests_Transport::$answers = array(
+			self::SEARCH => array( 'status' => 200, 'body' => '{"data":[1]}' ),
+			self::FACETS => array( 'status' => 200, 'body' => '{"data":{"custom.size":{}}}' ),
+		);
+
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertSame( array( 'search', 'facets' ), array_keys( $sent ) );
+		$this->assertCount( 2, Agend_Test_Requests_Transport::$sent, 'one batch carried both' );
+		$this->assertSame( '{"data":[1]}', $sent['search']['response']['body'] );
+		$this->assertSame( 200, $sent['search']['response']['response']['code'] );
+		$this->assertSame( 'application/json', $sent['facets']['response']['headers']['content-type'] );
+		$this->assertSame( 'Bearer member-token', Agend_Test_Requests_Transport::$sent[0]['headers']['Authorization'] );
+		$this->assertSame( 15, Agend_Test_Requests_Transport::$sent[0]['options']['timeout'] );
+	}
+
+	#[Test]
+	public function should_fire_the_http_api_filters_and_actions_for_each_request_with_its_own_arguments(): void {
+		$request_args = $this->recordFilter( 'http_request_args' );
+		$pre          = $this->recordFilter( 'pre_http_request' );
+		$response     = $this->recordFilter( 'http_response' );
+		$curl         = $this->recordAction( 'http_api_curl' );
+		$debug        = $this->recordAction( 'http_api_debug' );
+
+		Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertSame( array( self::SEARCH, self::FACETS ), array_column( (array) $request_args, 1 ) );
+		$this->assertSame( 'test-api-key', $request_args[0][0]['headers']['x-api-key'] );
+		$this->assertSame( array( false, false ), array_column( (array) $pre, 0 ) );
+		$this->assertSame( array( self::SEARCH, self::FACETS ), array_column( (array) $pre, 2 ) );
+		$this->assertSame( array( 'handle-search', 'handle-facets' ), array_column( (array) $curl, 0 ) );
+		$this->assertSame( array( self::SEARCH, self::FACETS ), array_column( (array) $curl, 2 ) );
+		$this->assertSame( 15, $curl[0][1]['timeout'], 'http_api_curl receives the parsed args' );
+		$this->assertSame( array( 'response', 'response' ), array_column( (array) $debug, 1 ) );
+		$this->assertSame( array( 'WpOrg\Requests\Requests', 'WpOrg\Requests\Requests' ), array_column( (array) $debug, 2 ) );
+		$this->assertSame( array( self::SEARCH, self::FACETS ), array_column( (array) $debug, 4 ) );
+		$this->assertSame( array( self::SEARCH, self::FACETS ), array_column( (array) $response, 2 ) );
+	}
+
+	#[Test]
+	public function should_return_a_pre_http_request_answer_without_sending_that_request(): void {
+		Agend_Test_WP::$filters['pre_http_request'] = static function ( $pre, $args, $url ) {
+			return self::SEARCH === $url ? array( 'body' => 'short-circuit' ) : $pre;
+		};
+
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertSame( array( 'body' => 'short-circuit' ), $sent['search']['response'] );
+		$this->assertSame( array( self::FACETS ), array_column( Agend_Test_Requests_Transport::$sent, 'url' ) );
+	}
+
+	#[Test]
+	public function should_refuse_a_blocked_host_without_sending_it(): void {
+		\WP_Http::$blocked = array( 'api.example.test' );
+		$debug             = $this->recordAction( 'http_api_debug' );
+
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertSame( 'http_request_not_executed', $sent['search']['response']->get_error_code() );
+		$this->assertSame( array(), Agend_Test_Requests_Transport::$sent );
+		$this->assertCount( 2, $debug );
+	}
+
+	#[Test]
+	public function should_answer_a_failed_request_with_the_error_wp_remote_request_returns_and_keep_the_others(): void {
+		Agend_Test_Requests_Transport::$answers = array(
+			self::SEARCH => array( 'error' => 'cURL error 28: Operation timed out' ),
+			self::FACETS => array( 'status' => 200, 'body' => '{}' ),
+		);
+
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertInstanceOf( WP_Error::class, $sent['search']['response'] );
+		$this->assertSame( 'http_request_failed', $sent['search']['response']->get_error_code() );
+		$this->assertStringContainsString( 'Operation timed out', $sent['search']['response']->get_error_message() );
+		$this->assertSame( 200, $sent['facets']['response']['response']['code'] );
+	}
+
+	#[Test]
+	public function should_time_each_request_to_its_own_completion(): void {
+		Agend_Test_Requests_Transport::$order = array( self::FACETS, self::SEARCH );
+
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertIsInt( $sent['search']['elapsed'] );
+		$this->assertGreaterThanOrEqual( $sent['facets']['elapsed'], $sent['search']['elapsed'] );
+		$this->assertSame( array( 'search', 'facets' ), array_keys( $sent ), 'answers keep the caller order' );
+	}
+
+	#[Test]
+	public function should_send_one_after_another_through_wp_remote_request_when_parallel_is_switched_off(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_api_parallel', false );
+
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertSame( array(), Agend_Test_Requests_Transport::$sent );
+		$this->assertSame( array( self::SEARCH, self::FACETS ), array_column( Agend_Test_WP::$requests, 'url' ) );
+		$this->assertSame( array( 'search', 'facets' ), array_keys( $sent ) );
+	}
+
+	#[Test]
+	public function should_send_a_single_request_through_wp_remote_request(): void {
+		Agend_Apps_Http_Batch::send( array( 'search' => $this->requests()['search'] ) );
+
+		$this->assertSame( array(), Agend_Test_Requests_Transport::$sent );
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+	}
+}

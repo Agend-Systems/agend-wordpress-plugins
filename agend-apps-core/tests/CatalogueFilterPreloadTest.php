@@ -160,15 +160,19 @@ final class CatalogueFilterPreloadTest extends TestCase {
 
 	#[Test]
 	public function should_not_inline_the_shared_facets_for_a_signed_in_visitor_when_a_facet_is_a_custom_field(): void {
-		$GLOBALS['agend_test_current_user_id'] = 7;
+		$GLOBALS['agend_test_current_user_id']      = 7;
 		Catalogue_Preload_Filter_Template::$filters = array( self::CITY, self::SIZE, self::CATEGORY );
-		$this->warmFacets( array( 'location.city', 'custom.size' ) );
+		$shared                                     = $this->warmFacets( array( 'location.city', 'custom.size' ) );
 		$this->warmCategories( 500 );
+		$GLOBALS['agend_render_test_facets'] = array( 'data' => array( 'custom.size' => array( 'values' => array() ) ) );
 
-		$preload = $this->renderedConfig()['preload'] ?? array();
+		$templated = $this->renderedConfig()['preload'] ?? array();
+		$legacy    = $this->configFrom( agend_apps_records_render_directory_catalogue( array( 'filter_template' => '150' ) ) )['preload'] ?? array();
 
-		$this->assertArrayNotHasKey( 'facets', $preload );
-		$this->assertArrayHasKey( 'categories', $preload, 'categories are the same for every viewer' );
+		$this->assertNotSame( $shared, $templated['facets']['body'] ?? null );
+		$this->assertSame( $GLOBALS['agend_render_test_facets'], $templated['facets']['body'] ?? null, 'the visitor\'s own facets, fetched with the search' );
+		$this->assertArrayNotHasKey( 'facets', $legacy, 'the legacy path fetches no search to batch them with' );
+		$this->assertArrayHasKey( 'categories', $templated, 'categories are the same for every viewer' );
 	}
 
 	#[Test]
@@ -188,6 +192,61 @@ final class CatalogueFilterPreloadTest extends TestCase {
 
 		$this->assertSame( 'legacy', $config['cardMode'] ?? null );
 		$this->assertSame( array( 'location.city', 'tags' ), $config['preload']['facets']['names'] ?? null );
+	}
+
+	#[Test]
+	public function should_fetch_the_search_and_the_facets_together_for_a_signed_in_visitor_with_a_custom_field_facet(): void {
+		$GLOBALS['agend_test_current_user_id']      = 7;
+		Catalogue_Preload_Filter_Template::$filters = array( self::CITY, self::SIZE, self::CATEGORY );
+		$facets                                     = array( 'data' => array( 'custom.size' => array( 'values' => array( array( 'value' => 'Large' ) ) ) ) );
+		$GLOBALS['agend_render_test_facets']        = $facets;
+
+		$preload = $this->renderedConfig()['preload'] ?? array();
+
+		$this->assertCount( 1, $GLOBALS['agend_render_test_search_and_facets_args'] );
+		$this->assertSame( array( 'location.city', 'custom.size' ), $GLOBALS['agend_render_test_search_and_facets_args'][0]['fields'] );
+		$this->assertSame( array(), $GLOBALS['agend_render_test_directory_search_args'], 'the search went in the batch' );
+		$this->assertSame( array( 'location.city', 'custom.size' ), $preload['facets']['names'] ?? null );
+		$this->assertSame( $facets, $preload['facets']['body'] ?? null );
+		$this->assertSame( \Agend_Apps_Settings::get_cache_ttl( 'directory_facets' ), $preload['facets']['ttl'] ?? null );
+	}
+
+	#[Test]
+	public function should_send_the_same_search_in_the_batch_as_alone(): void {
+		agend_apps_records_render_directory_catalogue( array( 'card_template' => '7', 'filter_template' => '150' ) );
+		$alone = $GLOBALS['agend_render_test_directory_search_args'][0];
+
+		$GLOBALS['agend_test_current_user_id']      = 7;
+		Catalogue_Preload_Filter_Template::$filters = array( self::SIZE );
+		agend_apps_records_render_directory_catalogue( array( 'card_template' => '7', 'filter_template' => '150' ) );
+
+		$this->assertSame( $alone, $GLOBALS['agend_render_test_search_and_facets_args'][0]['filters'] );
+	}
+
+	#[Test]
+	public function should_carry_no_facets_and_still_render_the_cards_when_the_batched_facets_fail(): void {
+		$GLOBALS['agend_test_current_user_id']      = 7;
+		Catalogue_Preload_Filter_Template::$filters = array( self::SIZE );
+		$GLOBALS['agend_render_test_facets']        = new \WP_Error( 'agend_api_error', 'boom' );
+
+		$html   = agend_apps_records_render_directory_catalogue( array( 'card_template' => '7', 'filter_template' => '150' ) );
+		$config = $this->configFrom( $html );
+
+		$this->assertArrayNotHasKey( 'facets', $config['preload'] ?? array() );
+		$this->assertStringContainsString( 'listing-one', $html );
+	}
+
+	#[Test]
+	public function should_not_batch_for_an_anonymous_visitor_or_a_set_the_same_for_every_viewer(): void {
+		Catalogue_Preload_Filter_Template::$filters = array( self::SIZE );
+		$this->renderedConfig();
+
+		$GLOBALS['agend_test_current_user_id']      = 7;
+		Catalogue_Preload_Filter_Template::$filters = array( self::CITY, self::TAGS );
+		$this->renderedConfig();
+
+		$this->assertSame( array(), $GLOBALS['agend_render_test_search_and_facets_args'] );
+		$this->assertCount( 2, $GLOBALS['agend_render_test_directory_search_args'] );
 	}
 
 	#[Test]

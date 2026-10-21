@@ -131,6 +131,48 @@ function agend_apps_directory_get_listing( string $listing_id, array $query = ar
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
 function agend_apps_directory_search( string $search_query, array $filters = array() ) {
+	$read = agend_apps_directory_search_read( $search_query, $filters );
+
+	return agend_apps_directory_search_response(
+		agend_apps_api()->get_cached( $read['path'], $read['args'], $read['cache_key'], $read['ttl'] ),
+		$search_query,
+		$filters
+	);
+}
+
+/**
+ * Searches the directory and reads its facets at once, each exactly as
+ * agend_apps_directory_search() and agend_apps_directory_get_facets() would
+ * alone, so a page render waits for the slower of the two rather than both.
+ *
+ * @param string   $search_query The search term.
+ * @param array    $filters      Additional search parameters.
+ * @param string[] $fields       Facet names.
+ * @return array{search: array|WP_Error, facets: array|WP_Error}
+ */
+function agend_apps_directory_search_and_facets( string $search_query, array $filters, array $fields ): array {
+	$results = agend_apps_api()->get_cached_many(
+		array(
+			'search' => agend_apps_directory_search_read( $search_query, $filters ),
+			'facets' => agend_apps_directory_facets_read( $fields ),
+		)
+	);
+
+	return array(
+		'search' => agend_apps_directory_search_response( $results['search'], $search_query, $filters ),
+		'facets' => agend_apps_directory_facets_response( $results['facets'], $fields ),
+	);
+}
+
+/**
+ * The search request, as get_cached() and get_cached_many() take it, so a
+ * single and a batched search send the same.
+ *
+ * @param string $search_query The search term.
+ * @param array  $filters      Additional search parameters.
+ * @return array{path: string, args: array, cache_key: string, ttl: int}
+ */
+function agend_apps_directory_search_read( string $search_query, array $filters ): array {
 	$query = agend_apps_directory_round_coordinates( array_merge( array( 'q' => $search_query ), $filters ) );
 
 	/**
@@ -147,11 +189,23 @@ function agend_apps_directory_search( string $search_query, array $filters = arr
 		$filters
 	);
 
-	$cache_key = Agend_Apps_Cache::build_key( 'directory_search', $query );
-	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_search' );
+	return array(
+		'path'      => '/directory/search',
+		'args'      => $args,
+		'cache_key' => Agend_Apps_Cache::build_key( 'directory_search', $query ),
+		'ttl'       => Agend_Apps_Settings::get_cache_ttl( 'directory_search' ),
+	);
+}
 
-	$response = agend_apps_api()->get_cached( '/directory/search', $args, $cache_key, $ttl );
-
+/**
+ * A search read's result as agend_apps_directory_search() returns it.
+ *
+ * @param array|WP_Error $response     The get_cached() result.
+ * @param string         $search_query The search term.
+ * @param array          $filters      Additional search parameters.
+ * @return array|WP_Error
+ */
+function agend_apps_directory_search_response( $response, string $search_query, array $filters ) {
 	if ( is_wp_error( $response ) ) {
 		return $response;
 	}
