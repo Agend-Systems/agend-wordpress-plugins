@@ -258,6 +258,8 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-secret-store.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-settings.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/member-transient-purge.php';
+	add_action( 'init', 'agend_apps_maybe_purge_member_transients' );
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-http-batch.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-api.php';
 

@@ -132,7 +132,10 @@ object cache, and never reads it from one. Within a single PHP request it is
 held in memory under a digest of the token that fetched it, so one page
 render does not ask the gateway the same question twice; a cart read is not
 held even that long. Add any new member-token read through `get_cached()` and
-never write your own cache entry for it.
+never write your own cache entry for it. The member responses earlier
+versions stored (`_transient_agend_apps_<key>_b<16 hex>`) are deleted once, on
+the first request after the update; under a persistent object cache they are
+not in the options table and lapse with their lifetime instead.
 
 **A response that is the same for every viewer is read anonymously.** Passing
 `'anonymous' => true` in `get_cached()`'s `$args` resolves and sends no member
