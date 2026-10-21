@@ -17,11 +17,20 @@ if ( ! defined( 'ABSPATH' ) ) {
  * WP_Http::request() does for each request (wp-includes/class-wp-http.php):
  * the same defaults, `http_request_args` and `pre_http_request` filters,
  * URL checks, blocked hosts, SSL and proxy options, `http_api_debug` and
- * `http_response`. One thing differs inside Requests: a batch dispatches
- * `curl.before_multi_add` where a single request dispatches
- * `curl.before_send`, and WordPress fires `http_api_curl` only from the
- * latter (class-wp-http-requests-hooks.php), so the adapter fires it from the
- * former. Keep this in step with core when WP_Http::request() changes.
+ * `http_response`.
+ *
+ * Requests itself treats a batch differently from a single request, and the
+ * adapter makes up the difference:
+ *
+ * - a batch dispatches `curl.before_multi_add` where a single request
+ *   dispatches `curl.before_send`, and WordPress fires `http_api_curl` only
+ *   from the latter (class-wp-http-requests-hooks.php), so the adapter fires
+ *   it from the former;
+ * - Requests::request() dispatches `requests.before_request` and
+ *   `requests.before_parse`, and request_multiple() dispatches neither, so the
+ *   adapter dispatches both for each request.
+ *
+ * Keep this in step with core when WP_Http::request() changes.
  *
  * When the `agend_apps_api_parallel` filter returns false, or the library is
  * missing, the same requests go one after another through wp_remote_request().
@@ -144,6 +153,11 @@ final class Agend_Apps_Http_Batch {
 		if ( null !== $transport ) {
 			$options['transport'] = $transport;
 		}
+
+		foreach ( $multi as $id => &$request ) {
+			$request['options']['hooks']->dispatch( 'requests.before_request', array( &$request['url'], &$request['headers'], &$request['data'], &$request['type'], &$request['options'] ) );
+		}
+		unset( $request );
 
 		$requests_class = $library['requests'];
 
@@ -286,6 +300,16 @@ final class Agend_Apps_Http_Batch {
 				/** This action is documented in wp-includes/class-wp-http-curl.php */
 				do_action_ref_array( 'http_api_curl', array( &$handle, $parsed_args, $url ) );
 			}
+		);
+
+		// Ahead of the library's own parse_multiple() at priority 0, where
+		// Requests::request() dispatches it for a single request.
+		$options['hooks']->register(
+			'transport.internal.parse_response',
+			static function ( &$response, $request ) {
+				$request['options']['hooks']->dispatch( 'requests.before_parse', array( &$response, $request['url'], $request['headers'], $request['data'], $request['type'], $request['options'] ) );
+			},
+			-1
 		);
 
 		if ( $parsed_args['stream'] ) {

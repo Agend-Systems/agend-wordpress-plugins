@@ -113,10 +113,10 @@ final class CatalogueFilterPreloadTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_inline_the_list_an_older_gateway_capped_when_only_that_is_cached(): void {
-		$body = $this->warmCategories( 100 );
+	public function should_not_inline_the_list_an_older_gateway_capped(): void {
+		$this->warmCategories( 100 );
 
-		$this->assertSame( $body, $this->renderedConfig()['preload']['categories']['body'] ?? null );
+		$this->assertArrayNotHasKey( 'preload', $this->renderedConfig() );
 	}
 
 	#[Test]

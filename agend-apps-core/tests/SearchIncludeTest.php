@@ -304,6 +304,17 @@ final class SearchIncludeTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_not_reuse_a_reading_cached_before_the_key_set_said_when_all_custom_fields_are_needed(): void {
+		$this->useCustomFieldBinding( array(), true );
+		$GLOBALS['agend_test_posts'][7] = array( 'ID' => 7, 'post_modified_gmt' => '2026-10-01 00:00:00' );
+		$readers = implode( ',', array_map( 'get_class', array( new Search_Include_Test_Reader( array() ) ) ) );
+		$version = defined( 'AGEND_APPS_CORE_VERSION' ) ? (string) AGEND_APPS_CORE_VERSION : '';
+		wp_cache_set( md5( '7:2026-10-01 00:00:00:' . $readers . ':' . $version ), array( 'fields' => array(), 'custom_fields' => array() ), 'agend_apps_template_field_keys' );
+
+		$this->assertTrue( Agend_Apps_Templates::field_keys( 7 )['all_custom_fields'] );
+	}
+
+	#[Test]
 	public function should_read_a_template_afresh_when_another_reader_registers_after_an_empty_reading(): void {
 		$GLOBALS['agend_test_posts'][7] = array( 'ID' => 7, 'post_modified_gmt' => '2026-10-01 00:00:00' );
 		$this->assertSame( array(), Agend_Apps_Templates::field_keys( 7 )['fields'] );

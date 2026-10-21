@@ -173,6 +173,18 @@ final class ApiBatchTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_resolve_once_and_send_no_token_when_the_visitor_has_none(): void {
+		$resolutions = $this->setBearerSequence( array( '', 'late-token' ) );
+
+		( new Agend_Apps_API() )->get_cached_many( $this->reads() );
+
+		$this->assertSame( 1, $resolutions['calls'] );
+		$this->assertNull( $this->authorisationOf( 0 ) );
+		$this->assertNull( $this->authorisationOf( 1 ) );
+		$this->assertSame( array( 'api_key', 'api_key' ), array_column( $this->rows(), 'auth_mode' ) );
+	}
+
+	#[Test]
 	public function should_log_each_exchange_as_its_own_row_under_the_pages_request_id(): void {
 		( new Agend_Apps_API() )->get_cached_many( $this->reads() );
 

@@ -80,7 +80,9 @@ final class Agend_Apps_Templates {
 		$revision  = $post ? (string) ( $post->post_modified_gmt ?? '' ) : '';
 		$readers   = implode( ',', array_map( 'get_class', self::$field_key_readers ) );
 		$version   = defined( 'AGEND_APPS_CORE_VERSION' ) ? (string) AGEND_APPS_CORE_VERSION : '';
-		$cache_key = md5( $template_id . ':' . $revision . ':' . $readers . ':' . $version );
+		// The shape marker retires readings cached before the key set carried
+		// `all_custom_fields`, which would otherwise narrow every search.
+		$cache_key = md5( $template_id . ':' . $revision . ':' . $readers . ':' . $version . ':all_custom_fields' );
 		$cached    = wp_cache_get( $cache_key, 'agend_apps_template_field_keys', false, $found );
 		if ( $found && is_array( $cached ) ) {
 			return $cached;

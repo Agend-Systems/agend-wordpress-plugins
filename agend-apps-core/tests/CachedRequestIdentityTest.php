@@ -287,6 +287,30 @@ final class CachedRequestIdentityTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_serve_no_stored_entry_when_an_anonymous_read_has_a_zero_ttl(): void {
+		Agend_Test_WP::$transients['agend_apps_cms_x'] = array( 'stored-with-no-expiry' => true );
+
+		$response = $this->api()->get_cached( '/cms/content/x', array(), 'cms_x', 0 );
+
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+		$this->assertArrayNotHasKey( 'stored-with-no-expiry', $response );
+	}
+
+	#[Test]
+	public function should_resolve_the_member_token_once_when_there_is_none(): void {
+		$resolved = 0;
+		Agend_Test_WP::$filters['agend_apps_bearer_token'] = static function () use ( &$resolved ): string {
+			++$resolved;
+			return 0 === $resolved - 1 ? '' : 'late-token';
+		};
+
+		$this->api()->get_cached( '/cms/content/x', array(), 'cms_x', 60 );
+
+		$this->assertSame( 1, $resolved );
+		$this->assertArrayNotHasKey( 'Authorization', Agend_Test_WP::$requests[0]['headers'], 'a shared entry is never fetched with a token' );
+	}
+
+	#[Test]
 	public function should_store_nothing_when_an_anonymous_read_has_a_zero_ttl(): void {
 		$this->api()->get_cached( '/cms/content/x', array(), 'cms_x', 0 );
 

@@ -96,20 +96,17 @@ function agend_apps_directory_categories_args(): array {
 }
 
 /**
- * The shared categories entry, as the REST route would return it, read
- * without calling the gateway: the full list, else the list an older gateway
- * capped. Null when neither is cached.
+ * The shared categories entry for the full list, as the REST route would
+ * return it, read without calling the gateway. Null when it is not cached.
+ *
+ * The list an older gateway capped is never inlined: it may outlive a
+ * gateway upgrade, and inlined it would read as fresh while the route
+ * already serves the whole list.
  *
  * @return array{fetched_at: int, ttl: int, body: array}|null
  */
 function agend_apps_directory_peek_categories(): ?array {
-	$args   = agend_apps_directory_categories_args();
-	$cached = agend_apps_api()->peek_cached( Agend_Apps_Cache::build_key( 'directory_categories', $args ) );
-
-	if ( null === $cached && (int) ( $args['query']['limit'] ?? 0 ) > AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT ) {
-		$args['query']['limit'] = AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT;
-		$cached                 = agend_apps_api()->peek_cached( Agend_Apps_Cache::build_key( 'directory_categories', $args ) );
-	}
+	$cached = agend_apps_api()->peek_cached( Agend_Apps_Cache::build_key( 'directory_categories', agend_apps_directory_categories_args() ) );
 
 	if ( null === $cached ) {
 		return null;

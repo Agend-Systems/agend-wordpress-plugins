@@ -129,6 +129,18 @@ final class HttpBatchAdapterTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_dispatch_the_requests_hooks_a_single_request_dispatches_for_each_request(): void {
+		$before_request = $this->recordAction( 'requests-requests.before_request' );
+		$before_parse   = $this->recordAction( 'requests-requests.before_parse' );
+
+		Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertSame( array( self::SEARCH, self::FACETS ), array_column( (array) $before_request, 0 ) );
+		$this->assertCount( 2, $before_parse );
+		$this->assertStringStartsWith( 'HTTP/1.1 200', (string) $before_parse[0][0], 'dispatched with the raw response, before it is parsed' );
+	}
+
+	#[Test]
 	public function should_return_a_pre_http_request_answer_without_sending_that_request(): void {
 		Agend_Test_WP::$filters['pre_http_request'] = static function ( $pre, $args, $url ) {
 			return self::SEARCH === $url ? array( 'body' => 'short-circuit' ) : $pre;

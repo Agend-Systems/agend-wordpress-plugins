@@ -97,6 +97,9 @@ class Agend_Apps_API {
 	 *                                401/403-on-GET retry below; callers should not set this.
 	 *     @type bool   $bearer_auto_resolved Internal use only. Set by `get_cached()` when the
 	 *                                `bearer_token` it passes came from the shared resolver.
+	 *     @type bool   $bearer_resolved Internal use only. Set by `get_cached()` when the shared
+	 *                                resolver found no token, so it is not asked again and a
+	 *                                shared entry is never fetched with one.
 	 *     @type bool   $bearer_reminted Internal use only. Set on the one retry made with a
 	 *                                re-resolved bearer after a 401, so a second rejection falls
 	 *                                back to the unattended retry instead of resolving again.
@@ -216,7 +219,7 @@ class Agend_Apps_API {
 
 		if ( $bearer_supplied_by_caller ) {
 			$bearer_token = (string) $args['bearer_token'];
-		} elseif ( $bearer_unattended ) {
+		} elseif ( $bearer_unattended || ! empty( $args['bearer_resolved'] ) ) {
 			$bearer_token = '';
 		} else {
 			$bearer_token = agend_apps_get_bearer_token();
@@ -963,7 +966,7 @@ class Agend_Apps_API {
 	 */
 	public function get_cached( string $path, array $args, string $cache_key, int $ttl, bool $fresh = false ) {
 		$plan = $this->plan_read( $args, $cache_key, 'agend_apps_get_bearer_token' );
-		$held = $fresh ? null : $this->held( $plan, $cache_key );
+		$held = $fresh ? null : $this->held( $plan, $cache_key, $ttl );
 
 		if ( null !== $held ) {
 			return $held;
@@ -1014,7 +1017,7 @@ class Agend_Apps_API {
 		foreach ( $reads as $id => $read ) {
 			$cache_key = (string) $read['cache_key'];
 			$plan      = $this->plan_read( (array) ( $read['args'] ?? array() ), $cache_key, $resolve );
-			$held      = empty( $read['fresh'] ) ? $this->held( $plan, $cache_key ) : null;
+			$held      = empty( $read['fresh'] ) ? $this->held( $plan, $cache_key, (int) $read['ttl'] ) : null;
 
 			if ( null !== $held ) {
 				$results[ $id ] = $held;
@@ -1114,6 +1117,8 @@ class Agend_Apps_API {
 			: (string) $resolve();
 
 		if ( '' === $bearer_token ) {
+			$args['bearer_resolved'] = true;
+
 			return array(
 				'args'  => $args,
 				'store' => 'shared',
@@ -1132,14 +1137,21 @@ class Agend_Apps_API {
 	}
 
 	/**
-	 * The copy a planned read can be served from, or null.
+	 * The copy a planned read can be served from, or null. A TTL of 0 keeps
+	 * nothing, so it serves nothing either, including an entry an earlier
+	 * version stored with no expiry.
 	 *
 	 * @param array  $plan      What plan_read() returned.
 	 * @param string $cache_key Cache key the caller derived from the query.
+	 * @param int    $ttl       Transient lifetime in seconds.
 	 * @return array|null
 	 */
-	private function held( array $plan, string $cache_key ): ?array {
+	private function held( array $plan, string $cache_key, int $ttl ): ?array {
 		if ( 'shared' === $plan['store'] ) {
+			if ( $ttl <= 0 ) {
+				return null;
+			}
+
 			$cached = get_transient( 'agend_apps_' . $cache_key );
 			return false !== $cached ? $cached : null;
 		}
