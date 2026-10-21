@@ -107,6 +107,34 @@ class Agend_Apps_API {
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
 	public function request( string $method, string $path, array $args = array() ) {
+		$prepared = $this->prepare_request( $method, $path, $args );
+
+		if ( is_wp_error( $prepared ) ) {
+			return $prepared;
+		}
+
+		$started  = microtime( true );
+		$response = wp_remote_request( $prepared['url'], $prepared['request_args'] );
+		$elapsed  = (int) round( ( microtime( true ) - $started ) * 1000 );
+
+		$retry  = null;
+		$result = $this->finish_request( $prepared, $response, $elapsed, $retry );
+
+		return null === $retry ? $result : $this->request( $method, $prepared['path'], $retry );
+	}
+
+	/**
+	 * Builds an exchange up to the point of sending it: the filtered path and
+	 * URL, the headers with the member token, and the transport args. A call
+	 * the local rate limit or the scope guard refuses is logged and returned
+	 * as the WP_Error a caller receives; nothing is sent for it.
+	 *
+	 * @param string $method HTTP method.
+	 * @param string $path   Relative path.
+	 * @param array  $args   Request args, as accepted by request().
+	 * @return array{method: string, path: string, url: string, args: array, request_args: array, bearer_token: string, bearer_auto_resolved: bool}|WP_Error
+	 */
+	private function prepare_request( string $method, string $path, array $args ) {
 		// 1. Allow sibling plugins to rewrite the path.
 		/**
 		 * Filters the API request path before the URL is built.
@@ -294,10 +322,40 @@ class Agend_Apps_API {
 		 */
 		$request_args = (array) apply_filters( 'agend_apps_api_request_args', $request_args, $method, $path );
 
-		// 10. Send the request.
-		$started  = microtime( true );
-		$response = wp_remote_request( $url, $request_args );
-		$elapsed  = (int) round( ( microtime( true ) - $started ) * 1000 );
+		return array(
+			'method'               => $method,
+			'path'                 => $path,
+			'url'                  => $url,
+			'args'                 => $args,
+			'request_args'         => $request_args,
+			'bearer_token'         => $bearer_token,
+			'bearer_auto_resolved' => $bearer_auto_resolved,
+		);
+	}
+
+	/**
+	 * Turns the transport's answer to a prepared exchange into what request()
+	 * returns, logging it once. A member token the gateway rejects is not
+	 * retried here: `$retry` receives the args to send the call again with,
+	 * and the return is null.
+	 *
+	 * @param array               $prepared  What prepare_request() returned.
+	 * @param array|WP_Error      $response  The transport's response.
+	 * @param int                 $elapsed   Milliseconds the exchange took.
+	 * @param array|null          $retry     Set to the retry's args when one is due.
+	 * @param callable|null       $reresolve Resolves the member token again after a 401;
+	 *                                       agend_apps_get_bearer_token() when null.
+	 * @return array|WP_Error|null
+	 */
+	private function finish_request( array $prepared, $response, int $elapsed, ?array &$retry, ?callable $reresolve = null ) {
+		$method               = $prepared['method'];
+		$path                 = $prepared['path'];
+		$url                  = $prepared['url'];
+		$args                 = $prepared['args'];
+		$request_args         = $prepared['request_args'];
+		$bearer_token         = $prepared['bearer_token'];
+		$bearer_auto_resolved = $prepared['bearer_auto_resolved'];
+		$retry                = null;
 
 		// Every exit below records the exchange exactly once.
 		$log = function ( string $outcome, ?int $status, string $error_code = '', string $error_message = '' ) use ( $method, $url, $request_args, $bearer_token, $args, $elapsed, $response ): void {
@@ -418,7 +476,7 @@ class Agend_Apps_API {
 				$fresh_bearer = '';
 
 				if ( 401 === $status_code && empty( $args['bearer_reminted'] ) ) {
-					$fresh_bearer = agend_apps_get_bearer_token();
+					$fresh_bearer = null !== $reresolve ? (string) $reresolve() : agend_apps_get_bearer_token();
 				}
 
 				if ( '' !== $fresh_bearer && $fresh_bearer !== $bearer_token ) {
@@ -430,13 +488,13 @@ class Agend_Apps_API {
 
 					$log( 'retried', $status_code, 'agend_api_error' );
 
-					$retry_args                         = $args;
-					$retry_args['bearer_token']         = $fresh_bearer;
-					$retry_args['bearer_auto_resolved'] = true;
-					$retry_args['bearer_reminted']      = true;
-					$retry_args['log_attempt']          = (int) ( $args['log_attempt'] ?? 1 ) + 1;
+					$retry                         = $args;
+					$retry['bearer_token']         = $fresh_bearer;
+					$retry['bearer_auto_resolved'] = true;
+					$retry['bearer_reminted']      = true;
+					$retry['log_attempt']          = (int) ( $args['log_attempt'] ?? 1 ) + 1;
 
-					return $this->request( $method, $path, $retry_args );
+					return null;
 				}
 
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
@@ -447,12 +505,12 @@ class Agend_Apps_API {
 
 				$log( 'retried', $status_code, 'agend_api_error' );
 
-				$retry_args                = $args;
-				$retry_args['bearer_token'] = '';
-				$retry_args['unattended']   = true;
-				$retry_args['log_attempt']  = (int) ( $args['log_attempt'] ?? 1 ) + 1;
+				$retry                 = $args;
+				$retry['bearer_token'] = '';
+				$retry['unattended']   = true;
+				$retry['log_attempt']  = (int) ( $args['log_attempt'] ?? 1 ) + 1;
 
-				return $this->request( $method, $path, $retry_args );
+				return null;
 			}
 
 			$message = isset( $decoded['error']['message'] )
