@@ -69,7 +69,7 @@ if ( ! class_exists( 'WP_Http' ) ) {
 		}
 
 		public static function normalize_cookies( $cookies ) {
-			return $cookies;
+			return new \WpOrg\Requests\Cookie\Jar( $cookies );
 		}
 
 		public static function browser_redirect_compatibility( $location, $headers, $data, &$options, $original ): void {}
@@ -123,11 +123,11 @@ if ( ! class_exists( 'WP_HTTP_Requests_Response' ) ) {
 	class WP_HTTP_Requests_Response {
 		private \WpOrg\Requests\Response $response;
 
-		private string $filename;
+		private $filename;
 
 		public function __construct( \WpOrg\Requests\Response $response, $filename = '' ) {
 			$this->response = $response;
-			$this->filename = (string) $filename;
+			$this->filename = $filename;
 		}
 
 		public function to_array(): array {
@@ -161,10 +161,11 @@ if ( ! class_exists( 'WP_HTTP_Requests_Response' ) ) {
 final class Agend_Test_Requests_Transport implements \WpOrg\Requests\Transport {
 
 	/**
-	 * Raw answers by URL: an HTTP status and body, or an exception message
-	 * under `error`.
+	 * Raw answers by URL: an HTTP status and body, or a cURL error number
+	 * and reason under `code` and `error`, and optionally `delay`
+	 * milliseconds before the answer completes.
 	 *
-	 * @var array<string, array{status?: int, body?: string, error?: string}>
+	 * @var array<string, array{status?: int, body?: string, error?: string, code?: int, delay?: int}>
 	 */
 	public static array $answers = array();
 
@@ -207,8 +208,12 @@ final class Agend_Test_Requests_Transport implements \WpOrg\Requests\Transport {
 			$request = $requests[ $id ];
 			$answer  = self::$answers[ $request['url'] ] ?? array( 'status' => 200, 'body' => '{}' );
 
+			if ( ! empty( $answer['delay'] ) ) {
+				usleep( 1000 * (int) $answer['delay'] );
+			}
+
 			if ( isset( $answer['error'] ) ) {
-				$responses[ $id ] = new \WpOrg\Requests\Exception\Transport\Curl( $answer['error'], \WpOrg\Requests\Exception\Transport\Curl::EASY );
+				$responses[ $id ] = new \WpOrg\Requests\Exception\Transport\Curl( $answer['error'], \WpOrg\Requests\Exception\Transport\Curl::EASY, null, (int) ( $answer['code'] ?? 0 ) );
 				$request['options']['hooks']->dispatch( 'transport.internal.parse_error', array( &$responses[ $id ], $request ) );
 			} else {
 				$responses[ $id ] = self::raw( $request['url'] );

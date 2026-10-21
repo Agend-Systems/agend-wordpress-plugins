@@ -167,7 +167,7 @@ final class HttpBatchAdapterTest extends TestCase {
 	#[Test]
 	public function should_answer_a_failed_request_with_the_error_wp_remote_request_returns_and_keep_the_others(): void {
 		Agend_Test_Requests_Transport::$answers = array(
-			self::SEARCH => array( 'error' => 'cURL error 28: Operation timed out' ),
+			self::SEARCH => array( 'error' => 'Operation timed out after 15001 milliseconds', 'code' => 28 ),
 			self::FACETS => array( 'status' => 200, 'body' => '{}' ),
 		);
 
@@ -175,19 +175,90 @@ final class HttpBatchAdapterTest extends TestCase {
 
 		$this->assertInstanceOf( WP_Error::class, $sent['search']['response'] );
 		$this->assertSame( 'http_request_failed', $sent['search']['response']->get_error_code() );
-		$this->assertStringContainsString( 'Operation timed out', $sent['search']['response']->get_error_message() );
+		$this->assertSame( 'cURL error 28: Operation timed out after 15001 milliseconds', $sent['search']['response']->get_error_message(), 'worded as Curl::request() words it' );
 		$this->assertSame( 200, $sent['facets']['response']['response']['code'] );
 	}
 
 	#[Test]
 	public function should_time_each_request_to_its_own_completion(): void {
-		Agend_Test_Requests_Transport::$order = array( self::FACETS, self::SEARCH );
+		Agend_Test_Requests_Transport::$order   = array( self::FACETS, self::SEARCH );
+		Agend_Test_Requests_Transport::$answers = array( self::SEARCH => array( 'status' => 200, 'body' => '{}', 'delay' => 60 ) );
 
 		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
 
-		$this->assertIsInt( $sent['search']['elapsed'] );
-		$this->assertGreaterThanOrEqual( $sent['facets']['elapsed'], $sent['search']['elapsed'] );
+		$this->assertLessThan( 50, $sent['facets']['elapsed'] );
+		$this->assertGreaterThanOrEqual( 55, $sent['search']['elapsed'] );
 		$this->assertSame( array( 'search', 'facets' ), array_keys( $sent ), 'answers keep the caller order' );
+	}
+
+	#[Test]
+	public function should_attach_the_proxy_and_curl_listeners_through_curl_before_send_once_per_request(): void {
+		$before_send = $this->recordAction( 'requests-curl.before_send' );
+		$curl        = $this->recordAction( 'http_api_curl' );
+
+		Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertSame( array( 'handle-search', 'handle-facets' ), array_column( (array) $before_send, 0 ) );
+		$this->assertCount( 2, $curl );
+	}
+
+	#[Test]
+	public function should_send_the_cookies_a_request_carries(): void {
+		$requests                              = $this->requests();
+		$requests['search']['args']['cookies'] = array( 'session' => 'abc' );
+
+		Agend_Apps_Http_Batch::send( $requests );
+
+		$this->assertSame( 'session=abc', Agend_Test_Requests_Transport::$sent[0]['headers']['Cookie'] ?? null );
+		$this->assertArrayNotHasKey( 'Cookie', Agend_Test_Requests_Transport::$sent[1]['headers'] );
+	}
+
+	#[Test]
+	public function should_keep_the_filename_wp_remote_request_returns(): void {
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertArrayHasKey( 'filename', $sent['search']['response'] );
+		$this->assertNull( $sent['search']['response']['filename'] );
+	}
+
+	#[Test]
+	public function should_return_a_null_pre_http_request_answer_as_core_does(): void {
+		Agend_Test_WP::$filters['pre_http_request'] = static function ( $pre, $args, $url ) {
+			return self::SEARCH === $url ? null : $pre;
+		};
+
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertNull( $sent['search']['response'] );
+		$this->assertSame( array( self::FACETS ), array_column( Agend_Test_Requests_Transport::$sent, 'url' ) );
+	}
+
+	#[Test]
+	public function should_refuse_a_scheme_other_than_http_for_that_request_only(): void {
+		$requests                  = $this->requests();
+		$requests['search']['url'] = 'ssl://api.example.test/v1/directory/search';
+
+		$sent = Agend_Apps_Http_Batch::send( $requests );
+
+		$this->assertSame( 'Only HTTP(S) requests are handled.', $sent['search']['response']->get_error_message() );
+		$this->assertSame( 200, $sent['facets']['response']['response']['code'] );
+	}
+
+	#[Test]
+	public function should_answer_only_that_request_with_an_error_when_a_before_request_listener_throws(): void {
+		add_action(
+			'requests-requests.before_request',
+			static function ( $url ): void {
+				if ( self::SEARCH === $url ) {
+					throw new \WpOrg\Requests\Exception( 'refused by a listener', 'listener' );
+				}
+			}
+		);
+
+		$sent = Agend_Apps_Http_Batch::send( $this->requests() );
+
+		$this->assertSame( 'refused by a listener', $sent['search']['response']->get_error_message() );
+		$this->assertSame( 200, $sent['facets']['response']['response']['code'] );
 	}
 
 	#[Test]

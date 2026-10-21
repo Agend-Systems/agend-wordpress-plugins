@@ -20,15 +20,29 @@ if ( ! defined( 'ABSPATH' ) ) {
  * `http_response`.
  *
  * Requests itself treats a batch differently from a single request, and the
- * adapter makes up the difference:
+ * adapter makes up the difference for each request:
  *
- * - a batch dispatches `curl.before_multi_add` where a single request
- *   dispatches `curl.before_send`, and WordPress fires `http_api_curl` only
- *   from the latter (class-wp-http-requests-hooks.php), so the adapter fires
- *   it from the former;
- * - Requests::request() dispatches `requests.before_request` and
- *   `requests.before_parse`, and request_multiple() dispatches neither, so the
- *   adapter dispatches both for each request.
+ * - Curl::request() dispatches `curl.before_send`, where the proxy, basic
+ *   authentication and WordPress's `http_api_curl` attach, and then applies
+ *   the SSL options; a batch dispatches only `curl.before_multi_add`, so the
+ *   adapter dispatches `curl.before_send` and applies the SSL options there;
+ * - Requests::request() dispatches `requests.before_request`, whose first
+ *   listener is the cookie jar, and `requests.before_parse`;
+ *   request_multiple() dispatches neither, so the adapter runs the jar and
+ *   dispatches both;
+ * - Requests::request() picks a transport that can do SSL and refuses a
+ *   scheme other than HTTP(S); request_multiple() does neither, so a batch
+ *   is sent through cURL only where cURL can do SSL, and another scheme is
+ *   answered with core's refusal before sending;
+ * - a cURL failure is worded "cURL error <code>: <reason>", as alone.
+ *
+ * What still differs: `requests.before_request` runs before the library
+ *   applies its defaults rather than after; every request's filters run
+ *   before any is sent, and every answer's actions after all have finished; a
+ *   redirect or a slow listener inside the batch holds up the others while
+ *   their timeouts run; the single path's retry without content encoding on
+ *   a bad compressed body does not happen; and an exception a listener throws
+ *   fails every request in the batch.
  *
  * Keep this in step with core when WP_Http::request() changes.
  *
@@ -58,7 +72,25 @@ final class Agend_Apps_Http_Batch {
 			return self::send_in_turn( $requests );
 		}
 
-		return self::send_together( $requests, $library );
+		/**
+		 * Filters the Requests transport a batch is sent with. Null sends it
+		 * through cURL. For tests.
+		 *
+		 * @param object|string|null $transport Default null.
+		 */
+		$transport = apply_filters( 'agend_apps_api_batch_transport', null );
+
+		// A single request picks a transport that can do SSL; request_multiple()
+		// does not ask, so the batch uses cURL only where cURL can.
+		if ( null === $transport ) {
+			$curl = $library['curl'];
+			if ( ! $curl::test( array( 'ssl' => true ) ) ) {
+				return self::send_in_turn( $requests );
+			}
+			$transport = $curl;
+		}
+
+		return self::send_together( $requests, $library, $transport );
 	}
 
 	/**
@@ -84,22 +116,30 @@ final class Agend_Apps_Http_Batch {
 	 * The Requests class names of the bundled library: version 2 from
 	 * WordPress 6.2, version 1 before it. Null without either.
 	 *
-	 * @return array{requests: string, proxy: string, debug: string}|null
+	 * @return array{requests: string, proxy: string, debug: string, exception: string, curl_exception: string, curl: string, jar: string}|null
 	 */
 	private static function library(): ?array {
 		if ( class_exists( '\WpOrg\Requests\Requests' ) ) {
 			return array(
-				'requests'  => '\WpOrg\Requests\Requests',
-				'proxy'     => '\WpOrg\Requests\Proxy\Http',
-				'debug'     => 'WpOrg\Requests\Requests',
+				'requests'       => '\WpOrg\Requests\Requests',
+				'proxy'          => '\WpOrg\Requests\Proxy\Http',
+				'debug'          => 'WpOrg\Requests\Requests',
+				'exception'      => '\WpOrg\Requests\Exception',
+				'curl_exception' => '\WpOrg\Requests\Exception\Transport\Curl',
+				'curl'           => '\WpOrg\Requests\Transport\Curl',
+				'jar'            => '\WpOrg\Requests\Cookie\Jar',
 			);
 		}
 
 		if ( class_exists( 'Requests' ) && method_exists( 'Requests', 'request_multiple' ) ) {
 			return array(
-				'requests'  => 'Requests',
-				'proxy'     => 'Requests_Proxy_HTTP',
-				'debug'     => 'Requests',
+				'requests'       => 'Requests',
+				'proxy'          => 'Requests_Proxy_HTTP',
+				'debug'          => 'Requests',
+				'exception'      => 'Requests_Exception',
+				'curl_exception' => 'Requests_Exception_Transport_cURL',
+				'curl'           => 'Requests_Transport_cURL',
+				'jar'            => 'Requests_Cookie_Jar',
 			);
 		}
 
@@ -108,10 +148,11 @@ final class Agend_Apps_Http_Batch {
 
 	/**
 	 * @param array<string|int, array{url: string, args: array}> $requests Keyed by caller id.
-	 * @param array                                               $library See library().
+	 * @param array                                               $library   See library().
+	 * @param object|string                                       $transport The Requests transport.
 	 * @return array<string|int, array{response: array|WP_Error, elapsed: int}>
 	 */
-	private static function send_together( array $requests, array $library ): array {
+	private static function send_together( array $requests, array $library, $transport ): array {
 		$started   = microtime( true );
 		$sent      = array();
 		$multi     = array();
@@ -121,7 +162,8 @@ final class Agend_Apps_Http_Batch {
 		foreach ( $requests as $id => $request ) {
 			$prepared = self::prepare( (string) $request['url'], (array) $request['args'], $library );
 
-			if ( isset( $prepared['response'] ) ) {
+			// A pre_http_request answer can be null, which core returns as is.
+			if ( array_key_exists( 'response', $prepared ) ) {
 				$sent[ $id ] = array(
 					'response' => $prepared['response'],
 					'elapsed'  => self::since( $started ),
@@ -133,31 +175,39 @@ final class Agend_Apps_Http_Batch {
 			$contexts[ $id ] = $prepared;
 		}
 
+		// Requests::request() dispatches `requests.before_request` after its
+		// own defaults, where the cookie jar adds the Cookie header as the
+		// hook's first listener. request_multiple() dispatches neither, so the
+		// jar runs first here and the hook follows, before those defaults.
+		foreach ( $multi as $id => &$request ) {
+			try {
+				if ( isset( $request['options']['cookies'] ) && $request['options']['cookies'] instanceof $library['jar'] ) {
+					$request['options']['cookies']->before_request( $request['url'], $request['headers'], $request['data'], $request['type'], $request['options'] );
+				}
+				$request['options']['hooks']->dispatch( 'requests.before_request', array( &$request['url'], &$request['headers'], &$request['data'], &$request['type'], &$request['options'] ) );
+			} catch ( \Exception $e ) {
+				if ( ! $e instanceof $library['exception'] ) {
+					throw $e;
+				}
+				$sent[ $id ] = array(
+					'response' => self::finish( $e, $contexts[ $id ], $library ),
+					'elapsed'  => self::since( $started ),
+				);
+				unset( $multi[ $id ], $contexts[ $id ] );
+			}
+		}
+		unset( $request );
+
 		if ( empty( $multi ) ) {
 			return self::in_order( $requests, $sent );
 		}
 
 		$options = array(
-			'complete' => static function ( &$response, $id ) use ( &$completed, $started ) {
+			'transport' => $transport,
+			'complete'  => static function ( &$response, $id ) use ( &$completed, $started ) {
 				$completed[ $id ] = self::since( $started );
 			},
 		);
-
-		/**
-		 * Filters the Requests transport a batch is sent with. Null uses the
-		 * library's own choice. For tests.
-		 *
-		 * @param object|string|null $transport Default null.
-		 */
-		$transport = apply_filters( 'agend_apps_api_batch_transport', null );
-		if ( null !== $transport ) {
-			$options['transport'] = $transport;
-		}
-
-		foreach ( $multi as $id => &$request ) {
-			$request['options']['hooks']->dispatch( 'requests.before_request', array( &$request['url'], &$request['headers'], &$request['data'], &$request['type'], &$request['options'] ) );
-		}
-		unset( $request );
 
 		$requests_class = $library['requests'];
 
@@ -166,7 +216,13 @@ final class Agend_Apps_Http_Batch {
 
 		try {
 			$responses = $requests_class::request_multiple( $multi, $options );
-		} catch ( \Throwable $e ) {
+		} catch ( \Exception $e ) {
+			if ( ! $e instanceof $library['exception'] ) {
+				reset_mbstring_encoding();
+				throw $e;
+			}
+			// Each request's own failures are answered per request; one that
+			// escapes request_multiple() has no request to belong to.
 			$responses = array_fill_keys( array_keys( $multi ), $e );
 		}
 
@@ -293,25 +349,6 @@ final class Agend_Apps_Http_Batch {
 			$options['hooks']->register( 'requests.before_redirect', array( 'WP_Http', 'validate_redirects' ) );
 		}
 
-		// What WP_HTTP_Requests_Hooks does for `curl.before_send`.
-		$options['hooks']->register(
-			'curl.before_multi_add',
-			static function ( &$handle ) use ( $parsed_args, $url ) {
-				/** This action is documented in wp-includes/class-wp-http-curl.php */
-				do_action_ref_array( 'http_api_curl', array( &$handle, $parsed_args, $url ) );
-			}
-		);
-
-		// Ahead of the library's own parse_multiple() at priority 0, where
-		// Requests::request() dispatches it for a single request.
-		$options['hooks']->register(
-			'transport.internal.parse_response',
-			static function ( &$response, $request ) {
-				$request['options']['hooks']->dispatch( 'requests.before_parse', array( &$response, $request['url'], $request['headers'], $request['data'], $request['type'], $request['options'] ) );
-			},
-			-1
-		);
-
 		if ( $parsed_args['stream'] ) {
 			$options['filename'] = $parsed_args['filename'];
 		}
@@ -355,6 +392,54 @@ final class Agend_Apps_Http_Batch {
 			}
 		}
 
+		// Requests::request() refuses any other scheme for a single request,
+		// and WP_Http::request() answers with its message. In a batch the
+		// refusal would fail every request, so it is answered here.
+		if ( 1 !== preg_match( '/^http(s)?:\/\//i', (string) $url ) ) {
+			return array( 'response' => self::refused( new WP_Error( 'http_request_failed', 'Only HTTP(S) requests are handled.' ), $parsed_args, $url, $library ) );
+		}
+
+		$options['type'] = $type;
+		$hooks           = $options['hooks'];
+		$verify          = $options['verify'];
+		$verifyname      = $options['verifyname'] ?? null;
+
+		// Curl::request() dispatches `curl.before_send`, where the proxy and
+		// WP_HTTP_Requests_Hooks (`http_api_curl`) attach, then applies the SSL
+		// options; Curl::request_multiple() does neither, so both happen here.
+		$hooks->register(
+			'curl.before_multi_add',
+			static function ( &$handle ) use ( $hooks, $verify, $verifyname ) {
+				$hooks->dispatch( 'curl.before_send', array( &$handle ) );
+
+				if ( ! is_resource( $handle ) && ! $handle instanceof \CurlHandle ) {
+					return;
+				}
+				if ( false === $verify ) {
+					curl_setopt( $handle, CURLOPT_SSL_VERIFYHOST, 0 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
+					curl_setopt( $handle, CURLOPT_SSL_VERIFYPEER, 0 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
+				} elseif ( is_string( $verify ) ) {
+					curl_setopt( $handle, CURLOPT_CAINFO, $verify ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
+				}
+				if ( false === $verifyname ) {
+					curl_setopt( $handle, CURLOPT_SSL_VERIFYHOST, 0 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
+				}
+			}
+		);
+
+		// Requests::request() dispatches `requests.before_parse` before it
+		// parses; request_multiple() does not. Priority -1 runs it ahead of the
+		// library's own parse_multiple() at 0: Requests 2 sorts by priority,
+		// and Requests 1, which does not, runs it first because it is
+		// registered before request_multiple() registers parse_multiple().
+		$hooks->register(
+			'transport.internal.parse_response',
+			static function ( &$response, $request ) {
+				$request['options']['hooks']->dispatch( 'requests.before_parse', array( &$response, $request['url'], $request['headers'], $request['data'], $request['type'], $request['options'] ) );
+			},
+			-1
+		);
+
 		return array(
 			'request'     => array(
 				'url'     => $url,
@@ -380,10 +465,14 @@ final class Agend_Apps_Http_Batch {
 		$parsed_args = $context['parsed_args'];
 		$url         = $context['url'];
 
-		if ( $answer instanceof \Throwable ) {
+		if ( $answer instanceof $library['curl_exception'] ) {
+			// Curl::request() words a cURL failure this way; the exception a
+			// batch receives words it as "<code> <reason>".
+			$response = new WP_Error( 'http_request_failed', sprintf( 'cURL error %s: %s', $answer->getCode(), $answer->getReason() ) );
+		} elseif ( $answer instanceof \Throwable ) {
 			$response = new WP_Error( 'http_request_failed', $answer->getMessage() );
 		} elseif ( is_object( $answer ) ) {
-			$http_response             = new WP_HTTP_Requests_Response( $answer, (string) $parsed_args['filename'] );
+			$http_response             = new WP_HTTP_Requests_Response( $answer, $parsed_args['filename'] );
 			$response                  = $http_response->to_array();
 			$response['http_response'] = $http_response;
 		} else {
