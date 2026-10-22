@@ -97,8 +97,39 @@
     return cfg.anyLabel || ('Any ' + (cfg.label || ''));
   }
 
+  // As sets: a restored link may list a choice's values in any order.
   function sameSelection(a, b) {
-    return a.length === b.length && a.every(function (v, i) { return v === b[i]; });
+    return a.length === b.length && a.every(function (v) { return b.indexOf(v) !== -1; }) && b.every(function (v) { return a.indexOf(v) !== -1; });
+  }
+
+  // What a value-list filter's key holds in the state, as a list of strings.
+  // A control is built from this, so a value put there before the controls
+  // exist (a search link, a rebuild after Reset) shows as selected.
+  function selectionOf(state, cfg) {
+    var value = cfg.mode === 'map' ? (state[cfg.state] || {})[cfg.fieldKey] : state[cfg.state];
+    if (Array.isArray(value)) {
+      return value.map(String).filter(function (entry) {
+        return entry !== '';
+      });
+    }
+    return value === undefined || value === null || value === '' || typeof value === 'object' ? [] : [String(value)];
+  }
+
+  function textOf(state, cfg) {
+    return typeof state[cfg.state] === 'string' ? state[cfg.state] : '';
+  }
+
+  // A selected "Any" cannot be chosen again, so a value the control does not
+  // offer would be impossible to clear from a dropdown. Showing it on a hidden
+  // stand-in "Any" keeps the real one a change away, and leaves the value
+  // filtering the results until the visitor chooses.
+  function holdAny(select, label) {
+    var stand = new Option(label, 'held');
+    stand.hidden = true;
+    stand.disabled = true;
+    stand.setAttribute('data-agend-held', '');
+    select.appendChild(stand);
+    select.value = 'held';
   }
 
   // Listeners are attached once per node; a rebuild (reset) only clears the
@@ -116,7 +147,7 @@
     var input = adopt(shell, 'input[type="search"]', 'input');
     input.type = 'search';
     input.placeholder = cfg.placeholder || cfg.label || '';
-    input.value = '';
+    input.value = textOf(ctx.state, cfg);
     var timer;
     once(input, 'input', function () {
       window.clearTimeout(timer);
@@ -131,7 +162,7 @@
   function buildDate(shell, cfg, ctx) {
     var input = adopt(shell, 'input[type="date"]', 'input');
     input.type = 'date';
-    input.value = '';
+    input.value = textOf(ctx.state, cfg);
     if (cfg.placeholder) {
       input.setAttribute('aria-label', cfg.placeholder);
     }
@@ -149,8 +180,10 @@
     var max = inputs[1] || wrap.appendChild(el('input'));
     min.type = 'number';
     max.type = 'number';
-    min.value = '';
-    max.value = '';
+    var held = (ctx.state[cfg.state] || {})[cfg.fieldKey];
+    var bounds = held && typeof held === 'object' && !Array.isArray(held) ? held : {};
+    min.value = bounds.min === undefined || bounds.min === null ? '' : String(bounds.min);
+    max.value = bounds.max === undefined || bounds.max === null ? '' : String(bounds.max);
     min.placeholder = 'Min';
     max.placeholder = 'Max';
     // The facet reports the bounds that exist, so the control does not need
@@ -461,6 +494,20 @@
     values.forEach(function (entry, index) {
       select.appendChild(new Option(entry.label, String(index)));
     });
+    var current = selectionOf(ctx.state, cfg);
+    var shown = -1;
+    values.forEach(function (entry, index) {
+      if (shown === -1 && current.length && sameSelection(entry.value, current)) {
+        shown = index;
+      }
+    });
+    if (shown !== -1) {
+      select.value = String(shown);
+    } else if (current.length) {
+      holdAny(select, anyLabel(cfg));
+    } else {
+      select.value = '';
+    }
     select.agendFilterValues = values;
     once(select, 'change', function () {
       var current = select.agendFilterValues || [];
@@ -475,10 +522,16 @@
     var list = adopt(shell, '.agend-filter__options', 'div', 'agend-filter__options');
     list.innerHTML = '';
     var selected = [];
+    var current = selectionOf(ctx.state, cfg);
     values.forEach(function (entry) {
       var label = el('label', 'agend-filter__option');
       var box = el('input');
       box.type = 'checkbox';
+      // A value no box offers stays in the state until any box changes, which
+      // rewrites the selection from the ticked boxes.
+      box.checked = entry.value.length > 0 && entry.value.every(function (value) {
+        return current.indexOf(value) !== -1;
+      });
       box.addEventListener('change', function () {
         selected = [];
         Array.prototype.forEach.call(list.querySelectorAll('input:checked'), function (checked) {
@@ -505,7 +558,13 @@
     var existing = list.querySelector('.agend-filter__button');
     list.innerHTML = '';
 
-    var state = { current: [], buttons: [] };
+    // A value no button offers shows "Any" as active, and stays in the state
+    // until the visitor chooses.
+    var held = selectionOf(ctx.state, cfg);
+    var offered = values.some(function (entry) {
+      return sameSelection(entry.value, held);
+    });
+    var state = { current: offered ? held : [], buttons: [] };
     list.agendFilter = state;
 
     state.paint = function () {
@@ -556,7 +615,7 @@
 
   // Options carry the category id as their value, not an index, because the
   // list is redrawn as the selection changes.
-  function drawLevelSelect(slot, cfg, view, pick) {
+  function drawLevelSelect(slot, cfg, view, pick, hold) {
     var select = adopt(slot, 'select', 'select');
     select.innerHTML = '';
     select.appendChild(new Option(anyLabel(cfg), ''));
@@ -564,6 +623,9 @@
       select.appendChild(new Option(option.name, option.id));
     });
     select.value = view.selected;
+    if (hold) {
+      holdAny(select, anyLabel(cfg));
+    }
     select.agendLevelPick = pick;
     once(select, 'change', function () {
       select.agendLevelPick(select.value);
@@ -652,7 +714,14 @@
       if (cfg.control === 'buttons') {
         drawLevelButtons(slot, cfg, view, pick);
       } else {
-        drawLevelSelect(slot, cfg, view, pick);
+        // A category the tree no longer has keeps filtering; the Top level
+        // dropdown, which every selection reaches, is the one that holds it.
+        var unknown = which === 'top' && selectionOf(ctx.state, cfg).some(function (id) {
+          return !nodes.some(function (node) {
+            return node.id === id;
+          });
+        });
+        drawLevelSelect(slot, cfg, view, pick, unknown);
       }
     }
 
@@ -750,8 +819,10 @@
       wrap.setAttribute('aria-busy', on ? 'true' : 'false');
     }
 
-    function apply(lat, lng, label) {
-      ctx.state[cfg.state] = { lat: lat, lng: lng, radius: currentRadius(), label: label };
+    // `source` says whether the point is a place the visitor typed or their
+    // device's position, which never enters the page address.
+    function apply(lat, lng, label, source) {
+      ctx.state[cfg.state] = { lat: lat, lng: lng, radius: currentRadius(), label: label, source: source };
       // A map viewport and a point cannot be searched together; the point
       // is the newer question, so it wins.
       ctx.state.bbox = '';
@@ -779,7 +850,7 @@
           busy(false);
           var point = body && body.data;
           if (point && isFinite(Number(point.latitude)) && isFinite(Number(point.longitude))) {
-            apply(Number(point.latitude), Number(point.longitude), text);
+            apply(Number(point.latitude), Number(point.longitude), text, 'place');
             return;
           }
           var code = body && body.data && body.data.status_code;
@@ -815,7 +886,7 @@
         if (input) {
           input.value = '';
         }
-        apply(position.coords.latitude, position.coords.longitude, 'your location');
+        apply(position.coords.latitude, position.coords.longitude, 'your location', 'device');
       };
       var onError = function (error, retried) {
         // A quick, low-accuracy fix fails on some desktops; one precise
@@ -840,9 +911,34 @@
       }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
     }
 
-    // A rebuild (reset) starts from nothing.
+    // A radius the choices do not include (a search link made with other
+    // choices) is offered for this visit, so the dropdown never shows a
+    // radius other than the one searched.
+    function showRadius(km) {
+      if (!radiusSel || !isFinite(km) || km <= 0) {
+        return;
+      }
+      var options = Array.prototype.slice.call(radiusSel.options);
+      var match = options.filter(function (option) {
+        return Number(option.value) === km;
+      })[0];
+      if (!match) {
+        match = new Option(radiusText(km), String(km));
+        var after = options.filter(function (option) {
+          return Number(option.value) > km;
+        })[0];
+        radiusSel.insertBefore(match, after || null);
+      }
+      radiusSel.value = match.value;
+    }
+
+    // A rebuild (reset) starts from nothing; a restored place shows as typed.
+    var restored = ctx.state[cfg.state];
     if (input) {
-      input.value = '';
+      input.value = restored && restored.source === 'place' && typeof restored.label === 'string' ? restored.label : '';
+    }
+    if (restored) {
+      showRadius(Number(restored.radius));
     }
     say('');
     paintChip();
@@ -888,7 +984,7 @@
     // Without the account's place search the box cannot answer, so it is
     // hidden rather than left to fail on every submit.
     if (searchRow && opts.search) {
-      mapSettings(ctx).then(function (settings) {
+      return mapSettings(ctx).then(function (settings) {
         if (settings && settings.geocoding_available === false) {
           searchRow.hidden = true;
           if (!locateBtn) {
@@ -1085,16 +1181,14 @@
       return;
     }
     if (cfg.control === 'range') {
-      loadFacets(ctx).then(function (facets) {
+      return loadFacets(ctx).then(function (facets) {
         buildRange(slot, cfg, ctx, cfg.source && cfg.source.facet ? facets[cfg.source.facet] : null);
       });
-      return;
     }
     if (cfg.control === 'range_brackets') {
-      loadFacets(ctx).then(function (facets) {
+      return loadFacets(ctx).then(function (facets) {
         buildRangeBrackets(shell, slot, cfg, ctx, cfg.source && cfg.source.facet ? facets[cfg.source.facet] : null);
       });
-      return;
     }
     if (cfg.control === 'search') {
       buildSearch(slot, cfg, ctx);
@@ -1105,8 +1199,7 @@
       return;
     }
     if (cfg.control === 'location') {
-      buildLocation(slot, cfg, ctx);
-      return;
+      return buildLocation(slot, cfg, ctx);
     }
     if (cfg.control === 'view') {
       buildView(slot, cfg, ctx);
@@ -1114,7 +1207,7 @@
     }
 
     if (cfg.categoryLevel && cfg.source && cfg.source.path && categoryLevels()) {
-      loadItems(cfg, ctx).then(function (items) {
+      return loadItems(cfg, ctx).then(function (items) {
         var levels = categoryLevels();
         var nodes = levels.tree(items, { value: cfg.source.value, label: cfg.source.labelKey, parent: cfg.source.parentKey });
         if (levels.level(cfg.categoryLevel) !== 'all') {
@@ -1125,10 +1218,9 @@
           return { label: option.name, value: [option.id] };
         }));
       });
-      return;
     }
 
-    loadValues(cfg, ctx).then(function (values) {
+    return loadValues(cfg, ctx).then(function (values) {
       buildValues(shell, slot, cfg, ctx, values);
     });
   }
@@ -1154,8 +1246,11 @@
    * Builds every Agend Filter control inside a scope.
    *
    * @param {Element} scope   The catalogue root.
-   * @param {Object}  options state, reload and apiGet from the catalogue, and
-   *                          optionally setView for a List / Map switch.
+   * @param {Object}  options state, reload and apiGet from the catalogue;
+   *                          optionally setView for a List / Map switch, share
+   *                          for a Share control, and built, called with the
+   *                          scope once every control has its values (and has
+   *                          hidden itself if it has none).
    * @return {number} How many filter shells were found.
    */
   function build(scope, options) {
@@ -1176,9 +1271,18 @@
         facetNames.push(cfg.source.facet);
       }
     });
+    var waits = [];
     Array.prototype.forEach.call(shells, function (shell) {
-      buildOne(shell, options, scope);
+      var wait = buildOne(shell, options, scope);
+      if (wait && typeof wait.then === 'function') {
+        waits.push(wait.catch(function () {}));
+      }
     });
+    if (typeof options.built === 'function') {
+      Promise.all(waits).then(function () {
+        options.built(scope);
+      });
+    }
     return shells.length;
   }
 

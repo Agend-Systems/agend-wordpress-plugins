@@ -252,9 +252,16 @@ function agend_apps_records_register_assets(): void {
 		agend_apps_records_asset_version()
 	);
 	wp_register_script(
+		'agend-apps-records-search-link',
+		agend_apps_records_asset_url( 'js/search-link.js' ),
+		array(),
+		agend_apps_records_asset_version(),
+		true
+	);
+	wp_register_script(
 		'agend-apps-records-directory-catalogue',
 		agend_apps_records_asset_url( 'js/directory-catalogue.js' ),
-		array( 'agend-apps-records-dompurify' ),
+		array( 'agend-apps-records-dompurify', 'agend-apps-records-search-link' ),
 		agend_apps_records_asset_version(),
 		true
 	);
