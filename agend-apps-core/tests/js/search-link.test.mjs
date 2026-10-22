@@ -47,6 +47,15 @@ test('should read back what it writes when a search is encoded and decoded', () 
   assert.deepEqual(link.decode(query, link.readable(fixture.controls.full), { bbox: true }), { state, page: 2 });
 });
 
+test('should read a crafted link padded with 200,000 spaces and zeros quickly when its values are trimmed and normalised', () => {
+  const allowed = link.readable(fixture.controls.full);
+  const query = `q=${encodeURIComponent(' '.repeat(200000) + 'x' + ' '.repeat(200000) + 'y')}&rating=1.${'0'.repeat(200000)}1`;
+  const started = Date.now();
+  link.decode(query, allowed, { bbox: true });
+
+  assert.ok(Date.now() - started < 1000, 'parsing took longer than a second');
+});
+
 test('should keep every other query parameter as written when the search link parameters are replaced', () => {
   const href = 'https://example.test/find/?page_id=7&utm_source=a%20b&q=old&rf_fees=1:2&lang=en#results';
 

@@ -52,10 +52,22 @@
     return NAMES.indexOf(name) !== -1 || /^(cf|rf)_./.test(name);
   }
 
+  var ASCII_SPACE = ' \t\n\r\f\v';
+
   // ASCII whitespace only, as PHP's trim() strips it, so both parsers agree on
-  // a value that starts or ends with a non-breaking space.
+  // a value that starts or ends with a non-breaking space. A scan, not a
+  // regular expression: /\s+$/ backtracks quadratically, and a crafted link
+  // would freeze the page.
   function trimAscii(value) {
-    return value.replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, '');
+    var start = 0;
+    var end = value.length;
+    while (start < end && ASCII_SPACE.indexOf(value.charAt(start)) !== -1) {
+      start += 1;
+    }
+    while (end > start && ASCII_SPACE.indexOf(value.charAt(end - 1)) !== -1) {
+      end -= 1;
+    }
+    return value.slice(start, end);
   }
 
   // Cut by code point, as mb_substr() counts, not by UTF-16 unit.
@@ -100,7 +112,14 @@
   // zero, so `4.0` and `04` both read as the `4` a rating filter offers.
   function numberTextOf(value) {
     var out = value.replace(/^(-?)0+(?=\d)/, '$1');
-    return out.indexOf('.') === -1 ? out : out.replace(/0+$/, '').replace(/\.$/, '');
+    if (out.indexOf('.') === -1) {
+      return out;
+    }
+    var end = out.length;
+    while (out.charAt(end - 1) === '0') {
+      end -= 1;
+    }
+    return out.charAt(end - 1) === '.' ? out.slice(0, end - 1) : out.slice(0, end);
   }
 
   /**
