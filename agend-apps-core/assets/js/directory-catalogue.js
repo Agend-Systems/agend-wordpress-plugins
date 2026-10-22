@@ -1902,6 +1902,20 @@
       }
     }
 
+    // The catalogue page's permalink, which keeps its own parameters (page_id,
+    // a language), never the visitor's other address parameters such as
+    // campaign or ad-click ids.
+    function shareLink(includeArea) {
+      var base = cfg.basePath || (window.location.origin + window.location.pathname);
+      return searchLink.apply(base, searchPairs(includeArea));
+    }
+
+    function shareHasArea() {
+      return searchPairs(true).some(function (pair) {
+        return pair[0] === 'bbox';
+      });
+    }
+
     if (linksOn) {
       serverFilters.addEventListener('focusout', function (e) {
         if (isTextBox(e.target)) {
@@ -2084,6 +2098,7 @@
           apiGet: apiGet,
           setView: setView,
           built: dropUnwritten,
+          share: linksOn ? { link: shareLink, hasArea: shareHasArea } : null,
         });
         return;
       }

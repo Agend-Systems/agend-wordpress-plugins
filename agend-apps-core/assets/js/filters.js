@@ -1154,6 +1154,123 @@
     ready(button);
   }
 
+  // -- Share ----------------------------------------------------------------
+
+  var shareDialogs = 0;
+
+  // Built fresh on every open, so the link is the search as it is now. The
+  // <dialog> element provides the focus trap, Esc and the backdrop; nothing
+  // here makes a request.
+  function openShareDialog(button, opts, share) {
+    shareDialogs += 1;
+    var id = 'agend-share-' + shareDialogs;
+    var dialog = el('dialog', 'agend-share');
+    dialog.setAttribute('aria-labelledby', id + '-title');
+
+    var title = el('h2', 'agend-share__title', opts.heading);
+    title.id = id + '-title';
+    dialog.appendChild(title);
+
+    var field = el('input', 'agend-share__link');
+    field.type = 'text';
+    field.readOnly = true;
+    field.setAttribute('aria-label', opts.linkLabel);
+    dialog.appendChild(field);
+
+    var box = null;
+    if (share.hasArea()) {
+      var row = el('label', 'agend-share__area');
+      box = el('input');
+      box.type = 'checkbox';
+      box.checked = true;
+      row.appendChild(box);
+      row.appendChild(el('span', null, opts.areaLabel));
+      dialog.appendChild(row);
+      dialog.appendChild(el('p', 'agend-share__note', opts.areaNote));
+      box.addEventListener('change', function () {
+        field.value = share.link(box.checked);
+      });
+    }
+    field.value = share.link(!!box && box.checked);
+
+    var status = el('p', 'agend-share__status');
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+
+    var actions = el('div', 'agend-share__actions');
+    var copy = el('button', 'agend-filter__button agend-share__copy', opts.copyText);
+    copy.type = 'button';
+    copy.addEventListener('click', function () {
+      var fallback = function () {
+        field.focus();
+        field.select();
+        status.textContent = opts.copyFallback;
+      };
+      if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+        fallback();
+        return;
+      }
+      navigator.clipboard.writeText(field.value).then(function () {
+        status.textContent = opts.copied;
+      }, fallback);
+    });
+    actions.appendChild(copy);
+
+    if (typeof navigator.share === 'function') {
+      var native = el('button', 'agend-filter__button agend-share__native', opts.shareText);
+      native.type = 'button';
+      native.addEventListener('click', function () {
+        navigator.share({ title: document.title, url: field.value }).catch(function () {
+          /* dismissed, or the share target failed; the link is still in the field */
+        });
+      });
+      actions.appendChild(native);
+    }
+
+    var close = el('button', 'agend-filter__button agend-share__close', opts.closeText);
+    close.type = 'button';
+    close.addEventListener('click', function () {
+      dialog.close();
+    });
+    actions.appendChild(close);
+    dialog.appendChild(actions);
+    dialog.appendChild(status);
+
+    // A click on the backdrop lands on the dialog itself, outside its box.
+    dialog.addEventListener('click', function (e) {
+      var rect = dialog.getBoundingClientRect();
+      if (e.target === dialog && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom)) {
+        dialog.close();
+      }
+    });
+    dialog.addEventListener('close', function () {
+      if (dialog.parentNode) {
+        dialog.parentNode.removeChild(dialog);
+      }
+      button.focus();
+    });
+
+    button.parentNode.appendChild(dialog);
+    dialog.showModal();
+  }
+
+  // The catalogue hands over `share` only when it reads and writes search
+  // links; without it the control has nothing to offer.
+  function buildShare(shell, slot, cfg, ctx) {
+    var opts = cfg.share || {};
+    var button = adopt(slot, '.agend-filter__share', 'button', 'agend-filter__button agend-filter__share');
+    button.type = 'button';
+    button.textContent = opts.buttonText || '';
+    if (!ctx.share || typeof HTMLDialogElement !== 'function') {
+      shell.hidden = true;
+      return;
+    }
+    once(button, 'click', function () {
+      openShareDialog(button, opts, ctx.share);
+    });
+    ready(button);
+  }
+
   function buildOne(shell, ctx, scope) {
     var cfg;
     try {
@@ -1178,6 +1295,10 @@
 
     if (cfg.control === 'reset') {
       buildReset(slot, cfg, ctx, scope || document);
+      return;
+    }
+    if (cfg.control === 'share') {
+      buildShare(shell, slot, cfg, ctx);
       return;
     }
     if (cfg.control === 'range') {
