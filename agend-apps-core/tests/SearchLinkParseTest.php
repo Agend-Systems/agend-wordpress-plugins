@@ -20,6 +20,11 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/search-link.p
  */
 final class SearchLinkParseTest extends TestCase {
 
+	protected function tearDown(): void {
+		$_GET = array();
+		parent::tearDown();
+	}
+
 	private static function fixture(): array {
 		return json_decode( (string) file_get_contents( __DIR__ . '/fixtures/directory-search-link-cases.json' ), true );
 	}
@@ -92,6 +97,32 @@ final class SearchLinkParseTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_sort_custom_fields_by_key_when_their_parameters_arrive_in_any_order(): void {
+		$readable = agend_apps_records_search_link_readable( self::fixture()['controls']['full'] );
+		$decoded  = agend_apps_records_search_link_decode( self::request( 'rf_price=1:2&cf_funding=ndis&cf_education_level=masters' ), $readable );
+
+		$this->assertSame( array( 'education_level', 'funding', 'price' ), array_keys( $decoded['state']['custom_fields'] ) );
+	}
+
+	#[Test]
+	public function should_build_one_query_when_two_links_differ_only_in_parameter_order(): void {
+		$readable = agend_apps_records_search_link_readable( self::fixture()['controls']['full'] );
+		$config   = array( 'pagination' => array( 'perPage' => 12 ), 'exclusions' => array() );
+		$queries  = array_map(
+			static function ( string $query ) use ( $readable, $config ): string {
+				$decoded = agend_apps_records_search_link_decode( self::request( $query ), $readable );
+				return serialize( agend_apps_records_listings_list_args( $config, $decoded['page'], agend_apps_records_search_link_list_state( $decoded['state'] ) ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
+			},
+			array(
+				'cf_funding=ndis&q=physio&rf_fees=10:20&cf_education_level=masters&rating=4',
+				'rating=4&cf_education_level=masters&rf_fees=10:20&q=physio&cf_funding=ndis',
+			)
+		);
+
+		$this->assertSame( $queries[0], $queries[1] );
+	}
+
+	#[Test]
 	public function should_send_a_location_name_with_an_apostrophe_and_a_backslash_exactly_as_typed_when_the_server_reads_the_link(): void {
 		$readable = agend_apps_records_search_link_readable( self::fixture()['controls']['full'] );
 		$decoded  = agend_apps_records_search_link_decode( self::request( 'location_name=St+Vincent%27s+%5C+Co' ), $readable );
@@ -110,6 +141,27 @@ final class SearchLinkParseTest extends TestCase {
 		$this->assertSame( 'physio', $args['search'] );
 		$this->assertSame( 'name', $args['sortBy'] );
 		$this->assertSame( array( '-37.8', '144.96', '20' ), array( $args['lat'], $args['lng'], $args['radius'] ) );
+	}
+
+	#[Test]
+	public function should_read_the_request_when_it_carries_a_search(): void {
+		$_GET = self::request( 'rating=4&utm_source=mail' );
+
+		$this->assertSame( array( 'state' => array( 'rating' => '4' ), 'page' => 1 ), agend_apps_records_search_link_from_request( self::fixture()['controls']['full'] ) );
+	}
+
+	#[Test]
+	public function should_read_nothing_when_the_request_sets_only_the_view(): void {
+		$_GET = self::request( 'view=map' );
+
+		$this->assertNull( agend_apps_records_search_link_from_request( self::fixture()['controls']['full'] ) );
+	}
+
+	#[Test]
+	public function should_read_nothing_when_the_catalogue_rendered_no_filters(): void {
+		$_GET = self::request( 'q=physio' );
+
+		$this->assertNull( agend_apps_records_search_link_from_request( array() ) );
 	}
 
 	#[Test]

@@ -401,6 +401,22 @@ function agend_apps_records_search_link_is_search( array $decoded ): bool {
 }
 
 /**
+ * The search link on the current request, read against the filters a
+ * catalogue's template rendered, or null when it asks for the default results.
+ *
+ * @param array<int, array> $configs The rendered filter configs.
+ * @return array{state: array, page: int}|null
+ */
+function agend_apps_records_search_link_from_request( array $configs ): ?array {
+	if ( empty( $configs ) ) {
+		return null;
+	}
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- A public, read-only search; every value is validated by the decoder.
+	$decoded = agend_apps_records_search_link_decode( (array) $_GET, agend_apps_records_search_link_readable( $configs ) );
+	return agend_apps_records_search_link_is_search( $decoded ) ? $decoded : null;
+}
+
+/**
  * Decoded state in the form agend_apps_records_listings_list_args() takes.
  *
  * That builder expects the Organisation filter's text slashed, as read from a

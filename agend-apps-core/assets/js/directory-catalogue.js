@@ -1760,6 +1760,20 @@
     return !!node && (node.tagName === 'TEXTAREA' || (node.tagName === 'INPUT' && TEXT_INPUTS.indexOf(node.type) !== -1));
   }
 
+  // JSON with every object's keys sorted, so two parses of one link compare
+  // equal whatever order each built its keys in.
+  function canonicalJson(value) {
+    if (Array.isArray(value)) {
+      return '[' + value.map(canonicalJson).join(',') + ']';
+    }
+    if (value && typeof value === 'object') {
+      return '{' + Object.keys(value).sort().map(function (key) {
+        return JSON.stringify(key) + ':' + canonicalJson(value[key]);
+      }).join(',') + '}';
+    }
+    return JSON.stringify(value);
+  }
+
   // -- Widget orchestration -------------------------------------------------
 
   function initWidget(root) {
@@ -2398,11 +2412,17 @@
       return;
     }
     if (templated) {
-      // The first page is already in the DOM, for the default search. A
-      // search link's first page would show results the address does not
+      // The first page is already in the DOM: the default search, or a search
+      // link's (cfg.searchLink) when the server read the link as this script
+      // did. Any other first page would show results the address does not
       // describe, so it is neither announced nor kept, and the search is asked
       // once.
-      var searchAgain = !cfg.initialError && !!(restored && searchLink.isSearch(restored));
+      var drawn = cfg.searchLink || null;
+      var drewRestored = !!(drawn && restored && drawn.page === restored.page && canonicalJson(drawn.state) === canonicalJson(restored.state));
+      var searchAgain = !cfg.initialError && (drawn ? !drewRestored : !!(restored && searchLink.isSearch(restored)));
+      if (drewRestored) {
+        state.page = drawn.shown;
+      }
       if (searchAgain) {
         if (countEl) {
           countEl.textContent = '';

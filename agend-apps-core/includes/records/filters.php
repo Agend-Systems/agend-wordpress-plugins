@@ -36,12 +36,23 @@ final class Agend_Apps_Records_Filter_Context {
 	private static $type = '';
 
 	/**
+	 * The config of each filter drawn for a visitor since set(), in render
+	 * order, which is the order the shells appear in the page. Whatever a page
+	 * render needs to know about its filters (the search link parameters it
+	 * reads, the facets they ask for) is derived from this one record.
+	 *
+	 * @var array<int, array>
+	 */
+	private static $rendered = array();
+
+	/**
 	 * Sets the record type for the template render in progress.
 	 *
 	 * @param string $type 'event', 'course' or 'listing'.
 	 */
 	public static function set( string $type ): void {
-		self::$type = $type;
+		self::$type     = $type;
+		self::$rendered = array();
 	}
 
 	/**
@@ -54,10 +65,29 @@ final class Agend_Apps_Records_Filter_Context {
 	}
 
 	/**
+	 * Notes a filter shell drawn for a visitor.
+	 *
+	 * @param array $config The config its `data-agend-filter` attribute carries.
+	 */
+	public static function record( array $config ): void {
+		self::$rendered[] = $config;
+	}
+
+	/**
+	 * The configs recorded since set().
+	 *
+	 * @return array<int, array>
+	 */
+	public static function rendered(): array {
+		return self::$rendered;
+	}
+
+	/**
 	 * Clears the context. Paired with set() in a try/finally by the renderer.
 	 */
 	public static function reset(): void {
-		self::$type = '';
+		self::$type     = '';
+		self::$rendered = array();
 	}
 }
 

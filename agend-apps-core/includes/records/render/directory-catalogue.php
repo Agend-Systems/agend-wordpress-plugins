@@ -25,6 +25,9 @@ require_once __DIR__ . '/../schema/directory-catalogue.php';
 // helpers, which live with the formatters.
 require_once __DIR__ . '/../format.php';
 
+// A search link on the request decides a templated catalogue's first page.
+require_once __DIR__ . '/../search-link.php';
+
 /**
  * Normalises a SELECT2 multiple value to a clean string list.
  *
@@ -378,15 +381,61 @@ function agend_apps_records_directory_catalogue_filter_template_id( array $setti
  * @return string
  */
 function agend_apps_records_directory_catalogue_render_filters( int $template_id ): string {
+	return agend_apps_records_directory_catalogue_filters( $template_id )['html'];
+}
+
+/**
+ * Renders the filter template as agend_apps_records_directory_catalogue_render_filters()
+ * does, and reports the config of every filter shell it drew, in page order.
+ *
+ * @param int $template_id The filter template id.
+ * @return array{html: string, configs: array<int, array>}
+ */
+function agend_apps_records_directory_catalogue_filters( int $template_id ): array {
 	if ( 0 === $template_id ) {
-		return '';
+		return array(
+			'html'    => '',
+			'configs' => array(),
+		);
 	}
 	Agend_Apps_Records_Filter_Context::set( 'listing' );
 	try {
-		return Agend_Apps_Templates::render_plain( $template_id );
+		$html = Agend_Apps_Templates::render_plain( $template_id );
+		return array(
+			'html'    => $html,
+			'configs' => Agend_Apps_Records_Filter_Context::rendered(),
+		);
 	} finally {
 		Agend_Apps_Records_Filter_Context::reset();
 	}
+}
+
+/**
+ * The first page of a templated catalogue's results: the default search, or
+ * the search a search link on the request asks for. A link's page past the
+ * last page of its search draws page 1 of that search instead, so the browser
+ * has nothing to ask again.
+ *
+ * @param array      $config      The widget config.
+ * @param int        $template_id The card template id.
+ * @param array|null $restored    agend_apps_records_search_link_from_request() output.
+ * @return array{items: array, pagination: array|null, error: bool, page: int}
+ */
+function agend_apps_records_directory_catalogue_first_page( array $config, int $template_id, ?array $restored ): array {
+	$state = null === $restored ? array() : agend_apps_records_search_link_list_state( $restored['state'] );
+	$fetch = static function ( int $page ) use ( $config, $template_id, $state ): array {
+		$query = agend_apps_records_with_search_include( agend_apps_records_listings_list_args( $config, $page, $state ), $template_id );
+		return agend_apps_records_unwrap_list( agend_apps_records_fetch_list( 'listing', $query ) );
+	};
+
+	$page = null === $restored ? 1 : $restored['page'];
+	$list = $fetch( $page );
+	if ( $page > 1 && ! $list['error'] && null !== $list['pagination'] && (int) ( $list['pagination']['total_pages'] ?? 0 ) < $page ) {
+		$page = 1;
+		$list = $fetch( 1 );
+	}
+
+	return $list + array( 'page' => $page );
 }
 
 /**
@@ -442,9 +491,10 @@ function agend_apps_records_directory_catalogue_scroll_class( array $config ): s
  * @param int    $columns     Desktop column count.
  */
 function agend_apps_records_directory_catalogue_render_templated( array $config, int $template_id, string $style, int $columns ): void {
-	$query = agend_apps_records_with_search_include( agend_apps_records_listings_list_args( $config, 1 ), $template_id );
-	$list  = agend_apps_records_unwrap_list( agend_apps_records_fetch_list( 'listing', $query ) );
-	$cards = agend_apps_records_render_cards(
+	$filters  = agend_apps_records_directory_catalogue_filters( (int) $config['filterTemplate'] );
+	$restored = agend_apps_records_search_link_from_request( $filters['configs'] );
+	$list     = agend_apps_records_directory_catalogue_first_page( $config, $template_id, $restored );
+	$cards    = agend_apps_records_render_cards(
 		'listing',
 		$template_id,
 		$list['items'],
@@ -456,6 +506,16 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 	);
 	$config['initialPagination'] = $list['pagination'];
 	$config['initialError']      = $list['error'];
+	// Written only for a search link, so every other catalogue keeps its
+	// existing config (and its pinned render fixtures). The script adopts the
+	// cards only when it reads the same link the same way.
+	if ( null !== $restored ) {
+		$config['searchLink'] = array(
+			'state' => $restored['state'],
+			'page'  => $restored['page'],
+			'shown' => $list['page'],
+		);
+	}
 	?>
 		<div class="agend-directory-catalogue agend-directory-catalogue--templated agend-filters-<?php echo esc_attr( $config['filterPosition'] ); ?><?php echo esc_attr( agend_apps_records_directory_catalogue_scroll_class( $config ) ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-directory-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<?php if ( ! empty( $config['heading']['show'] ) && ( '' !== $config['heading']['title'] || '' !== $config['heading']['subtitle'] ) ) : ?>
@@ -468,7 +528,7 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 					<?php endif; ?>
 				</div>
 			<?php endif; ?>
-			<div class="agend-dir-filter-slot"><?php echo agend_apps_records_directory_catalogue_render_filters( (int) $config['filterTemplate'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Template output. ?></div><?php echo isset( $config['resultCount'] ) ? "\n\t\t\t" . '<p class="agend-dir-count" aria-live="polite">' . esc_html( agend_apps_records_directory_catalogue_count_text( $config['resultCount']['text'], $list['pagination'], (int) $config['pagination']['perPage'] ) ) . '</p>' : ''; ?>
+			<div class="agend-dir-filter-slot"><?php echo $filters['html']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Template output. ?></div><?php echo isset( $config['resultCount'] ) ? "\n\t\t\t" . '<p class="agend-dir-count" aria-live="polite">' . esc_html( agend_apps_records_directory_catalogue_count_text( $config['resultCount']['text'], $list['pagination'], (int) $config['pagination']['perPage'] ) ) . '</p>' : ''; ?>
 
 			<div class="agend-dir-status" <?php echo ( empty( $cards ) ) ? '' : 'style="display:none"'; ?>>
 				<?php echo $list['error'] ? esc_html__( 'Unable to load listings.', 'agend-apps-core' ) : esc_html__( 'No listings found.', 'agend-apps-core' ); ?>
