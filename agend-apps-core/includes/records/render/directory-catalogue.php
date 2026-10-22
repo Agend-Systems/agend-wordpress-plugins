@@ -511,7 +511,9 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 	// cards only when it reads the same link the same way.
 	if ( null !== $restored ) {
 		$config['searchLink'] = array(
-			'state' => $restored['state'],
+			// An object even when empty (a link that sets only a page), which
+			// the script compares with its own reading of the link.
+			'state' => empty( $restored['state'] ) ? (object) array() : $restored['state'],
 			'page'  => $restored['page'],
 			'shown' => $list['page'],
 		);

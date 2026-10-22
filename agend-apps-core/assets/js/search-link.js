@@ -338,8 +338,10 @@
 
   function encodeComponent(value) {
     // Commas and colons are left readable: they separate values, and a value's
-    // own comma was already written as %2C, which arrives here as %252C.
-    return encodeURIComponent(value).replace(/%2C/g, ',').replace(/%3A/g, ':');
+    // own comma was already written as %2C, which arrives here as %252C. An
+    // apostrophe is encoded, as the browser stores it in the address, so an
+    // unchanged search compares equal to the address and is not written again.
+    return encodeURIComponent(value).replace(/%2C/g, ',').replace(/%3A/g, ':').replace(/'/g, '%27');
   }
 
   function joinValues(list) {

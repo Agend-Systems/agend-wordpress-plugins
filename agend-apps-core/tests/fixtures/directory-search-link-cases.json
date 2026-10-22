@@ -1528,7 +1528,7 @@
         "defaultView": "list",
         "bbox": true
       },
-      "query": "q=physio&category_ids=11111111-2222-4333-8444-555555555555&cf_funding=ndis&rf_fees=10:20&location_name=St%20Vincent's%20%5C%20Co&city=Carlton&tag_ids=11111111-2222-4333-8444-555555555555&badge_ids=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&rating=3&featured_only=true&sort=rating&near=-37.814,144.963&radius=10&address=Carlton&view=map&pg=2"
+      "query": "q=physio&category_ids=11111111-2222-4333-8444-555555555555&cf_funding=ndis&rf_fees=10:20&location_name=St%20Vincent%27s%20%5C%20Co&city=Carlton&tag_ids=11111111-2222-4333-8444-555555555555&badge_ids=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&rating=3&featured_only=true&sort=rating&near=-37.814,144.963&radius=10&address=Carlton&view=map&pg=2"
     }
   ]
 }

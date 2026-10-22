@@ -202,6 +202,16 @@ final class CatalogueRenderTest extends TestCase {
 		self::assertSame( "St Vincent's \\ Co", $GLOBALS['agend_render_test_directory_search_args'][0]['locationName'] );
 	}
 
+	#[Test]
+	public function should_hand_the_browser_an_empty_object_when_the_link_sets_only_a_page(): void {
+		$this->renderLink( 'pg=2' );
+
+		self::assertStringContainsString( '"searchLink":{"state":{},"page":2,"shown":2}', $this->lastConfigJson );
+	}
+
+	/** The raw client config JSON of the last renderLink() call. */
+	private string $lastConfigJson = '';
+
 	/**
 	 * Renders a templated directory catalogue whose filter template draws a
 	 * rating, sort, search, Organisation and two custom field filters, for a
@@ -248,7 +258,8 @@ final class CatalogueRenderTest extends TestCase {
 		}
 
 		self::assertSame( 1, preg_match( '/data-agend-directory-config="([^"]*)"/', $html, $match ) );
-		return json_decode( html_entity_decode( $match[1], ENT_QUOTES ), true );
+		$this->lastConfigJson = html_entity_decode( $match[1], ENT_QUOTES );
+		return json_decode( $this->lastConfigJson, true );
 	}
 
 	/**

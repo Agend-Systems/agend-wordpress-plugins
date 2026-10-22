@@ -1726,16 +1726,17 @@
 
   // -- Search links ---------------------------------------------------------
 
-  function filterConfigsIn(scope) {
-    var configs = [];
+  // Every filter shell in a scope with its config and whether it is hidden.
+  function filterShellsIn(scope) {
+    var shells = [];
     Array.prototype.forEach.call(scope.querySelectorAll('[data-agend-filter]'), function (shell) {
       try {
-        configs.push(JSON.parse(shell.getAttribute('data-agend-filter')));
+        shells.push({ config: JSON.parse(shell.getAttribute('data-agend-filter')), hidden: shell.hidden });
       } catch (e) {
         /* a shell with unreadable config builds no control either */
       }
     });
-    return configs;
+    return shells;
   }
 
   // Whether a map search area can stand on this page: read from the map's own
@@ -1834,7 +1835,9 @@
     var searchLink = window.agendSearchLink;
     var linksOn = !!(searchLink && hasTemplatedFilters && window.history && typeof window.history.replaceState === 'function' &&
       document.querySelectorAll('.agend-directory-catalogue[data-agend-directory-config]').length === 1);
-    var linkFilters = linksOn ? searchLink.readable(filterConfigsIn(serverFilters)) : null;
+    var linkFilters = linksOn ? searchLink.readable(filterShellsIn(serverFilters).map(function (shell) {
+      return shell.config;
+    })) : null;
     var areaStands = linksOn && mapMovesResults();
     var restored = linksOn ? searchLink.decode(window.location.search, linkFilters, { bbox: areaStands }) : null;
     if (restored) {
@@ -1906,8 +1909,19 @@
     // a language), never the visitor's other address parameters such as
     // campaign or ad-click ids.
     function shareLink(includeArea) {
-      var base = cfg.basePath || (window.location.origin + window.location.pathname);
-      return searchLink.apply(base, searchPairs(includeArea));
+      return searchLink.apply(permalink(), searchPairs(includeArea));
+    }
+
+    // basePath is the permalink of the queried object, which on an archive is
+    // a term, not this page; it is only this page's when the paths agree.
+    function permalink() {
+      var here = window.location.origin + window.location.pathname;
+      try {
+        var base = new URL(cfg.basePath || '', window.location.href);
+        return base.origin + base.pathname.replace(/\/$/, '') === here.replace(/\/$/, '') ? base.toString() : here;
+      } catch (e) {
+        return here;
+      }
     }
 
     function shareHasArea() {
@@ -2116,16 +2130,7 @@
         return;
       }
       restoreChecked = true;
-      var shells = Array.prototype.map.call(scope.querySelectorAll('[data-agend-filter]'), function (shell) {
-        var config = null;
-        try {
-          config = JSON.parse(shell.getAttribute('data-agend-filter'));
-        } catch (e) {
-          /* not a control */
-        }
-        return { config: config, hidden: shell.hidden };
-      });
-      var drops = searchLink.unwritten(restored.state, shells);
+      var drops = searchLink.unwritten(restored.state, filterShellsIn(scope));
       if (!drops.length) {
         return;
       }
@@ -2138,6 +2143,8 @@
           state[drop.key] = Array.isArray(state[drop.key]) ? [] : '';
         }
       });
+      // A different search, so it starts at page 1 as any filter change does.
+      state.page = 1;
       reloadCatalogue();
     }
 
@@ -2343,7 +2350,8 @@
           : unwrapList(body);
         // A page past the last (a restored link whose search now has fewer
         // results) shows page 1 of the same search instead.
-        var lastPage = result.pagination ? parseInt(result.pagination.total_pages, 10) || 0 : null;
+        var lastPage = result.pagination ? parseInt(result.pagination.total_pages, 10) : NaN;
+        lastPage = isFinite(lastPage) ? lastPage : null;
         if (!state.append && state.page > 1 && lastPage !== null && lastPage < state.page) {
           state.page = 1;
           reloadCatalogue();
@@ -2414,6 +2422,9 @@
         showDetail(slug, false);
       } else {
         showCatalogue(false);
+        // An older entry can hold an earlier search; the address mirrors the
+        // one on screen.
+        writeAddress(true);
       }
     });
 

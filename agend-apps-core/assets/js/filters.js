@@ -412,12 +412,7 @@
         }
         model.selected = index;
         if (held) {
-          var stand = new Option(anyText, 'held');
-          stand.hidden = true;
-          stand.disabled = true;
-          stand.setAttribute('data-agend-held', '');
-          host.appendChild(stand);
-          host.value = 'held';
+          holdAny(host, anyText);
         } else {
           host.value = String(index);
         }
