@@ -24,11 +24,22 @@ final class Search_Include_Test_Reader implements Agend_Apps_Template_Field_Keys
 	public int $reads = 0;
 
 	/** @var string[] */
-	private array $fields;
+	public array $fields;
 
-	/** @param string[] $fields Bound record field keys. */
-	public function __construct( array $fields ) {
-		$this->fields = $fields;
+	/** @var string[] */
+	public array $custom_fields;
+
+	public bool $all_custom_fields;
+
+	/**
+	 * @param string[] $fields            Bound record field keys.
+	 * @param string[] $custom_fields     Bound custom field keys.
+	 * @param bool     $all_custom_fields Whether the template shows every custom field.
+	 */
+	public function __construct( array $fields, array $custom_fields = array(), bool $all_custom_fields = false ) {
+		$this->fields            = $fields;
+		$this->custom_fields     = $custom_fields;
+		$this->all_custom_fields = $all_custom_fields;
 	}
 
 	public function field_keys( int $template_id ): ?array {
@@ -37,8 +48,9 @@ final class Search_Include_Test_Reader implements Agend_Apps_Template_Field_Keys
 		}
 		++$this->reads;
 		return array(
-			'fields'        => $this->fields,
-			'custom_fields' => array(),
+			'fields'            => $this->fields,
+			'custom_fields'     => $this->custom_fields,
+			'all_custom_fields' => $this->all_custom_fields,
 		);
 	}
 }
@@ -71,6 +83,26 @@ final class SearchIncludeTest extends TestCase {
 		$reader = new Search_Include_Test_Reader( $fields );
 		Agend_Apps_Templates::register_field_key_reader( $reader );
 		return $reader;
+	}
+
+	/**
+	 * @param string[] $custom_fields Bound custom field keys.
+	 */
+	private function useCustomFieldBinding( array $custom_fields, bool $all_custom_fields = false ): Search_Include_Test_Reader {
+		$reader = new Search_Include_Test_Reader( array( 'common:custom_field', 'listing:name' ), $custom_fields, $all_custom_fields );
+		Agend_Apps_Templates::register_field_key_reader( $reader );
+		return $reader;
+	}
+
+	/**
+	 * The first-page search and a card-fragment search for template 7.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	private function catalogueSearches( array $fragment_params = array() ): array {
+		agend_apps_records_render_directory_catalogue( array( 'card_template' => '7' ) );
+		( new Agend_Apps_Records_Fragments_Controller() )->get_cards( $this->fragmentsRequest( $fragment_params ), 'listing' );
+		return $this->searches();
 	}
 
 	/** @return array<int, array<string, mixed>> */
@@ -129,6 +161,20 @@ final class SearchIncludeTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_need_all_custom_fields_when_a_panel_shows_every_listing_custom_field(): void {
+		$this->assertTrue( agend_apps_records_template_binding_keys( 'record-block', array( 'block' => 'listing_custom_fields' ) )['all_custom_fields'] );
+		$this->assertFalse( agend_apps_records_template_binding_keys( 'record-block', array() )['all_custom_fields'], 'a panel left at its default shows event facts' );
+	}
+
+	#[Test]
+	public function should_need_all_custom_fields_when_a_custom_field_element_has_no_key(): void {
+		$this->assertTrue( agend_apps_records_template_binding_keys( 'record-field', array( 'field' => 'common:custom_field' ) )['all_custom_fields'] );
+		$this->assertTrue( agend_apps_records_template_binding_keys( 'record-pills', array( 'field' => 'common:custom_field', 'custom_field_key' => ' ' ) )['all_custom_fields'] );
+		$this->assertTrue( agend_apps_records_template_binding_keys( 'record-field', array( 'field' => 'common:custom_field_label' ) )['all_custom_fields'] );
+		$this->assertFalse( agend_apps_records_template_binding_keys( 'record-field', array( 'field' => 'common:custom_field', 'custom_field_key' => 'a' ) )['all_custom_fields'] );
+	}
+
+	#[Test]
 	public function should_merge_key_sets_into_distinct_sorted_lists(): void {
 		$merged = agend_apps_records_merge_binding_keys(
 			array( 'fields' => array( 'listing:phone', 'common:title' ), 'custom_fields' => array( 'b' ) ),
@@ -137,6 +183,34 @@ final class SearchIncludeTest extends TestCase {
 
 		$this->assertSame( array( 'common:title', 'listing:phone' ), $merged['fields'] );
 		$this->assertSame( array( 'a', 'b' ), $merged['custom_fields'] );
+		$this->assertFalse( $merged['all_custom_fields'] );
+	}
+
+	#[Test]
+	public function should_need_all_custom_fields_when_any_merged_set_needs_them(): void {
+		$merged = agend_apps_records_merge_binding_keys(
+			array( 'fields' => array(), 'custom_fields' => array( 'a' ) ),
+			array( 'fields' => array(), 'custom_fields' => array(), 'all_custom_fields' => true )
+		);
+
+		$this->assertTrue( $merged['all_custom_fields'] );
+	}
+
+	// -- The custom fields a template needs --------------------------------------
+
+	#[Test]
+	public function should_name_each_bound_custom_field_in_the_facets_vocabulary(): void {
+		$this->assertSame( 'custom.a,custom.payment_options', agend_apps_records_search_fields_for_keys( array( 'custom_fields' => array( 'a', 'payment_options' ) ) ) );
+	}
+
+	#[Test]
+	public function should_name_no_custom_field_when_the_template_binds_none(): void {
+		$this->assertSame( '', agend_apps_records_search_fields_for_keys( agend_apps_records_empty_binding_keys() ) );
+	}
+
+	#[Test]
+	public function should_not_narrow_the_custom_fields_when_the_template_needs_them_all(): void {
+		$this->assertNull( agend_apps_records_search_fields_for_keys( array( 'custom_fields' => array( 'a' ), 'all_custom_fields' => true ) ) );
 	}
 
 	// -- The include a template needs ------------------------------------------
@@ -183,6 +257,21 @@ final class SearchIncludeTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_need_all_custom_fields_when_a_block_template_has_a_custom_fields_panel(): void {
+		$GLOBALS['agend_test_posts'][34] = array(
+			'ID'           => 34,
+			'post_type'    => 'wp_block',
+			'post_status'  => 'publish',
+			'post_content' => '<!-- wp:group --><div><!-- wp:agend-apps/record-field {"field":"common:custom_field","custom_field_key":"a"} /--><!-- wp:agend-apps/record-block {"block":"listing_custom_fields"} /--></div><!-- /wp:group -->',
+		);
+
+		$keys = ( new Agend_Apps_Block_Template_Renderer() )->field_keys( 34 );
+
+		$this->assertSame( array( 'a' ), $keys['custom_fields'] );
+		$this->assertTrue( $keys['all_custom_fields'] );
+	}
+
+	#[Test]
 	public function should_own_no_keys_for_an_id_that_is_not_a_block_template(): void {
 		$GLOBALS['agend_test_posts'][32] = array( 'ID' => 32, 'post_type' => 'page', 'post_status' => 'publish', 'post_content' => '' );
 
@@ -192,8 +281,12 @@ final class SearchIncludeTest extends TestCase {
 	// -- The registry ------------------------------------------------------------
 
 	#[Test]
-	public function should_report_no_keys_when_no_reader_owns_the_template(): void {
-		$this->assertSame( agend_apps_records_empty_binding_keys(), Agend_Apps_Templates::field_keys( 7 ) );
+	public function should_report_no_keys_and_need_all_custom_fields_when_no_reader_owns_the_template(): void {
+		$keys = Agend_Apps_Templates::field_keys( 7 );
+
+		$this->assertSame( array(), $keys['fields'] );
+		$this->assertSame( array(), $keys['custom_fields'] );
+		$this->assertTrue( $keys['all_custom_fields'] );
 	}
 
 	#[Test]
@@ -208,6 +301,17 @@ final class SearchIncludeTest extends TestCase {
 		$GLOBALS['agend_test_posts'][7]['post_modified_gmt'] = '2026-10-02 00:00:00';
 		Agend_Apps_Templates::field_keys( 7 );
 		$this->assertSame( 2, $reader->reads );
+	}
+
+	#[Test]
+	public function should_not_reuse_a_reading_cached_before_the_key_set_said_when_all_custom_fields_are_needed(): void {
+		$this->useCustomFieldBinding( array(), true );
+		$GLOBALS['agend_test_posts'][7] = array( 'ID' => 7, 'post_modified_gmt' => '2026-10-01 00:00:00' );
+		$readers = implode( ',', array_map( 'get_class', array( new Search_Include_Test_Reader( array() ) ) ) );
+		$version = defined( 'AGEND_APPS_CORE_VERSION' ) ? (string) AGEND_APPS_CORE_VERSION : '';
+		wp_cache_set( md5( '7:2026-10-01 00:00:00:' . $readers . ':' . $version ), array( 'fields' => array(), 'custom_fields' => array() ), 'agend_apps_template_field_keys' );
+
+		$this->assertTrue( Agend_Apps_Templates::field_keys( 7 )['all_custom_fields'] );
 	}
 
 	#[Test]
@@ -281,16 +385,78 @@ final class SearchIncludeTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_never_forward_include_through_the_browser_search_proxy(): void {
+	public function should_never_forward_include_or_fields_through_the_browser_search_proxy(): void {
 		$reflection = new ReflectionMethod( Agend_Apps_Directory_REST_Controller::class, 'search_filters' );
 		$reflection->setAccessible( true );
 
 		$request = new WP_REST_Request( 'GET', '/agend-apps/v1/directory/search' );
 		$request->set_param( 'include', 'phone' );
+		$request->set_param( 'fields', 'custom.a' );
 		$request->set_param( 'city', 'Sydney' );
 		$filters = $reflection->invoke( new Agend_Apps_Directory_REST_Controller(), $request );
 
 		$this->assertArrayNotHasKey( 'include', $filters );
+		$this->assertArrayNotHasKey( 'fields', $filters );
 		$this->assertSame( 'Sydney', $filters['city'] );
+	}
+
+	#[Test]
+	public function should_send_exactly_the_bound_custom_fields_on_every_catalogue_search(): void {
+		$this->useCustomFieldBinding( array( 'a', 'payment_options' ) );
+
+		$searches = $this->catalogueSearches();
+
+		$this->assertSame( 'custom.a,custom.payment_options', $searches[0]['fields'] ?? null );
+		$this->assertSame( 'custom.a,custom.payment_options', $searches[1]['fields'] ?? null );
+	}
+
+	#[Test]
+	public function should_send_an_empty_fields_value_when_the_card_template_shows_no_custom_field(): void {
+		$this->useTemplateBinding( 'listing:name' );
+
+		$searches = $this->catalogueSearches();
+
+		$this->assertSame( '', $searches[0]['fields'] ?? null );
+		$this->assertSame( '', $searches[1]['fields'] ?? null );
+	}
+
+	#[Test]
+	public function should_send_no_fields_when_the_card_template_shows_every_custom_field(): void {
+		$this->useCustomFieldBinding( array( 'a' ), true );
+
+		$searches = $this->catalogueSearches();
+
+		$this->assertArrayNotHasKey( 'fields', $searches[0] );
+		$this->assertArrayNotHasKey( 'fields', $searches[1] );
+	}
+
+	#[Test]
+	public function should_send_no_fields_when_no_reader_owns_the_card_template(): void {
+		agend_apps_records_render_directory_catalogue( array( 'card_template' => '7' ) );
+
+		$this->assertArrayNotHasKey( 'fields', $this->searches()[0] );
+	}
+
+	#[Test]
+	public function should_ignore_fields_on_the_fragments_request_when_deriving_them_from_the_template(): void {
+		$this->useCustomFieldBinding( array( 'a' ) );
+
+		( new Agend_Apps_Records_Fragments_Controller() )->get_cards( $this->fragmentsRequest( array( 'fields' => 'custom.secret' ) ), 'listing' );
+
+		$this->assertSame( 'custom.a', $this->searches()[0]['fields'] ?? null );
+	}
+
+	#[Test]
+	public function should_send_the_saved_templates_custom_fields_when_the_template_is_modified(): void {
+		$reader                         = $this->useCustomFieldBinding( array( 'a' ) );
+		$GLOBALS['agend_test_posts'][7] = array( 'ID' => 7, 'post_modified_gmt' => '2026-10-01 00:00:00' );
+		agend_apps_records_render_directory_catalogue( array( 'card_template' => '7' ) );
+
+		$reader->custom_fields                               = array( 'b' );
+		$GLOBALS['agend_test_posts'][7]['post_modified_gmt'] = '2026-10-02 00:00:00';
+		agend_apps_records_render_directory_catalogue( array( 'card_template' => '7' ) );
+
+		$this->assertSame( 'custom.a', $this->searches()[0]['fields'] ?? null );
+		$this->assertSame( 'custom.b', $this->searches()[1]['fields'] ?? null );
 	}
 }

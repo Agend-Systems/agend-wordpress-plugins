@@ -29,11 +29,18 @@ class Agend_Apps_Logger {
 	public const SUCCESS_BODY_LIMIT = 5000;
 
 	/**
-	 * A successful body larger than this is summarised, not redacted: only
-	 * 5,000 characters would be kept, and redacting a multi-megabyte list
-	 * response would cost the request seconds.
+	 * A successful body larger than this is summarised, not redacted. Only
+	 * 5,000 characters would be kept, and the logger runs inside the page
+	 * render that made the call: decoding and redacting a 179 KB search
+	 * response cost that render 18 to 36 ms of CPU.
 	 */
-	public const SUCCESS_REDACT_LIMIT = 262144;
+	public const SUCCESS_REDACT_LIMIT = 16384;
+
+	/**
+	 * The successful-body limit while `AGEND_APPS_API_LOG_FULL_BODIES` is
+	 * defined as true in wp-config.php, for debugging a site's responses.
+	 */
+	public const FULL_BODIES_REDACT_LIMIT = 262144;
 
 	/** Failed-call bodies are kept whole up to this size, then summarised. */
 	public const FAILED_BODY_LIMIT = 1048576;
@@ -282,14 +289,29 @@ class Agend_Apps_Logger {
 		$path     = $redactor->redact_path( $raw_path );
 		$query    = $redactor->redact_query( (string) ( $parts['query'] ?? '' ) );
 
+		/**
+		 * Filters paths whose request and response bodies are never stored.
+		 *
+		 * @param string[] $paths Paths without the version prefix, e.g. `/auth/login`.
+		 */
+		$excluded_paths = (array) apply_filters( 'agend_apps_log_body_excluded_paths', array() );
+		// Judged on the path as requested, never the redacted one: a
+		// redacted segment must not be able to defeat the exclusion.
+		$body_excluded = Agend_Apps_Log_Redactor::is_body_excluded( $raw_path, $excluded_paths );
+
 		$request_kept  = $store_bodies && $this->body_within_limits( $request_raw, $failed );
 		$response_kept = $store_bodies && $this->body_within_limits( $response_raw, $failed );
 
-		if ( $request_kept ) {
+		// A failed call's message can echo a body value, so its bodies are
+		// remembered even when they are not stored. A success row has no
+		// message, so an unstored body has nothing left to scrub.
+		$remember = $failed || ! $body_excluded;
+
+		if ( $request_kept && $remember ) {
 			$redactor->remember( json_decode( $request_raw, true ) );
 		}
 
-		if ( $response_kept ) {
+		if ( $response_kept && $remember ) {
 			$redactor->remember( json_decode( $response_raw, true ) );
 		}
 
@@ -300,16 +322,6 @@ class Agend_Apps_Logger {
 				}
 			}
 		}
-
-		/**
-		 * Filters paths whose request and response bodies are never stored.
-		 *
-		 * @param string[] $paths Paths without the version prefix, e.g. `/auth/login`.
-		 */
-		$excluded_paths = (array) apply_filters( 'agend_apps_log_body_excluded_paths', array() );
-		// Judged on the path as requested, never the redacted one: a
-		// redacted segment must not be able to defeat the exclusion.
-		$body_excluded = Agend_Apps_Log_Redactor::is_body_excluded( $raw_path, $excluded_paths );
 
 		$request_body  = '';
 		$response_body = '';
@@ -388,7 +400,13 @@ class Agend_Apps_Logger {
 	 * Whether a body is small enough to redact and keep.
 	 */
 	private function body_within_limits( string $raw, bool $failed ): bool {
-		return strlen( $raw ) <= ( $failed ? self::FAILED_BODY_LIMIT : self::SUCCESS_REDACT_LIMIT );
+		return strlen( $raw ) <= ( $failed ? self::FAILED_BODY_LIMIT : self::success_redact_limit() );
+	}
+
+	private static function success_redact_limit(): int {
+		$full = defined( 'AGEND_APPS_API_LOG_FULL_BODIES' ) && constant( 'AGEND_APPS_API_LOG_FULL_BODIES' );
+
+		return $full ? self::FULL_BODIES_REDACT_LIMIT : self::SUCCESS_REDACT_LIMIT;
 	}
 
 	private static function oversized( string $raw ): string {

@@ -56,8 +56,9 @@ final class Agend_Apps_Templates {
 	}
 
 	/**
-	 * The record field keys and custom field keys a template binds. Empty when
-	 * no registered reader owns the id.
+	 * The record field keys and custom field keys a template binds. Empty, and
+	 * needing all custom fields, when no registered reader owns the id: what
+	 * such a template shows cannot be known.
 	 *
 	 * Cached against the template's last modification time, the registered
 	 * readers and the core version, so an edited template, a page builder's
@@ -65,24 +66,29 @@ final class Agend_Apps_Templates {
 	 * read afresh, while every search of an unchanged one reuses the reading.
 	 *
 	 * @param int $template_id The template's post id.
-	 * @return array{fields: string[], custom_fields: string[]}
+	 * @return array{fields: string[], custom_fields: string[], all_custom_fields: bool}
 	 */
 	public static function field_keys( int $template_id ): array {
+		$unowned                      = agend_apps_records_empty_binding_keys();
+		$unowned['all_custom_fields'] = true;
+
 		if ( $template_id <= 0 ) {
-			return agend_apps_records_empty_binding_keys();
+			return $unowned;
 		}
 
 		$post      = get_post( $template_id );
 		$revision  = $post ? (string) ( $post->post_modified_gmt ?? '' ) : '';
 		$readers   = implode( ',', array_map( 'get_class', self::$field_key_readers ) );
 		$version   = defined( 'AGEND_APPS_CORE_VERSION' ) ? (string) AGEND_APPS_CORE_VERSION : '';
-		$cache_key = md5( $template_id . ':' . $revision . ':' . $readers . ':' . $version );
+		// The shape marker retires readings cached before the key set carried
+		// `all_custom_fields`, which would otherwise narrow every search.
+		$cache_key = md5( $template_id . ':' . $revision . ':' . $readers . ':' . $version . ':all_custom_fields' );
 		$cached    = wp_cache_get( $cache_key, 'agend_apps_template_field_keys', false, $found );
 		if ( $found && is_array( $cached ) ) {
 			return $cached;
 		}
 
-		$keys = agend_apps_records_empty_binding_keys();
+		$keys = $unowned;
 		foreach ( self::$field_key_readers as $reader ) {
 			$read = $reader->field_keys( $template_id );
 			if ( null !== $read ) {

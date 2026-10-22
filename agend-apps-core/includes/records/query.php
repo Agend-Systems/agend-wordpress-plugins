@@ -218,25 +218,33 @@ function agend_apps_records_listings_list_args( array $config, int $page = 1, ar
 }
 
 /**
- * A listing search query carrying the `include` its card template needs.
+ * A listing search query carrying the `include` and the custom-field `fields`
+ * its card template needs.
  *
  * Derived on the server from the fields the template binds, and never taken
- * from the request: any `include` already on the query is replaced. The
- * transient cache key is built from the whole query, so it covers the include.
+ * from the request: any `include` or `fields` already on the query is
+ * replaced. `fields` is left off when the template shows custom fields it does
+ * not name, and sent empty when it shows none. The transient cache key is
+ * built from the whole query, so it covers both.
  *
  * @param array $query       A listing search query.
  * @param int   $template_id The card template the results render through.
  * @return array
  */
 function agend_apps_records_with_search_include( array $query, int $template_id ): array {
-	unset( $query['include'] );
+	unset( $query['include'], $query['fields'] );
 	if ( ! class_exists( 'Agend_Apps_Templates' ) || ! function_exists( 'agend_apps_records_search_include_for_keys' ) ) {
 		return $query;
 	}
 
-	$include = agend_apps_records_search_include_for_keys( Agend_Apps_Templates::field_keys( $template_id ) );
+	$keys    = Agend_Apps_Templates::field_keys( $template_id );
+	$include = agend_apps_records_search_include_for_keys( $keys );
 	if ( '' !== $include ) {
 		$query['include'] = $include;
+	}
+	$fields = agend_apps_records_search_fields_for_keys( $keys );
+	if ( null !== $fields ) {
+		$query['fields'] = $fields;
 	}
 	return $query;
 }
@@ -336,18 +344,51 @@ function agend_apps_records_fetch_list( string $type, array $query ) {
 		if ( ! function_exists( 'agend_apps_directory_search' ) ) {
 			return null;
 		}
-		$term = (string) ( $query['q'] ?? $query['search'] ?? '' );
-		unset( $query['q'], $query['search'] );
-		if ( isset( $query['category'] ) ) {
-			$query['category_ids'] = $query['category'];
-			unset( $query['category'] );
-		}
-		return agend_apps_directory_search( $term, $query );
+		[ $term, $filters ] = agend_apps_records_listing_search_args( $query );
+		return agend_apps_directory_search( $term, $filters );
 	}
 	if ( 'course' === $type ) {
 		return function_exists( 'agend_apps_lms_get_courses' ) ? agend_apps_lms_get_courses( $query ) : null;
 	}
 	return function_exists( 'agend_apps_events_get_events' ) ? agend_apps_events_get_events( $query ) : null;
+}
+
+/**
+ * Fetches a page of listings and the directory facets together, for a page
+ * render that needs both; each as agend_apps_records_fetch_list() and the
+ * facets REST route would fetch it.
+ *
+ * @param array    $query  Allow-listed listing query parameters.
+ * @param string[] $fields Facet names.
+ * @return array{list: mixed, facets: array|WP_Error}|null Null when unavailable.
+ */
+function agend_apps_records_fetch_listings_with_facets( array $query, array $fields ): ?array {
+	if ( ! function_exists( 'agend_apps_directory_search_and_facets' ) ) {
+		return null;
+	}
+	[ $term, $filters ] = agend_apps_records_listing_search_args( $query );
+	$results            = agend_apps_directory_search_and_facets( $term, $filters, $fields );
+	return array(
+		'list'   => $results['search'],
+		'facets' => $results['facets'],
+	);
+}
+
+/**
+ * A listing query as the directory search takes it: the term apart, and
+ * `category` translated to the gateway's canonical `category_ids`.
+ *
+ * @param array $query Allow-listed listing query parameters.
+ * @return array{0: string, 1: array}
+ */
+function agend_apps_records_listing_search_args( array $query ): array {
+	$term = (string) ( $query['q'] ?? $query['search'] ?? '' );
+	unset( $query['q'], $query['search'] );
+	if ( isset( $query['category'] ) ) {
+		$query['category_ids'] = $query['category'];
+		unset( $query['category'] );
+	}
+	return array( $term, $query );
 }
 
 /**

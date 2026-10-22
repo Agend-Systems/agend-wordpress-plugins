@@ -1964,6 +1964,7 @@
           reload: reloadCatalogue,
           apiGet: apiGet,
           setView: setView,
+          preload: cfg.preload,
         });
         return;
       }

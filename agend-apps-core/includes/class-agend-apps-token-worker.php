@@ -119,6 +119,38 @@ class Agend_Apps_Token_Worker {
 	const MINT_WAIT_POLL_MICROSECONDS = 100000;
 
 	/**
+	 * A request that finds the token with at most this many seconds left, but
+	 * more than {@see EXPIRY_BUFFER}, uses it and mints the next one after the
+	 * response has been sent (refresh-ahead), so a member who keeps browsing
+	 * never waits for a mint.
+	 *
+	 * @var int
+	 */
+	const REFRESH_AHEAD_WINDOW = 120;
+
+	/**
+	 * `shutdown` priority of the refresh-ahead mint: after WordPress flushes
+	 * its output buffers (priority 1), before the API log is written (9999),
+	 * so the mint is the last row of its request.
+	 *
+	 * @var int
+	 */
+	const REFRESH_AHEAD_PRIORITY = 9000;
+
+	/**
+	 * Transient prefix, completed by the WordPress user id, set for
+	 * {@see REFRESH_AHEAD_BACKOFF_TTL} after a refresh-ahead mint fails.
+	 *
+	 * @var string
+	 */
+	const REFRESH_AHEAD_BACKOFF_PREFIX = 'agend_apps_sso_refresh_ahead_backoff_';
+
+	/**
+	 * @var int
+	 */
+	const REFRESH_AHEAD_BACKOFF_TTL = 60;
+
+	/**
 	 * Re-entrancy guard: the mint request itself flows through the API client,
 	 * which consults the bearer filter; without the guard the worker would
 	 * recurse.
@@ -126,6 +158,23 @@ class Agend_Apps_Token_Worker {
 	 * @var bool
 	 */
 	private static $resolving = false;
+
+	/**
+	 * The refresh-ahead mint this request scheduled: the user, external id and
+	 * token it starts from. One per request at most.
+	 *
+	 * @var array{user_id: int, external_id: string, token: string}|null
+	 */
+	private $refresh_ahead = null;
+
+	/**
+	 * Whether the gateway has rejected a token with a 401 in this request. The
+	 * re-resolve that follows, and every later one, schedules no refresh-ahead
+	 * mint.
+	 *
+	 * @var bool
+	 */
+	private $rejected = false;
 
 	/**
 	 * Hooks the worker into the bearer-token filter and clears its cached
@@ -200,6 +249,8 @@ class Agend_Apps_Token_Worker {
 				return;
 			}
 
+			$this->rejected = true;
+
 			$user_id = get_current_user_id();
 
 			if ( 0 === $user_id ) {
@@ -219,7 +270,7 @@ class Agend_Apps_Token_Worker {
 
 			self::clear_token( $user_id );
 
-			if ( isset( $cached['minted_at'] ) && ( time() - (int) $cached['minted_at'] ) < self::REJECTED_REMINT_GRACE ) {
+			if ( isset( $cached['minted_at'] ) && ( self::now() - (int) $cached['minted_at'] ) < self::REJECTED_REMINT_GRACE ) {
 				set_transient( self::NEGATIVE_PREFIX . $user_id, 1, self::NEGATIVE_TTL_ERROR );
 			}
 		} catch ( \Throwable $e ) {
@@ -264,10 +315,14 @@ class Agend_Apps_Token_Worker {
 		}
 
 		// Valid cached token for the same external id.
-		$cached = self::cached_token( $user_id, $external_id );
+		$record = self::usable_record( $user_id, $external_id );
 
-		if ( '' !== $cached ) {
-			return $cached;
+		if ( null !== $record ) {
+			if ( (int) $record['expires_at'] - self::now() <= self::REFRESH_AHEAD_WINDOW ) {
+				$this->schedule_refresh_ahead( $user_id, $external_id, (string) $record['access_token'] );
+			}
+
+			return (string) $record['access_token'];
 		}
 
 		if ( false !== get_transient( self::NEGATIVE_PREFIX . $user_id ) ) {
@@ -333,16 +388,7 @@ class Agend_Apps_Token_Worker {
 			// leave `asserted` at all. Promotion now happens on the SAML round
 			// trip's own return leg, in `includes/wp-idp-saml-link.php`'s
 			// `agend_apps_saml_link_promote()`.
-			update_user_meta(
-				$user_id,
-				self::META_KEY,
-				array(
-					'access_token' => (string) $minted['access_token'],
-					'expires_at'   => (int) $minted['expires_at'],
-					'external_id'  => $external_id,
-					'minted_at'    => time(),
-				)
-			);
+			update_user_meta( $user_id, self::META_KEY, self::token_record( $minted, $external_id ) );
 
 			return (string) $minted['access_token'];
 		} finally {
@@ -357,6 +403,242 @@ class Agend_Apps_Token_Worker {
 	}
 
 	/**
+	 * Hooks the refresh-ahead mint to `shutdown`, at most once per request.
+	 *
+	 * Only where the response can be sent before the mint runs: on a host
+	 * without `fastcgi_finish_request()` or `litespeed_finish_request()` the
+	 * visitor would wait for it anyway, so nothing changes there.
+	 *
+	 * @param int    $user_id     WordPress user id.
+	 * @param string $external_id The member's current external id.
+	 * @param string $token       The token this request is using.
+	 */
+	private function schedule_refresh_ahead( int $user_id, string $external_id, string $token ): void {
+		if (
+			null !== $this->refresh_ahead
+			|| $this->rejected
+			|| ( defined( 'WP_CLI' ) && WP_CLI )
+			|| wp_doing_cron()
+			|| null === self::finisher()
+			|| false !== get_transient( self::REFRESH_AHEAD_BACKOFF_PREFIX . $user_id )
+		) {
+			return;
+		}
+
+		/**
+		 * Filters whether a token in its last two minutes is replaced after the
+		 * response has been sent. Return false to mint only inline, on expiry.
+		 *
+		 * @param bool $enabled Default true.
+		 * @param int  $user_id WordPress user id.
+		 */
+		if ( ! apply_filters( 'agend_apps_token_refresh_ahead_enabled', true, $user_id ) ) {
+			return;
+		}
+
+		$this->refresh_ahead = array(
+			'user_id'     => $user_id,
+			'external_id' => $external_id,
+			'token'       => $token,
+		);
+
+		add_action( 'shutdown', array( $this, 'run_refresh_ahead' ), self::REFRESH_AHEAD_PRIORITY );
+	}
+
+	/**
+	 * Sends the response, then mints the member's next token.
+	 *
+	 * Never makes the member anonymous: a failure leaves the current token in
+	 * use until the inline mint takes over, writes no negative cache, and backs
+	 * off refresh-ahead for {@see REFRESH_AHEAD_BACKOFF_TTL} seconds.
+	 */
+	public function run_refresh_ahead(): void {
+		if ( null === $this->refresh_ahead ) {
+			return;
+		}
+
+		[ 'user_id' => $user_id, 'external_id' => $external_id, 'token' => $token ] = $this->refresh_ahead;
+
+		$finisher = self::finisher();
+
+		if ( null !== $finisher ) {
+			call_user_func( $finisher );
+		}
+
+		$lock = self::acquire_mint_lock( $user_id );
+
+		if ( null === $lock ) {
+			return;
+		}
+
+		try {
+			// A logout, a rejection or another request's mint may have replaced
+			// or cleared the token since this request read it.
+			$started_from = self::stored_record( $user_id, true );
+
+			if (
+				null === $started_from
+				|| $started_from['external_id'] !== $external_id
+				|| $started_from['access_token'] !== $token
+				|| (int) $started_from['expires_at'] - self::now() > self::REFRESH_AHEAD_WINDOW
+			) {
+				return;
+			}
+
+			self::$resolving = true;
+			$response        = agend_apps_sso_mint_token( agend_apps_idp_entity_id(), $external_id );
+			self::$resolving = false;
+
+			$minted = is_wp_error( $response ) ? array() : ( ( isset( $response['data'] ) && is_array( $response['data'] ) ) ? $response['data'] : $response );
+
+			if ( empty( $minted['access_token'] ) || empty( $minted['expires_at'] ) ) {
+				set_transient( self::REFRESH_AHEAD_BACKOFF_PREFIX . $user_id, 1, self::REFRESH_AHEAD_BACKOFF_TTL );
+				return;
+			}
+
+			if ( self::replace_if_unchanged( $user_id, $started_from, self::token_record( $minted, $external_id ) ) && function_exists( 'agend_apps_record_linked_identity' ) ) {
+				agend_apps_record_linked_identity( $user_id, $minted );
+			}
+		} catch ( \Throwable $e ) {
+			// Runs after the response is sent; nothing is left to break.
+		} finally {
+			self::$resolving = false;
+			self::release_mint_lock( $user_id, $lock );
+		}
+	}
+
+	/**
+	 * The function that sends the response and keeps PHP running, or null when
+	 * the host offers none.
+	 */
+	private static function finisher(): ?callable {
+		$default = null;
+
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			$default = 'fastcgi_finish_request';
+		} elseif ( function_exists( 'litespeed_finish_request' ) ) {
+			$default = 'litespeed_finish_request';
+		}
+
+		/**
+		 * Filters the function that sends the response before the refresh-ahead
+		 * mint runs. A test sets this to a recording callable; null disables
+		 * refresh-ahead.
+		 *
+		 * @param callable|null $finisher Default `fastcgi_finish_request` or `litespeed_finish_request` when available.
+		 */
+		$finisher = apply_filters( 'agend_apps_token_worker_finisher', $default );
+
+		return is_callable( $finisher ) ? $finisher : null;
+	}
+
+	/**
+	 * The current Unix time for token lifetimes, via whatever
+	 * `agend_apps_token_worker_clock` filters in, or `time()`.
+	 */
+	private static function now(): int {
+		/**
+		 * Filters the clock the worker judges token lifetimes by. A test sets
+		 * this so expiry boundaries are exact; production leaves it unfiltered.
+		 *
+		 * @param callable|null $clock Callable returning a Unix timestamp, or null for `time()`.
+		 */
+		$clock = apply_filters( 'agend_apps_token_worker_clock', null );
+
+		return is_callable( $clock ) ? (int) call_user_func( $clock ) : time();
+	}
+
+	/**
+	 * The record a mint stores, whether inline or refresh-ahead.
+	 *
+	 * @param array  $minted      The gateway's `access_token` and `expires_at`.
+	 * @param string $external_id The external id it was minted for.
+	 * @return array{access_token: string, expires_at: int, external_id: string, minted_at: int}
+	 */
+	private static function token_record( array $minted, string $external_id ): array {
+		return array(
+			'access_token' => (string) $minted['access_token'],
+			'expires_at'   => (int) $minted['expires_at'],
+			'external_id'  => $external_id,
+			'minted_at'    => self::now(),
+		);
+	}
+
+	/**
+	 * Compare-and-set write of the stored token, as
+	 * `Agend_Apps_Member_Session::replace_if_unchanged()` does for the member
+	 * session: the row is replaced only while it still holds `$expected`, so a
+	 * logout that deleted it in the meantime is never undone.
+	 *
+	 * @param int   $user_id  WordPress user id.
+	 * @param array $expected The record this request read.
+	 * @param array $record   The new record.
+	 * @return bool Whether the write happened.
+	 */
+	private static function replace_if_unchanged( int $user_id, array $expected, array $record ): bool {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- update_user_meta() cannot condition on the current value without re-adding a deleted row.
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->usermeta} SET meta_value = %s WHERE user_id = %d AND meta_key = %s AND meta_value = %s",
+				maybe_serialize( $record ),
+				$user_id,
+				self::META_KEY,
+				maybe_serialize( $expected )
+			)
+		);
+
+		wp_cache_delete( $user_id, 'user_meta' );
+
+		return 1 === (int) $wpdb->rows_affected;
+	}
+
+	/**
+	 * Reads the user's stored token record, when it is well formed.
+	 *
+	 * @param int  $user_id              WordPress user id.
+	 * @param bool $bypass_request_cache Re-read user meta from the store, not this request's copy of it.
+	 * @return array{access_token: string, expires_at: int, external_id: string}|null
+	 */
+	private static function stored_record( int $user_id, bool $bypass_request_cache = false ): ?array {
+		if ( $bypass_request_cache ) {
+			wp_cache_delete( $user_id, 'user_meta' );
+		}
+
+		$cached = get_user_meta( $user_id, self::META_KEY, true );
+
+		if ( is_array( $cached ) && isset( $cached['access_token'], $cached['expires_at'], $cached['external_id'] ) ) {
+			return $cached;
+		}
+
+		return null;
+	}
+
+	/**
+	 * The user's stored token record when it was minted for the given external
+	 * id and has more than {@see EXPIRY_BUFFER} seconds left.
+	 *
+	 * @param int    $user_id              WordPress user id.
+	 * @param string $external_id          The external id the token must have been minted for.
+	 * @param bool   $bypass_request_cache Re-read user meta from the store, not this request's copy of it.
+	 * @return array|null
+	 */
+	private static function usable_record( int $user_id, string $external_id, bool $bypass_request_cache = false ): ?array {
+		$cached = self::stored_record( $user_id, $bypass_request_cache );
+
+		if (
+			null !== $cached
+			&& $cached['external_id'] === $external_id
+			&& ( (int) $cached['expires_at'] - self::EXPIRY_BUFFER ) > self::now()
+		) {
+			return $cached;
+		}
+
+		return null;
+	}
+
+	/**
 	 * Reads the user's cached token, valid only for the given external id.
 	 *
 	 * @param int    $user_id             WordPress user id.
@@ -365,22 +647,9 @@ class Agend_Apps_Token_Worker {
 	 * @return string The token, or an empty string when none is cached, it is near expiry, or it belongs to another external id.
 	 */
 	private static function cached_token( int $user_id, string $external_id, bool $bypass_request_cache = false ): string {
-		if ( $bypass_request_cache ) {
-			wp_cache_delete( $user_id, 'user_meta' );
-		}
+		$cached = self::usable_record( $user_id, $external_id, $bypass_request_cache );
 
-		$cached = get_user_meta( $user_id, self::META_KEY, true );
-
-		if (
-			is_array( $cached )
-			&& isset( $cached['access_token'], $cached['expires_at'], $cached['external_id'] )
-			&& $cached['external_id'] === $external_id
-			&& ( (int) $cached['expires_at'] - self::EXPIRY_BUFFER ) > time()
-		) {
-			return (string) $cached['access_token'];
-		}
-
-		return '';
+		return null === $cached ? '' : (string) $cached['access_token'];
 	}
 
 	/**

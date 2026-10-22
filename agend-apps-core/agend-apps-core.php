@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.42.1
+ * Version:           1.44.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.42.1' );
+define( 'AGEND_APPS_CORE_VERSION', '1.44.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -258,6 +258,9 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-secret-store.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-settings.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/member-transient-purge.php';
+	add_action( 'init', 'agend_apps_maybe_purge_member_transients' );
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-http-batch.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-api.php';
 
 	// Cached API-key scopes (SPEC-CORE-20260908 scope-gated features): backs
