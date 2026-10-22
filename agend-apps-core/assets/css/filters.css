@@ -129,10 +129,11 @@
 }
 
 /* The Height setting reaches the filter's action buttons too, so a Search
-   button, "Use my location", the clear button and the List / Map switch line
-   up with the fields beside them. The choice buttons of the Buttons
-   presentation are left out: they are pills in a list, not a row of fields. */
-.agend-filter.agend-filter--field-height .agend-filter__control :is(.agend-filter__location-search, .agend-filter__location-locate, .agend-filter__reset, .agend-filter__view .agend-filter__button) {
+   button, "Use my location", the clear and share buttons and the List / Map
+   switch line up with the fields beside them. The choice buttons of the
+   Buttons presentation are left out: they are pills in a list, not a row of
+   fields. */
+.agend-filter.agend-filter--field-height .agend-filter__control :is(.agend-filter__location-search, .agend-filter__location-locate, .agend-filter__reset, .agend-filter__share, .agend-filter__view .agend-filter__button) {
   box-sizing: border-box;
   height: var(--agend-filter-height);
   min-height: var(--agend-filter-height);
