@@ -88,6 +88,35 @@ Four pieces, each usable on its own, so a directory can be laid out however its 
 
 Map tiles come from CARTO when the site has a CARTO basemaps key (Settings > Agend Widgets > Maps), and from OpenStreetMap's own tiles otherwise. CARTO stopped serving tiles without a key in September 2026; OpenStreetMap's tiles suit light traffic only, so a busy directory should have a key.
 
+## Search links and the Share filter
+
+A directory catalogue with a filter template keeps its search in the page address as the visitor filters, so Back from a listing, a reload, or the address opened in a new tab shows the same filters, view and page. The address is updated in place, never as a new history entry, and not while the visitor is typing in a filter text box. In card template mode the server draws the first page of results for the address, so a link arrives with its results.
+
+- **Share** (Agend Filter, filter "Share", in the catalogue's filter template) shows a button that opens a dialog with a link to the visitor's current search, a Copy button, a Share button where the browser can open the device's share sheet, and a Close button. When the search is limited to a map area the visitor chose, a ticked "Include the current map area" box lets them leave it out. Every text is a setting. The link is the catalogue page's own address plus the search, so campaign and ad-click parameters in the visitor's address bar are not passed on.
+- Only what the page's filters write is read back. A parameter with no matching filter is dropped, so is a value whose every filter hides itself (a custom field the visitor may not read), and a value a filter no longer offers keeps filtering and shows as "Any".
+- A position from the visitor's device ("Use my location", or the map's "Show my location") never enters the address. A typed place travels with its text at the precision the plugin searches at (3 decimal places, radius to 1). A map area travels only when "Update results as the map moves" is on and the visitor dragged or zoomed the map.
+- Not on a page with more than one directory catalogue, or for a catalogue using the built-in filter bar; there the address is left alone and the Share filter hides itself.
+- Analytics: Google Analytics 4 records a page view whenever the address changes ("Page changes based on browser history events", on by default). A site that does not want one per search can turn that option off. What reaches analytics is what the visitor typed or chose, never their device position; redact `address` and `near` in the analytics tool if typed places should not be recorded.
+
+| Search | Parameter | Value |
+| :--- | :--- | :--- |
+| Search box | `q` | text, up to 200 characters |
+| Category | `category_ids` | category ids, comma-joined |
+| Custom field, value list | `cf_<key>` | values, comma-joined |
+| Custom field, range | `rf_<key>` | `<min>:<max>`, either side may be blank |
+| Organisation | `location_name` | text, up to 100 characters |
+| City, State, Postcode, Country | `city`, `state`, `postcode`, `country` | values, comma-joined, up to 50 of 100 characters each |
+| Tag, Badge | `tag_ids`, `badge_ids` | ids, comma-joined |
+| Minimum rating | `rating` | 1 to 5 |
+| Featured | `featured_only` | `true` |
+| Sort by | `sort` | `relevance`, `distance`, `name`, `created_at`, `view_count` or `rating` |
+| Location search, typed place | `near`, `radius`, `address` | `<lat>,<lng>`; kilometres up to 1000; the text typed |
+| Map area | `bbox` | `<north>,<south>,<east>,<west>` |
+| List / Map switch | `view` | `list` or `map`, when it differs from the switch's Starts on |
+| Page | `pg` | a page above 1, with numbered pagination |
+
+A comma or percent sign inside a value is written as `%2C` or `%25` before the values are joined. The names avoid WordPress's own query variables (`page`, `tag`) and `featured`, which The Events Calendar registers.
+
 ## Export report parameters
 
 A report can declare parameters that narrow what it exports. The widget maps them with rows keyed

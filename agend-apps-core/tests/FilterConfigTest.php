@@ -410,4 +410,76 @@ final class FilterConfigTest extends TestCase {
 		$this->assertArrayNotHasKey( 'categoryLevel', $state );
 		$this->assertSame( 'checkboxes', $state['control'] );
 	}
+
+	#[Test]
+	public function should_offer_share_under_the_directory_group_when_an_author_picks_a_filter(): void {
+		$groups = array_column( agend_apps_records_filter_options(), 'options', 'label' );
+
+		$this->assertSame( 'Share', $groups['Directory']['listing:share'] );
+		$this->assertArrayNotHasKey( 'event:share', $groups['Events'] );
+		$this->assertArrayNotHasKey( 'course:share', $groups['Courses'] );
+	}
+
+	#[Test]
+	public function should_write_no_state_when_the_filter_is_share(): void {
+		$config = agend_apps_records_filter_config( 'listing', 'share', array() );
+
+		$this->assertSame( 'share', $config['control'] );
+		$this->assertSame( '', $config['state'] );
+	}
+
+	#[Test]
+	public function should_default_every_share_text_when_the_settings_are_blank(): void {
+		$config = agend_apps_records_filter_config( 'listing', 'share', array( 'share_button_text' => '  ' ) );
+
+		$this->assertSame(
+			array(
+				'buttonText'   => 'Share this search',
+				'heading'      => 'Share this search',
+				'copyText'     => 'Copy',
+				'shareText'    => 'Share',
+				'closeText'    => 'Close',
+				'areaLabel'    => 'Include the current map area',
+				'areaNote'     => 'Results are limited to the area shown on your map.',
+				'linkLabel'    => 'Link to this search',
+				'copied'       => 'Link copied',
+				'copyFallback' => 'Select and copy the link',
+			),
+			$config['share']
+		);
+	}
+
+	#[Test]
+	public function should_use_the_authors_share_text_when_it_is_set(): void {
+		$settings = array(
+			'share_button_text'  => 'Send this search',
+			'share_heading_text' => 'Send it',
+			'share_copy_text'    => 'Copy link',
+			'share_share_text'   => 'Send',
+			'share_close_text'   => 'Done',
+			'share_area_label'   => 'Keep my map area',
+			'share_area_note'    => 'Only the area on your map.',
+		);
+		$config   = agend_apps_records_filter_config( 'listing', 'share', $settings );
+
+		$this->assertSame( array( 'Send this search', 'Send it', 'Copy link', 'Send', 'Done', 'Keep my map area', 'Only the area on your map.' ), array_slice( array_values( $config['share'] ), 0, 7 ) );
+	}
+
+	#[Test]
+	public function should_show_the_share_text_settings_only_when_the_filter_is_share(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema.php';
+		$fields = array();
+		foreach ( agend_apps_records_surface_schema( 'filter' )['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				$fields[ $field['name'] ] = $field;
+			}
+		}
+
+		foreach ( array( 'share_button_text', 'share_heading_text', 'share_copy_text', 'share_share_text', 'share_close_text', 'share_area_label', 'share_area_note' ) as $name ) {
+			$this->assertSame( array( 'filter' => 'listing:share' ), $fields[ $name ]['condition'], $name );
+			$this->assertSame( 'text', $fields[ $name ]['type'], $name );
+		}
+		$this->assertSame( 'Share this search', $fields['share_button_text']['placeholder'] );
+		$this->assertContains( 'listing:share', $fields['any_label']['condition']['filter!'] );
+	}
 }

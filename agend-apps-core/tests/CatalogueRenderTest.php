@@ -144,6 +144,146 @@ final class CatalogueRenderTest extends TestCase {
 		}
 	}
 
+	#[Test]
+	public function should_render_the_restored_search_when_the_request_carries_a_search_link(): void {
+		$config = $this->renderLink( 'rating=4&q=physio&sort=name&utm_source=mail' );
+
+		self::assertSame( array( array( 'page' => 1, 'rating' => '4', 'sortBy' => 'name' ) ), $this->searched( array( 'page', 'rating', 'sortBy' ) ) );
+		self::assertSame( array( 'state' => array( 'search' => 'physio', 'rating' => '4', 'sortBy' => 'name' ), 'page' => 1, 'shown' => 1 ), $config['searchLink'] );
+	}
+
+	#[Test]
+	public function should_render_the_requested_page_when_the_link_carries_pg(): void {
+		$config = $this->renderLink( 'rating=4&pg=3' );
+
+		self::assertSame( array( array( 'page' => 3 ) ), $this->searched( array( 'page' ) ) );
+		self::assertSame( 3, $config['searchLink']['shown'] );
+	}
+
+	#[Test]
+	public function should_render_page_1_of_the_restored_search_when_pg_is_past_its_last_page(): void {
+		$config = $this->renderLink( 'rating=4&pg=5' );
+
+		self::assertSame( array( array( 'page' => 5, 'rating' => '4' ), array( 'page' => 1, 'rating' => '4' ) ), $this->searched( array( 'page', 'rating' ) ) );
+		self::assertSame( array( 5, 1 ), array( $config['searchLink']['page'], $config['searchLink']['shown'] ) );
+	}
+
+	#[Test]
+	public function should_render_the_default_page_when_no_control_writes_the_linked_value(): void {
+		$config = $this->renderLink( 'cf_unknown=x&featured_only=true&utm_source=mail' );
+
+		self::assertSame( array( array( 'page' => 1 ) ), $this->searched( array( 'page', 'custom_fields', 'featured' ) ) );
+		self::assertArrayNotHasKey( 'searchLink', $config );
+	}
+
+	#[Test]
+	public function should_render_the_default_page_when_every_linked_value_is_invalid(): void {
+		$config = $this->renderLink( 'rating=9&sort=price&pg=0' );
+
+		self::assertSame( array( array( 'page' => 1, 'sortBy' => 'relevance' ) ), $this->searched( array( 'page', 'rating', 'sortBy' ) ) );
+		self::assertArrayNotHasKey( 'searchLink', $config );
+	}
+
+	#[Test]
+	public function should_ask_one_query_when_two_links_differ_only_in_parameter_order(): void {
+		$this->renderLink( 'cf_funding=ndis&rating=4&cf_education_level=masters' );
+		$first = $GLOBALS['agend_render_test_directory_search_args'];
+		$this->renderLink( 'cf_education_level=masters&rating=4&cf_funding=ndis' );
+
+		self::assertSame( $first, $GLOBALS['agend_render_test_directory_search_args'] );
+		self::assertSame( array( 'education_level', 'funding' ), array_keys( $first[0]['custom_fields'] ) );
+	}
+
+	#[Test]
+	public function should_hand_the_browser_the_unslashed_state_when_the_link_has_a_backslash(): void {
+		$config = $this->renderLink( 'location_name=St+Vincent%27s+%5C+Co' );
+
+		self::assertSame( "St Vincent's \\ Co", $config['searchLink']['state']['location_name'] );
+		self::assertSame( "St Vincent's \\ Co", $GLOBALS['agend_render_test_directory_search_args'][0]['locationName'] );
+	}
+
+	#[Test]
+	public function should_hand_the_browser_an_empty_object_when_the_link_sets_only_a_page(): void {
+		$this->renderLink( 'pg=2' );
+
+		self::assertStringContainsString( '"searchLink":{"state":{},"page":2,"shown":2}', $this->lastConfigJson );
+	}
+
+	#[Test]
+	public function should_hand_the_browser_custom_fields_as_an_object_when_a_field_key_is_numeric(): void {
+		$this->renderLink( 'cf_0=a', array( 100 => array( 'filter' => 'listing:custom_field', 'custom_field_key' => '0' ) ) );
+
+		self::assertStringContainsString( '"searchLink":{"state":{"custom_fields":{"0":["a"]}}', $this->lastConfigJson );
+	}
+
+	/** The raw client config JSON of the last renderLink() call. */
+	private string $lastConfigJson = '';
+
+	/**
+	 * Renders a templated directory catalogue whose filter template draws a
+	 * rating, sort, search, Organisation and two custom field filters, for a
+	 * request carrying `$query`, and returns the catalogue's client config.
+	 */
+	private function renderLink( string $query, array $extra = array() ): array {
+		agend_render_test_reset();
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/filter.php';
+		$GLOBALS['agend_render_test_extra_filters'] = $extra;
+		$adapter = new class() implements \Agend_Apps_Template_Renderer, \Agend_Apps_Template_Source {
+			public function is_valid_template( int $template_id ): bool {
+				return $template_id > 0 && $template_id < 100;
+			}
+			public function ensure_styles( int $template_id ): void {}
+			public function render( int $template_id, string $type, array $record, array $extra = array(), bool $with_css = false ): string {
+				return '<p>' . ( $record['slug'] ?? '' ) . '</p>';
+			}
+			public function render_plain( int $template_id, bool $with_css = false ): string {
+				$html = '';
+				foreach ( array( array( 'filter' => 'listing:rating' ), array( 'filter' => 'listing:sort' ), array( 'filter' => 'listing:search' ), array( 'filter' => 'listing:organisation' ), array( 'filter' => 'listing:custom_field', 'custom_field_key' => 'funding', 'control' => 'checkboxes' ), array( 'filter' => 'listing:custom_field', 'custom_field_key' => 'education_level' ) ) + $GLOBALS['agend_render_test_extra_filters'] as $settings ) {
+					$html .= agend_apps_records_render_filter( $settings );
+				}
+				return $html;
+			}
+			public function label(): string {
+				return 'Test';
+			}
+			public function templates(): array {
+				return array( '7' => 'Card', '8' => 'Filters' );
+			}
+			public function page_contains_surface( int $page_id, string $surface ): ?bool {
+				return null;
+			}
+		};
+		\Agend_Apps_Templates::reset();
+		\Agend_Apps_Templates::register_renderer( $adapter );
+		\Agend_Apps_Templates::register_source( $adapter );
+
+		parse_str( $query, $params );
+		$_GET = array_map( 'addslashes', $params );
+		try {
+			$html = agend_apps_records_render_directory_catalogue( array( 'card_template' => '7', 'filter_template' => '8' ) );
+		} finally {
+			$_GET = array();
+		}
+
+		self::assertSame( 1, preg_match( '/data-agend-directory-config="([^"]*)"/', $html, $match ) );
+		$this->lastConfigJson = html_entity_decode( $match[1], ENT_QUOTES );
+		return json_decode( $this->lastConfigJson, true );
+	}
+
+	/**
+	 * The named parts of every search the render asked the gateway for.
+	 *
+	 * @param string[] $keys Query keys to keep.
+	 */
+	private function searched( array $keys ): array {
+		return array_map(
+			static function ( array $args ) use ( $keys ): array {
+				return array_intersect_key( $args, array_flip( $keys ) );
+			},
+			$GLOBALS['agend_render_test_directory_search_args']
+		);
+	}
+
 	private function expected( string $surface, string $scenario ): string {
 		$fixtures = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/tests/fixtures/' . $surface . '-catalogue-render.json' ), true );
 

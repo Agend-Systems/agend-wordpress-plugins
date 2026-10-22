@@ -451,6 +451,17 @@ function agend_apps_records_render_filter_range_brackets_preview( array $config,
 }
 
 /**
+ * The share control's button, shared by the live stand-in and the preview.
+ *
+ * @param array $config   The filter config.
+ * @param bool  $disabled Draw it disabled, as the live stand-in does.
+ * @return string
+ */
+function agend_apps_records_render_filter_share_control( array $config, bool $disabled ): string {
+	return '<button type="button" class="agend-filter__button agend-filter__share' . ( $disabled ? ' agend-filter__placeholder" disabled' : '"' ) . '>' . esc_html( $config['share']['buttonText'] ) . '</button>';
+}
+
+/**
  * Builds the disabled control a live page shows until the runtime wires it.
  *
  * A facet or endpoint-backed list arrives one request after the page does,
@@ -472,6 +483,9 @@ function agend_apps_records_render_filter_placeholder_control( array $config ): 
 
 		case 'view':
 			return agend_apps_records_render_filter_view_control( $config, true );
+
+		case 'share':
+			return agend_apps_records_render_filter_share_control( $config, true );
 
 		case 'search':
 			return sprintf(
@@ -523,6 +537,12 @@ function agend_apps_records_render_filter_preview_control( array $config, array 
 
 		case 'view':
 			return agend_apps_records_render_filter_view_control( $config, false );
+
+		case 'share':
+			// The front end decides whether the control shows, so the editor
+			// says when it will not.
+			return agend_apps_records_render_filter_share_control( $config, false )
+				. '<p class="agend-filter__notice" role="note">' . esc_html__( 'Shares this page\'s directory search. Hidden on a page with more than one directory catalogue.', 'agend-apps-core' ) . '</p>';
 
 		case 'search':
 			return sprintf(
@@ -725,9 +745,14 @@ function agend_apps_records_render_filter( array $settings, array $opts = array(
 	// shows it; a preview stays visible for the designer.
 	$hidden = ! $preview && 'sub' === ( $config['categoryLevel'] ?? '' );
 
+	if ( ! $preview ) {
+		Agend_Apps_Records_Filter_Context::record( $config );
+	}
+
 	ob_start();
 	echo '<div class="' . esc_attr( $classes ) . '"' . ( '' !== $style['style'] ? ' style="' . esc_attr( $style['style'] ) . '"' : '' ) . ' data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '"' . ( $hidden ? ' hidden' : '' ) . '>';
-	if ( $config['showLabel'] && '' !== $config['label'] ) {
+	// The share button names itself; a label over it would only repeat it.
+	if ( $config['showLabel'] && '' !== $config['label'] && 'share' !== $config['control'] ) {
 		echo '<span class="agend-filter__label">' . esc_html( $config['label'] ) . '</span>';
 	}
 	echo '<div class="agend-filter__control">';

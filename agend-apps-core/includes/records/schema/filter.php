@@ -92,7 +92,10 @@ function agend_apps_records_schema_filter(): array {
 						'label'     => __( 'Placeholder', 'agend-apps-core' ),
 						'type'      => 'text',
 						'default'   => '',
-						'condition' => array( 'control' => array( '', 'search', 'date', 'reset', 'location' ) ),
+						'condition' => array(
+							'control' => array( '', 'search', 'date', 'reset', 'location' ),
+							'filter!' => array( 'listing:share' ),
+						),
 					),
 					array(
 						'name'        => 'any_label',
@@ -102,7 +105,7 @@ function agend_apps_records_schema_filter(): array {
 						'description' => __( 'The option that clears this filter, for example "All Categories".', 'agend-apps-core' ),
 						'condition'   => array(
 							'control!' => array( 'search', 'date', 'range_brackets' ),
-							'filter!'  => array( 'listing:location', 'listing:view' ),
+							'filter!'  => array( 'listing:location', 'listing:view', 'listing:share' ),
 						),
 					),
 					array(
@@ -299,6 +302,71 @@ function agend_apps_records_schema_filter(): array {
 						'placeholder' => __( 'Map', 'agend-apps-core' ),
 						'condition'   => array( 'filter' => 'listing:view' ),
 					),
+					array(
+						'name'        => 'share_heading',
+						'label'       => __( 'Share', 'agend-apps-core' ),
+						'type'        => 'heading',
+						'separator'   => 'before',
+						'condition'   => array( 'filter' => 'listing:share' ),
+					),
+					array(
+						'name'        => 'share_button_text',
+						'label'       => __( 'Button text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'placeholder' => __( 'Share this search', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:share' ),
+					),
+					array(
+						'name'        => 'share_heading_text',
+						'label'       => __( 'Dialog heading', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'placeholder' => __( 'Share this search', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:share' ),
+					),
+					array(
+						'name'        => 'share_copy_text',
+						'label'       => __( 'Copy button text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'placeholder' => __( 'Copy', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:share' ),
+					),
+					array(
+						'name'        => 'share_share_text',
+						'label'       => __( 'Share button text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'placeholder' => __( 'Share', 'agend-apps-core' ),
+						'description' => __( 'Shown only in a browser that can open the device\'s share sheet.', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:share' ),
+					),
+					array(
+						'name'        => 'share_close_text',
+						'label'       => __( 'Close button text', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'placeholder' => __( 'Close', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:share' ),
+					),
+					array(
+						'name'        => 'share_area_label',
+						'label'       => __( 'Map area tickbox label', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'placeholder' => __( 'Include the current map area', 'agend-apps-core' ),
+						'description' => __( 'Shown only when the search is limited to a map area the visitor chose.', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:share' ),
+					),
+					array(
+						'name'        => 'share_area_note',
+						'label'       => __( 'Map area note', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'placeholder' => __( 'Results are limited to the area shown on your map.', 'agend-apps-core' ),
+						'condition'   => array( 'filter' => 'listing:share' ),
+					),
 				),
 			),
 			array(
@@ -306,7 +374,7 @@ function agend_apps_records_schema_filter(): array {
 				'label'     => __( 'Values', 'agend-apps-core' ),
 				'condition' => array(
 					'control!' => array( 'search', 'date', 'reset', 'range', 'range_brackets', 'location', 'view' ),
-					'filter!'  => array( 'listing:location', 'listing:view' ),
+					'filter!'  => array( 'listing:location', 'listing:view', 'listing:share' ),
 				),
 				'fields'    => array(
 					array(

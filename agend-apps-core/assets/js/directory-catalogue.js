@@ -1724,6 +1724,57 @@
     return pages;
   }
 
+  // -- Search links ---------------------------------------------------------
+
+  // Every filter shell in a scope with its config and whether it is hidden.
+  function filterShellsIn(scope) {
+    var shells = [];
+    Array.prototype.forEach.call(scope.querySelectorAll('[data-agend-filter]'), function (shell) {
+      try {
+        shells.push({ config: JSON.parse(shell.getAttribute('data-agend-filter')), hidden: shell.hidden });
+      } catch (e) {
+        /* a shell with unreadable config builds no control either */
+      }
+    });
+    return shells;
+  }
+
+  // Whether a map search area can stand on this page: read from the map's own
+  // element, because the map script may start after this one, or not be on
+  // the page at all.
+  function mapMovesResults() {
+    var node = document.querySelector('.agend-directory-map[data-agend-map-config]');
+    if (!node) {
+      return false;
+    }
+    try {
+      var mapCfg = JSON.parse(node.getAttribute('data-agend-map-config'));
+      return !!(mapCfg && mapCfg.updateOnMove);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  var TEXT_INPUTS = ['search', 'text', 'number', 'email', 'tel', 'url'];
+
+  function isTextBox(node) {
+    return !!node && (node.tagName === 'TEXTAREA' || (node.tagName === 'INPUT' && TEXT_INPUTS.indexOf(node.type) !== -1));
+  }
+
+  // JSON with every object's keys sorted, so two parses of one link compare
+  // equal whatever order each built its keys in.
+  function canonicalJson(value) {
+    if (Array.isArray(value)) {
+      return '[' + value.map(canonicalJson).join(',') + ']';
+    }
+    if (value && typeof value === 'object') {
+      return '{' + Object.keys(value).sort().map(function (key) {
+        return JSON.stringify(key) + ':' + canonicalJson(value[key]);
+      }).join(',') + '}';
+    }
+    return JSON.stringify(value);
+  }
+
   // -- Widget orchestration -------------------------------------------------
 
   function initWidget(root) {
@@ -1776,6 +1827,26 @@
       serverFilters.parentNode.removeChild(serverFilters);
     }
 
+    // The search is mirrored into the page address, and read back from it
+    // before any control is built. Only for the page's one directory
+    // catalogue, because the parameters are not scoped to a catalogue, and
+    // only with a filter template, because the built-in bar cannot show a
+    // restored value.
+    var searchLink = window.agendSearchLink;
+    var linksOn = !!(searchLink && hasTemplatedFilters && window.history && typeof window.history.replaceState === 'function' &&
+      document.querySelectorAll('.agend-directory-catalogue[data-agend-directory-config]').length === 1);
+    var linkFilters = linksOn ? searchLink.readable(filterShellsIn(serverFilters).map(function (shell) {
+      return shell.config;
+    })) : null;
+    var areaStands = linksOn && mapMovesResults();
+    var restored = linksOn ? searchLink.decode(window.location.search, linkFilters, { bbox: areaStands }) : null;
+    if (restored) {
+      Object.keys(restored.state).forEach(function (key) {
+        state[key] = restored.state[key];
+      });
+      state.page = restored.page;
+    }
+
     applySiteTheme(root, cfg);
 
     // Publish the live filter state so an Agend Export Report widget on the
@@ -1802,6 +1873,88 @@
       open: function (slug) { openItem(slug); },
     };
     window.agendCatalogues.listing = published;
+
+    function searchPairs(includeArea) {
+      return searchLink.encode(state, {
+        page: state.page,
+        numbered: cfg.pagination.style !== 'load_more' && cfg.pagination.style !== 'none',
+        defaultView: linkFilters.view ? linkFilters.view.default : null,
+        bbox: areaStands && includeArea !== false,
+      });
+    }
+
+    // Written with replaceState only, so filtering adds no history entry and
+    // Back from a listing lands on the catalogue as the visitor left it. Not
+    // while a filter text box has focus: analytics records a page view for
+    // every address change, which would be one per partial word typed. Never
+    // onto a listing's own address.
+    var writeOnNextSearch = false;
+
+    function writeAddress(force) {
+      if (!linksOn || currentDeepLink() || (!force && isTextBox(document.activeElement) && serverFilters.contains(document.activeElement))) {
+        return;
+      }
+      // Serialised by the browser, as the address is, so an unchanged search
+      // compares equal however a character was escaped and is not written.
+      var href = new URL(searchLink.apply(window.location.href, searchPairs()), window.location.href).href;
+      if (href === window.location.href) {
+        return;
+      }
+      try {
+        window.history.replaceState(window.history.state, '', href);
+      } catch (e) {
+        /* history API unavailable: the search still works in-page */
+      }
+    }
+
+    // The catalogue page's permalink, which keeps its own parameters (page_id,
+    // a language), never the visitor's other address parameters such as
+    // campaign or ad-click ids.
+    function shareLink(includeArea) {
+      return searchLink.apply(permalink(), searchPairs(includeArea));
+    }
+
+    // basePath is the permalink of the queried object, which on an archive is
+    // a term, not this page. It is this page's only when its path matches and
+    // the address carries every parameter it has (page_id with plain links).
+    function permalink() {
+      var here = window.location.origin + window.location.pathname;
+      if (!cfg.basePath) {
+        return here;
+      }
+      try {
+        var base = new URL(cfg.basePath, window.location.href);
+        var current = new URL(window.location.href);
+        var samePath = base.origin + base.pathname.replace(/\/$/, '') === here.replace(/\/$/, '');
+        var sameQuery = Array.from(base.searchParams.keys()).every(function (name) {
+          return current.searchParams.get(name) === base.searchParams.get(name);
+        });
+        return samePath && sameQuery ? base.toString() : here;
+      } catch (e) {
+        return here;
+      }
+    }
+
+    function shareHasArea() {
+      return searchPairs(true).some(function (pair) {
+        return pair[0] === 'bbox';
+      });
+    }
+
+    if (linksOn) {
+      serverFilters.addEventListener('focusout', function (e) {
+        if (isTextBox(e.target)) {
+          writeAddress(true);
+        }
+      });
+      // Enter can start a search (a place lookup) or come before a pending
+      // debounce fires, so the address follows the search it leads to.
+      serverFilters.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && isTextBox(e.target)) {
+          writeOnNextSearch = true;
+        }
+      });
+    }
 
     // Card template mode: the first page arrived server-rendered, so adopt
     // that markup (grid, pager, filter slot) instead of rebuilding it, and
@@ -1914,7 +2067,9 @@
         }
         return base + 'listing/' + encodeURIComponent(slug) + '/';
       }
-      var url = new URL(window.location.href);
+      // A listing's address carries no search; Back returns to the address
+      // that does.
+      var url = new URL(linksOn ? searchLink.apply(window.location.href, []) : window.location.href);
       url.searchParams.set(DEEP_LINK_PARAM, slug);
       return url.toString();
     }
@@ -1930,6 +2085,9 @@
           var url = new URL(window.location.href);
           url.searchParams.delete(DEEP_LINK_PARAM);
           target = url.toString();
+        }
+        if (!slug && linksOn) {
+          target = searchLink.apply(target, searchPairs());
         }
         window.history.pushState({ agendListing: slug || null }, '', target);
       } catch (e) {
@@ -1964,10 +2122,41 @@
           reload: reloadCatalogue,
           apiGet: apiGet,
           setView: setView,
+          built: dropUnwritten,
+          share: linksOn ? { link: shareLink, hasArea: shareHasArea } : null,
         });
         return;
       }
       buildFilterBar(target, cfg, state, reloadCatalogue);
+    }
+
+    // A restored value whose every control hid itself once its values arrived
+    // (no facet values for this visitor, no brackets) would filter the results
+    // with nothing on the page to show or clear it, so it is dropped and the
+    // catalogue searches again. Once: a Reset rebuild has nothing restored.
+    var restoreChecked = false;
+
+    function dropUnwritten(scope) {
+      if (restoreChecked || !restored) {
+        return;
+      }
+      restoreChecked = true;
+      var drops = searchLink.unwritten(restored.state, filterShellsIn(scope));
+      if (!drops.length) {
+        return;
+      }
+      drops.forEach(function (drop) {
+        if (drop.field) {
+          delete state.custom_fields[drop.field];
+        } else if (drop.key === 'near') {
+          state.near = null;
+        } else {
+          state[drop.key] = Array.isArray(state[drop.key]) ? [] : '';
+        }
+      });
+      // A different search, so it starts at page 1 as any filter change does.
+      state.page = 1;
+      reloadCatalogue();
     }
 
     function openItem(slug) {
@@ -2117,6 +2306,9 @@
       document.dispatchEvent(new CustomEvent('agend:directory-results', {
         detail: { params: params, pagination: pagination || null, catalogue: published },
       }));
+      var force = writeOnNextSearch;
+      writeOnNextSearch = false;
+      writeAddress(force);
     }
 
     // List / Map switch: the results list steps aside for an Agend Map set to
@@ -2129,6 +2321,7 @@
       document.dispatchEvent(new CustomEvent('agend:directory-view', {
         detail: { view: next, catalogue: published },
       }));
+      writeAddress(false);
     }
 
     // Every reload is numbered so a slow answer to an earlier question can
@@ -2166,6 +2359,15 @@
         var result = templated
           ? { items: (body && body.cards) || [], pagination: (body && body.meta && body.meta.pagination) || null }
           : unwrapList(body);
+        // A page past the last (a restored link whose search now has fewer
+        // results) shows page 1 of the same search instead.
+        var lastPage = result.pagination ? parseInt(result.pagination.total_pages, 10) : NaN;
+        lastPage = isFinite(lastPage) ? lastPage : null;
+        if (!state.append && state.page > 1 && lastPage !== null && lastPage < state.page) {
+          state.page = 1;
+          reloadCatalogue();
+          return;
+        }
         status.style.display = 'none';
         if (!state.append) {
           grid.innerHTML = '';
@@ -2231,6 +2433,9 @@
         showDetail(slug, false);
       } else {
         showCatalogue(false);
+        // An older entry can hold an earlier search; the address mirrors the
+        // one on screen.
+        writeAddress(true);
       }
     });
 
@@ -2244,19 +2449,35 @@
       return;
     }
     if (templated) {
-      // The first page is already in the DOM; only wire pagination, and
-      // refetch when the server-side fetch failed.
-      renderPagination(pager, cfg, state, cfg.initialPagination || null, reloadCatalogue);
-      if (!cfg.initialError) {
-        // Page one arrived with the markup, so no reload announces it.
-        announce(cfg.initialPagination || null);
+      // The first page is already in the DOM: the default search, or a search
+      // link's (cfg.searchLink) when the server read the link as this script
+      // did. Any other first page would show results the address does not
+      // describe, so it is neither announced nor kept, and the search is asked
+      // once.
+      var drawn = cfg.searchLink || null;
+      var drewRestored = !!(drawn && restored && drawn.page === restored.page && canonicalJson(drawn.state) === canonicalJson(restored.state));
+      var searchAgain = !cfg.initialError && (drawn ? !drewRestored : !!(restored && searchLink.isSearch(restored)));
+      if (drewRestored) {
+        state.page = drawn.shown;
+      }
+      if (searchAgain) {
+        if (countEl) {
+          countEl.textContent = '';
+        }
+      } else {
+        // Only wire pagination, and refetch when the server-side fetch failed.
+        renderPagination(pager, cfg, state, cfg.initialPagination || null, reloadCatalogue);
+        if (!cfg.initialError) {
+          // Page one arrived with the markup, so no reload announces it.
+          announce(cfg.initialPagination || null);
+        }
       }
       if (deepLinkSlug) {
         showDetail(deepLinkSlug, false);
       } else {
         showCatalogue(false);
       }
-      if (cfg.initialError) {
+      if (cfg.initialError || searchAgain) {
         reloadCatalogue();
       }
     } else if (deepLinkSlug) {
