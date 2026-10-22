@@ -1894,7 +1894,9 @@
       if (!linksOn || currentDeepLink() || (!force && isTextBox(document.activeElement) && serverFilters.contains(document.activeElement))) {
         return;
       }
-      var href = searchLink.apply(window.location.href, searchPairs());
+      // Serialised by the browser, as the address is, so an unchanged search
+      // compares equal however a character was escaped and is not written.
+      var href = new URL(searchLink.apply(window.location.href, searchPairs()), window.location.href).href;
       if (href === window.location.href) {
         return;
       }
@@ -1913,12 +1915,21 @@
     }
 
     // basePath is the permalink of the queried object, which on an archive is
-    // a term, not this page; it is only this page's when the paths agree.
+    // a term, not this page. It is this page's only when its path matches and
+    // the address carries every parameter it has (page_id with plain links).
     function permalink() {
       var here = window.location.origin + window.location.pathname;
+      if (!cfg.basePath) {
+        return here;
+      }
       try {
-        var base = new URL(cfg.basePath || '', window.location.href);
-        return base.origin + base.pathname.replace(/\/$/, '') === here.replace(/\/$/, '') ? base.toString() : here;
+        var base = new URL(cfg.basePath, window.location.href);
+        var current = new URL(window.location.href);
+        var samePath = base.origin + base.pathname.replace(/\/$/, '') === here.replace(/\/$/, '');
+        var sameQuery = Array.from(base.searchParams.keys()).every(function (name) {
+          return current.searchParams.get(name) === base.searchParams.get(name);
+        });
+        return samePath && sameQuery ? base.toString() : here;
       } catch (e) {
         return here;
       }

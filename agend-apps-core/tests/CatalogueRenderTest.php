@@ -209,6 +209,13 @@ final class CatalogueRenderTest extends TestCase {
 		self::assertStringContainsString( '"searchLink":{"state":{},"page":2,"shown":2}', $this->lastConfigJson );
 	}
 
+	#[Test]
+	public function should_hand_the_browser_custom_fields_as_an_object_when_a_field_key_is_numeric(): void {
+		$this->renderLink( 'cf_0=a', array( 100 => array( 'filter' => 'listing:custom_field', 'custom_field_key' => '0' ) ) );
+
+		self::assertStringContainsString( '"searchLink":{"state":{"custom_fields":{"0":["a"]}}', $this->lastConfigJson );
+	}
+
 	/** The raw client config JSON of the last renderLink() call. */
 	private string $lastConfigJson = '';
 
@@ -217,9 +224,10 @@ final class CatalogueRenderTest extends TestCase {
 	 * rating, sort, search, Organisation and two custom field filters, for a
 	 * request carrying `$query`, and returns the catalogue's client config.
 	 */
-	private function renderLink( string $query ): array {
+	private function renderLink( string $query, array $extra = array() ): array {
 		agend_render_test_reset();
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/filter.php';
+		$GLOBALS['agend_render_test_extra_filters'] = $extra;
 		$adapter = new class() implements \Agend_Apps_Template_Renderer, \Agend_Apps_Template_Source {
 			public function is_valid_template( int $template_id ): bool {
 				return $template_id > 0 && $template_id < 100;
@@ -230,7 +238,7 @@ final class CatalogueRenderTest extends TestCase {
 			}
 			public function render_plain( int $template_id, bool $with_css = false ): string {
 				$html = '';
-				foreach ( array( array( 'filter' => 'listing:rating' ), array( 'filter' => 'listing:sort' ), array( 'filter' => 'listing:search' ), array( 'filter' => 'listing:organisation' ), array( 'filter' => 'listing:custom_field', 'custom_field_key' => 'funding', 'control' => 'checkboxes' ), array( 'filter' => 'listing:custom_field', 'custom_field_key' => 'education_level' ) ) as $settings ) {
+				foreach ( array( array( 'filter' => 'listing:rating' ), array( 'filter' => 'listing:sort' ), array( 'filter' => 'listing:search' ), array( 'filter' => 'listing:organisation' ), array( 'filter' => 'listing:custom_field', 'custom_field_key' => 'funding', 'control' => 'checkboxes' ), array( 'filter' => 'listing:custom_field', 'custom_field_key' => 'education_level' ) ) + $GLOBALS['agend_render_test_extra_filters'] as $settings ) {
 					$html .= agend_apps_records_render_filter( $settings );
 				}
 				return $html;

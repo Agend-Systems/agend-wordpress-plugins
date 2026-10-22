@@ -402,9 +402,6 @@
       choices.forEach(function (choice, index) {
         host.appendChild(new Option(choice.label, String(index)));
       });
-      // A selected "Any" cannot be chosen again, so a range no bracket matches
-      // would be impossible to clear from the dropdown. Showing it on a hidden
-      // stand-in "Any" keeps the real one a change away.
       model.paint = function (index, held) {
         var old = host.querySelector('[data-agend-held]');
         if (old) {

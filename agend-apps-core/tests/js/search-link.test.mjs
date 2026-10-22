@@ -51,9 +51,11 @@ test('should read a crafted link padded with 200,000 spaces and zeros quickly wh
   const allowed = link.readable(fixture.controls.full);
   const query = `q=${encodeURIComponent(' '.repeat(200000) + 'x' + ' '.repeat(200000) + 'y')}&rating=1.${'0'.repeat(200000)}1`;
   const started = Date.now();
-  link.decode(query, allowed, { bbox: true });
+  const decoded = link.decode(query, allowed, { bbox: true });
 
   assert.ok(Date.now() - started < 1000, 'parsing took longer than a second');
+  assert.equal(decoded.state.search, 'x');
+  assert.equal(decoded.state.rating, `1.${'0'.repeat(200000)}1`);
 });
 
 test('should keep every other query parameter as written when the search link parameters are replaced', () => {

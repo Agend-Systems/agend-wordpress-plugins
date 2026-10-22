@@ -510,10 +510,14 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 	// existing config (and its pinned render fixtures). The script adopts the
 	// cards only when it reads the same link the same way.
 	if ( null !== $restored ) {
+		// Maps stay JSON objects even when empty (a link that sets only a
+		// page) or keyed 0, 1, ..., as the script's own reading of the link is.
+		$drawn_state = $restored['state'];
+		if ( isset( $drawn_state['custom_fields'] ) ) {
+			$drawn_state['custom_fields'] = (object) $drawn_state['custom_fields'];
+		}
 		$config['searchLink'] = array(
-			// An object even when empty (a link that sets only a page), which
-			// the script compares with its own reading of the link.
-			'state' => empty( $restored['state'] ) ? (object) array() : $restored['state'],
+			'state' => (object) $drawn_state,
 			'page'  => $restored['page'],
 			'shown' => $list['page'],
 		);
