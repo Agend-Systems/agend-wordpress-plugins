@@ -1167,6 +1167,10 @@ again" on Dashboard > Updates) or via `Agend_Apps_Updater::flush_theme_cache()`.
 automatic updates on for any theme whose update offer came from
 `agend-systems.github.io`, so a merged theme release installs itself on every
 site at WordPress's next twice-daily update run. Other themes are left alone.
+The theme filter answers even when the installed theme is current (WordPress
+compares the versions), so the Themes screen always shows "Auto-updates
+enabled" for an Agend theme. The Plugins screen's "Check for updates" link
+under any Agend plugin refreshes the Agend themes as well.
 
 - `agend_apps_theme_update_manifest_url` — override the theme manifest URL.
 - `agend_apps_theme_auto_update` — return `false` for a theme slug (second

@@ -256,6 +256,12 @@ class Agend_Apps_Updater {
 		delete_site_transient( 'update_plugins' );
 		wp_update_plugins();
 
+		// Agend themes are served by the same updater, so refresh them too:
+		// there is no per-theme "Check for updates" link to do it from.
+		self::flush_theme_cache();
+		delete_site_transient( 'update_themes' );
+		wp_update_themes();
+
 		return add_query_arg( self::CHECKED_QUERY_VAR, '1', self_admin_url( 'plugins.php' ) );
 	}
 
@@ -327,8 +333,14 @@ class Agend_Apps_Updater {
 	}
 
 	/**
-	 * `update_themes_{hostname}` filter: reports a newer version for a single
-	 * theme, or leaves WordPress's own `$update` untouched.
+	 * `update_themes_{hostname}` filter: reports the manifest's version of a
+	 * single theme, or leaves WordPress's own `$update` untouched.
+	 *
+	 * Unlike the plugin filter, the entry is returned even when the installed
+	 * theme is already current. WordPress compares the versions itself and
+	 * files a current theme under `no_update`, and only a theme it finds there
+	 * or under `response` gets an auto-update status on the Themes screen.
+	 * Returning nothing for an up-to-date theme left that screen blank.
 	 *
 	 * @param array|false $update           Update array WordPress already has, or false.
 	 * @param array       $theme_data       Theme header data, including `Version`.
@@ -358,12 +370,6 @@ class Agend_Apps_Updater {
 		$entry = $manifest['themes'][ $slug ];
 
 		if ( empty( $entry['version'] ) || empty( $entry['package'] ) ) {
-			return $update;
-		}
-
-		$installed_version = (string) ( $theme_data['Version'] ?? '' );
-
-		if ( '' !== $installed_version && ! version_compare( (string) $entry['version'], $installed_version, '>' ) ) {
 			return $update;
 		}
 
