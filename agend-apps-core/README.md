@@ -1147,6 +1147,31 @@ Clicking it flushes both caches, forces `wp_update_plugins()`, and redirects
 back to the Plugins screen with a dismissible "Checked for Agend plugin
 updates." notice.
 
+### Theme updates
+
+The same class serves the Agend themes. The Agend Base theme lives in its own
+repository (`Agend-Systems/agend-base-theme`), which publishes a second
+manifest at `https://agend-systems.github.io/agend-base-theme/manifest.json`
+with a top-level `themes` map. The theme's `style.css` declares
+`Update URI: https://agend-systems.github.io/agend-base-theme/agend-base`, and
+Core registers `update_themes_agend-systems.github.io` to answer it. Every site
+that runs an Agend theme also runs Core, so the theme carries no updater of
+its own.
+
+The theme manifest is cached separately, in the
+`agend_apps_theme_update_manifest` site transient, with the same TTLs, and is
+flushed when WordPress deletes its `update_themes` site transient ("Check
+again" on Dashboard > Updates) or via `Agend_Apps_Updater::flush_theme_cache()`.
+
+**Agend themes auto-update.** Core's `auto_update_theme` filter switches
+automatic updates on for any theme whose update offer came from
+`agend-systems.github.io`, so a merged theme release installs itself on every
+site at WordPress's next twice-daily update run. Other themes are left alone.
+
+- `agend_apps_theme_update_manifest_url` — override the theme manifest URL.
+- `agend_apps_theme_auto_update` — return `false` for a theme slug (second
+  argument) to opt that site out of automatic theme updates.
+
 
 ## Endpoint scope guard
 
