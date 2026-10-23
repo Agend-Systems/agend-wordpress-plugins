@@ -11,7 +11,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Serves plugin update information from a static manifest published on
- * GitHub Pages, for every installed Agend plugin (not just Core).
+ * GitHub Pages, for every installed Agend plugin (not just Core), and theme
+ * update information for the Agend themes from a second manifest.
  *
  * None of the Agend plugins are on WordPress.org, so each plugin's main file
  * declares `Update URI: https://agend-systems.github.io/agend-wordpress-plugins/{slug}`.
@@ -19,6 +20,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  * through a per-hostname `update_plugins_{hostname}` filter, so this one
  * class -- loaded unconditionally by Core, which every sibling plugin
  * depends on -- covers the whole family from a single manifest fetch.
+ *
+ * Themes work the same way through `update_themes_{hostname}`: the Agend Base
+ * theme's `style.css` declares
+ * `Update URI: https://agend-systems.github.io/agend-base-theme/agend-base`,
+ * and its manifest is published by the agend-base-theme repository. Every
+ * site that runs an Agend theme also runs Core, so the theme needs no
+ * updater of its own. Agend themes also auto-update by default.
  *
  * Testable via dependency injection: `set_http_fetcher()` swaps the HTTP
  * transport and `reset_overrides()` restores the default. Production code
@@ -46,6 +54,21 @@ class Agend_Apps_Updater {
 	 * @var string
 	 */
 	const CACHE_TRANSIENT = 'agend_apps_update_manifest';
+
+	/**
+	 * Default theme manifest URL, filterable via
+	 * `agend_apps_theme_update_manifest_url`.
+	 *
+	 * @var string
+	 */
+	const DEFAULT_THEME_MANIFEST_URL = 'https://agend-systems.github.io/agend-base-theme/manifest.json';
+
+	/**
+	 * Transient name the fetched (or sentinel) theme manifest is cached under.
+	 *
+	 * @var string
+	 */
+	const THEME_CACHE_TRANSIENT = 'agend_apps_theme_update_manifest';
 
 	/**
 	 * Default cache TTL in seconds (12 hours), filterable via
@@ -107,6 +130,10 @@ class Agend_Apps_Updater {
 		add_filter( 'plugins_api', array( __CLASS__, 'filter_plugins_api' ), 10, 3 );
 		add_action( 'delete_site_transient_update_plugins', array( __CLASS__, 'flush_cache' ) );
 
+		add_filter( 'update_themes_' . self::UPDATE_HOST, array( __CLASS__, 'filter_theme_update' ), 10, 4 );
+		add_filter( 'auto_update_theme', array( __CLASS__, 'filter_auto_update_theme' ), 10, 2 );
+		add_action( 'delete_site_transient_update_themes', array( __CLASS__, 'flush_theme_cache' ) );
+
 		// `upgrader_source_selection` is intentionally NOT hooked here: our
 		// release zips already have the plugin slug as their single top-level
 		// folder (matching what WordPress expects after extraction), so there
@@ -146,6 +173,14 @@ class Agend_Apps_Updater {
 	 */
 	public static function flush_cache() {
 		delete_site_transient( self::CACHE_TRANSIENT );
+	}
+
+	/**
+	 * Clears the cached theme manifest (and its failure sentinel), so a
+	 * forced "Check again" also refetches it.
+	 */
+	public static function flush_theme_cache() {
+		delete_site_transient( self::THEME_CACHE_TRANSIENT );
 	}
 
 	/**
@@ -292,6 +327,78 @@ class Agend_Apps_Updater {
 	}
 
 	/**
+	 * `update_themes_{hostname}` filter: reports a newer version for a single
+	 * theme, or leaves WordPress's own `$update` untouched.
+	 *
+	 * @param array|false $update           Update array WordPress already has, or false.
+	 * @param array       $theme_data       Theme header data, including `Version` and `UpdateURI`.
+	 * @param string      $theme_stylesheet Theme directory name.
+	 * @param string[]    $locales          Requested locales. Unused: the manifest is not localised.
+	 * @return array|false
+	 */
+	public static function filter_theme_update( $update, $theme_data, $theme_stylesheet, $locales ) {
+		unset( $locales );
+
+		$manifest = self::get_theme_manifest();
+
+		if ( empty( $manifest['themes'] ) || ! is_array( $manifest['themes'] ) ) {
+			return $update;
+		}
+
+		$slug = self::resolve_theme_slug( $theme_data, (string) $theme_stylesheet, $manifest['themes'] );
+
+		if ( '' === $slug ) {
+			return $update;
+		}
+
+		$entry = $manifest['themes'][ $slug ];
+
+		if ( empty( $entry['version'] ) || empty( $entry['package'] ) ) {
+			return $update;
+		}
+
+		$installed_version = (string) ( $theme_data['Version'] ?? '' );
+
+		if ( '' !== $installed_version && ! version_compare( (string) $entry['version'], $installed_version, '>' ) ) {
+			return $update;
+		}
+
+		return array(
+			'theme'        => (string) $theme_stylesheet,
+			'version'      => (string) $entry['version'],
+			'new_version'  => (string) $entry['version'],
+			'url'          => (string) ( $entry['url'] ?? '' ),
+			'package'      => (string) $entry['package'],
+			'requires'     => (string) ( $entry['requires'] ?? '' ),
+			'requires_php' => (string) ( $entry['requires_php'] ?? '' ),
+		);
+	}
+
+	/**
+	 * `auto_update_theme` filter: turns automatic updates on for every theme
+	 * this updater serves, so a theme release reaches every site without
+	 * anyone clicking Update. A site can opt a theme out with the
+	 * `agend_apps_theme_auto_update` filter.
+	 *
+	 * WordPress sets an update's `id` to the theme's `Update URI`, which is
+	 * how an Agend theme is told apart from any other.
+	 *
+	 * @param bool|null    $update Whether to update, as decided so far.
+	 * @param object|array $item   The update offer, with `theme` and `id`.
+	 * @return bool|null
+	 */
+	public static function filter_auto_update_theme( $update, $item ) {
+		$item = (array) $item;
+		$host = wp_parse_url( (string) ( $item['id'] ?? '' ), PHP_URL_HOST );
+
+		if ( self::UPDATE_HOST !== $host || empty( $item['theme'] ) ) {
+			return $update;
+		}
+
+		return (bool) apply_filters( 'agend_apps_theme_auto_update', true, (string) $item['theme'] );
+	}
+
+	/**
 	 * `plugins_api` filter: fills the "View details" modal for a known slug.
 	 *
 	 * @param false|object|array $result The result object, array, or false (default).
@@ -394,13 +501,57 @@ class Agend_Apps_Updater {
 	}
 
 	/**
-	 * Returns the manifest, from cache when fresh, otherwise fetched and
-	 * re-cached (a failed fetch is cached as the failure sentinel).
+	 * Resolves a theme's manifest slug: its directory name when that is a
+	 * manifest key, otherwise the last path segment of its `UpdateURI`.
+	 *
+	 * @param array                $theme_data       Theme header data.
+	 * @param string               $theme_stylesheet Theme directory name.
+	 * @param array<string, mixed> $manifest_themes  The manifest's `themes` map.
+	 * @return string Slug, or '' when the theme is not in the manifest.
+	 */
+	private static function resolve_theme_slug( $theme_data, $theme_stylesheet, array $manifest_themes ) {
+		if ( '' !== $theme_stylesheet && is_array( $manifest_themes[ $theme_stylesheet ] ?? null ) ) {
+			return $theme_stylesheet;
+		}
+
+		$path     = trim( (string) wp_parse_url( (string) ( $theme_data['UpdateURI'] ?? '' ), PHP_URL_PATH ), '/' );
+		$segments = '' !== $path ? explode( '/', $path ) : array();
+		$uri_slug = (string) end( $segments );
+
+		return '' !== $uri_slug && is_array( $manifest_themes[ $uri_slug ] ?? null ) ? $uri_slug : '';
+	}
+
+	/**
+	 * Returns the plugin manifest, from cache when fresh, otherwise fetched
+	 * and re-cached (a failed fetch is cached as the failure sentinel).
 	 *
 	 * @return array{plugins?: array<string, array<string, mixed>>} Empty array on failure.
 	 */
 	private static function get_manifest() {
-		$cached = get_site_transient( self::CACHE_TRANSIENT );
+		return self::load_manifest( self::CACHE_TRANSIENT, 'agend_apps_update_manifest_url', self::DEFAULT_MANIFEST_URL, 'plugins' );
+	}
+
+	/**
+	 * Returns the theme manifest, cached the same way as the plugin one.
+	 *
+	 * @return array{themes?: array<string, array<string, mixed>>} Empty array on failure.
+	 */
+	private static function get_theme_manifest() {
+		return self::load_manifest( self::THEME_CACHE_TRANSIENT, 'agend_apps_theme_update_manifest_url', self::DEFAULT_THEME_MANIFEST_URL, 'themes' );
+	}
+
+	/**
+	 * Returns a manifest from its transient when fresh, otherwise fetched and
+	 * re-cached (a failed fetch is cached as the failure sentinel).
+	 *
+	 * @param string $transient   Transient the manifest is cached under.
+	 * @param string $url_filter  Filter that can override the manifest URL.
+	 * @param string $default_url Manifest URL when unfiltered.
+	 * @param string $key         Top-level key a valid manifest must carry.
+	 * @return array<string, mixed> Empty array on failure.
+	 */
+	private static function load_manifest( $transient, $url_filter, $default_url, $key ) {
+		$cached = get_site_transient( $transient );
 
 		if ( self::FETCH_FAILED_SENTINEL === $cached ) {
 			return array();
@@ -410,26 +561,26 @@ class Agend_Apps_Updater {
 			return $cached;
 		}
 
-		$manifest = self::fetch_manifest();
+		$manifest = self::fetch_manifest( (string) apply_filters( $url_filter, $default_url ), $key );
 
 		if ( null === $manifest ) {
-			set_site_transient( self::CACHE_TRANSIENT, self::FETCH_FAILED_SENTINEL, self::get_failure_cache_ttl() );
+			set_site_transient( $transient, self::FETCH_FAILED_SENTINEL, self::get_failure_cache_ttl() );
 			return array();
 		}
 
-		set_site_transient( self::CACHE_TRANSIENT, $manifest, self::get_cache_ttl() );
+		set_site_transient( $transient, $manifest, self::get_cache_ttl() );
 
 		return $manifest;
 	}
 
 	/**
-	 * Fetches and decodes the manifest over HTTP.
+	 * Fetches and decodes a manifest over HTTP.
 	 *
-	 * @return array{plugins?: array<string, array<string, mixed>>}|null Decoded manifest, or null on any failure.
+	 * @param string $url Manifest URL.
+	 * @param string $key Top-level key a valid manifest must carry (`plugins` or `themes`).
+	 * @return array<string, mixed>|null Decoded manifest, or null on any failure.
 	 */
-	private static function fetch_manifest() {
-		$url = (string) apply_filters( 'agend_apps_update_manifest_url', self::DEFAULT_MANIFEST_URL );
-
+	private static function fetch_manifest( $url, $key ) {
 		$args = array(
 			'timeout' => 10,
 			'headers' => array(
@@ -453,7 +604,7 @@ class Agend_Apps_Updater {
 		$body = wp_remote_retrieve_body( $response );
 		$data = json_decode( $body, true );
 
-		if ( ! is_array( $data ) || ! isset( $data['plugins'] ) || ! is_array( $data['plugins'] ) ) {
+		if ( ! is_array( $data ) || ! isset( $data[ $key ] ) || ! is_array( $data[ $key ] ) ) {
 			return null;
 		}
 

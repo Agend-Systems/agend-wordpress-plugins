@@ -392,4 +392,178 @@ final class UpdaterTest extends TestCase {
 			Agend_Test_WP::$filters['update_plugins_agend-systems.github.io']
 		);
 	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	private function sample_theme_manifest(): array {
+		return array(
+			'generated_at' => '2026-10-23T00:00:00Z',
+			'themes'       => array(
+				'agend-base' => array(
+					'slug'         => 'agend-base',
+					'name'         => 'Agend Base',
+					'version'      => '0.3.0',
+					'requires'     => '6.7',
+					'requires_php' => '8.0',
+					'package'      => 'https://agend-systems.github.io/agend-base-theme/packages/agend-base.zip',
+					'url'          => 'https://github.com/Agend-Systems/agend-base-theme/releases/tag/agend-base-v0.3.0',
+				),
+			),
+		);
+	}
+
+	#[Test]
+	public function should_report_a_theme_update_when_the_manifest_version_is_newer(): void {
+		$this->queue_manifest( $this->sample_theme_manifest() );
+
+		$update = Agend_Apps_Updater::filter_theme_update(
+			false,
+			array( 'Version' => '0.2.0' ),
+			'agend-base',
+			array()
+		);
+
+		$this->assertIsArray( $update );
+		$this->assertSame( 'agend-base', $update['theme'] );
+		$this->assertSame( '0.3.0', $update['new_version'] );
+		$this->assertSame( 'https://agend-systems.github.io/agend-base-theme/packages/agend-base.zip', $update['package'] );
+		$this->assertSame( '6.7', $update['requires'] );
+		$this->assertSame( '8.0', $update['requires_php'] );
+	}
+
+	#[Test]
+	public function should_not_report_a_theme_update_when_the_installed_version_is_equal(): void {
+		$this->queue_manifest( $this->sample_theme_manifest() );
+
+		$update = Agend_Apps_Updater::filter_theme_update( false, array( 'Version' => '0.3.0' ), 'agend-base', array() );
+
+		$this->assertFalse( $update );
+	}
+
+	#[Test]
+	public function should_pass_through_the_incoming_theme_update_when_the_slug_is_unknown(): void {
+		$this->queue_manifest( $this->sample_theme_manifest() );
+
+		$update = Agend_Apps_Updater::filter_theme_update( false, array( 'Version' => '1.0.0' ), 'some-other-theme', array() );
+
+		$this->assertFalse( $update );
+	}
+
+	#[Test]
+	public function should_match_a_theme_by_update_uri_when_the_installed_folder_name_differs(): void {
+		$this->queue_manifest( $this->sample_theme_manifest() );
+
+		$update = Agend_Apps_Updater::filter_theme_update(
+			false,
+			array(
+				'Version'   => '0.2.0',
+				'UpdateURI' => 'https://agend-systems.github.io/agend-base-theme/agend-base',
+			),
+			'agend-base-renamed',
+			array()
+		);
+
+		$this->assertIsArray( $update );
+		$this->assertSame( 'agend-base-renamed', $update['theme'] );
+		$this->assertSame( '0.3.0', $update['new_version'] );
+	}
+
+	#[Test]
+	public function should_fetch_the_theme_manifest_from_its_own_url_and_cache_it_separately(): void {
+		$urls = array();
+		Agend_Apps_Updater::set_http_fetcher(
+			function ( string $url, array $args ) use ( &$urls ) {
+				unset( $args );
+				$urls[] = $url;
+				return array(
+					'body'        => (string) json_encode( $this->sample_theme_manifest() ),
+					'status_code' => 200,
+				);
+			}
+		);
+
+		Agend_Apps_Updater::filter_theme_update( false, array( 'Version' => '0.2.0' ), 'agend-base', array() );
+		Agend_Apps_Updater::filter_theme_update( false, array( 'Version' => '0.2.0' ), 'agend-base', array() );
+
+		$this->assertSame( array( Agend_Apps_Updater::DEFAULT_THEME_MANIFEST_URL ), $urls );
+		$this->assertIsArray( Agend_Test_WP::$site_transients[ Agend_Apps_Updater::THEME_CACHE_TRANSIENT ] );
+		$this->assertArrayNotHasKey( Agend_Apps_Updater::CACHE_TRANSIENT, Agend_Test_WP::$site_transients );
+	}
+
+	#[Test]
+	public function should_treat_a_theme_manifest_missing_the_themes_key_as_a_failed_fetch(): void {
+		$this->queue_manifest( $this->sample_manifest() );
+
+		$update = Agend_Apps_Updater::filter_theme_update( false, array( 'Version' => '0.2.0' ), 'agend-base', array() );
+
+		$this->assertFalse( $update );
+		$this->assertSame(
+			Agend_Apps_Updater::FETCH_FAILED_SENTINEL,
+			Agend_Test_WP::$site_transients[ Agend_Apps_Updater::THEME_CACHE_TRANSIENT ]
+		);
+	}
+
+	#[Test]
+	public function should_flush_the_cached_theme_manifest_when_the_update_themes_transient_is_deleted(): void {
+		Agend_Test_WP::$site_transients[ Agend_Apps_Updater::THEME_CACHE_TRANSIENT ] = $this->sample_theme_manifest();
+
+		Agend_Apps_Updater::boot();
+		\do_action( 'delete_site_transient_update_themes' );
+
+		$this->assertArrayNotHasKey( Agend_Apps_Updater::THEME_CACHE_TRANSIENT, Agend_Test_WP::$site_transients );
+	}
+
+	#[Test]
+	public function should_auto_update_a_theme_served_from_our_update_host(): void {
+		$item = (object) array(
+			'theme' => 'agend-base',
+			'id'    => 'https://agend-systems.github.io/agend-base-theme/agend-base',
+		);
+
+		$this->assertTrue( Agend_Apps_Updater::filter_auto_update_theme( null, $item ) );
+		$this->assertTrue( Agend_Apps_Updater::filter_auto_update_theme( false, $item ) );
+	}
+
+	#[Test]
+	public function should_let_a_site_opt_a_theme_out_of_auto_updates(): void {
+		\add_filter(
+			'agend_apps_theme_auto_update',
+			static function ( bool $enabled, string $theme ): bool {
+				return 'agend-base' === $theme ? false : $enabled;
+			}
+		);
+
+		$item = (object) array(
+			'theme' => 'agend-base',
+			'id'    => 'https://agend-systems.github.io/agend-base-theme/agend-base',
+		);
+
+		$this->assertFalse( Agend_Apps_Updater::filter_auto_update_theme( null, $item ) );
+	}
+
+	#[Test]
+	public function should_leave_auto_updates_alone_for_a_theme_from_elsewhere(): void {
+		$item = (object) array(
+			'theme' => 'twentytwentyfive',
+			'id'    => 'w.org/themes/twentytwentyfive',
+		);
+
+		$this->assertNull( Agend_Apps_Updater::filter_auto_update_theme( null, $item ) );
+		$this->assertFalse( Agend_Apps_Updater::filter_auto_update_theme( false, $item ) );
+	}
+
+	#[Test]
+	public function boot_registers_the_theme_update_and_auto_update_filters(): void {
+		Agend_Apps_Updater::boot();
+
+		$this->assertSame(
+			array( Agend_Apps_Updater::class, 'filter_theme_update' ),
+			Agend_Test_WP::$filters['update_themes_agend-systems.github.io']
+		);
+		$this->assertSame(
+			array( Agend_Apps_Updater::class, 'filter_auto_update_theme' ),
+			Agend_Test_WP::$filters['auto_update_theme']
+		);
+	}
 }
