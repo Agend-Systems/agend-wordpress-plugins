@@ -331,7 +331,7 @@ class Agend_Apps_Updater {
 	 * theme, or leaves WordPress's own `$update` untouched.
 	 *
 	 * @param array|false $update           Update array WordPress already has, or false.
-	 * @param array       $theme_data       Theme header data, including `Version` and `UpdateURI`.
+	 * @param array       $theme_data       Theme header data, including `Version`.
 	 * @param string      $theme_stylesheet Theme directory name.
 	 * @param string[]    $locales          Requested locales. Unused: the manifest is not localised.
 	 * @return array|false
@@ -345,9 +345,13 @@ class Agend_Apps_Updater {
 			return $update;
 		}
 
-		$slug = self::resolve_theme_slug( $theme_data, (string) $theme_stylesheet, $manifest['themes'] );
+		// Matched by directory name only, unlike plugins: WordPress unpacks a
+		// theme update into the folder named inside the zip, so a renamed
+		// copy would be offered an update that lands in a different folder.
+		// Child themes name their parent by folder too.
+		$slug = (string) $theme_stylesheet;
 
-		if ( '' === $slug ) {
+		if ( '' === $slug || ! is_array( $manifest['themes'][ $slug ] ?? null ) ) {
 			return $update;
 		}
 
@@ -498,27 +502,6 @@ class Agend_Apps_Updater {
 		// is at least a plausible slug) so the caller's "not in manifest"
 		// check below fails cleanly rather than on an empty string.
 		return '' !== $dir_slug && '.' !== $dir_slug ? $dir_slug : '';
-	}
-
-	/**
-	 * Resolves a theme's manifest slug: its directory name when that is a
-	 * manifest key, otherwise the last path segment of its `UpdateURI`.
-	 *
-	 * @param array                $theme_data       Theme header data.
-	 * @param string               $theme_stylesheet Theme directory name.
-	 * @param array<string, mixed> $manifest_themes  The manifest's `themes` map.
-	 * @return string Slug, or '' when the theme is not in the manifest.
-	 */
-	private static function resolve_theme_slug( $theme_data, $theme_stylesheet, array $manifest_themes ) {
-		if ( '' !== $theme_stylesheet && is_array( $manifest_themes[ $theme_stylesheet ] ?? null ) ) {
-			return $theme_stylesheet;
-		}
-
-		$path     = trim( (string) wp_parse_url( (string) ( $theme_data['UpdateURI'] ?? '' ), PHP_URL_PATH ), '/' );
-		$segments = '' !== $path ? explode( '/', $path ) : array();
-		$uri_slug = (string) end( $segments );
-
-		return '' !== $uri_slug && is_array( $manifest_themes[ $uri_slug ] ?? null ) ? $uri_slug : '';
 	}
 
 	/**

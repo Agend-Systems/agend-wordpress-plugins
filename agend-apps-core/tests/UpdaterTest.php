@@ -450,8 +450,12 @@ final class UpdaterTest extends TestCase {
 		$this->assertFalse( $update );
 	}
 
+	/**
+	 * A renamed theme folder is not matched through its Update URI, because
+	 * WordPress would unpack the update into the zip's own folder name.
+	 */
 	#[Test]
-	public function should_match_a_theme_by_update_uri_when_the_installed_folder_name_differs(): void {
+	public function should_not_offer_a_theme_update_to_a_renamed_folder(): void {
 		$this->queue_manifest( $this->sample_theme_manifest() );
 
 		$update = Agend_Apps_Updater::filter_theme_update(
@@ -464,9 +468,7 @@ final class UpdaterTest extends TestCase {
 			array()
 		);
 
-		$this->assertIsArray( $update );
-		$this->assertSame( 'agend-base-renamed', $update['theme'] );
-		$this->assertSame( '0.3.0', $update['new_version'] );
+		$this->assertFalse( $update );
 	}
 
 	#[Test]
