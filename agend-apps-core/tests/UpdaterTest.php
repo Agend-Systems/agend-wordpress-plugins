@@ -368,6 +368,18 @@ final class UpdaterTest extends TestCase {
 	}
 
 	#[Test]
+	public function handle_check_updates_also_refreshes_agend_themes(): void {
+		Agend_Test_WP::$site_transients[ Agend_Apps_Updater::THEME_CACHE_TRANSIENT ] = array( 'themes' => array() );
+		Agend_Test_WP::$site_transients['update_themes']                            = array( 'stale' => true );
+
+		Agend_Apps_Updater::handle_check_updates();
+
+		$this->assertArrayNotHasKey( Agend_Apps_Updater::THEME_CACHE_TRANSIENT, Agend_Test_WP::$site_transients );
+		$this->assertArrayNotHasKey( 'update_themes', Agend_Test_WP::$site_transients );
+		$this->assertSame( 1, Agend_Test_WP::$wp_update_themes_calls );
+	}
+
+	#[Test]
 	public function handle_check_updates_dies_without_the_update_plugins_capability(): void {
 		$GLOBALS['agend_test_current_user_can']['update_plugins'] = false;
 
@@ -432,13 +444,19 @@ final class UpdaterTest extends TestCase {
 		$this->assertSame( '8.0', $update['requires_php'] );
 	}
 
+	/**
+	 * WordPress files a current theme under `no_update` itself, and the Themes
+	 * screen only shows "Auto-updates enabled" for a theme it found there.
+	 */
 	#[Test]
-	public function should_not_report_a_theme_update_when_the_installed_version_is_equal(): void {
+	public function should_return_the_theme_entry_even_when_the_installed_version_is_current(): void {
 		$this->queue_manifest( $this->sample_theme_manifest() );
 
 		$update = Agend_Apps_Updater::filter_theme_update( false, array( 'Version' => '0.3.0' ), 'agend-base', array() );
 
-		$this->assertFalse( $update );
+		$this->assertIsArray( $update );
+		$this->assertSame( '0.3.0', $update['new_version'] );
+		$this->assertSame( 'agend-base', $update['theme'] );
 	}
 
 	#[Test]

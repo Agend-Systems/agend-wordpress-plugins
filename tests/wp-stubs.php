@@ -113,6 +113,9 @@ final class Agend_Test_WP {
 	/** Number of `wp_update_plugins()` calls recorded. */
 	public static int $wp_update_plugins_calls = 0;
 
+	/** How many times wp_update_themes() was called. */
+	public static int $wp_update_themes_calls = 0;
+
 	/** @var string[] Style handles recorded by `wp_enqueue_style()`, in call order. */
 	public static array $enqueued_styles = array();
 
@@ -181,6 +184,7 @@ final class Agend_Test_WP {
 		self::$canned_responses  = array();
 		self::$redirects         = array();
 		self::$wp_update_plugins_calls = 0;
+		self::$wp_update_themes_calls  = 0;
 		self::$enqueued_styles   = array();
 		self::$enqueued_scripts  = array();
 		self::$enqueued_style_args = array();
@@ -1504,6 +1508,13 @@ if ( ! function_exists( 'wp_update_plugins' ) ) {
 	/** Records that a forced update check was requested. */
 	function wp_update_plugins(): void {
 		++Agend_Test_WP::$wp_update_plugins_calls;
+	}
+}
+
+if ( ! function_exists( 'wp_update_themes' ) ) {
+	/** Records that a forced theme update check was requested. */
+	function wp_update_themes(): void {
+		++Agend_Test_WP::$wp_update_themes_calls;
 	}
 }
 
