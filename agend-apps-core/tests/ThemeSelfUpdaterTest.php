@@ -17,7 +17,7 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-upda
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-theme-self-updater.php';
 
 /**
- * `Agend_Apps_Theme_Self_Updater`: the hourly job that installs a newer
+ * `Agend_Apps_Theme_Self_Updater`: the daily job that installs a newer
  * Agend theme release itself, checks the home page and rolls back on a
  * server error.
  */
@@ -358,20 +358,68 @@ final class ThemeSelfUpdaterTest extends TestCase {
 		$this->assertCount( Agend_Apps_Theme_Self_Updater::LOG_LIMIT, $this->log() );
 	}
 
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	private function events( string $hook ): array {
+		return array_values(
+			array_filter(
+				Agend_Test_WP::$scheduled_events,
+				static fn( array $e ): bool => $hook === $e['hook']
+			)
+		);
+	}
+
 	#[Test]
-	public function boot_schedules_an_hourly_check_once(): void {
+	public function boot_schedules_a_daily_check_once(): void {
+		Agend_Apps_Theme_Self_Updater::set_core_version( '1.46.0' );
 		Agend_Apps_Theme_Self_Updater::boot();
 		\do_action( 'init' );
 		\do_action( 'init' );
 
-		$events = array_values(
-			array_filter(
-				Agend_Test_WP::$scheduled_events,
-				static fn( array $e ): bool => Agend_Apps_Theme_Self_Updater::CRON_HOOK === $e['hook']
-			)
-		);
+		$daily = $this->events( Agend_Apps_Theme_Self_Updater::CRON_HOOK );
+		$this->assertCount( 1, $daily );
+		$this->assertSame( 'daily', $daily[0]['recurrence'] );
+	}
 
-		$this->assertCount( 1, $events );
-		$this->assertSame( 'hourly', $events[0]['recurrence'] );
+	#[Test]
+	public function a_plugin_update_queues_one_check_a_minute_later(): void {
+		Agend_Apps_Theme_Self_Updater::set_core_version( '1.46.0' );
+		Agend_Apps_Theme_Self_Updater::boot();
+
+		\do_action( 'init' );
+		\do_action( 'init' );
+
+		$now = $this->events( Agend_Apps_Theme_Self_Updater::NOW_HOOK );
+		$this->assertCount( 1, $now );
+		$this->assertEqualsWithDelta( time() + 60, $now[0]['timestamp'], 5 );
+		$this->assertSame( '1.46.0', \get_option( Agend_Apps_Theme_Self_Updater::SEEN_VERSION_OPTION ) );
+	}
+
+	#[Test]
+	public function the_same_plugin_version_queues_nothing_more(): void {
+		\update_option( Agend_Apps_Theme_Self_Updater::SEEN_VERSION_OPTION, '1.46.0' );
+		Agend_Apps_Theme_Self_Updater::set_core_version( '1.46.0' );
+
+		Agend_Apps_Theme_Self_Updater::schedule();
+
+		$this->assertSame( array(), $this->events( Agend_Apps_Theme_Self_Updater::NOW_HOOK ) );
+	}
+
+	#[Test]
+	public function the_queued_check_runs_the_same_job(): void {
+		$this->themes( $this->agend_base( '0.3.1' ) );
+		Agend_Apps_Theme_Self_Updater::boot();
+
+		\do_action( Agend_Apps_Theme_Self_Updater::NOW_HOOK );
+
+		$this->assertSame( array( array( 'agend-base', '0.3.2' ) ), $this->installs );
+	}
+
+	#[Test]
+	public function check_for_updates_queues_an_immediate_theme_check(): void {
+		Agend_Apps_Updater::handle_check_updates();
+
+		$this->assertCount( 1, $this->events( Agend_Apps_Theme_Self_Updater::NOW_HOOK ) );
 	}
 }

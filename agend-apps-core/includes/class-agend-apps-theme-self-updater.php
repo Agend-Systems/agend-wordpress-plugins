@@ -10,14 +10,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Hourly job that installs a newer Agend theme release itself.
+ * Daily job that installs a newer Agend theme release itself.
  *
  * `Agend_Apps_Updater` tells WordPress about new Agend theme versions and asks
  * for them to auto-update, but WordPress only installs them from its own
  * twice-daily background updater, and hosts can switch that off (Kinsta's
- * "Automatic updates: Manual" does). This job checks the theme manifest every
- * hour and runs the same `Theme_Upgrader` an admin's "Update now" click runs,
+ * "Automatic updates: Manual" does). This job checks the theme manifest once
+ * a day and runs the same `Theme_Upgrader` an admin's "Update now" click runs,
  * so a release reaches every site regardless of that setting.
+ *
+ * It also runs about a minute after Agend Apps Core itself is installed or
+ * updated, and after an admin clicks "Check for updates" under an Agend
+ * plugin, so a release can be pushed to a site without waiting a day. Those
+ * runs are queued as single cron events rather than run inline, so the theme
+ * never installs inside the same request as a plugin update.
  *
  * Guard rails:
  * - Only themes whose `Update URI` points at the Agend update host, and only
@@ -40,11 +46,27 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Apps_Theme_Self_Updater {
 
 	/**
-	 * Cron hook the hourly check runs on.
+	 * Cron hook the daily check runs on.
 	 *
 	 * @var string
 	 */
 	const CRON_HOOK = 'agend_apps_theme_self_update';
+
+	/**
+	 * Cron hook for a one-off check queued after a plugin update or a manual
+	 * "Check for updates".
+	 *
+	 * @var string
+	 */
+	const NOW_HOOK = 'agend_apps_theme_self_update_now';
+
+	/**
+	 * Option holding the Agend Apps Core version the job last saw, so a
+	 * plugin update is noticed on the next request.
+	 *
+	 * @var string
+	 */
+	const SEEN_VERSION_OPTION = 'agend_apps_theme_self_update_core_version';
 
 	/**
 	 * Upgrader lock name, so overlapping cron runs never install twice.
@@ -69,7 +91,7 @@ class Agend_Apps_Theme_Self_Updater {
 
 	/**
 	 * Option mapping stylesheet => a release that was rolled back, so it is
-	 * not reinstalled every hour.
+	 * not reinstalled on every run.
 	 *
 	 * @var string
 	 */
@@ -104,20 +126,56 @@ class Agend_Apps_Theme_Self_Updater {
 	private static $health_checker = null;
 
 	/**
-	 * Registers the cron callback and makes sure the hourly event exists.
+	 * Injected Agend Apps Core version, `null` for `AGEND_APPS_CORE_VERSION`.
+	 *
+	 * @var string|null
+	 */
+	private static $core_version = null;
+
+	/**
+	 * Registers the cron callbacks and makes sure the daily event exists.
 	 */
 	public static function boot() {
 		add_action( self::CRON_HOOK, array( __CLASS__, 'run' ) );
+		add_action( self::NOW_HOOK, array( __CLASS__, 'run' ) );
 		add_action( 'init', array( __CLASS__, 'schedule' ) );
 	}
 
 	/**
-	 * Schedules the hourly check if it is not already scheduled.
+	 * Schedules the daily check if it is not already scheduled, and queues a
+	 * one-off check when Agend Apps Core has been installed or updated since
+	 * the last request.
 	 */
 	public static function schedule() {
 		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
-			wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'hourly', self::CRON_HOOK );
+			wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'daily', self::CRON_HOOK );
 		}
+
+		$version = null !== self::$core_version ? self::$core_version : ( defined( 'AGEND_APPS_CORE_VERSION' ) ? AGEND_APPS_CORE_VERSION : '' );
+
+		if ( '' !== $version && get_option( self::SEEN_VERSION_OPTION, '' ) !== $version ) {
+			update_option( self::SEEN_VERSION_OPTION, $version, false );
+			self::queue_now();
+		}
+	}
+
+	/**
+	 * Queues a one-off check about a minute from now, unless one is already
+	 * queued. Called after a plugin update and from "Check for updates".
+	 */
+	public static function queue_now() {
+		if ( ! wp_next_scheduled( self::NOW_HOOK ) ) {
+			wp_schedule_single_event( time() + MINUTE_IN_SECONDS, self::NOW_HOOK );
+		}
+	}
+
+	/**
+	 * Swaps the Agend Apps Core version the job compares against. Test-only.
+	 *
+	 * @param string|null $version Version, `null` for the real constant.
+	 */
+	public static function set_core_version( $version ) {
+		self::$core_version = $version;
 	}
 
 	/**
@@ -167,6 +225,7 @@ class Agend_Apps_Theme_Self_Updater {
 		self::$guard          = null;
 		self::$installer      = null;
 		self::$health_checker = null;
+		self::$core_version   = null;
 	}
 
 	/**
@@ -481,8 +540,8 @@ class Agend_Apps_Theme_Self_Updater {
 /**
  * Registers the theme self-updater's hooks.
  *
- * Called unconditionally next to `agend_apps_updater_boot()`: the hourly
- * job runs from `wp-cron.php`, where the full bootstrap cannot be relied on.
+ * Called unconditionally next to `agend_apps_updater_boot()`: the job runs
+ * from `wp-cron.php`, where the full bootstrap cannot be relied on.
  */
 function agend_apps_theme_self_updater_boot() {
 	Agend_Apps_Theme_Self_Updater::boot();

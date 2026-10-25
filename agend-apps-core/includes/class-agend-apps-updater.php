@@ -262,6 +262,12 @@ class Agend_Apps_Updater {
 		delete_site_transient( 'update_themes' );
 		wp_update_themes();
 
+		// Install a newer Agend theme release in a minute rather than at the
+		// self-updater's next daily run.
+		if ( class_exists( 'Agend_Apps_Theme_Self_Updater' ) ) {
+			Agend_Apps_Theme_Self_Updater::queue_now();
+		}
+
 		return add_query_arg( self::CHECKED_QUERY_VAR, '1', self_admin_url( 'plugins.php' ) );
 	}
 

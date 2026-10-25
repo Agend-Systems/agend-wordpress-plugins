@@ -122,7 +122,7 @@ require_once AGEND_APPS_CORE_DIR . 'includes/records/detail-login.php';
 require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-updater.php';
 agend_apps_updater_boot();
 
-// Hourly job that installs a newer Agend theme release itself, so theme
+// Daily job that installs a newer Agend theme release itself, so theme
 // releases reach sites whose host has WordPress auto-updates switched off.
 require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-theme-self-updater.php';
 agend_apps_theme_self_updater_boot();
@@ -531,5 +531,6 @@ register_activation_hook( __FILE__, 'agend_apps_core_activate' );
 function agend_apps_core_deactivate() {
 	Agend_Apps_Logger::clear_cron();
 	wp_clear_scheduled_hook( Agend_Apps_Theme_Self_Updater::CRON_HOOK );
+	wp_clear_scheduled_hook( Agend_Apps_Theme_Self_Updater::NOW_HOOK );
 }
 register_deactivation_hook( __FILE__, 'agend_apps_core_deactivate' );
