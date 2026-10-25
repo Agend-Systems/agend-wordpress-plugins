@@ -1136,6 +1136,29 @@ if ( ! function_exists( 'wp_schedule_single_event' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_schedule_event' ) ) {
+	/**
+	 * Records a recurring scheduled cron event in the same store as
+	 * {@see wp_schedule_single_event()}, so wp_next_scheduled() sees it.
+	 *
+	 * @param int               $timestamp  First run.
+	 * @param string            $recurrence Schedule name, e.g. `hourly`.
+	 * @param string            $hook       Cron hook name.
+	 * @param array<int, mixed> $args       Cron event args.
+	 * @return bool
+	 */
+	function wp_schedule_event( int $timestamp, string $recurrence, string $hook, array $args = array() ): bool {
+		Agend_Test_WP::$scheduled_events[] = array(
+			'timestamp'  => $timestamp,
+			'hook'       => $hook,
+			'args'       => $args,
+			'recurrence' => $recurrence,
+		);
+
+		return true;
+	}
+}
+
 /**
  * Post meta store for tests that exercise document-level promotion.
  *

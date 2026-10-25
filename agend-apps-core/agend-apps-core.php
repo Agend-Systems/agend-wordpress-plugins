@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.45.1
+ * Version:           1.46.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.45.1' );
+define( 'AGEND_APPS_CORE_VERSION', '1.46.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -121,6 +121,11 @@ require_once AGEND_APPS_CORE_DIR . 'includes/records/detail-login.php';
 // `wp-cron.php` contexts that do not otherwise run the full bootstrap.
 require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-updater.php';
 agend_apps_updater_boot();
+
+// Hourly job that installs a newer Agend theme release itself, so theme
+// releases reach sites whose host has WordPress auto-updates switched off.
+require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-theme-self-updater.php';
+agend_apps_theme_self_updater_boot();
 
 // Redacted API log. Loaded unconditionally, ahead of the bootstrap, so the
 // prune runs from `wp-cron.php` and sibling plugins can call
@@ -520,10 +525,11 @@ register_activation_hook( __FILE__, 'agend_apps_core_activate' );
  * Deactivation hook.
  *
  * Settings and the API log persist across deactivation so that re-activating
- * the plugin does not require reconfiguration. Only the prune event is
- * cleared; `init` reschedules it on reactivation.
+ * the plugin does not require reconfiguration. Only the cron events are
+ * cleared; `init` reschedules them on reactivation.
  */
 function agend_apps_core_deactivate() {
 	Agend_Apps_Logger::clear_cron();
+	wp_clear_scheduled_hook( Agend_Apps_Theme_Self_Updater::CRON_HOOK );
 }
 register_deactivation_hook( __FILE__, 'agend_apps_core_deactivate' );

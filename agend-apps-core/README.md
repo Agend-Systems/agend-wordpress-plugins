@@ -1172,6 +1172,30 @@ compares the versions), so the Themes screen always shows "Auto-updates
 enabled" for an Agend theme. The Plugins screen's "Check for updates" link
 under any Agend plugin refreshes the Agend themes as well.
 
+**Agend themes also install themselves, hourly.** WordPress only installs
+auto-updates from its own background updater, and hosts can switch that off:
+Kinsta's "Automatic updates: Manual" does, and its setting can be locked.
+`Agend_Apps_Theme_Self_Updater` (`includes/class-agend-apps-theme-self-updater.php`)
+runs on the hourly `agend_apps_theme_self_update` cron event and installs a
+newer Agend theme release itself with the same `Theme_Upgrader` an admin's
+"Update now" runs. It:
+
+- does nothing at all on a site with no theme whose `Update URI` is on
+  `agend-systems.github.io` (no manifest request, no admin includes, no log),
+  which is every site running these plugins without an Agend theme;
+- refuses to run where files must not change: a version-controlled theme
+  directory (a local development copy), `DISALLOW_FILE_MODS`, or a multisite
+  sub-site;
+- honours the same `agend_apps_theme_auto_update` opt-out, and skips a release
+  whose `Requires at least` or `Requires PHP` the site does not meet;
+- takes an upgrader lock, so overlapping cron runs never install twice;
+- requests the home page after installing and, on a 5xx, restores the
+  previous version from WordPress's own update backup and does not retry that
+  release until a newer one is published (`agend_apps_theme_self_update_bad_releases`);
+- records each run in the `agend_apps_theme_self_update_log` option (last 20).
+
+Deactivating Core clears the cron event; `init` reschedules it.
+
 - `agend_apps_theme_update_manifest_url` — override the theme manifest URL.
 - `agend_apps_theme_auto_update` — return `false` for a theme slug (second
   argument) to opt that site out of automatic theme updates.
