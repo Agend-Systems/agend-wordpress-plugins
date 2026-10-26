@@ -1188,6 +1188,9 @@ an admin's "Update now" runs. It:
 - refuses to run where files must not change: a version-controlled theme
   directory (a local development copy), `DISALLOW_FILE_MODS`, or a multisite
   sub-site;
+- leaves alone a theme whose folder is a symlink, which is how DeployHQ
+  installs what it deploys, so a theme DeployHQ manages is never updated from
+  two places;
 - honours the same `agend_apps_theme_auto_update` opt-out, and skips a release
   whose `Requires at least` or `Requires PHP` the site does not meet;
 - takes an upgrader lock, so overlapping cron runs never install twice;

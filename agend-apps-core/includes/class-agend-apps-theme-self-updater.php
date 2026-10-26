@@ -31,6 +31,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  * - Never on a site whose files are under version control (a local
  *   development copy), where `DISALLOW_FILE_MODS` forbids file changes, or on
  *   a multisite sub-site.
+ * - Never on a theme whose folder is a symlink. That is how DeployHQ installs
+ *   what it deploys (a link into its own releases directory), so a linked
+ *   theme belongs to a deployment tool; replacing it here would fight that
+ *   tool and could break its next deploy.
  * - A site can opt a theme out with the `agend_apps_theme_auto_update` filter,
  *   the same filter that governs WordPress's own auto-update for it.
  * - After installing, the home page is requested; a 5xx response puts the
@@ -182,8 +186,8 @@ class Agend_Apps_Theme_Self_Updater {
 	 * Swaps the theme lister. Test-only.
 	 *
 	 * @param callable|null $lister Returns `array<string, array>` of stylesheet
-	 *                              => headers (`Version`, `UpdateURI`,
-	 *                              `RequiresWP`, `RequiresPHP`).
+	 *                              => headers (`Version`, `UpdateURI`), plus
+	 *                              `_symlink` (bool) when the theme folder is a link.
 	 */
 	public static function set_theme_lister( $lister ) {
 		self::$theme_lister = $lister;
@@ -262,6 +266,11 @@ class Agend_Apps_Theme_Self_Updater {
 			}
 
 			if ( self::is_bad_release( $stylesheet, (string) $offer['new_version'] ) ) {
+				continue;
+			}
+
+			if ( ! empty( $headers['_symlink'] ) ) {
+				self::log( $stylesheet, 'skipped', 'the theme folder is a symlink, so a deployment tool manages it' );
 				continue;
 			}
 
@@ -438,6 +447,7 @@ class Agend_Apps_Theme_Self_Updater {
 			$list[ $stylesheet ] = array(
 				'Version'   => (string) $theme->get( 'Version' ),
 				'UpdateURI' => (string) $theme->get( 'UpdateURI' ),
+				'_symlink'  => is_link( untrailingslashit( $theme->get_theme_root() ) . '/' . $stylesheet ),
 			);
 		}
 

@@ -197,6 +197,34 @@ final class ThemeSelfUpdaterTest extends TestCase {
 		$this->assertSame( array(), $this->installs );
 	}
 
+	/**
+	 * DeployHQ links what it deploys into wp-content from its releases
+	 * directory. A linked Agend theme belongs to that tool.
+	 */
+	#[Test]
+	public function leaves_a_symlinked_theme_to_its_deployment_tool(): void {
+		$themes                           = $this->agend_base( '0.3.1' );
+		$themes['agend-base']['_symlink'] = true;
+		$this->themes( $themes );
+
+		Agend_Apps_Theme_Self_Updater::run();
+
+		$this->assertSame( array(), $this->installs );
+		$this->assertSame( 'skipped', $this->log()[0]['status'] );
+		$this->assertStringContainsString( 'deployment tool', $this->log()[0]['detail'] );
+	}
+
+	#[Test]
+	public function a_symlinked_theme_with_no_newer_release_logs_nothing(): void {
+		$themes                           = $this->agend_base( '0.3.2' );
+		$themes['agend-base']['_symlink'] = true;
+		$this->themes( $themes );
+
+		Agend_Apps_Theme_Self_Updater::run();
+
+		$this->assertSame( array(), $this->log() );
+	}
+
 	#[Test]
 	public function rolls_back_when_the_home_page_returns_a_server_error(): void {
 		$this->themes( $this->agend_base( '0.3.1' ) );
