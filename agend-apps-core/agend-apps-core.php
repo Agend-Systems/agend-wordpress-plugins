@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.46.0
+ * Version:           1.47.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.46.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.47.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -121,11 +121,6 @@ require_once AGEND_APPS_CORE_DIR . 'includes/records/detail-login.php';
 // `wp-cron.php` contexts that do not otherwise run the full bootstrap.
 require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-updater.php';
 agend_apps_updater_boot();
-
-// Daily job that installs a newer Agend theme release itself, so theme
-// releases reach sites whose host has WordPress auto-updates switched off.
-require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-theme-self-updater.php';
-agend_apps_theme_self_updater_boot();
 
 // Redacted API log. Loaded unconditionally, ahead of the bootstrap, so the
 // prune runs from `wp-cron.php` and sibling plugins can call
@@ -530,7 +525,8 @@ register_activation_hook( __FILE__, 'agend_apps_core_activate' );
  */
 function agend_apps_core_deactivate() {
 	Agend_Apps_Logger::clear_cron();
-	wp_clear_scheduled_hook( Agend_Apps_Theme_Self_Updater::CRON_HOOK );
-	wp_clear_scheduled_hook( Agend_Apps_Theme_Self_Updater::NOW_HOOK );
+	// Events left by the withdrawn 1.46.0 theme self-updater.
+	wp_clear_scheduled_hook( 'agend_apps_theme_self_update' );
+	wp_clear_scheduled_hook( 'agend_apps_theme_self_update_now' );
 }
 register_deactivation_hook( __FILE__, 'agend_apps_core_deactivate' );

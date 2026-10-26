@@ -1136,6 +1136,27 @@ if ( ! function_exists( 'wp_schedule_single_event' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_clear_scheduled_hook' ) ) {
+	/**
+	 * Removes every recorded event for a hook.
+	 *
+	 * @param string            $hook Cron hook name.
+	 * @param array<int, mixed> $args Unused; every event for the hook is removed.
+	 * @return int Number of events removed.
+	 */
+	function wp_clear_scheduled_hook( string $hook, array $args = array() ): int {
+		$before                          = count( Agend_Test_WP::$scheduled_events );
+		Agend_Test_WP::$scheduled_events = array_values(
+			array_filter(
+				Agend_Test_WP::$scheduled_events,
+				static fn( array $event ): bool => $event['hook'] !== $hook
+			)
+		);
+
+		return $before - count( Agend_Test_WP::$scheduled_events );
+	}
+}
+
 if ( ! function_exists( 'wp_schedule_event' ) ) {
 	/**
 	 * Records a recurring scheduled cron event in the same store as

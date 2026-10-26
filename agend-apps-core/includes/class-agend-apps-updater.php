@@ -26,7 +26,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  * `Update URI: https://agend-systems.github.io/agend-base-theme/agend-base`,
  * and its manifest is published by the agend-base-theme repository. Every
  * site that runs an Agend theme also runs Core, so the theme needs no
- * updater of its own. Agend themes also auto-update by default.
+ * updater of its own.
+ *
+ * Theme updates are offered, never installed automatically: the site shows
+ * "New version available" and an admin clicks "Update now". Agend themes get
+ * no special auto-update treatment, so WordPress's own per-theme auto-update
+ * setting, and the host's, decide as for any other theme.
+ *
+ * Agend Apps Core 1.46.0 shipped a job that installed theme releases itself;
+ * it was withdrawn in 1.47.0. `clear_retired_theme_self_update()` removes the
+ * cron events and options it left on sites that ran 1.46.0.
  *
  * Testable via dependency injection: `set_http_fetcher()` swaps the HTTP
  * transport and `reset_overrides()` restores the default. Production code
@@ -131,8 +140,8 @@ class Agend_Apps_Updater {
 		add_action( 'delete_site_transient_update_plugins', array( __CLASS__, 'flush_cache' ) );
 
 		add_filter( 'update_themes_' . self::UPDATE_HOST, array( __CLASS__, 'filter_theme_update' ), 10, 4 );
-		add_filter( 'auto_update_theme', array( __CLASS__, 'filter_auto_update_theme' ), 10, 2 );
 		add_action( 'delete_site_transient_update_themes', array( __CLASS__, 'flush_theme_cache' ) );
+		add_action( 'init', array( __CLASS__, 'clear_retired_theme_self_update' ) );
 
 		// `upgrader_source_selection` is intentionally NOT hooked here: our
 		// release zips already have the plugin slug as their single top-level
@@ -181,6 +190,30 @@ class Agend_Apps_Updater {
 	 */
 	public static function flush_theme_cache() {
 		delete_site_transient( self::THEME_CACHE_TRANSIENT );
+	}
+
+	/**
+	 * Removes what the withdrawn 1.46.0 theme self-updater left behind: its
+	 * daily and one-off cron events (which would otherwise keep firing with
+	 * no callback) and its options. Runs on `init`; once the events are gone
+	 * it is a cron-array lookup and nothing else.
+	 */
+	public static function clear_retired_theme_self_update() {
+		$hooks = array( 'agend_apps_theme_self_update', 'agend_apps_theme_self_update_now' );
+		$found = false;
+
+		foreach ( $hooks as $hook ) {
+			if ( wp_next_scheduled( $hook ) ) {
+				wp_clear_scheduled_hook( $hook );
+				$found = true;
+			}
+		}
+
+		if ( $found ) {
+			delete_option( 'agend_apps_theme_self_update_log' );
+			delete_option( 'agend_apps_theme_self_update_bad_releases' );
+			delete_option( 'agend_apps_theme_self_update_core_version' );
+		}
 	}
 
 	/**
@@ -261,12 +294,6 @@ class Agend_Apps_Updater {
 		self::flush_theme_cache();
 		delete_site_transient( 'update_themes' );
 		wp_update_themes();
-
-		// Install a newer Agend theme release in a minute rather than at the
-		// self-updater's next daily run.
-		if ( class_exists( 'Agend_Apps_Theme_Self_Updater' ) ) {
-			Agend_Apps_Theme_Self_Updater::queue_now();
-		}
 
 		return add_query_arg( self::CHECKED_QUERY_VAR, '1', self_admin_url( 'plugins.php' ) );
 	}
@@ -388,30 +415,6 @@ class Agend_Apps_Updater {
 			'requires'     => (string) ( $entry['requires'] ?? '' ),
 			'requires_php' => (string) ( $entry['requires_php'] ?? '' ),
 		);
-	}
-
-	/**
-	 * `auto_update_theme` filter: turns automatic updates on for every theme
-	 * this updater serves, so a theme release reaches every site without
-	 * anyone clicking Update. A site can opt a theme out with the
-	 * `agend_apps_theme_auto_update` filter.
-	 *
-	 * WordPress sets an update's `id` to the theme's `Update URI`, which is
-	 * how an Agend theme is told apart from any other.
-	 *
-	 * @param bool|null    $update Whether to update, as decided so far.
-	 * @param object|array $item   The update offer, with `theme` and `id`.
-	 * @return bool|null
-	 */
-	public static function filter_auto_update_theme( $update, $item ) {
-		$item = (array) $item;
-		$host = wp_parse_url( (string) ( $item['id'] ?? '' ), PHP_URL_HOST );
-
-		if ( self::UPDATE_HOST !== $host || empty( $item['theme'] ) ) {
-			return $update;
-		}
-
-		return (bool) apply_filters( 'agend_apps_theme_auto_update', true, (string) $item['theme'] );
 	}
 
 	/**
