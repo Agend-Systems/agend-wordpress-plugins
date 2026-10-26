@@ -535,55 +535,40 @@ final class UpdaterTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_auto_update_a_theme_served_from_our_update_host(): void {
-		$item = (object) array(
-			'theme' => 'agend-base',
-			'id'    => 'https://agend-systems.github.io/agend-base-theme/agend-base',
-		);
-
-		$this->assertTrue( Agend_Apps_Updater::filter_auto_update_theme( null, $item ) );
-		$this->assertTrue( Agend_Apps_Updater::filter_auto_update_theme( false, $item ) );
-	}
-
-	#[Test]
-	public function should_let_a_site_opt_a_theme_out_of_auto_updates(): void {
-		\add_filter(
-			'agend_apps_theme_auto_update',
-			static function ( bool $enabled, string $theme ): bool {
-				return 'agend-base' === $theme ? false : $enabled;
-			}
-		);
-
-		$item = (object) array(
-			'theme' => 'agend-base',
-			'id'    => 'https://agend-systems.github.io/agend-base-theme/agend-base',
-		);
-
-		$this->assertFalse( Agend_Apps_Updater::filter_auto_update_theme( null, $item ) );
-	}
-
-	#[Test]
-	public function should_leave_auto_updates_alone_for_a_theme_from_elsewhere(): void {
-		$item = (object) array(
-			'theme' => 'twentytwentyfive',
-			'id'    => 'w.org/themes/twentytwentyfive',
-		);
-
-		$this->assertNull( Agend_Apps_Updater::filter_auto_update_theme( null, $item ) );
-		$this->assertFalse( Agend_Apps_Updater::filter_auto_update_theme( false, $item ) );
-	}
-
-	#[Test]
-	public function boot_registers_the_theme_update_and_auto_update_filters(): void {
+	public function boot_registers_the_theme_update_filter_and_no_auto_update_filter(): void {
 		Agend_Apps_Updater::boot();
 
 		$this->assertSame(
 			array( Agend_Apps_Updater::class, 'filter_theme_update' ),
 			Agend_Test_WP::$filters['update_themes_agend-systems.github.io']
 		);
-		$this->assertSame(
-			array( Agend_Apps_Updater::class, 'filter_auto_update_theme' ),
-			Agend_Test_WP::$filters['auto_update_theme']
-		);
+		$this->assertArrayNotHasKey( 'auto_update_theme', Agend_Test_WP::$filters );
+		$this->assertFalse( method_exists( Agend_Apps_Updater::class, 'filter_auto_update_theme' ) );
+	}
+
+	/**
+	 * Sites that ran 1.46.0 have the self-updater's cron events scheduled.
+	 */
+	#[Test]
+	public function clears_the_retired_theme_self_update_events_and_options(): void {
+		\wp_schedule_event( time() + 300, 'daily', 'agend_apps_theme_self_update' );
+		\wp_schedule_single_event( time() + 60, 'agend_apps_theme_self_update_now' );
+		\update_option( 'agend_apps_theme_self_update_log', array( array( 'status' => 'updated' ) ) );
+		\update_option( 'agend_apps_theme_self_update_core_version', '1.46.0' );
+
+		Agend_Apps_Updater::clear_retired_theme_self_update();
+
+		$this->assertFalse( \wp_next_scheduled( 'agend_apps_theme_self_update' ) );
+		$this->assertFalse( \wp_next_scheduled( 'agend_apps_theme_self_update_now' ) );
+		$this->assertFalse( \get_option( 'agend_apps_theme_self_update_log', false ) );
+		$this->assertFalse( \get_option( 'agend_apps_theme_self_update_core_version', false ) );
+	}
+
+	#[Test]
+	public function check_for_updates_schedules_no_theme_install(): void {
+		Agend_Apps_Updater::handle_check_updates();
+
+		$this->assertSame( array(), Agend_Test_WP::$scheduled_events );
+		$this->assertSame( 1, Agend_Test_WP::$wp_update_themes_calls );
 	}
 }
