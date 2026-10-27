@@ -115,6 +115,12 @@ class Agend_Content_Access_Block_Editor {
 	 * declares an `agendAccess` of its own: that is somebody else's contract and
 	 * replacing it would break whatever reads it.
 	 *
+	 * The default stays an empty array, never an object: server code reads
+	 * WordPress's prepared block attributes, an object there would be a stdClass,
+	 * and `Block_Attributes::settings_for_block()` deliberately treats any
+	 * non-array value as a restriction, so the editor removes the attribute
+	 * instead of writing an empty `{}`.
+	 *
 	 * @param array  $args       Block type arguments.
 	 * @param string $block_name Block type name.
 	 * @return array

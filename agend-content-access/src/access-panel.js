@@ -236,6 +236,8 @@ export default function AccessPanel( { attributes, setAttributes } ) {
 	const stored = attributes[ ATTRIBUTE ];
 	const state = normalise( stored );
 	const strings = copy();
+	// `next` is `undefined` when nothing is left to store. Passing it through is
+	// what removes the attribute, so the block saves with no `agendAccess`.
 	const write = ( next ) => setAttributes( { [ ATTRIBUTE ]: next } );
 	const unreadableMode = state.mode === UNRECOGNISED;
 

@@ -136,20 +136,46 @@ test( 'the panel is only offered where the block type actually carries the attri
 // Round trips: what is written, and that nothing lingers
 // ---------------------------------------------------------------------------
 
-test( 'inherit to a mode and back is {}, which serialises exactly like an untouched block', () => {
-	const untouched = {};
+test( 'inherit to a mode and back is undefined, so the attribute is removed and nothing is saved', () => {
+	// The attribute as the server registers its default: an empty array.
+	for ( const untouched of [ [], {}, undefined ] ) {
+		for ( const mode of [ MODE.MEMBERS, MODE.TIERS, MODE.SEGMENTS, MODE.ENTITLEMENTS ] ) {
+			const there = setMode( untouched, mode );
+			const back = setMode( there, MODE.INHERIT );
 
-	for ( const mode of [ MODE.MEMBERS, MODE.TIERS, MODE.SEGMENTS, MODE.ENTITLEMENTS ] ) {
-		const there = setMode( untouched, mode );
-		const back = setMode( there, MODE.INHERIT );
-
-		assert.notDeepEqual( there, {}, `${ mode } is written` );
-		assert.deepEqual( back, {}, `${ mode } and back is empty` );
-		assert.equal( serialised( back ), serialised( untouched ) );
+			assert.notEqual( there, undefined, `${ mode } is written` );
+			assert.equal( back, undefined, `${ mode } and back removes the attribute` );
+			assert.equal( serialised( { agendAccess: back } ), '{}', 'a block comment would carry no agendAccess' );
+		}
 	}
 } );
 
-test( 'a full round trip through lists and conditions ends at {}', () => {
+test( 'conditions on and then off, with the audience at inherit, removes the attribute', () => {
+	for ( const untouched of [ [], {}, undefined ] ) {
+		const on = setConditionsEnabled( untouched, true );
+		const configured = setFallback( setInvert( setMatch( setConditions( on, [ 'a:b' ] ), 'all' ), true ), 7 );
+		const off = setConditionsEnabled( configured, false );
+
+		assert.deepEqual( on, { conditionsEnabled: true } );
+		assert.notEqual( configured, undefined );
+		assert.equal( off, undefined, 'every condition key is dropped, so nothing is left to store' );
+		assert.equal( setConditionsEnabled( on, false ), undefined );
+	}
+} );
+
+test( 'unknown keys keep the attribute alive: an object with only them, never undefined', () => {
+	const stored = { mode: 'segments', segmentIds: [ SEG_A ], conditionsEnabled: true, conditions: [ 'a:b' ], newerRelease: { shape: [ 1 ] }, flag: 'x' };
+	const back = setConditionsEnabled( setMode( stored, MODE.INHERIT ), false );
+
+	assert.deepEqual( back, { newerRelease: { shape: [ 1 ] }, flag: 'x' } );
+	assert.deepEqual( setMode( { mode: 'active_member', flag: 'x' }, MODE.INHERIT ), { flag: 'x' } );
+	assert.deepEqual( setConditionsEnabled( { conditionsEnabled: true, flag: 'x' }, false ), { flag: 'x' } );
+
+	// And once the unknown key is the only thing left, the next edit still keeps it.
+	assert.deepEqual( setMode( back, MODE.INHERIT ), back );
+} );
+
+test( 'a full round trip through lists and conditions ends with the attribute removed', () => {
 	let value = {};
 
 	value = setMode( value, MODE.TIERS );
@@ -173,7 +199,7 @@ test( 'a full round trip through lists and conditions ends at {}', () => {
 	value = setConditionsEnabled( value, false );
 	value = setMode( value, MODE.INHERIT );
 
-	assert.deepEqual( value, {} );
+	assert.equal( value, undefined );
 } );
 
 test( 'choosing a set-mode writes its list, empty, so the restriction is explicit', () => {
@@ -227,15 +253,15 @@ test( 'switching conditions off drops every condition key; on again starts clean
 	const full = { conditionsEnabled: true, conditions: [ 'x:y' ], conditionsMatch: 'all', conditionsInvert: true, fallbackId: 9 };
 	const off = setConditionsEnabled( full, false );
 
-	assert.deepEqual( off, {} );
+	assert.equal( off, undefined );
 	assert.deepEqual( setConditionsEnabled( off, true ), { conditionsEnabled: true } );
 } );
 
 test( 'condition controls do nothing while conditions are off', () => {
-	assert.deepEqual( setConditions( {}, [ 'a:b' ] ), {} );
-	assert.deepEqual( setMatch( {}, 'all' ), {} );
-	assert.deepEqual( setInvert( {}, true ), {} );
-	assert.deepEqual( setFallback( {}, 5 ), {} );
+	assert.equal( setConditions( {}, [ 'a:b' ] ), undefined );
+	assert.equal( setMatch( {}, 'all' ), undefined );
+	assert.equal( setInvert( {}, true ), undefined );
+	assert.equal( setFallback( {}, 5 ), undefined );
 } );
 
 test( 'conditions left in a block with the switch off are stale, and are dropped on the next write', () => {
@@ -256,7 +282,7 @@ test( 'a list takes strings only, once each, and a checkbox toggle keeps order',
 } );
 
 test( 'a list change while the block has no set-mode is ignored', () => {
-	assert.deepEqual( setList( {}, [ PLAN_A ] ), {} );
+	assert.equal( setList( {}, [ PLAN_A ] ), undefined );
 	assert.deepEqual( setList( { mode: 'active_member' }, [ PLAN_A ] ), { mode: 'active_member' } );
 } );
 
@@ -327,7 +353,7 @@ test( 'a key the panel does not own is kept, untouched, through every kind of ed
 
 test( 'collapsing to inherit leaves an object only when somebody else\'s key is still in it', () => {
 	assert.deepEqual( setMode( { mode: 'active_member', newerRelease: 1 }, MODE.INHERIT ), { newerRelease: 1 } );
-	assert.deepEqual( setMode( { mode: 'active_member' }, MODE.INHERIT ), {} );
+	assert.equal( setMode( { mode: 'active_member' }, MODE.INHERIT ), undefined );
 } );
 
 test( 'an unknown key alone reads as inherit with no conditions, as the server reads it', () => {
@@ -356,7 +382,7 @@ test( 'absent, null and {} all read as inherit with nothing on', () => {
 test( 'a stored mode of inherit, or an empty string, is inherit', () => {
 	assert.equal( normalise( { mode: 'inherit' } ).mode, MODE.INHERIT );
 	assert.equal( normalise( { mode: '' } ).mode, MODE.INHERIT );
-	assert.deepEqual( setMode( { mode: 'inherit' }, MODE.INHERIT ), {}, 'written back as the default, which is nothing' );
+	assert.equal( setMode( { mode: 'inherit' }, MODE.INHERIT ), undefined, 'written back as the default, which is nothing' );
 } );
 
 test( 'a list is read for the mode that uses it, as strings only', () => {
@@ -463,9 +489,9 @@ test( 'while the mode is unreadable every write is refused except choosing a mod
 
 test( 'choosing a mode repairs an unreadable one, and a string is replaced by an object', () => {
 	assert.deepEqual( setMode( 'members', MODE.MEMBERS ), { mode: 'active_member' } );
-	assert.deepEqual( setMode( { mode: 'wat' }, MODE.INHERIT ), {} );
+	assert.equal( setMode( { mode: 'wat' }, MODE.INHERIT ), undefined );
 	assert.deepEqual( setMode( 42, MODE.TIERS ), { mode: 'selected_tiers', tierIds: [] } );
-	assert.deepEqual( setMode( [ 1, 2 ], MODE.INHERIT ), {} );
+	assert.equal( setMode( [ 1, 2 ], MODE.INHERIT ), undefined );
 } );
 
 test( 'a mode that is not one of the five is refused rather than written', () => {

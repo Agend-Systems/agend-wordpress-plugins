@@ -26,8 +26,11 @@
  *  1. It writes those keys and nothing else, and writes the smallest object
  *     that says what the author chose. A default is never written out: no
  *     `mode` for "same as the page", no `conditionsMatch` for "any". Nothing
- *     chosen at all is `{}`, which a block serialises as no attribute, so a
- *     block an author only looked at stays byte-identical.
+ *     chosen at all is `undefined`, which removes the attribute, so a block an
+ *     author only looked at, or set and then set back, saves with no
+ *     `agendAccess` in its comment. (Not `{}`: the server registers an empty
+ *     array as the default, `{}` does not equal it, and WordPress would
+ *     serialise `{"agendAccess":{}}`.)
  *  2. A key that no longer applies is dropped, not hidden. Changing the mode
  *     drops the other modes' lists, and switching conditions off drops every
  *     condition key. The stored object always matches what the panel shows, so
@@ -36,7 +39,8 @@
  *     a script, or another tool may have written them, and silently deleting
  *     somebody else's data because an author nudged a toggle is worse than
  *     carrying a key the server ignores. (If nothing but such keys remains the
- *     object is still not `{}`, which is correct: it is not empty.)
+ *     object is still written, with only those keys, which is correct: it is
+ *     not empty.)
  *  4. A stored value it cannot read never crashes the panel and never loosens
  *     anything by accident. The server fails closed on an unreadable mode (a
  *     member-only block), so the panel shows that state, offers only the
@@ -300,11 +304,12 @@ export function normalise( stored ) {
 
 /**
  * The smallest object that says what a state says, plus the keys the panel
- * does not own.
+ * does not own. When that is nothing at all, `undefined`, so Gutenberg removes
+ * the attribute rather than saving an empty one.
  *
  * @param {*}      stored The stored value, for the keys that are not ours.
  * @param {Object} state  A state from `normalise()`, changed.
- * @return {Object} The next attribute value.
+ * @return {Object|undefined} The next attribute value.
  */
 function build( stored, state ) {
 	const next = {};
@@ -351,7 +356,10 @@ function build( stored, state ) {
 		} );
 	}
 
-	return next;
+	// Nothing chosen and nothing of somebody else's: no attribute at all. An
+	// empty object would not equal the server's default (an empty array), so it
+	// would be saved as `{"agendAccess":{}}` in the block's comment.
+	return Object.keys( next ).length === 0 ? undefined : next;
 }
 
 /**
@@ -361,8 +369,8 @@ function build( stored, state ) {
  * @param {Function} change    Mutates the (private) state.
  * @param {boolean}  [repairs] Whether this change may be made while the mode is
  *                             unreadable. Only choosing a mode may.
- * @return {*} The next attribute value. The stored value itself when the panel
- *             refuses the change.
+ * @return {*} The next attribute value, `undefined` when nothing is left to
+ *             store. The stored value itself when the panel refuses the change.
  */
 function apply( stored, change, repairs ) {
 	const state = normalise( stored );
@@ -385,7 +393,7 @@ function apply( stored, change, repairs ) {
  *
  * @param {*}      stored Stored attribute value.
  * @param {string} mode   One of `MODE`.
- * @return {Object} The next attribute value.
+ * @return {*} The next attribute value, `undefined` when nothing is left to store.
  */
 export function setMode( stored, mode ) {
 	if ( RECOGNISED_MODES.indexOf( mode ) === -1 ) {
