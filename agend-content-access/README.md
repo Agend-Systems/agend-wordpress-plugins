@@ -163,7 +163,11 @@ A visitor's membership standing comes from one source,
 `Agend_Content_Access_Viewer_Facts`, shared by document policies and display
 conditions. It asks `GET /v1/crm/me/entitlements` at most once per request,
 and holds the answer per member for the cache lifetime: Core's
-`crm_me_entitlements` setting when it is set, otherwise five minutes. When the
+`crm_me_entitlements` setting. Its default is 300 seconds (five minutes) from
+Core 1.48.0, which registers the key; on an older Core the key is unregistered,
+so Core falls back to 60 seconds. Whatever the setting says, the lifetime is
+never longer than 900 seconds (fifteen minutes), because it now decides document
+gating and the setting has no upper bound of its own. When the
 gateway reports an entitlement expiry, the lifetime is cut so the entry does
 not outlive it, to what is left with no floor. An expiry that has already
 passed, or is less than a second away, is not cached at all: a grant that has

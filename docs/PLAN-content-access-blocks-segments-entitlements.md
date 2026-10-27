@@ -146,9 +146,12 @@ Rules carried over unchanged:
   know one. The key is built through `Agend_Apps_Cache::build_key()` under
   `crm_me_entitlements`.
 - Lifetime: the configured value (`crm_me_entitlements`, registered in
-  `Agend_Apps_Cache` so the setting actually applies), default five minutes.
-  When the gateway reports per-capability `expires_at`, the lifetime is capped
-  so the entry expires no later than the earliest one.
+  `Agend_Apps_Cache` so the setting actually applies). The default is 300
+  seconds from Core 1.48.0; on an older Core the key is unregistered and Core
+  falls back to 60 seconds. Never above 900 seconds, whatever the setting says,
+  because it now governs document gating. When the gateway reports
+  per-capability `expires_at`, the lifetime is cut so the entry expires no later
+  than the earliest one, and an expiry already past is not cached at all.
 - `flush_member_facts( $user_id )` clears one member.
 
 ## 3. Webhooks

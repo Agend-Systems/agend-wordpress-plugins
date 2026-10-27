@@ -28,14 +28,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  * stored nowhere, so a revocation applied on the next page load. It now comes
  * from `Agend_Content_Access_Viewer_Facts`, the one source shared with display
  * conditions: memoised for the request and held per member in a transient for
- * the cache lifetime (Core's `crm_me_entitlements` setting, five minutes by
- * default). The reason is cost and consistency: a page with a document policy
- * and conditioned sections asked Agend twice under two different lifetimes, and
- * every protected page view paid a gateway round trip. The price is that a
- * revocation which fires no webhook takes up to that lifetime to apply.
- * Webhook invalidation arrives in a later layer and can only make this forget
- * sooner, never remember longer, so the TTL remains the backstop. A failed
- * lookup is never cached.
+ * the cache lifetime (Core's `crm_me_entitlements` setting: 300 seconds by
+ * default from Core 1.48.0, 60 on an older Core where the key is unregistered,
+ * and never more than 900 whatever it is set to). The reason is cost and
+ * consistency: a page with a document policy and conditioned sections asked
+ * Agend twice under two different lifetimes, and every protected page view paid
+ * a gateway round trip. The price is that a revocation which fires no webhook
+ * takes up to that lifetime to apply. Webhook invalidation arrives in a later
+ * layer and can only make this forget sooner, never remember longer, so the TTL
+ * remains the backstop. A failed lookup is never cached.
  *
  * SEGMENTS ARE LOADED ON DEMAND, AND THE POLICY SAYS WHEN. Entitlement keys
  * arrive free with the member's standing, from the same

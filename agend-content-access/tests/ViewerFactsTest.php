@@ -1189,6 +1189,78 @@ final class ViewerFactsTest extends TestCase {
 		$this->assertSame( ViewerFacts::cache_ttl(), Runtime::cache_ttl() );
 	}
 
+	/** Core 1.48.0 and later register the key with a default of 300 seconds. */
+	#[Test]
+	public function a_configured_lifetime_within_the_ceiling_is_used(): void {
+		$GLOBALS['agend_test_cache_ttls']['crm_me_entitlements'] = 600;
+		$this->assertSame( 600, ViewerFacts::cache_ttl() );
+		$this->assertSame( 600, Runtime::cache_ttl() );
+
+		$GLOBALS['agend_test_cache_ttls']['crm_me_entitlements'] = 900;
+		$this->assertSame( 900, ViewerFacts::cache_ttl(), 'the ceiling itself is allowed' );
+	}
+
+	/**
+	 * Before Core 1.48.0 the key is unregistered, so Core's `get_cache_ttl()` falls
+	 * back to 60 seconds. That is the real lifetime on such a site, not the five
+	 * minutes the docs used to claim.
+	 */
+	#[Test]
+	public function an_older_core_unregistered_key_gives_sixty_seconds(): void {
+		$GLOBALS['agend_test_cache_ttls']['crm_me_entitlements'] = 60;
+
+		$this->assertSame( 60, ViewerFacts::cache_ttl() );
+	}
+
+	/** There is no upper bound on the setting, and it now governs document gating. */
+	#[Test]
+	public function the_lifetime_never_exceeds_fifteen_minutes_whatever_the_setting_says(): void {
+		$this->assertSame( 900, ViewerFacts::MAX_TTL );
+
+		foreach ( array( 901, 3600, DAY_IN_SECONDS, 10 * 365 * DAY_IN_SECONDS ) as $configured ) {
+			$GLOBALS['agend_test_cache_ttls']['crm_me_entitlements'] = $configured;
+
+			$this->assertSame( 900, ViewerFacts::cache_ttl(), (string) $configured );
+			$this->assertSame( 900, Runtime::cache_ttl(), 'the display condition caches share the ceiling' );
+			$this->assertSame( 900, ViewerFacts::entry_ttl( '2099-01-01T00:00:00Z' ) );
+		}
+	}
+
+	#[Test]
+	public function a_setting_that_is_not_positive_falls_back_to_five_minutes(): void {
+		foreach ( array( 0, -5 ) as $configured ) {
+			$GLOBALS['agend_test_cache_ttls']['crm_me_entitlements'] = $configured;
+
+			$this->assertSame( 5 * MINUTE_IN_SECONDS, ViewerFacts::cache_ttl(), (string) $configured );
+		}
+	}
+
+	#[Test]
+	public function the_entries_actually_written_carry_the_capped_lifetime(): void {
+		$GLOBALS['agend_test_cache_ttls']['crm_me_entitlements'] = DAY_IN_SECONDS;
+
+		$this->signIn( 7 );
+		$this->gatewayReturns( $this->memberData() );
+		$this->segmentsReturn( array() );
+
+		ViewerFacts::member();
+		ViewerFacts::segments();
+
+		$this->assertSame( 900, Agend_Test_WP::$transient_ttls[ $this->memberKey( 7 ) ] );
+		$this->assertSame( 900, Agend_Test_WP::$transient_ttls[ $this->segmentKey( 7 ) ] );
+	}
+
+	/** The cap and the expiry together: the shorter wins. */
+	#[Test]
+	public function the_expiry_still_wins_when_it_is_sooner_than_the_ceiling(): void {
+		$GLOBALS['agend_test_cache_ttls']['crm_me_entitlements'] = DAY_IN_SECONDS;
+
+		$ttl = ViewerFacts::entry_ttl( gmdate( 'Y-m-d\TH:i:s\Z', time() + 120 ) );
+
+		$this->assertLessThanOrEqual( 120, $ttl );
+		$this->assertGreaterThanOrEqual( 118, $ttl );
+	}
+
 	#[Test]
 	public function a_distant_expiry_does_not_shorten_the_lifetime(): void {
 		$this->assertSame( ViewerFacts::cache_ttl(), ViewerFacts::entry_ttl( '2099-01-01T00:00:00Z' ) );

@@ -28,9 +28,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Agend on every request, so a revocation that fires no webhook now takes up to
  * the cache lifetime to apply (display conditions already worked that way).
  * That is a deliberate trade, and it is bounded: the lifetime is Core's
- * `crm_me_entitlements` setting, five minutes by default, capped so an entry
- * never outlives the earliest entitlement expiry the gateway reports. Webhook
- * invalidation arrives in a later layer, through `bump_generation()` and
+ * `crm_me_entitlements` setting, which defaults to five minutes from Core 1.48.0
+ * (where the key is registered) and to 60 seconds before it (an unregistered key
+ * falls back to 60), and which is never allowed above `MAX_TTL`, 15 minutes,
+ * whatever the setting says, because it now governs document gating. An entry
+ * never outlives the earliest entitlement expiry the gateway reports either.
+ * Webhook invalidation arrives in a later layer, through `bump_generation()` and
  * `flush()`. It is an accelerator only. The TTL stays the backstop, because
  * several changes to what a member can see happen with no write for an event to
  * announce (a grace period ending, a grant reaching its expiry, a segment rule
@@ -83,6 +86,19 @@ class Agend_Content_Access_Viewer_Facts {
 	 * @var string
 	 */
 	const GENERATION_OPTION = 'agend_content_access_facts_generation';
+
+	/**
+	 * The longest an entry is ever held, in seconds, whatever the setting says.
+	 *
+	 * The configured lifetime is an operator's number with no upper bound of its
+	 * own, and it decides document gating here: a lapsed member keeps their access
+	 * for that long when no webhook fires. Fifteen minutes is the most that trade
+	 * is allowed to cost. Kept in step with the ceiling the display conditions
+	 * already asserted.
+	 *
+	 * @var int
+	 */
+	const MAX_TTL = 900;
 
 	/**
 	 * User meta holding one user's own cache generation.
@@ -725,11 +741,20 @@ class Agend_Content_Access_Viewer_Facts {
 	 * How long an entry is cached.
 	 *
 	 * Short by intent. Membership standing decides what a visitor can see, so a
-	 * long TTL means a lapsed member keeps their access for that long. Uses
-	 * Core's configured value when available so an operator tunes one setting,
-	 * and five minutes otherwise.
+	 * long TTL means a lapsed member keeps their access for that long.
 	 *
-	 * @return int Seconds, always at least 1.
+	 * Core's `crm_me_entitlements` setting when Core's settings class is present,
+	 * so an operator tunes one number. What that number is depends on the Core
+	 * release: from 1.48.0 the key is registered with a default of 300 seconds; on
+	 * an older Core it is not registered, so `get_cache_ttl()` falls back to 60
+	 * seconds, not five minutes. Five minutes applies only when the settings class
+	 * is absent altogether, or reports a value that is not positive.
+	 *
+	 * Whatever the setting says, the result never exceeds `MAX_TTL` (900 seconds):
+	 * the setting has no upper bound of its own, and it now governs document
+	 * gating.
+	 *
+	 * @return int Seconds, from 1 to `MAX_TTL`.
 	 */
 	public static function cache_ttl(): int {
 		$ttl = 5 * MINUTE_IN_SECONDS;
@@ -742,7 +767,7 @@ class Agend_Content_Access_Viewer_Facts {
 			}
 		}
 
-		return $ttl;
+		return min( $ttl, self::MAX_TTL );
 	}
 
 	/**

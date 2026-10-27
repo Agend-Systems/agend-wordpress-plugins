@@ -175,9 +175,12 @@ class Agend_Content_Access_Condition_Runtime {
 	 *
 	 * Short by intent. Membership standing decides what a visitor can see, so a
 	 * long TTL means a lapsed member keeps their access for that long. Uses
-	 * Core's configured value when available so an operator tunes one setting.
+	 * Core's `crm_me_entitlements` setting when available so an operator tunes one
+	 * setting: default 300 seconds from Core 1.48.0, 60 seconds on an older Core
+	 * where the key is unregistered, and never above 900 whatever the setting says.
 	 * The rule lives on the facts source; this stays as the stable entry point
-	 * the segment cache and the vocabulary cache already call.
+	 * the segment cache and the vocabulary cache already call, so the same ceiling
+	 * applies to them.
 	 *
 	 * @return int Seconds.
 	 */
