@@ -63,6 +63,24 @@ class Agend_Content_Access_Policy {
 	const UUID_PATTERN = '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/';
 
 	/**
+	 * Fragment settings keys: the audience half of the editor-neutral settings
+	 * array.
+	 *
+	 * An editor driver (Elementor today, the block editor next) stores a
+	 * fragment's audience as a flat settings array under these keys, and
+	 * `from_fragment_settings()` is the single reader of it. The display
+	 * condition half of the same array is keyed by the constants on
+	 * `Agend_Content_Access_Fragment_Rules`. The key names and the `'yes'`
+	 * toggle values are Elementor-shaped because Elementor wrote them first and
+	 * every stored document uses them; they are the neutral format now, so a
+	 * second editor converts INTO them rather than inventing its own.
+	 *
+	 * @var string
+	 */
+	const FRAGMENT_MODE_KEY  = 'agend_access_mode';
+	const FRAGMENT_TIERS_KEY = 'agend_access_tier_ids';
+
+	/**
 	 * Parses an arbitrary value into a valid policy, or null.
 	 *
 	 * As strict as the database CHECK, including rejecting an unrecognised
@@ -215,6 +233,61 @@ class Agend_Content_Access_Policy {
 			),
 			'error'  => null,
 		);
+	}
+
+	/**
+	 * Reads a fragment's own policy from its settings array.
+	 *
+	 * Neutral by design: this takes the flat settings array an editor driver
+	 * hands over and knows nothing about which editor wrote it. It was an
+	 * Elementor method that happened to be pure policy validation, so it lives
+	 * here with the other shapes and the same fail-closed rules.
+	 *
+	 * Fails closed: an unrecognised mode, or selected-plans with nothing
+	 * selected, both yield a policy nobody satisfies rather than being ignored.
+	 * The experiment this replaces treated both as "no condition" and rendered
+	 * the element to everyone.
+	 *
+	 * @param array $settings Fragment settings, keyed by the FRAGMENT_*_KEY constants.
+	 * @return array|null Fragment policy, or null when the fragment opts out.
+	 */
+	public static function from_fragment_settings( array $settings ): ?array {
+		$mode = isset( $settings[ self::FRAGMENT_MODE_KEY ] ) ? (string) $settings[ self::FRAGMENT_MODE_KEY ] : '';
+
+		if ( '' === $mode || self::MODE_INHERIT === $mode ) {
+			return null;
+		}
+
+		if ( self::MODE_MEMBERS === $mode ) {
+			return array( 'mode' => self::MODE_MEMBERS );
+		}
+
+		if ( self::MODE_TIERS === $mode ) {
+			$raw   = isset( $settings[ self::FRAGMENT_TIERS_KEY ] ) && is_array( $settings[ self::FRAGMENT_TIERS_KEY ] )
+				? $settings[ self::FRAGMENT_TIERS_KEY ]
+				: array();
+			$clean = array();
+
+			foreach ( $raw as $tier_id ) {
+				$tier_id = is_string( $tier_id ) ? trim( $tier_id ) : '';
+
+				if ( 1 === preg_match( self::UUID_PATTERN, $tier_id ) ) {
+					$clean[] = $tier_id;
+				}
+			}
+
+			// An empty list here is NOT "no restriction". The editor asked for
+			// selected plans, so the honest reading is a restriction nobody
+			// satisfies, which hides the element until the policy is repaired.
+			return array(
+				'mode'     => self::MODE_TIERS,
+				'tier_ids' => array_values( array_unique( $clean ) ),
+			);
+		}
+
+		// An unrecognised mode is a policy we cannot honour. Treat it as
+		// members-only rather than ignoring it.
+		return array( 'mode' => self::MODE_MEMBERS );
 	}
 
 	/**

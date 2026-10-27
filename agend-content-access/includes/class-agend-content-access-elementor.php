@@ -32,28 +32,29 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Content_Access_Elementor {
 
 	const SECTION_ID = 'agend_access_section';
-	const MODE_KEY   = 'agend_access_mode';
-	const TIERS_KEY  = 'agend_access_tier_ids';
 
 	/**
-	 * Display-condition controls (US-6.1, ESAC parity).
+	 * Settings keys, aliased from the editor-neutral definitions.
 	 *
-	 * Kept in their own control group and evaluated separately from the access
-	 * POLICY above, because the two are different things wearing similar
-	 * clothes. The policy travels to Agend and drives the server-side
-	 * projection: it is a security boundary, enforced whether or not WordPress
-	 * renders correctly. Display conditions are evaluated HERE, in the theme,
-	 * and personalise what a page shows.
+	 * The keys are the neutral settings format now: the policy reader is
+	 * `Agend_Content_Access_Policy::from_fragment_settings()` and the display
+	 * condition rules are `Agend_Content_Access_Fragment_Rules`. These constants
+	 * remain so the controls registered below and any code naming an Elementor
+	 * control id keep working, and they cannot drift from the neutral values
+	 * because they ARE the neutral values.
 	 *
-	 * Merging them into one control would invite an editor to treat a local
-	 * render decision as protection. They compose instead: either can hide an
-	 * element, neither can reveal one the other hid.
+	 * Display conditions stay in their own control group, apart from the access
+	 * policy, for the reason the rules class documents: the policy is a security
+	 * boundary Agend enforces, the conditions are presentation applied here.
 	 */
-	const CONDITIONS_ENABLED_KEY = 'agend_conditions_enabled';
-	const CONDITIONS_KEY         = 'agend_conditions';
-	const CONDITIONS_MATCH_KEY   = 'agend_conditions_match';
-	const CONDITIONS_INVERT_KEY  = 'agend_conditions_invert';
-	const CONDITIONS_FALLBACK_KEY = 'agend_conditions_fallback_id';
+	const MODE_KEY  = Agend_Content_Access_Policy::FRAGMENT_MODE_KEY;
+	const TIERS_KEY = Agend_Content_Access_Policy::FRAGMENT_TIERS_KEY;
+
+	const CONDITIONS_ENABLED_KEY  = Agend_Content_Access_Fragment_Rules::ENABLED_KEY;
+	const CONDITIONS_KEY          = Agend_Content_Access_Fragment_Rules::CONDITIONS_KEY;
+	const CONDITIONS_MATCH_KEY    = Agend_Content_Access_Fragment_Rules::MATCH_KEY;
+	const CONDITIONS_INVERT_KEY   = Agend_Content_Access_Fragment_Rules::INVERT_KEY;
+	const CONDITIONS_FALLBACK_KEY = Agend_Content_Access_Fragment_Rules::FALLBACK_KEY;
 
 	/**
 	 * Control stacks already given the section this request.
@@ -296,56 +297,6 @@ class Agend_Content_Access_Elementor {
 	}
 
 	/**
-	 * Reads an element's fragment policy from its settings.
-	 *
-	 * Fails closed: an unrecognised mode, or selected-plans with nothing
-	 * selected, both yield a policy nobody satisfies rather than being ignored.
-	 * The experiment this replaces treated both as "no condition" and rendered
-	 * the element to everyone.
-	 *
-	 * @param array $settings Element settings.
-	 * @return array|null Fragment policy, or null when the element opts out.
-	 */
-	public static function policy_from_settings( array $settings ): ?array {
-		$mode = isset( $settings[ self::MODE_KEY ] ) ? (string) $settings[ self::MODE_KEY ] : '';
-
-		if ( '' === $mode || Agend_Content_Access_Policy::MODE_INHERIT === $mode ) {
-			return null;
-		}
-
-		if ( Agend_Content_Access_Policy::MODE_MEMBERS === $mode ) {
-			return array( 'mode' => Agend_Content_Access_Policy::MODE_MEMBERS );
-		}
-
-		if ( Agend_Content_Access_Policy::MODE_TIERS === $mode ) {
-			$raw   = isset( $settings[ self::TIERS_KEY ] ) && is_array( $settings[ self::TIERS_KEY ] )
-				? $settings[ self::TIERS_KEY ]
-				: array();
-			$clean = array();
-
-			foreach ( $raw as $tier_id ) {
-				$tier_id = is_string( $tier_id ) ? trim( $tier_id ) : '';
-
-				if ( 1 === preg_match( Agend_Content_Access_Policy::UUID_PATTERN, $tier_id ) ) {
-					$clean[] = $tier_id;
-				}
-			}
-
-			// An empty list here is NOT "no restriction". The editor asked for
-			// selected plans, so the honest reading is a restriction nobody
-			// satisfies, which hides the element until the policy is repaired.
-			return array(
-				'mode'     => Agend_Content_Access_Policy::MODE_TIERS,
-				'tier_ids' => array_values( array_unique( $clean ) ),
-			);
-		}
-
-		// An unrecognised mode is a policy we cannot honour. Treat it as
-		// members-only rather than ignoring it.
-		return array( 'mode' => Agend_Content_Access_Policy::MODE_MEMBERS );
-	}
-
-	/**
 	 * Suppresses an element the current visitor cannot see.
 	 *
 	 * Returning false removes the element's ENTIRE render, wrapper markup
@@ -373,11 +324,11 @@ class Agend_Content_Access_Elementor {
 		// only ever remove an element, so an element hidden here is hidden
 		// whatever the access policy says, and vice versa. Neither can reveal
 		// what the other hid.
-		if ( ! self::conditions_pass( $settings ) ) {
+		if ( ! Agend_Content_Access_Fragment_Rules::conditions_pass( $settings ) ) {
 			return false;
 		}
 
-		$fragment = self::policy_from_settings( $settings );
+		$fragment = Agend_Content_Access_Policy::from_fragment_settings( $settings );
 
 		if ( null === $fragment ) {
 			// Inherits the page, which the page-level gate already handled.
@@ -447,7 +398,7 @@ class Agend_Content_Access_Elementor {
 			? $node['settings']
 			: array();
 
-		if ( null !== self::policy_from_settings( $settings ) ) {
+		if ( null !== Agend_Content_Access_Policy::from_fragment_settings( $settings ) ) {
 			return true;
 		}
 
@@ -459,8 +410,7 @@ class Agend_Content_Access_Elementor {
 		// loading a conditioned page as a member and being served the
 		// anonymous render. The reverse is worse, since a member-warmed cache
 		// would then show member-only sections to anonymous visitors.
-		if ( ! empty( $settings[ self::CONDITIONS_ENABLED_KEY ] )
-			&& 'yes' === $settings[ self::CONDITIONS_ENABLED_KEY ] ) {
+		if ( Agend_Content_Access_Fragment_Rules::conditions_enabled( $settings ) ) {
 			return true;
 		}
 
@@ -475,60 +425,6 @@ class Agend_Content_Access_Elementor {
 		}
 
 		return false;
-	}
-
-	/**
-	 * Do this element's display conditions admit the current visitor?
-	 *
-	 * Returns true when conditions are switched off or none are chosen, which
-	 * is the overwhelmingly common case and must cost nothing.
-	 *
-	 * An unknown provider or a malformed condition DENIES, and the reason is
-	 * logged for an administrator rather than surfaced to the visitor. The
-	 * reference implementation passes in both cases, which turns a deactivated
-	 * plugin into a silent disclosure.
-	 *
-	 * @param array $settings Element settings.
-	 * @return bool
-	 */
-	public static function conditions_pass( array $settings ): bool {
-		if ( empty( $settings[ self::CONDITIONS_ENABLED_KEY ] )
-			|| 'yes' !== $settings[ self::CONDITIONS_ENABLED_KEY ] ) {
-			return true;
-		}
-
-		$conditions = isset( $settings[ self::CONDITIONS_KEY ] ) && is_array( $settings[ self::CONDITIONS_KEY ] )
-			? $settings[ self::CONDITIONS_KEY ]
-			: array();
-
-		$match = ( isset( $settings[ self::CONDITIONS_MATCH_KEY ] )
-			&& Agend_Content_Access_Conditions::MATCH_ALL === $settings[ self::CONDITIONS_MATCH_KEY ] )
-			? Agend_Content_Access_Conditions::MATCH_ALL
-			: Agend_Content_Access_Conditions::MATCH_ANY;
-
-		$invert = ! empty( $settings[ self::CONDITIONS_INVERT_KEY ] )
-			&& 'yes' === $settings[ self::CONDITIONS_INVERT_KEY ];
-
-		$result = Agend_Content_Access_Conditions::evaluate(
-			$conditions,
-			Agend_Content_Access_Condition_Runtime::checker(),
-			$match,
-			$invert
-		);
-
-		if ( array() !== $result['unknown'] ) {
-			// Loud in the log, silent to the visitor. An administrator needs to
-			// know a rule is broken; a visitor must not learn which providers a
-			// site uses.
-			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				sprintf(
-					'[Agend Content Access] Denied an element: unrecognised display conditions (%s). A provider plugin may be inactive.',
-					implode( ', ', $result['unknown'] )
-				)
-			);
-		}
-
-		return (bool) $result['passes'];
 	}
 
 	/**
@@ -561,7 +457,7 @@ class Agend_Content_Access_Elementor {
 		// Only elements the CONDITIONS excluded get a fallback. An element
 		// hidden by the access policy is protected content, and offering a
 		// consolation render there would blur the two.
-		if ( self::conditions_pass( $settings ) ) {
+		if ( Agend_Content_Access_Fragment_Rules::conditions_pass( $settings ) ) {
 			return;
 		}
 
@@ -573,34 +469,7 @@ class Agend_Content_Access_Elementor {
 			return;
 		}
 
-		echo self::fallback_html( $fallback_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-	}
-
-	/**
-	 * The rendered fallback, or an empty string when it may not be shown.
-	 *
-	 * @param int $fallback_id Post id chosen as the fallback.
-	 * @return string
-	 */
-	public static function fallback_html( int $fallback_id ): string {
-		$post = get_post( $fallback_id );
-
-		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
-			return '';
-		}
-
-		// The access check the reference omits. `evaluate` returns the state
-		// for THIS visitor against the fallback's own policy.
-		$state = Agend_Content_Access_Decision::evaluate(
-			Agend_Content_Access_Policy::get_for_post( $fallback_id ),
-			Agend_Content_Access_Decision::viewer()
-		);
-
-		if ( Agend_Content_Access_Decision::STATE_GRANTED !== $state ) {
-			return '';
-		}
-
-		return trim( (string) apply_filters( 'the_content', $post->post_content ) );
+		echo Agend_Content_Access_Fragment_Rules::fallback_html( $fallback_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/**
@@ -614,7 +483,7 @@ class Agend_Content_Access_Elementor {
 			return;
 		}
 
-		$fragment = self::policy_from_settings( $element->get_settings_for_display() );
+		$fragment = Agend_Content_Access_Policy::from_fragment_settings( $element->get_settings_for_display() );
 
 		if ( null === $fragment ) {
 			return;

@@ -16,6 +16,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-policy.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-catalogue.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-meta-box.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
@@ -31,6 +32,7 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
  * worth guarding.
  */
 #[CoversClass( Agend_Content_Access_Elementor::class )]
+#[CoversClass( Agend_Content_Access_Policy::class )]
 final class ElementorFragmentTest extends TestCase {
 
 	private const TIER_A = '11111111-1111-1111-1111-111111111111';
@@ -47,9 +49,9 @@ final class ElementorFragmentTest extends TestCase {
 
 	#[Test]
 	public function an_element_with_no_setting_inherits_the_page(): void {
-		$this->assertNull( Agend_Content_Access_Elementor::policy_from_settings( array() ) );
+		$this->assertNull( Agend_Content_Access_Policy::from_fragment_settings( array() ) );
 		$this->assertNull(
-			Agend_Content_Access_Elementor::policy_from_settings(
+			Agend_Content_Access_Policy::from_fragment_settings(
 				array( 'agend_access_mode' => 'inherit' )
 			)
 		);
@@ -59,7 +61,7 @@ final class ElementorFragmentTest extends TestCase {
 	public function all_active_members_reads_as_a_members_policy(): void {
 		$this->assertSame(
 			array( 'mode' => 'active_member' ),
-			Agend_Content_Access_Elementor::policy_from_settings(
+			Agend_Content_Access_Policy::from_fragment_settings(
 				array( 'agend_access_mode' => 'active_member' )
 			)
 		);
@@ -67,7 +69,7 @@ final class ElementorFragmentTest extends TestCase {
 
 	#[Test]
 	public function selected_plans_reads_the_chosen_tier_ids(): void {
-		$policy = Agend_Content_Access_Elementor::policy_from_settings(
+		$policy = Agend_Content_Access_Policy::from_fragment_settings(
 			array(
 				'agend_access_mode'     => 'selected_tiers',
 				'agend_access_tier_ids' => array( self::TIER_A, self::TIER_B ),
@@ -84,7 +86,7 @@ final class ElementorFragmentTest extends TestCase {
 	 */
 	#[Test]
 	public function selected_plans_with_nothing_selected_hides_the_element(): void {
-		$policy = Agend_Content_Access_Elementor::policy_from_settings(
+		$policy = Agend_Content_Access_Policy::from_fragment_settings(
 			array( 'agend_access_mode' => 'selected_tiers', 'agend_access_tier_ids' => array() )
 		);
 
@@ -101,7 +103,7 @@ final class ElementorFragmentTest extends TestCase {
 
 	#[Test]
 	public function junk_tier_ids_are_discarded_and_do_not_grant(): void {
-		$policy = Agend_Content_Access_Elementor::policy_from_settings(
+		$policy = Agend_Content_Access_Policy::from_fragment_settings(
 			array(
 				'agend_access_mode'     => 'selected_tiers',
 				'agend_access_tier_ids' => array( 'not-a-uuid', '', self::TIER_A, self::TIER_A ),
@@ -113,7 +115,7 @@ final class ElementorFragmentTest extends TestCase {
 
 	#[Test]
 	public function an_unrecognised_mode_restricts_rather_than_being_ignored(): void {
-		$policy = Agend_Content_Access_Elementor::policy_from_settings(
+		$policy = Agend_Content_Access_Policy::from_fragment_settings(
 			array( 'agend_access_mode' => 'everyone' )
 		);
 
@@ -214,7 +216,7 @@ final class ElementorFragmentTest extends TestCase {
 
 	#[Test]
 	public function a_qualifying_member_sees_a_restricted_section(): void {
-		$fragment  = Agend_Content_Access_Elementor::policy_from_settings(
+		$fragment  = Agend_Content_Access_Policy::from_fragment_settings(
 			array(
 				'agend_access_mode'     => 'selected_tiers',
 				'agend_access_tier_ids' => array( self::TIER_A ),
@@ -233,7 +235,7 @@ final class ElementorFragmentTest extends TestCase {
 
 	#[Test]
 	public function an_anonymous_visitor_does_not_see_a_restricted_section(): void {
-		$fragment  = Agend_Content_Access_Elementor::policy_from_settings(
+		$fragment  = Agend_Content_Access_Policy::from_fragment_settings(
 			array( 'agend_access_mode' => 'active_member' )
 		);
 		$effective = Agend_Content_Access_Policy::effective_policy( null, $fragment );

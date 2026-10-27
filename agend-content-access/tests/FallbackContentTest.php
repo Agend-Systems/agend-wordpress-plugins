@@ -7,13 +7,14 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\ContentAccess;
 
-use Agend_Content_Access_Elementor as ElementorControl;
+use Agend_Content_Access_Fragment_Rules as FragmentRules;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-policy.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-catalogue.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
@@ -31,7 +32,7 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
  * as the fallback for a members-only section shows it to precisely the people
  * who were refused. These tests exist to keep that closed.
  */
-#[CoversClass( ElementorControl::class )]
+#[CoversClass( FragmentRules::class )]
 final class FallbackContentTest extends TestCase {
 
 	private const FALLBACK_ID = 4242;
@@ -67,7 +68,7 @@ final class FallbackContentTest extends TestCase {
 
 		$this->assertStringContainsString(
 			'SIGN-IN-PROMPT-CONTENT',
-			ElementorControl::fallback_html( self::FALLBACK_ID )
+			FragmentRules::fallback_html( self::FALLBACK_ID )
 		);
 	}
 
@@ -81,7 +82,7 @@ final class FallbackContentTest extends TestCase {
 	public function a_members_only_fallback_is_never_shown_to_a_visitor_who_cannot_access_it(): void {
 		$this->publishFallback( array( 'mode' => 'active_member' ) );
 
-		$this->assertSame( '', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+		$this->assertSame( '', FragmentRules::fallback_html( self::FALLBACK_ID ) );
 	}
 
 	#[Test]
@@ -93,7 +94,7 @@ final class FallbackContentTest extends TestCase {
 			)
 		);
 
-		$this->assertSame( '', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+		$this->assertSame( '', FragmentRules::fallback_html( self::FALLBACK_ID ) );
 	}
 
 	#[Test]
@@ -101,12 +102,12 @@ final class FallbackContentTest extends TestCase {
 		$this->publishFallback( null );
 		$GLOBALS['agend_test_posts'][ self::FALLBACK_ID ]->post_status = 'draft';
 
-		$this->assertSame( '', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+		$this->assertSame( '', FragmentRules::fallback_html( self::FALLBACK_ID ) );
 	}
 
 	#[Test]
 	public function a_missing_fallback_renders_nothing(): void {
-		$this->assertSame( '', ElementorControl::fallback_html( 999999 ) );
+		$this->assertSame( '', FragmentRules::fallback_html( 999999 ) );
 	}
 
 	/**
@@ -120,7 +121,7 @@ final class FallbackContentTest extends TestCase {
 
 		$this->assertStringContainsString(
 			'SIGN-IN-PROMPT-CONTENT',
-			ElementorControl::fallback_html( self::FALLBACK_ID )
+			FragmentRules::fallback_html( self::FALLBACK_ID )
 		);
 
 		// An editor restricts it later.
@@ -128,6 +129,6 @@ final class FallbackContentTest extends TestCase {
 			'_agend_access_policy' => array( 'mode' => 'active_member' ),
 		);
 
-		$this->assertSame( '', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+		$this->assertSame( '', FragmentRules::fallback_html( self::FALLBACK_ID ) );
 	}
 }
