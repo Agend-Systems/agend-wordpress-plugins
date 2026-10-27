@@ -75,6 +75,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-fragment-rules.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-attributes.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-viewer-facts.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-webhooks.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
@@ -87,6 +88,10 @@ function agend_content_access_bootstrap(): void {
 	// Gating is registered on EVERY request, admin included: the REST filters
 	// hang off it and a REST call never reaches template_redirect.
 	new Agend_Content_Access_Frontend();
+
+	// Webhook invalidation, on EVERY request for the same reason: a delivery from
+	// Agend is a REST request, so nothing here may wait for `is_admin()`.
+	Agend_Content_Access_Webhooks::init();
 
 	// Fragment policies, only when Elementor is present.
 	//

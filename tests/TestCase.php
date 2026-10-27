@@ -74,6 +74,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_post_meta']        = array();
 		$GLOBALS['agend_test_user_meta']        = array();
 		$GLOBALS['agend_test_users']            = array();
+		$GLOBALS['agend_test_get_users']        = null;
 		$GLOBALS['agend_test_current_user_can'] = array();
 		$GLOBALS['agend_test_cache_ttls']       = array();
 		unset( $GLOBALS['agend_test_post_types'] );

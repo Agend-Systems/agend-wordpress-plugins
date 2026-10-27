@@ -1465,6 +1465,51 @@ if ( ! isset( $GLOBALS['agend_test_users'] ) ) {
 	$GLOBALS['agend_test_users'] = array();
 }
 
+if ( ! function_exists( 'get_users' ) ) {
+	/**
+	 * User query stub, for the one lookup the plugins make: by an exact user
+	 * meta value, as `array( 'meta_key' => ..., 'meta_value' => ..., 'fields' =>
+	 * 'ID', 'number' => N )`. It scans the same `agend_test_user_meta` registry
+	 * `get_user_meta()` reads, so a test links users by writing meta and needs no
+	 * user objects. Returns ids for `fields` 'ID' and bare `WP_User` shells
+	 * otherwise, in ascending id order, honouring `number`.
+	 *
+	 * A suite that needs a richer query double (Loop Sync's, over its own user
+	 * registry) names it in `$GLOBALS['agend_test_get_users']`, which the base
+	 * TestCase clears before every test.
+	 *
+	 * @param array $args Query args.
+	 * @return array<int, int|WP_User>
+	 */
+	function get_users( array $args = array() ) {
+		$override = $GLOBALS['agend_test_get_users'] ?? null;
+
+		if ( is_callable( $override ) ) {
+			return $override( $args );
+		}
+
+		$ids = array();
+
+		foreach ( (array) ( $GLOBALS['agend_test_user_meta'] ?? array() ) as $user_id => $meta ) {
+			$value = isset( $args['meta_key'] ) ? ( $meta[ $args['meta_key'] ] ?? null ) : null;
+
+			if ( isset( $args['meta_value'] ) && is_scalar( $value ) && (string) $value === (string) $args['meta_value'] ) {
+				$ids[] = (int) $user_id;
+			}
+		}
+
+		sort( $ids );
+
+		if ( isset( $args['number'] ) && (int) $args['number'] > 0 ) {
+			$ids = array_slice( $ids, 0, (int) $args['number'] );
+		}
+
+		return 'ID' === ( $args['fields'] ?? '' )
+			? $ids
+			: array_map( static fn( int $id ) => new WP_User( $id ), $ids );
+	}
+}
+
 if ( ! function_exists( 'get_user_by' ) ) {
 	/**
 	 * User lookup stub, backed by the `$GLOBALS['agend_test_users']` registry

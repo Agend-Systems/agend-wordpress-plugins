@@ -143,8 +143,16 @@ function loop_sync_test_user( int $id, ?string $membership_number, string $email
 	return $user;
 }
 
-if ( ! function_exists( 'get_users' ) ) {
-	function get_users( array $args = array() ): array {
+/**
+ * Loop Sync's user query double, over `Loop_Sync_Test_State::$users`.
+ *
+ * Not named `get_users`: the shared stub in tests/wp-stubs.php owns that name
+ * (Content Access's webhook tests need it too) and hands the call to this
+ * function while a Loop Sync test is running, through
+ * `$GLOBALS['agend_test_get_users']`, which LoopSyncTestCase sets.
+ */
+if ( ! function_exists( 'loop_sync_test_get_users' ) ) {
+	function loop_sync_test_get_users( array $args = array() ): array {
 		$users = Loop_Sync_Test_State::$users;
 
 		if ( isset( $args['meta_key'] ) && isset( $args['meta_value'] ) ) {
