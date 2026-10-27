@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  *   - `agend_wordpress`     login state and roles, read locally, no network.
  *   - `agend_membership`    member standing and tiers, from the Agend API.
- *   - `agend_segments`      segment membership, from the Agend API.
+ *   - `agend_segments`      segment membership, by id or slug, from the Agend API.
  *   - `agend_entitlements`  the entitlements the visitor holds, from the Agend
  *                           API. The value is a `gate_key`.
  *
@@ -104,7 +104,7 @@ class Agend_Content_Access_Condition_Providers {
 	 * @param array<string, callable> $resolvers Fact resolvers keyed by canonical provider:
 	 *        `self::WORDPRESS`    => fn(): array{logged_in: bool, roles: string[]}
 	 *        `self::MEMBERSHIP`   => fn(): ?array{is_member: bool, tier_ids: string[], tier_slugs: string[]}
-	 *        `self::SEGMENTS`     => fn(): ?string[]
+	 *        `self::SEGMENTS`     => fn(): ?array{segment_ids: string[], segment_slugs: string[]}|string[] A flat list is slugs.
 	 *        `self::ENTITLEMENTS` => fn(): ?string[] Gate keys the visitor holds.
 	 * @return callable fn(string $provider, string $value): ?bool
 	 */
@@ -188,14 +188,35 @@ class Agend_Content_Access_Condition_Providers {
 	/**
 	 * Segment conditions: the visitor belongs to the named segment.
 	 *
-	 * Matched against segment SLUGS, for compatibility with stored ESAC data.
+	 * A segment is named by id, which survives a rename and is what new rules
+	 * use, or by SLUG, for compatibility with stored ESAC data. The two namespaces
+	 * are kept apart: a value shaped like a UUID is an id and is matched against ids
+	 * ONLY, so a segment whose slug happens to be another segment's id cannot admit
+	 * its members to that one. Anything else is a slug.
 	 *
-	 * @param string   $value    Condition value, a segment slug.
-	 * @param string[] $segments Slugs of the segments the visitor belongs to.
+	 * The facts are either `array{segment_ids: string[], segment_slugs: string[]}`,
+	 * which is what the live runtime supplies, or a flat list, which is the contract
+	 * of the `agend_content_access_segment_facts` filter (slugs) and is matched
+	 * exactly, as it always was. The site that supplies it is the one saying what the
+	 * visitor belongs to.
+	 *
+	 * @param string $value    Condition value, a segment id or slug.
+	 * @param array  $segments The segment facts, in either shape.
 	 * @return bool
 	 */
 	public static function check_segments( string $value, array $segments ): bool {
-		return in_array( $value, $segments, true );
+		if ( ! array_key_exists( 'segment_ids', $segments ) && ! array_key_exists( 'segment_slugs', $segments ) ) {
+			return in_array( $value, $segments, true );
+		}
+
+		$ids   = isset( $segments['segment_ids'] ) && is_array( $segments['segment_ids'] ) ? $segments['segment_ids'] : array();
+		$slugs = isset( $segments['segment_slugs'] ) && is_array( $segments['segment_slugs'] ) ? $segments['segment_slugs'] : array();
+
+		if ( 1 === preg_match( Agend_Content_Access_Policy::UUID_PATTERN, $value ) ) {
+			return in_array( $value, $ids, true );
+		}
+
+		return in_array( $value, $slugs, true );
 	}
 
 	/**
@@ -250,7 +271,8 @@ class Agend_Content_Access_Condition_Providers {
 	 * Accepts the legacy vocabulary as well as the canonical one, because the
 	 * stored data uses it: `is_member` from `upbeat_is_member`, and a tier
 	 * SLUG from `upbeat_member_entitlement` / `upbeat_member_grades`. Tier ids
-	 * are matched too, for conditions authored against Agend directly.
+	 * are matched too, for conditions authored against Agend directly, and are
+	 * what a page's converted audience names.
 	 *
 	 * @param string $value Condition value.
 	 * @param array  $facts Resolved member facts.
@@ -265,8 +287,14 @@ class Agend_Content_Access_Condition_Providers {
 		$slugs = isset( $facts['tier_slugs'] ) && is_array( $facts['tier_slugs'] ) ? $facts['tier_slugs'] : array();
 
 		// Matched against both, because the legacy conditions name a slug while
-		// anything authored against Agend names a UUID. Checking both is not a
-		// guess: each namespace is exact, and a slug cannot collide with a UUID.
+		// anything authored against Agend names a UUID. A value shaped like a UUID is
+		// an id and is matched against ids ONLY: a tier whose slug happens to equal
+		// another tier's id must not admit its holders to that one, and now that a
+		// page's audience is read through this too, the namespaces are kept apart.
+		if ( 1 === preg_match( Agend_Content_Access_Policy::UUID_PATTERN, $value ) ) {
+			return in_array( $value, $ids, true );
+		}
+
 		return in_array( $value, $ids, true ) || in_array( $value, $slugs, true );
 	}
 

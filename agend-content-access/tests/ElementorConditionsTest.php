@@ -25,6 +25,9 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-elementor.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-rules.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-access.php';
 
 /**
  * The Elementor display-condition control (US-6.1, ESAC parity).
@@ -42,6 +45,11 @@ final class ElementorConditionsTest extends TestCase {
 		parent::setUp();
 
 		$GLOBALS['agend_test_current_user_id'] = 0;
+	}
+
+	/** Whether the element's settings admit the visitor: the settings read as rules, judged by the one evaluator. */
+	private function passes( array $settings ): bool {
+		return \Agend_Content_Access_Access::verdict( \Agend_Content_Access_Rules::from_elementor_settings( $settings ) )['allowed'];
 	}
 
 	private function settings( array $over = array() ): array {
@@ -97,29 +105,29 @@ final class ElementorConditionsTest extends TestCase {
 	#[Test]
 	public function an_element_with_conditions_switched_off_always_shows(): void {
 		$this->assertTrue(
-			FragmentRules::conditions_pass(
+			$this->passes(
 				array( ElementorControl::CONDITIONS_ENABLED_KEY => '' )
 			)
 		);
 
-		$this->assertTrue( FragmentRules::conditions_pass( array() ) );
+		$this->assertTrue( $this->passes( array() ) );
 	}
 
 	/**
 	 * Switched on but with nothing chosen is not a restriction. It matches the
 	 * reference implementation and the control says so, because the alternative
 	 * (an element that vanishes the moment the switch is flipped, before any
-	 * condition is picked) would read as a bug to an editor.
+	 * condition is picked) would read as a bug to an editor. It is no rules at all.
 	 */
 	#[Test]
 	public function enabled_with_no_conditions_chosen_shows_to_everybody(): void {
-		$this->assertTrue( FragmentRules::conditions_pass( $this->settings() ) );
+		$this->assertTrue( $this->passes( $this->settings() ) );
 	}
 
 	#[Test]
 	public function a_signed_out_visitor_is_matched_by_the_logged_out_condition(): void {
 		$this->assertTrue(
-			FragmentRules::conditions_pass(
+			$this->passes(
 				$this->settings(
 					array(
 						ElementorControl::CONDITIONS_KEY => array( 'agend_wordpress:logged_out' ),
@@ -132,7 +140,7 @@ final class ElementorConditionsTest extends TestCase {
 	#[Test]
 	public function a_signed_out_visitor_fails_the_logged_in_condition(): void {
 		$this->assertFalse(
-			FragmentRules::conditions_pass(
+			$this->passes(
 				$this->settings(
 					array(
 						ElementorControl::CONDITIONS_KEY => array( 'agend_wordpress:logged_in' ),
@@ -153,11 +161,11 @@ final class ElementorConditionsTest extends TestCase {
 		);
 
 		$this->assertFalse(
-			FragmentRules::conditions_pass( $this->settings( $base ) )
+			$this->passes( $this->settings( $base ) )
 		);
 
 		$this->assertTrue(
-			FragmentRules::conditions_pass(
+			$this->passes(
 				$this->settings(
 					$base + array( ElementorControl::CONDITIONS_INVERT_KEY => 'yes' )
 				)
@@ -178,11 +186,11 @@ final class ElementorConditionsTest extends TestCase {
 			)
 		);
 
-		$this->assertFalse( FragmentRules::conditions_pass( $settings ) );
+		$this->assertFalse( $this->passes( $settings ) );
 
 		$settings[ ElementorControl::CONDITIONS_MATCH_KEY ] = 'any';
 
-		$this->assertTrue( FragmentRules::conditions_pass( $settings ) );
+		$this->assertTrue( $this->passes( $settings ) );
 	}
 
 	/**
@@ -192,7 +200,7 @@ final class ElementorConditionsTest extends TestCase {
 	#[Test]
 	public function an_unrecognised_provider_hides_the_element(): void {
 		$this->assertFalse(
-			FragmentRules::conditions_pass(
+			$this->passes(
 				$this->settings(
 					array(
 						ElementorControl::CONDITIONS_KEY => array( 'plugin_gone:whatever' ),
@@ -210,7 +218,7 @@ final class ElementorConditionsTest extends TestCase {
 	#[Test]
 	public function reversing_an_unrecognised_provider_still_hides_it(): void {
 		$this->assertFalse(
-			FragmentRules::conditions_pass(
+			$this->passes(
 				$this->settings(
 					array(
 						ElementorControl::CONDITIONS_KEY        => array( 'plugin_gone:whatever' ),
@@ -224,7 +232,7 @@ final class ElementorConditionsTest extends TestCase {
 	#[Test]
 	public function a_malformed_condition_hides_the_element(): void {
 		$this->assertFalse(
-			FragmentRules::conditions_pass(
+			$this->passes(
 				$this->settings(
 					array(
 						ElementorControl::CONDITIONS_KEY => array( 'no_colon_at_all' ),
@@ -241,7 +249,7 @@ final class ElementorConditionsTest extends TestCase {
 	#[Test]
 	public function legacy_esac_prefixes_are_honoured(): void {
 		$this->assertTrue(
-			FragmentRules::conditions_pass(
+			$this->passes(
 				$this->settings(
 					array(
 						ElementorControl::CONDITIONS_KEY => array( 'iugo_esac_wordpress:logged_out' ),

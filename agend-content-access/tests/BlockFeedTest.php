@@ -260,16 +260,18 @@ final class BlockFeedTest extends BlockEnforcementTestCase {
 		$this->assertSame( 0, $this->identity_lookups, 'and looks nobody up' );
 	}
 
-	/** Callers that pass no checker are judged for the visitor, as they always were. */
+	/** Callers that ask for no anonymous reading are judged for the visitor, as they always were. */
 	#[Test]
-	public function conditions_pass_defaults_to_the_live_visitor(): void {
+	public function the_evaluator_defaults_to_the_live_visitor(): void {
 		$this->asMember( self::TIER_A );
-		$settings = array(
-			Agend_Content_Access_Fragment_Rules::ENABLED_KEY    => 'yes',
-			Agend_Content_Access_Fragment_Rules::CONDITIONS_KEY => array( 'agend_membership:is_member' ),
+		$rules = \Agend_Content_Access_Rules::from_elementor_settings(
+			array(
+				Agend_Content_Access_Fragment_Rules::ENABLED_KEY    => 'yes',
+				Agend_Content_Access_Fragment_Rules::CONDITIONS_KEY => array( 'agend_membership:is_member' ),
+			)
 		);
 
-		$this->assertTrue( Agend_Content_Access_Fragment_Rules::conditions_pass( $settings ) );
-		$this->assertFalse( Agend_Content_Access_Fragment_Rules::conditions_pass( $settings, Agend_Content_Access_Condition_Runtime::anonymous_checker() ) );
+		$this->assertTrue( \Agend_Content_Access_Access::verdict( $rules )['allowed'] );
+		$this->assertFalse( \Agend_Content_Access_Access::verdict( $rules, array( 'anonymous' => true ) )['allowed'] );
 	}
 }

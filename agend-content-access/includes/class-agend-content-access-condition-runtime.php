@@ -10,11 +10,21 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * The request-scoped runtime for display conditions
+ * The request-scoped runtime for access rules
  * (SPEC-CMS-20260727 US-6.1, reframed as ESAC feature parity).
  *
- * Wires the three condition families to where their answers actually come
- * from, and holds them for the life of the request.
+ * Wires the condition families to where their answers actually come from, and
+ * holds them for the life of the request. `Agend_Content_Access_Access` is the one
+ * caller: every rule set, on a block, a section or a page, is judged against the
+ * checker built here.
+ *
+ * WHO IS SIGNED IN, FOR AGEND, IS WHO HOLDS A BEARER. A visitor with no bearer is
+ * definitively nobody to Agend and nothing is looked up for them; a visitor with
+ * one is whoever the gateway says. It is what the page gate has always used, and
+ * what a rule on a page, a block and a section now all share: a member of Agend
+ * need not be signed in to WordPress, and a WordPress login with no linked member
+ * session is not a membership. WordPress's own login state answers only the
+ * `agend_wordpress` family.
  *
  * | Family               | Source                                         |
  * | -------------------- | ---------------------------------------------- |
@@ -24,10 +34,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * | `agend_entitlements` | `Agend_Content_Access_Viewer_Facts`, cached    |
  *
  * Membership facts come from `Agend_Content_Access_Viewer_Facts`, the one
- * source it shares with the document policy path, so a page asks
- * `GET /v1/crm/me/entitlements` once however many things on it need the answer.
- * `member_facts()` here is a thin adapter over it that keeps this path's own
- * rule for a signed-out visitor.
+ * source every rule shares, so a page asks `GET /v1/crm/me/entitlements` once
+ * however many things on it need the answer. `member_facts()` here is a thin
+ * adapter over it.
  *
  * Each API-backed family is cached PER VIEWER, never globally: both responses
  * are entirely about who is asking, so a shared entry would hand one member's
@@ -37,7 +46,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * A source that cannot answer returns null, which the engine reads as unknown
  * and denies on while naming the provider. The one case that answers
- * definitively is a signed-out visitor, who certainly holds no membership,
+ * definitively is a visitor with no bearer, who certainly holds no membership,
  * belongs to no segments and holds no entitlements; that needs no network.
  */
 class Agend_Content_Access_Condition_Runtime {
@@ -52,7 +61,7 @@ class Agend_Content_Access_Condition_Runtime {
 			array(
 				Agend_Content_Access_Condition_Providers::WORDPRESS    => array( 'Agend_Content_Access_Condition_Providers', 'wordpress_facts' ),
 				Agend_Content_Access_Condition_Providers::MEMBERSHIP   => array( __CLASS__, 'member_facts' ),
-				Agend_Content_Access_Condition_Providers::SEGMENTS     => array( __CLASS__, 'segment_facts' ),
+				Agend_Content_Access_Condition_Providers::SEGMENTS     => array( __CLASS__, 'segment_sets' ),
 				Agend_Content_Access_Condition_Providers::ENTITLEMENTS => array( __CLASS__, 'entitlement_facts' ),
 			)
 		);
@@ -109,15 +118,16 @@ class Agend_Content_Access_Condition_Runtime {
 	 * indistinguishable from a genuine non-member, and on an inverted rule it
 	 * would disclose rather than deny.
 	 *
-	 * This path's rule for a signed-out visitor is its own: not logged in means
-	 * holds nothing, definitively, with no lookup. The document path keys on a
-	 * bearer being present instead, and keeps its own rule.
+	 * A visitor with no bearer holds nothing, definitively and with no lookup. This
+	 * used to key on a WordPress login while the document path keyed on a bearer,
+	 * two answers to the same question. Now that one evaluator judges both, there is
+	 * one: the bearer. See the class docblock.
 	 *
 	 * @return array{is_member: bool, tier_ids: string[], tier_slugs: string[]}|null
 	 */
 	public static function member_facts(): ?array {
-		if ( ! is_user_logged_in() ) {
-			// Not an outage: a signed-out visitor definitively holds nothing.
+		if ( ! self::has_bearer() ) {
+			// Not an outage: a visitor Agend cannot identify definitively holds nothing.
 			return array( 'is_member' => false, 'tier_ids' => array(), 'tier_slugs' => array() );
 		}
 
@@ -128,9 +138,17 @@ class Agend_Content_Access_Condition_Runtime {
 		}
 
 		// The three fields this path has always returned. The source holds more
-		// (entitlements), which nothing here reads yet.
+		// (entitlements), which has its own adapter.
+		//
+		// A MEMBER IS SOMEBODY THE GATEWAY CALLS ONE AND WHO HOLDS A PLAN. The page gate
+		// decided membership by the plans a visitor held and display conditions by the
+		// gateway's `is_member` flag. Both come from the one member definition, so they
+		// agree on a real answer, but this is the single place that definition is read
+		// now, and where the two could ever differ the visitor is not a member: a
+		// reading that grants on either alone could only ever widen what the stricter
+		// one admitted.
 		return array(
-			'is_member'  => $facts['is_member'],
+			'is_member'  => $facts['is_member'] && array() !== $facts['tier_ids'],
 			'tier_ids'   => $facts['tier_ids'],
 			'tier_slugs' => $facts['tier_slugs'],
 		);
@@ -144,7 +162,7 @@ class Agend_Content_Access_Condition_Runtime {
 	 * membership facts, so this costs no call a page was not already making, and
 	 * the document path and this one share the answer.
 	 *
-	 * A signed-out visitor holds none, definitively and with no lookup. Anything
+	 * A visitor with no bearer holds none, definitively and with no lookup. Anything
 	 * the source cannot answer (the Core wrapper is missing, the gateway failed,
 	 * the response was malformed) is null, which the engine denies on and
 	 * reports. Never an empty list: "holds nothing" and "could not tell" are
@@ -153,8 +171,8 @@ class Agend_Content_Access_Condition_Runtime {
 	 * @return string[]|null Gate keys, or null when unknown.
 	 */
 	public static function entitlement_facts(): ?array {
-		if ( ! is_user_logged_in() ) {
-			// Not an outage: a signed-out visitor definitively holds nothing.
+		if ( ! self::has_bearer() ) {
+			// Not an outage: a visitor Agend cannot identify definitively holds nothing.
 			return array();
 		}
 
@@ -164,46 +182,64 @@ class Agend_Content_Access_Condition_Runtime {
 	}
 
 	/**
-	 * Segment membership for the current visitor, as slugs.
+	 * Segment membership for the current visitor, as ids and slugs.
 	 *
 	 * A thin adapter over `Agend_Content_Access_Viewer_Facts::segments()`, which
 	 * owns the gateway read, the per-viewer cache and the failure rules. This
-	 * keeps what is specific to display conditions: stored conditions name a
-	 * segment by SLUG, a site can supply segments through a filter, and a
-	 * signed-out visitor belongs to none without any lookup.
+	 * keeps what is specific to rules: a rule names a segment by id (new rules and
+	 * every converted page policy) or by slug (stored ESAC conditions), a site can
+	 * supply segments through a filter, and a visitor with no bearer belongs to none
+	 * without any lookup.
 	 *
 	 * A failure returns null so the engine denies and reports rather than
 	 * treating the visitor as belonging to no segments, which is a different
 	 * claim.
 	 *
-	 * @return string[]|null Segment slugs, or null when unknown.
+	 * @return array{segment_ids: string[], segment_slugs: string[]}|null Null when unknown.
 	 */
-	public static function segment_facts(): ?array {
+	public static function segment_sets(): ?array {
 		/**
 		 * Filters segment membership for the current visitor.
 		 *
 		 * Kept so a site can supply segments from its own source. Returning an
 		 * array short-circuits the gateway read entirely. It supplies SLUGS,
-		 * which is what display conditions match on, and so it does not feed
-		 * `segments` access policies, which name segments by id.
+		 * which is what stored display conditions match on, so it satisfies a rule
+		 * that names a slug and never one that names an id, and an id rule, which is
+		 * what a converted page policy is, is denied while it is in use.
 		 *
 		 * @param string[]|null $segments Segment slugs the visitor belongs to.
 		 */
 		$supplied = apply_filters( 'agend_content_access_segment_facts', null );
 
 		if ( is_array( $supplied ) ) {
-			return array_values( array_map( 'strval', $supplied ) );
+			return array(
+				'segment_ids'   => array(),
+				'segment_slugs' => array_values( array_map( 'strval', $supplied ) ),
+			);
 		}
 
-		if ( ! is_user_logged_in() ) {
-			// Definitive: a signed-out visitor belongs to no segments. Segments
-			// are contact attributes, and there is no contact.
-			return array();
+		if ( ! self::has_bearer() ) {
+			// Definitive: a visitor Agend cannot identify belongs to no segments.
+			// Segments are contact attributes, and there is no contact.
+			return array(
+				'segment_ids'   => array(),
+				'segment_slugs' => array(),
+			);
 		}
 
-		$facts = Agend_Content_Access_Viewer_Facts::segments();
+		return Agend_Content_Access_Viewer_Facts::segments();
+	}
 
-		return null === $facts ? null : $facts['segment_slugs'];
+	/**
+	 * Whether Agend can identify the current visitor: whether they hold a bearer.
+	 *
+	 * Asked of the facts source, which memoises the bearer per user for the request,
+	 * so asking it again is free and a page with no rules never asks it at all.
+	 *
+	 * @return bool
+	 */
+	private static function has_bearer(): bool {
+		return '' !== Agend_Content_Access_Viewer_Facts::bearer();
 	}
 
 	/**

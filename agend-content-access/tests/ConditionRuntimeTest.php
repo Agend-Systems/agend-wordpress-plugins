@@ -41,14 +41,27 @@ final class ConditionRuntimeTest extends TestCase {
 		$GLOBALS['agend_test_current_user_id'] = 0;
 	}
 
-	/** Signs a user in for the duration of a test. */
+	/**
+	 * Signs a user in for the duration of a test, with the bearer that makes them
+	 * somebody to Agend. A WordPress login alone is not an Agend identity: nothing
+	 * about a visitor with no bearer is looked up.
+	 */
 	private function signIn( int $userId ): void {
 		$GLOBALS['agend_test_current_user_id'] = $userId;
+
+		$this->bearer();
 	}
 
 	/** Gives the signed-in user a bearer, which is what makes facts cacheable. */
 	private function bearer( string $token = self::BEARER ): void {
 		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', $token );
+	}
+
+	/** The segment slugs the runtime reports, or null when it cannot tell: the part of `segment_sets()` display conditions match on. */
+	private function slugs(): ?array {
+		$sets = Runtime::segment_sets();
+
+		return null === $sets ? null : $sets['segment_slugs'];
 	}
 
 	#[Test]
@@ -150,8 +163,9 @@ final class ConditionRuntimeTest extends TestCase {
 
 	#[Test]
 	public function flushing_clears_only_the_named_viewer(): void {
-		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7, self::BEARER ) ] = array( 'is_member' => true );
-		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 8, self::BEARER ) ] = array( 'is_member' => true );
+		// A member holds a plan as well as the flag: see `member_facts()`.
+		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7, self::BEARER ) ] = array( 'is_member' => true, 'tier_ids' => array( 'tier-a' ) );
+		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 8, self::BEARER ) ] = array( 'is_member' => true, 'tier_ids' => array( 'tier-a' ) );
 
 		Runtime::flush_member_facts( 7 );
 
@@ -174,7 +188,7 @@ final class ConditionRuntimeTest extends TestCase {
 		Agend_Test_WP::$filters['agend_content_access_segment_facts'] =
 			static fn( $value ) => array( 'segment_1', 'segment_2' );
 
-		$this->assertSame( array( 'segment_1', 'segment_2' ), Runtime::segment_facts() );
+		$this->assertSame( array( 'segment_1', 'segment_2' ), $this->slugs() );
 	}
 
 	#[Test]
@@ -193,7 +207,7 @@ final class ConditionRuntimeTest extends TestCase {
 	public function a_signed_out_visitor_belongs_to_no_segments_definitively(): void {
 		// Segments are contact attributes and there is no contact, so this is
 		// an answer rather than an absence of one. It must NOT deny.
-		$this->assertSame( array(), Runtime::segment_facts() );
+		$this->assertSame( array(), $this->slugs() );
 	}
 
 	#[Test]
@@ -208,7 +222,7 @@ final class ConditionRuntimeTest extends TestCase {
 				),
 			);
 
-		$this->assertSame( array( 'vic-fellows', 'trainees' ), Runtime::segment_facts() );
+		$this->assertSame( array( 'vic-fellows', 'trainees' ), $this->slugs() );
 	}
 
 	/**
@@ -224,7 +238,7 @@ final class ConditionRuntimeTest extends TestCase {
 		Agend_Test_WP::$filters['agend_apps_crm_get_my_segments_response'] =
 			static fn( $value ) => new \WP_Error( 'down', 'Gateway unreachable' );
 
-		$this->assertNull( Runtime::segment_facts() );
+		$this->assertNull( $this->slugs() );
 		$this->assertArrayNotHasKey(
 			ViewerFacts::segment_cache_key( 7, self::BEARER ),
 			Agend_Test_WP::$transients
@@ -241,15 +255,15 @@ final class ConditionRuntimeTest extends TestCase {
 				'data' => array( array( 'id' => 'a', 'slug' => 'vic-fellows', 'name' => 'V' ) ),
 			);
 
-		Runtime::segment_facts();
+		$this->slugs();
 		$after = count( Agend_Test_WP::$requests );
-		Runtime::segment_facts();
+		$this->slugs();
 
 		$this->assertSame( $after, count( Agend_Test_WP::$requests ) );
 
 		// A different viewer must not inherit that cache entry.
 		$this->signIn( 8 );
-		Runtime::segment_facts();
+		$this->slugs();
 
 		$this->assertGreaterThan( $after, count( Agend_Test_WP::$requests ) );
 	}
@@ -259,18 +273,18 @@ final class ConditionRuntimeTest extends TestCase {
 		$this->signIn( 7 );
 		$this->bearer();
 
-		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7, self::BEARER ) ]  = array( 'is_member' => true );
+		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7, self::BEARER ) ]  = array( 'is_member' => true, 'tier_ids' => array( 'tier-a' ) );
 		Agend_Test_WP::$transients[ ViewerFacts::segment_cache_key( 7, self::BEARER ) ] = array(
 			'segment_ids'   => array( 'seg-old' ),
 			'segment_slugs' => array( 'vic' ),
 		);
 
 		$this->assertTrue( Runtime::member_facts()['is_member'] );
-		$this->assertSame( array( 'vic' ), Runtime::segment_facts() );
+		$this->assertSame( array( 'vic' ), $this->slugs() );
 
 		Runtime::flush_member_facts( 7 );
 
-		$this->assertNotSame( array( 'vic' ), Runtime::segment_facts() );
+		$this->assertNotSame( array( 'vic' ), $this->slugs() );
 		$this->assertFalse( Runtime::member_facts()['is_member'] );
 	}
 
@@ -287,7 +301,7 @@ final class ConditionRuntimeTest extends TestCase {
 				),
 			);
 
-		$this->assertSame( array( 'good' ), Runtime::segment_facts() );
+		$this->assertSame( array( 'good' ), $this->slugs() );
 	}
 
 	// -----------------------------------------------------------------

@@ -76,14 +76,23 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-attributes.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-viewer-facts.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-webhooks.php';
+
+	// The one rule list and the one evaluator, with the condition engine and the
+	// providers it runs on: every decision this plugin makes goes through them, so
+	// they are loaded before anything that decides.
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-conditions.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-providers.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-runtime.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-rules.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-access.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
 
 	// Loaded whether or not Elementor is. The class declares nothing that needs
 	// Elementor and is only INSTANTIATED when it is present (see
 	// `agend_content_access_bootstrap_elementor()`), but the document rules check
-	// reads a stored Elementor document with its static `subtree_carries_policy()`,
+	// reads a stored Elementor document with its static `subtree_carries_rules()`,
 	// and a site that deactivated Elementor still has those documents.
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-elementor.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-blocks.php';
@@ -126,10 +135,8 @@ function agend_content_access_bootstrap(): void {
 		add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
 	}
 
-	// Segmented display conditions: the Agend-native ESAC engine (US-6.1).
-	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-conditions.php';
-	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-providers.php';
-	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-runtime.php';
+	// The condition vocabularies the editors offer (US-6.1). The engine itself is
+	// loaded above, with the evaluator.
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-sets.php';
 
 	// Legacy public-original audit (US-5.3) and its CLI surface. The audit is

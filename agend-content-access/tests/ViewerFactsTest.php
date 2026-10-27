@@ -26,6 +26,10 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-rules.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-access.php';
 
 /**
  * The single source of member facts behind the document policy path and the
@@ -141,6 +145,34 @@ final class ViewerFactsTest extends TestCase {
 	// Caching across requests
 	// -----------------------------------------------------------------
 
+	/**
+	 * What the facts layer says about the visitor, in the shape the document path's own
+	 * viewer used to have: identified, the plans held, and whether Agend could not be asked.
+	 *
+	 * That viewer is gone. The one evaluator reads the same facts through
+	 * `Condition_Runtime::member_facts()`, and these tests are about the facts, so this
+	 * is the same question asked of the same source.
+	 *
+	 * @return array{identified: bool, tier_ids: string[], degraded: bool}
+	 */
+	private function viewer(): array {
+		$has_bearer = '' !== ViewerFacts::bearer();
+		$facts      = Runtime::member_facts();
+
+		return array(
+			'identified' => $has_bearer && null !== $facts,
+			'tier_ids'   => null === $facts ? array() : $facts['tier_ids'],
+			'degraded'   => $has_bearer && null === $facts,
+		);
+	}
+
+	/** The segment slugs the runtime reports, or null when it cannot tell: the part of `segment_sets()` display conditions match on. */
+	private function slugs(): ?array {
+		$sets = Runtime::segment_sets();
+
+		return null === $sets ? null : $sets['segment_slugs'];
+	}
+
 	#[Test]
 	public function a_success_is_cached_and_reused_by_the_next_request(): void {
 		$this->signIn( 7 );
@@ -193,7 +225,7 @@ final class ViewerFactsTest extends TestCase {
 
 		$this->assertNull( ViewerFacts::member() );
 		$this->assertNull( Runtime::member_facts() );
-		$this->assertTrue( Decision::viewer()['degraded'] );
+		$this->assertTrue( $this->viewer()['degraded'] );
 
 		$this->assertSame( 1, $this->gatewayCalls() );
 	}
@@ -239,7 +271,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->bearer();
 		$this->gatewayReturns( $this->memberData() );
 
-		$viewer = Decision::viewer();
+		$viewer = $this->viewer();
 
 		$this->assertTrue( $viewer['identified'] );
 		$this->assertSame( array( self::TIER_A ), $viewer['tier_ids'] );
@@ -254,12 +286,12 @@ final class ViewerFactsTest extends TestCase {
 	public function user_zero_is_asked_again_on_the_next_request(): void {
 		$this->bearer();
 		$this->gatewayReturns( $this->memberData() );
-		Decision::viewer();
+		$this->viewer();
 
 		$this->nextRequest();
 		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
 
-		$this->assertSame( array(), Decision::viewer()['tier_ids'], 'a different visitor must not inherit the first' );
+		$this->assertSame( array(), $this->viewer()['tier_ids'], 'a different visitor must not inherit the first' );
 		$this->assertSame( 2, $this->gatewayCalls() );
 		$this->assertSame( array(), Agend_Test_WP::$transients );
 	}
@@ -389,7 +421,7 @@ final class ViewerFactsTest extends TestCase {
 
 		ViewerFacts::member();
 		ViewerFacts::segments();
-		Decision::viewer();
+		$this->viewer();
 		Runtime::member_facts();
 
 		$this->assertSame( 1, $asked );
@@ -492,11 +524,11 @@ final class ViewerFactsTest extends TestCase {
 	public function the_decision_memo_does_not_carry_one_user_into_another_within_a_request(): void {
 		$this->signIn( 7 );
 		$this->gatewayReturns( $this->memberData() );
-		$this->assertSame( array( self::TIER_A ), Decision::viewer()['tier_ids'] );
+		$this->assertSame( array( self::TIER_A ), $this->viewer()['tier_ids'] );
 
 		$this->signIn( 8 );
 		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
-		$second = Decision::viewer();
+		$second = $this->viewer();
 
 		$this->assertTrue( $second['identified'] );
 		$this->assertSame( array(), $second['tier_ids'], 'user 8 must not inherit user 7\'s tiers' );
@@ -508,7 +540,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->signIn( 7, false );
 		$this->bearer( 'bearer-a' );
 		$this->gatewayReturns( $this->memberData() );
-		$this->assertSame( array( self::TIER_A ), Decision::viewer()['tier_ids'] );
+		$this->assertSame( array( self::TIER_A ), $this->viewer()['tier_ids'] );
 
 		// The bearer behind the same user changes mid-request (a token re-linked
 		// or replaced). Only the facts layer is reset, so a hit here could only
@@ -517,7 +549,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->bearer( 'bearer-b' );
 		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
 
-		$this->assertSame( array(), Decision::viewer()['tier_ids'] );
+		$this->assertSame( array(), $this->viewer()['tier_ids'] );
 	}
 
 	#[Test]
@@ -525,23 +557,23 @@ final class ViewerFactsTest extends TestCase {
 		$this->signIn( 7 );
 		$this->gatewayReturns( $this->memberData() );
 
-		$first = Decision::viewer();
+		$first = $this->viewer();
 		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
 
-		$this->assertSame( $first, Decision::viewer() );
+		$this->assertSame( $first, $this->viewer() );
 		$this->assertSame( 1, $this->gatewayCalls() );
 	}
 
 	#[Test]
 	public function a_visitor_without_a_bearer_has_their_own_memo_entry(): void {
 		$this->signIn( 7, false );
-		$this->assertFalse( Decision::viewer()['identified'] );
+		$this->assertFalse( $this->viewer()['identified'] );
 
 		$this->bearer();
 		ViewerFacts::reset();
 		$this->gatewayReturns( $this->memberData() );
 
-		$this->assertTrue( Decision::viewer()['identified'], 'gaining a bearer must not be answered from the bearer-less entry' );
+		$this->assertTrue( $this->viewer()['identified'], 'gaining a bearer must not be answered from the bearer-less entry' );
 	}
 
 	// -----------------------------------------------------------------
@@ -819,13 +851,13 @@ final class ViewerFactsTest extends TestCase {
 			'segment_slugs' => array( 'old-segment' ),
 		);
 
-		$this->assertSame( array( 'old-segment' ), Runtime::segment_facts() );
+		$this->assertSame( array( 'old-segment' ), $this->slugs() );
 
 		ViewerFacts::bump_generation();
 		Agend_Test_WP::$filters['agend_apps_crm_get_my_segments_response'] =
 			static fn( $value ) => array( 'data' => array( array( 'id' => 'a', 'slug' => 'fresh', 'name' => 'Fresh' ) ) );
 
-		$this->assertSame( array( 'fresh' ), Runtime::segment_facts() );
+		$this->assertSame( array( 'fresh' ), $this->slugs() );
 	}
 
 	// -----------------------------------------------------------------
@@ -838,7 +870,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->bearer();
 		$this->gatewayReturns( $this->memberData() );
 
-		$viewer = Decision::viewer();
+		$viewer = $this->viewer();
 		$facts  = Runtime::member_facts();
 		$check  = Runtime::checker();
 
@@ -859,38 +891,49 @@ final class ViewerFactsTest extends TestCase {
 		$this->gatewayReturns( $this->memberData() );
 
 		Runtime::member_facts();
-		Decision::viewer();
+		$this->viewer();
 
 		$this->assertSame( 1, $this->gatewayCalls() );
 	}
 
 	/**
-	 * The two paths keep their own signed-out rules. The document path keys on a
-	 * bearer being present; the condition path treats a visitor who is not
-	 * logged in as definitively holding nothing.
+	 * One rule for who is signed in to Agend: whoever holds a bearer. The two paths used to keep
+	 * their own (the document path keyed on a bearer, the condition path on a WordPress login),
+	 * and one evaluator now judges both. A WordPress account with no linked member session proves
+	 * nothing about membership.
 	 */
 	#[Test]
-	public function the_document_path_keys_on_the_bearer(): void {
+	public function a_login_with_no_bearer_is_anonymous_to_both_paths(): void {
 		$this->signIn( 7, false );
 		$this->gatewayReturns( $this->memberData() );
 
-		$viewer = Decision::viewer();
+		$viewer = $this->viewer();
 
-		$this->assertFalse( $viewer['identified'], 'logged in with no bearer is anonymous to the document path' );
+		$this->assertFalse( $viewer['identified'], 'logged in with no bearer is anonymous' );
+		$this->assertSame(
+			array( 'is_member' => false, 'tier_ids' => array(), 'tier_slugs' => array() ),
+			Runtime::member_facts(),
+			'and holds nothing to the condition path too'
+		);
 		$this->assertSame( 0, $this->gatewayCalls() );
 	}
 
+	/**
+	 * Changed from "the conditions path keys on the login": a bearer with no WordPress login holds
+	 * nothing there. A member of Agend need not be signed in to WordPress (their standing arrives as
+	 * a bearer, which the page gate has always honoured), so the one rule is the bearer.
+	 */
 	#[Test]
-	public function the_conditions_path_keys_on_the_login(): void {
+	public function a_bearer_with_no_login_is_whoever_agend_says(): void {
 		$this->bearer();
 		$this->gatewayReturns( $this->memberData() );
 
 		$this->assertSame(
-			array( 'is_member' => false, 'tier_ids' => array(), 'tier_slugs' => array() ),
-			Runtime::member_facts(),
-			'a bearer with no login holds nothing to the conditions path'
+			array( 'is_member' => true, 'tier_ids' => array( self::TIER_A ), 'tier_slugs' => array( 'gold' ) ),
+			Runtime::member_facts()
 		);
-		$this->assertSame( 0, $this->gatewayCalls() );
+		$this->assertTrue( $this->viewer()['identified'] );
+		$this->assertSame( 1, $this->gatewayCalls() );
 	}
 
 	#[Test]
@@ -899,7 +942,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->bearer();
 		$this->gatewayFails();
 
-		$viewer = Decision::viewer();
+		$viewer = $this->viewer();
 
 		$this->assertFalse( $viewer['identified'] );
 		$this->assertTrue( $viewer['degraded'] );
@@ -1126,7 +1169,7 @@ final class ViewerFactsTest extends TestCase {
 
 		$this->assertNull( ViewerFacts::member() );
 		$this->assertSame( array(), Agend_Test_WP::$transients );
-		$this->assertTrue( Decision::viewer()['degraded'] );
+		$this->assertTrue( $this->viewer()['degraded'] );
 		$this->assertNull( Runtime::member_facts() );
 	}
 
@@ -1167,7 +1210,7 @@ final class ViewerFactsTest extends TestCase {
 
 		$this->assertNull( ViewerFacts::segments() );
 		$this->assertSame( array(), Agend_Test_WP::$transients );
-		$this->assertNull( Runtime::segment_facts() );
+		$this->assertNull( $this->slugs() );
 	}
 
 	#[Test]
@@ -1489,7 +1532,7 @@ final class ViewerFactsTest extends TestCase {
 		Agend_Test_WP::$transients[ $this->segmentKey( 7 ) ] = $entry;
 		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'fresh' ) ) );
 
-		$this->assertSame( array( 'fresh' ), Runtime::segment_facts() );
+		$this->assertSame( array( 'fresh' ), $this->slugs() );
 		$this->assertSame( 1, $this->segmentCalls() );
 	}
 
@@ -1524,7 +1567,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->gatewayReturns( $this->memberData() );
 
 		ViewerFacts::member();
-		Decision::viewer();
+		$this->viewer();
 		Runtime::member_facts();
 
 		$this->assertSame( 0, $this->segmentCalls() );
