@@ -1202,6 +1202,30 @@ if ( ! isset( $GLOBALS['agend_test_post_meta'] ) ) {
 	$GLOBALS['agend_test_post_meta'] = array();
 }
 
+if ( ! function_exists( 'wp_is_post_revision' ) ) {
+	/** No test post is a revision. */
+	function wp_is_post_revision( $post_id ) {
+		return false;
+	}
+}
+
+if ( ! function_exists( 'wp_is_post_autosave' ) ) {
+	/** No test post is an autosave. */
+	function wp_is_post_autosave( $post_id ) {
+		return false;
+	}
+}
+
+if ( ! function_exists( 'get_post_types' ) ) {
+	/**
+	 * Registered post types, `$GLOBALS['agend_test_post_types']` or post and page.
+	 * Ignores `$args`: a test that needs a narrower set sets the global.
+	 */
+	function get_post_types( $args = array(), $output = 'names' ) {
+		return $GLOBALS['agend_test_post_types'] ?? array( 'post' => 'post', 'page' => 'page' );
+	}
+}
+
 if ( ! function_exists( 'get_post_meta' ) ) {
 	function get_post_meta( $post_id, $key = '', $single = false ) {
 		$value = $GLOBALS['agend_test_post_meta'][ (int) $post_id ][ $key ] ?? '';

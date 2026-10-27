@@ -69,6 +69,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_users']            = array();
 		$GLOBALS['agend_test_current_user_can'] = array();
 		$GLOBALS['agend_test_cache_ttls']       = array();
+		unset( $GLOBALS['agend_test_post_types'] );
 
 		// Request-shape flags the WordPress stubs and the WooCommerce page
 		// fixture read. Reset for the same reason as the registries above: a

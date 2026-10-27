@@ -148,6 +148,9 @@ admits nobody.
 Entitlement keys arrive with the member's standing at no extra cost. Segments
 are fetched, once per request, only when a policy being evaluated is a segments
 policy. The editor controls for the two new modes arrive in a later release.
+Until then the page panel cannot show them, and saving a post that holds one
+keeps its stored policy unchanged: the panel only replaces a policy when an
+editor submits a mode, and choosing Public is how to clear one.
 
 ## Failure behaviour
 

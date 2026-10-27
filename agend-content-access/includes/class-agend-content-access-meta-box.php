@@ -202,6 +202,10 @@ class Agend_Content_Access_Meta_Box {
 	 * input. Nothing is read from `$_POST` until the request has been proven to
 	 * be a genuine, authorised save of a supported post.
 	 *
+	 * The stored policy is only ever REPLACED by a submitted mode that produces a
+	 * valid policy. A missing, empty or unrecognised mode, and a mode whose
+	 * selections are invalid, all leave it exactly as it was.
+	 *
 	 * @param int     $post_id Post id.
 	 * @param WP_Post $post    Post object.
 	 */
@@ -234,14 +238,22 @@ class Agend_Content_Access_Meta_Box {
 			return;
 		}
 
-		$mode = isset( $_POST[ self::FIELD_MODE ] )
+		// A non-string value (`agend_access_mode[]=...`) is not a mode. Treated as
+		// missing, rather than handed to the sanitiser, which expects a string.
+		$mode = isset( $_POST[ self::FIELD_MODE ] ) && is_string( $_POST[ self::FIELD_MODE ] )
 			? sanitize_text_field( wp_unslash( $_POST[ self::FIELD_MODE ] ) )
 			: '';
 
-		// An empty mode is the editor choosing not to set a policy, which is a
-		// legitimate state (Decision 2.9) and distinct from an invalid one.
+		// No mode submitted means the panel had nothing to say, so the stored
+		// policy is kept. It must NOT be read as "the editor cleared the policy":
+		// the panel has one radio per mode it can show, and a post holding a policy
+		// in a mode it cannot show (`segments` or `selected_entitlements`, until the
+		// controls for them arrive) has no radio checked, so any ordinary save of
+		// that post would submit no mode and silently make it public. The same goes
+		// for a mode the panel does not recognise, which `from_input()` refuses
+		// below, with the stored policy left alone. Clearing a policy deliberately
+		// is still possible: choose Public.
 		if ( '' === $mode ) {
-			Agend_Content_Access_Policy::save_for_post( (int) $post_id, null );
 			return;
 		}
 
