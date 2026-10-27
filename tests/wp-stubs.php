@@ -87,6 +87,9 @@ final class Agend_Test_WP {
 	/** @var array<int, array{url: string, headers: array<string, string>}> */
 	public static array $requests = array();
 
+	/** @var array<int, array{namespace: string, route: string, args: array}> Routes passed to register_rest_route(), in call order. */
+	public static array $rest_routes = array();
+
 	/** @var int[] User ids for which WordPress auth cookies were issued. */
 	public static array $auth_cookie_users = array();
 	/** @var bool[] Remember flags passed to WordPress auth cookies. */
@@ -187,6 +190,7 @@ final class Agend_Test_WP {
 		self::$options           = array();
 		self::$object_cache      = array();
 		self::$requests          = array();
+		self::$rest_routes       = array();
 		self::$auth_cookie_users = array();
 		self::$auth_cookie_remembers = array();
 		self::$tiers_response    = array();
@@ -1764,14 +1768,29 @@ if ( ! class_exists( 'WP_REST_Controller' ) ) {
 
 if ( ! function_exists( 'register_rest_route' ) ) {
 	/**
-	 * No-op recording stub: route registration itself is WordPress dispatch
+	 * Recording stub: route registration itself is WordPress dispatch
 	 * machinery, out of scope for these unit tests, which call a
-	 * controller's route method directly.
+	 * controller's route method directly. The registration is recorded in
+	 * `Agend_Test_WP::$rest_routes` so a test can assert which routes a plugin
+	 * registers and with what callbacks and arguments.
 	 */
 	function register_rest_route( string $namespace, string $route, array $args = array(), bool $override = false ) {
-		unset( $namespace, $route, $args, $override );
+		unset( $override );
+
+		Agend_Test_WP::$rest_routes[] = array(
+			'namespace' => $namespace,
+			'route'     => $route,
+			'args'      => $args,
+		);
 
 		return true;
+	}
+}
+
+if ( ! function_exists( 'rest_authorization_required_code' ) ) {
+	/** 401 for a visitor who is not signed in, 403 for one who is but is refused, as WordPress does. */
+	function rest_authorization_required_code(): int {
+		return is_user_logged_in() ? 403 : 401;
 	}
 }
 
