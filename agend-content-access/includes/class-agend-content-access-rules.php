@@ -112,8 +112,9 @@ class Agend_Content_Access_Rules {
 	const ELEMENTOR_INVERT_KEY = 'agend_access_invert';
 
 	/**
-	 * What a page does with someone it does not admit. Read and exposed for the next
-	 * layer; nothing in this class or the evaluator acts on it.
+	 * What a page does with someone it does not admit. Read and exposed here; the
+	 * page gate (`Agend_Content_Access_Frontend::gate_request()`) acts on it, and
+	 * nothing in this class or the evaluator does.
 	 *
 	 * @var string
 	 */
