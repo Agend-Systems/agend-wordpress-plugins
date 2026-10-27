@@ -75,6 +75,28 @@ final class ViewerFactsTest extends TestCase {
 		);
 	}
 
+	/** Makes the segments endpoint answer with a `data` envelope of rows. */
+	private function segmentsReturn( array $rows ): void {
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_my_segments_response', array( 'data' => $rows ) );
+	}
+
+	private function segmentsFail(): void {
+		Agend_Test_WP::set_filter(
+			'agend_apps_crm_get_my_segments_response',
+			new WP_Error( 'down', 'Gateway unreachable' )
+		);
+	}
+
+	/** How many times the segments endpoint was called. */
+	private function segmentCalls(): int {
+		return count(
+			array_filter(
+				Agend_Test_WP::$requests,
+				static fn( array $request ): bool => '/crm/me/segments' === $request['url']
+			)
+		);
+	}
+
 	/** Simulates the next request: the memos go, the transients and options stay. */
 	private function nextRequest(): void {
 		Decision::reset_cache();
@@ -304,7 +326,10 @@ final class ViewerFactsTest extends TestCase {
 	#[Test]
 	public function a_segment_entry_written_under_an_old_generation_is_not_read(): void {
 		$this->signIn( 7 );
-		Agend_Test_WP::$transients[ ViewerFacts::segment_cache_key( 7 ) ] = array( 'old-segment' );
+		Agend_Test_WP::$transients[ ViewerFacts::segment_cache_key( 7 ) ] = array(
+			'segment_ids'   => array( 'old-id' ),
+			'segment_slugs' => array( 'old-segment' ),
+		);
 
 		$this->assertSame( array( 'old-segment' ), Runtime::segment_facts() );
 
@@ -616,5 +641,197 @@ final class ViewerFactsTest extends TestCase {
 		$this->assertSame( array(), $facts['entitlement_keys'] );
 		$this->assertNull( $facts['entitlement_expires_at'] );
 		$this->assertSame( 0, $this->gatewayCalls() );
+	}
+
+	// -----------------------------------------------------------------
+	// Segments: ids and slugs, on demand
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function segments_carry_ids_and_slugs(): void {
+		$this->signIn( 7 );
+		$this->segmentsReturn(
+			array(
+				array( 'id' => 'seg-1', 'slug' => 'vic-fellows', 'name' => 'Vic Fellows' ),
+				array( 'id' => 'seg-2', 'slug' => 'trainees', 'name' => 'Trainees' ),
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'segment_ids'   => array( 'seg-1', 'seg-2' ),
+				'segment_slugs' => array( 'vic-fellows', 'trainees' ),
+			),
+			ViewerFacts::segments()
+		);
+	}
+
+	/** Nothing in the membership path may fetch segments as a side effect. */
+	#[Test]
+	public function the_member_lookup_never_fetches_segments(): void {
+		$this->signIn( 7 );
+		$this->bearer();
+		$this->gatewayReturns( $this->memberData() );
+
+		ViewerFacts::member();
+		Decision::viewer();
+		Runtime::member_facts();
+
+		$this->assertSame( 0, $this->segmentCalls() );
+	}
+
+	#[Test]
+	public function a_malformed_segment_row_contributes_only_what_is_valid(): void {
+		$this->signIn( 7 );
+		$this->segmentsReturn(
+			array(
+				array( 'id' => 'seg-1', 'slug' => 'good' ),
+				array( 'id' => 'seg-2' ),
+				array( 'slug' => 'slug-only' ),
+				array( 'id' => 42, 'slug' => '' ),
+				'not an array',
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'segment_ids'   => array( 'seg-1', 'seg-2' ),
+				'segment_slugs' => array( 'good', 'slug-only' ),
+			),
+			ViewerFacts::segments()
+		);
+	}
+
+	#[Test]
+	public function a_segment_success_is_cached_and_reused_by_the_next_request(): void {
+		$this->signIn( 7 );
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+
+		$first = ViewerFacts::segments();
+
+		$this->assertSame( 1, $this->segmentCalls() );
+		$this->assertArrayHasKey( ViewerFacts::segment_cache_key( 7 ), Agend_Test_WP::$transients );
+		$this->assertSame(
+			ViewerFacts::cache_ttl(),
+			Agend_Test_WP::$transient_ttls[ ViewerFacts::segment_cache_key( 7 ) ]
+		);
+
+		$this->nextRequest();
+		$this->segmentsReturn( array() );
+
+		$this->assertSame( $first, ViewerFacts::segments() );
+		$this->assertSame( 1, $this->segmentCalls(), 'the second request must be served from the transient' );
+	}
+
+	#[Test]
+	public function a_segment_failure_is_unknown_not_cached_and_memoised_for_the_request(): void {
+		$this->signIn( 7 );
+		$this->segmentsFail();
+
+		$this->assertNull( ViewerFacts::segments() );
+		$this->assertNull( ViewerFacts::segments() );
+		$this->assertSame( 1, $this->segmentCalls(), 'one outage is one call' );
+		$this->assertSame( array(), Agend_Test_WP::$transients, 'a failure must write nothing' );
+
+		$this->nextRequest();
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+
+		$this->assertSame( array( 'seg-1' ), ViewerFacts::segments()['segment_ids'] );
+		$this->assertSame( 2, $this->segmentCalls() );
+	}
+
+	#[Test]
+	public function a_non_array_segment_response_is_a_failure_and_is_not_cached(): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_my_segments_response', 'garbage' );
+
+		$this->assertNull( ViewerFacts::segments() );
+		$this->assertSame( array(), Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function user_zero_segments_are_never_written_to_the_transient_store(): void {
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+
+		$this->assertSame( array( 'seg-1' ), ViewerFacts::segments()['segment_ids'] );
+		$this->assertSame( array(), Agend_Test_WP::$transients );
+		$this->assertSame( array(), Agend_Test_WP::$transient_ttls );
+
+		ViewerFacts::segments();
+		$this->assertSame( 1, $this->segmentCalls(), 'still memoised for the request' );
+
+		$this->nextRequest();
+		$this->segmentsReturn( array() );
+
+		$this->assertSame( array(), ViewerFacts::segments()['segment_ids'], 'a different visitor must not inherit the first' );
+	}
+
+	#[Test]
+	public function cached_segments_belong_to_one_member_only(): void {
+		$this->signIn( 7 );
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+		ViewerFacts::segments();
+
+		$this->nextRequest();
+		$this->signIn( 8 );
+		$this->segmentsReturn( array() );
+
+		$this->assertSame( array(), ViewerFacts::segments()['segment_ids'], 'member 8 must not inherit member 7\'s entry' );
+		$this->assertSame( 2, $this->segmentCalls() );
+	}
+
+	#[Test]
+	public function the_segment_memo_does_not_carry_one_user_into_another_within_a_request(): void {
+		$this->signIn( 7 );
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+		$this->assertSame( array( 'seg-1' ), ViewerFacts::segments()['segment_ids'] );
+
+		$this->signIn( 8 );
+		$this->segmentsReturn( array() );
+
+		$this->assertSame( array(), ViewerFacts::segments()['segment_ids'] );
+	}
+
+	/**
+	 * Before this layer the entry held a bare list of slugs. One written before
+	 * an upgrade has no ids, and reading it as "no ids" would deny a visitor a
+	 * segments policy admits for the whole cache lifetime.
+	 */
+	#[Test]
+	public function an_entry_in_the_old_slug_list_shape_is_a_miss(): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::$transients[ ViewerFacts::segment_cache_key( 7 ) ] = array( 'old-slug' );
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'fresh' ) ) );
+
+		$this->assertSame(
+			array( 'segment_ids' => array( 'seg-1' ), 'segment_slugs' => array( 'fresh' ) ),
+			ViewerFacts::segments()
+		);
+		$this->assertSame( 1, $this->segmentCalls() );
+	}
+
+	#[Test]
+	public function flushing_a_member_drops_their_segment_memo_too(): void {
+		$this->signIn( 7 );
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+		ViewerFacts::segments();
+
+		ViewerFacts::flush( 7 );
+		$this->segmentsReturn( array( array( 'id' => 'seg-2', 'slug' => 'new' ) ) );
+
+		$this->assertSame( array( 'seg-2' ), ViewerFacts::segments()['segment_ids'] );
+		$this->assertSame( 2, $this->segmentCalls() );
+	}
+
+	#[Test]
+	public function bumping_the_generation_drops_the_segment_memo_and_entries(): void {
+		$this->signIn( 7 );
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+		ViewerFacts::segments();
+
+		ViewerFacts::bump_generation();
+		$this->segmentsReturn( array( array( 'id' => 'seg-2', 'slug' => 'new' ) ) );
+
+		$this->assertSame( array( 'seg-2' ), ViewerFacts::segments()['segment_ids'] );
 	}
 }

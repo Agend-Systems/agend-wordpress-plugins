@@ -36,11 +36,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  * announce (a grace period ending, a grant reaching its expiry, a segment rule
  * with a relative date).
  *
+ * SEGMENTS ARE A SEPARATE, ON-DEMAND FACT. `member()` answers from
+ * `/crm/me/entitlements`; `segments()` answers from `/crm/me/segments`. They are
+ * two gateway calls, memoised and cached separately, because most pages need
+ * the first and no page needs the second unless it carries a segments policy or
+ * a segment condition. Nothing here fetches segments as a side effect of
+ * `member()`, and a caller that never asks never pays. Both facts follow the
+ * same rules below, and share the generation number so one bump clears both.
+ *
  * RULES THAT HOLD WHATEVER THE CALLER:
  *
- *   - One gateway call per request at most. The result, a failure included, is
- *     memoised for the request, so the document path and the condition path
- *     share it.
+ *   - One gateway call per fact per request at most. The result, a failure
+ *     included, is memoised for the request, so the document path and the
+ *     condition path share it.
  *   - The cache is per member and never shared. The key carries the WordPress
  *     user id and a generation number (see `bump_generation()`).
  *   - Nothing is written to the transient store when the user id is 0. A bearer
@@ -95,7 +103,7 @@ class Agend_Content_Access_Viewer_Facts {
 	const MIN_EXPIRY_TTL = 30;
 
 	/**
-	 * Per-request memo, keyed by WordPress user id.
+	 * Per-request memo of the membership facts, keyed by WordPress user id.
 	 *
 	 * Keyed by user id rather than held as a single value so a request that
 	 * switches user (a login completing, an impersonation that restores
@@ -108,10 +116,18 @@ class Agend_Content_Access_Viewer_Facts {
 	private static array $memo = array();
 
 	/**
-	 * Resets the per-request memo. Tests, and `bump_generation()`.
+	 * Per-request memo of the segment facts, on the same terms as `$memo`.
+	 *
+	 * @var array<int, array|null>
+	 */
+	private static array $segment_memo = array();
+
+	/**
+	 * Resets the per-request memos. Tests, and `bump_generation()`.
 	 */
 	public static function reset(): void {
-		self::$memo = array();
+		self::$memo         = array();
+		self::$segment_memo = array();
 	}
 
 	/**
@@ -208,6 +224,126 @@ class Agend_Content_Access_Viewer_Facts {
 	}
 
 	/**
+	 * The current visitor's segments from Agend, or null when they cannot be known.
+	 *
+	 * Fetched ON DEMAND and only by a caller that needs them: a `segments`
+	 * policy being evaluated, or a segment display condition. Reads
+	 * `GET /v1/crm/me/segments`, which answers for the bearer alone. The admin
+	 * `/crm/segments/{id}/contacts` route is deliberately not used: it lists who
+	 * is in a segment, so answering a question about one visitor with it would
+	 * pull the tenant's whole member list onto this server.
+	 *
+	 * Both ids and slugs are kept. A policy names a segment by id, which
+	 * survives a rename; stored display conditions name it by slug, for
+	 * compatibility with existing ESAC data.
+	 *
+	 * Null covers every failure, exactly as it does for `member()`: the Core
+	 * wrapper is missing, the gateway returned an error, or the response was not
+	 * an array. It is never "belongs to no segments", because that is a
+	 * different claim and a segment rule may be inverted.
+	 *
+	 * Like `member()` this does not decide whether the visitor is signed in.
+	 * Each caller applies its own rule for that and does not call this for a
+	 * visitor it already knows holds nothing.
+	 *
+	 * @return array{segment_ids: string[], segment_slugs: string[]}|null
+	 */
+	public static function segments(): ?array {
+		$user_id = (int) get_current_user_id();
+
+		if ( array_key_exists( $user_id, self::$segment_memo ) ) {
+			return self::$segment_memo[ $user_id ];
+		}
+
+		$facts = self::resolve_segments( $user_id );
+
+		self::$segment_memo[ $user_id ] = $facts;
+
+		return $facts;
+	}
+
+	/**
+	 * Resolves a user's segments: transient first, then the gateway.
+	 *
+	 * Follows the same rules as `resolve()`: nothing is cached for user 0, the
+	 * key is built once before the call, and a failure is never cached.
+	 *
+	 * @param int $user_id WordPress user id, 0 when none.
+	 * @return array{segment_ids: string[], segment_slugs: string[]}|null
+	 */
+	private static function resolve_segments( int $user_id ): ?array {
+		if ( ! function_exists( 'agend_apps_crm_get_my_segments' ) ) {
+			// Unknown, not "in no segments". See `resolve()`.
+			return null;
+		}
+
+		$cacheable = $user_id > 0;
+		$key       = $cacheable ? self::segment_cache_key( $user_id ) : '';
+
+		if ( $cacheable ) {
+			$cached = get_transient( $key );
+
+			// An entry in any other shape is a miss, not a partial answer. The
+			// segment entry used to hold a bare list of slugs; one written
+			// before an upgrade would have no ids, and treating it as "no ids"
+			// would deny a policy the visitor satisfies for up to the cache
+			// lifetime.
+			if ( is_array( $cached )
+				&& isset( $cached['segment_ids'], $cached['segment_slugs'] )
+				&& is_array( $cached['segment_ids'] )
+				&& is_array( $cached['segment_slugs'] ) ) {
+				return array(
+					'segment_ids'   => self::strings( $cached['segment_ids'] ),
+					'segment_slugs' => self::strings( $cached['segment_slugs'] ),
+				);
+			}
+		}
+
+		$response = agend_apps_crm_get_my_segments();
+
+		if ( is_wp_error( $response ) ) {
+			// Not cached: a blip must not become a TTL-long outage.
+			return null;
+		}
+
+		$rows = isset( $response['data'] ) && is_array( $response['data'] )
+			? $response['data']
+			: $response;
+
+		if ( ! is_array( $rows ) ) {
+			return null;
+		}
+
+		$facts = array(
+			'segment_ids'   => array(),
+			'segment_slugs' => array(),
+		);
+
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+
+			if ( isset( $row['id'] ) && is_string( $row['id'] ) && '' !== $row['id'] ) {
+				$facts['segment_ids'][] = $row['id'];
+			}
+
+			if ( isset( $row['slug'] ) && '' !== (string) $row['slug'] ) {
+				$facts['segment_slugs'][] = (string) $row['slug'];
+			}
+		}
+
+		$facts['segment_ids']   = array_values( array_unique( $facts['segment_ids'] ) );
+		$facts['segment_slugs'] = array_values( array_unique( $facts['segment_slugs'] ) );
+
+		if ( $cacheable ) {
+			set_transient( $key, $facts, self::cache_ttl() );
+		}
+
+		return $facts;
+	}
+
+	/**
 	 * Facts with nothing held. The defaults every cached entry is merged over,
 	 * so an entry written with fewer fields still reads as a complete shape.
 	 *
@@ -233,7 +369,8 @@ class Agend_Content_Access_Viewer_Facts {
 	 * Entitlements come from `capabilities[].gate_key`. The gateway does not
 	 * report a per-capability `expires_at` yet; when it does, the earliest one
 	 * is kept so the cache entry can be capped to it. Until then it is null.
-	 * Nothing consumes the entitlement fields in this layer.
+	 * They feed `selected_entitlements` policies and the entitlements display
+	 * condition.
 	 *
 	 * @param array $data The response's `data` object.
 	 * @return array
@@ -422,6 +559,6 @@ class Agend_Content_Access_Viewer_Facts {
 		delete_transient( self::member_cache_key( $user_id ) );
 		delete_transient( self::segment_cache_key( $user_id ) );
 
-		unset( self::$memo[ $user_id ] );
+		unset( self::$memo[ $user_id ], self::$segment_memo[ $user_id ] );
 	}
 }

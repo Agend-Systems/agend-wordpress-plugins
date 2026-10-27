@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * | ------------------- | ---------------------------------------- |
  * | `agend_wordpress`   | current user, locally, no network         |
  * | `agend_membership`  | `Agend_Content_Access_Viewer_Facts`, cached |
- * | `agend_segments`    | `GET /v1/crm/me/segments`, cached         |
+ * | `agend_segments`    | `Agend_Content_Access_Viewer_Facts`, on demand |
  *
  * Membership facts come from `Agend_Content_Access_Viewer_Facts`, the one
  * source it shares with the document policy path, so a page asks
@@ -106,17 +106,17 @@ class Agend_Content_Access_Condition_Runtime {
 	}
 
 	/**
-	 * Segment membership for the current visitor.
+	 * Segment membership for the current visitor, as slugs.
 	 *
-	 * Reads `GET /v1/crm/me/segments`, which answers for the bearer alone. The
-	 * admin `/crm/segments/{id}/contacts` route is deliberately not used: it
-	 * lists who is in a segment, so answering a question about one visitor with
-	 * it would pull the tenant's whole member list onto this server.
+	 * A thin adapter over `Agend_Content_Access_Viewer_Facts::segments()`, which
+	 * owns the gateway read, the per-viewer cache and the failure rules. This
+	 * keeps what is specific to display conditions: stored conditions name a
+	 * segment by SLUG, a site can supply segments through a filter, and a
+	 * signed-out visitor belongs to none without any lookup.
 	 *
-	 * Cached per viewer for the same reason membership facts are, under the same
-	 * generation so one bump clears both, and a failure returns null so the
-	 * engine denies and reports rather than treating the visitor as belonging to
-	 * no segments, which is a different claim.
+	 * A failure returns null so the engine denies and reports rather than
+	 * treating the visitor as belonging to no segments, which is a different
+	 * claim.
 	 *
 	 * @return string[]|null Segment slugs, or null when unknown.
 	 */
@@ -125,7 +125,9 @@ class Agend_Content_Access_Condition_Runtime {
 		 * Filters segment membership for the current visitor.
 		 *
 		 * Kept so a site can supply segments from its own source. Returning an
-		 * array short-circuits the gateway read entirely.
+		 * array short-circuits the gateway read entirely. It supplies SLUGS,
+		 * which is what display conditions match on, and so it does not feed
+		 * `segments` access policies, which name segments by id.
 		 *
 		 * @param string[]|null $segments Segment slugs the visitor belongs to.
 		 */
@@ -141,43 +143,9 @@ class Agend_Content_Access_Condition_Runtime {
 			return array();
 		}
 
-		if ( ! function_exists( 'agend_apps_crm_get_my_segments' ) ) {
-			return null;
-		}
+		$facts = Agend_Content_Access_Viewer_Facts::segments();
 
-		$cache_key = Agend_Content_Access_Viewer_Facts::segment_cache_key( get_current_user_id() );
-		$cached    = get_transient( $cache_key );
-
-		if ( is_array( $cached ) ) {
-			return $cached;
-		}
-
-		$response = agend_apps_crm_get_my_segments();
-
-		if ( is_wp_error( $response ) ) {
-			// Not cached: a blip must not become a TTL-long outage.
-			return null;
-		}
-
-		$rows = isset( $response['data'] ) && is_array( $response['data'] )
-			? $response['data']
-			: $response;
-
-		if ( ! is_array( $rows ) ) {
-			return null;
-		}
-
-		$slugs = array();
-
-		foreach ( $rows as $row ) {
-			if ( is_array( $row ) && isset( $row['slug'] ) && '' !== (string) $row['slug'] ) {
-				$slugs[] = (string) $row['slug'];
-			}
-		}
-
-		set_transient( $cache_key, $slugs, self::cache_ttl() );
-
-		return $slugs;
+		return null === $facts ? null : $facts['segment_slugs'];
 	}
 
 	/**
