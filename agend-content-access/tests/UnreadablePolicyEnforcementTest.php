@@ -499,14 +499,14 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 		$this->assertStringContainsString( 'hidden from all visitors', $html );
 	}
 
-	/** The repair flow is unchanged: no audience is pre-selected and all three are on offer. */
+	/** The repair flow is unchanged: no audience is pre-selected and all five are on offer. */
 	#[Test]
 	public function the_panel_keeps_the_choose_an_audience_flow_for_an_unreadable_policy(): void {
 		$this->storePolicy( self::UNREADABLE );
 
 		$html = $this->renderPanel();
 
-		$this->assertSame( 3, substr_count( $html, 'type="radio"' ) );
+		$this->assertSame( 5, substr_count( $html, 'type="radio"' ) );
 		$this->assertStringNotContainsString( "checked='checked'", $html );
 	}
 
@@ -542,7 +542,7 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 
 	#[Test]
 	public function the_payload_flags_an_unreadable_policy_separately_from_an_unset_one(): void {
-		$catalogue = array( 'plans' => array(), 'stale' => false );
+		$catalogue = array();
 
 		$this->assertFalse( Agend_Content_Access_Meta_Box::payload( null, $catalogue )['unreadable'] );
 		$this->assertTrue( Agend_Content_Access_Meta_Box::payload( null, $catalogue, array(), true )['unreadable'] );

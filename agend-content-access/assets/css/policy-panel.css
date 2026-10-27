@@ -12,22 +12,29 @@
 	padding: 8px 10px;
 }
 
-.agend-access-plan-list {
-	margin: 0;
+.agend-access-list {
+	margin: 0 0 12px;
 	max-height: 220px;
 	overflow-y: auto;
 }
 
-.agend-access-plan {
+.agend-access-item {
 	margin: 0 0 4px;
 }
 
-.agend-access-plan--unavailable .agend-access-plan-name {
+.agend-access-item--unavailable .agend-access-item-name {
 	text-decoration: line-through;
 }
 
-.agend-access-plan-flag {
+.agend-access-item-flag {
 	color: #b32d2e;
 	font-size: 11px;
 	text-transform: uppercase;
+}
+
+.agend-access-item-description {
+	color: #646970;
+	display: block;
+	font-size: 12px;
+	margin-left: 24px;
 }

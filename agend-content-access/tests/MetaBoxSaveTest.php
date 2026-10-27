@@ -25,12 +25,17 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 /**
  * What saving the editor panel does to the stored policy.
  *
- * The panel can only show the modes it has a radio for. A post holding a policy
- * in a mode it cannot show has no radio checked, so an ordinary save of that post
- * submits no mode at all. Reading "no mode" as "clear the policy" turned that
+ * A browser submits nothing for a radio that is not checked or is disabled. The
+ * panel disables a set-mode radio while its list is unavailable, so a post whose
+ * stored policy is in that mode has no mode submitted, and an ordinary save of
+ * it submits none at all. Reading "no mode" as "clear the policy" turned that
  * save into a silent publication of a restricted document, so the rule these
  * tests protect is: the stored policy is only ever replaced by a submitted mode
  * that produces a valid policy.
+ *
+ * Several of the tests below were written when the panel had no radio for
+ * segments or entitlements at all, and submit no mode for the same reason a
+ * disabled radio now does. They stay as they were: the save path is unchanged.
  */
 #[CoversClass( MetaBox::class )]
 final class MetaBoxSaveTest extends TestCase {
@@ -257,5 +262,168 @@ final class MetaBoxSaveTest extends TestCase {
 		$this->savePanel( array( MetaBox::FIELD_MODE => 'public' ) );
 
 		$this->assertSame( $policy, Policy::get_for_post( self::POST ) );
+	}
+
+	// -----------------------------------------------------------------
+	// Segments and selected entitlements are chosen in the panel now
+	// -----------------------------------------------------------------
+
+	private const SEG_B = '33333333-3333-3333-3333-333333333333';
+
+	#[Test]
+	public function choosing_segments_stores_them(): void {
+		$this->savePanel(
+			array(
+				MetaBox::FIELD_MODE     => 'segments',
+				MetaBox::FIELD_SEGMENTS => array( self::SEG, self::SEG_B ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'mode' => 'segments', 'segment_ids' => array( self::SEG, self::SEG_B ) ),
+			Policy::get_for_post( self::POST )
+		);
+	}
+
+	#[Test]
+	public function choosing_entitlements_stores_them(): void {
+		$this->savePanel(
+			array(
+				MetaBox::FIELD_MODE         => 'selected_entitlements',
+				MetaBox::FIELD_ENTITLEMENTS => array( 'directory.access', 'entitlement.early_bird' ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( 'directory.access', 'entitlement.early_bird' ) ),
+			Policy::get_for_post( self::POST )
+		);
+	}
+
+	/** What does not match the policy's own shape is dropped, which can only narrow the audience. */
+	#[Test]
+	public function a_submitted_list_is_cleaned_and_deduplicated(): void {
+		$this->savePanel(
+			array(
+				MetaBox::FIELD_MODE     => 'segments',
+				MetaBox::FIELD_SEGMENTS => array( self::SEG, ' ' . self::SEG . ' ', 'not-a-uuid', '', self::SEG_B ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'mode' => 'segments', 'segment_ids' => array( self::SEG, self::SEG_B ) ),
+			Policy::get_for_post( self::POST )
+		);
+
+		$this->savePanel(
+			array(
+				MetaBox::FIELD_MODE         => 'selected_entitlements',
+				MetaBox::FIELD_ENTITLEMENTS => array( 'good.key', 'Bad Key', 'UPPER', 'good.key' ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( 'good.key' ) ),
+			Policy::get_for_post( self::POST )
+		);
+	}
+
+	/**
+	 * The refusal for each set-mode, with the stored policy kept and the reason
+	 * carried across the redirect for the editor to read.
+	 *
+	 * @return array<string, array{0: string, 1: string, 2: string}>
+	 */
+	public static function refusals(): array {
+		return array(
+			'plans'        => array( 'selected_tiers', MetaBox::FIELD_TIERS, 'Select at least one membership plan' ),
+			'segments'     => array( 'segments', MetaBox::FIELD_SEGMENTS, 'Select at least one segment' ),
+			'entitlements' => array( 'selected_entitlements', MetaBox::FIELD_ENTITLEMENTS, 'Select at least one entitlement' ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'refusals' )]
+	public function a_set_mode_with_nothing_selected_is_refused_and_says_so( string $mode, string $field, string $message ): void {
+		$policy = array( 'mode' => 'active_member' );
+		$this->store( $policy );
+
+		$this->savePanel( array( MetaBox::FIELD_MODE => $mode ) );
+
+		$this->assertSame( $policy, Policy::get_for_post( self::POST ) );
+		$this->assertStringStartsWith( $message, (string) get_transient( MetaBox::ERROR_TRANSIENT . self::POST ) );
+	}
+
+	#[Test]
+	#[DataProvider( 'refusals' )]
+	public function a_set_mode_with_only_malformed_selections_is_refused_too( string $mode, string $field, string $message ): void {
+		$policy = array( 'mode' => 'public' );
+		$this->store( $policy );
+
+		$this->savePanel( array( MetaBox::FIELD_MODE => $mode, $field => array( 'not valid!', '' ) ) );
+
+		$this->assertSame( $policy, Policy::get_for_post( self::POST ) );
+		$this->assertStringStartsWith( $message, (string) get_transient( MetaBox::ERROR_TRANSIENT . self::POST ) );
+	}
+
+	/** `agend_access_segment_ids=x` is not a list, so it selects nothing. */
+	#[Test]
+	public function a_list_field_that_is_not_an_array_selects_nothing(): void {
+		$policy = array( 'mode' => 'active_member' );
+		$this->store( $policy );
+
+		$this->savePanel( array( MetaBox::FIELD_MODE => 'segments', MetaBox::FIELD_SEGMENTS => self::SEG ) );
+
+		$this->assertSame( $policy, Policy::get_for_post( self::POST ) );
+	}
+
+	/**
+	 * Every list is submitted whatever the audience, because a hidden list's
+	 * checked boxes are still in the form. Only the chosen mode's list is read.
+	 */
+	#[Test]
+	public function only_the_chosen_audiences_list_is_read(): void {
+		$all = array(
+			MetaBox::FIELD_TIERS        => array( self::TIER ),
+			MetaBox::FIELD_SEGMENTS     => array( self::SEG ),
+			MetaBox::FIELD_ENTITLEMENTS => array( 'directory.access' ),
+		);
+
+		$this->savePanel( array_merge( $all, array( MetaBox::FIELD_MODE => 'segments' ) ) );
+		$this->assertSame( array( 'mode' => 'segments', 'segment_ids' => array( self::SEG ) ), Policy::get_for_post( self::POST ) );
+
+		$this->savePanel( array_merge( $all, array( MetaBox::FIELD_MODE => 'selected_entitlements' ) ) );
+		$this->assertSame( array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( 'directory.access' ) ), Policy::get_for_post( self::POST ) );
+
+		$this->savePanel( array_merge( $all, array( MetaBox::FIELD_MODE => 'selected_tiers' ) ) );
+		$this->assertSame( array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER ) ), Policy::get_for_post( self::POST ) );
+
+		$this->savePanel( array_merge( $all, array( MetaBox::FIELD_MODE => 'active_member' ) ) );
+		$this->assertSame( array( 'mode' => 'active_member' ), Policy::get_for_post( self::POST ) );
+	}
+
+	/**
+	 * A disabled radio is not submitted, and the checkboxes under it are: a stored
+	 * policy whose list could not be loaded comes back with its boxes and no mode.
+	 * That is a panel with nothing to say, so the stored policy is kept.
+	 */
+	#[Test]
+	public function ticked_boxes_with_no_mode_do_not_replace_or_clear_the_stored_policy(): void {
+		$policy = array( 'mode' => 'segments', 'segment_ids' => array( self::SEG ) );
+		$this->store( $policy );
+
+		$this->savePanel( array( MetaBox::FIELD_SEGMENTS => array( self::SEG, self::SEG_B ) ) );
+
+		$this->assertSame( $policy, Policy::get_for_post( self::POST ) );
+	}
+
+	#[Test]
+	public function a_successful_save_clears_an_earlier_refusal(): void {
+		$this->savePanel( array( MetaBox::FIELD_MODE => 'segments' ) );
+		$this->assertNotFalse( get_transient( MetaBox::ERROR_TRANSIENT . self::POST ) );
+
+		$this->savePanel( array( MetaBox::FIELD_MODE => 'segments', MetaBox::FIELD_SEGMENTS => array( self::SEG ) ) );
+
+		$this->assertFalse( get_transient( MetaBox::ERROR_TRANSIENT . self::POST ) );
 	}
 }

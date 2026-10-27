@@ -32,8 +32,34 @@ class Agend_Content_Access_Meta_Box {
 	 *
 	 * @var string
 	 */
-	const FIELD_MODE  = 'agend_access_mode';
-	const FIELD_TIERS = 'agend_access_tier_ids';
+	const FIELD_MODE         = 'agend_access_mode';
+	const FIELD_TIERS        = 'agend_access_tier_ids';
+	const FIELD_SEGMENTS     = 'agend_access_segment_ids';
+	const FIELD_ENTITLEMENTS = 'agend_access_entitlement_keys';
+
+	/**
+	 * The three set-mode lists the panel offers, each with the catalogue section
+	 * it is built from and the form field its checkboxes submit under.
+	 *
+	 * One table drives the payload, the view and the save, so a fourth list is
+	 * one entry here rather than a branch in each of them.
+	 *
+	 * @var array<string, array{section: string, field: string}>
+	 */
+	const LISTS = array(
+		Agend_Content_Access_Policy::MODE_TIERS        => array(
+			'section' => 'plans',
+			'field'   => self::FIELD_TIERS,
+		),
+		Agend_Content_Access_Policy::MODE_SEGMENTS     => array(
+			'section' => 'segments',
+			'field'   => self::FIELD_SEGMENTS,
+		),
+		Agend_Content_Access_Policy::MODE_ENTITLEMENTS => array(
+			'section' => 'entitlements',
+			'field'   => self::FIELD_ENTITLEMENTS,
+		),
+	);
 
 	/**
 	 * Transient prefix carrying a validation error across the save redirect.
@@ -111,6 +137,11 @@ class Agend_Content_Access_Meta_Box {
 
 	/**
 	 * Adds the panel to every supported post type.
+	 *
+	 * Declared block editor compatible: the panel is plain form fields saved
+	 * through `save_post`, which the block editor submits from its meta box area
+	 * once the post itself has saved, so it needs no classic editor fallback and
+	 * works the same in both.
 	 */
 	public function add_meta_box(): void {
 		add_meta_box(
@@ -119,7 +150,8 @@ class Agend_Content_Access_Meta_Box {
 			array( $this, 'render' ),
 			self::supported_post_types(),
 			'side',
-			'default'
+			'default',
+			array( '__block_editor_compatible_meta_box' => true )
 		);
 	}
 
@@ -130,21 +162,32 @@ class Agend_Content_Access_Meta_Box {
 	 * what crosses into the editor page, so "no secret is rendered" is a
 	 * property that can be asserted rather than reviewed. Every value here comes
 	 * from the reduced catalogue or the stored policy. The tenant API key, the
-	 * gateway base URL and the raw tier payload are all absent by construction.
+	 * gateway base URL and the raw gateway payloads are all absent by
+	 * construction.
+	 *
+	 * Each of the three set-mode audiences (plans, segments, entitlements) gets
+	 * one entry under `lists`, keyed by its mode, in one shape. A selection that
+	 * is no longer offered is returned in `selected` with `available` false, so
+	 * the panel can show and repair it, and is never dropped from the list.
 	 *
 	 * @param array|null $policy           Stored policy, or null.
-	 * @param array      $catalogue        Result of Agend_Content_Access_Catalogue::get().
+	 * @param array      $catalogue        Result of Agend_Content_Access_Catalogue::sections().
 	 * @param array      $unmodelled_types Elementor element types that cannot take the control.
 	 * @param bool       $unreadable       Whether a policy IS stored but could not be read.
 	 *                                     `$policy` is null in that case too, so only this
 	 *                                     says the page is hidden rather than unset.
 	 * @return array{
 	 *     mode: string,
-	 *     selected: array<int, array{id: string, name: string, available: bool, active: bool}>,
-	 *     plans: array<int, array{id: string, name: string, slug: string, type: string, active: bool}>,
-	 *     can_select: bool,
-	 *     stale: bool,
-	 *     unavailable_count: int,
+	 *     lists: array<string, array{
+	 *         field: string,
+	 *         selected: array<int, array{value: string, label: string, available: bool}>,
+	 *         options: array<int, array{value: string, label: string, description: string, available: bool}>,
+	 *         can_select: bool,
+	 *         stale: bool,
+	 *         error: string,
+	 *         unavailable_count: int
+	 *     }>,
+	 *     unmodelled_types: string[],
 	 *     unreadable: bool
 	 * }
 	 */
@@ -154,34 +197,105 @@ class Agend_Content_Access_Meta_Box {
 		array $unmodelled_types = array(),
 		bool $unreadable = false
 	): array {
-		$tier_ids = Agend_Content_Access_Policy::tier_ids( $policy );
-		$selected = Agend_Content_Access_Catalogue::annotate_selection( $tier_ids, $catalogue['plans'] );
+		$lists = array();
 
-		$unavailable = 0;
-		foreach ( $selected as $entry ) {
-			if ( empty( $entry['available'] ) ) {
-				++$unavailable;
-			}
+		foreach ( self::LISTS as $mode => $list ) {
+			$lists[ $mode ] = self::list_payload(
+				$mode,
+				$list['field'],
+				self::stored_selection( $policy, $mode ),
+				isset( $catalogue[ $list['section'] ] ) && is_array( $catalogue[ $list['section'] ] )
+					? $catalogue[ $list['section'] ]
+					: array()
+			);
 		}
 
 		return array(
-			'mode'              => null === $policy
+			'mode'             => null === $policy
 				? ''
 				: (string) $policy['mode'],
-			'selected'          => $selected,
-			'plans'             => Agend_Content_Access_Catalogue::selectable( $catalogue['plans'] ),
-			'can_select'        => Agend_Content_Access_Catalogue::can_select_plans( $catalogue ),
-			'stale'             => ! empty( $catalogue['stale'] ),
-			'unavailable_count' => $unavailable,
+			'lists'            => $lists,
 			// Editor V4 atomic elements cannot receive the Agend Access
 			// control, so an editor on such a page needs telling why there is
 			// no per-section option, and that the page policy still covers the
 			// whole page (US-4.4 criterion 12).
-			'unmodelled_types'  => array_values( $unmodelled_types ),
+			'unmodelled_types' => array_values( $unmodelled_types ),
 			// A stored policy that could not be read is enforced as nobody, so
 			// the editor has to say so: an empty panel reads as "nothing set",
 			// which is the opposite of what visitors are experiencing.
-			'unreadable'        => $unreadable,
+			'unreadable'       => $unreadable,
+		);
+	}
+
+	/**
+	 * What a stored policy selects in one set-mode, or nothing for another mode.
+	 *
+	 * @param array|null $policy Stored policy, or null.
+	 * @param string     $mode   A key of self::LISTS.
+	 * @return string[]
+	 */
+	private static function stored_selection( ?array $policy, string $mode ): array {
+		switch ( $mode ) {
+			case Agend_Content_Access_Policy::MODE_SEGMENTS:
+				return Agend_Content_Access_Policy::segment_ids( $policy );
+			case Agend_Content_Access_Policy::MODE_ENTITLEMENTS:
+				return Agend_Content_Access_Policy::entitlement_keys( $policy );
+			default:
+				return Agend_Content_Access_Policy::tier_ids( $policy );
+		}
+	}
+
+	/**
+	 * One list's data for the panel.
+	 *
+	 * `can_select` is false only when the section has no items at all, which
+	 * means either the list could not be read or the tenant has none. Either
+	 * way a NEW selection cannot be made, so the audience's radio is disabled,
+	 * while Public and all-active-members stay saveable and an outage never
+	 * blocks editing outright. The stored selection is returned regardless, so
+	 * it is shown whatever state the list is in.
+	 *
+	 * @param string   $mode    A key of self::LISTS.
+	 * @param string   $field   Form field the checkboxes submit under.
+	 * @param string[] $stored  What the stored policy selects in this mode.
+	 * @param array    $section The catalogue section: `{items, stale, error}`.
+	 * @return array{field: string, selected: array, options: array, can_select: bool, stale: bool, error: string, unavailable_count: int}
+	 */
+	private static function list_payload( string $mode, string $field, array $stored, array $section ): array {
+		$items    = isset( $section['items'] ) && is_array( $section['items'] ) ? $section['items'] : array();
+		$options  = Agend_Content_Access_Catalogue::options( $mode, $items );
+		$selected = Agend_Content_Access_Catalogue::annotate_options( $stored, $options );
+
+		$unavailable = 0;
+
+		foreach ( $selected as $index => $entry ) {
+			if ( empty( $entry['available'] ) ) {
+				++$unavailable;
+			}
+
+			// An entitlement key is readable on its own (`directory.access`), so it
+			// stands in for a name the list cannot give. A plan or segment id is an
+			// opaque UUID, so the view says "unknown" for those instead.
+			if ( '' === $entry['label'] && Agend_Content_Access_Policy::MODE_ENTITLEMENTS === $mode ) {
+				$selected[ $index ]['label'] = $entry['value'];
+			}
+		}
+
+		return array(
+			'field'             => $field,
+			'selected'          => $selected,
+			'options'           => array_values(
+				array_filter(
+					$options,
+					static function ( $option ) {
+						return ! empty( $option['available'] );
+					}
+				)
+			),
+			'can_select'        => array() !== $items,
+			'stale'             => ! empty( $section['stale'] ),
+			'error'             => isset( $section['error'] ) ? (string) $section['error'] : '',
+			'unavailable_count' => $unavailable,
 		);
 	}
 
@@ -197,7 +311,7 @@ class Agend_Content_Access_Meta_Box {
 		// Rendering never writes, so the stored value is left as it was found.
 		$data = self::payload(
 			Agend_Content_Access_Policy::get_for_post( (int) $post->ID ),
-			Agend_Content_Access_Catalogue::get(),
+			Agend_Content_Access_Catalogue::sections(),
 			Agend_Content_Access_Elementor_Parser::unmodelled_element_types(
 				(string) get_post_meta( (int) $post->ID, '_elementor_data', true )
 			),
@@ -266,14 +380,13 @@ class Agend_Content_Access_Meta_Box {
 		// cleared the policy", because the panel can render with no mode checked
 		// and a browser submits nothing for a radio that is not checked:
 		//
-		//  - the plans radio is disabled while the plan catalogue is unreachable,
-		//    and a disabled control is not submitted, so a stored plans policy
-		//    comes back with no mode;
+		//  - a set-mode radio is disabled while its list is unavailable (the plan,
+		//    segment or entitlement list unreachable, a Core too old to list it,
+		//    an API key without its scope), and a disabled control is not
+		//    submitted, so a stored policy in that mode comes back with no mode;
 		//  - an unreadable policy preselects nothing;
-		//  - the panel has one radio per mode it can show, so a post holding a
-		//    policy in a mode it cannot show (`segments` or
-		//    `selected_entitlements`, until the controls for them arrive) has none
-		//    checked.
+		//  - a hand-built request, or a later release's panel, can name a mode this
+		//    version has no radio for.
 		//
 		// Clearing any of those on an ordinary save would turn a restricted page
 		// into a public one without anybody choosing that. A mode the panel does
@@ -284,11 +397,17 @@ class Agend_Content_Access_Meta_Box {
 			return;
 		}
 
-		$submitted_tiers = isset( $_POST[ self::FIELD_TIERS ] ) && is_array( $_POST[ self::FIELD_TIERS ] )
-			? array_map( 'sanitize_text_field', wp_unslash( $_POST[ self::FIELD_TIERS ] ) )
-			: array();
-
-		$result = Agend_Content_Access_Policy::from_input( $mode, $submitted_tiers );
+		// Every list is read, and `from_input()` uses only the one for the chosen
+		// mode: a checked box in a list the editor has since switched away from
+		// is ignored, exactly as the plan list always was.
+		$result = Agend_Content_Access_Policy::from_input(
+			$mode,
+			self::submitted_list( self::FIELD_TIERS ),
+			array(
+				Agend_Content_Access_Policy::SET_MODE_KEYS[ Agend_Content_Access_Policy::MODE_SEGMENTS ]     => self::submitted_list( self::FIELD_SEGMENTS ),
+				Agend_Content_Access_Policy::SET_MODE_KEYS[ Agend_Content_Access_Policy::MODE_ENTITLEMENTS ] => self::submitted_list( self::FIELD_ENTITLEMENTS ),
+			)
+		);
 
 		if ( null !== $result['error'] ) {
 			// Keep the previous policy and carry the reason across the redirect.
@@ -302,6 +421,23 @@ class Agend_Content_Access_Meta_Box {
 
 		delete_transient( self::ERROR_TRANSIENT . $post_id );
 		Agend_Content_Access_Policy::save_for_post( (int) $post_id, $result['policy'] );
+	}
+
+	/**
+	 * The submitted entries of one list's checkboxes, sanitised for reading.
+	 *
+	 * Only called after `save()` has verified the nonce and the capability.
+	 * Whatever comes back is still unvalidated: `from_input()` drops what is not
+	 * well formed for the mode, which can only make a selection narrower. A
+	 * field that is not an array (`field=x`) is nothing selected.
+	 *
+	 * @param string $field Form field name.
+	 * @return string[]
+	 */
+	private static function submitted_list( string $field ): array {
+		return isset( $_POST[ $field ] ) && is_array( $_POST[ $field ] ) // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			? array_map( 'sanitize_text_field', wp_unslash( $_POST[ $field ] ) ) // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			: array();
 	}
 
 	/**

@@ -50,7 +50,7 @@ final class MetaBoxPayloadTest extends TestCase {
 			),
 		);
 
-		return Agend_Content_Access_Catalogue::get( true );
+		return Agend_Content_Access_Catalogue::sections( true );
 	}
 
 	#[Test]
@@ -60,7 +60,7 @@ final class MetaBoxPayloadTest extends TestCase {
 		// Not 'public'. An unset policy and an explicitly public one are
 		// different states (Decision 2.9) and the panel must not conflate them.
 		$this->assertSame( '', $payload['mode'] );
-		$this->assertSame( array(), $payload['selected'] );
+		$this->assertSame( array(), $payload['lists'][ Agend_Content_Access_Policy::MODE_TIERS ]['selected'] );
 	}
 
 	#[Test]
@@ -99,8 +99,11 @@ final class MetaBoxPayloadTest extends TestCase {
 			$this->catalogue()
 		);
 
-		$this->assertCount( 2, $payload['selected'], 'a vanished plan is kept, not dropped' );
-		$this->assertSame( 1, $payload['unavailable_count'] );
+		$plans = $payload['lists'][ Agend_Content_Access_Policy::MODE_TIERS ];
+
+		$this->assertCount( 2, $plans['selected'], 'a vanished plan is kept, not dropped' );
+		$this->assertSame( 1, $plans['unavailable_count'] );
+		$this->assertSame( array( true, false ), array_column( $plans['selected'], 'available' ) );
 	}
 
 	#[Test]
@@ -110,23 +113,26 @@ final class MetaBoxPayloadTest extends TestCase {
 			$this->catalogue()
 		);
 
-		$this->assertSame( 0, $payload['unavailable_count'] );
+		$this->assertSame( 0, $payload['lists'][ Agend_Content_Access_Policy::MODE_TIERS ]['unavailable_count'] );
 	}
 
 	#[Test]
 	public function a_catalogue_outage_disables_plan_selection_but_keeps_the_stored_policy(): void {
 		Agend_Test_WP::$tiers_response = new WP_Error( 'http_request_failed', 'down' );
-		$catalogue                     = Agend_Content_Access_Catalogue::get( true );
+		$catalogue                     = Agend_Content_Access_Catalogue::sections( true );
 
 		$payload = Agend_Content_Access_Meta_Box::payload(
 			array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_A ) ),
 			$catalogue
 		);
 
-		$this->assertFalse( $payload['can_select'] );
-		$this->assertTrue( $payload['stale'] );
+		$plans = $payload['lists'][ Agend_Content_Access_Policy::MODE_TIERS ];
+
+		$this->assertFalse( $plans['can_select'] );
+		$this->assertTrue( $plans['stale'] );
+		$this->assertSame( 'down', $plans['error'] );
 		// The stored selection survives the outage and is still shown.
-		$this->assertCount( 1, $payload['selected'] );
+		$this->assertCount( 1, $plans['selected'] );
 		$this->assertSame( 'selected_tiers', $payload['mode'] );
 	}
 
@@ -134,8 +140,11 @@ final class MetaBoxPayloadTest extends TestCase {
 	public function only_active_plans_are_offered_for_selection(): void {
 		$payload = Agend_Content_Access_Meta_Box::payload( null, $this->catalogue() );
 
-		$this->assertCount( 1, $payload['plans'] );
-		$this->assertSame( self::TIER_A, $payload['plans'][0]['id'] );
+		$options = $payload['lists'][ Agend_Content_Access_Policy::MODE_TIERS ]['options'];
+
+		$this->assertCount( 1, $options );
+		$this->assertSame( self::TIER_A, $options[0]['value'] );
+		$this->assertSame( 'Full Member', $options[0]['label'] );
 	}
 
 	#[Test]

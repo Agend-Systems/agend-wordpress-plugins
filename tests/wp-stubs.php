@@ -90,6 +90,9 @@ final class Agend_Test_WP {
 	/** @var array<int, array{namespace: string, route: string, args: array}> Routes passed to register_rest_route(), in call order. */
 	public static array $rest_routes = array();
 
+	/** @var array<int, array<string, mixed>> Meta boxes passed to add_meta_box(), in call order. */
+	public static array $meta_boxes = array();
+
 	/** @var int[] User ids for which WordPress auth cookies were issued. */
 	public static array $auth_cookie_users = array();
 	/** @var bool[] Remember flags passed to WordPress auth cookies. */
@@ -191,6 +194,7 @@ final class Agend_Test_WP {
 		self::$object_cache      = array();
 		self::$requests          = array();
 		self::$rest_routes       = array();
+		self::$meta_boxes        = array();
 		self::$auth_cookie_users = array();
 		self::$auth_cookie_remembers = array();
 		self::$tiers_response    = array();
@@ -1784,6 +1788,27 @@ if ( ! function_exists( 'register_rest_route' ) ) {
 		);
 
 		return true;
+	}
+}
+
+if ( ! function_exists( 'add_meta_box' ) ) {
+	/**
+	 * Recording stub: the box is not rendered, only noted in
+	 * `Agend_Test_WP::$meta_boxes`, so a test can assert how a plugin registers
+	 * one, including the callback args WordPress reads.
+	 *
+	 * @param string|string[] $screen
+	 */
+	function add_meta_box( string $id, string $title, $callback, $screen = null, string $context = 'advanced', string $priority = 'default', $callback_args = null ): void {
+		Agend_Test_WP::$meta_boxes[] = array(
+			'id'            => $id,
+			'title'         => $title,
+			'callback'      => $callback,
+			'screen'        => $screen,
+			'context'       => $context,
+			'priority'      => $priority,
+			'callback_args' => $callback_args,
+		);
 	}
 }
 
