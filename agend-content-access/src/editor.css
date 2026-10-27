@@ -1,0 +1,69 @@
+/*
+ * Agend Access in the block editor.
+ *
+ * Loaded into the editor page and, because it is enqueued on
+ * `enqueue_block_assets`, into the canvas iframe too: the indicator below
+ * lives in the canvas and the panel styles in the sidebar.
+ */
+
+/*
+ * A stripe down the left edge of a block that carries a policy or display
+ * conditions. Drawn as a shadow so it takes no room and moves nothing, and set
+ * on two classes so a block's own single-class shadow does not win.
+ *
+ *   blue    an audience policy, alone or with conditions
+ *   amber   display conditions only
+ */
+.block-editor-block-list__block.has-agend-access {
+	box-shadow: -3px 0 0 0 var(--agend-access-colour, #2271b1);
+}
+
+.block-editor-block-list__block.has-agend-access--conditions {
+	--agend-access-colour: #bd8600;
+}
+
+/* Shadows are removed in forced-colours mode, so use a real edge there. */
+@media (forced-colors: active) {
+	.block-editor-block-list__block.has-agend-access {
+		border-left: 3px solid CanvasText;
+		box-shadow: none;
+	}
+}
+
+/* The sidebar panel. */
+.agend-access__notice {
+	margin: 0 0 16px;
+}
+
+.agend-access__fieldset {
+	border: 0;
+	margin: 16px 0;
+	padding: 0;
+}
+
+.agend-access__legend {
+	font-weight: 600;
+	margin-bottom: 8px;
+	padding: 0;
+}
+
+.agend-access__list {
+	max-height: 240px;
+	overflow-y: auto;
+}
+
+.agend-access__row {
+	margin-bottom: 8px;
+}
+
+/* A choice the catalogue no longer offers. Ticked, and worth noticing. */
+.agend-access__row--unavailable .components-checkbox-control__label {
+	color: #b32d2e;
+}
+
+.agend-access__help,
+.agend-access__empty {
+	color: #757575;
+	font-size: 12px;
+	margin: 8px 0 0;
+}
