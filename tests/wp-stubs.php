@@ -1899,6 +1899,7 @@ if ( ! class_exists( 'WP_Post' ) ) {
 		public string $post_modified_gmt = '';
 		public string $post_name = '';
 		public string $post_excerpt = '';
+		public string $post_password = '';
 		public string $post_date_gmt = '';
 		public int $post_author = 0;
 
@@ -2739,6 +2740,11 @@ if ( ! function_exists( 'get_posts' ) ) {
 			}
 
 			if ( 'any' !== $status && $post->post_status !== $status ) {
+				continue;
+			}
+
+			// `has_password => false` leaves password-protected posts out, as core does.
+			if ( false === ( $args['has_password'] ?? null ) && '' !== $post->post_password ) {
 				continue;
 			}
 

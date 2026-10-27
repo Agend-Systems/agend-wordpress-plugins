@@ -213,6 +213,10 @@ class Agend_Content_Access_Condition_Sets {
 	 * disclosure the reference implementation walks straight into by rendering
 	 * whatever was picked.
 	 *
+	 * Password-protected posts are left out as well, for the same reason: the
+	 * replacement is rendered without the password prompt, so offering one would
+	 * invite an editor to publish it. `fallback_html()` refuses them regardless.
+	 *
 	 * The picker is the first line and the render-time check is the second: a
 	 * page restricted AFTER being chosen must still not leak, and this list
 	 * cannot know about that.
@@ -226,6 +230,7 @@ class Agend_Content_Access_Condition_Sets {
 			array(
 				'post_type'      => Agend_Content_Access_Meta_Box::supported_post_types(),
 				'post_status'    => 'publish',
+				'has_password'   => false,
 				'posts_per_page' => 100,
 				'orderby'        => 'title',
 				'order'          => 'ASC',

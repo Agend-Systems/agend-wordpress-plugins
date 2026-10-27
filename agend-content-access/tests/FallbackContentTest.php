@@ -109,6 +109,38 @@ final class FallbackContentTest extends TestCase {
 		$this->assertSame( '', ElementorControl::fallback_html( self::FALLBACK_ID ) );
 	}
 
+	/**
+	 * A fallback is rendered straight from `post_content`, by a route that never
+	 * asks for the password, so a protected one would be handed to every visitor
+	 * the conditions refused.
+	 */
+	#[Test]
+	public function a_password_protected_fallback_renders_nothing(): void {
+		$this->publishFallback( null );
+		$GLOBALS['agend_test_posts'][ self::FALLBACK_ID ]->post_password = 'hunter2';
+
+		$this->assertSame( '', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+	}
+
+	#[Test]
+	public function a_fallback_that_gains_a_password_after_being_chosen_stops_rendering(): void {
+		$this->publishFallback( null );
+
+		$this->assertStringContainsString( 'SIGN-IN-PROMPT-CONTENT', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+
+		$GLOBALS['agend_test_posts'][ self::FALLBACK_ID ]->post_password = 'hunter2';
+
+		$this->assertSame( '', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+	}
+
+	#[Test]
+	public function an_empty_password_is_no_password(): void {
+		$this->publishFallback( null );
+		$GLOBALS['agend_test_posts'][ self::FALLBACK_ID ]->post_password = '';
+
+		$this->assertStringContainsString( 'SIGN-IN-PROMPT-CONTENT', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+	}
+
 	#[Test]
 	public function a_missing_fallback_renders_nothing(): void {
 		$this->assertSame( '', ElementorControl::fallback_html( 999999 ) );
@@ -163,6 +195,27 @@ final class FallbackContentTest extends TestCase {
 		$GLOBALS['agend_test_post_meta'][ self::FALLBACK_ID ] = array( '_agend_access_policy' => $value );
 
 		$this->assertSame( '', ElementorControl::fallback_html( self::FALLBACK_ID ) );
+	}
+
+	#[Test]
+	public function the_picker_does_not_offer_a_password_protected_page(): void {
+		$register = static function ( int $id, string $title, string $password ): void {
+			$GLOBALS['agend_test_posts'][ $id ] = (object) array(
+				'ID'            => $id,
+				'post_status'   => 'publish',
+				'post_title'    => $title,
+				'post_type'     => 'page',
+				'post_password' => $password,
+			);
+		};
+
+		$register( 1, 'Open page', '' );
+		$register( 2, 'Protected page', 'hunter2' );
+
+		$options = Agend_Content_Access_Condition_Sets::fallback_options();
+
+		$this->assertContains( 'Open page', $options );
+		$this->assertNotContains( 'Protected page', $options );
 	}
 
 	#[Test]
