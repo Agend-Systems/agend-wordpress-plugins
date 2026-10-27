@@ -380,14 +380,39 @@ class Agend_Content_Access_Frontend {
 	 * screens proper stay out: an editor there needs to see what they are
 	 * editing, and `can_preview()` already covers any post they may edit.
 	 *
+	 * Public because the Elementor integration asks the same question before it
+	 * suppresses a section, and must get the same answer as every other gate.
+	 *
 	 * @return bool
 	 */
-	private static function renders_for_visitors(): bool {
+	public static function renders_for_visitors(): bool {
 		if ( is_admin() ) {
 			return wp_doing_ajax();
 		}
 
 		return ! self::is_authoring_context();
+	}
+
+	/**
+	 * Whether this is an AJAX request made by Elementor's own editor.
+	 *
+	 * The one admin-ajax request that is authoring rather than reading: the editor
+	 * rendering a widget to refresh its canvas, or fetching a template. Elementor
+	 * puts itself in edit mode for those, and only for those: its edit mode is
+	 * keyed on its own action names, so another plugin's AJAX handler never
+	 * reports it, and a visitor cannot switch it on for one, because it also
+	 * requires the edit capability on the document the editor names.
+	 *
+	 * @return bool
+	 */
+	public static function is_elementor_editor_ajax(): bool {
+		if ( ! wp_doing_ajax() || ! agend_content_access_has_elementor() ) {
+			return false;
+		}
+
+		$plugin = \Elementor\Plugin::$instance;
+
+		return isset( $plugin->editor ) && $plugin->editor->is_edit_mode();
 	}
 
 	/**
