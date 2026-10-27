@@ -88,6 +88,8 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_doing_cron']         = false;
 		$GLOBALS['agend_test_is_embed']           = false;
 		$GLOBALS['agend_test_not_main_query']     = false;
+		$GLOBALS['agend_test_is_singular']        = false;
+		$GLOBALS['agend_test_queried_object']     = null;
 
 		// Signed-out by default. Production code impersonates through
 		// `wp_set_current_user()` (the membership snapshot sync does, and

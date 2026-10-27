@@ -245,7 +245,10 @@ class Agend_Content_Access_Decision {
 	 */
 	public static function evaluate( ?array $policy, array $viewer ): string {
 		// No policy is not a restriction. Decision 2.9: a record with no policy
-		// predates the capability being enabled and stays public.
+		// predates the capability being enabled and stays public. Callers pass
+		// null ONLY for a post with nothing stored; a stored policy that cannot
+		// be read arrives as `Policy::UNSATISFIABLE`, an empty plan list, which
+		// the plan branch below denies for everybody.
 		if ( null === $policy ) {
 			return self::STATE_GRANTED;
 		}
@@ -365,7 +368,11 @@ class Agend_Content_Access_Decision {
 	 * @return array{state: string, policy: array|null, preview: bool, degraded: bool}
 	 */
 	public static function for_post( int $post_id ): array {
-		$policy = Agend_Content_Access_Policy::get_for_post( $post_id );
+		// The ENFORCED reading, not the editor's: a stored policy this version
+		// cannot read comes back as an unsatisfiable one, so it denies instead
+		// of being served as public. The same policy is handed to `viewer()`
+		// and `evaluate()` below, so what is fetched and what is judged agree.
+		$policy = Agend_Content_Access_Policy::enforced_for_post( $post_id );
 
 		if ( null === $policy || Agend_Content_Access_Policy::MODE_PUBLIC === ( $policy['mode'] ?? '' ) ) {
 			// Public and unset documents short-circuit BEFORE any identity

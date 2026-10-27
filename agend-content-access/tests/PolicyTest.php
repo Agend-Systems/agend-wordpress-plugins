@@ -604,4 +604,162 @@ final class PolicyTest extends TestCase {
 
 		$this->assertSame( $document, Agend_Content_Access_Policy::effective_policy( $document, array( 'mode' => 'inherit' ) ) );
 	}
+
+	// -----------------------------------------------------------------------
+	// Stored state: unset is public, unreadable is not
+	// -----------------------------------------------------------------------
+
+	private function store( int $post_id, $value ): void {
+		$GLOBALS['agend_test_post_meta'][ $post_id ] = array( Agend_Content_Access_Policy::META_KEY => $value );
+	}
+
+	/**
+	 * Stored values this version cannot read. Each one was served as PUBLIC by
+	 * 0.1.0, because the reader returned null for it exactly as it does for a
+	 * post with nothing stored.
+	 *
+	 * `segments` and `selected_entitlements` appear only in shapes `parse()`
+	 * refuses. A well formed one is readable here and is NOT in this list.
+	 *
+	 * @return array<string, array{0: mixed}>
+	 */
+	public static function unreadableValues(): array {
+		return array(
+			'a mode the gateway has and this plugin does not' => array( array( 'mode' => 'authenticated' ) ),
+			'segments with nothing selected'                  => array( array( 'mode' => 'segments', 'segment_ids' => array() ) ),
+			'a segment id that is not a uuid'                 => array(
+				array( 'mode' => 'segments', 'segment_ids' => array( 'not-a-uuid' ) ),
+			),
+			'segments carrying the entitlements list key'     => array(
+				array( 'mode' => 'segments', 'segment_ids' => array( self::SEG_1 ), 'entitlement_keys' => array( self::ENT_A ) ),
+			),
+			'selected entitlements with nothing selected'     => array(
+				array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array() ),
+			),
+			'an entitlement key in upper case'                => array(
+				array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( 'Journal' ) ),
+			),
+			'an entitlement list under the wrong key'         => array(
+				array( 'mode' => 'selected_entitlements', 'entitlement_ids' => array( self::ENT_A ) ),
+			),
+			'a plan id that is not a uuid'                    => array(
+				array( 'mode' => 'selected_tiers', 'tier_ids' => array( 'not-a-uuid' ) ),
+			),
+			'plans with nothing selected'                     => array(
+				array( 'mode' => 'selected_tiers', 'tier_ids' => array() ),
+			),
+			'an extra top level key on a valid mode'          => array(
+				array( 'mode' => 'public', 'note' => 'smuggled' ),
+			),
+			'an extra top level key on selected plans'        => array(
+				array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_A ), 'extra' => true ),
+			),
+			'an empty array'                                  => array( array() ),
+			'json text instead of an array'                   => array( '{"mode":"public"}' ),
+			'a bare string'                                   => array( 'public' ),
+		);
+	}
+
+	#[Test]
+	public function a_post_with_nothing_stored_is_absent_and_enforced_as_public(): void {
+		$this->assertSame( Agend_Content_Access_Policy::STORED_ABSENT, Agend_Content_Access_Policy::stored_state( 7 ) );
+		$this->assertNull( Agend_Content_Access_Policy::enforced_for_post( 7 ) );
+	}
+
+	/** WordPress reports a cleared value as an empty string; that is still unset. */
+	#[Test]
+	public function an_empty_string_is_absent_not_invalid(): void {
+		$this->store( 7, '' );
+
+		$this->assertSame( Agend_Content_Access_Policy::STORED_ABSENT, Agend_Content_Access_Policy::stored_state( 7 ) );
+		$this->assertNull( Agend_Content_Access_Policy::enforced_for_post( 7 ) );
+	}
+
+	#[Test]
+	public function a_readable_policy_is_valid_and_enforced_as_stored(): void {
+		$policy = array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_A ) );
+		$this->store( 7, $policy );
+
+		$this->assertSame( Agend_Content_Access_Policy::STORED_VALID, Agend_Content_Access_Policy::stored_state( 7 ) );
+		$this->assertSame( $policy, Agend_Content_Access_Policy::enforced_for_post( 7 ) );
+
+		$this->store( 8, array( 'mode' => 'public' ) );
+
+		$this->assertSame( Agend_Content_Access_Policy::STORED_VALID, Agend_Content_Access_Policy::stored_state( 8 ) );
+		$this->assertSame( array( 'mode' => 'public' ), Agend_Content_Access_Policy::enforced_for_post( 8 ) );
+	}
+
+	/**
+	 * This version reads and enforces the two newer modes, so a well formed
+	 * policy in either is VALID and is enforced as itself. Treating it as
+	 * unreadable would hide every page using it from everybody, which is the
+	 * opposite failure from the one `enforced_for_post()` exists to prevent.
+	 */
+	#[Test]
+	public function a_readable_segments_or_entitlements_policy_is_valid_and_enforced_as_stored(): void {
+		$segments     = array( 'mode' => 'segments', 'segment_ids' => array( self::SEG_1, self::SEG_2 ) );
+		$entitlements = array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( self::ENT_A, self::ENT_B ) );
+
+		$this->store( 7, $segments );
+		$this->store( 8, $entitlements );
+
+		$this->assertSame( Agend_Content_Access_Policy::STORED_VALID, Agend_Content_Access_Policy::stored_state( 7 ) );
+		$this->assertSame( $segments, Agend_Content_Access_Policy::enforced_for_post( 7 ) );
+		$this->assertNotSame( Agend_Content_Access_Policy::UNSATISFIABLE, Agend_Content_Access_Policy::enforced_for_post( 7 ) );
+		$this->assertTrue( Agend_Content_Access_Policy::needs_segments( Agend_Content_Access_Policy::enforced_for_post( 7 ) ) );
+
+		$this->assertSame( Agend_Content_Access_Policy::STORED_VALID, Agend_Content_Access_Policy::stored_state( 8 ) );
+		$this->assertSame( $entitlements, Agend_Content_Access_Policy::enforced_for_post( 8 ) );
+		$this->assertNotSame( Agend_Content_Access_Policy::UNSATISFIABLE, Agend_Content_Access_Policy::enforced_for_post( 8 ) );
+	}
+
+	#[Test]
+	#[DataProvider( 'unreadableValues' )]
+	public function an_unreadable_stored_policy_is_invalid_and_enforced_as_nobody( $value ): void {
+		$this->store( 7, $value );
+
+		$this->assertSame( Agend_Content_Access_Policy::STORED_INVALID, Agend_Content_Access_Policy::stored_state( 7 ) );
+		$this->assertSame( Agend_Content_Access_Policy::UNSATISFIABLE, Agend_Content_Access_Policy::enforced_for_post( 7 ) );
+	}
+
+	/**
+	 * The editor depends on this: it shows "not set" for an unreadable policy so
+	 * an audience can be chosen again. The fix must not change that reading, only
+	 * stop anything else from using it.
+	 */
+	#[Test]
+	#[DataProvider( 'unreadableValues' )]
+	public function the_editor_reading_of_an_unreadable_policy_is_still_null( $value ): void {
+		$this->store( 7, $value );
+
+		$this->assertNull( Agend_Content_Access_Policy::get_for_post( 7 ) );
+	}
+
+	/** The nobody policy must not be something the editor can save by accident. */
+	#[Test]
+	public function the_unsatisfiable_policy_is_not_itself_a_savable_policy(): void {
+		$this->assertNull( Agend_Content_Access_Policy::parse( Agend_Content_Access_Policy::UNSATISFIABLE ) );
+		$this->assertFalse( Agend_Content_Access_Policy::save_for_post( 7, Agend_Content_Access_Policy::UNSATISFIABLE ) );
+		$this->assertSame( Agend_Content_Access_Policy::STORED_ABSENT, Agend_Content_Access_Policy::stored_state( 7 ) );
+	}
+
+	#[Test]
+	public function the_unsatisfiable_policy_is_the_gateways_representation_of_nobody(): void {
+		$this->assertSame(
+			array( 'mode' => 'selected_tiers', 'tier_ids' => array() ),
+			Agend_Content_Access_Policy::UNSATISFIABLE
+		);
+	}
+
+	/** Two representations of "nobody" in one plugin would drift, so a collapsed pair IS this constant. */
+	#[Test]
+	public function an_unintersectable_pair_collapses_to_the_unsatisfiable_policy(): void {
+		$this->assertSame(
+			Agend_Content_Access_Policy::UNSATISFIABLE,
+			Agend_Content_Access_Policy::effective_policy(
+				array( 'mode' => 'segments', 'segment_ids' => array( self::SEG_1 ) ),
+				array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_A ) )
+			)
+		);
+	}
 }

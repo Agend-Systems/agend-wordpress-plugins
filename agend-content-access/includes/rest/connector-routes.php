@@ -214,8 +214,9 @@ function agend_content_access_connector_get( $request ) {
 	try {
 		$record = Agend_Content_Access_Exporter::record( $post );
 	} catch ( RuntimeException $e ) {
-		// A document we cannot decompose is reported, never shipped partially.
-		// Agend keeps whatever revision it already holds.
+		// A document we cannot decompose, or whose stored policy we cannot
+		// read, is reported, never shipped partially. Agend keeps whatever
+		// revision it already holds.
 		return new WP_Error(
 			'agend_content_access_unparseable',
 			$e->getMessage(),

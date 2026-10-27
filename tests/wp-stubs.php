@@ -1730,6 +1730,10 @@ if ( ! class_exists( 'WP_REST_Response' ) ) {
 			return $this->data;
 		}
 
+		public function set_data( $data ): void {
+			$this->data = $data;
+		}
+
 		public function get_status(): int {
 			return $this->status;
 		}
@@ -1866,6 +1870,10 @@ if ( ! class_exists( 'WP_Post' ) ) {
 		public string $post_title = '';
 		public string $post_type = 'page';
 		public string $post_modified_gmt = '';
+		public string $post_name = '';
+		public string $post_excerpt = '';
+		public string $post_date_gmt = '';
+		public int $post_author = 0;
 
 		public function __construct( array $fields = array() ) {
 			foreach ( $fields as $key => $value ) {
@@ -2129,6 +2137,17 @@ if ( ! function_exists( 'get_the_title' ) ) {
 		$post_obj = is_object( $post ) ? $post : get_post( $post );
 
 		return ( $post_obj instanceof WP_Post ) ? $post_obj->post_title : '';
+	}
+}
+
+if ( ! function_exists( 'metadata_exists' ) ) {
+	/**
+	 * Whether a meta row exists for the key, whatever its value. Only the post
+	 * store is modelled, which is the only one the unit tests write to.
+	 */
+	function metadata_exists( $meta_type, $object_id, $meta_key ): bool {
+		return 'post' === $meta_type
+			&& array_key_exists( $meta_key, $GLOBALS['agend_test_post_meta'][ (int) $object_id ] ?? array() );
 	}
 }
 
@@ -2658,4 +2677,114 @@ if ( ! function_exists( 'checked' ) ) {
 
 		return $result;
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Post queries, the page gate and the source connector (agend-content-access)
+// ---------------------------------------------------------------------------
+
+if ( ! function_exists( 'get_posts' ) ) {
+	/**
+	 * Post query over the `agend_test_posts` registry, honouring only the args
+	 * the code under test passes: type, status and a title sort.
+	 */
+	function get_posts( array $args = array() ): array {
+		$types  = (array) ( $args['post_type'] ?? 'post' );
+		$status = $args['post_status'] ?? 'publish';
+		$found  = array();
+
+		foreach ( array_keys( $GLOBALS['agend_test_posts'] ?? array() ) as $id ) {
+			$post = get_post( $id );
+
+			if ( ! $post instanceof WP_Post || ! in_array( $post->post_type, $types, true ) ) {
+				continue;
+			}
+
+			if ( 'any' !== $status && $post->post_status !== $status ) {
+				continue;
+			}
+
+			$found[] = $post;
+		}
+
+		usort(
+			$found,
+			static function ( $a, $b ): int {
+				return strcmp( $a->post_title, $b->post_title );
+			}
+		);
+
+		return $found;
+	}
+}
+
+if ( ! function_exists( 'rest_ensure_response' ) ) {
+	/** Wraps plain data in a response and passes a response or an error through. */
+	function rest_ensure_response( $response ) {
+		if ( $response instanceof WP_Error || $response instanceof WP_REST_Response ) {
+			return $response;
+		}
+
+		return new WP_REST_Response( $response );
+	}
+}
+
+if ( ! function_exists( 'disabled' ) ) {
+	function disabled( $disabled, $current = true, bool $display = true ): string {
+		$result = ( (string) $disabled === (string) $current ) ? " disabled='disabled'" : '';
+
+		if ( $display ) {
+			echo $result; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		return $result;
+	}
+}
+
+if ( ! function_exists( 'has_excerpt' ) ) {
+	function has_excerpt( $post = 0 ): bool {
+		return is_object( $post ) && '' !== (string) ( $post->post_excerpt ?? '' );
+	}
+}
+
+if ( ! function_exists( 'get_the_author_meta' ) ) {
+	function get_the_author_meta( $field = '', $user_id = false ): string {
+		return 'Test Author';
+	}
+}
+
+if ( ! function_exists( 'get_the_post_thumbnail_url' ) ) {
+	function get_the_post_thumbnail_url( $post = null, $size = 'post-thumbnail' ) {
+		return false;
+	}
+}
+
+if ( ! function_exists( 'get_object_taxonomies' ) ) {
+	function get_object_taxonomies( $object_type, $output = 'names' ): array {
+		return array();
+	}
+}
+
+if ( ! function_exists( 'get_locale' ) ) {
+	function get_locale(): string {
+		return 'en_AU';
+	}
+}
+
+if ( ! function_exists( 'is_singular' ) ) {
+	/** Not a singular request unless a test sets `$GLOBALS['agend_test_is_singular']`. */
+	function is_singular( $post_types = '' ): bool {
+		return ! empty( $GLOBALS['agend_test_is_singular'] );
+	}
+}
+
+if ( ! function_exists( 'get_queried_object' ) ) {
+	/** The object a test sets in `$GLOBALS['agend_test_queried_object']`, else null. */
+	function get_queried_object() {
+		return $GLOBALS['agend_test_queried_object'] ?? null;
+	}
+}
+
+if ( ! function_exists( 'status_header' ) ) {
+	function status_header( $code, $description = '' ): void {}
 }

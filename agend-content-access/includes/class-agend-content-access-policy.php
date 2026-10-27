@@ -219,11 +219,45 @@ class Agend_Content_Access_Policy {
 	}
 
 	/**
+	 * Stored-state vocabulary for {@see stored_state()}.
+	 *
+	 * Three states, because two cannot say what matters. "No policy" and "a
+	 * policy we cannot read" both come back from `get_for_post()` as null, and
+	 * they must be treated oppositely: the first is public (Decision 2.9), the
+	 * second is not evidence of anything and so restricts (Decision 2.12).
+	 */
+	const STORED_ABSENT  = 'absent';
+	const STORED_VALID   = 'valid';
+	const STORED_INVALID = 'invalid';
+
+	/**
+	 * A policy nobody satisfies.
+	 *
+	 * What an unreadable stored policy is enforced as: selected plans with an
+	 * empty plan list. It is the same representation the gateway uses for
+	 * "nobody", and the one `effective_policy()` collapses an unintersectable
+	 * pair to, so every side agrees on the meaning of an empty list without a
+	 * new mode. It is deliberately NOT something `parse()` accepts, because the
+	 * editor must never be able to save it by accident.
+	 *
+	 * @var array
+	 */
+	const UNSATISFIABLE = array(
+		'mode'     => self::MODE_TIERS,
+		'tier_ids' => array(),
+	);
+
+	/**
 	 * Reads the stored policy for a post.
 	 *
 	 * A stored value that no longer parses returns null, which the editor
 	 * surfaces as "no policy set" so it can be repaired. It is never coerced
 	 * into a mode nobody chose.
+	 *
+	 * FOR THE EDITOR ONLY. Null here conflates "none stored" with "stored but
+	 * unreadable", and the second must never be served as public. Anything that
+	 * decides what a visitor sees, or what leaves the site, must use
+	 * `enforced_for_post()` instead.
 	 *
 	 * @param int $post_id Post id.
 	 * @return array|null
@@ -232,6 +266,62 @@ class Agend_Content_Access_Policy {
 		$stored = get_post_meta( $post_id, self::META_KEY, true );
 
 		return self::parse( $stored );
+	}
+
+	/**
+	 * Whether a post has no stored policy, a readable one, or one we cannot read.
+	 *
+	 * Absent means the meta row does not exist or holds an empty string, which is
+	 * how WordPress reports a cleared value. Anything else that does not parse is
+	 * invalid: a mode this version does not know (the gateway has
+	 * `authenticated`, and a later release may add more), a malformed plan or
+	 * segment id or entitlement key, an empty list, an extra key, or a value that
+	 * is not an array at all. A `segments` or `selected_entitlements` policy that
+	 * parses is valid: this version enforces both.
+	 *
+	 * @param int $post_id Post id.
+	 * @return string One of the STORED_* constants.
+	 */
+	public static function stored_state( int $post_id ): string {
+		if ( ! metadata_exists( 'post', $post_id, self::META_KEY ) ) {
+			return self::STORED_ABSENT;
+		}
+
+		$stored = get_post_meta( $post_id, self::META_KEY, true );
+
+		if ( '' === $stored ) {
+			return self::STORED_ABSENT;
+		}
+
+		return null === self::parse( $stored ) ? self::STORED_INVALID : self::STORED_VALID;
+	}
+
+	/**
+	 * The policy to ENFORCE for a post.
+	 *
+	 * Null only when no policy is stored, which is public. A readable policy is
+	 * returned as parsed. An unreadable one is returned as `UNSATISFIABLE`, so
+	 * every caller that compares a visitor against the result denies them
+	 * without needing to know the stored value was bad.
+	 *
+	 * This is the rule that makes a rollback safe. A newer release can store a
+	 * mode this version cannot parse; reading that as "no policy" would publish
+	 * every such page the moment the older plugin is activated.
+	 *
+	 * @param int $post_id Post id.
+	 * @return array|null Policy to enforce, or null when none is stored.
+	 */
+	public static function enforced_for_post( int $post_id ): ?array {
+		switch ( self::stored_state( $post_id ) ) {
+			case self::STORED_ABSENT:
+				return null;
+			case self::STORED_VALID:
+				// A second read that disagrees with the first is not a reason to
+				// serve the page: fail closed rather than fall through to null.
+				return self::get_for_post( $post_id ) ?? self::UNSATISFIABLE;
+			default:
+				return self::UNSATISFIABLE;
+		}
 	}
 
 	/**
@@ -542,10 +632,7 @@ class Agend_Content_Access_Policy {
 		}
 
 		if ( self::is_unintersectable( (string) $document_mode, (string) $fragment_mode ) ) {
-			return array(
-				'mode'     => self::MODE_TIERS,
-				'tier_ids' => array(),
-			);
+			return self::UNSATISFIABLE;
 		}
 
 		return self::restrictiveness( (string) $fragment_mode ) > self::restrictiveness( (string) $document_mode )

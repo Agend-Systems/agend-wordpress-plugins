@@ -335,7 +335,9 @@ class Agend_Content_Access_Elementor {
 			return $should_render;
 		}
 
-		$document  = Agend_Content_Access_Policy::get_for_post( (int) get_queried_object_id() );
+		// The enforced reading: an unreadable document policy must narrow the
+		// section to nobody, not vanish and leave the fragment alone.
+		$document  = Agend_Content_Access_Policy::enforced_for_post( (int) get_queried_object_id() );
 		$effective = Agend_Content_Access_Policy::effective_policy( $document, $fragment );
 
 		// The viewer is built for THIS policy, so segments are fetched only when
