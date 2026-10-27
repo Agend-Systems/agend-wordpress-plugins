@@ -392,6 +392,7 @@ class Agend_Apps_Admin {
 				array(
 					'option_name' => $option_name,
 					'default'     => $config['default_ttl'],
+					'description' => $config['description'] ?? '',
 					'label_for'   => $option_name,
 				)
 			);
@@ -615,7 +616,8 @@ class Agend_Apps_Admin {
 	/**
 	 * Renders a TTL number input field.
 	 *
-	 * @param array $args Field arguments including `option_name` and `default`.
+	 * @param array $args Field arguments including `option_name` and `default`,
+	 *                    and optionally a `description` shown under the input.
 	 */
 	public function render_ttl_field( array $args ): void {
 		$option_name = $args['option_name'];
@@ -628,6 +630,10 @@ class Agend_Apps_Admin {
 			esc_attr( $option_name ),
 			$value
 		);
+
+		if ( ! empty( $args['description'] ) ) {
+			echo '<p class="description">' . esc_html( $args['description'] ) . '</p>';
+		}
 	}
 
 	/**

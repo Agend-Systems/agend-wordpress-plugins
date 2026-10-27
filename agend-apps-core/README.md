@@ -165,6 +165,26 @@ default on upgrade, with no activation step.
   old config is served. To see a change straight away, clear the "Site Config"
   row on the Cache tab, or use "Clear All Caches".
 
+### How long member standing is cached
+
+`agend_apps_crm_get_my_entitlements()` itself is never cached: standing changes
+the moment a membership lapses or a seat is revoked. The `crm_me_entitlements`
+key is for a consumer that caches the answer per member. Agend Content Access
+does, and sizes that cache with
+`Agend_Apps_Settings::get_cache_ttl( 'crm_me_entitlements' )`.
+
+Before this key was registered, that call fell back to 60 seconds and the
+setting could not be changed. It is now shown as "Member Standing" on the Cache
+tab with a 300 second default, adjustable there like every other entry. A site
+that never saved a TTL for it picks up the default on upgrade, with no
+activation step.
+
+- **Cleared by webhooks.** Agend webhooks clear a member's cached standing, so a
+  change normally applies at once.
+- **A missed webhook waits out the TTL.** A lapse that arrives without a webhook
+  applies within this time, so lower the TTL if that delay matters more than the
+  extra gateway calls.
+
 ### One member token mint at a time
 
 The token worker mints a member's bearer with `POST /v1/sso/tokens` when the

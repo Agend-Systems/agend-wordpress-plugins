@@ -46,7 +46,12 @@ $ajax_url      = admin_url( 'admin-ajax.php' );
 		<tbody>
 			<?php foreach ( $cache_keys as $key => $config ) : ?>
 				<tr>
-					<td><?php echo esc_html( $config['label'] ); ?></td>
+					<td>
+						<?php echo esc_html( $config['label'] ); ?>
+						<?php if ( ! empty( $config['description'] ) ) : ?>
+							<p class="description"><?php echo esc_html( $config['description'] ); ?></p>
+						<?php endif; ?>
+					</td>
 					<td><?php echo (int) $config['default_ttl']; ?>s</td>
 					<td><?php echo (int) Agend_Apps_Settings::get_cache_ttl( $key ); ?>s</td>
 					<td>
