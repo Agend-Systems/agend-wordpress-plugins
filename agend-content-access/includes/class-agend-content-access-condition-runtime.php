@@ -16,11 +16,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Wires the three condition families to where their answers actually come
  * from, and holds them for the life of the request.
  *
- * | Family              | Source                                   |
- * | ------------------- | ---------------------------------------- |
- * | `agend_wordpress`   | current user, locally, no network         |
- * | `agend_membership`  | `Agend_Content_Access_Viewer_Facts`, cached |
- * | `agend_segments`    | `Agend_Content_Access_Viewer_Facts`, on demand |
+ * | Family               | Source                                         |
+ * | -------------------- | ---------------------------------------------- |
+ * | `agend_wordpress`    | current user, locally, no network              |
+ * | `agend_membership`   | `Agend_Content_Access_Viewer_Facts`, cached    |
+ * | `agend_segments`     | `Agend_Content_Access_Viewer_Facts`, on demand |
+ * | `agend_entitlements` | `Agend_Content_Access_Viewer_Facts`, cached    |
  *
  * Membership facts come from `Agend_Content_Access_Viewer_Facts`, the one
  * source it shares with the document policy path, so a page asks
@@ -35,8 +36,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * A source that cannot answer returns null, which the engine reads as unknown
  * and denies on while naming the provider. The one case that answers
- * definitively is a signed-out visitor, who certainly holds no membership and
- * belongs to no segments; that needs no network.
+ * definitively is a signed-out visitor, who certainly holds no membership,
+ * belongs to no segments and holds no entitlements; that needs no network.
  */
 class Agend_Content_Access_Condition_Runtime {
 
@@ -56,9 +57,10 @@ class Agend_Content_Access_Condition_Runtime {
 	public static function checker(): callable {
 		return Agend_Content_Access_Condition_Providers::checker(
 			array(
-				Agend_Content_Access_Condition_Providers::WORDPRESS  => array( 'Agend_Content_Access_Condition_Providers', 'wordpress_facts' ),
-				Agend_Content_Access_Condition_Providers::MEMBERSHIP => array( __CLASS__, 'member_facts' ),
-				Agend_Content_Access_Condition_Providers::SEGMENTS   => array( __CLASS__, 'segment_facts' ),
+				Agend_Content_Access_Condition_Providers::WORDPRESS    => array( 'Agend_Content_Access_Condition_Providers', 'wordpress_facts' ),
+				Agend_Content_Access_Condition_Providers::MEMBERSHIP   => array( __CLASS__, 'member_facts' ),
+				Agend_Content_Access_Condition_Providers::SEGMENTS     => array( __CLASS__, 'segment_facts' ),
+				Agend_Content_Access_Condition_Providers::ENTITLEMENTS => array( __CLASS__, 'entitlement_facts' ),
 			)
 		);
 	}
@@ -103,6 +105,33 @@ class Agend_Content_Access_Condition_Runtime {
 			'tier_ids'   => $facts['tier_ids'],
 			'tier_slugs' => $facts['tier_slugs'],
 		);
+	}
+
+	/**
+	 * The entitlements the current visitor holds, as gate keys.
+	 *
+	 * Another thin adapter over `Agend_Content_Access_Viewer_Facts::member()`:
+	 * entitlement keys come from the same `/crm/me/entitlements` response as the
+	 * membership facts, so this costs no call a page was not already making, and
+	 * the document path and this one share the answer.
+	 *
+	 * A signed-out visitor holds none, definitively and with no lookup. Anything
+	 * the source cannot answer (the Core wrapper is missing, the gateway failed,
+	 * the response was malformed) is null, which the engine denies on and
+	 * reports. Never an empty list: "holds nothing" and "could not tell" are
+	 * different claims, and a rule may be inverted.
+	 *
+	 * @return string[]|null Gate keys, or null when unknown.
+	 */
+	public static function entitlement_facts(): ?array {
+		if ( ! is_user_logged_in() ) {
+			// Not an outage: a signed-out visitor definitively holds nothing.
+			return array();
+		}
+
+		$facts = Agend_Content_Access_Viewer_Facts::member();
+
+		return null === $facts ? null : $facts['entitlement_keys'];
 	}
 
 	/**

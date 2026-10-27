@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\Test;
 use Agend_Test_WP;
 
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-viewer-facts.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
 
@@ -267,5 +268,103 @@ final class ConditionRuntimeTest extends TestCase {
 			);
 
 		$this->assertSame( array( 'good' ), Runtime::segment_facts() );
+	}
+
+	// -----------------------------------------------------------------
+	// Entitlements
+	// -----------------------------------------------------------------
+
+	private function entitlementsAre( array $gate_keys ): void {
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_entitlements_response'] =
+			static fn( $value ) => array(
+				'data' => array(
+					'is_member'    => true,
+					'tier_ids'     => array( 'tier-a' ),
+					'tier_slugs'   => array( 'gold' ),
+					'capabilities' => array_map(
+						static fn( string $key ): array => array( 'gate_key' => $key ),
+						$gate_keys
+					),
+				),
+			);
+	}
+
+	private function entitlementCalls(): int {
+		return count(
+			array_filter(
+				Agend_Test_WP::$requests,
+				static fn( array $request ): bool => '/crm/me/entitlements' === $request['url']
+			)
+		);
+	}
+
+	/** Not an outage: a signed-out visitor definitively holds nothing, so no lookup. */
+	#[Test]
+	public function a_signed_out_visitor_holds_no_entitlements_and_costs_no_call(): void {
+		$this->assertSame( array(), Runtime::entitlement_facts() );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function entitlement_keys_are_read_from_the_member_facts(): void {
+		$this->signIn( 7 );
+		$this->entitlementsAre( array( 'directory.access', 'Not A Key', 'journal' ) );
+
+		$this->assertSame( array( 'directory.access', 'journal' ), Runtime::entitlement_facts() );
+	}
+
+	/** An outage is UNKNOWN, never "holds none", which on an inverted rule would disclose. */
+	#[Test]
+	public function an_entitlement_outage_is_unknown_and_not_cached(): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_entitlements_response'] =
+			static fn( $value ) => new \WP_Error( 'down', 'Gateway unreachable' );
+
+		$this->assertNull( Runtime::entitlement_facts() );
+		$this->assertSame( array(), Agend_Test_WP::$transients );
+	}
+
+	/** Entitlements and membership come from one response, so conditions on both are one call. */
+	#[Test]
+	public function entitlements_and_membership_share_one_gateway_call(): void {
+		$this->signIn( 7 );
+		$this->entitlementsAre( array( 'directory.access' ) );
+
+		$check = Runtime::checker();
+
+		$this->assertTrue( $check( 'agend_entitlements', 'directory.access' ) );
+		$this->assertFalse( $check( 'agend_entitlements', 'journal' ) );
+		$this->assertTrue( $check( 'agend_membership', 'gold' ) );
+		$this->assertSame( 1, $this->entitlementCalls() );
+	}
+
+	#[Test]
+	public function the_live_checker_answers_an_entitlement_condition_end_to_end(): void {
+		$this->signIn( 7 );
+		$this->entitlementsAre( array( 'directory.access' ) );
+
+		$holds = \Agend_Content_Access_Conditions::evaluate( array( 'agend_entitlements:directory.access' ), Runtime::checker() );
+		$lacks = \Agend_Content_Access_Conditions::evaluate( array( 'agend_entitlements:journal' ), Runtime::checker() );
+
+		$this->assertTrue( $holds['passes'] );
+		$this->assertFalse( $lacks['passes'] );
+		$this->assertSame( array(), $lacks['unknown'], 'not holding it is a settled answer, not an unknown one' );
+	}
+
+	#[Test]
+	public function the_live_checker_denies_a_signed_out_visitor_without_a_call(): void {
+		$check = Runtime::checker();
+
+		$this->assertFalse( $check( 'agend_entitlements', 'directory.access' ) );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function the_live_checker_reports_an_outage_as_unknown(): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_entitlements_response'] =
+			static fn( $value ) => new \WP_Error( 'down', 'Gateway unreachable' );
+
+		$this->assertNull( Runtime::checker()( 'agend_entitlements', 'directory.access' ) );
 	}
 }

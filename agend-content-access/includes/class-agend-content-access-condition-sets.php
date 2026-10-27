@@ -18,13 +18,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  * `"<provider>:<value>"` strings, which is the same shape already stored in
  * `agend_cp_access_conditions` on every existing site.
  *
- * The three sets come from three different places, and the difference matters
+ * The four sets come from four different places, and the difference matters
  * for what an editor sees when something is wrong:
  *
  *   - WordPress roles are local and always available.
  *   - Membership plans come from the cached tier catalogue, which degrades to
  *     an empty list on an outage rather than failing the editor screen.
  *   - Segments come from the tenant's own segment definitions.
+ *   - Entitlements come from the tenant's entitlement types, read through a
+ *     Core wrapper that an older Core does not have. Without it the group is
+ *     simply empty.
  *
  * A set that cannot be loaded is offered EMPTY rather than omitted, so the
  * group heading still appears and the editor can see that the option exists
@@ -36,6 +39,9 @@ class Agend_Content_Access_Condition_Sets {
 	/** Cache key for the segment vocabulary. */
 	const SEGMENTS_TRANSIENT = 'agend_content_access_segment_vocabulary';
 
+	/** Cache key for the entitlement vocabulary. */
+	const ENTITLEMENTS_TRANSIENT = 'agend_content_access_entitlement_vocabulary';
+
 	/**
 	 * The full grouped vocabulary.
 	 *
@@ -43,17 +49,21 @@ class Agend_Content_Access_Condition_Sets {
 	 */
 	public static function all(): array {
 		$sets = array(
-			Agend_Content_Access_Condition_Providers::WORDPRESS  => array(
+			Agend_Content_Access_Condition_Providers::WORDPRESS    => array(
 				'label'      => __( 'WordPress user', 'agend-content-access' ),
 				'conditions' => self::wordpress_conditions(),
 			),
-			Agend_Content_Access_Condition_Providers::MEMBERSHIP => array(
+			Agend_Content_Access_Condition_Providers::MEMBERSHIP   => array(
 				'label'      => __( 'Membership', 'agend-content-access' ),
 				'conditions' => self::membership_conditions(),
 			),
-			Agend_Content_Access_Condition_Providers::SEGMENTS   => array(
+			Agend_Content_Access_Condition_Providers::SEGMENTS     => array(
 				'label'      => __( 'Segments', 'agend-content-access' ),
 				'conditions' => self::segment_conditions(),
+			),
+			Agend_Content_Access_Condition_Providers::ENTITLEMENTS => array(
+				'label'      => __( 'Entitlements', 'agend-content-access' ),
+				'conditions' => self::entitlement_conditions(),
 			),
 		);
 
@@ -174,6 +184,91 @@ class Agend_Content_Access_Condition_Sets {
 
 		set_transient(
 			self::SEGMENTS_TRANSIENT,
+			$conditions,
+			Agend_Content_Access_Condition_Runtime::cache_ttl()
+		);
+
+		return $conditions;
+	}
+
+	/**
+	 * The tenant's entitlement types, keyed by gate key.
+	 *
+	 * Read through Core's `agend_apps_crm_get_entitlement_types()`, probed with
+	 * `function_exists()` and NOT added to the hard dependency list. A Core that
+	 * predates the wrapper then degrades to an empty group, so an editor loses
+	 * the picker rather than the whole plugin switching protection off. As with
+	 * segments, the group is kept present but empty so it reads as "the list
+	 * could not be fetched" and not as "this site has no entitlements".
+	 *
+	 * The response is the decoded gateway body: `{success, data: [{id, gate_key,
+	 * name, description, managed_by_source_id, kind}]}`, where `kind` is
+	 * `platform-gate`, `entitlement` or `unrecognised`. A platform gate is a
+	 * capability the platform itself defines (Directory access, say) rather than
+	 * one an administrator authored, so it is labelled "Platform:" and an editor
+	 * can tell the two apart in one flat list. An `unrecognised` key is a
+	 * benefit whose key is neither a platform gate nor in the reserved
+	 * entitlement namespace; it is listed under its own name, unprefixed, so a
+	 * holder of it can still be targeted and nothing is silently dropped.
+	 *
+	 * A row without a well-formed gate key is skipped. A visitor's held keys are
+	 * filtered through the same pattern, so a key that fails it could never
+	 * match a condition anyway, and offering it would be a choice that can never
+	 * pass. A failure is never cached.
+	 *
+	 * @return array<string, string> Gate key to label.
+	 */
+	public static function entitlement_conditions(): array {
+		$cached = get_transient( self::ENTITLEMENTS_TRANSIENT );
+
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		if ( ! function_exists( 'agend_apps_crm_get_entitlement_types' ) ) {
+			// An older Core. Empty and not cached, so the group fills the moment
+			// Core is updated rather than after the cache lifetime.
+			return array();
+		}
+
+		$response = agend_apps_crm_get_entitlement_types();
+
+		if ( is_wp_error( $response ) || ! is_array( $response ) || ( isset( $response['success'] ) && true !== $response['success'] ) ) {
+			// Empty, not cached. The group still appears so the editor can see
+			// the option exists and the list simply could not be fetched.
+			return array();
+		}
+
+		$rows = isset( $response['data'] ) && is_array( $response['data'] )
+			? $response['data']
+			: array();
+
+		$conditions = array();
+
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row )
+				|| ! isset( $row['gate_key'] )
+				|| ! is_string( $row['gate_key'] )
+				|| 1 !== preg_match( Agend_Content_Access_Policy::ENTITLEMENT_KEY_PATTERN, $row['gate_key'] ) ) {
+				continue;
+			}
+
+			$key  = $row['gate_key'];
+			$name = isset( $row['name'] ) && is_string( $row['name'] ) && '' !== trim( $row['name'] )
+				? trim( $row['name'] )
+				: $key;
+
+			$conditions[ $key ] = ( isset( $row['kind'] ) && 'platform-gate' === $row['kind'] )
+				? sprintf(
+					/* translators: %s: platform capability name, for example Directory access. */
+					__( 'Platform: %s', 'agend-content-access' ),
+					$name
+				)
+				: $name;
+		}
+
+		set_transient(
+			self::ENTITLEMENTS_TRANSIENT,
 			$conditions,
 			Agend_Content_Access_Condition_Runtime::cache_ttl()
 		);

@@ -13,11 +13,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Supplies the facts the condition engine evaluates against
  * (SPEC-CMS-20260727 US-6.1, reframed as ESAC feature parity).
  *
- * Three built-in sources, matching the ESAC families found in real data:
+ * Four built-in sources. The first three match the ESAC families found in real
+ * data; the fourth is new and has no legacy alias:
  *
- *   - `agend_wordpress`   login state and roles, read locally, no network.
- *   - `agend_membership`  member standing and tiers, from the Agend API.
- *   - `agend_segments`    segment membership, from the Agend API.
+ *   - `agend_wordpress`     login state and roles, read locally, no network.
+ *   - `agend_membership`    member standing and tiers, from the Agend API.
+ *   - `agend_segments`      segment membership, from the Agend API.
+ *   - `agend_entitlements`  the entitlements the visitor holds, from the Agend
+ *                           API. The value is a `gate_key`.
  *
  * Any other provider is answered by a site through the
  * `agend_content_access_check_condition` filter, and an unanswered one is
@@ -39,9 +42,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Content_Access_Condition_Providers {
 
 	/** Canonical provider keys. */
-	const WORDPRESS  = 'agend_wordpress';
-	const MEMBERSHIP = 'agend_membership';
-	const SEGMENTS   = 'agend_segments';
+	const WORDPRESS    = 'agend_wordpress';
+	const MEMBERSHIP   = 'agend_membership';
+	const SEGMENTS     = 'agend_segments';
+	const ENTITLEMENTS = 'agend_entitlements';
 
 	/**
 	 * Legacy ESAC prefixes accepted verbatim.
@@ -66,7 +70,7 @@ class Agend_Content_Access_Condition_Providers {
 	 * @return string|null Canonical key, or null when unrecognised.
 	 */
 	public static function canonical( string $provider ): ?string {
-		if ( in_array( $provider, array( self::WORDPRESS, self::MEMBERSHIP, self::SEGMENTS ), true ) ) {
+		if ( in_array( $provider, array( self::WORDPRESS, self::MEMBERSHIP, self::SEGMENTS, self::ENTITLEMENTS ), true ) ) {
 			return $provider;
 		}
 
@@ -77,8 +81,8 @@ class Agend_Content_Access_Condition_Providers {
 	 * Builds the checker the engine calls.
 	 *
 	 * This is a provider registry, not a fixed set of arguments. The built-in
-	 * providers (`agend_wordpress`, `agend_membership`, `agend_segments`) are
-	 * explicit branches below, each fed by ONE fact resolver looked up by its
+	 * providers (`agend_wordpress`, `agend_membership`, `agend_segments`,
+	 * `agend_entitlements`) are explicit branches below, each fed by ONE fact resolver looked up by its
 	 * canonical key. Adding a built-in provider is therefore one resolver entry
 	 * plus one branch, and never another positional argument on this method.
 	 *
@@ -98,9 +102,10 @@ class Agend_Content_Access_Condition_Providers {
 	 * because an absent source is not evidence that the visitor holds nothing.
 	 *
 	 * @param array<string, callable> $resolvers Fact resolvers keyed by canonical provider:
-	 *        `self::WORDPRESS`  => fn(): array{logged_in: bool, roles: string[]}
-	 *        `self::MEMBERSHIP` => fn(): ?array{is_member: bool, tier_ids: string[], tier_slugs: string[]}
-	 *        `self::SEGMENTS`   => fn(): ?string[]
+	 *        `self::WORDPRESS`    => fn(): array{logged_in: bool, roles: string[]}
+	 *        `self::MEMBERSHIP`   => fn(): ?array{is_member: bool, tier_ids: string[], tier_slugs: string[]}
+	 *        `self::SEGMENTS`     => fn(): ?string[]
+	 *        `self::ENTITLEMENTS` => fn(): ?string[] Gate keys the visitor holds.
 	 * @return callable fn(string $provider, string $value): ?bool
 	 */
 	public static function checker( array $resolvers ): callable {
@@ -146,6 +151,10 @@ class Agend_Content_Access_Condition_Providers {
 				return self::check_segments( $value, $resolved );
 			}
 
+			if ( self::ENTITLEMENTS === $canonical ) {
+				return self::check_entitlements( $value, $resolved );
+			}
+
 			return null;
 		};
 	}
@@ -187,6 +196,21 @@ class Agend_Content_Access_Condition_Providers {
 	 */
 	public static function check_segments( string $value, array $segments ): bool {
 		return in_array( $value, $segments, true );
+	}
+
+	/**
+	 * Entitlement conditions: the visitor holds the named entitlement.
+	 *
+	 * Matched against gate keys, the identity an entitlement has everywhere
+	 * else: access policies, the sync endpoints and `has_entitlement` all speak
+	 * it. A key survives a benefit being re-created, which a row id does not.
+	 *
+	 * @param string   $value        Condition value, a gate key.
+	 * @param string[] $entitlements Gate keys the visitor holds.
+	 * @return bool
+	 */
+	public static function check_entitlements( string $value, array $entitlements ): bool {
+		return in_array( $value, $entitlements, true );
 	}
 
 	/**

@@ -1439,6 +1439,21 @@ if ( ! function_exists( 'is_email' ) ) {
 if ( ! class_exists( 'WP_Roles' ) ) {
 	/** Minimal WP_Roles stand-in: only `get_names()`, backed by Agend_Test_WP::$roles. */
 	class WP_Roles {
+		/**
+		 * Role slug => role definition, as WordPress exposes it. Built from the
+		 * same registry as `get_names()` so the two cannot disagree. Only the
+		 * `name` of each definition is modelled; capabilities are not.
+		 *
+		 * @var array<string, array{name: string}>
+		 */
+		public array $roles = array();
+
+		public function __construct() {
+			foreach ( Agend_Test_WP::$roles as $slug => $name ) {
+				$this->roles[ $slug ] = array( 'name' => $name );
+			}
+		}
+
 		/** @return array<string, string> */
 		public function get_names(): array {
 			return Agend_Test_WP::$roles;

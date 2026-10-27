@@ -381,4 +381,150 @@ final class ConditionProvidersTest extends TestCase {
 		$this->assertTrue( Providers::check_segments( 'vic-fellows', array( 'vic-fellows', 'trainees' ) ) );
 		$this->assertFalse( Providers::check_segments( 'qld-fellows', array( 'vic-fellows' ) ) );
 	}
+
+	// -----------------------------------------------------------------
+	// The entitlements provider
+	// -----------------------------------------------------------------
+
+	/** A checker whose only live resolver is the entitlements one. */
+	private function entitlementsChecker( callable $entitlements ): callable {
+		return Providers::checker(
+			array(
+				Providers::WORDPRESS    => static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
+				Providers::MEMBERSHIP   => static fn(): array => array( 'is_member' => true, 'tier_ids' => array(), 'tier_slugs' => array( 'gold' ) ),
+				Providers::SEGMENTS     => static fn(): array => array( 'vic' ),
+				Providers::ENTITLEMENTS => $entitlements,
+			)
+		);
+	}
+
+	#[Test]
+	public function the_entitlements_provider_has_a_canonical_key_and_no_alias(): void {
+		$this->assertSame( 'agend_entitlements', Providers::ENTITLEMENTS );
+		$this->assertSame( Providers::ENTITLEMENTS, Providers::canonical( 'agend_entitlements' ) );
+		$this->assertNotContains( Providers::ENTITLEMENTS, Providers::LEGACY_ALIASES, 'new in this release: no stored data uses an older name' );
+	}
+
+	/**
+	 * `upbeat_member_entitlement` names a TIER slug in the stored data and has
+	 * always resolved to membership. The word "entitlement" in it must not let
+	 * it drift onto the new provider.
+	 */
+	#[Test]
+	public function the_legacy_aliases_are_unaffected(): void {
+		$expected = array(
+			'iugo_esac_wordpress'       => Providers::WORDPRESS,
+			'iugo_esac_segments'        => Providers::SEGMENTS,
+			'upbeat_is_member'          => Providers::MEMBERSHIP,
+			'upbeat_member_entitlement' => Providers::MEMBERSHIP,
+			'upbeat_member_grades'      => Providers::MEMBERSHIP,
+		);
+
+		$this->assertSame( $expected, Providers::LEGACY_ALIASES );
+
+		foreach ( $expected as $legacy => $canonical ) {
+			$this->assertSame( $canonical, Providers::canonical( $legacy ), $legacy );
+		}
+	}
+
+	#[Test]
+	public function a_held_entitlement_passes_and_one_not_held_does_not(): void {
+		$check = $this->entitlementsChecker( static fn(): array => array( 'directory.access', 'journal' ) );
+
+		$this->assertTrue( $check( 'agend_entitlements', 'directory.access' ) );
+		$this->assertTrue( $check( 'agend_entitlements', 'journal' ) );
+		$this->assertFalse( $check( 'agend_entitlements', 'events.early_bird' ) );
+	}
+
+	/** Gate keys are exact: the same word in another case, or a prefix, is a different key. */
+	#[Test]
+	public function an_entitlement_is_matched_exactly(): void {
+		$this->assertTrue( Providers::check_entitlements( 'directory.access', array( 'directory.access' ) ) );
+		$this->assertFalse( Providers::check_entitlements( 'Directory.Access', array( 'directory.access' ) ) );
+		$this->assertFalse( Providers::check_entitlements( 'directory', array( 'directory.access' ) ) );
+		$this->assertFalse( Providers::check_entitlements( 'directory.access', array() ) );
+	}
+
+	/** A signed-out visitor holds none, definitively: false, which is not unknown. */
+	#[Test]
+	public function a_visitor_holding_no_entitlements_is_false_not_unknown(): void {
+		$check = $this->entitlementsChecker( static fn(): array => array() );
+
+		$this->assertFalse( $check( 'agend_entitlements', 'directory.access' ) );
+	}
+
+	/**
+	 * The load-bearing distinction. A lookup that failed is UNKNOWN, so the
+	 * engine denies and reports it, rather than answering "does not hold it".
+	 */
+	#[Test]
+	public function an_unknown_entitlement_set_is_null_and_denies(): void {
+		$check = $this->entitlementsChecker( static fn() => null );
+
+		$this->assertNull( $check( 'agend_entitlements', 'directory.access' ) );
+
+		$result = Conditions::evaluate( array( 'agend_entitlements:directory.access' ), $check );
+
+		$this->assertFalse( $result['passes'] );
+		$this->assertSame( array( 'agend_entitlements:directory.access' ), $result['unknown'] );
+
+		// Inverted, it must STILL deny: unknown is not a settled "does not hold".
+		$inverted = Conditions::evaluate( array( 'agend_entitlements:directory.access' ), $check, Conditions::MATCH_ANY, true );
+
+		$this->assertFalse( $inverted['passes'] );
+	}
+
+	#[Test]
+	public function a_missing_entitlements_resolver_is_unknown_not_empty(): void {
+		$check = Providers::checker( array() );
+
+		$this->assertNull( $check( 'agend_entitlements', 'directory.access' ) );
+	}
+
+	#[Test]
+	public function a_dotted_gate_key_value_parses_and_evaluates(): void {
+		$check  = $this->entitlementsChecker( static fn(): array => array( 'events.early_bird' ) );
+		$result = Conditions::evaluate( array( 'agend_entitlements:events.early_bird' ), $check );
+
+		$this->assertTrue( $result['passes'] );
+		$this->assertSame( array(), $result['unknown'] );
+	}
+
+	#[Test]
+	public function entitlements_are_resolved_once_and_never_reach_the_filter(): void {
+		$calls     = 0;
+		$consulted = 0;
+
+		Agend_Test_WP::$filters['agend_content_access_check_condition'] =
+			static function ( $result ) use ( &$consulted ) {
+				++$consulted;
+				return true;
+			};
+
+		$check = $this->entitlementsChecker(
+			static function () use ( &$calls ): array {
+				++$calls;
+				return array( 'directory.access' );
+			}
+		);
+
+		$check( 'agend_entitlements', 'directory.access' );
+		$check( 'agend_entitlements', 'journal' );
+		$check( 'agend_entitlements', 'events.early_bird' );
+
+		$this->assertSame( 1, $calls );
+		$this->assertSame( 0, $consulted, 'a site filter must not be able to override what an entitlement condition means' );
+	}
+
+	/** Adding the provider changes nothing for the others. */
+	#[Test]
+	public function the_other_providers_still_answer_as_before(): void {
+		$check = $this->entitlementsChecker( static fn(): array => array( 'directory.access' ) );
+
+		$this->assertTrue( $check( 'agend_wordpress', 'logged_in' ) );
+		$this->assertTrue( $check( 'agend_membership', 'gold' ) );
+		$this->assertTrue( $check( 'upbeat_member_entitlement', 'gold' ), 'a legacy "entitlement" alias still means a tier slug' );
+		$this->assertTrue( $check( 'agend_segments', 'vic' ) );
+		$this->assertFalse( $check( 'upbeat_member_entitlement', 'directory.access' ), 'and still does not read entitlements' );
+	}
 }
