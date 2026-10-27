@@ -782,6 +782,52 @@ final class RulesTest extends TestCase {
 		$this->assertSame( 5, $rules->fallback_id() );
 	}
 
+	/**
+	 * Elementor hands the reader the control defaults too: an empty rule list for a
+	 * control nobody touched. That is not the new keys being present. Read as present,
+	 * it would take the replacement content for an empty set that is then dropped, and
+	 * an element that only has old display conditions would lose its "Show instead".
+	 */
+	#[Test]
+	public function the_default_new_keys_do_not_take_the_replacement_content_from_old_conditions(): void {
+		$rules = Rules::from_elementor_settings(
+			array(
+				'agend_access_rules'           => array(),
+				'agend_access_match'           => 'any',
+				'agend_access_invert'          => '',
+				'agend_conditions_enabled'     => 'yes',
+				'agend_conditions'             => array( 'agend_wordpress:logged_in' ),
+				'agend_conditions_fallback_id' => '5',
+			)
+		);
+
+		$this->assertSame( array( 'agend_wordpress:logged_in' ), $rules->rules() );
+		$this->assertSame( 5, $rules->fallback_id() );
+		$this->assertSame( array( 'agend_wordpress:logged_in' ), $rules->fallback_owner()->rules() );
+	}
+
+	/** An unreadable new key stays unreadable: only a set that says nothing is treated as absent. */
+	#[Test]
+	public function new_keys_that_say_something_still_win_the_replacement_content(): void {
+		$rules = Rules::from_elementor_settings(
+			array(
+				'agend_access_rules'           => array( self::MEMBER ),
+				'agend_conditions_enabled'     => 'yes',
+				'agend_conditions'             => array( 'agend_wordpress:logged_in' ),
+				'agend_conditions_fallback_id' => '5',
+			)
+		);
+
+		$this->assertSame( array( self::MEMBER ), $rules->fallback_owner()->rules() );
+
+		// Reversing nothing is a rule set that says something: nobody.
+		$reversed = Rules::from_elementor_settings( array( 'agend_access_rules' => array(), 'agend_access_invert' => 'yes', 'agend_conditions_fallback_id' => '5' ) );
+
+		$this->assertFalse( $reversed->is_empty() );
+		$this->assertSame( 5, $reversed->fallback_id() );
+		$this->assertTrue( Rules::from_elementor_settings( array( 'agend_access_rules' => 'junk' ) )->is_unreadable() );
+	}
+
 	// -----------------------------------------------------------------------
 	// The intersection
 	// -----------------------------------------------------------------------

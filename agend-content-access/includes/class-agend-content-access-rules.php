@@ -701,6 +701,13 @@ class Agend_Content_Access_Rules {
 	 * absence here. A switch is `'yes'` when on; anything else that is not empty is
 	 * not a switch this reads, and is unreadable.
 	 *
+	 * A set that says nothing is absence too. Elementor reads a control nobody touched
+	 * as its default, an empty rule list, and a registered control always has one, so
+	 * "present but says nothing" is what every element with the controls looks like. It
+	 * must not take the replacement content: an element that has only old display
+	 * conditions would lose its "Show instead" to an empty set that is then dropped.
+	 * An unreadable set, and a reverse of nothing (which is nobody), say something.
+	 *
 	 * @param array $settings    Element settings.
 	 * @param int   $fallback_id Replacement content, 0 for none.
 	 * @return self|null
@@ -718,7 +725,9 @@ class Agend_Content_Access_Rules {
 			return null;
 		}
 
-		return self::read_leaf( $rules, $match, 'yes' === $invert ? true : $invert, $fallback_id );
+		$set = self::read_leaf( $rules, $match, 'yes' === $invert ? true : $invert, $fallback_id );
+
+		return $set->is_empty() ? null : $set;
 	}
 
 	/**
