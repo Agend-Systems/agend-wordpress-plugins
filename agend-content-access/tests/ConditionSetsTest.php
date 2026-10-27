@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\ContentAccess;
 
+use Agend_Content_Access_Catalogue as Catalogue;
 use Agend_Content_Access_Condition_Providers as Providers;
 use Agend_Content_Access_Condition_Runtime as Runtime;
 use Agend_Content_Access_Condition_Sets as Sets;
@@ -46,6 +47,33 @@ final class ConditionSetsTest extends TestCase {
 		require_once __DIR__ . '/fixtures/core-entitlement-types-double.php';
 
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', $response );
+	}
+
+	/** Makes Core "have" the segments wrapper, answering with the given response. */
+	private function coreAnswersSegments( $response ): void {
+		require_once __DIR__ . '/fixtures/core-segments-double.php';
+
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_segments_response', $response );
+	}
+
+	private function segmentCalls(): int {
+		return count(
+			array_filter(
+				Agend_Test_WP::$requests,
+				static fn( array $request ): bool => '/crm/segments' === $request['url']
+			)
+		);
+	}
+
+	private function segmentRows(): array {
+		return array(
+			'success' => true,
+			'data'    => array(
+				array( 'id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'slug' => 'overdue', 'name' => 'Overdue renewals' ),
+				array( 'id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', 'slug' => 'volunteers', 'name' => 'Volunteers' ),
+				array( 'id' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', 'name' => 'No slug' ),
+			),
+		);
 	}
 
 	private function typeCalls(): int {
@@ -88,7 +116,7 @@ final class ConditionSetsTest extends TestCase {
 	public function a_missing_core_function_is_not_cached(): void {
 		Sets::entitlement_conditions();
 
-		$this->assertArrayNotHasKey( Sets::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients );
+		$this->assertArrayNotHasKey( Catalogue::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients );
 		$this->assertSame( array(), Agend_Test_WP::$transients );
 	}
 
@@ -184,8 +212,8 @@ final class ConditionSetsTest extends TestCase {
 		$first = Sets::entitlement_conditions();
 
 		$this->assertSame( 1, $this->typeCalls() );
-		$this->assertArrayHasKey( Sets::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients );
-		$this->assertSame( Runtime::cache_ttl(), Agend_Test_WP::$transient_ttls[ Sets::ENTITLEMENTS_TRANSIENT ] );
+		$this->assertArrayHasKey( Catalogue::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients );
+		$this->assertSame( Runtime::cache_ttl(), Agend_Test_WP::$transient_ttls[ Catalogue::ENTITLEMENTS_TRANSIENT ] );
 
 		// Were Core asked again it would now say something else.
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', array( 'success' => true, 'data' => array() ) );
@@ -205,7 +233,7 @@ final class ConditionSetsTest extends TestCase {
 		$sets = Sets::all();
 
 		$this->assertSame( array(), $sets[ Providers::ENTITLEMENTS ]['conditions'], 'present but empty' );
-		$this->assertArrayNotHasKey( Sets::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients, 'a failure must write nothing' );
+		$this->assertArrayNotHasKey( Catalogue::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients, 'a failure must write nothing' );
 
 		// The next call asks again, and a recovery fills the group at once.
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', $this->rows() );
@@ -237,6 +265,81 @@ final class ConditionSetsTest extends TestCase {
 		$this->coreAnswers( array( 'success' => true, 'data' => array() ) );
 
 		$this->assertSame( array(), Sets::entitlement_conditions() );
-		$this->assertArrayHasKey( Sets::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients );
+		$this->assertArrayHasKey( Catalogue::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients );
+	}
+
+	// -----------------------------------------------------------------
+	// Segments, and one cache per list
+	// -----------------------------------------------------------------
+
+	/** The vocabulary keeps its slug keys, which are what stored conditions name. */
+	#[Test]
+	public function the_segment_group_is_keyed_by_slug_and_a_segment_with_no_slug_is_left_out(): void {
+		$this->coreAnswersSegments( $this->segmentRows() );
+
+		$this->assertSame(
+			array(
+				'overdue'    => 'Overdue renewals',
+				'volunteers' => 'Volunteers',
+			),
+			Sets::all()[ Providers::SEGMENTS ]['conditions']
+		);
+	}
+
+	#[Test]
+	public function the_segment_group_is_present_and_empty_when_the_list_cannot_be_loaded(): void {
+		$this->coreAnswersSegments( new WP_Error( 'agend_api_error', 'down' ) );
+
+		$sets = Sets::all();
+
+		$this->assertArrayHasKey( Providers::SEGMENTS, $sets );
+		$this->assertSame( array(), $sets[ Providers::SEGMENTS ]['conditions'] );
+		$this->assertArrayNotHasKey( Catalogue::SEGMENTS_TRANSIENT, Agend_Test_WP::$transients, 'a failure must write nothing' );
+	}
+
+	/**
+	 * There is one cache per list. The vocabulary and the editor pickers read the
+	 * same catalogue section, so the first reader pays for the gateway call and
+	 * every other reader, in either order, is served from it.
+	 */
+	#[Test]
+	public function one_gateway_call_serves_the_segment_vocabulary_and_the_catalogue(): void {
+		$this->coreAnswersSegments( $this->segmentRows() );
+
+		Sets::segment_conditions();
+		$section = Catalogue::segments();
+
+		$this->assertSame( 1, $this->segmentCalls() );
+		$this->assertCount( 3, $section['items'], 'the catalogue offers the segment the vocabulary left out' );
+		$this->assertSame(
+			array( Catalogue::SEGMENTS_TRANSIENT ),
+			array_keys( Agend_Test_WP::$transients ),
+			'one transient, not one per consumer'
+		);
+	}
+
+	#[Test]
+	public function one_gateway_call_serves_the_entitlement_vocabulary_and_the_catalogue(): void {
+		$this->coreAnswers( $this->rows() );
+
+		Catalogue::entitlements();
+		$conditions = Sets::entitlement_conditions();
+
+		$this->assertSame( 1, $this->typeCalls() );
+		$this->assertCount( 3, $conditions );
+		$this->assertSame(
+			array( Catalogue::ENTITLEMENTS_TRANSIENT ),
+			array_keys( Agend_Test_WP::$transients )
+		);
+	}
+
+	/** The retired vocabulary caches held another shape and must never be read. */
+	#[Test]
+	public function an_old_vocabulary_cache_is_not_read(): void {
+		Agend_Test_WP::$transients['agend_content_access_segment_vocabulary']     = array( 'stale' => 'Old label' );
+		Agend_Test_WP::$transients['agend_content_access_entitlement_vocabulary'] = array( 'old.key' => 'Old label' );
+
+		$this->assertSame( array(), Sets::segment_conditions() );
+		$this->assertSame( array(), Sets::entitlement_conditions() );
 	}
 }
