@@ -132,21 +132,27 @@ class Agend_Content_Access_Meta_Box {
 	 * from the reduced catalogue or the stored policy. The tenant API key, the
 	 * gateway base URL and the raw tier payload are all absent by construction.
 	 *
-	 * @param array|null $policy    Stored policy, or null.
-	 * @param array      $catalogue Result of Agend_Content_Access_Catalogue::get().
+	 * @param array|null $policy           Stored policy, or null.
+	 * @param array      $catalogue        Result of Agend_Content_Access_Catalogue::get().
+	 * @param array      $unmodelled_types Elementor element types that cannot take the control.
+	 * @param bool       $unreadable       Whether a policy IS stored but could not be read.
+	 *                                     `$policy` is null in that case too, so only this
+	 *                                     says the page is hidden rather than unset.
 	 * @return array{
 	 *     mode: string,
 	 *     selected: array<int, array{id: string, name: string, available: bool, active: bool}>,
 	 *     plans: array<int, array{id: string, name: string, slug: string, type: string, active: bool}>,
 	 *     can_select: bool,
 	 *     stale: bool,
-	 *     unavailable_count: int
+	 *     unavailable_count: int,
+	 *     unreadable: bool
 	 * }
 	 */
 	public static function payload(
 		?array $policy,
 		array $catalogue,
-		array $unmodelled_types = array()
+		array $unmodelled_types = array(),
+		bool $unreadable = false
 	): array {
 		$tier_ids = Agend_Content_Access_Policy::tier_ids( $policy );
 		$selected = Agend_Content_Access_Catalogue::annotate_selection( $tier_ids, $catalogue['plans'] );
@@ -172,6 +178,10 @@ class Agend_Content_Access_Meta_Box {
 			// no per-section option, and that the page policy still covers the
 			// whole page (US-4.4 criterion 12).
 			'unmodelled_types'  => array_values( $unmodelled_types ),
+			// A stored policy that could not be read is enforced as nobody, so
+			// the editor has to say so: an empty panel reads as "nothing set",
+			// which is the opposite of what visitors are experiencing.
+			'unreadable'        => $unreadable,
 		);
 	}
 
@@ -181,12 +191,17 @@ class Agend_Content_Access_Meta_Box {
 	 * @param WP_Post $post Post being edited.
 	 */
 	public function render( $post ): void {
+		// The editor's reading, not the enforced one: it shows "not set" for an
+		// unreadable policy so an audience can be chosen, and the stored state
+		// is passed alongside so the panel can also say the page is hidden.
+		// Rendering never writes, so the stored value is left as it was found.
 		$data = self::payload(
 			Agend_Content_Access_Policy::get_for_post( (int) $post->ID ),
 			Agend_Content_Access_Catalogue::get(),
 			Agend_Content_Access_Elementor_Parser::unmodelled_element_types(
 				(string) get_post_meta( (int) $post->ID, '_elementor_data', true )
-			)
+			),
+			Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( (int) $post->ID )
 		);
 
 		wp_nonce_field( self::NONCE_ACTION, self::NONCE_FIELD );
@@ -241,6 +256,15 @@ class Agend_Content_Access_Meta_Box {
 		// An empty mode is the editor choosing not to set a policy, which is a
 		// legitimate state (Decision 2.9) and distinct from an invalid one.
 		if ( '' === $mode ) {
+			// Except when a policy IS stored and could not be read. The panel
+			// shows no audience selected for it, so an ordinary save of the page
+			// submits an empty mode, and clearing the value then would turn a
+			// page that is hidden from everyone into a public one without
+			// anybody choosing that. It stays until an audience is picked.
+			if ( Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( (int) $post_id ) ) {
+				return;
+			}
+
 			Agend_Content_Access_Policy::save_for_post( (int) $post_id, null );
 			return;
 		}

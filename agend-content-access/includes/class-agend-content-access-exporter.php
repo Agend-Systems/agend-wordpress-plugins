@@ -31,10 +31,26 @@ class Agend_Content_Access_Exporter {
 	 *
 	 * @param WP_Post $post Post to export.
 	 * @return array Connector record.
+	 * @throws RuntimeException When the post's stored access policy cannot be read.
 	 */
 	public static function record( $post ): array {
 		$post_id = (int) $post->ID;
-		$policy  = Agend_Content_Access_Policy::get_for_post( $post_id );
+
+		// Refuse to build a record at all for an unreadable policy. Exported as
+		// null it would mean "none set", which Agend also reads as public, so the
+		// page that WordPress hides from everyone would be projected openly. The
+		// connector route turns this into a 422, which leaves Agend holding the
+		// revision it already has.
+		if ( Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( $post_id ) ) {
+			throw new RuntimeException(
+				sprintf(
+					'Post %d has a stored access policy that is unreadable, so it was not exported. Set the audience again in the editor.',
+					$post_id
+				)
+			);
+		}
+
+		$policy = Agend_Content_Access_Policy::get_for_post( $post_id );
 
 		return array(
 			// Stable identity for upsert. `source_id` is the WordPress post id
@@ -66,7 +82,8 @@ class Agend_Content_Access_Exporter {
 
 			// The document policy exactly as stored. Null means none was set,
 			// which Agend interprets under its own capability flag rather than
-			// having WordPress guess (Decision 2.9).
+			// having WordPress guess (Decision 2.9). An unreadable policy never
+			// reaches here: it threw above.
 			'access_policy' => $policy,
 
 			'fragments'   => self::fragments_of( $post, $policy ),
@@ -89,7 +106,17 @@ class Agend_Content_Access_Exporter {
 	 * @return string
 	 */
 	public static function revision_of( $post ): string {
-		$policy = Agend_Content_Access_Policy::get_for_post( (int) $post->ID );
+		$post_id = (int) $post->ID;
+
+		// An unreadable policy gets a marker of its own rather than hashing as
+		// null, which is what "none set" hashes as. Otherwise a post whose
+		// policy became unreadable would keep its revision, Agend would never
+		// re-fetch it, and the 422 that reports the problem would never be seen.
+		// This does not throw: the listing walks every document, and one bad
+		// policy must not stop the rest of the site syncing.
+		$policy = Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( $post_id )
+			? 'unreadable'
+			: wp_json_encode( Agend_Content_Access_Policy::get_for_post( $post_id ) );
 
 		return hash(
 			'sha256',
@@ -98,7 +125,7 @@ class Agend_Content_Access_Exporter {
 				array(
 					(string) $post->post_modified_gmt,
 					(string) $post->post_status,
-					(string) wp_json_encode( $policy ),
+					(string) $policy,
 					(string) get_post_meta( (int) $post->ID, '_elementor_data', true ),
 					(string) $post->post_content,
 				)

@@ -233,10 +233,11 @@ class Agend_Content_Access_Condition_Sets {
 		);
 
 		foreach ( $posts as $post ) {
-			$policy = Agend_Content_Access_Policy::get_for_post( (int) $post->ID );
+			$policy = Agend_Content_Access_Policy::enforced_for_post( (int) $post->ID );
 
-			// Null means no policy, which reads as public. Anything else is a
-			// restriction and is not offered.
+			// Null means no policy is stored, which reads as public. Anything
+			// else is a restriction and is not offered, including a stored
+			// policy this version cannot read: that one is enforced as nobody.
 			if ( null !== $policy
 				&& Agend_Content_Access_Policy::MODE_PUBLIC !== ( $policy['mode'] ?? '' ) ) {
 				continue;

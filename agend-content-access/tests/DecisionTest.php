@@ -12,6 +12,7 @@ use Agend_Content_Access_Policy;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use WP_Error;
 
@@ -158,6 +159,193 @@ final class DecisionTest extends TestCase {
 				array( 'mode' => 'selected_tiers', 'tier_ids' => array() ),
 				$this->member( self::TIER_A )
 			)
+		);
+	}
+
+	/**
+	 * What a stored policy this version cannot read is enforced as. It is the
+	 * same empty plan list the gateway uses for "nobody", so the three visitor
+	 * states fall out of the existing plan logic with no special case.
+	 */
+	#[Test]
+	public function the_unsatisfiable_policy_denies_every_kind_of_visitor(): void {
+		$policy = Agend_Content_Access_Policy::UNSATISFIABLE;
+
+		$this->assertSame(
+			Agend_Content_Access_Decision::STATE_AUTH,
+			Agend_Content_Access_Decision::evaluate( $policy, $this->anonymous() )
+		);
+		$this->assertSame(
+			Agend_Content_Access_Decision::STATE_MEMBERSHIP,
+			Agend_Content_Access_Decision::evaluate( $policy, $this->identifiedNonMember() )
+		);
+		$this->assertSame(
+			Agend_Content_Access_Decision::STATE_PLAN,
+			Agend_Content_Access_Decision::evaluate( $policy, $this->member( self::TIER_A, self::TIER_B ) )
+		);
+	}
+
+	// -----------------------------------------------------------------------
+	// The decision for a stored post
+	// -----------------------------------------------------------------------
+
+	private const POST_ID = 31;
+
+	private function storePolicy( $value ): void {
+		$GLOBALS['agend_test_post_meta'][ self::POST_ID ] = array(
+			Agend_Content_Access_Policy::META_KEY => $value,
+		);
+	}
+
+	/** The visitor is not somebody who can edit the post. */
+	private function asVisitor(): void {
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = false;
+	}
+
+	private function asMember( string ...$tiers ): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::set_filter(
+			'agend_apps_crm_get_my_entitlements_response',
+			array( 'data' => array( 'tier_ids' => $tiers ) )
+		);
+	}
+
+	/**
+	 * The defect. 0.1.0 read all of these as "no policy" and served the page to
+	 * an anonymous visitor, including a `segments` or `selected_entitlements`
+	 * policy written by a newer release and then rolled back from.
+	 */
+	#[Test]
+	#[DataProvider( 'unreadablePolicies' )]
+	public function an_anonymous_visitor_is_denied_a_post_whose_stored_policy_is_unreadable( $value ): void {
+		$this->storePolicy( $value );
+		$this->asVisitor();
+
+		$decision = Agend_Content_Access_Decision::for_post( self::POST_ID );
+
+		$this->assertNotSame( Agend_Content_Access_Decision::STATE_GRANTED, $decision['state'] );
+		$this->assertSame( Agend_Content_Access_Decision::STATE_AUTH, $decision['state'] );
+		$this->assertSame( Agend_Content_Access_Policy::UNSATISFIABLE, $decision['policy'] );
+	}
+
+	#[Test]
+	#[DataProvider( 'unreadablePolicies' )]
+	public function a_member_holding_plans_is_denied_a_post_whose_stored_policy_is_unreadable( $value ): void {
+		$this->storePolicy( $value );
+		$this->asVisitor();
+		$this->asMember( self::TIER_A, self::TIER_B );
+
+		$decision = Agend_Content_Access_Decision::for_post( self::POST_ID );
+
+		$this->assertNotSame( Agend_Content_Access_Decision::STATE_GRANTED, $decision['state'] );
+		$this->assertSame( Agend_Content_Access_Decision::STATE_PLAN, $decision['state'] );
+	}
+
+	#[Test]
+	public function an_identified_non_member_is_denied_a_post_whose_stored_policy_is_unreadable(): void {
+		$this->storePolicy( array( 'mode' => 'authenticated' ) );
+		$this->asVisitor();
+		$this->asMember();
+
+		$this->assertSame(
+			Agend_Content_Access_Decision::STATE_MEMBERSHIP,
+			Agend_Content_Access_Decision::for_post( self::POST_ID )['state']
+		);
+	}
+
+	/** The one-line shape of the rollback hazard, kept separate so it reads as the headline case. */
+	#[Test]
+	public function a_segments_policy_from_a_newer_release_does_not_make_the_post_public(): void {
+		$this->storePolicy( array( 'mode' => 'segments', 'segment_ids' => array( self::TIER_A ) ) );
+		$this->asVisitor();
+
+		$this->assertNotSame(
+			Agend_Content_Access_Decision::STATE_GRANTED,
+			Agend_Content_Access_Decision::for_post( self::POST_ID )['state']
+		);
+	}
+
+	/**
+	 * The enforced reading must not over-reach: a post with nothing stored, and
+	 * one that is explicitly public, stay readable by everybody.
+	 */
+	#[Test]
+	public function a_post_with_no_stored_policy_stays_public(): void {
+		$this->asVisitor();
+
+		$decision = Agend_Content_Access_Decision::for_post( self::POST_ID );
+
+		$this->assertSame( Agend_Content_Access_Decision::STATE_GRANTED, $decision['state'] );
+		$this->assertNull( $decision['policy'] );
+	}
+
+	#[Test]
+	public function a_post_with_an_empty_stored_value_stays_public(): void {
+		$this->storePolicy( '' );
+		$this->asVisitor();
+
+		$this->assertSame(
+			Agend_Content_Access_Decision::STATE_GRANTED,
+			Agend_Content_Access_Decision::for_post( self::POST_ID )['state']
+		);
+	}
+
+	#[Test]
+	public function an_explicitly_public_post_stays_public_without_a_gateway_call(): void {
+		$this->storePolicy( array( 'mode' => 'public' ) );
+		$this->asVisitor();
+
+		$decision = Agend_Content_Access_Decision::for_post( self::POST_ID );
+
+		$this->assertSame( Agend_Content_Access_Decision::STATE_GRANTED, $decision['state'] );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function a_readable_restricted_policy_still_follows_its_own_rules(): void {
+		$this->storePolicy( array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_A ) ) );
+		$this->asVisitor();
+		$this->asMember( self::TIER_A );
+
+		$this->assertSame(
+			Agend_Content_Access_Decision::STATE_GRANTED,
+			Agend_Content_Access_Decision::for_post( self::POST_ID )['state']
+		);
+	}
+
+	/**
+	 * An author must still be able to open the page to repair it: authoring is
+	 * the one capability that is not a membership claim. Everybody else stays out.
+	 */
+	#[Test]
+	public function an_editor_can_still_preview_a_post_whose_stored_policy_is_unreadable(): void {
+		$this->storePolicy( array( 'mode' => 'authenticated' ) );
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+
+		$decision = Agend_Content_Access_Decision::for_post( self::POST_ID );
+
+		$this->assertSame( Agend_Content_Access_Decision::STATE_GRANTED, $decision['state'] );
+		$this->assertTrue( $decision['preview'] );
+	}
+
+	/**
+	 * @return array<string, array{0: mixed}>
+	 */
+	public static function unreadablePolicies(): array {
+		return array(
+			'authenticated, a gateway mode this plugin lacks' => array( array( 'mode' => 'authenticated' ) ),
+			'segments'                                        => array(
+				array( 'mode' => 'segments', 'segment_ids' => array( self::TIER_A ) ),
+			),
+			'selected entitlements'                           => array(
+				array( 'mode' => 'selected_entitlements', 'entitlement_ids' => array( self::TIER_B ) ),
+			),
+			'a plan id that is not a uuid'                    => array(
+				array( 'mode' => 'selected_tiers', 'tier_ids' => array( 'not-a-uuid' ) ),
+			),
+			'an extra top level key'                          => array(
+				array( 'mode' => 'active_member', 'note' => 'smuggled' ),
+			),
 		);
 	}
 

@@ -129,7 +129,10 @@ Fail closed, without exception. An empty or malformed policy restricts. An
 unresolvable tier never grants. An entitlement lookup failure redacts and logs.
 A missing dependency registers nothing rather than half-registering, because a
 half-registered access-control plugin is indistinguishable from one that decided
-the visitor may proceed.
+the visitor may proceed. A stored policy the plugin cannot read, such as a mode
+written by a newer release, restricts the page to nobody rather than reading as
+unset, and 0.1.1 is the minimum safe version to roll back to from 0.2.0, because
+0.1.0 served such a page as public.
 
 ## Running the tests
 

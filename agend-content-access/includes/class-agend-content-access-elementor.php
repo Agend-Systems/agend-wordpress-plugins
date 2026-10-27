@@ -384,7 +384,9 @@ class Agend_Content_Access_Elementor {
 			return $should_render;
 		}
 
-		$document  = Agend_Content_Access_Policy::get_for_post( (int) get_queried_object_id() );
+		// The enforced reading: an unreadable document policy must narrow the
+		// section to nobody, not vanish and leave the fragment alone.
+		$document  = Agend_Content_Access_Policy::enforced_for_post( (int) get_queried_object_id() );
 		$effective = Agend_Content_Access_Policy::effective_policy( $document, $fragment );
 
 		$state = Agend_Content_Access_Decision::evaluate(
@@ -590,9 +592,10 @@ class Agend_Content_Access_Elementor {
 		}
 
 		// The access check the reference omits. `evaluate` returns the state
-		// for THIS visitor against the fallback's own policy.
+		// for THIS visitor against the fallback's own policy. Enforced reading:
+		// a fallback whose stored policy is unreadable is not shown.
 		$state = Agend_Content_Access_Decision::evaluate(
-			Agend_Content_Access_Policy::get_for_post( $fallback_id ),
+			Agend_Content_Access_Policy::enforced_for_post( $fallback_id ),
 			Agend_Content_Access_Decision::viewer()
 		);
 

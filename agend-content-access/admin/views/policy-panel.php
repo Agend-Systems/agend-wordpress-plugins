@@ -24,6 +24,17 @@ $agend_modes = array(
 ?>
 <div class="agend-access-panel">
 
+	<?php if ( ! empty( $data['unreadable'] ) ) : ?>
+		<p class="agend-access-warning agend-access-unreadable notice notice-error notice-alt">
+			<?php
+			esc_html_e(
+				'The audience saved for this page could not be read, so the page is hidden from all visitors until it is set again. Choose who can read it below, then update the page.',
+				'agend-content-access'
+			);
+			?>
+		</p>
+	<?php endif; ?>
+
 	<?php if ( ! empty( $data['unmodelled_types'] ) ) : ?>
 		<p class="agend-access-warning notice notice-info notice-alt">
 			<?php
