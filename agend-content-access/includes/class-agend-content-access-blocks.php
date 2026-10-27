@@ -1309,10 +1309,7 @@ class Agend_Content_Access_Blocks {
 		$limit = max( 1, $limit );
 		$ids   = null === $fetch ? self::post_ids_after( $after_id, $limit ) : (array) $fetch( $after_id, $limit );
 
-		// One query for the batch's meta rather than one per post.
-		if ( array() !== $ids && function_exists( 'update_meta_cache' ) ) {
-			update_meta_cache( 'post', $ids );
-		}
+		self::prime_batch_caches( $ids );
 
 		$flagged = 0;
 		$last_id = $after_id;
@@ -1335,6 +1332,40 @@ class Agend_Content_Access_Blocks {
 			// pass to find out.
 			'done'      => count( $ids ) < $limit,
 		);
+	}
+
+	/**
+	 * Loads a batch's posts and their meta in one query each.
+	 *
+	 * The ids come from a plain `SELECT ID`, so nothing about them is cached, and
+	 * `sync_flag()` then reads each one with `get_post()` (twice more through the
+	 * revision and autosave checks) and reads its meta: a hundred ids was up to a
+	 * hundred single-row post queries and as many meta ones on every wp-admin page
+	 * load for an administrator, until the whole table had been covered. Priming
+	 * the post cache, with its meta, makes it two queries for the batch. Terms are
+	 * not primed: nothing here reads them.
+	 *
+	 * Each is looked up, not required, so a site on an older WordPress without one
+	 * of them still runs, one query a post.
+	 *
+	 * @param int[] $ids Post ids in the batch.
+	 */
+	private static function prime_batch_caches( array $ids ): void {
+		$ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+
+		if ( array() === $ids ) {
+			return;
+		}
+
+		if ( function_exists( '_prime_post_caches' ) ) {
+			_prime_post_caches( $ids, false, true );
+		}
+
+		// Skips the ids already cached, so it costs nothing after the call above
+		// and is the only one that runs where that function is missing.
+		if ( function_exists( 'update_meta_cache' ) ) {
+			update_meta_cache( 'post', $ids );
+		}
 	}
 
 	/**

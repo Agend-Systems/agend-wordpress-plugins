@@ -325,6 +325,89 @@ final class FragmentFlagBackfillTest extends BlockEnforcementTestCase {
 		$this->assertSame( '1', $this->flag( 10 ) );
 	}
 
+	// Cache priming: the batch's posts and meta in a query each, not a hundred.
+
+	/** @return array<int, array<string, mixed>> */
+	private function primed(): array {
+		return $GLOBALS['agend_test_primed_caches'];
+	}
+
+	/**
+	 * `sync_flag()` reads each id with `get_post()`, and the revision and autosave
+	 * checks read it again. The ids come from a plain `SELECT ID`, so none of it is
+	 * cached unless the batch primes it.
+	 */
+	#[Test]
+	public function a_batch_primes_its_posts_and_their_meta_in_one_call(): void {
+		$this->elementorPostWithRules( 10 );
+		$this->elementorPostWithRules( 30 );
+		$this->registerPost( 20, '' );
+
+		Agend_Content_Access_Blocks::backfill_batch( 0, 100, $this->ids( 10, 20, 30 ) );
+
+		$this->assertSame(
+			array(
+				array( 'function' => '_prime_post_caches', 'ids' => array( 10, 20, 30 ), 'terms' => false, 'meta' => true ),
+				array( 'function' => 'update_meta_cache', 'type' => 'post', 'ids' => array( 10, 20, 30 ) ),
+			),
+			$this->primed(),
+			'one call each for the whole batch, and no terms, which nothing here reads'
+		);
+	}
+
+	#[Test]
+	public function an_empty_batch_primes_nothing(): void {
+		Agend_Content_Access_Blocks::backfill_batch( 0, 100, $this->ids() );
+
+		$this->assertSame( array(), $this->primed() );
+	}
+
+	/** Ids are cast, so a fetcher that hands back strings still primes the posts it meant. */
+	#[Test]
+	public function ids_are_primed_as_integers(): void {
+		$this->registerPost( 10, '' );
+
+		Agend_Content_Access_Blocks::backfill_batch( 0, 100, static fn(): array => array( '10', 0, 'x' ) );
+
+		$this->assertSame( array( 10 ), $this->primed()[0]['ids'] );
+	}
+
+	/** The pass an administrator pays for on a page load primes its hundred in one go. */
+	#[Test]
+	public function the_one_off_pass_primes_a_page_loads_hundred_posts_at_once(): void {
+		$this->asAdministrator();
+		$this->table( ...range( 1, 250 ) );
+
+		Agend_Content_Access_Blocks::maybe_backfill();
+
+		$this->assertCount( 2, $this->primed(), 'not one call a post' );
+		$this->assertSame( range( 1, 100 ), $this->primed()[0]['ids'] );
+	}
+
+	#[Test]
+	public function the_guards_are_unchanged_and_nothing_is_primed_behind_them(): void {
+		$this->table( ...range( 1, 10 ) );
+
+		// Not an administrator.
+		$GLOBALS['agend_test_current_user_can']['manage_options'] = false;
+		Agend_Content_Access_Blocks::maybe_backfill();
+
+		// A heartbeat.
+		$this->asAdministrator();
+		$GLOBALS['agend_test_doing_ajax'] = true;
+		Agend_Content_Access_Blocks::maybe_backfill();
+		$GLOBALS['agend_test_doing_ajax'] = false;
+
+		$this->assertSame( array(), $this->primed() );
+
+		// Once done, it costs nothing.
+		Agend_Content_Access_Blocks::maybe_backfill();
+		$primed = $this->primed();
+		Agend_Content_Access_Blocks::maybe_backfill();
+
+		$this->assertSame( $primed, $this->primed() );
+	}
+
 	#[Test]
 	public function a_full_batch_is_not_the_end_and_the_next_one_starts_after_it(): void {
 		$this->elementorPostWithRules( 10 );

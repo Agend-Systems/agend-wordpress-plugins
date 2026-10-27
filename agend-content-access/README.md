@@ -471,7 +471,8 @@ saved, when Elementor saves a document, and when an Elementor document is writte
 without a save, by an importer or WP-CLI. The key is protected and never shown in
 REST. Posts saved before the flag existed have none, so it converges on its own:
 an administrator loading wp-admin flags a hundred posts at a time until the whole
-table has been covered. To finish at once, or to look at every post again, for
+table has been covered, loading each batch's posts and meta in a query apiece
+rather than a post at a time. To finish at once, or to look at every post again, for
 instance after editing a synced pattern that many pages use:
 
 ```sh

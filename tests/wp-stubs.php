@@ -2186,6 +2186,45 @@ if ( ! function_exists( 'get_post' ) ) {
 	}
 }
 
+if ( ! function_exists( '_prime_post_caches' ) ) {
+	/**
+	 * Cache priming stub: the registry is already in memory, so there is nothing
+	 * to load. Each call is recorded in `$GLOBALS['agend_test_primed_caches']`, so a
+	 * test can assert that a batch was primed in one call and not one id at a time.
+	 *
+	 * @param int[] $ids               Post ids.
+	 * @param bool  $update_term_cache Whether the terms are primed too.
+	 * @param bool  $update_meta_cache Whether the meta is primed too.
+	 */
+	function _prime_post_caches( $ids, $update_term_cache = true, $update_meta_cache = true ): void {
+		$GLOBALS['agend_test_primed_caches'][] = array(
+			'function' => '_prime_post_caches',
+			'ids'      => array_values( (array) $ids ),
+			'terms'    => (bool) $update_term_cache,
+			'meta'     => (bool) $update_meta_cache,
+		);
+	}
+}
+
+if ( ! function_exists( 'update_meta_cache' ) ) {
+	/**
+	 * Meta cache priming stub, recorded as `_prime_post_caches()` is.
+	 *
+	 * @param string $meta_type  Meta type.
+	 * @param int[]  $object_ids Object ids.
+	 * @return array|false
+	 */
+	function update_meta_cache( $meta_type, $object_ids ) {
+		$GLOBALS['agend_test_primed_caches'][] = array(
+			'function' => 'update_meta_cache',
+			'type'     => (string) $meta_type,
+			'ids'      => array_values( (array) $object_ids ),
+		);
+
+		return array();
+	}
+}
+
 if ( ! function_exists( 'get_permalink' ) ) {
 	/**
 	 * Permalink stub: one distinguishable URL per known post id, built from
