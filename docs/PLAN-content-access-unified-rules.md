@@ -1,6 +1,6 @@
 # Plan: one access rule list per block, section and page
 
-Status: agreed direction 2026-10-27, build not started
+Status: agreed direction 2026-10-27, open questions answered 2026-10-28, build starting
 Amends: `docs/PLAN-content-access-blocks-segments-entitlements.md`
 Builds on: the 0.2.0 stack, PRs #132 to #141 (stack #142)
 
@@ -33,19 +33,38 @@ it, fail closed.**
 
 ### Pages (block editor and Elementor pages alike)
 
-- **Who can see this page**: the same picker and Match.
+- **Who can see this page**: the same picker, Match, and **Reverse** (show only
+  to people who do not match; the action below then applies to people who DO
+  match, e.g. a join page that redirects existing members to their dashboard).
 - **If someone is not allowed**, the author picks one:
-  1. Show the standard message (page summary plus sign in or join). Proposed
-     default, because it is what restricted pages do today.
-  2. Show a placeholder template: same URL, a chosen public page, synced
-     pattern or Elementor template rendered in place of the page body.
-  3. Redirect to a specific page, server side before render.
-  4. Send them back to the page they came from: same-site referrer only; no
+  1. **Show a placeholder (default).** Same URL; a placeholder is rendered in
+     place of the page body. By default the plugin's built-in "Members-only
+     content" placeholder; the author may instead choose a public page, synced
+     pattern or Elementor template.
+  2. Redirect to a specific page, server side before render.
+  3. Send them back to the page they came from: same-site referrer only; no
      referrer, an off-site referrer, or a referrer equal to the current URL goes
      to a fallback page the author chooses.
 - In lists (archives, search, feeds, query loops) a restricted page keeps
   showing only its summary; redirects and placeholders apply to the page's own
   URL only.
+
+### The built-in default placeholder
+
+- Rendered on the server by the plugin, so it works the same in block themes,
+  classic themes and Elementor pages.
+- Shows the page's summary (manual excerpt) when there is one, so pages
+  restricted under 0.1.x look much as they did with the old teaser gate.
+- Copy and buttons adapt to the reason the visitor failed: signed out gets
+  "Sign in" (and "Join" when a membership rule is involved); signed in but not a
+  member gets "Join"; anything else gets a generic restricted message that never
+  names a segment. Sign-in and join links come from Agend Apps Core's existing
+  settings (portal and membership URLs).
+- Also registered as a block pattern ("Agend: Members-only content") so a site
+  can insert it into a synced pattern, restyle it, and choose that as its
+  placeholder instead. The pattern's buttons are a small dynamic block or
+  shortcode so the links and copy stay correct.
+- Filterable markup and copy for themes that need it.
 
 ### Picker at scale
 
@@ -55,11 +74,11 @@ grouped by kind (membership, segments, entitlements with platform gates apart,
 WordPress), render at most 50 matches with a "refine your search" hint, capped
 height with scroll.
 
-## Open questions for Sam
+## Decisions (2026-10-28)
 
-1. Is "show the standard message" the right default for pages, or must every
-   restricted page choose one of options 2 to 4?
-2. No "Reverse" on pages: confirm.
+1. Placeholder is the default page action, using the built-in default
+   placeholder above. The old "standard message" is folded into it.
+2. Pages have Reverse, like blocks and sections.
 
 ## How it works underneath (unchanged engine)
 
@@ -72,7 +91,7 @@ Change:
 
 - **One stored shape.**
   - Block and Elementor attribute `agendAccess` becomes `{rules: string[], match: "any"|"all", invert: bool, fallbackId: int}` (0.2.0 is unreleased, so the block shape can change freely).
-  - The page gets new meta `_agend_access_rules` `{rules, match, denied: {action: "message"|"placeholder"|"redirect"|"back", target_id, fallback_id}}`.
+  - The page gets new meta `_agend_access_rules` `{rules, match, invert, denied: {action: "placeholder"|"redirect"|"back", target_id, fallback_id}}` (placeholder with `target_id` 0 means the built-in default).
   - Rule strings stay `"<provider>:<value>"`.
   - For new rules, plans and segments are named by id (`agend_membership:<tier uuid>`, `agend_segments:<segment uuid>`), and entitlements by gate key (`agend_entitlements:<gate_key>`). Slug values still evaluate, for ESAC compatibility.
 - **One evaluator.** Rules go to allow or deny via the existing condition engine. It fails closed: an unknown provider, a lookup failure or a malformed rule all deny, and an inverted rule over an unknown denies too.
@@ -93,11 +112,12 @@ Change:
    - One `allows( rules, viewer )` path, used by page gating, loop gating, blocks, Elementor and fallbacks.
    - Policy derivation for export, and gate-state derivation.
    - Port every existing test of policy enforcement to the rules form, and keep the 0.1.x compatibility fixtures.
-2. **Page denial actions.**
-   - Placeholder: render chosen public content in place of the body.
+2. **Page denial actions and the default placeholder.**
+   - Placeholder (the default): the built-in placeholder, or chosen public content, in place of the body.
    - Redirect: `wp_safe_redirect` at `template_redirect`.
    - Back: `wp_get_referer()`, same host only, loop guard and fallback.
-   - Message: the default.
+   - Reverse on pages.
+   - Ship the built-in placeholder renderer and register it as a block pattern.
    - Loops, feeds and REST keep the summary.
 3. **Shared searchable picker plus the block panel.**
    - Rewrite the block sidebar on one panel.
