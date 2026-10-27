@@ -252,13 +252,11 @@ class Agend_Content_Access_Condition_Sets {
 		);
 
 		foreach ( $posts as $post ) {
-			$policy = Agend_Content_Access_Policy::enforced_for_post( (int) $post->ID );
-
-			// Null means no policy is stored, which reads as public. Anything
-			// else is a restriction and is not offered, including a stored
-			// policy this version cannot read: that one is enforced as nobody.
-			if ( null !== $policy
-				&& Agend_Content_Access_Policy::MODE_PUBLIC !== ( $policy['mode'] ?? '' ) ) {
+			// Only a post with no rules is offered. Rules of any kind are a
+			// restriction, including stored rules this version cannot read, which deny
+			// everyone: the fallback is rendered for exactly the visitors the block's
+			// own rules just refused, so it must be readable by anyone.
+			if ( ! Agend_Content_Access_Rules::from_post( (int) $post->ID )->is_empty() ) {
 				continue;
 			}
 

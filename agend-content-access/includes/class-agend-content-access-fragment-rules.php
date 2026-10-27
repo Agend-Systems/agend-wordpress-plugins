@@ -155,18 +155,15 @@ class Agend_Content_Access_Fragment_Rules {
 			return '';
 		}
 
-		// The access check the reference omits. `evaluate` returns the state
-		// for THIS visitor against the fallback's own policy, and the viewer is
-		// built for that policy so segments are fetched only when it needs them.
-		// Enforced reading: a fallback whose stored policy is unreadable is not
-		// shown.
-		$policy = Agend_Content_Access_Policy::enforced_for_post( $fallback_id );
-		$state  = Agend_Content_Access_Decision::evaluate(
-			$policy,
-			$anonymous ? Agend_Content_Access_Decision::anonymous_viewer() : Agend_Content_Access_Decision::viewer( $policy )
+		// The access check the reference omits. The fallback's own page rules must
+		// admit THIS visitor: the same evaluator, on the same rules, as the page itself.
+		// A fallback whose stored rules cannot be read is unreadable and is not shown.
+		$verdict = Agend_Content_Access_Access::verdict(
+			Agend_Content_Access_Rules::from_post( $fallback_id ),
+			array( 'anonymous' => $anonymous )
 		);
 
-		if ( Agend_Content_Access_Decision::STATE_GRANTED !== $state ) {
+		if ( ! $verdict['allowed'] ) {
 			return '';
 		}
 

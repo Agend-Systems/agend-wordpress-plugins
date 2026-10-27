@@ -383,48 +383,56 @@ class Agend_Content_Access_Decision {
 	/**
 	 * The full decision for one post.
 	 *
-	 * `$anonymous` evaluates the post for a reader who cannot be identified at
-	 * all: no editor preview and no identity lookup, so a restricted post is
-	 * denied outright. It exists for syndication feeds. A feed is fetched by
-	 * aggregators that carry no session, and its response is routinely cached
-	 * and shared, so a render personalised to whoever happened to ask would be
-	 * served to everyone after them. It is judged against the same enforced
-	 * policy as any other reader, so an unreadable stored policy denies here too,
-	 * but never reaches `viewer()`: no bearer is asked for, no entitlements or
-	 * segments are fetched, and the visitor's own session cannot change the
-	 * answer.
+	 * The post's rules are `Agend_Content_Access_Rules::from_post()`: the new
+	 * `_agend_access_rules`, or the 0.1.x `_agend_access_policy` converted. No rules
+	 * is public. Rules that cannot be read deny everyone, so a stored value this
+	 * version cannot parse never publishes a page.
+	 *
+	 * `$anonymous` evaluates the post for a reader who cannot be identified at all:
+	 * no editor preview and no identity lookup, so a restricted post is denied
+	 * outright. It exists for syndication feeds. A feed is fetched by aggregators
+	 * that carry no session, and its response is routinely cached and shared, so a
+	 * render personalised to whoever happened to ask would be served to everyone
+	 * after them. It is judged against the same rules as any other reader, so an
+	 * unreadable stored value denies here too, but it never reaches a bearer: no
+	 * entitlements or segments are fetched, and the visitor's own session cannot
+	 * change the answer.
+	 *
+	 * The return keeps the keys it has always had. `policy` is the rules as the
+	 * `@agend/access-policy` arm that says them, for the gate copy that names plans
+	 * and entitlements, and null when the post has no rules; the unsatisfiable
+	 * policy stands for rules no arm can say. `rules` is the rules themselves, and
+	 * is what every caller that decides anything reads.
 	 *
 	 * @param int  $post_id   Post id.
 	 * @param bool $anonymous Evaluate as an anonymous reader.
-	 * @return array{state: string, policy: array|null, preview: bool, degraded: bool}
+	 * @return array{state: string, policy: array|null, rules: Agend_Content_Access_Rules, preview: bool, degraded: bool}
 	 */
 	public static function for_post( int $post_id, bool $anonymous = false ): array {
-		// The ENFORCED reading, not the editor's: a stored policy this version
-		// cannot read comes back as an unsatisfiable one, so it denies instead
-		// of being served as public. The same policy is handed to `viewer()`
-		// and `evaluate()` below, so what is fetched and what is judged agree.
-		$policy = Agend_Content_Access_Policy::enforced_for_post( $post_id );
+		$rules  = Agend_Content_Access_Rules::from_post( $post_id );
+		$policy = $rules->is_empty() ? null : $rules->to_policy();
 
-		if ( null === $policy || Agend_Content_Access_Policy::MODE_PUBLIC === ( $policy['mode'] ?? '' ) ) {
-			// Public and unset documents short-circuit BEFORE any identity
-			// lookup, so an unauthenticated visitor to a public page never
-			// triggers a gateway call.
+		if ( $rules->is_empty() ) {
+			// Unset documents short-circuit BEFORE any identity lookup, so an
+			// unauthenticated visitor to a public page never triggers a gateway call.
 			return array(
 				'state'    => self::STATE_GRANTED,
 				'policy'   => $policy,
+				'rules'    => $rules,
 				'preview'  => false,
 				'degraded' => false,
 			);
 		}
 
 		if ( $anonymous ) {
-			// A viewer built here, never `viewer()`: that resolves the bearer and
-			// reads the member's standing, which is the whole point of skipping it.
+			$verdict = Agend_Content_Access_Access::verdict( $rules, array( 'anonymous' => true ) );
+
 			return array(
-				'state'    => self::evaluate( $policy, self::anonymous_viewer() ),
+				'state'    => $verdict['state'],
 				'policy'   => $policy,
+				'rules'    => $rules,
 				'preview'  => false,
-				'degraded' => false,
+				'degraded' => $verdict['degraded'],
 			);
 		}
 
@@ -432,20 +440,20 @@ class Agend_Content_Access_Decision {
 			return array(
 				'state'    => self::STATE_GRANTED,
 				'policy'   => $policy,
+				'rules'    => $rules,
 				'preview'  => true,
 				'degraded' => false,
 			);
 		}
 
-		// Handing over the policy is what lets the viewer fetch segments, and
-		// only when this document's policy is a segments policy.
-		$viewer = self::viewer( $policy );
+		$verdict = Agend_Content_Access_Access::verdict( $rules );
 
 		return array(
-			'state'    => self::evaluate( $policy, $viewer ),
+			'state'    => $verdict['state'],
 			'policy'   => $policy,
+			'rules'    => $rules,
 			'preview'  => false,
-			'degraded' => ! empty( $viewer['degraded'] ),
+			'degraded' => $verdict['degraded'],
 		);
 	}
 }

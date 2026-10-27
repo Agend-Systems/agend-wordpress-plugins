@@ -52,8 +52,8 @@ class Agend_Content_Access_Frontend {
 	const BLOCK_RENDERER_ROUTE = '/wp/v2/block-renderer/';
 
 	/**
-	 * Post meta flag: the document carries a fragment policy or enabled display
-	 * conditions, in a block or an Elementor section.
+	 * Post meta flag: the document carries rules on a block or an Elementor
+	 * section.
 	 *
 	 * `'1'` when it does. Written by `Agend_Content_Access_Blocks` on save, read by
 	 * its search exclusion and by the generated excerpt filter below. Defined here
@@ -712,7 +712,7 @@ class Agend_Content_Access_Frontend {
 	 * Everything else is evaluated for the actual visitor.
 	 *
 	 * @param int $post_id Post id.
-	 * @return array{state: string, policy: array|null, preview: bool, degraded: bool}
+	 * @return array{state: string, policy: array|null, rules: Agend_Content_Access_Rules, preview: bool, degraded: bool}
 	 */
 	private static function decision_for_render( int $post_id ): array {
 		return Agend_Content_Access_Decision::for_post( $post_id, is_feed() );
@@ -730,8 +730,8 @@ class Agend_Content_Access_Frontend {
 	 * (`get_post()`), which is how a `the_content` filter learns whose content
 	 * it was handed.
 	 *
-	 * Posts with a public or unset policy cost nothing: `for_post()` returns for
-	 * them before any identity lookup.
+	 * Posts with no rules cost nothing: `for_post()` returns for them before any
+	 * identity lookup.
 	 *
 	 * @param string $content Original content.
 	 * @return string
@@ -988,7 +988,7 @@ class Agend_Content_Access_Frontend {
 	 * `post_content`, restricted sections included.
 	 *
 	 * WHAT IT DOES. For a post with no manual excerpt whose document carries
-	 * fragment rules (a policy or enabled display conditions), the generated
+	 * rules on a block or a section, the generated
 	 * excerpt is whatever `agend_content_access_safe_generated_excerpt` returns,
 	 * starting from ''. A block document gets an excerpt rebuilt from its own tree
 	 * with every ruled subtree removed (`Agend_Content_Access_Blocks`); anything
@@ -1114,21 +1114,15 @@ class Agend_Content_Access_Frontend {
 	 * Keeps a page that carries a member's render of restricted content out of
 	 * page caches.
 	 *
-	 * Only when the body was granted to an identified visitor who is not merely
-	 * previewing. Public and unset posts never reach a cache problem, and an
+	 * Only when the body was granted to a visitor the rules actually admitted, who
+	 * is not merely previewing. Posts with no rules never reach a cache problem, and an
 	 * editor's preview is a logged-in request that caches already bypass.
 	 *
 	 * @param int   $post_id  Post id.
 	 * @param array $decision Result of `Agend_Content_Access_Decision::for_post()`.
 	 */
 	private static function note_granted_render( int $post_id, array $decision ): void {
-		$policy = $decision['policy'];
-
-		if (
-			! empty( $decision['preview'] )
-			|| null === $policy
-			|| Agend_Content_Access_Policy::MODE_PUBLIC === ( $policy['mode'] ?? '' )
-		) {
+		if ( ! empty( $decision['preview'] ) || $decision['rules']->is_empty() ) {
 			return;
 		}
 
@@ -1271,7 +1265,9 @@ class Agend_Content_Access_Frontend {
 	 *
 	 * @param string     $teaser Teaser text.
 	 * @param string     $state  Decision state.
-	 * @param array|null $policy Policy, used to name the qualifying plans or entitlements. A segment is never named.
+	 * @param array|null $policy The rules as the policy arm that says them (`Decision::for_post()`'s
+	 *                           `policy`), used to name the qualifying plans or entitlements. Rules
+	 *                           no arm can say are named nothing. A segment is never named.
 	 * @return string
 	 */
 	public static function render_gate( string $teaser, string $state, ?array $policy = null ): string {
@@ -1455,9 +1451,10 @@ class Agend_Content_Access_Frontend {
 			}
 		}
 
-		// Never expose the policy itself: its tier ids are the association's
-		// plan configuration.
-		unset( $data['meta'][ Agend_Content_Access_Policy::META_KEY ] );
+		// Never expose the rules themselves: their plan, segment and entitlement
+		// ids are the association's configuration. Neither the 0.1.x policy nor the
+		// rule list, whichever the post holds.
+		unset( $data['meta'][ Agend_Content_Access_Policy::META_KEY ], $data['meta'][ Agend_Content_Access_Rules::META_KEY ] );
 
 		// A footnote is the text of a note on the body, kept in post meta that
 		// core registers for REST. The body is withheld above; its notes go with it.
@@ -1496,7 +1493,7 @@ class Agend_Content_Access_Frontend {
 	/**
 	 * Whether a post's raw source says more than its rendered body does.
 	 *
-	 * True for a post with an audience, because a visitor entitled to read it is
+	 * True for a post with rules, because a visitor entitled to read it is
 	 * not thereby entitled to its authoring source. True for a post carrying
 	 * section rules too, even when the post itself is public: a block's rule is
 	 * written into the block comment and its content stays in the raw body, and a
@@ -1512,9 +1509,7 @@ class Agend_Content_Access_Frontend {
 	 * @return bool
 	 */
 	private static function source_reveals_more_than_render( $post, array $decision ): bool {
-		$policy = $decision['policy'];
-
-		if ( null !== $policy && Agend_Content_Access_Policy::MODE_PUBLIC !== ( $policy['mode'] ?? '' ) ) {
+		if ( ! $decision['rules']->is_empty() ) {
 			return true;
 		}
 

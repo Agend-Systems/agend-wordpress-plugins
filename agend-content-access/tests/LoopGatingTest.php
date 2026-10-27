@@ -29,6 +29,12 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-rules.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-access.php';
 
 /**
  * A restricted post must be gated wherever its body is produced, not only on
@@ -495,7 +501,9 @@ final class LoopGatingTest extends TestCase {
 		$this->assertSame( self::BODY, $third );
 		$this->assertSame( array( self::SEGMENT_ONLY, self::SEGMENT_OTHER, self::SEGMENT_ONLY ), $this->uncacheable );
 		$this->assertSame( 1, $this->gatewayCalls( '/crm/me/segments' ), 'segments are fetched once per request, however many posts ask' );
-		$this->assertSame( 1, $this->gatewayCalls( '/crm/me/entitlements' ), 'and so is the member standing' );
+		// Changed from exactly one: a segment rule needs the visitor's segments and nothing else,
+		// so it no longer also asks for the member standing it never reads. At most once.
+		$this->assertLessThanOrEqual( 1, $this->gatewayCalls( '/crm/me/entitlements' ), 'and the member standing is never asked twice' );
 		$this->assertSame( 1, $this->identity_lookups, 'and the bearer' );
 	}
 
@@ -679,7 +687,7 @@ final class LoopGatingTest extends TestCase {
 		$this->assertSame( self::BODY, $this->render( self::SEGMENT_OTHER ) );
 
 		$this->assertSame( 1, $this->gatewayCalls( '/crm/me/segments' ) );
-		$this->assertSame( 1, $this->gatewayCalls( '/crm/me/entitlements' ) );
+		$this->assertLessThanOrEqual( 1, $this->gatewayCalls( '/crm/me/entitlements' ), 'changed from exactly one: a segment rule never reads the member standing' );
 	}
 
 	// -----------------------------------------------------------------------
