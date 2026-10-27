@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-content-access
  * Description:       Restricts WordPress content to Agend members and membership plans. Agend authorises every protected response; WordPress only declares the intended audience.
- * Version:           0.1.1
+ * Version:           0.1.2
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-content-access
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_CONTENT_ACCESS_VERSION', '0.1.1' );
+define( 'AGEND_CONTENT_ACCESS_VERSION', '0.1.2' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
