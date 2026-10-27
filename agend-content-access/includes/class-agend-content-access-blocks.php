@@ -349,14 +349,19 @@ class Agend_Content_Access_Blocks {
 	 * @return string|null
 	 */
 	private function verdict_for( array $parsed_block, array $rules, ?int $post_id = null ): ?string {
-		if ( self::is_authoring() ) {
+		$post_id = null === $post_id ? self::context_post_id() : $post_id;
+
+		// Asked about the post the block belongs to, not about the request: an
+		// Elementor preview is authoring for the previewed post only, and a block of
+		// any other post it renders, in a query loop, a template or a pattern, is
+		// judged as a visitor's.
+		if ( self::is_authoring( $post_id ) ) {
 			return null;
 		}
 
 		$settings   = $rules['settings'];
 		$conditions = $rules['conditions'];
 		$fragment   = $rules['fragment'];
-		$post_id    = null === $post_id ? self::context_post_id() : $post_id;
 
 		// A FEED is judged for nobody. Its output is shared and routinely cached,
 		// so a copy personalised to whoever fetched it would be served to everyone
@@ -485,10 +490,17 @@ class Agend_Content_Access_Blocks {
 	 * editor's own renders are, which is what keeps an author able to repair the
 	 * content a policy hides from them.
 	 *
+	 * The question is asked about the post the block belongs to. Elementor's
+	 * preview is authoring for the previewed post only, so a block of any other
+	 * post rendered during a preview is a visitor's, and so is a block that belongs
+	 * to no post. The same post the footnote and the pattern checks already judge
+	 * against, so the three cannot disagree.
+	 *
+	 * @param int $post_id The post the block belongs to, 0 for none.
 	 * @return bool
 	 */
-	private static function is_authoring(): bool {
-		return ! Agend_Content_Access_Frontend::renders_for_visitors()
+	private static function is_authoring( int $post_id ): bool {
+		return ! Agend_Content_Access_Frontend::renders_for_visitors( $post_id )
 			&& current_user_can( 'edit_posts' );
 	}
 

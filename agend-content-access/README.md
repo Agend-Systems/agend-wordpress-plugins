@@ -413,6 +413,16 @@ template), and Elementor's preview iframe.
   it counts only when that id is a positive integer equal to the post the request
   serves. Otherwise a contributor could open a restricted page with the id of
   their own draft appended and read it, restricted blocks and sections included.
+- **The preview is authoring for the previewed post only.** Every other post
+  rendered during a preview request, such as a query loop listing restricted
+  posts, a related posts widget or a template a shortcode pulls in, is what a
+  visitor to the same page would be shown, and is gated like it. A block is judged
+  against the post it belongs to, so the blocks of any other post are a visitor's
+  too, and so are the blocks on a request that is not for a single post.
+  Otherwise anybody who can edit one post could print any restricted post into it
+  and open the preview to read it. Elementor's editor itself and wp-admin screens
+  stay authoring for every post, and an element whose Elementor document cannot be
+  identified is treated as a visitor's.
 - **admin-ajax.php is not authoring.** WordPress reports `is_admin()` for it, but
   other plugins render Elementor templates through it for anonymous visitors
   ("load more", filters, tabs). Sections and blocks are judged there as a
@@ -479,9 +489,6 @@ editor panel, does not offer one.
 - Search results for authors and contributors. They cannot tell themselves from
   a visitor in a query, so they cannot find their own pages with rules by text
   either.
-- An Elementor preview of a post is an authoring request for the whole request.
-  Other posts rendered inside the previewed post, such as a loop, are not gated
-  while it is open, so anybody who can edit a post can print what is inside it.
 
 ## Blocks
 
@@ -559,7 +566,8 @@ those requests are recognised as authoring, by
 wp-admin screens are authoring for users who can `edit_posts`, and an
 admin-ajax render is always a visitor's, because "load more" and live filters
 print blocks to anonymous visitors through it. An editor viewing the front end
-is judged like anyone else, as for Elementor, apart from the preview iframe.
+is judged like anyone else, as for Elementor, apart from the preview iframe, and
+there only for the blocks of the post being previewed.
 
 **Page caches.** A response is never stored if the post it renders holds a
 restricted or conditioned block anywhere, synced patterns included. That is

@@ -274,6 +274,7 @@ wrote them.
 | Full-page caches | `DONOTCACHEPAGE` and `Cache-Control: private, no-store` on any response whose post carries a restricted or conditioned block, decided at `template_redirect` by scanning the post's blocks, synced patterns included, and again at render time |
 | Core search | excluded from front-end search results for users who cannot `edit_others_posts` (a contributor can search every post), when the document carries a rule, block or Elementor. The flag is `_agend_access_fragment_rules`. Filterable (`agend_content_access_search_excludes_fragment_rules`), because it hides the post's public parts too |
 | Block renderer REST route | the authoring carve-out needs `edit_post` on the post in the request, or `edit_others_posts` when there is none, so a contributor cannot render template parts and other people's content |
+| Elementor preview flag (`?elementor-preview=<id>`) | a query-string value anyone can append, so it counts only on the page it names, and then only for the previewed post: a block is judged against the post it belongs to, so the blocks of any other post a preview renders, in a query loop, a template or a pattern, are a visitor's |
 | Third-party search indexers | documented limitation; they read raw `post_content` at save |
 
 ### Export to Agend

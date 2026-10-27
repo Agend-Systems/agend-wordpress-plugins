@@ -266,6 +266,17 @@ final class ElementorAjaxSuppressionTest extends TestCase {
 			}
 		};
 
+		// The document the element belongs to is the one being previewed.
+		\Elementor\Plugin::$instance->documents = new class() {
+			public function get_current(): object {
+				return new class() {
+					public function get_main_id(): int {
+						return 42;
+					}
+				};
+			}
+		};
+
 		$this->assertTrue( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );
 	}
 

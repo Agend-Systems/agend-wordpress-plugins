@@ -235,6 +235,9 @@ namespace Elementor {
 				/** @var Elementor_Test_Preview_Double */
 				public $preview;
 
+				/** @var object|null Documents manager double a test installs; `get_current()` names the document rendering. */
+				public $documents;
+
 				public function __construct() {
 					$this->editor  = new Elementor_Test_Editor_Double();
 					$this->preview = new Elementor_Test_Preview_Double();
@@ -244,6 +247,7 @@ namespace Elementor {
 				public static function reset(): void {
 					self::$instance->editor->is_edit_mode     = false;
 					self::$instance->preview->is_preview_mode = false;
+					self::$instance->documents                = null;
 				}
 			}
 
