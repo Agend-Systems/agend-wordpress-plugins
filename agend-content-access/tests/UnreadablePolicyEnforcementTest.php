@@ -13,6 +13,7 @@ use Agend_Content_Access_Exporter;
 use Agend_Content_Access_Frontend;
 use Agend_Content_Access_Meta_Box;
 use Agend_Content_Access_Policy;
+use Agend_Content_Access_Rules;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -44,9 +45,10 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-access.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-page-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/rest/connector-routes.php';
 
-// The panel view is required relative to this constant, which the plugin's main
+// The panel's assets are located relative to this constant, which the plugin's main
 // file defines and the unit suite does not load.
 if ( ! defined( 'AGEND_CONTENT_ACCESS_DIR' ) ) {
 	define( 'AGEND_CONTENT_ACCESS_DIR', AGEND_TESTS_ROOT . '/agend-content-access/' );
@@ -516,39 +518,33 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 	// -----------------------------------------------------------------------
 
 	private function renderPanel(): string {
-		Agend_Test_WP::$tiers_response = array(
-			'data' => array(
-				array( 'id' => self::TIER_A, 'name' => 'Full Member', 'slug' => 'full', 'tier_type' => 'individual', 'is_active' => true ),
-			),
-		);
-
 		ob_start();
 		( new Agend_Content_Access_Meta_Box() )->render( get_post( self::POST_ID ) );
 
 		return (string) ob_get_clean();
 	}
 
-	#[Test]
-	#[DataProvider( 'unreadablePolicies' )]
-	public function the_panel_warns_that_an_unreadable_policy_hides_the_page( $value ): void {
-		$this->storePolicy( $value );
+	/** @return array The page's setting as the classic panel is given it. */
+	private function panelState(): array {
+		$this->assertSame( 1, preg_match( '/data-agend-access-page="([^"]*)"/', $this->renderPanel(), $found ) );
 
-		$html = $this->renderPanel();
-
-		$this->assertStringContainsString( 'agend-access-unreadable', $html );
-		$this->assertStringContainsString( 'could not be read', $html );
-		$this->assertStringContainsString( 'hidden from all visitors', $html );
+		return json_decode( html_entity_decode( $found[1], ENT_QUOTES ), true )['state'];
 	}
 
-	/** The repair flow is unchanged: no audience is pre-selected and all five are on offer. */
+	/**
+	 * The panel says the page is hidden, instead of showing it as having no rules,
+	 * which is the opposite of what visitors are experiencing.
+	 */
 	#[Test]
-	public function the_panel_keeps_the_choose_an_audience_flow_for_an_unreadable_policy(): void {
-		$this->storePolicy( self::UNREADABLE );
+	#[DataProvider( 'unreadablePolicies' )]
+	public function the_panel_is_told_that_an_unreadable_policy_hides_the_page( $value ): void {
+		$this->storePolicy( $value );
 
-		$html = $this->renderPanel();
+		$state = $this->panelState();
 
-		$this->assertSame( 5, substr_count( $html, 'type="radio"' ) );
-		$this->assertStringNotContainsString( "checked='checked'", $html );
+		$this->assertTrue( $state['unreadable'] );
+		$this->assertSame( array(), $state['rules'], 'nothing is shown as chosen, and the only way out is a reset' );
+		$this->assertFalse( $state['legacy'] );
 	}
 
 	#[Test]
@@ -561,32 +557,27 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 	}
 
 	#[Test]
-	public function the_panel_shows_no_warning_when_nothing_is_stored_or_the_policy_is_readable(): void {
-		$this->assertStringNotContainsString( 'agend-access-unreadable', $this->renderPanel() );
+	public function the_panel_is_not_told_the_page_is_hidden_when_nothing_is_stored_or_the_policy_is_readable(): void {
+		$this->assertFalse( $this->panelState()['unreadable'] );
 
 		$this->storePolicy( array( 'mode' => 'active_member' ) );
 
-		$this->assertStringNotContainsString( 'agend-access-unreadable', $this->renderPanel() );
+		$this->assertFalse( $this->panelState()['unreadable'] );
 	}
 
 	/**
 	 * A segments policy parses, so the page is NOT hidden by it and the warning
-	 * would be a lie. The panel has no radio to draw it with yet, which is a
-	 * separate matter from the policy being unreadable.
+	 * would be a lie. It is shown as the rule it reads as.
 	 */
 	#[Test]
 	public function the_panel_does_not_call_a_readable_segments_policy_unreadable(): void {
 		$this->storePolicy( array( 'mode' => 'segments', 'segment_ids' => array( self::SEG_A ) ) );
 
-		$this->assertStringNotContainsString( 'agend-access-unreadable', $this->renderPanel() );
-	}
+		$state = $this->panelState();
 
-	#[Test]
-	public function the_payload_flags_an_unreadable_policy_separately_from_an_unset_one(): void {
-		$catalogue = array();
-
-		$this->assertFalse( Agend_Content_Access_Meta_Box::payload( null, $catalogue )['unreadable'] );
-		$this->assertTrue( Agend_Content_Access_Meta_Box::payload( null, $catalogue, array(), true )['unreadable'] );
+		$this->assertFalse( $state['unreadable'] );
+		$this->assertSame( array( 'agend_segments:' . self::SEG_A ), $state['rules'] );
+		$this->assertTrue( $state['legacy'] );
 	}
 
 	// -----------------------------------------------------------------------
@@ -606,43 +597,57 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 		( new Agend_Content_Access_Meta_Box() )->save( self::POST_ID, get_post( self::POST_ID ) );
 	}
 
+	/** The setting the panel sends. */
+	private function setting( array $rules ): string {
+		return (string) wp_json_encode(
+			array(
+				'rules'  => $rules,
+				'match'  => 'any',
+				'invert' => false,
+				'denied' => array( 'action' => 'placeholder', 'target_id' => 0, 'fallback_id' => 0 ),
+			)
+		);
+	}
+
 	/**
-	 * The panel shows no audience selected for an unreadable policy, so a routine
-	 * save of the page (a typo fix) submits an empty mode. Clearing the stored
-	 * value then would turn a page that is hidden from everyone into a public one
-	 * without anybody choosing that.
+	 * The panel shows nothing chosen for an unreadable policy, and its input is empty
+	 * until an author changes something, so a routine save of the page (a typo fix)
+	 * submits nothing. Clearing the stored value then would turn a page that is hidden
+	 * from everyone into a public one without anybody choosing that.
 	 */
 	#[Test]
-	public function saving_the_page_without_choosing_an_audience_keeps_an_unreadable_policy(): void {
+	public function saving_the_page_without_touching_the_panel_keeps_an_unreadable_policy(): void {
 		$this->storePolicy( self::UNREADABLE );
 
-		$this->submit( array() );
+		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_RULES => '' ) );
 
 		$this->assertSame( Agend_Content_Access_Policy::STORED_INVALID, Agend_Content_Access_Policy::stored_state( self::POST_ID ) );
 		$this->assertSame( self::UNREADABLE, $GLOBALS['agend_test_post_meta'][ self::POST_ID ][ Agend_Content_Access_Policy::META_KEY ] );
 	}
 
 	#[Test]
-	public function choosing_an_audience_replaces_an_unreadable_policy(): void {
+	public function choosing_rules_replaces_an_unreadable_policy(): void {
 		$this->storePolicy( self::UNREADABLE );
 
-		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_MODE => 'active_member' ) );
+		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_RULES => $this->setting( array( 'agend_membership:is_member' ) ) ) );
 
-		$this->assertSame( Agend_Content_Access_Policy::STORED_VALID, Agend_Content_Access_Policy::stored_state( self::POST_ID ) );
-		$this->assertSame( array( 'mode' => 'active_member' ), Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
+		$this->assertSame( Agend_Content_Access_Policy::STORED_ABSENT, Agend_Content_Access_Policy::stored_state( self::POST_ID ), 'the old setting is gone' );
+		$this->assertSame( array( 'agend_membership:is_member' ), Agend_Content_Access_Rules::from_post( self::POST_ID )->rules() );
 	}
 
 	#[Test]
-	public function saving_with_no_audience_on_a_post_with_nothing_stored_stays_unset(): void {
+	public function saving_with_nothing_submitted_on_a_post_with_nothing_stored_stays_unset(): void {
 		$this->submit( array() );
 
 		$this->assertSame( Agend_Content_Access_Policy::STORED_ABSENT, Agend_Content_Access_Policy::stored_state( self::POST_ID ) );
+		$this->assertTrue( Agend_Content_Access_Rules::from_post( self::POST_ID )->is_empty() );
 	}
 
 	/**
-	 * With the plan catalogue unreachable the plans radio is rendered disabled,
-	 * and a browser does not submit a disabled control, so saving the page sends
-	 * no mode. That used to delete a stored plans policy and publish the page.
+	 * With the plan list unreachable the picker cannot offer a new plan, and a stored
+	 * setting is not something the lists have a say in. A save that sends nothing,
+	 * which is every save while the lists are down and the author changed nothing,
+	 * keeps it. This used to delete a stored plans policy and publish the page.
 	 */
 	#[Test]
 	public function saving_with_the_catalogue_unavailable_keeps_a_stored_plans_policy(): void {
@@ -651,15 +656,9 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 
 		Agend_Test_WP::$tiers_response = new WP_Error( 'http_request_failed', 'down' );
 
-		ob_start();
-		( new Agend_Content_Access_Meta_Box() )->render( get_post( self::POST_ID ) );
-		$html = (string) ob_get_clean();
+		$state = $this->panelState();
 
-		$this->assertMatchesRegularExpression(
-			"/value=\"selected_tiers\"\\s+checked='checked'\\s+disabled='disabled'/",
-			$html,
-			'the stored mode is checked but disabled, so it is not submitted'
-		);
+		$this->assertSame( array( 'agend_membership:' . self::TIER_A ), $state['rules'], 'what is stored is shown whatever state the list is in' );
 
 		$this->submit( array() );
 
@@ -667,12 +666,12 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 		$this->assertSame( $policy, Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
 	}
 
-	/** A mode the panel does not offer is not a choice, so it leaves an unreadable policy in place too. */
+	/** A submission this version cannot read is not a choice, so it leaves an unreadable policy in place too. */
 	#[Test]
-	public function saving_an_unrecognised_mode_keeps_an_unreadable_policy(): void {
+	public function saving_an_unusable_setting_keeps_an_unreadable_policy(): void {
 		$this->storePolicy( self::UNREADABLE );
 
-		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_MODE => 'authenticated' ) );
+		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_RULES => '{"mode":"authenticated"}' ) );
 
 		$this->assertSame( self::UNREADABLE, $GLOBALS['agend_test_post_meta'][ self::POST_ID ][ Agend_Content_Access_Policy::META_KEY ] );
 		$this->assertSame( Agend_Content_Access_Policy::UNSATISFIABLE, Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
@@ -680,11 +679,13 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 
 	/** Removing a restriction stays possible, as an explicit choice, including one that was unreadable. */
 	#[Test]
-	public function explicitly_choosing_public_replaces_an_unreadable_policy(): void {
+	public function removing_every_rule_replaces_an_unreadable_policy_and_opens_the_page(): void {
 		$this->storePolicy( self::UNREADABLE );
 
-		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_MODE => 'public' ) );
+		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_RULES => $this->setting( array() ) ) );
 
-		$this->assertSame( array( 'mode' => 'public' ), Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
+		$this->assertSame( Agend_Content_Access_Policy::STORED_ABSENT, Agend_Content_Access_Policy::stored_state( self::POST_ID ) );
+		$this->assertNull( Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
+		$this->assertTrue( Agend_Content_Access_Rules::from_post( self::POST_ID )->is_empty() );
 	}
 }

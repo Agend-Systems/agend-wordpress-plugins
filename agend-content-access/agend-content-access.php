@@ -177,10 +177,9 @@ function agend_content_access_bootstrap(): void {
 	if ( is_admin() ) {
 		require_once AGEND_CONTENT_ACCESS_DIR . 'admin/class-agend-content-access-admin.php';
 
+		// The classic editor's panel: its assets are queued by the meta box itself.
 		new Agend_Content_Access_Meta_Box();
 		new Agend_Content_Access_Admin();
-
-		add_action( 'admin_enqueue_scripts', 'agend_content_access_enqueue_admin_assets' );
 	}
 
 	/**
@@ -220,32 +219,6 @@ register_activation_hook( __FILE__, 'agend_content_access_flush_builder_cache' )
 // An upgrade replaces the files without firing the activation hook, so the same
 // stale-blob window opens on update. `upgrader_process_complete` covers it.
 add_action( 'upgrader_process_complete', 'agend_content_access_flush_builder_cache' );
-
-/**
- * Enqueues the policy panel's assets, on the post editor only.
- *
- * @param string $hook Current admin page.
- */
-function agend_content_access_enqueue_admin_assets( string $hook ): void {
-	if ( 'post.php' !== $hook && 'post-new.php' !== $hook ) {
-		return;
-	}
-
-	wp_enqueue_style(
-		'agend-content-access-policy-panel',
-		AGEND_CONTENT_ACCESS_URL . 'assets/css/policy-panel.css',
-		array(),
-		AGEND_CONTENT_ACCESS_VERSION
-	);
-
-	wp_enqueue_script(
-		'agend-content-access-policy-panel',
-		AGEND_CONTENT_ACCESS_URL . 'assets/js/policy-panel.js',
-		array(),
-		AGEND_CONTENT_ACCESS_VERSION,
-		true
-	);
-}
 
 /**
  * Registers the Elementor fragment-policy integration.

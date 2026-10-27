@@ -10,12 +10,27 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Registers the policy meta and renders the editor panel.
+ * The Agend Access panel on a post's edit screen, for every editor that is not the
+ * block editor.
  *
- * The panel is the only place a document policy is authored, so its save path
- * is the narrow gate everything else depends on. It refuses rather than guesses:
- * a submission that does not produce a valid policy leaves the stored one alone
- * and reports why (US-3.2 criterion 4).
+ * ONE PANEL, TWO HOSTS. The panel is the rule picker the block editor's sidebar
+ * uses, writing a page's rules (`Agend_Content_Access_Page_Rules`). In the block
+ * editor it is a native document settings panel (`src/page-panel-plugin.js`), and
+ * this meta box is declared `__back_compat_meta_box`, which hides it there so an
+ * author sees one panel. In the classic editor, and on any edit screen that is not
+ * the block editor, this meta box is the panel: it renders a mount point, the same
+ * React components are mounted on it (`src/classic.js`), and they write their
+ * setting to one hidden input that `save()` reads.
+ *
+ * The panel used to be a form of radio buttons and check boxes for the five 0.1.x
+ * audiences. That form is gone: a page's setting is rules, like a block's. A page
+ * that still holds only the old setting is shown as the rules it reads as.
+ *
+ * Its save path is the narrow gate everything depends on, and it refuses rather
+ * than guesses: a submission that does not validate leaves the stored setting
+ * alone and says why (US-3.2 criterion 4). A save that submits nothing for this
+ * panel, which is every save made while the script has not run, never clears a
+ * stored setting.
  */
 class Agend_Content_Access_Meta_Box {
 
@@ -28,38 +43,22 @@ class Agend_Content_Access_Meta_Box {
 	const NONCE_FIELD  = 'agend_content_access_nonce';
 
 	/**
-	 * Form field names.
+	 * The hidden input the panel writes its setting to, as JSON, and the element it
+	 * is mounted on. The input is empty until an author changes something, and an
+	 * empty input is a save with nothing to say, which keeps what is stored.
 	 *
 	 * @var string
 	 */
-	const FIELD_MODE         = 'agend_access_mode';
-	const FIELD_TIERS        = 'agend_access_tier_ids';
-	const FIELD_SEGMENTS     = 'agend_access_segment_ids';
-	const FIELD_ENTITLEMENTS = 'agend_access_entitlement_keys';
+	const FIELD_RULES = 'agend_access_page_rules';
+	const ROOT_ID     = 'agend-access-page-root';
+	const INPUT_ID    = 'agend-access-page-input';
 
 	/**
-	 * The three set-mode lists the panel offers, each with the catalogue section
-	 * it is built from and the form field its checkboxes submit under.
+	 * Handle shared by the classic editor's script and its stylesheet.
 	 *
-	 * One table drives the payload, the view and the save, so a fourth list is
-	 * one entry here rather than a branch in each of them.
-	 *
-	 * @var array<string, array{section: string, field: string}>
+	 * @var string
 	 */
-	const LISTS = array(
-		Agend_Content_Access_Policy::MODE_TIERS        => array(
-			'section' => 'plans',
-			'field'   => self::FIELD_TIERS,
-		),
-		Agend_Content_Access_Policy::MODE_SEGMENTS     => array(
-			'section' => 'segments',
-			'field'   => self::FIELD_SEGMENTS,
-		),
-		Agend_Content_Access_Policy::MODE_ENTITLEMENTS => array(
-			'section' => 'entitlements',
-			'field'   => self::FIELD_ENTITLEMENTS,
-		),
-	);
+	const HANDLE = 'agend-content-access-classic';
 
 	/**
 	 * Transient prefix carrying a validation error across the save redirect.
@@ -76,6 +75,7 @@ class Agend_Content_Access_Meta_Box {
 		add_action( 'add_meta_boxes', array( $this, 'add_meta_box' ) );
 		add_action( 'save_post', array( $this, 'save' ), 10, 2 );
 		add_action( 'admin_notices', array( $this, 'render_save_error' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 	}
 
 	/**
@@ -138,10 +138,10 @@ class Agend_Content_Access_Meta_Box {
 	/**
 	 * Adds the panel to every supported post type.
 	 *
-	 * Declared block editor compatible: the panel is plain form fields saved
-	 * through `save_post`, which the block editor submits from its meta box area
-	 * once the post itself has saved, so it needs no classic editor fallback and
-	 * works the same in both.
+	 * `__back_compat_meta_box` hides it in the block editor, which has its own
+	 * panel for the same setting, and keeps it in the classic editor. A meta box
+	 * with that flag is also left out of the block editor's compatibility check, so
+	 * it does not send a post type back to the classic editor.
 	 */
 	public function add_meta_box(): void {
 		add_meta_box(
@@ -151,191 +151,136 @@ class Agend_Content_Access_Meta_Box {
 			self::supported_post_types(),
 			'side',
 			'default',
-			array( '__block_editor_compatible_meta_box' => true )
+			array( '__back_compat_meta_box' => true )
 		);
 	}
 
 	/**
-	 * Builds the data the panel renders from.
+	 * Queues the classic editor's script and stylesheet.
 	 *
-	 * Pure, and the reason it is separate: it is the single place that decides
-	 * what crosses into the editor page, so "no secret is rendered" is a
-	 * property that can be asserted rather than reviewed. Every value here comes
-	 * from the reduced catalogue or the stored policy. The tenant API key, the
-	 * gateway base URL and the raw gateway payloads are all absent by
-	 * construction.
+	 * On a post edit screen of a supported type that is not the block editor.
+	 * Dependencies and version come from the asset file the build writes beside the
+	 * script. A checkout that was never built queues nothing, and the meta box then
+	 * says the panel could not start, rather than loading a script that fails.
 	 *
-	 * Each of the three set-mode audiences (plans, segments, entitlements) gets
-	 * one entry under `lists`, keyed by its mode, in one shape. A selection that
-	 * is no longer offered is returned in `selected` with `available` false, so
-	 * the panel can show and repair it, and is never dropped from the list.
-	 *
-	 * @param array|null $policy           Stored policy, or null.
-	 * @param array      $catalogue        Result of Agend_Content_Access_Catalogue::sections().
-	 * @param array      $unmodelled_types Elementor element types that cannot take the control.
-	 * @param bool       $unreadable       Whether a policy IS stored but could not be read.
-	 *                                     `$policy` is null in that case too, so only this
-	 *                                     says the page is hidden rather than unset.
-	 * @return array{
-	 *     mode: string,
-	 *     lists: array<string, array{
-	 *         field: string,
-	 *         selected: array<int, array{value: string, label: string, available: bool}>,
-	 *         options: array<int, array{value: string, label: string, description: string, available: bool}>,
-	 *         can_select: bool,
-	 *         stale: bool,
-	 *         error: string,
-	 *         unavailable_count: int
-	 *     }>,
-	 *     unmodelled_types: string[],
-	 *     unreadable: bool
-	 * }
+	 * @param string $hook Current admin page.
 	 */
-	public static function payload(
-		?array $policy,
-		array $catalogue,
-		array $unmodelled_types = array(),
-		bool $unreadable = false
-	): array {
-		$lists = array();
+	public function enqueue_assets( $hook ): void {
+		if ( 'post.php' !== $hook && 'post-new.php' !== $hook ) {
+			return;
+		}
 
-		foreach ( self::LISTS as $mode => $list ) {
-			$lists[ $mode ] = self::list_payload(
-				$mode,
-				$list['field'],
-				self::stored_selection( $policy, $mode ),
-				isset( $catalogue[ $list['section'] ] ) && is_array( $catalogue[ $list['section'] ] )
-					? $catalogue[ $list['section'] ]
-					: array()
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+		if ( is_object( $screen ) ) {
+			if ( method_exists( $screen, 'is_block_editor' ) && $screen->is_block_editor() ) {
+				return;
+			}
+
+			if ( isset( $screen->post_type ) && ! in_array( $screen->post_type, self::supported_post_types(), true ) ) {
+				return;
+			}
+		}
+
+		$file = AGEND_CONTENT_ACCESS_DIR . 'build/classic.asset.php';
+
+		if ( ! is_readable( $file ) ) {
+			return;
+		}
+
+		$asset = include $file;
+
+		if ( ! is_array( $asset ) || ! isset( $asset['dependencies'], $asset['version'] ) || ! is_array( $asset['dependencies'] ) ) {
+			return;
+		}
+
+		wp_enqueue_script(
+			self::HANDLE,
+			AGEND_CONTENT_ACCESS_URL . 'build/classic.js',
+			array_values( array_map( 'strval', $asset['dependencies'] ) ),
+			(string) $asset['version'],
+			true
+		);
+
+		wp_set_script_translations( self::HANDLE, 'agend-content-access', AGEND_CONTENT_ACCESS_DIR . 'languages' );
+
+		// The components are WordPress's own, and their stylesheet is not loaded on
+		// a classic edit screen unless something asks for it.
+		wp_enqueue_style( 'wp-components' );
+
+		if ( is_readable( AGEND_CONTENT_ACCESS_DIR . 'build/classic.css' ) ) {
+			wp_enqueue_style(
+				self::HANDLE,
+				AGEND_CONTENT_ACCESS_URL . 'build/classic.css',
+				array( 'wp-components' ),
+				(string) $asset['version']
 			);
 		}
-
-		return array(
-			'mode'             => null === $policy
-				? ''
-				: (string) $policy['mode'],
-			'lists'            => $lists,
-			// Editor V4 atomic elements cannot receive the Agend Access
-			// control, so an editor on such a page needs telling why there is
-			// no per-section option, and that the page policy still covers the
-			// whole page (US-4.4 criterion 12).
-			'unmodelled_types' => array_values( $unmodelled_types ),
-			// A stored policy that could not be read is enforced as nobody, so
-			// the editor has to say so: an empty panel reads as "nothing set",
-			// which is the opposite of what visitors are experiencing.
-			'unreadable'       => $unreadable,
-		);
 	}
 
 	/**
-	 * What a stored policy selects in one set-mode, or nothing for another mode.
+	 * Renders the panel: a mount point, the hidden input and the nonce.
 	 *
-	 * @param array|null $policy Stored policy, or null.
-	 * @param string     $mode   A key of self::LISTS.
-	 * @return string[]
-	 */
-	private static function stored_selection( ?array $policy, string $mode ): array {
-		switch ( $mode ) {
-			case Agend_Content_Access_Policy::MODE_SEGMENTS:
-				return Agend_Content_Access_Policy::segment_ids( $policy );
-			case Agend_Content_Access_Policy::MODE_ENTITLEMENTS:
-				return Agend_Content_Access_Policy::entitlement_keys( $policy );
-			default:
-				return Agend_Content_Access_Policy::tier_ids( $policy );
-		}
-	}
-
-	/**
-	 * One list's data for the panel.
-	 *
-	 * `can_select` is false only when the section has no items at all, which
-	 * means either the list could not be read or the tenant has none. Either
-	 * way a NEW selection cannot be made, so the audience's radio is disabled,
-	 * while Public and all-active-members stay saveable and an outage never
-	 * blocks editing outright. The stored selection is returned regardless, so
-	 * it is shown whatever state the list is in.
-	 *
-	 * @param string   $mode    A key of self::LISTS.
-	 * @param string   $field   Form field the checkboxes submit under.
-	 * @param string[] $stored  What the stored policy selects in this mode.
-	 * @param array    $section The catalogue section: `{items, stale, error}`.
-	 * @return array{field: string, selected: array, options: array, can_select: bool, stale: bool, error: string, unavailable_count: int}
-	 */
-	private static function list_payload( string $mode, string $field, array $stored, array $section ): array {
-		$items    = isset( $section['items'] ) && is_array( $section['items'] ) ? $section['items'] : array();
-		$options  = Agend_Content_Access_Catalogue::options( $mode, $items );
-		$selected = Agend_Content_Access_Catalogue::annotate_options( $stored, $options );
-
-		$unavailable = 0;
-
-		foreach ( $selected as $index => $entry ) {
-			if ( empty( $entry['available'] ) ) {
-				++$unavailable;
-			}
-
-			// An entitlement key is readable on its own (`directory.access`), so it
-			// stands in for a name the list cannot give. A plan or segment id is an
-			// opaque UUID, so the view says "unknown" for those instead.
-			if ( '' === $entry['label'] && Agend_Content_Access_Policy::MODE_ENTITLEMENTS === $mode ) {
-				$selected[ $index ]['label'] = $entry['value'];
-			}
-		}
-
-		return array(
-			'field'             => $field,
-			'selected'          => $selected,
-			'options'           => array_values(
-				array_filter(
-					$options,
-					static function ( $option ) {
-						return ! empty( $option['available'] );
-					}
-				)
-			),
-			'can_select'        => array() !== $items,
-			'stale'             => ! empty( $section['stale'] ),
-			'error'             => isset( $section['error'] ) ? (string) $section['error'] : '',
-			'unavailable_count' => $unavailable,
-		);
-	}
-
-	/**
-	 * Renders the panel.
+	 * What crosses into the page is the page's own setting, read the way the editor
+	 * shows it (`Agend_Content_Access_Page_Rules::state()`), and nothing else: no
+	 * API key, gateway address or gateway payload is in scope. The picker's lists
+	 * are fetched by the script from the conditions route, as in the block editor.
+	 * Rendering never writes, so a setting that is unreadable, or an older one, is
+	 * left exactly as it was found.
 	 *
 	 * @param WP_Post $post Post being edited.
 	 */
 	public function render( $post ): void {
-		// The editor's reading, not the enforced one: it shows "not set" for an
-		// unreadable policy so an audience can be chosen, and the stored state
-		// is passed alongside so the panel can also say the page is hidden.
-		// Rendering never writes, so the stored value is left as it was found.
-		$data = self::payload(
-			Agend_Content_Access_Policy::get_for_post( (int) $post->ID ),
-			Agend_Content_Access_Catalogue::sections(),
-			Agend_Content_Access_Elementor_Parser::unmodelled_element_types(
-				(string) get_post_meta( (int) $post->ID, '_elementor_data', true )
-			),
-			Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( (int) $post->ID )
+		$post_id = (int) $post->ID;
+		$config  = array(
+			'state' => Agend_Content_Access_Page_Rules::state( $post_id ),
 		);
 
 		wp_nonce_field( self::NONCE_ACTION, self::NONCE_FIELD );
 
-		require AGEND_CONTENT_ACCESS_DIR . 'admin/views/policy-panel.php';
+		// Editor V4 atomic elements cannot receive the Agend Access control, so an
+		// editor on such a page needs telling why there is no per-section option, and
+		// that the page setting still covers the whole page (US-4.4 criterion 12).
+		$unmodelled = Agend_Content_Access_Elementor_Parser::unmodelled_element_types(
+			(string) get_post_meta( $post_id, '_elementor_data', true )
+		);
+
+		if ( array() !== $unmodelled ) {
+			?>
+			<p class="notice notice-info notice-alt agend-access-page-notice">
+				<?php
+				esc_html_e(
+					'This page uses Elementor\'s new editor. Individual sections on it cannot be restricted separately, because those elements do not accept the Agend Access control. The setting below still applies to the WHOLE page.',
+					'agend-content-access'
+				);
+				?>
+			</p>
+			<?php
+		}
+		?>
+		<div id="<?php echo esc_attr( self::ROOT_ID ); ?>" class="agend-access-page-root" data-agend-access-page="<?php echo esc_attr( (string) wp_json_encode( $config ) ); ?>">
+			<p class="description">
+				<?php esc_html_e( 'Loading the access settings. If this message stays, the settings could not start, and the setting this page already has is kept.', 'agend-content-access' ); ?>
+			</p>
+		</div>
+		<input type="hidden" id="<?php echo esc_attr( self::INPUT_ID ); ?>" name="<?php echo esc_attr( self::FIELD_RULES ); ?>" value="" />
+		<?php
 	}
 
 	/**
-	 * Persists the submitted policy.
+	 * Persists the submitted setting.
 	 *
 	 * Guard order matters and is deliberate: cheap structural checks first, then
 	 * the nonce, then the capability, and only then any interpretation of user
 	 * input. Nothing is read from `$_POST` until the request has been proven to
 	 * be a genuine, authorised save of a supported post.
 	 *
-	 * The stored policy is only ever REPLACED by a submitted mode that produces a
-	 * valid policy. A missing, empty, non-string or unrecognised mode, and a mode
-	 * whose selections are invalid, all leave it exactly as it was, whatever
-	 * state it was in: readable, unreadable or absent. Only an explicit,
-	 * recognised audience writes, and clearing a restriction is choosing Public.
+	 * The stored setting is only ever REPLACED by a submission that validates
+	 * (`Agend_Content_Access_Page_Rules::save()`). An empty input, one that is not
+	 * JSON and one that does not validate all leave it exactly as it was, whatever
+	 * state it was in: readable, unreadable, an older policy, or absent. Only an
+	 * explicit, valid setting writes, and clearing a restriction is removing every
+	 * rule.
 	 *
 	 * @param int     $post_id Post id.
 	 * @param WP_Post $post    Post object.
@@ -354,9 +299,9 @@ class Agend_Content_Access_Meta_Box {
 		}
 
 		// An absent nonce means this save did not come from the panel, for
-		// example a quick edit or a programmatic wp_update_post. Leave the
-		// stored policy alone rather than treating "no fields submitted" as
-		// "the editor cleared the policy".
+		// example a quick edit, the block editor's own save or a programmatic
+		// wp_update_post. Leave the stored setting alone rather than treating "no
+		// fields submitted" as "the editor cleared it".
 		$nonce = isset( $_POST[ self::NONCE_FIELD ] )
 			? sanitize_text_field( wp_unslash( $_POST[ self::NONCE_FIELD ] ) )
 			: '';
@@ -369,75 +314,40 @@ class Agend_Content_Access_Meta_Box {
 			return;
 		}
 
-		// A non-string value (`agend_access_mode[]=...`) is not a mode. Treated as
-		// missing, rather than handed to the sanitiser, which expects a string.
-		$mode = isset( $_POST[ self::FIELD_MODE ] ) && is_string( $_POST[ self::FIELD_MODE ] )
-			? sanitize_text_field( wp_unslash( $_POST[ self::FIELD_MODE ] ) )
+		// A non-string value (`agend_access_page_rules[]=...`) is not a setting.
+		// Treated as missing, rather than handed to the decoder, which expects a string.
+		$raw = isset( $_POST[ self::FIELD_RULES ] ) && is_string( $_POST[ self::FIELD_RULES ] ) // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			? trim( wp_unslash( $_POST[ self::FIELD_RULES ] ) ) // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 			: '';
 
-		// No mode submitted means the panel had nothing to say, so the stored
-		// policy is kept, whatever its state. It must NOT be read as "the editor
-		// cleared the policy", because the panel can render with no mode checked
-		// and a browser submits nothing for a radio that is not checked:
-		//
-		//  - a set-mode radio is disabled while its list is unavailable (the plan,
-		//    segment or entitlement list unreachable, a Core too old to list it,
-		//    an API key without its scope), and a disabled control is not
-		//    submitted, so a stored policy in that mode comes back with no mode;
-		//  - an unreadable policy preselects nothing;
-		//  - a hand-built request, or a later release's panel, can name a mode this
-		//    version has no radio for.
-		//
-		// Clearing any of those on an ordinary save would turn a restricted page
-		// into a public one without anybody choosing that. A mode the panel does
-		// not recognise is refused by `from_input()` below with the stored policy
-		// left alone, so the two kinds of unusable mode end the same way.
-		// Removing a restriction is still possible: choose Public.
-		if ( '' === $mode ) {
+		// Nothing submitted means the panel had nothing to say, so what is stored is
+		// kept, whatever its state. It must NOT be read as "the editor cleared it".
+		// The input is empty until an author changes something, so a save made
+		// without touching the panel, one made while the script had not started, and
+		// one from a screen the panel is not on, all arrive here, and clearing any of
+		// them would turn a restricted page into a public one without anybody
+		// choosing that.
+		if ( '' === $raw ) {
 			return;
 		}
 
-		// Every list is read, and `from_input()` uses only the one for the chosen
-		// mode: a checked box in a list the editor has since switched away from
-		// is ignored, exactly as the plan list always was.
-		$result = Agend_Content_Access_Policy::from_input(
-			$mode,
-			self::submitted_list( self::FIELD_TIERS ),
-			array(
-				Agend_Content_Access_Policy::SET_MODE_KEYS[ Agend_Content_Access_Policy::MODE_SEGMENTS ]     => self::submitted_list( self::FIELD_SEGMENTS ),
-				Agend_Content_Access_Policy::SET_MODE_KEYS[ Agend_Content_Access_Policy::MODE_ENTITLEMENTS ] => self::submitted_list( self::FIELD_ENTITLEMENTS ),
-			)
-		);
+		$input = json_decode( $raw, true );
 
-		if ( null !== $result['error'] ) {
-			// Keep the previous policy and carry the reason across the redirect.
+		$error = JSON_ERROR_NONE === json_last_error()
+			? Agend_Content_Access_Page_Rules::save( (int) $post_id, $input )
+			: __( 'The access setting could not be read, so nothing was changed.', 'agend-content-access' );
+
+		if ( null !== $error ) {
+			// Keep the previous setting and carry the reason across the redirect.
 			set_transient(
 				self::ERROR_TRANSIENT . $post_id,
-				$result['error'],
+				$error,
 				60
 			);
 			return;
 		}
 
 		delete_transient( self::ERROR_TRANSIENT . $post_id );
-		Agend_Content_Access_Policy::save_for_post( (int) $post_id, $result['policy'] );
-	}
-
-	/**
-	 * The submitted entries of one list's checkboxes, sanitised for reading.
-	 *
-	 * Only called after `save()` has verified the nonce and the capability.
-	 * Whatever comes back is still unvalidated: `from_input()` drops what is not
-	 * well formed for the mode, which can only make a selection narrower. A
-	 * field that is not an array (`field=x`) is nothing selected.
-	 *
-	 * @param string $field Form field name.
-	 * @return string[]
-	 */
-	private static function submitted_list( string $field ): array {
-		return isset( $_POST[ $field ] ) && is_array( $_POST[ $field ] ) // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			? array_map( 'sanitize_text_field', wp_unslash( $_POST[ $field ] ) ) // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			: array();
 	}
 
 	/**
