@@ -149,6 +149,8 @@ interfaces:
 | `agend_apps_api()` | Outbound gateway calls |
 | `agend_apps_get_bearer_token()` / the `agend_apps_bearer_token` filter | Member identity |
 | `agend_apps_crm_get_tiers()` | Membership plan catalogue for the editor |
+| `agend_apps_crm_get_segments()` | Segment list for the editor |
+| `agend_apps_crm_get_entitlement_types()` | Entitlement type list for the editor. Core 1.48.0 or later; probed with `function_exists()`, not a hard dependency |
 | `Agend_Apps_Cache` / `Agend_Apps_Settings::get_cache_ttl()` | Caching |
 
 Reaching into Core internals rather than these is a review failure.
@@ -168,19 +170,102 @@ copied from the gateway's `@agend/access-policy`, which is the authority.
 
 A visitor outside a `segments` or `selected_entitlements` policy is
 `access_restricted`, a fifth decision state beside `authentication_required`,
-`membership_required` and `plan_required`. Its gate copy is generic: it never
-names a segment, and it offers no join or upgrade link, because nothing to
-join unlocks it. A segment is a set over all contacts and an entitlement can be
+`membership_required` and `plan_required`. Its gate copy never names a segment,
+names the entitlements of an entitlements policy when the catalogue can (the
+generic "limited to selected members" otherwise), and offers no join or upgrade
+link, because nothing to join unlocks it. A segment is a set over all contacts and an entitlement can be
 held without a membership, so neither is a subset of "all active members", and
 a fragment cannot narrow a document of a different set-mode: that pairing
 admits nobody.
 
 Entitlement keys arrive with the member's standing at no extra cost. Segments
 are fetched, once per request, only when a policy being evaluated is a segments
-policy. The editor controls for the two new modes arrive in a later release.
-Until then the page panel cannot show them, and saving a post that holds one
-keeps its stored policy unchanged: the panel only replaces a policy when an
-editor submits a mode, and choosing Public is how to clear one.
+policy.
+
+## Choosing an audience in the editor
+
+All five audiences are chosen from the same places.
+
+| Surface | What it offers |
+| --- | --- |
+| Page panel (the Agend Access meta box) | All five audiences: Public, All active members, Selected membership plans, Selected segments, Selected entitlements. Each of the last three has a checkbox list with a filter box |
+| Elementor element, Advanced tab | "Who can see this": Same as the page, All active members, and the same three selections, each a multi-select shown only for its own audience |
+
+The page panel is registered as block editor compatible, so it works in the
+block editor's meta box area as it does in the classic editor.
+
+Rules both surfaces keep:
+
+- **A selection that is no longer offered is never dropped.** A plan, segment
+  or entitlement that was deleted, or a plan that was deactivated, is listed
+  first in the panel, still ticked and marked unavailable, so the policy can be
+  repaired. Dropping it would quietly change who can read the content.
+- **A list that cannot be loaded says why, under its own radio.** The radio is
+  disabled, because a new choice cannot be made, while Public, All active
+  members and the other lists stay available. The stored audience's radio is
+  still drawn checked, and a disabled control is not submitted, so saving the
+  page keeps the stored policy instead of reading "no audience" as a clear.
+  Choosing Public is how to remove a restriction.
+- **Selecting nothing is refused, not saved.** Saving a set audience with
+  nothing ticked keeps the previous setting and says which list needs a choice.
+  On an Elementor element, selecting none hides the element from everybody.
+- **Platform capabilities are labelled.** An entitlement the platform itself
+  defines, Directory access for example, reads "Platform: Directory access" in
+  the panel, the Elementor control and the display conditions.
+
+### The editor catalogue
+
+The lists an editor chooses from are fetched on the WordPress server and
+reduced there, so the API key never reaches the browser and no pricing, member
+count or benefit detail does either. One cached copy of each list serves the
+page panel, the Elementor controls, the display condition vocabularies and the
+REST route, so a list costs one gateway call per cache lifetime however many
+surfaces show it.
+
+`GET /wp-json/agend-content-access/v1/catalogue` (requires `edit_posts`; add
+`?refresh=1` to bypass the cache) returns the three lists, each as
+`{items, stale, error}`:
+
+```json
+{
+  "plans":        {"items": [{"id": "...", "name": "...", "slug": "...", "type": "...", "active": true}], "stale": false, "error": ""},
+  "segments":     {"items": [{"id": "...", "slug": "...", "name": "..."}], "stale": false, "error": ""},
+  "entitlements": {"items": [{"gate_key": "...", "name": "...", "description": "...", "kind": "platform-gate"}], "stale": false, "error": ""}
+}
+```
+
+`stale` means a refresh failed and the items are the last known copy. `error`
+says why, in words an editor can act on. The lists fail independently, so an
+API key without one scope still gets the others. The earlier `GET .../plans`
+route is unchanged.
+
+| List | Core function | API key scope | Cached under |
+| --- | --- | --- | --- |
+| Plans | `agend_apps_crm_get_tiers()` | `crm.tiers.browse` | `agend_content_access_plan_catalogue` |
+| Segments | `agend_apps_crm_get_segments()` | `crm.segments.browse` | `agend_content_access_segment_catalogue` |
+| Entitlements | `agend_apps_crm_get_entitlement_types()` | `crm.entitlements.browse` | `agend_content_access_entitlement_catalogue` |
+
+Segments and entitlements are cached for the member facts lifetime, at most 15
+minutes. A failure is never cached: the list is served from the last known copy
+if there is one, and fills the moment the cause is fixed.
+
+What an editor sees when a list is empty:
+
+| Cause | Message |
+| --- | --- |
+| Agend Apps Core is older than 1.48.0 and has no wrapper | "Agend Apps Core 1.48.0 or later is needed to list entitlements (or segments). Update Agend Apps Core on this site." |
+| The gateway, or Core's own check of the key, refused with a 403 | "This site's Agend API key needs the crm.entitlements.browse (or crm.segments.browse) scope before it can be listed. Add the scope to the key in Agend." |
+| Anything else | "The list of entitlements (or segments) could not be loaded from Agend. Try again in a few minutes." |
+
+The wrapper for entitlement types is not a hard dependency: an older Core
+leaves the entitlement list empty with that message rather than switching
+protection off. The transport message Core reports is deliberately not shown.
+
+The gate shown to a signed-in visitor outside an entitlements policy names the
+entitlements, as a plan gate names plans, because an entitlement is something a
+member can acquire. A row with no name of its own is skipped rather than shown
+by its key. A segments policy still names nothing, and never reads the segment
+list for a gate.
 
 ## Failure behaviour
 
