@@ -407,6 +407,18 @@ wp-admin screen, the block editor's own server-side renders (see Blocks),
 Elementor's editor, Elementor's own editor AJAX (rendering a widget, fetching a
 template), and Elementor's preview iframe.
 
+- **A carve-out is never granted for a post the user cannot edit.** A wp-admin
+  screen, a block editor render and Elementor's edit mode describe the shape of a
+  request, and a request is not a capability. Each is authoring for a post only
+  when the user can `edit_post` THAT post, so a contributor who opens the block
+  renderer, or the REST edit context, with their own draft as the post reads
+  nothing of any other post: not its restricted blocks, its restricted body, its
+  generated excerpt or what a Latest Posts block lists. A render with no post to
+  name, such as a template part, a widget or the list a Latest Posts block builds
+  of its own choosing, needs `edit_others_posts`, and the posts such a list prints
+  are then judged one by one when each is rendered. The same applies on a wp-admin
+  screen: a contributor's Posts list, in extended view, shows the excerpts of
+  their own posts only.
 - **The preview flag is trusted only on the page it names.** The
   `?elementor-preview=<id>` argument is a query-string value anyone can append to
   any URL, and Elementor only checks that the user may edit the id it carries. So
@@ -421,8 +433,8 @@ template), and Elementor's preview iframe.
   too, and so are the blocks on a request that is not for a single post.
   Otherwise anybody who can edit one post could print any restricted post into it
   and open the preview to read it. Elementor's editor itself and wp-admin screens
-  stay authoring for every post, and an element whose Elementor document cannot be
-  identified is treated as a visitor's.
+  are authoring for every post the user may edit, and an element whose Elementor
+  document cannot be identified is treated as a visitor's.
 - **admin-ajax.php is not authoring.** WordPress reports `is_admin()` for it, but
   other plugins render Elementor templates through it for anonymous visitors
   ("load more", filters, tabs). Sections and blocks are judged there as a
@@ -548,26 +560,31 @@ visitor could read on its own: a fallback that is itself restricted renders
 nothing. A block hidden by its policy gets no fallback. A fallback that names
 itself ends rather than recursing.
 
-**Authors are never filtered.** The block editor renders server-side over REST, so
-those requests are recognised as authoring, by
-`Agend_Content_Access_Frontend::is_block_editor_request()`. ALL of these hold:
+**Authors are never filtered, for the posts they may edit.** The block editor
+renders server-side over REST, so those requests are recognised as authoring, by
+`Agend_Content_Access_Frontend::is_authoring_for_post()`. ALL of these hold:
 
 1. WordPress is serving a REST request. A page URL with `?context=edit` is not.
 2. The user can `edit_posts`. A query arg, a header or an unauthenticated REST
    call cannot supply this.
 3. The route is `/wp/v2/block-renderer/...`, or the request asks for
    `context=edit`.
-4. If a post is being rendered, the user can edit that post. Listing other
-   people's posts with `context=edit` is not authoring them. With no post in the
-   request (a block renderer call with no `post_id`) the user must be able to
-   `edit_others_posts`, because such a call can render a template part or a
-   pattern that is not theirs.
+4. The user can edit the post being rendered, asked of EACH post as it renders and
+   not once for the request. The request names one post (the `post_id`, or the
+   post the editor loads) and renders many: a Latest Posts block, a query loop, a
+   pattern or a template part list or print posts that are not that one, and what
+   the request names says nothing of them. Listing other people's posts with
+   `context=edit`, or naming your own draft to render a block that lists them, is
+   not authoring them. With no post to name (a template part, a widget, a block
+   renderer call with no `post_id`) the user must be able to `edit_others_posts`,
+   because such a render can reach a post that is not theirs.
 
-wp-admin screens are authoring for users who can `edit_posts`, and an
-admin-ajax render is always a visitor's, because "load more" and live filters
-print blocks to anonymous visitors through it. An editor viewing the front end
-is judged like anyone else, as for Elementor, apart from the preview iframe, and
-there only for the blocks of the post being previewed.
+wp-admin screens follow the same fourth rule: a post is authored there only when
+the user can edit it, so a contributor's list screen shows the excerpts of their
+own posts and no one else's. An admin-ajax render is always a visitor's, because
+"load more" and live filters print blocks to anonymous visitors through it. An
+editor viewing the front end is judged like anyone else, as for Elementor, apart
+from the preview iframe, and there only for the blocks of the post being previewed.
 
 **Page caches.** A response is never stored if the post it renders holds a
 restricted or conditioned block anywhere, synced patterns included. That is

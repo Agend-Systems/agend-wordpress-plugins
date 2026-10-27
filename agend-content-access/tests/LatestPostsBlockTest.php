@@ -282,6 +282,7 @@ final class LatestPostsBlockTest extends BlockEnforcementTestCase {
 
 	#[Test]
 	public function an_editor_building_a_page_in_elementor_sees_the_block_as_configured(): void {
+		$this->asEditor();
 		do_action( 'elementor/loaded' );
 		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
 
@@ -291,7 +292,8 @@ final class LatestPostsBlockTest extends BlockEnforcementTestCase {
 	}
 
 	#[Test]
-	public function a_wp_admin_screen_is_left_alone(): void {
+	public function a_wp_admin_screen_is_left_alone_for_a_user_who_may_edit_others_posts(): void {
+		$this->asEditor();
 		$GLOBALS['agend_test_is_admin'] = true;
 
 		$html = $this->render( $this->block( self::FULL ) );

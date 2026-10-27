@@ -326,7 +326,8 @@ final class BlockAuthoringContextTest extends BlockEnforcementTestCase {
 	// -----------------------------------------------------------------------
 
 	#[Test]
-	public function the_existing_admin_rule_is_unchanged(): void {
+	public function a_wp_admin_screen_is_authoring_for_a_user_who_may_edit(): void {
+		$this->asEditor();
 		$GLOBALS['agend_test_is_admin'] = true;
 
 		$this->assertTrue( Agend_Content_Access_Frontend::is_authoring_context() );
@@ -346,16 +347,13 @@ final class BlockAuthoringContextTest extends BlockEnforcementTestCase {
 		$this->assertSame( '<p>SECRET</p>', do_blocks( $this->secret() ) );
 	}
 
-	/**
-	 * `is_authoring_context()` calls any wp-admin request authoring, and a
-	 * subscriber on a dashboard screen is not authoring anything.
-	 */
+	/** A wp-admin request is not a capability: a subscriber on a dashboard screen is not authoring anything. */
 	#[Test]
 	public function a_user_who_cannot_edit_on_a_wp_admin_screen_is_still_filtered(): void {
 		$this->asVisitor();
 		$GLOBALS['agend_test_is_admin'] = true;
 
-		$this->assertTrue( Agend_Content_Access_Frontend::is_authoring_context() );
+		$this->assertFalse( Agend_Content_Access_Frontend::is_authoring_context() );
 		$this->assertSame( '', do_blocks( $this->secret() ) );
 	}
 

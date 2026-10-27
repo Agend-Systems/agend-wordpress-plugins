@@ -217,61 +217,76 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
-	 * Whether this request is somebody AUTHORING the page rather than reading it.
+	 * Whether this request is somebody AUTHORING the page it serves, rather than
+	 * reading it.
 	 *
 	 * Gating never applies here. An editor building a page must see every
 	 * section, including ones they have just restricted, or they cannot lay out
 	 * or edit the very content the policy protects. A page builder that hides
 	 * blocks from their author is not a security feature, it is a broken editor.
 	 *
-	 * This is safe because an authoring context requires an edit capability that
-	 * WordPress has already checked: Elementor refuses to open its editor or
-	 * preview for a user without `edit_post` on the target. So this is not a
-	 * second, weaker gate; it is a short-circuit in front of a check that would
-	 * grant anyway via `can_preview()`. It exists as an explicit early return so
-	 * the intent is legible and so no later filter can accidentally reach a
-	 * builder request.
+	 * This is safe because an authoring context requires an edit capability on the
+	 * post the request is for: it is `is_authoring_for_post()` asked about the
+	 * requested page, so a wp-admin screen, the block editor's own REST renders and
+	 * Elementor's edit mode count only for a post the user may edit, and never on
+	 * the strength of the request's shape alone. It exists as an explicit early
+	 * return so the intent is legible and so no later filter can accidentally reach
+	 * a builder request.
 	 *
 	 * Note the boundary: this covers the EDITOR and its preview iframe, and the
-	 * block editor's own REST renders (`is_block_editor_request()`). A public
-	 * pageload of an Elementor page is a normal frontend request and is gated
-	 * like any other, which is what `suppress_builder_data()` exists for.
+	 * block editor's own REST renders. A public pageload of an Elementor page is a
+	 * normal frontend request and is gated like any other, which is what
+	 * `suppress_builder_data()` exists for.
 	 *
 	 * The preview iframe is recognised only on the page it is previewing, and its
 	 * carve-out covers only that page. The `elementor-preview` query argument is
 	 * attacker-controlled, and what makes it safe to honour is that the id it
-	 * carries is the post this request serves. This answers "is there an authoring
-	 * request here at all", which is right for the one decision made about the
-	 * requested page itself. Anything that decides about a post rendered DURING the
-	 * request, a loop, a widget, a template, a block, must ask
-	 * `is_authoring_for_post()` instead.
+	 * carries is the post this request serves. This answers the one decision made
+	 * about the requested page itself. Anything that decides about a post rendered
+	 * DURING the request, a loop, a widget, a template, a block, must ask
+	 * `is_authoring_for_post()` about that post instead.
 	 *
 	 * @return bool
 	 */
 	public static function is_authoring_context(): bool {
-		return self::is_authoring_for_every_post() || self::is_previewing_requested_post();
+		return self::is_authoring_for_post( self::requested_object_id() );
 	}
 
 	/**
 	 * Whether this request is authoring the given post, as distinct from rendering
 	 * it on the way past.
 	 *
-	 * A wp-admin screen, the block editor's own renders and Elementor's real edit
-	 * mode are authoring for every post they render: the editor is looking at a
-	 * workspace, not at one document. Elementor's PREVIEW is authoring for one post
-	 * only, the one named by the flag and served by the request. Every other post
-	 * rendered during that request, a query loop listing restricted posts, a related
-	 * posts widget, a template pulled in by a shortcode, a block of any other post,
-	 * is something a visitor to the same page would be shown, and is gated like it.
-	 * Otherwise anybody who can edit one post could print any restricted post into
-	 * it and open the preview to read it.
+	 * THE RULE: a carve-out is never granted for a post the current user cannot
+	 * edit. A wp-admin screen, the block editor's own renders and Elementor's real
+	 * edit mode describe the request, and a request is not a capability. Each of
+	 * them is authoring for a post only when the user holds `edit_post` on THAT
+	 * post. Otherwise a contributor, who may edit one draft, could open the block
+	 * renderer or the REST edit context with that draft as the post and read every
+	 * restricted body, section and generated excerpt of every other post the
+	 * request renders, and a contributor's wp-admin list screen would print the
+	 * excerpts of members-only posts.
+	 *
+	 * A post that is not known, zero, is one the request chose for itself: a
+	 * template part, a widget, a list of posts. The user must be able to
+	 * `edit_others_posts` then, which is the capability to edit a post that is
+	 * anyone's. Callers that list posts of their own choosing, and so cannot name
+	 * them, are judged for each post when each is rendered (an excerpt, a body) and
+	 * treated as a visitor's where they cannot be.
+	 *
+	 * Elementor's PREVIEW is authoring for one post only, the one named by the flag
+	 * and served by the request, and needs no editing session. Every other post
+	 * rendered during that request, a query loop listing restricted posts, a
+	 * related posts widget, a template pulled in by a shortcode, a block of any
+	 * other post, is something a visitor to the same page would be shown, and is
+	 * gated like it. Otherwise anybody who can edit one post could print any
+	 * restricted post into it and open the preview to read it.
 	 *
 	 * @param int $post_id Post being rendered. Zero when it is not known, which is
 	 *                     never the previewed post.
 	 * @return bool
 	 */
 	public static function is_authoring_for_post( int $post_id ): bool {
-		if ( self::is_authoring_for_every_post() ) {
+		if ( self::is_editing_session() && self::may_edit_for_authoring( $post_id ) ) {
 			return true;
 		}
 
@@ -281,25 +296,40 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
-	 * Whether the request is authoring whatever post it renders.
+	 * Whether the request is an editing session: a wp-admin screen, the block
+	 * editor's own server-side render, or Elementor's editor itself.
 	 *
-	 * A wp-admin screen, the block editor's own server-side render (which is
-	 * decided per post already: see `is_block_editor_request()`), or Elementor's
-	 * editor itself.
+	 * Only the SHAPE of the request. It says that somebody is editing something,
+	 * not what, so it grants nothing on its own: `is_authoring_for_post()` also
+	 * asks whether the user may edit the post being rendered.
 	 *
 	 * @return bool
 	 */
-	private static function is_authoring_for_every_post(): bool {
-		if ( is_admin() ) {
-			return true;
-		}
+	private static function is_editing_session(): bool {
+		return is_admin()
+			|| self::is_block_editor_session()
+			|| self::is_elementor_edit_mode();
+	}
 
-		// The block editor renders server-side over REST, where is_admin() is
-		// false: see `is_block_editor_request()` for the exact rule.
-		if ( self::is_block_editor_request() ) {
-			return true;
-		}
+	/**
+	 * Whether the user may edit the given post, the one capability every
+	 * editing-session carve-out rests on.
+	 *
+	 * @param int $post_id Post, or zero for "a post that is anyone's".
+	 * @return bool
+	 */
+	private static function may_edit_for_authoring( int $post_id ): bool {
+		return $post_id > 0
+			? current_user_can( 'edit_post', $post_id )
+			: current_user_can( 'edit_others_posts' );
+	}
 
+	/**
+	 * Whether Elementor says the editor is open on a document for this user.
+	 *
+	 * @return bool
+	 */
+	private static function is_elementor_edit_mode(): bool {
 		if ( ! agend_content_access_has_elementor() ) {
 			return false;
 		}
@@ -371,7 +401,8 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
-	 * Whether this request is the block editor's OWN server-side render.
+	 * Whether this request is the block editor's OWN server-side render, for the
+	 * post the request is about.
 	 *
 	 * The block editor never renders through wp-admin: it asks the REST API, where
 	 * `is_admin()` is false. Without this an author would see their own restricted
@@ -399,6 +430,13 @@ class Agend_Content_Access_Frontend {
 	 *      a user who can only write their own posts sees restricted blocks removed
 	 *      from a server-side preview that carries no post id.
 	 *
+	 * This answers for the request's own post, the one WordPress set up for it. It
+	 * is not what decides whether a post rendered ALONG THE WAY is authored: the
+	 * request names one post and renders many, and the post it names says nothing
+	 * about the others. Every decision about a rendered post goes through
+	 * `is_authoring_for_post()`, which uses clauses 1 to 3 and then asks clause 4
+	 * of the post it was given.
+	 *
 	 * Reading `$_GET` and `$GLOBALS['wp']` here, rather than capturing the
 	 * dispatched `WP_REST_Request`, can only miss a case (a batched sub-request,
 	 * which then renders as a visitor's would), never invent one.
@@ -406,6 +444,25 @@ class Agend_Content_Access_Frontend {
 	 * @return bool
 	 */
 	public static function is_block_editor_request(): bool {
+		if ( ! self::is_block_editor_session() ) {
+			return false;
+		}
+
+		$post = get_post();
+
+		return self::may_edit_for_authoring( $post instanceof WP_Post ? (int) $post->ID : 0 );
+	}
+
+	/**
+	 * Whether the request has the SHAPE of the block editor's own server-side
+	 * render: clauses 1 to 3 of `is_block_editor_request()`.
+	 *
+	 * Says nothing about which post. A request of this shape is authoring a post
+	 * only if the user may edit that post: see `is_authoring_for_post()`.
+	 *
+	 * @return bool
+	 */
+	private static function is_block_editor_session(): bool {
 		if ( ! self::is_rest_request() ) {
 			return false;
 		}
@@ -414,17 +471,7 @@ class Agend_Content_Access_Frontend {
 			return false;
 		}
 
-		if ( 0 !== strpos( self::rest_route(), self::BLOCK_RENDERER_ROUTE ) && ! self::rest_context_is_edit() ) {
-			return false;
-		}
-
-		$post = get_post();
-
-		if ( $post instanceof WP_Post ) {
-			return current_user_can( 'edit_post', $post->ID );
-		}
-
-		return current_user_can( 'edit_others_posts' );
+		return 0 === strpos( self::rest_route(), self::BLOCK_RENDERER_ROUTE ) || self::rest_context_is_edit();
 	}
 
 	/**
@@ -592,13 +639,15 @@ class Agend_Content_Access_Frontend {
 	 * reports `is_admin()` for admin-ajax.php, but "load more" buttons, filters
 	 * and infinite scroll print posts to ANONYMOUS visitors through it, so an
 	 * is_admin() exclusion would leave exactly those renders open. wp-admin
-	 * screens proper stay out: an editor there needs to see what they are
-	 * editing, and `can_preview()` already covers any post they may edit.
+	 * screens proper are authoring only for a post the user may edit: an editor
+	 * there needs to see what they are editing, and a contributor's list screen
+	 * is not a licence to read the excerpts of posts that are not theirs.
 	 *
-	 * Asked about a POST, because Elementor's preview is authoring for the one
-	 * post it previews and for nothing else on the request. Called without one,
-	 * it answers for a post that is not the previewed one, which is the right
-	 * answer for a render that lists posts of its own choosing.
+	 * Asked about a POST, because an editing session is authoring for the posts
+	 * the user may edit and Elementor's preview for the one post it previews, and
+	 * for nothing else on the request. Called without one, it answers for a post
+	 * that is anyone's, which needs `edit_others_posts`: the right answer for a
+	 * render that lists posts of its own choosing and cannot name them.
 	 *
 	 * Public so the block driver and the Elementor driver ask the same question and
 	 * cannot disagree with the loop gates about what an admin-ajax render is, or
@@ -608,8 +657,8 @@ class Agend_Content_Access_Frontend {
 	 * @return bool
 	 */
 	public static function renders_for_visitors( int $post_id = 0 ): bool {
-		if ( is_admin() ) {
-			return wp_doing_ajax();
+		if ( is_admin() && wp_doing_ajax() ) {
+			return true;
 		}
 
 		return ! self::is_authoring_for_post( $post_id );
@@ -625,16 +674,15 @@ class Agend_Content_Access_Frontend {
 	 * reports it, and a visitor cannot switch it on for one, because it also
 	 * requires the edit capability on the document the editor names.
 	 *
+	 * That capability is on the ONE document the editor names. The request can
+	 * still render others (a Loop Grid, a Template widget), so this is the shape of
+	 * the request only: whoever relies on it must also ask whether the user may edit
+	 * the document being rendered, as `Agend_Content_Access_Elementor` does.
+	 *
 	 * @return bool
 	 */
 	public static function is_elementor_editor_ajax(): bool {
-		if ( ! wp_doing_ajax() || ! agend_content_access_has_elementor() ) {
-			return false;
-		}
-
-		$plugin = \Elementor\Plugin::$instance;
-
-		return isset( $plugin->editor ) && $plugin->editor->is_edit_mode();
+		return wp_doing_ajax() && self::is_elementor_edit_mode();
 	}
 
 	/**
@@ -819,8 +867,11 @@ class Agend_Content_Access_Frontend {
 			return $parsed_block;
 		}
 
-		// No post: the block lists posts of its own choosing, and none of them is
-		// the previewed one by being in a preview. So it is switched in a preview too.
+		// No post: the block lists posts of its own choosing, none of which can be
+		// named, so the question is the one for a post that is anyone's
+		// (`edit_others_posts`, in an editing session). None of them is the previewed
+		// post by being in a preview either, so it is switched in a preview too. The
+		// excerpts it then prints are judged for each post it lists.
 		if ( ! self::renders_for_visitors() ) {
 			return $parsed_block;
 		}

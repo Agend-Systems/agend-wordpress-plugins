@@ -483,12 +483,13 @@ class Agend_Content_Access_Blocks {
 	 * `is_admin()` and which anonymous visitors reach through "load more" and
 	 * filter widgets. `is_authoring_context()` alone would call that authoring.
 	 *
-	 * And the user must be able to `edit_posts`. `is_authoring_context()` accepts
-	 * any wp-admin request, and a subscriber on a wp-admin screen, or a visitor
-	 * on `admin-post.php`, is not authoring anything. Blocks are not exempt for
-	 * editors on the front end either, as Elementor sections are not: only the
-	 * editor's own renders are, which is what keeps an author able to repair the
-	 * content a policy hides from them.
+	 * And the user must be able to `edit_posts`. The question asked of the post is
+	 * already one of capability (`edit_post` for that post, `edit_others_posts` for
+	 * none), so this is a floor rather than the test: a subscriber on a wp-admin
+	 * screen, or a visitor on `admin-post.php`, is not authoring anything. Blocks
+	 * are not exempt for editors on the front end either, as Elementor sections are
+	 * not: only the editor's own renders are, which is what keeps an author able to
+	 * repair the content a policy hides from them.
 	 *
 	 * The question is asked about the post the block belongs to. Elementor's
 	 * preview is authoring for the previewed post only, so a block of any other

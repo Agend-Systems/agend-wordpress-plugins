@@ -358,8 +358,10 @@ final class PreviewCarveOutTest extends TestCase {
 	// Where the carve-out still covers everything
 	// -----------------------------------------------------------------------
 
+	/** Every post the user may edit: an editor, who may edit them all. See `AuthoringPerPostTest` for the user who may not. */
 	#[Test]
-	public function elementors_editor_is_still_authoring_for_every_post(): void {
+	public function elementors_editor_is_authoring_for_every_post_the_user_may_edit(): void {
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
 		$this->visitOwnPost();
 		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
 
@@ -369,8 +371,9 @@ final class PreviewCarveOutTest extends TestCase {
 	}
 
 	#[Test]
-	public function a_wp_admin_screen_is_still_authoring_for_every_post(): void {
-		$GLOBALS['agend_test_is_admin'] = true;
+	public function a_wp_admin_screen_is_authoring_for_every_post_the_user_may_edit(): void {
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+		$GLOBALS['agend_test_is_admin']                      = true;
 
 		$this->assertSame( self::BODY, $this->render( self::RESTRICTED ) );
 		$this->assertTrue( Agend_Content_Access_Frontend::is_authoring_for_post( 0 ) );

@@ -226,8 +226,10 @@ final class BlockPreviewCarveOutTest extends BlockEnforcementTestCase {
 	// Where authoring still covers every post
 	// -----------------------------------------------------------------------
 
+	/** Every post the user may edit: an editor, who may edit them all. See `AuthoringPerPostTest` for the user who may not. */
 	#[Test]
-	public function elementors_editor_is_still_authoring_for_every_post(): void {
+	public function elementors_editor_is_authoring_for_every_post_the_user_may_edit(): void {
+		$this->asEditor();
 		$this->requestPage( self::OWN );
 		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
 
@@ -235,7 +237,8 @@ final class BlockPreviewCarveOutTest extends BlockEnforcementTestCase {
 	}
 
 	#[Test]
-	public function a_wp_admin_screen_is_still_authoring_for_every_post(): void {
+	public function a_wp_admin_screen_is_authoring_for_every_post_the_user_may_edit(): void {
+		$this->asEditor();
 		$GLOBALS['agend_test_is_admin'] = true;
 
 		$this->assertSame( '<p>SECRET</p>', $this->renderPost( self::RESTRICTED ) );

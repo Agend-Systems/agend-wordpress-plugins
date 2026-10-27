@@ -167,7 +167,12 @@ class Agend_Content_Access_Protected_File_Widget extends \Elementor\Widget_Base 
 			: '';
 
 		if ( '' === $asset_id ) {
-			if ( Agend_Content_Access_Frontend::is_authoring_context() ) {
+			// A hint for the author, who may be in the editor's own AJAX render, which
+			// belongs to no requested page: `is_authoring_context()` asks about one.
+			if (
+				Agend_Content_Access_Frontend::is_authoring_context()
+				|| Agend_Content_Access_Frontend::is_elementor_editor_ajax()
+			) {
 				printf(
 					'<p class="agend-protected-file agend-protected-file--empty">%s</p>',
 					esc_html__(
