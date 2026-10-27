@@ -100,6 +100,8 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_queried_object']     = null;
 		$GLOBALS['agend_test_in_the_loop']        = false;
 		$GLOBALS['agend_test_rest_request']       = false;
+		$GLOBALS['agend_test_revisions']          = array();
+		$GLOBALS['agend_test_autosaves']          = array();
 
 		// The request WordPress is dispatching, whose `rest_route` query var is
 		// how a REST route is read. Absent unless a test is about REST.

@@ -1261,16 +1261,23 @@ if ( ! isset( $GLOBALS['agend_test_post_meta'] ) ) {
 }
 
 if ( ! function_exists( 'wp_is_post_revision' ) ) {
-	/** No test post is a revision. */
+	/**
+	 * No test post is a revision unless it is listed in
+	 * `$GLOBALS['agend_test_revisions']` (post id => parent id), which is what
+	 * WordPress returns: the parent's id, or false.
+	 */
 	function wp_is_post_revision( $post_id ) {
-		return false;
+		return $GLOBALS['agend_test_revisions'][ (int) $post_id ] ?? false;
 	}
 }
 
 if ( ! function_exists( 'wp_is_post_autosave' ) ) {
-	/** No test post is an autosave. */
+	/**
+	 * No test post is an autosave unless it is listed in
+	 * `$GLOBALS['agend_test_autosaves']` (post id => parent id).
+	 */
 	function wp_is_post_autosave( $post_id ) {
-		return false;
+		return $GLOBALS['agend_test_autosaves'][ (int) $post_id ] ?? false;
 	}
 }
 
@@ -2040,6 +2047,37 @@ if ( ! class_exists( 'WP_Post' ) ) {
 					$this->$key = $value;
 				}
 			}
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_Query' ) ) {
+	/**
+	 * Minimal WP_Query stand-in: the query vars, and the two reads a
+	 * `pre_get_posts` callback makes. A real class, because production code
+	 * checks `instanceof WP_Query` before it touches a query.
+	 */
+	class WP_Query {
+		/** @var array<string, mixed> */
+		public array $query_vars = array();
+
+		public bool $is_main = true;
+
+		public function __construct( array $query_vars = array() ) {
+			$this->query_vars = $query_vars;
+		}
+
+		/** The var, or '' as WordPress returns for one that is not set. */
+		public function get( $query_var, $default_value = '' ) {
+			return $this->query_vars[ $query_var ] ?? $default_value;
+		}
+
+		public function set( $query_var, $value ): void {
+			$this->query_vars[ $query_var ] = $value;
+		}
+
+		public function is_main_query(): bool {
+			return $this->is_main;
 		}
 	}
 }

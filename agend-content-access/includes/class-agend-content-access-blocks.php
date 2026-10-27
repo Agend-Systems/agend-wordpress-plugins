@@ -10,8 +10,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Removes the blocks a visitor may not see, and keeps the response from
- * giving them away.
+ * Removes the blocks a visitor may not see, and keeps the response and the
+ * search results from giving them away.
  *
  * This is the block editor's equivalent of `Agend_Content_Access_Elementor`,
  * and the decision it makes is the same one: a block carries an `agendAccess`
@@ -41,13 +41,26 @@ if ( ! defined( 'ABSPATH' ) ) {
  * would judge a restricted post's block in a loop on a public page against the
  * public page, and fail open.
  *
- * Three leak vectors beyond the render itself are closed here, and each fails
+ * Four leak vectors beyond the render itself are closed here, and each fails
  * silently if it is missed: page caches (`mark_page_uncacheable()` and the
- * render-time marking), the authoring carve-out
- * (`Agend_Content_Access_Frontend::is_authoring_context()`), and a
+ * render-time marking), core search (`exclude_from_search()`), the authoring
+ * carve-out (`Agend_Content_Access_Frontend::is_authoring_context()`), and a
  * display-condition fallback that is itself restricted (`fallback_for()`).
  */
 class Agend_Content_Access_Blocks {
+
+	/**
+	 * Post meta flag: this post holds a block with an audience policy or display
+	 * conditions, somewhere in its tree, synced patterns included.
+	 *
+	 * Protected (underscore) so it is not editable as a custom field and, never
+	 * having been registered for REST, is not exposed there. Read only by the
+	 * search exclusion. Page caching never trusts it, because a flag can be stale
+	 * (see `exclude_from_search()`); that decision scans the live tree.
+	 *
+	 * @var string
+	 */
+	const SEARCH_FLAG_META_KEY = '_agend_access_block_rules';
 
 	/**
 	 * Priority of the `pre_render_block` callback: first.
@@ -96,6 +109,8 @@ class Agend_Content_Access_Blocks {
 	public function __construct() {
 		add_filter( 'pre_render_block', array( $this, 'pre_render_block' ), self::PRE_RENDER_PRIORITY, 3 );
 		add_action( 'template_redirect', array( $this, 'mark_page_uncacheable' ), self::TEMPLATE_REDIRECT_PRIORITY );
+		add_action( 'save_post', array( $this, 'sync_search_flag' ), 20 );
+		add_action( 'pre_get_posts', array( $this, 'exclude_from_search' ) );
 	}
 
 	// -----------------------------------------------------------------------
@@ -272,10 +287,9 @@ class Agend_Content_Access_Blocks {
 	 * template part or a widget is not in this post's content, and is caught by
 	 * the render-time marking in `pre_render_block()` instead.
 	 *
-	 * The scan is live and never a value saved with the post: a pattern edited
-	 * after the page was saved changes what the page holds without touching the
-	 * page, and a cache decision that is stale in that direction serves a
-	 * member's copy.
+	 * The scan is live, never the saved search flag: a pattern edited after the
+	 * page was saved changes what the page holds without touching the flag, and
+	 * a cache decision that is stale in that direction serves a member's copy.
 	 */
 	public function mark_page_uncacheable(): void {
 		if ( ! is_singular() ) {
@@ -322,7 +336,7 @@ class Agend_Content_Access_Blocks {
 	}
 
 	// -----------------------------------------------------------------------
-	// The tree check, for the cache marking
+	// The tree check, shared by the cache marking and the search flag
 	// -----------------------------------------------------------------------
 
 	/**
@@ -387,5 +401,130 @@ class Agend_Content_Access_Blocks {
 		}
 
 		return false;
+	}
+
+	// -----------------------------------------------------------------------
+	// Core search
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Records on save whether the post holds a block with a rule.
+	 *
+	 * The flag is what `exclude_from_search()` filters on, since a search query
+	 * cannot parse blocks. It is set or cleared from the same tree check the
+	 * cache marking uses.
+	 *
+	 * LIMITS, both documented in the README. A later edit to a synced pattern
+	 * does not update the flag on the pages that use it, so a restriction added
+	 * to a pattern is not hidden from search on those pages until each is saved
+	 * again. And the flag guards core search only: a third-party indexer that
+	 * reads raw `post_content` at save (Yoast, RankMath, ElasticPress and the
+	 * like) is outside this plugin's reach, and serves that text through its own
+	 * search UI.
+	 *
+	 * @param int $post_id Post being saved.
+	 */
+	public function sync_search_flag( $post_id ): void {
+		$post_id = (int) $post_id;
+
+		// An autosave is stored as a revision and is not the post.
+		if ( $post_id <= 0 || wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
+			return;
+		}
+
+		$post = get_post( $post_id );
+
+		if ( ! $post instanceof WP_Post ) {
+			return;
+		}
+
+		if ( self::tree_carries_rules( (string) $post->post_content ) ) {
+			update_post_meta( $post_id, self::SEARCH_FLAG_META_KEY, '1' );
+			return;
+		}
+
+		delete_post_meta( $post_id, self::SEARCH_FLAG_META_KEY );
+	}
+
+	/**
+	 * Keeps posts that hold a block with a rule out of search for visitors.
+	 *
+	 * Core search matches the raw `post_content` with `LIKE` in SQL and never
+	 * touches the render pipeline, so a public page with a members-only block
+	 * matches a search for the protected text, and the hit alone tells the
+	 * searcher the text is there. Suppression cannot help: the block is removed
+	 * from the render, not from the question.
+	 *
+	 * Applies to any query that carries a search term, not only the main one,
+	 * because the same query is what the REST API runs for `?search=` and for
+	 * `/wp/v2/search`, and what a theme's live search runs. A query with no search
+	 * term is untouched. Users who can `edit_posts` are not filtered: they can
+	 * read the raw content anyway.
+	 *
+	 * The cost is real and is why this is filterable: the post's public parts
+	 * stop being searchable too. Return false from
+	 * `agend_content_access_search_excludes_block_rules` to turn it off.
+	 *
+	 * The existing `meta_query` is wrapped, never appended to. Appending a
+	 * clause to a query whose top-level relation is `OR` would read "or has no
+	 * flag", which widens the result instead of narrowing it.
+	 *
+	 * @param WP_Query $query Query about to run.
+	 */
+	public function exclude_from_search( $query ): void {
+		if ( ! $query instanceof WP_Query || ! self::is_search_query( $query ) ) {
+			return;
+		}
+
+		/**
+		 * Filters whether posts holding a restricted or conditioned block are
+		 * excluded from search for visitors who cannot edit.
+		 *
+		 * Excluding them also hides their public parts from search, which is the
+		 * price of not revealing that the protected text exists.
+		 *
+		 * @param bool     $exclude Whether to exclude. Default true.
+		 * @param WP_Query $query   The search query.
+		 */
+		if ( ! apply_filters( 'agend_content_access_search_excludes_block_rules', true, $query ) ) {
+			return;
+		}
+
+		if ( current_user_can( 'edit_posts' ) ) {
+			return;
+		}
+
+		$clause   = array(
+			'key'     => self::SEARCH_FLAG_META_KEY,
+			'compare' => 'NOT EXISTS',
+		);
+		$existing = $query->get( 'meta_query' );
+
+		$query->set(
+			'meta_query',
+			is_array( $existing ) && array() !== $existing
+				? array(
+					'relation' => 'AND',
+					$existing,
+					$clause,
+				)
+				: array( $clause )
+		);
+	}
+
+	/**
+	 * Whether the query searches for a term.
+	 *
+	 * Anything that is not plainly empty counts, including a value of an odd
+	 * type, because a search term this cannot read is one WordPress may still
+	 * match against the content.
+	 *
+	 * @param WP_Query $query Query.
+	 * @return bool
+	 */
+	private static function is_search_query( WP_Query $query ): bool {
+		$term = $query->get( 's' );
+
+		return null !== $term && false !== $term && '' !== $term && array() !== $term;
 	}
 }
