@@ -231,8 +231,9 @@ class Agend_Content_Access_Viewer_Facts {
 	 * The current visitor's facts from Agend, or null when they cannot be known.
 	 *
 	 * Null covers every failure: the Core wrapper is missing (an older Core), the
-	 * gateway returned an error, or the response was not an array. The caller
-	 * decides what unknown means. This method never answers "holds nothing" for
+	 * gateway returned an error, or the response was a 2xx that is not the
+	 * documented answer (see `entitlements_data()`). The caller decides what
+	 * unknown means. This method never answers "holds nothing" for
 	 * a failure, because on an inverted rule that would disclose rather than
 	 * deny.
 	 *
@@ -306,11 +307,12 @@ class Agend_Content_Access_Viewer_Facts {
 			return null;
 		}
 
-		$data = isset( $response['data'] ) && is_array( $response['data'] )
-			? $response['data']
-			: $response;
+		$data = self::entitlements_data( $response );
 
-		if ( ! is_array( $data ) ) {
+		if ( null === $data ) {
+			// A 2xx that is not the documented answer. Unknown, and not cached:
+			// normalising it would read it as "holds nothing", which on an
+			// inverted rule discloses rather than denies.
 			return null;
 		}
 
@@ -338,9 +340,10 @@ class Agend_Content_Access_Viewer_Facts {
 	 * compatibility with existing ESAC data.
 	 *
 	 * Null covers every failure, exactly as it does for `member()`: the Core
-	 * wrapper is missing, the gateway returned an error, or the response was not
-	 * an array. It is never "belongs to no segments", because that is a
-	 * different claim and a segment rule may be inverted.
+	 * wrapper is missing, the gateway returned an error, or the response was a 2xx
+	 * that is not the documented answer (see `segments_data()`). It is never
+	 * "belongs to no segments", because that is a different claim and a segment
+	 * rule may be inverted.
 	 *
 	 * Like `member()` this does not decide whether the visitor is signed in.
 	 * Each caller applies its own rule for that and does not call this for a
@@ -408,11 +411,11 @@ class Agend_Content_Access_Viewer_Facts {
 			return null;
 		}
 
-		$rows = isset( $response['data'] ) && is_array( $response['data'] )
-			? $response['data']
-			: $response;
+		$rows = self::segments_data( $response );
 
-		if ( ! is_array( $rows ) ) {
+		if ( null === $rows ) {
+			// Not the documented answer. Unknown, never "in no segments". See
+			// `resolve()`.
 			return null;
 		}
 
@@ -443,6 +446,84 @@ class Agend_Content_Access_Viewer_Facts {
 		}
 
 		return $facts;
+	}
+
+	/**
+	 * The `data` of an entitlements response, or null when it is not the
+	 * documented answer.
+	 *
+	 * A 2xx status says the request was answered, not that the body is the answer.
+	 * Core hands back the decoded body as it is, so a `{"success": false}` sent
+	 * with a 200, an empty array (Core's result for a 204), or a body with no
+	 * member standing in it all arrive here looking like successes. Normalising
+	 * any of them reads as "not a member", which is cached and, on an inverted
+	 * rule, passes. So the answer is accepted only in the documented shape: no
+	 * `success` flag, or one that is `true`; an array `data`; and an array
+	 * `tier_ids` inside it, which the gateway always sends, empty for a
+	 * non-member. A body with no `data` envelope is not read as though it were the
+	 * data, because that is exactly how an empty body would pass.
+	 *
+	 * @param mixed $response Return value of `agend_apps_crm_get_my_entitlements()`.
+	 * @return array|null
+	 */
+	private static function entitlements_data( $response ): ?array {
+		$data = self::envelope_data( $response );
+
+		if ( null === $data || ! isset( $data['tier_ids'] ) || ! is_array( $data['tier_ids'] ) ) {
+			return null;
+		}
+
+		return $data;
+	}
+
+	/**
+	 * The rows of a segments response, or null when it is not the documented
+	 * answer.
+	 *
+	 * Same rule as `entitlements_data()`, with a list for `data`: an empty list is
+	 * the genuine "in no segments", while a `data` that is null, an object or a
+	 * scalar is not an answer at all.
+	 *
+	 * @param mixed $response Return value of `agend_apps_crm_get_my_segments()`.
+	 * @return array|null
+	 */
+	private static function segments_data( $response ): ?array {
+		$rows = self::envelope_data( $response );
+
+		return null !== $rows && self::is_list( $rows ) ? $rows : null;
+	}
+
+	/**
+	 * Whether an array is a list: keys 0..n-1 in order. An empty array is.
+	 * (`array_is_list()` needs PHP 8.1.)
+	 *
+	 * @param array $value Candidate list.
+	 * @return bool
+	 */
+	private static function is_list( array $value ): bool {
+		return array() === $value || array_keys( $value ) === range( 0, count( $value ) - 1 );
+	}
+
+	/**
+	 * The array under `data` of a gateway envelope, or null.
+	 *
+	 * Fails closed on the `success` flag: when it is present it must be `true`.
+	 *
+	 * @param mixed $response Decoded response.
+	 * @return array|null
+	 */
+	private static function envelope_data( $response ): ?array {
+		if ( ! is_array( $response ) ) {
+			return null;
+		}
+
+		if ( array_key_exists( 'success', $response ) && true !== $response['success'] ) {
+			return null;
+		}
+
+		return isset( $response['data'] ) && is_array( $response['data'] )
+			? $response['data']
+			: null;
 	}
 
 	/**

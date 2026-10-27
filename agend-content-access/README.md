@@ -194,7 +194,11 @@ Rules the cache keeps:
 - A visitor with no bearer is never read from or written to the cache either.
   There is no identity to key an entry on, and an entry written under an earlier
   bearer would be stale.
-- A failed lookup is never cached. It reads as unknown and denies.
+- A failed lookup is never cached. It reads as unknown and denies. A 2xx whose
+  body is not the documented answer counts as a failure: `success` false, no
+  `data` array, no `tier_ids` array (or, for segments, no list under `data`).
+  An empty array, which Core returns for a 204, would otherwise read as "holds
+  nothing", be cached, and let an inverted condition pass.
 
 ## Running the tests
 

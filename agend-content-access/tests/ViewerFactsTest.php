@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace Agend\Tests\ContentAccess;
 
 use Agend_Content_Access_Condition_Runtime as Runtime;
+use Agend_Content_Access_Conditions as Conditions;
 use Agend_Apps_Cache;
 use Agend_Content_Access_Decision as Decision;
 use Agend_Content_Access_Policy as Policy;
@@ -15,6 +16,7 @@ use Agend_Content_Access_Viewer_Facts as ViewerFacts;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use WP_Error;
 
@@ -926,12 +928,18 @@ final class ViewerFactsTest extends TestCase {
 		);
 	}
 
+	/**
+	 * Core hands back the decoded body as it is, so a body with no `data` envelope
+	 * is not the documented answer. Reading it as though it were the data is how an
+	 * empty body (Core's `array()` for a 204) would pass as "holds nothing".
+	 */
 	#[Test]
-	public function a_response_without_the_data_envelope_is_read_as_the_data(): void {
+	public function a_response_without_the_data_envelope_is_unknown_and_not_cached(): void {
 		$this->signIn( 7 );
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_my_entitlements_response', $this->memberData() );
 
-		$this->assertSame( array( self::TIER_A ), ViewerFacts::member()['tier_ids'] );
+		$this->assertNull( ViewerFacts::member() );
+		$this->assertSame( array(), Agend_Test_WP::$transients );
 	}
 
 	#[Test]
@@ -977,6 +985,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->signIn( 7 );
 		$this->gatewayReturns(
 			array(
+				'tier_ids'     => array(),
 				'capabilities' => array(
 					array( 'gate_key' => 'ok.key' ),
 					array( 'gate_key' => 'ab' ),                       // too short.
@@ -1007,7 +1016,7 @@ final class ViewerFactsTest extends TestCase {
 	#[Test]
 	public function a_capabilities_field_that_is_not_a_list_holds_nothing(): void {
 		$this->signIn( 7 );
-		$this->gatewayReturns( array( 'capabilities' => 'events.early_access' ) );
+		$this->gatewayReturns( array( 'tier_ids' => array(), 'capabilities' => 'events.early_access' ) );
 
 		$this->assertSame( array(), ViewerFacts::member()['entitlement_keys'] );
 	}
@@ -1017,6 +1026,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->signIn( 7 );
 		$this->gatewayReturns(
 			array(
+				'tier_ids'     => array(),
 				'capabilities' => array(
 					array( 'gate_key' => 'first.key', 'expires_at' => '2099-01-01T00:00:00Z' ),
 					// 2098-06-01 00:30 UTC, written in +10:00. The earliest of the three.
@@ -1035,6 +1045,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->signIn( 7 );
 		$this->gatewayReturns(
 			array(
+				'tier_ids'     => array(),
 				'capabilities' => array(
 					array( 'gate_key' => 'one.key', 'expires_at' => 'tomorrow' ),
 					array( 'gate_key' => 'two.key', 'expires_at' => 1893456000 ),
@@ -1048,6 +1059,124 @@ final class ViewerFactsTest extends TestCase {
 
 		$this->assertNull( $facts['entitlement_expires_at'] );
 		$this->assertCount( 4, $facts['entitlement_keys'] );
+	}
+
+	// -----------------------------------------------------------------
+	// A 2xx that is not the documented answer
+	// -----------------------------------------------------------------
+
+	/**
+	 * Review finding F4, ported. A 2xx body that was not the documented envelope
+	 * was normalised to "holds nothing" and cached, so an inverted condition
+	 * passed for the whole TTL, and the next real answer lost to the cached one.
+	 * It is now unknown, never cached, and a condition on it denies.
+	 */
+	#[Test]
+	public function an_unexpected_envelope_is_unknown_not_cached_and_denies_an_inverted_rule(): void {
+		$this->signIn( 9 );
+		Agend_Test_WP::set_filter(
+			'agend_apps_crm_get_my_entitlements_response',
+			array(
+				'success'     => false,
+				'error'       => array( 'code' => 'X' ),
+				'status_code' => 200,
+			)
+		);
+
+		$this->assertNull( ViewerFacts::member() );
+		$this->assertSame( array(), Agend_Test_WP::$transients, 'nothing may be cached' );
+
+		$result = Conditions::evaluate( array( 'agend_membership:is_member' ), Runtime::checker(), Conditions::MATCH_ANY, true );
+		$this->assertFalse( $result['passes'], 'an inverted rule must deny on unknown, not pass' );
+		$this->assertSame( array( 'agend_membership:is_member' ), $result['unknown'] );
+
+		// The gateway recovers: the next request sees the real answer, not a
+		// cached "holds nothing".
+		$this->nextRequest();
+		$this->gatewayReturns( array( 'is_member' => true, 'tier_ids' => array( self::TIER_A ) ) );
+		$this->assertTrue( ViewerFacts::member()['is_member'] );
+	}
+
+	/**
+	 * @return array<string, array{0: mixed}>
+	 */
+	public static function unexpected_entitlement_bodies(): array {
+		return array(
+			'success false'              => array( array( 'success' => false, 'data' => array( 'tier_ids' => array(), 'is_member' => false ) ) ),
+			'success not true'           => array( array( 'success' => 'yes', 'data' => array( 'tier_ids' => array() ) ) ),
+			'empty array (a 204)'        => array( array() ),
+			'status code only'           => array( array( 'status_code' => 204 ) ),
+			'data null'                  => array( array( 'success' => true, 'data' => null ) ),
+			'data a string'              => array( array( 'data' => 'ok' ) ),
+			'data empty'                 => array( array( 'data' => array() ) ),
+			'data without tier_ids'      => array( array( 'data' => array( 'is_member' => false ) ) ),
+			'tier_ids not an array'      => array( array( 'data' => array( 'tier_ids' => 'none', 'is_member' => false ) ) ),
+			'tier_ids null'              => array( array( 'data' => array( 'tier_ids' => null ) ) ),
+			'a bare string'              => array( 'garbage' ),
+			'null'                       => array( null ),
+			'false'                      => array( false ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'unexpected_entitlement_bodies' )]
+	public function an_unexpected_entitlements_body_is_a_failure( $body ): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_my_entitlements_response', $body );
+
+		$this->assertNull( ViewerFacts::member() );
+		$this->assertSame( array(), Agend_Test_WP::$transients );
+		$this->assertTrue( Decision::viewer()['degraded'] );
+		$this->assertNull( Runtime::member_facts() );
+	}
+
+	#[Test]
+	public function a_success_flag_of_true_and_an_empty_tier_list_is_a_genuine_non_member(): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::set_filter(
+			'agend_apps_crm_get_my_entitlements_response',
+			array( 'success' => true, 'data' => array( 'is_member' => false, 'tier_ids' => array() ), 'status_code' => 200 )
+		);
+
+		$this->assertFalse( ViewerFacts::member()['is_member'] );
+		$this->assertArrayHasKey( $this->memberKey( 7 ), Agend_Test_WP::$transients, 'a real answer, including "holds nothing", is cached' );
+	}
+
+	/**
+	 * @return array<string, array{0: mixed}>
+	 */
+	public static function unexpected_segment_bodies(): array {
+		return array(
+			'success false'     => array( array( 'success' => false, 'data' => array() ) ),
+			'empty array (204)' => array( array() ),
+			'data null'         => array( array( 'success' => true, 'data' => null, 'status_code' => 200 ) ),
+			'data a string'     => array( array( 'data' => 'ok' ) ),
+			'data an object'    => array( array( 'data' => array( 'segments' => array() ) ) ),
+			'data not a list'   => array( array( 'data' => array( 1 => array( 'id' => 'a', 'slug' => 'b' ) ) ) ),
+			'a bare list'       => array( array( array( 'id' => 'a', 'slug' => 'b' ) ) ),
+			'a bare string'     => array( 'garbage' ),
+		);
+	}
+
+	/** The reviewer's segments case: `data` null read as "in no segments", cached. */
+	#[Test]
+	#[DataProvider( 'unexpected_segment_bodies' )]
+	public function an_unexpected_segments_body_is_a_failure( $body ): void {
+		$this->signIn( 9 );
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_my_segments_response', $body );
+
+		$this->assertNull( ViewerFacts::segments() );
+		$this->assertSame( array(), Agend_Test_WP::$transients );
+		$this->assertNull( Runtime::segment_facts() );
+	}
+
+	#[Test]
+	public function an_empty_segment_list_is_a_genuine_answer_and_is_cached(): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_my_segments_response', array( 'success' => true, 'data' => array() ) );
+
+		$this->assertSame( array( 'segment_ids' => array(), 'segment_slugs' => array() ), ViewerFacts::segments() );
+		$this->assertArrayHasKey( $this->segmentKey( 7 ), Agend_Test_WP::$transients );
 	}
 
 	// -----------------------------------------------------------------
@@ -1089,6 +1218,7 @@ final class ViewerFactsTest extends TestCase {
 		$this->signIn( 7 );
 		$this->gatewayReturns(
 			array(
+				'tier_ids'     => array(),
 				'capabilities' => array(
 					array( 'gate_key' => 'soon.key', 'expires_at' => gmdate( 'Y-m-d\TH:i:s\Z', time() + 90 ) ),
 				),
