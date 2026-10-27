@@ -217,6 +217,9 @@ class Agend_Content_Access_Meta_Box {
 	 * input. Nothing is read from `$_POST` until the request has been proven to
 	 * be a genuine, authorised save of a supported post.
 	 *
+	 * A save that submits no mode, or a mode `Agend_Content_Access_Policy::MODES`
+	 * does not list, changes nothing. Only an explicit, recognised audience writes.
+	 *
 	 * @param int     $post_id Post id.
 	 * @param WP_Post $post    Post object.
 	 */
@@ -253,19 +256,16 @@ class Agend_Content_Access_Meta_Box {
 			? sanitize_text_field( wp_unslash( $_POST[ self::FIELD_MODE ] ) )
 			: '';
 
-		// An empty mode is the editor choosing not to set a policy, which is a
-		// legitimate state (Decision 2.9) and distinct from an invalid one.
+		// No mode submitted leaves the stored policy exactly as it is, whatever
+		// its state. The panel can render with no mode preselected, so an empty
+		// submission is NOT the editor choosing "no policy": the plans radio is
+		// disabled while the catalogue is unreachable (a disabled control is not
+		// submitted, so a stored plans policy comes back empty), an unreadable
+		// policy preselects nothing, and a mode a later release stores may not be
+		// one this panel can draw. Clearing any of those on an ordinary save would
+		// turn a restricted page into a public one without anybody choosing that.
+		// Removing a restriction is still possible: choose Public explicitly.
 		if ( '' === $mode ) {
-			// Except when a policy IS stored and could not be read. The panel
-			// shows no audience selected for it, so an ordinary save of the page
-			// submits an empty mode, and clearing the value then would turn a
-			// page that is hidden from everyone into a public one without
-			// anybody choosing that. It stays until an audience is picked.
-			if ( Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( (int) $post_id ) ) {
-				return;
-			}
-
-			Agend_Content_Access_Policy::save_for_post( (int) $post_id, null );
 			return;
 		}
 

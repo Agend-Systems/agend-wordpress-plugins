@@ -497,4 +497,74 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 
 		$this->assertSame( Agend_Content_Access_Policy::STORED_ABSENT, Agend_Content_Access_Policy::stored_state( self::POST_ID ) );
 	}
+
+	/**
+	 * With the plan catalogue unreachable the plans radio is rendered disabled,
+	 * and a browser does not submit a disabled control, so saving the page sends
+	 * no mode. That used to delete a stored plans policy and publish the page.
+	 */
+	#[Test]
+	public function saving_with_the_catalogue_unavailable_keeps_a_stored_plans_policy(): void {
+		$policy = array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_A ) );
+		$this->storePolicy( $policy );
+
+		Agend_Test_WP::$tiers_response = new WP_Error( 'http_request_failed', 'down' );
+
+		ob_start();
+		( new Agend_Content_Access_Meta_Box() )->render( get_post( self::POST_ID ) );
+		$html = (string) ob_get_clean();
+
+		$this->assertMatchesRegularExpression(
+			"/value=\"selected_tiers\"\\s+checked='checked'\\s+disabled='disabled'/",
+			$html,
+			'the stored mode is checked but disabled, so it is not submitted'
+		);
+
+		$this->submit( array() );
+
+		$this->assertSame( $policy, $GLOBALS['agend_test_post_meta'][ self::POST_ID ][ Agend_Content_Access_Policy::META_KEY ] );
+		$this->assertSame( $policy, Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
+	}
+
+	#[Test]
+	public function saving_with_no_mode_keeps_any_stored_policy(): void {
+		foreach ( array( array( 'mode' => 'active_member' ), array( 'mode' => 'public' ) ) as $policy ) {
+			$this->storePolicy( $policy );
+
+			$this->submit( array() );
+
+			$this->assertSame( $policy, Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
+		}
+	}
+
+	#[Test]
+	public function saving_an_unrecognised_mode_keeps_the_stored_policy(): void {
+		$policy = array( 'mode' => 'active_member' );
+		$this->storePolicy( $policy );
+
+		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_MODE => 'segments' ) );
+
+		$this->assertSame( $policy, Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
+	}
+
+	/** Removing a restriction stays possible, as an explicit choice. */
+	#[Test]
+	public function explicitly_choosing_public_still_clears_a_restriction(): void {
+		$this->storePolicy( array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_A ) ) );
+
+		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_MODE => 'public' ) );
+
+		$this->assertSame( array( 'mode' => 'public' ), Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
+	}
+
+	/** The existing refusal is untouched: plans with nothing selected keeps the old policy. */
+	#[Test]
+	public function selected_plans_with_nothing_selected_is_still_refused(): void {
+		$policy = array( 'mode' => 'active_member' );
+		$this->storePolicy( $policy );
+
+		$this->submit( array( Agend_Content_Access_Meta_Box::FIELD_MODE => 'selected_tiers' ) );
+
+		$this->assertSame( $policy, Agend_Content_Access_Policy::enforced_for_post( self::POST_ID ) );
+	}
 }
