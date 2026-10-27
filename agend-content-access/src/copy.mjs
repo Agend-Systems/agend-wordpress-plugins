@@ -49,6 +49,14 @@ export const DEFAULT_STRINGS = Object.freeze( {
 	// Show instead.
 	nothing: 'Nothing',
 	fallbackMissing: 'Content %s (not in the list)',
+
+	// The page panel. A page says Everyone where a block says everyone who can
+	// see the page.
+	summaryEveryonePage: 'Everyone',
+	builtInPlaceholder: 'Built-in placeholder',
+	choosePage: 'Choose a page',
+	noFallbackPage: 'No page (show the placeholder instead)',
+	redirectNeedsPage: 'Choose the page to send people to. Until you do, this change is not saved.',
 } );
 
 /**

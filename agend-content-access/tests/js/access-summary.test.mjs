@@ -22,6 +22,14 @@ test( 'no rules is everyone who can see the page', () => {
 	}
 } );
 
+test( 'a page with no rules is for everyone, and says so in two words', () => {
+	assert.equal( summarise( normalise( undefined ), DEFAULT_STRINGS, true ), 'Everyone' );
+	assert.equal( summarise( { rules: [], unreadable: false }, DEFAULT_STRINGS, true ), 'Everyone' );
+	assert.equal( summarise( { rules: rules( 2 ), match: 'any', invert: false }, DEFAULT_STRINGS, true ), 'Only people who match any of these 2 rules' );
+	assert.equal( summarise( { rules: rules( 2 ), match: 'all', invert: true }, DEFAULT_STRINGS, true ), 'Everyone except people who match all of these 2 rules' );
+	assert.equal( summarise( { rules: [], unreadable: true }, DEFAULT_STRINGS, true ), 'Hidden from everyone, because the setting cannot be read' );
+} );
+
 test( 'one rule', () => {
 	assert.equal( say( { rules: rules( 1 ) } ), 'Only people who match this rule' );
 	assert.equal( say( { rules: rules( 1 ), invert: true } ), 'Everyone except people who match this rule' );

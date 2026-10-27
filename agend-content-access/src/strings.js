@@ -72,6 +72,12 @@ export function copy() {
 		nothing: __( 'Nothing', 'agend-content-access' ),
 		/* translators: %s: post id of replacement content that is not in the list, for example #12. */
 		fallbackMissing: __( 'Content %s (not in the list)', 'agend-content-access' ),
+
+		summaryEveryonePage: __( 'Everyone', 'agend-content-access' ),
+		builtInPlaceholder: __( 'Built-in placeholder', 'agend-content-access' ),
+		choosePage: __( 'Choose a page', 'agend-content-access' ),
+		noFallbackPage: __( 'No page (show the placeholder instead)', 'agend-content-access' ),
+		redirectNeedsPage: __( 'Choose the page to send people to. Until you do, this change is not saved.', 'agend-content-access' ),
 	};
 
 	return translated;

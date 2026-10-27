@@ -8,7 +8,7 @@
  *   {
  *     groups: [ { key, label, stale, items: [
  *       { value, label, kind, description?, aliases?, inactive? } ] } ],
- *     fallbacks: [ { id, title } ],
+ *     fallbacks: [ { id, title, type } ],
  *     errors: [ { group, message } ]
  *   }
  *
@@ -133,7 +133,13 @@ export function normaliseVocabulary( response ) {
 
 	( Array.isArray( response.fallbacks ) ? response.fallbacks : [] ).forEach( ( raw ) => {
 		if ( isPlainObject( raw ) && Number.isInteger( raw.id ) && raw.id > 0 ) {
-			fallbacks.push( { id: raw.id, title: isText( raw.title ) ? raw.title : String( raw.id ) } );
+			fallbacks.push( {
+				id: raw.id,
+				title: isText( raw.title ) ? raw.title : String( raw.id ),
+				// page, pattern or elementor_template. A page's redirect is offered
+				// pages only, so the kind is kept.
+				type: isText( raw.type ) ? raw.type : '',
+			} );
 		}
 	} );
 
@@ -410,7 +416,7 @@ export function searchRules( index, query, rules ) {
 // ---------------------------------------------------------------------------
 
 /**
- * The "Show instead" choices.
+ * The "Show instead" choices, and a page's placeholder and redirect choices.
  *
  * A chosen post that is not offered (restricted since, or past the server's
  * list limit) is kept in the list and selected, so the control shows what is
@@ -419,11 +425,17 @@ export function searchRules( index, query, rules ) {
  * @param {Array}  fallbacks `fallbacks` from `normaliseVocabulary()`.
  * @param {number} current   The stored post id, 0 for none.
  * @param {Object} strings   Copy.
- * @return {Array} `{value, label}` choices, "Nothing" first.
+ * @param {Object} [options]
+ * @param {string[]} [options.types] Only these kinds (page, pattern,
+ *                          elementor_template). A redirect goes to a page, and a
+ *                          pattern or a template has no address of its own.
+ * @param {string} [options.none]    What the empty choice says, "Nothing" by default.
+ * @return {Array} `{value, label}` choices, the empty one first.
  */
-export function fallbackChoices( fallbacks, current, strings = DEFAULT_STRINGS ) {
-	const list = Array.isArray( fallbacks ) ? fallbacks : [];
-	const choices = [ { value: '', label: strings.nothing } ];
+export function fallbackChoices( fallbacks, current, strings = DEFAULT_STRINGS, options = {} ) {
+	const types = Array.isArray( options.types ) ? options.types : null;
+	const list = ( Array.isArray( fallbacks ) ? fallbacks : [] ).filter( ( entry ) => types === null || types.indexOf( entry.type ) !== -1 );
+	const choices = [ { value: '', label: typeof options.none === 'string' ? options.none : strings.nothing } ];
 
 	if ( current > 0 && ! list.some( ( entry ) => entry.id === current ) ) {
 		choices.push( { value: String( current ), label: format( strings.fallbackMissing, '#' + current ) } );

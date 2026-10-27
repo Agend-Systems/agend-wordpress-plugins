@@ -16,12 +16,16 @@
  *
  * The PHP twin, `Agend_Content_Access_Block_Editor`, registers the same
  * attribute on the server so dynamic blocks and the block renderer accept it.
+ *
+ * The page's own panel, in the document settings, is in page-panel-plugin.js and
+ * is loaded here because it is part of the same block editor script.
  */
 import { addFilter } from '@wordpress/hooks';
 import { createHigherOrderComponent } from '@wordpress/compose';
 import { InspectorControls } from '@wordpress/block-editor';
 import { getBlockType } from '@wordpress/blocks';
 import AccessPanel from './access-panel';
+import './page-panel-plugin';
 import { ATTRIBUTE, withAccessAttribute, carriesAttribute, isRestricted } from './access-model.mjs';
 import './editor.css';
 

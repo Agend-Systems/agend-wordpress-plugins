@@ -185,3 +185,16 @@
 	font-size: 12px;
 	overflow-wrap: anywhere;
 }
+
+/*
+ * The page's panel, in the document settings of the block editor and in the classic
+ * editor's meta box. The picker and its chips are styled above, once, for both.
+ */
+.agend-access-page .components-radio-control,
+.agend-access-page .components-base-control {
+	margin-bottom: 16px;
+}
+
+.agend-access-page .agend-access__heading:first-of-type {
+	margin-top: 0;
+}

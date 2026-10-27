@@ -73,7 +73,7 @@ function response( overrides = {} ) {
 					],
 				},
 			],
-			fallbacks: [ { id: 12, title: 'Join us' } ],
+			fallbacks: [ { id: 12, title: 'Join us', type: 'page' } ],
 			errors: [],
 		},
 		overrides
@@ -109,7 +109,7 @@ test( 'the response is read as groups, fallbacks and errors', () => {
 	assert.deepEqual( vocabulary.groups.map( ( group ) => group.key ), [ 'agend_membership', 'agend_segments', 'agend_entitlements', 'agend_wordpress' ] );
 	assert.equal( vocabulary.groups[ 1 ].items[ 0 ].kind, 'segment' );
 	assert.deepEqual( vocabulary.groups[ 1 ].items[ 0 ].aliases, [ 'agend_segments:board' ] );
-	assert.deepEqual( vocabulary.fallbacks, [ { id: 12, title: 'Join us' } ] );
+	assert.deepEqual( vocabulary.fallbacks, [ { id: 12, title: 'Join us', type: 'page' } ], 'the kind is kept, a redirect is offered pages only' );
 	assert.deepEqual( vocabulary.errors, [] );
 } );
 
@@ -121,7 +121,7 @@ test( 'junk in the response is skipped, not repaired', () => {
 			{ key: 'a', items: [ null, { label: 'No value' }, { value: 'a:one' }, { value: 'a:one', label: 'Twice' }, { value: 'a:two', label: 'Two', aliases: [ 'a:2', 5, '' ], kind: 7, inactive: 'yes' } ] },
 			{ key: 'b', label: 'B', items: 'not a list' },
 		],
-		fallbacks: [ null, { id: 0, title: 'Zero' }, { id: '3', title: 'String id' }, { id: 4 }, { id: 5, title: 'Five' } ],
+		fallbacks: [ null, { id: 0, title: 'Zero' }, { id: '3', title: 'String id' }, { id: 4 }, { id: 5, title: 'Five', type: 'pattern' }, { id: 6, title: 'Six', type: 7 } ],
 		errors: [ null, { message: '' }, { group: 'a', message: 'Scope missing' }, { message: 'No group' } ],
 	} );
 
@@ -133,7 +133,7 @@ test( 'junk in the response is skipped, not repaired', () => {
 	assert.deepEqual( vocabulary.groups[ 0 ].items[ 1 ].aliases, [ 'a:2' ] );
 	assert.equal( vocabulary.groups[ 0 ].items[ 1 ].inactive, false, 'only a boolean true is inactive' );
 	assert.deepEqual( vocabulary.groups[ 1 ].items, [] );
-	assert.deepEqual( vocabulary.fallbacks, [ { id: 4, title: '4' }, { id: 5, title: 'Five' } ] );
+	assert.deepEqual( vocabulary.fallbacks, [ { id: 4, title: '4', type: '' }, { id: 5, title: 'Five', type: 'pattern' }, { id: 6, title: 'Six', type: '' } ] );
 	assert.deepEqual( vocabulary.errors, [ { group: 'a', message: 'Scope missing' }, { group: '', message: 'No group' } ] );
 } );
 
@@ -460,6 +460,23 @@ test( '"Show instead" offers Nothing first, then the pages, and keeps a stored p
 	assert.deepEqual( fallbackChoices( pages, 99 ).slice( 0, 2 ), [ { value: '', label: 'Nothing' }, { value: '99', label: 'Content #99 (not in the list)' } ] );
 	assert.deepEqual( fallbackChoices( pages, 12 ).map( ( choice ) => choice.value ), [ '', '12', '13' ], 'a listed page is not repeated' );
 	assert.deepEqual( fallbackChoices( null, 0 ), [ { value: '', label: 'Nothing' } ] );
+} );
+
+test( 'a page panel list can be limited to one kind and name its empty choice', () => {
+	const mixed = [
+		{ id: 12, title: 'Page: Join us', type: 'page' },
+		{ id: 13, title: 'Pattern: Members only', type: 'pattern' },
+		{ id: 14, title: 'Elementor template: Banner', type: 'elementor_template' },
+		{ id: 15, title: 'Page: Sign in', type: 'page' },
+	];
+
+	assert.deepEqual( fallbackChoices( mixed, 0 ).map( ( choice ) => choice.value ), [ '', '12', '13', '14', '15' ], 'no limit offers all three kinds' );
+	assert.deepEqual( fallbackChoices( mixed, 0, undefined, { types: [ 'page' ] } ).map( ( choice ) => choice.value ), [ '', '12', '15' ], 'a redirect is offered pages only' );
+	assert.deepEqual( fallbackChoices( mixed, 0, undefined, { types: [ 'page' ], none: 'Choose a page' } )[ 0 ], { value: '', label: 'Choose a page' } );
+	assert.deepEqual( fallbackChoices( mixed, 0, undefined, { types: [] } ), [ { value: '', label: 'Nothing' } ], 'an empty limit offers nothing but the empty choice' );
+
+	// A stored pattern is not a page: as a redirect target it is not in the list, and the control says so.
+	assert.deepEqual( fallbackChoices( mixed, 13, undefined, { types: [ 'page' ] } ).slice( 0, 2 ), [ { value: '', label: 'Nothing' }, { value: '13', label: 'Content #13 (not in the list)' } ] );
 } );
 
 test( 'a long "Show instead" list is searchable by what the title contains', () => {

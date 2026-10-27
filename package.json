@@ -6,10 +6,10 @@
 		"build": "npm run build:core && npm run build:shop && npm run build:content-access",
 		"build:core": "wp-scripts build --webpack-src-dir=agend-apps-core/src/blocks --output-path=agend-apps-core/build/blocks",
 		"build:shop": "wp-scripts build --webpack-src-dir=agend-apps-shop/src/blocks --output-path=agend-apps-shop/build/blocks",
-		"build:content-access": "wp-scripts build --webpack-src-dir=agend-content-access/src --output-path=agend-content-access/build",
+		"build:content-access": "wp-scripts build index=index.js classic=classic.js --webpack-src-dir=agend-content-access/src --output-path=agend-content-access/build",
 		"start": "wp-scripts start --webpack-src-dir=agend-apps-core/src/blocks --output-path=agend-apps-core/build/blocks",
 		"start:shop": "wp-scripts start --webpack-src-dir=agend-apps-shop/src/blocks --output-path=agend-apps-shop/build/blocks",
-		"start:content-access": "wp-scripts start --webpack-src-dir=agend-content-access/src --output-path=agend-content-access/build"
+		"start:content-access": "wp-scripts start index=index.js classic=classic.js --webpack-src-dir=agend-content-access/src --output-path=agend-content-access/build"
 	},
 	"devDependencies": {
 		"@wordpress/scripts": "^30.0.0"

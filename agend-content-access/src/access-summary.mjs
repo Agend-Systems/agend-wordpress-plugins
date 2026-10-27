@@ -2,7 +2,7 @@
  * The one line at the top of the panel, in plain English, with no WordPress
  * imports.
  *
- *   Everyone who can see the page
+ *   Everyone who can see the page    (a block; a page says "Everyone")
  *   Only people who match any of these 2 rules
  *   Everyone except people who match all of these 3 rules
  *
@@ -15,11 +15,14 @@
 import { DEFAULT_STRINGS, format } from './copy.mjs';
 
 /**
- * @param {Object} state   A state from `normalise()`.
- * @param {Object} strings Copy.
+ * @param {Object}  state   A state from `normalise()`, or from `normalisePage()`.
+ * @param {Object}  strings Copy.
+ * @param {boolean} [page]  Whether the state is a page's. With no rules a block is
+ *                          for everyone who can see the page, and a page is for
+ *                          everyone.
  * @return {string} One line.
  */
-export function summarise( state, strings = DEFAULT_STRINGS ) {
+export function summarise( state, strings = DEFAULT_STRINGS, page = false ) {
 	if ( state.unreadable ) {
 		return strings.summaryUnreadable;
 	}
@@ -27,7 +30,7 @@ export function summarise( state, strings = DEFAULT_STRINGS ) {
 	const count = state.rules.length;
 
 	if ( count === 0 ) {
-		return strings.summaryEveryone;
+		return page ? strings.summaryEveryonePage : strings.summaryEveryone;
 	}
 
 	const prefix = state.invert ? 'summaryExcept' : 'summaryOnly';
