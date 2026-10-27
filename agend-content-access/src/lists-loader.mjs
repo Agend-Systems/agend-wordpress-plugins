@@ -5,37 +5,39 @@
  * fetched for itself would fetch on every selection. This holds one request per
  * list for the life of the editor and hands every panel the same answer.
  *
- * Two lists, loaded independently so one failing does not hide the other:
- *
- *   catalogue   plans, segments and entitlements, each with its own state
- *   conditions  the display condition vocabulary and the "Show instead" choices
+ * Any number of lists, named by the fetchers it is given and loaded
+ * independently, so one failing does not hide another. The panel has one today,
+ * `vocabulary`: every rule an author can choose, with its group, and the
+ * "Show instead" choices.
  *
  * A list is fetched the first time a panel asks for it (`ensure()`), not when
  * the editor opens, so an author who never touches the panel never costs the
  * gateway a request. A failure is remembered rather than retried on every
  * selection; `retry()` is what an author's "Try again" calls, and asks the
- * catalogue to refresh from the gateway instead of answering from cache.
+ * server to refresh from the gateway instead of answering from cache.
  *
  * The fetchers are injected so a test can count calls. Each takes one boolean,
  * `refresh`, and returns a promise.
  */
-
-const KEYS = [ 'catalogue', 'conditions' ];
 
 function idle() {
 	return { status: 'idle', data: null };
 }
 
 /**
- * @param {Object}   fetchers
- * @param {Function} fetchers.catalogue  `( refresh ) => Promise<*>`
- * @param {Function} fetchers.conditions `( refresh ) => Promise<*>`
+ * @param {Object<string, Function>} fetchers One `( refresh ) => Promise<*>` per list, by name.
  * @return {{ensure: Function, retry: Function, getState: Function, subscribe: Function}} The loader.
  */
 export function createListsLoader( fetchers ) {
-	let state = { catalogue: idle(), conditions: idle() };
+	const keys = Object.keys( fetchers );
 	const listeners = [];
-	const inFlight = { catalogue: false, conditions: false };
+	const inFlight = {};
+	let state = {};
+
+	keys.forEach( ( key ) => {
+		state[ key ] = idle();
+		inFlight[ key ] = false;
+	} );
 
 	function set( key, next ) {
 		const patch = {};
@@ -76,7 +78,7 @@ export function createListsLoader( fetchers ) {
 	return {
 		/** Starts whichever list has never been asked for. A no-op afterwards. */
 		ensure() {
-			KEYS.forEach( ( key ) => {
+			keys.forEach( ( key ) => {
 				if ( state[ key ].status === 'idle' ) {
 					run( key, false );
 				}
@@ -85,7 +87,7 @@ export function createListsLoader( fetchers ) {
 
 		/** Asks again for whichever list failed. A list that loaded is left alone. */
 		retry() {
-			KEYS.forEach( ( key ) => {
+			keys.forEach( ( key ) => {
 				if ( state[ key ].status === 'failed' ) {
 					run( key, true );
 				}

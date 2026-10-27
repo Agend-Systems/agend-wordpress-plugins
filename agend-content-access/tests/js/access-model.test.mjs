@@ -6,9 +6,10 @@
  * What these protect is what ends up in a post. The panel is the only thing
  * standing between an author's clicks and the stored `agendAccess` object, so
  * the cases are about that object: a block that was only looked at stays
- * clean, a stale id cannot linger after a mode change, a key the panel does not
- * own survives an edit, and a stored value the panel cannot read neither
- * crashes it nor quietly loosens anything.
+ * clean, a stale value cannot linger after the rules it belonged to are gone, a
+ * key the panel does not own survives an edit, a block saved by the first panel
+ * is only rewritten by a real change, and a stored value the panel cannot read
+ * neither crashes it nor quietly loosens anything.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -17,36 +18,29 @@ import { test } from 'node:test';
 import {
 	ATTRIBUTE,
 	CONTRACT_KEYS,
-	DEFAULT_STRINGS,
 	EXCLUDED_BLOCKS,
-	MODE,
-	UNRECOGNISED,
+	RULE_KEYS,
+	addRule,
 	carriesAttribute,
-	checklistRows,
-	conditionChoices,
-	entitlementItems,
-	fallbackChoices,
-	indicatorKind,
 	isExcluded,
+	isRestricted,
 	normalise,
-	normaliseVocabulary,
-	planItems,
-	sectionState,
-	segmentItems,
-	setConditions,
-	setConditionsEnabled,
+	removeRule,
+	resetAccess,
 	setFallback,
 	setInvert,
-	setList,
 	setMatch,
-	setMode,
-	toggleValue,
 	withAccessAttribute,
 } from '../../src/access-model.mjs';
 
 const PLAN_A = '11111111-1111-4111-8111-111111111111';
-const PLAN_B = '22222222-2222-4222-8222-222222222222';
 const SEG_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+
+const GOLD = 'agend_membership:' + PLAN_A;
+const BOARD = 'agend_segments:' + SEG_A;
+const PREMIUM = 'agend_entitlements:premium.directory';
+const SIGNED_IN = 'agend_wordpress:logged_in';
+const EDITOR = 'agend_wordpress:role_editor';
 
 /** Freezes a value all the way down, so any mutation by the code under test throws. */
 function deepFreeze( value ) {
@@ -133,280 +127,213 @@ test( 'the panel is only offered where the block type actually carries the attri
 } );
 
 // ---------------------------------------------------------------------------
-// Round trips: what is written, and that nothing lingers
+// What is written
 // ---------------------------------------------------------------------------
 
-test( 'inherit to a mode and back is undefined, so the attribute is removed and nothing is saved', () => {
-	// The attribute as the server registers its default: an empty array.
-	for ( const untouched of [ [], {}, undefined ] ) {
-		for ( const mode of [ MODE.MEMBERS, MODE.TIERS, MODE.SEGMENTS, MODE.ENTITLEMENTS ] ) {
-			const there = setMode( untouched, mode );
-			const back = setMode( there, MODE.INHERIT );
-
-			assert.notEqual( there, undefined, `${ mode } is written` );
-			assert.equal( back, undefined, `${ mode } and back removes the attribute` );
-			assert.equal( serialised( { agendAccess: back } ), '{}', 'a block comment would carry no agendAccess' );
-		}
+test( 'the first rule writes only the rules; every default is left out', () => {
+	for ( const untouched of [ [], {}, undefined, null ] ) {
+		assert.deepEqual( addRule( untouched, GOLD ), { rules: [ GOLD ] } );
 	}
 } );
 
-test( 'conditions on and then off, with the audience at inherit, removes the attribute', () => {
-	for ( const untouched of [ [], {}, undefined ] ) {
-		const on = setConditionsEnabled( untouched, true );
-		const configured = setFallback( setInvert( setMatch( setConditions( on, [ 'a:b' ] ), 'all' ), true ), 7 );
-		const off = setConditionsEnabled( configured, false );
+test( 'a rule is added last and never twice', () => {
+	const two = addRule( addRule( undefined, GOLD ), BOARD );
 
-		assert.deepEqual( on, { conditionsEnabled: true } );
-		assert.notEqual( configured, undefined );
-		assert.equal( off, undefined, 'every condition key is dropped, so nothing is left to store' );
-		assert.equal( setConditionsEnabled( on, false ), undefined );
+	assert.deepEqual( two, { rules: [ GOLD, BOARD ] } );
+	assert.equal( addRule( two, GOLD ), two, 'adding what is there changes nothing, and is not a write' );
+	assert.equal( addRule( two, '' ), two, 'an empty rule is not a rule' );
+	assert.equal( addRule( two, 5 ), two );
+} );
+
+test( 'Match is written only when it is all, and only with two rules', () => {
+	const one = addRule( undefined, GOLD );
+	const two = addRule( one, BOARD );
+
+	assert.equal( setMatch( one, 'all' ), one, 'one rule has nothing to match' );
+	assert.deepEqual( setMatch( two, 'all' ), { rules: [ GOLD, BOARD ], match: 'all' } );
+	assert.deepEqual( setMatch( setMatch( two, 'all' ), 'any' ), { rules: [ GOLD, BOARD ] }, 'any is the default, so not written' );
+	assert.equal( setMatch( two, 'any' ), two, 'choosing what is already chosen is not a write' );
+	assert.deepEqual( setMatch( two, 'banana' ), two, 'anything but all is any' );
+} );
+
+test( 'Reverse is written only when it is on, and only with a rule', () => {
+	const one = addRule( undefined, GOLD );
+
+	assert.equal( setInvert( undefined, true ), undefined, 'nothing to reverse' );
+	assert.deepEqual( setInvert( one, true ), { rules: [ GOLD ], invert: true } );
+	assert.deepEqual( setInvert( setInvert( one, true ), false ), { rules: [ GOLD ] } );
+	assert.equal( setInvert( one, false ), one );
+	assert.deepEqual( setInvert( one, 'yes' ), one, 'only the boolean true turns it on' );
+} );
+
+test( 'the replacement content is a positive post id, written only when it is not zero', () => {
+	const one = addRule( undefined, GOLD );
+
+	assert.equal( setFallback( undefined, 12 ), undefined, 'nothing to fall back from' );
+	assert.deepEqual( setFallback( one, 12 ), { rules: [ GOLD ], fallbackId: 12 } );
+	assert.deepEqual( setFallback( one, '12' ), { rules: [ GOLD ], fallbackId: 12 }, 'as a select gives it' );
+	assert.deepEqual( setFallback( setFallback( one, 12 ), '' ), { rules: [ GOLD ] }, 'Nothing removes it' );
+
+	for ( const junk of [ 0, -3, 2.5, null, true, [], '0x1', 'abc' ] ) {
+		assert.equal( setFallback( one, junk ), one, String( junk ) );
+	}
+} );
+
+test( 'a full round trip ends with the attribute removed', () => {
+	let value = {};
+
+	value = addRule( value, GOLD );
+	value = addRule( value, BOARD );
+	value = setMatch( value, 'all' );
+	value = setInvert( value, true );
+	value = setFallback( value, 12 );
+
+	assert.deepEqual( value, { rules: [ GOLD, BOARD ], match: 'all', invert: true, fallbackId: 12 } );
+
+	value = removeRule( value, GOLD );
+	assert.deepEqual( value, { rules: [ BOARD ], invert: true, fallbackId: 12 }, 'Match needs two rules, so it goes' );
+
+	value = removeRule( value, BOARD );
+	assert.equal( value, undefined, 'the last rule takes Reverse and the replacement with it' );
+	assert.equal( serialised( { agendAccess: value } ), '{}', 'a block comment would carry no agendAccess' );
+} );
+
+test( 'a key that no longer applies is dropped, so it cannot come back to life', () => {
+	const configured = setFallback( setInvert( setMatch( addRule( addRule( undefined, GOLD ), BOARD ), 'all' ), true ), 9 );
+	const down = removeRule( removeRule( configured, GOLD ), BOARD );
+
+	assert.equal( down, undefined );
+	assert.deepEqual( addRule( down, EDITOR ), { rules: [ EDITOR ] }, 'a new first rule starts clean' );
+	assert.deepEqual( addRule( removeRule( configured, BOARD ), SIGNED_IN ), { rules: [ GOLD, SIGNED_IN ], invert: true, fallbackId: 9 }, 'Match went with the second rule and does not return with the next' );
+} );
+
+test( 'the stray {} fix: nothing chosen is undefined, never an empty object', () => {
+	for ( const untouched of [ [], {}, undefined ] ) {
+		assert.equal( removeRule( addRule( untouched, GOLD ), GOLD ), undefined );
+		assert.equal( resetAccess( untouched ), undefined );
+		assert.equal( removeRule( untouched, GOLD ), untouched, 'removing what is not there is not a write' );
 	}
 } );
 
 test( 'unknown keys keep the attribute alive: an object with only them, never undefined', () => {
-	const stored = { mode: 'segments', segmentIds: [ SEG_A ], conditionsEnabled: true, conditions: [ 'a:b' ], newerRelease: { shape: [ 1 ] }, flag: 'x' };
-	const back = setConditionsEnabled( setMode( stored, MODE.INHERIT ), false );
+	const stored = { rules: [ GOLD ], match: 'any', newerRelease: { shape: [ 1 ] }, flag: 'x' };
+	const back = removeRule( stored, GOLD );
 
 	assert.deepEqual( back, { newerRelease: { shape: [ 1 ] }, flag: 'x' } );
-	assert.deepEqual( setMode( { mode: 'active_member', flag: 'x' }, MODE.INHERIT ), { flag: 'x' } );
-	assert.deepEqual( setConditionsEnabled( { conditionsEnabled: true, flag: 'x' }, false ), { flag: 'x' } );
+	assert.deepEqual( resetAccess( stored ), { newerRelease: { shape: [ 1 ] }, flag: 'x' } );
 
 	// And once the unknown key is the only thing left, the next edit still keeps it.
-	assert.deepEqual( setMode( back, MODE.INHERIT ), back );
+	assert.deepEqual( addRule( back, GOLD ), { rules: [ GOLD ], newerRelease: { shape: [ 1 ] }, flag: 'x' } );
 } );
 
-test( 'a full round trip through lists and conditions ends with the attribute removed', () => {
-	let value = {};
+test( 'a key the panel does not own is kept, untouched, through every kind of edit', () => {
+	const stored = { rules: [ GOLD, BOARD ], flag: 'x', nested: { a: [ 1, 2 ] } };
+	const edits = [
+		( v ) => addRule( v, EDITOR ),
+		( v ) => removeRule( v, GOLD ),
+		( v ) => setMatch( v, 'all' ),
+		( v ) => setInvert( v, true ),
+		( v ) => setFallback( v, 4 ),
+	];
 
-	value = setMode( value, MODE.TIERS );
-	value = setList( value, [ PLAN_A, PLAN_B ] );
-	value = setConditionsEnabled( value, true );
-	value = setConditions( value, [ 'agend_wordpress:logged_in' ] );
-	value = setMatch( value, 'all' );
-	value = setInvert( value, true );
-	value = setFallback( value, '12' );
+	for ( const edit of edits ) {
+		const next = edit( stored );
 
-	assert.deepEqual( value, {
-		mode: 'selected_tiers',
-		tierIds: [ PLAN_A, PLAN_B ],
-		conditionsEnabled: true,
-		conditions: [ 'agend_wordpress:logged_in' ],
-		conditionsMatch: 'all',
-		conditionsInvert: true,
-		fallbackId: 12,
-	} );
-
-	value = setConditionsEnabled( value, false );
-	value = setMode( value, MODE.INHERIT );
-
-	assert.equal( value, undefined );
-} );
-
-test( 'choosing a set-mode writes its list, empty, so the restriction is explicit', () => {
-	assert.deepEqual( setMode( {}, MODE.TIERS ), { mode: 'selected_tiers', tierIds: [] } );
-	assert.deepEqual( setMode( {}, MODE.SEGMENTS ), { mode: 'segments', segmentIds: [] } );
-	assert.deepEqual( setMode( {}, MODE.ENTITLEMENTS ), { mode: 'selected_entitlements', entitlementKeys: [] } );
-	assert.deepEqual( setMode( {}, MODE.MEMBERS ), { mode: 'active_member' }, 'no list for a mode that has none' );
-} );
-
-test( 'a default is never written out', () => {
-	const on = setConditionsEnabled( {}, true );
-
-	assert.deepEqual( on, { conditionsEnabled: true }, 'no empty conditions, no match, no invert, no fallback' );
-	assert.deepEqual( setMatch( on, 'any' ), { conditionsEnabled: true } );
-	assert.deepEqual( setInvert( on, false ), { conditionsEnabled: true } );
-	assert.deepEqual( setFallback( on, 0 ), { conditionsEnabled: true } );
-	assert.deepEqual( setFallback( on, '' ), { conditionsEnabled: true } );
-	assert.deepEqual( setConditions( setConditions( on, [ 'a:b' ] ), [] ), { conditionsEnabled: true }, 'emptied list is removed' );
-} );
-
-test( 'switching mode drops the lists of every other mode', () => {
-	const segments = setList( setMode( {}, MODE.SEGMENTS ), [ SEG_A ] );
-
-	assert.deepEqual( segments, { mode: 'segments', segmentIds: [ SEG_A ] } );
-
-	const tiers = setMode( segments, MODE.TIERS );
-
-	assert.deepEqual( tiers, { mode: 'selected_tiers', tierIds: [] }, 'segmentIds cleared and tiers start empty' );
-	assert.equal( 'segmentIds' in tiers, false );
-
-	const members = setMode( segments, MODE.MEMBERS );
-
-	assert.deepEqual( members, { mode: 'active_member' } );
-} );
-
-test( 'a stale list written by hand for another mode is dropped, not revived, when the mode changes', () => {
-	const handWritten = { mode: 'selected_tiers', tierIds: [ PLAN_A ], segmentIds: [ SEG_A ] };
-
-	assert.deepEqual( normalise( handWritten ).segmentIds, [], 'not shown while the mode is plans' );
-	assert.deepEqual( setList( handWritten, [ PLAN_B ] ), { mode: 'selected_tiers', tierIds: [ PLAN_B ] }, 'dropped on the next edit' );
-	assert.deepEqual( setMode( handWritten, MODE.SEGMENTS ), { mode: 'segments', segmentIds: [] }, 'not revived by switching to segments' );
-} );
-
-test( 'choosing the mode the block already has changes nothing', () => {
-	const stored = { mode: 'selected_tiers', tierIds: [ PLAN_A ] };
-
-	assert.deepEqual( setMode( stored, MODE.TIERS ), stored );
-} );
-
-test( 'switching conditions off drops every condition key; on again starts clean', () => {
-	const full = { conditionsEnabled: true, conditions: [ 'x:y' ], conditionsMatch: 'all', conditionsInvert: true, fallbackId: 9 };
-	const off = setConditionsEnabled( full, false );
-
-	assert.equal( off, undefined );
-	assert.deepEqual( setConditionsEnabled( off, true ), { conditionsEnabled: true } );
-} );
-
-test( 'condition controls do nothing while conditions are off', () => {
-	assert.equal( setConditions( {}, [ 'a:b' ] ), undefined );
-	assert.equal( setMatch( {}, 'all' ), undefined );
-	assert.equal( setInvert( {}, true ), undefined );
-	assert.equal( setFallback( {}, 5 ), undefined );
-} );
-
-test( 'conditions left in a block with the switch off are stale, and are dropped on the next write', () => {
-	const stale = { mode: 'active_member', conditions: [ 'x:y' ], conditionsMatch: 'all' };
-
-	assert.deepEqual( normalise( stale ).conditions, [] );
-	assert.deepEqual( setMode( stale, MODE.TIERS ), { mode: 'selected_tiers', tierIds: [] } );
-} );
-
-test( 'a list takes strings only, once each, and a checkbox toggle keeps order', () => {
-	const tiers = setMode( {}, MODE.TIERS );
-
-	assert.deepEqual( setList( tiers, [ PLAN_A, 7, null, PLAN_A, PLAN_B ] ).tierIds, [ PLAN_A, PLAN_B ] );
-	assert.deepEqual( toggleValue( [ 'a', 'b' ], 'c', true ), [ 'a', 'b', 'c' ] );
-	assert.deepEqual( toggleValue( [ 'a', 'b', 'c' ], 'b', false ), [ 'a', 'c' ] );
-	assert.deepEqual( toggleValue( [ 'a' ], 'a', true ), [ 'a' ], 'ticked twice is still once' );
-	assert.deepEqual( toggleValue( undefined, 'a', true ), [ 'a' ] );
-} );
-
-test( 'a list change while the block has no set-mode is ignored', () => {
-	assert.equal( setList( {}, [ PLAN_A ] ), undefined );
-	assert.deepEqual( setList( { mode: 'active_member' }, [ PLAN_A ] ), { mode: 'active_member' } );
-} );
-
-test( 'the fallback accepts a post id, as a number or as the select gives it', () => {
-	const on = setConditionsEnabled( {}, true );
-
-	assert.equal( setFallback( on, 12 ).fallbackId, 12 );
-	assert.equal( setFallback( on, '12' ).fallbackId, 12 );
-
-	for ( const junk of [ -1, 1.5, 'abc', '12abc', null, undefined, NaN ] ) {
-		assert.equal( 'fallbackId' in setFallback( on, junk ), false, String( junk ) );
+		assert.equal( next.flag, 'x' );
+		assert.deepEqual( next.nested, { a: [ 1, 2 ] } );
 	}
 } );
 
 test( 'nothing the panel writes uses a key outside the contract', () => {
 	let value = {};
 
-	value = setMode( value, MODE.ENTITLEMENTS );
-	value = setList( value, [ 'platform.directory' ] );
-	value = setConditionsEnabled( value, true );
-	value = setConditions( value, [ 'agend_segments:vip' ] );
-	value = setMatch( value, 'all' );
-	value = setInvert( value, true );
-	value = setFallback( value, 3 );
+	[
+		( v ) => addRule( v, GOLD ),
+		( v ) => addRule( v, BOARD ),
+		( v ) => setMatch( v, 'all' ),
+		( v ) => setInvert( v, true ),
+		( v ) => setFallback( v, 7 ),
+	].forEach( ( edit ) => {
+		value = edit( value );
 
-	Object.keys( value ).forEach( ( key ) => assert.ok( CONTRACT_KEYS.includes( key ), key ) );
+		Object.keys( value ).forEach( ( key ) => assert.ok( RULE_KEYS.includes( key ), key ) );
+	} );
+
+	assert.deepEqual( Object.keys( value ), [ 'rules', 'match', 'invert', 'fallbackId' ], 'in the contract order' );
 } );
 
 test( 'no setter mutates the value it is given', () => {
-	const stored = deepFreeze( { mode: 'segments', segmentIds: [ SEG_A ], conditionsEnabled: true, conditions: [ 'a:b' ], extra: { keep: true } } );
+	const stored = deepFreeze( { rules: [ GOLD, BOARD ], match: 'all', invert: true, fallbackId: 3, flag: [ 1 ] } );
+	const shared = deepFreeze( [] );
+	const legacy = deepFreeze( { mode: 'selected_tiers', tierIds: [ PLAN_A ], conditionsEnabled: true, conditions: [ SIGNED_IN ] } );
 
-	assert.doesNotThrow( () => {
-		setMode( stored, MODE.TIERS );
-		setList( stored, [ 'x' ] );
-		setConditionsEnabled( stored, false );
-		setConditions( stored, [ 'c:d' ] );
-		setMatch( stored, 'all' );
-		setInvert( stored, true );
-		setFallback( stored, 4 );
-		normalise( stored );
-		indicatorKind( stored );
-	} );
+	for ( const value of [ stored, shared, legacy ] ) {
+		assert.doesNotThrow( () => {
+			addRule( value, EDITOR );
+			removeRule( value, GOLD );
+			setMatch( value, 'any' );
+			setInvert( value, false );
+			setFallback( value, 0 );
+			resetAccess( value );
+		} );
+	}
+} );
+
+test( 'a change that changes nothing is not a write', () => {
+	const stored = { rules: [ GOLD, BOARD ], match: 'all', invert: true, fallbackId: 3 };
+
+	assert.equal( addRule( stored, GOLD ), stored );
+	assert.equal( removeRule( stored, EDITOR ), stored );
+	assert.equal( setMatch( stored, 'all' ), stored );
+	assert.equal( setInvert( stored, true ), stored );
+	assert.equal( setFallback( stored, 3 ), stored );
+	assert.equal( setFallback( stored, '3' ), stored );
 } );
 
 // ---------------------------------------------------------------------------
-// Keys the panel does not own
+// Reading
 // ---------------------------------------------------------------------------
 
-test( 'a key the panel does not own is kept, untouched, through every kind of edit', () => {
-	const future = { shape: [ 1, { deep: true } ] };
-	const stored = { mode: 'segments', segmentIds: [ SEG_A ], conditionsEnabled: true, newerRelease: future, flag: 'x' };
-
-	const edits = [
-		setMode( stored, MODE.TIERS ),
-		setList( stored, [] ),
-		setConditionsEnabled( stored, false ),
-		setConditions( stored, [ 'a:b' ] ),
-		setMatch( stored, 'all' ),
-		setInvert( stored, true ),
-		setFallback( stored, 2 ),
-	];
-
-	edits.forEach( ( next ) => {
-		assert.equal( next.newerRelease, future, 'same value, not a copy' );
-		assert.equal( next.flag, 'x' );
-	} );
-} );
-
-test( 'collapsing to inherit leaves an object only when somebody else\'s key is still in it', () => {
-	assert.deepEqual( setMode( { mode: 'active_member', newerRelease: 1 }, MODE.INHERIT ), { newerRelease: 1 } );
-	assert.equal( setMode( { mode: 'active_member' }, MODE.INHERIT ), undefined );
-} );
-
-test( 'an unknown key alone reads as inherit with no conditions, as the server reads it', () => {
-	const state = normalise( { newerRelease: 1 } );
-
-	assert.equal( state.mode, MODE.INHERIT );
-	assert.equal( state.unreadable, false );
-	assert.equal( indicatorKind( { newerRelease: 1 } ), '' );
-} );
-
-// ---------------------------------------------------------------------------
-// Reading what is stored
-// ---------------------------------------------------------------------------
-
-test( 'absent, null and {} all read as inherit with nothing on', () => {
+test( 'absent, null, {} and [] all read as no rules', () => {
 	for ( const stored of [ undefined, null, {}, [] ] ) {
 		const state = normalise( stored );
 
-		assert.equal( state.mode, MODE.INHERIT );
-		assert.equal( state.conditionsEnabled, false );
+		assert.deepEqual( state.rules, [] );
+		assert.equal( state.match, 'any' );
+		assert.equal( state.invert, false );
+		assert.equal( state.fallbackId, 0 );
 		assert.equal( state.unreadable, false );
-		assert.equal( indicatorKind( stored ), '' );
+		assert.equal( state.legacy, false );
+		assert.equal( isRestricted( stored ), false );
 	}
 } );
 
-test( 'a stored mode of inherit, or an empty string, is inherit', () => {
-	assert.equal( normalise( { mode: 'inherit' } ).mode, MODE.INHERIT );
-	assert.equal( normalise( { mode: '' } ).mode, MODE.INHERIT );
-	assert.equal( setMode( { mode: 'inherit' }, MODE.INHERIT ), undefined, 'written back as the default, which is nothing' );
+test( 'an unknown key alone reads as no rules, as the server reads it', () => {
+	assert.equal( normalise( { flag: 'x' } ).unreadable, false );
+	assert.deepEqual( normalise( { flag: 'x' } ).rules, [] );
+	assert.equal( isRestricted( { flag: 'x' } ), false );
 } );
 
-test( 'a list is read for the mode that uses it, as strings only', () => {
-	assert.deepEqual( normalise( { mode: 'selected_tiers', tierIds: [ PLAN_A, 5, null, PLAN_B, PLAN_A ] } ).tierIds, [ PLAN_A, PLAN_B ] );
-	assert.deepEqual( normalise( { mode: 'selected_tiers', tierIds: 'not a list' } ).tierIds, [] );
-	assert.deepEqual( normalise( { mode: 'selected_tiers' } ).tierIds, [], 'missing is an empty list, which restricts to nobody' );
+test( 'rules are read once each, in order', () => {
+	assert.deepEqual( normalise( { rules: [ GOLD, BOARD, GOLD ] } ).rules, [ GOLD, BOARD ] );
 } );
 
-test( 'conditions are read only when the switch is the boolean true', () => {
-	assert.equal( normalise( { conditionsEnabled: true } ).conditionsEnabled, true );
+test( 'only the match value "all" reads as all, and only a boolean true reverses', () => {
+	assert.equal( normalise( { rules: [ GOLD ], match: 'all' } ).match, 'all' );
 
-	for ( const off of [ 'yes', 'true', 1, 'on', false, null ] ) {
-		assert.equal( normalise( { conditionsEnabled: off, conditions: [ 'a:b' ] } ).conditionsEnabled, false, String( off ) );
+	for ( const junk of [ 'ALL', 'every', 3, true, null ] ) {
+		assert.equal( normalise( { rules: [ GOLD ], match: junk } ).match, 'any', String( junk ) );
+	}
+
+	assert.equal( normalise( { rules: [ GOLD ], invert: true } ).invert, true );
+
+	for ( const junk of [ 'yes', 1, 'true', {} ] ) {
+		assert.equal( normalise( { rules: [ GOLD ], invert: junk } ).invert, false, String( junk ) );
 	}
 } );
 
-test( 'only the match value "all" reads as all', () => {
-	assert.equal( normalise( { conditionsEnabled: true, conditionsMatch: 'all' } ).conditionsMatch, 'all' );
-	assert.equal( normalise( { conditionsEnabled: true, conditionsMatch: 'ALL' } ).conditionsMatch, 'any' );
-	assert.equal( normalise( { conditionsEnabled: true, conditionsMatch: 3 } ).conditionsMatch, 'any' );
-} );
-
-test( 'a fallback is a positive whole number, and nothing else', () => {
-	const read = ( fallbackId ) => normalise( { conditionsEnabled: true, fallbackId } ).fallbackId;
+test( 'the replacement content is a positive whole number, and nothing else', () => {
+	const read = ( fallbackId ) => normalise( { rules: [ GOLD ], fallbackId } ).fallbackId;
 
 	assert.equal( read( 7 ), 7 );
 
@@ -415,330 +342,127 @@ test( 'a fallback is a positive whole number, and nothing else', () => {
 	}
 } );
 
+test( 'a block with rules is restricted, and so is one the panel cannot read', () => {
+	assert.equal( isRestricted( { rules: [ GOLD ] } ), true );
+	assert.equal( isRestricted( { rules: [] } ), false );
+	assert.equal( isRestricted( 'members' ), true );
+	assert.equal( isRestricted( { mode: 'active_member' } ), true, 'a first-shape policy counts' );
+	assert.equal( isRestricted( { conditionsEnabled: true } ), false, 'switched on with nothing to check' );
+} );
+
 // ---------------------------------------------------------------------------
-// Garbage
+// A stored value the panel cannot read
 // ---------------------------------------------------------------------------
 
-const GARBAGE = [
+const UNREADABLE = [
 	[ 'a string', 'members' ],
 	[ 'a number', 42 ],
 	[ 'true', true ],
 	[ 'false', false ],
 	[ 'a non-empty list', [ 1, 2 ] ],
-	[ 'a list of objects', [ { mode: 'active_member' } ] ],
-	[ 'a numeric mode', { mode: 5 } ],
-	[ 'an unknown mode', { mode: 'wat' } ],
-	[ 'the public mode, which blocks do not have', { mode: 'public' } ],
-	[ 'a mode object', { mode: { x: 1 } } ],
-	[ 'an upper case mode', { mode: 'ACTIVE_MEMBER' } ],
-	[ 'a list that is not a list', { mode: 'selected_tiers', tierIds: { 0: 'a' } } ],
-	[ 'malformed conditions', { conditionsEnabled: true, conditions: [ 1, null, { x: 1 }, 'ok:fine' ] } ],
-	[ 'conditions that are not a list', { conditionsEnabled: true, conditions: 'logged_in' } ],
-	[ 'a deeply odd object', { mode: undefined, tierIds: undefined, conditions: undefined, fallbackId: {} } ],
+	[ 'a list of objects', [ { rules: [ GOLD ] } ] ],
+	[ 'rules that are not a list', { rules: GOLD } ],
+	[ 'rules held in an object', { rules: { 0: GOLD } } ],
+	[ 'a rule that is not text', { rules: [ GOLD, 7 ] } ],
+	[ 'a rule that is null', { rules: [ null ] } ],
+	[ 'an empty rule', { rules: [ '' ] } ],
+	[ 'a rule that is an object', { rules: [ { value: GOLD } ] } ],
+	[ 'reversing nothing', { rules: [], invert: true } ],
+	[ 'reversing with no rules key', { invert: true } ],
+	[ 'both shapes at once', { rules: [ GOLD ], mode: 'active_member' } ],
+	[ 'both shapes at once, conditions', { rules: [ GOLD ], conditionsEnabled: true } ],
+	[ 'a first-shape mode this version does not know', { mode: 'wat' } ],
 ];
 
-for ( const [ label, stored ] of GARBAGE ) {
-	test( `garbage does not crash the panel: ${ label }`, () => {
+for ( const [ label, stored ] of UNREADABLE ) {
+	test( `unreadable, hidden from everyone, and offered a reset only: ${ label }`, () => {
 		const state = normalise( stored );
 
-		for ( const field of [ 'mode', 'tierIds', 'segmentIds', 'entitlementKeys', 'conditionsEnabled', 'conditions', 'conditionsMatch', 'conditionsInvert', 'fallbackId', 'unreadable' ] ) {
-			assert.ok( field in state, `state.${ field }` );
-		}
+		assert.equal( state.unreadable, true );
+		assert.deepEqual( state.rules, [] );
+		assert.equal( isRestricted( stored ), true, 'shown as restricted on the canvas' );
 
-		assert.ok( Array.isArray( state.tierIds ) && Array.isArray( state.conditions ) );
+		// Every write is refused: the value comes back as it was, and the
+		// panel never quietly turns "nobody" into "somebody".
+		[
+			( v ) => addRule( v, GOLD ),
+			( v ) => removeRule( v, GOLD ),
+			( v ) => setMatch( v, 'all' ),
+			( v ) => setInvert( v, true ),
+			( v ) => setFallback( v, 3 ),
+		].forEach( ( edit ) => assert.equal( edit( stored ), stored ) );
 
-		assert.doesNotThrow( () => {
-			indicatorKind( stored );
-			checklistRows( [], state.tierIds );
-			conditionChoices( null, state.conditions );
-			conditionChoices( [], state.conditions );
-			fallbackChoices( [], state.fallbackId );
-			[
-				( v ) => setMode( v, MODE.TIERS ),
-				( v ) => setList( v, [ 'a' ] ),
-				( v ) => setConditionsEnabled( v, true ),
-				( v ) => setConditions( v, [ 'a:b' ] ),
-				( v ) => setMatch( v, 'all' ),
-				( v ) => setInvert( v, true ),
-				( v ) => setFallback( v, 3 ),
-			].forEach( ( edit ) => edit( stored ) );
-		} );
+		assert.doesNotThrow( () => resetAccess( stored ) );
 	} );
 }
 
-test( 'an unreadable mode shows as the members-only state the server enforces, and says so', () => {
-	for ( const stored of [ 'members', 42, true, false, [ 1 ], { mode: 'wat' }, { mode: 5 }, { mode: 'public' } ] ) {
-		const state = normalise( stored );
-
-		assert.equal( state.mode, UNRECOGNISED );
-		assert.equal( state.unreadable, true );
-		assert.equal( indicatorKind( stored ), 'policy', 'it restricts, so the canvas marks it' );
-	}
+test( 'resetting clears an unreadable value, keeps the keys that are not ours, and unlocks the panel', () => {
+	assert.equal( resetAccess( 'members' ), undefined );
+	assert.equal( resetAccess( { rules: [ 1 ] } ), undefined );
+	assert.deepEqual( resetAccess( { rules: [ 1 ], flag: 'x' } ), { flag: 'x' } );
+	assert.deepEqual( addRule( resetAccess( { rules: [ 1 ], flag: 'x' } ), GOLD ), { rules: [ GOLD ], flag: 'x' } );
 } );
 
-test( 'while the mode is unreadable every write is refused except choosing a mode', () => {
-	for ( const stored of [ 'members', { mode: 'wat' }, { mode: 'wat', conditionsEnabled: true } ] ) {
-		assert.equal( setList( stored, [ 'a' ] ), stored );
-		assert.equal( setConditionsEnabled( stored, true ), stored );
-		assert.equal( setConditions( stored, [ 'a:b' ] ), stored );
-		assert.equal( setMatch( stored, 'all' ), stored );
-		assert.equal( setInvert( stored, true ), stored );
-		assert.equal( setFallback( stored, 3 ), stored );
-	}
-} );
+// ---------------------------------------------------------------------------
+// A block saved by the first panel
+// ---------------------------------------------------------------------------
 
-test( 'choosing a mode repairs an unreadable one, and a string is replaced by an object', () => {
-	assert.deepEqual( setMode( 'members', MODE.MEMBERS ), { mode: 'active_member' } );
-	assert.equal( setMode( { mode: 'wat' }, MODE.INHERIT ), undefined );
-	assert.deepEqual( setMode( 42, MODE.TIERS ), { mode: 'selected_tiers', tierIds: [] } );
-	assert.equal( setMode( [ 1, 2 ], MODE.INHERIT ), undefined );
-} );
-
-test( 'a mode that is not one of the five is refused rather than written', () => {
-	for ( const junk of [ 'wat', 'public', '', null, undefined, 5, UNRECOGNISED ] ) {
-		const stored = { mode: 'active_member' };
-
-		assert.equal( setMode( stored, junk ), stored, String( junk ) );
-	}
-} );
-
-test( 'malformed conditions are flagged, and the next write replaces them', () => {
-	const stored = { conditionsEnabled: true, conditions: [ 1, 'agend_wordpress:logged_in', null ] };
+test( 'a first-shape block is shown as rules and is not rewritten by being opened', () => {
+	const stored = deepFreeze( { mode: 'selected_tiers', tierIds: [ PLAN_A ], conditionsEnabled: true, conditions: [ SIGNED_IN ] } );
 	const state = normalise( stored );
 
-	assert.equal( state.unreadable, true );
-	assert.deepEqual( state.conditions, [ 'agend_wordpress:logged_in' ] );
-	assert.deepEqual( setMatch( stored, 'all' ), { conditionsEnabled: true, conditions: [ 'agend_wordpress:logged_in' ], conditionsMatch: 'all' } );
+	assert.equal( state.legacy, true );
+	assert.deepEqual( state.rules, [ GOLD, SIGNED_IN ] );
+
+	// No setter that changes nothing returns anything but the stored value.
+	assert.equal( setMatch( stored, 'all' ), stored );
+	assert.equal( setInvert( stored, false ), stored );
+	assert.equal( setFallback( stored, 0 ), stored );
+	assert.equal( addRule( stored, GOLD ), stored );
 } );
 
-test( 'duplicate conditions are not malformed, only repeated', () => {
-	assert.equal( normalise( { conditionsEnabled: true, conditions: [ 'a:b', 'a:b' ] } ).unreadable, false );
+test( 'a first-shape block is rewritten as the current shape only by a real change, and nothing of the old shape survives', () => {
+	const stored = { mode: 'active_member', conditionsEnabled: true, conditions: [ EDITOR ], conditionsMatch: 'all', fallbackId: 5, flag: 'x' };
+
+	assert.deepEqual( addRule( stored, BOARD ), { rules: [ 'agend_membership:is_member', EDITOR, BOARD ], match: 'all', fallbackId: 5, flag: 'x' } );
+	assert.deepEqual( removeRule( stored, EDITOR ), { rules: [ 'agend_membership:is_member' ], fallbackId: 5, flag: 'x' } );
+	assert.deepEqual( removeRule( removeRule( stored, EDITOR ), 'agend_membership:is_member' ), { flag: 'x' }, 'all the old keys go' );
 } );
 
-// ---------------------------------------------------------------------------
-// The canvas indicator
-// ---------------------------------------------------------------------------
-
-test( 'the indicator says whether a block carries a policy, conditions, or both', () => {
-	assert.equal( indicatorKind( {} ), '' );
-	assert.equal( indicatorKind( undefined ), '' );
-	assert.equal( indicatorKind( { mode: 'active_member' } ), 'policy' );
-	assert.equal( indicatorKind( { mode: 'selected_tiers', tierIds: [] } ), 'policy' );
-	assert.equal( indicatorKind( { conditionsEnabled: true } ), 'conditions' );
-	assert.equal( indicatorKind( { mode: 'segments', conditionsEnabled: true } ), 'both' );
-	assert.equal( indicatorKind( { mode: 'inherit' } ), '' );
-	assert.equal( indicatorKind( { conditions: [ 'a:b' ] } ), '', 'conditions with the switch off do nothing' );
+test( 'a first-shape block that holds an audience and conditions is flagged as two-part', () => {
+	assert.equal( normalise( { mode: 'active_member', conditionsEnabled: true, conditions: [ SIGNED_IN ] } ).twoPart, true );
+	assert.equal( normalise( { mode: 'active_member' } ).twoPart, false );
+	assert.equal( normalise( { conditionsEnabled: true, conditions: [ SIGNED_IN ] } ).twoPart, false );
+	assert.equal( normalise( { rules: [ GOLD, BOARD ] } ).twoPart, false );
 } );
 
-// ---------------------------------------------------------------------------
-// The catalogue as the panel lists it
-// ---------------------------------------------------------------------------
-
-const plans = {
-	items: [
-		{ id: PLAN_A, name: 'Full Member', slug: 'full', type: 'individual', active: true },
-		{ id: PLAN_B, name: 'Retired', slug: 'retired', type: 'individual', active: false },
-	],
-	stale: false,
-	error: null,
-};
-
-test( 'a section is known when it has a list, even a stale one, and not when it failed empty', () => {
-	assert.equal( sectionState( plans ).known, true );
-	assert.equal( sectionState( { items: [], stale: false, error: null } ).known, true, 'a site with none is still known' );
-	assert.equal( sectionState( { items: [ { id: 'x' } ], stale: true, error: 'could not refresh' } ).known, true );
-	assert.equal( sectionState( { items: [], stale: false, error: 'missing the crm.entitlements.browse scope' } ).known, false );
-	assert.equal( sectionState( undefined ).known, false );
-	assert.equal( sectionState( 'nope' ).known, false );
-	assert.equal( sectionState( { items: 'nope' } ).known, false );
-	assert.equal( sectionState( { items: [], error: 'x' } ).error, 'x' );
-	assert.equal( sectionState( { items: [], error: null } ).error, '' );
-} );
-
-test( 'plans, segments and entitlements are read by name, and malformed entries are skipped', () => {
-	assert.deepEqual( planItems( plans ).map( ( item ) => [ item.value, item.name, item.offered ] ), [
-		[ PLAN_A, 'Full Member', true ],
-		[ PLAN_B, 'Retired', false ],
-	] );
-
-	assert.deepEqual(
-		segmentItems( { items: [ { id: SEG_A, slug: 'vip', name: 'VIP' }, { id: 'b', slug: 'no-name' }, { slug: 'no-id' }, null, 'x' ] } ).map( ( item ) => [ item.value, item.name ] ),
-		[ [ SEG_A, 'VIP' ], [ 'b', 'no-name' ] ]
-	);
-
-	const entitlements = entitlementItems( {
-		items: [
-			{ gate_key: 'platform.directory', name: 'Directory access', description: 'Browse the directory', kind: 'platform-gate' },
-			{ gate_key: 'agend.vip', name: 'VIP', description: '', kind: 'entitlement' },
-			{ gate_key: 'legacy.thing', name: 'Legacy', kind: 'unrecognised' },
-			{ gate_key: 'weird.kind', name: 'Weird', kind: 'something-new' },
-			{ name: 'no key' },
-		],
-	} );
-
-	assert.deepEqual( entitlements.map( ( item ) => [ item.value, item.kind ] ), [
-		[ 'platform.directory', 'platform-gate' ],
-		[ 'agend.vip', 'entitlement' ],
-		[ 'legacy.thing', 'unrecognised' ],
-		[ 'weird.kind', 'entitlement' ],
-	] );
-} );
-
-test( 'a checklist lists what is offered, in the catalogue order, and ticks what is chosen', () => {
-	const rows = checklistRows( planItems( { items: [ { id: 'a', name: 'A', active: true }, { id: 'b', name: 'B', active: true }, { id: 'c', name: 'C', active: true } ] } ), [ 'c', 'a' ] );
-
-	assert.deepEqual( rows.map( ( row ) => [ row.value, row.checked, row.status ] ), [
-		[ 'a', true, 'available' ],
-		[ 'b', false, 'available' ],
-		[ 'c', true, 'available' ],
-	] );
-} );
-
-test( 'a stored choice the catalogue no longer offers comes first, ticked, and marked unavailable', () => {
-	const rows = checklistRows( planItems( plans ), [ PLAN_A, 'deleted-plan-id' ] );
-
-	assert.deepEqual( rows.map( ( row ) => [ row.value, row.label, row.checked, row.status ] ), [
-		[ 'deleted-plan-id', 'deleted-plan-id (unavailable)', true, 'unavailable' ],
-		[ PLAN_A, 'Full Member', true, 'available' ],
-	] );
-} );
-
-test( 'an inactive plan is not offered, but a block that names one shows it by name, first and ticked', () => {
-	const offered = checklistRows( planItems( plans ), [] );
-
-	assert.deepEqual( offered.map( ( row ) => row.value ), [ PLAN_A ], 'not offered for a new choice' );
-
-	const rows = checklistRows( planItems( plans ), [ PLAN_B ] );
-
-	assert.deepEqual( rows[ 0 ], { value: PLAN_B, label: 'Retired (no longer active)', help: '', checked: true, status: 'unavailable' } );
-	assert.equal( rows.length, 2 );
-} );
-
-test( 'several unavailable choices keep their stored order, ahead of every offered one', () => {
-	const rows = checklistRows( planItems( plans ), [ 'z-gone', PLAN_A, 'a-gone' ] );
-
-	assert.deepEqual( rows.map( ( row ) => row.value ), [ 'z-gone', 'a-gone', PLAN_A ] );
-} );
-
-test( 'a platform gate is labelled, an unrecognised key keeps its own name, and the description is help', () => {
-	const rows = checklistRows(
-		entitlementItems( {
-			items: [
-				{ gate_key: 'platform.directory', name: 'Directory access', description: 'Browse the directory', kind: 'platform-gate' },
-				{ gate_key: 'legacy.thing', name: 'Legacy thing', kind: 'unrecognised' },
-				{ gate_key: 'agend.vip', name: 'VIP', kind: 'entitlement' },
-			],
-		} ),
-		[]
-	);
-
-	assert.deepEqual( rows.map( ( row ) => row.label ), [ 'Platform: Directory access', 'Legacy thing', 'VIP' ] );
-	assert.equal( rows[ 0 ].help, 'Browse the directory' );
-} );
-
-test( 'a platform gate that is no longer offered is still labelled when it is stored', () => {
-	const rows = checklistRows( [], [ 'platform.gone' ] );
-
-	assert.equal( rows[ 0 ].label, 'platform.gone (unavailable)' );
-} );
-
-test( 'when the list could not be loaded a stored choice is shown as it is, not called unavailable', () => {
-	const rows = checklistRows( [], [ PLAN_A, SEG_A ], { known: false } );
-
-	assert.deepEqual( rows.map( ( row ) => [ row.value, row.label, row.checked, row.status ] ), [
-		[ PLAN_A, PLAN_A, true, 'unverified' ],
-		[ SEG_A, SEG_A, true, 'unverified' ],
-	] );
-} );
-
-test( 'checklist rows survive junk in the catalogue and the selection', () => {
-	assert.doesNotThrow( () => checklistRows( undefined, undefined ) );
-	assert.doesNotThrow( () => checklistRows( null, 'nope', { known: false } ) );
-	assert.deepEqual( checklistRows( [], [ 'a', 'a', 1, null ] ).map( ( row ) => row.value ), [ 'a' ] );
-} );
-
-test( 'labels built from catalogue text are not read as replacement patterns', () => {
-	const rows = checklistRows( [ { value: 'p', name: 'Price $& more $1', offered: true, kind: 'platform-gate' } ], [] );
-
-	assert.equal( rows[ 0 ].label, 'Platform: Price $& more $1' );
-} );
-
-test( 'translated copy is used for the labels the model composes', () => {
-	const strings = { ...DEFAULT_STRINGS, unavailable: 'Nicht verfuegbar: %s' };
-
-	assert.equal( checklistRows( [], [ 'x' ], { strings } )[ 0 ].label, 'Nicht verfuegbar: x' );
+test( 'a current-shape value never reports itself as legacy', () => {
+	assert.equal( normalise( { rules: [ GOLD ] } ).legacy, false );
 } );
 
 // ---------------------------------------------------------------------------
-// The condition vocabulary
+// Garbage does not crash anything
 // ---------------------------------------------------------------------------
 
-const vocabulary = normaliseVocabulary( {
-	groups: [
-		{
-			provider: 'agend_wordpress',
-			label: 'WordPress user',
-			conditions: [
-				{ value: 'agend_wordpress:logged_in', label: 'Signed in' },
-				{ value: 'agend_wordpress:logged_out', label: 'Signed out' },
-			],
-		},
-		{ provider: 'agend_segments', label: 'Segments', conditions: [] },
-	],
-	fallbacks: [ { id: 12, title: 'Join us' } ],
-} );
-
-test( 'the vocabulary is read as groups and fallbacks, and junk in it is skipped', () => {
-	assert.equal( vocabulary.groups.length, 2 );
-	assert.equal( vocabulary.groups[ 0 ].options[ 0 ].value, 'agend_wordpress:logged_in' );
-	assert.deepEqual( vocabulary.groups[ 1 ].options, [], 'an empty group is kept' );
-
-	const messy = normaliseVocabulary( {
-		groups: [ null, 'x', { label: 'no provider' }, { provider: 'p', conditions: [ null, { value: 5 }, { value: 'p:a' } ] } ],
-		fallbacks: [ { id: '3', title: 'string id' }, { id: -1 }, { id: 4 }, null ],
-	} );
-
-	assert.deepEqual( messy.groups, [ { provider: 'p', label: 'p', options: [ { value: 'p:a', label: 'p:a' } ] } ] );
-	assert.deepEqual( messy.fallbacks, [ { id: 4, title: '4' } ] );
-} );
-
-test( 'a vocabulary response that is not the documented shape is a failed load', () => {
-	for ( const junk of [ null, undefined, 'x', 3, [], {}, { groups: 'nope' } ] ) {
-		assert.equal( normaliseVocabulary( junk ), null, String( junk ) );
+test( 'the contract keys include both shapes, so nothing of the old one is ever kept as "somebody else\'s"', () => {
+	for ( const key of [ 'rules', 'match', 'invert', 'fallbackId', 'mode', 'tierIds', 'segmentIds', 'entitlementKeys', 'conditionsEnabled', 'conditions', 'conditionsMatch', 'conditionsInvert' ] ) {
+		assert.ok( CONTRACT_KEYS.includes( key ), key );
 	}
 } );
 
-test( 'a stored condition the vocabulary does not offer is pulled out first, ticked and marked', () => {
-	const choices = conditionChoices( vocabulary.groups, [ 'agend_wordpress:logged_in', 'agend_segments:deleted-slug' ] );
+test( 'odd values do not throw anywhere', () => {
+	const odd = [ undefined, null, 0, '', 'x', 7, true, [], [ [] ], {}, { rules: null }, { rules: [ [] ] }, { mode: null, tierIds: null }, { conditions: 'logged_in', conditionsEnabled: true }, { __proto__: { rules: [ GOLD ] } } ];
 
-	assert.deepEqual( choices.stray, [
-		{ value: 'agend_segments:deleted-slug', label: 'agend_segments:deleted-slug (unavailable)', help: '', checked: true, status: 'unavailable' },
-	] );
-	assert.deepEqual( choices.groups.map( ( group ) => group.provider ), [ 'agend_wordpress', 'agend_segments' ], 'grouped by provider, in order' );
-	assert.deepEqual( choices.groups[ 0 ].rows.map( ( row ) => [ row.value, row.checked ] ), [
-		[ 'agend_wordpress:logged_in', true ],
-		[ 'agend_wordpress:logged_out', false ],
-	] );
-} );
-
-test( 'when the vocabulary could not be loaded every stored condition is shown as it is', () => {
-	const choices = conditionChoices( null, [ 'agend_wordpress:logged_in' ] );
-
-	assert.deepEqual( choices.groups, [] );
-	assert.deepEqual( choices.stray.map( ( row ) => [ row.label, row.status ] ), [ [ 'agend_wordpress:logged_in', 'unverified' ] ] );
-} );
-
-test( '"Show instead" offers Nothing first, then the pages, and keeps a stored page that is not on the list', () => {
-	assert.deepEqual( fallbackChoices( vocabulary.fallbacks, 0 ), [
-		{ value: '', label: 'Nothing' },
-		{ value: '12', label: 'Join us' },
-	] );
-
-	assert.deepEqual( fallbackChoices( vocabulary.fallbacks, 99 ), [
-		{ value: '', label: 'Nothing' },
-		{ value: '99', label: 'Content #99 (not in the list)' },
-		{ value: '12', label: 'Join us' },
-	] );
-
-	assert.deepEqual( fallbackChoices( [], 0 ), [ { value: '', label: 'Nothing' } ] );
+	for ( const stored of odd ) {
+		assert.doesNotThrow( () => {
+			normalise( stored );
+			isRestricted( stored );
+			addRule( stored, GOLD );
+			removeRule( stored, GOLD );
+			setMatch( stored, 'all' );
+			setInvert( stored, true );
+			setFallback( stored, 2 );
+			resetAccess( stored );
+		}, serialised( stored ) );
+	}
 } );

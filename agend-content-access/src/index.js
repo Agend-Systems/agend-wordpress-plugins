@@ -1,6 +1,6 @@
 /**
  * Agend Access for every block: the attribute, the sidebar panel, and a mark
- * on the canvas for blocks that carry a policy or display conditions.
+ * on the canvas for blocks that carry access rules.
  *
  * The three cooperating filters the block editor offers for this (see the
  * review in docs/REVIEW-content-access-editor-agnostic.md, section 4):
@@ -22,7 +22,7 @@ import { createHigherOrderComponent } from '@wordpress/compose';
 import { InspectorControls } from '@wordpress/block-editor';
 import { getBlockType } from '@wordpress/blocks';
 import AccessPanel from './access-panel';
-import { ATTRIBUTE, withAccessAttribute, carriesAttribute, indicatorKind } from './access-model.mjs';
+import { ATTRIBUTE, withAccessAttribute, carriesAttribute, isRestricted } from './access-model.mjs';
 import './editor.css';
 
 addFilter( 'blocks.registerBlockType', 'agend-content-access/attribute', withAccessAttribute );
@@ -58,19 +58,17 @@ const withAccessPanel = createHigherOrderComponent(
 addFilter( 'editor.BlockEdit', 'agend-content-access/panel', withAccessPanel );
 
 /**
- * A class on blocks that carry a policy or conditions, so an author can see
- * restricted blocks at a glance. The CSS is in editor.css.
+ * A class on blocks that carry access rules, so an author can see restricted
+ * blocks at a glance. The CSS is in editor.css.
  */
 const withAccessIndicator = createHigherOrderComponent(
 	( BlockListBlock ) =>
 		function WithAgendAccessIndicator( props ) {
-			const kind = indicatorKind( props.attributes ? props.attributes[ ATTRIBUTE ] : undefined );
-
-			if ( kind === '' ) {
+			if ( ! isRestricted( props.attributes ? props.attributes[ ATTRIBUTE ] : undefined ) ) {
 				return <BlockListBlock { ...props } />;
 			}
 
-			const className = [ props.className, 'has-agend-access', 'has-agend-access--' + kind ].filter( Boolean ).join( ' ' );
+			const className = [ props.className, 'has-agend-access' ].filter( Boolean ).join( ' ' );
 
 			return <BlockListBlock { ...props } className={ className } />;
 		},

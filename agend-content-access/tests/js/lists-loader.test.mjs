@@ -7,6 +7,10 @@
  * matters is that selecting forty blocks costs one request per list, not
  * forty, and that a list which failed is neither retried on every selection nor
  * stuck failed for good.
+ *
+ * The loader serves whatever lists it is given fetchers for. The panel gives
+ * it one, `vocabulary`; most of these cases use two so that "one failing does
+ * not hide another" has something to show.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -198,4 +202,34 @@ test( 'each state change is a new object, so a component comparing by identity r
 
 	assert.notEqual( loader.getState(), before );
 	assert.notEqual( loader.getState().catalogue, before.catalogue );
+} );
+
+test( 'a loader with the panel\'s one list, named by its fetcher', async () => {
+	const calls = [];
+	const loader = createListsLoader( {
+		vocabulary: ( refresh ) => {
+			calls.push( refresh );
+
+			return calls.length === 1 ? Promise.reject( new Error( 'down' ) ) : Promise.resolve( { groups: [], fallbacks: [], errors: [] } );
+		},
+	} );
+
+	assert.deepEqual( Object.keys( loader.getState() ), [ 'vocabulary' ], 'no list it was not given' );
+	assert.equal( loader.getState().vocabulary.status, 'idle' );
+
+	for ( let selected = 0; selected < 40; selected++ ) {
+		loader.ensure();
+	}
+
+	await settle();
+
+	assert.equal( loader.getState().vocabulary.status, 'failed' );
+	assert.deepEqual( calls, [ false ] );
+
+	loader.retry();
+	await settle();
+
+	assert.deepEqual( calls, [ false, true ], 'the retry asks the server to refresh' );
+	assert.equal( loader.getState().vocabulary.status, 'ready' );
+	assert.deepEqual( loader.getState().vocabulary.data, { groups: [], fallbacks: [], errors: [] } );
 } );

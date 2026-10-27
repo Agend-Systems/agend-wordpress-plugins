@@ -78,8 +78,12 @@ jobs:
       # the browser's and the server's search link parse rules in step.
       - run: node --test agend-apps-core/tests/js/search-link.test.mjs
       # The Agend Access block panel's logic and its once-per-session loader,
-      # both free of WordPress imports so they run here.
+      # all free of WordPress imports so they run here.
       - run: node --test agend-content-access/tests/js/access-model.test.mjs
+      - run: node --test agend-content-access/tests/js/legacy-access.test.mjs
+      - run: node --test agend-content-access/tests/js/rule-vocabulary.test.mjs
+      - run: node --test agend-content-access/tests/js/access-summary.test.mjs
+      - run: node --test agend-content-access/tests/js/copy.test.mjs
       - run: node --test agend-content-access/tests/js/lists-loader.test.mjs
       - name: Committed build is up to date
         run: |

@@ -13,6 +13,26 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Declares the `agendAccess` attribute on every block type and loads the
  * editor script that gives authors a panel for it.
  *
+ * THE VALUE. The attribute holds one rule list, written by the panel's
+ * searchable picker and read by the server before the block renders:
+ *
+ *   rules       string[]  "<provider>:<value>". Providers: agend_wordpress
+ *                         (logged_in, logged_out, role_<role id>),
+ *                         agend_membership (is_member, or a plan's id),
+ *                         agend_segments (a segment's id) and
+ *                         agend_entitlements (an entitlement's gate key).
+ *   match       string    "any" (default) or "all". Written only when "all".
+ *   invert      bool      Show to everyone EXCEPT those the rules match.
+ *                         Written only when true.
+ *   fallbackId  int       Post id of public content shown in the block's place.
+ *                         Written only when not zero.
+ *
+ * Nothing chosen is no attribute at all, never `{}`. Unknown keys are kept as
+ * found. Blocks saved by the first panel (`mode`, `tierIds`, `segmentIds`,
+ * `entitlementKeys`, `conditionsEnabled`, `conditions`, `conditionsMatch`,
+ * `conditionsInvert`) are read as rules, and only rewritten when an author
+ * changes something; `src/legacy-access.mjs` says how each reads.
+ *
  * Adding an attribute to every block is done in two places that have to agree,
  * and this is the PHP half. The editor half is `src/index.js`, which adds the
  * same attribute through the `blocks.registerBlockType` filter.
@@ -31,7 +51,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Two block types are left out, because neither is serialised with a comment
  * delimiter and so an attribute would have nowhere to be stored. The author
- * would set a policy and the post would forget it:
+ * would set a rule and the post would forget it:
  *
  *   core/missing   the "unsupported block" placeholder, which writes back the
  *                  original markup it could not parse
@@ -119,7 +139,8 @@ class Agend_Content_Access_Block_Editor {
 	 * WordPress's prepared block attributes, an object there would be a stdClass,
 	 * and `Block_Attributes::settings_for_block()` deliberately treats any
 	 * non-array value as a restriction, so the editor removes the attribute
-	 * instead of writing an empty `{}`.
+	 * instead of writing an empty `{}`. The shape of a value that is set is the
+	 * rule list described on the class.
 	 *
 	 * @param array  $args       Block type arguments.
 	 * @param string $block_name Block type name.
@@ -138,9 +159,10 @@ class Agend_Content_Access_Block_Editor {
 			return $args;
 		}
 
-		// An object, defaulting to empty: no restriction and no conditions. A
-		// non-sourced attribute equal to its default is not written into the
-		// block's comment, so a block nobody touched saves as it always did.
+		// An object, defaulting to empty: no rules, so everyone who can see the
+		// page can see the block. A non-sourced attribute equal to its default
+		// is not written into the block's comment, so a block nobody touched
+		// saves as it always did.
 		$attributes[ self::ATTRIBUTE ] = array(
 			'type'    => 'object',
 			'default' => array(),

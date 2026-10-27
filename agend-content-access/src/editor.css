@@ -7,19 +7,12 @@
  */
 
 /*
- * A stripe down the left edge of a block that carries a policy or display
- * conditions. Drawn as a shadow so it takes no room and moves nothing, and set
- * on two classes so a block's own single-class shadow does not win.
- *
- *   blue    an audience policy, alone or with conditions
- *   amber   display conditions only
+ * A stripe down the left edge of a block that carries access rules. Drawn as a
+ * shadow so it takes no room and moves nothing, and set on two classes so a
+ * block's own single-class shadow does not win.
  */
 .block-editor-block-list__block.has-agend-access {
 	box-shadow: -3px 0 0 0 var(--agend-access-colour, #2271b1);
-}
-
-.block-editor-block-list__block.has-agend-access--conditions {
-	--agend-access-colour: #bd8600;
 }
 
 /* Shadows are removed in forced-colours mode, so use a real edge there. */
@@ -31,39 +24,164 @@
 }
 
 /* The sidebar panel. */
+.agend-access__summary {
+	font-weight: 600;
+	margin: 0 0 16px;
+}
+
 .agend-access__notice {
 	margin: 0 0 16px;
 }
 
-.agend-access__fieldset {
-	border: 0;
-	margin: 16px 0;
-	padding: 0;
-}
-
-.agend-access__legend {
-	font-weight: 600;
-	margin-bottom: 8px;
-	padding: 0;
-}
-
-.agend-access__list {
-	max-height: 240px;
-	overflow-y: auto;
-}
-
-.agend-access__row {
-	margin-bottom: 8px;
-}
-
-/* A choice the catalogue no longer offers. Ticked, and worth noticing. */
-.agend-access__row--unavailable .components-checkbox-control__label {
-	color: #b32d2e;
+.agend-access__heading {
+	font-size: 11px;
+	font-weight: 500;
+	margin: 16px 0 8px;
+	text-transform: uppercase;
 }
 
 .agend-access__help,
-.agend-access__empty {
+.agend-access__empty,
+.agend-access__more,
+.agend-access__status {
 	color: #757575;
 	font-size: 12px;
 	margin: 8px 0 0;
+}
+
+.agend-access__status {
+	margin: 16px 0 0;
+}
+
+.agend-access__loading {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+	margin: 8px 0;
+}
+
+/* The rules the block holds. */
+.agend-access__chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	list-style: none;
+	margin: 0 0 12px;
+	padding: 0;
+}
+
+.agend-access__chip {
+	align-items: center;
+	background: #f0f0f0;
+	border: 1px solid #dcdcde;
+	border-radius: 2px;
+	display: inline-flex;
+	gap: 4px;
+	margin: 0;
+	max-width: 100%;
+	padding: 2px 2px 2px 8px;
+}
+
+.agend-access__chip-label {
+	overflow-wrap: anywhere;
+}
+
+.agend-access__chip-remove {
+	background: none;
+	border: 0;
+	border-radius: 2px;
+	color: inherit;
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+	padding: 2px 6px;
+}
+
+.agend-access__chip-remove:hover,
+.agend-access__chip-remove:focus-visible {
+	background: #dcdcde;
+}
+
+.agend-access__chip-remove:focus-visible {
+	outline: 2px solid var(--wp-admin-theme-color, #2271b1);
+	outline-offset: 0;
+}
+
+/* A rule the vocabulary no longer offers, or a plan that was switched off. Kept, and worth noticing. */
+.agend-access__chip--unavailable,
+.agend-access__chip--inactive {
+	background: #fcf0f1;
+	border-color: #d63638;
+	color: #b32d2e;
+}
+
+/* The vocabulary could not say either way. */
+.agend-access__chip--unverified {
+	border-style: dashed;
+}
+
+/* The picker. */
+.agend-access__picker {
+	margin: 0 0 16px;
+}
+
+.agend-access__results {
+	border: 1px solid #dcdcde;
+	border-radius: 2px;
+	margin-top: 8px;
+	max-height: 280px;
+	overflow-y: auto;
+	padding: 0 8px 8px;
+}
+
+.agend-access__group-heading {
+	color: #757575;
+	font-size: 11px;
+	font-weight: 500;
+	margin: 12px 0 4px;
+	text-transform: uppercase;
+}
+
+.agend-access__group-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.agend-access__group-list li {
+	margin: 0;
+}
+
+.agend-access__result {
+	background: none;
+	border: 0;
+	border-radius: 2px;
+	color: inherit;
+	cursor: pointer;
+	display: block;
+	padding: 6px 8px;
+	text-align: left;
+	width: 100%;
+}
+
+.agend-access__result:hover,
+.agend-access__result:focus-visible {
+	background: #f0f0f0;
+}
+
+.agend-access__result:focus-visible {
+	outline: 2px solid var(--wp-admin-theme-color, #2271b1);
+	outline-offset: -2px;
+}
+
+.agend-access__result-label {
+	display: block;
+	overflow-wrap: anywhere;
+}
+
+.agend-access__result-note {
+	color: #757575;
+	display: block;
+	font-size: 12px;
+	overflow-wrap: anywhere;
 }

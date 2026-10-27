@@ -5,52 +5,52 @@
  * (agend-content-access/tests/js/access-model.test.mjs) and so the rules about
  * what the panel may write are in one place that can be read top to bottom.
  *
- * THE CONTRACT. Every block may carry one object attribute, `agendAccess`.
- * Absent or `{}` means "same as the page, no display conditions". The PHP side
- * reads it with `Agend_Content_Access_Block_Attributes::to_settings()`, and the
- * keys are:
+ * THE CONTRACT. Every block may carry one object attribute, `agendAccess`:
  *
- *   mode               inherit (default), active_member, selected_tiers,
- *                      segments, selected_entitlements
- *   tierIds            string[]  for selected_tiers
- *   segmentIds         string[]  for segments
- *   entitlementKeys    string[]  for selected_entitlements
- *   conditionsEnabled  boolean   display conditions switched on
- *   conditions         string[]  "<provider>:<value>"
- *   conditionsMatch    any (default) or all
- *   conditionsInvert   boolean
- *   fallbackId         positive integer, a post id
+ *   rules       string[]  "<provider>:<value>". Providers are agend_wordpress
+ *                         (logged_in, logged_out, role_<role id>),
+ *                         agend_membership (is_member, or a plan's id),
+ *                         agend_segments (a segment's id) and
+ *                         agend_entitlements (an entitlement's gate key).
+ *   match       any (default) or all. Written only when it is all.
+ *   invert      boolean. Written only when it is true.
+ *   fallbackId  positive integer, a post id. Written only when it is not zero.
+ *
+ * Absent means "everyone who can see the page". The PHP side reads the same
+ * object. Blocks saved by the first panel used another shape (legacy-access.mjs
+ * says what it meant); they are read, never written.
  *
  * THE RULES THE PANEL KEEPS.
  *
  *  1. It writes those keys and nothing else, and writes the smallest object
- *     that says what the author chose. A default is never written out: no
- *     `mode` for "same as the page", no `conditionsMatch` for "any". Nothing
+ *     that says what the author chose. A default is never written out. Nothing
  *     chosen at all is `undefined`, which removes the attribute, so a block an
  *     author only looked at, or set and then set back, saves with no
  *     `agendAccess` in its comment. (Not `{}`: the server registers an empty
  *     array as the default, `{}` does not equal it, and WordPress would
  *     serialise `{"agendAccess":{}}`.)
- *  2. A key that no longer applies is dropped, not hidden. Changing the mode
- *     drops the other modes' lists, and switching conditions off drops every
- *     condition key. The stored object always matches what the panel shows, so
- *     a stale id cannot sit in the post and come back to life after a later edit.
+ *  2. A key that no longer applies is dropped, not hidden. Match needs two
+ *     rules, and Reverse and the replacement content need one. The stored
+ *     object always matches what the panel shows, so a stale value cannot sit
+ *     in the post and come back to life after a later edit.
  *  3. Keys this panel does not own are kept exactly as found. A newer release,
  *     a script, or another tool may have written them, and silently deleting
  *     somebody else's data because an author nudged a toggle is worse than
  *     carrying a key the server ignores. (If nothing but such keys remains the
- *     object is still written, with only those keys, which is correct: it is
- *     not empty.)
+ *     object is still written, with only those keys: it is not empty.)
  *  4. A stored value it cannot read never crashes the panel and never loosens
- *     anything by accident. The server fails closed on an unreadable mode (a
- *     member-only block), so the panel shows that state, offers only the
- *     audience control until an author picks a real option, and refuses every
- *     other write while it is in that state.
- *  5. Inputs are never mutated. A block's default attribute value is one shared
+ *     anything by accident. The server fails closed on such a value, so the
+ *     panel shows that state, offers only a reset, and refuses every other
+ *     write until the author resets it.
+ *  5. Opening a block never rewrites it. A block saved by the first panel is
+ *     shown as rules and is only saved as rules when the author changes
+ *     something; a change that changes nothing is not a write.
+ *  6. Inputs are never mutated. A block's default attribute value is one shared
  *     object, so mutating it would change every block at once.
  *
  * Deliberately ES2017 syntax: this file is also bundled for the browser.
  */
+import { LEGACY_KEYS, hasLegacyKeys, readLegacy } from './legacy-access.mjs';
 
 export const ATTRIBUTE = 'agendAccess';
 
@@ -58,7 +58,7 @@ export const ATTRIBUTE = 'agendAccess';
  * Block types that cannot carry the attribute, and why.
  *
  * Both are serialised WITHOUT a comment delimiter, so an attribute has nowhere
- * to be stored and an author would set a policy the post then forgets:
+ * to be stored and an author would set a rule the post then forgets:
  *
  *   core/missing   The "unsupported block" placeholder. It writes back the
  *                  original markup it could not parse.
@@ -70,69 +70,24 @@ export const ATTRIBUTE = 'agendAccess';
  */
 export const EXCLUDED_BLOCKS = Object.freeze( [ 'core/missing', 'core/freeform' ] );
 
-export const MODE = Object.freeze( {
-	INHERIT: 'inherit',
-	MEMBERS: 'active_member',
-	TIERS: 'selected_tiers',
-	SEGMENTS: 'segments',
-	ENTITLEMENTS: 'selected_entitlements',
-} );
-
-/**
- * What the panel shows for a stored mode it does not recognise. Never written.
- */
-export const UNRECOGNISED = 'unrecognised';
-
-/** The attribute key that holds each set-mode's list. */
-export const LIST_KEY = Object.freeze( {
-	selected_tiers: 'tierIds',
-	segments: 'segmentIds',
-	selected_entitlements: 'entitlementKeys',
-} );
-
 export const MATCH = Object.freeze( { ANY: 'any', ALL: 'all' } );
 
-/** Every key the panel owns, in the order it writes them. */
-export const CONTRACT_KEYS = Object.freeze( [
-	'mode',
-	'tierIds',
-	'segmentIds',
-	'entitlementKeys',
-	'conditionsEnabled',
-	'conditions',
-	'conditionsMatch',
-	'conditionsInvert',
-	'fallbackId',
-] );
+/** The keys of the current shape, in the order they are written. */
+export const RULE_KEYS = Object.freeze( [ 'rules', 'match', 'invert', 'fallbackId' ] );
 
 /**
- * English copy for the labels this module composes. The components pass in
- * translated strings of the same shape; this default is what the tests read.
+ * Every key the panel owns: the current shape and the first one. Anything else
+ * on a stored value is somebody else's and is kept.
  */
-export const DEFAULT_STRINGS = Object.freeze( {
-	platform: 'Platform: %s',
-	unavailable: '%s (unavailable)',
-	inactivePlan: '%s (no longer active)',
-	fallbackMissing: 'Content %s (not in the list)',
-	nothing: 'Nothing',
-} );
-
-function format( template, value ) {
-	// A replacer function, so a `$&` inside a plan name is not read as a
-	// replacement pattern.
-	return String( template ).replace( '%s', () => String( value ) );
-}
+export const CONTRACT_KEYS = Object.freeze( RULE_KEYS.concat( LEGACY_KEYS ) );
 
 export function isPlainObject( value ) {
 	return value !== null && typeof value === 'object' && ! Array.isArray( value );
 }
 
-function isNonEmptyString( value ) {
+/** A rule is a non-empty string. Whether it is on offer is the vocabulary's business. */
+export function isRule( value ) {
 	return typeof value === 'string' && value !== '';
-}
-
-function strings( value ) {
-	return Array.isArray( value ) ? value.filter( ( entry ) => typeof entry === 'string' ) : [];
 }
 
 function unique( list ) {
@@ -202,41 +157,76 @@ export function carriesAttribute( blockType ) {
 // Reading a stored value
 // ---------------------------------------------------------------------------
 
-const RECOGNISED_MODES = Object.keys( LIST_KEY ).concat( [ MODE.INHERIT, MODE.MEMBERS ] );
-
 function emptyState() {
 	return {
-		mode: MODE.INHERIT,
-		tierIds: [],
-		segmentIds: [],
-		entitlementKeys: [],
-		conditionsEnabled: false,
-		conditions: [],
-		conditionsMatch: MATCH.ANY,
-		conditionsInvert: false,
+		rules: [],
+		match: MATCH.ANY,
+		invert: false,
 		fallbackId: 0,
+		legacy: false,
+		twoPart: false,
 		unreadable: false,
 	};
 }
 
 function unreadableState() {
-	return Object.assign( emptyState(), { mode: UNRECOGNISED, unreadable: true } );
+	return Object.assign( emptyState(), { unreadable: true } );
+}
+
+function has( stored, key ) {
+	return stored[ key ] !== undefined && stored[ key ] !== null;
+}
+
+function positiveInteger( value ) {
+	return typeof value === 'number' && Number.isInteger( value ) && value > 0 ? value : 0;
+}
+
+/**
+ * Reads the current shape. A value with none of its keys is "no rules".
+ *
+ * @param {Object} stored A plain object.
+ * @return {Object} The state.
+ */
+function readRules( stored ) {
+	const state = emptyState();
+
+	if ( has( stored, 'rules' ) ) {
+		// A list with anything in it that is not a rule is malformed, and the
+		// server denies a malformed rule list. Dropping the entry would shrink
+		// the list, which is the one direction that widens who can see the block.
+		if ( ! Array.isArray( stored.rules ) || ! stored.rules.every( isRule ) ) {
+			return unreadableState();
+		}
+
+		state.rules = unique( stored.rules );
+	}
+
+	state.match = stored.match === MATCH.ALL ? MATCH.ALL : MATCH.ANY;
+	state.invert = stored.invert === true;
+	state.fallbackId = positiveInteger( stored.fallbackId );
+
+	// Reversing nothing: a list with no rule in it never excludes anybody, and
+	// reversing that excludes everybody. Not something this panel writes.
+	if ( state.rules.length === 0 && state.invert ) {
+		return unreadableState();
+	}
+
+	return state;
 }
 
 /**
  * Reads a stored attribute value the way the server reads it.
  *
- * Only what applies is returned: a list is read for the mode that uses it and
- * is empty otherwise, and the condition fields are read only when conditions are
- * switched on. That matches the server, which ignores the rest, and it is what
- * stops a stale key coming back to life when a mode or a toggle changes.
- *
  * `unreadable` is true where what the panel shows would differ from what the
- * server acts on, or where the server fails closed: a mode this version does
- * not recognise, a value that is not an object at all, and display conditions
- * the server would deny as malformed. Everything else the server shrugs off
- * (a wrong-typed list, an unknown match value) is read the same way here and is
- * not worth alarming an author about.
+ * server acts on, or where the server fails closed: a value that is not an
+ * object at all, a rule list with something other than a rule in it, a mix of
+ * the two shapes, and whatever `readLegacy()` cannot express as rules. Anything
+ * the server shrugs off (an unknown match value) is read the same way here and
+ * is not worth alarming an author about.
+ *
+ * `legacy` is true for a value written by the first panel, and `twoPart` for
+ * one of those that holds an audience AND conditions, which the rules shown
+ * only approximate (legacy-access.mjs says how).
  *
  * @param {*} stored The stored attribute value.
  * @return {Object} The state, with every field present.
@@ -248,7 +238,7 @@ export function normalise( stored ) {
 	}
 
 	// An empty list is `{}` as far as PHP is concerned (both decode to an empty
-	// array), so it is inherit. A non-empty list, a string, a number or a
+	// array), so it is "none". A non-empty list, a string, a number or a
 	// boolean is present and unreadable, which the server fails closed on.
 	if ( Array.isArray( stored ) ) {
 		return stored.length === 0 ? emptyState() : unreadableState();
@@ -258,44 +248,30 @@ export function normalise( stored ) {
 		return unreadableState();
 	}
 
-	const state = emptyState();
-	const mode = stored.mode;
+	const legacy = hasLegacyKeys( stored );
+	const current = [ 'rules', 'match', 'invert' ].some( ( key ) => has( stored, key ) );
 
-	if ( mode === undefined || mode === null || mode === '' ) {
-		state.mode = MODE.INHERIT;
-	} else if ( typeof mode === 'string' && RECOGNISED_MODES.indexOf( mode ) !== -1 ) {
-		state.mode = mode;
-	} else {
-		state.mode = UNRECOGNISED;
-		state.unreadable = true;
+	// Which of the two the server would obey is not something to guess at.
+	if ( legacy && current ) {
+		return unreadableState();
 	}
 
-	const listKey = LIST_KEY[ state.mode ];
+	if ( legacy ) {
+		const read = readLegacy( stored );
 
-	if ( listKey ) {
-		state[ listKey ] = unique( strings( stored[ listKey ] ) );
+		return read.unreadable
+			? unreadableState()
+			: Object.assign( emptyState(), {
+				rules: read.rules,
+				match: read.match,
+				invert: read.invert,
+				fallbackId: read.fallbackId,
+				legacy: true,
+				twoPart: read.twoPart,
+			} );
 	}
 
-	if ( stored.conditionsEnabled === true ) {
-		state.conditionsEnabled = true;
-
-		if ( Array.isArray( stored.conditions ) ) {
-			const readable = strings( stored.conditions );
-
-			state.conditions = unique( readable );
-			state.unreadable = state.unreadable || readable.length !== stored.conditions.length;
-		} else if ( stored.conditions !== undefined && stored.conditions !== null ) {
-			state.unreadable = true;
-		}
-
-		state.conditionsMatch = stored.conditionsMatch === MATCH.ALL ? MATCH.ALL : MATCH.ANY;
-		state.conditionsInvert = stored.conditionsInvert === true;
-		state.fallbackId = typeof stored.fallbackId === 'number' && Number.isInteger( stored.fallbackId ) && stored.fallbackId > 0
-			? stored.fallbackId
-			: 0;
-	}
-
-	return state;
+	return readRules( stored );
 }
 
 // ---------------------------------------------------------------------------
@@ -314,33 +290,18 @@ export function normalise( stored ) {
 function build( stored, state ) {
 	const next = {};
 
-	if ( state.mode !== MODE.INHERIT ) {
-		next.mode = state.mode;
-	}
+	// With no rule there is nothing to match, reverse or fall back from, and
+	// those controls are not shown, so none of them is kept.
+	if ( state.rules.length > 0 ) {
+		next.rules = state.rules.slice();
 
-	const listKey = LIST_KEY[ state.mode ];
-
-	if ( listKey ) {
-		// Always written for a set-mode, even empty. An empty list is a
-		// restriction nobody satisfies, and that is worth saying out loud in the
-		// stored block rather than leaving it to be inferred from a missing key.
-		next[ listKey ] = state[ listKey ].slice();
-	}
-
-	if ( state.conditionsEnabled ) {
-		next.conditionsEnabled = true;
-
-		// An empty conditions list means the same as none, so it is not written.
-		if ( state.conditions.length > 0 ) {
-			next.conditions = state.conditions.slice();
+		// Needs two rules to mean anything.
+		if ( state.rules.length > 1 && state.match === MATCH.ALL ) {
+			next.match = MATCH.ALL;
 		}
 
-		if ( state.conditionsMatch === MATCH.ALL ) {
-			next.conditionsMatch = MATCH.ALL;
-		}
-
-		if ( state.conditionsInvert ) {
-			next.conditionsInvert = true;
+		if ( state.invert ) {
+			next.invert = true;
 		}
 
 		if ( state.fallbackId > 0 ) {
@@ -362,114 +323,64 @@ function build( stored, state ) {
 	return Object.keys( next ).length === 0 ? undefined : next;
 }
 
+function fingerprint( state ) {
+	return JSON.stringify( [ state.rules, state.match, state.invert, state.fallbackId ] );
+}
+
 /**
  * Applies a change to the stored value.
  *
- * @param {*}        stored    Stored attribute value.
- * @param {Function} change    Mutates the (private) state.
- * @param {boolean}  [repairs] Whether this change may be made while the mode is
- *                             unreadable. Only choosing a mode may.
+ * @param {*}        stored Stored attribute value.
+ * @param {Function} change Mutates the (private) state.
  * @return {*} The next attribute value, `undefined` when nothing is left to
- *             store. The stored value itself when the panel refuses the change.
+ *             store. The stored value itself when the panel refuses the change
+ *             or the change changes nothing, so a block is only ever rewritten
+ *             by an edit that edits something.
  */
-function apply( stored, change, repairs ) {
+function apply( stored, change ) {
 	const state = normalise( stored );
 
-	if ( state.mode === UNRECOGNISED && ! repairs ) {
+	if ( state.unreadable ) {
 		return stored;
 	}
+
+	const before = fingerprint( state );
 
 	change( state );
 
-	return build( stored, state );
+	return fingerprint( state ) === before ? stored : build( stored, state );
 }
 
 /**
- * Chooses who can see the block.
- *
- * Choosing a different mode drops the lists of every mode the block is no
- * longer in, and starts the new one empty. Choosing the mode it already has
- * changes nothing.
+ * Adds a rule, last. A rule the block already has is not added twice.
  *
  * @param {*}      stored Stored attribute value.
- * @param {string} mode   One of `MODE`.
+ * @param {string} rule   `"<provider>:<value>"`.
+ * @return {*} The next attribute value.
+ */
+export function addRule( stored, rule ) {
+	return apply( stored, ( state ) => {
+		if ( isRule( rule ) && state.rules.indexOf( rule ) === -1 ) {
+			state.rules = state.rules.concat( [ rule ] );
+		}
+	} );
+}
+
+/**
+ * Removes a rule. Removing the last one removes everything that depended on it.
+ *
+ * @param {*}      stored Stored attribute value.
+ * @param {string} rule   The rule as it is stored.
  * @return {*} The next attribute value, `undefined` when nothing is left to store.
  */
-export function setMode( stored, mode ) {
-	if ( RECOGNISED_MODES.indexOf( mode ) === -1 ) {
-		return stored;
-	}
-
-	return apply(
-		stored,
-		( state ) => {
-			if ( state.mode !== mode ) {
-				state.tierIds = [];
-				state.segmentIds = [];
-				state.entitlementKeys = [];
-			}
-
-			state.mode = mode;
-			state.unreadable = false;
-		},
-		true
-	);
-}
-
-/**
- * Sets the chosen list for the block's current set-mode.
- *
- * @param {*}        stored Stored attribute value.
- * @param {string[]} values Chosen ids or keys.
- * @return {*} The next attribute value. Unchanged when the mode has no list.
- */
-export function setList( stored, values ) {
+export function removeRule( stored, rule ) {
 	return apply( stored, ( state ) => {
-		const key = LIST_KEY[ state.mode ];
-
-		if ( key ) {
-			state[ key ] = unique( strings( values ) );
-		}
+		state.rules = state.rules.filter( ( entry ) => entry !== rule );
 	} );
 }
 
 /**
- * Switches display conditions on or off. Off drops every condition key.
- *
- * @param {*}       stored Stored attribute value.
- * @param {boolean} on     Whether conditions are on.
- * @return {*} The next attribute value.
- */
-export function setConditionsEnabled( stored, on ) {
-	return apply( stored, ( state ) => {
-		state.conditionsEnabled = on === true;
-
-		if ( ! state.conditionsEnabled ) {
-			state.conditions = [];
-			state.conditionsMatch = MATCH.ANY;
-			state.conditionsInvert = false;
-			state.fallbackId = 0;
-		}
-	} );
-}
-
-/**
- * Sets the chosen conditions. Ignored while conditions are off.
- *
- * @param {*}        stored Stored attribute value.
- * @param {string[]} values `"<provider>:<value>"` strings.
- * @return {*} The next attribute value.
- */
-export function setConditions( stored, values ) {
-	return apply( stored, ( state ) => {
-		if ( state.conditionsEnabled ) {
-			state.conditions = unique( strings( values ) );
-		}
-	} );
-}
-
-/**
- * Sets whether any or all conditions must match. Ignored while conditions are off.
+ * Sets whether any or all rules must match. Ignored below two rules.
  *
  * @param {*}      stored Stored attribute value.
  * @param {string} match  `any` or `all`.
@@ -477,14 +388,14 @@ export function setConditions( stored, values ) {
  */
 export function setMatch( stored, match ) {
 	return apply( stored, ( state ) => {
-		if ( state.conditionsEnabled ) {
-			state.conditionsMatch = match === MATCH.ALL ? MATCH.ALL : MATCH.ANY;
+		if ( state.rules.length > 1 ) {
+			state.match = match === MATCH.ALL ? MATCH.ALL : MATCH.ANY;
 		}
 	} );
 }
 
 /**
- * Sets whether the conditions' result is reversed. Ignored while conditions are off.
+ * Sets whether the result is reversed. Ignored with no rules.
  *
  * @param {*}       stored Stored attribute value.
  * @param {boolean} on     Whether to reverse.
@@ -492,388 +403,60 @@ export function setMatch( stored, match ) {
  */
 export function setInvert( stored, on ) {
 	return apply( stored, ( state ) => {
-		if ( state.conditionsEnabled ) {
-			state.conditionsInvert = on === true;
+		if ( state.rules.length > 0 ) {
+			state.invert = on === true;
 		}
 	} );
 }
 
 /**
- * Sets the replacement content. Ignored while conditions are off.
+ * Sets the replacement content. Ignored with no rules.
  *
- * @param {*}               stored Stored attribute value.
- * @param {number|string}   id     A post id. Zero, empty, or anything that is
- *                                 not a positive whole number means none.
+ * @param {*}             stored Stored attribute value.
+ * @param {number|string} id     A post id. Zero, empty, or anything that is
+ *                               not a positive whole number means none.
  * @return {*} The next attribute value.
  */
 export function setFallback( stored, id ) {
 	return apply( stored, ( state ) => {
-		if ( ! state.conditionsEnabled ) {
+		if ( state.rules.length === 0 ) {
 			return;
 		}
 
 		const number = typeof id === 'string' && /^[0-9]+$/.test( id ) ? parseInt( id, 10 ) : id;
 
-		state.fallbackId = typeof number === 'number' && Number.isInteger( number ) && number > 0 ? number : 0;
+		state.fallbackId = positiveInteger( number );
 	} );
 }
 
 /**
- * One checkbox ticked or cleared in a list.
+ * Clears the block's access setting, whatever it holds. The one write allowed
+ * on a value the panel cannot read. Keys that are not ours are kept.
  *
- * @param {string[]} list    Current list.
- * @param {string}   value   The checkbox's value.
- * @param {boolean}  checked Whether it is now ticked.
- * @return {string[]} A new list, in the original order with additions last.
+ * @param {*} stored Stored attribute value.
+ * @return {*} The next attribute value, `undefined` when nothing is left to store.
  */
-export function toggleValue( list, value, checked ) {
-	const current = strings( list );
-	const without = current.filter( ( entry ) => entry !== value );
-
-	return checked ? without.concat( [ value ] ) : without;
+export function resetAccess( stored ) {
+	return build( stored, emptyState() );
 }
 
 /**
- * What the canvas indicator should say about a block.
+ * Whether the block is limited at all, for the mark on the canvas.
  *
- * An unreadable mode counts as a policy: the server restricts such a block, so
- * an author should be able to see it at a glance.
+ * A value that cannot be read counts: the server hides such a block from
+ * everyone, so an author should see it at a glance.
  *
  * @param {*} stored Stored attribute value.
- * @return {string} '', 'policy', 'conditions' or 'both'.
+ * @return {boolean} Whether the block carries a rule, or a setting that hides it.
  */
-export function indicatorKind( stored ) {
+export function isRestricted( stored ) {
 	// Nearly every block in a post carries nothing. Answer for those without
 	// building a state, because this runs for each block on every render.
 	if ( stored === undefined || stored === null || ( isPlainObject( stored ) && Object.keys( stored ).length === 0 ) ) {
-		return '';
+		return false;
 	}
 
 	const state = normalise( stored );
-	const policy = state.mode !== MODE.INHERIT;
 
-	if ( policy && state.conditionsEnabled ) {
-		return 'both';
-	}
-
-	if ( policy ) {
-		return 'policy';
-	}
-
-	return state.conditionsEnabled ? 'conditions' : '';
-}
-
-// ---------------------------------------------------------------------------
-// The catalogue, as the panel lists it
-// ---------------------------------------------------------------------------
-
-/**
- * Reads one `{items, stale, error}` section of the catalogue response.
- *
- * `known` says whether the list can be trusted to be complete enough to call a
- * stored choice "unavailable". A section that failed with nothing to show
- * tells us nothing about what exists, so a stored choice is then only
- * unverified. A stale list, kept after a failed refresh, still counts.
- *
- * @param {*} section A section, or anything.
- * @return {{items: Array, error: string, stale: boolean, known: boolean}} Reading.
- */
-export function sectionState( section ) {
-	const object = isPlainObject( section ) ? section : {};
-	const items = Array.isArray( object.items ) ? object.items : null;
-	const error = isNonEmptyString( object.error ) ? object.error : '';
-
-	return {
-		items: items || [],
-		error,
-		stale: object.stale === true,
-		known: items !== null && ( error === '' || items.length > 0 ),
-	};
-}
-
-function itemsFrom( section, read ) {
-	const seen = {};
-	const items = [];
-
-	sectionState( section ).items.forEach( ( raw ) => {
-		const item = isPlainObject( raw ) ? read( raw ) : null;
-
-		if ( item && ! seen[ item.value ] ) {
-			seen[ item.value ] = true;
-			items.push( item );
-		}
-	} );
-
-	return items;
-}
-
-/**
- * Membership plans. An inactive plan is not offered, but it is kept so a block
- * that names one can still say which.
- *
- * @param {*} section The `plans` section.
- * @return {Array} Items `{value, name, offered}`.
- */
-export function planItems( section ) {
-	return itemsFrom( section, ( raw ) => {
-		if ( ! isNonEmptyString( raw.id ) ) {
-			return null;
-		}
-
-		return {
-			value: raw.id,
-			name: isNonEmptyString( raw.name ) ? raw.name : raw.id,
-			offered: raw.active !== false,
-		};
-	} );
-}
-
-/**
- * Segments, by id.
- *
- * @param {*} section The `segments` section.
- * @return {Array} Items `{value, name, offered}`.
- */
-export function segmentItems( section ) {
-	return itemsFrom( section, ( raw ) => {
-		if ( ! isNonEmptyString( raw.id ) ) {
-			return null;
-		}
-
-		return {
-			value: raw.id,
-			name: isNonEmptyString( raw.name ) ? raw.name : ( isNonEmptyString( raw.slug ) ? raw.slug : raw.id ),
-			offered: true,
-		};
-	} );
-}
-
-/**
- * Entitlement types, by gate key.
- *
- * @param {*} section The `entitlements` section.
- * @return {Array} Items `{value, name, kind, description, offered}`.
- */
-export function entitlementItems( section ) {
-	return itemsFrom( section, ( raw ) => {
-		if ( ! isNonEmptyString( raw.gate_key ) ) {
-			return null;
-		}
-
-		return {
-			value: raw.gate_key,
-			name: isNonEmptyString( raw.name ) ? raw.name : raw.gate_key,
-			kind: raw.kind === 'platform-gate' || raw.kind === 'unrecognised' ? raw.kind : 'entitlement',
-			description: isNonEmptyString( raw.description ) ? raw.description : '',
-			offered: true,
-		};
-	} );
-}
-
-/**
- * The label an item is offered under. A platform gate is a capability the
- * platform defines rather than one an administrator authored, so it says so.
- * An unrecognised key keeps its own name, unprefixed, as the server's list does.
- *
- * @param {Object} item    An item.
- * @param {Object} strings Copy.
- * @return {string} Label.
- */
-export function itemLabel( item, strings = DEFAULT_STRINGS ) {
-	return item.kind === 'platform-gate' ? format( strings.platform, item.name ) : item.name;
-}
-
-/**
- * The rows of one audience checklist.
- *
- * A stored choice that is not on offer comes FIRST, checked and marked, so an
- * author sees it and can clear it. It is never dropped here: removing it would
- * quietly change who can see the block. After those come the offered items in
- * the catalogue's order.
- *
- * `status` is `available`, `unavailable` (the catalogue is known and does not
- * offer it) or `unverified` (the catalogue could not be read, so nothing can be
- * said either way and the stored value is shown as it is).
- *
- * @param {Array}    items    Items from `planItems()` and friends.
- * @param {string[]} selected The stored choices.
- * @param {Object}   options  `known` (default true) and `strings`.
- * @return {Array} Rows `{value, label, help, checked, status}`.
- */
-export function checklistRows( items, selected, options ) {
-	const known = ! options || options.known !== false;
-	const copy = options && options.strings ? options.strings : DEFAULT_STRINGS;
-	const chosen = unique( strings( selected ) );
-	const byValue = {};
-
-	( Array.isArray( items ) ? items : [] ).forEach( ( item ) => {
-		if ( ! Object.prototype.hasOwnProperty.call( byValue, item.value ) ) {
-			byValue[ item.value ] = item;
-		}
-	} );
-
-	const stray = [];
-
-	chosen.forEach( ( value ) => {
-		const item = Object.prototype.hasOwnProperty.call( byValue, value ) ? byValue[ value ] : null;
-
-		if ( item && item.offered !== false ) {
-			return;
-		}
-
-		if ( ! known ) {
-			stray.push( { value, label: value, help: '', checked: true, status: 'unverified' } );
-			return;
-		}
-
-		stray.push( {
-			value,
-			label: item ? format( copy.inactivePlan, itemLabel( item, copy ) ) : format( copy.unavailable, value ),
-			help: '',
-			checked: true,
-			status: 'unavailable',
-		} );
-	} );
-
-	const offered = ( Array.isArray( items ) ? items : [] )
-		.filter( ( item ) => item.offered !== false )
-		.map( ( item ) => ( {
-			value: item.value,
-			label: itemLabel( item, copy ),
-			help: item.description || '',
-			checked: chosen.indexOf( item.value ) !== -1,
-			status: 'available',
-		} ) );
-
-	return stray.concat( offered );
-}
-
-// ---------------------------------------------------------------------------
-// The condition vocabulary, as the panel lists it
-// ---------------------------------------------------------------------------
-
-/**
- * Reads the `/conditions` response.
- *
- * @param {*} response The response body.
- * @return {{groups: Array, fallbacks: Array}|null} Null when it is not the
- *         documented shape, which the panel treats as a failed load.
- */
-export function normaliseVocabulary( response ) {
-	if ( ! isPlainObject( response ) || ! Array.isArray( response.groups ) ) {
-		return null;
-	}
-
-	const groups = [];
-
-	response.groups.forEach( ( raw ) => {
-		if ( ! isPlainObject( raw ) || ! isNonEmptyString( raw.provider ) ) {
-			return;
-		}
-
-		const options = [];
-
-		( Array.isArray( raw.conditions ) ? raw.conditions : [] ).forEach( ( condition ) => {
-			if ( isPlainObject( condition ) && isNonEmptyString( condition.value ) ) {
-				options.push( {
-					value: condition.value,
-					label: typeof condition.label === 'string' && condition.label !== '' ? condition.label : condition.value,
-				} );
-			}
-		} );
-
-		groups.push( {
-			provider: raw.provider,
-			label: isNonEmptyString( raw.label ) ? raw.label : raw.provider,
-			options,
-		} );
-	} );
-
-	const fallbacks = [];
-
-	( Array.isArray( response.fallbacks ) ? response.fallbacks : [] ).forEach( ( raw ) => {
-		if ( isPlainObject( raw ) && Number.isInteger( raw.id ) && raw.id > 0 ) {
-			fallbacks.push( { id: raw.id, title: typeof raw.title === 'string' && raw.title !== '' ? raw.title : String( raw.id ) } );
-		}
-	} );
-
-	return { groups, fallbacks };
-}
-
-/**
- * The conditions multi-select: one group per provider, with any stored
- * condition the vocabulary does not offer pulled out FIRST.
- *
- * `known` is false when the vocabulary could not be loaded, in which case every
- * stored condition is shown as it is, unverified, and none is called unavailable.
- *
- * @param {Array|null} groups   `groups` from `normaliseVocabulary()`, or null.
- * @param {string[]}   selected The stored conditions.
- * @param {Object}     options  `strings`.
- * @return {{stray: Array, groups: Array}} Rows outside any group, and the groups.
- */
-export function conditionChoices( groups, selected, options ) {
-	const known = Array.isArray( groups );
-	const copy = options && options.strings ? options.strings : DEFAULT_STRINGS;
-	const chosen = unique( strings( selected ) );
-	const offered = {};
-
-	( known ? groups : [] ).forEach( ( group ) => {
-		group.options.forEach( ( option ) => {
-			offered[ option.value ] = true;
-		} );
-	} );
-
-	const stray = chosen
-		.filter( ( value ) => ! Object.prototype.hasOwnProperty.call( offered, value ) )
-		.map( ( value ) => ( {
-			value,
-			label: known ? format( copy.unavailable, value ) : value,
-			help: '',
-			checked: true,
-			status: known ? 'unavailable' : 'unverified',
-		} ) );
-
-	return {
-		stray,
-		groups: ( known ? groups : [] ).map( ( group ) => ( {
-			provider: group.provider,
-			label: group.label,
-			rows: group.options.map( ( option ) => ( {
-				value: option.value,
-				label: option.label,
-				help: '',
-				checked: chosen.indexOf( option.value ) !== -1,
-				status: 'available',
-			} ) ),
-		} ) ),
-	};
-}
-
-/**
- * The "Show instead" choices.
- *
- * A chosen post that is not offered (restricted since, or past the server's
- * list limit) is kept in the list and selected, so the control shows what is
- * stored instead of silently displaying "Nothing".
- *
- * @param {Array}  fallbacks `fallbacks` from `normaliseVocabulary()`.
- * @param {number} current   The stored post id, 0 for none.
- * @param {Object} options   `strings`.
- * @return {Array} `{value, label}` choices, "Nothing" first.
- */
-export function fallbackChoices( fallbacks, current, options ) {
-	const copy = options && options.strings ? options.strings : DEFAULT_STRINGS;
-	const list = Array.isArray( fallbacks ) ? fallbacks : [];
-	const choices = [ { value: '', label: copy.nothing } ];
-
-	if ( current > 0 && ! list.some( ( entry ) => entry.id === current ) ) {
-		choices.push( { value: String( current ), label: format( copy.fallbackMissing, '#' + current ) } );
-	}
-
-	list.forEach( ( entry ) => {
-		choices.push( { value: String( entry.id ), label: entry.title } );
-	} );
-
-	return choices;
+	return state.unreadable || state.rules.length > 0;
 }

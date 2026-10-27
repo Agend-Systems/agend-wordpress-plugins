@@ -137,64 +137,128 @@ rules"), as for Elementor.
 ### The Agend Access panel in the block editor
 
 Every block gets an **Agend Access** panel in its sidebar, shown for the
-selected block only. It writes one attribute, `agendAccess`, and nothing else.
-A block nobody touched has no attribute and saves exactly as it did before: the
-attribute is a non-sourced object whose default is `{}`, and a value equal to its
-default is not written. `save()` is never changed, so no existing block becomes
-"invalid".
+selected block only. It is one control, a searchable rule picker, and it writes
+one attribute, `agendAccess`, and nothing else. A block nobody touched has no
+attribute and saves exactly as it did before: the attribute is a non-sourced
+object whose default is `{}`, and a value equal to its default is not written.
+`save()` is never changed, so no existing block becomes "invalid".
 
 **Which blocks.** All of them, except two that are not stored with a comment
 delimiter and so have nowhere to keep an attribute: `core/missing` (the
-unsupported block placeholder) and `core/freeform` (the Classic block). A policy
+unsupported block placeholder) and `core/freeform` (the Classic block). A rule
 set on either would be forgotten on save, so they are left out in JavaScript and
 in PHP, and a test keeps the two lists equal. The panel is also offered only
 where the attribute is declared: a block type registered by a script that runs
 before this plugin's editor script never receives it, and for that block the
 panel stays hidden instead of offering a setting the post would not keep.
 
-**The controls**, in the Elementor panel's order and wording, and what each one
-writes. The panel writes the smallest object that says what was chosen, and
-drops a key the moment it stops applying, so no stale id can linger:
+**What the author sees**, top to bottom:
+
+1. A one-line summary in plain English: "Everyone who can see the page", "Only
+   people who match any of these 2 rules", "Everyone except people who match all
+   of these 3 rules".
+2. **Who can see this block.** The block's rules as removable chips labelled
+   with their group (Plan: Gold, Segment: Board, Entitlement: Premium directory,
+   Platform: Directory access, Role: Editor, Signed in, Any current member),
+   then a search box. Results are grouped (Membership, Segments, Entitlements,
+   WordPress) and are buttons: Enter adds, Down and Up move between them, and
+   Enter in the search box adds the first match.
+3. **Match**: Any of these, or All of these. Only with two or more rules.
+4. **Show to everyone except these people**, with a one-line example. Only with
+   one or more rules.
+5. **Show instead**: Nothing, or a public page. A searchable select when the
+   list is long. Only with one or more rules.
+6. "Visitors who are not allowed never receive this block."
+
+A rule a block holds that the list no longer offers (a deleted segment, a
+retired plan) stays as a chip marked "Unavailable: ..." and is never dropped
+silently: dropping it would quietly change who can see the block. A plan that
+was switched off reads "(no longer active)". If the list cannot be loaded the
+panel says so, with Try again, and still shows and lets an author remove
+whatever the block already holds. An error from one list (for example the
+entitlements scope message) appears under the search box and does not hide the
+others.
+
+**The picker at scale.** The vocabulary is fetched once per editor session and
+every keystroke filters it in memory, so about 800 entitlements cost no request
+per key. With nothing typed it shows Membership and WordPress in full and the
+first five of each other group, with how many more there are. A search matches
+every word typed, in any order, against the rule's label, its group word
+("plan", "role"), the description and the key of an entitlement, and puts names
+that start with what was typed first. It renders at most 50 results and then
+says "Showing 50 of N. Keep typing to narrow it down."
+
+**The stored value.** What each control writes. The panel writes the smallest
+object that says what was chosen, drops a key the moment it stops applying, and
+leaves a default out:
 
 | Control | Writes |
 | --- | --- |
-| Who can see this: Same as the page | nothing (`{}` if nothing else is set) |
-| All active members | `mode: "active_member"` |
-| Selected membership plans | `mode: "selected_tiers"`, `tierIds` |
-| Selected segments | `mode: "segments"`, `segmentIds` |
-| Selected entitlements | `mode: "selected_entitlements"`, `entitlementKeys` |
-| Add display conditions | `conditionsEnabled: true`. Off removes every condition key |
-| Conditions | `conditions`, a list of `"<provider>:<value>"` |
-| Match: All of these | `conditionsMatch: "all"` (Any is the default and is not written) |
-| Reverse the result | `conditionsInvert: true` |
+| A rule chosen | `rules`, a list of `"<provider>:<value>"` |
+| Match: All of these | `match: "all"` (Any is the default and is not written; needs two rules) |
+| Show to everyone except these people | `invert: true` |
 | Show instead | `fallbackId`, a post id. Only public content is offered |
 
-Changing the audience clears the lists of the modes the block has left. Choosing
-"Same as the page" with conditions off removes the attribute. A key the panel
-does not own, written by a script or a newer release, is kept untouched. A block
-can only narrow the page's audience, never widen it, exactly as for an Elementor
-section.
+Rule providers: `agend_wordpress` (`logged_in`, `logged_out`, `role_<role id>`),
+`agend_membership` (`is_member`, or a plan's id), `agend_segments` (a segment's
+id) and `agend_entitlements` (an entitlement's gate key). New rules name plans
+and segments by ID, never slug; a slug a block already holds still works and is
+recognised in the panel as the same rule.
 
-The audience lists show what the catalogue offers. A choice the block already
-holds that the catalogue no longer offers (a deleted segment, a retired plan) is
-shown first, ticked and marked unavailable, never dropped: dropping it would
-quietly change who can see the block. A platform gate reads "Platform: ...".
-If a list cannot be loaded the panel says so and still shows, and lets an
-author clear, whatever the block already holds.
+Removing the last rule removes `match`, `invert` and `fallbackId` with it, and
+with nothing chosen the attribute is removed (never saved as `{}`). A key the
+panel does not own, written by a script or a newer release, is kept untouched.
 
-A blue stripe on the canvas marks a block that carries an audience policy, and
-an amber one a block with display conditions only. A block whose stored value
-the panel cannot read is shown as restricted to members, which is what the site
-enforces, and its panel offers only the audience control until an author
-chooses an option.
+**Blocks saved by the first panel.** The first panel stored two settings, an
+audience (`mode`, `tierIds`, `segmentIds`, `entitlementKeys`) and display
+conditions (`conditionsEnabled`, `conditions`, `conditionsMatch`,
+`conditionsInvert`). Those blocks are read as rules and shown in the new panel.
+Opening one never rewrites it: it is saved in the new shape only when an author
+changes something, and nothing of the old shape survives that write.
 
-**Where the lists come from.** The panel calls two routes, once per editor
-session and not on every block selection, both for users who can `edit_posts`:
+| First shape | Shown as |
+| --- | --- |
+| `mode` inherit, or none | no rules |
+| `active_member` | `agend_membership:is_member` |
+| `selected_tiers` | one `agend_membership:<id>` per plan |
+| `segments` | one `agend_segments:<id>` per segment |
+| `selected_entitlements` | one `agend_entitlements:<key>` per key |
+| conditions switched on | the conditions as stored, with their Match, Reverse and replacement |
+| an audience AND conditions | both sets joined, Match set to All, with the notice "This block uses an older two-part setting. Saving changes here will replace it with the rules shown." |
+
+An audience and conditions are two sets that must both pass, which one list
+cannot say exactly. Joining them with All is never looser than the pair, and is
+exact when the audience is one rule. A first-shape value that one list would
+show more loosely than the server enforces it is shown as "Unreadable setting
+(hidden from everyone)", with a reset and nothing else: a set-mode with nothing
+selected, conditions switched on, empty and reversed, an audience with reversed
+conditions, a mode this version does not know, or a list or condition that is
+not text. So are a value that is not an object, a rule list holding anything
+that is not a rule, and a value that mixes both shapes. Reset clears the
+setting and keeps any key that is not ours.
+
+A blue stripe on the canvas marks a block that carries rules, or one the panel
+cannot read.
+
+**Where the vocabulary comes from.** One route, once per editor session and not
+on every block selection, for users who can `edit_posts`:
 
 | Route | Returns |
 | --- | --- |
-| `GET /wp-json/agend-content-access/v1/catalogue` | `{plans, segments, entitlements}`, each `{items, stale, error}` |
-| `GET /wp-json/agend-content-access/v1/conditions` | `{groups, fallbacks}`: `groups` is `[{provider, label, conditions: [{value, label}]}]`, with each `value` already `"<provider>:<value>"`, and `fallbacks` is `[{id, title}]` of public pages |
+| `GET /wp-json/agend-content-access/v1/conditions` | `{groups, fallbacks, errors}` |
+
+`groups` is `[{key, label, stale, items: [{value, label, kind, description?,
+aliases?, inactive?}]}]`: Membership (`agend_membership`), Segments
+(`agend_segments`), Entitlements (`agend_entitlements`, platform gates first) and
+WordPress (`agend_wordpress`), then any group a site adds through the
+`agend_content_access_condition_sets` filter. Each `value` is already
+`"<provider>:<value>"` and ID based; `kind` is member, plan, segment,
+entitlement, platform, login, role or other, which is what the chip is labelled
+from; `aliases` are slug forms of the same rule. `fallbacks` is `[{id, title}]`
+of public pages. `errors` is `[{group, message}]`, one per list that failed.
+`?refresh=1` reads the lists from the gateway again, which is what Try again
+asks for. The catalogue route (`/catalogue`) is unchanged and still serves the
+page panel.
 
 **Building it.** The editor code is in `src/` and ships built, because
 deployment copies files without a build step. From the repository root:
@@ -203,13 +267,21 @@ deployment copies files without a build step. From the repository root:
 npm run build:content-access      # writes build/index.js, index.css, index.asset.php
 npm run start:content-access      # the same, watching for changes
 node --test agend-content-access/tests/js/access-model.test.mjs
+node --test agend-content-access/tests/js/legacy-access.test.mjs
+node --test agend-content-access/tests/js/rule-vocabulary.test.mjs
+node --test agend-content-access/tests/js/access-summary.test.mjs
+node --test agend-content-access/tests/js/copy.test.mjs
 node --test agend-content-access/tests/js/lists-loader.test.mjs
 ```
 
 Commit `build/` with the source: CI rebuilds it and fails if it differs. The
 release zip leaves `src/` out. The logic that decides what the panel writes is in
-`src/access-model.mjs` and the once-per-session loader in `src/lists-loader.mjs`,
-neither of which imports WordPress, which is what lets `node --test` run them.
+`src/access-model.mjs`, how a first-shape block reads in `src/legacy-access.mjs`,
+what is listed, labelled and searched in `src/rule-vocabulary.mjs`, the summary
+line in `src/access-summary.mjs`, and the once-per-session loader in
+`src/lists-loader.mjs`. None of them imports WordPress, which is what lets
+`node --test` run them. The English copy they compose is in `src/copy.mjs` and
+its translated twin in `src/strings.js`, which a test keeps in step.
 
 ## What this plugin owns
 
