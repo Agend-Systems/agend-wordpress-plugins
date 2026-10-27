@@ -401,10 +401,20 @@ on how it was typed.
 **Where.** On `pre_render_block`, registered first, on every request: the front
 end, REST and the loop renders of a block theme alike. A non-empty return skips
 the block AND its inner blocks, so a denied Group never constructs its children,
-and no `render_callback` runs for content the visitor may not read.
-`render_block` is not used, because it filters output that was already produced.
+and no `render_callback` runs for content the visitor may not read. That is the
+enforcement point, because `render_block` filters output that was already
+produced.
 A block with no policy and no enabled conditions returns before any identity
 lookup, so a page that uses none of this pays nothing and asks Agend nothing.
+
+**The backstop.** Navigation, Navigation Submenu, Navigation Link and Widget Group
+render their children by calling `$inner_block->render()` from their own render
+callback, which never asks `pre_render_block`. A `render_block` filter, registered
+first, applies the same decision to the blocks that skipped it, and returns `''`
+(or the display condition fallback) for a denied one. It is a backstop: the block
+has already rendered, so it guarantees that no output of a denied block is
+returned, not that nothing ran. A block the main path already allowed is not
+decided again.
 
 **What a block is judged against.** The INTERSECTION of the policy of the post it
 belongs to and its own, by the same rules as an Elementor section: it can narrow
@@ -413,6 +423,19 @@ WordPress is rendering (`get_post()`), never the queried object, because blocks
 render inside query loops, template parts and synced patterns. A restricted
 post's block in a loop on a public page is judged against that post, and a
 public post's block is not narrowed by the restricted page it appears on.
+
+Outside a loop the global post is only what the main query left behind: the
+first post of the archive, or the last one once a loop has ended. A header or
+footer template part is therefore judged against the queried post on a singular
+request and against no post otherwise, on its own policy alone. A custom query's
+loop, which is what a Query Loop block with its own query runs, is still a loop,
+even though `in_the_loop()` is false there: the global post counts as left behind
+only when it is one of the main query's own post objects.
+
+**Feeds are judged for nobody.** A feed's output is shared and cached whoever
+fetched it, so in a feed a block's policy, its display conditions and its fallback
+are all judged as for a signed-out visitor, as the page gate judges a feed's
+document. A feed never asks Agend for anybody's standing.
 
 **Fails closed.** An unrecognised mode, an attribute that is present and is not an
 object, a set-mode with nothing valid selected, a malformed condition, an unknown
@@ -435,7 +458,10 @@ those requests are recognised as authoring, by
 3. The route is `/wp/v2/block-renderer/...`, or the request asks for
    `context=edit`.
 4. If a post is being rendered, the user can edit that post. Listing other
-   people's posts with `context=edit` is not authoring them.
+   people's posts with `context=edit` is not authoring them. With no post in the
+   request (a block renderer call with no `post_id`) the user must be able to
+   `edit_others_posts`, because such a call can render a template part or a
+   pattern that is not theirs.
 
 wp-admin screens are authoring for users who can `edit_posts`, and an
 admin-ajax render is always a visitor's, because "load more" and live filters
@@ -453,29 +479,59 @@ are marked too: the page is per-viewer for everybody, a member is often not
 signed in to WordPress, and a cache keyed on the URL cannot tell them apart.
 
 **Search.** Core search matches the raw `post_content`, so a hit on protected
-words would reveal that they are there. A post holding a restricted or
-conditioned block is flagged on save (`_agend_access_block_rules`) and left out
-of any search query for users who cannot `edit_posts`. That covers the main
-search and the queries behind the REST `?search=` parameter and `/wp/v2/search`.
-It also hides the post's public parts from search, so it can be turned off with
-the `agend_content_access_search_excludes_block_rules` filter (default true).
+words would reveal that they are there. A document carrying a block or an
+Elementor section with a policy or enabled display conditions is flagged on save
+(`_agend_access_fragment_rules`, set for both editors) and left out of any search
+query for users who cannot `edit_others_posts`. A contributor can search every
+published post, so `edit_posts` is not enough. That covers the main search and
+the queries behind the REST `?search=` parameter and `/wp/v2/search`. The
+exclusion runs last on `pre_get_posts`, so no other callback can overwrite it. It
+also hides the post's public parts from search, so it can be turned off with the
+`agend_content_access_search_excludes_fragment_rules` filter (default true).
+
+**Generated excerpts.** When no excerpt was written, core builds one by
+rendering the body, and it renders a Group, Columns or Column block's children
+without the wrapper, so a restriction on the wrapper is never asked about. For a
+document that carries rules and has no manual excerpt, the generated excerpt is
+replaced by one that is the same for every viewer: a block document's is rebuilt
+from its own tree with every restricted or conditioned block removed (synced
+patterns included) and cut by WordPress's own excerpt code, and an Elementor
+document has none, because the text Elementor stores in `post_content` is a
+flattened copy of everything it rendered. A manual excerpt is the editor's
+deliberate public text and is left alone. The filter is
+`agend_content_access_safe_generated_excerpt`.
+
+**Footnotes.** A footnote's text lives in the post's `footnotes` meta, not in the
+paragraph that cites it, and core prints it in the Footnotes block and exposes it
+as `meta.footnotes` in REST. For a post that holds a restricted block, the
+footnotes anchored inside a block the viewer is denied are removed from both. A
+member keeps the notes of the blocks they may read. It fails closed: a post with a
+restricted block and an unreadable footnote list returns none, and so does an
+entry with no id when anything was denied. The list is not renumbered. REST also
+omits `meta.footnotes` for a document that is denied outright.
 
 **Not covered.**
 
 - Third-party search indexers (Yoast, RankMath, ElasticPress and similar) that
   read raw `post_content` at save serve it through their own search.
-- The search flag is set when the post is saved. Editing a synced pattern later
-  does not update the pages that use it until each is saved again, and a
-  reference past the 50 per document the tree check resolves is not followed. A
-  post saved before it held a restricted block is not flagged. Rendering and
-  cache marking do not depend on the flag.
+- The search flag is set when the post is saved (and, for Elementor, when it has
+  stored the document). Editing a synced pattern later does not update the pages
+  that use it until each is saved again, and a reference past the 50 per document
+  the tree check resolves is not followed. A post saved before it held a
+  restricted block is not flagged. Rendering, cache marking and the generated
+  excerpt do not depend on the flag alone: the excerpt scans the live tree.
 - Code that reads `$post->post_content` or calls `get_the_content()` directly
   bypasses the render pipeline, as it does for every gate here.
 - A block with a rule in a template part, or in other posts a loop lists, is not
   in the page's own content. Rendering enforces it and marks the page at render
   time, but the early cache decision and the search flag do not see it.
 - An author whose role lacks `edit_posts` sees their own restricted blocks
-  filtered in the editor.
+  filtered in the editor, and so does a user who can only write their own posts
+  in a server-side preview that carries no post id.
+- The Footnotes block rendered from a template for a post whose whole document is
+  denied, and a read of every meta key at once (`get_post_meta( $id )`), return the
+  stored footnotes. Third-party code that reads the `footnotes` meta through a
+  raw query is outside the filter.
 
 ## Member standing cache
 

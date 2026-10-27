@@ -242,22 +242,38 @@ wrote them.
 
 - `pre_render_block` returns an empty string for a block the visitor may not see,
   before the block renders anything. Children of a suppressed block never render.
+- A `render_block` backstop applies the same decision to the blocks core renders
+  without asking `pre_render_block` (Navigation, Navigation Submenu, Navigation
+  Link, Widget Group call `$inner_block->render()` themselves). A block the main
+  path already allowed is not decided twice.
 - The document policy used for the intersection is the policy of the post the
-  block belongs to (`get_the_ID()` during rendering), never
-  `get_queried_object_id()`, because blocks render inside query loops, template
-  parts and synced patterns.
+  block belongs to, never `get_queried_object_id()` inside a loop, because blocks
+  render inside query loops, template parts and synced patterns. In a loop that is
+  the global post. Outside a loop the global post is only what the main query left
+  behind, so a block belongs to the queried post on a singular request and to no
+  post otherwise. A custom query's loop is a loop even though `in_the_loop()` is
+  false there: the global post is the leftover only when it is one of the main
+  query's own post objects.
+- A feed is judged for nobody: policy, display conditions and fallback, as the page
+  gate judges a feed's document.
 - A block excluded by display conditions may show replacement content, under the
   same rule as Elementor: only content the visitor could read on its own.
 - Authors are never filtered. The block editor's server-side render requests are
-  recognised as authoring.
+  recognised as authoring: a REST request by a user who can `edit_posts`, on the
+  block renderer route or with `context=edit`, who can edit the post in the
+  request. With no post in the request the user must be able to
+  `edit_others_posts`.
 
 ### Leak vectors
 
 | Vector | Handling |
 | --- | --- |
-| Front-end, excerpts, feeds, REST `content.rendered` | covered by `pre_render_block` |
-| Full-page caches | `DONOTCACHEPAGE` and `Cache-Control: private, no-store` on any response whose post carries a restricted or conditioned block, decided at `template_redirect` by scanning the post's blocks, synced patterns included |
-| Core search | excluded from front-end search results for visitors who cannot edit, when the post holds a restricted block. Filterable, because it hides the post's public parts too |
+| Front-end, feeds, REST `content.rendered` | covered by `pre_render_block`, with the `render_block` backstop for blocks that render their own children. In a feed every decision is made for nobody |
+| Auto-generated excerpts (archives, search results, RSS description, REST `excerpt.rendered`) | core renders a wrapper's children and never the wrapper, so a rule on a Group, Columns or Column is not asked about. For a document that carries rules and has no manual excerpt, the excerpt is rebuilt from the block tree with every ruled subtree removed and cut by WordPress's own code, the same for every viewer. An Elementor document has none, since its `post_content` is a flattened copy of the render. Filter `agend_content_access_safe_generated_excerpt` |
+| Footnotes (`core/footnotes` block, REST `meta.footnotes`) | the note text is in post meta, not the cited paragraph. A filter on the meta read removes the footnotes anchored in a ruled block the viewer is denied, for the block and for REST. Fails closed on an unreadable list. A document denied outright loses `meta.footnotes` in REST |
+| Full-page caches | `DONOTCACHEPAGE` and `Cache-Control: private, no-store` on any response whose post carries a restricted or conditioned block, decided at `template_redirect` by scanning the post's blocks, synced patterns included, and again at render time |
+| Core search | excluded from front-end search results for users who cannot `edit_others_posts` (a contributor can search every post), when the document carries a rule, block or Elementor. The flag is `_agend_access_fragment_rules`. Filterable (`agend_content_access_search_excludes_fragment_rules`), because it hides the post's public parts too |
+| Block renderer REST route | the authoring carve-out needs `edit_post` on the post in the request, or `edit_others_posts` when there is none, so a contributor cannot render template parts and other people's content |
 | Third-party search indexers | documented limitation; they read raw `post_content` at save |
 
 ### Export to Agend
