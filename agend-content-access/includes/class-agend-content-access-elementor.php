@@ -27,6 +27,20 @@ if ( ! defined( 'ABSPATH' ) ) {
  * evaluator, `Agend_Content_Access_Access`, against a member standing Agend
  * resolved, and fails closed at every branch.
  *
+ * ONE LIST, NOT TWO SETTINGS. The section shows who can see the element as one
+ * searchable list of rules, with Match, "Show to everyone except these people" and
+ * "Show instead" under it, the same words the block editor's panel uses. The
+ * section used to show an audience select AND "Add display conditions", two
+ * settings an author could not tell apart.
+ *
+ * OLDER SETTINGS ARE NEVER DROPPED. An element saved before the rule list keeps its
+ * `agend_access_mode` (and its plan, segment and entitlement lists) and its
+ * `agend_conditions_*` keys, and `Agend_Content_Access_Rules::from_elementor_settings()`
+ * still enforces them, alongside any rules, as an intersection that can only narrow.
+ * The new controls cannot show them, and a restriction an author cannot see would be
+ * a trap, so an element that still holds one shows a notice and the controls that
+ * remove it. Those controls are hidden on every element that does not.
+ *
  * Suppression only ever REMOVES an element. It cannot reveal one the document
  * hides, because an element is shown only when its own rules AND the rules of its
  * document both allow (Decision 2.3).
@@ -36,29 +50,44 @@ class Agend_Content_Access_Elementor {
 	const SECTION_ID = 'agend_access_section';
 
 	/**
-	 * Settings keys, aliased from the editor-neutral definitions.
+	 * The keys of the new controls, aliased from the editor-neutral definitions, whose
+	 * one reader is `Agend_Content_Access_Rules::from_elementor_settings()`. They cannot
+	 * drift from what it reads because they ARE what it reads.
+	 */
+	const RULES_KEY  = Agend_Content_Access_Rules::ELEMENTOR_RULES_KEY;
+	const MATCH_KEY  = Agend_Content_Access_Rules::ELEMENTOR_MATCH_KEY;
+	const INVERT_KEY = Agend_Content_Access_Rules::ELEMENTOR_INVERT_KEY;
+
+	/**
+	 * The keys the earlier releases wrote, which are still read and still enforced.
 	 *
-	 * The keys are the neutral settings format now, and their one reader is
-	 * `Agend_Content_Access_Rules::from_elementor_settings()`, which understands these
-	 * old audience and display condition keys and the new rule keys alike. These
-	 * constants remain so the controls registered below and any code naming an
-	 * Elementor control id keep working, and they cannot drift from the neutral
-	 * values because they ARE the neutral values.
-	 *
-	 * The controls still show the audience and the display conditions as two groups,
-	 * until the control rewrite replaces them with one rule list. Both are read into
-	 * one set of rules, and an element carrying both has to satisfy both.
+	 * Only the audience mode and the display conditions switch have a control now, to
+	 * remove what they hold. The plan, segment and entitlement lists and the conditions,
+	 * match and reverse keys are no longer registered as controls: Elementor passes a
+	 * stored setting with no control through to `get_settings_for_display()` untouched,
+	 * so what they hold keeps applying until the mode or the switch is turned off.
 	 */
 	const MODE_KEY         = Agend_Content_Access_Policy::FRAGMENT_MODE_KEY;
 	const TIERS_KEY        = Agend_Content_Access_Policy::FRAGMENT_TIERS_KEY;
 	const SEGMENTS_KEY     = Agend_Content_Access_Policy::FRAGMENT_SEGMENTS_KEY;
 	const ENTITLEMENTS_KEY = Agend_Content_Access_Policy::FRAGMENT_ENTITLEMENTS_KEY;
 
-	const CONDITIONS_ENABLED_KEY  = Agend_Content_Access_Fragment_Rules::ENABLED_KEY;
-	const CONDITIONS_KEY          = Agend_Content_Access_Fragment_Rules::CONDITIONS_KEY;
-	const CONDITIONS_MATCH_KEY    = Agend_Content_Access_Fragment_Rules::MATCH_KEY;
-	const CONDITIONS_INVERT_KEY   = Agend_Content_Access_Fragment_Rules::INVERT_KEY;
+	const CONDITIONS_ENABLED_KEY = Agend_Content_Access_Fragment_Rules::ENABLED_KEY;
+	const CONDITIONS_KEY         = Agend_Content_Access_Fragment_Rules::CONDITIONS_KEY;
+	const CONDITIONS_MATCH_KEY   = Agend_Content_Access_Fragment_Rules::MATCH_KEY;
+	const CONDITIONS_INVERT_KEY  = Agend_Content_Access_Fragment_Rules::INVERT_KEY;
+
+	/**
+	 * The replacement content's key. It is the old conditions' key, kept: the control
+	 * is the same "Show instead", and an element that already has one keeps it.
+	 */
+	const FALLBACK_KEY            = Agend_Content_Access_Fragment_Rules::FALLBACK_KEY;
 	const CONDITIONS_FALLBACK_KEY = Agend_Content_Access_Fragment_Rules::FALLBACK_KEY;
+
+	/**
+	 * The notice shown on an element that still holds an older setting.
+	 */
+	const OLDER_NOTICE_ID = 'agend_access_older_notice';
 
 	/**
 	 * Control stacks already given the section this request.
@@ -72,27 +101,19 @@ class Agend_Content_Access_Elementor {
 	private array $processed_stacks = array();
 
 	/**
-	 * The audience controls and the condition choices, each built once per
-	 * request.
+	 * The section's controls, with their options, built once per request.
 	 *
 	 * Elementor registers a control stack for every widget type when the editor
-	 * loads, and each one used to ask the catalogue for its options. A cached
-	 * list makes that a transient read, but a list that could not be loaded is
-	 * never cached, so each stack would have asked the gateway again, during an
-	 * outage as much as at any other time. The options are the same for every
-	 * stack, so they are read once.
+	 * loads, and the rule list is the largest thing in it: one SELECT2 option per plan,
+	 * segment, entitlement and role, about 800 entitlements on one account. A list that
+	 * could not be loaded is never cached, so building it per stack would ask the
+	 * gateway again each time, during an outage as much as at any other time. The
+	 * options are the same for every stack, so they are read once, and every stack
+	 * shares the one array.
 	 *
 	 * @var array<string, array<string, mixed>>|null
 	 */
-	private ?array $audience_controls = null;
-
-	/**
-	 * Condition choices, flattened for the SELECT2 control. See
-	 * `$audience_controls` for why this is read once.
-	 *
-	 * @var array<string, string>|null
-	 */
-	private ?array $condition_options = null;
+	private ?array $controls = null;
 
 	/**
 	 * Registers hooks. Only ever called when Elementor is loaded.
@@ -153,172 +174,142 @@ class Agend_Content_Access_Elementor {
 			)
 		);
 
-		if ( null === $this->audience_controls ) {
-			$this->audience_controls = self::audience_controls();
-			$this->condition_options = Agend_Content_Access_Condition_Sets::as_options();
+		if ( null === $this->controls ) {
+			$this->controls = self::access_controls();
 		}
 
-		foreach ( $this->audience_controls as $control_id => $control_args ) {
+		foreach ( $this->controls as $control_id => $control_args ) {
 			$element->add_control( $control_id, $control_args );
 		}
-
-		$element->add_control(
-			'agend_conditions_divider',
-			array(
-				'type' => \Elementor\Controls_Manager::DIVIDER,
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_ENABLED_KEY,
-			array(
-				'label'        => __( 'Add display conditions', 'agend-content-access' ),
-				'type'         => \Elementor\Controls_Manager::SWITCHER,
-				'default'      => '',
-				'return_value' => 'yes',
-				'description'  => __(
-					'Show or hide this element based on the visitor: their WordPress role, their membership, or a segment. This is presentation, applied by this site. For content that must be protected, use the setting above, which Agend enforces.',
-					'agend-content-access'
-				),
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_KEY,
-			array(
-				'label'       => __( 'Conditions', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT2,
-				'multiple'    => true,
-				'options'     => $this->condition_options,
-				'default'     => array(),
-				'label_block' => true,
-				'condition'   => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
-				'description' => __(
-					'Choosing none shows the element to everybody.',
-					'agend-content-access'
-				),
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_MATCH_KEY,
-			array(
-				'label'     => __( 'Match', 'agend-content-access' ),
-				'type'      => \Elementor\Controls_Manager::SELECT,
-				'default'   => Agend_Content_Access_Conditions::MATCH_ANY,
-				'options'   => array(
-					Agend_Content_Access_Conditions::MATCH_ANY => __( 'Any of these', 'agend-content-access' ),
-					Agend_Content_Access_Conditions::MATCH_ALL => __( 'All of these', 'agend-content-access' ),
-				),
-				'condition' => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_INVERT_KEY,
-			array(
-				'label'        => __( 'Reverse the result', 'agend-content-access' ),
-				'type'         => \Elementor\Controls_Manager::SWITCHER,
-				'default'      => '',
-				'return_value' => 'yes',
-				'condition'    => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
-				'description'  => __(
-					'Show the element to everyone the conditions do NOT match. Use this for content aimed at signed-out visitors, or at people who are not yet members.',
-					'agend-content-access'
-				),
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_FALLBACK_KEY,
-			array(
-				'label'       => __( 'Show instead', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => '',
-				'options'     => Agend_Content_Access_Condition_Sets::fallback_options(),
-				'label_block' => true,
-				'condition'   => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
-				'description' => __(
-					'Optional. Content to show to visitors the conditions exclude, for example a sign-in prompt. Only public content can be chosen: anything restricted would be shown to exactly the people who were just refused.',
-					'agend-content-access'
-				),
-			)
-		);
 
 		$element->end_controls_section();
 	}
 
 	/**
-	 * The access policy controls: who can see an element, and the list each
-	 * audience that is a set chooses from.
+	 * The section's controls, in the order they appear.
 	 *
-	 * Public to be testable without an Elementor control stack, and in the order
-	 * they appear. Each list control is shown only for its own audience. For
-	 * every one of them, selecting none is a restriction nobody satisfies and so
-	 * hides the element from everybody, never a way of removing the restriction:
-	 * `Policy::from_fragment_settings()` reads an empty list as that, and the
-	 * descriptions say so, because an editor who flips an audience on and has
-	 * not yet ticked anything would otherwise expect to see the element still.
+	 * Public to be testable without an Elementor control stack. The first four are the
+	 * rule list and what goes with it. They are shown for every element, and the last
+	 * three are the older settings: they are shown on an element only while it still
+	 * holds one, so they cost an author who has none nothing and never offer a way to
+	 * set one up.
+	 *
+	 * HOW A CONTROL IS HIDDEN, AND WHAT THAT DOES TO ENFORCEMENT. Elementor reads a
+	 * control whose condition is not met as unset (`null`) in `get_settings_for_display()`,
+	 * which is what suppression reads. Every condition below hides a control only where
+	 * its value could not change who sees the element: Match and the reverse switch
+	 * mean nothing without rules, "Show instead" is only ever shown in place of an
+	 * element something else hid, and the older mode and conditions switch are hidden
+	 * only when they are off. The rule list itself has no condition.
+	 *
+	 * The editor evaluates the same conditions in the browser, where a list "not empty"
+	 * cannot be told from an empty one (two arrays are never identical there), so it
+	 * shows Match, the reverse switch and "Show instead" whether or not a rule is
+	 * chosen. The server is exact, and what it reads is what counts.
 	 *
 	 * @return array<string, array<string, mixed>> Control id to Elementor control args.
 	 */
-	public static function audience_controls(): array {
+	public static function access_controls(): array {
+		$rules_chosen = array(
+			'name'     => self::RULES_KEY,
+			'operator' => '!==',
+			'value'    => array(),
+		);
+
+		$conditions_on = array(
+			'name'     => self::CONDITIONS_ENABLED_KEY,
+			'operator' => '==',
+			'value'    => 'yes',
+		);
+
+		$older_mode_set = array(
+			'name'     => self::MODE_KEY,
+			'operator' => '!in',
+			'value'    => array( Agend_Content_Access_Policy::MODE_INHERIT, '' ),
+		);
+
 		return array(
-			self::MODE_KEY         => array(
+			self::RULES_KEY               => array(
 				'label'       => __( 'Who can see this', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'options'     => Agend_Content_Access_Condition_Sets::rule_options(),
+				'default'     => array(),
+				'label_block' => true,
+				'description' => __(
+					'Leave empty to show this to everyone who can see the page. Visitors who are not allowed never receive this element.',
+					'agend-content-access'
+				),
+			),
+			self::MATCH_KEY               => array(
+				'label'      => __( 'Match', 'agend-content-access' ),
+				'type'       => \Elementor\Controls_Manager::SELECT,
+				'default'    => Agend_Content_Access_Rules::MATCH_ANY,
+				'options'    => array(
+					Agend_Content_Access_Rules::MATCH_ANY => __( 'Any of these', 'agend-content-access' ),
+					Agend_Content_Access_Rules::MATCH_ALL => __( 'All of these', 'agend-content-access' ),
+				),
+				'conditions' => array( 'terms' => array( $rules_chosen ) ),
+			),
+			self::INVERT_KEY              => array(
+				'label'        => __( 'Show to everyone except these people', 'agend-content-access' ),
+				'type'         => \Elementor\Controls_Manager::SWITCHER,
+				'default'      => '',
+				'return_value' => 'yes',
+				'conditions'   => array( 'terms' => array( $rules_chosen ) ),
+				'description'  => __( 'Useful for a join banner that members should not see.', 'agend-content-access' ),
+			),
+			self::FALLBACK_KEY            => array(
+				'label'       => __( 'Show instead', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => '',
+				'options'     => Agend_Content_Access_Condition_Sets::fallback_options(),
+				'label_block' => true,
+				// Also an element with only older display conditions, which had a "Show
+				// instead" before: hiding it there would drop the content they show.
+				'conditions'  => array(
+					'relation' => 'or',
+					'terms'    => array( $rules_chosen, $conditions_on ),
+				),
+				'description' => __(
+					'Optional. Content to show to visitors who are not allowed, for example a sign-in prompt. Only public content can be chosen: anything restricted would be shown to exactly the people who were just refused.',
+					'agend-content-access'
+				),
+			),
+			self::OLDER_NOTICE_ID         => array(
+				'type'            => \Elementor\Controls_Manager::RAW_HTML,
+				'raw'             => esc_html__( 'This element still uses an older access setting, which keeps applying alongside the rules above. You can remove it below.', 'agend-content-access' ),
+				'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
+				'conditions'      => array(
+					'relation' => 'or',
+					'terms'    => array( $older_mode_set, $conditions_on ),
+				),
+			),
+			self::MODE_KEY                => array(
+				'label'       => __( 'Older audience setting', 'agend-content-access' ),
 				'type'        => \Elementor\Controls_Manager::SELECT,
 				'default'     => Agend_Content_Access_Policy::MODE_INHERIT,
 				'options'     => array(
-					Agend_Content_Access_Policy::MODE_INHERIT      => __( 'Same as the page', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_INHERIT      => __( 'Remove', 'agend-content-access' ),
 					Agend_Content_Access_Policy::MODE_MEMBERS      => __( 'All active members', 'agend-content-access' ),
 					Agend_Content_Access_Policy::MODE_TIERS        => __( 'Selected membership plans', 'agend-content-access' ),
 					Agend_Content_Access_Policy::MODE_SEGMENTS     => __( 'Selected segments', 'agend-content-access' ),
 					Agend_Content_Access_Policy::MODE_ENTITLEMENTS => __( 'Selected entitlements', 'agend-content-access' ),
 				),
+				'conditions'  => array( 'terms' => array( $older_mode_set ) ),
 				'description' => __(
-					'A section can only narrow the page\'s audience, never widen it. If the page is already restricted, this section stays restricted too.',
+					'Choose Remove to stop applying it. Only this older audience is removed: the rules above stay.',
 					'agend-content-access'
 				),
 			),
-			self::TIERS_KEY        => array(
-				'label'       => __( 'Membership plans', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT2,
-				'multiple'    => true,
-				'options'     => self::plan_options(),
-				'default'     => array(),
-				'condition'   => array(
-					self::MODE_KEY => Agend_Content_Access_Policy::MODE_TIERS,
-				),
-				'description' => __(
-					'Members on any one of these plans can see this section. Selecting none hides it from everybody.',
-					'agend-content-access'
-				),
-			),
-			self::SEGMENTS_KEY     => array(
-				'label'       => __( 'Segments', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT2,
-				'multiple'    => true,
-				'options'     => self::segment_options(),
-				'default'     => array(),
-				'condition'   => array(
-					self::MODE_KEY => Agend_Content_Access_Policy::MODE_SEGMENTS,
-				),
-				'description' => __(
-					'People in any one of these segments can see this section. Selecting none hides it from everybody.',
-					'agend-content-access'
-				),
-			),
-			self::ENTITLEMENTS_KEY => array(
-				'label'       => __( 'Entitlements', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT2,
-				'multiple'    => true,
-				'options'     => self::entitlement_options(),
-				'default'     => array(),
-				'condition'   => array(
-					self::MODE_KEY => Agend_Content_Access_Policy::MODE_ENTITLEMENTS,
-				),
-				'description' => __(
-					'People who hold any one of these entitlements can see this section. Selecting none hides it from everybody.',
+			self::CONDITIONS_ENABLED_KEY  => array(
+				'label'        => __( 'Older display conditions', 'agend-content-access' ),
+				'type'         => \Elementor\Controls_Manager::SWITCHER,
+				'default'      => '',
+				'return_value' => 'yes',
+				'conditions'   => array( 'terms' => array( $conditions_on ) ),
+				'description'  => __(
+					'Switch off to remove them. Only these older conditions are removed: the rules above stay.',
 					'agend-content-access'
 				),
 			),
@@ -326,62 +317,18 @@ class Agend_Content_Access_Elementor {
 	}
 
 	/**
-	 * Plan choices for the editor, id to name.
+	 * Whether an element still holds a setting from the earlier releases.
 	 *
-	 * Reuses the reduced catalogue, so the Elementor control and the native
-	 * panel offer exactly the same list from the same cache. An outage yields an
-	 * empty list, which the control's own copy explains.
+	 * An audience mode other than "same as the page", or display conditions switched
+	 * on. It reads the settings as `Agend_Content_Access_Rules::from_elementor_settings()`
+	 * does, so what is called older here is exactly what that still enforces.
 	 *
-	 * @return array<string, string>
+	 * @param array $settings Element settings.
+	 * @return bool
 	 */
-	public static function plan_options(): array {
-		$catalogue = Agend_Content_Access_Catalogue::get();
-		$options   = array();
-
-		foreach ( Agend_Content_Access_Catalogue::selectable( $catalogue['plans'] ) as $plan ) {
-			$options[ $plan['id'] ] = $plan['name'];
-		}
-
-		return $options;
-	}
-
-	/**
-	 * Segment choices for the editor, id to name.
-	 *
-	 * Stored by id, which is what a segments policy holds and what survives a
-	 * segment being renamed. The same cached list the page panel offers, so the
-	 * two surfaces cannot disagree. A list that could not be loaded yields an
-	 * empty one, which the control's own copy explains.
-	 *
-	 * @return array<string, string>
-	 */
-	public static function segment_options(): array {
-		$options = array();
-
-		foreach ( Agend_Content_Access_Catalogue::segments()['items'] as $segment ) {
-			$options[ $segment['id'] ] = $segment['name'];
-		}
-
-		return $options;
-	}
-
-	/**
-	 * Entitlement choices for the editor, gate key to label.
-	 *
-	 * Stored by gate key, which survives a benefit being re-created. A platform
-	 * capability reads "Platform: Directory access", the same label the page
-	 * panel and the display conditions use.
-	 *
-	 * @return array<string, string>
-	 */
-	public static function entitlement_options(): array {
-		$options = array();
-
-		foreach ( Agend_Content_Access_Catalogue::entitlements()['items'] as $entitlement ) {
-			$options[ $entitlement['gate_key'] ] = Agend_Content_Access_Catalogue::entitlement_label( $entitlement );
-		}
-
-		return $options;
+	public static function has_older_settings( array $settings ): bool {
+		return null !== Agend_Content_Access_Policy::from_fragment_settings( $settings )
+			|| Agend_Content_Access_Fragment_Rules::conditions_enabled( $settings );
 	}
 
 	/**
@@ -666,6 +613,12 @@ class Agend_Content_Access_Elementor {
 	 * Marks a restricted element in the editor so the author can see which
 	 * sections carry rules.
 	 *
+	 * Any element that carries rules is marked, whether they are the new rule list, an
+	 * older audience or older display conditions, or a mix: all of them are read into
+	 * the one rule set `maybe_suppress()` judges, so what is marked is what is enforced.
+	 * An element that still holds an older setting says so as well, which is the
+	 * setting its notice and removal control are about.
+	 *
 	 * @param \Elementor\Element_Base $element Element about to render its wrapper.
 	 */
 	public function maybe_mark_in_editor( $element ): void {
@@ -673,7 +626,8 @@ class Agend_Content_Access_Elementor {
 			return;
 		}
 
-		$rules = Agend_Content_Access_Rules::from_elementor_settings( $element->get_settings_for_display() );
+		$settings = $element->get_settings_for_display();
+		$rules    = Agend_Content_Access_Rules::from_elementor_settings( $settings );
 
 		if ( $rules->is_empty() ) {
 			return;
@@ -685,12 +639,15 @@ class Agend_Content_Access_Elementor {
 		$policy = $rules->is_unreadable() ? null : $rules->to_policy();
 		$mode   = null === $policy || Agend_Content_Access_Policy::UNSATISFIABLE === $policy ? 'rules' : (string) $policy['mode'];
 
-		$element->add_render_attribute(
-			'_wrapper',
-			array(
-				'class'                  => 'agend-access-restricted',
-				'data-agend-access-mode' => $mode,
-			)
+		$attributes = array(
+			'class'                  => 'agend-access-restricted',
+			'data-agend-access-mode' => $mode,
 		);
+
+		if ( self::has_older_settings( $settings ) ) {
+			$attributes['data-agend-access-older'] = 'yes';
+		}
+
+		$element->add_render_attribute( '_wrapper', $attributes );
 	}
 }

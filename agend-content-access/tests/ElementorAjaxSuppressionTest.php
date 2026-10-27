@@ -266,6 +266,70 @@ final class ElementorAjaxSuppressionTest extends TestCase {
 		$this->assertSame( 'active_member', $element->attributes['_wrapper']['data-agend-access-mode'] );
 	}
 
+	#[Test]
+	public function the_editor_marks_an_element_that_carries_new_rules(): void {
+		$this->elementorEditorAjax();
+		$element = $this->element( array( ElementorControl::RULES_KEY => array( 'agend_membership:is_member' ) ) );
+
+		( new ElementorControl() )->maybe_mark_in_editor( $element );
+
+		$this->assertSame( 'agend-access-restricted', $element->attributes['_wrapper']['class'] );
+		$this->assertSame( 'active_member', $element->attributes['_wrapper']['data-agend-access-mode'], 'the audience the rules say, when a policy says it' );
+		$this->assertArrayNotHasKey( 'data-agend-access-older', $element->attributes['_wrapper'] );
+	}
+
+	/** A list no policy can say (a role, a reverse, all of) is marked as plain rules. */
+	#[Test]
+	public function the_editor_marks_rules_no_policy_can_say_as_rules(): void {
+		$this->elementorEditorAjax();
+		$element = $this->element(
+			array(
+				ElementorControl::RULES_KEY  => array( 'agend_wordpress:role_editor' ),
+				ElementorControl::INVERT_KEY => 'yes',
+			)
+		);
+
+		( new ElementorControl() )->maybe_mark_in_editor( $element );
+
+		$this->assertSame( 'rules', $element->attributes['_wrapper']['data-agend-access-mode'] );
+	}
+
+	/** The element that still holds an older setting says so, alone or beside new rules. */
+	#[Test]
+	public function the_editor_marks_an_element_that_still_holds_an_older_setting(): void {
+		$this->elementorEditorAjax();
+
+		foreach ( array(
+			'an older audience'          => array( ElementorControl::MODE_KEY => 'active_member' ),
+			'older display conditions'   => array( ElementorControl::CONDITIONS_ENABLED_KEY => 'yes', ElementorControl::CONDITIONS_KEY => array( 'agend_wordpress:logged_in' ) ),
+			'an older audience and rules' => array( ElementorControl::MODE_KEY => 'active_member', ElementorControl::RULES_KEY => array( 'agend_wordpress:logged_in' ) ),
+		) as $case => $settings ) {
+			$element = $this->element( $settings );
+
+			( new ElementorControl() )->maybe_mark_in_editor( $element );
+
+			$this->assertSame( 'agend-access-restricted', $element->attributes['_wrapper']['class'], $case );
+			$this->assertSame( 'yes', $element->attributes['_wrapper']['data-agend-access-older'], $case );
+		}
+	}
+
+	#[Test]
+	public function the_editor_marks_nothing_on_an_element_with_no_rules(): void {
+		$this->elementorEditorAjax();
+
+		foreach ( array(
+			array(),
+			array( ElementorControl::RULES_KEY => array(), ElementorControl::MATCH_KEY => 'any', ElementorControl::INVERT_KEY => '' ),
+			array( ElementorControl::MODE_KEY => 'inherit', ElementorControl::CONDITIONS_ENABLED_KEY => '' ),
+		) as $settings ) {
+			$element = $this->element( $settings );
+
+			( new ElementorControl() )->maybe_mark_in_editor( $element );
+
+			$this->assertSame( array(), $element->attributes, (string) wp_json_encode( $settings ) );
+		}
+	}
+
 	/** The editor's flag is only trusted on an AJAX request: a page load is decided as a page load. */
 	#[Test]
 	public function edit_mode_alone_is_not_an_editor_ajax_request(): void {

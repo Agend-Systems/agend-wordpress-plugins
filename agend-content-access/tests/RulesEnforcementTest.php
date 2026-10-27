@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
+require_once __DIR__ . '/fixtures/elementor-active-settings-double.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-sets.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-exporter.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-parser.php';
@@ -617,6 +618,274 @@ final class RulesEnforcementTest extends BlockEnforcementTestCase {
 
 		$GLOBALS['agend_test_current_user_id'] = 7;
 		$this->assertSame( '', $output( $conditions + array( 'agend_access_mode' => 'active_member' ) ), 'the conditions admit them: the audience that hid it gets no replacement' );
+	}
+
+	// -----------------------------------------------------------------------
+	// An Elementor section, as Elementor presents it
+	// -----------------------------------------------------------------------
+
+	/**
+	 * What `get_settings_for_display()` returns for an element that stores these settings:
+	 * the controls' defaults added, and every setting whose control is hidden read as
+	 * null. Suppression and the fallback read THIS, not what is stored, so a control that
+	 * is hidden can only be safe if it never changes who sees the element.
+	 */
+	private function presented( array $stored ): array {
+		return ElementorActiveSettings::for_display( ElementorControl::access_controls(), $stored );
+	}
+
+	/** Whether an element that stores these settings is shown to the visitor. */
+	private function showsStored( array $stored ): bool {
+		return $this->shows( $this->presented( $stored ) );
+	}
+
+	/** The replacement content an element that stores these settings renders. */
+	private function replacementFor( array $stored ): string {
+		ob_start();
+		( new ElementorControl() )->maybe_render_fallback( $this->element( $this->presented( $stored ) ) );
+
+		return (string) ob_get_clean();
+	}
+
+	/** A visitor on plan B, in segment B: holds nothing plan A or segment A asks for. */
+	private function asPlanBInSegmentB(): void {
+		$this->asMember( self::TIER_B );
+
+		Agend_Test_WP::set_filter(
+			'agend_apps_crm_get_my_segments_response',
+			array( 'data' => array( array( 'id' => self::SEG_B, 'slug' => 'slug-bbbb' ) ) )
+		);
+	}
+
+	#[Test]
+	public function a_stored_rule_list_is_enforced_through_what_elementor_presents(): void {
+		$stored = array( 'agend_access_rules' => array( 'agend_membership:' . self::TIER_A ) );
+
+		$this->assertFalse( $this->showsStored( $stored ), 'anonymous' );
+
+		$this->newVisitor();
+		$this->asMember( self::TIER_B );
+		$this->assertFalse( $this->showsStored( $stored ), 'a member on another plan' );
+
+		$this->newVisitor();
+		$this->asMember( self::TIER_A );
+		$this->assertTrue( $this->showsStored( $stored ) );
+	}
+
+	#[Test]
+	public function a_stored_reverse_is_the_join_banner_and_match_all_needs_every_rule(): void {
+		$banner = array( 'agend_access_rules' => array( self::MEMBER ), 'agend_access_invert' => 'yes' );
+
+		$this->assertTrue( $this->showsStored( $banner ), 'anonymous' );
+
+		$this->newVisitor();
+		$this->asMember( self::TIER_A );
+		$this->assertFalse( $this->showsStored( $banner ), 'a member' );
+
+		$all = array( 'agend_access_rules' => array( self::MEMBER, 'agend_wordpress:role_editor' ), 'agend_access_match' => 'all' );
+
+		$this->assertFalse( $this->showsStored( $all ), 'a member who is not an editor' );
+	}
+
+	/** Emptying the list is how an author removes the rule: nothing is left to restrict the element. */
+	#[Test]
+	public function an_emptied_list_shows_the_element_even_with_a_reverse_and_a_replacement_still_stored(): void {
+		$this->assertTrue(
+			$this->showsStored( array( 'agend_access_rules' => array(), 'agend_access_match' => 'all', 'agend_access_invert' => 'yes', 'agend_conditions_fallback_id' => (string) self::FALLBACK ) )
+		);
+		$this->assertSame( 0, $this->identity_lookups );
+	}
+
+	/** An element nobody has set a rule on costs no lookup, with the controls registered. */
+	#[Test]
+	public function an_untouched_element_costs_no_lookup_with_the_controls_registered(): void {
+		$this->assertTrue( $this->showsStored( array() ) );
+		$this->assertSame( 0, $this->identity_lookups );
+	}
+
+	/** An element saved before the rule list, whose older setting has no control now, is still enforced. */
+	#[Test]
+	public function an_older_audience_is_still_enforced_though_it_has_no_list_of_its_own(): void {
+		$stored = array( 'agend_access_mode' => 'selected_tiers', 'agend_access_tier_ids' => array( self::TIER_A ) );
+
+		$this->assertFalse( $this->showsStored( $stored ), 'anonymous' );
+
+		$this->newVisitor();
+		$this->asMember( self::TIER_B );
+		$this->assertFalse( $this->showsStored( $stored ), 'a member on another plan' );
+
+		$this->newVisitor();
+		$this->asMember( self::TIER_A );
+		$this->assertTrue( $this->showsStored( $stored ) );
+	}
+
+	#[Test]
+	public function older_display_conditions_are_still_enforced_with_their_lists_unregistered(): void {
+		$stored = array(
+			'agend_conditions_enabled' => 'yes',
+			'agend_conditions'         => array( 'agend_wordpress:logged_in' ),
+			'agend_conditions_invert'  => 'yes',
+		);
+
+		$this->assertTrue( $this->showsStored( $stored ), 'anonymous: the reverse of signed in' );
+
+		$GLOBALS['agend_test_current_user_id'] = 7;
+		$this->assertFalse( $this->showsStored( $stored ), 'signed in' );
+	}
+
+	/** Choosing Remove writes `inherit`, and the lists left behind are inert. */
+	#[Test]
+	public function removing_the_older_audience_removes_it_and_nothing_else(): void {
+		$removed = array(
+			'agend_access_mode'     => 'inherit',
+			'agend_access_tier_ids' => array( self::TIER_A ),
+			'agend_access_rules'    => array( 'agend_wordpress:logged_out' ),
+		);
+
+		$this->assertTrue( $this->showsStored( $removed ), 'anonymous: the new rule admits them and the older audience is gone' );
+
+		$GLOBALS['agend_test_current_user_id'] = 7;
+		$this->assertFalse( $this->showsStored( $removed ), 'the new rule still applies' );
+		$this->assertTrue( $this->showsStored( array( 'agend_access_mode' => 'inherit', 'agend_access_tier_ids' => array( self::TIER_A ) ) ), 'with no rule left it inherits its page' );
+	}
+
+	#[Test]
+	public function switching_the_older_conditions_off_removes_them_and_nothing_else(): void {
+		$stored = array(
+			'agend_conditions_enabled' => '',
+			'agend_conditions'         => array( 'agend_wordpress:logged_in' ),
+			'agend_access_rules'       => array( 'agend_wordpress:logged_out' ),
+		);
+
+		$this->assertTrue( $this->showsStored( $stored ), 'anonymous: the new rule admits them, and the older condition no longer says signed in' );
+	}
+
+	/**
+	 * The point of keeping the older setting: an element with rules AND an older
+	 * audience is shown only to somebody who passes both, so adding a rule beside an
+	 * older restriction can never widen it.
+	 */
+	#[Test]
+	public function an_element_with_new_rules_and_an_older_audience_needs_both(): void {
+		$stored = array(
+			'agend_access_rules'       => array( 'agend_membership:' . self::TIER_A ),
+			'agend_access_mode'        => 'segments',
+			'agend_access_segment_ids' => array( self::SEG_B ),
+		);
+
+		$this->asMemberOf( array( self::SEG_A ) );
+		$this->assertFalse( $this->showsStored( $stored ), 'passes the rule on plan A, not the older segment' );
+
+		$this->newVisitor();
+		$this->asPlanBInSegmentB();
+		$this->assertFalse( $this->showsStored( $stored ), 'passes the older segment, not the rule on plan A' );
+
+		$this->newVisitor();
+		$this->asMemberOf( array( self::SEG_B ) );
+		$this->assertTrue( $this->showsStored( $stored ), 'passes both' );
+
+		$this->newVisitor();
+		$this->anonymous();
+		$this->assertFalse( $this->showsStored( $stored ), 'passes neither' );
+	}
+
+	#[Test]
+	public function an_element_with_new_rules_and_older_display_conditions_needs_both(): void {
+		$stored = array(
+			'agend_access_rules'       => array( self::MEMBER ),
+			'agend_conditions_enabled' => 'yes',
+			'agend_conditions'         => array( 'agend_wordpress:role_editor' ),
+		);
+
+		$GLOBALS['agend_test_current_user_roles'] = array( 'subscriber' );
+		$this->asMember( self::TIER_A );
+		$this->assertFalse( $this->showsStored( $stored ), 'a member, not an editor' );
+
+		$this->newVisitor();
+		$GLOBALS['agend_test_current_user_roles'] = array( 'editor' );
+		$this->asMember();
+		$this->assertFalse( $this->showsStored( $stored ), 'an editor, not a member' );
+
+		$this->newVisitor();
+		$GLOBALS['agend_test_current_user_roles'] = array( 'editor' );
+		$this->asMember( self::TIER_A );
+		$this->assertTrue( $this->showsStored( $stored ), 'both' );
+	}
+
+	/** An older restriction narrows a section that has an empty rule list beside it. */
+	#[Test]
+	public function an_older_restriction_beside_an_emptied_list_still_narrows(): void {
+		$stored = array( 'agend_access_rules' => array(), 'agend_access_mode' => 'active_member' );
+
+		$this->assertFalse( $this->showsStored( $stored ), 'anonymous' );
+
+		$this->newVisitor();
+		$this->asMember( self::TIER_A );
+		$this->assertTrue( $this->showsStored( $stored ) );
+	}
+
+	/** The page's rules still narrow a section whichever way it is set up. */
+	#[Test]
+	public function a_page_that_denies_removes_a_section_with_rules_or_with_an_older_setting(): void {
+		Agend_Test_WP::$queried_object_id = 313;
+		$this->registerPost( 313, '' );
+		$this->pageRules( 313, array( 'agend_membership:' . self::TIER_B ) );
+		$this->asMember( self::TIER_A );
+
+		$this->assertFalse( $this->showsStored( array( 'agend_access_rules' => array( self::MEMBER ) ) ) );
+		$this->assertFalse( $this->showsStored( array( 'agend_access_mode' => 'active_member' ) ) );
+	}
+
+	// -- replacement content --------------------------------------------
+
+	#[Test]
+	public function a_stored_replacement_shows_to_somebody_the_new_rules_refuse(): void {
+		$this->publishFallback();
+
+		$stored = array( 'agend_access_rules' => array( self::MEMBER ), 'agend_conditions_fallback_id' => (string) self::FALLBACK );
+
+		$this->assertSame( 'FALLBACK TEXT', $this->replacementFor( $stored ), 'anonymous' );
+
+		$this->newVisitor();
+		$this->asMember( self::TIER_A );
+		$this->assertSame( '', $this->replacementFor( $stored ), 'a member sees the section itself' );
+	}
+
+	#[Test]
+	public function an_element_with_only_older_conditions_keeps_its_replacement_content(): void {
+		$this->publishFallback();
+
+		$stored = array(
+			'agend_conditions_enabled'     => 'yes',
+			'agend_conditions'             => array( 'agend_wordpress:logged_in' ),
+			'agend_conditions_fallback_id' => (string) self::FALLBACK,
+		);
+
+		$this->assertSame( 'FALLBACK TEXT', $this->replacementFor( $stored ), 'the empty rule list beside them must not take it' );
+	}
+
+	/** An element a protected audience hid is protected content: no consolation render. */
+	#[Test]
+	public function an_older_audience_that_hid_the_element_gets_no_replacement(): void {
+		$this->publishFallback();
+
+		$stored = array(
+			'agend_access_rules'           => array( 'agend_wordpress:logged_out' ),
+			'agend_conditions_fallback_id' => (string) self::FALLBACK,
+			'agend_access_mode'            => 'active_member',
+		);
+
+		$this->assertSame( '', $this->replacementFor( $stored ), 'the rules admit an anonymous visitor, the older audience does not: the replacement belongs to the rules' );
+
+		$this->assertSame( 'FALLBACK TEXT', $this->replacementFor( array( 'agend_access_rules' => array( 'agend_wordpress:logged_in' ), 'agend_conditions_fallback_id' => (string) self::FALLBACK, 'agend_access_mode' => 'active_member' ) ), 'the rules refuse them, so the replacement shows' );
+	}
+
+	/** A replacement is not shown for an element that has nothing hiding it. */
+	#[Test]
+	public function an_element_with_no_rules_renders_no_replacement(): void {
+		$this->publishFallback();
+
+		$this->assertSame( '', $this->replacementFor( array( 'agend_conditions_fallback_id' => (string) self::FALLBACK ) ) );
 	}
 
 	// -----------------------------------------------------------------------

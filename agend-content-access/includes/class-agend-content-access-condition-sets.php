@@ -194,30 +194,6 @@ class Agend_Content_Access_Condition_Sets {
 	}
 
 	/**
-	 * The vocabulary flattened for an Elementor SELECT2 control.
-	 *
-	 * Elementor's multi-select takes a flat value-to-label map, so the group
-	 * name is folded into each label. Without it a bare "Signed in" alongside a
-	 * bare plan name gives an editor no way to tell which family a condition
-	 * belongs to.
-	 *
-	 * @return array<string, string>
-	 */
-	public static function as_options(): array {
-		$options = array();
-
-		foreach ( self::all() as $provider => $set ) {
-			$label = isset( $set['label'] ) ? (string) $set['label'] : $provider;
-
-			foreach ( (array) ( $set['conditions'] ?? array() ) as $value => $text ) {
-				$options[ $provider . ':' . $value ] = $label . ' / ' . $text;
-			}
-		}
-
-		return $options;
-	}
-
-	/**
 	 * One group of the vocabulary.
 	 *
 	 * @param string $key   Provider key, which is the prefix of every value in it.

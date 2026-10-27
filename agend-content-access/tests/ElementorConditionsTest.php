@@ -30,12 +30,14 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-access.php';
 
 /**
- * The Elementor display-condition control (US-6.1, ESAC parity).
+ * What an Elementor element's rule settings decide: the new rule list, and the older
+ * display conditions it replaced (US-6.1, ESAC parity).
  *
- * Covers the settings-to-decision path: given what an editor chose, is the
- * element shown? The engine and providers are tested separately; what matters
- * here is that the control's own defaults are safe and that a rule an editor
- * did not write cannot appear.
+ * Covers the settings-to-decision path: given what an editor chose, is the element
+ * shown? The engine and providers are tested separately; what matters here is that
+ * the settings' defaults are safe, that a rule an editor did not write cannot appear,
+ * and that the new keys and the older condition keys, which every stored document
+ * still holds, decide the same way. Every case is run through both.
  */
 #[CoversClass( ElementorControl::class )]
 #[CoversClass( FragmentRules::class )]
@@ -52,16 +54,36 @@ final class ElementorConditionsTest extends TestCase {
 		return \Agend_Content_Access_Access::verdict( \Agend_Content_Access_Rules::from_elementor_settings( $settings ) )['allowed'];
 	}
 
-	private function settings( array $over = array() ): array {
-		return array_merge(
-			array(
-				ElementorControl::CONDITIONS_ENABLED_KEY => 'yes',
-				ElementorControl::CONDITIONS_KEY         => array(),
-				ElementorControl::CONDITIONS_MATCH_KEY   => 'any',
-				ElementorControl::CONDITIONS_INVERT_KEY  => '',
+	/**
+	 * The same rules as an element stores them in each of the two shapes: the new rule
+	 * list, and the older display conditions switched on.
+	 *
+	 * @param string[] $rules  Rule strings.
+	 * @param string   $match  `any` or `all`.
+	 * @param bool     $invert Reverse the result.
+	 * @return array<string, array<string, mixed>>
+	 */
+	private function shapes( array $rules, string $match = 'any', bool $invert = false ): array {
+		return array(
+			'the rule list'      => array(
+				ElementorControl::RULES_KEY  => $rules,
+				ElementorControl::MATCH_KEY  => $match,
+				ElementorControl::INVERT_KEY => $invert ? 'yes' : '',
 			),
-			$over
+			'older conditions'   => array(
+				ElementorControl::CONDITIONS_ENABLED_KEY => 'yes',
+				ElementorControl::CONDITIONS_KEY         => $rules,
+				ElementorControl::CONDITIONS_MATCH_KEY   => $match,
+				ElementorControl::CONDITIONS_INVERT_KEY  => $invert ? 'yes' : '',
+			),
 		);
+	}
+
+	/** Asserts the verdict is the same from both shapes. */
+	private function assertBothShapes( bool $expected, array $rules, string $match = 'any', bool $invert = false, string $why = '' ): void {
+		foreach ( $this->shapes( $rules, $match, $invert ) as $shape => $settings ) {
+			$this->assertSame( $expected, $this->passes( $settings ), trim( $shape . ' ' . $why ) );
+		}
 	}
 
 	/**
@@ -78,6 +100,10 @@ final class ElementorConditionsTest extends TestCase {
 		$this->assertSame( FragmentRules::MATCH_KEY, ElementorControl::CONDITIONS_MATCH_KEY );
 		$this->assertSame( FragmentRules::INVERT_KEY, ElementorControl::CONDITIONS_INVERT_KEY );
 		$this->assertSame( FragmentRules::FALLBACK_KEY, ElementorControl::CONDITIONS_FALLBACK_KEY );
+		$this->assertSame( FragmentRules::FALLBACK_KEY, ElementorControl::FALLBACK_KEY );
+		$this->assertSame( \Agend_Content_Access_Rules::ELEMENTOR_RULES_KEY, ElementorControl::RULES_KEY );
+		$this->assertSame( \Agend_Content_Access_Rules::ELEMENTOR_MATCH_KEY, ElementorControl::MATCH_KEY );
+		$this->assertSame( \Agend_Content_Access_Rules::ELEMENTOR_INVERT_KEY, ElementorControl::INVERT_KEY );
 
 		// The on-disk names every stored document uses.
 		$this->assertSame( 'agend_access_mode', Agend_Content_Access_Policy::FRAGMENT_MODE_KEY );
@@ -99,98 +125,63 @@ final class ElementorConditionsTest extends TestCase {
 	}
 
 	/**
-	 * The common case by a wide margin: almost no element carries conditions,
-	 * and those that do not must cost nothing and never be hidden.
+	 * The common case by a wide margin: almost no element carries rules, and those
+	 * that do not must cost nothing and never be hidden.
 	 */
 	#[Test]
-	public function an_element_with_conditions_switched_off_always_shows(): void {
-		$this->assertTrue(
-			$this->passes(
-				array( ElementorControl::CONDITIONS_ENABLED_KEY => '' )
-			)
-		);
-
+	public function an_element_with_nothing_set_always_shows(): void {
 		$this->assertTrue( $this->passes( array() ) );
-	}
-
-	/**
-	 * Switched on but with nothing chosen is not a restriction. It matches the
-	 * reference implementation and the control says so, because the alternative
-	 * (an element that vanishes the moment the switch is flipped, before any
-	 * condition is picked) would read as a bug to an editor. It is no rules at all.
-	 */
-	#[Test]
-	public function enabled_with_no_conditions_chosen_shows_to_everybody(): void {
-		$this->assertTrue( $this->passes( $this->settings() ) );
-	}
-
-	#[Test]
-	public function a_signed_out_visitor_is_matched_by_the_logged_out_condition(): void {
+		$this->assertTrue( $this->passes( array( ElementorControl::CONDITIONS_ENABLED_KEY => '' ) ) );
 		$this->assertTrue(
 			$this->passes(
-				$this->settings(
-					array(
-						ElementorControl::CONDITIONS_KEY => array( 'agend_wordpress:logged_out' ),
-					)
+				array(
+					ElementorControl::RULES_KEY  => array(),
+					ElementorControl::MATCH_KEY  => 'any',
+					ElementorControl::INVERT_KEY => '',
 				)
-			)
-		);
-	}
-
-	#[Test]
-	public function a_signed_out_visitor_fails_the_logged_in_condition(): void {
-		$this->assertFalse(
-			$this->passes(
-				$this->settings(
-					array(
-						ElementorControl::CONDITIONS_KEY => array( 'agend_wordpress:logged_in' ),
-					)
-				)
-			)
+			),
+			'the rule controls as Elementor hands them over for an element nobody touched'
 		);
 	}
 
 	/**
-	 * Invert is what makes "signed-out only" content expressible at all, and
-	 * 25 conditions in the surveyed data depend on that family.
+	 * Nothing chosen is not a restriction. It matches the reference implementation and
+	 * the control says so ("Leave empty to show this to everyone"), because the
+	 * alternative (an element that vanishes the moment the control is touched, before
+	 * any rule is picked) would read as a bug to an editor. It is no rules at all.
+	 */
+	#[Test]
+	public function with_no_rules_chosen_the_element_shows_to_everybody(): void {
+		$this->assertBothShapes( true, array() );
+	}
+
+	#[Test]
+	public function a_signed_out_visitor_is_matched_by_the_logged_out_rule(): void {
+		$this->assertBothShapes( true, array( 'agend_wordpress:logged_out' ) );
+	}
+
+	#[Test]
+	public function a_signed_out_visitor_fails_the_logged_in_rule(): void {
+		$this->assertBothShapes( false, array( 'agend_wordpress:logged_in' ) );
+	}
+
+	/**
+	 * Reverse is what makes "signed-out only" content expressible at all, and 25
+	 * conditions in the surveyed data depend on that family.
 	 */
 	#[Test]
 	public function reversing_the_result_flips_the_outcome(): void {
-		$base = array(
-			ElementorControl::CONDITIONS_KEY => array( 'agend_wordpress:logged_in' ),
-		);
-
-		$this->assertFalse(
-			$this->passes( $this->settings( $base ) )
-		);
-
-		$this->assertTrue(
-			$this->passes(
-				$this->settings(
-					$base + array( ElementorControl::CONDITIONS_INVERT_KEY => 'yes' )
-				)
-			)
-		);
+		$this->assertBothShapes( false, array( 'agend_wordpress:logged_in' ) );
+		$this->assertBothShapes( true, array( 'agend_wordpress:logged_in' ), 'any', true );
 	}
 
 	#[Test]
-	public function match_all_requires_every_condition(): void {
+	public function match_all_requires_every_rule(): void {
 		// Signed out: `logged_out` passes, `role_editor` does not.
-		$settings = $this->settings(
-			array(
-				ElementorControl::CONDITIONS_KEY       => array(
-					'agend_wordpress:logged_out',
-					'agend_wordpress:role_editor',
-				),
-				ElementorControl::CONDITIONS_MATCH_KEY => 'all',
-			)
-		);
+		$rules = array( 'agend_wordpress:logged_out', 'agend_wordpress:role_editor' );
 
-		$this->assertFalse( $this->passes( $settings ) );
-
-		$settings[ ElementorControl::CONDITIONS_MATCH_KEY ] = 'any';
-
-		$this->assertTrue( $this->passes( $settings ) );
+		$this->assertBothShapes( false, $rules, 'all' );
+		$this->assertBothShapes( true, $rules, 'any' );
 	}
 
 	/**
@@ -199,63 +190,40 @@ final class ElementorConditionsTest extends TestCase {
 	 */
 	#[Test]
 	public function an_unrecognised_provider_hides_the_element(): void {
-		$this->assertFalse(
-			$this->passes(
-				$this->settings(
-					array(
-						ElementorControl::CONDITIONS_KEY => array( 'plugin_gone:whatever' ),
-					)
-				)
-			)
-		);
+		$this->assertBothShapes( false, array( 'plugin_gone:whatever' ) );
 	}
 
 	/**
-	 * Inverting must NOT turn an unevaluable rule into a reveal. The engine
-	 * returns a hard denial for an unknown provider rather than a false that
-	 * inversion could flip.
+	 * Reversing must NOT turn an unevaluable rule into a reveal. The engine returns a
+	 * hard denial for an unknown provider rather than a false that a reverse could
+	 * flip.
 	 */
 	#[Test]
 	public function reversing_an_unrecognised_provider_still_hides_it(): void {
-		$this->assertFalse(
-			$this->passes(
-				$this->settings(
-					array(
-						ElementorControl::CONDITIONS_KEY        => array( 'plugin_gone:whatever' ),
-						ElementorControl::CONDITIONS_INVERT_KEY => 'yes',
-					)
-				)
-			)
-		);
+		$this->assertBothShapes( false, array( 'plugin_gone:whatever' ), 'any', true );
 	}
 
 	#[Test]
-	public function a_malformed_condition_hides_the_element(): void {
-		$this->assertFalse(
-			$this->passes(
-				$this->settings(
-					array(
-						ElementorControl::CONDITIONS_KEY => array( 'no_colon_at_all' ),
-					)
-				)
-			)
-		);
+	public function a_malformed_rule_hides_the_element(): void {
+		$this->assertBothShapes( false, array( 'no_colon_at_all' ) );
 	}
 
 	/**
-	 * Legacy prefixes are what existing sites have stored, so an element
-	 * authored before this plugin must keep working untouched.
+	 * Legacy prefixes are what existing sites have stored, so an element authored
+	 * before this plugin must keep working untouched.
 	 */
 	#[Test]
 	public function legacy_esac_prefixes_are_honoured(): void {
-		$this->assertTrue(
-			$this->passes(
-				$this->settings(
-					array(
-						ElementorControl::CONDITIONS_KEY => array( 'iugo_esac_wordpress:logged_out' ),
-					)
-				)
-			)
-		);
+		$this->assertBothShapes( true, array( 'iugo_esac_wordpress:logged_out' ) );
+	}
+
+	/**
+	 * A reverse switched on over an empty list is not "no rules" to the reader: it is
+	 * nobody, as the condition engine has always read it. Whether Elementor ever shows
+	 * the reader that state is the controls' business (see ElementorRuleControlsTest).
+	 */
+	#[Test]
+	public function a_reverse_over_no_rules_is_nobody_to_the_reader(): void {
+		$this->assertBothShapes( false, array(), 'any', true );
 	}
 }

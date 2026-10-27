@@ -155,17 +155,6 @@ final class ConditionSetsTest extends TestCase {
 		);
 	}
 
-	/** An editor picks `agend_entitlements:<gate_key>`, so the key is the stored value. */
-	#[Test]
-	public function the_flattened_options_carry_the_provider_and_the_group_name(): void {
-		$this->coreAnswers( $this->rows() );
-
-		$options = Sets::as_options();
-
-		$this->assertSame( 'Entitlements / Platform: Directory access', $options['agend_entitlements:directory.access'] );
-		$this->assertSame( 'Entitlements / Early bird', $options['agend_entitlements:entitlement.early_bird'] );
-	}
-
 	#[Test]
 	public function a_row_without_a_usable_name_is_labelled_by_its_key(): void {
 		$this->coreAnswers(

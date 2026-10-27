@@ -222,4 +222,92 @@ final class ElementorCacheExclusionTest extends TestCase {
 
 		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
+
+	// -----------------------------------------------------------------------
+	// The rule list
+	// -----------------------------------------------------------------------
+
+	/**
+	 * The new rule list personalises per visitor like everything above, so an element
+	 * carrying one leaves the shared cache: a member-warmed copy would otherwise show
+	 * a members-only section to anonymous visitors.
+	 */
+	#[Test]
+	public function an_element_with_rules_is_excluded(): void {
+		$node = $this->section( 's1', array(), array( 'agend_access_rules' => array( 'agend_membership:is_member' ) ) );
+
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
+		$this->assertTrue( ( new Agend_Content_Access_Elementor() )->policy_is_dynamic_content( false, $node ) );
+	}
+
+	#[Test]
+	public function rules_with_match_and_reverse_set_are_excluded(): void {
+		$node = $this->section(
+			's1',
+			array(),
+			array(
+				'agend_access_rules'  => array( 'agend_membership:is_member', 'agend_wordpress:logged_in' ),
+				'agend_access_match'  => 'all',
+				'agend_access_invert' => 'yes',
+			)
+		);
+
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
+	}
+
+	/** A reverse over nothing is nobody, not "no rules", so it is not cached either. */
+	#[Test]
+	public function a_reverse_left_over_an_emptied_list_is_still_excluded(): void {
+		$node = $this->section( 's1', array(), array( 'agend_access_rules' => array(), 'agend_access_invert' => 'yes' ) );
+
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
+	}
+
+	/** The controls' defaults are not rules: an element nobody touched stays cacheable. */
+	#[Test]
+	public function an_empty_rule_list_leaves_the_element_cacheable(): void {
+		$node = $this->section(
+			's1',
+			array( $this->widget( 'w1', array( 'editor' => 'hello' ) ) ),
+			array( 'agend_access_rules' => array(), 'agend_access_match' => 'any', 'agend_access_invert' => '' )
+		);
+
+		$this->assertFalse( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
+	}
+
+	#[Test]
+	public function rules_on_a_descendant_exclude_the_whole_subtree(): void {
+		$node = $this->section(
+			's1',
+			array(
+				$this->widget( 'plain', array( 'editor' => 'public' ) ),
+				$this->widget( 'ruled', array( 'agend_access_rules' => array( 'agend_membership:' . self::TIER_A ) ) ),
+			)
+		);
+
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
+	}
+
+	/** An older setting is not forgotten because the new list is empty beside it. */
+	#[Test]
+	public function an_older_setting_beside_an_empty_rule_list_is_still_excluded(): void {
+		$this->assertTrue(
+			Agend_Content_Access_Elementor::subtree_carries_rules(
+				$this->section( 's1', array(), array( 'agend_access_rules' => array(), 'agend_access_mode' => 'active_member' ) )
+			)
+		);
+		$this->assertTrue(
+			Agend_Content_Access_Elementor::subtree_carries_rules(
+				$this->section( 's1', array(), array( 'agend_access_rules' => array(), 'agend_conditions_enabled' => 'yes', 'agend_conditions' => array( 'agend_wordpress:logged_in' ) ) )
+			)
+		);
+	}
+
+	/** Rules that cannot be read are rules: "I could not tell" is not "there are none". */
+	#[Test]
+	public function rules_that_cannot_be_read_are_excluded(): void {
+		$node = $this->section( 's1', array(), array( 'agend_access_rules' => 'agend_membership:is_member' ) );
+
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
+	}
 }
