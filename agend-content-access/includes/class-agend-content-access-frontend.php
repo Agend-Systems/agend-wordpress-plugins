@@ -254,8 +254,15 @@ class Agend_Content_Access_Frontend {
 	 * this page, or a referrer that is off-site, missing or this page
 	 * (`Agend_Content_Access_Destination`). The action applies to whoever the rules
 	 * deny, so a page that is for people who do NOT match (Reverse) redirects the
-	 * people who do. It does not look at WHY the visitor was denied: an outage that
-	 * denied a member is acted on like any denial.
+	 * people who do.
+	 *
+	 * ONE EXCEPTION, AN OUTAGE. A denial that is down to something that could not be
+	 * evaluated (`degraded`: Agend unreachable, a lookup that failed, a provider that
+	 * threw) always shows the placeholder, whatever the page says to do. The visitor
+	 * may well be a member whom Agend simply could not confirm, and redirecting or
+	 * sending them back would bounce real members off the site for the length of the
+	 * outage. A page that chose a placeholder shows that one, and any other page shows
+	 * the built-in one. The body is still never shown.
 	 */
 	public function gate_request(): void {
 		// A denial is per request. Forgotten first, before every early return, so a
@@ -300,6 +307,9 @@ class Agend_Content_Access_Frontend {
 
 		if ( Agend_Content_Access_Rules::DENIED_PLACEHOLDER === $action ) {
 			$this->placeholder_target = isset( $denied['target_id'] ) ? (int) $denied['target_id'] : 0;
+		} elseif ( ! empty( $decision['degraded'] ) ) {
+			// An outage: the built-in placeholder, not a redirect. See the docblock.
+			$this->placeholder_target = 0;
 		} elseif ( class_exists( 'Agend_Content_Access_Destination', false ) ) {
 			$url = Agend_Content_Access_Destination::for_denied( $post, $denied );
 

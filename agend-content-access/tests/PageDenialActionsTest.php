@@ -825,12 +825,96 @@ final class PageDenialActionsTest extends TestCase {
 		$this->assertNotContains( 'filter_the_content', $this->registeredMethods( 'the_content' ) );
 	}
 
-	/** An outage that could not tell is a denial, and is acted on like any other. */
-	#[Test]
-	public function a_denial_down_to_an_outage_is_acted_on_like_any_other(): void {
+	/** Agend cannot be reached: the lookup for a signed-in visitor fails, so the denial is down to an outage. */
+	private function outage(): void {
+		$GLOBALS['agend_test_current_user_id'] = 7;
+
 		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_my_entitlements_response', new WP_Error( 'http_request_failed', 'down' ) );
+	}
+
+	/**
+	 * An outage that could not tell who the visitor is still denies, and still never
+	 * shows the body, but it does not redirect: the visitor may well be a member whom
+	 * Agend could not confirm, and bouncing real members off the site for as long as
+	 * the outage lasts is worse than showing them a placeholder.
+	 */
+	#[Test]
+	public function a_denial_down_to_an_outage_shows_the_placeholder_instead_of_redirecting(): void {
+		$this->outage();
 		$this->redirectTo( self::TARGET );
+
+		[ , $redirect ] = $this->gate();
+		$html          = $this->body();
+
+		$this->assertNull( $redirect );
+		$this->assertSame( array(), Agend_Test_WP::$redirects );
+		$this->assertStringContainsString( 'agend-access-placeholder', $html );
+		$this->assertStringNotContainsString( self::BODY, $html );
+	}
+
+	#[Test]
+	public function a_denial_down_to_an_outage_does_not_send_the_visitor_back_either(): void {
+		$this->outage();
+		$this->back( self::FALLBACK );
+		$_SERVER['HTTP_REFERER'] = 'https://example.test/came-from/';
+		$GLOBALS['agend_test_referer'] = 'https://example.test/came-from/';
+
+		[ , $redirect ] = $this->gate();
+
+		$this->assertNull( $redirect );
+		$this->assertSame( array(), Agend_Test_WP::$redirects );
+		$this->assertStringContainsString( 'agend-access-placeholder', $this->body() );
+
+		unset( $_SERVER['HTTP_REFERER'] );
+	}
+
+	/** The built-in placeholder, because a redirect and a way back have no placeholder of their own. */
+	#[Test]
+	public function a_denial_down_to_an_outage_on_a_redirecting_page_shows_the_built_in_placeholder(): void {
+		$this->outage();
+		$this->post( self::PATTERN, 'wp_block', 'A pattern', '<!-- wp:paragraph --><p>PATTERN BODY</p><!-- /wp:paragraph -->' );
+		$this->redirectTo( self::PATTERN );
+
+		$this->gate();
+		$html = $this->body();
+
+		$this->assertStringContainsString( 'agend-access-placeholder', $html );
+		$this->assertStringNotContainsString( 'PATTERN BODY', $html );
+	}
+
+	/** A page that chose its placeholder keeps showing it in an outage. */
+	#[Test]
+	public function a_denial_down_to_an_outage_on_a_page_with_a_chosen_placeholder_shows_that_one(): void {
+		$this->outage();
+		$this->post( self::PATTERN, 'wp_block', 'A pattern', '<!-- wp:paragraph --><p>PATTERN BODY</p><!-- /wp:paragraph -->' );
+		$this->placeholderOf( self::PATTERN );
+
+		$this->gate();
+		$html = $this->body();
+
+		$this->assertStringContainsString( 'PATTERN BODY', $html );
+		$this->assertStringNotContainsString( self::BODY, $html );
+	}
+
+	/** Reverse does not change it: a join page that sends members to their dashboard must not do it in an outage. */
+	#[Test]
+	public function a_reversed_page_does_not_redirect_in_an_outage_either(): void {
+		$this->outage();
+		$this->deniedPage( array( 'action' => 'redirect', 'target_id' => self::DASHBOARD, 'fallback_id' => 0 ), array( self::MEMBER ), true );
+
+		[ , $redirect ] = $this->gate();
+
+		$this->assertNull( $redirect );
+		$this->assertSame( array(), Agend_Test_WP::$redirects );
+		$this->assertStringContainsString( 'agend-access-placeholder', $this->body() );
+	}
+
+	/** The other half of the rule: a denial that is not down to an outage still redirects. */
+	#[Test]
+	public function a_denial_that_is_not_an_outage_still_redirects(): void {
+		$this->asMember( self::TIER_B );
+		$this->deniedPage( array( 'action' => 'redirect', 'target_id' => self::TARGET, 'fallback_id' => 0 ), array( 'agend_membership:' . self::TIER_A ) );
 
 		[ , $redirect ] = $this->gate();
 
