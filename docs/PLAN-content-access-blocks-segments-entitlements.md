@@ -158,18 +158,20 @@ Rules carried over unchanged:
 
 ### Gateway events (new)
 
-| Event | Scope | Fired when |
-| --- | --- | --- |
-| `crm.entitlement.granted` | one contact | a grant is created or reinstated, by the reconcile RPC, staff in the CRM, or cart fulfilment |
-| `crm.entitlement.revoked` | one contact | a grant is revoked by any of the same paths |
-| contact change (name settled in the gateway PR) | one contact | an edit to a field segment rules can read: status, tags, member type, custom fields |
-| `crm.segment.updated` | whole account | a segment's rules change |
-| `crm.tier.benefits_changed` | whole account | the benefits a tier includes change |
+| Event | Scope | Payload | Fired when |
+| --- | --- | --- | --- |
+| `crm.entitlement.granted` | one contact | `{contact_id, gate_keys[], source_key, granted_via}` | a grant is created or reinstated, by the reconcile RPC, staff in the CRM, or cart fulfilment |
+| `crm.entitlement.revoked` | one contact | `{contact_id, gate_keys[], source_key, granted_via}` | a grant is revoked by any of the same paths |
+| `crm.contact.attributes_changed` | one contact | `{contact_id, changed_fields[]}` | an edit to a field segment rules can read: status, tags, topic follows, custom fields |
+| `crm.segment.updated` | whole account | `{segment_id, change}`, `change` being `created`, `criteria_changed` or `deleted` | a segment is created, its rules change, or it is deleted |
+| `crm.benefit.changed` | whole account | `{tier_id \| null, benefit_id, change}` | a benefit is added to or removed from a tier, or is activated, deactivated or re-keyed |
+| `crm.contact.bulk_updated` | whole account | `{contact_count, changed_fields[]}` | a bulk edit touches more than 100 contacts, sent instead of the per-contact event above |
 
-Entitlement events carry `{account_id, contact_id, gate_keys[], source_key}`, one
-event per contact per call rather than one per key. Contact-scoped events carry
-`contact_id`. Volatile fields (engagement score, last activity, last login) never
-fire the contact event.
+Entitlement events carry one event per contact per call rather than one per key.
+Contact-scoped events carry `contact_id`, the Agend contact's UUID. Volatile
+fields (engagement score, last activity, last login) never fire the contact
+event. There is no tier event: a tier's benefits changing is `crm.benefit.changed`
+with a `tier_id`.
 
 Existing events WordPress also listens to: `crm.membership.*` and `crm.seat.*`.
 
@@ -180,8 +182,18 @@ every verified delivery after its own handling:
 
 - a contact-scoped event: find users whose `_agend_apps_contact_id` matches
   `data.contact_id`, and flush each;
-- an account-wide event: bump the generation;
-- anything else: ignore.
+- an account-wide event: bump the generation. `crm.segment.updated` also
+  deletes the cached segment catalogue and `crm.benefit.changed` the cached
+  entitlement catalogue, so editors see a renamed or new item without waiting.
+  The plan catalogue is left alone, since no event describes a plan change;
+- anything else, and any malformed envelope: ignore, without an error. A failure
+  here would turn a verified delivery into a 500 that Agend retries for ever.
+
+The event lists are filterable
+(`agend_content_access_webhook_contact_events`, as exact ids plus prefixes, and
+`agend_content_access_webhook_account_events`), so a later gateway event can be
+handled without a release. `agend_content_access_facts_invalidated` fires after
+facts are forgotten, for logging.
 
 The payload is used only to locate a member. Nothing in it is stored or trusted
 as a fact. Signature checking, replay protection and deduplication are Core's and
@@ -301,17 +313,22 @@ Gateway (agend-dashboard, stacked on `staging`):
 1. `GET /v1/crm/entitlements/types` and the `crm.entitlements.browse` scope.
 2. Entitlement grant events, and `expires_at` on `/crm/me/entitlements`
    capabilities.
-3. The contact, segment and tier invalidation events.
+3. The contact, segment and benefit invalidation events, and
+   `crm.contact.bulk_updated` for edits above 100 contacts.
 
-WordPress (this repository, stacked on `main`):
+WordPress (this repository, stacked on `main`), in stack order:
 
 1. This plan.
 2. Editor-neutral seam and the single member-facts source. Behaviour identical.
 3. Segments and entitlements as policy modes, `access_restricted`, and the
    Entitlements condition provider.
-4. Core: the entitlement-types wrapper and the `crm_me_entitlements` cache key.
-5. Webhook invalidation.
-6. Editor catalogue, the page panel and the Elementor controls.
-7. The block exporter.
+4. The block exporter.
+5. Editor catalogue, the page panel and the Elementor controls.
+6. The loop gating port.
+7. Webhook invalidation.
 8. Block enforcement.
 9. The block editor panel and its build.
+
+Core's change (the entitlement-types wrapper and the `crm_me_entitlements` cache
+key) ships as its own pull request and is released before Content Access starts
+calling the wrapper.

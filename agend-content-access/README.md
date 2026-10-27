@@ -332,9 +332,8 @@ in WordPress. An expiry that is not a readable date-time is treated as none.
 This changes one behaviour. A document policy used to ask Agend on every
 request, so a revocation applied on the next page load. Now a revocation that
 fires no webhook takes up to the cache lifetime to apply. Display conditions
-already worked that way. Webhook invalidation, which makes the cache forget
-sooner and never remember longer, arrives in a later release, and the
-lifetime stays as the backstop.
+already worked that way. Webhooks (next section) make the cache forget sooner
+and never remember longer, and the lifetime stays as the backstop.
 
 Rules the cache keeps:
 
@@ -364,6 +363,59 @@ Rules the cache keeps:
 - A cached entry is checked field by field before it is used. One with a field of
   the wrong type is a miss and is replaced, never repaired, so a malformed entry
   in the transient store cannot reach a condition.
+
+## Webhooks
+
+Agend can tell WordPress that something changed, so a cached answer is dropped
+sooner than its lifetime. Subscribe the event types below to the receiver Agend
+Apps Core already provides, `/wp-json/agend-apps/v1/webhooks/incoming`, from the
+Agend dashboard. Core verifies the signature, drops repeat deliveries and handles
+`crm.membership.*` and `crm.seat.*` for its own membership snapshot, then hands
+every verified delivery on. This plugin adds no route and no secret of its own.
+
+| Event type | What it clears |
+| --- | --- |
+| `crm.membership.created`, `updated`, `cancelled`, `renewed`, `reinstated`, `lapsed` | That member's cached facts |
+| `crm.seat.added`, `updated`, `removed` | That member's cached facts |
+| `crm.entitlement.granted`, `crm.entitlement.revoked` | That member's cached facts |
+| `crm.contact.attributes_changed` | That member's cached facts |
+| `crm.segment.updated` | Every member's cached facts, and the segment list in the editor pickers |
+| `crm.benefit.changed` | Every member's cached facts, and the entitlement list in the editor pickers |
+| `crm.contact.bulk_updated` | Every member's cached facts |
+
+How it works:
+
+- A member event carries `data.contact_id`. It is used only to find the WordPress
+  users whose `_agend_apps_contact_id` meta (which Core writes at login) holds that
+  id, and each one's facts are forgotten. At most 50 users are flushed per event.
+  A contact who has never signed in to this site matches nobody, which is normal.
+- An event for the whole account (a segment's rules, a benefit, or a bulk edit
+  too large to send per contact) forgets every member at once.
+- The next request that needs the facts asks Agend again with the member's own
+  token. Nothing in a payload is stored or trusted: a `granted` event for a key
+  Agend does not then report leaves the member without it. A forged, replayed or
+  out of order delivery can only make WordPress forget, never grant.
+- A malformed delivery, an unknown event type or a contact id that is not a UUID
+  is ignored without an error, so Agend never retries a delivery because of this
+  plugin. The plan list in the editor is not cleared, because no event describes
+  a plan change.
+
+The cache lifetime is still the backstop, and it is the only thing that covers
+changes that fire no event: a grace period ending, a grant reaching its expiry,
+a segment rule with a relative date ("renewal within 30 days") admitting or
+dropping a member as time passes, and imports and merges. That lifetime is
+Core's `crm_me_entitlements` setting, never more than 15 minutes.
+
+Hooks for developers:
+
+- `agend_content_access_webhook_contact_events` filters the events that forget one
+  member, as `array( 'exact' => string[], 'prefixes' => string[] )`. The event
+  must carry `data.contact_id`.
+- `agend_content_access_webhook_account_events` filters the events that forget
+  everyone, as a list of exact event ids.
+- `agend_content_access_facts_invalidated` fires after facts were forgotten, with
+  the scope (`user` or `account`), the event type and the WordPress user ids
+  flushed. It does not fire when a member event matched nobody.
 
 ## Running the tests
 
