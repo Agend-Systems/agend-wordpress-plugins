@@ -398,7 +398,11 @@ re-running the query core builds from the block's attributes, and a copy that
 drifted from core would fail open. To print full posts in a list, use a Query
 Loop block, whose content is gated. Only the display mode is changed, so a Latest
 Posts block that carries a rule of its own is still removed for a visitor who
-fails it.
+fails it. The switch is made twice: before the block renders, on
+`render_block_data`, and inside the block's own render callback, which is wrapped
+when the block type is registered. Some paths render a block without the first (a
+navigation's children read from a `ref` post, a widget group's after a third
+party short-circuits the render), and none can skip the second.
 
 ### What counts as authoring
 

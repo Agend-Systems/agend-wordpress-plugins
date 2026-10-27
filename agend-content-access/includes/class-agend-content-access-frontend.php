@@ -154,6 +154,10 @@ class Agend_Content_Access_Frontend {
 	 * The Latest Posts block is handled before it renders, on `render_block_data`:
 	 * its "full post" display prints `$post->post_content` itself, so none of the
 	 * filters above is ever offered the body. See `withhold_latest_posts_content()`.
+	 * That filter is skipped by some paths that render a block (a navigation's
+	 * children read from a `ref` post, widget-group children after a third party
+	 * short-circuits), so the block's own render callback is wrapped as well, at
+	 * registration: see `wrap_latest_posts_render()`.
 	 */
 	private function register_render_filters(): void {
 		add_filter( 'the_content', array( $this, 'withhold_in_loop' ), self::WITHHOLD_PRIORITY );
@@ -173,6 +177,7 @@ class Agend_Content_Access_Frontend {
 		add_filter( 'the_content_feed', array( $this, 'filter_feed_content' ), PHP_INT_MAX );
 		add_filter( 'the_excerpt_rss', array( $this, 'filter_feed_excerpt' ), PHP_INT_MAX );
 		add_filter( 'render_block_data', array( $this, 'withhold_latest_posts_content' ), PHP_INT_MAX, 3 );
+		add_filter( 'register_block_type_args', array( $this, 'wrap_latest_posts_render' ), PHP_INT_MAX, 2 );
 	}
 
 	/**
@@ -857,6 +862,10 @@ class Agend_Content_Access_Frontend {
 	 * its own rule is still removed for a visitor who fails it, and the verdict the
 	 * two passes reach is made on the same attribute.
 	 *
+	 * This is the first of two places the switch is made, and not enough alone: a
+	 * block that is rendered without passing through `render_block_data` keeps its
+	 * mode. See `wrap_latest_posts_render()`, which makes it inside the callback.
+	 *
 	 * @param array      $parsed_block Block about to render.
 	 * @param array|null $source_block Block as parsed. Unused.
 	 * @param mixed      $parent_block Parent block, when nested. Unused.
@@ -867,12 +876,7 @@ class Agend_Content_Access_Frontend {
 			return $parsed_block;
 		}
 
-		// No post: the block lists posts of its own choosing, none of which can be
-		// named, so the question is the one for a post that is anyone's
-		// (`edit_others_posts`, in an editing session). None of them is the previewed
-		// post by being in a preview either, so it is switched in a preview too. The
-		// excerpts it then prints are judged for each post it lists.
-		if ( ! self::renders_for_visitors() ) {
+		if ( ! self::latest_posts_renders_for_visitors() ) {
 			return $parsed_block;
 		}
 
@@ -880,17 +884,94 @@ class Agend_Content_Access_Frontend {
 			? $parsed_block['attrs']
 			: array();
 
+		$switched = self::latest_posts_in_excerpt_mode( $attributes );
+
+		if ( $switched !== $attributes ) {
+			$parsed_block['attrs'] = $switched;
+		}
+
+		return $parsed_block;
+	}
+
+	/**
+	 * Makes the Latest Posts block's own render callback withhold full posts.
+	 *
+	 * The second place the switch is made, and the one that cannot be skipped.
+	 * `render_block_data` runs inside `render_block()`, and some paths render a
+	 * block without it: the children of a navigation read from a `ref` post, and
+	 * the children of a widget group once a third party has short-circuited the
+	 * render. A block that reached its callback with `full_post` there would print
+	 * every restricted body. Wrapping the callback, at registration, puts the
+	 * switch at the one place every render of the block goes through.
+	 *
+	 * Registered last, so the wrapper is the outermost and nothing added to the
+	 * block type after it can unwrap it. The block's other registration arguments
+	 * are untouched, and a callback that is not callable is left as it was, since
+	 * wrapping it would only move the failure.
+	 *
+	 * @param array  $args       Block type arguments.
+	 * @param string $block_type Block type name.
+	 * @return array
+	 */
+	public function wrap_latest_posts_render( $args, $block_type = '' ) {
+		if (
+			'core/latest-posts' !== $block_type
+			|| ! is_array( $args )
+			|| ! isset( $args['render_callback'] )
+			|| ! is_callable( $args['render_callback'] )
+		) {
+			return $args;
+		}
+
+		$render = $args['render_callback'];
+
+		$args['render_callback'] = static function ( $attributes = array(), ...$rest ) use ( $render ) {
+			if ( is_array( $attributes ) && self::latest_posts_renders_for_visitors() ) {
+				$attributes = self::latest_posts_in_excerpt_mode( $attributes );
+			}
+
+			return call_user_func( $render, $attributes, ...$rest );
+		};
+
+		return $args;
+	}
+
+	/**
+	 * Whether a Latest Posts block is rendering for somebody who may be a visitor.
+	 *
+	 * The block lists posts of its own choosing, so no post can be named and the
+	 * question is the one for a post that is anyone's: `edit_others_posts`, in an
+	 * editing session. A user who may edit only some posts is a visitor here, and
+	 * the excerpts the block then prints are judged for each post it lists, which
+	 * is the per post rule. It is switched in a preview too: none of the posts it
+	 * lists is the previewed one by being in it.
+	 *
+	 * @return bool
+	 */
+	private static function latest_posts_renders_for_visitors(): bool {
+		return self::renders_for_visitors( 0 );
+	}
+
+	/**
+	 * The block's attributes with a full post display switched to excerpts.
+	 *
+	 * Left alone when the block shows no content, or already shows excerpts.
+	 *
+	 * @param array $attributes The block's attributes.
+	 * @return array
+	 */
+	private static function latest_posts_in_excerpt_mode( array $attributes ): array {
 		if (
 			empty( $attributes['displayPostContent'] )
 			|| ! isset( $attributes['displayPostContentRadio'] )
 			|| 'excerpt' === $attributes['displayPostContentRadio']
 		) {
-			return $parsed_block;
+			return $attributes;
 		}
 
-		$parsed_block['attrs']['displayPostContentRadio'] = 'excerpt';
+		$attributes['displayPostContentRadio'] = 'excerpt';
 
-		return $parsed_block;
+		return $attributes;
 	}
 
 	/**

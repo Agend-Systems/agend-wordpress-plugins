@@ -129,8 +129,8 @@ final class LatestPostsBlockTest extends BlockEnforcementTestCase {
 	// -----------------------------------------------------------------------
 
 	#[Test]
-	public function the_stand_in_really_leaks_without_the_filter(): void {
-		$html = render_block( $this->block( self::FULL ) );
+	public function the_stand_in_really_leaks_when_nothing_withholds_it(): void {
+		$html = $this->coreLatestPosts( self::FULL );
 
 		$this->assertStringContainsString( 'THE MEMBERS BODY', $html, 'the defect this test class exists for' );
 	}
@@ -327,6 +327,111 @@ final class LatestPostsBlockTest extends BlockEnforcementTestCase {
 	}
 
 	// -----------------------------------------------------------------------
+	// The render callback
+	// -----------------------------------------------------------------------
+
+	/**
+	 * `render_block_data` runs inside `render_block()`, and some paths render a
+	 * block without it: the children of a navigation read from a `ref` post, and
+	 * the children of a widget group once a third party has short-circuited the
+	 * render. The callback itself withholds the full post.
+	 */
+	#[Test]
+	public function a_block_that_skipped_the_data_filter_is_still_withheld(): void {
+		$html = render_block( $this->block( self::FULL ) );
+
+		$this->assertStringNotContainsString( 'THE MEMBERS BODY', $html );
+		$this->assertStringNotContainsString( 'THE BLOCK SECRET', $html );
+		$this->assertStringNotContainsString( 'wp-block-latest-posts__post-full-content', $html );
+		$this->assertStringContainsString( 'wp-block-latest-posts__post-excerpt', $html );
+	}
+
+	/** Not even `render_block()`: the block object rendered directly, as a parent block renders its children. */
+	#[Test]
+	public function a_block_object_rendered_directly_is_still_withheld(): void {
+		$html = ( new \WP_Block( $this->block( self::FULL ) ) )->render();
+
+		$this->assertStringNotContainsString( 'THE MEMBERS BODY', $html );
+		$this->assertStringNotContainsString( 'wp-block-latest-posts__post-full-content', $html );
+	}
+
+	/** @return array<string, array{0: mixed}> */
+	public static function modesOnTheCallbackPath(): array {
+		return self::modesCoreDoesNotKnow() + array( 'full post' => array( 'full_post' ) );
+	}
+
+	#[Test]
+	#[DataProvider( 'modesOnTheCallbackPath' )]
+	public function any_mode_other_than_excerpt_is_withheld_in_the_callback_too( $mode ): void {
+		$html = render_block( $this->block( array( 'displayPostContent' => true, 'displayPostContentRadio' => $mode ) ) );
+
+		$this->assertStringNotContainsString( 'wp-block-latest-posts__post-full-content', $html );
+		$this->assertStringNotContainsString( 'THE MEMBERS BODY', $html );
+	}
+
+	/** The wrapper changes the display mode and nothing the callback was handed. */
+	#[Test]
+	public function the_wrapper_passes_everything_else_through(): void {
+		$seen = array();
+
+		register_block_type(
+			'core/latest-posts',
+			array(
+				'render_callback' => static function ( array $attributes, string $content = '', $block = null ) use ( &$seen ): string {
+					$seen = array( $attributes, $content, $block );
+
+					return 'rendered';
+				},
+			)
+		);
+
+		$block = $this->block( self::FULL + array( 'postsToShow' => 9 ) );
+		$html  = render_block( $block );
+
+		$this->assertSame( 'rendered', $html );
+		$this->assertSame( 'excerpt', $seen[0]['displayPostContentRadio'] );
+		$this->assertSame( 9, $seen[0]['postsToShow'] );
+		$this->assertTrue( $seen[0]['displayPostContent'] );
+		$this->assertInstanceOf( \WP_Block::class, $seen[2], 'core passes the block as the third argument' );
+	}
+
+	#[Test]
+	public function other_blocks_keep_their_own_callback_untouched(): void {
+		$callback = static fn( array $attributes ): string => 'mine:' . ( $attributes['displayPostContentRadio'] ?? '' );
+
+		register_block_type( 'core/query', array( 'render_callback' => $callback ) );
+
+		$this->assertSame( 'mine:full_post', render_block( $this->block( self::FULL, 'core/query' ) ) );
+		$this->assertSame(
+			$callback,
+			\WP_Block_Type_Registry::get_instance()->get_registered( 'core/query' )->render_callback
+		);
+	}
+
+	/** Wrapping a callback that cannot be called would only move the failure. */
+	#[Test]
+	public function a_callback_that_cannot_be_called_is_left_as_it_was(): void {
+		$frontend = new Agend_Content_Access_Frontend();
+
+		$this->assertSame(
+			array( 'render_callback' => 'no_such_function_anywhere' ),
+			$frontend->wrap_latest_posts_render( array( 'render_callback' => 'no_such_function_anywhere' ), 'core/latest-posts' )
+		);
+		$this->assertSame( array(), $frontend->wrap_latest_posts_render( array(), 'core/latest-posts' ) );
+		$this->assertSame( 'x', $frontend->wrap_latest_posts_render( 'x', 'core/latest-posts' ) );
+	}
+
+	#[Test]
+	public function an_author_gets_the_block_as_configured_from_the_callback_too(): void {
+		$this->asEditor();
+		$GLOBALS['agend_test_is_admin'] = true;
+
+		$html = render_block( $this->block( self::FULL ) );
+
+		$this->assertStringContainsString( 'wp-block-latest-posts__post-full-content', $html );
+	}
+
+	// -----------------------------------------------------------------------
 	// Registration
 	// -----------------------------------------------------------------------
 
@@ -337,6 +442,21 @@ final class LatestPostsBlockTest extends BlockEnforcementTestCase {
 
 		$this->assertSame( PHP_INT_MAX, $entry['priority'] );
 		$this->assertSame( 3, $entry['args'] );
+	}
+
+	/** Last, so nothing registered after it can unwrap the callback. */
+	#[Test]
+	public function the_callback_wrapper_is_registered_last_with_the_arguments_core_passes(): void {
+		$entries = array_values(
+			array_filter(
+				Agend_Test_WP::$filter_registry['register_block_type_args'] ?? array(),
+				static fn( array $entry ): bool => is_array( $entry['callback'] ) && 'wrap_latest_posts_render' === $entry['callback'][1]
+			)
+		);
+
+		$this->assertCount( 1, $entries );
+		$this->assertSame( PHP_INT_MAX, $entries[0]['priority'] );
+		$this->assertSame( 2, $entries[0]['args'] );
 	}
 
 	#[Test]
