@@ -178,6 +178,9 @@ final class CatalogueSectionsTest extends TestCase {
 		$this->assertArrayNotHasKey( Catalogue::SEGMENTS_TRANSIENT, Agend_Test_WP::$transients );
 
 		// A recovery fills the list at once rather than after the cache lifetime.
+		// On the next request: within this one the failure is remembered in memory
+		// only, so the gateway is not asked again.
+		Catalogue::reset();
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_segments_response', $this->segmentRows() );
 
 		$this->assertCount( 2, Catalogue::segments()['items'] );
@@ -285,9 +288,128 @@ final class CatalogueSectionsTest extends TestCase {
 		$this->assertSame( array(), Catalogue::entitlements()['items'] );
 		$this->assertArrayNotHasKey( Catalogue::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients );
 
+		// The next request. Within this one the failure is held in memory only.
+		Catalogue::reset();
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', $this->entitlementRows() );
 
 		$this->assertCount( 2, Catalogue::entitlements()['items'] );
+		$this->assertSame( 2, $this->calls( '/crm/entitlements/types' ) );
+	}
+
+	// -----------------------------------------------------------------
+	// Once per request, a failure included
+	// -----------------------------------------------------------------
+
+	/**
+	 * A failure is never stored, so the transient cannot stop the next caller
+	 * asking again. Without the request memo a listing of gated posts, each naming
+	 * the entitlements it admits, would make a failing call per post.
+	 */
+	#[Test]
+	public function an_outage_is_asked_of_agend_once_per_request_whoever_asks(): void {
+		$this->coreEntitlements( new WP_Error( 'http_request_failed', 'down' ) );
+
+		for ( $post = 0; $post < 5; ++$post ) {
+			$this->assertSame( array(), Catalogue::entitlements()['items'] );
+		}
+
+		$sections = Catalogue::sections();
+
+		$this->assertSame( array(), $sections['entitlements']['items'] );
+		$this->assertTrue( $sections['entitlements']['stale'], 'the memoised answer still says it failed' );
+		$this->assertNotSame( '', $sections['entitlements']['error'] );
+		$this->assertSame( 1, $this->calls( '/crm/entitlements/types' ) );
+		$this->assertArrayNotHasKey( Catalogue::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients, 'held in memory, never stored' );
+	}
+
+	#[Test]
+	public function a_segment_outage_is_asked_of_agend_once_per_request(): void {
+		$this->coreSegments( new WP_Error( 'http_request_failed', 'down' ) );
+
+		Catalogue::segments();
+		Catalogue::segments();
+		Catalogue::sections();
+
+		$this->assertSame( 1, $this->calls( '/crm/segments' ) );
+		$this->assertArrayNotHasKey( Catalogue::SEGMENTS_TRANSIENT, Agend_Test_WP::$transients );
+	}
+
+	/** Plans have no call counter in their double, so what comes back is what shows whether Core was asked. */
+	#[Test]
+	public function a_plan_outage_is_asked_of_agend_once_per_request(): void {
+		Agend_Test_WP::$tiers_response = new WP_Error( 'http_request_failed', 'down' );
+
+		$this->assertSame( array(), Catalogue::get()['plans'] );
+
+		// Core would now answer, but the request has already heard the failure.
+		Agend_Test_WP::$tiers_response = array(
+			'data' => array( array( 'id' => '11111111-1111-1111-1111-111111111111', 'name' => 'Full Member', 'slug' => 'full', 'tier_type' => 'individual', 'is_active' => true ) ),
+		);
+
+		$again = Catalogue::get();
+
+		$this->assertSame( array(), $again['plans'] );
+		$this->assertTrue( $again['stale'] );
+		$this->assertArrayNotHasKey( Catalogue::TRANSIENT, Agend_Test_WP::$transients );
+
+		Catalogue::reset();
+
+		$this->assertCount( 1, Catalogue::get()['plans'], 'the next request asks again' );
+	}
+
+	#[Test]
+	public function a_success_is_asked_once_per_request_and_read_from_memory_after(): void {
+		$this->coreEntitlements( $this->entitlementRows() );
+
+		Catalogue::entitlements();
+
+		// Neither the transient nor Core is consulted again.
+		Agend_Test_WP::$transients = array();
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', array( 'success' => true, 'data' => array() ) );
+
+		$this->assertCount( 2, Catalogue::entitlements()['items'] );
+		$this->assertSame( 1, $this->calls( '/crm/entitlements/types' ) );
+	}
+
+	/** An editor's refresh must see Agend's answer now: it passes the memo and the transient both. */
+	#[Test]
+	public function a_forced_refresh_bypasses_the_request_memo_as_well_as_the_transient(): void {
+		$this->coreEntitlements( new WP_Error( 'http_request_failed', 'down' ) );
+
+		$this->assertSame( array(), Catalogue::entitlements()['items'] );
+		$this->assertSame( 1, $this->calls( '/crm/entitlements/types' ) );
+
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', $this->entitlementRows() );
+
+		$this->assertSame( array(), Catalogue::entitlements()['items'], 'an ordinary read still hears the remembered failure' );
+		$this->assertSame( 1, $this->calls( '/crm/entitlements/types' ) );
+
+		$refreshed = Catalogue::entitlements( true );
+
+		$this->assertCount( 2, $refreshed['items'] );
+		$this->assertFalse( $refreshed['stale'] );
+		$this->assertSame( 2, $this->calls( '/crm/entitlements/types' ) );
+
+		// What the refresh learned is what the rest of the request reads.
+		$this->assertCount( 2, Catalogue::entitlements()['items'] );
+		$this->assertSame( 2, $this->calls( '/crm/entitlements/types' ) );
+	}
+
+	#[Test]
+	public function a_forced_refresh_of_every_section_asks_each_list_again(): void {
+		$this->coreSegments( $this->segmentRows() );
+		$this->coreEntitlements( $this->entitlementRows() );
+		Agend_Test_WP::$tiers_response = array( 'data' => array() );
+
+		Catalogue::sections();
+		Catalogue::sections();
+
+		$this->assertSame( 1, $this->calls( '/crm/segments' ) );
+		$this->assertSame( 1, $this->calls( '/crm/entitlements/types' ) );
+
+		Catalogue::sections( true );
+
+		$this->assertSame( 2, $this->calls( '/crm/segments' ) );
 		$this->assertSame( 2, $this->calls( '/crm/entitlements/types' ) );
 	}
 

@@ -294,7 +294,11 @@ standing or segments.
 A listing costs no more gateway calls than a single post. However many
 restricted posts a loop renders, the visitor's standing is asked of Agend at
 most once per request, and their segments at most once, through the same
-per-request source as every other decision.
+per-request source as every other decision. The plan, segment and entitlement
+lists a gate names are likewise asked of Agend at most once each per request, a
+failed ask included, so a gateway outage costs a listing one timeout rather than
+one per post. That memory lasts only for the request: a failure is still never
+written to the cache, and the editor's `refresh` still asks again.
 
 When a restricted post's body is shown to a member anywhere on a page, that page
 is marked uncacheable (`DONOTCACHEPAGE`, and `Cache-Control: private, no-store`

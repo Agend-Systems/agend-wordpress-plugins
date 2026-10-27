@@ -62,6 +62,13 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Agend_Content_Access_Viewer_Facts::reset();
 		}
 
+		// The catalogue holds what each list answered, failures included, for the
+		// request. Right in production; across tests it would hand one test's
+		// outage, or its seeded list, to the next.
+		if ( class_exists( 'Agend_Content_Access_Catalogue', false ) ) {
+			\Agend_Content_Access_Catalogue::reset();
+		}
+
 		// Post and meta registries used by the WordPress stubs.
 		$GLOBALS['agend_test_posts']            = array();
 		$GLOBALS['agend_test_post_meta']        = array();

@@ -599,6 +599,34 @@ final class LoopGatingTest extends TestCase {
 	}
 
 	/**
+	 * Each gate names the entitlements it admits, which reads the entitlement
+	 * catalogue. A failure is never stored, so without the catalogue's request memo
+	 * a listing of gated posts would ask Agend, and wait out its timeout, once per
+	 * post. Separate process because the Core wrapper is a function that cannot be
+	 * undefined once declared.
+	 */
+	#[Test]
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function a_listing_of_gated_posts_asks_for_a_failing_entitlement_catalogue_once(): void {
+		require_once __DIR__ . '/fixtures/core-entitlement-types-double.php';
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', new WP_Error( 'http_request_failed', 'down' ) );
+
+		$this->asMemberOf( array(), array( self::ENT_B ) );
+		$this->frontend();
+
+		foreach ( array_fill( 0, 6, self::ENTITLEMENT_ONLY ) as $id ) {
+			$html = $this->render( $id );
+
+			$this->assertStringContainsString( 'This content is limited to selected members.', $html, 'the generic copy when no name can be had' );
+			$this->assertStringNotContainsString( self::BODY, $html );
+		}
+
+		$this->assertSame( 1, $this->gatewayCalls( '/crm/entitlements/types' ), 'one catalogue call for the whole listing' );
+		$this->assertArrayNotHasKey( Agend_Content_Access_Catalogue::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients, 'the failure is not stored' );
+	}
+
+	/**
 	 * The bound the loop pass must keep: one call each for standing and segments,
 	 * whatever mix of policies the page lists, because the loop reuses the
 	 * facts source's per-request memo and adds no lookup of its own.

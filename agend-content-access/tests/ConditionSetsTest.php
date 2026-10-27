@@ -235,7 +235,9 @@ final class ConditionSetsTest extends TestCase {
 		$this->assertSame( array(), $sets[ Providers::ENTITLEMENTS ]['conditions'], 'present but empty' );
 		$this->assertArrayNotHasKey( Catalogue::ENTITLEMENTS_TRANSIENT, Agend_Test_WP::$transients, 'a failure must write nothing' );
 
-		// The next call asks again, and a recovery fills the group at once.
+		// The next request asks again, and a recovery fills the group at once.
+		// Within this one the failure is held in memory only, never stored.
+		Catalogue::reset();
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', $this->rows() );
 
 		$this->assertCount( 3, Sets::entitlement_conditions() );

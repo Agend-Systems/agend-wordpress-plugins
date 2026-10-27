@@ -236,4 +236,50 @@ final class CatalogueRouteTest extends TestCase {
 		$this->assertSame( array(), $refreshed['entitlements']['items'] );
 		$this->assertSame( array(), Catalogue::segments()['items'], 'and the refresh replaced the cached copy' );
 	}
+
+	/**
+	 * The request memo must not make the route's `refresh` flag toothless: an
+	 * editor who has just fixed the API key asks again and must hear Agend, not
+	 * the failure the same request has already remembered.
+	 */
+	#[Test]
+	public function a_refresh_asks_again_after_a_failure_this_request_already_remembered(): void {
+		$this->seed();
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', new WP_Error( 'agend_api_error', 'Forbidden', array( 'status_code' => 403 ) ) );
+		Agend_Test_WP::$tiers_response = new WP_Error( 'http_request_failed', 'down' );
+
+		$this->assertSame( array(), $this->get()['entitlements']['items'] );
+		$this->assertSame( array(), $this->get()['plans']['items'] );
+
+		$this->seed();
+
+		$this->assertSame( array(), $this->get()['entitlements']['items'], 'without refresh the remembered failure stands' );
+
+		$refreshed = $this->get( array( 'refresh' => true ) );
+
+		$this->assertCount( 1, $refreshed['entitlements']['items'] );
+		$this->assertCount( 1, $refreshed['plans']['items'] );
+		$this->assertCount( 1, $refreshed['segments']['items'] );
+		$this->assertFalse( $refreshed['entitlements']['stale'] );
+	}
+
+	#[Test]
+	public function the_plans_route_refresh_bypasses_the_memo_too(): void {
+		$this->seed();
+		Agend_Test_WP::$tiers_response = new WP_Error( 'http_request_failed', 'down' );
+
+		$request = new WP_REST_Request( 'GET', '/agend-content-access/v1/plans' );
+
+		$this->assertTrue( agend_content_access_get_plans( $request )->get_data()['stale'] );
+
+		$this->seed();
+
+		$this->assertTrue( agend_content_access_get_plans( $request )->get_data()['stale'], 'the remembered failure stands without refresh' );
+
+		$request->set_param( 'refresh', true );
+		$data = agend_content_access_get_plans( $request )->get_data();
+
+		$this->assertFalse( $data['stale'] );
+		$this->assertCount( 1, $data['all_plans'] );
+	}
 }

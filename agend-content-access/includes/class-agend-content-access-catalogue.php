@@ -32,6 +32,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  * an editor can act on. Every consumer reads the same cached copy: the page
  * panel, the REST route, the Elementor controls and the display condition
  * vocabularies, so there is one cache and one gateway call per list.
+ *
+ * Each list is also asked of Agend at most ONCE PER REQUEST, an answer that was
+ * a failure included. The transient cannot say that on its own, because a
+ * failure is never written to it (see `section()`), so without a request-scoped
+ * memo every caller during an outage would ask the gateway again. The one that
+ * matters is a listing: the gate for each restricted post names the plans or
+ * entitlements it admits, so a page of twenty of them would make twenty failing
+ * calls, each as slow as a timeout. The memo lives in memory for the request and
+ * is never persisted, so a failure still cannot outlast the request that saw it.
  */
 class Agend_Content_Access_Catalogue {
 
@@ -88,9 +97,40 @@ class Agend_Content_Access_Catalogue {
 	const CORE_MINIMUM = '1.48.0';
 
 	/**
+	 * Key of the plan list in the per-request memo. The other two lists use their
+	 * `SECTION_*` constants.
+	 *
+	 * @var string
+	 */
+	private const MEMO_PLANS = 'plans';
+
+	/**
+	 * What each list answered this request, keyed by list: the same array its
+	 * public method returns, a failure included.
+	 *
+	 * Held in memory only. A transient would carry a failure beyond the request,
+	 * which `section()` rules out. A forced refresh bypasses it and replaces the
+	 * entry with what it learned.
+	 *
+	 * @var array<string, array>
+	 */
+	private static array $memo = array();
+
+	/**
+	 * Forgets what each list answered this request. Tests only: in production one
+	 * request has one answer per list, which is the point of holding it.
+	 */
+	public static function reset(): void {
+		self::$memo = array();
+	}
+
+	/**
 	 * Returns the plan catalogue for the editor.
 	 *
-	 * @param bool $force_refresh Optional. Bypass the local transient. Default false.
+	 * Asked of Agend at most once per request, a failure included. See the class
+	 * docblock.
+	 *
+	 * @param bool $force_refresh Optional. Bypass the request memo and the local transient. Default false.
 	 * @return array{
 	 *     plans: array<int, array{id: string, name: string, slug: string, type: string, active: bool}>,
 	 *     stale: bool,
@@ -99,6 +139,22 @@ class Agend_Content_Access_Catalogue {
 	 *   a human-readable error when one occurred.
 	 */
 	public static function get( bool $force_refresh = false ): array {
+		if ( ! $force_refresh && isset( self::$memo[ self::MEMO_PLANS ] ) ) {
+			return self::$memo[ self::MEMO_PLANS ];
+		}
+
+		self::$memo[ self::MEMO_PLANS ] = self::load_plans( $force_refresh );
+
+		return self::$memo[ self::MEMO_PLANS ];
+	}
+
+	/**
+	 * Reads the plan list from the transient, then from the gateway.
+	 *
+	 * @param bool $force_refresh Bypass the local transient.
+	 * @return array{plans: array, stale: bool, error: string}
+	 */
+	private static function load_plans( bool $force_refresh ): array {
 		if ( ! $force_refresh ) {
 			$cached = get_transient( self::TRANSIENT );
 
@@ -265,7 +321,7 @@ class Agend_Content_Access_Catalogue {
 	 * `active` flag rather than only the offerable ones, so the caller can both
 	 * offer the active ones and recognise an inactive plan a policy still names.
 	 *
-	 * @param bool $force_refresh Optional. Bypass every local transient. Default false.
+	 * @param bool $force_refresh Optional. Bypass the request memo and every local transient. Default false.
 	 * @return array{
 	 *     plans: array{items: array<int, array<string, mixed>>, stale: bool, error: string},
 	 *     segments: array{items: array<int, array{id: string, slug: string, name: string}>, stale: bool, error: string},
@@ -294,7 +350,7 @@ class Agend_Content_Access_Catalogue {
 	 * emphatically not the endpoint used to decide what a visitor can see, which
 	 * asks only about the caller.
 	 *
-	 * @param bool $force_refresh Optional. Bypass the local transient. Default false.
+	 * @param bool $force_refresh Optional. Bypass the request memo and the local transient. Default false.
 	 * @return array{items: array<int, array{id: string, slug: string, name: string}>, stale: bool, error: string}
 	 */
 	public static function segments( bool $force_refresh = false ): array {
@@ -310,7 +366,7 @@ class Agend_Content_Access_Catalogue {
 	 * editor loses the picker rather than the whole plugin switching protection
 	 * off.
 	 *
-	 * @param bool $force_refresh Optional. Bypass the local transient. Default false.
+	 * @param bool $force_refresh Optional. Bypass the request memo and the local transient. Default false.
 	 * @return array{items: array<int, array{gate_key: string, name: string, description: string, kind: string}>, stale: bool, error: string}
 	 */
 	public static function entitlements( bool $force_refresh = false ): array {
@@ -328,11 +384,33 @@ class Agend_Content_Access_Catalogue {
 	 * list, marked stale, so an outage does not empty a picker an editor is
 	 * halfway through using.
 	 *
+	 * What it answered is held for the rest of the request, a failure included:
+	 * the memo is where "never cached" stops short of "asked again for every
+	 * caller". It is in memory only, so the failure is gone with the request.
+	 *
+	 * @param string $kind          SECTION_SEGMENTS or SECTION_ENTITLEMENTS.
+	 * @param bool   $force_refresh Bypass the request memo and the local transient.
+	 * @return array{items: array<int, array<string, string>>, stale: bool, error: string}
+	 */
+	private static function section( string $kind, bool $force_refresh ): array {
+		if ( ! $force_refresh && isset( self::$memo[ $kind ] ) ) {
+			return self::$memo[ $kind ];
+		}
+
+		self::$memo[ $kind ] = self::load_section( $kind, $force_refresh );
+
+		return self::$memo[ $kind ];
+	}
+
+	/**
+	 * Reads one of the two Core-wrapper lists from the transient, then from the
+	 * gateway. The rules are `section()`'s.
+	 *
 	 * @param string $kind          SECTION_SEGMENTS or SECTION_ENTITLEMENTS.
 	 * @param bool   $force_refresh Bypass the local transient.
 	 * @return array{items: array<int, array<string, string>>, stale: bool, error: string}
 	 */
-	private static function section( string $kind, bool $force_refresh ): array {
+	private static function load_section( string $kind, bool $force_refresh ): array {
 		$transient = self::SECTION_SEGMENTS === $kind
 			? self::SEGMENTS_TRANSIENT
 			: self::ENTITLEMENTS_TRANSIENT;
