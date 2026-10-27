@@ -135,8 +135,9 @@ Elementor.
 
 ## What this plugin owns
 
-Document policies, Elementor fragment policies, the source connector, direct
-WordPress request gating, protected assets, and the legacy migration.
+Document policies, Elementor fragment policies, block policies and display
+conditions, the source connector, direct WordPress request gating, protected
+assets, and the legacy migration.
 
 ## What it does NOT own
 
@@ -311,6 +312,93 @@ for cache integrations that do not read the constant.
 does core search, which matches the terms against the raw `post_content`: a
 restricted post can be found by a word only its body contains, although the
 result then shows only the gate.
+
+## Blocks
+
+A block carries its audience and its display conditions in one attribute,
+`agendAccess`, and a block the visitor may not see is removed before it renders.
+The enforcement reads the attribute wherever it came from (the editor panel,
+hand-written markup, an import, the REST API), so a restriction does not depend
+on how it was typed.
+
+**Where.** On `pre_render_block`, registered first, on every request: the front
+end, REST and the loop renders of a block theme alike. A non-empty return skips
+the block AND its inner blocks, so a denied Group never constructs its children,
+and no `render_callback` runs for content the visitor may not read.
+`render_block` is not used, because it filters output that was already produced.
+A block with no policy and no enabled conditions returns before any identity
+lookup, so a page that uses none of this pays nothing and asks Agend nothing.
+
+**What a block is judged against.** The INTERSECTION of the policy of the post it
+belongs to and its own, by the same rules as an Elementor section: it can narrow
+what its post allows and can never widen it. "The post it belongs to" is the post
+WordPress is rendering (`get_post()`), never the queried object, because blocks
+render inside query loops, template parts and synced patterns. A restricted
+post's block in a loop on a public page is judged against that post, and a
+public post's block is not narrowed by the restricted page it appears on.
+
+**Fails closed.** An unrecognised mode, an attribute that is present and is not an
+object, a set-mode with nothing valid selected, a malformed condition, an unknown
+condition provider (inverted or not) and a check that throws all deny. An
+unrecognised mode reads as members only, as it does for Elementor.
+
+**Display conditions and fallbacks.** Conditions are evaluated first and can only
+remove. A block they exclude may show replacement content, and only content the
+visitor could read on its own: a fallback that is itself restricted renders
+nothing. A block hidden by its policy gets no fallback. A fallback that names
+itself ends rather than recursing.
+
+**Authors are never filtered.** The block editor renders server-side over REST, so
+those requests are recognised as authoring, by
+`Agend_Content_Access_Frontend::is_block_editor_request()`. ALL of these hold:
+
+1. WordPress is serving a REST request. A page URL with `?context=edit` is not.
+2. The user can `edit_posts`. A query arg, a header or an unauthenticated REST
+   call cannot supply this.
+3. The route is `/wp/v2/block-renderer/...`, or the request asks for
+   `context=edit`.
+4. If a post is being rendered, the user can edit that post. Listing other
+   people's posts with `context=edit` is not authoring them.
+
+wp-admin screens are authoring for users who can `edit_posts`, and an
+admin-ajax render is always a visitor's, because "load more" and live filters
+print blocks to anonymous visitors through it. An editor viewing the front end
+is judged like anyone else, as for Elementor, apart from the preview iframe.
+
+**Page caches.** A response is never stored if the post it renders holds a
+restricted or conditioned block anywhere, synced patterns included. That is
+decided on `template_redirect` for a singular request, by scanning the queried
+post's blocks, and again at render time whenever a restricted or conditioned
+block is evaluated, which covers loops, template parts and widgets. Both set
+`DONOTCACHEPAGE` and `Cache-Control: private, no-store` (while headers can still
+be sent) and fire `agend_content_access_uncacheable_render`. Anonymous renders
+are marked too: the page is per-viewer for everybody, a member is often not
+signed in to WordPress, and a cache keyed on the URL cannot tell them apart.
+
+**Search.** Core search matches the raw `post_content`, so a hit on protected
+words would reveal that they are there. A post holding a restricted or
+conditioned block is flagged on save (`_agend_access_block_rules`) and left out
+of any search query for users who cannot `edit_posts`. That covers the main
+search and the queries behind the REST `?search=` parameter and `/wp/v2/search`.
+It also hides the post's public parts from search, so it can be turned off with
+the `agend_content_access_search_excludes_block_rules` filter (default true).
+
+**Not covered.**
+
+- Third-party search indexers (Yoast, RankMath, ElasticPress and similar) that
+  read raw `post_content` at save serve it through their own search.
+- The search flag is set when the post is saved. Editing a synced pattern later
+  does not update the pages that use it until each is saved again, and a
+  reference past the 50 per document the tree check resolves is not followed. A
+  post saved before it held a restricted block is not flagged. Rendering and
+  cache marking do not depend on the flag.
+- Code that reads `$post->post_content` or calls `get_the_content()` directly
+  bypasses the render pipeline, as it does for every gate here.
+- A block with a rule in a template part, or in other posts a loop lists, is not
+  in the page's own content. Rendering enforces it and marks the page at render
+  time, but the early cache decision and the search flag do not see it.
+- An author whose role lacks `edit_posts` sees their own restricted blocks
+  filtered in the editor.
 
 ## Member standing cache
 
