@@ -78,6 +78,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-credentials.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-exporter.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/interface-agend-content-access-document-parser.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-elementor-parser.php';
 
 	// Gating is registered on EVERY request, admin included: the REST filters

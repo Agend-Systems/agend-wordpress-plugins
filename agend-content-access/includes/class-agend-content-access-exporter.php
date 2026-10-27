@@ -107,36 +107,72 @@ class Agend_Content_Access_Exporter {
 	}
 
 	/**
+	 * The document drivers, in priority order.
+	 *
+	 * The Elementor parser is the first driver. A site or a later layer of this
+	 * plugin adds another through `agend_content_access_document_parsers`; the
+	 * list is walked in order and the first driver to recognise a post wins, so
+	 * a driver placed earlier takes precedence over one placed later.
+	 *
+	 * Anything in the filtered list that is not a driver is dropped rather than
+	 * trusted: this runs on the connector path, where a fatal would fail the
+	 * sync for every post.
+	 *
+	 * @return Agend_Content_Access_Document_Parser[]
+	 */
+	public static function parsers(): array {
+		$parsers = array( new Agend_Content_Access_Elementor_Parser() );
+
+		/**
+		 * Filters the document drivers the exporter asks, in order.
+		 *
+		 * Each driver implements `Agend_Content_Access_Document_Parser`. The
+		 * first one whose `recognises()` returns true builds the post's
+		 * fragments. A post no driver recognises is exported as one `body`
+		 * fragment.
+		 *
+		 * @param Agend_Content_Access_Document_Parser[] $parsers Drivers, highest priority first.
+		 */
+		$filtered = apply_filters( 'agend_content_access_document_parsers', $parsers );
+
+		if ( ! is_array( $filtered ) ) {
+			return $parsers;
+		}
+
+		return array_values(
+			array_filter(
+				$filtered,
+				static function ( $parser ): bool {
+					return $parser instanceof Agend_Content_Access_Document_Parser;
+				}
+			)
+		);
+	}
+
+	/**
 	 * Ordered content fragments.
 	 *
-	 * An Elementor page is decomposed into one fragment per widget, each
-	 * carrying the policy folded down its ancestor chain (US-4.3). Anything else
-	 * is a single fragment holding the whole body with policy `inherit`, the
-	 * same shape Agend reads a legacy blob as (Decision 2.8).
+	 * The first document driver to recognise the post decomposes it. An
+	 * Elementor page becomes one fragment per widget, each carrying the policy
+	 * folded down its ancestor chain (US-4.3). Anything no driver recognises is
+	 * a single fragment holding the whole body with policy `inherit`, the same
+	 * shape Agend reads a legacy blob as (Decision 2.8).
 	 *
-	 * A structural parse error is thrown, not swallowed. The alternative is
-	 * shipping a document whose restricted regions were quietly dropped, which
-	 * the projection would then serve in full because it never learned they
-	 * existed.
+	 * A structural parse error is thrown by the driver, not swallowed. The
+	 * alternative is shipping a document whose restricted regions were quietly
+	 * dropped, which the projection would then serve in full because it never
+	 * learned they existed.
 	 *
 	 * @param WP_Post    $post   Post.
 	 * @param array|null $policy Document policy.
 	 * @return array<int, array<string, mixed>>
-	 * @throws RuntimeException When the Elementor document cannot be parsed.
+	 * @throws RuntimeException When a driver recognises the document but cannot parse it.
 	 */
 	public static function fragments_of( $post, ?array $policy ): array {
-		$elementor = (string) get_post_meta( (int) $post->ID, '_elementor_data', true );
-
-		if ( '' !== trim( $elementor ) ) {
-			$parsed = Agend_Content_Access_Elementor_Parser::parse( $elementor );
-
-			if ( array() !== $parsed['errors'] ) {
-				throw new RuntimeException(
-					'Elementor document could not be parsed: ' . implode( ' ', $parsed['errors'] )
-				);
+		foreach ( self::parsers() as $parser ) {
+			if ( $parser->recognises( $post ) ) {
+				return $parser->fragments( $post );
 			}
-
-			return $parsed['fragments'];
 		}
 
 		return array(
