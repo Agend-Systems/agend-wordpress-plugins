@@ -53,11 +53,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  * main query left behind, and the queried object, or nothing, is the answer: see
  * `context_post_id()`.
  *
- * Four leak vectors beyond the render itself are closed here, and each fails
+ * Leak vectors beyond the render itself are closed here, and each fails
  * silently if it is missed: page caches (`mark_page_uncacheable()` and the
- * render-time marking), core search (`exclude_from_search()`), the authoring
- * carve-out (`Agend_Content_Access_Frontend::is_authoring_context()`), and a
- * display-condition fallback that is itself restricted (`fallback_for()`).
+ * render-time marking), core search (`exclude_from_search()`), generated excerpts
+ * (`safe_generated_excerpt()`), footnotes (`filter_footnotes_meta()`), the
+ * authoring carve-out (`Agend_Content_Access_Frontend::is_authoring_context()`),
+ * a display-condition fallback that is itself restricted (`fallback_for()`), and
+ * a feed, whose output is shared and cached and so is judged for nobody
+ * (`verdict_for()`).
  */
 class Agend_Content_Access_Blocks {
 
