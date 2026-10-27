@@ -162,6 +162,22 @@ Change:
 5. **Elementor controls.**
    - One section: rules (grouped searchable SELECT2), match, reverse, show instead.
    - Remove the mode and tier controls, and read the old keys.
+   - Status 2026-10-28: built on `feat/content-access-rules-elementor`, not yet browser-tested
+     on an Elementor site.
+     - The list is the block panel's vocabulary from one shared PHP source
+       (`Condition_Sets::rule_groups()`), flattened to "Plan: Gold" style labels, built
+       once per request.
+     - Match, the reverse switch and Show instead appear once a rule is chosen. Show
+       instead also stays for an element with older display conditions.
+     - An element that still holds an older audience or older display conditions keeps
+       enforcing them (an intersection) and gets a notice and one control to remove each.
+       Both are hidden elsewhere.
+     - Known limits: Elementor's editor cannot test "list not empty", so the three controls
+       are always visible there (the server hides them exactly); and a stored rule the list no
+       longer offers is enforced but not drawn, and is dropped if the list is changed.
+     - Open: the options ship in the editor config with the shared widget stack and again with
+       each of section, column and container, so about 800 entitlements are sent a few times.
+       Measure the editor's load on PCA before release.
 6. **Independent Opus review**, then a browser re-test on clone-blocks (blocks) and an Elementor site.
 
 ## Test environment (as left on 2026-10-27)

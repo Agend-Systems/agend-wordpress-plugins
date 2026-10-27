@@ -287,6 +287,79 @@ line in `src/access-summary.mjs`, and the once-per-session loader in
 `node --test` run them. The English copy they compose is in `src/copy.mjs` and
 its translated twin in `src/strings.js`, which a test keeps in step.
 
+### The Agend Access section in Elementor
+
+Every section, column, container and widget has an **Agend Access** section in its
+Advanced tab: one list of rules, in the same words as the block panel. It writes
+`agend_access_rules`, `agend_access_match` and `agend_access_invert` into the
+element's settings, which `Agend_Content_Access_Rules::from_elementor_settings()` reads.
+
+**What the author sees**, top to bottom:
+
+| Control | Setting | Shown |
+| --- | --- | --- |
+| **Who can see this**: a searchable multi-select, with "Leave empty to show this to everyone who can see the page. Visitors who are not allowed never receive this element." | `agend_access_rules`, a list of `"<provider>:<value>"` | Always |
+| **Match**: Any of these, or All of these | `agend_access_match` | When a rule is chosen |
+| **Show to everyone except these people**, with "Useful for a join banner that members should not see." | `agend_access_invert`, `yes` | When a rule is chosen |
+| **Show instead**: Nothing, or a public page | `agend_conditions_fallback_id` | When a rule is chosen, or the element still has older display conditions switched on |
+| A notice | none | Only on an element that still holds an older setting |
+| **Older audience setting** | `agend_access_mode` | Only when it is not "same as the page" |
+| **Older display conditions** | `agend_conditions_enabled` | Only when it is on |
+
+The list offers the block panel's vocabulary from the same PHP source
+(`Agend_Content_Access_Condition_Sets::rule_groups()`), flattened to one name a rule
+with its kind in front: "Any current member", "Plan: Gold", "Segment: Board",
+"Entitlement: Premium directory", "Platform: Directory access", "Signed in",
+"Signed out", "Role: Editor". Plans and segments are stored by id and entitlements by
+gate key. A plan that was switched off is not offered. The options are built once per
+request and shared by every control stack Elementor registers, so about 800
+entitlements cost one read and not one per widget type.
+
+Match, the reverse switch and "Show instead" only mean something with a rule, so the
+server hides them until one is chosen, and an emptied list leaves no rule behind
+even if a reverse is still stored. Elementor's editor cannot tell an empty list
+from a full one in a condition, so there they stay visible; what the server reads is
+what counts.
+
+**Older settings on existing elements.** An element saved before the rule list can
+hold an audience (`agend_access_mode` with its plan, segment and entitlement lists) and
+display conditions (`agend_conditions_*`). They are not migrated and they are not
+dropped: they are still read, and still enforced, beside any rules, as an
+intersection that can only narrow. The new list cannot show them, and a restriction
+an author cannot see would be a trap, so an element that holds one shows a notice,
+"This element still uses an older access setting, which keeps applying alongside the
+rules above.", and the one control that removes it:
+
+- **Older audience setting** is a select. Choosing **Remove** writes `inherit`,
+  which is the default, so nothing is stored for it and the control disappears. The
+  plan, segment and entitlement lists it leaves behind do nothing without a mode.
+- **Older display conditions** is a switch. Switching it off ends them, and the
+  control disappears. Their list, Match and reverse are left behind, inert.
+
+Both are hidden on every element that does not hold an older setting, so they cost
+an author nothing and never offer a way to set one up. The editor marks an element
+that holds one (`data-agend-access-older`).
+
+An older setting keeps its meaning exactly: the plan, segment and entitlement lists
+and the old conditions list, Match and reverse are no longer controls, and Elementor
+passes a stored setting that has no control through untouched. Elementor does read a
+control that a condition hides as unset, and enforcement reads what Elementor
+presents, so each older control is hidden only when it is off. The tests port
+Elementor's own condition algorithm to prove that hiding any control never changes who
+sees an element.
+
+**Not changed:** suppression removes the element and its wrapper before render, an
+element is shown only when its own rules and its page's both allow, "Show instead" is
+checked again at render, an element carrying any rule, old or new, or any such
+descendant, is kept out of Elementor's element cache, and the Editor V4 atomic
+element limitation above stands.
+
+**A known limit.** A rule an element holds that the list no longer offers (a deleted
+segment, a retired plan) is still enforced, and so denies, but Elementor's multi-select
+can only draw what it offers: the rule is not shown, and changing the list drops it.
+The block panel shows such a rule as "Unavailable" and keeps it. Check the elements
+that used a plan or segment before retiring it.
+
 ## What this plugin owns
 
 Document policies, Elementor fragment policies, block policies and display
@@ -537,8 +610,9 @@ held without a membership, so neither is a subset of "all active members". The
 export folds a fragment of one set-mode into a document of another to nobody, as
 the gateway does; WordPress admits the people who satisfy both (see "Access rules").
 
-These modes are what the 0.1.x page panel and the Elementor controls still write.
-They are read into the rule list below, and nothing evaluates them as policies.
+These modes are what the 0.1.x page panel still writes, and what an Elementor
+element saved before the rule list still holds. They are read into the rule list
+above, and nothing evaluates them as policies.
 
 Entitlement keys arrive with the member's standing at no extra cost. Segments
 are fetched, once per request, only when a policy being evaluated is a segments
@@ -546,12 +620,13 @@ policy.
 
 ## Choosing an audience in the editor
 
-All five audiences are chosen from the same places.
+The page panel chooses one of five audiences. A block and an Elementor element choose
+rules; the same plans, segments and entitlements are rules there.
 
 | Surface | What it offers |
 | --- | --- |
 | Page panel (the Agend Access meta box) | All five audiences: Public, All active members, Selected membership plans, Selected segments, Selected entitlements. Each of the last three has a checkbox list with a filter box |
-| Elementor element, Advanced tab | "Who can see this": Same as the page, All active members, and the same three selections, each a multi-select shown only for its own audience |
+| Elementor element, Advanced tab | "Who can see this": one searchable list of rules, with Match, a reverse switch and Show instead (see "The Agend Access section in Elementor"). Plans, segments and entitlements are rules in that list, not audiences |
 
 The page panel is registered as block editor compatible, so it works in the
 block editor's meta box area as it does in the classic editor.
@@ -570,17 +645,17 @@ Rules both surfaces keep:
   Choosing Public is how to remove a restriction.
 - **Selecting nothing is refused, not saved.** Saving a set audience with
   nothing ticked keeps the previous setting and says which list needs a choice.
-  On an Elementor element, selecting none hides the element from everybody.
+  On an Elementor element an empty list is no rule, and the element follows its page.
 - **Platform capabilities are labelled.** An entitlement the platform itself
   defines, Directory access for example, reads "Platform: Directory access" in
-  the panel, the Elementor control and the display conditions.
+  the panel, the block panel and the Elementor list.
 
 ### The editor catalogue
 
 The lists an editor chooses from are fetched on the WordPress server and
 reduced there, so the API key never reaches the browser and no pricing, member
 count or benefit detail does either. One cached copy of each list serves the
-page panel, the Elementor controls, the display condition vocabularies and the
+page panel, the rule vocabulary (the block panel and the Elementor list) and the
 REST route, so a list costs one gateway call per cache lifetime however many
 surfaces show it.
 
