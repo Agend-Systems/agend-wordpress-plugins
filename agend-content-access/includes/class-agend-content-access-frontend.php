@@ -290,6 +290,13 @@ class Agend_Content_Access_Frontend {
 	 *   4. If a post is being rendered, the user may edit THAT post. A contributor
 	 *      listing other people's posts with `context=edit` is not authoring them,
 	 *      and without this clause would read every restricted block in them.
+	 *      With NO post in the request the user must be able to `edit_others_posts`.
+	 *      A block renderer call with no `post_id` renders a template part, a
+	 *      pattern or a block of any other post's content, and a contributor, who
+	 *      can `edit_posts`, may not read those: it is the one request that would
+	 *      otherwise hand them every restricted block on the site. The cost is that
+	 *      a user who can only write their own posts sees restricted blocks removed
+	 *      from a server-side preview that carries no post id.
 	 *
 	 * Reading `$_GET` and `$GLOBALS['wp']` here, rather than capturing the
 	 * dispatched `WP_REST_Request`, can only miss a case (a batched sub-request,
@@ -312,7 +319,11 @@ class Agend_Content_Access_Frontend {
 
 		$post = get_post();
 
-		return ! $post instanceof WP_Post || current_user_can( 'edit_post', $post->ID );
+		if ( $post instanceof WP_Post ) {
+			return current_user_can( 'edit_post', $post->ID );
+		}
+
+		return current_user_can( 'edit_others_posts' );
 	}
 
 	/**

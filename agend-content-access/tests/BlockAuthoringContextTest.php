@@ -261,6 +261,66 @@ final class BlockAuthoringContextTest extends BlockEnforcementTestCase {
 		$this->assertSame( '', do_blocks( $this->secret() ) );
 	}
 
+	/**
+	 * A block renderer call with no `post_id` renders a template part, a pattern or
+	 * a block of any post's content. A contributor can `edit_posts` and may not read
+	 * those, so with no post in the request it takes `edit_others_posts`.
+	 */
+	#[Test]
+	public function a_contributor_using_the_block_renderer_with_no_post_is_not_authoring(): void {
+		$this->asContributor();
+		$this->restRequest( self::RENDERER );
+
+		$this->assertFalse( Agend_Content_Access_Frontend::is_block_editor_request() );
+		$this->assertFalse( Agend_Content_Access_Frontend::is_authoring_context() );
+		$this->assertSame( '', do_blocks( $this->secret() ) );
+	}
+
+	#[Test]
+	public function an_editor_using_the_block_renderer_with_no_post_is_authoring(): void {
+		$this->asEditor();
+		$this->restRequest( self::RENDERER );
+
+		$this->assertTrue( Agend_Content_Access_Frontend::is_block_editor_request() );
+		$this->assertSame( '<p>SECRET</p>', do_blocks( $this->secret() ) );
+	}
+
+	/** The same rule for the edit context on a route that is not the renderer's, with no post. */
+	#[Test]
+	public function a_contributor_asking_for_the_edit_context_with_no_post_is_not_authoring(): void {
+		$this->asContributor();
+		$this->restRequest( '/wp/v2/pages' );
+		$_GET['context'] = 'edit';
+
+		$this->assertFalse( Agend_Content_Access_Frontend::is_block_editor_request() );
+		$this->assertSame( '', do_blocks( $this->secret() ) );
+	}
+
+	/** With a post the per-post rule is the only one: a contributor editing their OWN post is authoring it. */
+	#[Test]
+	public function a_contributor_rendering_a_post_they_may_edit_is_authoring_it(): void {
+		$this->asContributor();
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+		$this->restRequest( self::RENDERER );
+		$this->registerPost( 302, $this->secret() );
+		$this->inTheLoopOf( 302 );
+
+		$this->assertTrue( Agend_Content_Access_Frontend::is_block_editor_request() );
+		$this->assertSame( '<p>SECRET</p>', do_blocks( $this->secret() ) );
+	}
+
+	/** ...and an editor, who can edit others' posts, still needs the post to be one they may edit. */
+	#[Test]
+	public function an_editor_who_cannot_edit_the_post_in_the_request_is_not_authoring_it(): void {
+		$this->asEditor();
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = false;
+		$this->restRequest( self::RENDERER );
+		$this->registerPost( 303, $this->secret() );
+		$this->inTheLoopOf( 303 );
+
+		$this->assertFalse( Agend_Content_Access_Frontend::is_block_editor_request() );
+	}
+
 	// -----------------------------------------------------------------------
 	// The existing rules, and the render the loop gates share
 	// -----------------------------------------------------------------------
