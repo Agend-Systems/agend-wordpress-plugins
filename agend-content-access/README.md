@@ -133,6 +133,83 @@ security ones: the failure mode is a region that comes out empty or bare, not
 one served to the wrong audience. Display conditions are not exported, as for
 Elementor.
 
+### The Agend Access panel in the block editor
+
+Every block gets an **Agend Access** panel in its sidebar, shown for the
+selected block only. It writes one attribute, `agendAccess`, and nothing else.
+A block nobody touched has no attribute and saves exactly as it did before: the
+attribute is a non-sourced object whose default is `{}`, and a value equal to its
+default is not written. `save()` is never changed, so no existing block becomes
+"invalid".
+
+**Which blocks.** All of them, except two that are not stored with a comment
+delimiter and so have nowhere to keep an attribute: `core/missing` (the
+unsupported block placeholder) and `core/freeform` (the Classic block). A policy
+set on either would be forgotten on save, so they are left out in JavaScript and
+in PHP, and a test keeps the two lists equal. The panel is also offered only
+where the attribute is declared: a block type registered by a script that runs
+before this plugin's editor script never receives it, and for that block the
+panel stays hidden instead of offering a setting the post would not keep.
+
+**The controls**, in the Elementor panel's order and wording, and what each one
+writes. The panel writes the smallest object that says what was chosen, and
+drops a key the moment it stops applying, so no stale id can linger:
+
+| Control | Writes |
+| --- | --- |
+| Who can see this: Same as the page | nothing (`{}` if nothing else is set) |
+| All active members | `mode: "active_member"` |
+| Selected membership plans | `mode: "selected_tiers"`, `tierIds` |
+| Selected segments | `mode: "segments"`, `segmentIds` |
+| Selected entitlements | `mode: "selected_entitlements"`, `entitlementKeys` |
+| Add display conditions | `conditionsEnabled: true`. Off removes every condition key |
+| Conditions | `conditions`, a list of `"<provider>:<value>"` |
+| Match: All of these | `conditionsMatch: "all"` (Any is the default and is not written) |
+| Reverse the result | `conditionsInvert: true` |
+| Show instead | `fallbackId`, a post id. Only public content is offered |
+
+Changing the audience clears the lists of the modes the block has left. Choosing
+"Same as the page" with conditions off removes the attribute. A key the panel
+does not own, written by a script or a newer release, is kept untouched. A block
+can only narrow the page's audience, never widen it, exactly as for an Elementor
+section.
+
+The audience lists show what the catalogue offers. A choice the block already
+holds that the catalogue no longer offers (a deleted segment, a retired plan) is
+shown first, ticked and marked unavailable, never dropped: dropping it would
+quietly change who can see the block. A platform gate reads "Platform: ...".
+If a list cannot be loaded the panel says so and still shows, and lets an
+author clear, whatever the block already holds.
+
+A blue stripe on the canvas marks a block that carries an audience policy, and
+an amber one a block with display conditions only. A block whose stored value
+the panel cannot read is shown as restricted to members, which is what the site
+enforces, and its panel offers only the audience control until an author
+chooses an option.
+
+**Where the lists come from.** The panel calls two routes, once per editor
+session and not on every block selection, both for users who can `edit_posts`:
+
+| Route | Returns |
+| --- | --- |
+| `GET /wp-json/agend-content-access/v1/catalogue` | `{plans, segments, entitlements}`, each `{items, stale, error}` |
+| `GET /wp-json/agend-content-access/v1/conditions` | `{groups, fallbacks}`: `groups` is `[{provider, label, conditions: [{value, label}]}]`, with each `value` already `"<provider>:<value>"`, and `fallbacks` is `[{id, title}]` of public pages |
+
+**Building it.** The editor code is in `src/` and ships built, because
+deployment copies files without a build step. From the repository root:
+
+```sh
+npm run build:content-access      # writes build/index.js, index.css, index.asset.php
+npm run start:content-access      # the same, watching for changes
+node --test agend-content-access/tests/js/access-model.test.mjs
+node --test agend-content-access/tests/js/lists-loader.test.mjs
+```
+
+Commit `build/` with the source: CI rebuilds it and fails if it differs. The
+release zip leaves `src/` out. The logic that decides what the panel writes is in
+`src/access-model.mjs` and the once-per-session loader in `src/lists-loader.mjs`,
+neither of which imports WordPress, which is what lets `node --test` run them.
+
 ## What this plugin owns
 
 Document policies, Elementor fragment policies, block policies and display
@@ -513,6 +590,7 @@ From the repository root:
 composer install
 composer test                        # the whole collection
 vendor/bin/phpunit --testsuite agend-content-access
+node --test agend-content-access/tests/js/access-model.test.mjs agend-content-access/tests/js/lists-loader.test.mjs
 ```
 
 These are UNIT tests: no database and no WordPress bootstrap. WordPress
