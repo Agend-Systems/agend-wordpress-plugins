@@ -209,7 +209,7 @@ final class BlockCachingTest extends BlockEnforcementTestCase {
 	public function the_decision_does_not_trust_the_saved_flag(): void {
 		$this->registerPattern( 915, $this->secret() );
 		$this->registerPost( 413, $this->reference( 915 ) );
-		$GLOBALS['agend_test_post_meta'][ 413 ]['_agend_access_block_rules'] = '';
+		$GLOBALS['agend_test_post_meta'][ 413 ]['_agend_access_fragment_rules'] = '';
 		$this->visit( 413 );
 
 		do_action( 'template_redirect' );

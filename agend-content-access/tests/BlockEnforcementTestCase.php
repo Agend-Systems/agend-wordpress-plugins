@@ -21,6 +21,9 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-viewer-facts.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/interface-agend-content-access-document-parser.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-elementor-parser.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-elementor.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
@@ -94,13 +97,22 @@ abstract class BlockEnforcementTestCase extends TestCase {
 
 	/** Cannot edit anything, which is what makes them a visitor and not an author. */
 	protected function asVisitor(): void {
-		$GLOBALS['agend_test_current_user_can']['edit_posts'] = false;
-		$GLOBALS['agend_test_current_user_can']['edit_post']  = false;
+		$GLOBALS['agend_test_current_user_can']['edit_posts']        = false;
+		$GLOBALS['agend_test_current_user_can']['edit_others_posts'] = false;
+		$GLOBALS['agend_test_current_user_can']['edit_post']         = false;
 	}
 
 	protected function asEditor(): void {
-		$GLOBALS['agend_test_current_user_can']['edit_posts'] = true;
-		$GLOBALS['agend_test_current_user_can']['edit_post']  = true;
+		$GLOBALS['agend_test_current_user_can']['edit_posts']        = true;
+		$GLOBALS['agend_test_current_user_can']['edit_others_posts'] = true;
+		$GLOBALS['agend_test_current_user_can']['edit_post']         = true;
+	}
+
+	/** Can write posts of their own and nobody else's: a contributor or an author. */
+	protected function asContributor(): void {
+		$GLOBALS['agend_test_current_user_can']['edit_posts']        = true;
+		$GLOBALS['agend_test_current_user_can']['edit_others_posts'] = false;
+		$GLOBALS['agend_test_current_user_can']['edit_post']         = false;
 	}
 
 	/** Counts every identity lookup and resolves to no bearer. */

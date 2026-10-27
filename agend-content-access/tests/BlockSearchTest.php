@@ -100,7 +100,7 @@ final class BlockSearchTest extends BlockEnforcementTestCase {
 
 	#[Test]
 	public function the_flag_is_a_protected_meta_key(): void {
-		$this->assertSame( '_agend_access_block_rules', self::FLAG );
+		$this->assertSame( '_agend_access_fragment_rules', self::FLAG );
 		$this->assertStringStartsWith( '_', self::FLAG );
 	}
 
@@ -269,11 +269,183 @@ final class BlockSearchTest extends BlockEnforcementTestCase {
 		$this->assertSame( '', $query->get( 'meta_query' ), 'the query is untouched' );
 	}
 
+	/**
+	 * `edit_posts` is not enough. A contributor can search every published post,
+	 * and a hit is a yes to "is this text in it", which for a post that is not
+	 * theirs is a read of the restricted block.
+	 */
+	#[Test]
+	public function a_user_who_can_only_edit_their_own_posts_is_filtered(): void {
+		$this->asContributor();
+		$this->registerPost( 517, '' );
+		$this->save( 517, $this->secret() );
+
+		$this->assertFalse( $this->returns( $this->search(), 517 ) );
+	}
+
+	/** The exclusion is the last word on the query, so no other callback can overwrite it. */
+	#[Test]
+	public function the_exclusion_runs_after_every_other_pre_get_posts_callback(): void {
+		$index = array_search( array( $this->blocks, 'exclude_from_search' ), Agend_Test_WP::$actions['pre_get_posts'], true );
+
+		$this->assertNotFalse( $index );
+		$this->assertSame( PHP_INT_MAX, Agend_Test_WP::$action_priorities['pre_get_posts'][ $index ] );
+	}
+
+	// -----------------------------------------------------------------------
+	// Elementor documents carry the same flag
+	// -----------------------------------------------------------------------
+
+	/** An Elementor document, as `_elementor_data` holds it: a JSON list of top-level elements. */
+	private function elementorDocument( array $settings = array(), array $widget_settings = array() ): string {
+		return (string) wp_json_encode(
+			array(
+				array(
+					'id'       => 's1',
+					'elType'   => 'section',
+					'settings' => $settings,
+					'elements' => array(
+						array(
+							'id'         => 'w1',
+							'elType'     => 'widget',
+							'widgetType' => 'text-editor',
+							'settings'   => $widget_settings,
+							'elements'   => array(),
+						),
+					),
+				),
+			)
+		);
+	}
+
+	private function saveElementor( int $id, string $data, string $content = '' ): void {
+		$GLOBALS['agend_test_post_meta'][ $id ]['_elementor_data'] = $data;
+
+		$this->save( $id, $content );
+	}
+
+	#[Test]
+	public function an_elementor_document_with_a_restricted_widget_sets_the_flag(): void {
+		$this->registerPost( 530, '' );
+
+		$this->saveElementor( 530, $this->elementorDocument( array(), array( 'agend_access_mode' => 'active_member' ) ) );
+
+		$this->assertTrue( $this->flagged( 530 ) );
+	}
+
+	#[Test]
+	public function an_elementor_section_with_display_conditions_sets_the_flag(): void {
+		$this->registerPost( 531, '' );
+
+		$this->saveElementor( 531, $this->elementorDocument( array( 'agend_conditions_enabled' => 'yes' ) ) );
+
+		$this->assertTrue( $this->flagged( 531 ) );
+	}
+
+	#[Test]
+	public function an_elementor_document_with_no_rule_is_not_flagged(): void {
+		$this->registerPost( 532, '' );
+
+		$this->saveElementor( 532, $this->elementorDocument( array(), array( 'agend_access_mode' => 'inherit' ) ) );
+
+		$this->assertFalse( metadata_exists( 'post', 532, self::FLAG ) );
+	}
+
+	/**
+	 * Elementor stores the flattened HTML of what it rendered in `post_content`.
+	 * That is not a block tree and says nothing about the rules, so the document
+	 * is read from its own data, and a block-looking `post_content` does not
+	 * stand in for it.
+	 */
+	#[Test]
+	public function an_elementor_document_is_read_from_its_data_and_not_its_post_content(): void {
+		$this->registerPost( 533, '' );
+
+		$this->saveElementor( 533, $this->elementorDocument(), $this->secret() );
+
+		$this->assertFalse( metadata_exists( 'post', 533, self::FLAG ) );
+
+		$this->saveElementor( 533, $this->elementorDocument( array(), array( 'agend_access_mode' => 'active_member' ) ), $this->paragraph( 'PLAIN' ) );
+
+		$this->assertTrue( $this->flagged( 533 ) );
+	}
+
+	/** It cannot be shown to hold no rule, and a false no is the one that publishes text. */
+	#[Test]
+	public function an_elementor_document_that_does_not_decode_is_flagged(): void {
+		$this->registerPost( 534, '' );
+
+		$this->saveElementor( 534, '{not json' );
+
+		$this->assertTrue( $this->flagged( 534 ) );
+	}
+
+	/**
+	 * Elementor stores its data AFTER the post row, so on `save_post` the data
+	 * read is the previous save's. The flag is set again once Elementor says the
+	 * document is stored.
+	 */
+	#[Test]
+	public function the_flag_is_set_again_when_elementor_has_stored_the_document(): void {
+		$this->registerPost( 535, '' );
+		$document = new class( 535 ) {
+			public function __construct( private int $id ) {}
+
+			public function get_main_id(): int {
+				return $this->id;
+			}
+		};
+
+		$this->save( 535, '' );
+		$this->assertFalse( $this->flagged( 535 ) );
+
+		$GLOBALS['agend_test_post_meta'][ 535 ]['_elementor_data'] = $this->elementorDocument( array(), array( 'agend_access_mode' => 'active_member' ) );
+		do_action( 'elementor/document/after_save', $document, array() );
+
+		$this->assertTrue( $this->flagged( 535 ) );
+	}
+
+	#[Test]
+	public function the_after_save_hook_is_registered_and_tolerates_what_is_not_a_document(): void {
+		$this->assertContains( array( $this->blocks, 'sync_search_flag_after_elementor_save' ), Agend_Test_WP::$actions['elementor/document/after_save'] );
+
+		$this->blocks->sync_search_flag_after_elementor_save( null );
+		$this->blocks->sync_search_flag_after_elementor_save( new \stdClass() );
+
+		$this->addToAssertionCount( 1 );
+	}
+
+	/** An Elementor revision is not the post. */
+	#[Test]
+	public function an_elementor_revision_does_not_touch_the_flag(): void {
+		$this->registerPost( 536, '' );
+		$GLOBALS['agend_test_revisions'][ 536 ] = 535;
+		$GLOBALS['agend_test_post_meta'][ 536 ]['_elementor_data'] = $this->elementorDocument( array(), array( 'agend_access_mode' => 'active_member' ) );
+		$document = new class() {
+			public function get_main_id(): int {
+				return 536;
+			}
+		};
+
+		do_action( 'elementor/document/after_save', $document, array() );
+
+		$this->assertFalse( metadata_exists( 'post', 536, self::FLAG ) );
+	}
+
+	/** The same flag, so one exclusion covers both editors. */
+	#[Test]
+	public function an_elementor_document_is_left_out_of_a_visitors_search(): void {
+		$this->registerPost( 537, '' );
+		$this->saveElementor( 537, $this->elementorDocument( array(), array( 'agend_access_mode' => 'active_member' ) ) );
+
+		$this->assertFalse( $this->returns( $this->search(), 537 ) );
+	}
+
 	#[Test]
 	public function the_filter_turns_the_exclusion_off(): void {
 		$this->registerPost( 516, '' );
 		$this->save( 516, $this->secret() );
-		Agend_Test_WP::set_filter( 'agend_content_access_search_excludes_block_rules', false );
+		Agend_Test_WP::set_filter( 'agend_content_access_search_excludes_fragment_rules', false );
 
 		$query = $this->search();
 
@@ -285,7 +457,7 @@ final class BlockSearchTest extends BlockEnforcementTestCase {
 	public function the_filter_defaults_to_excluding_and_is_handed_the_query(): void {
 		$seen = null;
 
-		Agend_Test_WP::$filters['agend_content_access_search_excludes_block_rules'] = static function ( $exclude, $query ) use ( &$seen ) {
+		Agend_Test_WP::$filters['agend_content_access_search_excludes_fragment_rules'] = static function ( $exclude, $query ) use ( &$seen ) {
 			$seen = array( $exclude, $query );
 
 			return $exclude;

@@ -45,6 +45,19 @@ class Agend_Content_Access_Frontend {
 	const BLOCK_RENDERER_ROUTE = '/wp/v2/block-renderer/';
 
 	/**
+	 * Post meta flag: the document carries a fragment policy or enabled display
+	 * conditions, in a block or an Elementor section.
+	 *
+	 * `'1'` when it does. Written by `Agend_Content_Access_Blocks` on save, read by
+	 * its search exclusion and by the generated excerpt filter below. Defined here
+	 * because this class must not depend on the block driver to know the key.
+	 * Protected (underscore) and never registered for REST.
+	 *
+	 * @var string
+	 */
+	const FRAGMENT_RULES_META_KEY = '_agend_access_fragment_rules';
+
+	/**
 	 * Decision for the current singular request, resolved once.
 	 *
 	 * @var array|null

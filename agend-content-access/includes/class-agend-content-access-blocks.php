@@ -50,17 +50,35 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Content_Access_Blocks {
 
 	/**
-	 * Post meta flag: this post holds a block with an audience policy or display
-	 * conditions, somewhere in its tree, synced patterns included.
+	 * Post meta flag: this document carries a fragment policy or enabled display
+	 * conditions somewhere in it, block or Elementor.
 	 *
-	 * Protected (underscore) so it is not editable as a custom field and, never
-	 * having been registered for REST, is not exposed there. Read only by the
-	 * search exclusion. Page caching never trusts it, because a flag can be stale
-	 * (see `exclude_from_search()`); that decision scans the live tree.
+	 * A block document is flagged from its block tree, synced patterns included;
+	 * an Elementor document from its decoded `_elementor_data`. Both editors
+	 * write the same flag so core search and the generated excerpt ask one
+	 * question and cannot disagree about what a rule is.
+	 *
+	 * The key lives on `Agend_Content_Access_Frontend`, which does not depend on
+	 * this class and also reads it. Protected (underscore) so it is not editable
+	 * as a custom field and, never having been registered for REST, is not exposed
+	 * there. Read by the search exclusion. Page caching never trusts it, because a
+	 * flag can be stale (see `exclude_from_search()`); that decision scans the
+	 * live tree.
 	 *
 	 * @var string
 	 */
-	const SEARCH_FLAG_META_KEY = '_agend_access_block_rules';
+	const SEARCH_FLAG_META_KEY = Agend_Content_Access_Frontend::FRAGMENT_RULES_META_KEY;
+
+	/**
+	 * Priority of the `pre_get_posts` search exclusion: last.
+	 *
+	 * Another plugin's `pre_get_posts` callback may replace the `meta_query` this
+	 * one wraps. Running after all of them means the exclusion is applied to the
+	 * query WordPress is about to run, and nothing can overwrite it.
+	 *
+	 * @var int
+	 */
+	const SEARCH_EXCLUSION_PRIORITY = PHP_INT_MAX;
 
 	/**
 	 * Priority of the `pre_render_block` callback: first.
@@ -110,7 +128,8 @@ class Agend_Content_Access_Blocks {
 		add_filter( 'pre_render_block', array( $this, 'pre_render_block' ), self::PRE_RENDER_PRIORITY, 3 );
 		add_action( 'template_redirect', array( $this, 'mark_page_uncacheable' ), self::TEMPLATE_REDIRECT_PRIORITY );
 		add_action( 'save_post', array( $this, 'sync_search_flag' ), 20 );
-		add_action( 'pre_get_posts', array( $this, 'exclude_from_search' ) );
+		add_action( 'elementor/document/after_save', array( $this, 'sync_search_flag_after_elementor_save' ) );
+		add_action( 'pre_get_posts', array( $this, 'exclude_from_search' ), self::SEARCH_EXCLUSION_PRIORITY );
 	}
 
 	// -----------------------------------------------------------------------
@@ -403,16 +422,61 @@ class Agend_Content_Access_Blocks {
 		return false;
 	}
 
+	/**
+	 * Whether a document carries a fragment policy or enabled display conditions,
+	 * whichever editor wrote it.
+	 *
+	 * Elementor owns a document that has `_elementor_data`, exactly as the
+	 * exporter decides (`Agend_Content_Access_Elementor_Parser::recognises()`),
+	 * whatever `post_content` holds: Elementor writes a flattened copy of what it
+	 * rendered into `post_content`, which is not a block tree and says nothing
+	 * about the rules. Those documents are read from the decoded data with
+	 * `Agend_Content_Access_Elementor::subtree_carries_policy()`, the same test the
+	 * element cache exclusion uses. Everything else is read from its block tree.
+	 *
+	 * An Elementor document that does not decode is reported as carrying rules. It
+	 * cannot be shown to have none, and the cost of a false yes is a post left out
+	 * of search and an excerpt left blank, where a false no publishes text.
+	 *
+	 * @param WP_Post|mixed $post Post.
+	 * @return bool
+	 */
+	public static function document_carries_rules( $post ): bool {
+		if ( ! $post instanceof WP_Post ) {
+			return false;
+		}
+
+		$raw = trim( (string) get_post_meta( (int) $post->ID, Agend_Content_Access_Elementor_Parser::META_KEY, true ) );
+
+		if ( '' === $raw ) {
+			return self::tree_carries_rules( (string) $post->post_content );
+		}
+
+		$decoded = json_decode( $raw, true );
+
+		if ( ! is_array( $decoded ) ) {
+			return true;
+		}
+
+		foreach ( $decoded as $node ) {
+			if ( ! is_array( $node ) || Agend_Content_Access_Elementor::subtree_carries_policy( $node ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	// -----------------------------------------------------------------------
 	// Core search
 	// -----------------------------------------------------------------------
 
 	/**
-	 * Records on save whether the post holds a block with a rule.
+	 * Records on save whether the document carries a rule.
 	 *
 	 * The flag is what `exclude_from_search()` filters on, since a search query
-	 * cannot parse blocks. It is set or cleared from the same tree check the
-	 * cache marking uses.
+	 * cannot parse blocks or Elementor data. It is set or cleared from
+	 * `document_carries_rules()`, the same check for both editors.
 	 *
 	 * LIMITS, both documented in the README. A later edit to a synced pattern
 	 * does not update the flag on the pages that use it, so a restriction added
@@ -438,7 +502,7 @@ class Agend_Content_Access_Blocks {
 			return;
 		}
 
-		if ( self::tree_carries_rules( (string) $post->post_content ) ) {
+		if ( self::document_carries_rules( $post ) ) {
 			update_post_meta( $post_id, self::SEARCH_FLAG_META_KEY, '1' );
 			return;
 		}
@@ -447,7 +511,24 @@ class Agend_Content_Access_Blocks {
 	}
 
 	/**
-	 * Keeps posts that hold a block with a rule out of search for visitors.
+	 * Records the flag again once Elementor has stored the document.
+	 *
+	 * Elementor writes `_elementor_data` after it has updated the post row, so on
+	 * `save_post` the data this plugin would read is the PREVIOUS save's: a rule
+	 * added in this save would not flag the post until the next one, and a rule
+	 * removed would keep it out of search. `elementor/document/after_save` fires
+	 * once the elements are stored.
+	 *
+	 * @param \Elementor\Core\Base\Document|object $document Document that was saved.
+	 */
+	public function sync_search_flag_after_elementor_save( $document ): void {
+		if ( is_object( $document ) && method_exists( $document, 'get_main_id' ) ) {
+			$this->sync_search_flag( (int) $document->get_main_id() );
+		}
+	}
+
+	/**
+	 * Keeps posts that carry a rule out of search for visitors.
 	 *
 	 * Core search matches the raw `post_content` with `LIKE` in SQL and never
 	 * touches the render pipeline, so a public page with a members-only block
@@ -458,12 +539,15 @@ class Agend_Content_Access_Blocks {
 	 * Applies to any query that carries a search term, not only the main one,
 	 * because the same query is what the REST API runs for `?search=` and for
 	 * `/wp/v2/search`, and what a theme's live search runs. A query with no search
-	 * term is untouched. Users who can `edit_posts` are not filtered: they can
-	 * read the raw content anyway.
+	 * term is untouched. Users who can `edit_others_posts` are not filtered: they
+	 * can read the raw content of anyone's post anyway. Users who can only
+	 * `edit_posts` ARE filtered, because search would let a contributor test text
+	 * in posts that are not theirs: a search that returns a post tells the
+	 * searcher the words are in it, which is the read this prevents.
 	 *
 	 * The cost is real and is why this is filterable: the post's public parts
 	 * stop being searchable too. Return false from
-	 * `agend_content_access_search_excludes_block_rules` to turn it off.
+	 * `agend_content_access_search_excludes_fragment_rules` to turn it off.
 	 *
 	 * The existing `meta_query` is wrapped, never appended to. Appending a
 	 * clause to a query whose top-level relation is `OR` would read "or has no
@@ -477,8 +561,9 @@ class Agend_Content_Access_Blocks {
 		}
 
 		/**
-		 * Filters whether posts holding a restricted or conditioned block are
-		 * excluded from search for visitors who cannot edit.
+		 * Filters whether documents carrying a fragment policy or display
+		 * conditions, in a block or an Elementor section, are excluded from search
+		 * for users who cannot edit others' posts.
 		 *
 		 * Excluding them also hides their public parts from search, which is the
 		 * price of not revealing that the protected text exists.
@@ -486,11 +571,11 @@ class Agend_Content_Access_Blocks {
 		 * @param bool     $exclude Whether to exclude. Default true.
 		 * @param WP_Query $query   The search query.
 		 */
-		if ( ! apply_filters( 'agend_content_access_search_excludes_block_rules', true, $query ) ) {
+		if ( ! apply_filters( 'agend_content_access_search_excludes_fragment_rules', true, $query ) ) {
 			return;
 		}
 
-		if ( current_user_can( 'edit_posts' ) ) {
+		if ( current_user_can( 'edit_others_posts' ) ) {
 			return;
 		}
 
