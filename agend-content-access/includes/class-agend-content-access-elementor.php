@@ -338,9 +338,11 @@ class Agend_Content_Access_Elementor {
 		$document  = Agend_Content_Access_Policy::get_for_post( (int) get_queried_object_id() );
 		$effective = Agend_Content_Access_Policy::effective_policy( $document, $fragment );
 
+		// The viewer is built for THIS policy, so segments are fetched only when
+		// the effective policy of this element is a segments policy.
 		$state = Agend_Content_Access_Decision::evaluate(
 			$effective,
-			Agend_Content_Access_Decision::viewer()
+			Agend_Content_Access_Decision::viewer( $effective )
 		);
 
 		return Agend_Content_Access_Decision::STATE_GRANTED === $state;

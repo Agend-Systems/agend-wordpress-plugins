@@ -36,6 +36,21 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Webhook invalidation arrives in a later layer and can only make this forget
  * sooner, never remember longer, so the TTL remains the backstop. A failed
  * lookup is never cached.
+ *
+ * SEGMENTS ARE LOADED ON DEMAND, AND THE POLICY SAYS WHEN. Entitlement keys
+ * arrive free with the member's standing, from the same
+ * `/crm/me/entitlements` response. Segments do not: they are a second gateway
+ * call, and almost no page carries a segments policy. So `evaluate()` stays a
+ * pure function of a policy and a viewer array, and `viewer()` takes the policy
+ * about to be evaluated and fetches segments only when `needs_segments()` says
+ * that policy cannot be decided without them. The alternative, a viewer that
+ * carries a lazy resolver, would hide a network call inside what reads as plain
+ * data and would make a viewer array stop being comparable, serialisable or
+ * easy to build in a test. The cost of the chosen design is that a caller must
+ * hand `viewer()` the policy it is about to evaluate. One that forgets gets a
+ * viewer with no segments, which a segments policy reads as "in none": a
+ * denial, never a grant. That is the same defaulting-empty contract the
+ * gateway's `ViewerEntitlement.segmentIds` has.
  */
 class Agend_Content_Access_Decision {
 
@@ -45,13 +60,27 @@ class Agend_Content_Access_Decision {
 	const STATE_PLAN       = 'plan_required';
 
 	/**
-	 * Per-request memo of the resolved viewer, keyed by nothing: the viewer does
-	 * not change mid-request.
+	 * The generic denial for the segments and selected-entitlements policies.
 	 *
-	 * This memoises the DERIVED answer (identified, tiers, degraded), not the
-	 * gateway read, which `Agend_Content_Access_Viewer_Facts` memoises and
-	 * caches. It is kept so the bearer lookup below, which can read user meta
-	 * and refresh a token, runs once per request rather than once per element.
+	 * Adopted from the gateway's state vocabulary (`access_restricted`). A
+	 * segment is an arbitrary audience and an entitlement can be held with no
+	 * membership, so an identified visitor outside either is neither a
+	 * "membership" nor a "plan" problem. Telling them to join, or to change plan,
+	 * would mislabel it.
+	 */
+	const STATE_RESTRICTED = 'access_restricted';
+
+	/**
+	 * Per-request memo of the resolved base viewer, keyed by nothing: the viewer
+	 * does not change mid-request.
+	 *
+	 * This memoises the DERIVED answer (identified, tiers, entitlements,
+	 * degraded), not the gateway read, which `Agend_Content_Access_Viewer_Facts`
+	 * memoises and caches. It is kept so the bearer lookup below, which can read
+	 * user meta and refresh a token, runs once per request rather than once per
+	 * element. It never holds segments: those are added to a COPY by `viewer()`
+	 * when a policy asks, so one element's segments policy cannot make every
+	 * later element's viewer look as though segments were loaded.
 	 *
 	 * @var array|null
 	 */
@@ -71,7 +100,7 @@ class Agend_Content_Access_Decision {
 	}
 
 	/**
-	 * Resolves the current visitor's standing from Agend.
+	 * Resolves the current visitor's standing from Agend, for one policy.
 	 *
 	 * `identified` means Agend accepted a bearer for this visitor, NOT that
 	 * WordPress has them logged in. An ordinary WordPress account with no linked
@@ -83,17 +112,60 @@ class Agend_Content_Access_Decision {
 	 * "authentication required" rather than to a local-metadata fallback, which
 	 * would be exactly the second entitlement authority this design forbids.
 	 *
-	 * @return array{identified: bool, tier_ids: string[], degraded: bool}
+	 * Pass the policy about to be evaluated. When it is a segments policy with
+	 * something to match, and the visitor is identified, their segments are
+	 * fetched (once per request, shared with display conditions) and returned as
+	 * `segment_ids`. For any other policy no segment call is made and
+	 * `segment_ids` is empty. If the segment lookup fails the visitor stays
+	 * identified but the viewer is flagged `degraded`, and `segment_ids` stays
+	 * empty so the policy denies: an outage must not read as "in no segments"
+	 * silently.
+	 *
+	 * @param array|null $policy The policy about to be evaluated, or null when no segments are needed.
+	 * @return array{
+	 *     identified: bool,
+	 *     tier_ids: string[],
+	 *     entitlement_keys: string[],
+	 *     segment_ids: string[],
+	 *     degraded: bool
+	 * }
 	 */
-	public static function viewer(): array {
+	public static function viewer( ?array $policy = null ): array {
+		$viewer = self::base_viewer();
+
+		if ( ! $viewer['identified'] || ! Agend_Content_Access_Policy::needs_segments( $policy ) ) {
+			return $viewer;
+		}
+
+		$segments = Agend_Content_Access_Viewer_Facts::segments();
+
+		if ( null === $segments ) {
+			$viewer['degraded'] = true;
+
+			return $viewer;
+		}
+
+		$viewer['segment_ids'] = $segments['segment_ids'];
+
+		return $viewer;
+	}
+
+	/**
+	 * The visitor's standing without segments, resolved once per request.
+	 *
+	 * @return array{identified: bool, tier_ids: string[], entitlement_keys: string[], segment_ids: string[], degraded: bool}
+	 */
+	private static function base_viewer(): array {
 		if ( null !== self::$viewer_cache ) {
 			return self::$viewer_cache;
 		}
 
 		$viewer = array(
-			'identified' => false,
-			'tier_ids'   => array(),
-			'degraded'   => false,
+			'identified'       => false,
+			'tier_ids'         => array(),
+			'entitlement_keys' => array(),
+			'segment_ids'      => array(),
+			'degraded'         => false,
 		);
 
 		$bearer = function_exists( 'agend_apps_get_bearer_token' )
@@ -129,8 +201,9 @@ class Agend_Content_Access_Decision {
 			return $viewer;
 		}
 
-		$viewer['identified'] = true;
-		$viewer['tier_ids']   = $facts['tier_ids'];
+		$viewer['identified']       = true;
+		$viewer['tier_ids']         = $facts['tier_ids'];
+		$viewer['entitlement_keys'] = $facts['entitlement_keys'];
 
 		self::$viewer_cache = $viewer;
 
@@ -149,8 +222,17 @@ class Agend_Content_Access_Decision {
 	 * join is wrong; telling a non-member their plan is insufficient is
 	 * confusing.
 	 *
+	 * The segments and selected-entitlements policies are granted when the
+	 * viewer's set intersects the policy's. Outside it, an unidentified visitor
+	 * is asked to sign in and an identified one is `access_restricted`, never
+	 * `membership_required` or `plan_required`. This is the gateway's
+	 * `resolveAccessState()`, arm for arm.
+	 *
+	 * A viewer array that omits `entitlement_keys` or `segment_ids` holds none,
+	 * so a missing fact can only deny.
+	 *
 	 * @param array|null $policy Canonical policy, or null when none is set.
-	 * @param array      $viewer Result of `viewer()`.
+	 * @param array      $viewer Result of `viewer()`, called with this policy.
 	 * @return string One of the STATE_* constants.
 	 */
 	public static function evaluate( ?array $policy, array $viewer ): string {
@@ -198,9 +280,60 @@ class Agend_Content_Access_Decision {
 			return $holds_any ? self::STATE_PLAN : self::STATE_MEMBERSHIP;
 		}
 
+		if ( Agend_Content_Access_Policy::MODE_SEGMENTS === $mode ) {
+			return self::set_state(
+				self::strings( $viewer['segment_ids'] ?? null ),
+				Agend_Content_Access_Policy::segment_ids( $policy ),
+				$identified
+			);
+		}
+
+		if ( Agend_Content_Access_Policy::MODE_ENTITLEMENTS === $mode ) {
+			return self::set_state(
+				self::strings( $viewer['entitlement_keys'] ?? null ),
+				Agend_Content_Access_Policy::entitlement_keys( $policy ),
+				$identified
+			);
+		}
+
 		// An unrecognised mode is a policy we cannot honour. Deny rather than
 		// guess: an unreadable restriction is not evidence of no restriction.
 		return self::STATE_MEMBERSHIP;
+	}
+
+	/**
+	 * The state for a policy that admits anyone holding at least one of a set.
+	 *
+	 * Shared by the segments and selected-entitlements arms, which differ only in
+	 * which set the viewer is compared on. An empty allowed list is
+	 * unsatisfiable by construction (a disjoint intersection), so it falls
+	 * through to a denial rather than granting.
+	 *
+	 * @param string[] $held       What the viewer holds.
+	 * @param string[] $allowed    What the policy names.
+	 * @param bool     $identified Whether Agend accepted a bearer for the viewer.
+	 * @return string One of the STATE_* constants.
+	 */
+	private static function set_state( array $held, array $allowed, bool $identified ): string {
+		foreach ( $held as $item ) {
+			if ( in_array( $item, $allowed, true ) ) {
+				return self::STATE_GRANTED;
+			}
+		}
+
+		return $identified ? self::STATE_RESTRICTED : self::STATE_AUTH;
+	}
+
+	/**
+	 * The strings in a viewer field, as a list; anything else holds nothing.
+	 *
+	 * @param mixed $value Candidate list.
+	 * @return string[]
+	 */
+	private static function strings( $value ): array {
+		return is_array( $value )
+			? array_values( array_filter( $value, 'is_string' ) )
+			: array();
 	}
 
 	/**
@@ -247,7 +380,9 @@ class Agend_Content_Access_Decision {
 			);
 		}
 
-		$viewer = self::viewer();
+		// Handing over the policy is what lets the viewer fetch segments, and
+		// only when this document's policy is a segments policy.
+		$viewer = self::viewer( $policy );
 
 		return array(
 			'state'    => self::evaluate( $policy, $viewer ),

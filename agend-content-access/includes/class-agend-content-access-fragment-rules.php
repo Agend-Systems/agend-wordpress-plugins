@@ -140,10 +140,12 @@ class Agend_Content_Access_Fragment_Rules {
 		}
 
 		// The access check the reference omits. `evaluate` returns the state
-		// for THIS visitor against the fallback's own policy.
-		$state = Agend_Content_Access_Decision::evaluate(
-			Agend_Content_Access_Policy::get_for_post( $fallback_id ),
-			Agend_Content_Access_Decision::viewer()
+		// for THIS visitor against the fallback's own policy, and the viewer is
+		// built for that policy so segments are fetched only when it needs them.
+		$policy = Agend_Content_Access_Policy::get_for_post( $fallback_id );
+		$state  = Agend_Content_Access_Decision::evaluate(
+			$policy,
+			Agend_Content_Access_Decision::viewer( $policy )
 		);
 
 		if ( Agend_Content_Access_Decision::STATE_GRANTED !== $state ) {
