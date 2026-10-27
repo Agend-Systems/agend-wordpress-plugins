@@ -301,7 +301,7 @@ element's settings, which `Agend_Content_Access_Rules::from_elementor_settings()
 | **Who can see this**: a searchable multi-select, with "Leave empty to show this to everyone who can see the page. Visitors who are not allowed never receive this element." | `agend_access_rules`, a list of `"<provider>:<value>"` | Always |
 | **Match**: Any of these, or All of these | `agend_access_match` | When a rule is chosen |
 | **Show to everyone except these people**, with "Useful for a join banner that members should not see." | `agend_access_invert`, `yes` | When a rule is chosen |
-| **Show instead**: Nothing, or a public page | `agend_conditions_fallback_id` | When a rule is chosen, or the element still has older display conditions switched on |
+| **Show instead**: Nothing, or a public page, synced pattern or Elementor template (the block panel's list) | `agend_conditions_fallback_id` | When a rule is chosen, or the element still has older display conditions switched on |
 | A notice | none | Only on an element that still holds an older setting |
 | **Older audience setting** | `agend_access_mode` | Only when it is not "same as the page" |
 | **Older display conditions** | `agend_conditions_enabled` | Only when it is on |

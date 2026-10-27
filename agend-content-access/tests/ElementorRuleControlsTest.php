@@ -19,6 +19,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\Attributes\Test;
 
+require_once __DIR__ . '/has-elementor-double.php';
 require_once __DIR__ . '/fixtures/elementor-active-settings-double.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-policy.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
@@ -262,6 +263,45 @@ final class ElementorRuleControlsTest extends TestCase {
 			),
 			$control['conditions'],
 			'an element with only older display conditions had a "Show instead", and must keep showing it'
+		);
+	}
+
+	/** The same list the block panel offers, kinds and all: patterns and templates are chosen here too. */
+	#[Test]
+	public function show_instead_offers_pages_patterns_and_templates_labelled_by_kind(): void {
+		$this->seed();
+
+		Agend_Test_WP::$did_action['elementor/loaded'] = 1;
+
+		foreach ( array(
+			array( 41, 'elementor_library', 'Join banner' ),
+			array( 42, 'wp_block', 'Members only' ),
+			array( 43, 'page', 'Welcome' ),
+		) as list( $id, $type, $title ) ) {
+			$GLOBALS['agend_test_posts'][ $id ] = (object) array(
+				'ID'           => $id,
+				'post_status'  => 'publish',
+				'post_type'    => $type,
+				'post_title'   => $title,
+				'post_content' => '',
+			);
+		}
+
+		$options = ElementorControl::access_controls()[ ElementorControl::FALLBACK_KEY ]['options'];
+
+		$this->assertSame(
+			array( '' => 'Nothing', '43' => 'Page: Welcome', '42' => 'Pattern: Members only', '41' => 'Elementor template: Join banner' ),
+			$options
+		);
+
+		// And what the route hands the block panel is the same choices, with their type.
+		$this->assertSame(
+			array(
+				array( 'id' => 43, 'title' => 'Page: Welcome', 'type' => 'page' ),
+				array( 'id' => 42, 'title' => 'Pattern: Members only', 'type' => 'pattern' ),
+				array( 'id' => 41, 'title' => 'Elementor template: Join banner', 'type' => 'elementor_template' ),
+			),
+			Sets::vocabulary()['fallbacks']
 		);
 	}
 
