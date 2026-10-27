@@ -1518,6 +1518,15 @@ if ( ! function_exists( 'current_user_can' ) ) {
 	 * @return bool
 	 */
 	function current_user_can( string $capability ): bool {
+		// A capability granted for one object only, as `edit_post` is for a post
+		// the user wrote: `$GLOBALS['agend_test_current_user_can_for'][ $cap ][ $id ]`.
+		// Consulted before the blanket answer, which stays the default.
+		$arguments = func_get_args();
+
+		if ( isset( $arguments[1] ) && isset( $GLOBALS['agend_test_current_user_can_for'][ $capability ][ (int) $arguments[1] ] ) ) {
+			return (bool) $GLOBALS['agend_test_current_user_can_for'][ $capability ][ (int) $arguments[1] ];
+		}
+
 		return (bool) ( $GLOBALS['agend_test_current_user_can'][ $capability ] ?? true );
 	}
 }

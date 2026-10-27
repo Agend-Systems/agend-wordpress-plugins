@@ -480,6 +480,41 @@ class Agend_Content_Access_Elementor {
 	}
 
 	/**
+	 * Whether a stored Elementor document carries a policy or display condition.
+	 *
+	 * Walks every top level node of the document with `subtree_carries_policy()`,
+	 * so a rule on any element at any depth counts.
+	 *
+	 * A document that is stored but cannot be read is reported as carrying one.
+	 * "I could not tell" must not read as "there is none": the answer decides
+	 * whether the post's raw body is kept out of search and out of excerpts, and a
+	 * corrupted document is exactly where an unreadable rule could be hiding.
+	 *
+	 * @param mixed $stored Value of the `_elementor_data` meta: the JSON string
+	 *                      Elementor stores, or an already decoded list.
+	 * @return bool
+	 */
+	public static function data_carries_policy( $stored ): bool {
+		if ( null === $stored || false === $stored || array() === $stored || ( is_string( $stored ) && '' === trim( $stored ) ) ) {
+			return false;
+		}
+
+		$elements = is_string( $stored ) ? json_decode( $stored, true ) : $stored;
+
+		if ( ! is_array( $elements ) ) {
+			return true;
+		}
+
+		foreach ( $elements as $node ) {
+			if ( is_array( $node ) && self::subtree_carries_policy( $node ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Do this element's display conditions admit the current visitor?
 	 *
 	 * Returns true when conditions are switched off or none are chosen, which

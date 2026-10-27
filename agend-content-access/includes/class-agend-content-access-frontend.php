@@ -789,11 +789,22 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
-	 * Removes the body from a REST item the requester cannot access.
+	 * Removes the body from a REST item the requester cannot access, and the
+	 * authoring source from one they may read but not edit.
 	 *
 	 * The public REST representation is a second copy of the same content, so a
 	 * policy that governs only the rendered page leaves it readable through
 	 * `/wp-json/wp/v2/posts`.
+	 *
+	 * `context=edit` is not a safe context in itself. The block editor loads a
+	 * post for EDITING through this same route, so stripping the body for the
+	 * people who edit it would empty the editor, and an edit capability on THAT
+	 * post is the one thing that exempts a request. But WordPress allows
+	 * `context=edit` on a COLLECTION to anybody holding `edit_posts`, which a
+	 * contributor does. Without the per-post check, `/wp/v2/posts?context=edit`
+	 * returned `content.raw` for every published post, restricted ones included.
+	 * So the edit context is trusted per item, on `edit_post` for that post, and
+	 * every other request is treated as the reader it is.
 	 *
 	 * @param WP_REST_Response $response Response.
 	 * @param WP_Post          $post     Post.
@@ -801,27 +812,42 @@ class Agend_Content_Access_Frontend {
 	 * @return WP_REST_Response
 	 */
 	public function filter_rest_response( $response, $post, $request ) {
-		// The block editor loads a post for EDITING through this same REST
-		// route, so stripping the body here would empty the editor. `edit` is
-		// the context WordPress uses for authoring, and reaching it already
-		// required an edit capability.
-		if ( 'edit' === $request->get_param( 'context' ) ) {
+		$post_id = (int) $post->ID;
+
+		if ( 'edit' === $request->get_param( 'context' ) && current_user_can( 'edit_post', $post_id ) ) {
 			return $response;
 		}
 
-		$decision = Agend_Content_Access_Decision::for_post( (int) $post->ID );
+		$decision = Agend_Content_Access_Decision::for_post( $post_id );
+		$data     = $response->get_data();
+
+		if ( ! is_array( $data ) ) {
+			return $response;
+		}
 
 		if ( Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ) {
+			if ( ! self::exposes_authoring_source( $data ) || ! self::source_reveals_more_than_render( $post, $decision ) ) {
+				return $response;
+			}
+
+			// Readable, but not editable by this requester: the rendered body
+			// stays, the raw one goes.
+			foreach ( array( 'content', 'excerpt' ) as $field ) {
+				if ( isset( $data[ $field ] ) && is_array( $data[ $field ] ) ) {
+					unset( $data[ $field ]['raw'], $data[ $field ]['block_version'] );
+				}
+			}
+
+			$response->set_data( $data );
+
 			return $response;
 		}
-
-		$data = $response->get_data();
 
 		foreach ( array( 'content', 'excerpt' ) as $field ) {
 			if ( isset( $data[ $field ] ) && is_array( $data[ $field ] ) ) {
 				$data[ $field ]['rendered']  = '';
 				$data[ $field ]['protected'] = true;
-				unset( $data[ $field ]['raw'] );
+				unset( $data[ $field ]['raw'], $data[ $field ]['block_version'] );
 			}
 		}
 
@@ -834,5 +860,53 @@ class Agend_Content_Access_Frontend {
 		$response->set_data( $data );
 
 		return $response;
+	}
+
+	/**
+	 * Whether a REST item carries the authoring source of its body.
+	 *
+	 * Only the `edit` context does. Asked first so a public listing, which never
+	 * carries it, pays for no further check.
+	 *
+	 * @param array $data Response data.
+	 * @return bool
+	 */
+	private static function exposes_authoring_source( array $data ): bool {
+		foreach ( array( 'content', 'excerpt' ) as $field ) {
+			if (
+				isset( $data[ $field ] )
+				&& is_array( $data[ $field ] )
+				&& ( array_key_exists( 'raw', $data[ $field ] ) || array_key_exists( 'block_version', $data[ $field ] ) )
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether a post's raw source says more than its rendered body does.
+	 *
+	 * True for a post with an audience, because a visitor entitled to read it is
+	 * not thereby entitled to its authoring source. True for a post carrying
+	 * section rules too, even when the post itself is public: a page builder
+	 * stores the rendered text of EVERY section in the raw body, restricted ones
+	 * included, so the raw body of such a page is a copy of what the sections
+	 * were hiding. Only a post that is plainly public and carries nothing keeps
+	 * its raw body, since there is nothing in it the rendered page withholds.
+	 *
+	 * @param WP_Post $post     Post.
+	 * @param array   $decision Result of `Agend_Content_Access_Decision::for_post()`.
+	 * @return bool
+	 */
+	private static function source_reveals_more_than_render( $post, array $decision ): bool {
+		$policy = $decision['policy'];
+
+		if ( null !== $policy && Agend_Content_Access_Policy::MODE_PUBLIC !== ( $policy['mode'] ?? '' ) ) {
+			return true;
+		}
+
+		return Agend_Content_Access_Fragment_Rules::carries( $post );
 	}
 }
