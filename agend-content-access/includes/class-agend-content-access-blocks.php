@@ -46,10 +46,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * document policy of `get_queried_object_id()`, which is right where a document
  * renders for the queried post. Blocks render inside query loops, template
  * parts and synced patterns, where the queried object is not the post the block
- * belongs to. The post a block belongs to is the post WordPress is rendering,
- * `get_post()`, and that is what this reads. Reading the queried object here
- * would judge a restricted post's block in a loop on a public page against the
- * public page, and fail open.
+ * belongs to. In a loop the post a block belongs to is the post WordPress is
+ * rendering, `get_post()`, and that is what this reads. Reading the queried object
+ * there would judge a restricted post's block in a loop on a public page against
+ * the public page, and fail open. Outside a loop the global post is only what the
+ * main query left behind, and the queried object, or nothing, is the answer: see
+ * `context_post_id()`.
  *
  * Four leak vectors beyond the render itself are closed here, and each fails
  * silently if it is missed: page caches (`mark_page_uncacheable()` and the
@@ -464,22 +466,78 @@ class Agend_Content_Access_Blocks {
 	}
 
 	/**
-	 * The id of the post WordPress is rendering, or 0 when there is none.
+	 * The id of the post a block belongs to, or 0 when it belongs to none.
 	 *
-	 * `get_post()` with no argument, the global post: set by the main loop, by
-	 * every `WP_Query` loop (`the_post()`, which a query loop block calls per
-	 * item), and by the REST controllers. Never `get_queried_object_id()`: see
-	 * the class docblock.
+	 * Inside a loop it is the post WordPress is rendering, `get_post()`: set by the
+	 * main loop, by every `WP_Query` loop (`the_post()`, which a query loop block
+	 * calls per item), and by the REST controllers. Never `get_queried_object_id()`
+	 * there: see the class docblock.
 	 *
-	 * A synced pattern renders inside the post that holds it, so its blocks
-	 * belong to that post for this purpose, which can only narrow them further.
+	 * OUTSIDE a loop the global post is not that post. WordPress sets it to the
+	 * first post of the MAIN query before any template runs, and leaves it at the
+	 * last once a loop has finished, so a header or footer template part on an
+	 * archive was judged against whichever post happened to be listed first or
+	 * last. That narrowed a block to the plan of an unrelated post and hid it from
+	 * a member who was entitled to it. Outside a loop the block belongs to the
+	 * queried post when the request is for one post, and to nothing otherwise: it is
+	 * judged on its own policy alone, as a block in a widget is.
+	 *
+	 * "Inside a loop" is NOT `in_the_loop()` alone, which is true only for the main
+	 * query's loop. A custom `WP_Query` loop, which is what a Query Loop block with
+	 * its own query runs, leaves `in_the_loop()` false while the global post is the
+	 * item being rendered, and treating that as "outside" would judge its blocks
+	 * against the page and fail open. The global post is the main query's leftover
+	 * only when it IS one of the main query's own post objects: a post read by any
+	 * other query, or by a REST controller, is a distinct object even when it is the
+	 * same post, and is a loop post.
+	 *
+	 * A synced pattern renders inside the post that holds it, so its blocks belong
+	 * to that post for this purpose, which can only narrow them further.
 	 *
 	 * @return int
 	 */
 	private static function context_post_id(): int {
 		$post = get_post();
 
-		return $post instanceof WP_Post ? (int) $post->ID : 0;
+		if ( $post instanceof WP_Post && ( in_the_loop() || ! self::is_main_query_leftover( $post ) ) ) {
+			return (int) $post->ID;
+		}
+
+		$queried = is_singular() ? get_queried_object() : null;
+
+		return $queried instanceof WP_Post ? (int) $queried->ID : 0;
+	}
+
+	/**
+	 * Whether the post object is one the main query holds, which outside a loop is
+	 * only ever the global post WordPress left behind.
+	 *
+	 * Compared by identity. The main query's `post` is the object the global post
+	 * is set from, and its `posts` are the objects a loop steps through. Looked up
+	 * on `$wp_the_query`, the real main query, and on `$wp_query`, which a theme can
+	 * point at another query.
+	 *
+	 * @param WP_Post $post The global post.
+	 * @return bool
+	 */
+	private static function is_main_query_leftover( WP_Post $post ): bool {
+		foreach ( array( 'wp_the_query', 'wp_query' ) as $name ) {
+			$query = isset( $GLOBALS[ $name ] ) && is_object( $GLOBALS[ $name ] ) ? $GLOBALS[ $name ] : null;
+
+			if ( null === $query ) {
+				continue;
+			}
+
+			if ( isset( $query->post ) && $query->post === $post ) {
+				return true;
+			}
+
+			if ( isset( $query->posts ) && is_array( $query->posts ) && in_array( $post, $query->posts, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
