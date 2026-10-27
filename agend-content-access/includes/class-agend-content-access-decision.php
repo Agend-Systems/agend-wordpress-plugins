@@ -71,26 +71,32 @@ class Agend_Content_Access_Decision {
 	const STATE_RESTRICTED = 'access_restricted';
 
 	/**
-	 * Per-request memo of the resolved base viewer, keyed by nothing: the viewer
-	 * does not change mid-request.
+	 * Per-request memo of the resolved base viewer, keyed by WordPress user id and
+	 * a digest of the bearer: `"<user id>:<digest>"`, the digest empty for no
+	 * bearer.
 	 *
 	 * This memoises the DERIVED answer (identified, tiers, entitlements,
 	 * degraded), not the gateway read, which `Agend_Content_Access_Viewer_Facts`
-	 * memoises and caches. It is kept so the bearer lookup below, which can read
-	 * user meta and refresh a token, runs once per request rather than once per
-	 * element. It never holds segments: those are added to a COPY by `viewer()`
-	 * when a policy asks, so one element's segments policy cannot make every
-	 * later element's viewer look as though segments were loaded.
+	 * memoises and caches. It is kept so the derivation runs once per request
+	 * rather than once per element. It is keyed by who is asking, as the facts
+	 * layer is, because the viewer is only constant while the visitor is: a request
+	 * that switches user (a login completing, an impersonation that restores
+	 * afterwards) or whose bearer changes must not be answered with the previous
+	 * visitor's standing, which a single unkeyed value would do.
 	 *
-	 * @var array|null
+	 * It never holds segments: those are added to a COPY by `viewer()` when a
+	 * policy asks, so one element's segments policy cannot make every later
+	 * element's viewer look as though segments were loaded.
+	 *
+	 * @var array<string, array>
 	 */
-	private static ?array $viewer_cache = null;
+	private static array $viewer_cache = array();
 
 	/**
 	 * Resets the memos, this class's and the member facts source's. Tests only.
 	 */
 	public static function reset_cache(): void {
-		self::$viewer_cache = null;
+		self::$viewer_cache = array();
 
 		// Guarded because the facts source is a separate file. A caller that has
 		// loaded this class without it has nothing there to reset.
@@ -156,8 +162,13 @@ class Agend_Content_Access_Decision {
 	 * @return array{identified: bool, tier_ids: string[], entitlement_keys: string[], segment_ids: string[], degraded: bool}
 	 */
 	private static function base_viewer(): array {
-		if ( null !== self::$viewer_cache ) {
-			return self::$viewer_cache;
+		// The facts source's bearer, memoised per user per request, so the viewer
+		// and the facts it reads are bound to the same identity.
+		$bearer   = Agend_Content_Access_Viewer_Facts::bearer();
+		$memo_key = (int) get_current_user_id() . ':' . Agend_Content_Access_Viewer_Facts::bearer_digest( $bearer );
+
+		if ( isset( self::$viewer_cache[ $memo_key ] ) ) {
+			return self::$viewer_cache[ $memo_key ];
 		}
 
 		$viewer = array(
@@ -168,12 +179,8 @@ class Agend_Content_Access_Decision {
 			'degraded'         => false,
 		);
 
-		// The facts source's bearer, memoised per user per request, so the viewer
-		// and the facts it reads are bound to the same identity.
-		$bearer = Agend_Content_Access_Viewer_Facts::bearer();
-
 		if ( '' === $bearer ) {
-			self::$viewer_cache = $viewer;
+			self::$viewer_cache[ $memo_key ] = $viewer;
 			return $viewer;
 		}
 
@@ -184,8 +191,8 @@ class Agend_Content_Access_Decision {
 			// NOT a hard dependency in the gate: an older Core still supports
 			// document policies for anonymous visitors, and refusing to load
 			// would turn a partial capability into no protection at all.
-			$viewer['degraded'] = true;
-			self::$viewer_cache = $viewer;
+			$viewer['degraded']              = true;
+			self::$viewer_cache[ $memo_key ] = $viewer;
 			return $viewer;
 		}
 
@@ -196,8 +203,8 @@ class Agend_Content_Access_Decision {
 			// not anonymous, but we cannot claim they hold anything either.
 			// `degraded` lets the caller log an operational error rather than
 			// silently treating an outage as a lapsed membership.
-			$viewer['degraded']  = true;
-			self::$viewer_cache  = $viewer;
+			$viewer['degraded']              = true;
+			self::$viewer_cache[ $memo_key ] = $viewer;
 			return $viewer;
 		}
 
@@ -205,7 +212,7 @@ class Agend_Content_Access_Decision {
 		$viewer['tier_ids']         = $facts['tier_ids'];
 		$viewer['entitlement_keys'] = $facts['entitlement_keys'];
 
-		self::$viewer_cache = $viewer;
+		self::$viewer_cache[ $memo_key ] = $viewer;
 
 		return $viewer;
 	}

@@ -479,6 +479,70 @@ final class ViewerFactsTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// The decision layer's own memo
+	// -----------------------------------------------------------------
+
+	/**
+	 * The derived viewer was memoised under no key, so a request that switched
+	 * user was answered with the first user's standing.
+	 */
+	#[Test]
+	public function the_decision_memo_does_not_carry_one_user_into_another_within_a_request(): void {
+		$this->signIn( 7 );
+		$this->gatewayReturns( $this->memberData() );
+		$this->assertSame( array( self::TIER_A ), Decision::viewer()['tier_ids'] );
+
+		$this->signIn( 8 );
+		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
+		$second = Decision::viewer();
+
+		$this->assertTrue( $second['identified'] );
+		$this->assertSame( array(), $second['tier_ids'], 'user 8 must not inherit user 7\'s tiers' );
+	}
+
+	/** Same user, a different bearer: a different identity as far as the gateway knows. */
+	#[Test]
+	public function the_decision_memo_is_bound_to_the_bearer_too(): void {
+		$this->signIn( 7, false );
+		$this->bearer( 'bearer-a' );
+		$this->gatewayReturns( $this->memberData() );
+		$this->assertSame( array( self::TIER_A ), Decision::viewer()['tier_ids'] );
+
+		// The bearer behind the same user changes mid-request (a token re-linked
+		// or replaced). Only the facts layer is reset, so a hit here could only
+		// come from the decision memo.
+		ViewerFacts::reset();
+		$this->bearer( 'bearer-b' );
+		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
+
+		$this->assertSame( array(), Decision::viewer()['tier_ids'] );
+	}
+
+	#[Test]
+	public function the_decision_memo_still_answers_the_same_visitor_from_memory(): void {
+		$this->signIn( 7 );
+		$this->gatewayReturns( $this->memberData() );
+
+		$first = Decision::viewer();
+		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
+
+		$this->assertSame( $first, Decision::viewer() );
+		$this->assertSame( 1, $this->gatewayCalls() );
+	}
+
+	#[Test]
+	public function a_visitor_without_a_bearer_has_their_own_memo_entry(): void {
+		$this->signIn( 7, false );
+		$this->assertFalse( Decision::viewer()['identified'] );
+
+		$this->bearer();
+		ViewerFacts::reset();
+		$this->gatewayReturns( $this->memberData() );
+
+		$this->assertTrue( Decision::viewer()['identified'], 'gaining a bearer must not be answered from the bearer-less entry' );
+	}
+
+	// -----------------------------------------------------------------
 	// Key shape: Core's cache prefix
 	// -----------------------------------------------------------------
 
