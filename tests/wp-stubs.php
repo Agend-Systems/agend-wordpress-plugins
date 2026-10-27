@@ -39,6 +39,15 @@ final class Agend_Test_WP {
 	public static array $transients = array();
 
 	/**
+	 * The expiry each transient was last written with, in seconds, keyed like
+	 * {@see $transients}. The stub store never expires anything, so this is how
+	 * a test asserts on the lifetime a caller asked for.
+	 *
+	 * @var array<string, int>
+	 */
+	public static array $transient_ttls = array();
+
+	/**
 	 * Site (network-wide) transients: a separate store from {@see $transients}
 	 * because plugin updates are network-wide (`get_site_transient()` /
 	 * `set_site_transient()`) even on a single-site install.
@@ -169,6 +178,7 @@ final class Agend_Test_WP {
 		self::$theme_has_theme_json = false;
 		self::$global_styles        = array();
 		self::$transients        = array();
+		self::$transient_ttls    = array();
 		self::$site_transients   = array();
 		self::$actions           = array();
 		self::$action_priorities = array();
@@ -262,7 +272,8 @@ function get_transient( string $key ) {
 }
 
 function set_transient( string $key, $value, int $ttl = 0 ): bool {
-	Agend_Test_WP::$transients[ $key ] = $value;
+	Agend_Test_WP::$transients[ $key ]     = $value;
+	Agend_Test_WP::$transient_ttls[ $key ] = $ttl;
 	return true;
 }
 

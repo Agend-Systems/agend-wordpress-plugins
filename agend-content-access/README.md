@@ -131,6 +131,33 @@ A missing dependency registers nothing rather than half-registering, because a
 half-registered access-control plugin is indistinguishable from one that decided
 the visitor may proceed.
 
+## Member standing cache
+
+A visitor's membership standing comes from one source,
+`Agend_Content_Access_Viewer_Facts`, shared by document policies and display
+conditions. It asks `GET /v1/crm/me/entitlements` at most once per request,
+and holds the answer per member for the cache lifetime: Core's
+`crm_me_entitlements` setting when it is set, otherwise five minutes. When the
+gateway reports an entitlement expiry, the lifetime is capped so the entry does
+not outlive it (never below 30 seconds).
+
+This changes one behaviour. A document policy used to ask Agend on every
+request, so a revocation applied on the next page load. Now a revocation that
+fires no webhook takes up to the cache lifetime to apply. Display conditions
+already worked that way. Webhook invalidation, which makes the cache forget
+sooner and never remember longer, arrives in a later release, and the
+lifetime stays as the backstop.
+
+Rules the cache keeps:
+
+- It is per member. The key carries the WordPress user id and a generation
+  number from the `agend_content_access_facts_generation` option, so one bump
+  invalidates every member at once.
+- A visitor with no WordPress user id is never cached, even when a bearer token
+  reaches the plugin through the `agend_apps_bearer_token` filter. One shared
+  key would serve every such visitor the same standing.
+- A failed lookup is never cached. It reads as unknown and denies.
+
 ## Running the tests
 
 From the repository root:

@@ -8,11 +8,13 @@ declare( strict_types=1 );
 namespace Agend\Tests\ContentAccess;
 
 use Agend_Content_Access_Condition_Runtime as Runtime;
+use Agend_Content_Access_Viewer_Facts as ViewerFacts;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use Agend_Test_WP;
 
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-viewer-facts.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
 
@@ -82,9 +84,10 @@ final class ConditionRuntimeTest extends TestCase {
 		Runtime::member_facts();
 
 		$this->assertArrayNotHasKey(
-			Runtime::MEMBER_CACHE_KEY . '_7',
+			ViewerFacts::member_cache_key( 7 ),
 			Agend_Test_WP::$transients
 		);
+		$this->assertSame( array(), Agend_Test_WP::$transients, 'a failure must write nothing under any key' );
 	}
 
 	#[Test]
@@ -118,7 +121,7 @@ final class ConditionRuntimeTest extends TestCase {
 	 */
 	#[Test]
 	public function cached_facts_are_keyed_per_viewer(): void {
-		Agend_Test_WP::$transients[ Runtime::MEMBER_CACHE_KEY . '_7' ] = array(
+		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7 ) ] = array(
 			'is_member'  => true,
 			'tier_ids'   => array( 'tier-a' ),
 			'tier_slugs' => array( 'gold' ),
@@ -136,17 +139,17 @@ final class ConditionRuntimeTest extends TestCase {
 
 	#[Test]
 	public function flushing_clears_only_the_named_viewer(): void {
-		Agend_Test_WP::$transients[ Runtime::MEMBER_CACHE_KEY . '_7' ] = array( 'is_member' => true );
-		Agend_Test_WP::$transients[ Runtime::MEMBER_CACHE_KEY . '_8' ] = array( 'is_member' => true );
+		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7 ) ] = array( 'is_member' => true );
+		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 8 ) ] = array( 'is_member' => true );
 
 		Runtime::flush_member_facts( 7 );
 
 		$this->assertArrayNotHasKey(
-			Runtime::MEMBER_CACHE_KEY . '_7',
+			ViewerFacts::member_cache_key( 7 ),
 			Agend_Test_WP::$transients
 		);
 		$this->assertArrayHasKey(
-			Runtime::MEMBER_CACHE_KEY . '_8',
+			ViewerFacts::member_cache_key( 8 ),
 			Agend_Test_WP::$transients
 		);
 	}
@@ -211,9 +214,10 @@ final class ConditionRuntimeTest extends TestCase {
 
 		$this->assertNull( Runtime::segment_facts() );
 		$this->assertArrayNotHasKey(
-			Runtime::SEGMENT_CACHE_KEY . '_7',
+			ViewerFacts::segment_cache_key( 7 ),
 			Agend_Test_WP::$transients
 		);
+		$this->assertSame( array(), Agend_Test_WP::$transients, 'a failure must write nothing under any key' );
 	}
 
 	#[Test]
@@ -240,13 +244,13 @@ final class ConditionRuntimeTest extends TestCase {
 
 	#[Test]
 	public function flushing_clears_both_membership_and_segment_caches(): void {
-		Agend_Test_WP::$transients[ Runtime::MEMBER_CACHE_KEY . '_7' ]  = array( 'is_member' => true );
-		Agend_Test_WP::$transients[ Runtime::SEGMENT_CACHE_KEY . '_7' ] = array( 'vic' );
+		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7 ) ]  = array( 'is_member' => true );
+		Agend_Test_WP::$transients[ ViewerFacts::segment_cache_key( 7 ) ] = array( 'vic' );
 
 		Runtime::flush_member_facts( 7 );
 
-		$this->assertArrayNotHasKey( Runtime::MEMBER_CACHE_KEY . '_7', Agend_Test_WP::$transients );
-		$this->assertArrayNotHasKey( Runtime::SEGMENT_CACHE_KEY . '_7', Agend_Test_WP::$transients );
+		$this->assertArrayNotHasKey( ViewerFacts::member_cache_key( 7 ), Agend_Test_WP::$transients );
+		$this->assertArrayNotHasKey( ViewerFacts::segment_cache_key( 7 ), Agend_Test_WP::$transients );
 	}
 
 	#[Test]

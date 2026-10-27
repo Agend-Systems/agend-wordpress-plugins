@@ -53,6 +53,15 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Agend_Content_Access_Decision::reset_cache();
 		}
 
+		// The member facts source holds its own per-request memo, shared by the
+		// document path and the display condition path. `Decision::reset_cache()`
+		// clears it, but a suite that loads the facts source without the decision
+		// class (the condition runtime tests) would otherwise carry one test's
+		// visitor into the next.
+		if ( class_exists( 'Agend_Content_Access_Viewer_Facts', false ) ) {
+			\Agend_Content_Access_Viewer_Facts::reset();
+		}
+
 		// Post and meta registries used by the WordPress stubs.
 		$GLOBALS['agend_test_posts']            = array();
 		$GLOBALS['agend_test_post_meta']        = array();

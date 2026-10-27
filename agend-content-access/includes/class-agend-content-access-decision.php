@@ -23,6 +23,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  * bearer that cannot be obtained: all deny. The only inputs that can GRANT are
  * an explicit public policy, a WordPress edit capability, or a tier set that
  * actually satisfies the policy.
+ *
+ * THE LOOKUP IS CACHED, deliberately. It used to run once per request and be
+ * stored nowhere, so a revocation applied on the next page load. It now comes
+ * from `Agend_Content_Access_Viewer_Facts`, the one source shared with display
+ * conditions: memoised for the request and held per member in a transient for
+ * the cache lifetime (Core's `crm_me_entitlements` setting, five minutes by
+ * default). The reason is cost and consistency: a page with a document policy
+ * and conditioned sections asked Agend twice under two different lifetimes, and
+ * every protected page view paid a gateway round trip. The price is that a
+ * revocation which fires no webhook takes up to that lifetime to apply.
+ * Webhook invalidation arrives in a later layer and can only make this forget
+ * sooner, never remember longer, so the TTL remains the backstop. A failed
+ * lookup is never cached.
  */
 class Agend_Content_Access_Decision {
 
@@ -32,17 +45,29 @@ class Agend_Content_Access_Decision {
 	const STATE_PLAN       = 'plan_required';
 
 	/**
-	 * Per-request memo, keyed by nothing: the viewer does not change mid-request.
+	 * Per-request memo of the resolved viewer, keyed by nothing: the viewer does
+	 * not change mid-request.
+	 *
+	 * This memoises the DERIVED answer (identified, tiers, degraded), not the
+	 * gateway read, which `Agend_Content_Access_Viewer_Facts` memoises and
+	 * caches. It is kept so the bearer lookup below, which can read user meta
+	 * and refresh a token, runs once per request rather than once per element.
 	 *
 	 * @var array|null
 	 */
 	private static ?array $viewer_cache = null;
 
 	/**
-	 * Resets the memo. Tests only.
+	 * Resets the memos, this class's and the member facts source's. Tests only.
 	 */
 	public static function reset_cache(): void {
 		self::$viewer_cache = null;
+
+		// Guarded because the facts source is a separate file. A caller that has
+		// loaded this class without it has nothing there to reset.
+		if ( class_exists( 'Agend_Content_Access_Viewer_Facts', false ) ) {
+			Agend_Content_Access_Viewer_Facts::reset();
+		}
 	}
 
 	/**
@@ -92,9 +117,9 @@ class Agend_Content_Access_Decision {
 			return $viewer;
 		}
 
-		$response = agend_apps_crm_get_my_entitlements();
+		$facts = Agend_Content_Access_Viewer_Facts::member();
 
-		if ( is_wp_error( $response ) ) {
+		if ( null === $facts ) {
 			// Agend could not answer. The visitor holds a session, so they are
 			// not anonymous, but we cannot claim they hold anything either.
 			// `degraded` lets the caller log an operational error rather than
@@ -104,22 +129,8 @@ class Agend_Content_Access_Decision {
 			return $viewer;
 		}
 
-		$data = isset( $response['data'] ) && is_array( $response['data'] )
-			? $response['data']
-			: $response;
-
-		$tier_ids = array();
-
-		if ( isset( $data['tier_ids'] ) && is_array( $data['tier_ids'] ) ) {
-			foreach ( $data['tier_ids'] as $tier_id ) {
-				if ( is_string( $tier_id ) && '' !== $tier_id ) {
-					$tier_ids[] = $tier_id;
-				}
-			}
-		}
-
 		$viewer['identified'] = true;
-		$viewer['tier_ids']   = $tier_ids;
+		$viewer['tier_ids']   = $facts['tier_ids'];
 
 		self::$viewer_cache = $viewer;
 

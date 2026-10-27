@@ -19,12 +19,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  * | Family              | Source                                   |
  * | ------------------- | ---------------------------------------- |
  * | `agend_wordpress`   | current user, locally, no network         |
- * | `agend_membership`  | `GET /v1/crm/me/entitlements`, cached     |
+ * | `agend_membership`  | `Agend_Content_Access_Viewer_Facts`, cached |
  * | `agend_segments`    | `GET /v1/crm/me/segments`, cached         |
+ *
+ * Membership facts come from `Agend_Content_Access_Viewer_Facts`, the one
+ * source it shares with the document policy path, so a page asks
+ * `GET /v1/crm/me/entitlements` once however many things on it need the answer.
+ * `member_facts()` here is a thin adapter over it that keeps this path's own
+ * rule for a signed-out visitor.
  *
  * Each API-backed family is cached PER VIEWER, never globally: both responses
  * are entirely about who is asking, so a shared entry would hand one member's
- * standing or segments to the next visitor.
+ * standing or segments to the next visitor. Both caches are keyed by the same
+ * generation number, so a single bump invalidates them together.
  *
  * A source that cannot answer returns null, which the engine reads as unknown
  * and denies on while naming the provider. The one case that answers
@@ -33,11 +40,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class Agend_Content_Access_Condition_Runtime {
 
-	/** Cache key prefix for the per-viewer membership facts. */
-	const MEMBER_CACHE_KEY = 'agend_content_access_member_facts';
-
-	/** Cache key prefix for the per-viewer segment facts. */
-	const SEGMENT_CACHE_KEY = 'agend_content_access_segment_facts';
+	/**
+	 * Cache key prefixes, aliased from the facts source that owns the keys.
+	 * Build a full key with `Agend_Content_Access_Viewer_Facts::member_cache_key()`
+	 * or `::segment_cache_key()`, which add the user id and the generation.
+	 */
+	const MEMBER_CACHE_KEY  = Agend_Content_Access_Viewer_Facts::MEMBER_KEY_PREFIX;
+	const SEGMENT_CACHE_KEY = Agend_Content_Access_Viewer_Facts::SEGMENT_KEY_PREFIX;
 
 	/**
 	 * Builds a checker bound to live sources.
@@ -57,15 +66,21 @@ class Agend_Content_Access_Condition_Runtime {
 	/**
 	 * The current visitor's membership standing.
 	 *
-	 * Cached per VIEWER, never globally. The response is entirely about who is
-	 * asking, so a shared cache entry would hand one member's standing to the
-	 * next visitor. That exact leak was found and fixed in Core's `get_cached()`
-	 * earlier in this work, and it is not worth re-earning.
+	 * A thin adapter over `Agend_Content_Access_Viewer_Facts::member()`, which
+	 * memoises the lookup for the request and caches it per VIEWER, never
+	 * globally. The response is entirely about who is asking, so a shared cache
+	 * entry would hand one member's standing to the next visitor. That exact leak
+	 * was found and fixed in Core's `get_cached()` earlier in this work, and it is
+	 * not worth re-earning.
 	 *
 	 * Returns null on any failure, which the engine reads as unknown and denies
 	 * on. Returning "not a member" instead would make an API outage
 	 * indistinguishable from a genuine non-member, and on an inverted rule it
 	 * would disclose rather than deny.
+	 *
+	 * This path's rule for a signed-out visitor is its own: not logged in means
+	 * holds nothing, definitively, with no lookup. The document path keys on a
+	 * bearer being present instead, and keeps its own rule.
 	 *
 	 * @return array{is_member: bool, tier_ids: string[], tier_slugs: string[]}|null
 	 */
@@ -75,47 +90,19 @@ class Agend_Content_Access_Condition_Runtime {
 			return array( 'is_member' => false, 'tier_ids' => array(), 'tier_slugs' => array() );
 		}
 
-		if ( ! function_exists( 'agend_apps_crm_get_my_entitlements' ) ) {
+		$facts = Agend_Content_Access_Viewer_Facts::member();
+
+		if ( null === $facts ) {
 			return null;
 		}
 
-		$user_id   = get_current_user_id();
-		$cache_key = self::MEMBER_CACHE_KEY . '_' . $user_id;
-		$cached    = get_transient( $cache_key );
-
-		if ( is_array( $cached ) ) {
-			return $cached;
-		}
-
-		$response = agend_apps_crm_get_my_entitlements();
-
-		if ( is_wp_error( $response ) ) {
-			// Deliberately NOT cached. Caching a failure would extend one blip
-			// into a TTL-long outage for that member.
-			return null;
-		}
-
-		$data = isset( $response['data'] ) && is_array( $response['data'] )
-			? $response['data']
-			: $response;
-
-		if ( ! is_array( $data ) ) {
-			return null;
-		}
-
-		$facts = array(
-			'is_member'  => ! empty( $data['is_member'] ),
-			'tier_ids'   => isset( $data['tier_ids'] ) && is_array( $data['tier_ids'] )
-				? array_values( array_map( 'strval', $data['tier_ids'] ) )
-				: array(),
-			'tier_slugs' => isset( $data['tier_slugs'] ) && is_array( $data['tier_slugs'] )
-				? array_values( array_map( 'strval', $data['tier_slugs'] ) )
-				: array(),
+		// The three fields this path has always returned. The source holds more
+		// (entitlements), which nothing here reads yet.
+		return array(
+			'is_member'  => $facts['is_member'],
+			'tier_ids'   => $facts['tier_ids'],
+			'tier_slugs' => $facts['tier_slugs'],
 		);
-
-		set_transient( $cache_key, $facts, self::cache_ttl() );
-
-		return $facts;
 	}
 
 	/**
@@ -126,9 +113,10 @@ class Agend_Content_Access_Condition_Runtime {
 	 * lists who is in a segment, so answering a question about one visitor with
 	 * it would pull the tenant's whole member list onto this server.
 	 *
-	 * Cached per viewer for the same reason membership facts are, and a failure
-	 * returns null so the engine denies and reports rather than treating the
-	 * visitor as belonging to no segments, which is a different claim.
+	 * Cached per viewer for the same reason membership facts are, under the same
+	 * generation so one bump clears both, and a failure returns null so the
+	 * engine denies and reports rather than treating the visitor as belonging to
+	 * no segments, which is a different claim.
 	 *
 	 * @return string[]|null Segment slugs, or null when unknown.
 	 */
@@ -157,7 +145,7 @@ class Agend_Content_Access_Condition_Runtime {
 			return null;
 		}
 
-		$cache_key = self::SEGMENT_CACHE_KEY . '_' . get_current_user_id();
+		$cache_key = Agend_Content_Access_Viewer_Facts::segment_cache_key( get_current_user_id() );
 		$cached    = get_transient( $cache_key );
 
 		if ( is_array( $cached ) ) {
@@ -193,36 +181,30 @@ class Agend_Content_Access_Condition_Runtime {
 	}
 
 	/**
-	 * TTL for the cached membership facts.
+	 * TTL for the cached membership and segment facts.
 	 *
 	 * Short by intent. Membership standing decides what a visitor can see, so a
 	 * long TTL means a lapsed member keeps their access for that long. Uses
 	 * Core's configured value when available so an operator tunes one setting.
+	 * The rule lives on the facts source; this stays as the stable entry point
+	 * the segment cache and the vocabulary cache already call.
 	 *
 	 * @return int Seconds.
 	 */
 	public static function cache_ttl(): int {
-		if ( class_exists( 'Agend_Apps_Settings' ) ) {
-			$ttl = (int) Agend_Apps_Settings::get_cache_ttl( 'crm_me_entitlements' );
-
-			if ( $ttl > 0 ) {
-				return $ttl;
-			}
-		}
-
-		return 5 * MINUTE_IN_SECONDS;
+		return Agend_Content_Access_Viewer_Facts::cache_ttl();
 	}
 
 	/**
 	 * Clears the cached facts for one user.
 	 *
 	 * Called when membership changes arrive by webhook, so an upgrade or a
-	 * lapse takes effect without waiting out the TTL.
+	 * lapse takes effect without waiting out the TTL. Clears the membership
+	 * entry and the segment entry, under the current generation.
 	 *
 	 * @param int $user_id WordPress user id.
 	 */
 	public static function flush_member_facts( int $user_id ): void {
-		delete_transient( self::MEMBER_CACHE_KEY . '_' . $user_id );
-		delete_transient( self::SEGMENT_CACHE_KEY . '_' . $user_id );
+		Agend_Content_Access_Viewer_Facts::flush( $user_id );
 	}
 }
