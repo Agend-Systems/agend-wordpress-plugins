@@ -212,10 +212,18 @@ class Agend_Content_Access_Decision {
 	/**
 	 * The full decision for one post.
 	 *
-	 * @param int $post_id Post id.
+	 * `$anonymous` evaluates the post for a reader who cannot be identified at
+	 * all: no editor preview and no identity lookup, so a restricted post is
+	 * denied outright. It exists for syndication feeds. A feed is fetched by
+	 * aggregators that carry no session, and its response is routinely cached
+	 * and shared, so a render personalised to whoever happened to ask would be
+	 * served to everyone after them.
+	 *
+	 * @param int  $post_id   Post id.
+	 * @param bool $anonymous Evaluate as an anonymous reader.
 	 * @return array{state: string, policy: array|null, preview: bool, degraded: bool}
 	 */
-	public static function for_post( int $post_id ): array {
+	public static function for_post( int $post_id, bool $anonymous = false ): array {
 		// The ENFORCED reading, not the editor's: a stored policy this version
 		// cannot read comes back as an unsatisfiable one, so it denies instead
 		// of being served as public.
@@ -227,6 +235,22 @@ class Agend_Content_Access_Decision {
 			// triggers a gateway call.
 			return array(
 				'state'    => self::STATE_GRANTED,
+				'policy'   => $policy,
+				'preview'  => false,
+				'degraded' => false,
+			);
+		}
+
+		if ( $anonymous ) {
+			return array(
+				'state'    => self::evaluate(
+					$policy,
+					array(
+						'identified' => false,
+						'tier_ids'   => array(),
+						'degraded'   => false,
+					)
+				),
 				'policy'   => $policy,
 				'preview'  => false,
 				'degraded' => false,

@@ -20,8 +20,20 @@ if ( ! defined( 'ABSPATH' ) ) {
  * rather than styled away (US-3.4 criterion 7). CSS and JavaScript hiding is
  * not access control: the content is still in the payload, and view-source
  * defeats it.
+ *
+ * `gate_request()` only ever sees the QUERIED post. A restricted post that
+ * renders anywhere else, in a blog index, an archive, a search result, a
+ * widget, a feed, or a block theme's query loop, is gated by the render filters
+ * further down, at the point its body or auto-generated excerpt is produced.
  */
 class Agend_Content_Access_Frontend {
+
+	/**
+	 * Priority of the `the_content` pass that withholds a body before anything
+	 * renders it. Lower than core's `do_blocks` (9), `wpautop` (10) and
+	 * `do_shortcode` (11).
+	 */
+	private const WITHHOLD_PRIORITY = 1;
 
 	/**
 	 * Decision for the current singular request, resolved once.
@@ -29,6 +41,27 @@ class Agend_Content_Access_Frontend {
 	 * @var array|null
 	 */
 	private ?array $decision = null;
+
+	/**
+	 * Gate markup produced for posts whose body was withheld from a render
+	 * other than the gated singular, keyed by post id.
+	 *
+	 * Holding it lets the closing `the_content` pass restore the gate without
+	 * deciding again, and lets `suppress_builder_data()` know which documents
+	 * are withheld.
+	 *
+	 * @var array<int, string>
+	 */
+	private array $withheld = array();
+
+	/**
+	 * Posts whose outage denial has already been reported this request, keyed by
+	 * post id. A post can be gated for its body and again for its excerpt, and
+	 * one outage should count once.
+	 *
+	 * @var array<int, true>
+	 */
+	private array $degraded_reported = array();
 
 	/**
 	 * Registers hooks.
@@ -40,6 +73,47 @@ class Agend_Content_Access_Frontend {
 		// (US-3.4 criterion 8). Registered unconditionally: a REST request never
 		// reaches template_redirect.
 		add_action( 'rest_api_init', array( $this, 'register_rest_filters' ) );
+
+		$this->register_render_filters();
+	}
+
+	/**
+	 * Gates a restricted post wherever its body or excerpt is produced.
+	 *
+	 * Registered on every request and decided when a filter runs, not here. Who
+	 * is looking, and whether this is an authoring context, are not known at
+	 * `plugins_loaded`, and a filter that is not registered cannot fail closed.
+	 * `renders_for_visitors()` keeps wp-admin screens out.
+	 *
+	 * `the_content` is registered at BOTH ends of the chain because no single
+	 * priority is safe.
+	 *
+	 * Early, at priority 1: the body is replaced before core's `do_blocks` (9),
+	 * `wpautop` (10) and `do_shortcode` (11), or any page builder, sees it. So
+	 * nothing with a side effect runs on content the visitor may not read: no
+	 * enqueued script, no counter, no gateway call from a dynamic block. Hiding
+	 * the result afterwards would leave all of that behind.
+	 *
+	 * An early replacement alone is not enough. Elementor re-derives a
+	 * document's body from its own stored data, at a priority in the millions,
+	 * and ignores whatever earlier filters left in `$content`. So a second pass
+	 * at the very end restores the gate for every post the first pass withheld,
+	 * whatever ran in between. A filter that only REPLACES content must come last to be the
+	 * word that stands, and first so the body is never rendered. The withheld
+	 * post's builder data is also blanked, so the builder is not run only to have
+	 * its output thrown away.
+	 *
+	 * Excerpts and feeds run last, at PHP_INT_MAX. `wp_trim_excerpt()` (priority
+	 * 10 on `get_the_excerpt`) is what builds an excerpt out of the body when
+	 * none was written, so a gate that ran before it would hand it an empty
+	 * string to fill with the opening of the protected post.
+	 */
+	private function register_render_filters(): void {
+		add_filter( 'the_content', array( $this, 'withhold_in_loop' ), self::WITHHOLD_PRIORITY );
+		add_filter( 'the_content', array( $this, 'enforce_withheld' ), PHP_INT_MAX );
+		add_filter( 'get_the_excerpt', array( $this, 'filter_excerpt' ), PHP_INT_MAX, 2 );
+		add_filter( 'the_content_feed', array( $this, 'filter_feed_content' ), PHP_INT_MAX );
+		add_filter( 'the_excerpt_rss', array( $this, 'filter_feed_excerpt' ), PHP_INT_MAX );
 	}
 
 	/**
@@ -69,16 +143,7 @@ class Agend_Content_Access_Frontend {
 			return;
 		}
 
-		if ( ! empty( $decision['degraded'] ) ) {
-			// An outage denied a visitor who may well be entitled. Record it as
-			// an operational error, because a spike here is a broken gateway,
-			// not a surge of lapsed memberships.
-			do_action(
-				'agend_content_access_degraded',
-				(int) $post->ID,
-				$decision['state']
-			);
-		}
+		$this->report_degraded( (int) $post->ID, $decision );
 
 		$this->decision = $decision;
 
@@ -216,6 +281,19 @@ class Agend_Content_Access_Frontend {
 	 * @return mixed Empty data for builder keys, otherwise the untouched value.
 	 */
 	public function suppress_builder_data( $value, $object_id, $meta_key, $single ) {
+		// Elementor stores its document here. Returning an empty array stops the
+		// builder rendering the protected layout from its own copy.
+		if ( '_elementor_data' !== $meta_key ) {
+			return $value;
+		}
+
+		// A post withheld from a loop render is gated as firmly as the queried
+		// one. Otherwise the builder would render a restricted post's layout from
+		// its own copy inside every archive that lists it.
+		if ( isset( $this->withheld[ (int) $object_id ] ) ) {
+			return $single ? array() : array( array() );
+		}
+
 		if ( null === $this->decision ) {
 			return $value;
 		}
@@ -226,13 +304,308 @@ class Agend_Content_Access_Frontend {
 			return $value;
 		}
 
-		// Elementor stores its document here. Returning an empty array stops the
-		// builder rendering the protected layout from its own copy.
-		if ( '_elementor_data' === $meta_key ) {
-			return $single ? array() : array( array() );
+		return $single ? array() : array( array() );
+	}
+
+	/**
+	 * Records an outage that denied a visitor who may well be entitled.
+	 *
+	 * An operational error, because a spike here is a broken gateway, not a
+	 * surge of lapsed memberships.
+	 *
+	 * @param int   $post_id  Post id.
+	 * @param array $decision Result of `Agend_Content_Access_Decision::for_post()`.
+	 */
+	private function report_degraded( int $post_id, array $decision ): void {
+		if ( empty( $decision['degraded'] ) || isset( $this->degraded_reported[ $post_id ] ) ) {
+			return;
 		}
 
-		return $value;
+		$this->degraded_reported[ $post_id ] = true;
+
+		do_action( 'agend_content_access_degraded', $post_id, $decision['state'] );
+	}
+
+	/**
+	 * Whether the current render is one a visitor can end up reading.
+	 *
+	 * The opposite of `is_authoring_context()` except for one case. WordPress
+	 * reports `is_admin()` for admin-ajax.php, but "load more" buttons, filters
+	 * and infinite scroll print posts to ANONYMOUS visitors through it, so an
+	 * is_admin() exclusion would leave exactly those renders open. wp-admin
+	 * screens proper stay out: an editor there needs to see what they are
+	 * editing, and `can_preview()` already covers any post they may edit.
+	 *
+	 * @return bool
+	 */
+	private static function renders_for_visitors(): bool {
+		if ( is_admin() ) {
+			return wp_doing_ajax();
+		}
+
+		return ! self::is_authoring_context();
+	}
+
+	/**
+	 * The post currently being rendered, when it should be gated at all.
+	 *
+	 * @return WP_Post|null
+	 */
+	private static function post_being_rendered(): ?WP_Post {
+		if ( ! self::renders_for_visitors() ) {
+			return null;
+		}
+
+		$post = get_post();
+
+		return $post instanceof WP_Post ? $post : null;
+	}
+
+	/**
+	 * The decision for a post rendered outside the gated singular.
+	 *
+	 * A feed is evaluated as an anonymous reader (see `Decision::for_post()`).
+	 * Everything else is evaluated for the actual visitor.
+	 *
+	 * @param int $post_id Post id.
+	 * @return array{state: string, policy: array|null, preview: bool, degraded: bool}
+	 */
+	private static function decision_for_render( int $post_id ): array {
+		return Agend_Content_Access_Decision::for_post( $post_id, is_feed() );
+	}
+
+	/**
+	 * Withholds a restricted post's body wherever it renders outside the gated
+	 * singular: a blog index, an archive, search results, a widget, a related
+	 * posts list, or a block theme's query loop.
+	 *
+	 * `gate_request()` bails unless the request is singular, and
+	 * `filter_the_content()` only acts for the main query's own loop, so before
+	 * this filter any other place a restricted post rendered printed its full
+	 * body to whoever asked. Acts on the post WordPress is currently rendering
+	 * (`get_post()`), which is how a `the_content` filter learns whose content
+	 * it was handed.
+	 *
+	 * Posts with a public or unset policy cost nothing: `for_post()` returns for
+	 * them before any identity lookup.
+	 *
+	 * @param string $content Original content.
+	 * @return string
+	 */
+	public function withhold_in_loop( $content ) {
+		$post = self::post_being_rendered();
+
+		if ( null === $post ) {
+			return $content;
+		}
+
+		// The queried post is already handled by `gate_request()` whenever
+		// `filter_the_content()` will act, which is exactly this condition. It
+		// is skipped here so that path is not changed and nothing is gated twice.
+		// The same post rendered anywhere ELSE on the request (a sidebar, a
+		// related list) does not meet it, and is gated here.
+		if ( null !== $this->decision && in_the_loop() && is_main_query() ) {
+			return $content;
+		}
+
+		$post_id  = (int) $post->ID;
+		$decision = self::decision_for_render( $post_id );
+
+		if ( Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ) {
+			self::note_granted_render( $post_id, $decision );
+			return $content;
+		}
+
+		$this->report_degraded( $post_id, $decision );
+
+		$gate = self::render_gate(
+			self::teaser_for( $post ),
+			$decision['state'],
+			$decision['policy']
+		);
+
+		$this->withheld[ $post_id ] = $gate;
+
+		// Registered on first use: it sits on every `get_post_meta()` call, so a
+		// request that withholds nothing should not pay for it. Adding the same
+		// callback again is a no-op.
+		add_filter( 'get_post_metadata', array( $this, 'suppress_builder_data' ), 10, 4 );
+
+		return $gate;
+	}
+
+	/**
+	 * Restores the gate over a withheld post after every other filter has run.
+	 *
+	 * See `register_render_filters()` for why this second pass exists. It does
+	 * not decide again: it only re-asserts what `withhold_in_loop()` already
+	 * decided, so a post that was granted is untouched.
+	 *
+	 * @param string $content Content as the rest of the chain left it.
+	 * @return string
+	 */
+	public function enforce_withheld( $content ) {
+		if ( array() === $this->withheld ) {
+			return $content;
+		}
+
+		$post = get_post();
+
+		if ( $post instanceof WP_Post && isset( $this->withheld[ (int) $post->ID ] ) ) {
+			return $this->withheld[ (int) $post->ID ];
+		}
+
+		return $content;
+	}
+
+	/**
+	 * Gates a post's excerpt.
+	 *
+	 * An excerpt is not harmless. When none was written, `wp_trim_excerpt()`
+	 * builds one from the first 55 words of the BODY, so every archive, search
+	 * result, widget and SEO description would publish the opening of the
+	 * protected post. A denied post therefore yields its manual excerpt only:
+	 * that is the editor's deliberate public teaser, the same rule `teaser_for()`
+	 * applies to the singular gate. With none written the excerpt is empty.
+	 *
+	 * @param string       $excerpt Excerpt as the chain built it.
+	 * @param WP_Post|null $post    Post the excerpt is for.
+	 * @return string
+	 */
+	public function filter_excerpt( $excerpt, $post = null ) {
+		if ( ! $post instanceof WP_Post || ! self::renders_for_visitors() ) {
+			return $excerpt;
+		}
+
+		$post_id  = (int) $post->ID;
+		$decision = self::decision_for_render( $post_id );
+
+		if ( Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ) {
+			self::note_granted_render( $post_id, $decision );
+			return $excerpt;
+		}
+
+		$this->report_degraded( $post_id, $decision );
+
+		return self::teaser_for( $post );
+	}
+
+	/**
+	 * Gates a feed item's full content.
+	 *
+	 * A feed reader is anonymous, so a restricted item carries its teaser and
+	 * nothing else: no gate prompt either, because its sign-in link would point
+	 * back at the feed. Always evaluated as anonymous, never for whoever fetched
+	 * it, because a feed response is shared and cached.
+	 *
+	 * @param string $content Feed content.
+	 * @return string
+	 */
+	public function filter_feed_content( $content ) {
+		$post = get_post();
+
+		if ( ! $post instanceof WP_Post ) {
+			return $content;
+		}
+
+		$decision = Agend_Content_Access_Decision::for_post( (int) $post->ID, true );
+
+		if ( Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ) {
+			return $content;
+		}
+
+		$teaser = self::teaser_for( $post );
+
+		return '' === $teaser ? '' : wpautop( esc_html( $teaser ) );
+	}
+
+	/**
+	 * Gates a feed item's summary.
+	 *
+	 * @param string $output Feed excerpt.
+	 * @return string
+	 */
+	public function filter_feed_excerpt( $output ) {
+		$post = get_post();
+
+		if ( ! $post instanceof WP_Post ) {
+			return $output;
+		}
+
+		$decision = Agend_Content_Access_Decision::for_post( (int) $post->ID, true );
+
+		if ( Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ) {
+			return $output;
+		}
+
+		return self::teaser_for( $post );
+	}
+
+	/**
+	 * Keeps a page that carries a member's render of restricted content out of
+	 * page caches.
+	 *
+	 * Only when the body was granted to an identified visitor who is not merely
+	 * previewing. Public and unset posts never reach a cache problem, and an
+	 * editor's preview is a logged-in request that caches already bypass.
+	 *
+	 * @param int   $post_id  Post id.
+	 * @param array $decision Result of `Agend_Content_Access_Decision::for_post()`.
+	 */
+	private static function note_granted_render( int $post_id, array $decision ): void {
+		$policy = $decision['policy'];
+
+		if (
+			! empty( $decision['preview'] )
+			|| null === $policy
+			|| Agend_Content_Access_Policy::MODE_PUBLIC === ( $policy['mode'] ?? '' )
+		) {
+			return;
+		}
+
+		self::mark_uncacheable( $post_id );
+	}
+
+	/**
+	 * Marks the current page as one no shared cache may store.
+	 *
+	 * A page cache keys on the URL, not on who asked. If a member's render of a
+	 * listing is stored, the next anonymous visitor to that URL is served the
+	 * member's copy, restricted bodies included, and the gate never runs. So the
+	 * page is excluded two ways:
+	 *
+	 * - `DONOTCACHEPAGE`, the constant WP Super Cache, W3 Total Cache, WP Rocket
+	 *   and LiteSpeed Cache all honour. Defined while the page renders, and caches
+	 *   read it after it has rendered, so setting it mid-page works.
+	 * - `Cache-Control: private, no-store`, for caches and proxies in front of
+	 *   WordPress that ignore the constant. `nocache_headers()` is not enough on
+	 *   its own: its `no-cache` forbids reuse without revalidation but still
+	 *   PERMITS a cache to store the response, so a member's copy could sit in a
+	 *   shared store. `no-store` forbids storing it, and `private` forbids shared
+	 *   caches from keeping it at all. The header can only be sent while headers
+	 *   are still unsent. In a classic theme output usually began before the loop,
+	 *   so the constant is the dependable half and the header is best effort.
+	 *
+	 * @param int $post_id Post whose granted render caused this.
+	 */
+	private static function mark_uncacheable( int $post_id ): void {
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+
+		if ( ! headers_sent() ) {
+			header( 'Cache-Control: private, no-store', true );
+		}
+
+		/**
+		 * Fires when a page carries a member's render of a restricted post.
+		 *
+		 * For cache integrations that do not read `DONOTCACHEPAGE`, such as a CDN
+		 * bypass rule or a host's own page cache.
+		 *
+		 * @param int $post_id Post whose granted render caused this.
+		 */
+		do_action( 'agend_content_access_uncacheable_render', $post_id );
 	}
 
 	/**
