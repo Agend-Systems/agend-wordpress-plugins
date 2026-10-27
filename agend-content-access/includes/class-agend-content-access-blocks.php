@@ -85,6 +85,20 @@ class Agend_Content_Access_Blocks {
 	const SEARCH_FLAG_META_KEY = Agend_Content_Access_Frontend::FRAGMENT_RULES_META_KEY;
 
 	/**
+	 * Option holding the progress of the flag backfill: `{last_id, done}`.
+	 *
+	 * @var string
+	 */
+	const BACKFILL_OPTION = 'agend_content_access_fragment_backfill';
+
+	/**
+	 * Posts examined per backfill pass.
+	 *
+	 * @var int
+	 */
+	const BACKFILL_BATCH = 100;
+
+	/**
 	 * Priority of the `pre_get_posts` search exclusion: last.
 	 *
 	 * Another plugin's `pre_get_posts` callback may replace the `meta_query` this
@@ -188,6 +202,16 @@ class Agend_Content_Access_Blocks {
 		add_action( 'template_redirect', array( $this, 'mark_page_uncacheable' ), self::TEMPLATE_REDIRECT_PRIORITY );
 		add_action( 'save_post', array( $this, 'sync_search_flag' ), 20 );
 		add_action( 'elementor/document/after_save', array( $this, 'sync_search_flag_after_elementor_save' ) );
+
+		// A document written without a save at all (an importer, WP-CLI, a search
+		// and replace tool) changes only the meta, and neither hook above fires.
+		add_action( 'added_post_meta', array( $this, 'sync_search_flag_on_meta_change' ), 10, 3 );
+		add_action( 'updated_post_meta', array( $this, 'sync_search_flag_on_meta_change' ), 10, 3 );
+		add_action( 'deleted_post_meta', array( $this, 'sync_search_flag_on_meta_change' ), 10, 3 );
+
+		// Posts saved before the flag existed converge on their own, a batch of
+		// them per wp-admin page load for an administrator.
+		add_action( 'admin_init', array( __CLASS__, 'maybe_backfill' ) );
 		add_action( 'pre_get_posts', array( $this, 'exclude_from_search' ), self::SEARCH_EXCLUSION_PRIORITY );
 		add_filter( 'get_post_metadata', array( $this, 'filter_footnotes_meta' ), 10, 4 );
 
@@ -732,25 +756,64 @@ class Agend_Content_Access_Blocks {
 			return false;
 		}
 
-		$raw = trim( (string) get_post_meta( (int) $post->ID, Agend_Content_Access_Elementor_Parser::META_KEY, true ) );
+		$document = self::elementor_document( (int) $post->ID );
 
-		if ( '' === $raw ) {
+		if ( null === $document ) {
 			return self::tree_carries_rules( (string) $post->post_content );
 		}
 
-		$decoded = json_decode( $raw, true );
-
-		if ( ! is_array( $decoded ) ) {
+		if ( false === $document ) {
 			return true;
 		}
 
-		foreach ( $decoded as $node ) {
+		foreach ( $document as $node ) {
 			if ( ! is_array( $node ) || Agend_Content_Access_Elementor::subtree_carries_policy( $node ) ) {
 				return true;
 			}
 		}
 
 		return false;
+	}
+
+	/**
+	 * The Elementor document a post stores, read once and the same way by every
+	 * caller.
+	 *
+	 * Elementor stores a JSON string, and a read can also come back as the decoded
+	 * list: a filter on the meta, an importer, or this plugin's own
+	 * `suppress_builder_data()`, which answers an empty list for a document it is
+	 * withholding. Both are read. What is neither a document nor nothing is
+	 * unreadable, so "I could not tell" is never mistaken for "there is none".
+	 *
+	 * @param int $post_id Post id.
+	 * @return array|false|null The decoded document, null when the post has none
+	 *                          (so it is a block document), false when one is stored
+	 *                          and cannot be read.
+	 */
+	private static function elementor_document( int $post_id ) {
+		$stored = get_post_meta( $post_id, Agend_Content_Access_Elementor_Parser::META_KEY, true );
+
+		if ( null === $stored || false === $stored ) {
+			return null;
+		}
+
+		if ( is_array( $stored ) ) {
+			return array() === $stored ? null : $stored;
+		}
+
+		if ( ! is_scalar( $stored ) ) {
+			return false;
+		}
+
+		$raw = trim( (string) $stored );
+
+		if ( '' === $raw ) {
+			return null;
+		}
+
+		$decoded = json_decode( $raw, true );
+
+		return is_array( $decoded ) ? $decoded : false;
 	}
 
 	// -----------------------------------------------------------------------
@@ -1005,10 +1068,7 @@ class Agend_Content_Access_Blocks {
 	 * @return string
 	 */
 	public function safe_generated_excerpt( $excerpt, $post = null ) {
-		if (
-			! $post instanceof WP_Post
-			|| '' !== trim( (string) get_post_meta( (int) $post->ID, Agend_Content_Access_Elementor_Parser::META_KEY, true ) )
-		) {
+		if ( ! $post instanceof WP_Post || null !== self::elementor_document( (int) $post->ID ) ) {
 			return (string) $excerpt;
 		}
 
@@ -1135,25 +1195,44 @@ class Agend_Content_Access_Blocks {
 	 * @param int $post_id Post being saved.
 	 */
 	public function sync_search_flag( $post_id ): void {
-		$post_id = (int) $post_id;
+		self::sync_flag( (int) $post_id );
+	}
 
+	/**
+	 * Brings a post's flag in line with its document.
+	 *
+	 * Writes only when the answer changed, so the common save of a post that has
+	 * none, and never had, costs no query. A row that exists with any value but
+	 * `'1'` is wrong either way: left in place it would keep the post out of search
+	 * (`NOT EXISTS` does not match it) without marking it as carrying anything.
+	 *
+	 * @param int $post_id Post id.
+	 * @return bool Whether the post carries rules. False when it was not examined:
+	 *              a revision, an autosave or a post that does not exist.
+	 */
+	public static function sync_flag( int $post_id ): bool {
 		// An autosave is stored as a revision and is not the post.
 		if ( $post_id <= 0 || wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
-			return;
+			return false;
 		}
 
 		$post = get_post( $post_id );
 
 		if ( ! $post instanceof WP_Post ) {
-			return;
+			return false;
 		}
 
-		if ( self::document_carries_rules( $post ) ) {
-			update_post_meta( $post_id, self::SEARCH_FLAG_META_KEY, '1' );
-			return;
+		$carries = self::document_carries_rules( $post );
+
+		if ( $carries ) {
+			if ( '1' !== (string) get_post_meta( $post_id, self::SEARCH_FLAG_META_KEY, true ) ) {
+				update_post_meta( $post_id, self::SEARCH_FLAG_META_KEY, '1' );
+			}
+		} elseif ( metadata_exists( 'post', $post_id, self::SEARCH_FLAG_META_KEY ) ) {
+			delete_post_meta( $post_id, self::SEARCH_FLAG_META_KEY );
 		}
 
-		delete_post_meta( $post_id, self::SEARCH_FLAG_META_KEY );
+		return $carries;
 	}
 
 	/**
@@ -1171,6 +1250,212 @@ class Agend_Content_Access_Blocks {
 		if ( is_object( $document ) && method_exists( $document, 'get_main_id' ) ) {
 			$this->sync_search_flag( (int) $document->get_main_id() );
 		}
+	}
+
+	/**
+	 * Records the flag again when an Elementor document is written without a save.
+	 *
+	 * An importer, WP-CLI (`wp post meta update`) or a search and replace tool
+	 * writes `_elementor_data` and nothing else, so neither `save_post` nor
+	 * Elementor's own save action fires, and the post would keep the flag it had:
+	 * a rule added that way would not hide the post from search until somebody
+	 * happened to save it. Every meta write on the site passes through here, so the
+	 * key is the first and only test most of them meet.
+	 *
+	 * @param mixed  $meta_id   Meta row id, or ids. Unused.
+	 * @param int    $object_id Post id.
+	 * @param string $meta_key  Meta key written.
+	 */
+	public function sync_search_flag_on_meta_change( $meta_id = 0, $object_id = 0, $meta_key = '' ): void {
+		if ( Agend_Content_Access_Elementor_Parser::META_KEY !== $meta_key ) {
+			return;
+		}
+
+		self::sync_flag( (int) $object_id );
+	}
+
+	// -----------------------------------------------------------------------
+	// Flag backfill
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Flags one batch of posts, in id order, after a given id.
+	 *
+	 * Posts saved before the flag existed have none, and the flag is the only thing
+	 * a search query can filter on. Each post is decided with
+	 * `document_carries_rules()`, the check a save uses, so a block document and an
+	 * Elementor document are covered by the same rule, and a flag that is no longer
+	 * right is cleared as well as a missing one set.
+	 *
+	 * @param int           $after_id Last post id already examined.
+	 * @param int           $limit    Posts to examine.
+	 * @param callable|null $fetch    Returns the ids, for a test: `fn( int $after_id, int $limit ): int[]`.
+	 * @return array{processed: int, flagged: int, last_id: int, done: bool}
+	 */
+	public static function backfill_batch( int $after_id, int $limit = self::BACKFILL_BATCH, ?callable $fetch = null ): array {
+		$limit = max( 1, $limit );
+		$ids   = null === $fetch ? self::post_ids_after( $after_id, $limit ) : (array) $fetch( $after_id, $limit );
+
+		// One query for the batch's meta rather than one per post.
+		if ( array() !== $ids && function_exists( 'update_meta_cache' ) ) {
+			update_meta_cache( 'post', $ids );
+		}
+
+		$flagged = 0;
+		$last_id = $after_id;
+
+		foreach ( $ids as $id ) {
+			$id = (int) $id;
+
+			if ( self::sync_flag( $id ) ) {
+				++$flagged;
+			}
+
+			$last_id = max( $last_id, $id );
+		}
+
+		return array(
+			'processed' => count( $ids ),
+			'flagged'   => $flagged,
+			'last_id'   => $last_id,
+			// A short batch is the end. A full one may be, and costs one more empty
+			// pass to find out.
+			'done'      => count( $ids ) < $limit,
+		);
+	}
+
+	/**
+	 * Ids of the posts to examine, after a given id, lowest first.
+	 *
+	 * Every status but `auto-draft`, so a draft, a scheduled post or one in the
+	 * trash already has its flag right on the day it is published or restored.
+	 *
+	 * @param int $after_id Last id examined.
+	 * @param int $limit    Rows.
+	 * @return int[]
+	 */
+	public static function post_ids_after( int $after_id, int $limit ): array {
+		global $wpdb;
+
+		$types = Agend_Content_Access_Meta_Box::supported_post_types();
+
+		if ( array() === $types ) {
+			return array();
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $types ), '%s' ) );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Table name and a generated placeholder list; every value is bound.
+		$sql = $wpdb->prepare(
+			"SELECT ID FROM {$wpdb->posts} WHERE ID > %d AND post_type IN ( {$placeholders} ) AND post_status <> 'auto-draft' ORDER BY ID ASC LIMIT %d",
+			array_merge( array( $after_id ), array_values( $types ), array( $limit ) )
+		);
+
+		return array_map( 'intval', (array) $wpdb->get_col( $sql ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
+	}
+
+	/**
+	 * The progress of the one-off backfill.
+	 *
+	 * @return array{last_id: int, done: bool}
+	 */
+	public static function backfill_state(): array {
+		$stored = get_option( self::BACKFILL_OPTION, array() );
+		$stored = is_array( $stored ) ? $stored : array();
+
+		return array(
+			'last_id' => isset( $stored['last_id'] ) ? max( 0, (int) $stored['last_id'] ) : 0,
+			'done'    => ! empty( $stored['done'] ),
+		);
+	}
+
+	/**
+	 * Records the progress of the backfill.
+	 *
+	 * Not autoloaded while it runs, so a site that is partway through carries no
+	 * extra weight on every request; autoloaded once done, because every wp-admin
+	 * page for a manager reads it to find that out, and a lookup that costs a query
+	 * for ever is the worse trade.
+	 *
+	 * @param int  $last_id Last post id examined.
+	 * @param bool $done    Whether the whole table has been.
+	 */
+	private static function save_backfill_state( int $last_id, bool $done ): void {
+		update_option(
+			self::BACKFILL_OPTION,
+			array(
+				'last_id' => $last_id,
+				'done'    => $done,
+			),
+			$done
+		);
+	}
+
+	/**
+	 * Flags posts saved before the flag existed, a batch at a time.
+	 *
+	 * Runs for a user who can manage options, on a wp-admin page load, until the
+	 * whole table has been examined, so the flag converges on its own with nobody
+	 * having to run anything. A hundred posts a pass, so no one page load pays for
+	 * a big site; the same hundred processed twice by two administrators at once is
+	 * harmless, since the flag is written only when it is wrong.
+	 *
+	 * Skipped for AJAX: heartbeat requests would run it every fifteen seconds in a
+	 * tab nobody is looking at.
+	 */
+	public static function maybe_backfill(): void {
+		if ( wp_doing_ajax() || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$state = self::backfill_state();
+
+		if ( $state['done'] ) {
+			return;
+		}
+
+		$result = self::backfill_batch( $state['last_id'] );
+
+		self::save_backfill_state( $result['last_id'], $result['done'] );
+	}
+
+	/**
+	 * Flags every post, from the start, in batches.
+	 *
+	 * What `wp agend-content-access backfill-fragment-flags` runs. Starts from the
+	 * first post whatever the one-off recorded, so it can be run again, and marks
+	 * the one-off done when it finishes so the admin pass does not repeat it.
+	 *
+	 * @param int           $batch    Posts per pass.
+	 * @param callable|null $progress Called after each pass with its result.
+	 * @param callable|null $fetch    Returns the ids, for a test.
+	 * @return array{processed: int, flagged: int}
+	 */
+	public static function backfill_all( int $batch = self::BACKFILL_BATCH, ?callable $progress = null, ?callable $fetch = null ): array {
+		$last_id   = 0;
+		$processed = 0;
+		$flagged   = 0;
+
+		do {
+			$result = self::backfill_batch( $last_id, $batch, $fetch );
+
+			$last_id    = $result['last_id'];
+			$processed += $result['processed'];
+			$flagged   += $result['flagged'];
+
+			self::save_backfill_state( $last_id, $result['done'] );
+
+			if ( null !== $progress ) {
+				$progress( $result );
+			}
+			// A pass that examined nothing is the end whatever it reported, so a
+			// fetcher that never says "done" cannot hold this in a loop.
+		} while ( ! $result['done'] && $result['processed'] > 0 );
+
+		return array(
+			'processed' => $processed,
+			'flagged'   => $flagged,
+		);
 	}
 
 	/**
