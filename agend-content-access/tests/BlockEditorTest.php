@@ -275,6 +275,7 @@ final class BlockEditorTest extends TestCase {
 
 		$this->assertCount( 1, $route );
 		$this->assertSame( 'GET', $route[0]['methods'] );
+		$this->assertSame( array( 'refresh' ), array_keys( $route[0]['args'] ), 'the panel\'s Try again asks for a refresh' );
 		$this->assertSame( 'agend_content_access_can_read_conditions', $route[0]['permission_callback'] );
 		$this->assertTrue( is_callable( $route[0]['callback'] ) );
 		$this->assertTrue( is_callable( $route[0]['permission_callback'] ) );
@@ -303,92 +304,23 @@ final class BlockEditorTest extends TestCase {
 		$this->assertTrue( agend_content_access_can_read_conditions() );
 	}
 
+	/**
+	 * What the payload holds (groups, ID based values, aliases, errors) is
+	 * ConditionsVocabularyTest's: it needs Core's segment and entitlement
+	 * wrappers, which cannot be undefined once declared, so it runs each test in
+	 * its own process.
+	 */
 	#[Test]
-	public function the_payload_is_lists_with_each_value_already_joined_to_its_provider(): void {
-		Agend_Test_WP::set_filter(
-			'agend_content_access_condition_sets',
-			array(
-				'agend_wordpress'  => array(
-					'label'      => 'WordPress user',
-					'conditions' => array(
-						'logged_in' => 'Signed in',
-						'role_editor' => 'Role: Editor',
-					),
-				),
-				'agend_membership' => array(
-					'label'      => 'Membership',
-					// A numeric slug becomes an integer array key in PHP.
-					'conditions' => array(
-						'is_member' => 'Holds a current membership',
-						2024        => 'Plan: Class of 2024',
-					),
-				),
-			)
-		);
+	public function the_payload_has_the_three_parts_the_panel_reads(): void {
+		Agend_Test_WP::set_filter( 'agend_content_access_condition_sets', array() );
 
 		$payload = agend_content_access_conditions_payload();
 
-		$this->assertSame( array( 'groups', 'fallbacks' ), array_keys( $payload ) );
+		$this->assertSame( array( 'groups', 'fallbacks', 'errors' ), array_keys( $payload ) );
 		$this->assertSame(
-			array(
-				array(
-					'provider'   => 'agend_wordpress',
-					'label'      => 'WordPress user',
-					'conditions' => array(
-						array( 'value' => 'agend_wordpress:logged_in', 'label' => 'Signed in' ),
-						array( 'value' => 'agend_wordpress:role_editor', 'label' => 'Role: Editor' ),
-					),
-				),
-				array(
-					'provider'   => 'agend_membership',
-					'label'      => 'Membership',
-					'conditions' => array(
-						array( 'value' => 'agend_membership:is_member', 'label' => 'Holds a current membership' ),
-						array( 'value' => 'agend_membership:2024', 'label' => 'Plan: Class of 2024' ),
-					),
-				),
-			),
-			$payload['groups']
+			array( 'agend_membership', 'agend_segments', 'agend_entitlements', 'agend_wordpress' ),
+			array_column( $payload['groups'], 'key' )
 		);
-		$this->assertSame( '[]', json_encode( $payload['fallbacks'] ) );
-	}
-
-	#[Test]
-	public function a_group_that_could_not_load_is_kept_empty_so_the_panel_can_say_so(): void {
-		Agend_Test_WP::set_filter(
-			'agend_content_access_condition_sets',
-			array(
-				'agend_segments' => array(
-					'label'      => 'Segments',
-					'conditions' => array(),
-				),
-			)
-		);
-
-		$groups = agend_content_access_conditions_payload()['groups'];
-
-		$this->assertCount( 1, $groups );
-		$this->assertSame( 'agend_segments', $groups[0]['provider'] );
-		$this->assertSame( array(), $groups[0]['conditions'] );
-		$this->assertSame( '[]', json_encode( $groups[0]['conditions'] ), 'an empty list, not an empty object' );
-	}
-
-	#[Test]
-	public function a_filtered_set_that_is_not_the_documented_shape_is_skipped_or_labelled_by_its_key(): void {
-		Agend_Test_WP::set_filter(
-			'agend_content_access_condition_sets',
-			array(
-				'broken'    => 'not a set',
-				'unlabeled' => array( 'conditions' => array( 'a' => 'A' ) ),
-				'noconds'   => array( 'label' => 'No conditions key' ),
-			)
-		);
-
-		$groups = agend_content_access_conditions_payload()['groups'];
-
-		$this->assertSame( array( 'unlabeled', 'noconds' ), array_column( $groups, 'provider' ) );
-		$this->assertSame( 'unlabeled', $groups[0]['label'] );
-		$this->assertSame( array(), $groups[1]['conditions'] );
 	}
 
 	#[Test]
