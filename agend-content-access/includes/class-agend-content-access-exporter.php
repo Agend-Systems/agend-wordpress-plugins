@@ -102,6 +102,16 @@ class Agend_Content_Access_Exporter {
 	 * alone would let Agend skip the sync and keep serving the record under its
 	 * old audience.
 	 *
+	 * A block page also includes the synced patterns its export resolved. A
+	 * pattern's blocks are not in the page's `post_content`, so editing one, to
+	 * add a restriction say, leaves every field above untouched while changing
+	 * the fragments. Without this the sync would be skipped and Agend would keep
+	 * serving the fragments built before the edit. The patterns come from the
+	 * block driver itself, so the revision watches exactly the ones the
+	 * fragments were built from, under the same guards and budget. Elementor and
+	 * classic posts add nothing, and neither does a block page that resolves no
+	 * pattern, so their revisions are what they were before block pages existed.
+	 *
 	 * @param WP_Post $post Post.
 	 * @return string
 	 */
@@ -117,20 +127,87 @@ class Agend_Content_Access_Exporter {
 		$policy = Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( $post_id )
 			? 'unreadable'
 			: wp_json_encode( Agend_Content_Access_Policy::get_for_post( $post_id ) );
-
-		return hash(
-			'sha256',
-			implode(
-				'|',
-				array(
-					(string) $post->post_modified_gmt,
-					(string) $post->post_status,
-					(string) $policy,
-					(string) get_post_meta( (int) $post->ID, '_elementor_data', true ),
-					(string) $post->post_content,
-				)
-			)
+		$parts  = array(
+			(string) $post->post_modified_gmt,
+			(string) $post->post_status,
+			(string) $policy,
+			(string) get_post_meta( (int) $post->ID, '_elementor_data', true ),
+			(string) $post->post_content,
 		);
+
+		$patterns = self::patterns_digest_of( $post );
+
+		if ( '' !== $patterns ) {
+			$parts[] = $patterns;
+		}
+
+		return hash( 'sha256', implode( '|', $parts ) );
+	}
+
+	/**
+	 * A digest of the synced patterns a block page's export resolved.
+	 *
+	 * Each pattern contributes its id, modification time, status and content, in
+	 * id order, so the digest does not depend on the order the page references
+	 * them and does not count a pattern used twice twice. JSON-encoded rather
+	 * than joined, because pattern content can hold any character a separator
+	 * could be.
+	 *
+	 * @param WP_Post $post Post.
+	 * @return string Empty when the driver for the post is not the block driver
+	 *                or it resolved no pattern.
+	 */
+	private static function patterns_digest_of( $post ): string {
+		$driver = self::driver_for( $post );
+
+		if ( ! $driver instanceof Agend_Content_Access_Block_Parser ) {
+			return '';
+		}
+
+		$rows = array();
+
+		foreach ( $driver->patterns( $post ) as $pattern ) {
+			$rows[] = array(
+				(int) $pattern->ID,
+				(string) $pattern->post_modified_gmt,
+				(string) $pattern->post_status,
+				(string) $pattern->post_content,
+			);
+		}
+
+		if ( array() === $rows ) {
+			return '';
+		}
+
+		return 'patterns:' . hash( 'sha256', (string) wp_json_encode( $rows ) );
+	}
+
+	/**
+	 * The driver that owns a post, or null when none does.
+	 *
+	 * A post holding an Elementor document is the built-in Elementor driver's
+	 * whatever the filter returned (see `fragments_of()`); any other post is the
+	 * first driver in the filtered list to recognise it. This is the one place
+	 * that decides, and both the fragments and the revision ask it, so the
+	 * revision is always computed against the driver the fragments are built by.
+	 *
+	 * @param WP_Post $post Post.
+	 * @return Agend_Content_Access_Document_Parser|null
+	 */
+	private static function driver_for( $post ): ?Agend_Content_Access_Document_Parser {
+		$elementor = new Agend_Content_Access_Elementor_Parser();
+
+		if ( $elementor->recognises( $post ) ) {
+			return $elementor;
+		}
+
+		foreach ( self::parsers() as $parser ) {
+			if ( $parser->recognises( $post ) ) {
+				return $parser;
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -223,16 +300,10 @@ class Agend_Content_Access_Exporter {
 	 * @throws RuntimeException When a driver recognises the document but cannot parse it.
 	 */
 	public static function fragments_of( $post, ?array $policy ): array {
-		$elementor = new Agend_Content_Access_Elementor_Parser();
+		$driver = self::driver_for( $post );
 
-		if ( $elementor->recognises( $post ) ) {
-			return $elementor->fragments( $post );
-		}
-
-		foreach ( self::parsers() as $parser ) {
-			if ( $parser->recognises( $post ) ) {
-				return $parser->fragments( $post );
-			}
+		if ( null !== $driver ) {
+			return $driver->fragments( $post );
 		}
 
 		return array(

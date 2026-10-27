@@ -616,6 +616,67 @@ final class BlockParserTest extends TestCase {
 		$this->assertSame( $fragments, $this->fragments( $this->synced( 900 ) ), 'the cut-off is deterministic' );
 	}
 
+	// -----------------------------------------------------------------
+	// The patterns an export draws on
+	// -----------------------------------------------------------------
+
+	/** @return int[] */
+	private function patternIds( string $content ): array {
+		return array_map(
+			static fn( WP_Post $post ): int => $post->ID,
+			( new BlockParser() )->patterns( $this->post( $content ) )
+		);
+	}
+
+	#[Test]
+	public function the_patterns_are_listed_transitively_once_each_in_id_order(): void {
+		$this->pattern( 902, $this->para( 'C' ) );
+		$this->pattern( 901, $this->para( 'B' ) . $this->synced( 903 ) );
+		$this->pattern( 903, $this->para( 'D' ) );
+
+		$content = $this->page( $this->synced( 902 ), $this->synced( 901 ), $this->synced( 902 ) );
+
+		$this->assertSame( array( 901, 902, 903 ), $this->patternIds( $content ) );
+	}
+
+	#[Test]
+	public function a_pattern_that_cannot_be_used_is_not_listed(): void {
+		$this->pattern( 900, $this->para( 'Draft' ), array( 'post_status' => 'draft' ) );
+		$this->pattern( 901, $this->para( 'Fine' ) . $this->synced( 901 ) );
+
+		$this->assertSame( array( 901 ), $this->patternIds( $this->page( $this->synced( 900 ), $this->synced( 901 ), $this->synced( 404 ) ) ) );
+	}
+
+	/** The fragments and the list are built from one expansion, so they cannot name different patterns. */
+	#[Test]
+	public function the_patterns_listed_are_exactly_the_ones_the_fragments_carry(): void {
+		$references = array();
+
+		for ( $i = 0; $i < 60; $i++ ) {
+			$this->pattern( 1000 + $i, $this->para( 'PATTERN-' . $i ) );
+
+			$references[] = $this->synced( 1000 + $i );
+		}
+
+		$content   = $this->page( ...$references );
+		$fragments = $this->fragments( $content );
+		$carried   = array();
+
+		foreach ( $fragments as $fragment ) {
+			if ( 1 === preg_match( '/PATTERN-(\d+)/', $fragment['payload']['html'], $m ) ) {
+				$carried[] = 1000 + (int) $m[1];
+			}
+		}
+
+		$this->assertCount( 50, $carried );
+		$this->assertSame( $carried, $this->patternIds( $content ) );
+	}
+
+	#[Test]
+	public function a_page_with_no_patterns_lists_none(): void {
+		$this->assertSame( array(), $this->patternIds( $this->para( 'Plain' ) ) );
+	}
+
 	/**
 	 * `core/block` has a render callback on a real site, which makes it a
 	 * dynamic block. It is resolved, not skipped, and the callback is never run.
