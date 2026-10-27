@@ -160,6 +160,22 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 	// Direct request: the page gate
 	// -----------------------------------------------------------------------
 
+	/**
+	 * Names of the methods registered on a hook, in registration order.
+	 *
+	 * Asked by method rather than by hook name because the constructor now
+	 * registers the render filters on `the_content` too, so that hook being
+	 * occupied no longer says whether the singular gate replaced the body.
+	 *
+	 * @return string[]
+	 */
+	private function registeredMethods( string $hook ): array {
+		return array_map(
+			static fn( array $entry ): string => is_array( $entry['callback'] ) ? (string) $entry['callback'][1] : '(closure)',
+			Agend_Test_WP::$filter_registry[ $hook ] ?? array()
+		);
+	}
+
 	private function requestThePage(): Agend_Content_Access_Frontend {
 		$GLOBALS['agend_test_is_singular']    = true;
 		$GLOBALS['agend_test_queried_object'] = get_post( self::POST_ID );
@@ -185,7 +201,7 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 
 		$this->requestThePage()->gate_request();
 
-		$this->assertArrayHasKey( 'the_content', Agend_Test_WP::$filters, 'the body must be replaced by the gate' );
+		$this->assertContains( 'filter_the_content', $this->registeredMethods( 'the_content' ), 'the body must be replaced by the gate' );
 		$this->assertArrayHasKey( 'get_post_metadata', Agend_Test_WP::$filters, 'builder data must be blanked' );
 	}
 
@@ -193,7 +209,7 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 	public function the_page_gate_lets_a_post_with_no_stored_policy_through(): void {
 		$this->requestThePage()->gate_request();
 
-		$this->assertArrayNotHasKey( 'the_content', Agend_Test_WP::$filters );
+		$this->assertNotContains( 'filter_the_content', $this->registeredMethods( 'the_content' ) );
 	}
 
 	#[Test]
@@ -202,7 +218,7 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 
 		$this->requestThePage()->gate_request();
 
-		$this->assertArrayNotHasKey( 'the_content', Agend_Test_WP::$filters );
+		$this->assertNotContains( 'filter_the_content', $this->registeredMethods( 'the_content' ) );
 	}
 
 	// -----------------------------------------------------------------------

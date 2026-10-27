@@ -278,6 +278,36 @@ written by a newer release, restricts the page to nobody rather than reading as
 unset, and 0.1.1 is the minimum safe version to roll back to from 0.2.0, because
 0.1.0 served such a page as public.
 
+## Where a restricted post is gated
+
+A restricted post is gated wherever its body or auto-generated excerpt is
+rendered, not only on its own URL: the blog index, archives, search results,
+widgets, feeds and the query loops of block themes. A manual excerpt is the only
+public teaser, because it is an editor's deliberate summary; an auto-generated
+one is the opening of the protected body, so it is never published. Every policy
+mode is gated this way, including segments and selected entitlements, and the
+gate names entitlements exactly as the post's own page does. Feeds are always
+evaluated as an anonymous reader, because a feed is fetched without a session
+and shared through caches. A feed therefore never asks Agend for a member's
+standing or segments.
+
+A listing costs no more gateway calls than a single post. However many
+restricted posts a loop renders, the visitor's standing is asked of Agend at
+most once per request, and their segments at most once, through the same
+per-request source as every other decision.
+
+When a restricted post's body is shown to a member anywhere on a page, that page
+is marked uncacheable (`DONOTCACHEPAGE`, and `Cache-Control: private, no-store`
+while headers can still be sent), so a page cache cannot serve a member's copy to
+anonymous visitors. The `agend_content_access_uncacheable_render` action fires
+for cache integrations that do not read the constant.
+
+**Not covered:** code that reads `$post->post_content` or calls
+`get_the_content()` directly bypasses every content filter, and so this gate. So
+does core search, which matches the terms against the raw `post_content`: a
+restricted post can be found by a word only its body contains, although the
+result then shows only the gate.
+
 ## Member standing cache
 
 A visitor's membership standing comes from one source,

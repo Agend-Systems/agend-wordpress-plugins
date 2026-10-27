@@ -68,6 +68,18 @@ final class Agend_Test_WP {
 	/** @var array<string, callable> Filter callbacks keyed by hook name. */
 	public static array $filters = array();
 
+	/**
+	 * Every add_filter() registration, in order, keyed by hook name.
+	 *
+	 * {@see $filters} keeps ONE callback per hook, which is all most tests need
+	 * and what they set directly. This is the record alongside it, for a test
+	 * that has to see what was registered at which priority, or run a chain of
+	 * callbacks the way WordPress would ({@see apply_registered()}).
+	 *
+	 * @var array<string, array<int, array{callback: callable, priority: int, args: int}>>
+	 */
+	public static array $filter_registry = array();
+
 	/** @var array<string, mixed> The "database": what get_option()/update_option() persist. */
 	public static array $options = array();
 
@@ -190,6 +202,7 @@ final class Agend_Test_WP {
 		self::$action_priorities = array();
 		self::$did_action        = array();
 		self::$filters           = array();
+		self::$filter_registry   = array();
 		self::$options           = array();
 		self::$object_cache      = array();
 		self::$requests          = array();
@@ -239,6 +252,38 @@ final class Agend_Test_WP {
 	 */
 	public static function queue_transport_error( string $code, string $message ): void {
 		self::$canned_responses[] = array( 'error' => new WP_Error( $code, $message ) );
+	}
+
+	/**
+	 * Runs every callback registered on a hook, in WordPress's order: by
+	 * priority, and by registration order within one priority.
+	 *
+	 * @param string $hook  Hook name.
+	 * @param mixed  $value Value to filter.
+	 * @param mixed  ...$args Extra arguments, passed to callbacks that accept them.
+	 * @return mixed
+	 */
+	public static function apply_registered( string $hook, $value, ...$args ) {
+		$entries = array();
+
+		foreach ( self::$filter_registry[ $hook ] ?? array() as $order => $entry ) {
+			$entries[] = array( $entry['priority'], $order, $entry );
+		}
+
+		usort(
+			$entries,
+			static fn( array $a, array $b ): int => array( $a[0], $a[1] ) <=> array( $b[0], $b[1] )
+		);
+
+		foreach ( $entries as $item ) {
+			$entry = $item[2];
+			$value = call_user_func_array(
+				$entry['callback'],
+				array_slice( array_merge( array( $value ), $args ), 0, $entry['args'] )
+			);
+		}
+
+		return $value;
 	}
 
 	/**
@@ -377,7 +422,12 @@ function apply_filters( string $hook, $value, ...$args ) {
 }
 
 function add_filter( string $hook, $callback, int $priority = 10, int $args = 1 ): bool {
-	Agend_Test_WP::$filters[ $hook ] = $callback;
+	Agend_Test_WP::$filters[ $hook ]           = $callback;
+	Agend_Test_WP::$filter_registry[ $hook ][] = array(
+		'callback' => $callback,
+		'priority' => $priority,
+		'args'     => $args,
+	);
 	return true;
 }
 
@@ -387,7 +437,7 @@ function add_filter( string $hook, $callback, int $priority = 10, int $args = 1 
  * parity and not compared.
  */
 function remove_filter( string $hook, $callback = null, int $priority = 10 ): bool {
-	unset( Agend_Test_WP::$filters[ $hook ] );
+	unset( Agend_Test_WP::$filters[ $hook ], Agend_Test_WP::$filter_registry[ $hook ] );
 	return true;
 }
 
@@ -1370,6 +1420,13 @@ if ( ! function_exists( 'is_main_query' ) ) {
 	}
 }
 
+if ( ! function_exists( 'in_the_loop' ) ) {
+	/** Not inside a loop unless a test sets `$GLOBALS['agend_test_in_the_loop']`. */
+	function in_the_loop(): bool {
+		return ! empty( $GLOBALS['agend_test_in_the_loop'] );
+	}
+}
+
 if ( ! function_exists( 'nocache_headers' ) ) {
 	/** No-op: the unit harness sends no real HTTP headers. */
 	function nocache_headers(): void {}
@@ -1957,6 +2014,14 @@ if ( ! function_exists( 'get_post' ) ) {
 	 * the missing-post path without a database.
 	 */
 	function get_post( $id = null ) {
+		// No argument means the post WordPress is currently rendering, as in
+		// core: `$GLOBALS['post']`, which a test sets to put a post "in the loop".
+		if ( null === $id ) {
+			$current = $GLOBALS['post'] ?? null;
+
+			return $current instanceof WP_Post ? $current : null;
+		}
+
 		$fields = $GLOBALS['agend_test_posts'][ (int) $id ] ?? null;
 
 		if ( null === $fields ) {

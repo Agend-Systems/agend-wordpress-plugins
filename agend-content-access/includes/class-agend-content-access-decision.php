@@ -362,12 +362,40 @@ class Agend_Content_Access_Decision {
 	}
 
 	/**
+	 * A viewer who is nobody: not identified, holding no plan, entitlement or
+	 * segment. Resolves nothing, so it costs no gateway call and cannot degrade.
+	 *
+	 * @return array{identified: bool, tier_ids: string[], entitlement_keys: string[], segment_ids: string[], degraded: bool}
+	 */
+	private static function anonymous_viewer(): array {
+		return array(
+			'identified'       => false,
+			'tier_ids'         => array(),
+			'entitlement_keys' => array(),
+			'segment_ids'      => array(),
+			'degraded'         => false,
+		);
+	}
+
+	/**
 	 * The full decision for one post.
 	 *
-	 * @param int $post_id Post id.
+	 * `$anonymous` evaluates the post for a reader who cannot be identified at
+	 * all: no editor preview and no identity lookup, so a restricted post is
+	 * denied outright. It exists for syndication feeds. A feed is fetched by
+	 * aggregators that carry no session, and its response is routinely cached
+	 * and shared, so a render personalised to whoever happened to ask would be
+	 * served to everyone after them. It is judged against the same enforced
+	 * policy as any other reader, so an unreadable stored policy denies here too,
+	 * but never reaches `viewer()`: no bearer is asked for, no entitlements or
+	 * segments are fetched, and the visitor's own session cannot change the
+	 * answer.
+	 *
+	 * @param int  $post_id   Post id.
+	 * @param bool $anonymous Evaluate as an anonymous reader.
 	 * @return array{state: string, policy: array|null, preview: bool, degraded: bool}
 	 */
-	public static function for_post( int $post_id ): array {
+	public static function for_post( int $post_id, bool $anonymous = false ): array {
 		// The ENFORCED reading, not the editor's: a stored policy this version
 		// cannot read comes back as an unsatisfiable one, so it denies instead
 		// of being served as public. The same policy is handed to `viewer()`
@@ -380,6 +408,17 @@ class Agend_Content_Access_Decision {
 			// triggers a gateway call.
 			return array(
 				'state'    => self::STATE_GRANTED,
+				'policy'   => $policy,
+				'preview'  => false,
+				'degraded' => false,
+			);
+		}
+
+		if ( $anonymous ) {
+			// A viewer built here, never `viewer()`: that resolves the bearer and
+			// reads the member's standing, which is the whole point of skipping it.
+			return array(
+				'state'    => self::evaluate( $policy, self::anonymous_viewer() ),
 				'policy'   => $policy,
 				'preview'  => false,
 				'degraded' => false,
