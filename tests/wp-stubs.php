@@ -1399,6 +1399,18 @@ if ( ! function_exists( 'is_admin' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_is_serving_rest_request' ) ) {
+	/**
+	 * Never a REST request in the unit harness unless a test sets
+	 * `$GLOBALS['agend_test_rest_request']`. The real function reads the
+	 * `REST_REQUEST` constant, which cannot be undone once defined, so a test
+	 * could not put the next one back.
+	 */
+	function wp_is_serving_rest_request(): bool {
+		return ! empty( $GLOBALS['agend_test_rest_request'] );
+	}
+}
+
 if ( ! function_exists( 'is_feed' ) ) {
 	/** Never a feed request in the unit harness unless a test says otherwise. */
 	function is_feed(): bool {

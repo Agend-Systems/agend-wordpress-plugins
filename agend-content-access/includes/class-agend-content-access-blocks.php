@@ -41,7 +41,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * would judge a restricted post's block in a loop on a public page against the
  * public page, and fail open.
  *
- * The authoring carve-out (`Agend_Content_Access_Frontend::renders_for_visitors()`)
+ * The authoring carve-out (`Agend_Content_Access_Frontend::is_authoring_context()`)
  * and a display-condition fallback that is itself restricted (`fallback_for()`)
  * are handled here as well, and each fails silently if it is missed.
  */

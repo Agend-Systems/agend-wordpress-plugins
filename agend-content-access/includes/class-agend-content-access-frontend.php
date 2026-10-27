@@ -36,6 +36,15 @@ class Agend_Content_Access_Frontend {
 	private const WITHHOLD_PRIORITY = 1;
 
 	/**
+	 * The REST route of the block editor's server-side block renderer.
+	 *
+	 * `ServerSideRender` and every dynamic block's editor preview call it.
+	 *
+	 * @var string
+	 */
+	const BLOCK_RENDERER_ROUTE = '/wp/v2/block-renderer/';
+
+	/**
 	 * Decision for the current singular request, resolved once.
 	 *
 	 * @var array|null
@@ -173,7 +182,8 @@ class Agend_Content_Access_Frontend {
 	 * the intent is legible and so no later filter can accidentally reach a
 	 * builder request.
 	 *
-	 * Note the boundary: this covers the EDITOR and its preview iframe. A public
+	 * Note the boundary: this covers the EDITOR and its preview iframe, and the
+	 * block editor's own REST renders (`is_block_editor_request()`). A public
 	 * pageload of an Elementor page is a normal frontend request and is gated
 	 * like any other, which is what `suppress_builder_data()` exists for.
 	 *
@@ -181,6 +191,12 @@ class Agend_Content_Access_Frontend {
 	 */
 	public static function is_authoring_context(): bool {
 		if ( is_admin() ) {
+			return true;
+		}
+
+		// The block editor renders server-side over REST, where is_admin() is
+		// false: see `is_block_editor_request()` for the exact rule.
+		if ( self::is_block_editor_request() ) {
 			return true;
 		}
 
@@ -206,6 +222,92 @@ class Agend_Content_Access_Frontend {
 		return 0 !== $preview_id
 			&& isset( $plugin->preview )
 			&& $plugin->preview->is_preview_mode( $preview_id );
+	}
+
+	/**
+	 * Whether this request is the block editor's OWN server-side render.
+	 *
+	 * The block editor never renders through wp-admin: it asks the REST API, where
+	 * `is_admin()` is false. Without this an author would see their own restricted
+	 * blocks removed from the editor's previews and, worse, from the post body the
+	 * editor loads, so they could neither lay out nor repair the content the policy
+	 * protects. The rule is deliberately narrow, because this is the one place a
+	 * request can talk itself out of block enforcement. ALL of these must hold:
+	 *
+	 *   1. WordPress is serving a REST request. A front-end URL with `?context=edit`
+	 *      on it is a front-end request, and never qualifies.
+	 *   2. The user can `edit_posts`. A query arg, a header or an unauthenticated
+	 *      REST call cannot supply this: REST cookie authentication drops the user
+	 *      to signed-out when the nonce is missing, before dispatch.
+	 *   3. The request is for the block renderer route, or asks for `context=edit`,
+	 *      which is what the editor sends and what WordPress already refuses to a
+	 *      user who may not edit.
+	 *   4. If a post is being rendered, the user may edit THAT post. A contributor
+	 *      listing other people's posts with `context=edit` is not authoring them,
+	 *      and without this clause would read every restricted block in them.
+	 *
+	 * Reading `$_GET` and `$GLOBALS['wp']` here, rather than capturing the
+	 * dispatched `WP_REST_Request`, can only miss a case (a batched sub-request,
+	 * which then renders as a visitor's would), never invent one.
+	 *
+	 * @return bool
+	 */
+	public static function is_block_editor_request(): bool {
+		if ( ! self::is_rest_request() ) {
+			return false;
+		}
+
+		if ( ! current_user_can( 'edit_posts' ) ) {
+			return false;
+		}
+
+		if ( 0 !== strpos( self::rest_route(), self::BLOCK_RENDERER_ROUTE ) && ! self::rest_context_is_edit() ) {
+			return false;
+		}
+
+		$post = get_post();
+
+		return ! $post instanceof WP_Post || current_user_can( 'edit_post', $post->ID );
+	}
+
+	/**
+	 * Whether WordPress is serving a REST API request.
+	 *
+	 * `wp_is_serving_rest_request()` arrived in 6.5; before that the constant
+	 * `rest_api_loaded()` defines is the only signal, and is what the function
+	 * reads. An internal `rest_do_request()` from a theme does not define it, so
+	 * it is not mistaken for one.
+	 *
+	 * @return bool
+	 */
+	private static function is_rest_request(): bool {
+		if ( function_exists( 'wp_is_serving_rest_request' ) ) {
+			return wp_is_serving_rest_request();
+		}
+
+		return defined( 'REST_REQUEST' ) && REST_REQUEST;
+	}
+
+	/**
+	 * The REST route being served, as `rest_api_loaded()` dispatches it.
+	 *
+	 * @return string The route with a leading slash, or '' when there is none.
+	 */
+	private static function rest_route(): string {
+		$wp    = isset( $GLOBALS['wp'] ) && is_object( $GLOBALS['wp'] ) ? $GLOBALS['wp'] : null;
+		$route = null !== $wp && isset( $wp->query_vars['rest_route'] ) ? $wp->query_vars['rest_route'] : '';
+
+		return is_string( $route ) && '' !== $route ? '/' . ltrim( $route, '/' ) : '';
+	}
+
+	/**
+	 * Whether the REST request asked for the `edit` context.
+	 *
+	 * @return bool
+	 */
+	private static function rest_context_is_edit(): bool {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only mode check. The capability check beside it is what authorises.
+		return isset( $_GET['context'] ) && is_string( $_GET['context'] ) && 'edit' === $_GET['context'];
 	}
 
 	/**
