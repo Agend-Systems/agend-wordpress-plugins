@@ -103,6 +103,36 @@ recognise still produces a fragment carrying its policy, with
 `payload.extracted` false. That is a fidelity gap, never a security one. The
 region renders empty rather than to the wrong audience.
 
+### Block editor pages
+
+A page built in the block editor is exported as fragments too, by a second
+driver that runs after the Elementor one. A block carries its audience in one
+attribute, `agendAccess`, and the connector folds each block's policy down into
+whatever sits below it, as it does for Elementor.
+
+| Block | Handling |
+| --- | --- |
+| No block below it carries a policy | One fragment for the whole subtree, carrying the policy folded down to it |
+| A block below it carries a policy | Structural. Not a fragment; its children are walked with the policy folded so far |
+| Plain content between blocks | A `block:freeform` fragment. Blank runs are skipped |
+| Synced pattern (`core/block`) | Resolved in place, so a restriction inside it is seen. A missing, unpublished or protected pattern is an empty fragment |
+
+Fragment ids are positional, `block-` plus the index path (`block-2-1-0`), and
+`type` is `block:` plus the block name.
+
+**Nothing is rendered.** A static block's HTML is rebuilt from its saved markup.
+A dynamic block (a query loop, latest posts, post content, a template part,
+navigation, or any block with a render callback) is exported empty, with
+`payload.extracted` false, because rendering it would pull other posts' content,
+possibly restricted, into this document's fragment, to be served under this
+document's policy.
+
+A structural block's own wrapper markup (a Group's `<div>`) is not exported.
+That, an unreadable pattern and a dynamic block are fidelity gaps, never
+security ones: the failure mode is a region that comes out empty or bare, not
+one served to the wrong audience. Display conditions are not exported, as for
+Elementor.
+
 ## What this plugin owns
 
 Document policies, Elementor fragment policies, the source connector, direct

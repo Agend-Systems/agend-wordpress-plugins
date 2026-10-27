@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\ContentAccess;
 
+use Agend_Content_Access_Block_Parser;
 use Agend_Content_Access_Document_Parser;
 use Agend_Content_Access_Elementor_Parser;
 use Agend_Content_Access_Exporter as Exporter;
@@ -18,9 +19,12 @@ use RuntimeException;
 use WP_Post;
 
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-policy.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-assets.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/interface-agend-content-access-document-parser.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-elementor-parser.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-parser.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-exporter.php';
 
 /**
@@ -28,11 +32,13 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
  *
  * The exporter used to sniff `_elementor_data` and call the Elementor parser by
  * name. It now asks a list of drivers, first match wins, with the single `body`
- * fragment as the fallback. What must not change is the output for the two
- * cases that exist today: an Elementor page and everything else.
+ * fragment as the fallback. What must not change is the output for an Elementor
+ * page and for a classic post; a block editor page is the third case, handed to
+ * the block driver.
  */
 #[CoversClass( Exporter::class )]
 #[CoversClass( Agend_Content_Access_Elementor_Parser::class )]
+#[CoversClass( Agend_Content_Access_Block_Parser::class )]
 final class ExporterDispatchTest extends TestCase {
 
 	private const POST_ID = 321;
@@ -114,10 +120,58 @@ final class ExporterDispatchTest extends TestCase {
 	}
 
 	#[Test]
-	public function the_elementor_driver_is_the_first_driver(): void {
+	public function the_elementor_driver_is_the_first_driver_and_the_block_driver_the_second(): void {
 		$parsers = Exporter::parsers();
 
+		$this->assertCount( 2, $parsers );
 		$this->assertInstanceOf( Agend_Content_Access_Elementor_Parser::class, $parsers[0] );
+		$this->assertInstanceOf( Agend_Content_Access_Block_Parser::class, $parsers[1] );
+	}
+
+	// -----------------------------------------------------------------
+	// The block editor
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function a_block_post_is_parsed_by_the_block_driver(): void {
+		$content = '<!-- wp:paragraph --><p>Open</p><!-- /wp:paragraph -->' . "\n\n"
+			. '<!-- wp:paragraph {"agendAccess":{"mode":"active_member"}} --><p>Members only</p><!-- /wp:paragraph -->';
+
+		$fragments = Exporter::fragments_of( $this->post( $content ), null );
+
+		$this->assertSame( array( 'block-0', 'block-2' ), array_column( $fragments, 'id' ) );
+		$this->assertSame( 'block:core/paragraph', $fragments[1]['type'] );
+		$this->assertSame( array( 'html' => '<p>Members only</p>', 'extracted' => true ), $fragments[1]['payload'] );
+		$this->assertSame( array( 'mode' => 'inherit' ), $fragments[0]['policy'] );
+		$this->assertSame( array( 'mode' => 'active_member' ), $fragments[1]['policy'] );
+	}
+
+	/** Elementor keeps a copy of its output in `post_content`, which may hold block comments. */
+	#[Test]
+	public function an_elementor_post_is_still_parsed_by_the_elementor_driver_when_its_content_holds_blocks(): void {
+		$this->storeElementor( array( $this->widget( 'wid0001', 'Elementor text' ) ) );
+
+		$fragments = Exporter::fragments_of( $this->post( '<!-- wp:paragraph --><p>Copy</p><!-- /wp:paragraph -->' ), null );
+
+		$this->assertSame( array( 'wid0001' ), array_column( $fragments, 'id' ) );
+		$this->assertSame( 'elementor:text-editor', $fragments[0]['type'] );
+	}
+
+	#[Test]
+	public function a_classic_post_with_a_stray_comment_still_falls_back_to_the_body_fragment(): void {
+		$fragments = Exporter::fragments_of( $this->post( "<!-- more -->\n<p>Classic</p>" ), null );
+
+		$this->assertSame( array( 'body' ), array_column( $fragments, 'id' ) );
+	}
+
+	/** The block driver sits ahead of the fallback, so only a block post reaches it. */
+	#[Test]
+	public function the_body_fallback_is_reached_only_by_posts_no_driver_recognises(): void {
+		$block   = Exporter::fragments_of( $this->post( '<!-- wp:paragraph --><p>Block</p><!-- /wp:paragraph -->' ), null );
+		$classic = Exporter::fragments_of( $this->post( '<p>Classic</p>' ), null );
+
+		$this->assertNotSame( 'body', $block[0]['id'] );
+		$this->assertSame( 'body', $classic[0]['id'] );
 	}
 
 	#[Test]
@@ -266,7 +320,7 @@ final class ExporterDispatchTest extends TestCase {
 		Agend_Test_WP::$filters['agend_content_access_document_parsers'] =
 			static fn( array $parsers ) => 'nonsense';
 
-		$this->assertCount( 1, Exporter::parsers() );
+		$this->assertCount( 2, Exporter::parsers(), 'the built-in drivers stay in place' );
 		$this->assertSame( 'body', Exporter::fragments_of( $this->post(), null )[0]['id'] );
 	}
 

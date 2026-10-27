@@ -136,10 +136,13 @@ class Agend_Content_Access_Exporter {
 	/**
 	 * The document drivers, in priority order.
 	 *
-	 * The Elementor parser is the first driver. A site or a later layer of this
-	 * plugin adds another through `agend_content_access_document_parsers`; the
-	 * list is walked in order and the first driver to recognise a post wins, so
-	 * a driver placed earlier takes precedence over one placed later.
+	 * Elementor first, then the block editor. The order matters little for the two
+	 * of them, because the block driver declines any post Elementor owns, but it
+	 * is what keeps an Elementor page on the Elementor driver if a site's filter
+	 * ever swaps their places. A site or a later layer of this plugin adds
+	 * another through `agend_content_access_document_parsers`; the list is
+	 * walked in order and the first driver to recognise a post wins, so a driver
+	 * placed earlier takes precedence over one placed later.
 	 *
 	 * ONE EXCEPTION: a post holding an Elementor document never reaches this list.
 	 * `fragments_of()` hands it to the built-in Elementor parser first, whatever
@@ -153,7 +156,10 @@ class Agend_Content_Access_Exporter {
 	 * @return Agend_Content_Access_Document_Parser[]
 	 */
 	public static function parsers(): array {
-		$parsers = array( new Agend_Content_Access_Elementor_Parser() );
+		$parsers = array(
+			new Agend_Content_Access_Elementor_Parser(),
+			new Agend_Content_Access_Block_Parser(),
+		);
 
 		/**
 		 * Filters the document drivers the exporter asks, in order.
@@ -200,9 +206,11 @@ class Agend_Content_Access_Exporter {
 	 * how other posts export and cannot opt an Elementor post out.
 	 *
 	 * Every other post goes to the first driver in the filtered list to recognise
-	 * it. Anything no driver recognises is a single fragment holding the whole body
-	 * with policy `inherit`, the same shape Agend reads a legacy blob as
-	 * (Decision 2.8).
+	 * it. A block editor page becomes one fragment per block subtree that holds
+	 * no policy of its own below it, split wherever one does. Anything no driver
+	 * recognises, a classic post with no blocks, is a single fragment holding the
+	 * whole body with policy `inherit`, the same shape Agend reads a legacy blob
+	 * as (Decision 2.8).
 	 *
 	 * A structural parse error is thrown by the driver, not swallowed. The
 	 * alternative is shipping a document whose restricted regions were quietly
