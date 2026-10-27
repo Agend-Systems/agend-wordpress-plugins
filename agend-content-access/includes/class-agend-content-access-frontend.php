@@ -499,10 +499,22 @@ class Agend_Content_Access_Frontend {
 	 * reports it, and a visitor cannot switch it on for one, because it also
 	 * requires the edit capability on the document the editor names.
 	 *
+	 * That is the document the REQUEST names, and one request can render several:
+	 * a widget refreshed in a document its user may edit can embed a template, or
+	 * list a post, that they may not. So the exemption holds for a render only
+	 * when the user may edit the document THAT render belongs to. Asked with no
+	 * document, because Elementor does not say which one is rendering, it answers
+	 * no: a render that cannot be placed is a visitor's.
+	 *
+	 * @param int $document_id Document being rendered, or zero when it is not known.
 	 * @return bool
 	 */
-	public static function is_elementor_editor_ajax(): bool {
-		if ( ! wp_doing_ajax() || ! agend_content_access_has_elementor() ) {
+	public static function is_elementor_editor_ajax( int $document_id = 0 ): bool {
+		if ( $document_id <= 0 || ! wp_doing_ajax() || ! agend_content_access_has_elementor() ) {
+			return false;
+		}
+
+		if ( ! current_user_can( 'edit_post', $document_id ) ) {
 			return false;
 		}
 

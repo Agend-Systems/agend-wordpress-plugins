@@ -359,11 +359,19 @@ class Agend_Content_Access_Elementor {
 	 * other. A template, a header, a loop item or an embedded section is a document
 	 * of its own, and is suppressed in the preview as it is for a visitor.
 	 *
+	 * The editor's AJAX is held to the same rule. Elementor puts the whole request in
+	 * edit mode once the user may edit the document it names, and the request can go
+	 * on to render others: a template widget, a listed post. So it exempts a render
+	 * only when the user may edit the document THAT render belongs to, and one that
+	 * cannot be placed is a visitor's.
+	 *
 	 * @return bool
 	 */
 	private static function is_authoring_render(): bool {
-		return ! Agend_Content_Access_Frontend::renders_for_visitors( self::rendering_document_id() )
-			|| Agend_Content_Access_Frontend::is_elementor_editor_ajax();
+		$document_id = self::rendering_document_id();
+
+		return ! Agend_Content_Access_Frontend::renders_for_visitors( $document_id )
+			|| Agend_Content_Access_Frontend::is_elementor_editor_ajax( $document_id );
 	}
 
 	/**

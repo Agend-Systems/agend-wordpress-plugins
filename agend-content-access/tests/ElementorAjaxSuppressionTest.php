@@ -42,6 +42,12 @@ final class ElementorAjaxSuppressionTest extends TestCase {
 
 	private const FALLBACK_ID = 88;
 
+	/** The document the editor is working on, which its user may edit. */
+	private const OWN_DOCUMENT = 42;
+
+	/** A template the document embeds, which its user may not edit. */
+	private const TEMPLATE = 43;
+
 	/** @var object Preview double the suite installed, put back after each test. */
 	private $original_preview;
 
@@ -119,10 +125,47 @@ final class ElementorAjaxSuppressionTest extends TestCase {
 		$GLOBALS['agend_test_doing_ajax'] = true;
 	}
 
-	/** admin-ajax.php, as Elementor's own editor reaches it. */
+	/**
+	 * admin-ajax.php, as Elementor's own editor reaches it: refreshing a widget of
+	 * a document its user may edit, and nobody else's.
+	 */
 	private function elementorEditorAjax(): void {
 		$this->adminAjax();
 		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
+		$GLOBALS['agend_test_current_user_can']['edit_post']                           = false;
+		$GLOBALS['agend_test_current_user_can_for']['edit_post'][ self::OWN_DOCUMENT ] = true;
+
+		$this->documentRendering( self::OWN_DOCUMENT );
+	}
+
+	/** Tells the double Elementor's documents manager is rendering the given document. */
+	private function documentRendering( ?int $document_id ): void {
+		\Elementor\Plugin::$instance->documents = new class( $document_id ) {
+			private ?int $id;
+
+			public function __construct( ?int $id ) {
+				$this->id = $id;
+			}
+
+			public function get_current(): ?object {
+				if ( null === $this->id ) {
+					return null;
+				}
+
+				return new class( $this->id ) {
+					private int $id;
+
+					public function __construct( int $id ) {
+						$this->id = $id;
+					}
+
+					public function get_main_id(): int {
+						return $this->id;
+					}
+				};
+			}
+		};
 	}
 
 	private function fallbackOutput( object $element ): string {
@@ -229,7 +272,77 @@ final class ElementorAjaxSuppressionTest extends TestCase {
 	public function edit_mode_alone_is_not_an_editor_ajax_request(): void {
 		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
 
-		$this->assertFalse( Agend_Content_Access_Frontend::is_elementor_editor_ajax() );
+		$this->assertFalse( Agend_Content_Access_Frontend::is_elementor_editor_ajax( self::OWN_DOCUMENT ) );
+	}
+
+	// -----------------------------------------------------------------------
+	// The editor's exemption is per document, not per request
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Elementor puts the whole request in edit mode once the user may edit the
+	 * document the request names. A refresh of a widget in that document can embed
+	 * a template, or list a post, the user may not edit, and those render for them
+	 * as they would for a visitor.
+	 */
+	#[Test]
+	public function another_document_rendered_by_the_editors_ajax_is_suppressed(): void {
+		$this->elementorEditorAjax();
+		$this->documentRendering( self::TEMPLATE );
+
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $this->conditioned() ) );
+	}
+
+	#[Test]
+	public function another_document_rendered_by_the_editors_ajax_gets_its_replacement_content(): void {
+		$this->elementorEditorAjax();
+		$this->documentRendering( self::TEMPLATE );
+
+		$this->assertStringContainsString( 'SIGN-IN-PROMPT-CONTENT', $this->fallbackOutput( $this->conditioned() ) );
+	}
+
+	#[Test]
+	public function another_document_rendered_by_the_editors_ajax_is_not_marked_as_the_editors(): void {
+		$this->elementorEditorAjax();
+		$this->documentRendering( self::TEMPLATE );
+		$element = $this->restricted();
+
+		( new ElementorControl() )->maybe_mark_in_editor( $element );
+
+		$this->assertSame( array(), $element->attributes );
+	}
+
+	/** Fail closed: a render Elementor does not place in a document is a visitor's. */
+	#[Test]
+	public function a_render_in_the_editors_ajax_with_no_known_document_is_suppressed(): void {
+		$this->elementorEditorAjax();
+
+		// Even somebody who may edit every post: core resolves id 0 to the global
+		// post, so the capability check alone would not refuse a render it cannot place.
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+		$element = $this->restricted();
+
+		$this->documentRendering( null );
+
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $element ), 'a manager that names no current document' );
+
+		\Elementor\Plugin::$instance->documents = null;
+
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $element ), 'no manager at all' );
+	}
+
+	#[Test]
+	public function the_editors_ajax_is_not_trusted_for_a_document_its_user_cannot_edit(): void {
+		$this->elementorEditorAjax();
+
+		$this->assertTrue( Agend_Content_Access_Frontend::is_elementor_editor_ajax( self::OWN_DOCUMENT ) );
+		$this->assertFalse( Agend_Content_Access_Frontend::is_elementor_editor_ajax( self::TEMPLATE ) );
+
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+
+		$this->assertFalse( Agend_Content_Access_Frontend::is_elementor_editor_ajax( 0 ), 'no document, no exemption, whatever the user may edit' );
+		$this->assertFalse( Agend_Content_Access_Frontend::is_elementor_editor_ajax(), 'asked about nothing in particular' );
 	}
 
 	// -----------------------------------------------------------------------

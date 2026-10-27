@@ -194,7 +194,11 @@ preview iframe.
 - **admin-ajax.php is not authoring.** WordPress reports `is_admin()` for it, but
   other plugins render Elementor templates through it for anonymous visitors
   ("load more", filters, tabs). Sections are suppressed there. Only Elementor's
-  own editor requests are exempt.
+  own editor requests are exempt, and only for a document the user may edit. One
+  editor request can render several documents, such as a template widget or a
+  listed post, so the exemption is judged for the document being rendered, not
+  for the one the request names. A render Elementor does not place in a document
+  is a visitor's.
 
 ### Section rules and the raw body
 
