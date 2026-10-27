@@ -166,6 +166,34 @@ class Agend_Content_Access_Access {
 	}
 
 	/**
+	 * Whether a rule set is one a visitor could satisfy by joining or changing plan.
+	 *
+	 * True when any part holds a membership or plan rule that is not reversed, which
+	 * is `involved()` read over every part and not only the parts that denied. The
+	 * placeholder asks it to decide whether a signed-out visitor is also offered
+	 * "Join": it has no visitor to ask, only the page's rules, and a visitor who is
+	 * not signed in cannot be told which part they would have failed. It is only
+	 * copy. It never admits anyone, so being wrong costs a button, not a body.
+	 *
+	 * @param Agend_Content_Access_Rules $rules The rules.
+	 * @return bool
+	 */
+	public static function offers_membership( Agend_Content_Access_Rules $rules ): bool {
+		$parts = array();
+
+		foreach ( $rules->leaves() as $leaf ) {
+			$parts[] = array(
+				'inverted' => $leaf->is_inverted(),
+				'rules'    => $leaf->rules(),
+			);
+		}
+
+		$involved = self::involved( $parts, $rules->is_unreadable() );
+
+		return $involved['membership'] || $involved['plan'];
+	}
+
+	/**
 	 * Builds the result array.
 	 *
 	 * @param bool     $allowed  Whether the visitor may see it.

@@ -81,6 +81,20 @@ class Agend_Content_Access_Frontend {
 	private ?array $decision = null;
 
 	/**
+	 * The denial of the page this request is for, once `gate_request()` has made one.
+	 *
+	 * A static because its reader is the `[agend_access_message]` shortcode, which
+	 * runs somewhere inside the page's own content and has no handle on the object
+	 * that gated it, and because there is one request and so one denial. It holds
+	 * the decision only: the state and the rules, which say what to tell the visitor
+	 * and never what the page says. Cleared at the top of every `gate_request()` so
+	 * a long-lived PHP worker cannot show one request's denial on the next.
+	 *
+	 * @var array{post_id: int, decision: array}|null
+	 */
+	private static ?array $current_gate = null;
+
+	/**
 	 * Gate markup produced for posts whose body was withheld from a render
 	 * other than the gated singular, keyed by post id.
 	 *
@@ -187,6 +201,8 @@ class Agend_Content_Access_Frontend {
 	 * and caching plugins get a chance to render or store anything.
 	 */
 	public function gate_request(): void {
+		self::$current_gate = null;
+
 		if ( self::is_authoring_context() ) {
 			return;
 		}
@@ -209,7 +225,11 @@ class Agend_Content_Access_Frontend {
 
 		$this->report_degraded( (int) $post->ID, $decision );
 
-		$this->decision = $decision;
+		$this->decision     = $decision;
+		self::$current_gate = array(
+			'post_id'  => (int) $post->ID,
+			'decision' => $decision,
+		);
 
 		$teaser = self::teaser_for( $post );
 
@@ -219,6 +239,28 @@ class Agend_Content_Access_Frontend {
 		}
 
 		$this->replace_body_with_teaser();
+	}
+
+	/**
+	 * The denial of the page this request is for.
+	 *
+	 * Null when the request is not a denied page: it was granted, it is not a single
+	 * page, or somebody is authoring it. Read by the `[agend_access_message]`
+	 * shortcode, which then shows its neutral preview instead of a message for a
+	 * visitor who is not there.
+	 *
+	 * @return array{post_id: int, decision: array}|null `decision` is the result of
+	 *         `Agend_Content_Access_Decision::for_post()`.
+	 */
+	public static function current_gate(): ?array {
+		return self::$current_gate;
+	}
+
+	/**
+	 * Forgets the denial of the current request. Tests only: a request makes one.
+	 */
+	public static function reset_gate(): void {
+		self::$current_gate = null;
 	}
 
 	/**
@@ -1261,20 +1303,20 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
-	 * Renders the gate markup.
+	 * The words a denied visitor is told, and the one action that suits them.
 	 *
-	 * @param string     $teaser Teaser text.
+	 * The one source of the gate copy, so the loop gate (`render_gate()`) and the
+	 * placeholder a denied page shows in place of its body say the same thing about
+	 * the same denial. Only the words depend on the state, never who is admitted.
+	 *
 	 * @param string     $state  Decision state.
 	 * @param array|null $policy The rules as the policy arm that says them (`Decision::for_post()`'s
 	 *                           `policy`), used to name the qualifying plans or entitlements. Rules
 	 *                           no arm can say are named nothing. A segment is never named.
-	 * @return string
+	 * @return array{message: string, cta: string} `cta` is the label of the call to action, or
+	 *                           an empty string when the denial has none.
 	 */
-	public static function render_gate( string $teaser, string $state, ?array $policy = null ): string {
-		$portal = method_exists( 'Agend_Apps_Settings', 'get_portal_url' )
-			? (string) Agend_Apps_Settings::get_portal_url()
-			: '';
-
+	public static function gate_copy( string $state, ?array $policy = null ): array {
 		switch ( $state ) {
 			case Agend_Content_Access_Decision::STATE_MEMBERSHIP:
 				$message = __( 'This content is for members. An active membership is required to read it.', 'agend-content-access' );
@@ -1323,6 +1365,56 @@ class Agend_Content_Access_Frontend {
 				break;
 		}
 
+		return array(
+			'message' => $message,
+			'cta'     => $cta,
+		);
+	}
+
+	/**
+	 * Where a denied visitor is sent to sign in or join: the member portal, with
+	 * this page as the place to come back to.
+	 *
+	 * Agend Apps Core's portal setting, and nothing else, so there is no second
+	 * place to configure it. Core has no separate "join" or "membership" address,
+	 * so signing in and joining are the same destination, as the loop gate has
+	 * always had them. An empty string when Core is too old to have the setting or
+	 * none is configured, and the caller then omits the button rather than point it
+	 * nowhere.
+	 *
+	 * @return string URL, or an empty string.
+	 */
+	public static function portal_link(): string {
+		$portal = method_exists( 'Agend_Apps_Settings', 'get_portal_url' )
+			? (string) Agend_Apps_Settings::get_portal_url()
+			: '';
+
+		if ( '' === $portal ) {
+			return '';
+		}
+
+		$return = home_url( add_query_arg( array() ) );
+
+		return add_query_arg( 'return_to', rawurlencode( $return ), $portal );
+	}
+
+	/**
+	 * Renders the gate markup.
+	 *
+	 * Used for a restricted post that renders anywhere but its own page: the loop,
+	 * a widget, a related list. A page's own URL shows the placeholder instead
+	 * (`Agend_Content_Access_Placeholder`).
+	 *
+	 * @param string     $teaser Teaser text.
+	 * @param string     $state  Decision state.
+	 * @param array|null $policy The rules as the policy arm that says them (`Decision::for_post()`'s
+	 *                           `policy`), used to name the qualifying plans or entitlements. Rules
+	 *                           no arm can say are named nothing. A segment is never named.
+	 * @return string
+	 */
+	public static function render_gate( string $teaser, string $state, ?array $policy = null ): string {
+		$copy = self::gate_copy( $state, $policy );
+
 		$html = '<div class="agend-access-gate">';
 
 		if ( '' !== $teaser ) {
@@ -1330,14 +1422,13 @@ class Agend_Content_Access_Frontend {
 		}
 
 		$html .= '<div class="agend-access-gate-prompt">';
-		$html .= '<p>' . esc_html( $message ) . '</p>';
+		$html .= '<p>' . esc_html( $copy['message'] ) . '</p>';
 
-		if ( '' !== $portal && '' !== $cta ) {
-			$return = home_url( add_query_arg( array() ) );
-			$url    = add_query_arg( 'return_to', rawurlencode( $return ), $portal );
+		$url = self::portal_link();
 
+		if ( '' !== $url && '' !== $copy['cta'] ) {
 			$html .= '<p><a class="agend-access-gate-cta" href="' . esc_url( $url ) . '">'
-				. esc_html( $cta ) . '</a></p>';
+				. esc_html( $copy['cta'] ) . '</a></p>';
 		}
 
 		$html .= '</div></div>';

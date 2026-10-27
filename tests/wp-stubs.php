@@ -137,6 +137,16 @@ final class Agend_Test_WP {
 	/** @var array<int, array{location: string, status: int}> Recorded `wp_safe_redirect()` calls. */
 	public static array $redirects = array();
 
+	/** @var int[] Codes passed to `status_header()`, in call order. */
+	public static array $status_codes = array();
+
+	/**
+	 * Inline CSS added with `wp_add_inline_style()`, keyed by style handle.
+	 *
+	 * @var array<string, string[]>
+	 */
+	public static array $inline_styles = array();
+
 	/** Number of `wp_update_plugins()` calls recorded. */
 	public static int $wp_update_plugins_calls = 0;
 
@@ -236,6 +246,8 @@ final class Agend_Test_WP {
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
 		self::$redirects         = array();
+		self::$status_codes      = array();
+		self::$inline_styles     = array();
 		self::$wp_update_plugins_calls = 0;
 		self::$wp_update_themes_calls  = 0;
 		self::$enqueued_styles   = array();
@@ -3584,5 +3596,96 @@ if ( ! function_exists( 'get_queried_object' ) ) {
 }
 
 if ( ! function_exists( 'status_header' ) ) {
-	function status_header( $code, $description = '' ): void {}
+	/** Records the code rather than sending it, so a test can assert what a gate answered. */
+	function status_header( $code, $description = '' ): void {
+		Agend_Test_WP::$status_codes[] = (int) $code;
+	}
+}
+
+if ( ! function_exists( 'wp_get_referer' ) ) {
+	/**
+	 * The referer a test sets in `$GLOBALS['agend_test_referer']`, else false, as
+	 * core answers a request that has none. Core also drops a referer equal to the
+	 * current URL and one `wp_validate_redirect()` refuses; this does neither, so
+	 * the code under test has to make those checks itself, which it must.
+	 *
+	 * @return string|false
+	 */
+	function wp_get_referer() {
+		$referer = $GLOBALS['agend_test_referer'] ?? false;
+
+		return is_string( $referer ) && '' !== $referer ? $referer : false;
+	}
+}
+
+if ( ! function_exists( 'wp_register_style' ) ) {
+	/** Registers nothing: only the enqueue and the inline CSS are asserted on. */
+	function wp_register_style( string $handle, $src, array $deps = array(), $ver = false, string $media = 'all' ): bool {
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_add_inline_style' ) ) {
+	/** Records the CSS, keyed by handle. */
+	function wp_add_inline_style( string $handle, string $css ): bool {
+		Agend_Test_WP::$inline_styles[ $handle ][] = $css;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_style_is' ) ) {
+	/** Only the `enqueued` list is modelled. */
+	function wp_style_is( string $handle, string $list = 'enqueued' ): bool {
+		return 'enqueued' === $list && in_array( $handle, Agend_Test_WP::$enqueued_styles, true );
+	}
+}
+
+if ( ! function_exists( 'add_shortcode' ) ) {
+	/** Registers the callback in `$GLOBALS['agend_test_shortcodes']`. */
+	function add_shortcode( string $tag, $callback ): void {
+		$GLOBALS['agend_test_shortcodes'][ $tag ] = $callback;
+	}
+}
+
+if ( ! function_exists( 'do_shortcode' ) ) {
+	/** Runs bare `[tag]` shortcodes through their registered callback. No attributes, no enclosing content. */
+	function do_shortcode( string $content ): string {
+		return (string) preg_replace_callback(
+			'/\[(\w+)\]/',
+			static function ( array $match ): string {
+				$callback = $GLOBALS['agend_test_shortcodes'][ $match[1] ] ?? null;
+
+				return null === $callback ? $match[0] : (string) call_user_func( $callback, array(), '', $match[1] );
+			},
+			$content
+		);
+	}
+}
+
+if ( ! function_exists( 'register_block_pattern' ) ) {
+	/** Records the pattern in `$GLOBALS['agend_test_block_patterns']`. */
+	function register_block_pattern( string $name, array $properties ): bool {
+		$GLOBALS['agend_test_block_patterns'][ $name ] = $properties;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'register_block_pattern_category' ) ) {
+	/** Records the category in `$GLOBALS['agend_test_block_pattern_categories']`. */
+	function register_block_pattern_category( string $name, array $properties ): bool {
+		$GLOBALS['agend_test_block_pattern_categories'][ $name ] = $properties;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'get_post_type_object' ) ) {
+	/** A post type's object, from `$GLOBALS['agend_test_post_type_objects']` (type => singular name), else null. */
+	function get_post_type_object( string $post_type ) {
+		$name = $GLOBALS['agend_test_post_type_objects'][ $post_type ] ?? null;
+
+		return null === $name ? null : (object) array( 'labels' => (object) array( 'singular_name' => $name ) );
+	}
 }

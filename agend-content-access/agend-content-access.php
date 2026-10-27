@@ -88,6 +88,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-access.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-placeholder.php';
 
 	// Loaded whether or not Elementor is. The class declares nothing that needs
 	// Elementor and is only INSTANTIATED when it is present (see
@@ -106,6 +107,11 @@ function agend_content_access_bootstrap(): void {
 	// Gating is registered on EVERY request, admin included: the REST filters
 	// hang off it and a REST call never reaches template_redirect.
 	new Agend_Content_Access_Frontend();
+
+	// The placeholder a denied page shows, its `[agend_access_message]` shortcode
+	// and its block pattern. On every request: the shortcode runs wherever content
+	// does and the editor, which is a REST request, needs the pattern.
+	Agend_Content_Access_Placeholder::init();
 
 	// Webhook invalidation, on EVERY request for the same reason: a delivery from
 	// Agend is a REST request, so nothing here may wait for `is_admin()`.

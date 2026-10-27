@@ -62,6 +62,13 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Agend_Content_Access_Viewer_Facts::reset();
 		}
 
+		// The page that is being denied is held for the shortcode that reads it, as
+		// a static: one request, one denial. Across tests it would show the last
+		// test's page denial in the next test's shortcode.
+		if ( class_exists( 'Agend_Content_Access_Frontend', false ) ) {
+			\Agend_Content_Access_Frontend::reset_gate();
+		}
+
 		// The catalogue holds what each list answered, failures included, for the
 		// request. Right in production; across tests it would hand one test's
 		// outage, or its seeded list, to the next.
@@ -104,6 +111,11 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_revisions']          = array();
 		$GLOBALS['agend_test_primed_caches']      = array();
 		$GLOBALS['agend_test_autosaves']          = array();
+		$GLOBALS['agend_test_shortcodes']         = array();
+		$GLOBALS['agend_test_block_patterns']     = array();
+		$GLOBALS['agend_test_block_pattern_categories'] = array();
+		$GLOBALS['agend_test_post_type_objects']  = array();
+		unset( $GLOBALS['agend_test_referer'] );
 
 		// The request WordPress is dispatching, whose `rest_route` query var is
 		// how a REST route is read. Absent unless a test is about REST.
