@@ -17,11 +17,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * stored) and the display condition path (`Condition_Runtime::member_facts()`,
  * a per-user transient). A page with a document policy and a conditioned
  * section therefore made the same call twice, under two different lifetimes.
- * This class replaces both. The two public methods they exposed are now thin
- * adapters over it, and they keep the distinct rules each one had for a
- * signed-out visitor, because those are deliberate: the document path keys on
- * a bearer being present, the condition path treats a visitor who is not
- * logged in as definitively holding nothing.
+ * This class replaced both, and the two have since become one: every rule on a
+ * block, a section or a page is judged by `Agend_Content_Access_Access`, which
+ * reads the visitor through `Condition_Runtime`, a thin adapter over this. The
+ * document path's viewer is gone, and with it the two rules for a signed-out
+ * visitor: a visitor with no bearer holds nothing, definitively and with no
+ * lookup, and that is checked by the adapter, not here.
  *
  * WHAT IS CACHED, AND FOR HOW LONG. The normalised facts are held for the
  * request and in a per-member transient. Before this change a page policy asked

@@ -10,7 +10,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Parses, validates and serialises an access policy.
+ * Parses, validates and serialises an access policy: the internal vocabulary and the
+ * export format, no longer the model an author works in.
+ *
+ * What an author sets on a block, an Elementor section or a page is a rule list
+ * (`Agend_Content_Access_Rules`), judged by one evaluator (`Agend_Content_Access_Access`).
+ * This class is what is left of the earlier model, and it still has three jobs:
+ * it is the shape stored by the 0.1.x page panel and read through the compatibility
+ * conversion (`Rules::from_policy()`), it is the `@agend/access-policy` arm the
+ * connector exports (`Rules::to_policy()`), and its `effective_policy()` folds a
+ * fragment's policy into its ancestors' as the gateway does. It decides nothing about
+ * who may see anything: the evaluator that did (`Decision::evaluate()`) is gone.
  *
  * The canonical shapes, which must stay in lockstep with the two other places
  * the same rules are expressed:
@@ -668,23 +678,6 @@ class Agend_Content_Access_Policy {
 	 */
 	public static function entitlement_keys( ?array $policy ): array {
 		return self::list_for( $policy, self::MODE_ENTITLEMENTS );
-	}
-
-	/**
-	 * Whether evaluating a policy needs the visitor's segments.
-	 *
-	 * True only for a segments policy that names at least one segment. An empty
-	 * list (a disjoint intersection) can never be satisfied, so asking Agend
-	 * which segments the visitor is in would be a network call with a
-	 * foregone answer. Segments are the one fact fetched on demand rather than
-	 * with the member's standing, and this is what the decision layer asks
-	 * before fetching them.
-	 *
-	 * @param array|null $policy Policy.
-	 * @return bool
-	 */
-	public static function needs_segments( ?array $policy ): bool {
-		return array() !== self::segment_ids( $policy );
 	}
 
 	/**

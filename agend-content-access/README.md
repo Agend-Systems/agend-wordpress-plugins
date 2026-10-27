@@ -130,8 +130,9 @@ document's policy.
 A structural block's own wrapper markup (a Group's `<div>`) is not exported.
 That, an unreadable pattern and a dynamic block are fidelity gaps, never
 security ones: the failure mode is a region that comes out empty or bare, not
-one served to the wrong audience. Display conditions are not exported, as for
-Elementor.
+one served to the wrong audience. A block's rules are exported as the policy
+that says them, or as hidden from everyone when no policy can (see "Access
+rules"), as for Elementor.
 
 ### The Agend Access panel in the block editor
 
@@ -233,6 +234,105 @@ interfaces:
 
 Reaching into Core internals rather than these is a review failure.
 
+## Access rules
+
+One control per block, Elementor section and page, and one place that judges it.
+What an author sets is a list of `"<provider>:<value>"` rules with a match and a
+reverse:
+
+```json
+{ "rules": ["agend_membership:<tier uuid>", "agend_segments:<segment uuid>"], "match": "any", "invert": false }
+```
+
+A block carries it in `agendAccess` (with `fallbackId`), a page in the post meta
+`_agend_access_rules` (with a `denied` block that is read and exposed for the page
+actions layer and not acted on yet), and an Elementor section in
+`agend_access_rules`, `agend_access_match` and `agend_access_invert`. The rules are
+`agend_membership:is_member`, `agend_membership:<tier id or slug>`,
+`agend_segments:<segment id or slug>`, `agend_entitlements:<gate key>`,
+`agend_wordpress:logged_in`, `logged_out` and `role_<id>`, and any provider a site
+registers through `agend_content_access_check_condition`.
+
+Three states, kept apart on purpose: NO RULES restricts nothing, RULES are judged,
+and UNREADABLE (a value this version cannot read) denies everyone. A reverse over no
+rules is not "no rules": it hides the thing from everyone, as the condition engine
+has always read it.
+
+`Agend_Content_Access_Rules` reads all of it. Alongside the new shape it reads what
+0.1.x and 0.2.0 stored, with no data migration:
+
+| Stored | Read as |
+| --- | --- |
+| `active_member` | `agend_membership:is_member` |
+| `selected_tiers` | one `agend_membership:<tier uuid>` per plan, match any |
+| `segments` | one `agend_segments:<uuid>` per segment |
+| `selected_entitlements` | one `agend_entitlements:<gate key>` per key |
+| `public`, `inherit` | no rules |
+| A set-mode that names nothing | unreadable (nobody), never "no rules" |
+| A page's `_agend_access_policy` | the same, when `_agend_access_rules` is absent. The new meta wins when both exist |
+| An element's `agend_access_mode` and id lists, and `agend_conditions_*` | the same, plus the old display condition keys as they were |
+
+An element or block that carries BOTH an old policy and enabled old conditions has to
+satisfy both: the rules hold a list of parts that are ANDed, used for this and for
+judging a block with its post. It can only narrow. Display conditions switched on with
+none chosen are no rules, and no longer keep a page out of caches or search.
+
+### One evaluator
+
+`Agend_Content_Access_Access::verdict( $rules, $options )` returns
+`{allowed, state, degraded, unknown}`. The page gate and its teaser path, the loop,
+excerpt and feed gates, the REST filter, blocks and the `render_block` backstop,
+Elementor sections and the fallback a hidden block shows all go through it. A block or
+section is shown only when its own rules AND its post's rules allow. The option
+`anonymous` judges for nobody, as a feed must, and looks nothing up.
+
+An Agend identity is a bearer, never a WordPress login: a visitor with no bearer is
+nobody to Agend and costs no gateway call. A member is somebody the gateway calls one
+who also holds a plan, so where the two answers disagree the visitor is not a member.
+Plans and segments match by id or slug, and a value shaped like an id is matched
+against ids only. A request makes at most one entitlements call and one segments call.
+
+Everything uncertain denies, reversed or not: an unreadable rule set, an unknown
+provider, a malformed rule, a lookup that failed, a provider that threw. `degraded`
+says the denial is down to something that could not be evaluated.
+
+The state of a denial changes the words shown, never who is admitted. The first row
+that applies wins, judged on the rules that denied:
+
+| Visitor | Rules involved | State |
+| --- | --- | --- |
+| Anonymous, signed out, or Agend cannot say who they are | any | `authentication_required` |
+| Signed in, holds nothing | a membership or plan rule that is not reversed | `membership_required` |
+| A member | a plan rule that is not reversed | `plan_required` |
+| Anyone else | segments, entitlements, roles, reversed rules | `access_restricted` |
+
+"Signed out" means Agend does not know the visitor when an Agend rule is involved, and
+not logged in to WordPress when none is.
+
+### Export
+
+`Rules::to_policy()` gives the `@agend/access-policy` arm when the rules say exactly
+one: a single kind, match any or one rule, not reversed, Agend providers only
+(`is_member` alone is `active_member`, tier ids are `selected_tiers`, segment ids
+`segments`, gate keys `selected_entitlements`). No rules is null. Everything else,
+unreadable rules included, is `{"mode":"selected_tiers","tier_ids":[]}`, hidden from
+everyone, so Agend never serves more than the rules allow. A block or section that
+carries any rule is its own fragment, so that policy cannot spread to its siblings.
+
+### Changed from 0.2.0, deliberately
+
+- A block or section is shown to somebody who satisfies both its rules and its post's.
+  Two disjoint plan or segment lists used to admit nobody, as the gateway folds them;
+  they now admit whoever satisfies both. The export still folds them to nobody, which
+  is narrower, never wider.
+- The page gate and display conditions use one rule for who is signed in to Agend: the
+  bearer. A bearer with no WordPress login is a member to display conditions too, and a
+  WordPress login with no bearer is not.
+- `is_member` and a held plan must agree. The page gate used the plans held, display
+  conditions the gateway flag.
+- A segment rule no longer asks for the member standing it never reads.
+- Display conditions are exported, as hidden from everyone, instead of not at all.
+
 ## Policy modes
 
 A policy names who may read a document or an Elementor element. The shapes are
@@ -252,9 +352,12 @@ A visitor outside a `segments` or `selected_entitlements` policy is
 names the entitlements of an entitlements policy when the catalogue can (the
 generic "limited to selected members" otherwise), and offers no join or upgrade
 link, because nothing to join unlocks it. A segment is a set over all contacts and an entitlement can be
-held without a membership, so neither is a subset of "all active members", and
-a fragment cannot narrow a document of a different set-mode: that pairing
-admits nobody.
+held without a membership, so neither is a subset of "all active members". The
+export folds a fragment of one set-mode into a document of another to nobody, as
+the gateway does; WordPress admits the people who satisfy both (see "Access rules").
+
+These modes are what the 0.1.x page panel and the Elementor controls still write.
+They are read into the rule list below, and nothing evaluates them as policies.
 
 Entitlement keys arrive with the member's standing at no extra cost. Segments
 are fetched, once per request, only when a policy being evaluated is a segments
@@ -458,7 +561,7 @@ raw body keeps everything. A block's text stays in the post's markup beside its
 rule, and Elementor writes the text of every section into `post_content` when a
 document is saved, without consulting the rules. Anything that reads the raw body
 therefore sees the restricted text. For a post whose document carries a block or
-section policy, or enabled display conditions:
+section rule:
 
 | Reader | Behaviour |
 | --- | --- |
@@ -540,9 +643,10 @@ has already rendered, so it guarantees that no output of a denied block is
 returned, not that nothing ran. A block the main path already allowed is not
 decided again.
 
-**What a block is judged against.** The INTERSECTION of the policy of the post it
-belongs to and its own, by the same rules as an Elementor section: it can narrow
-what its post allows and can never widen it. "The post it belongs to" is the post
+**What a block is judged against.** Its own rules AND the rules of the post it
+belongs to, by the same rules as an Elementor section: it can narrow what its
+post allows and can never widen it, and a visitor must satisfy both. Judged in one
+evaluation (`Agend_Content_Access_Access`), so the visitor is asked about once. "The post it belongs to" is the post
 WordPress is rendering (`get_post()`), never the queried object, because blocks
 render inside query loops, template parts and synced patterns. A restricted
 post's block in a loop on a public page is judged against that post, and a
@@ -562,15 +666,18 @@ are all judged as for a signed-out visitor, as the page gate judges a feed's
 document. A feed never asks Agend for anybody's standing.
 
 **Fails closed.** An unrecognised mode, an attribute that is present and is not an
-object, a set-mode with nothing valid selected, a malformed condition, an unknown
-condition provider (inverted or not) and a check that throws all deny. An
-unrecognised mode reads as members only, as it does for Elementor.
+object, a set-mode with nothing valid selected, a malformed rule, an unknown
+provider (reversed or not), a lookup that failed and a check that throws all deny.
+An unrecognised v1 mode, or an attribute that is not an object, reads as members
+only, as it does for Elementor. A new-shape `agendAccess` that cannot be read (a
+`rules` that is not a list of strings, a `match` that is not `any` or `all`, an
+`invert` that is not a boolean) denies everyone.
 
-**Display conditions and fallbacks.** Conditions are evaluated first and can only
-remove. A block they exclude may show replacement content, and only content the
-visitor could read on its own: a fallback that is itself restricted renders
-nothing. A block hidden by its policy gets no fallback. A fallback that names
-itself ends rather than recursing.
+**Fallbacks.** A block removed by its own rules may show replacement content, and
+only content the visitor could read on its own: a fallback whose page has rules
+that refuse this visitor renders nothing. A block removed by the rules of its post,
+or by a v1 audience, gets no fallback. A fallback that names itself ends rather than
+recursing.
 
 **Authors are never filtered, for the posts they may edit.** The block editor
 renders server-side over REST, so those requests are recognised as authoring, by
@@ -610,7 +717,7 @@ signed in to WordPress, and a cache keyed on the URL cannot tell them apart.
 
 **Search.** Core search matches the raw `post_content`, so a hit on protected
 words would reveal that they are there. A document carrying a block or an
-Elementor section with a policy or enabled display conditions is flagged on save
+Elementor section with rules is flagged on save
 (`_agend_access_fragment_rules`, set for both editors, and again when an Elementor
 document is written without a save) and left out of any search
 query for users who cannot `edit_others_posts`. A contributor can search every

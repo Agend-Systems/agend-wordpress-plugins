@@ -10,27 +10,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Evaluates the display conditions and the fallback a fragment carries,
- * whichever editor the fragment came from.
+ * The settings keys of the old display conditions, and the replacement content a
+ * hidden fragment is shown in place of, whichever editor the fragment came from.
  *
- * These were methods on the Elementor class that never touched Elementor: they
- * read a flat settings array and ask the condition engine and the decision
- * engine. They live here so a second editor driver (the block editor) reuses
- * the same evaluation instead of growing a second copy that could drift.
+ * This used to evaluate the display conditions as well. That is
+ * `Agend_Content_Access_Access` now, for every kind of rule, and what is left is
+ * what was never about evaluation: the Elementor-shaped keys that every stored
+ * document already holds (toggles being the string `'yes'`, because that is what
+ * the experiment wrote first and a new editor converts into it), and the one
+ * access-checked render of a fallback.
  *
- * The settings array is the one `Agend_Content_Access_Policy` documents. The
- * audience half is read by `Policy::from_fragment_settings()`; the display
- * condition half is keyed by the constants below. Values stay Elementor-shaped,
- * toggles being the string `'yes'`, because that is what every stored document
- * already holds and a new editor converts into it.
- *
- * Display conditions are kept apart from the access POLICY, and the reason is
- * worth restating because the two look alike. The policy travels to Agend and
- * drives the server-side projection: it is a security boundary, enforced
- * whether or not WordPress renders correctly. Display conditions are evaluated
- * HERE, in the theme, and personalise what a page shows. Merging them would
- * invite an editor to treat a local render decision as protection. They compose
- * instead: either can hide a fragment, neither can reveal one the other hid.
+ * The settings array is the one `Agend_Content_Access_Policy` documents, and
+ * `Agend_Content_Access_Rules::from_elementor_settings()` is its one reader: it
+ * understands the old policy keys, these old condition keys and the new rule keys,
+ * and turns all of them into one rule list.
  */
 class Agend_Content_Access_Fragment_Rules {
 
@@ -49,9 +42,8 @@ class Agend_Content_Access_Fragment_Rules {
 	 * Whether a fragment has display conditions switched on.
 	 *
 	 * Kept in one place so the toggle's `'yes'` value is not re-spelled by every
-	 * caller. Having conditions on, even with none chosen, is what takes an
-	 * element out of a shared cache, so the cache check and the evaluation below
-	 * must agree on it.
+	 * caller. Switched on with none chosen is no rules at all, as it is to the
+	 * evaluator, so it no longer takes an element out of a shared cache by itself.
 	 *
 	 * @param array $settings Fragment settings.
 	 * @return bool
@@ -59,62 +51,6 @@ class Agend_Content_Access_Fragment_Rules {
 	public static function conditions_enabled( array $settings ): bool {
 		return ! empty( $settings[ self::ENABLED_KEY ] )
 			&& 'yes' === $settings[ self::ENABLED_KEY ];
-	}
-
-	/**
-	 * Do this fragment's display conditions admit the current visitor?
-	 *
-	 * Returns true when conditions are switched off or none are chosen, which
-	 * is the overwhelmingly common case and must cost nothing.
-	 *
-	 * An unknown provider or a malformed condition DENIES, and the reason is
-	 * logged for an administrator rather than surfaced to the visitor. The
-	 * reference implementation passes in both cases, which turns a deactivated
-	 * plugin into a silent disclosure.
-	 *
-	 * @param array         $settings Fragment settings.
-	 * @param callable|null $checker  Condition checker, or null for the live visitor's
-	 *                                (`Agend_Content_Access_Condition_Runtime::checker()`).
-	 *                                A feed passes the anonymous one.
-	 * @return bool
-	 */
-	public static function conditions_pass( array $settings, ?callable $checker = null ): bool {
-		if ( ! self::conditions_enabled( $settings ) ) {
-			return true;
-		}
-
-		$conditions = isset( $settings[ self::CONDITIONS_KEY ] ) && is_array( $settings[ self::CONDITIONS_KEY ] )
-			? $settings[ self::CONDITIONS_KEY ]
-			: array();
-
-		$match = ( isset( $settings[ self::MATCH_KEY ] )
-			&& Agend_Content_Access_Conditions::MATCH_ALL === $settings[ self::MATCH_KEY ] )
-			? Agend_Content_Access_Conditions::MATCH_ALL
-			: Agend_Content_Access_Conditions::MATCH_ANY;
-
-		$invert = ! empty( $settings[ self::INVERT_KEY ] )
-			&& 'yes' === $settings[ self::INVERT_KEY ];
-
-		$result = Agend_Content_Access_Conditions::evaluate(
-			$conditions,
-			null === $checker ? Agend_Content_Access_Condition_Runtime::checker() : $checker,
-			$match,
-			$invert
-		);
-
-		if ( array() !== $result['unknown'] ) {
-			// Loud in the log, silent to the visitor. An administrator needs to
-			// know a rule is broken; a visitor must not learn which providers a
-			// site uses.
-			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				sprintf(
-					'[Agend Content Access] Denied an element: unrecognised display conditions (%s). A provider plugin may be inactive.',
-					implode( ', ', $result['unknown'] )
-				)
-			);
-		}
-
-		return (bool) $result['passes'];
 	}
 
 	/**

@@ -326,17 +326,6 @@ final class PolicyTest extends TestCase {
 		}
 	}
 
-	#[Test]
-	public function only_a_segments_policy_with_something_to_match_needs_segments(): void {
-		$this->assertTrue( Agend_Content_Access_Policy::needs_segments( array( 'mode' => 'segments', 'segment_ids' => array( self::SEG_1 ) ) ) );
-		// A disjoint intersection can never be satisfied, so nothing is worth asking.
-		$this->assertFalse( Agend_Content_Access_Policy::needs_segments( array( 'mode' => 'segments', 'segment_ids' => array() ) ) );
-		$this->assertFalse( Agend_Content_Access_Policy::needs_segments( array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_A ) ) ) );
-		$this->assertFalse( Agend_Content_Access_Policy::needs_segments( array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( self::ENT_A ) ) ) );
-		$this->assertFalse( Agend_Content_Access_Policy::needs_segments( array( 'mode' => 'active_member' ) ) );
-		$this->assertFalse( Agend_Content_Access_Policy::needs_segments( null ) );
-	}
-
 	// -----------------------------------------------------------------------
 	// Segments and selected entitlements: editor input
 	// -----------------------------------------------------------------------
@@ -594,7 +583,6 @@ final class PolicyTest extends TestCase {
 		);
 
 		$this->assertSame( array( 'mode' => 'segments', 'segment_ids' => array() ), $result );
-		$this->assertFalse( Agend_Content_Access_Policy::needs_segments( $result ) );
 	}
 
 	/** The inherit mode on a fragment hands back the document untouched, new arms included. */
@@ -706,7 +694,6 @@ final class PolicyTest extends TestCase {
 		$this->assertSame( Agend_Content_Access_Policy::STORED_VALID, Agend_Content_Access_Policy::stored_state( 7 ) );
 		$this->assertSame( $segments, Agend_Content_Access_Policy::enforced_for_post( 7 ) );
 		$this->assertNotSame( Agend_Content_Access_Policy::UNSATISFIABLE, Agend_Content_Access_Policy::enforced_for_post( 7 ) );
-		$this->assertTrue( Agend_Content_Access_Policy::needs_segments( Agend_Content_Access_Policy::enforced_for_post( 7 ) ) );
 
 		$this->assertSame( Agend_Content_Access_Policy::STORED_VALID, Agend_Content_Access_Policy::stored_state( 8 ) );
 		$this->assertSame( $entitlements, Agend_Content_Access_Policy::enforced_for_post( 8 ) );
