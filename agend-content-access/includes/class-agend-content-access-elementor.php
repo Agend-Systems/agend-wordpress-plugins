@@ -414,6 +414,13 @@ class Agend_Content_Access_Elementor {
 	 * so treating every `is_admin()` request as authoring stood suppression down
 	 * for exactly those renders and printed every restricted section.
 	 *
+	 * In a feed the element is judged as an ANONYMOUS reader, whoever fetched it,
+	 * for the display conditions and the access policy alike. A feed is fetched
+	 * without a session and cached for everybody after, so a section rendered for
+	 * the one member who happened to ask would be served to all of them. This is
+	 * the rule the feed filters already follow (`Decision::for_post()` with its
+	 * anonymous flag), applied to the sections inside an item.
+	 *
 	 * @param bool                    $should_render Elementor's decision so far.
 	 * @param \Elementor\Element_Base $element       Element.
 	 * @return bool
@@ -429,11 +436,14 @@ class Agend_Content_Access_Elementor {
 
 		$settings = $element->get_settings_for_display();
 
+		// A feed is shared, so it is judged as nobody in particular.
+		$anonymous = is_feed();
+
 		// Display conditions are evaluated FIRST and independently. They can
 		// only ever remove an element, so an element hidden here is hidden
 		// whatever the access policy says, and vice versa. Neither can reveal
 		// what the other hid.
-		if ( ! self::conditions_pass( $settings ) ) {
+		if ( ! self::conditions_pass( $settings, $anonymous ) ) {
 			return false;
 		}
 
@@ -451,7 +461,7 @@ class Agend_Content_Access_Elementor {
 
 		$state = Agend_Content_Access_Decision::evaluate(
 			$effective,
-			Agend_Content_Access_Decision::viewer()
+			$anonymous ? Agend_Content_Access_Decision::anonymous_viewer() : Agend_Content_Access_Decision::viewer()
 		);
 
 		return Agend_Content_Access_Decision::STATE_GRANTED === $state;
@@ -585,10 +595,14 @@ class Agend_Content_Access_Elementor {
 	 * reference implementation passes in both cases, which turns a deactivated
 	 * plugin into a silent disclosure.
 	 *
-	 * @param array $settings Element settings.
+	 * `$anonymous` judges the conditions as a signed-out visitor, for a response
+	 * that is shared (a feed). Nothing about the person who asked is consulted.
+	 *
+	 * @param array $settings  Element settings.
+	 * @param bool  $anonymous Judge as an anonymous visitor rather than the current one.
 	 * @return bool
 	 */
-	public static function conditions_pass( array $settings ): bool {
+	public static function conditions_pass( array $settings, bool $anonymous = false ): bool {
 		if ( empty( $settings[ self::CONDITIONS_ENABLED_KEY ] )
 			|| 'yes' !== $settings[ self::CONDITIONS_ENABLED_KEY ] ) {
 			return true;
@@ -608,7 +622,7 @@ class Agend_Content_Access_Elementor {
 
 		$result = Agend_Content_Access_Conditions::evaluate(
 			$conditions,
-			Agend_Content_Access_Condition_Runtime::checker(),
+			$anonymous ? Agend_Content_Access_Condition_Runtime::anonymous_checker() : Agend_Content_Access_Condition_Runtime::checker(),
 			$match,
 			$invert
 		);
@@ -646,6 +660,10 @@ class Agend_Content_Access_Elementor {
 	 * the enforcement behind that: a page restricted after being chosen is
 	 * silently dropped rather than leaked.
 	 *
+	 * In a feed the conditions and the fallback's own access check are both judged
+	 * as an anonymous reader, as `maybe_suppress()` does for the element itself, so
+	 * the two halves of one decision cannot disagree.
+	 *
 	 * @param \Elementor\Element_Base $element Element that just rendered, or did not.
 	 */
 	public function maybe_render_fallback( $element ): void {
@@ -653,12 +671,13 @@ class Agend_Content_Access_Elementor {
 			return;
 		}
 
-		$settings = $element->get_settings_for_display();
+		$anonymous = is_feed();
+		$settings  = $element->get_settings_for_display();
 
 		// Only elements the CONDITIONS excluded get a fallback. An element
 		// hidden by the access policy is protected content, and offering a
 		// consolation render there would blur the two.
-		if ( self::conditions_pass( $settings ) ) {
+		if ( self::conditions_pass( $settings, $anonymous ) ) {
 			return;
 		}
 
@@ -670,7 +689,7 @@ class Agend_Content_Access_Elementor {
 			return;
 		}
 
-		echo self::fallback_html( $fallback_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo self::fallback_html( $fallback_id, $anonymous ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/**
@@ -683,10 +702,11 @@ class Agend_Content_Access_Elementor {
 	 * prompt, and the picker is not a defence: a password can be added to a post
 	 * after it was chosen, just as a policy can.
 	 *
-	 * @param int $fallback_id Post id chosen as the fallback.
+	 * @param int  $fallback_id Post id chosen as the fallback.
+	 * @param bool $anonymous   Judge the fallback's own policy as an anonymous reader.
 	 * @return string
 	 */
-	public static function fallback_html( int $fallback_id ): string {
+	public static function fallback_html( int $fallback_id, bool $anonymous = false ): string {
 		$post = get_post( $fallback_id );
 
 		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
@@ -702,7 +722,7 @@ class Agend_Content_Access_Elementor {
 		// a fallback whose stored policy is unreadable is not shown.
 		$state = Agend_Content_Access_Decision::evaluate(
 			Agend_Content_Access_Policy::enforced_for_post( $fallback_id ),
-			Agend_Content_Access_Decision::viewer()
+			$anonymous ? Agend_Content_Access_Decision::anonymous_viewer() : Agend_Content_Access_Decision::viewer()
 		);
 
 		if ( Agend_Content_Access_Decision::STATE_GRANTED !== $state ) {

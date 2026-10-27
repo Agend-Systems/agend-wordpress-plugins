@@ -53,6 +53,30 @@ class Agend_Content_Access_Condition_Runtime {
 	}
 
 	/**
+	 * Builds a checker that judges the anonymous visitor, whoever is asking.
+	 *
+	 * For a response that is shared: a syndication feed is fetched without a
+	 * session and cached for everybody after. A signed-out visitor definitively
+	 * holds no membership, belongs to no segments and has no role, so this needs
+	 * no network and no lookup, and cannot return unknown.
+	 *
+	 * @return callable fn(string $provider, string $value): ?bool
+	 */
+	public static function anonymous_checker(): callable {
+		return Agend_Content_Access_Condition_Providers::checker(
+			static function (): array {
+				return array( 'logged_in' => false, 'roles' => array() );
+			},
+			static function (): array {
+				return array( 'is_member' => false, 'tier_ids' => array(), 'tier_slugs' => array() );
+			},
+			static function (): array {
+				return array();
+			}
+		);
+	}
+
+	/**
 	 * The current visitor's membership standing.
 	 *
 	 * Cached per VIEWER, never globally. The response is entirely about who is

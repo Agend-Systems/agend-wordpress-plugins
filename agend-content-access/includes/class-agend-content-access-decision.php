@@ -127,6 +127,24 @@ class Agend_Content_Access_Decision {
 	}
 
 	/**
+	 * A viewer nobody can identify: no session, no tiers.
+	 *
+	 * What a shared response is judged as. A syndication feed is fetched by
+	 * aggregators that carry no session and is routinely cached for everybody
+	 * after them, so it is evaluated against this rather than against whoever
+	 * happened to fetch it. See `for_post()` and `Agend_Content_Access_Elementor`.
+	 *
+	 * @return array{identified: bool, tier_ids: string[], degraded: bool}
+	 */
+	public static function anonymous_viewer(): array {
+		return array(
+			'identified' => false,
+			'tier_ids'   => array(),
+			'degraded'   => false,
+		);
+	}
+
+	/**
 	 * Evaluates a policy against a resolved viewer.
 	 *
 	 * Pure: no network, no globals. The state vocabulary matches the CMS
@@ -243,14 +261,7 @@ class Agend_Content_Access_Decision {
 
 		if ( $anonymous ) {
 			return array(
-				'state'    => self::evaluate(
-					$policy,
-					array(
-						'identified' => false,
-						'tier_ids'   => array(),
-						'degraded'   => false,
-					)
-				),
+				'state'    => self::evaluate( $policy, self::anonymous_viewer() ),
 				'policy'   => $policy,
 				'preview'  => false,
 				'degraded' => false,

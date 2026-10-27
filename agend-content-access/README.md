@@ -146,7 +146,9 @@ widgets, feeds and the query loops of block themes. A manual excerpt is the only
 public teaser, because it is an editor's deliberate summary; an auto-generated
 one is the opening of the protected body, so it is never published. Feeds are
 always evaluated as an anonymous reader, because a feed is fetched without a
-session and shared through caches.
+session and shared through caches. That includes the Elementor sections inside an
+item: their access policy, display conditions and replacement content are judged
+as a signed-out visitor, whoever fetched the feed.
 
 When a restricted post's body is shown to a member anywhere on a page, that page
 is marked uncacheable (`DONOTCACHEPAGE`, and `Cache-Control: private, no-store`
