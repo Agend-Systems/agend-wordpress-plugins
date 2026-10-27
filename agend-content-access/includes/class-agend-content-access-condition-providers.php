@@ -13,11 +13,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Supplies the facts the condition engine evaluates against
  * (SPEC-CMS-20260727 US-6.1, reframed as ESAC feature parity).
  *
- * Three sources, matching the ESAC families found in real data:
+ * Three built-in sources, matching the ESAC families found in real data:
  *
  *   - `agend_wordpress`   login state and roles, read locally, no network.
  *   - `agend_membership`  member standing and tiers, from the Agend API.
  *   - `agend_segments`    segment membership, from the Agend API.
+ *
+ * Any other provider is answered by a site through the
+ * `agend_content_access_check_condition` filter, and an unanswered one is
+ * unknown and denies. `checker()` is the registry that dispatches between the
+ * two.
  *
  * The legacy `iugo_esac_*` prefixes are accepted as ALIASES so the 1,106
  * conditions already stored across nine sites keep working untouched. Rewriting
@@ -71,76 +76,117 @@ class Agend_Content_Access_Condition_Providers {
 	/**
 	 * Builds the checker the engine calls.
 	 *
+	 * This is a provider registry, not a fixed set of arguments. The built-in
+	 * providers (`agend_wordpress`, `agend_membership`, `agend_segments`) are
+	 * explicit branches below, each fed by ONE fact resolver looked up by its
+	 * canonical key. Adding a built-in provider is therefore one resolver entry
+	 * plus one branch, and never another positional argument on this method.
+	 *
+	 * Any provider that is neither a built-in nor a legacy alias goes to the
+	 * `agend_content_access_check_condition` filter, which the condition-sets
+	 * docblock has always promised. A site that registers a provider through
+	 * `agend_content_access_condition_sets` answers it there. The filter must
+	 * return a bool: anything else, including no answer at all, is UNKNOWN, so
+	 * the engine denies and names the provider. A provider nobody answers is
+	 * never allowed to pass.
+	 *
 	 * Facts are resolved LAZILY and then reused for the whole request. A page
 	 * with thirty conditioned sections must not make thirty API calls, and every
 	 * section must be judged against the same answer: a membership that expired
 	 * between two calls would otherwise render half a page as a member and half
-	 * as a visitor.
+	 * as a visitor. A built-in with no resolver is unknown rather than empty,
+	 * because an absent source is not evidence that the visitor holds nothing.
 	 *
-	 * @param callable $wordpress_facts fn(): array{logged_in: bool, roles: string[]}
-	 * @param callable $member_facts    fn(): ?array{is_member: bool, tier_ids: string[], tier_slugs: string[]}
-	 * @param callable $segment_facts   fn(): ?string[]
+	 * @param array<string, callable> $resolvers Fact resolvers keyed by canonical provider:
+	 *        `self::WORDPRESS`  => fn(): array{logged_in: bool, roles: string[]}
+	 *        `self::MEMBERSHIP` => fn(): ?array{is_member: bool, tier_ids: string[], tier_slugs: string[]}
+	 *        `self::SEGMENTS`   => fn(): ?string[]
 	 * @return callable fn(string $provider, string $value): ?bool
 	 */
-	public static function checker(
-		callable $wordpress_facts,
-		callable $member_facts,
-		callable $segment_facts
-	): callable {
-		$wp       = null;
-		$member   = null;
-		$segments = null;
-		$loaded   = array();
+	public static function checker( array $resolvers ): callable {
+		$facts  = array();
+		$loaded = array();
 
-		return static function ( string $provider, string $value ) use (
-			$wordpress_facts,
-			$member_facts,
-			$segment_facts,
-			&$wp,
-			&$member,
-			&$segments,
-			&$loaded
-		): ?bool {
+		return static function ( string $provider, string $value ) use ( $resolvers, &$facts, &$loaded ): ?bool {
 			$canonical = self::canonical( $provider );
 
 			if ( null === $canonical ) {
+				return self::check_custom( $provider, $value );
+			}
+
+			$resolver = isset( $resolvers[ $canonical ] ) && is_callable( $resolvers[ $canonical ] )
+				? $resolvers[ $canonical ]
+				: null;
+
+			if ( null === $resolver ) {
 				return null;
 			}
 
-			if ( self::WORDPRESS === $canonical ) {
-				if ( ! isset( $loaded['wp'] ) ) {
-					$wp            = $wordpress_facts();
-					$loaded['wp'] = true;
-				}
+			if ( ! isset( $loaded[ $canonical ] ) ) {
+				$facts[ $canonical ]  = $resolver();
+				$loaded[ $canonical ] = true;
+			}
 
-				return self::check_wordpress( $value, is_array( $wp ) ? $wp : array() );
+			$resolved = $facts[ $canonical ];
+
+			if ( self::WORDPRESS === $canonical ) {
+				return self::check_wordpress( $value, is_array( $resolved ) ? $resolved : array() );
+			}
+
+			// The API could not be reached. Not "not a member": unknown.
+			if ( ! is_array( $resolved ) ) {
+				return null;
 			}
 
 			if ( self::MEMBERSHIP === $canonical ) {
-				if ( ! isset( $loaded['member'] ) ) {
-					$member            = $member_facts();
-					$loaded['member'] = true;
-				}
-
-				// The API could not be reached. Not "not a member": unknown.
-				if ( ! is_array( $member ) ) {
-					return null;
-				}
-
-				return self::check_membership( $value, $member );
+				return self::check_membership( $value, $resolved );
 			}
 
-			if ( ! isset( $loaded['segments'] ) ) {
-				$segments            = $segment_facts();
-				$loaded['segments'] = true;
+			if ( self::SEGMENTS === $canonical ) {
+				return self::check_segments( $value, $resolved );
 			}
 
-			if ( ! is_array( $segments ) ) {
-				return null;
-			}
-
-			return in_array( $value, $segments, true );
+			return null;
 		};
+	}
+
+	/**
+	 * A provider this plugin does not define, answered by the site.
+	 *
+	 * @param string $provider Provider as written in the condition.
+	 * @param string $value    Condition value.
+	 * @return bool|null Null unless a filter callback returned a bool.
+	 */
+	private static function check_custom( string $provider, string $value ): ?bool {
+		/**
+		 * Answers a display condition for a provider this plugin does not define.
+		 *
+		 * Return true when the visitor satisfies the condition and false when
+		 * they do not. Return anything else, or nothing, when the provider
+		 * cannot tell: that is UNKNOWN, which the engine denies and reports,
+		 * never passes. Only the built-in providers and the legacy ESAC aliases
+		 * are answered by this plugin.
+		 *
+		 * @param bool|null $result   Null until a callback answers.
+		 * @param string    $provider Provider as written in the condition.
+		 * @param string    $value    Condition value.
+		 */
+		$result = apply_filters( 'agend_content_access_check_condition', null, $provider, $value );
+
+		return is_bool( $result ) ? $result : null;
+	}
+
+	/**
+	 * Segment conditions: the visitor belongs to the named segment.
+	 *
+	 * Matched against segment SLUGS, for compatibility with stored ESAC data.
+	 *
+	 * @param string   $value    Condition value, a segment slug.
+	 * @param string[] $segments Slugs of the segments the visitor belongs to.
+	 * @return bool
+	 */
+	public static function check_segments( string $value, array $segments ): bool {
+		return in_array( $value, $segments, true );
 	}
 
 	/**

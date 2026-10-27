@@ -8,10 +8,13 @@ declare( strict_types=1 );
 namespace Agend\Tests\ContentAccess;
 
 use Agend_Content_Access_Condition_Providers as Providers;
+use Agend_Content_Access_Conditions as Conditions;
+use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 
 /**
@@ -147,15 +150,17 @@ final class ConditionProvidersTest extends TestCase {
 		$segmentCalls = 0;
 
 		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
-			static function () use ( &$memberCalls ): array {
-				++$memberCalls;
-				return array( 'is_member' => true, 'tier_ids' => array(), 'tier_slugs' => array() );
-			},
-			static function () use ( &$segmentCalls ): array {
-				++$segmentCalls;
-				return array( 'segment_1' );
-			}
+			array(
+				Providers::WORDPRESS  => static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
+				Providers::MEMBERSHIP => static function () use ( &$memberCalls ): array {
+					++$memberCalls;
+					return array( 'is_member' => true, 'tier_ids' => array(), 'tier_slugs' => array() );
+				},
+				Providers::SEGMENTS   => static function () use ( &$segmentCalls ): array {
+					++$segmentCalls;
+					return array( 'segment_1' );
+				},
+			)
 		);
 
 		$check( 'upbeat_is_member', 'is_member' );
@@ -175,9 +180,11 @@ final class ConditionProvidersTest extends TestCase {
 	#[Test]
 	public function an_unreachable_membership_api_is_unknown_not_a_denial(): void {
 		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
-			static fn() => null, // outage
-			static fn(): array => array()
+			array(
+				Providers::WORDPRESS  => static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
+				Providers::MEMBERSHIP => static fn() => null, // outage
+				Providers::SEGMENTS   => static fn(): array => array(),
+			)
 		);
 
 		$this->assertNull( $check( 'upbeat_is_member', 'is_member' ) );
@@ -186,9 +193,11 @@ final class ConditionProvidersTest extends TestCase {
 	#[Test]
 	public function an_unreachable_segments_api_is_unknown(): void {
 		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
-			static fn(): array => array( 'is_member' => true ),
-			static fn() => null // outage
+			array(
+				Providers::WORDPRESS  => static fn(): array => array( 'logged_in' => true, 'roles' => array() ),
+				Providers::MEMBERSHIP => static fn(): array => array( 'is_member' => true ),
+				Providers::SEGMENTS   => static fn() => null, // outage
+			)
 		);
 
 		$this->assertNull( $check( 'iugo_esac_segments', 'segment_1' ) );
@@ -199,12 +208,14 @@ final class ConditionProvidersTest extends TestCase {
 		$calls = 0;
 
 		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => false, 'roles' => array() ),
-			static function () use ( &$calls ) {
-				++$calls;
-				return array( 'is_member' => true );
-			},
-			static fn(): array => array()
+			array(
+				Providers::WORDPRESS  => static fn(): array => array( 'logged_in' => false, 'roles' => array() ),
+				Providers::MEMBERSHIP => static function () use ( &$calls ) {
+					++$calls;
+					return array( 'is_member' => true );
+				},
+				Providers::SEGMENTS   => static fn(): array => array(),
+			)
 		);
 
 		$this->assertNull( $check( 'company_access', 'company_administrator' ) );
@@ -220,15 +231,154 @@ final class ConditionProvidersTest extends TestCase {
 		$calls = 0;
 
 		$check = Providers::checker(
-			static fn(): array => array( 'logged_in' => false, 'roles' => array() ),
-			static function () use ( &$calls ) {
-				++$calls;
-				return array( 'is_member' => false );
-			},
-			static fn(): array => array()
+			array(
+				Providers::WORDPRESS  => static fn(): array => array( 'logged_in' => false, 'roles' => array() ),
+				Providers::MEMBERSHIP => static function () use ( &$calls ) {
+					++$calls;
+					return array( 'is_member' => false );
+				},
+				Providers::SEGMENTS   => static fn(): array => array(),
+			)
 		);
 
 		$this->assertTrue( $check( 'iugo_esac_wordpress', 'logged_out' ) );
 		$this->assertSame( 0, $calls );
+	}
+
+	// -----------------------------------------------------------------
+	// The registry: custom providers and the filter
+	// -----------------------------------------------------------------
+
+	/** A checker whose built-in resolvers must never be reached by a custom provider. */
+	private function builtInChecker( ?int &$calls = null ): callable {
+		$calls = 0;
+
+		$count = static function () use ( &$calls ): array {
+			++$calls;
+			return array();
+		};
+
+		return Providers::checker(
+			array(
+				Providers::WORDPRESS  => $count,
+				Providers::MEMBERSHIP => $count,
+				Providers::SEGMENTS   => $count,
+			)
+		);
+	}
+
+	/**
+	 * The filter the condition-sets docblock has always promised. Without it a
+	 * site that registered a provider got conditions that always denied, with
+	 * no way to answer them.
+	 */
+	#[Test]
+	public function a_custom_provider_is_answered_through_the_filter(): void {
+		$seen = array();
+
+		Agend_Test_WP::$filters['agend_content_access_check_condition'] =
+			static function ( $result, $provider, $value ) use ( &$seen ) {
+				$seen[] = array( $provider, $value );
+
+				return 'company_access' === $provider ? 'company_administrator' === $value : $result;
+			};
+
+		$check = $this->builtInChecker( $calls );
+
+		$this->assertTrue( $check( 'company_access', 'company_administrator' ) );
+		$this->assertFalse( $check( 'company_access', 'someone_else' ) );
+		$this->assertSame(
+			array( array( 'company_access', 'company_administrator' ), array( 'company_access', 'someone_else' ) ),
+			$seen,
+			'the filter receives the provider as written, and the value'
+		);
+		$this->assertSame( 0, $calls, 'a custom provider must not trigger a built-in fact lookup' );
+	}
+
+	/**
+	 * Unknown denies. A provider nobody answers must read as UNKNOWN, which the
+	 * engine denies and reports, never as true or false.
+	 */
+	#[Test]
+	public function a_custom_provider_with_no_answer_is_unknown(): void {
+		$check = $this->builtInChecker();
+
+		$this->assertNull( $check( 'company_access', 'company_administrator' ) );
+
+		$result = Conditions::evaluate(
+			array( 'company_access:company_administrator' ),
+			$check
+		);
+
+		$this->assertFalse( $result['passes'] );
+		$this->assertSame( array( 'company_access:company_administrator' ), $result['unknown'] );
+	}
+
+	/**
+	 * Only a real bool is an answer. A truthy string or integer from a careless
+	 * callback must not become a pass.
+	 */
+	#[Test]
+	public function a_non_boolean_filter_result_is_unknown(): void {
+		$check = $this->builtInChecker();
+
+		foreach ( array( 1, 0, 'yes', '', array( true ), new \stdClass() ) as $answer ) {
+			Agend_Test_WP::$filters['agend_content_access_check_condition'] =
+				static fn( $result, $provider, $value ) => $answer;
+
+			$this->assertNull( $check( 'company_access', 'x' ), 'non-bool answer: ' . gettype( $answer ) );
+		}
+	}
+
+	/**
+	 * Built-ins and legacy aliases are explicit branches, not filter traffic. A
+	 * site filter must not be able to override what `agend_membership` means.
+	 */
+	#[Test]
+	public function built_in_providers_and_aliases_never_reach_the_filter(): void {
+		$consulted = 0;
+
+		Agend_Test_WP::$filters['agend_content_access_check_condition'] =
+			static function ( $result ) use ( &$consulted ) {
+				++$consulted;
+				return true;
+			};
+
+		$check = Providers::checker(
+			array(
+				Providers::WORDPRESS  => static fn(): array => array( 'logged_in' => false, 'roles' => array() ),
+				Providers::MEMBERSHIP => static fn(): array => array( 'is_member' => false, 'tier_ids' => array(), 'tier_slugs' => array() ),
+				Providers::SEGMENTS   => static fn(): array => array(),
+			)
+		);
+
+		$this->assertFalse( $check( 'agend_wordpress', 'logged_in' ) );
+		$this->assertFalse( $check( 'iugo_esac_wordpress', 'logged_in' ) );
+		$this->assertFalse( $check( 'agend_membership', 'is_member' ) );
+		$this->assertFalse( $check( 'upbeat_is_member', 'is_member' ) );
+		$this->assertFalse( $check( 'agend_segments', 'vic' ) );
+		$this->assertFalse( $check( 'iugo_esac_segments', 'vic' ) );
+		$this->assertSame( 0, $consulted );
+	}
+
+	/**
+	 * An absent source is not evidence that the visitor holds nothing. Treating
+	 * a missing WordPress resolver as an empty user would answer `logged_out`
+	 * with true.
+	 */
+	#[Test]
+	public function a_built_in_with_no_resolver_is_unknown_not_empty(): void {
+		$check = Providers::checker( array() );
+
+		$this->assertNull( $check( 'agend_wordpress', 'logged_out' ) );
+		$this->assertNull( $check( 'agend_membership', 'is_member' ) );
+		$this->assertNull( $check( 'agend_segments', 'vic' ) );
+		$this->assertNull( $check( 'iugo_esac_wordpress', 'logged_out' ) );
+	}
+
+	#[Test]
+	public function segment_conditions_match_by_slug(): void {
+		$this->assertTrue( Providers::check_segments( 'vic-fellows', array( 'vic-fellows', 'trainees' ) ) );
+		$this->assertFalse( Providers::check_segments( 'qld-fellows', array( 'vic-fellows' ) ) );
 	}
 }

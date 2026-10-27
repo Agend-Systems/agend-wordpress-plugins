@@ -46,9 +46,11 @@ class Agend_Content_Access_Condition_Runtime {
 	 */
 	public static function checker(): callable {
 		return Agend_Content_Access_Condition_Providers::checker(
-			array( 'Agend_Content_Access_Condition_Providers', 'wordpress_facts' ),
-			array( __CLASS__, 'member_facts' ),
-			array( __CLASS__, 'segment_facts' )
+			array(
+				Agend_Content_Access_Condition_Providers::WORDPRESS  => array( 'Agend_Content_Access_Condition_Providers', 'wordpress_facts' ),
+				Agend_Content_Access_Condition_Providers::MEMBERSHIP => array( __CLASS__, 'member_facts' ),
+				Agend_Content_Access_Condition_Providers::SEGMENTS   => array( __CLASS__, 'segment_facts' ),
+			)
 		);
 	}
 
