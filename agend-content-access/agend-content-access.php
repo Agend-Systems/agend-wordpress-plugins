@@ -73,6 +73,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-catalogue.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-policy.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-fragment-rules.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-attributes.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-viewer-facts.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
