@@ -123,6 +123,32 @@ interfaces:
 
 Reaching into Core internals rather than these is a review failure.
 
+## Policy modes
+
+A policy names who may read a document or an Elementor element. The shapes are
+copied from the gateway's `@agend/access-policy`, which is the authority.
+
+| Mode | Admits |
+| --- | --- |
+| `public` | Everyone |
+| `active_member` | Anyone holding a current membership |
+| `selected_tiers` | Members on at least one named plan (`tier_ids`) |
+| `segments` | Visitors in at least one named segment (`segment_ids`) |
+| `selected_entitlements` | Visitors holding at least one named entitlement (`entitlement_keys`, gate keys) |
+
+A visitor outside a `segments` or `selected_entitlements` policy is
+`access_restricted`, a fifth decision state beside `authentication_required`,
+`membership_required` and `plan_required`. Its gate copy is generic: it never
+names a segment, and it offers no join or upgrade link, because nothing to
+join unlocks it. A segment is a set over all contacts and an entitlement can be
+held without a membership, so neither is a subset of "all active members", and
+a fragment cannot narrow a document of a different set-mode: that pairing
+admits nobody.
+
+Entitlement keys arrive with the member's standing at no extra cost. Segments
+are fetched, once per request, only when a policy being evaluated is a segments
+policy. The editor controls for the two new modes arrive in a later release.
+
 ## Failure behaviour
 
 Fail closed, without exception. An empty or malformed policy restricts. An
