@@ -132,6 +132,13 @@ class Agend_Content_Access_Fragment_Rules {
 	 * the enforcement behind that: a page restricted after being chosen is
 	 * silently dropped rather than leaked.
 	 *
+	 * A password-protected post is never shown. Its password is checked where the
+	 * post is rendered as a post, and a fallback is rendered here, straight from
+	 * `post_content`, by a different route that never asks for it. Showing it would
+	 * hand the body to every visitor the conditions refused, with no password
+	 * prompt, and the picker is not a defence: a password can be added to a post
+	 * after it was chosen, just as a policy can.
+	 *
 	 * @param int  $fallback_id Post id chosen as the fallback.
 	 * @param bool $anonymous   Judge the fallback for a visitor who is nobody, as a
 	 *                          feed must: its output is shared whoever fetched it.
@@ -141,6 +148,10 @@ class Agend_Content_Access_Fragment_Rules {
 		$post = get_post( $fallback_id );
 
 		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
+			return '';
+		}
+
+		if ( '' !== (string) $post->post_password ) {
 			return '';
 		}
 

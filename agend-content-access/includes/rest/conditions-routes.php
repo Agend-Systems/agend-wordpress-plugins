@@ -86,7 +86,8 @@ function agend_content_access_can_read_conditions() {
  * A group whose list could not be loaded is present with `conditions: []`, as
  * `Condition_Sets` keeps it, so the panel can say "this list may be
  * unavailable" and not "this site has none". `fallbacks` is public content
- * only, from `Condition_Sets::fallback_options()`, and does not include the
+ * only, with no password-protected post either, from
+ * `Condition_Sets::fallback_options()`, and does not include the
  * "Nothing" choice: the panel adds its own.
  *
  * Both lists pass through the site's filters, so every entry is checked rather

@@ -516,6 +516,33 @@ final class BlockSuppressionTest extends BlockEnforcementTestCase {
 		$this->assertSame( '', $html );
 	}
 
+	/**
+	 * The password is checked where a post renders as a post. A fallback renders
+	 * from its content by another route, so a protected one would be shown in full,
+	 * with no prompt, to the visitors the conditions just refused.
+	 */
+	#[Test]
+	public function an_excluded_block_never_shows_a_password_protected_fallback(): void {
+		$this->publishFallback( null, 'PASSWORD PROTECTED FALLBACK' );
+		$GLOBALS['agend_test_posts'][ self::FALLBACK ]['post_password'] = 'hunter2';
+
+		$html = do_blocks( $this->paragraph( 'MEMBERS NOTE', $this->signedInOnly( array( 'fallbackId' => self::FALLBACK ) ) ) );
+
+		$this->assertSame( '', $html );
+	}
+
+	#[Test]
+	public function a_block_fallback_that_gains_a_password_stops_rendering(): void {
+		$this->publishFallback();
+		$note = $this->paragraph( 'NOTE', $this->signedInOnly( array( 'fallbackId' => self::FALLBACK ) ) );
+
+		$this->assertSame( 'FALLBACK TEXT', do_blocks( $note ) );
+
+		$GLOBALS['agend_test_posts'][ self::FALLBACK ]['post_password'] = 'hunter2';
+
+		$this->assertSame( '', do_blocks( $note ) );
+	}
+
 	#[Test]
 	public function an_unpublished_or_missing_fallback_renders_nothing(): void {
 		$this->publishFallback();

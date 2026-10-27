@@ -416,6 +416,30 @@ final class BlockEditorTest extends TestCase {
 		);
 	}
 
+	/**
+	 * The panel's list is the Elementor picker's list, so a post that renders
+	 * without its password prompt is not offered to the block editor either.
+	 */
+	#[Test]
+	public function a_password_protected_page_is_not_offered_as_a_fallback_in_the_block_editor(): void {
+		Agend_Test_WP::set_filter( 'agend_content_access_condition_sets', array() );
+
+		foreach ( array( 12 => '', 13 => 'hunter2' ) as $id => $password ) {
+			$GLOBALS['agend_test_posts'][ $id ] = (object) array(
+				'ID'            => $id,
+				'post_status'   => 'publish',
+				'post_title'    => 'Page ' . $id,
+				'post_type'     => 'page',
+				'post_password' => $password,
+			);
+		}
+
+		$this->assertSame(
+			array( array( 'id' => 12, 'title' => 'Page 12' ) ),
+			agend_content_access_conditions_payload()['fallbacks']
+		);
+	}
+
 	#[Test]
 	public function the_response_is_the_payload(): void {
 		Agend_Test_WP::set_filter( 'agend_content_access_condition_sets', array() );

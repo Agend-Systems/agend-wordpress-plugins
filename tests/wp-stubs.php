@@ -3458,6 +3458,11 @@ if ( ! function_exists( 'get_posts' ) ) {
 				continue;
 			}
 
+			// `has_password => false` leaves password-protected posts out, as core does.
+			if ( false === ( $args['has_password'] ?? null ) && '' !== $post->post_password ) {
+				continue;
+			}
+
 			$found[] = $post;
 		}
 
