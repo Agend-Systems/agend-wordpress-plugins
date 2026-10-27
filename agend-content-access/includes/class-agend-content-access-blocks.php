@@ -721,7 +721,8 @@ class Agend_Content_Access_Blocks {
 	 *
 	 * An Elementor document that does not decode is reported as carrying rules. It
 	 * cannot be shown to have none, and the cost of a false yes is a post left out
-	 * of search and an excerpt left blank, where a false no publishes text.
+	 * of search, an excerpt left blank and a raw body withheld from the REST edit
+	 * context, where a false no publishes text.
 	 *
 	 * @param WP_Post|mixed $post Post.
 	 * @return bool
