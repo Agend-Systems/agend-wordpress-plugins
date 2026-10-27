@@ -80,6 +80,40 @@ height with scroll.
    placeholder above. The old "standard message" is folded into it.
 2. Pages have Reverse, like blocks and sections.
 
+## Page actions: as built (2026-10-28)
+
+Build-plan item 2. Code: `Agend_Content_Access_Frontend::gate_request()` chooses,
+`Agend_Content_Access_Destination` approves a redirect, `Agend_Content_Access_Placeholder`
+renders. The README ("If someone is not allowed") is the reference; this records what was
+decided where the plan was silent.
+
+- **Placeholder is the default** for any denied page, including one with only a 0.1.x
+  `_agend_access_policy`. It replaces the 403 and the teaser page. 200, `noindex` (the
+  `wp_robots` filter and `X-Robots-Tag`), `Cache-Control: private, no-store` and `DONOTCACHEPAGE`.
+- **Redirect and back never fail to the body.** Anything uncertain shows the placeholder: a
+  target that is missing, unpublished, password protected, not a page, restricted for this
+  visitor or the current page; a referrer that is missing, off-site or the current page.
+  A referrer is rebuilt on this site's own scheme and host after an exact host comparison, so
+  it can never be an open redirect.
+- **The action is for whoever the rules deny**, so a reversed page can send its members to their
+  dashboard. It does not look at why: a denial down to an outage is acted on like any other.
+- **Placeholder choices** are pages, synced patterns and, when Elementor is active, Elementor
+  templates, rendered by `Fragment_Rules::fallback_html()` (page through `the_content`, pattern
+  through `do_blocks()` and the shortcode pass, template through Elementor's frontend). A fallback
+  must now be of a type that can carry rules, a synced pattern or an Elementor template. The
+  conditions route's `fallbacks` entries gained a `type`, so the page panel can offer a redirect
+  only pages.
+- **Sign in and Join share one address.** Core exposes only the portal URL
+  (`Agend_Apps_Settings::get_portal_url()`), which the loop gate already used for both, so the
+  placeholder does too. Overridable through the `agend_content_access_placeholder_buttons` filter.
+  Revisit if Core grows a separate membership address.
+- **`[agend_access_message]`** reads the denial the page gate stored for the request, and renders a
+  neutral preview outside one. The pattern "Agend: Members-only content" is a Group holding it.
+  A block with a rule inside a placeholder is judged as part of the denied page, so it is hidden:
+  keep rules out of a placeholder.
+- **Still to do** (items 3 to 5): the page panel's controls for the action and its targets, which
+  write `denied` and need to offer `type: "page"` fallbacks only for a redirect.
+
 ## How it works underneath (unchanged engine)
 
 Keep: the provider registry and Agend checks (`Viewer_Facts`, membership,
@@ -112,7 +146,7 @@ Change:
    - One `allows( rules, viewer )` path, used by page gating, loop gating, blocks, Elementor and fallbacks.
    - Policy derivation for export, and gate-state derivation.
    - Port every existing test of policy enforcement to the rules form, and keep the 0.1.x compatibility fixtures.
-2. **Page denial actions and the default placeholder.**
+2. **Page denial actions and the default placeholder.** Built 2026-10-28, see "Page actions: as built".
    - Placeholder (the default): the built-in placeholder, or chosen public content, in place of the body.
    - Redirect: `wp_safe_redirect` at `template_redirect`.
    - Back: `wp_get_referer()`, same host only, loop guard and fallback.

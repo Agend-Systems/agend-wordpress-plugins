@@ -254,8 +254,12 @@ WordPress (`agend_wordpress`), then any group a site adds through the
 `agend_content_access_condition_sets` filter. Each `value` is already
 `"<provider>:<value>"` and ID based; `kind` is member, plan, segment,
 entitlement, platform, login, role or other, which is what the chip is labelled
-from; `aliases` are slug forms of the same rule. `fallbacks` is `[{id, title}]`
-of public pages. `errors` is `[{group, message}]`, one per list that failed.
+from; `aliases` are slug forms of the same rule. `fallbacks` is
+`[{id, title, type}]` of public content: pages, synced patterns and, when Elementor
+is active, its templates, each titled with its kind ("Page: Join us", "Pattern: ...",
+"Elementor template: ...") and typed `page`, `pattern` or `elementor_template`, so a
+panel can offer a redirect only pages. `errors` is `[{group, message}]`, one per list
+that failed.
 `?refresh=1` reads the lists from the gateway again, which is what Try again
 asks for. The catalogue route (`/catalogue`) is unchanged and still serves the
 page panel.
@@ -317,8 +321,8 @@ reverse:
 ```
 
 A block carries it in `agendAccess` (with `fallbackId`), a page in the post meta
-`_agend_access_rules` (with a `denied` block that is read and exposed for the page
-actions layer and not acted on yet), and an Elementor section in
+`_agend_access_rules` (with a `denied` block that says what to do with somebody it
+does not admit: see "If someone is not allowed"), and an Elementor section in
 `agend_access_rules`, `agend_access_match` and `agend_access_invert`. The rules are
 `agend_membership:is_member`, `agend_membership:<tier id or slug>`,
 `agend_segments:<segment id or slug>`, `agend_entitlements:<gate key>`,
@@ -352,7 +356,7 @@ none chosen are no rules, and no longer keep a page out of caches or search.
 ### One evaluator
 
 `Agend_Content_Access_Access::verdict( $rules, $options )` returns
-`{allowed, state, degraded, unknown}`. The page gate and its teaser path, the loop,
+`{allowed, state, degraded, unknown}`. The page gate and its placeholder, the loop,
 excerpt and feed gates, the REST filter, blocks and the `render_block` backstop,
 Elementor sections and the fallback a hidden block shows all go through it. A block or
 section is shown only when its own rules AND its post's rules allow. The option
@@ -381,6 +385,107 @@ that applies wins, judged on the rules that denied:
 "Signed out" means Agend does not know the visitor when an Agend rule is involved, and
 not logged in to WordPress when none is.
 
+### If someone is not allowed
+
+A page keeps its URL for somebody its rules do not admit, and does one of three things
+with them. The page's `denied` setting, `{action, target_id, fallback_id}`, says which,
+and **the default is the placeholder**, including for a page that only has a 0.1.x
+`_agend_access_policy` and no new meta. It applies to the page's own URL only: lists,
+search, feeds and REST keep showing the summary and nothing else.
+
+| `action` | What the visitor gets |
+| --- | --- |
+| `placeholder` (default) | The body is replaced on the same URL. `target_id` 0 is the built-in placeholder; otherwise a chosen public page, synced pattern or Elementor template. HTTP 200, `noindex` (the `wp_robots` filter and an `X-Robots-Tag` header), `Cache-Control: private, no-store` and `DONOTCACHEPAGE` |
+| `redirect` | A 302 to `target_id`'s permalink, on `template_redirect` before any output, also marked uncacheable |
+| `back` | A 302 to the page they came from, when `wp_get_referer()` is on this site and not this page; otherwise to `fallback_id`'s permalink; otherwise the placeholder |
+
+**This replaces the 403 and the teaser page.** A restricted page used to answer 403 when
+it had no manual excerpt and a teaser page when it had one. Both are now the placeholder:
+a 200, with the manual excerpt above the message when there is one, so 0.1.x pages look
+much as they did.
+
+Editors who can edit the page keep seeing it, and the authoring carve-outs are unchanged.
+The action applies to whoever the rules deny, so a page with Reverse on, such as a join
+page, redirects the people who DO match, its members, to their dashboard, and shows
+everyone else the page. It does not look at why the visitor was denied: a denial down to
+an outage is acted on like any other.
+
+**Every redirect fails to the placeholder, never to the body.** `Agend_Content_Access_Destination`
+answers "no" for anything it cannot be sure of, and the page then shows the placeholder:
+
+- A chosen page must be published, have no password, be of a type the rule panel is offered
+  on (a pattern and a template have no address), and its own rules must admit THIS visitor.
+  A page the visitor could not open is a second denial, and two such pages that redirect to
+  each other would be a loop.
+- Its permalink must validate as local (`wp_validate_redirect()` with an empty fallback, because
+  `wp_safe_redirect()` answers what it dislikes by redirecting to wp-admin).
+- It must not be the page being left. The comparison ignores scheme, case, a trailing slash,
+  the query and the fragment, and is made against both the page's permalink and the address
+  requested. A path-less address on a plain-permalink site is told apart by its `p`, `page_id`
+  and similar variables.
+- A referrer is never echoed. Its host is compared with this site's (exactly: not a suffix,
+  not user information, no backslash, whitespace or control character, an http or https
+  scheme, the same port), and the address is then REBUILT from this site's own scheme and
+  host plus the referrer's path and query. `allowed_redirect_hosts` is not consulted: it is
+  for redirects the site chooses, and a referrer is not one. No referrer, an off-site one and
+  this page itself all go to `fallback_id`, and failing that to the placeholder.
+
+#### The built-in placeholder
+
+Rendered on the server by `Agend_Content_Access_Placeholder`, so it is the same in a block
+theme, a classic theme and on an Elementor page (whose builder data is blanked for the denied
+page, so it cannot render over the placeholder). It shows the page's manual excerpt when
+there is one (never an automatic excerpt: that is the opening of the body), then a heading,
+a message and buttons that follow why the visitor was refused. Only the words change; who is
+admitted was decided before.
+
+| State | Heading | Message | Buttons |
+| --- | --- | --- | --- |
+| `authentication_required` | Sign in to read this | "This content is for members. Please sign in to read it." | Sign in, and Join when a membership or plan rule that is not reversed is on the page |
+| `membership_required` | Join to read this | "This content is for members. An active membership is required to read it." | Join |
+| `plan_required` | Available on another plan | "This content is available to members on: Gold, Silver." (the plans are named; generic when they cannot be) | View membership options |
+| `access_restricted` | This content is restricted | "This content is limited to selected members." or "... people who hold: Journal." (entitlements are named, a segment never is) | none |
+
+The messages are the loop gate's own (`Agend_Content_Access_Frontend::gate_copy()`), so the
+two cannot drift. Sign in and Join go to Agend Apps Core's portal setting
+(`Agend_Apps_Settings::get_portal_url()`) with a `return_to`; Core has no separate join or
+membership address, so they share a destination, as the loop gate's two calls to action always
+did. A button whose address is not configured is left out. Any state this version does not
+know reads as `access_restricted`. All copy is translatable, and a manual excerpt cannot run a
+shortcode: its square brackets are written as entities.
+
+Filters, each given the state and the denied page (null in the neutral preview):
+`agend_content_access_placeholder_heading`, `_message`, `_buttons` (a list of
+`{label, url, kind}`, anything else dropped) and `_html`, which gets the final markup.
+Whatever they return is shown to somebody the page refused, so it must hold nothing from the
+body. The markup is plain and carries stable classes (`agend-access-placeholder`,
+`agend-access-placeholder--<state>`, `__summary`, `__prompt`, `__heading`, `__message`,
+`__actions`, `__button`, `__button--signin`, `__button--join`), with a small inline stylesheet
+enqueued only when one is rendered. It is a single line of markup, so `wpautop` has nothing to
+break.
+
+#### Choosing the placeholder, `[agend_access_message]` and the pattern
+
+`[agend_access_message]` renders the same heading, message and buttons for the CURRENT denied
+request, which it reads from the denial the page gate stored for the request
+(`Agend_Content_Access_Frontend::current_gate()`: the state and the rules, never the page's
+content). Outside a denied request, such as an author editing the pattern, a preview or a page
+that is not denied, it renders a neutral preview that says "Members-only content placeholder"
+and offers nothing.
+
+The block pattern **Agend: Members-only content** (`agend-content-access/members-only`, in the
+Agend category, `agend`) is a core Group holding a core Shortcode block with that shortcode. A
+site inserts it, restyles it, saves it as a synced pattern and chooses that pattern as a page's
+placeholder. A block with a rule inside it is judged as part of the denied page, which refuses
+this visitor, so keep rules out of a placeholder.
+
+A chosen placeholder is rendered by `Fragment_Rules::fallback_html()`, the same access-checked
+render as a hidden block's "show instead": published, no password, a kind that may be shown,
+and its own rules admit this visitor. A target that fails any of those, renders nothing, or is
+the denied page itself is replaced by the built-in placeholder. The picker (`fallbacks` in the
+conditions route, and the Elementor control) offers pages, synced patterns and, when Elementor
+is active, Elementor templates, each with no password and no rules.
+
 ### Export
 
 `Rules::to_policy()` gives the `@agend/access-policy` arm when the rules say exactly
@@ -404,6 +509,10 @@ carries any rule is its own fragment, so that policy cannot spread to its siblin
   conditions the gateway flag.
 - A segment rule no longer asks for the member standing it never reads.
 - Display conditions are exported, as hidden from everyone, instead of not at all.
+- A denied page answers with the placeholder, not a 403 or a teaser page: a 200 on the same
+  URL that is `noindex` and never cached. Pages that only have a 0.1.x policy get it too.
+- A fallback must be a page of a type that can carry rules, a synced pattern or an Elementor
+  template. Any other post type renders nothing.
 
 ## Policy modes
 
@@ -550,6 +659,10 @@ standing or segments. That holds for the parts of a document as well as the
 document: an Elementor section's policy, its display conditions and its fallback
 are judged for a signed-out reader in a feed, as a block's are.
 
+On its own URL a denied page shows its placeholder, or redirects, as its denial
+setting says (see "If someone is not allowed"); everywhere above it keeps showing
+the summary only.
+
 A listing costs no more gateway calls than a single post. However many
 restricted posts a loop renders, the visitor's standing is asked of Agend at
 most once per request, and their segments at most once, through the same
@@ -562,7 +675,9 @@ written to the cache, and the editor's `refresh` still asks again.
 When a restricted post's body is shown to a member anywhere on a page, that page
 is marked uncacheable (`DONOTCACHEPAGE`, and `Cache-Control: private, no-store`
 while headers can still be sent), so a page cache cannot serve a member's copy to
-anonymous visitors. The `agend_content_access_uncacheable_render` action fires
+anonymous visitors. A denied visitor's placeholder or redirect on the page's own
+URL is marked the same way, so it is not served to the next visitor, who may be
+allowed. The `agend_content_access_uncacheable_render` action fires
 for cache integrations that do not read the constant.
 
 The Latest Posts block is the exception that cannot be gated after the fact. Its
@@ -747,7 +862,14 @@ only, as it does for Elementor. A new-shape `agendAccess` that cannot be read (a
 
 **Fallbacks.** A block removed by its own rules may show replacement content, and
 only content the visitor could read on its own: a fallback whose page has rules
-that refuse this visitor renders nothing. A block removed by the rules of its post,
+that refuse this visitor renders nothing. A fallback is a page, a synced pattern or
+an Elementor template, and is rendered its own way (a page through the content
+filter, a pattern through `do_blocks()` and the shortcode pass, a template through
+Elementor's frontend, which is guarded). A post with a password, one that is not
+published, and one of a post type that cannot carry rules at all, which is every
+type the rule panel is not offered on, renders nothing: "no rules" means nothing
+for a type that has never been able to carry one, so an id typed by hand cannot
+print a private post type's body. A block removed by the rules of its post,
 or by a v1 audience, gets no fallback. A fallback that names itself ends rather than
 recursing.
 
