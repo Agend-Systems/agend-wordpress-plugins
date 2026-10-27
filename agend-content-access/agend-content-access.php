@@ -79,6 +79,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-blocks.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-credentials.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-exporter.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/interface-agend-content-access-document-parser.php';
@@ -92,6 +93,10 @@ function agend_content_access_bootstrap(): void {
 	// Webhook invalidation, on EVERY request for the same reason: a delivery from
 	// Agend is a REST request, so nothing here may wait for `is_admin()`.
 	Agend_Content_Access_Webhooks::init();
+
+	// Block editor enforcement, on every request for the same reason: a REST
+	// request renders blocks and never reaches template_redirect.
+	new Agend_Content_Access_Blocks();
 
 	// Fragment policies, only when Elementor is present.
 	//

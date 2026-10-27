@@ -336,9 +336,12 @@ class Agend_Content_Access_Frontend {
 	 * screens proper stay out: an editor there needs to see what they are
 	 * editing, and `can_preview()` already covers any post they may edit.
 	 *
+	 * Public so the block driver asks the same question and cannot disagree with
+	 * the loop gates about what an admin-ajax render is.
+	 *
 	 * @return bool
 	 */
-	private static function renders_for_visitors(): bool {
+	public static function renders_for_visitors(): bool {
 		if ( is_admin() ) {
 			return wp_doing_ajax();
 		}

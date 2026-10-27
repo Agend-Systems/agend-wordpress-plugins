@@ -2733,10 +2733,26 @@ if ( ! function_exists( 'render_block' ) ) {
 	 * by its inner blocks, which is what this stub did before `parse_blocks()`
 	 * produced `innerContent`.
 	 *
-	 * @param array $block Parsed block array.
+	 * Like WordPress, it first runs the `pre_render_block` chain
+	 * ({@see Agend_Test_WP::apply_registered()}, so every registered callback
+	 * runs in priority order) and returns a non-null result WITHOUT rendering the
+	 * block or any of its inner blocks. WordPress applies the same filter to inner
+	 * blocks from `WP_Block::render()`; here inner blocks come back through this
+	 * function, so one check at the top covers both. A short-circuited container
+	 * therefore never renders its children, which is what the access-control
+	 * tests need to be able to assert.
+	 *
+	 * @param array             $block        Parsed block array.
+	 * @param array|object|null $parent_block The parent block, for inner blocks.
 	 * @return string
 	 */
-	function render_block( array $block ): string {
+	function render_block( array $block, $parent_block = null ): string {
+		$pre = Agend_Test_WP::apply_registered( 'pre_render_block', null, $block, $parent_block );
+
+		if ( null !== $pre ) {
+			return (string) $pre;
+		}
+
 		$inner_blocks  = (array) ( $block['innerBlocks'] ?? array() );
 		$inner_content = $block['innerContent'] ?? array();
 		$inner         = '';
@@ -2746,7 +2762,7 @@ if ( ! function_exists( 'render_block' ) ) {
 
 			foreach ( $inner_content as $chunk ) {
 				if ( null === $chunk ) {
-					$inner .= render_block( (array) ( $inner_blocks[ $next ] ?? array() ) );
+					$inner .= render_block( (array) ( $inner_blocks[ $next ] ?? array() ), $block );
 					++$next;
 					continue;
 				}
@@ -2757,7 +2773,7 @@ if ( ! function_exists( 'render_block' ) ) {
 			$inner = (string) ( $block['innerHTML'] ?? '' );
 
 			foreach ( $inner_blocks as $inner_block ) {
-				$inner .= render_block( $inner_block );
+				$inner .= render_block( $inner_block, $block );
 			}
 		}
 
@@ -2774,6 +2790,26 @@ if ( ! function_exists( 'render_block' ) ) {
 		}
 
 		return $inner;
+	}
+}
+
+if ( ! function_exists( 'do_blocks' ) ) {
+	/**
+	 * Minimal `do_blocks()` stand-in: parses the content and renders each
+	 * top-level block through {@see render_block()}, so the `pre_render_block`
+	 * chain applies to every block, as it does in WordPress.
+	 *
+	 * @param string $content Serialized block content.
+	 * @return string
+	 */
+	function do_blocks( string $content ): string {
+		$output = '';
+
+		foreach ( parse_blocks( $content ) as $block ) {
+			$output .= render_block( $block );
+		}
+
+		return $output;
 	}
 }
 
