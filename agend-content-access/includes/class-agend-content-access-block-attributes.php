@@ -80,6 +80,30 @@ class Agend_Content_Access_Block_Attributes {
 	const MAX_SYNCED_DEPTH = 10;
 
 	/**
+	 * Most synced pattern references expanded in one document.
+	 *
+	 * The cycle guard and the depth limit bound how DEEP patterns nest, not how
+	 * WIDE: a pattern holding ten references to a pattern holding ten more, ten
+	 * levels down, is ten billion expansions without repeating a pattern on any
+	 * one path. This is the cap on that, counted over the whole document in
+	 * document order. A reference past it is treated exactly like a cycle.
+	 *
+	 * @var int
+	 */
+	const MAX_SYNCED_RESOLUTIONS = 50;
+
+	/**
+	 * Marks a synced pattern reference that `expand()` has dealt with.
+	 *
+	 * `true` when its pattern was resolved and now sits in the reference's
+	 * `innerBlocks`, `false` when it could not be. Also what makes expanding
+	 * idempotent, so a tree is never expanded twice.
+	 *
+	 * @var string
+	 */
+	const EXPANDED_KEY = 'agendExpanded';
+
+	/**
 	 * What a mode that is not a string is reported as.
 	 *
 	 * Any string `from_fragment_settings()` does not recognise fails closed
@@ -217,7 +241,10 @@ class Agend_Content_Access_Block_Attributes {
 	 * Whether the block or anything inside it carries an audience policy.
 	 *
 	 * "Inside" includes the content of a synced pattern the block references,
-	 * which is not among its `innerBlocks`.
+	 * which is not among its `innerBlocks` until `expand()` puts it there. This
+	 * expands first, on a budget of its own, so it can be handed a block straight
+	 * from `parse_blocks()`. Handed one that has already been expanded it does no
+	 * further lookups.
 	 *
 	 * @param array $block Parsed block.
 	 * @param int[] $refs  Synced patterns already being resolved on the path to
@@ -225,7 +252,9 @@ class Agend_Content_Access_Block_Attributes {
 	 * @return bool
 	 */
 	public static function subtree_carries_policy( array $block, array $refs = array() ): bool {
-		return self::carries_policy( $block ) || self::descendants_carry_policy( $block, $refs );
+		$ledger = self::ledger();
+
+		return self::scan( self::expand_block( $block, $ledger, $refs ) );
 	}
 
 	/**
@@ -240,47 +269,57 @@ class Agend_Content_Access_Block_Attributes {
 	 * @return bool
 	 */
 	public static function descendants_carry_policy( array $block, array $refs = array() ): bool {
-		list( $children, $child_refs ) = self::children_of( $block, $refs );
+		$ledger = self::ledger();
 
-		foreach ( $children as $child ) {
-			if ( is_array( $child ) && self::subtree_carries_policy( $child, $child_refs ) ) {
-				return true;
-			}
-		}
-
-		return false;
+		return self::scan_children( self::expand_block( $block, $ledger, $refs ) );
 	}
 
 	/**
-	 * The blocks directly inside a block.
+	 * A fresh account of the synced pattern references expanded in one document.
 	 *
-	 * Its `innerBlocks`, or, for a synced pattern reference, the top-level
-	 * blocks of the pattern it points at. A reference that cannot be resolved
-	 * has no children, which is right for the caller: there is nothing there to
-	 * carry a policy or to leak.
+	 * Pass it, by reference, to every `expand()` call that belongs to the same
+	 * document, and read `posts` afterwards for the patterns that were resolved.
 	 *
-	 * @param array $block Parsed block.
-	 * @param int[] $refs  Synced patterns already being resolved on the path.
-	 * @return array{0: array, 1: int[]} The children, and the path of refs to
-	 *                                   pass on when walking them.
+	 * @return array{left: int, posts: array<int, WP_Post>} References still
+	 *         allowed, and the pattern posts resolved so far, keyed by id.
 	 */
-	public static function children_of( array $block, array $refs = array() ): array {
-		if ( self::is_synced_reference( $block ) ) {
-			$ref      = self::synced_ref( $block );
-			$resolved = self::resolve_synced( $ref, $refs );
+	public static function ledger(): array {
+		return array(
+			'left'  => self::MAX_SYNCED_RESOLUTIONS,
+			'posts' => array(),
+		);
+	}
 
-			if ( null === $resolved ) {
-				return array( array(), $refs );
-			}
+	/**
+	 * Puts each synced pattern's blocks where its reference is.
+	 *
+	 * After this a reference is an ordinary container whose `innerBlocks` are the
+	 * pattern's blocks, so the rest of the work (is there a policy below this,
+	 * what does this subtree hold, which pattern did the document use) is a plain
+	 * walk of `innerBlocks` and cannot disagree with itself about what a
+	 * reference contains. Resolution happens here and nowhere else, in document
+	 * order, which is also what makes the budget mean something: the first
+	 * MAX_SYNCED_RESOLUTIONS references are expanded and the rest are not.
+	 *
+	 * A reference that cannot be expanded keeps no children and is marked
+	 * `false`. That covers a pattern already being resolved on the path (a
+	 * cycle), one nested past MAX_SYNCED_DEPTH, one past the budget, and one
+	 * that is missing, unpublished, protected or not a pattern. None of them is
+	 * a failure.
+	 *
+	 * @param array $blocks Parsed blocks.
+	 * @param array $ledger By reference. From `ledger()`.
+	 * @param int[] $refs   Synced patterns already being resolved on the way here.
+	 * @return array The blocks, with every reference expanded.
+	 */
+	public static function expand( array $blocks, array &$ledger, array $refs = array() ): array {
+		$expanded = array();
 
-			return array( array_values( $resolved ), array_merge( $refs, array( $ref ) ) );
+		foreach ( $blocks as $key => $block ) {
+			$expanded[ $key ] = is_array( $block ) ? self::expand_block( $block, $ledger, $refs ) : $block;
 		}
 
-		$children = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] )
-			? array_values( $block['innerBlocks'] )
-			: array();
-
-		return array( $children, $refs );
+		return $expanded;
 	}
 
 	/**
@@ -291,6 +330,19 @@ class Agend_Content_Access_Block_Attributes {
 	 */
 	public static function is_synced_reference( array $block ): bool {
 		return isset( $block['blockName'] ) && self::SYNCED_BLOCK === $block['blockName'];
+	}
+
+	/**
+	 * Whether the block is a synced pattern reference whose pattern was expanded
+	 * into its `innerBlocks`.
+	 *
+	 * @param array $block Parsed block.
+	 * @return bool
+	 */
+	public static function is_expanded_reference( array $block ): bool {
+		return self::is_synced_reference( $block )
+			&& isset( $block[ self::EXPANDED_KEY ] )
+			&& true === $block[ self::EXPANDED_KEY ];
 	}
 
 	/**
@@ -314,23 +366,44 @@ class Agend_Content_Access_Block_Attributes {
 	}
 
 	/**
-	 * The parsed blocks of a synced pattern.
-	 *
-	 * Refuses, with null, anything WordPress itself would not render for a
-	 * visitor: a missing post, one that is not a `wp_block`, one that is not
-	 * published, or a password protected one. Also refuses a pattern already
-	 * being resolved on the path, which would never terminate, and a path longer
-	 * than MAX_SYNCED_DEPTH.
+	 * Whether a reference to the pattern may be resolved at all from here.
 	 *
 	 * @param int   $ref  `wp_block` post id.
 	 * @param int[] $refs Synced patterns already being resolved on the path.
-	 * @return array|null Parsed blocks, or null when the pattern cannot be used.
+	 * @return bool False for no id, a pattern already on the path, or a path
+	 *              already MAX_SYNCED_DEPTH patterns deep.
 	 */
-	public static function resolve_synced( int $ref, array $refs = array() ): ?array {
-		if ( $ref <= 0 || in_array( $ref, $refs, true ) || count( $refs ) >= self::MAX_SYNCED_DEPTH ) {
+	private static function may_resolve( int $ref, array $refs ): bool {
+		return $ref > 0 && ! in_array( $ref, $refs, true ) && count( $refs ) < self::MAX_SYNCED_DEPTH;
+	}
+
+	/**
+	 * The pattern post a reference points at, if WordPress would render it.
+	 *
+	 * Refuses, with null, anything WordPress itself would not render for a
+	 * visitor: a missing post, one that is not a `wp_block`, one that is not
+	 * published, or a password protected one. Also refuses what `may_resolve()`
+	 * does.
+	 *
+	 * @param int   $ref  `wp_block` post id.
+	 * @param int[] $refs Synced patterns already being resolved on the path.
+	 * @return WP_Post|null
+	 */
+	public static function synced_post( int $ref, array $refs = array() ): ?WP_Post {
+		if ( ! self::may_resolve( $ref, $refs ) ) {
 			return null;
 		}
 
+		return self::lookup_synced( $ref );
+	}
+
+	/**
+	 * Looks a pattern post up and applies WordPress's own render conditions.
+	 *
+	 * @param int $ref `wp_block` post id.
+	 * @return WP_Post|null
+	 */
+	private static function lookup_synced( int $ref ): ?WP_Post {
 		$post = get_post( $ref );
 
 		if (
@@ -342,7 +415,88 @@ class Agend_Content_Access_Block_Attributes {
 			return null;
 		}
 
-		return parse_blocks( (string) $post->post_content );
+		return $post;
+	}
+
+	/**
+	 * Expands one block: a reference is replaced by its pattern, anything else
+	 * has its inner blocks expanded.
+	 *
+	 * @param array $block  Parsed block.
+	 * @param array $ledger By reference. From `ledger()`.
+	 * @param int[] $refs   Synced patterns already being resolved on the way here.
+	 * @return array
+	 */
+	private static function expand_block( array $block, array &$ledger, array $refs ): array {
+		if ( array_key_exists( self::EXPANDED_KEY, $block ) ) {
+			return $block;
+		}
+
+		if ( ! self::is_synced_reference( $block ) ) {
+			if ( isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$block['innerBlocks'] = self::expand( $block['innerBlocks'], $ledger, $refs );
+			}
+
+			return $block;
+		}
+
+		// Whatever markup the reference carries of its own is not what
+		// WordPress renders for it, so it is not kept.
+		$block['innerBlocks']        = array();
+		$block[ self::EXPANDED_KEY ] = false;
+
+		$ref = self::synced_ref( $block );
+
+		// The guards come before the budget: a cycle or a missing id costs
+		// nothing to refuse, and should not use up a reference that could
+		// have been resolved.
+		if ( ! self::may_resolve( $ref, $refs ) || $ledger['left'] < 1 ) {
+			return $block;
+		}
+
+		--$ledger['left'];
+
+		$post = self::lookup_synced( $ref );
+
+		if ( null === $post ) {
+			return $block;
+		}
+
+		$ledger['posts'][ $ref ]     = $post;
+		$block['innerBlocks']        = self::expand( parse_blocks( (string) $post->post_content ), $ledger, array_merge( $refs, array( $ref ) ) );
+		$block[ self::EXPANDED_KEY ] = true;
+
+		return $block;
+	}
+
+	/**
+	 * Whether the block or any block inside it carries a policy.
+	 *
+	 * @param array $block Parsed block, already expanded.
+	 * @return bool
+	 */
+	private static function scan( array $block ): bool {
+		return self::carries_policy( $block ) || self::scan_children( $block );
+	}
+
+	/**
+	 * Whether any block strictly inside the block carries a policy.
+	 *
+	 * @param array $block Parsed block, already expanded.
+	 * @return bool
+	 */
+	private static function scan_children( array $block ): bool {
+		if ( ! isset( $block['innerBlocks'] ) || ! is_array( $block['innerBlocks'] ) ) {
+			return false;
+		}
+
+		foreach ( $block['innerBlocks'] as $child ) {
+			if ( is_array( $child ) && self::scan( $child ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

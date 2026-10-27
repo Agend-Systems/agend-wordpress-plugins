@@ -43,10 +43,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * callback registered, or is one of a short list that is dynamic on every
  * WordPress site whether or not the registry is populated yet.
  *
- * Synced patterns (`core/block`) hold only a `ref` to a `wp_block` post.
- * They are resolved in place, so a restriction inside a pattern is seen, with a
- * cycle guard and a depth limit. One that is missing, unpublished or not a
- * pattern yields an empty, non-extracted fragment, never a failure.
+ * Synced patterns (`core/block`) hold only a `ref` to a `wp_block` post. They
+ * are expanded in place before anything is decided, so a restriction inside a
+ * pattern is seen, with a cycle guard, a depth limit and a cap on how many
+ * references one document may expand. A reference that is missing, unpublished,
+ * protected, not a pattern, in a cycle or past a limit yields an empty,
+ * non-extracted fragment, never a failure.
  *
  * Display conditions are not exported, matching the Elementor driver: they are
  * evaluated in the theme, against the visitor, and Agend has no vocabulary for
@@ -117,28 +119,56 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function fragments( $post ): array {
-		$state = array(
+		$ledger = Agend_Content_Access_Block_Attributes::ledger();
+		$blocks = Agend_Content_Access_Block_Attributes::expand( parse_blocks( (string) $post->post_content ), $ledger );
+		$state  = array(
 			'fragments' => array(),
 			'position'  => 0,
 		);
 
-		foreach ( array_values( parse_blocks( (string) $post->post_content ) ) as $index => $block ) {
-			self::walk( $block, array( $index ), null, array(), $state );
+		foreach ( array_values( $blocks ) as $index => $block ) {
+			self::walk( $block, array( $index ), null, $state );
 		}
 
 		return $state['fragments'];
 	}
 
 	/**
+	 * The synced patterns the export of this post draws on.
+	 *
+	 * Exactly the ones `fragments()` resolves, because both ask
+	 * `Agend_Content_Access_Block_Attributes::expand()` on the same content with
+	 * the same guards and the same budget. That is the point of the method: the
+	 * exporter folds these into the post's revision, and a revision that watched
+	 * a different set of patterns from the ones the fragments were built from
+	 * would let an edited pattern go unnoticed.
+	 *
+	 * @param WP_Post $post Post being exported.
+	 * @return WP_Post[] The pattern posts, transitively, once each, by id.
+	 */
+	public function patterns( $post ): array {
+		$ledger = Agend_Content_Access_Block_Attributes::ledger();
+
+		Agend_Content_Access_Block_Attributes::expand( parse_blocks( (string) $post->post_content ), $ledger );
+
+		ksort( $ledger['posts'] );
+
+		return array_values( $ledger['posts'] );
+	}
+
+	/**
 	 * Walks one block, folding policy downward.
 	 *
-	 * @param mixed      $block     Block from `parse_blocks()`.
+	 * The tree it walks has had its synced patterns expanded in place, so a
+	 * reference is just a block whose children are the pattern's blocks, and
+	 * nothing in the walk looks a pattern up.
+	 *
+	 * @param mixed      $block     Block from `parse_blocks()`, expanded.
 	 * @param int[]      $path      Index path to this block.
 	 * @param array|null $inherited Effective policy of the ancestor chain.
-	 * @param int[]      $refs      Synced patterns being resolved on the way here.
 	 * @param array      $state     Accumulator, by reference.
 	 */
-	private static function walk( $block, array $path, ?array $inherited, array $refs, array &$state ): void {
+	private static function walk( $block, array $path, ?array $inherited, array &$state ): void {
 		if ( ! is_array( $block ) ) {
 			return;
 		}
@@ -166,18 +196,18 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 			? $inherited
 			: Agend_Content_Access_Policy::effective_policy( $inherited, $own );
 
-		if ( Agend_Content_Access_Block_Attributes::descendants_carry_policy( $block, $refs ) ) {
-			list( $children, $child_refs ) = Agend_Content_Access_Block_Attributes::children_of( $block, $refs );
+		if ( Agend_Content_Access_Block_Attributes::descendants_carry_policy( $block ) ) {
+			$children = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? array_values( $block['innerBlocks'] ) : array();
 
 			foreach ( $children as $index => $child ) {
-				self::walk( $child, array_merge( $path, array( $index ) ), $effective, $child_refs, $state );
+				self::walk( $child, array_merge( $path, array( $index ) ), $effective, $state );
 			}
 
 			return;
 		}
 
 		$complete = true;
-		$html     = self::html_of( $block, $refs, $complete );
+		$html     = self::html_of( $block, $complete );
 
 		self::emit( $name, $path, $html, $complete, $effective, $state );
 	}
@@ -217,28 +247,27 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 	 * This is what WordPress itself renders for a STATIC block: the strings in
 	 * `innerContent`, with each `null` placeholder replaced by the next inner
 	 * block. A dynamic block contributes the empty string and clears `$complete`,
-	 * and so does a synced pattern that cannot be used. A dynamic block inside a
-	 * static parent is simply absent from the parent's HTML.
+	 * and so does a synced pattern that could not be expanded. A dynamic block
+	 * inside a static parent is simply absent from the parent's HTML.
 	 *
-	 * @param array $block    Parsed block.
-	 * @param int[] $refs     Synced patterns being resolved on the way here.
+	 * @param array $block    Parsed block, expanded.
 	 * @param bool  $complete By reference. Set to false when any part of the
 	 *                        subtree was dynamic or unresolvable.
 	 * @return string
 	 */
-	private static function html_of( array $block, array $refs, bool &$complete ): string {
+	private static function html_of( array $block, bool &$complete ): string {
 		if ( null === self::name_of( $block ) ) {
 			return self::string_of( isset( $block['innerHTML'] ) ? $block['innerHTML'] : '' );
 		}
 
+		$inner_blocks = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? array_values( $block['innerBlocks'] ) : array();
+
 		// Ahead of the dynamic check: `core/block` has a render callback on a
 		// real site, and is the one dynamic block that is resolved rather than
 		// skipped, because what it renders is a pattern this document includes.
+		// Its children are the pattern's blocks, in place of its own markup.
 		if ( Agend_Content_Access_Block_Attributes::is_synced_reference( $block ) ) {
-			$ref      = Agend_Content_Access_Block_Attributes::synced_ref( $block );
-			$resolved = Agend_Content_Access_Block_Attributes::resolve_synced( $ref, $refs );
-
-			if ( null === $resolved ) {
+			if ( ! Agend_Content_Access_Block_Attributes::is_expanded_reference( $block ) ) {
 				$complete = false;
 
 				return '';
@@ -246,9 +275,9 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 
 			$html = '';
 
-			foreach ( $resolved as $child ) {
+			foreach ( $inner_blocks as $child ) {
 				if ( is_array( $child ) ) {
-					$html .= self::html_of( $child, array_merge( $refs, array( $ref ) ), $complete );
+					$html .= self::html_of( $child, $complete );
 				}
 			}
 
@@ -261,7 +290,6 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 			return '';
 		}
 
-		$inner_blocks  = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? array_values( $block['innerBlocks'] ) : array();
 		$inner_content = isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ? $block['innerContent'] : array();
 
 		// A block array that did not come from `parse_blocks()` may have inner
@@ -272,7 +300,7 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 
 			foreach ( $inner_blocks as $inner_block ) {
 				if ( is_array( $inner_block ) ) {
-					$html .= self::html_of( $inner_block, $refs, $complete );
+					$html .= self::html_of( $inner_block, $complete );
 				}
 			}
 
@@ -285,7 +313,7 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 		foreach ( $inner_content as $chunk ) {
 			if ( null === $chunk ) {
 				if ( isset( $inner_blocks[ $next ] ) && is_array( $inner_blocks[ $next ] ) ) {
-					$html .= self::html_of( $inner_blocks[ $next ], $refs, $complete );
+					$html .= self::html_of( $inner_blocks[ $next ], $complete );
 				}
 
 				++$next;

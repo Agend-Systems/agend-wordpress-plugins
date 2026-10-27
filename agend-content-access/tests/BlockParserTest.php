@@ -558,6 +558,64 @@ final class BlockParserTest extends TestCase {
 		$this->assertStringNotContainsString( 'Too deep', (string) json_encode( $fragments ) );
 	}
 
+	/** Fifty-seven references, fifty-three of them past the budget: no failure, no growth. */
+	#[Test]
+	public function references_past_the_budget_become_empty_non_extracted_fragments(): void {
+		$this->pattern( 900, $this->para( 'From the pattern' ) );
+
+		$references = array_fill( 0, 57, $this->synced( 900 ) );
+		$fragments  = $this->fragments( $this->page( ...$references ) );
+
+		$this->assertCount( 57, $fragments );
+
+		foreach ( $fragments as $position => $fragment ) {
+			$this->assertSame( 'block:core/block', $fragment['type'] );
+
+			if ( $position < 50 ) {
+				$this->assertSame( array( 'html' => '<p>From the pattern</p>', 'extracted' => true ), $fragment['payload'], (string) $position );
+				continue;
+			}
+
+			$this->assertSame( array( 'html' => '', 'extracted' => false ), $fragment['payload'], (string) $position );
+			$this->assertSame( array( 'mode' => 'inherit' ), $fragment['policy'] );
+		}
+	}
+
+	/** A reference past the budget behaves as a cycle does, inside a split pattern too. */
+	#[Test]
+	public function a_reference_past_the_budget_inside_a_split_pattern_is_an_empty_fragment(): void {
+		$this->pattern( 900, $this->para( 'Members only', $this->members() ) );
+		$this->pattern( 901, $this->para( 'Open' ) );
+
+		$filler    = array_fill( 0, 49, $this->synced( 901 ) );
+		$fragments = $this->fragments( $this->page( ...array_merge( $filler, array( $this->synced( 900 ), $this->synced( 900 ) ) ) ) );
+
+		// 49 filler references, then the first reference to 900 is the fiftieth
+		// and resolves; the second is past the budget.
+		$this->assertSame( 51, count( $fragments ) );
+		$this->assertSame( array( 'mode' => 'active_member' ), $fragments[49]['policy'] );
+		$this->assertSame( 'block:core/paragraph', $fragments[49]['type'] );
+		$this->assertSame( 'block:core/block', $fragments[50]['type'] );
+		$this->assertSame( array( 'html' => '', 'extracted' => false ), $fragments[50]['payload'] );
+	}
+
+	/** Ten fan-out, ten levels deep. Terminates, and says so in the payload. */
+	#[Test]
+	public function a_wide_tree_of_patterns_exports_a_bounded_fragment(): void {
+		for ( $id = 900; $id < 910; $id++ ) {
+			$this->pattern( $id, str_repeat( $this->synced( $id + 1 ), 10 ) );
+		}
+
+		$this->pattern( 910, $this->para( 'Leaf' ) );
+
+		$fragments = $this->fragments( $this->synced( 900 ) );
+
+		$this->assertCount( 1, $fragments );
+		$this->assertFalse( $fragments[0]['payload']['extracted'] );
+		$this->assertLessThanOrEqual( 50 * strlen( '<p>Leaf</p>' ), strlen( $fragments[0]['payload']['html'] ) );
+		$this->assertSame( $fragments, $this->fragments( $this->synced( 900 ) ), 'the cut-off is deterministic' );
+	}
+
 	/**
 	 * `core/block` has a render callback on a real site, which makes it a
 	 * dynamic block. It is resolved, not skipped, and the callback is never run.

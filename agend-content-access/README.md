@@ -115,7 +115,7 @@ whatever sits below it, as it does for Elementor.
 | No block below it carries a policy | One fragment for the whole subtree, carrying the policy folded down to it |
 | A block below it carries a policy | Structural. Not a fragment; its children are walked with the policy folded so far |
 | Plain content between blocks | A `block:freeform` fragment. Blank runs are skipped |
-| Synced pattern (`core/block`) | Resolved in place, so a restriction inside it is seen. A missing, unpublished or protected pattern is an empty fragment |
+| Synced pattern (`core/block`) | Resolved in place, so a restriction inside it is seen, up to 50 references per document. A missing, unpublished, protected, cyclic or over-limit reference is an empty fragment |
 
 Fragment ids are positional, `block-` plus the index path (`block-2-1-0`), and
 `type` is `block:` plus the block name.

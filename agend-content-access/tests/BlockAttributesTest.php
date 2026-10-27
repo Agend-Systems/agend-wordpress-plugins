@@ -467,6 +467,146 @@ final class BlockAttributesTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// Expanding patterns, and the budget
+	// -----------------------------------------------------------------
+
+	/** Counts the references in an expanded tree, by what became of them. */
+	private function tally( array $blocks, array $count = array( 'resolved' => 0, 'unresolved' => 0 ) ): array {
+		foreach ( $blocks as $block ) {
+			if ( Attributes::is_synced_reference( $block ) ) {
+				++$count[ Attributes::is_expanded_reference( $block ) ? 'resolved' : 'unresolved' ];
+			}
+
+			$count = $this->tally( $block['innerBlocks'], $count );
+		}
+
+		return $count;
+	}
+
+	#[Test]
+	public function expanding_puts_the_patterns_blocks_where_the_reference_is(): void {
+		$this->pattern( 900, '<!-- wp:paragraph --><p>One</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Two</p><!-- /wp:paragraph -->' );
+
+		$ledger   = Attributes::ledger();
+		$expanded = Attributes::expand( array( $this->block( array(), array( $this->synced( 900 ) ) ) ), $ledger );
+		$ref      = $expanded[0]['innerBlocks'][0];
+
+		$this->assertTrue( Attributes::is_expanded_reference( $ref ) );
+		$this->assertSame( array( 'core/paragraph', 'core/paragraph' ), array_column( $ref['innerBlocks'], 'blockName' ) );
+		$this->assertSame( array( 900 ), array_keys( $ledger['posts'] ) );
+	}
+
+	/** A reference's own markup is not what WordPress renders for it, so it is not kept. */
+	#[Test]
+	public function a_references_own_inner_blocks_are_replaced(): void {
+		$this->pattern( 900, '<!-- wp:paragraph --><p>From the pattern</p><!-- /wp:paragraph -->' );
+
+		$reference                = $this->synced( 900 );
+		$reference['innerBlocks'] = array( $this->block( array( 'mode' => 'active_member' ) ) );
+
+		$ledger   = Attributes::ledger();
+		$expanded = Attributes::expand( array( $reference ), $ledger );
+
+		$this->assertCount( 1, $expanded[0]['innerBlocks'] );
+		$this->assertSame( 'core/paragraph', $expanded[0]['innerBlocks'][0]['blockName'] );
+		$this->assertFalse( Attributes::subtree_carries_policy( $expanded[0] ) );
+	}
+
+	#[Test]
+	public function a_reference_that_cannot_be_expanded_is_marked_and_has_no_children(): void {
+		$reference                = $this->synced( 404 );
+		$reference['innerBlocks'] = array( $this->block( array( 'mode' => 'active_member' ) ) );
+
+		$ledger   = Attributes::ledger();
+		$expanded = Attributes::expand( array( $reference ), $ledger );
+
+		$this->assertFalse( Attributes::is_expanded_reference( $expanded[0] ) );
+		$this->assertTrue( $expanded[0][ Attributes::EXPANDED_KEY ] === false );
+		$this->assertSame( array(), $expanded[0]['innerBlocks'] );
+		$this->assertSame( array(), $ledger['posts'] );
+	}
+
+	/** Expanding a tree twice must not look anything up the second time, or spend anything. */
+	#[Test]
+	public function expanding_is_idempotent(): void {
+		$this->pattern( 900, '<!-- wp:paragraph --><p>One</p><!-- /wp:paragraph -->' );
+
+		$ledger = Attributes::ledger();
+		$once   = Attributes::expand( array( $this->synced( 900 ), $this->synced( 404 ) ), $ledger );
+		$left   = $ledger['left'];
+
+		$GLOBALS['agend_test_posts'] = array();
+
+		$twice = Attributes::expand( $once, $ledger );
+
+		$this->assertSame( $once, $twice, 'a reference that resolved stays resolved even though its pattern is gone' );
+		$this->assertSame( $left, $ledger['left'] );
+	}
+
+	#[Test]
+	public function a_reference_that_resolves_costs_one_and_a_refused_one_costs_nothing(): void {
+		$this->pattern( 900, '<!-- wp:block {"ref":900} /--><!-- wp:block {"ref":0} /-->' );
+
+		$ledger = Attributes::ledger();
+
+		Attributes::expand( array( $this->synced( 900 ) ), $ledger );
+
+		$this->assertSame( Attributes::MAX_SYNCED_RESOLUTIONS - 1, $ledger['left'], 'the cycle and the missing id were refused before the budget' );
+	}
+
+	#[Test]
+	public function references_past_the_budget_are_not_expanded(): void {
+		$this->pattern( 900, '<!-- wp:paragraph --><p>One</p><!-- /wp:paragraph -->' );
+
+		$references = array();
+
+		for ( $i = 0; $i < Attributes::MAX_SYNCED_RESOLUTIONS + 7; $i++ ) {
+			$references[] = $this->synced( 900 );
+		}
+
+		$ledger   = Attributes::ledger();
+		$expanded = Attributes::expand( $references, $ledger );
+
+		$this->assertSame( 50, Attributes::MAX_SYNCED_RESOLUTIONS );
+		$this->assertSame( array( 'resolved' => 50, 'unresolved' => 7 ), $this->tally( $expanded ) );
+		$this->assertSame( 0, $ledger['left'] );
+
+		// In document order: the first fifty, then none.
+		$this->assertTrue( Attributes::is_expanded_reference( $expanded[49] ) );
+		$this->assertFalse( Attributes::is_expanded_reference( $expanded[50] ) );
+	}
+
+	/**
+	 * Ten references to a pattern holding ten references to a pattern, and so on
+	 * for ten levels. No pattern repeats on any one path and none is nested
+	 * past the depth limit, so only the budget stands between this and ten
+	 * billion expansions.
+	 */
+	#[Test]
+	public function a_wide_tree_of_patterns_stops_at_the_budget(): void {
+		for ( $id = 900; $id < 910; $id++ ) {
+			$this->pattern( $id, str_repeat( '<!-- wp:block {"ref":' . ( $id + 1 ) . '} /-->', 10 ) );
+		}
+
+		$this->pattern( 910, '<!-- wp:paragraph --><p>Leaf</p><!-- /wp:paragraph -->' );
+
+		$ledger   = Attributes::ledger();
+		$expanded = Attributes::expand( array( $this->synced( 900 ) ), $ledger );
+		$tally    = $this->tally( $expanded );
+
+		$this->assertSame( 50, $tally['resolved'] );
+		$this->assertSame( 0, $ledger['left'] );
+		$this->assertFalse( Attributes::subtree_carries_policy( $expanded[0] ) );
+	}
+
+	/** The budget is for one document, not for the process. */
+	#[Test]
+	public function each_ledger_starts_with_a_full_budget(): void {
+		$this->assertSame( Attributes::MAX_SYNCED_RESOLUTIONS, Attributes::ledger()['left'] );
+		$this->assertSame( array(), Attributes::ledger()['posts'] );
+	}
+
+	// -----------------------------------------------------------------
 	// Resolving a pattern
 	// -----------------------------------------------------------------
 
@@ -475,7 +615,7 @@ final class BlockAttributesTest extends TestCase {
 	public function a_pattern_that_wordpress_would_not_render_is_not_resolved( array $post ): void {
 		$this->pattern( 900, '<!-- wp:paragraph {"agendAccess":{"mode":"active_member"}} --><p>Hidden</p><!-- /wp:paragraph -->', $post );
 
-		$this->assertNull( Attributes::resolve_synced( 900 ) );
+		$this->assertNull( Attributes::synced_post( 900 ) );
 		$this->assertFalse( Attributes::subtree_carries_policy( $this->synced( 900 ) ) );
 	}
 
@@ -490,9 +630,9 @@ final class BlockAttributesTest extends TestCase {
 
 	#[Test]
 	public function a_missing_pattern_is_not_resolved(): void {
-		$this->assertNull( Attributes::resolve_synced( 404 ) );
-		$this->assertNull( Attributes::resolve_synced( 0 ) );
-		$this->assertNull( Attributes::resolve_synced( -3 ) );
+		$this->assertNull( Attributes::synced_post( 404 ) );
+		$this->assertNull( Attributes::synced_post( 0 ) );
+		$this->assertNull( Attributes::synced_post( -3 ) );
 	}
 
 	#[Test]
