@@ -380,6 +380,38 @@ final class BlockParserTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// Segments and entitlements
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function a_segments_block_and_an_entitlements_block_export_their_policies(): void {
+		$fragments = $this->fragments(
+			$this->page(
+				$this->para( 'Segment', array( 'mode' => 'segments', 'segmentIds' => array( '55555555-5555-5555-5555-555555555555' ) ) ),
+				$this->para( 'Gold', array( 'mode' => 'selected_entitlements', 'entitlementKeys' => array( 'gold.access' ) ) )
+			)
+		);
+
+		$this->assertSame(
+			array( 'mode' => 'segments', 'segment_ids' => array( '55555555-5555-5555-5555-555555555555' ) ),
+			$fragments[0]['policy']
+		);
+		$this->assertSame(
+			array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( 'gold.access' ) ),
+			$fragments[1]['policy']
+		);
+	}
+
+	/** Unlike sets cannot be intersected, so the composition denies, as the gateway's does. */
+	#[Test]
+	public function a_segments_block_inside_a_tiers_group_composes_to_a_policy_nobody_satisfies(): void {
+		$segment   = array( 'mode' => 'segments', 'segmentIds' => array( '55555555-5555-5555-5555-555555555555' ) );
+		$fragments = $this->fragments( $this->group( array( $this->para( 'Narrower', $segment ) ), $this->tiers( self::TIER_A ) ) );
+
+		$this->assertSame( array( 'mode' => 'selected_tiers', 'tier_ids' => array() ), $fragments[0]['policy'] );
+	}
+
+	// -----------------------------------------------------------------
 	// Failing closed
 	// -----------------------------------------------------------------
 

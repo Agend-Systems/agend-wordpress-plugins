@@ -35,6 +35,7 @@ final class BlockAttributesTest extends TestCase {
 	private const TIER_A = '11111111-1111-1111-1111-111111111111';
 	private const TIER_B = '22222222-2222-2222-2222-222222222222';
 	private const SEGMENT = '33333333-3333-3333-3333-333333333333';
+	private const SEGMENT_B = '44444444-4444-4444-4444-444444444444';
 
 	/** A parsed block, as `parse_blocks()` returns one. */
 	private function block( array $access = array(), array $children = array(), string $name = 'core/group' ): array {
@@ -106,8 +107,8 @@ final class BlockAttributesTest extends TestCase {
 			array(
 				Policy::FRAGMENT_MODE_KEY       => 'selected_tiers',
 				Policy::FRAGMENT_TIERS_KEY      => array( self::TIER_A, self::TIER_B ),
-				'agend_access_segment_ids'      => array( self::SEGMENT ),
-				'agend_access_entitlement_keys' => array( 'gold.access' ),
+				Policy::FRAGMENT_SEGMENTS_KEY     => array( self::SEGMENT ),
+				Policy::FRAGMENT_ENTITLEMENTS_KEY => array( 'gold.access' ),
 				FragmentRules::ENABLED_KEY      => 'yes',
 				FragmentRules::CONDITIONS_KEY   => array( 'role:editor', 'segment:overdue' ),
 				FragmentRules::MATCH_KEY        => 'all',
@@ -132,6 +133,47 @@ final class BlockAttributesTest extends TestCase {
 			Policy::from_fragment_settings( Attributes::to_settings( array( 'mode' => 'active_member' ) ) )
 		);
 		$this->assertNull( Policy::from_fragment_settings( Attributes::to_settings( array( 'mode' => 'inherit' ) ) ) );
+	}
+
+	/** The segments and entitlements modes, end to end through the policy reader. */
+	#[Test]
+	public function a_segments_block_round_trips_to_a_segments_policy(): void {
+		$settings = Attributes::to_settings( array( 'mode' => 'segments', 'segmentIds' => array( self::SEGMENT, self::SEGMENT_B ) ) );
+
+		$this->assertSame(
+			array( 'mode' => 'segments', 'segment_ids' => array( self::SEGMENT, self::SEGMENT_B ) ),
+			Policy::from_fragment_settings( $settings )
+		);
+	}
+
+	#[Test]
+	public function an_entitlements_block_round_trips_to_an_entitlements_policy(): void {
+		$settings = Attributes::to_settings( array( 'mode' => 'selected_entitlements', 'entitlementKeys' => array( 'gold.access', 'press.pass' ) ) );
+
+		$this->assertSame(
+			array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( 'gold.access', 'press.pass' ) ),
+			Policy::from_fragment_settings( $settings )
+		);
+	}
+
+	/** An id the policy reader will not accept is dropped there, and an emptied list fails closed. */
+	#[Test]
+	public function ids_the_policy_reader_rejects_are_dropped_and_an_empty_list_denies(): void {
+		$segments = Attributes::to_settings( array( 'mode' => 'segments', 'segmentIds' => array( 'not-a-uuid', self::SEGMENT, self::SEGMENT, 7 ) ) );
+		$keys     = Attributes::to_settings( array( 'mode' => 'selected_entitlements', 'entitlementKeys' => array( 'Not A Key' ) ) );
+
+		$this->assertSame( array( 'mode' => 'segments', 'segment_ids' => array( self::SEGMENT ) ), Policy::from_fragment_settings( $segments ) );
+		$this->assertSame( array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array() ), Policy::from_fragment_settings( $keys ) );
+	}
+
+	/** A list for the wrong mode is carried but not read: only the chosen mode's list counts. */
+	#[Test]
+	public function only_the_chosen_modes_list_is_read(): void {
+		$settings = Attributes::to_settings(
+			array( 'mode' => 'segments', 'segmentIds' => array( self::SEGMENT ), 'tierIds' => array( self::TIER_A ), 'entitlementKeys' => array( 'gold.access' ) )
+		);
+
+		$this->assertSame( array( 'mode' => 'segments', 'segment_ids' => array( self::SEGMENT ) ), Policy::from_fragment_settings( $settings ) );
 	}
 
 	#[Test]
@@ -231,8 +273,8 @@ final class BlockAttributesTest extends TestCase {
 		);
 
 		$this->assertSame( array( self::TIER_A ), $settings[ Policy::FRAGMENT_TIERS_KEY ] );
-		$this->assertSame( array( self::SEGMENT ), $settings['agend_access_segment_ids'] );
-		$this->assertSame( array( 'gold.access' ), $settings['agend_access_entitlement_keys'] );
+		$this->assertSame( array( self::SEGMENT ), $settings[ Policy::FRAGMENT_SEGMENTS_KEY ] );
+		$this->assertSame( array( 'gold.access' ), $settings[ Policy::FRAGMENT_ENTITLEMENTS_KEY ] );
 	}
 
 	/**

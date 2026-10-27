@@ -120,19 +120,14 @@ class Agend_Content_Access_Block_Attributes {
 	private const UNRECOGNISED_MODE = 'unrecognised';
 
 	/**
-	 * Settings keys for the two audience lists the segments and entitlements
-	 * layer adds.
-	 *
-	 * Spelled out here because the constants for them live on
-	 * `Agend_Content_Access_Policy` in a sibling layer that is rebased under
-	 * this one. Once both are in, these two literals should become those
-	 * constants.
+	 * The attribute key and settings key of each audience list.
 	 *
 	 * @var array<string, string>
 	 */
-	private const SIBLING_LIST_KEYS = array(
-		'segmentIds'      => 'agend_access_segment_ids',
-		'entitlementKeys' => 'agend_access_entitlement_keys',
+	private const LIST_KEYS = array(
+		'tierIds'         => Agend_Content_Access_Policy::FRAGMENT_TIERS_KEY,
+		'segmentIds'      => Agend_Content_Access_Policy::FRAGMENT_SEGMENTS_KEY,
+		'entitlementKeys' => Agend_Content_Access_Policy::FRAGMENT_ENTITLEMENTS_KEY,
 	);
 
 	/**
@@ -146,7 +141,7 @@ class Agend_Content_Access_Block_Attributes {
 	 * @param array $block_attrs The `agendAccess` attribute object.
 	 * @return array Settings keyed by the `Agend_Content_Access_Policy::FRAGMENT_*`
 	 *               and `Agend_Content_Access_Fragment_Rules::*_KEY` constants,
-	 *               plus the two sibling list keys. Toggles are `'yes'` or `''`.
+	 *               Toggles are `'yes'` or `''`.
 	 */
 	public static function to_settings( array $block_attrs ): array {
 		if ( ! self::is_object_like( $block_attrs ) ) {
@@ -161,12 +156,7 @@ class Agend_Content_Access_Block_Attributes {
 				: self::UNRECOGNISED_MODE;
 		}
 
-		$lists = array_merge(
-			array( 'tierIds' => Agend_Content_Access_Policy::FRAGMENT_TIERS_KEY ),
-			self::SIBLING_LIST_KEYS
-		);
-
-		foreach ( $lists as $attribute => $key ) {
+		foreach ( self::LIST_KEYS as $attribute => $key ) {
 			if ( isset( $block_attrs[ $attribute ] ) && is_array( $block_attrs[ $attribute ] ) ) {
 				$settings[ $key ] = self::strings( $block_attrs[ $attribute ] );
 			}
