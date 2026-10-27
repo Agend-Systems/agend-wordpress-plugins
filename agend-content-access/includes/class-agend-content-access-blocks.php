@@ -10,8 +10,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Removes the blocks a visitor may not see, and keeps the response and the
- * search results from giving them away.
+ * Removes the blocks a visitor may not see, and keeps the response from
+ * giving them away.
  *
  * This is the block editor's equivalent of `Agend_Content_Access_Elementor`,
  * and the decision it makes is the same one: a block carries an `agendAccess`
@@ -41,9 +41,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * would judge a restricted post's block in a loop on a public page against the
  * public page, and fail open.
  *
- * The authoring carve-out (`Agend_Content_Access_Frontend::is_authoring_context()`)
- * and a display-condition fallback that is itself restricted (`fallback_for()`)
- * are handled here as well, and each fails silently if it is missed.
+ * Three leak vectors beyond the render itself are closed here, and each fails
+ * silently if it is missed: page caches (`mark_page_uncacheable()` and the
+ * render-time marking), the authoring carve-out
+ * (`Agend_Content_Access_Frontend::is_authoring_context()`), and a
+ * display-condition fallback that is itself restricted (`fallback_for()`).
  */
 class Agend_Content_Access_Blocks {
 
@@ -58,6 +60,23 @@ class Agend_Content_Access_Blocks {
 	 * @var int
 	 */
 	const PRE_RENDER_PRIORITY = PHP_INT_MIN;
+
+	/**
+	 * Priority of the `template_redirect` cache marking. After the page gate
+	 * (priority 1), which may end the request with a 403 and has nothing to mark.
+	 *
+	 * @var int
+	 */
+	const TEMPLATE_REDIRECT_PRIORITY = 2;
+
+	/**
+	 * Posts this request has already been marked uncacheable for, by post id, so
+	 * the action cache integrations listen on fires once per post and not once
+	 * per block.
+	 *
+	 * @var array<int, true>
+	 */
+	private array $marked = array();
 
 	/**
 	 * Display-condition fallback posts being rendered right now, by post id.
@@ -76,6 +95,7 @@ class Agend_Content_Access_Blocks {
 	 */
 	public function __construct() {
 		add_filter( 'pre_render_block', array( $this, 'pre_render_block' ), self::PRE_RENDER_PRIORITY, 3 );
+		add_action( 'template_redirect', array( $this, 'mark_page_uncacheable' ), self::TEMPLATE_REDIRECT_PRIORITY );
 	}
 
 	// -----------------------------------------------------------------------
@@ -117,6 +137,10 @@ class Agend_Content_Access_Blocks {
 		if ( self::is_authoring() ) {
 			return null;
 		}
+
+		// Marked whatever the verdict. The block is personalised, so the page is
+		// per-viewer: see `mark_uncacheable()`.
+		$this->mark_uncacheable( self::context_post_id() );
 
 		try {
 			// Display conditions first, as Elementor does. They can only remove,
@@ -230,5 +254,138 @@ class Agend_Content_Access_Blocks {
 		} finally {
 			unset( $this->fallbacks_open[ $fallback_id ] );
 		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Page caches
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Keeps a page whose post holds a restricted or conditioned block out of page
+	 * caches, decided before anything renders.
+	 *
+	 * Runs on `template_redirect` for a singular request and scans the queried
+	 * post's blocks, synced patterns included. This is the early decision: in a
+	 * classic theme output has usually begun before the first block renders, and
+	 * `Cache-Control` can only be sent while headers are unsent, so a mark left to
+	 * render time would carry the constant alone. A restricted block in a loop, a
+	 * template part or a widget is not in this post's content, and is caught by
+	 * the render-time marking in `pre_render_block()` instead.
+	 *
+	 * The scan is live and never a value saved with the post: a pattern edited
+	 * after the page was saved changes what the page holds without touching the
+	 * page, and a cache decision that is stale in that direction serves a
+	 * member's copy.
+	 */
+	public function mark_page_uncacheable(): void {
+		if ( ! is_singular() ) {
+			return;
+		}
+
+		$post = get_queried_object();
+
+		if ( ! $post instanceof WP_Post ) {
+			return;
+		}
+
+		if ( self::tree_carries_rules( (string) $post->post_content ) ) {
+			$this->mark_uncacheable( (int) $post->ID );
+		}
+	}
+
+	/**
+	 * Marks the response uncacheable, through the frontend's own marking.
+	 *
+	 * ANONYMOUS RENDERS ARE MARKED TOO. It is tempting to mark only a page a
+	 * member saw, as the document gate does, since an anonymous render of a
+	 * restricted block is just the block's absence. But a page with a restricted
+	 * or conditioned block is PER-VIEWER for everybody, signed out included.
+	 * A page cache keys on the URL, not on who asked, and a member of Agend is
+	 * routinely not signed in to WordPress at all (their standing arrives as a
+	 * bearer, which a cache does not see), so the cache cannot tell the two
+	 * apart. Cache the anonymous copy and every member is served it, without the
+	 * block they are entitled to; cache a member's, and every anonymous visitor
+	 * is served the restricted block and the gate never runs. Personalisation
+	 * for a signed-out visitor is still personalisation, so neither copy may be
+	 * stored.
+	 *
+	 * @param int $post_id Post whose render carries the block, 0 for none.
+	 */
+	private function mark_uncacheable( int $post_id ): void {
+		if ( isset( $this->marked[ $post_id ] ) ) {
+			return;
+		}
+
+		$this->marked[ $post_id ] = true;
+
+		Agend_Content_Access_Frontend::mark_uncacheable( $post_id );
+	}
+
+	// -----------------------------------------------------------------------
+	// The tree check, for the cache marking
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Whether the content holds a block with an audience policy or display
+	 * conditions, anywhere in its tree.
+	 *
+	 * The tree is the parsed blocks with every synced pattern expanded in place
+	 * (`Block_Attributes::expand()`, with its cycle, depth and budget guards), so
+	 * a restriction inside a pattern counts for the page that uses it. A block
+	 * counts by the same two tests the render path uses
+	 * (`carries_policy()`, `carries_conditions()`), so the answer here and the
+	 * decision at render time cannot disagree about what a rule is. A rule in a
+	 * template part or a query loop's other posts is not in the content, and is
+	 * not seen here.
+	 *
+	 * Content with no `wp:` in it has no block delimiter and cannot hold a block,
+	 * so it is not parsed. That is the one shortcut, and it is a safe one:
+	 * the parser requires the literal `wp:` after the comment opener. Not
+	 * `has_blocks()`, which looks for `<!-- wp:` with exactly one space, and
+	 * misses a delimiter the parser accepts.
+	 *
+	 * @param string $content Raw `post_content`.
+	 * @return bool
+	 */
+	public static function tree_carries_rules( string $content ): bool {
+		if ( false === strpos( $content, 'wp:' ) ) {
+			return false;
+		}
+
+		$ledger = Agend_Content_Access_Block_Attributes::ledger();
+		$blocks = Agend_Content_Access_Block_Attributes::expand( parse_blocks( $content ), $ledger );
+
+		return self::blocks_carry_rules( $blocks );
+	}
+
+	/**
+	 * Whether any of the blocks, or anything inside them, carries a rule.
+	 *
+	 * @param array $blocks Parsed blocks, already expanded.
+	 * @return bool
+	 */
+	private static function blocks_carry_rules( array $blocks ): bool {
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			if (
+				Agend_Content_Access_Block_Attributes::carries_policy( $block )
+				|| Agend_Content_Access_Block_Attributes::carries_conditions( $block )
+			) {
+				return true;
+			}
+
+			if (
+				isset( $block['innerBlocks'] )
+				&& is_array( $block['innerBlocks'] )
+				&& self::blocks_carry_rules( $block['innerBlocks'] )
+			) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 }

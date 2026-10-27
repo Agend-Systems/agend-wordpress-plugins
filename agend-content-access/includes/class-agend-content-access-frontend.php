@@ -691,9 +691,12 @@ class Agend_Content_Access_Frontend {
 	 *   are still unsent. In a classic theme output usually began before the loop,
 	 *   so the constant is the dependable half and the header is best effort.
 	 *
-	 * @param int $post_id Post whose granted render caused this.
+	 * Public so the block driver marks a page through the same code, and the same
+	 * action, as a gated post does.
+	 *
+	 * @param int $post_id Post whose render caused this.
 	 */
-	private static function mark_uncacheable( int $post_id ): void {
+	public static function mark_uncacheable( int $post_id ): void {
 		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
 			define( 'DONOTCACHEPAGE', true );
 		}
