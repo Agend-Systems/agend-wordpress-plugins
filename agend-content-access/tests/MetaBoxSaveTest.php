@@ -159,13 +159,28 @@ final class MetaBoxSaveTest extends TestCase {
 		$this->assertSame( $policy, Policy::get_for_post( self::POST ) );
 	}
 
-	/** A hand-crafted submission for a mode the panel cannot offer, with nothing chosen. */
+	/**
+	 * A set-mode submitted with nothing selected is refused whichever of the
+	 * three it is, and the stored policy stays. Choosing plans in the panel with
+	 * no plan ticked is the live case; the other two are hand-crafted.
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public static function set_modes(): array {
+		return array(
+			'selected plans'        => array( 'selected_tiers' ),
+			'segments'              => array( 'segments' ),
+			'selected entitlements' => array( 'selected_entitlements' ),
+		);
+	}
+
 	#[Test]
-	public function a_set_mode_with_nothing_selected_keeps_the_stored_policy(): void {
-		$policy = array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER ) );
+	#[DataProvider( 'set_modes' )]
+	public function a_set_mode_with_nothing_selected_keeps_the_stored_policy( string $mode ): void {
+		$policy = array( 'mode' => 'active_member' );
 		$this->store( $policy );
 
-		$this->savePanel( array( MetaBox::FIELD_MODE => 'segments' ) );
+		$this->savePanel( array( MetaBox::FIELD_MODE => $mode ) );
 
 		$this->assertSame( $policy, Policy::get_for_post( self::POST ) );
 	}

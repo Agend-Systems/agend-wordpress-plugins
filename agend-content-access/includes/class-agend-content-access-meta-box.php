@@ -218,8 +218,10 @@ class Agend_Content_Access_Meta_Box {
 	 * be a genuine, authorised save of a supported post.
 	 *
 	 * The stored policy is only ever REPLACED by a submitted mode that produces a
-	 * valid policy. A missing, empty or unrecognised mode, and a mode whose
-	 * selections are invalid, all leave it exactly as it was.
+	 * valid policy. A missing, empty, non-string or unrecognised mode, and a mode
+	 * whose selections are invalid, all leave it exactly as it was, whatever
+	 * state it was in: readable, unreadable or absent. Only an explicit,
+	 * recognised audience writes, and clearing a restriction is choosing Public.
 	 *
 	 * @param int     $post_id Post id.
 	 * @param WP_Post $post    Post object.
@@ -260,14 +262,24 @@ class Agend_Content_Access_Meta_Box {
 			: '';
 
 		// No mode submitted means the panel had nothing to say, so the stored
-		// policy is kept. It must NOT be read as "the editor cleared the policy":
-		// the panel has one radio per mode it can show, and a post holding a policy
-		// in a mode it cannot show (`segments` or `selected_entitlements`, until the
-		// controls for them arrive) has no radio checked, so any ordinary save of
-		// that post would submit no mode and silently make it public. The same goes
-		// for a mode the panel does not recognise, which `from_input()` refuses
-		// below, with the stored policy left alone. Clearing a policy deliberately
-		// is still possible: choose Public.
+		// policy is kept, whatever its state. It must NOT be read as "the editor
+		// cleared the policy", because the panel can render with no mode checked
+		// and a browser submits nothing for a radio that is not checked:
+		//
+		//  - the plans radio is disabled while the plan catalogue is unreachable,
+		//    and a disabled control is not submitted, so a stored plans policy
+		//    comes back with no mode;
+		//  - an unreadable policy preselects nothing;
+		//  - the panel has one radio per mode it can show, so a post holding a
+		//    policy in a mode it cannot show (`segments` or
+		//    `selected_entitlements`, until the controls for them arrive) has none
+		//    checked.
+		//
+		// Clearing any of those on an ordinary save would turn a restricted page
+		// into a public one without anybody choosing that. A mode the panel does
+		// not recognise is refused by `from_input()` below with the stored policy
+		// left alone, so the two kinds of unusable mode end the same way.
+		// Removing a restriction is still possible: choose Public.
 		if ( '' === $mode ) {
 			return;
 		}
