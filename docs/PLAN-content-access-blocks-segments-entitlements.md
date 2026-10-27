@@ -253,11 +253,23 @@ wrote them.
 The exporter dispatches by editor. A block page becomes fragments the same way an
 Elementor page does: a subtree with no policy below it is one fragment carrying the
 folded ancestor policy, and a block with a policy somewhere below it is structural
-and is split. Synced patterns are resolved, with a cycle guard. Fragment ids are
+and is split. Synced patterns are resolved in place, with a cycle guard, a depth
+limit and a per-document cap on how many references are expanded. Fragment ids are
 positional (`block-0-2-1`): the gateway stores a document's fragments as one value
-per revision, so ids need only be unique within a revision. The export renders
-blocks with enforcement switched off, because the connector request has no
-visitor.
+per revision, so ids need only be unique within a revision.
+
+Nothing is rendered. A static block's HTML is rebuilt from its saved markup, and a
+dynamic block (a query loop, latest posts, post content, a template part,
+navigation, or any block with a render callback) is exported empty and marked
+non-extracted. Rendering would run those blocks and pull other posts' content,
+possibly restricted, into this document's fragments, which Agend would then serve
+under this document's policy. The cost is fidelity, never safety: a region comes
+out empty or without its wrapper markup, not served to the wrong audience.
+
+The revision folds in the synced patterns the export resolved (each one's id,
+modification time, status and content), because a pattern's blocks are not in the
+page's own content and editing one changes the fragments without touching the
+page.
 
 ## 7. Build and release
 
