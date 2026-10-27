@@ -11,6 +11,7 @@ use Agend_Content_Access_Exporter as Exporter;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use WP_Post;
 
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-policy.php';
@@ -75,7 +76,7 @@ final class ExporterRevisionTest extends TestCase {
 	}
 
 	/** The token as it was before block pages: five fields, joined. */
-	private function legacyRevision( WP_Post $post, string $elementor = '' ): string {
+	private function legacyRevision( WP_Post $post, string $elementor = '', string $policy = 'null' ): string {
 		return hash(
 			'sha256',
 			implode(
@@ -83,7 +84,7 @@ final class ExporterRevisionTest extends TestCase {
 				array(
 					(string) $post->post_modified_gmt,
 					(string) $post->post_status,
-					'null',
+					$policy,
 					$elementor,
 					(string) $post->post_content,
 				)
@@ -236,6 +237,58 @@ final class ExporterRevisionTest extends TestCase {
 		$this->pattern( 900, $this->para( 'Pattern, edited' ) );
 
 		$this->assertNotSame( $before, $this->revision( $content ) );
+	}
+
+	// -----------------------------------------------------------------
+	// An unreadable stored policy
+	// -----------------------------------------------------------------
+
+	private function storeUnreadablePolicy(): void {
+		$GLOBALS['agend_test_post_meta'][ self::POST_ID ]['_agend_access_policy'] = array( 'mode' => 'authenticated' );
+	}
+
+	/** A block post is refused like any other: exported as null it would be read as public. */
+	#[Test]
+	public function a_block_post_with_an_unreadable_policy_is_refused(): void {
+		$this->storeUnreadablePolicy();
+
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'unreadable' );
+
+		Exporter::record( $this->post( $this->para( 'Careful' ) ) );
+	}
+
+	#[Test]
+	public function an_unreadable_policy_hashes_as_a_marker_for_every_kind_of_post(): void {
+		$this->storeUnreadablePolicy();
+
+		$classic = $this->post( '<p>Plain post</p>' );
+
+		$this->assertSame( $this->legacyRevision( $classic, '', 'unreadable' ), Exporter::revision_of( $classic ) );
+
+		$block = $this->post( $this->para( 'One' ) );
+
+		$this->assertSame( $this->legacyRevision( $block, '', 'unreadable' ), Exporter::revision_of( $block ) );
+
+		$GLOBALS['agend_test_post_meta'][ self::POST_ID ]['_elementor_data'] = '[{"id":"a1","elType":"section"}]';
+
+		$this->assertSame(
+			$this->legacyRevision( $block, '[{"id":"a1","elType":"section"}]', 'unreadable' ),
+			Exporter::revision_of( $block )
+		);
+	}
+
+	/** The listing walks every document, so the revision must never throw on one. */
+	#[Test]
+	public function a_block_page_with_an_unreadable_policy_and_a_pattern_still_yields_a_revision(): void {
+		$this->storeUnreadablePolicy();
+		$this->pattern( 900, $this->para( 'Pattern' ) );
+
+		$post     = $this->post( $this->ref( 900 ) );
+		$revision = Exporter::revision_of( $post );
+
+		$this->assertNotSame( $this->legacyRevision( $post, '', 'unreadable' ), $revision, 'the pattern is still folded in' );
+		$this->assertSame( $revision, Exporter::revision_of( $post ) );
 	}
 
 	// -----------------------------------------------------------------

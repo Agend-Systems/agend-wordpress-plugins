@@ -157,6 +157,39 @@ final class ExporterDispatchTest extends TestCase {
 		$this->assertSame( 'elementor:text-editor', $fragments[0]['type'] );
 	}
 
+	/** The Elementor rule outranks the filter, so a list holding only the block driver cannot take an Elementor post. */
+	#[Test]
+	public function an_elementor_post_stays_with_the_elementor_driver_when_the_filter_keeps_only_the_block_driver(): void {
+		$this->storeElementor( array( $this->widget( 'wid0001', 'Elementor text' ) ) );
+
+		Agend_Test_WP::$filters['agend_content_access_document_parsers'] =
+			static fn( array $parsers ): array => array( $parsers[1] );
+
+		$fragments = Exporter::fragments_of( $this->post( '<!-- wp:paragraph --><p>Copy</p><!-- /wp:paragraph -->' ), null );
+
+		$this->assertSame( array( 'wid0001' ), array_column( $fragments, 'id' ) );
+	}
+
+	/** A block post is offered to the filtered list like any other, so a site can still replace its driver. */
+	#[Test]
+	public function a_block_post_follows_the_filtered_list(): void {
+		$custom = $this->driver( true, 'custom' );
+
+		Agend_Test_WP::$filters['agend_content_access_document_parsers'] =
+			static fn( array $parsers ): array => array_merge( array( $custom ), $parsers );
+
+		$block = Exporter::fragments_of( $this->post( '<!-- wp:paragraph --><p>Block</p><!-- /wp:paragraph -->' ), null );
+
+		$this->assertSame( 'custom', $block[0]['id'] );
+
+		Agend_Test_WP::$filters['agend_content_access_document_parsers'] =
+			static fn( array $parsers ): array => array();
+
+		$none = Exporter::fragments_of( $this->post( '<!-- wp:paragraph --><p>Block</p><!-- /wp:paragraph -->' ), null );
+
+		$this->assertSame( 'body', $none[0]['id'] );
+	}
+
 	#[Test]
 	public function a_classic_post_with_a_stray_comment_still_falls_back_to_the_body_fragment(): void {
 		$fragments = Exporter::fragments_of( $this->post( "<!-- more -->\n<p>Classic</p>" ), null );
