@@ -47,8 +47,10 @@ class Agend_Content_Access_Elementor {
 	 * policy, for the reason the rules class documents: the policy is a security
 	 * boundary Agend enforces, the conditions are presentation applied here.
 	 */
-	const MODE_KEY  = Agend_Content_Access_Policy::FRAGMENT_MODE_KEY;
-	const TIERS_KEY = Agend_Content_Access_Policy::FRAGMENT_TIERS_KEY;
+	const MODE_KEY         = Agend_Content_Access_Policy::FRAGMENT_MODE_KEY;
+	const TIERS_KEY        = Agend_Content_Access_Policy::FRAGMENT_TIERS_KEY;
+	const SEGMENTS_KEY     = Agend_Content_Access_Policy::FRAGMENT_SEGMENTS_KEY;
+	const ENTITLEMENTS_KEY = Agend_Content_Access_Policy::FRAGMENT_ENTITLEMENTS_KEY;
 
 	const CONDITIONS_ENABLED_KEY  = Agend_Content_Access_Fragment_Rules::ENABLED_KEY;
 	const CONDITIONS_KEY          = Agend_Content_Access_Fragment_Rules::CONDITIONS_KEY;
@@ -66,6 +68,29 @@ class Agend_Content_Access_Elementor {
 	 * @var array<string, true>
 	 */
 	private array $processed_stacks = array();
+
+	/**
+	 * The audience controls and the condition choices, each built once per
+	 * request.
+	 *
+	 * Elementor registers a control stack for every widget type when the editor
+	 * loads, and each one used to ask the catalogue for its options. A cached
+	 * list makes that a transient read, but a list that could not be loaded is
+	 * never cached, so each stack would have asked the gateway again, during an
+	 * outage as much as at any other time. The options are the same for every
+	 * stack, so they are read once.
+	 *
+	 * @var array<string, array<string, mixed>>|null
+	 */
+	private ?array $audience_controls = null;
+
+	/**
+	 * Condition choices, flattened for the SELECT2 control. See
+	 * `$audience_controls` for why this is read once.
+	 *
+	 * @var array<string, string>|null
+	 */
+	private ?array $condition_options = null;
 
 	/**
 	 * Registers hooks. Only ever called when Elementor is loaded.
@@ -126,41 +151,14 @@ class Agend_Content_Access_Elementor {
 			)
 		);
 
-		$element->add_control(
-			self::MODE_KEY,
-			array(
-				'label'       => __( 'Who can see this', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => Agend_Content_Access_Policy::MODE_INHERIT,
-				'options'     => array(
-					Agend_Content_Access_Policy::MODE_INHERIT => __( 'Same as the page', 'agend-content-access' ),
-					Agend_Content_Access_Policy::MODE_MEMBERS => __( 'All active members', 'agend-content-access' ),
-					Agend_Content_Access_Policy::MODE_TIERS   => __( 'Selected membership plans', 'agend-content-access' ),
-				),
-				'description' => __(
-					'A section can only narrow the page\'s audience, never widen it. If the page is already restricted, this section stays restricted too.',
-					'agend-content-access'
-				),
-			)
-		);
+		if ( null === $this->audience_controls ) {
+			$this->audience_controls = self::audience_controls();
+			$this->condition_options = Agend_Content_Access_Condition_Sets::as_options();
+		}
 
-		$element->add_control(
-			self::TIERS_KEY,
-			array(
-				'label'       => __( 'Membership plans', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT2,
-				'multiple'    => true,
-				'options'     => self::plan_options(),
-				'default'     => array(),
-				'condition'   => array(
-					self::MODE_KEY => Agend_Content_Access_Policy::MODE_TIERS,
-				),
-				'description' => __(
-					'Members on any one of these plans can see this section. Selecting none hides it from everybody.',
-					'agend-content-access'
-				),
-			)
-		);
+		foreach ( $this->audience_controls as $control_id => $control_args ) {
+			$element->add_control( $control_id, $control_args );
+		}
 
 		$element->add_control(
 			'agend_conditions_divider',
@@ -189,7 +187,7 @@ class Agend_Content_Access_Elementor {
 				'label'       => __( 'Conditions', 'agend-content-access' ),
 				'type'        => \Elementor\Controls_Manager::SELECT2,
 				'multiple'    => true,
-				'options'     => Agend_Content_Access_Condition_Sets::as_options(),
+				'options'     => $this->condition_options,
 				'default'     => array(),
 				'label_block' => true,
 				'condition'   => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
@@ -249,6 +247,83 @@ class Agend_Content_Access_Elementor {
 	}
 
 	/**
+	 * The access policy controls: who can see an element, and the list each
+	 * audience that is a set chooses from.
+	 *
+	 * Public to be testable without an Elementor control stack, and in the order
+	 * they appear. Each list control is shown only for its own audience. For
+	 * every one of them, selecting none is a restriction nobody satisfies and so
+	 * hides the element from everybody, never a way of removing the restriction:
+	 * `Policy::from_fragment_settings()` reads an empty list as that, and the
+	 * descriptions say so, because an editor who flips an audience on and has
+	 * not yet ticked anything would otherwise expect to see the element still.
+	 *
+	 * @return array<string, array<string, mixed>> Control id to Elementor control args.
+	 */
+	public static function audience_controls(): array {
+		return array(
+			self::MODE_KEY         => array(
+				'label'       => __( 'Who can see this', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => Agend_Content_Access_Policy::MODE_INHERIT,
+				'options'     => array(
+					Agend_Content_Access_Policy::MODE_INHERIT      => __( 'Same as the page', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_MEMBERS      => __( 'All active members', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_TIERS        => __( 'Selected membership plans', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_SEGMENTS     => __( 'Selected segments', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_ENTITLEMENTS => __( 'Selected entitlements', 'agend-content-access' ),
+				),
+				'description' => __(
+					'A section can only narrow the page\'s audience, never widen it. If the page is already restricted, this section stays restricted too.',
+					'agend-content-access'
+				),
+			),
+			self::TIERS_KEY        => array(
+				'label'       => __( 'Membership plans', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'options'     => self::plan_options(),
+				'default'     => array(),
+				'condition'   => array(
+					self::MODE_KEY => Agend_Content_Access_Policy::MODE_TIERS,
+				),
+				'description' => __(
+					'Members on any one of these plans can see this section. Selecting none hides it from everybody.',
+					'agend-content-access'
+				),
+			),
+			self::SEGMENTS_KEY     => array(
+				'label'       => __( 'Segments', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'options'     => self::segment_options(),
+				'default'     => array(),
+				'condition'   => array(
+					self::MODE_KEY => Agend_Content_Access_Policy::MODE_SEGMENTS,
+				),
+				'description' => __(
+					'People in any one of these segments can see this section. Selecting none hides it from everybody.',
+					'agend-content-access'
+				),
+			),
+			self::ENTITLEMENTS_KEY => array(
+				'label'       => __( 'Entitlements', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'options'     => self::entitlement_options(),
+				'default'     => array(),
+				'condition'   => array(
+					self::MODE_KEY => Agend_Content_Access_Policy::MODE_ENTITLEMENTS,
+				),
+				'description' => __(
+					'People who hold any one of these entitlements can see this section. Selecting none hides it from everybody.',
+					'agend-content-access'
+				),
+			),
+		);
+	}
+
+	/**
 	 * Plan choices for the editor, id to name.
 	 *
 	 * Reuses the reduced catalogue, so the Elementor control and the native
@@ -263,6 +338,45 @@ class Agend_Content_Access_Elementor {
 
 		foreach ( Agend_Content_Access_Catalogue::selectable( $catalogue['plans'] ) as $plan ) {
 			$options[ $plan['id'] ] = $plan['name'];
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Segment choices for the editor, id to name.
+	 *
+	 * Stored by id, which is what a segments policy holds and what survives a
+	 * segment being renamed. The same cached list the page panel offers, so the
+	 * two surfaces cannot disagree. A list that could not be loaded yields an
+	 * empty one, which the control's own copy explains.
+	 *
+	 * @return array<string, string>
+	 */
+	public static function segment_options(): array {
+		$options = array();
+
+		foreach ( Agend_Content_Access_Catalogue::segments()['items'] as $segment ) {
+			$options[ $segment['id'] ] = $segment['name'];
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Entitlement choices for the editor, gate key to label.
+	 *
+	 * Stored by gate key, which survives a benefit being re-created. A platform
+	 * capability reads "Platform: Directory access", the same label the page
+	 * panel and the display conditions use.
+	 *
+	 * @return array<string, string>
+	 */
+	public static function entitlement_options(): array {
+		$options = array();
+
+		foreach ( Agend_Content_Access_Catalogue::entitlements()['items'] as $entitlement ) {
+			$options[ $entitlement['gate_key'] ] = Agend_Content_Access_Catalogue::entitlement_label( $entitlement );
 		}
 
 		return $options;

@@ -24,6 +24,7 @@ namespace Elementor {
 			const CHOOSE      = 'choose';
 			const COLOR       = 'color';
 			const DIMENSIONS  = 'dimensions';
+			const DIVIDER     = 'divider';
 			const HEADING     = 'heading';
 			const ICONS       = 'icons';
 			const MEDIA       = 'media';
@@ -34,6 +35,7 @@ namespace Elementor {
 			const SELECT2     = 'select2';
 			const SLIDER      = 'slider';
 			const SWITCHER    = 'switcher';
+			const TAB_ADVANCED = 'advanced';
 			const TAB_CONTENT = 'content';
 			const TAB_STYLE   = 'style';
 			const TEXT        = 'text';
