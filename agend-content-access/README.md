@@ -167,9 +167,16 @@ Loop block, whose content is gated.
 ### What counts as authoring
 
 Gating stands down for somebody who is authoring, and only for them. That is a
-wp-admin screen, Elementor's editor, Elementor's own editor AJAX (rendering a
-widget, fetching a template), and Elementor's preview iframe.
+wp-admin screen showing a post its user may edit, Elementor's editor, Elementor's
+own editor AJAX (rendering a widget, fetching a template), and Elementor's
+preview iframe.
 
+- **A wp-admin screen is authoring only for the posts its user can edit.**
+  `is_admin()` says where a request is, not who is asking. The Posts list in its
+  extended view, a dashboard widget or a metabox prints the excerpt or body of
+  posts a contributor cannot edit, so the carve-out is the right to edit the post
+  being rendered (`edit_post`). Where no post is named, such as a Latest Posts
+  block, it is the right to edit other people's posts (`edit_others_posts`).
 - **The preview flag is trusted only on the page it names.** The
   `?elementor-preview=<id>` argument is a query-string value anyone can append to
   any URL, and Elementor only checks that the user may edit the id it carries. So
@@ -181,9 +188,9 @@ widget, fetching a template), and Elementor's preview iframe.
   posts, a related posts widget or a template a shortcode pulls in, is what a
   visitor to the same page would be shown, and is gated like it. Otherwise anybody
   who can edit one post could print any restricted post into it and open the
-  preview to read it. Elementor's editor itself and wp-admin screens stay
-  authoring for every post, and an element whose Elementor document cannot be
-  identified is treated as a visitor's.
+  preview to read it. Elementor's editor itself stays authoring for every post,
+  and an element whose Elementor document cannot be identified is treated as a
+  visitor's.
 - **admin-ajax.php is not authoring.** WordPress reports `is_admin()` for it, but
   other plugins render Elementor templates through it for anonymous visitors
   ("load more", filters, tabs). Sections are suppressed there. Only Elementor's

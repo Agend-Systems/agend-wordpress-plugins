@@ -348,11 +348,12 @@ class Agend_Content_Access_Elementor {
 	/**
 	 * Whether the render in progress is the author's, in front of an editor.
 	 *
-	 * Not the same question as `Frontend::is_authoring_context()`, which is true
-	 * for every `is_admin()` request and so for anonymous admin-ajax.php renders.
-	 * Here a request is authoring when it is not one a visitor can be reading
-	 * (a wp-admin screen, the editor), or when it is the editor's own AJAX.
-	 * Everything else that reaches admin-ajax.php is a visitor.
+	 * Not the same question as `Frontend::is_authoring_context()`, which is asked
+	 * of the request as a whole and names no document. Here a request is authoring
+	 * when it is not one a visitor can be reading (a wp-admin screen showing a
+	 * document its user may edit, the editor), or when it is the editor's own AJAX.
+	 * A wp-admin screen showing a document its user may NOT edit is a reader's, as
+	 * is everything else that reaches admin-ajax.php.
 	 *
 	 * Elementor's preview is authoring for the document being previewed and for no
 	 * other. A template, a header, a loop item or an embedded section is a document

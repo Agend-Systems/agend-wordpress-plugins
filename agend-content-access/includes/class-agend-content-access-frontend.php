@@ -191,31 +191,42 @@ class Agend_Content_Access_Frontend {
 	 * request, a loop, a widget, a template, must ask `is_authoring_for_post()`
 	 * instead.
 	 *
+	 * A wp-admin screen is authoring only for somebody who may edit what it
+	 * shows. With no post named, that is the right to edit other people's posts.
+	 * See `is_authoring_in_admin()`.
+	 *
 	 * @return bool
 	 */
 	public static function is_authoring_context(): bool {
-		return self::is_authoring_for_every_post() || self::is_previewing_requested_post();
+		return self::is_authoring_in_admin( 0 )
+			|| self::is_authoring_for_every_post()
+			|| self::is_previewing_requested_post();
 	}
 
 	/**
 	 * Whether this request is authoring the given post, as distinct from rendering
 	 * it on the way past.
 	 *
-	 * A wp-admin screen and Elementor's real edit mode are authoring for every post
-	 * they render: the editor is looking at a workspace, not at one document.
-	 * Elementor's PREVIEW is authoring for one post only, the one named by the flag
-	 * and served by the request. Every other post rendered during that request, a
-	 * query loop listing restricted posts, a related posts widget, a template
-	 * pulled in by a shortcode, is something a visitor to the same page would be
-	 * shown, and is gated like it. Otherwise anybody who can edit one post could
-	 * print any restricted post into it and open the preview to read it.
+	 * Elementor's real edit mode is authoring for every post it renders: the
+	 * editor is looking at a workspace, not at one document. A wp-admin screen is
+	 * authoring for the posts its user may edit, and for no others: the Posts list
+	 * in its extended view, a dashboard widget or a metabox prints other people's
+	 * posts through the same excerpt and content filters, and a contributor
+	 * looking at one they cannot edit is a reader. Elementor's PREVIEW is
+	 * authoring for one post only, the one named by the flag and served by the
+	 * request. Every other post rendered during that request, a query loop listing
+	 * restricted posts, a related posts widget, a template pulled in by a
+	 * shortcode, is something a visitor to the same page would be shown, and is
+	 * gated like it. Otherwise anybody who can edit one post could print any
+	 * restricted post into it and open the preview to read it.
 	 *
 	 * @param int $post_id Post being rendered. Zero when it is not known, which is
-	 *                     never the previewed post.
+	 *                     never the previewed post, and which a wp-admin screen
+	 *                     answers by the right to edit other people's posts.
 	 * @return bool
 	 */
 	public static function is_authoring_for_post( int $post_id ): bool {
-		if ( self::is_authoring_for_every_post() ) {
+		if ( self::is_authoring_in_admin( $post_id ) || self::is_authoring_for_every_post() ) {
 			return true;
 		}
 
@@ -225,17 +236,40 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
+	 * Whether a wp-admin screen is authoring the given post.
+	 *
+	 * `is_admin()` says where the request is, not who is asking or what for. A
+	 * contributor can open screens that print the excerpt or the body of posts
+	 * they cannot edit, and treating every such screen as authoring handed them
+	 * the members-only text of all of them. So the carve-out is the right to edit
+	 * the post being rendered, the same right `Decision::can_preview()` grants on
+	 * the front end and the REST edit-context rule already requires per item.
+	 *
+	 * With no post named, the question is whether this user edits other people's
+	 * posts at all, which a contributor does not and an editor does.
+	 *
+	 * @param int $post_id Post being rendered, or zero when it is not known.
+	 * @return bool
+	 */
+	private static function is_authoring_in_admin( int $post_id ): bool {
+		if ( ! is_admin() ) {
+			return false;
+		}
+
+		return $post_id > 0
+			? current_user_can( 'edit_post', $post_id )
+			: current_user_can( 'edit_others_posts' );
+	}
+
+	/**
 	 * Whether the request is authoring whatever post it renders.
 	 *
-	 * A wp-admin screen, or Elementor's editor itself.
+	 * Elementor's editor itself. A wp-admin screen is not here: it is authoring
+	 * for the posts its user may edit, which is `is_authoring_in_admin()`.
 	 *
 	 * @return bool
 	 */
 	private static function is_authoring_for_every_post(): bool {
-		if ( is_admin() ) {
-			return true;
-		}
-
 		if ( ! agend_content_access_has_elementor() ) {
 			return false;
 		}
@@ -431,13 +465,15 @@ class Agend_Content_Access_Frontend {
 	 * reports `is_admin()` for admin-ajax.php, but "load more" buttons, filters
 	 * and infinite scroll print posts to ANONYMOUS visitors through it, so an
 	 * is_admin() exclusion would leave exactly those renders open. wp-admin
-	 * screens proper stay out: an editor there needs to see what they are
-	 * editing, and `can_preview()` already covers any post they may edit.
+	 * screens proper stay out for the posts their user may edit: an editor there
+	 * needs to see what they are editing. A post they may NOT edit is rendered
+	 * for them as it would be for any reader.
 	 *
 	 * Asked about a POST, because Elementor's preview is authoring for the one
 	 * post it previews and for nothing else on the request. Called without one,
 	 * it answers for a post that is not the previewed one, which is the right
-	 * answer for a render that lists posts of its own choosing.
+	 * answer for a render that lists posts of its own choosing. On a wp-admin
+	 * screen it asks whether the user edits other people's posts at all.
 	 *
 	 * Public because the Elementor integration asks the same question before it
 	 * suppresses a section, and must get the same answer as every other gate.
@@ -446,8 +482,8 @@ class Agend_Content_Access_Frontend {
 	 * @return bool
 	 */
 	public static function renders_for_visitors( int $post_id = 0 ): bool {
-		if ( is_admin() ) {
-			return wp_doing_ajax();
+		if ( is_admin() && wp_doing_ajax() ) {
+			return true;
 		}
 
 		return ! self::is_authoring_for_post( $post_id );
@@ -640,6 +676,11 @@ class Agend_Content_Access_Frontend {
 	 *
 	 * Any value other than `excerpt` is switched, not only `full_post`, so a mode a
 	 * later core adds is withheld until someone has decided what it prints.
+	 *
+	 * The block does not say which posts it lists, so on a wp-admin screen the
+	 * question is whether the user edits other people's posts at all. An editor
+	 * keeps the full posts; a contributor, who can open the same screen, gets
+	 * excerpts, as they would anywhere else.
 	 *
 	 * @param array      $parsed_block Block about to render.
 	 * @param array|null $source_block Block as parsed. Unused.

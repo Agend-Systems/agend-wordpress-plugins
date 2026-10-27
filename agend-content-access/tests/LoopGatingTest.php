@@ -408,8 +408,9 @@ final class LoopGatingTest extends TestCase {
 	// -----------------------------------------------------------------------
 
 	#[Test]
-	public function a_wp_admin_screen_is_left_alone(): void {
+	public function a_wp_admin_screen_is_left_alone_for_a_user_who_may_edit_the_post(): void {
 		$GLOBALS['agend_test_is_admin'] = true;
+		$this->asEditor();
 		$this->frontend();
 
 		$this->assertSame( self::BODY, $this->render( self::MEMBERS_ONLY ) );

@@ -365,8 +365,9 @@ final class PreviewCarveOutTest extends TestCase {
 	}
 
 	#[Test]
-	public function a_wp_admin_screen_is_still_authoring_for_every_post(): void {
-		$GLOBALS['agend_test_is_admin'] = true;
+	public function a_wp_admin_screen_is_still_authoring_for_every_post_its_user_may_edit(): void {
+		$GLOBALS['agend_test_is_admin']                      = true;
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
 
 		$this->assertSame( self::BODY, $this->render( self::RESTRICTED ) );
 		$this->assertTrue( Agend_Content_Access_Frontend::is_authoring_for_post( 0 ) );
