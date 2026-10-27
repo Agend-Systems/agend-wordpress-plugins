@@ -177,6 +177,10 @@ class Agend_Content_Access_Frontend {
 	 * pageload of an Elementor page is a normal frontend request and is gated
 	 * like any other, which is what `suppress_builder_data()` exists for.
 	 *
+	 * The preview iframe is recognised only on the page it is previewing. The
+	 * `elementor-preview` query argument is attacker-controlled, and what makes it
+	 * safe to honour is that the id it carries is the post this request serves.
+	 *
 	 * @return bool
 	 */
 	public static function is_authoring_context(): bool {
@@ -196,16 +200,51 @@ class Agend_Content_Access_Frontend {
 
 		// The preview iframe is a normal frontend pageload flagged with
 		// `?elementor-preview=<id>`, so `is_edit_mode()` is false there even
-		// though it is exactly where the author is looking. Elementor
-		// capability-checks the id itself.
+		// though it is exactly where the author is looking.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only mode check on an Elementor-set query var.
-		$preview_id = isset( $_GET['elementor-preview'] )
-			? absint( wp_unslash( $_GET['elementor-preview'] ) )
-			: 0;
+		$raw_preview = isset( $_GET['elementor-preview'] ) ? wp_unslash( $_GET['elementor-preview'] ) : 0;
 
-		return 0 !== $preview_id
-			&& isset( $plugin->preview )
-			&& $plugin->preview->is_preview_mode( $preview_id );
+		// An array, or anything that is not a plain number, is not a preview id.
+		$preview_id = is_scalar( $raw_preview ) ? absint( $raw_preview ) : 0;
+
+		if ( $preview_id <= 0 || ! isset( $plugin->preview ) ) {
+			return false;
+		}
+
+		// The flag is only trusted on the page it names. Elementor's own
+		// `is_preview_mode( $id )` checks that the user may edit `$id`, then
+		// compares `$id` with the very query-string value it was just handed, so
+		// it answers true for ANY URL once the visitor appends the id of a post
+		// of theirs. A contributor could then open a restricted page with
+		// `?elementor-preview=<their own draft>` and be treated as authoring it:
+		// no page gate, no loop or excerpt gate, no section suppression. Requiring
+		// the id to be the post this request actually serves ties the flag to the
+		// one document the capability check was made against.
+		if ( self::requested_object_id() !== $preview_id ) {
+			return false;
+		}
+
+		return (bool) $plugin->preview->is_preview_mode( $preview_id );
+	}
+
+	/**
+	 * The id of the post or page the request is for.
+	 *
+	 * Read from the MAIN query, not the global one: Elementor switches the global
+	 * query while it renders dynamic content in a preview, and a check that
+	 * followed it would stop recognising the very page being previewed. The main
+	 * query is fixed by the URL, so nothing a visitor appends can change it.
+	 *
+	 * @return int Zero when the request is not for a single post.
+	 */
+	private static function requested_object_id(): int {
+		$main = $GLOBALS['wp_the_query'] ?? null;
+
+		if ( is_object( $main ) && method_exists( $main, 'get_queried_object_id' ) ) {
+			return (int) $main->get_queried_object_id();
+		}
+
+		return (int) get_queried_object_id();
 	}
 
 	/**
