@@ -87,6 +87,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-access.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-page-rules.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-placeholder.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-destination.php';
@@ -126,6 +127,11 @@ function agend_content_access_bootstrap(): void {
 	// request: the block renderer is a REST request, and it rejects an
 	// attribute the block type does not declare.
 	new Agend_Content_Access_Block_Editor();
+
+	// A page's rules: the meta, and the REST field the block editor's page panel
+	// saves through. Also on every request, because a REST request is not
+	// `is_admin()` and the block editor saves through one.
+	new Agend_Content_Access_Page_Rules();
 
 	// Fragment policies, only when Elementor is present.
 	//

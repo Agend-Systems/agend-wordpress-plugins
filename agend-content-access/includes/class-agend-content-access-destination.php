@@ -94,6 +94,21 @@ class Agend_Content_Access_Destination {
 	}
 
 	/**
+	 * Whether a post type is one a visitor can be sent to: a type the rule panel is
+	 * offered on, other than a pattern or a template.
+	 *
+	 * One answer for the page that is chosen when a setting is saved and for the page
+	 * that is checked when somebody is sent there, so the two cannot disagree.
+	 *
+	 * @param string $post_type Post type.
+	 * @return bool
+	 */
+	public static function is_page_type( string $post_type ): bool {
+		return ! in_array( $post_type, self::NOT_A_DESTINATION, true )
+			&& in_array( $post_type, Agend_Content_Access_Meta_Box::supported_post_types(), true );
+	}
+
+	/**
 	 * The address of a chosen page, when this visitor may be sent to it.
 	 *
 	 * @param int     $id      Chosen page.
@@ -111,7 +126,7 @@ class Agend_Content_Access_Destination {
 			return '';
 		}
 
-		if ( in_array( $target->post_type, self::NOT_A_DESTINATION, true ) || ! in_array( $target->post_type, Agend_Content_Access_Meta_Box::supported_post_types(), true ) ) {
+		if ( ! self::is_page_type( (string) $target->post_type ) ) {
 			return '';
 		}
 

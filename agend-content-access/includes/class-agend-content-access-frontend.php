@@ -1667,6 +1667,17 @@ class Agend_Content_Access_Frontend {
 			return $response;
 		}
 
+		// The page's rules are for the people who edit the page. The field is in the
+		// `edit` context only and its getter checks `edit_post`, so it should never be
+		// here; this removes it whatever state the page is in, so a request that is not
+		// an edit of this post by somebody who may edit it never carries them out.
+		// Their plan, segment and entitlement ids are the association's configuration.
+		if ( array_key_exists( Agend_Content_Access_Rules::REST_FIELD, $data ) ) {
+			unset( $data[ Agend_Content_Access_Rules::REST_FIELD ] );
+
+			$response->set_data( $data );
+		}
+
 		if ( Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ) {
 			if ( ! self::exposes_authoring_source( $data ) || ! self::source_reveals_more_than_render( $post, $decision ) ) {
 				return $response;

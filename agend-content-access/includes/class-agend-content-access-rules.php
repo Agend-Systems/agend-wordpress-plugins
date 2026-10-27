@@ -91,6 +91,16 @@ class Agend_Content_Access_Rules {
 	const META_KEY = '_agend_access_rules';
 
 	/**
+	 * The REST field the block editor reads and writes a page's rules through. It
+	 * lives in the edit context only, and the response filter removes it from every
+	 * other (`Agend_Content_Access_Page_Rules`). Named here so the code that removes
+	 * it need not load the code that registers it.
+	 *
+	 * @var string
+	 */
+	const REST_FIELD = 'agend_access_rules';
+
+	/**
 	 * How the rules combine: any one is enough, or every one is needed.
 	 *
 	 * The same values as `Agend_Content_Access_Conditions::MATCH_*`, restated so this

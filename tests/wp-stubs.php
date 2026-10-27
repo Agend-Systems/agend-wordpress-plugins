@@ -105,6 +105,12 @@ final class Agend_Test_WP {
 	/** @var array<int, array<string, mixed>> Meta boxes passed to add_meta_box(), in call order. */
 	public static array $meta_boxes = array();
 
+	/** @var array<int, array{post_type: string, key: string, args: array}> Meta passed to register_post_meta(), in call order. */
+	public static array $registered_post_meta = array();
+
+	/** @var array<int, array{object_type: string, name: string, args: array}> Fields passed to register_rest_field(), in call order. */
+	public static array $registered_rest_fields = array();
+
 	/** @var int[] User ids for which WordPress auth cookies were issued. */
 	public static array $auth_cookie_users = array();
 	/** @var bool[] Remember flags passed to WordPress auth cookies. */
@@ -240,6 +246,8 @@ final class Agend_Test_WP {
 		self::$requests          = array();
 		self::$rest_routes       = array();
 		self::$meta_boxes        = array();
+		self::$registered_post_meta   = array();
+		self::$registered_rest_fields = array();
 		self::$auth_cookie_users = array();
 		self::$auth_cookie_remembers = array();
 		self::$tiers_response    = array();
@@ -1963,6 +1971,49 @@ if ( ! function_exists( 'register_rest_route' ) ) {
 		);
 
 		return true;
+	}
+}
+
+if ( ! function_exists( 'get_current_screen' ) ) {
+	/** The admin screen a test sets in `$GLOBALS['agend_test_current_screen']`, or none. */
+	function get_current_screen() {
+		return $GLOBALS['agend_test_current_screen'] ?? null;
+	}
+}
+
+if ( ! function_exists( 'register_post_meta' ) ) {
+	/**
+	 * Records the registration in `Agend_Test_WP::$registered_post_meta` so a test can
+	 * assert what a plugin registers and with what arguments, `show_in_rest` and
+	 * `auth_callback` included. The `auth_callback` is NOT hooked: a test calls it.
+	 */
+	function register_post_meta( string $post_type, string $key, array $args = array() ): bool {
+		Agend_Test_WP::$registered_post_meta[] = array(
+			'post_type' => $post_type,
+			'key'       => $key,
+			'args'      => $args,
+		);
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'register_rest_field' ) ) {
+	/**
+	 * Records the registration in `Agend_Test_WP::$registered_rest_fields` so a test
+	 * can assert which fields a plugin adds to which object, in which context, and
+	 * call their callbacks.
+	 *
+	 * @param string|string[] $object_type Object type or types.
+	 */
+	function register_rest_field( $object_type, string $name, array $args = array() ): void {
+		foreach ( (array) $object_type as $type ) {
+			Agend_Test_WP::$registered_rest_fields[] = array(
+				'object_type' => $type,
+				'name'        => $name,
+				'args'        => $args,
+			);
+		}
 	}
 }
 
