@@ -176,6 +176,14 @@ widget, fetching a template), and Elementor's preview iframe.
   it counts only when that id is a positive integer equal to the post the request
   serves. Otherwise a contributor could open a restricted page with the id of
   their own draft appended and read it.
+- **The preview is authoring for the previewed post only.** Every other post
+  rendered during a preview request, such as a query loop listing restricted
+  posts, a related posts widget or a template a shortcode pulls in, is what a
+  visitor to the same page would be shown, and is gated like it. Otherwise anybody
+  who can edit one post could print any restricted post into it and open the
+  preview to read it. Elementor's editor itself and wp-admin screens stay
+  authoring for every post, and an element whose Elementor document cannot be
+  identified is treated as a visitor's.
 - **admin-ajax.php is not authoring.** WordPress reports `is_admin()` for it, but
   other plugins render Elementor templates through it for anonymous visitors
   ("load more", filters, tabs). Sections are suppressed there. Only Elementor's
@@ -237,9 +245,6 @@ refused, and the picker does not offer one.
 - Search results for authors and contributors. They cannot tell themselves from
   a visitor in a query, so they cannot find their own section-restricted pages
   by text either.
-- An Elementor preview of a post is an authoring request for the whole request.
-  Other posts rendered inside the previewed post, such as a loop, are not gated
-  while it is open, so anybody who can edit a post can print what is inside it.
 
 ## Running the tests
 

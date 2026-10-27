@@ -182,13 +182,56 @@ class Agend_Content_Access_Frontend {
 	 * pageload of an Elementor page is a normal frontend request and is gated
 	 * like any other, which is what `suppress_builder_data()` exists for.
 	 *
-	 * The preview iframe is recognised only on the page it is previewing. The
-	 * `elementor-preview` query argument is attacker-controlled, and what makes it
-	 * safe to honour is that the id it carries is the post this request serves.
+	 * The preview iframe is recognised only on the page it is previewing, and its
+	 * carve-out covers only that page. The `elementor-preview` query argument is
+	 * attacker-controlled, and what makes it safe to honour is that the id it
+	 * carries is the post this request serves. This answers "is there an authoring
+	 * request here at all", which is right for the one decision made about the
+	 * requested page itself. Anything that decides about a post rendered DURING the
+	 * request, a loop, a widget, a template, must ask `is_authoring_for_post()`
+	 * instead.
 	 *
 	 * @return bool
 	 */
 	public static function is_authoring_context(): bool {
+		return self::is_authoring_for_every_post() || self::is_previewing_requested_post();
+	}
+
+	/**
+	 * Whether this request is authoring the given post, as distinct from rendering
+	 * it on the way past.
+	 *
+	 * A wp-admin screen and Elementor's real edit mode are authoring for every post
+	 * they render: the editor is looking at a workspace, not at one document.
+	 * Elementor's PREVIEW is authoring for one post only, the one named by the flag
+	 * and served by the request. Every other post rendered during that request, a
+	 * query loop listing restricted posts, a related posts widget, a template
+	 * pulled in by a shortcode, is something a visitor to the same page would be
+	 * shown, and is gated like it. Otherwise anybody who can edit one post could
+	 * print any restricted post into it and open the preview to read it.
+	 *
+	 * @param int $post_id Post being rendered. Zero when it is not known, which is
+	 *                     never the previewed post.
+	 * @return bool
+	 */
+	public static function is_authoring_for_post( int $post_id ): bool {
+		if ( self::is_authoring_for_every_post() ) {
+			return true;
+		}
+
+		return $post_id > 0
+			&& self::is_previewing_requested_post()
+			&& self::requested_object_id() === $post_id;
+	}
+
+	/**
+	 * Whether the request is authoring whatever post it renders.
+	 *
+	 * A wp-admin screen, or Elementor's editor itself.
+	 *
+	 * @return bool
+	 */
+	private static function is_authoring_for_every_post(): bool {
 		if ( is_admin() ) {
 			return true;
 		}
@@ -199,9 +242,20 @@ class Agend_Content_Access_Frontend {
 
 		$plugin = \Elementor\Plugin::$instance;
 
-		if ( isset( $plugin->editor ) && $plugin->editor->is_edit_mode() ) {
-			return true;
+		return isset( $plugin->editor ) && $plugin->editor->is_edit_mode();
+	}
+
+	/**
+	 * Whether this request is Elementor's preview of the page it serves.
+	 *
+	 * @return bool
+	 */
+	private static function is_previewing_requested_post(): bool {
+		if ( ! agend_content_access_has_elementor() ) {
+			return false;
 		}
+
+		$plugin = \Elementor\Plugin::$instance;
 
 		// The preview iframe is a normal frontend pageload flagged with
 		// `?elementor-preview=<id>`, so `is_edit_mode()` is false there even
@@ -373,24 +427,30 @@ class Agend_Content_Access_Frontend {
 	/**
 	 * Whether the current render is one a visitor can end up reading.
 	 *
-	 * The opposite of `is_authoring_context()` except for one case. WordPress
+	 * The opposite of `is_authoring_for_post()` except for one case. WordPress
 	 * reports `is_admin()` for admin-ajax.php, but "load more" buttons, filters
 	 * and infinite scroll print posts to ANONYMOUS visitors through it, so an
 	 * is_admin() exclusion would leave exactly those renders open. wp-admin
 	 * screens proper stay out: an editor there needs to see what they are
 	 * editing, and `can_preview()` already covers any post they may edit.
 	 *
+	 * Asked about a POST, because Elementor's preview is authoring for the one
+	 * post it previews and for nothing else on the request. Called without one,
+	 * it answers for a post that is not the previewed one, which is the right
+	 * answer for a render that lists posts of its own choosing.
+	 *
 	 * Public because the Elementor integration asks the same question before it
 	 * suppresses a section, and must get the same answer as every other gate.
 	 *
+	 * @param int $post_id Post being rendered, or zero when it is not known.
 	 * @return bool
 	 */
-	public static function renders_for_visitors(): bool {
+	public static function renders_for_visitors( int $post_id = 0 ): bool {
 		if ( is_admin() ) {
 			return wp_doing_ajax();
 		}
 
-		return ! self::is_authoring_context();
+		return ! self::is_authoring_for_post( $post_id );
 	}
 
 	/**
@@ -421,13 +481,13 @@ class Agend_Content_Access_Frontend {
 	 * @return WP_Post|null
 	 */
 	private static function post_being_rendered(): ?WP_Post {
-		if ( ! self::renders_for_visitors() ) {
+		$post = get_post();
+
+		if ( ! $post instanceof WP_Post || ! self::renders_for_visitors( (int) $post->ID ) ) {
 			return null;
 		}
 
-		$post = get_post();
-
-		return $post instanceof WP_Post ? $post : null;
+		return $post;
 	}
 
 	/**
@@ -542,7 +602,7 @@ class Agend_Content_Access_Frontend {
 	 * @return string
 	 */
 	public function filter_excerpt( $excerpt, $post = null ) {
-		if ( ! $post instanceof WP_Post || ! self::renders_for_visitors() ) {
+		if ( ! $post instanceof WP_Post || ! self::renders_for_visitors( (int) $post->ID ) ) {
 			return $excerpt;
 		}
 

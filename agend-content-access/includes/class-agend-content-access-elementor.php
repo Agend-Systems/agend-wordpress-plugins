@@ -351,14 +351,44 @@ class Agend_Content_Access_Elementor {
 	 * Not the same question as `Frontend::is_authoring_context()`, which is true
 	 * for every `is_admin()` request and so for anonymous admin-ajax.php renders.
 	 * Here a request is authoring when it is not one a visitor can be reading
-	 * (a wp-admin screen, the editor, its preview iframe), or when it is the
-	 * editor's own AJAX. Everything else that reaches admin-ajax.php is a visitor.
+	 * (a wp-admin screen, the editor), or when it is the editor's own AJAX.
+	 * Everything else that reaches admin-ajax.php is a visitor.
+	 *
+	 * Elementor's preview is authoring for the document being previewed and for no
+	 * other. A template, a header, a loop item or an embedded section is a document
+	 * of its own, and is suppressed in the preview as it is for a visitor.
 	 *
 	 * @return bool
 	 */
 	private static function is_authoring_render(): bool {
-		return ! Agend_Content_Access_Frontend::renders_for_visitors()
+		return ! Agend_Content_Access_Frontend::renders_for_visitors( self::rendering_document_id() )
 			|| Agend_Content_Access_Frontend::is_elementor_editor_ajax();
+	}
+
+	/**
+	 * The post whose Elementor document is rendering right now.
+	 *
+	 * Zero when Elementor does not say, and zero is never the previewed post, so an
+	 * element whose document cannot be identified is treated as a visitor's.
+	 *
+	 * @return int
+	 */
+	private static function rendering_document_id(): int {
+		if ( ! agend_content_access_has_elementor() ) {
+			return 0;
+		}
+
+		$documents = \Elementor\Plugin::$instance->documents ?? null;
+
+		if ( ! is_object( $documents ) || ! method_exists( $documents, 'get_current' ) ) {
+			return 0;
+		}
+
+		$document = $documents->get_current();
+
+		return is_object( $document ) && method_exists( $document, 'get_main_id' )
+			? (int) $document->get_main_id()
+			: 0;
 	}
 
 	/**

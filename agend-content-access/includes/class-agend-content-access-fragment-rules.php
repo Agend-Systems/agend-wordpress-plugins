@@ -370,7 +370,7 @@ class Agend_Content_Access_Fragment_Rules {
 	 * @return string
 	 */
 	public static function filter_excerpt( $excerpt, $post = null ) {
-		if ( ! $post instanceof WP_Post || ! Agend_Content_Access_Frontend::renders_for_visitors() ) {
+		if ( ! $post instanceof WP_Post || ! Agend_Content_Access_Frontend::renders_for_visitors( (int) $post->ID ) ) {
 			return $excerpt;
 		}
 
