@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace Agend\Tests\ContentAccess;
 
 use Agend_Content_Access_Condition_Providers as Providers;
+use Agend_Content_Access_Condition_Sets as Sets;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversFunction;
@@ -387,5 +388,102 @@ final class ConditionsVocabularyTest extends TestCase {
 		agend_content_access_get_conditions( $plain );
 
 		$this->assertSame( 2, $this->gatewayCalls( '/crm/segments' ), 'without it the lists are served from what was just read' );
+	}
+
+	// -----------------------------------------------------------------
+	// The same vocabulary, flattened for Elementor
+	// -----------------------------------------------------------------
+
+	/** The route is a view of the shared vocabulary, so the two editors cannot offer different rules. */
+	#[Test]
+	public function the_route_payload_is_the_shared_vocabulary(): void {
+		$this->seed();
+
+		$this->assertSame( Sets::vocabulary(), agend_content_access_conditions_payload() );
+	}
+
+	#[Test]
+	public function the_flattened_options_say_what_kind_of_rule_each_is_and_keep_the_groups_in_order(): void {
+		$this->seed();
+
+		$this->assertSame(
+			array(
+				'agend_membership:is_member'            => 'Any current member',
+				'agend_membership:' . self::PLAN_GOLD   => 'Plan: Gold',
+				'agend_membership:' . self::PLAN_BARE   => 'Plan: No slug',
+				'agend_segments:' . self::SEG_BOARD     => 'Segment: Board',
+				'agend_segments:' . self::SEG_BARE      => 'Segment: No slug',
+				'agend_entitlements:directory.access'   => 'Platform: Directory access',
+				'agend_entitlements:premium.directory'  => 'Entitlement: Premium directory',
+				'agend_entitlements:library.leadership' => 'Entitlement: Leadership library',
+				'agend_wordpress:logged_in'             => 'Signed in',
+				'agend_wordpress:logged_out'            => 'Signed out',
+				'agend_wordpress:role_administrator'    => 'Role: Administrator',
+				'agend_wordpress:role_editor'           => 'Role: Editor',
+				'agend_wordpress:role_author'           => 'Role: Author',
+				'agend_wordpress:role_contributor'      => 'Role: Contributor',
+				'agend_wordpress:role_subscriber'       => 'Role: Subscriber',
+			),
+			Sets::rule_options()
+		);
+	}
+
+	#[Test]
+	public function a_plan_that_was_switched_off_is_not_offered_and_no_slug_is_a_second_choice(): void {
+		$this->seed();
+
+		$options = Sets::rule_options();
+
+		$this->assertArrayNotHasKey( 'agend_membership:' . self::PLAN_OLD, $options );
+		$this->assertArrayNotHasKey( 'agend_membership:retired', $options );
+		$this->assertArrayNotHasKey( 'agend_membership:gold', $options, 'a slug is only an alias of the id rule' );
+		$this->assertArrayNotHasKey( 'agend_segments:board', $options );
+	}
+
+	/** A platform capability and an authored entitlement can share a name, and must not read alike. */
+	#[Test]
+	public function a_platform_gate_and_an_entitlement_of_the_same_name_read_differently(): void {
+		$this->seed();
+
+		Agend_Test_WP::set_filter(
+			'agend_apps_crm_get_entitlement_types_response',
+			array(
+				'success' => true,
+				'data'    => array(
+					array( 'id' => 'a', 'gate_key' => 'directory.access', 'name' => 'Directory access', 'kind' => 'platform-gate' ),
+					array( 'id' => 'b', 'gate_key' => 'directory.listing', 'name' => 'Directory access', 'kind' => 'entitlement' ),
+				),
+			)
+		);
+
+		$options = Sets::rule_options();
+
+		$this->assertSame( 'Platform: Directory access', $options['agend_entitlements:directory.access'] );
+		$this->assertSame( 'Entitlement: Directory access', $options['agend_entitlements:directory.listing'] );
+	}
+
+	#[Test]
+	public function a_rule_a_site_adds_is_labelled_with_its_group(): void {
+		$this->seed();
+
+		Agend_Test_WP::set_filter(
+			'agend_content_access_condition_sets',
+			array( 'acme_crm' => array( 'label' => 'Acme CRM', 'conditions' => array( 'vip' => 'VIP' ) ) )
+		);
+
+		$this->assertSame( 'Acme CRM: VIP', Sets::rule_options()['acme_crm:vip'] );
+	}
+
+	/** A list that failed to load leaves the rules of the other lists on offer. */
+	#[Test]
+	public function a_list_that_could_not_load_leaves_the_others_on_offer(): void {
+		$this->seed();
+
+		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', new WP_Error( 'forbidden', 'Refused', array( 'status' => 403 ) ) );
+
+		$options = Sets::rule_options();
+
+		$this->assertSame( 'Segment: Board', $options[ 'agend_segments:' . self::SEG_BOARD ] );
+		$this->assertSame( array(), array_filter( array_keys( $options ), static fn( string $rule ): bool => str_starts_with( $rule, 'agend_entitlements:' ) ) );
 	}
 }
