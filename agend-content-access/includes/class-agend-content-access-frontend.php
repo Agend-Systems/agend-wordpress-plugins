@@ -150,6 +150,10 @@ class Agend_Content_Access_Frontend {
 	 * other half: see `filter_generated_excerpt()`, at 11, which runs between the
 	 * two because it replaces what `wp_trim_excerpt()` built and must be in place
 	 * before the gate decides whether to keep it.
+	 *
+	 * The Latest Posts block is handled before it renders, on `render_block_data`:
+	 * its "full post" display prints `$post->post_content` itself, so none of the
+	 * filters above is ever offered the body. See `withhold_latest_posts_content()`.
 	 */
 	private function register_render_filters(): void {
 		add_filter( 'the_content', array( $this, 'withhold_in_loop' ), self::WITHHOLD_PRIORITY );
@@ -168,6 +172,7 @@ class Agend_Content_Access_Frontend {
 
 		add_filter( 'the_content_feed', array( $this, 'filter_feed_content' ), PHP_INT_MAX );
 		add_filter( 'the_excerpt_rss', array( $this, 'filter_feed_excerpt' ), PHP_INT_MAX );
+		add_filter( 'render_block_data', array( $this, 'withhold_latest_posts_content' ), PHP_INT_MAX, 3 );
 	}
 
 	/**
@@ -688,6 +693,65 @@ class Agend_Content_Access_Frontend {
 		$this->report_degraded( $post_id, $decision );
 
 		return self::teaser_for( $post );
+	}
+
+	/**
+	 * Stops the Latest Posts block printing the raw body of the posts it lists.
+	 *
+	 * Its "full post" display does not use the content filters. It prints
+	 * `wp_kses_post( $post->post_content )` for each listed post, straight from the
+	 * database row, so the body of every restricted post it lists went to an
+	 * anonymous visitor and nothing in the chain above had a chance to object.
+	 * Its other display, "excerpt", calls `get_the_excerpt()`, which is gated.
+	 *
+	 * So the block is rendered in excerpt mode instead, for anyone who is not
+	 * authoring. THE FIDELITY COST IS REAL AND DELIBERATE: a Latest Posts block set
+	 * to show full posts shows excerpts to every visitor, restricted or not. Doing
+	 * better means predicting which posts the block will list, which means running
+	 * the query core builds from the block's attributes, and that query is core's
+	 * to change between releases. A copy of it that drifted would fail OPEN, back
+	 * to printing raw bodies, silently. Switching the mode needs no knowledge of
+	 * the query and cannot drift. A site that needs full posts in a list can print
+	 * them with a Query Loop block, whose `the_content` is gated.
+	 *
+	 * Any value other than `excerpt` is switched, not only `full_post`, so a mode a
+	 * later core adds is withheld until someone has decided what it prints.
+	 *
+	 * Only the display mode is touched. The block's `agendAccess` attribute, which
+	 * the block driver judges on `pre_render_block` and again on `render_block`, is
+	 * left as it was, and this runs before both, so a Latest Posts block carrying
+	 * its own rule is still removed for a visitor who fails it, and the verdict the
+	 * two passes reach is made on the same attribute.
+	 *
+	 * @param array      $parsed_block Block about to render.
+	 * @param array|null $source_block Block as parsed. Unused.
+	 * @param mixed      $parent_block Parent block, when nested. Unused.
+	 * @return array
+	 */
+	public function withhold_latest_posts_content( $parsed_block, $source_block = null, $parent_block = null ) {
+		if ( ! is_array( $parsed_block ) || 'core/latest-posts' !== ( $parsed_block['blockName'] ?? null ) ) {
+			return $parsed_block;
+		}
+
+		if ( ! self::renders_for_visitors() ) {
+			return $parsed_block;
+		}
+
+		$attributes = isset( $parsed_block['attrs'] ) && is_array( $parsed_block['attrs'] )
+			? $parsed_block['attrs']
+			: array();
+
+		if (
+			empty( $attributes['displayPostContent'] )
+			|| ! isset( $attributes['displayPostContentRadio'] )
+			|| 'excerpt' === $attributes['displayPostContentRadio']
+		) {
+			return $parsed_block;
+		}
+
+		$parsed_block['attrs']['displayPostContentRadio'] = 'excerpt';
+
+		return $parsed_block;
 	}
 
 	/**
