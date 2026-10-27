@@ -7,6 +7,7 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\ContentAccess;
 
+use Agend_Content_Access_Catalogue;
 use Agend_Content_Access_Decision;
 use Agend_Content_Access_Frontend;
 use Agend_Test_WP;
@@ -260,12 +261,151 @@ final class GateCopyTest extends TestCase {
 		$this->assertStringNotContainsString( '<b>', $html );
 	}
 
-	/** Plan names stay a tier-only feature: other arms name nothing, even when the catalogue could. */
+	/** Plan names stay a tier-only feature: other arms name no plans, even when the catalogue could. */
 	#[Test]
 	public function plan_names_remain_tier_only(): void {
 		$this->seedCatalogue();
 
 		$this->assertSame( array(), Agend_Content_Access_Frontend::plan_names_for( $this->segmentsPolicy() ) );
 		$this->assertSame( array(), Agend_Content_Access_Frontend::plan_names_for( $this->entitlementsPolicy() ) );
+	}
+
+	// -----------------------------------------------------------------------
+	// Entitlements are named, segments never
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Seeds the cached catalogue sections the gate reads. The cache is the seam
+	 * because the Core wrappers are functions that either exist or do not.
+	 */
+	private function seedEntitlements( array $items ): void {
+		Agend_Test_WP::$transients[ Agend_Content_Access_Catalogue::ENTITLEMENTS_TRANSIENT ] = $items;
+	}
+
+	private function seedSegments(): void {
+		Agend_Test_WP::$transients[ Agend_Content_Access_Catalogue::SEGMENTS_TRANSIENT ] = array(
+			array( 'id' => self::SEG_A, 'slug' => 'overdue', 'name' => 'Overdue renewals' ),
+		);
+	}
+
+	private function entitlementItems(): array {
+		return array(
+			array( 'gate_key' => 'directory.access', 'name' => 'Directory access', 'description' => 'Browse the directory', 'kind' => 'platform-gate' ),
+			array( 'gate_key' => 'entitlement.early_bird', 'name' => 'Early bird', 'description' => '', 'kind' => 'entitlement' ),
+			array( 'gate_key' => 'no.name', 'name' => 'no.name', 'description' => '', 'kind' => '' ),
+		);
+	}
+
+	private function entitlementsPolicyFor( string ...$keys ): array {
+		return array( 'mode' => 'selected_entitlements', 'entitlement_keys' => $keys );
+	}
+
+	#[Test]
+	public function the_restricted_gate_names_the_entitlements_a_policy_admits(): void {
+		$this->seedEntitlements( $this->entitlementItems() );
+
+		$html = Agend_Content_Access_Frontend::render_gate(
+			'',
+			Agend_Content_Access_Decision::STATE_RESTRICTED,
+			$this->entitlementsPolicyFor( 'directory.access', 'entitlement.early_bird' )
+		);
+
+		$this->assertStringContainsString( 'limited to people who hold: Directory access, Early bird.', $html );
+		$this->assertStringNotContainsString( 'Platform:', $html, 'the editor\'s platform label is not for visitors' );
+		$this->assertStringNotContainsString( 'limited to selected members', $html );
+	}
+
+	/** Nothing to join or upgrade into, named or not. */
+	#[Test]
+	public function the_restricted_gate_still_has_no_call_to_action_when_it_names_entitlements(): void {
+		update_option( 'agend_apps_portal_url', 'https://portal.example.test/' );
+		$this->seedEntitlements( $this->entitlementItems() );
+
+		$html = Agend_Content_Access_Frontend::render_gate(
+			'',
+			Agend_Content_Access_Decision::STATE_RESTRICTED,
+			$this->entitlementsPolicyFor( 'directory.access' )
+		);
+
+		$this->assertStringNotContainsString( '<a ', $html );
+		$this->assertStringNotContainsString( 'portal.example.test', $html );
+	}
+
+	#[Test]
+	public function an_entitlement_the_catalogue_cannot_name_is_skipped(): void {
+		$this->seedEntitlements( $this->entitlementItems() );
+
+		$this->assertSame(
+			array( 'Early bird' ),
+			Agend_Content_Access_Frontend::entitlement_names_for(
+				$this->entitlementsPolicyFor( 'entitlement.early_bird', 'removed.benefit', 'no.name' )
+			),
+			'neither a key the catalogue lacks nor one with no name of its own is shown'
+		);
+	}
+
+	#[Test]
+	public function an_unreachable_entitlement_catalogue_falls_back_to_the_generic_sentence(): void {
+		// Nothing cached and no Core wrapper: the section is empty and in error.
+		$html = Agend_Content_Access_Frontend::render_gate(
+			'',
+			Agend_Content_Access_Decision::STATE_RESTRICTED,
+			$this->entitlementsPolicyFor( 'directory.access' )
+		);
+
+		$this->assertStringContainsString( 'limited to selected members', $html );
+		$this->assertStringNotContainsString( 'people who hold', $html );
+		$this->assertStringNotContainsString( 'directory.access', $html );
+	}
+
+	#[Test]
+	public function an_entitlement_name_is_escaped_and_its_key_never_shown(): void {
+		$this->seedEntitlements(
+			array( array( 'gate_key' => 'directory.access', 'name' => 'Directory <b>access</b>', 'description' => '', 'kind' => 'entitlement' ) )
+		);
+
+		$html = Agend_Content_Access_Frontend::render_gate(
+			'',
+			Agend_Content_Access_Decision::STATE_RESTRICTED,
+			$this->entitlementsPolicyFor( 'directory.access' )
+		);
+
+		$this->assertStringNotContainsString( '<b>', $html );
+		$this->assertStringContainsString( '&lt;b&gt;access&lt;/b&gt;', $html );
+		$this->assertStringNotContainsString( 'directory.access', $html );
+	}
+
+	/**
+	 * The decisive assertion for segments, now that entitlements are named: with
+	 * both catalogues loaded and holding names that would be easy to leak, a
+	 * segments policy renders exactly what no policy renders. There is no path by
+	 * which a segment's name, id or slug can reach the page.
+	 */
+	#[Test]
+	public function the_restricted_gate_for_a_segments_policy_names_nothing_even_with_both_catalogues_loaded(): void {
+		$this->seedEntitlements( $this->entitlementItems() );
+		$this->seedSegments();
+
+		$html = Agend_Content_Access_Frontend::render_gate( '', Agend_Content_Access_Decision::STATE_RESTRICTED, $this->segmentsPolicy() );
+
+		$this->assertSame(
+			Agend_Content_Access_Frontend::render_gate( '', Agend_Content_Access_Decision::STATE_RESTRICTED, null ),
+			$html
+		);
+
+		foreach ( array( 'Overdue renewals', 'overdue', self::SEG_A, 'Directory access', 'Early bird', 'people who hold' ) as $leak ) {
+			$this->assertStringNotContainsString( $leak, $html );
+		}
+	}
+
+	#[Test]
+	public function entitlement_names_are_only_for_entitlement_policies(): void {
+		$this->seedEntitlements( $this->entitlementItems() );
+		$this->seedSegments();
+
+		$this->assertSame( array(), Agend_Content_Access_Frontend::entitlement_names_for( $this->segmentsPolicy() ) );
+		$this->assertSame( array(), Agend_Content_Access_Frontend::entitlement_names_for( $this->tiersPolicy( self::TIER_A ) ) );
+		$this->assertSame( array(), Agend_Content_Access_Frontend::entitlement_names_for( array( 'mode' => 'active_member' ) ) );
+		$this->assertSame( array(), Agend_Content_Access_Frontend::entitlement_names_for( null ) );
 	}
 }

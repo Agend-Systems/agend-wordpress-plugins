@@ -279,11 +279,54 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
+	 * Names the entitlements an entitlement policy admits.
+	 *
+	 * The sibling of `plan_names_for()`, for the same reason and with the same
+	 * degradation: an empty array when the catalogue is unreachable, the key is
+	 * not in it, or the type has no name of its own, so the caller falls back to
+	 * generic copy. An entitlement an editor chose is something a member can
+	 * acquire, which is why a visitor may be told its name. A row with no name is
+	 * skipped rather than shown by its gate key: a key such as `lms.certifications`
+	 * is not something a visitor can act on, and it advertises a configuration
+	 * detail.
+	 *
+	 * Deliberately has no counterpart for segments. A segment's name can describe
+	 * the visitor ("Overdue renewals"), which is not theirs to be told, so no code
+	 * path reads the segment catalogue for a gate.
+	 *
+	 * @param array|null $policy Canonical policy.
+	 * @return string[] Entitlement names, possibly empty.
+	 */
+	public static function entitlement_names_for( ?array $policy ): array {
+		$keys = Agend_Content_Access_Policy::entitlement_keys( $policy );
+
+		if ( array() === $keys ) {
+			return array();
+		}
+
+		$by_key = array();
+
+		foreach ( Agend_Content_Access_Catalogue::entitlements()['items'] as $entitlement ) {
+			$by_key[ $entitlement['gate_key'] ] = $entitlement['name'];
+		}
+
+		$names = array();
+
+		foreach ( $keys as $key ) {
+			if ( isset( $by_key[ $key ] ) && '' !== $by_key[ $key ] && $key !== $by_key[ $key ] ) {
+				$names[] = $by_key[ $key ];
+			}
+		}
+
+		return $names;
+	}
+
+	/**
 	 * Renders the gate markup.
 	 *
 	 * @param string     $teaser Teaser text.
 	 * @param string     $state  Decision state.
-	 * @param array|null $policy Policy, used to name the qualifying plans. Plans only: segments and entitlements are never named.
+	 * @param array|null $policy Policy, used to name the qualifying plans or entitlements. A segment is never named.
 	 * @return string
 	 */
 	public static function render_gate( string $teaser, string $state, ?array $policy = null ): string {
@@ -314,11 +357,23 @@ class Agend_Content_Access_Frontend {
 				// A segment or an entitlement is not something the visitor can
 				// join or upgrade into, so there is deliberately no call to
 				// action: "View membership options" would point at a purchase
-				// that does not unlock this. The copy is generic on purpose. A
-				// segment's name can describe the visitor ("Overdue renewals")
-				// and is not theirs to be told, so nothing here names the
-				// segment or reads the policy at all.
-				$message = __( 'This content is limited to selected members.', 'agend-content-access' );
+				// that does not unlock this.
+				//
+				// An entitlement policy names the entitlements, as a plan policy
+				// names plans, because an entitlement is something a member can
+				// acquire and the name is the one fact they need to act on. A
+				// segment policy names NOTHING and does not read the segment
+				// catalogue at all: a segment's name can describe the visitor
+				// ("Overdue renewals") and is not theirs to be told.
+				$names = self::entitlement_names_for( $policy );
+
+				$message = array() === $names
+					? __( 'This content is limited to selected members.', 'agend-content-access' )
+					: sprintf(
+						/* translators: %s: comma-separated entitlement names. */
+						__( 'This content is limited to people who hold: %s.', 'agend-content-access' ),
+						implode( ', ', $names )
+					);
 				$cta     = '';
 				break;
 			default:
