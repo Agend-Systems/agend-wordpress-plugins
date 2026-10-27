@@ -65,6 +65,15 @@ class Agend_Content_Access_Frontend {
 	const FRAGMENT_RULES_META_KEY = '_agend_access_fragment_rules';
 
 	/**
+	 * The post meta key core stores a post's footnotes under, and registers for
+	 * REST as `meta.footnotes`. Defined here, and aliased by
+	 * `Agend_Content_Access_Blocks`, which filters the value a viewer reads.
+	 *
+	 * @var string
+	 */
+	const FOOTNOTES_META_KEY = 'footnotes';
+
+	/**
 	 * Decision for the current singular request, resolved once.
 	 *
 	 * @var array|null
@@ -1082,6 +1091,10 @@ class Agend_Content_Access_Frontend {
 		// Never expose the policy itself: its tier ids are the association's
 		// plan configuration.
 		unset( $data['meta'][ Agend_Content_Access_Policy::META_KEY ] );
+
+		// A footnote is the text of a note on the body, kept in post meta that
+		// core registers for REST. The body is withheld above; its notes go with it.
+		unset( $data['meta'][ self::FOOTNOTES_META_KEY ] );
 
 		$data['agend_access'] = array( 'state' => $decision['state'] );
 

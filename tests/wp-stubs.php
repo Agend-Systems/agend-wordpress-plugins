@@ -1318,6 +1318,14 @@ if ( ! function_exists( 'get_post_types' ) ) {
 
 if ( ! function_exists( 'get_post_meta' ) ) {
 	function get_post_meta( $post_id, $key = '', $single = false ) {
+		// Core's short-circuit: a `get_post_metadata` callback may answer for the
+		// read, and a list answer to a single read is read at its first entry.
+		$check = Agend_Test_WP::apply_registered( 'get_post_metadata', null, $post_id, $key, $single, 'post' );
+
+		if ( null !== $check ) {
+			return $single && is_array( $check ) ? ( $check[0] ?? '' ) : $check;
+		}
+
 		$value = $GLOBALS['agend_test_post_meta'][ (int) $post_id ][ $key ] ?? '';
 
 		return $single ? $value : array( $value );
@@ -2948,7 +2956,12 @@ if ( ! function_exists( 'render_block' ) ) {
 			return (string) $pre;
 		}
 
-		return ( new WP_Block( $block ) )->render();
+		// As core does: the post being rendered is the block's `postId` context,
+		// which is how a block such as Footnotes finds the post it belongs to.
+		$post    = $GLOBALS['post'] ?? null;
+		$context = $post instanceof WP_Post ? array( 'postId' => $post->ID ) : array();
+
+		return ( new WP_Block( $block, $context ) )->render();
 	}
 }
 

@@ -103,6 +103,15 @@ class Agend_Content_Access_Blocks {
 	const PRE_RENDER_PRIORITY = PHP_INT_MIN;
 
 	/**
+	 * The post meta key core stores a post's footnotes under: a JSON list of
+	 * `{id, content}`, rendered by the Footnotes block and, as the registered
+	 * `meta.footnotes` field, public in REST.
+	 *
+	 * @var string
+	 */
+	const FOOTNOTES_META_KEY = Agend_Content_Access_Frontend::FOOTNOTES_META_KEY;
+
+	/**
 	 * Priority of the `render_block` backstop: first, so a denied block is already
 	 * `''` before any other filter on its output sees it.
 	 *
@@ -155,6 +164,16 @@ class Agend_Content_Access_Blocks {
 	private array $granted = array();
 
 	/**
+	 * Whether the footnotes meta is being read by this class right now.
+	 *
+	 * The footnotes filter reads the stored value to filter it, and that read
+	 * comes back through the same filter.
+	 *
+	 * @var bool
+	 */
+	private bool $reading_footnotes = false;
+
+	/**
 	 * Registers hooks. Called on every request, front end and REST alike: a REST
 	 * request never reaches `template_redirect`, and renders blocks all the same.
 	 */
@@ -165,6 +184,7 @@ class Agend_Content_Access_Blocks {
 		add_action( 'save_post', array( $this, 'sync_search_flag' ), 20 );
 		add_action( 'elementor/document/after_save', array( $this, 'sync_search_flag_after_elementor_save' ) );
 		add_action( 'pre_get_posts', array( $this, 'exclude_from_search' ), self::SEARCH_EXCLUSION_PRIORITY );
+		add_filter( 'get_post_metadata', array( $this, 'filter_footnotes_meta' ), 10, 4 );
 
 		// The block half of the generated excerpt: `Agend_Content_Access_Frontend`
 		// owns the `get_the_excerpt` filter and asks this for the safe text.
@@ -292,11 +312,14 @@ class Agend_Content_Access_Blocks {
 	 * Shared by the `pre_render_block` path and the `render_block` backstop, so the
 	 * two cannot disagree. Every path that is not clearly a grant is a denial.
 	 *
-	 * @param array $parsed_block The block.
-	 * @param array $rules        From `rules_of()`.
+	 * @param array    $parsed_block The block.
+	 * @param array    $rules        From `rules_of()`.
+	 * @param int|null $post_id      The post the block belongs to, when the caller
+	 *                               knows it and it is not the one being rendered.
+	 *                               Null is the post in context.
 	 * @return string|null
 	 */
-	private function verdict_for( array $parsed_block, array $rules ): ?string {
+	private function verdict_for( array $parsed_block, array $rules, ?int $post_id = null ): ?string {
 		if ( self::is_authoring() ) {
 			return null;
 		}
@@ -304,10 +327,11 @@ class Agend_Content_Access_Blocks {
 		$settings   = $rules['settings'];
 		$conditions = $rules['conditions'];
 		$fragment   = $rules['fragment'];
+		$post_id    = null === $post_id ? self::context_post_id() : $post_id;
 
 		// Marked whatever the verdict. The block is personalised, so the page is
 		// per-viewer: see `mark_uncacheable()`.
-		$this->mark_uncacheable( self::context_post_id() );
+		$this->mark_uncacheable( $post_id );
 
 		try {
 			// Display conditions first, as Elementor does. They can only remove,
@@ -328,7 +352,6 @@ class Agend_Content_Access_Blocks {
 			// vanishing and leaving the fragment alone. No post in context is a
 			// block outside any post (a widget, a bare template part), which has
 			// no document policy to narrow with, and the block's own still applies.
-			$post_id   = self::context_post_id();
 			$document  = $post_id > 0 ? Agend_Content_Access_Policy::enforced_for_post( $post_id ) : null;
 			$effective = Agend_Content_Access_Policy::effective_policy( $document, $fragment );
 
@@ -648,6 +671,214 @@ class Agend_Content_Access_Blocks {
 
 		foreach ( $decoded as $node ) {
 			if ( ! is_array( $node ) || Agend_Content_Access_Elementor::subtree_carries_policy( $node ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// -----------------------------------------------------------------------
+	// Footnotes
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Keeps the footnotes of a block the viewer may not see out of the footnotes
+	 * block and out of REST.
+	 *
+	 * WHY. A footnote's text is not in the paragraph that cites it. The paragraph
+	 * holds only an anchor, `<sup data-fn="<uuid>">`, and the text lives in the
+	 * post's `footnotes` meta, which the Footnotes block renders in full and which
+	 * is public in REST as `meta.footnotes`. Removing a restricted paragraph left
+	 * its footnote readable in both places.
+	 *
+	 * WHAT. When the post holds a ruled block, each footnote whose id appears
+	 * inside a ruled block THIS VIEWER is denied is removed from the value read.
+	 * One filter on `get_post_metadata` covers both readers, since the block reads
+	 * the meta with `get_post_meta()` and the REST field with `get_metadata()`.
+	 * Whether a block is denied is the verdict the render path gives
+	 * (`verdict_for()`, against the post whose meta it is), so the footnotes of a
+	 * block a member may read stay for that member. The footnote list is not
+	 * renumbered: the anchors in the text carry their own numbers, and a gap is
+	 * what removing a paragraph leaves in a document anyway.
+	 *
+	 * FAIL CLOSED, because the mapping is by id and ids can be unreadable. A post
+	 * that holds a ruled block and whose footnotes meta is not a JSON list returns
+	 * no footnotes at all. So does an entry with no id, but only when a block was
+	 * denied: with nothing denied there is nothing it could belong to. An id is
+	 * matched anywhere in a denied block's markup and attributes, not just in a
+	 * `data-fn` attribute, so an anchor written some other way still counts.
+	 *
+	 * NOT COVERED. A post's footnotes read for a post whose whole DOCUMENT is
+	 * denied are not touched here: that is the page gate's, and REST strips them in
+	 * `Agend_Content_Access_Frontend::filter_rest_response()`. A read of every meta
+	 * key at once (`get_post_meta( $id )` with no key) returns the stored value:
+	 * it is not a reader this closes, and answering it would put work on every such
+	 * call on the site.
+	 *
+	 * Authors are never filtered: the block editor loads the footnotes to edit and
+	 * saves what it was given, and a filtered read there would delete the hidden
+	 * ones on the next save.
+	 *
+	 * @param mixed  $value     Short-circuit value so far, null for none.
+	 * @param int    $object_id Post id.
+	 * @param string $meta_key  Meta key being read.
+	 * @param bool   $single    Whether a single value was asked for.
+	 * @return mixed The value to return, or the incoming one to let WordPress read it.
+	 */
+	public function filter_footnotes_meta( $value, $object_id, $meta_key, $single ) {
+		// The first test is the one every meta read on the site pays for.
+		if ( self::FOOTNOTES_META_KEY !== $meta_key || null !== $value || $this->reading_footnotes ) {
+			return $value;
+		}
+
+		$this->reading_footnotes = true;
+
+		try {
+			$stored = get_post_meta( (int) $object_id, self::FOOTNOTES_META_KEY, true );
+		} finally {
+			$this->reading_footnotes = false;
+		}
+
+		if ( ! is_string( $stored ) || '' === $stored ) {
+			return $value;
+		}
+
+		$visible = $this->visible_footnotes( (int) $object_id, $stored );
+
+		if ( $visible === $stored ) {
+			return $value;
+		}
+
+		return $single ? $visible : array( $visible );
+	}
+
+	/**
+	 * The post's footnotes without the ones anchored in a block this viewer is
+	 * denied.
+	 *
+	 * @param int    $post_id Post the footnotes belong to.
+	 * @param string $stored  The stored value, a JSON list of `{id, content}`.
+	 * @return string The same string when nothing is removed, otherwise the JSON of what is left.
+	 */
+	private function visible_footnotes( int $post_id, string $stored ): string {
+		$post = get_post( $post_id );
+
+		if ( ! $post instanceof WP_Post || false === strpos( (string) $post->post_content, 'wp:' ) ) {
+			return $stored;
+		}
+
+		$blocks = parse_blocks( (string) $post->post_content );
+
+		// The common case, and the cheap one: no ruled block, nothing to hide.
+		if ( ! self::blocks_carry_rules( $blocks ) ) {
+			return $stored;
+		}
+
+		$footnotes = json_decode( $stored, true );
+
+		if ( ! is_array( $footnotes ) ) {
+			return '[]';
+		}
+
+		$ids = array();
+
+		foreach ( $footnotes as $footnote ) {
+			if ( is_array( $footnote ) && isset( $footnote['id'] ) && is_string( $footnote['id'] ) && '' !== $footnote['id'] ) {
+				$ids[] = $footnote['id'];
+			}
+		}
+
+		$hidden = $this->denied_markup( $blocks, $ids, $post_id );
+		$kept   = array();
+
+		foreach ( $footnotes as $footnote ) {
+			$id = is_array( $footnote ) && isset( $footnote['id'] ) && is_string( $footnote['id'] ) ? $footnote['id'] : '';
+
+			if ( '' !== $hidden && ( '' === $id || false !== strpos( $hidden, $id ) ) ) {
+				continue;
+			}
+
+			$kept[] = $footnote;
+		}
+
+		return count( $kept ) === count( $footnotes ) ? $stored : (string) wp_json_encode( $kept );
+	}
+
+	/**
+	 * The markup and attributes of every ruled block this viewer is denied that
+	 * mentions one of the ids, run together.
+	 *
+	 * A block whose subtree mentions none of the ids is not asked about, so a post
+	 * with ruled blocks and no footnote anchors in them costs no decision. A denied
+	 * block's whole subtree is taken, so a footnote anchored deeper inside it goes
+	 * with it. One that is allowed is searched for ruled descendants.
+	 *
+	 * @param array    $blocks  Parsed blocks, as `parse_blocks()` returns them.
+	 * @param string[] $ids     Footnote ids to look for.
+	 * @param int      $post_id Post the blocks belong to.
+	 * @return string
+	 */
+	private function denied_markup( array $blocks, array $ids, int $post_id ): string {
+		$denied = '';
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			$markup = self::markup_of( $block );
+
+			if ( ! self::mentions_any( $markup, $ids ) ) {
+				continue;
+			}
+
+			$rules = self::rules_of( $block );
+
+			if ( null !== $rules && null !== $this->verdict_for( $block, $rules, $post_id ) ) {
+				$denied .= $markup;
+				continue;
+			}
+
+			if ( isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$denied .= $this->denied_markup( $block['innerBlocks'], $ids, $post_id );
+			}
+		}
+
+		return $denied;
+	}
+
+	/**
+	 * Everything a block says in one string: its markup, its attributes and its
+	 * inner blocks'. Rich text lives in the markup for most blocks and in an
+	 * attribute for some, and an id found in either is an anchor.
+	 *
+	 * @param array $block Parsed block.
+	 * @return string
+	 */
+	private static function markup_of( array $block ): string {
+		$markup = ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '' )
+			. ( isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? (string) wp_json_encode( $block['attrs'] ) : '' );
+
+		if ( isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+			foreach ( $block['innerBlocks'] as $inner_block ) {
+				$markup .= is_array( $inner_block ) ? self::markup_of( $inner_block ) : '';
+			}
+		}
+
+		return $markup;
+	}
+
+	/**
+	 * Whether the text contains any of the ids.
+	 *
+	 * @param string   $text Text.
+	 * @param string[] $ids  Ids.
+	 * @return bool
+	 */
+	private static function mentions_any( string $text, array $ids ): bool {
+		foreach ( $ids as $id ) {
+			if ( false !== strpos( $text, $id ) ) {
 				return true;
 			}
 		}
