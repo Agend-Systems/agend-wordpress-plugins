@@ -32,6 +32,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  * `render_block` filters output that was already produced, with every side
  * effect already executed, which is the wrong order for access control.
  *
+ * WHY `render_block` IS ALSO REGISTERED, AS A BACKSTOP. `pre_render_block` is
+ * asked by `WP_Block::render()` for each inner block and by `render_block()` for
+ * each top level one, but a block whose render callback renders its own children
+ * (Navigation, Navigation Submenu, Navigation Link, Widget Group) calls
+ * `$inner_block->render()` directly and never asks. A restriction on a link or a
+ * submenu in a navigation was therefore never applied. `render_block` runs inside
+ * `WP_Block::render()` for every block however it was reached, so it applies the
+ * same decision to what a direct render produced. It only ever does work for a
+ * block the main path did not already judge: see `render_block()`.
+ *
  * WHY NOT THE DOCUMENT FOR THE QUERIED OBJECT. The Elementor driver reads the
  * document policy of `get_queried_object_id()`, which is right where a document
  * renders for the queried post. Blocks render inside query loops, template
@@ -93,6 +103,14 @@ class Agend_Content_Access_Blocks {
 	const PRE_RENDER_PRIORITY = PHP_INT_MIN;
 
 	/**
+	 * Priority of the `render_block` backstop: first, so a denied block is already
+	 * `''` before any other filter on its output sees it.
+	 *
+	 * @var int
+	 */
+	const BACKSTOP_PRIORITY = PHP_INT_MIN;
+
+	/**
 	 * Priority of the `template_redirect` cache marking. After the page gate
 	 * (priority 1), which may end the request with a 403 and has nothing to mark.
 	 *
@@ -121,11 +139,28 @@ class Agend_Content_Access_Blocks {
 	private array $fallbacks_open = array();
 
 	/**
+	 * Blocks the `pre_render_block` path has judged and allowed, not yet seen by
+	 * the `render_block` backstop: a count per block fingerprint.
+	 *
+	 * What stops the backstop deciding a block twice. `pre_render_block` never
+	 * receives the `WP_Block` instance, which does not exist yet for an inner
+	 * block, so a block cannot be remembered by instance. It is remembered by what
+	 * decides it: the post it is judged against, its name and its `agendAccess`
+	 * attribute. Two blocks with that in common get the same answer, so letting
+	 * one stand in for the other is sound, and a count rather than a flag keeps N
+	 * identical blocks accounted for N times.
+	 *
+	 * @var array<string, int>
+	 */
+	private array $granted = array();
+
+	/**
 	 * Registers hooks. Called on every request, front end and REST alike: a REST
 	 * request never reaches `template_redirect`, and renders blocks all the same.
 	 */
 	public function __construct() {
 		add_filter( 'pre_render_block', array( $this, 'pre_render_block' ), self::PRE_RENDER_PRIORITY, 3 );
+		add_filter( 'render_block', array( $this, 'render_block' ), self::BACKSTOP_PRIORITY, 3 );
 		add_action( 'template_redirect', array( $this, 'mark_page_uncacheable' ), self::TEMPLATE_REDIRECT_PRIORITY );
 		add_action( 'save_post', array( $this, 'sync_search_flag' ), 20 );
 		add_action( 'elementor/document/after_save', array( $this, 'sync_search_flag_after_elementor_save' ) );
@@ -162,19 +197,113 @@ class Agend_Content_Access_Blocks {
 			return $pre;
 		}
 
+		$rules = self::rules_of( $parsed_block );
+
+		// The common case, and it must stay this cheap: no attribute, or one
+		// that only says `inherit`, is a block like any other.
+		if ( null === $rules ) {
+			return null;
+		}
+
+		$verdict = $this->verdict_for( $parsed_block, $rules );
+
+		if ( null === $verdict ) {
+			$this->remember_grant( $parsed_block );
+		}
+
+		return $verdict;
+	}
+
+	/**
+	 * Applies the same decision to a block that core rendered WITHOUT asking
+	 * `pre_render_block`: the backstop.
+	 *
+	 * Navigation, Navigation Submenu, Navigation Link and Widget Group render
+	 * their children by calling `$inner_block->render()` themselves, which never
+	 * reaches `pre_render_block`, so a restriction on one of those children was
+	 * never applied. `WP_Block::render()` ends by filtering the block's output
+	 * through `render_block` whichever way it was reached, so this is where a
+	 * block that skipped the front door is judged.
+	 *
+	 * It is a BACKSTOP and not the enforcement point: by now the block has
+	 * rendered, its callback has run and its side effects have happened. What it
+	 * guarantees is that no output of a denied block is returned, and that is the
+	 * property that reaches the visitor. The main path stays the one that keeps a
+	 * denied block from rendering at all, for the blocks that go through it.
+	 *
+	 * A block the main path already judged and allowed is not judged again
+	 * (`$granted`). One it denied never gets here, because a short-circuited block
+	 * is not rendered. What is left is exactly the blocks that skipped the front
+	 * door, which are decided here from the parsed block as it stands NOW, after
+	 * every `render_block_data` filter, so a block altered on the way in is judged
+	 * as it will be shown.
+	 *
+	 * Returns the replacement for a denied block, which is `''` or the display
+	 * condition fallback, exactly as the main path would have. Marks the response
+	 * uncacheable, as the main path does, because the verdict is made the same way.
+	 *
+	 * @param string               $content      The block's rendered output.
+	 * @param array                $parsed_block The block, as it stood when it rendered.
+	 * @param WP_Block|object|null $instance     The block instance. Not needed to decide.
+	 * @return string The output to keep.
+	 */
+	public function render_block( $content, $parsed_block = array(), $instance = null ) {
+		if ( ! is_string( $content ) || ! is_array( $parsed_block ) ) {
+			return $content;
+		}
+
+		$rules = self::rules_of( $parsed_block );
+
+		if ( null === $rules || $this->consume_grant( $parsed_block ) ) {
+			return $content;
+		}
+
+		$verdict = $this->verdict_for( $parsed_block, $rules );
+
+		return null === $verdict ? $content : $verdict;
+	}
+
+	/**
+	 * What a block carries that can decide it, or null when it carries nothing.
+	 *
+	 * @param array $parsed_block The block, as `parse_blocks()` returns it.
+	 * @return array{settings: array, conditions: bool, fragment: array|null}|null
+	 */
+	private static function rules_of( array $parsed_block ): ?array {
 		$settings   = Agend_Content_Access_Block_Attributes::settings_for_block( $parsed_block );
 		$conditions = Agend_Content_Access_Fragment_Rules::conditions_enabled( $settings );
 		$fragment   = Agend_Content_Access_Policy::from_fragment_settings( $settings );
 
-		// The common case, and it must stay this cheap: no attribute, or one
-		// that only says `inherit`, is a block like any other.
 		if ( null === $fragment && ! $conditions ) {
 			return null;
 		}
 
+		return array(
+			'settings'   => $settings,
+			'conditions' => $conditions,
+			'fragment'   => $fragment,
+		);
+	}
+
+	/**
+	 * The verdict on a block that carries rules: null to let it render, or the
+	 * string to render in its place.
+	 *
+	 * Shared by the `pre_render_block` path and the `render_block` backstop, so the
+	 * two cannot disagree. Every path that is not clearly a grant is a denial.
+	 *
+	 * @param array $parsed_block The block.
+	 * @param array $rules        From `rules_of()`.
+	 * @return string|null
+	 */
+	private function verdict_for( array $parsed_block, array $rules ): ?string {
 		if ( self::is_authoring() ) {
 			return null;
 		}
+
+		$settings   = $rules['settings'];
+		$conditions = $rules['conditions'];
+		$fragment   = $rules['fragment'];
 
 		// Marked whatever the verdict. The block is personalised, so the page is
 		// per-viewer: see `mark_uncacheable()`.
@@ -220,6 +349,61 @@ class Agend_Content_Access_Blocks {
 
 			return '';
 		}
+	}
+
+	/**
+	 * Records that the main path judged a block and allowed it.
+	 *
+	 * @param array $parsed_block The block.
+	 */
+	private function remember_grant( array $parsed_block ): void {
+		$key = self::fingerprint( $parsed_block );
+
+		$this->granted[ $key ] = ( $this->granted[ $key ] ?? 0 ) + 1;
+	}
+
+	/**
+	 * Uses up one recorded grant for the block, if there is one.
+	 *
+	 * @param array $parsed_block The block.
+	 * @return bool Whether the main path had already allowed this block.
+	 */
+	private function consume_grant( array $parsed_block ): bool {
+		$key = self::fingerprint( $parsed_block );
+
+		if ( empty( $this->granted[ $key ] ) ) {
+			return false;
+		}
+
+		if ( 0 === --$this->granted[ $key ] ) {
+			unset( $this->granted[ $key ] );
+		}
+
+		return true;
+	}
+
+	/**
+	 * What decides a block: the post it is judged against, its name and its
+	 * `agendAccess` attribute.
+	 *
+	 * Serialised rather than JSON encoded, because the attribute is whatever the
+	 * stored markup held, and an encoder that fails on it would give every such
+	 * block the same key.
+	 *
+	 * @param array $parsed_block The block.
+	 * @return string
+	 */
+	private static function fingerprint( array $parsed_block ): string {
+		$attrs = isset( $parsed_block['attrs'] ) && is_array( $parsed_block['attrs'] ) ? $parsed_block['attrs'] : array();
+
+		return self::context_post_id() . ':' . md5(
+			serialize( // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- Never unserialised: only hashed.
+				array(
+					isset( $parsed_block['blockName'] ) ? $parsed_block['blockName'] : null,
+					isset( $attrs[ Agend_Content_Access_Block_Attributes::ATTRIBUTE ] ) ? $attrs[ Agend_Content_Access_Block_Attributes::ATTRIBUTE ] : null,
+				)
+			)
+		);
 	}
 
 	/**

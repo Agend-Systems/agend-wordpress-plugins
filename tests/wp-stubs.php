@@ -2424,6 +2424,9 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 		/** @var callable|null */
 		public $render_callback = null;
 
+		/** Whether the block renders its own inner blocks, so core does not render them first. */
+		public bool $skip_inner_blocks = false;
+
 		/** @var array<string, array> The block's attribute schema, after `register_block_type_args`. */
 		public array $attributes = array();
 
@@ -2454,6 +2457,8 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 			if ( isset( $args['render_callback'] ) ) {
 				$this->render_callback = $args['render_callback'];
 			}
+
+			$this->skip_inner_blocks = ! empty( $args['skip_inner_blocks'] );
 		}
 	}
 }
@@ -2821,30 +2826,116 @@ if ( ! function_exists( 'has_blocks' ) ) {
 	}
 }
 
+if ( ! class_exists( 'WP_Block' ) ) {
+	/**
+	 * Minimal `WP_Block`: the instance core builds for a block, with its inner
+	 * blocks as instances too, so a render callback can do what core's Navigation
+	 * and Widget Group do and render its children itself with
+	 * `$inner_block->render()`.
+	 *
+	 * `render()` follows core's order, which is what the access tests depend on:
+	 * each inner block is offered to `pre_render_block` and rendered only if that
+	 * returns null; a dynamic block's callback then gets `( attributes, content,
+	 * block )`; and the result is filtered through `render_block` for EVERY block
+	 * however its render was reached, which is the hook a backstop for the blocks
+	 * that skip `pre_render_block` has to sit on.
+	 *
+	 * Inner blocks are placed where `innerContent` puts them, as WordPress does: a
+	 * `null` entry is the next inner block, a string is markup. A hand-built block
+	 * array with no `innerContent` falls back to its `innerHTML` followed by its
+	 * inner blocks.
+	 */
+	class WP_Block {
+		public array $parsed_block;
+
+		public ?string $name;
+
+		public array $attributes;
+
+		public array $context;
+
+		/** @var WP_Block[] */
+		public array $inner_blocks = array();
+
+		public array $inner_content;
+
+		public ?WP_Block_Type $block_type;
+
+		public function __construct( array $block, array $context = array() ) {
+			$this->parsed_block  = $block;
+			$this->name          = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : null;
+			$this->attributes    = (array) ( $block['attrs'] ?? array() );
+			$this->context       = $context;
+			$this->inner_content = (array) ( $block['innerContent'] ?? array() );
+			$this->block_type    = null !== $this->name ? WP_Block_Type_Registry::get_instance()->get_registered( $this->name ) : null;
+
+			foreach ( (array) ( $block['innerBlocks'] ?? array() ) as $inner_block ) {
+				$this->inner_blocks[] = new WP_Block( (array) $inner_block, $context );
+			}
+		}
+
+		/**
+		 * @param array $options `dynamic`: whether to call a dynamic block's callback.
+		 * @return string
+		 */
+		public function render( array $options = array() ): string {
+			$dynamic = ! array_key_exists( 'dynamic', $options ) || ! empty( $options['dynamic'] );
+			$inner   = '';
+
+			if ( ! $dynamic || null === $this->block_type || ! $this->block_type->skip_inner_blocks ) {
+				if ( array() !== $this->inner_content ) {
+					$next = 0;
+
+					foreach ( $this->inner_content as $chunk ) {
+						if ( null === $chunk ) {
+							if ( isset( $this->inner_blocks[ $next ] ) ) {
+								$inner .= $this->render_inner_block( $this->inner_blocks[ $next ] );
+							}
+
+							++$next;
+							continue;
+						}
+
+						$inner .= (string) $chunk;
+					}
+				} else {
+					$inner = (string) ( $this->parsed_block['innerHTML'] ?? '' );
+
+					foreach ( $this->inner_blocks as $inner_block ) {
+						$inner .= $this->render_inner_block( $inner_block );
+					}
+				}
+			}
+
+			$output = $inner;
+
+			if ( $dynamic && $this->block_type instanceof WP_Block_Type && is_callable( $this->block_type->render_callback ) ) {
+				$output = (string) call_user_func( $this->block_type->render_callback, $this->attributes, $inner, $this );
+			}
+
+			return (string) Agend_Test_WP::apply_registered( 'render_block', $output, $this->parsed_block, $this );
+		}
+
+		/** An inner block is offered to `pre_render_block` first, as `WP_Block::render()` does. */
+		private function render_inner_block( WP_Block $inner_block ): string {
+			$pre = Agend_Test_WP::apply_registered( 'pre_render_block', null, $inner_block->parsed_block, $this );
+
+			return null !== $pre ? (string) $pre : $inner_block->render();
+		}
+	}
+}
+
 if ( ! function_exists( 'render_block' ) ) {
 	/**
 	 * Minimal `render_block()` stand-in: renders a single parsed block array
-	 * (as returned by `parse_blocks()`), recursing into `innerBlocks` first
-	 * and handing a dynamic block's registered render callback the
-	 * concatenated inner markup. Matches WordPress's own
-	 * `(attributes, content, block)` render callback signature closely
-	 * enough for these tests: the `$block` instance argument is not
-	 * reproduced, since nothing under test reads it.
-	 *
-	 * Inner blocks are placed where `innerContent` puts them, as WordPress does:
-	 * a `null` entry is the next inner block, a string is markup. A hand-built
-	 * block array with no `innerContent` falls back to its `innerHTML` followed
-	 * by its inner blocks, which is what this stub did before `parse_blocks()`
-	 * produced `innerContent`.
+	 * (as returned by `parse_blocks()`) as core does, through a {@see WP_Block}.
 	 *
 	 * Like WordPress, it first runs the `pre_render_block` chain
 	 * ({@see Agend_Test_WP::apply_registered()}, so every registered callback
 	 * runs in priority order) and returns a non-null result WITHOUT rendering the
-	 * block or any of its inner blocks. WordPress applies the same filter to inner
-	 * blocks from `WP_Block::render()`; here inner blocks come back through this
-	 * function, so one check at the top covers both. A short-circuited container
-	 * therefore never renders its children, which is what the access-control
-	 * tests need to be able to assert.
+	 * block or any of its inner blocks. {@see WP_Block::render()} applies the same
+	 * filter to each inner block, so a short-circuited container never renders its
+	 * children, which is what the access-control tests need to be able to assert.
 	 *
 	 * @param array             $block        Parsed block array.
 	 * @param array|object|null $parent_block The parent block, for inner blocks.
@@ -2857,43 +2948,7 @@ if ( ! function_exists( 'render_block' ) ) {
 			return (string) $pre;
 		}
 
-		$inner_blocks  = (array) ( $block['innerBlocks'] ?? array() );
-		$inner_content = $block['innerContent'] ?? array();
-		$inner         = '';
-
-		if ( is_array( $inner_content ) && array() !== $inner_content ) {
-			$next = 0;
-
-			foreach ( $inner_content as $chunk ) {
-				if ( null === $chunk ) {
-					$inner .= render_block( (array) ( $inner_blocks[ $next ] ?? array() ), $block );
-					++$next;
-					continue;
-				}
-
-				$inner .= (string) $chunk;
-			}
-		} else {
-			$inner = (string) ( $block['innerHTML'] ?? '' );
-
-			foreach ( $inner_blocks as $inner_block ) {
-				$inner .= render_block( $inner_block, $block );
-			}
-		}
-
-		$name = $block['blockName'] ?? null;
-
-		if ( ! is_string( $name ) || '' === $name ) {
-			return $inner;
-		}
-
-		$block_type = WP_Block_Type_Registry::get_instance()->get_registered( $name );
-
-		if ( $block_type instanceof WP_Block_Type && is_callable( $block_type->render_callback ) ) {
-			return (string) call_user_func( $block_type->render_callback, (array) ( $block['attrs'] ?? array() ), $inner );
-		}
-
-		return $inner;
+		return ( new WP_Block( $block ) )->render();
 	}
 }
 
