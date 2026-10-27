@@ -132,7 +132,11 @@ half-registered access-control plugin is indistinguishable from one that decided
 the visitor may proceed. A stored policy the plugin cannot read, such as a mode
 written by a newer release, restricts the page to nobody rather than reading as
 unset, and 0.1.1 is the minimum safe version to roll back to from 0.2.0, because
-0.1.0 served such a page as public.
+0.1.0 served such a page as public. The same holds for the exemptions: a request
+counts as authoring only when it can be shown to be, and a stored document that
+cannot be read counts as carrying section rules, so doubt always lands on the
+side of withholding. 0.1.3 is the minimum safe version for the authoring and REST
+exposures described below, which 0.1.0 to 0.1.2 all had.
 
 ### Where a restricted post is gated
 
@@ -150,11 +154,92 @@ while headers can still be sent), so a page cache cannot serve a member's copy t
 anonymous visitors. The `agend_content_access_uncacheable_render` action fires
 for cache integrations that do not read the constant.
 
-**Not covered:** code that reads `$post->post_content` or calls
-`get_the_content()` directly bypasses every content filter, and so this gate. So
-does core search, which matches the terms against the raw `post_content`: a
-restricted post can be found by a word only its body contains, although the
-result then shows only the gate.
+The Latest Posts block is the exception that cannot be gated after the fact. Its
+"full post" display prints `post_content` itself, from the database row, so no
+content filter is ever offered the body. For anyone who is not authoring it is
+rendered in excerpt mode instead, and the excerpt is gated. **The cost is
+deliberate:** a Latest Posts block set to full posts shows excerpts to every
+visitor, restricted or not. Listing only the posts that need it would mean
+re-running the query core builds from the block's attributes, and a copy that
+drifted from core would fail open. To print full posts in a list, use a Query
+Loop block, whose content is gated.
+
+### What counts as authoring
+
+Gating stands down for somebody who is authoring, and only for them. That is a
+wp-admin screen, Elementor's editor, Elementor's own editor AJAX (rendering a
+widget, fetching a template), and Elementor's preview iframe.
+
+- **The preview flag is trusted only on the page it names.** The
+  `?elementor-preview=<id>` argument is a query-string value anyone can append to
+  any URL, and Elementor only checks that the user may edit the id it carries. So
+  it counts only when that id is a positive integer equal to the post the request
+  serves. Otherwise a contributor could open a restricted page with the id of
+  their own draft appended and read it.
+- **admin-ajax.php is not authoring.** WordPress reports `is_admin()` for it, but
+  other plugins render Elementor templates through it for anonymous visitors
+  ("load more", filters, tabs). Sections are suppressed there. Only Elementor's
+  own editor requests are exempt.
+
+### Section rules and the raw body
+
+A section rule hides one section of a public page. The rendered page withholds
+it, but Elementor writes the text of every section into `post_content` when a
+document is saved, without consulting the rules. Anything that reads the raw body
+therefore sees the restricted text. For a post whose document carries a fragment
+policy or enabled display conditions:
+
+| Reader | Behaviour |
+| --- | --- |
+| Core search, the REST `search` parameter, `/wp/v2/search` | The post is left out for anyone who cannot edit others' posts. `agend_content_access_search_excludes_fragment_rules` (default true) turns this off |
+| Automatic excerpts | Empty, unless the post has a written excerpt. Decided from the document, so it holds before the flag exists. `agend_content_access_safe_generated_excerpt` lets an integration for another editor supply a rebuilt one; it defaults to an empty string |
+| REST `context=edit` | `content.raw` is removed for anybody who cannot edit that post |
+
+The posts are found by the `_agend_access_fragment_rules` meta, set when a post is
+saved, when Elementor saves a document, and when the document meta is written
+directly. The key is protected and never shown in REST. Posts saved before 0.1.3
+have no flag, so it converges on its own: an administrator loading wp-admin
+flags a hundred posts at a time until the whole table has been covered. To finish
+at once, or to run it again after installing an integration for another editor:
+
+```sh
+wp agend-content-access backfill-fragment-flags
+wp agend-content-access backfill-fragment-flags --batch-size=500
+```
+
+The REST edit context is trusted per post, not per request. WordPress allows
+`context=edit` on a collection to anybody holding `edit_posts`, which a
+contributor has, so it returns the raw body of every published post. It is
+honoured for a post only when the requester can `edit_post` that post. For any
+other post a restricted body is withheld as it is in the view context, a post a
+requester may read but not edit keeps its rendered body and loses the raw one, and
+a post that is plainly public and carries no section rules is left alone.
+
+A replacement shown by an Elementor display condition is never a password-
+protected post. Its content is rendered without the password prompt, so it is
+refused, and the picker does not offer one.
+
+**Not covered:**
+
+- Code that reads `$post->post_content` or calls `get_the_content()` directly
+  bypasses every content filter, and so this gate.
+- Core search matches its terms against the raw `post_content` of a restricted
+  post too: it can be found by a word only its body contains, although the result
+  then shows only the gate.
+- Third-party search and indexing plugins, and anything else that reads raw
+  `post_content` when a post is saved, such as a sync to an external search
+  service. The text of a post's restricted sections is in what they index, and
+  the exclusions above cannot reach it.
+- SEO plugins that generate their own meta descriptions, social previews or
+  structured data from the raw body. They do not go through `get_the_excerpt`,
+  so a restricted section can be quoted in a page's `<head>`. Set a written
+  excerpt, or configure the plugin's description, on such pages.
+- Search results for authors and contributors. They cannot tell themselves from
+  a visitor in a query, so they cannot find their own section-restricted pages
+  by text either.
+- An Elementor preview of a post is an authoring request for the whole request.
+  Other posts rendered inside the previewed post, such as a loop, are not gated
+  while it is open, so anybody who can edit a post can print what is inside it.
 
 ## Running the tests
 
