@@ -72,10 +72,13 @@ class Agend_Content_Access_Fragment_Rules {
 	 * reference implementation passes in both cases, which turns a deactivated
 	 * plugin into a silent disclosure.
 	 *
-	 * @param array $settings Fragment settings.
+	 * @param array         $settings Fragment settings.
+	 * @param callable|null $checker  Condition checker, or null for the live visitor's
+	 *                                (`Agend_Content_Access_Condition_Runtime::checker()`).
+	 *                                A feed passes the anonymous one.
 	 * @return bool
 	 */
-	public static function conditions_pass( array $settings ): bool {
+	public static function conditions_pass( array $settings, ?callable $checker = null ): bool {
 		if ( ! self::conditions_enabled( $settings ) ) {
 			return true;
 		}
@@ -94,7 +97,7 @@ class Agend_Content_Access_Fragment_Rules {
 
 		$result = Agend_Content_Access_Conditions::evaluate(
 			$conditions,
-			Agend_Content_Access_Condition_Runtime::checker(),
+			null === $checker ? Agend_Content_Access_Condition_Runtime::checker() : $checker,
 			$match,
 			$invert
 		);
@@ -129,10 +132,12 @@ class Agend_Content_Access_Fragment_Rules {
 	 * the enforcement behind that: a page restricted after being chosen is
 	 * silently dropped rather than leaked.
 	 *
-	 * @param int $fallback_id Post id chosen as the fallback.
+	 * @param int  $fallback_id Post id chosen as the fallback.
+	 * @param bool $anonymous   Judge the fallback for a visitor who is nobody, as a
+	 *                          feed must: its output is shared whoever fetched it.
 	 * @return string
 	 */
-	public static function fallback_html( int $fallback_id ): string {
+	public static function fallback_html( int $fallback_id, bool $anonymous = false ): string {
 		$post = get_post( $fallback_id );
 
 		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
@@ -147,7 +152,7 @@ class Agend_Content_Access_Fragment_Rules {
 		$policy = Agend_Content_Access_Policy::enforced_for_post( $fallback_id );
 		$state  = Agend_Content_Access_Decision::evaluate(
 			$policy,
-			Agend_Content_Access_Decision::viewer( $policy )
+			$anonymous ? Agend_Content_Access_Decision::anonymous_viewer() : Agend_Content_Access_Decision::viewer( $policy )
 		);
 
 		if ( Agend_Content_Access_Decision::STATE_GRANTED !== $state ) {

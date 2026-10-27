@@ -365,9 +365,12 @@ class Agend_Content_Access_Decision {
 	 * A viewer who is nobody: not identified, holding no plan, entitlement or
 	 * segment. Resolves nothing, so it costs no gateway call and cannot degrade.
 	 *
+	 * Public so a fragment (a block) in a syndication feed is judged against the
+	 * same nobody a feed's document is: see `for_post()`.
+	 *
 	 * @return array{identified: bool, tier_ids: string[], entitlement_keys: string[], segment_ids: string[], degraded: bool}
 	 */
-	private static function anonymous_viewer(): array {
+	public static function anonymous_viewer(): array {
 		return array(
 			'identified'       => false,
 			'tier_ids'         => array(),

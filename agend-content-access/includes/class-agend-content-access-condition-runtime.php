@@ -59,6 +59,42 @@ class Agend_Content_Access_Condition_Runtime {
 	}
 
 	/**
+	 * Builds a checker for a visitor who is nobody.
+	 *
+	 * For output that is shared and cached whoever asked, a syndication feed: it
+	 * must read the same for everybody, so a condition cannot be answered for the
+	 * person who happened to fetch it. Every family answers definitively, as the
+	 * live checker does for a signed-out visitor: not logged in, no roles, not a
+	 * member, no plans, no segments, no entitlements. Nothing is looked up, so
+	 * there is no bearer, no gateway call and nothing to fail, and the
+	 * `agend_content_access_segment_facts` filter, which supplies segments for the
+	 * CURRENT visitor, is not consulted.
+	 *
+	 * A provider this plugin does not define is still answered by its own filter,
+	 * which is told nothing about the visitor and so has nothing to leak.
+	 *
+	 * @return callable fn(string $provider, string $value): ?bool
+	 */
+	public static function anonymous_checker(): callable {
+		return Agend_Content_Access_Condition_Providers::checker(
+			array(
+				Agend_Content_Access_Condition_Providers::WORDPRESS    => static function (): array {
+					return array( 'logged_in' => false, 'roles' => array() );
+				},
+				Agend_Content_Access_Condition_Providers::MEMBERSHIP   => static function (): array {
+					return array( 'is_member' => false, 'tier_ids' => array(), 'tier_slugs' => array() );
+				},
+				Agend_Content_Access_Condition_Providers::SEGMENTS     => static function (): array {
+					return array();
+				},
+				Agend_Content_Access_Condition_Providers::ENTITLEMENTS => static function (): array {
+					return array();
+				},
+			)
+		);
+	}
+
+	/**
 	 * The current visitor's membership standing.
 	 *
 	 * A thin adapter over `Agend_Content_Access_Viewer_Facts::member()`, which

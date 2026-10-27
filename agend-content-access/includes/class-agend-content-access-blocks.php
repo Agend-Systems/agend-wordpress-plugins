@@ -329,6 +329,12 @@ class Agend_Content_Access_Blocks {
 		$fragment   = $rules['fragment'];
 		$post_id    = null === $post_id ? self::context_post_id() : $post_id;
 
+		// A FEED is judged for nobody. Its output is shared and routinely cached,
+		// so a copy personalised to whoever fetched it would be served to everyone
+		// after them: the page gate does the same for a document
+		// (`Decision::for_post()` with `$anonymous`).
+		$anonymous = is_feed();
+
 		// Marked whatever the verdict. The block is personalised, so the page is
 		// per-viewer: see `mark_uncacheable()`.
 		$this->mark_uncacheable( $post_id );
@@ -338,8 +344,14 @@ class Agend_Content_Access_Blocks {
 			// so a block hidden here is hidden whatever the policy says. Never
 			// null from here: a block the conditions excluded must not fall
 			// through to rendering.
-			if ( $conditions && ! Agend_Content_Access_Fragment_Rules::conditions_pass( $settings ) ) {
-				return $this->fallback_for( $settings );
+			if (
+				$conditions
+				&& ! Agend_Content_Access_Fragment_Rules::conditions_pass(
+					$settings,
+					$anonymous ? Agend_Content_Access_Condition_Runtime::anonymous_checker() : null
+				)
+			) {
+				return $this->fallback_for( $settings, $anonymous );
 			}
 
 			if ( null === $fragment ) {
@@ -359,7 +371,7 @@ class Agend_Content_Access_Blocks {
 			// when the effective policy of this block is a segments policy.
 			$state = Agend_Content_Access_Decision::evaluate(
 				$effective,
-				Agend_Content_Access_Decision::viewer( $effective )
+				$anonymous ? Agend_Content_Access_Decision::anonymous_viewer() : Agend_Content_Access_Decision::viewer( $effective )
 			);
 
 			return Agend_Content_Access_Decision::STATE_GRANTED === $state ? null : '';
@@ -479,10 +491,11 @@ class Agend_Content_Access_Blocks {
 	 * `Fragment_Rules::fallback_html()`: only content this visitor could have
 	 * read on its own is shown.
 	 *
-	 * @param array $settings The block's neutral settings.
+	 * @param array $settings  The block's neutral settings.
+	 * @param bool  $anonymous Judge the fallback for nobody, as in a feed.
 	 * @return string The fallback markup, or '' for none.
 	 */
-	private function fallback_for( array $settings ): string {
+	private function fallback_for( array $settings, bool $anonymous = false ): string {
 		$fallback_id = isset( $settings[ Agend_Content_Access_Fragment_Rules::FALLBACK_KEY ] )
 			? (int) $settings[ Agend_Content_Access_Fragment_Rules::FALLBACK_KEY ]
 			: 0;
@@ -495,7 +508,7 @@ class Agend_Content_Access_Blocks {
 		$this->fallbacks_open[ $fallback_id ] = true;
 
 		try {
-			return Agend_Content_Access_Fragment_Rules::fallback_html( $fallback_id );
+			return Agend_Content_Access_Fragment_Rules::fallback_html( $fallback_id, $anonymous );
 		} finally {
 			unset( $this->fallbacks_open[ $fallback_id ] );
 		}
