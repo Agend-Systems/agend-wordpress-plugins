@@ -338,19 +338,77 @@ final class BlockAttributesTest extends TestCase {
 		$this->assertFalse( Attributes::carries_conditions( $block ) );
 	}
 
+	/** Only absent and null mean "no attribute". */
 	#[Test]
-	public function an_attribute_that_is_not_an_object_is_dropped(): void {
-		foreach ( array( 'active_member', 7, true ) as $garbage ) {
-			$block = $this->block();
+	public function an_absent_or_null_attribute_carries_nothing(): void {
+		$block = $this->block();
 
-			$block['attrs'][ Attributes::ATTRIBUTE ] = $garbage;
+		$block['attrs'][ Attributes::ATTRIBUTE ] = null;
 
-			$this->assertSame( array(), Attributes::settings_for_block( $block ) );
-			$this->assertFalse( Attributes::carries_policy( $block ) );
-		}
-
+		$this->assertSame( array(), Attributes::settings_for_block( $block ) );
+		$this->assertFalse( Attributes::carries_policy( $block ) );
 		$this->assertSame( array(), Attributes::settings_for_block( array( 'blockName' => 'core/group', 'attrs' => 'nope' ) ) );
 		$this->assertSame( array(), Attributes::settings_for_block( array() ) );
+	}
+
+	/**
+	 * Somebody who wrote `"agendAccess":"members"` meant to restrict the block.
+	 * Reading it as no restriction would publish it.
+	 */
+	#[Test]
+	#[DataProvider( 'notAnObject' )]
+	public function an_attribute_that_is_present_but_not_an_object_fails_closed( $garbage ): void {
+		$block = $this->block();
+
+		$block['attrs'][ Attributes::ATTRIBUTE ] = $garbage;
+
+		$settings = Attributes::settings_for_block( $block );
+
+		$this->assertArrayHasKey( Policy::FRAGMENT_MODE_KEY, $settings );
+		$this->assertSame( array( 'mode' => 'active_member' ), Policy::from_fragment_settings( $settings ) );
+		$this->assertTrue( Attributes::carries_policy( $block ), 'so the parent of this block is structural' );
+		$this->assertTrue( Attributes::subtree_carries_policy( $this->block( array(), array( $block ) ) ) );
+		$this->assertTrue( Attributes::descendants_carry_policy( $this->block( array(), array( $block ) ) ) );
+	}
+
+	public static function notAnObject(): array {
+		return array(
+			'a string'            => array( 'active_member' ),
+			'an empty string'     => array( '' ),
+			'an integer'          => array( 7 ),
+			'zero'                => array( 0 ),
+			'a float'             => array( 1.5 ),
+			'true'                => array( true ),
+			'false'               => array( false ),
+			'a list of strings'   => array( array( 'active_member' ) ),
+			'a list of one array' => array( array( array( 'mode' => 'public' ) ) ),
+		);
+	}
+
+	/** `{}` and `[]` decode to the same empty array, and `{}` is the documented "nothing". */
+	#[Test]
+	public function an_empty_attribute_is_still_inherit(): void {
+		$block = $this->block();
+
+		$block['attrs'][ Attributes::ATTRIBUTE ] = array();
+
+		$this->assertSame( array(), Attributes::settings_for_block( $block ) );
+		$this->assertFalse( Attributes::carries_policy( $block ) );
+	}
+
+	#[Test]
+	public function a_list_handed_to_the_converter_is_not_an_object_either(): void {
+		$settings = Attributes::to_settings( array( 'active_member', 'selected_tiers' ) );
+
+		$this->assertSame( array( 'mode' => 'active_member' ), Policy::from_fragment_settings( $settings ) );
+	}
+
+	/** An object with a numeric-looking key alongside real ones is still an object. */
+	#[Test]
+	public function an_object_with_a_string_key_is_read_normally(): void {
+		$settings = Attributes::to_settings( array( 0 => 'stray', 'mode' => 'inherit' ) );
+
+		$this->assertNull( Policy::from_fragment_settings( $settings ) );
 	}
 
 	#[Test]

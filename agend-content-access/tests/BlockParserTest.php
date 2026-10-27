@@ -402,6 +402,41 @@ final class BlockParserTest extends TestCase {
 		);
 	}
 
+	/**
+	 * The attribute is present but is not an object. It is read as a restriction,
+	 * so the block is its own fragment under a members-only policy and the Group
+	 * around it, which has a policy below it, is structural.
+	 */
+	#[Test]
+	#[DataProvider( 'attributesThatAreNotObjects' )]
+	public function an_attribute_that_is_not_an_object_fails_closed_and_splits_its_parent( $attribute ): void {
+		$bad = $this->open( 'core/paragraph', array( 'agendAccess' => $attribute ) ) . '<p>Careful</p>' . $this->close( 'core/paragraph' );
+
+		$fragments = $this->fragments( $this->group( array( $this->para( 'Open' ), $bad ) ) );
+
+		$this->assertSame( array( 'block-0-0', 'block-0-1' ), $this->ids( $fragments ) );
+		$this->assertSame( array( 'mode' => 'inherit' ), $fragments[0]['policy'] );
+		$this->assertSame( array( 'mode' => 'active_member' ), $fragments[1]['policy'], 'not inherit, and not public' );
+		$this->assertNotContains( 'block:core/group', array_column( $fragments, 'type' ) );
+	}
+
+	public static function attributesThatAreNotObjects(): array {
+		return array(
+			'a string'  => array( 'members' ),
+			'a number'  => array( 3 ),
+			'true'      => array( true ),
+			'false'     => array( false ),
+			'a list'    => array( array( 'members' ) ),
+		);
+	}
+
+	#[Test]
+	public function an_attribute_that_is_null_is_no_attribute(): void {
+		$content = $this->open( 'core/paragraph', array( 'agendAccess' => null ) ) . '<p>Open</p>' . $this->close( 'core/paragraph' );
+
+		$this->assertSame( array( 'mode' => 'inherit' ), $this->fragments( $content )[0]['policy'] );
+	}
+
 	/** An unreadable mode must not be able to widen a group it sits inside. */
 	#[Test]
 	public function an_unrecognised_mode_never_widens_its_ancestors(): void {

@@ -41,6 +41,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  *   - An unrecognised or non-string `mode` reaches `from_fragment_settings()`
  *     as an unrecognised mode, which that function fails closed on.
+ *   - An `agendAccess` that is present but is not an object (a string, a
+ *     number, a boolean, a list) is read the same way, as an unrecognised mode.
+ *     Only absent or `null` means "no attribute". Someone who typed
+ *     `"agendAccess":"members"` meant to restrict the block, and reading that as
+ *     no restriction would publish it.
  *   - A non-string id is dropped from its list. That only ever narrows an
  *     audience, and an emptied list is a restriction nobody satisfies, not "no
  *     restriction".
@@ -135,7 +140,8 @@ class Agend_Content_Access_Block_Attributes {
 	 *
 	 * Only keys that are present and usable produce a setting, so an empty or
 	 * absent attribute converts to an empty array, which every reader treats as
-	 * "inherit, no conditions".
+	 * "inherit, no conditions". A non-empty list is not an object, and converts
+	 * to an unrecognised mode.
 	 *
 	 * @param array $block_attrs The `agendAccess` attribute object.
 	 * @return array Settings keyed by the `Agend_Content_Access_Policy::FRAGMENT_*`
@@ -143,6 +149,10 @@ class Agend_Content_Access_Block_Attributes {
 	 *               plus the two sibling list keys. Toggles are `'yes'` or `''`.
 	 */
 	public static function to_settings( array $block_attrs ): array {
+		if ( ! self::is_object_like( $block_attrs ) ) {
+			return self::unreadable();
+		}
+
 		$settings = array();
 
 		if ( isset( $block_attrs['mode'] ) ) {
@@ -197,7 +207,10 @@ class Agend_Content_Access_Block_Attributes {
 	 *
 	 * Takes the block as `parse_blocks()` returns it, so a caller never has to
 	 * check that `attrs` is an array or that the attribute is an object. A block
-	 * whose attribute is missing or is not an object is read as carrying none.
+	 * whose attribute is missing or `null` is read as carrying none. One whose
+	 * attribute is present and is anything but an object is read as carrying an
+	 * unrecognised mode, which fails closed: absent means "no restriction", and
+	 * a value somebody wrote that cannot be read is not absence.
 	 *
 	 * @param array $block Parsed block.
 	 * @return array Neutral settings, empty when the block carries none.
@@ -206,7 +219,11 @@ class Agend_Content_Access_Block_Attributes {
 		$attrs = isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array();
 		$value = isset( $attrs[ self::ATTRIBUTE ] ) ? $attrs[ self::ATTRIBUTE ] : null;
 
-		return is_array( $value ) ? self::to_settings( $value ) : array();
+		if ( null === $value ) {
+			return array();
+		}
+
+		return is_array( $value ) ? self::to_settings( $value ) : self::unreadable();
 	}
 
 	/**
@@ -492,6 +509,40 @@ class Agend_Content_Access_Block_Attributes {
 
 		foreach ( $block['innerBlocks'] as $child ) {
 			if ( is_array( $child ) && self::scan( $child ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * The settings an attribute that cannot be read converts to.
+	 *
+	 * @return array An unrecognised mode, which `from_fragment_settings()` turns
+	 *               into a members-only policy.
+	 */
+	private static function unreadable(): array {
+		return array( Agend_Content_Access_Policy::FRAGMENT_MODE_KEY => self::UNRECOGNISED_MODE );
+	}
+
+	/**
+	 * Whether an array could have come from a JSON object.
+	 *
+	 * An empty array might (`{}` and `[]` both decode to it, and `{}` is the
+	 * documented way to say "nothing"). A non-empty one does only if it has a
+	 * string key: a JSON list decodes to integer keys alone.
+	 *
+	 * @param array $value Decoded attribute.
+	 * @return bool
+	 */
+	private static function is_object_like( array $value ): bool {
+		if ( array() === $value ) {
+			return true;
+		}
+
+		foreach ( array_keys( $value ) as $key ) {
+			if ( is_string( $key ) ) {
 				return true;
 			}
 		}
