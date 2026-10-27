@@ -2949,13 +2949,6 @@ if ( ! function_exists( 'wp_style_add_data' ) ) {
 	}
 }
 
-if ( ! function_exists( 'rest_authorization_required_code' ) ) {
-	/** 401 for a visitor who is not signed in, 403 for one who is but is refused, as WordPress does. */
-	function rest_authorization_required_code(): int {
-		return is_user_logged_in() ? 403 : 401;
-	}
-}
-
 if ( ! function_exists( 'wp_dequeue_script' ) ) {
 	/** Drops the handle from the recorded enqueues, as WordPress drops it from its queue. */
 	function wp_dequeue_script( string $handle ): void {
