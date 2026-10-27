@@ -133,14 +133,6 @@ class Agend_Content_Access_Viewer_Facts {
 	const ENTITLEMENT_KEY_PATTERN = '/^[a-z][a-z0-9_.]{1,62}[a-z0-9]$/D';
 
 	/**
-	 * The shortest an entry is held because of an entitlement expiry. Without a
-	 * floor a grant about to expire would be re-read on every request.
-	 *
-	 * @var int
-	 */
-	const MIN_EXPIRY_TTL = 30;
-
-	/**
 	 * Per-request memo of the membership facts, keyed by WordPress user id.
 	 *
 	 * Keyed by user id rather than held as a single value so a request that
@@ -319,7 +311,13 @@ class Agend_Content_Access_Viewer_Facts {
 		$facts = self::normalise( $data );
 
 		if ( $cacheable ) {
-			set_transient( $key, $facts, self::cache_ttl( $facts['entitlement_expires_at'] ) );
+			$ttl = self::entry_ttl( $facts['entitlement_expires_at'] );
+
+			// A TTL of 0 is "do not store", not a lifetime: WordPress reads a
+			// transient expiry of 0 as "never expires".
+			if ( $ttl > 0 ) {
+				set_transient( $key, $facts, $ttl );
+			}
 		}
 
 		return $facts;
@@ -731,15 +729,9 @@ class Agend_Content_Access_Viewer_Facts {
 	 * Core's configured value when available so an operator tunes one setting,
 	 * and five minutes otherwise.
 	 *
-	 * When the earliest entitlement expiry is known the entry is capped so it
-	 * does not outlive it, with a floor of `MIN_EXPIRY_TTL` seconds so a grant
-	 * about to expire is not re-read on every request. The floor applies to the
-	 * cap only: an operator who configures a shorter lifetime keeps it.
-	 *
-	 * @param string|null $expires_at Earliest entitlement expiry, ISO-8601, or null.
-	 * @return int Seconds.
+	 * @return int Seconds, always at least 1.
 	 */
-	public static function cache_ttl( ?string $expires_at = null ): int {
+	public static function cache_ttl(): int {
 		$ttl = 5 * MINUTE_IN_SECONDS;
 
 		if ( class_exists( 'Agend_Apps_Settings' ) ) {
@@ -750,13 +742,38 @@ class Agend_Content_Access_Viewer_Facts {
 			}
 		}
 
+		return $ttl;
+	}
+
+	/**
+	 * How long an entry holding these facts may be stored: `cache_ttl()`, cut so
+	 * the entry does not outlive the earliest entitlement expiry the gateway
+	 * reported.
+	 *
+	 * 0 means DO NOT STORE, and the caller must not pass it on as a lifetime,
+	 * because WordPress reads a transient expiry of 0 as "never expires". It is
+	 * returned when the expiry has already passed or is less than a second away.
+	 * There is no floor: an earlier version held such an entry for at least 30
+	 * seconds so a grant about to expire was not re-read on every request, which
+	 * kept an already-expired entitlement in the cache. Re-reading it is the
+	 * correct cost of that grant ending.
+	 *
+	 * An expiry that is not a readable ISO-8601 date-time is treated as no expiry.
+	 *
+	 * @param string|null $expires_at Earliest entitlement expiry, ISO-8601, or null.
+	 * @return int Seconds, or 0 for "do not store".
+	 */
+	public static function entry_ttl( ?string $expires_at ): int {
+		$ttl     = self::cache_ttl();
 		$expires = self::timestamp( $expires_at );
 
-		if ( null !== $expires ) {
-			$ttl = min( $ttl, max( self::MIN_EXPIRY_TTL, $expires - time() ) );
+		if ( null === $expires ) {
+			return $ttl;
 		}
 
-		return $ttl;
+		$remaining = $expires - time();
+
+		return $remaining < 1 ? 0 : min( $ttl, $remaining );
 	}
 
 	/**

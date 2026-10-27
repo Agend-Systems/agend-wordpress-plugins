@@ -164,8 +164,11 @@ A visitor's membership standing comes from one source,
 conditions. It asks `GET /v1/crm/me/entitlements` at most once per request,
 and holds the answer per member for the cache lifetime: Core's
 `crm_me_entitlements` setting when it is set, otherwise five minutes. When the
-gateway reports an entitlement expiry, the lifetime is capped so the entry does
-not outlive it (never below 30 seconds).
+gateway reports an entitlement expiry, the lifetime is cut so the entry does
+not outlive it, to what is left with no floor. An expiry that has already
+passed, or is less than a second away, is not cached at all: a grant that has
+ended must not be held, and a transient lifetime of 0 would mean "never expires"
+in WordPress. An expiry that is not a readable date-time is treated as none.
 
 This changes one behaviour. A document policy used to ask Agend on every
 request, so a revocation applied on the next page load. Now a revocation that

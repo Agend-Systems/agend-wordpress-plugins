@@ -1191,26 +1191,44 @@ final class ViewerFactsTest extends TestCase {
 
 	#[Test]
 	public function a_distant_expiry_does_not_shorten_the_lifetime(): void {
-		$this->assertSame( ViewerFacts::cache_ttl(), ViewerFacts::cache_ttl( '2099-01-01T00:00:00Z' ) );
+		$this->assertSame( ViewerFacts::cache_ttl(), ViewerFacts::entry_ttl( '2099-01-01T00:00:00Z' ) );
 	}
 
 	#[Test]
-	public function the_lifetime_is_capped_so_the_entry_expires_no_later_than_the_entitlement(): void {
-		$ttl = ViewerFacts::cache_ttl( gmdate( 'Y-m-d\TH:i:s\Z', time() + 100 ) );
+	public function an_entry_is_capped_so_it_expires_no_later_than_the_entitlement(): void {
+		$ttl = ViewerFacts::entry_ttl( gmdate( 'Y-m-d\TH:i:s\Z', time() + 100 ) );
 
 		$this->assertLessThanOrEqual( 100, $ttl );
 		$this->assertGreaterThanOrEqual( 97, $ttl );
 	}
 
+	/** There is no floor: a grant about to expire is held for exactly what it has left. */
 	#[Test]
-	public function the_cap_never_goes_below_the_floor(): void {
-		$this->assertSame( 30, ViewerFacts::cache_ttl( gmdate( 'Y-m-d\TH:i:s\Z', time() + 5 ) ) );
-		$this->assertSame( 30, ViewerFacts::cache_ttl( '2001-01-01T00:00:00Z' ), 'an expiry already past still holds the floor' );
+	public function a_near_expiry_is_held_for_what_is_left_not_for_a_floor(): void {
+		$ttl = ViewerFacts::entry_ttl( gmdate( 'Y-m-d\TH:i:s\Z', time() + 5 ) );
+
+		$this->assertGreaterThanOrEqual( 3, $ttl );
+		$this->assertLessThanOrEqual( 5, $ttl );
+	}
+
+	/**
+	 * A transient TTL of 0 means "never expires" in WordPress, so an expiry that
+	 * is past, or under a second away, must be "do not store" and never 0 handed to
+	 * `set_transient()`.
+	 */
+	#[Test]
+	public function an_expiry_that_has_passed_or_is_under_a_second_away_is_not_stored(): void {
+		$this->assertSame( 0, ViewerFacts::entry_ttl( '2001-01-01T00:00:00Z' ) );
+		$this->assertSame( 0, ViewerFacts::entry_ttl( gmdate( 'Y-m-d\TH:i:s\Z', time() ) ), 'expiring now' );
+		$this->assertSame( 0, ViewerFacts::entry_ttl( gmdate( 'Y-m-d\TH:i:s\Z', time() - 1 ) ) );
+		$this->assertGreaterThanOrEqual( 1, ViewerFacts::entry_ttl( gmdate( 'Y-m-d\TH:i:s\Z', time() + 2 ) ), 'two seconds left is still storable' );
 	}
 
 	#[Test]
-	public function an_unreadable_expiry_leaves_the_lifetime_alone(): void {
-		$this->assertSame( ViewerFacts::cache_ttl(), ViewerFacts::cache_ttl( 'next thursday' ) );
+	public function an_unreadable_expiry_is_treated_as_no_expiry(): void {
+		$this->assertSame( ViewerFacts::cache_ttl(), ViewerFacts::entry_ttl( 'next thursday' ) );
+		$this->assertSame( ViewerFacts::cache_ttl(), ViewerFacts::entry_ttl( '' ) );
+		$this->assertSame( ViewerFacts::cache_ttl(), ViewerFacts::entry_ttl( null ) );
 	}
 
 	#[Test]
@@ -1230,7 +1248,48 @@ final class ViewerFactsTest extends TestCase {
 		$ttl = Agend_Test_WP::$transient_ttls[ $this->memberKey( 7 ) ];
 
 		$this->assertLessThanOrEqual( 90, $ttl );
-		$this->assertGreaterThanOrEqual( 30, $ttl );
+		$this->assertGreaterThanOrEqual( 88, $ttl );
+	}
+
+	/** An already-expired grant must not be held in the cache at all. */
+	#[Test]
+	public function facts_whose_earliest_expiry_has_passed_are_returned_but_not_cached(): void {
+		$this->signIn( 7 );
+		$this->gatewayReturns(
+			array(
+				'tier_ids'     => array(),
+				'capabilities' => array(
+					array( 'gate_key' => 'gone.key', 'expires_at' => gmdate( 'Y-m-d\TH:i:s\Z', time() - 60 ) ),
+					array( 'gate_key' => 'later.key', 'expires_at' => '2099-01-01T00:00:00Z' ),
+				),
+			)
+		);
+
+		$facts = ViewerFacts::member();
+
+		$this->assertSame( array( 'gone.key', 'later.key' ), $facts['entitlement_keys'] );
+		$this->assertSame( array(), Agend_Test_WP::$transients );
+		$this->assertSame( array(), Agend_Test_WP::$transient_ttls, 'in particular no TTL of 0, which WordPress reads as never' );
+
+		// Nothing was stored, so the next request asks again.
+		$this->nextRequest();
+		ViewerFacts::member();
+		$this->assertSame( 2, $this->gatewayCalls() );
+	}
+
+	#[Test]
+	public function a_malformed_expiry_is_treated_as_no_expiry_and_the_entry_is_cached(): void {
+		$this->signIn( 7 );
+		$this->gatewayReturns(
+			array(
+				'tier_ids'     => array(),
+				'capabilities' => array( array( 'gate_key' => 'odd.key', 'expires_at' => 'tomorrow' ) ),
+			)
+		);
+
+		ViewerFacts::member();
+
+		$this->assertSame( ViewerFacts::cache_ttl(), Agend_Test_WP::$transient_ttls[ $this->memberKey( 7 ) ] );
 	}
 
 	#[Test]
