@@ -26,7 +26,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * "API key required" tile), so without one the map falls back to
  * OpenStreetMap's own tiles, whose usage policy suits light traffic.
  *
- * @return array{url: string, attribution: string, maxZoom: int}
+ * `maxNativeZoom` is the deepest zoom the provider serves tiles for; past it,
+ * up to `maxZoom`, Leaflet enlarges that level's tiles instead of requesting
+ * deeper ones.
+ *
+ * @return array{url: string, attribution: string, maxZoom: int, maxNativeZoom: int}
  */
 function agend_apps_records_directory_map_tiles(): array {
 	$osm = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
@@ -38,14 +42,18 @@ function agend_apps_records_directory_map_tiles(): array {
 		? array(
 			// {r} asks for CARTO's double-resolution tiles on a high
 			// density screen, which would otherwise draw the map blurred.
-			'url'         => 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=' . rawurlencode( $key ),
-			'attribution' => $osm . ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
-			'maxZoom'     => 19,
+			'url'           => 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=' . rawurlencode( $key ),
+			'attribution'   => $osm . ' &copy; <a href="https://carto.com/attributions">CARTO</a>',
+			'maxZoom'       => 19,
+			// CARTO answers a keyed raster tile above zoom 18 with a 403,
+			// although its basemaps page lists zoom 0 to 20.
+			'maxNativeZoom' => 18,
 		)
 		: array(
-			'url'         => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-			'attribution' => $osm,
-			'maxZoom'     => 19,
+			'url'           => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+			'attribution'   => $osm,
+			'maxZoom'       => 19,
+			'maxNativeZoom' => 19,
 		);
 
 	/**
@@ -54,14 +62,18 @@ function agend_apps_records_directory_map_tiles(): array {
 	 * A site with another tile service swaps the URL here. The attribution is
 	 * shown on the map as HTML, so it must stay trusted markup.
 	 *
-	 * @param array $tiles `url` (Leaflet template), `attribution`, `maxZoom`.
+	 * @param array $tiles `url` (Leaflet template), `attribution`, `maxZoom`,
+	 *                     `maxNativeZoom` (defaults to `maxZoom`).
 	 */
 	$tiles = (array) apply_filters( 'agend_apps_records_directory_map_tiles', $tiles );
 
+	$max_zoom = max( 1, min( 22, (int) ( $tiles['maxZoom'] ?? 19 ) ) );
+
 	return array(
-		'url'         => (string) ( $tiles['url'] ?? '' ),
-		'attribution' => (string) ( $tiles['attribution'] ?? '' ),
-		'maxZoom'     => max( 1, min( 22, (int) ( $tiles['maxZoom'] ?? 19 ) ) ),
+		'url'           => (string) ( $tiles['url'] ?? '' ),
+		'attribution'   => (string) ( $tiles['attribution'] ?? '' ),
+		'maxZoom'       => $max_zoom,
+		'maxNativeZoom' => max( 1, min( $max_zoom, (int) ( $tiles['maxNativeZoom'] ?? $max_zoom ) ) ),
 	);
 }
 

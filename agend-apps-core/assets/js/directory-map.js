@@ -311,7 +311,11 @@
     // Leaflet's own credit is optional; the map data's licence requires
     // the OpenStreetMap (and CARTO) one, which stays.
     map.attributionControl.setPrefix(false);
-    L.tileLayer(cfg.tiles.url, { maxZoom: cfg.tiles.maxZoom, attribution: cfg.tiles.attribution }).addTo(map);
+    L.tileLayer(cfg.tiles.url, {
+      maxZoom: cfg.tiles.maxZoom,
+      maxNativeZoom: cfg.tiles.maxNativeZoom,
+      attribution: cfg.tiles.attribution,
+    }).addTo(map);
     L.control.scale({ position: 'bottomleft', metric: true, imperial: false, maxWidth: 200 }).addTo(map);
 
     function syncDragging() {
