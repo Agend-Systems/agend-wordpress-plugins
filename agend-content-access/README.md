@@ -261,16 +261,17 @@ is active, its templates, each titled with its kind ("Page: Join us", "Pattern: 
 panel can offer a redirect only pages. `errors` is `[{group, message}]`, one per list
 that failed.
 `?refresh=1` reads the lists from the gateway again, which is what Try again
-asks for. The catalogue route (`/catalogue`) is unchanged and still serves the
-page panel.
+asks for. The catalogue route (`/catalogue`) is unchanged. The page panel reads this
+route too, so one list of rules serves a page, a block and an Elementor element.
 
 **Building it.** The editor code is in `src/` and ships built, because
 deployment copies files without a build step. From the repository root:
 
 ```sh
-npm run build:content-access      # writes build/index.js, index.css, index.asset.php
+npm run build:content-access      # writes build/index.* (block editor) and build/classic.* (classic editor)
 npm run start:content-access      # the same, watching for changes
 node --test agend-content-access/tests/js/access-model.test.mjs
+node --test agend-content-access/tests/js/page-model.test.mjs
 node --test agend-content-access/tests/js/legacy-access.test.mjs
 node --test agend-content-access/tests/js/rule-vocabulary.test.mjs
 node --test agend-content-access/tests/js/access-summary.test.mjs
@@ -282,10 +283,96 @@ Commit `build/` with the source: CI rebuilds it and fails if it differs. The
 release zip leaves `src/` out. The logic that decides what the panel writes is in
 `src/access-model.mjs`, how a first-shape block reads in `src/legacy-access.mjs`,
 what is listed, labelled and searched in `src/rule-vocabulary.mjs`, the summary
-line in `src/access-summary.mjs`, and the once-per-session loader in
-`src/lists-loader.mjs`. None of them imports WordPress, which is what lets
-`node --test` run them. The English copy they compose is in `src/copy.mjs` and
+line in `src/access-summary.mjs`, what the page panel writes in `src/page-model.mjs`,
+and the once-per-session loader in `src/lists-loader.mjs`. None of them imports
+WordPress, which is what lets `node --test` run them. The English copy they compose is in `src/copy.mjs` and
 its translated twin in `src/strings.js`, which a test keeps in step.
+
+### The Agend Access panel on a page
+
+A page's rules are set in the same picker, in whichever editor the page is edited in.
+**One panel, two hosts.** The components are the block panel's: `src/rule-editor.js`
+holds the chips, search, Match and Reverse, and the block panel (`src/access-panel.js`)
+and the page panel (`src/page-editor.js`) are both built from it, so a rule is chosen,
+shown and removed the same way everywhere.
+
+| Editor | Where the panel is | How it saves |
+| --- | --- | --- |
+| Block editor | A native document settings panel, **Agend Access** (`PluginDocumentSettingPanel`, from `src/page-panel-plugin.js`, part of the block editor script) | A REST field, `agend_access_rules`, sent with the post when the author clicks Update |
+| Classic editor, and any edit screen that is not the block editor | The **Agend Access** meta box, which renders a mount point; the same components are mounted on it by `build/classic.js` (a second, small entry that needs none of the block editor) | One hidden input, `agend_access_page_rules`, holding JSON, read by the nonce checked `save_post` handler |
+
+The meta box is declared `__back_compat_meta_box`, which hides it in the block editor so
+an author sees one panel. It no longer claims to be block editor compatible.
+
+**What the author sees**, top to bottom:
+
+1. A one-line summary: "Everyone", "Only people who match any of these 2 rules",
+   "Everyone except people who match this rule".
+2. **Who can see this page.** The rule picker, Match, and **Show to everyone except these
+   people** with the example "Useful for a join page that members should be redirected
+   away from."
+3. **If someone isn't allowed**, once there is a rule: **Show a placeholder** (the
+   default; a select of "Built-in placeholder" and the public pages, synced patterns and
+   Elementor templates), **Redirect to a page** (a select of pages only: a pattern has no
+   address), or **Send them back to the page they came from** (a fallback page select:
+   "If they did not come from this site, they go here instead").
+
+A redirect with no page chosen is not a setting, so the panel keeps it as a draft, says
+"Choose the page to send people to. Until you do, this change is not saved." and writes
+nothing until it is finished. Switching action starts the new action with nothing chosen:
+the pattern chosen as a placeholder is not a page to redirect to.
+
+**How a page's rules are stored and kept private.** `Agend_Content_Access_Page_Rules`
+owns both editors' saves, so neither can accept what the other refuses.
+
+- The value is the post meta `_agend_access_rules`, `{rules, match, invert, denied:
+  {action, target_id, fallback_id}}`, which `Rules::from_post()` reads. The meta is
+  registered without `show_in_rest`, so it is in no `meta` object and cannot be written
+  through one, with an `auth_callback` that needs `edit_post` for that post.
+- The block editor reads and writes a REST field, not registered meta, for two reasons.
+  A registered meta is in every response of the post, `view` context included, and
+  WordPress does not restrict who may READ one (its `auth_callback` guards writes only),
+  so the association's plan, segment and entitlement ids would be public. And the block
+  editor sends every registered meta back on any save that edits one, while an unset
+  object meta comes out of REST as `[]`: each save of an untouched 0.1.x page would have
+  stored an empty rule set, which wins over the old policy and publishes the page. A
+  field is sent back only when an author edited it.
+- The field's schema has `context` `edit` only, so it is never in a `view` response.
+  Its getter returns nothing, and its setter refuses, for anybody who cannot
+  `edit_post` THAT post (WordPress lets anybody holding `edit_posts` ask for the edit
+  context of a collection). `filter_rest_response()` removes it from every response that
+  is not an edit of the post by somebody who may edit it, whatever state the page is in.
+- Reading never writes. A page that only has a 0.1.x `_agend_access_policy` is shown as
+  its converted rules with the notice "This page uses an older setting, shown here as
+  rules. Saving will update it." Nothing is rewritten until an author changes the panel,
+  and a save that sends nothing for it, in either editor, keeps what is stored.
+  A setting this version cannot show (an unreadable policy, rules that are not a list of
+  strings, rules reversed with nothing to match, a set of several parts) is shown as
+  "Unreadable setting (hidden from everyone)" with a reset and nothing else.
+
+**What is checked on save.** Anything invalid is refused whole, with a message an author
+can act on and the previous value kept; nothing is ever coerced into something wider.
+
+| Part | Accepted |
+| --- | --- |
+| `rules` | A list of at most 200 strings `"<provider>:<value>"`, the value starting with a non-space character, no control characters, at most 255 characters, for a provider the site evaluates (the four built in, the ESAC names the engine reads, or one a site adds through `agend_content_access_condition_sets`). Trimmed and de-duplicated. Whether the value is something the lists currently offer is not checked: a plan that is gone shows as unavailable and denies |
+| `match` | `any` or `all`; `any` below two rules |
+| `invert` | A boolean. Reversed with no rules is refused: it would hide the page from everyone |
+| `denied.action` | `placeholder`, `redirect` or `back` |
+| `denied.target_id` | Placeholder: 0 (built-in) or a published, passwordless, public page, synced pattern or Elementor template (when Elementor is active). Redirect: a published, passwordless page of a type the panel is offered on, not a pattern or template, and not this page |
+| `denied.fallback_id` | Back: 0 or a page as for a redirect |
+| Anything else | An unknown key, a flag that the setting was unreadable, a list where an object belongs: refused |
+
+A number the chosen action does not use is dropped. In the block editor a refusal is a 400
+before the post is written (`rest_pre_insert_{type}`), so a refused value never half saves a
+page, and the panel shows the message under its summary until the value is changed. In the
+classic editor it is carried across the redirect as the admin notice the panel has always
+used.
+
+**Saving replaces the 0.1.x policy.** The new meta wins over `_agend_access_policy`, so
+saving rules deletes the old key, and removing every rule deletes the rules AND the old
+policy: the page becomes open to everyone, which the author chose. The old key then cannot
+come back when the new one is removed.
 
 ### The Agend Access section in Elementor
 
@@ -480,8 +567,15 @@ much as they did.
 Editors who can edit the page keep seeing it, and the authoring carve-outs are unchanged.
 The action applies to whoever the rules deny, so a page with Reverse on, such as a join
 page, redirects the people who DO match, its members, to their dashboard, and shows
-everyone else the page. It does not look at why the visitor was denied: a denial down to
-an outage is acted on like any other.
+everyone else the page.
+
+**One exception: an outage.** When the denial is down to something that could not be
+evaluated (the verdict's `degraded`: Agend unreachable, a lookup that failed, a provider
+that threw), the page always shows the placeholder, whatever its action says. The visitor
+may well be a member whom Agend could not confirm, and a redirect or a way back would
+bounce real members off the site for as long as the outage lasts. A page that chose a
+placeholder shows that one; a page that redirects or sends back shows the built-in one.
+The body is still never shown.
 
 **Every redirect fails to the placeholder, never to the body.** `Agend_Content_Access_Destination`
 answers "no" for anything it cannot be sure of, and the page then shows the placeholder:
@@ -586,6 +680,12 @@ carries any rule is its own fragment, so that policy cannot spread to its siblin
   URL that is `noindex` and never cached. Pages that only have a 0.1.x policy get it too.
 - A fallback must be a page of a type that can carry rules, a synced pattern or an Elementor
   template. Any other post type renders nothing.
+- A denial down to an outage shows the placeholder instead of redirecting or sending the
+  visitor back, so real members are not bounced away while Agend is unreachable. It used to
+  be acted on like any other denial.
+- A page's rules are set in the rule picker, in the block editor's document settings and in
+  the classic editor's meta box. The page's form of radio buttons and check boxes for the
+  five 0.1.x audiences is gone.
 
 ## Policy modes
 
@@ -610,9 +710,10 @@ held without a membership, so neither is a subset of "all active members". The
 export folds a fragment of one set-mode into a document of another to nobody, as
 the gateway does; WordPress admits the people who satisfy both (see "Access rules").
 
-These modes are what the 0.1.x page panel still writes, and what an Elementor
+These modes are what the 0.1.x page panel wrote, and what an Elementor
 element saved before the rule list still holds. They are read into the rule list
-above, and nothing evaluates them as policies.
+above, and nothing evaluates them as policies. The page panel shows a page that only
+has one as its converted rules, and replaces it when an author saves new ones.
 
 Entitlement keys arrive with the member's standing at no extra cost. Segments
 are fetched, once per request, only when a policy being evaluated is a segments
@@ -620,42 +721,37 @@ policy.
 
 ## Choosing an audience in the editor
 
-The page panel chooses one of five audiences. A block and an Elementor element choose
-rules; the same plans, segments and entitlements are rules there.
+A page, a block and an Elementor element all choose rules; the plans, segments and
+entitlements are rules in each.
 
 | Surface | What it offers |
 | --- | --- |
-| Page panel (the Agend Access meta box) | All five audiences: Public, All active members, Selected membership plans, Selected segments, Selected entitlements. Each of the last three has a checkbox list with a filter box |
-| Elementor element, Advanced tab | "Who can see this": one searchable list of rules, with Match, a reverse switch and Show instead (see "The Agend Access section in Elementor"). Plans, segments and entitlements are rules in that list, not audiences |
+| Page, block editor | The **Agend Access** document settings panel: "Who can see this page" (the rule picker, Match, Reverse) and "If someone isn't allowed" (see "The Agend Access panel on a page") |
+| Page, classic editor | The same panel, mounted in the **Agend Access** meta box |
+| Block, block editor | The **Agend Access** sidebar panel: rules, Match, Reverse and Show instead (see "The Agend Access panel in the block editor") |
+| Elementor element, Advanced tab | "Who can see this": one searchable list of rules, with Match, a reverse switch and Show instead (see "The Agend Access section in Elementor") |
 
-The page panel is registered as block editor compatible, so it works in the
-block editor's meta box area as it does in the classic editor.
+Rules every surface keeps:
 
-Rules both surfaces keep:
-
-- **A selection that is no longer offered is never dropped.** A plan, segment
-  or entitlement that was deleted, or a plan that was deactivated, is listed
-  first in the panel, still ticked and marked unavailable, so the policy can be
-  repaired. Dropping it would quietly change who can read the content.
-- **A list that cannot be loaded says why, under its own radio.** The radio is
-  disabled, because a new choice cannot be made, while Public, All active
-  members and the other lists stay available. The stored audience's radio is
-  still drawn checked, and a disabled control is not submitted, so saving the
-  page keeps the stored policy instead of reading "no audience" as a clear.
-  Choosing Public is how to remove a restriction.
-- **Selecting nothing is refused, not saved.** Saving a set audience with
-  nothing ticked keeps the previous setting and says which list needs a choice.
-  On an Elementor element an empty list is no rule, and the element follows its page.
+- **A rule that is no longer offered is never dropped.** A plan, segment or entitlement
+  that was deleted, or a plan that was deactivated, stays as a chip marked unavailable, so
+  the setting can be repaired. Dropping it would quietly change who can read the content.
+- **A list that cannot be loaded says why, under the search box.** What the page, block or
+  element already holds is still shown and can still be removed, and a save that changes
+  nothing keeps it.
+- **A page's panel never writes until an author changes it.** Its classic input is empty
+  until then, and the block editor sends the field only when it was edited, so opening a
+  page, or saving one, never turns a setting the panel cannot show into a public page.
 - **Platform capabilities are labelled.** An entitlement the platform itself
   defines, Directory access for example, reads "Platform: Directory access" in
-  the panel, the block panel and the Elementor list.
+  every panel.
 
 ### The editor catalogue
 
 The lists an editor chooses from are fetched on the WordPress server and
 reduced there, so the API key never reaches the browser and no pricing, member
 count or benefit detail does either. One cached copy of each list serves the
-page panel, the rule vocabulary (the block panel and the Elementor list) and the
+rule vocabulary (the block panel, the page panel and the Elementor list) and the
 REST route, so a list costs one gateway call per cache lifetime however many
 surfaces show it.
 

@@ -1,6 +1,6 @@
 # Plan: one access rule list per block, section and page
 
-Status: agreed direction 2026-10-27, open questions answered 2026-10-28, build starting
+Status: agreed direction 2026-10-27, open questions answered 2026-10-28, build items 1 to 5 done, review and browser re-test next
 Amends: `docs/PLAN-content-access-blocks-segments-entitlements.md`
 Builds on: the 0.2.0 stack, PRs #132 to #141 (stack #142)
 
@@ -79,6 +79,11 @@ height with scroll.
 1. Placeholder is the default page action, using the built-in default
    placeholder above. The old "standard message" is folded into it.
 2. Pages have Reverse, like blocks and sections.
+3. **A denial caused by an outage always shows the placeholder.** When the verdict's
+   `degraded` is true (Agend unreachable, a lookup failed, a provider threw), the page
+   shows its placeholder, built-in or chosen, and never redirects or sends the visitor
+   back, so real members are not bounced away while Agend is down. Decided 2026-10-28,
+   built with item 4.
 
 ## Page actions: as built (2026-10-28)
 
@@ -96,7 +101,8 @@ decided where the plan was silent.
   A referrer is rebuilt on this site's own scheme and host after an exact host comparison, so
   it can never be an open redirect.
 - **The action is for whoever the rules deny**, so a reversed page can send its members to their
-  dashboard. It does not look at why: a denial down to an outage is acted on like any other.
+  dashboard. It looks at why in one case only: a denial down to an outage shows the placeholder
+  instead of redirecting or sending back (Decision 3).
 - **Placeholder choices** are pages, synced patterns and, when Elementor is active, Elementor
   templates, rendered by `Fragment_Rules::fallback_html()` (page through `the_content`, pattern
   through `do_blocks()` and the shortcode pass, template through Elementor's frontend). A fallback
@@ -111,8 +117,8 @@ decided where the plan was silent.
   neutral preview outside one. The pattern "Agend: Members-only content" is a Group holding it.
   A block with a rule inside a placeholder is judged as part of the denied page, so it is hidden:
   keep rules out of a placeholder.
-- **Still to do** (items 3 to 5): the page panel's controls for the action and its targets, which
-  write `denied` and need to offer `type: "page"` fallbacks only for a redirect.
+- **The page panel's controls** for the action and its targets write `denied` and offer
+  `type: "page"` fallbacks only for a redirect: built as item 4 below.
 
 ## How it works underneath (unchanged engine)
 
@@ -156,9 +162,32 @@ Change:
 3. **Shared searchable picker plus the block panel.**
    - Rewrite the block sidebar on one panel.
    - Keep the stray-`{}` fix: an empty value removes the attribute.
-4. **Page panel.**
-   - The same picker in the page settings: a native document panel in the block editor, and the meta box elsewhere. Decide which, or build both.
-   - The denial-action controls with page pickers.
+4. **Page panel.** Built 2026-10-28 on `feat/content-access-rules-page-panel`, not yet browser-tested.
+   - The same picker in the page settings: both. A native document settings panel in the block
+     editor (`PluginDocumentSettingPanel`), and the meta box elsewhere, which mounts the same
+     components on a mount point and writes one hidden JSON input. The meta box is
+     `__back_compat_meta_box`, hidden in the block editor so an author sees one panel. The
+     components are extracted (`src/rule-editor.js`, `src/choice-select.js`) and shared with
+     the block panel, not copied; the classic editor has its own small entry, `build/classic.js`.
+   - The denial-action controls with page pickers: Show a placeholder (default), Redirect to a
+     page (pages only), Send them back (with a fallback page).
+   - **Decision: a REST field, not registered meta, carries the rules in the block editor.**
+     A registered meta is in every `view` response and WordPress does not guard reads, and the
+     editor resends every registered meta on any save while an unset object meta reads as `[]`,
+     which would store an empty set over a 0.1.x policy and publish the page. The field is
+     `edit` context only, checked for `edit_post` on that post in its getter and setter, and
+     removed by the response filter from anything that is not an edit by somebody who may edit.
+   - Saving validates: rules are `"<provider>:<value>"` for known providers, `match` any or all,
+     `invert` a boolean, `action` one of three, ids published content of an allowed type. Invalid
+     is refused whole and the previous value kept, in REST before the post is written.
+   - Saving new rules deletes `_agend_access_policy`; clearing every rule deletes the rules and
+     the policy. A save that submits nothing for the panel, in either editor, never clears a
+     stored setting. A page with only a 0.1.x policy is shown as its converted rules, with a
+     notice, and is not rewritten until an author changes it.
+   - The outage rule (Decision 3) is in the page gate.
+   - Known limits: the placeholder and fallback selects offer at most 100 pages per kind (the
+     existing limit of `Condition_Sets::fallback_choices()`); the browser re-test must check
+     both hosts, which could not be opened from the build session.
 5. **Elementor controls.**
    - One section: rules (grouped searchable SELECT2), match, reverse, show instead.
    - Remove the mode and tier controls, and read the old keys.
