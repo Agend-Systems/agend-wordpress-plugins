@@ -399,7 +399,7 @@ final class BlockExcerptTest extends BlockEnforcementTestCase {
 	public function an_elementor_document_with_display_conditions_has_no_generated_excerpt(): void {
 		$this->registerPost( self::POST, '' );
 
-		$this->assertSame( '', $this->excerptWithElementorData( $this->elementorData( array( 'agend_conditions_enabled' => 'yes' ) ) ) );
+		$this->assertSame( '', $this->excerptWithElementorData( $this->elementorData( array( 'agend_conditions_enabled' => 'yes', 'agend_conditions' => array( 'agend_wordpress:logged_in' ) ) ) ) );
 	}
 
 	/** Nothing to hide, so the excerpt is the one core builds from what Elementor stored. */

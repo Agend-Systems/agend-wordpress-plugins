@@ -25,6 +25,10 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-elementor.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-viewer-facts.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-rules.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-access.php';
 
 /**
  * Section suppression on admin-ajax.php.
@@ -208,7 +212,7 @@ final class ElementorAjaxSuppressionTest extends TestCase {
 		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
 		Agend_Test_WP::set_filter(
 			'agend_apps_crm_get_my_entitlements_response',
-			array( 'data' => array( 'tier_ids' => array( '11111111-1111-1111-1111-111111111111' ) ) )
+			array( 'data' => array( 'is_member' => true, 'tier_ids' => array( '11111111-1111-1111-1111-111111111111' ) ) )
 		);
 
 		$this->assertTrue( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );

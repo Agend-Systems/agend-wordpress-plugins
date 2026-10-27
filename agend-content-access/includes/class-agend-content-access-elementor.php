@@ -22,12 +22,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  * What is NOT kept is that experiment's rule model. It authorised from
  * arbitrary WordPress user metadata and failed OPEN: an enabled condition with
  * no rules, or a rule with a blank meta key, rendered the element to everyone.
- * This replaces it with typed policies over Agend tier UUIDs, evaluated against
- * a member standing Agend resolved, and fails closed at every branch.
+ * This replaces it with one rule list per element
+ * (`Agend_Content_Access_Rules::from_elementor_settings()`), judged by the one
+ * evaluator, `Agend_Content_Access_Access`, against a member standing Agend
+ * resolved, and fails closed at every branch.
  *
  * Suppression only ever REMOVES an element. It cannot reveal one the document
- * policy hides, because the effective policy is the intersection of the two
- * (Decision 2.3).
+ * hides, because an element is shown only when its own rules AND the rules of its
+ * document both allow (Decision 2.3).
  */
 class Agend_Content_Access_Elementor {
 
@@ -36,16 +38,16 @@ class Agend_Content_Access_Elementor {
 	/**
 	 * Settings keys, aliased from the editor-neutral definitions.
 	 *
-	 * The keys are the neutral settings format now: the policy reader is
-	 * `Agend_Content_Access_Policy::from_fragment_settings()` and the display
-	 * condition rules are `Agend_Content_Access_Fragment_Rules`. These constants
-	 * remain so the controls registered below and any code naming an Elementor
-	 * control id keep working, and they cannot drift from the neutral values
-	 * because they ARE the neutral values.
+	 * The keys are the neutral settings format now, and their one reader is
+	 * `Agend_Content_Access_Rules::from_elementor_settings()`, which understands these
+	 * old audience and display condition keys and the new rule keys alike. These
+	 * constants remain so the controls registered below and any code naming an
+	 * Elementor control id keep working, and they cannot drift from the neutral
+	 * values because they ARE the neutral values.
 	 *
-	 * Display conditions stay in their own control group, apart from the access
-	 * policy, for the reason the rules class documents: the policy is a security
-	 * boundary Agend enforces, the conditions are presentation applied here.
+	 * The controls still show the audience and the display conditions as two groups,
+	 * until the control rewrite replaces them with one rule list. Both are read into
+	 * one set of rules, and an element carrying both has to satisfy both.
 	 */
 	const MODE_KEY         = Agend_Content_Access_Policy::FRAGMENT_MODE_KEY;
 	const TIERS_KEY        = Agend_Content_Access_Policy::FRAGMENT_TIERS_KEY;
@@ -504,58 +506,36 @@ class Agend_Content_Access_Elementor {
 			return $should_render;
 		}
 
-		$settings = $element->get_settings_for_display();
+		$rules = Agend_Content_Access_Rules::from_elementor_settings( $element->get_settings_for_display() );
+
+		if ( $rules->is_empty() ) {
+			// Inherits the page, which the page-level gate already handled.
+			return $should_render;
+		}
 
 		// A FEED is judged for nobody. Its output is shared and routinely cached, so
 		// a copy personalised to whoever fetched it would be served to everyone
 		// after them. Blocks and the page gate do the same.
 		$anonymous = is_feed();
 
-		// Display conditions are evaluated FIRST and independently. They can
-		// only ever remove an element, so an element hidden here is hidden
-		// whatever the access policy says, and vice versa. Neither can reveal
-		// what the other hid.
-		if ( ! Agend_Content_Access_Fragment_Rules::conditions_pass( $settings, self::checker_for( $anonymous ) ) ) {
-			return false;
-		}
-
-		$fragment = Agend_Content_Access_Policy::from_fragment_settings( $settings );
-
-		if ( null === $fragment ) {
-			// Inherits the page, which the page-level gate already handled.
-			return $should_render;
-		}
-
-		// The enforced reading: an unreadable document policy must narrow the
-		// section to nobody, not vanish and leave the fragment alone.
-		$document  = Agend_Content_Access_Policy::enforced_for_post( (int) get_queried_object_id() );
-		$effective = Agend_Content_Access_Policy::effective_policy( $document, $fragment );
-
-		// The viewer is built for THIS policy, so segments are fetched only when
-		// the effective policy of this element is a segments policy.
-		$state = Agend_Content_Access_Decision::evaluate(
-			$effective,
-			$anonymous ? Agend_Content_Access_Decision::anonymous_viewer() : Agend_Content_Access_Decision::viewer( $effective )
+		// The element's rules AND the rules of its document, in one evaluation: it
+		// can only ever remove an element, so one hidden here is hidden whatever the
+		// document says, and the document's rules cannot be widened by it. The
+		// enforced reading of the document: unreadable rules narrow the section to
+		// nobody, not vanish and leave the section's own alone.
+		$verdict = Agend_Content_Access_Access::verdict(
+			Agend_Content_Access_Rules::all_of(
+				Agend_Content_Access_Rules::from_post( (int) get_queried_object_id() ),
+				$rules
+			),
+			array( 'anonymous' => $anonymous )
 		);
 
-		return Agend_Content_Access_Decision::STATE_GRANTED === $state;
+		return $verdict['allowed'];
 	}
 
 	/**
-	 * The display condition checker for the viewer being judged.
-	 *
-	 * Null is the live visitor's, which is what `conditions_pass()` builds when it
-	 * is given none. A feed is judged for nobody, so it is given the anonymous one.
-	 *
-	 * @param bool $anonymous Whether the render is judged for a visitor who is nobody.
-	 * @return callable|null
-	 */
-	private static function checker_for( bool $anonymous ): ?callable {
-		return $anonymous ? Agend_Content_Access_Condition_Runtime::anonymous_checker() : null;
-	}
-
-	/**
-	 * Treats any element carrying an access policy as dynamic content.
+	 * Treats any element carrying rules as dynamic content.
 	 *
 	 * This is a SECURITY control, not an optimisation, and it is the reason
 	 * `should_render` can be trusted at all under Elementor's element cache.
@@ -592,33 +572,32 @@ class Agend_Content_Access_Elementor {
 			return $is_dynamic;
 		}
 
-		return self::subtree_carries_policy( is_array( $raw_data ) ? $raw_data : array() );
+		return self::subtree_carries_rules( is_array( $raw_data ) ? $raw_data : array() );
 	}
 
 	/**
-	 * Whether a raw element node, or anything beneath it, carries a policy.
+	 * Whether a raw element node, or anything beneath it, carries rules.
+	 *
+	 * Rules personalise per visitor just as much as an audience restricts per
+	 * visitor, so an element with either must leave the shared cache. They are asked
+	 * of `Rules::from_elementor_settings()`, the same reading `maybe_suppress()`
+	 * judges, so the cache decision and the render decision cannot disagree about
+	 * what a rule is.
+	 *
+	 * The US-4.4 fix covered policy-bearing elements only, and the condition control
+	 * arrived later. Caught by loading a conditioned page as a member and being
+	 * served the anonymous render. The reverse is worse, since a member-warmed cache
+	 * would then show member-only sections to anonymous visitors.
 	 *
 	 * @param array $node Raw element data.
 	 * @return bool
 	 */
-	public static function subtree_carries_policy( array $node ): bool {
+	public static function subtree_carries_rules( array $node ): bool {
 		$settings = isset( $node['settings'] ) && is_array( $node['settings'] )
 			? $node['settings']
 			: array();
 
-		if ( null !== Agend_Content_Access_Policy::from_fragment_settings( $settings ) ) {
-			return true;
-		}
-
-		// Display conditions personalise per visitor just as much as a policy
-		// restricts per visitor, so they must leave the shared cache too.
-		//
-		// Missed on the first pass: the US-4.4 fix covered policy-bearing
-		// elements only, and the condition control arrived later. Caught by
-		// loading a conditioned page as a member and being served the
-		// anonymous render. The reverse is worse, since a member-warmed cache
-		// would then show member-only sections to anonymous visitors.
-		if ( Agend_Content_Access_Fragment_Rules::conditions_enabled( $settings ) ) {
+		if ( ! Agend_Content_Access_Rules::from_elementor_settings( $settings )->is_empty() ) {
 			return true;
 		}
 
@@ -627,7 +606,7 @@ class Agend_Content_Access_Elementor {
 			: array();
 
 		foreach ( $children as $child ) {
-			if ( is_array( $child ) && self::subtree_carries_policy( $child ) ) {
+			if ( is_array( $child ) && self::subtree_carries_rules( $child ) ) {
 				return true;
 			}
 		}
@@ -660,33 +639,32 @@ class Agend_Content_Access_Elementor {
 			return;
 		}
 
-		$settings = $element->get_settings_for_display();
+		$rules = Agend_Content_Access_Rules::from_elementor_settings( $element->get_settings_for_display() );
+		$owner = $rules->fallback_owner();
+
+		if ( null === $owner ) {
+			return;
+		}
 
 		// Judged for nobody in a feed, as `maybe_suppress()` judges the element, so
-		// the two cannot disagree about whether the conditions excluded it.
+		// the two cannot disagree about whether the rules excluded it.
 		$anonymous = is_feed();
 
-		// Only elements the CONDITIONS excluded get a fallback. An element
-		// hidden by the access policy is protected content, and offering a
-		// consolation render there would blur the two.
-		if ( Agend_Content_Access_Fragment_Rules::conditions_pass( $settings, self::checker_for( $anonymous ) ) ) {
+		// Only an element the part of its rules that carries the fallback excluded
+		// gets one. An element hidden by the access policy is protected content, and
+		// offering a consolation render there would blur the two.
+		$own = Agend_Content_Access_Access::verdict( $owner, array( 'anonymous' => $anonymous ) );
+
+		if ( $own['allowed'] ) {
 			return;
 		}
 
-		$fallback_id = isset( $settings[ self::CONDITIONS_FALLBACK_KEY ] )
-			? (int) $settings[ self::CONDITIONS_FALLBACK_KEY ]
-			: 0;
-
-		if ( $fallback_id <= 0 ) {
-			return;
-		}
-
-		echo Agend_Content_Access_Fragment_Rules::fallback_html( $fallback_id, $anonymous ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo Agend_Content_Access_Fragment_Rules::fallback_html( $owner->fallback_id(), $anonymous ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/**
 	 * Marks a restricted element in the editor so the author can see which
-	 * sections carry a policy.
+	 * sections carry rules.
 	 *
 	 * @param \Elementor\Element_Base $element Element about to render its wrapper.
 	 */
@@ -695,17 +673,23 @@ class Agend_Content_Access_Elementor {
 			return;
 		}
 
-		$fragment = Agend_Content_Access_Policy::from_fragment_settings( $element->get_settings_for_display() );
+		$rules = Agend_Content_Access_Rules::from_elementor_settings( $element->get_settings_for_display() );
 
-		if ( null === $fragment ) {
+		if ( $rules->is_empty() ) {
 			return;
 		}
+
+		// The audience the rules say, when an access policy says it; `rules` for a
+		// list no policy can (a role, a reverse, "all of"), and for one that cannot
+		// be read.
+		$policy = $rules->is_unreadable() ? null : $rules->to_policy();
+		$mode   = null === $policy || Agend_Content_Access_Policy::UNSATISFIABLE === $policy ? 'rules' : (string) $policy['mode'];
 
 		$element->add_render_attribute(
 			'_wrapper',
 			array(
 				'class'                  => 'agend-access-restricted',
-				'data-agend-access-mode' => (string) $fragment['mode'],
+				'data-agend-access-mode' => $mode,
 			)
 		);
 	}

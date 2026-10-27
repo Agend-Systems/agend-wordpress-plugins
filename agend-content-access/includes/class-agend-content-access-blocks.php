@@ -1,6 +1,6 @@
 <?php
 /**
- * Block editor enforcement: per-block policies and display conditions.
+ * Block editor enforcement: per-block access rules.
  *
  * @package Agend_Content_Access
  */
@@ -15,11 +15,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * This is the block editor's equivalent of `Agend_Content_Access_Elementor`,
  * and the decision it makes is the same one: a block carries an `agendAccess`
- * attribute (see `Agend_Content_Access_Block_Attributes`), which reads as the
- * neutral fragment settings every editor shares, and the block is shown only
- * when the display conditions pass and the visitor satisfies the INTERSECTION
- * of the post's policy and the block's own. Suppression only ever removes. It
- * cannot reveal a block the document policy hides.
+ * attribute, which `Agend_Content_Access_Rules::from_block()` reads as one rule
+ * list (the new shape, or the v1 audience and display conditions the panel still
+ * writes), and the block is shown only when the visitor satisfies the INTERSECTION
+ * of the rules of the post it belongs to and its own, judged by the one evaluator,
+ * `Agend_Content_Access_Access`. Suppression only ever removes. It cannot reveal a
+ * block the post's rules hide.
  *
  * It is an access-control boundary: it decides whether member-only content
  * inside an otherwise public page reaches a visitor, so every path that is not
@@ -65,8 +66,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Agend_Content_Access_Blocks {
 
 	/**
-	 * Post meta flag: this document carries a fragment policy or enabled display
-	 * conditions somewhere in it, block or Elementor.
+	 * Post meta flag: this document carries rules on a block or an Elementor section
+	 * somewhere in it.
 	 *
 	 * A block document is flagged from its block tree, synced patterns included;
 	 * an Elementor document from its decoded `_elementor_data`. Both editors
@@ -159,7 +160,7 @@ class Agend_Content_Access_Blocks {
 	 * Display-condition fallback posts being rendered right now, by post id.
 	 *
 	 * A fallback is rendered through `the_content`, so it is itself made of
-	 * blocks that may carry conditions. A fallback that holds a block whose
+	 * blocks that may carry rules. A fallback that holds a block whose
 	 * fallback is the same post would otherwise recurse until PHP gave up.
 	 *
 	 * @var array<int, true>
@@ -232,9 +233,9 @@ class Agend_Content_Access_Blocks {
 	 * lets WordPress render the block, or a string, which replaces it entirely:
 	 * its inner blocks included.
 	 *
-	 * A block with neither a policy nor enabled conditions returns before any
-	 * identity lookup, which is nearly every block on every page. That is the
-	 * whole of the cost of this plugin to a page that does not use it.
+	 * A block with no rules returns before any identity lookup, which is nearly
+	 * every block on every page. That is the whole of the cost of this plugin to a
+	 * page that does not use it.
 	 *
 	 * @param string|null           $pre          Short-circuit value so far.
 	 * @param array                 $parsed_block The block, as `parse_blocks()` returns it.
@@ -313,25 +314,15 @@ class Agend_Content_Access_Blocks {
 	}
 
 	/**
-	 * What a block carries that can decide it, or null when it carries nothing.
+	 * A block's rules, or null when it carries none.
 	 *
 	 * @param array $parsed_block The block, as `parse_blocks()` returns it.
-	 * @return array{settings: array, conditions: bool, fragment: array|null}|null
+	 * @return Agend_Content_Access_Rules|null
 	 */
-	private static function rules_of( array $parsed_block ): ?array {
-		$settings   = Agend_Content_Access_Block_Attributes::settings_for_block( $parsed_block );
-		$conditions = Agend_Content_Access_Fragment_Rules::conditions_enabled( $settings );
-		$fragment   = Agend_Content_Access_Policy::from_fragment_settings( $settings );
+	private static function rules_of( array $parsed_block ): ?Agend_Content_Access_Rules {
+		$rules = Agend_Content_Access_Rules::from_block( $parsed_block );
 
-		if ( null === $fragment && ! $conditions ) {
-			return null;
-		}
-
-		return array(
-			'settings'   => $settings,
-			'conditions' => $conditions,
-			'fragment'   => $fragment,
-		);
+		return $rules->is_empty() ? null : $rules;
 	}
 
 	/**
@@ -341,14 +332,19 @@ class Agend_Content_Access_Blocks {
 	 * Shared by the `pre_render_block` path and the `render_block` backstop, so the
 	 * two cannot disagree. Every path that is not clearly a grant is a denial.
 	 *
-	 * @param array    $parsed_block The block.
-	 * @param array    $rules        From `rules_of()`.
-	 * @param int|null $post_id      The post the block belongs to, when the caller
-	 *                               knows it and it is not the one being rendered.
-	 *                               Null is the post in context.
+	 * A block is shown only when ITS rules allow AND the rules of the post it
+	 * belongs to allow: one evaluation of the two together, so it can narrow what
+	 * its post admits and can never widen it. The post is the one in context, and
+	 * a post with no rules adds nothing.
+	 *
+	 * @param array                      $parsed_block The block.
+	 * @param Agend_Content_Access_Rules $rules        From `rules_of()`.
+	 * @param int|null                   $post_id      The post the block belongs to, when the caller
+	 *                                                 knows it and it is not the one being rendered.
+	 *                                                 Null is the post in context.
 	 * @return string|null
 	 */
-	private function verdict_for( array $parsed_block, array $rules, ?int $post_id = null ): ?string {
+	private function verdict_for( array $parsed_block, Agend_Content_Access_Rules $rules, ?int $post_id = null ): ?string {
 		$post_id = null === $post_id ? self::context_post_id() : $post_id;
 
 		// Asked about the post the block belongs to, not about the request: an
@@ -359,12 +355,8 @@ class Agend_Content_Access_Blocks {
 			return null;
 		}
 
-		$settings   = $rules['settings'];
-		$conditions = $rules['conditions'];
-		$fragment   = $rules['fragment'];
-
-		// A FEED is judged for nobody. Its output is shared and routinely cached,
-		// so a copy personalised to whoever fetched it would be served to everyone
+		// A FEED is judged for nobody. Its output is shared and routinely cached, so
+		// a copy personalised to whoever fetched it would be served to everyone
 		// after them: the page gate does the same for a document
 		// (`Decision::for_post()` with `$anonymous`).
 		$anonymous = is_feed();
@@ -374,41 +366,22 @@ class Agend_Content_Access_Blocks {
 		$this->mark_uncacheable( $post_id );
 
 		try {
-			// Display conditions first, as Elementor does. They can only remove,
-			// so a block hidden here is hidden whatever the policy says. Never
-			// null from here: a block the conditions excluded must not fall
-			// through to rendering.
-			if (
-				$conditions
-				&& ! Agend_Content_Access_Fragment_Rules::conditions_pass(
-					$settings,
-					$anonymous ? Agend_Content_Access_Condition_Runtime::anonymous_checker() : null
-				)
-			) {
-				return $this->fallback_for( $settings, $anonymous );
-			}
+			// The post's own rules, enforced reading: unreadable rules on the post
+			// narrow the block to nobody instead of vanishing and leaving the block's
+			// own alone. No post in context is a block outside any post (a widget, a
+			// bare template part), which has no rules to narrow with.
+			$page = Agend_Content_Access_Rules::from_post( $post_id );
 
-			if ( null === $fragment ) {
-				// Inherits the post, which the page-level gate already handled.
+			$verdict = Agend_Content_Access_Access::verdict(
+				Agend_Content_Access_Rules::all_of( $page, $rules ),
+				array( 'anonymous' => $anonymous )
+			);
+
+			if ( $verdict['allowed'] ) {
 				return null;
 			}
 
-			// The enforced reading, of the post the block belongs to: an
-			// unreadable document policy narrows the block to nobody instead of
-			// vanishing and leaving the fragment alone. No post in context is a
-			// block outside any post (a widget, a bare template part), which has
-			// no document policy to narrow with, and the block's own still applies.
-			$document  = $post_id > 0 ? Agend_Content_Access_Policy::enforced_for_post( $post_id ) : null;
-			$effective = Agend_Content_Access_Policy::effective_policy( $document, $fragment );
-
-			// The viewer is built for THIS policy, so segments are fetched only
-			// when the effective policy of this block is a segments policy.
-			$state = Agend_Content_Access_Decision::evaluate(
-				$effective,
-				$anonymous ? Agend_Content_Access_Decision::anonymous_viewer() : Agend_Content_Access_Decision::viewer( $effective )
-			);
-
-			return Agend_Content_Access_Decision::STATE_GRANTED === $state ? null : '';
+			return $this->fallback_for( $rules, $anonymous );
 		} catch ( \Throwable $error ) {
 			// A decision that could not be made is a denial. The log names the
 			// failure for an administrator and nothing reaches the visitor.
@@ -581,22 +554,36 @@ class Agend_Content_Access_Blocks {
 	}
 
 	/**
-	 * The replacement content for a block the display conditions excluded.
+	 * The markup a denied block is replaced with: its fallback, when its own rules
+	 * are what denied it, otherwise nothing.
 	 *
-	 * Only a block the CONDITIONS excluded gets one. A block the access policy
-	 * hides is protected content, and a consolation render there would blur the
-	 * two, as it does for Elementor. The fallback is itself access-checked by
-	 * `Fragment_Rules::fallback_html()`: only content this visitor could have
-	 * read on its own is shown.
+	 * The replacement belongs to the part of the block's rules that carries it. A
+	 * block with only an audience has never had one, and a block with an audience
+	 * AND display conditions showed it only when the CONDITIONS excluded it: a block
+	 * hidden by its audience is protected content, and a consolation render there
+	 * would blur the two, as it does for Elementor. So the part is asked on its own,
+	 * and a block the post's rules denied while its own would have admitted gets
+	 * none. The fallback is itself access-checked by `Fragment_Rules::fallback_html()`:
+	 * only content this visitor could have read on its own is shown.
 	 *
-	 * @param array $settings  The block's neutral settings.
-	 * @param bool  $anonymous Judge the fallback for nobody, as in a feed.
+	 * @param Agend_Content_Access_Rules $rules     The block's rules.
+	 * @param bool                       $anonymous Judge the fallback for nobody, as in a feed.
 	 * @return string The fallback markup, or '' for none.
 	 */
-	private function fallback_for( array $settings, bool $anonymous = false ): string {
-		$fallback_id = isset( $settings[ Agend_Content_Access_Fragment_Rules::FALLBACK_KEY ] )
-			? (int) $settings[ Agend_Content_Access_Fragment_Rules::FALLBACK_KEY ]
-			: 0;
+	private function fallback_for( Agend_Content_Access_Rules $rules, bool $anonymous = false ): string {
+		$owner = $rules->fallback_owner();
+
+		if ( null === $owner ) {
+			return '';
+		}
+
+		$own = Agend_Content_Access_Access::verdict( $owner, array( 'anonymous' => $anonymous ) );
+
+		if ( $own['allowed'] ) {
+			return '';
+		}
+
+		$fallback_id = $owner->fallback_id();
 
 		// A fallback already being rendered is a cycle, and renders nothing.
 		if ( $fallback_id <= 0 || isset( $this->fallbacks_open[ $fallback_id ] ) ) {
@@ -681,15 +668,14 @@ class Agend_Content_Access_Blocks {
 	// -----------------------------------------------------------------------
 
 	/**
-	 * Whether the content holds a block with an audience policy or display
-	 * conditions, anywhere in its tree.
+	 * Whether the content holds a block with rules, anywhere in its tree.
 	 *
 	 * The tree is the parsed blocks with every synced pattern expanded in place
 	 * (`Block_Attributes::expand()`, with its cycle, depth and budget guards), so
 	 * a restriction inside a pattern counts for the page that uses it. A block
-	 * counts by the same two tests the render path uses
-	 * (`carries_policy()`, `carries_conditions()`), so the answer here and the
-	 * decision at render time cannot disagree about what a rule is. A rule in a
+	 * counts by the same test the render path uses (`carries_rules()`, which asks
+	 * `Rules::from_block()`), so the answer here and the decision at render time
+	 * cannot disagree about what a rule is. A rule in a
 	 * template part or a query loop's other posts is not in the content, and is
 	 * not seen here.
 	 *
@@ -725,10 +711,7 @@ class Agend_Content_Access_Blocks {
 				continue;
 			}
 
-			if (
-				Agend_Content_Access_Block_Attributes::carries_policy( $block )
-				|| Agend_Content_Access_Block_Attributes::carries_conditions( $block )
-			) {
+			if ( Agend_Content_Access_Block_Attributes::carries_rules( $block ) ) {
 				return true;
 			}
 
@@ -745,15 +728,15 @@ class Agend_Content_Access_Blocks {
 	}
 
 	/**
-	 * Whether a document carries a fragment policy or enabled display conditions,
-	 * whichever editor wrote it.
+	 * Whether a document carries rules on a block or a section, whichever editor
+	 * wrote it.
 	 *
 	 * Elementor owns a document that has `_elementor_data`, exactly as the
 	 * exporter decides (`Agend_Content_Access_Elementor_Parser::recognises()`),
 	 * whatever `post_content` holds: Elementor writes a flattened copy of what it
 	 * rendered into `post_content`, which is not a block tree and says nothing
 	 * about the rules. Those documents are read from the decoded data with
-	 * `Agend_Content_Access_Elementor::subtree_carries_policy()`, the same test the
+	 * `Agend_Content_Access_Elementor::subtree_carries_rules()`, the same test the
 	 * element cache exclusion uses. Everything else is read from its block tree.
 	 *
 	 * An Elementor document that does not decode is reported as carrying rules. It
@@ -780,7 +763,7 @@ class Agend_Content_Access_Blocks {
 		}
 
 		foreach ( $document as $node ) {
-			if ( ! is_array( $node ) || Agend_Content_Access_Elementor::subtree_carries_policy( $node ) ) {
+			if ( ! is_array( $node ) || Agend_Content_Access_Elementor::subtree_carries_rules( $node ) ) {
 				return true;
 			}
 		}
@@ -1060,10 +1043,9 @@ class Agend_Content_Access_Blocks {
 	 * core's. No ruled text is in what it is given, so none can come out, and the
 	 * excerpt is the same for every viewer.
 	 *
-	 * A block is removed when it carries a policy or enabled display conditions,
-	 * the two tests the render path and the cache marking use. Synced patterns are
-	 * expanded with the usual guards first, so a ruled block inside a pattern
-	 * counts. A reference to a pattern that holds one is removed whole, and so is
+	 * A block is removed when it carries rules, the one test the render path and the
+	 * cache marking use. Synced patterns are expanded with the usual guards first, so
+	 * a ruled block inside a pattern counts. A reference to a pattern that holds one is removed whole, and so is
 	 * one that could not be expanded (a cycle, the depth or the reference budget):
 	 * what is in it is not known. A reference to a pattern with no rules is kept
 	 * as the reference it was, which core's excerpt does not render at all.
@@ -1129,10 +1111,7 @@ class Agend_Content_Access_Blocks {
 	 * @return array|null
 	 */
 	private static function without_ruled_block( array $block ): ?array {
-		if (
-			Agend_Content_Access_Block_Attributes::carries_policy( $block )
-			|| Agend_Content_Access_Block_Attributes::carries_conditions( $block )
-		) {
+		if ( Agend_Content_Access_Block_Attributes::carries_rules( $block ) ) {
 			return null;
 		}
 
@@ -1536,8 +1515,8 @@ class Agend_Content_Access_Blocks {
 		}
 
 		/**
-		 * Filters whether documents carrying a fragment policy or display
-		 * conditions, in a block or an Elementor section, are excluded from search
+		 * Filters whether documents carrying rules on a block or an Elementor section
+		 * are excluded from search
 		 * for users who cannot edit others' posts.
 		 *
 		 * Excluding them also hides their public parts from search, which is the

@@ -138,7 +138,7 @@ final class BlockSearchTest extends BlockEnforcementTestCase {
 	public function a_conditioned_block_sets_the_flag(): void {
 		$this->registerPost( 503, '' );
 
-		$this->save( 503, $this->paragraph( 'NOTE', array( 'conditionsEnabled' => true ) ) );
+		$this->save( 503, $this->paragraph( 'NOTE', array( 'conditionsEnabled' => true, 'conditions' => array( 'agend_wordpress:logged_in' ) ) ) );
 
 		$this->assertTrue( $this->flagged( 503 ) );
 	}
@@ -337,7 +337,7 @@ final class BlockSearchTest extends BlockEnforcementTestCase {
 	public function an_elementor_section_with_display_conditions_sets_the_flag(): void {
 		$this->registerPost( 531, '' );
 
-		$this->saveElementor( 531, $this->elementorDocument( array( 'agend_conditions_enabled' => 'yes' ) ) );
+		$this->saveElementor( 531, $this->elementorDocument( array( 'agend_conditions_enabled' => 'yes', 'agend_conditions' => array( 'agend_wordpress:logged_in' ) ) ) );
 
 		$this->assertTrue( $this->flagged( 531 ) );
 	}

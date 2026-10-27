@@ -73,10 +73,25 @@ final class BlockCachingTest extends BlockEnforcementTestCase {
 		$this->assertSame( array( 402 ), $this->uncacheable );
 	}
 
-	/** Switched on with none chosen still takes it out of a shared cache, as for Elementor. */
+	/**
+	 * Changed from "switched on with none chosen still takes it out of a shared cache". Switched on
+	 * with nothing chosen is no rules at all: the evaluator admits everybody, so every visitor is
+	 * served the same page and there is nothing a cache could serve to the wrong audience.
+	 */
 	#[Test]
-	public function conditions_switched_on_with_none_chosen_still_mark_the_page(): void {
+	public function conditions_switched_on_with_none_chosen_are_no_rules_and_do_not_mark_the_page(): void {
 		$this->registerPost( 403, $this->paragraph( 'NOTE', array( 'conditionsEnabled' => true ) ) );
+		$this->visit( 403 );
+
+		do_action( 'template_redirect' );
+
+		$this->assertSame( array(), $this->uncacheable );
+	}
+
+	/** The reverse of nothing is nobody, which is a rule, so it still marks the page. */
+	#[Test]
+	public function a_reverse_over_no_conditions_is_a_rule_and_marks_the_page(): void {
+		$this->registerPost( 403, $this->paragraph( 'NOTE', array( 'conditionsEnabled' => true, 'conditionsInvert' => true ) ) );
 		$this->visit( 403 );
 
 		do_action( 'template_redirect' );

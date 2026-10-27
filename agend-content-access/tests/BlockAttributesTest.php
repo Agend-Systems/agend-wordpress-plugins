@@ -20,6 +20,12 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-viewer-facts.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-rules.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-access.php';
 
 /**
  * The `agendAccess` block attribute as neutral fragment settings.
@@ -376,8 +382,7 @@ final class BlockAttributesTest extends TestCase {
 		$block = $this->block();
 
 		$this->assertSame( array(), Attributes::settings_for_block( $block ) );
-		$this->assertFalse( Attributes::carries_policy( $block ) );
-		$this->assertFalse( Attributes::carries_conditions( $block ) );
+		$this->assertFalse( Attributes::carries_rules( $block ) );
 	}
 
 	/** Only absent and null mean "no attribute". */
@@ -388,7 +393,7 @@ final class BlockAttributesTest extends TestCase {
 		$block['attrs'][ Attributes::ATTRIBUTE ] = null;
 
 		$this->assertSame( array(), Attributes::settings_for_block( $block ) );
-		$this->assertFalse( Attributes::carries_policy( $block ) );
+		$this->assertFalse( Attributes::carries_rules( $block ) );
 		$this->assertSame( array(), Attributes::settings_for_block( array( 'blockName' => 'core/group', 'attrs' => 'nope' ) ) );
 		$this->assertSame( array(), Attributes::settings_for_block( array() ) );
 	}
@@ -408,9 +413,9 @@ final class BlockAttributesTest extends TestCase {
 
 		$this->assertArrayHasKey( Policy::FRAGMENT_MODE_KEY, $settings );
 		$this->assertSame( array( 'mode' => 'active_member' ), Policy::from_fragment_settings( $settings ) );
-		$this->assertTrue( Attributes::carries_policy( $block ), 'so the parent of this block is structural' );
-		$this->assertTrue( Attributes::subtree_carries_policy( $this->block( array(), array( $block ) ) ) );
-		$this->assertTrue( Attributes::descendants_carry_policy( $this->block( array(), array( $block ) ) ) );
+		$this->assertTrue( Attributes::carries_rules( $block ), 'so the parent of this block is structural' );
+		$this->assertTrue( Attributes::subtree_carries_rules( $this->block( array(), array( $block ) ) ) );
+		$this->assertTrue( Attributes::descendants_carry_rules( $this->block( array(), array( $block ) ) ) );
 	}
 
 	public static function notAnObject(): array {
@@ -435,7 +440,7 @@ final class BlockAttributesTest extends TestCase {
 		$block['attrs'][ Attributes::ATTRIBUTE ] = array();
 
 		$this->assertSame( array(), Attributes::settings_for_block( $block ) );
-		$this->assertFalse( Attributes::carries_policy( $block ) );
+		$this->assertFalse( Attributes::carries_rules( $block ) );
 	}
 
 	#[Test]
@@ -455,37 +460,44 @@ final class BlockAttributesTest extends TestCase {
 
 	#[Test]
 	public function inherit_and_an_empty_attribute_carry_no_policy(): void {
-		$this->assertFalse( Attributes::carries_policy( $this->block( array( 'mode' => 'inherit' ) ) ) );
-		$this->assertFalse( Attributes::carries_policy( $this->block( array( 'mode' => '' ) ) ) );
-		$this->assertFalse( Attributes::carries_policy( $this->block( array( 'fallbackId' => 3 ) ) ) );
+		$this->assertFalse( Attributes::carries_rules( $this->block( array( 'mode' => 'inherit' ) ) ) );
+		$this->assertFalse( Attributes::carries_rules( $this->block( array( 'mode' => '' ) ) ) );
+		$this->assertFalse( Attributes::carries_rules( $this->block( array( 'fallbackId' => 3 ) ) ) );
 	}
 
 	#[Test]
 	public function a_restricting_mode_carries_a_policy(): void {
-		$this->assertTrue( Attributes::carries_policy( $this->block( array( 'mode' => 'active_member' ) ) ) );
-		$this->assertTrue( Attributes::carries_policy( $this->block( array( 'mode' => 'selected_tiers', 'tierIds' => array() ) ) ) );
+		$this->assertTrue( Attributes::carries_rules( $this->block( array( 'mode' => 'active_member' ) ) ) );
+		$this->assertTrue( Attributes::carries_rules( $this->block( array( 'mode' => 'selected_tiers', 'tierIds' => array() ) ) ) );
 	}
 
 	/** An unreadable mode is a policy nobody was meant to skip past, so it counts. */
 	#[Test]
 	public function an_unrecognised_mode_counts_as_carrying_a_policy(): void {
-		$this->assertTrue( Attributes::carries_policy( $this->block( array( 'mode' => 'bogus' ) ) ) );
-		$this->assertTrue( Attributes::carries_policy( $this->block( array( 'mode' => 7 ) ) ) );
+		$this->assertTrue( Attributes::carries_rules( $this->block( array( 'mode' => 'bogus' ) ) ) );
+		$this->assertTrue( Attributes::carries_rules( $this->block( array( 'mode' => 7 ) ) ) );
 	}
 
+	/**
+	 * Changed from "switched on, even with none chosen, carries conditions". Switched on with
+	 * nothing chosen is no rules at all: the evaluator admits everybody, so there is nothing to
+	 * keep out of a cache or a search. A reverse over nothing is NOT that, and stays a rule.
+	 */
 	#[Test]
-	public function conditions_are_carried_when_switched_on_even_with_none_chosen(): void {
-		$this->assertTrue( Attributes::carries_conditions( $this->block( array( 'conditionsEnabled' => true ) ) ) );
-		$this->assertFalse( Attributes::carries_conditions( $this->block( array( 'conditionsEnabled' => false, 'conditions' => array( 'role:editor' ) ) ) ) );
-		$this->assertFalse( Attributes::carries_conditions( $this->block( array( 'conditions' => array( 'role:editor' ) ) ) ) );
+	public function conditions_are_carried_when_switched_on_and_something_is_chosen(): void {
+		$this->assertTrue( Attributes::carries_rules( $this->block( array( 'conditionsEnabled' => true, 'conditions' => array( 'role:editor' ) ) ) ) );
+		$this->assertFalse( Attributes::carries_rules( $this->block( array( 'conditionsEnabled' => true ) ) ), 'switched on with none chosen is no rules' );
+		$this->assertTrue( Attributes::carries_rules( $this->block( array( 'conditionsEnabled' => true, 'conditionsInvert' => true ) ) ), 'the reverse of nothing is nobody' );
+		$this->assertFalse( Attributes::carries_rules( $this->block( array( 'conditionsEnabled' => false, 'conditions' => array( 'role:editor' ) ) ) ) );
+		$this->assertFalse( Attributes::carries_rules( $this->block( array( 'conditions' => array( 'role:editor' ) ) ) ) );
 	}
 
-	/** Display conditions are not an audience policy, and must not count as one. */
+	/** Display conditions and an audience are one thing now: both are rules. */
 	#[Test]
-	public function conditions_do_not_make_a_policy(): void {
+	public function conditions_are_rules_too(): void {
 		$block = $this->block( array( 'conditionsEnabled' => true, 'conditions' => array( 'role:editor' ) ) );
 
-		$this->assertFalse( Attributes::carries_policy( $block ) );
+		$this->assertTrue( Attributes::carries_rules( $block ) );
 	}
 
 	// -----------------------------------------------------------------
@@ -499,15 +511,15 @@ final class BlockAttributesTest extends TestCase {
 			array( $this->block( array(), array( $this->block( array(), array( $this->block( array( 'mode' => 'active_member' ) ) ) ) ) ) )
 		);
 
-		$this->assertTrue( Attributes::subtree_carries_policy( $deep ) );
-		$this->assertTrue( Attributes::descendants_carry_policy( $deep ) );
+		$this->assertTrue( Attributes::subtree_carries_rules( $deep ) );
+		$this->assertTrue( Attributes::descendants_carry_rules( $deep ) );
 	}
 
 	#[Test]
 	public function a_subtree_with_no_policy_carries_none(): void {
 		$plain = $this->block( array(), array( $this->block(), $this->block( array( 'mode' => 'inherit' ) ) ) );
 
-		$this->assertFalse( Attributes::subtree_carries_policy( $plain ) );
+		$this->assertFalse( Attributes::subtree_carries_rules( $plain ) );
 	}
 
 	/** The split decision turns on this: a block's OWN policy is not "below" it. */
@@ -515,23 +527,23 @@ final class BlockAttributesTest extends TestCase {
 	public function descendants_exclude_the_block_itself(): void {
 		$restricted = $this->block( array( 'mode' => 'active_member' ), array( $this->block() ) );
 
-		$this->assertTrue( Attributes::subtree_carries_policy( $restricted ) );
-		$this->assertFalse( Attributes::descendants_carry_policy( $restricted ) );
+		$this->assertTrue( Attributes::subtree_carries_rules( $restricted ) );
+		$this->assertFalse( Attributes::descendants_carry_rules( $restricted ) );
 	}
 
 	#[Test]
 	public function a_policy_inside_a_synced_pattern_is_found(): void {
 		$this->pattern( 900, '<!-- wp:paragraph {"agendAccess":{"mode":"active_member"}} --><p>Members</p><!-- /wp:paragraph -->' );
 
-		$this->assertTrue( Attributes::subtree_carries_policy( $this->synced( 900 ) ) );
-		$this->assertTrue( Attributes::subtree_carries_policy( $this->block( array(), array( $this->synced( 900 ) ) ) ) );
+		$this->assertTrue( Attributes::subtree_carries_rules( $this->synced( 900 ) ) );
+		$this->assertTrue( Attributes::subtree_carries_rules( $this->block( array(), array( $this->synced( 900 ) ) ) ) );
 	}
 
 	#[Test]
 	public function a_synced_pattern_without_a_policy_carries_none(): void {
 		$this->pattern( 900, '<!-- wp:paragraph --><p>Everyone</p><!-- /wp:paragraph -->' );
 
-		$this->assertFalse( Attributes::subtree_carries_policy( $this->synced( 900 ) ) );
+		$this->assertFalse( Attributes::subtree_carries_rules( $this->synced( 900 ) ) );
 	}
 
 	/** A pattern that includes itself must end, not recurse forever. */
@@ -539,7 +551,7 @@ final class BlockAttributesTest extends TestCase {
 	public function a_pattern_that_includes_itself_terminates(): void {
 		$this->pattern( 900, '<!-- wp:block {"ref":900} /-->' );
 
-		$this->assertFalse( Attributes::subtree_carries_policy( $this->synced( 900 ) ) );
+		$this->assertFalse( Attributes::subtree_carries_rules( $this->synced( 900 ) ) );
 	}
 
 	#[Test]
@@ -547,7 +559,7 @@ final class BlockAttributesTest extends TestCase {
 		$this->pattern( 900, '<!-- wp:block {"ref":901} /-->' );
 		$this->pattern( 901, '<!-- wp:block {"ref":900} /-->' );
 
-		$this->assertFalse( Attributes::subtree_carries_policy( $this->synced( 900 ) ) );
+		$this->assertFalse( Attributes::subtree_carries_rules( $this->synced( 900 ) ) );
 	}
 
 	#[Test]
@@ -560,10 +572,10 @@ final class BlockAttributesTest extends TestCase {
 		$restricted = '<!-- wp:paragraph {"agendAccess":{"mode":"active_member"}} --><p>Members</p><!-- /wp:paragraph -->';
 
 		$this->pattern( 910, $restricted );
-		$this->assertFalse( Attributes::subtree_carries_policy( $this->synced( 900 ) ), 'the eleventh nested pattern is past the limit' );
+		$this->assertFalse( Attributes::subtree_carries_rules( $this->synced( 900 ) ), 'the eleventh nested pattern is past the limit' );
 
 		$this->pattern( 909, $restricted );
-		$this->assertTrue( Attributes::subtree_carries_policy( $this->synced( 900 ) ), 'the tenth is within it' );
+		$this->assertTrue( Attributes::subtree_carries_rules( $this->synced( 900 ) ), 'the tenth is within it' );
 	}
 
 	// -----------------------------------------------------------------
@@ -609,7 +621,7 @@ final class BlockAttributesTest extends TestCase {
 
 		$this->assertCount( 1, $expanded[0]['innerBlocks'] );
 		$this->assertSame( 'core/paragraph', $expanded[0]['innerBlocks'][0]['blockName'] );
-		$this->assertFalse( Attributes::subtree_carries_policy( $expanded[0] ) );
+		$this->assertFalse( Attributes::subtree_carries_rules( $expanded[0] ) );
 	}
 
 	#[Test]
@@ -696,7 +708,7 @@ final class BlockAttributesTest extends TestCase {
 
 		$this->assertSame( 50, $tally['resolved'] );
 		$this->assertSame( 0, $ledger['left'] );
-		$this->assertFalse( Attributes::subtree_carries_policy( $expanded[0] ) );
+		$this->assertFalse( Attributes::subtree_carries_rules( $expanded[0] ) );
 	}
 
 	/** The budget is for one document, not for the process. */
@@ -716,7 +728,7 @@ final class BlockAttributesTest extends TestCase {
 		$this->pattern( 900, '<!-- wp:paragraph {"agendAccess":{"mode":"active_member"}} --><p>Hidden</p><!-- /wp:paragraph -->', $post );
 
 		$this->assertNull( Attributes::synced_post( 900 ) );
-		$this->assertFalse( Attributes::subtree_carries_policy( $this->synced( 900 ) ) );
+		$this->assertFalse( Attributes::subtree_carries_rules( $this->synced( 900 ) ) );
 	}
 
 	public static function unusablePatterns(): array {

@@ -10,11 +10,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Turns the one attribute a block carries into the settings array every other
- * part of this plugin already reads.
+ * The `agendAccess` block attribute: its v1 shape converted to neutral
+ * settings, and the walk of a block tree that asks which blocks carry rules.
  *
  * Every block may carry ONE non-sourced object attribute, `agendAccess`. Absent
- * or `{}` means "inherit the document, no conditions". The keys, all optional:
+ * or `{}` means "no rules". There are two shapes, and both are read by
+ * `Agend_Content_Access_Rules::from_block()`, which is what decides what a block
+ * means:
+ *
+ *   The new shape, one rule list: `{rules: string[], match: "any"|"all",
+ *   invert: bool, fallbackId: int}`. Read by `Rules` directly.
+ *
+ *   The v1 shape, which the editor panel still writes until a later layer
+ *   replaces it. The keys, all optional:
  *
  *   mode               string    inherit (default), active_member,
  *                                selected_tiers, segments, selected_entitlements
@@ -27,20 +35,18 @@ if ( ! defined( 'ABSPATH' ) ) {
  *   conditionsInvert   bool      reverse the result
  *   fallbackId         int       post id of replacement content, 0 for none
  *
- * `to_settings()` is the single converter. It produces the flat, Elementor
- * shaped array that `Agend_Content_Access_Policy::from_fragment_settings()` and
- * `Agend_Content_Access_Fragment_Rules::conditions_pass()` read, so one function
- * validates a fragment's audience and one evaluates its conditions, whichever
- * editor wrote them. The exporter uses it today; render-time enforcement and
- * the editor panel read the same attribute through it, which is why it lives in
- * a class of its own rather than inside the exporter's driver.
+ * `to_settings()` converts the v1 shape into the flat, Elementor shaped array
+ * that `Agend_Content_Access_Rules::from_elementor_settings()` reads, so a block
+ * and a section cannot disagree about what the same audience means. The
+ * exporter, render-time enforcement and the editor panel all read the attribute
+ * through `Rules`, which is why the walk of the tree below asks `Rules` too.
  *
  * Nothing here decides anything. It reshapes, and where a value is unusable it
  * keeps that unusability visible to the reader that DOES decide, rather than
  * quietly turning it into a value that grants access:
  *
- *   - An unrecognised or non-string `mode` reaches `from_fragment_settings()`
- *     as an unrecognised mode, which that function fails closed on.
+ *   - An unrecognised or non-string `mode` reaches the policy reader as an
+ *     unrecognised mode, which that function fails closed on.
  *   - An `agendAccess` that is present but is not an object (a string, a
  *     number, a boolean, a list) is read the same way, as an unrecognised mode.
  *     Only absent or `null` means "no attribute". Someone who typed
@@ -49,9 +55,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  *   - A non-string id is dropped from its list. That only ever narrows an
  *     audience, and an emptied list is a restriction nobody satisfies, not "no
  *     restriction".
- *   - A condition that is not a string is KEPT, so the condition engine reports
- *     it as malformed and denies. Dropping it would shrink the rule, which is
- *     the defect that engine documents in the reference implementation.
+ *   - A condition that is not a string is KEPT, so the reader reports it as
+ *     unreadable and denies. Dropping it would shrink the rule, which is the
+ *     defect the condition engine documents in the reference implementation.
  */
 class Agend_Content_Access_Block_Attributes {
 
@@ -217,35 +223,25 @@ class Agend_Content_Access_Block_Attributes {
 	}
 
 	/**
-	 * Whether the block carries an audience policy of its own.
+	 * Whether the block carries rules of its own.
 	 *
-	 * Asks `Agend_Content_Access_Policy::from_fragment_settings()` rather than
-	 * re-deciding what counts, so the two cannot disagree: an unrecognised mode
-	 * fails closed THERE into a policy, and so counts here as carrying one.
-	 *
-	 * @param array $block Parsed block.
-	 * @return bool
-	 */
-	public static function carries_policy( array $block ): bool {
-		return null !== Agend_Content_Access_Policy::from_fragment_settings( self::settings_for_block( $block ) );
-	}
-
-	/**
-	 * Whether the block has display conditions switched on.
-	 *
-	 * Switched on, even with none chosen, which is what takes a block out of a
-	 * shared cache. The same test `Agend_Content_Access_Fragment_Rules` uses, so
-	 * a cache check and an evaluation cannot disagree.
+	 * Asks `Agend_Content_Access_Rules::from_block()` rather than re-deciding what
+	 * counts, so the render path, the cache marking, the search flag, the excerpt
+	 * rebuild and the exporter cannot disagree about what a rule is: a block with an
+	 * audience, with conditions, with the new rule list, with one that cannot be
+	 * read (which denies) or with a reverse over nothing (which hides it) carries
+	 * rules, and one with none, or an empty list, or conditions switched on and none
+	 * chosen, does not.
 	 *
 	 * @param array $block Parsed block.
 	 * @return bool
 	 */
-	public static function carries_conditions( array $block ): bool {
-		return Agend_Content_Access_Fragment_Rules::conditions_enabled( self::settings_for_block( $block ) );
+	public static function carries_rules( array $block ): bool {
+		return ! Agend_Content_Access_Rules::from_block( $block )->is_empty();
 	}
 
 	/**
-	 * Whether the block or anything inside it carries an audience policy.
+	 * Whether the block or anything inside it carries rules.
 	 *
 	 * "Inside" includes the content of a synced pattern the block references,
 	 * which is not among its `innerBlocks` until `expand()` puts it there. This
@@ -258,24 +254,24 @@ class Agend_Content_Access_Block_Attributes {
 	 *                     this block. Callers walking a pattern pass their own.
 	 * @return bool
 	 */
-	public static function subtree_carries_policy( array $block, array $refs = array() ): bool {
+	public static function subtree_carries_rules( array $block, array $refs = array() ): bool {
 		$ledger = self::ledger();
 
 		return self::scan( self::expand_block( $block, $ledger, $refs ) );
 	}
 
 	/**
-	 * Whether anything STRICTLY below the block carries an audience policy.
+	 * Whether anything STRICTLY below the block carries rules.
 	 *
 	 * This is the test that decides whether a block is exported whole or split:
-	 * a block whose own policy is the only one in its subtree can safely be one
-	 * fragment, because the policy folds onto all of it.
+	 * a block whose own rules are the only ones in its subtree can safely be one
+	 * fragment, because they fold onto all of it.
 	 *
 	 * @param array $block Parsed block.
 	 * @param int[] $refs  Synced patterns already being resolved on the path.
 	 * @return bool
 	 */
-	public static function descendants_carry_policy( array $block, array $refs = array() ): bool {
+	public static function descendants_carry_rules( array $block, array $refs = array() ): bool {
 		$ledger = self::ledger();
 
 		return self::scan_children( self::expand_block( $block, $ledger, $refs ) );
@@ -301,7 +297,7 @@ class Agend_Content_Access_Block_Attributes {
 	 * Puts each synced pattern's blocks where its reference is.
 	 *
 	 * After this a reference is an ordinary container whose `innerBlocks` are the
-	 * pattern's blocks, so the rest of the work (is there a policy below this,
+	 * pattern's blocks, so the rest of the work (are there rules below this,
 	 * what does this subtree hold, which pattern did the document use) is a plain
 	 * walk of `innerBlocks` and cannot disagree with itself about what a
 	 * reference contains. Resolution happens here and nowhere else, in document
@@ -477,17 +473,17 @@ class Agend_Content_Access_Block_Attributes {
 	}
 
 	/**
-	 * Whether the block or any block inside it carries a policy.
+	 * Whether the block or any block inside it carries rules.
 	 *
 	 * @param array $block Parsed block, already expanded.
 	 * @return bool
 	 */
 	private static function scan( array $block ): bool {
-		return self::carries_policy( $block ) || self::scan_children( $block );
+		return self::carries_rules( $block ) || self::scan_children( $block );
 	}
 
 	/**
-	 * Whether any block strictly inside the block carries a policy.
+	 * Whether any block strictly inside the block carries rules.
 	 *
 	 * @param array $block Parsed block, already expanded.
 	 * @return bool
@@ -509,8 +505,8 @@ class Agend_Content_Access_Block_Attributes {
 	/**
 	 * The settings an attribute that cannot be read converts to.
 	 *
-	 * @return array An unrecognised mode, which `from_fragment_settings()` turns
-	 *               into a members-only policy.
+	 * @return array An unrecognised mode, which the policy reader turns into a
+	 *               members-only policy.
 	 */
 	private static function unreadable(): array {
 		return array( Agend_Content_Access_Policy::FRAGMENT_MODE_KEY => self::UNRECOGNISED_MODE );

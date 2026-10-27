@@ -196,7 +196,7 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 			? $inherited
 			: Agend_Content_Access_Policy::effective_policy( $inherited, $own );
 
-		if ( Agend_Content_Access_Block_Attributes::descendants_carry_policy( $block ) ) {
+		if ( Agend_Content_Access_Block_Attributes::descendants_carry_rules( $block ) ) {
 			$children = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? array_values( $block['innerBlocks'] ) : array();
 
 			foreach ( $children as $index => $child ) {

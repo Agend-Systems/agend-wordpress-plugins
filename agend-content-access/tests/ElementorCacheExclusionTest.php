@@ -19,6 +19,12 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-elementor.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-rules.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-access.php';
 
 /**
  * Keeping policy-bearing elements out of Elementor's frozen-HTML cache.
@@ -64,14 +70,14 @@ final class ElementorCacheExclusionTest extends TestCase {
 	public function an_element_with_no_policy_is_left_cacheable(): void {
 		$node = $this->section( 's1', array( $this->widget( 'w1', array( 'editor' => 'hello' ) ) ) );
 
-		$this->assertFalse( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+		$this->assertFalse( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
 
 	#[Test]
 	public function an_element_with_its_own_policy_is_excluded(): void {
 		$node = $this->section( 's1', array(), array( 'agend_access_mode' => 'active_member' ) );
 
-		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
 
 	/**
@@ -89,7 +95,7 @@ final class ElementorCacheExclusionTest extends TestCase {
 			)
 		);
 
-		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
 
 	#[Test]
@@ -111,7 +117,7 @@ final class ElementorCacheExclusionTest extends TestCase {
 			)
 		);
 
-		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
 
 	/**
@@ -122,7 +128,7 @@ final class ElementorCacheExclusionTest extends TestCase {
 	public function an_inherit_policy_does_not_exclude(): void {
 		$node = $this->section( 's1', array(), array( 'agend_access_mode' => 'inherit' ) );
 
-		$this->assertFalse( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+		$this->assertFalse( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
 
 	#[Test]
@@ -154,7 +160,7 @@ final class ElementorCacheExclusionTest extends TestCase {
 		$this->assertFalse( $elementor->policy_is_dynamic_content( false, array() ) );
 		$this->assertFalse( $elementor->policy_is_dynamic_content( false, 'not an array' ) );
 		$this->assertFalse(
-			Agend_Content_Access_Elementor::subtree_carries_policy(
+			Agend_Content_Access_Elementor::subtree_carries_rules(
 				array( 'settings' => 'not an array', 'elements' => 'not an array' )
 			)
 		);
@@ -181,7 +187,7 @@ final class ElementorCacheExclusionTest extends TestCase {
 			)
 		);
 
-		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
 
 	#[Test]
@@ -195,7 +201,7 @@ final class ElementorCacheExclusionTest extends TestCase {
 			)
 		);
 
-		$this->assertFalse( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+		$this->assertFalse( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
 
 	#[Test]
@@ -214,6 +220,6 @@ final class ElementorCacheExclusionTest extends TestCase {
 			)
 		);
 
-		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_policy( $node ) );
+		$this->assertTrue( Agend_Content_Access_Elementor::subtree_carries_rules( $node ) );
 	}
 }

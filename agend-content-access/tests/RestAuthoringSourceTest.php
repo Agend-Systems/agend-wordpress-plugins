@@ -77,7 +77,7 @@ final class RestAuthoringSourceTest extends BlockEnforcementTestCase {
 		);
 
 		$this->post( self::BLOCK_PLAIN, $this->paragraph( 'BLOCK BODY WITH NO RULES' ) . $this->paragraph( 'INHERITS', array( 'mode' => 'inherit' ) ), null );
-		$this->post( self::BLOCK_COND, $this->paragraph( 'BLOCK CONDITIONED', array( 'conditionsEnabled' => true ) ), null );
+		$this->post( self::BLOCK_COND, $this->paragraph( 'BLOCK CONDITIONED', array( 'conditionsEnabled' => true, 'conditions' => array( 'agend_wordpress:logged_in' ) ) ), null );
 
 		$this->registerPattern( self::PATTERN, $this->paragraph( 'PATTERN SECRET', array( 'mode' => 'active_member' ) ) );
 		$this->post( self::BLOCK_PATTERN, $this->paragraph( 'BEFORE' ) . $this->reference( self::PATTERN ), null );

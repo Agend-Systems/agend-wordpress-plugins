@@ -380,18 +380,33 @@ final class BlockSuppressionTest extends BlockEnforcementTestCase {
 		$this->assertSame( '', $this->renderPost( 203 ) );
 	}
 
-	/** Two disjoint plan lists intersect to nobody. */
+	/**
+	 * Changed from "a block on one plan in a post on another is visible to nobody". The block is
+	 * shown when ITS rules allow AND its post's rules allow, which is exactly the people who hold
+	 * both plans: nobody who lacks either sees it, and the block never admits more than the post.
+	 */
 	#[Test]
-	public function a_block_on_one_plan_in_a_post_on_another_is_visible_to_nobody(): void {
+	public function a_block_on_one_plan_in_a_post_on_another_needs_both(): void {
 		$this->registerPost(
 			204,
 			$this->paragraph( 'SECRET', array( 'mode' => 'selected_tiers', 'tierIds' => array( self::TIER_A ) ) ),
 			array( 'mode' => 'selected_tiers', 'tier_ids' => array( self::TIER_B ) )
 		);
 
-		$this->asMember( self::TIER_A, self::TIER_B );
+		$this->asMember( self::TIER_A );
+		$this->assertSame( '', $this->renderPost( 204 ), 'on the block\'s plan only, so not the post\'s' );
 
-		$this->assertSame( '', $this->renderPost( 204 ) );
+		// A different visitor on the same site: one request has one visitor, so the memos
+		// and the cached standing go with the first.
+		\Agend_Content_Access_Decision::reset_cache();
+		Agend_Test_WP::$transients = array();
+		$this->asMember( self::TIER_B );
+		$this->assertSame( '', $this->renderPost( 204 ), 'on the post\'s plan only, so not the block\'s' );
+
+		\Agend_Content_Access_Decision::reset_cache();
+		Agend_Test_WP::$transients = array();
+		$this->asMember( self::TIER_A, self::TIER_B );
+		$this->assertSame( '<p>SECRET</p>', $this->renderPost( 204 ) );
 	}
 
 	/** A document policy this version cannot read is enforced as nobody, so the block goes too. */

@@ -303,7 +303,7 @@ final class FragmentFlagBackfillTest extends BlockEnforcementTestCase {
 		$this->registerPattern( 920, $this->paragraph( 'IN A PATTERN', array( 'mode' => 'active_member' ) ) );
 		$this->registerPost( 30, $this->reference( 920 ) );
 		$this->registerPost( 40, $this->paragraph( 'PLAIN' ) );
-		$this->registerPost( 50, $this->paragraph( 'CONDITIONED', array( 'conditionsEnabled' => true ) ) );
+		$this->registerPost( 50, $this->paragraph( 'CONDITIONED', array( 'conditionsEnabled' => true, 'conditions' => array( 'agend_wordpress:logged_in' ) ) ) );
 
 		$result = Agend_Content_Access_Blocks::backfill_batch( 0, 100, $this->ids( 10, 20, 30, 40, 50 ) );
 

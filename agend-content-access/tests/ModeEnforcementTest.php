@@ -296,16 +296,33 @@ final class ModeEnforcementTest extends TestCase {
 		$this->assertSame( 0, $this->segmentCalls() );
 	}
 
+	/**
+	 * Changed from "a plan element on a segments page is unintersectable and hides from everyone".
+	 *
+	 * The element is shown when ITS rules allow AND the page's rules allow, so it admits exactly
+	 * the people who satisfy both. The gateway's fold of two unlike sets to nobody was never needed
+	 * to keep an element from widening its page, and it is still what the EXPORT says (see
+	 * `RulesTest`): Agend serves such an element to nobody, which is narrower than this, never wider.
+	 */
 	#[Test]
-	public function a_plan_element_on_a_segments_page_is_unintersectable_and_hides_from_everyone(): void {
+	public function a_plan_element_on_a_segments_page_admits_only_who_satisfies_both(): void {
+		$plan = array( 'agend_access_mode' => 'selected_tiers', 'agend_access_tier_ids' => array( self::TIER_A ) );
+
 		$this->documentPolicy( $this->segmentsPolicy( self::SEG_A ) );
 		$this->memberHolding( array( self::SEG_A ) );
 
-		$this->assertFalse(
-			$this->shows( array( 'agend_access_mode' => 'selected_tiers', 'agend_access_tier_ids' => array( self::TIER_A ) ) ),
-			'a member of the segment AND on the plan still does not satisfy two unlike sets'
-		);
-		$this->assertSame( 0, $this->segmentCalls(), 'the collapsed policy is a plans policy and needs no segments' );
+		$this->assertTrue( $this->shows( $plan ), 'in the segment AND on the plan' );
+
+		$this->newVisitor();
+		$this->memberHolding( array( self::SEG_B ) );
+
+		$this->assertFalse( $this->shows( $plan ), 'on the plan, but outside the page\'s segment' );
+
+		$this->newVisitor();
+		$GLOBALS['agend_test_current_user_id'] = 0;
+		Agend_Test_WP::$filters                = array();
+
+		$this->assertFalse( $this->shows( $plan ), 'nobody at all' );
 	}
 
 	#[Test]
@@ -325,9 +342,9 @@ final class ModeEnforcementTest extends TestCase {
 		$this->documentPolicy( $this->segmentsPolicy( self::SEG_A ) );
 		$this->memberHolding( array( self::SEG_B ) );
 
-		// Document [A], fragment [B]: disjoint, an empty list of the same arm.
+		// Document [A], fragment [B]: a member of B alone fails the page's rule.
 		$this->assertFalse( $this->shows( $this->segmentsElement( self::SEG_B ) ) );
-		$this->assertSame( 0, $this->segmentCalls(), 'an empty intersection can never be satisfied, so nothing is asked' );
+		$this->assertLessThanOrEqual( 1, $this->segmentCalls(), 'however many rules ask, the visitor\'s segments are fetched once' );
 	}
 
 	#[Test]
