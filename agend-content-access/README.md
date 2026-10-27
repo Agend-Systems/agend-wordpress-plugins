@@ -438,7 +438,12 @@ template), and Elementor's preview iframe.
 - **admin-ajax.php is not authoring.** WordPress reports `is_admin()` for it, but
   other plugins render Elementor templates through it for anonymous visitors
   ("load more", filters, tabs). Sections and blocks are judged there as a
-  visitor's. Only Elementor's own editor requests are exempt.
+  visitor's. Only Elementor's own editor requests are exempt, and only for a
+  document the user can edit. Elementor's edit mode holds for the whole request
+  once the user may edit the one document the editor is open on, and that request
+  can render others (a Loop Grid, a Template widget), so each section is judged
+  against the document it belongs to. A section of a document the user cannot
+  edit is a visitor's, and so is any section whose document cannot be identified.
 
 ### Section rules and the raw body
 

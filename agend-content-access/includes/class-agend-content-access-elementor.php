@@ -413,11 +413,21 @@ class Agend_Content_Access_Elementor {
 	/**
 	 * Whether the render in progress is the author's, in front of an editor.
 	 *
-	 * Not the same question as `Frontend::is_authoring_context()`, which is true
-	 * for every `is_admin()` request and so for anonymous admin-ajax.php renders.
-	 * Here a request is authoring when it is not one a visitor can be reading
-	 * (a wp-admin screen, the editor), or when it is the editor's own AJAX.
-	 * Everything else that reaches admin-ajax.php is a visitor.
+	 * Not the same question as `Frontend::is_authoring_context()`, which is about
+	 * the requested page. Here a request is authoring when it is not one a visitor
+	 * can be reading (a wp-admin screen, the editor), or when it is the editor's own
+	 * AJAX. Everything else that reaches admin-ajax.php is a visitor.
+	 *
+	 * Both are asked of the DOCUMENT being rendered, not of the request. Elementor's
+	 * edit mode is true for the whole editor AJAX request once the user may edit the
+	 * one document the editor names, and that request can render others: a Loop
+	 * Grid listing posts, a Template widget pulling in a template, a shortcode. A
+	 * contributor who opens the editor on their own draft could otherwise put a
+	 * widget in it that renders a restricted template, and have every section of
+	 * every document that request renders shown to them with suppression off. So the
+	 * editor's AJAX is authoring for a document only when the user may edit THAT
+	 * document, and for one that cannot be identified it is not authoring at all,
+	 * since the rule cannot be applied to a document it cannot name.
 	 *
 	 * Elementor's preview is authoring for the document being previewed and for no
 	 * other. A template, a header, a loop item or an embedded section is a document
@@ -426,8 +436,15 @@ class Agend_Content_Access_Elementor {
 	 * @return bool
 	 */
 	private static function is_authoring_render(): bool {
-		return ! Agend_Content_Access_Frontend::renders_for_visitors( self::rendering_document_id() )
-			|| Agend_Content_Access_Frontend::is_elementor_editor_ajax();
+		$document_id = self::rendering_document_id();
+
+		if ( ! Agend_Content_Access_Frontend::renders_for_visitors( $document_id ) ) {
+			return true;
+		}
+
+		return $document_id > 0
+			&& Agend_Content_Access_Frontend::is_elementor_editor_ajax()
+			&& current_user_can( 'edit_post', $document_id );
 	}
 
 	/**

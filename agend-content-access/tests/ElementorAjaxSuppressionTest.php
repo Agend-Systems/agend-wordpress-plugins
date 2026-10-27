@@ -120,10 +120,47 @@ final class ElementorAjaxSuppressionTest extends TestCase {
 		$GLOBALS['agend_test_doing_ajax'] = true;
 	}
 
-	/** admin-ajax.php, as Elementor's own editor reaches it. */
-	private function elementorEditorAjax(): void {
+	/**
+	 * admin-ajax.php, as Elementor's own editor reaches it, rendering a document
+	 * the user may edit. Which document it is rendering is the question of the
+	 * per document tests below.
+	 */
+	private function elementorEditorAjax( int $document_id = 42 ): void {
 		$this->adminAjax();
 		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
+
+		$GLOBALS['agend_test_current_user_can_for']['edit_post'][ $document_id ] = true;
+
+		$this->documentRendering( $document_id );
+	}
+
+	/** The document the manager says is rendering the element, as Elementor's stack names it. */
+	private function documentRendering( ?int $document_id ): void {
+		\Elementor\Plugin::$instance->documents = new class( $document_id ) {
+			private ?int $id;
+
+			public function __construct( ?int $id ) {
+				$this->id = $id;
+			}
+
+			public function get_current(): ?object {
+				if ( null === $this->id ) {
+					return null;
+				}
+
+				return new class( $this->id ) {
+					private int $id;
+
+					public function __construct( int $id ) {
+						$this->id = $id;
+					}
+
+					public function get_main_id(): int {
+						return $this->id;
+					}
+				};
+			}
+		};
 	}
 
 	private function fallbackOutput( object $element ): string {
@@ -231,6 +268,86 @@ final class ElementorAjaxSuppressionTest extends TestCase {
 		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
 
 		$this->assertFalse( Agend_Content_Access_Frontend::is_elementor_editor_ajax() );
+	}
+
+	// -----------------------------------------------------------------------
+	// The editor's AJAX is authoring for the document being rendered
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Elementor's edit mode holds for the whole editor request once the user may
+	 * edit the one document the editor names, and the request can render others.
+	 * A contributor's editor, open on their own draft, rendering a Loop Grid or a
+	 * Template widget that pulls in a restricted document, is a visitor's render of
+	 * that document.
+	 */
+	private function contributorEditingOwnDraft( int $rendering ): void {
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = false;
+
+		$this->elementorEditorAjax( 42 );
+		$this->documentRendering( $rendering );
+	}
+
+	#[Test]
+	public function the_editor_ajax_of_a_contributor_does_not_stand_suppression_down_for_another_document(): void {
+		$this->contributorEditingOwnDraft( 300 );
+
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $this->conditioned() ) );
+		$this->assertStringContainsString( 'SIGN-IN-PROMPT-CONTENT', $this->fallbackOutput( $this->conditioned() ) );
+	}
+
+	#[Test]
+	public function the_editor_ajax_of_a_contributor_does_not_mark_sections_of_another_document(): void {
+		$this->contributorEditingOwnDraft( 300 );
+		$element = $this->restricted();
+
+		( new ElementorControl() )->maybe_mark_in_editor( $element );
+
+		$this->assertSame( array(), $element->attributes );
+	}
+
+	/** The control: the same contributor, the same request, the document they are editing. */
+	#[Test]
+	public function the_editor_ajax_of_a_contributor_is_authoring_for_their_own_document(): void {
+		$this->contributorEditingOwnDraft( 42 );
+
+		$this->assertTrue( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );
+		$this->assertTrue( ( new ElementorControl() )->maybe_suppress( true, $this->conditioned() ) );
+		$this->assertSame( '', $this->fallbackOutput( $this->conditioned() ) );
+	}
+
+	/** An editor may edit every document, so the template their widget pulls in is theirs to see. */
+	#[Test]
+	public function the_editor_ajax_of_somebody_who_may_edit_the_other_document_is_authoring_for_it(): void {
+		$this->elementorEditorAjax( 42 );
+		$GLOBALS['agend_test_current_user_can_for']['edit_post'][300] = true;
+		$this->documentRendering( 300 );
+
+		$this->assertTrue( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );
+	}
+
+	/** A document that cannot be named is one the rule cannot be applied to: it is a visitor's. */
+	#[Test]
+	public function the_editor_ajax_is_a_visitors_when_the_document_cannot_be_identified(): void {
+		$this->elementorEditorAjax( 42 );
+		$this->documentRendering( null );
+
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );
+		$this->assertStringContainsString( 'SIGN-IN-PROMPT-CONTENT', $this->fallbackOutput( $this->conditioned() ) );
+
+		// Nor does Elementor name one when its document manager is absent altogether.
+		\Elementor\Plugin::$instance->documents = null;
+
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );
+	}
+
+	#[Test]
+	public function the_editor_ajax_is_a_visitors_when_the_document_has_no_id(): void {
+		$this->elementorEditorAjax( 42 );
+		$this->documentRendering( 0 );
+
+		$this->assertFalse( ( new ElementorControl() )->maybe_suppress( true, $this->restricted() ) );
 	}
 
 	// -----------------------------------------------------------------------
