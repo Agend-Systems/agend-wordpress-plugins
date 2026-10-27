@@ -249,6 +249,10 @@ return array(
 		'app'    => 'crm',
 		'scopes' => array( array( 'crm.tasks.browse' ) ),
 	),
+	'GET /crm/entitlements/types' => array(
+		'app'    => 'crm',
+		'scopes' => array( array( 'crm.entitlements.browse' ) ),
+	),
 	'GET /crm/fields' => array(
 		'app'    => 'crm',
 		'scopes' => array( array( 'crm.fields.browse' ) ),
