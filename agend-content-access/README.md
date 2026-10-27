@@ -371,7 +371,9 @@ mode is gated this way, including segments and selected entitlements, and the
 gate names entitlements exactly as the post's own page does. Feeds are always
 evaluated as an anonymous reader, because a feed is fetched without a session
 and shared through caches. A feed therefore never asks Agend for a member's
-standing or segments.
+standing or segments. That holds for the parts of a document as well as the
+document: an Elementor section's policy, its display conditions and its fallback
+are judged for a signed-out reader in a feed, as a block's are.
 
 A listing costs no more gateway calls than a single post. However many
 restricted posts a loop renders, the visitor's standing is asked of Agend at

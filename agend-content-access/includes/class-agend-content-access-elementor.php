@@ -487,6 +487,10 @@ class Agend_Content_Access_Elementor {
 	 * so treating every `is_admin()` request as authoring stood suppression down
 	 * for exactly those renders and printed every restricted section.
 	 *
+	 * In a feed the element is judged for nobody, conditions and policy both, as the
+	 * page gate judges the document and block enforcement judges a block: the
+	 * output is shared and cached, whoever fetched it.
+	 *
 	 * @param bool                    $should_render Elementor's decision so far.
 	 * @param \Elementor\Element_Base $element       Element.
 	 * @return bool
@@ -502,11 +506,16 @@ class Agend_Content_Access_Elementor {
 
 		$settings = $element->get_settings_for_display();
 
+		// A FEED is judged for nobody. Its output is shared and routinely cached, so
+		// a copy personalised to whoever fetched it would be served to everyone
+		// after them. Blocks and the page gate do the same.
+		$anonymous = is_feed();
+
 		// Display conditions are evaluated FIRST and independently. They can
 		// only ever remove an element, so an element hidden here is hidden
 		// whatever the access policy says, and vice versa. Neither can reveal
 		// what the other hid.
-		if ( ! Agend_Content_Access_Fragment_Rules::conditions_pass( $settings ) ) {
+		if ( ! Agend_Content_Access_Fragment_Rules::conditions_pass( $settings, self::checker_for( $anonymous ) ) ) {
 			return false;
 		}
 
@@ -526,10 +535,23 @@ class Agend_Content_Access_Elementor {
 		// the effective policy of this element is a segments policy.
 		$state = Agend_Content_Access_Decision::evaluate(
 			$effective,
-			Agend_Content_Access_Decision::viewer( $effective )
+			$anonymous ? Agend_Content_Access_Decision::anonymous_viewer() : Agend_Content_Access_Decision::viewer( $effective )
 		);
 
 		return Agend_Content_Access_Decision::STATE_GRANTED === $state;
+	}
+
+	/**
+	 * The display condition checker for the viewer being judged.
+	 *
+	 * Null is the live visitor's, which is what `conditions_pass()` builds when it
+	 * is given none. A feed is judged for nobody, so it is given the anonymous one.
+	 *
+	 * @param bool $anonymous Whether the render is judged for a visitor who is nobody.
+	 * @return callable|null
+	 */
+	private static function checker_for( bool $anonymous ): ?callable {
+		return $anonymous ? Agend_Content_Access_Condition_Runtime::anonymous_checker() : null;
 	}
 
 	/**
@@ -640,10 +662,14 @@ class Agend_Content_Access_Elementor {
 
 		$settings = $element->get_settings_for_display();
 
+		// Judged for nobody in a feed, as `maybe_suppress()` judges the element, so
+		// the two cannot disagree about whether the conditions excluded it.
+		$anonymous = is_feed();
+
 		// Only elements the CONDITIONS excluded get a fallback. An element
 		// hidden by the access policy is protected content, and offering a
 		// consolation render there would blur the two.
-		if ( Agend_Content_Access_Fragment_Rules::conditions_pass( $settings ) ) {
+		if ( Agend_Content_Access_Fragment_Rules::conditions_pass( $settings, self::checker_for( $anonymous ) ) ) {
 			return;
 		}
 
@@ -655,7 +681,7 @@ class Agend_Content_Access_Elementor {
 			return;
 		}
 
-		echo Agend_Content_Access_Fragment_Rules::fallback_html( $fallback_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo Agend_Content_Access_Fragment_Rules::fallback_html( $fallback_id, $anonymous ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/**
