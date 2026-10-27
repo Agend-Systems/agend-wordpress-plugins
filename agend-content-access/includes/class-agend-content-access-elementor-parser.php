@@ -153,7 +153,7 @@ class Agend_Content_Access_Elementor_Parser implements Agend_Content_Access_Docu
 		// The node's own policy, narrowed against everything above it. Passing
 		// the inherited policy as the "document" argument is what enforces the
 		// never-widen rule at every level, not just at the page boundary.
-		$own       = Agend_Content_Access_Policy::from_fragment_settings( $settings );
+		$own       = Agend_Content_Access_Rules::from_elementor_settings( $settings )->to_policy();
 		$effective = null === $own
 			? $inherited
 			: Agend_Content_Access_Policy::effective_policy( $inherited, $own );

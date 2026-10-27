@@ -29,8 +29,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Folding downward cannot lose a restriction, only apply it more widely, so a
  * fragment is never broader than its ancestors, exactly as in the Elementor
- * driver. A fragment's own policy is read from the `agendAccess` block
- * attribute through `Agend_Content_Access_Block_Attributes`, and folded with
+ * driver. A fragment's own rules are read from the `agendAccess` block attribute
+ * by `Agend_Content_Access_Rules::from_block()`, expressed as an access policy by
+ * `Rules::to_policy()`, and folded with
  * `Agend_Content_Access_Policy::effective_policy()`.
  *
  * NOTHING HERE RENDERS. `render_block()` and `do_blocks()` are never called.
@@ -50,9 +51,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * protected, not a pattern, in a cycle or past a limit yields an empty,
  * non-extracted fragment, never a failure.
  *
- * Display conditions are not exported, matching the Elementor driver: they are
- * evaluated in the theme, against the visitor, and Agend has no vocabulary for
- * them. Only the audience policy travels.
+ * Rules that no access policy can say (a role, a reverse, display conditions,
+ * "all of" two plans) are exported as the unsatisfiable policy, `selected_tiers`
+ * with no plans, matching the Elementor driver: Agend has no vocabulary for them,
+ * and what it serves must never be MORE than the rules allow. So a block that
+ * carries any rules is its own fragment, and is hidden from everyone in the Agend
+ * projection until it can be said.
  *
  * Block markup is user content, so this never throws: an unknown block name is
  * normal, and an unreadable region becomes an empty fragment that keeps its
@@ -191,7 +195,7 @@ class Agend_Content_Access_Block_Parser implements Agend_Content_Access_Document
 		// The block's own policy, narrowed against everything above it. Passing
 		// the inherited policy as the "document" argument is what enforces the
 		// never-widen rule at every level, not just at the page boundary.
-		$own       = Agend_Content_Access_Policy::from_fragment_settings( Agend_Content_Access_Block_Attributes::settings_for_block( $block ) );
+		$own       = Agend_Content_Access_Rules::from_block( $block )->to_policy();
 		$effective = null === $own
 			? $inherited
 			: Agend_Content_Access_Policy::effective_policy( $inherited, $own );

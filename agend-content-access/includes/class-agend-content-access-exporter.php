@@ -31,26 +31,30 @@ class Agend_Content_Access_Exporter {
 	 *
 	 * @param WP_Post $post Post to export.
 	 * @return array Connector record.
-	 * @throws RuntimeException When the post's stored access policy cannot be read.
+	 * @throws RuntimeException When the post's stored access rules cannot be read.
 	 */
 	public static function record( $post ): array {
 		$post_id = (int) $post->ID;
 
-		// Refuse to build a record at all for an unreadable policy. Exported as
+		$rules = Agend_Content_Access_Rules::from_post( $post_id );
+
+		// Refuse to build a record at all for rules that cannot be read. Exported as
 		// null it would mean "none set", which Agend also reads as public, so the
 		// page that WordPress hides from everyone would be projected openly. The
 		// connector route turns this into a 422, which leaves Agend holding the
 		// revision it already has.
-		if ( Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( $post_id ) ) {
+		if ( $rules->is_unreadable() ) {
 			throw new RuntimeException(
 				sprintf(
-					'Post %d has a stored access policy that is unreadable, so it was not exported. Set the audience again in the editor.',
+					'Post %d has stored access rules that are unreadable, so it was not exported. Set the audience again in the editor.',
 					$post_id
 				)
 			);
 		}
 
-		$policy = Agend_Content_Access_Policy::get_for_post( $post_id );
+		// The rules as the policy arm that says them, null for none, and the
+		// unsatisfiable policy (hidden from everyone) for rules no arm can say.
+		$policy = $rules->to_policy();
 
 		return array(
 			// Stable identity for upsert. `source_id` is the WordPress post id
@@ -97,7 +101,7 @@ class Agend_Content_Access_Exporter {
 	/**
 	 * A revision token that changes whenever the content or policy does.
 	 *
-	 * Includes the POLICY, not just the body. Changing a document from public
+	 * Includes the RULES, not just the body. Changing a document from public
 	 * to members-only edits no content, so a revision derived from the body
 	 * alone would let Agend skip the sync and keep serving the record under its
 	 * old audience.
@@ -118,15 +122,22 @@ class Agend_Content_Access_Exporter {
 	public static function revision_of( $post ): string {
 		$post_id = (int) $post->ID;
 
-		// An unreadable policy gets a marker of its own rather than hashing as
-		// null, which is what "none set" hashes as. Otherwise a post whose
-		// policy became unreadable would keep its revision, Agend would never
-		// re-fetch it, and the 422 that reports the problem would never be seen.
-		// This does not throw: the listing walks every document, and one bad
-		// policy must not stop the rest of the site syncing.
-		$policy = Agend_Content_Access_Policy::STORED_INVALID === Agend_Content_Access_Policy::stored_state( $post_id )
-			? 'unreadable'
-			: wp_json_encode( Agend_Content_Access_Policy::get_for_post( $post_id ) );
+		// Unreadable rules get a marker of their own rather than hashing as null,
+		// which is what "none set" hashes as. Otherwise a post whose rules became
+		// unreadable would keep its revision, Agend would never re-fetch it, and the
+		// 422 that reports the problem would never be seen. This does not throw: the
+		// listing walks every document, and one bad value must not stop the rest of
+		// the site syncing.
+		$rules  = Agend_Content_Access_Rules::from_post( $post_id );
+		$policy = $rules->is_unreadable() ? 'unreadable' : wp_json_encode( $rules->to_policy() );
+
+		// Rules that export as the unsatisfiable policy all hash alike, a role rule
+		// and a reversed one as much as "nobody", yet are not the same rules. The
+		// rules themselves go in too, so changing one of them changes the revision.
+		if ( ! $rules->is_unreadable() && Agend_Content_Access_Policy::UNSATISFIABLE === $rules->to_policy() ) {
+			$policy .= '|' . wp_json_encode( $rules->to_array() );
+		}
+
 		$parts  = array(
 			(string) $post->post_modified_gmt,
 			(string) $post->post_status,

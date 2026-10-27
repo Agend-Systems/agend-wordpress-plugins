@@ -241,15 +241,31 @@ final class BlockParserTest extends TestCase {
 		$this->assertSame( '<div class="wp-block-group"><p>One</p><p>Two</p></div>', $fragments[0]['payload']['html'] );
 	}
 
-	/** Display conditions are not exported, as in the Elementor driver. */
+	/**
+	 * Changed from "display conditions are not exported". They are rules now, and rules no
+	 * access policy can say export as the unsatisfiable policy, so Agend never serves a
+	 * conditioned block to MORE people than the rules allow. The conditions themselves, and the
+	 * fallback, still do not travel.
+	 */
 	#[Test]
-	public function display_conditions_are_not_exported(): void {
+	public function display_conditions_export_as_the_unsatisfiable_policy_and_travel_no_further(): void {
 		$access    = array( 'conditionsEnabled' => true, 'conditions' => array( 'role:editor' ), 'fallbackId' => 9 );
 		$fragments = $this->fragments( $this->para( 'Conditioned', $access ) );
 
-		$this->assertSame( array( 'mode' => 'inherit' ), $fragments[0]['policy'] );
+		$this->assertSame( array( 'mode' => 'selected_tiers', 'tier_ids' => array() ), $fragments[0]['policy'] );
 		$this->assertSame( array( 'id', 'position', 'type', 'payload', 'policy' ), array_keys( $fragments[0] ) );
 		$this->assertStringNotContainsString( 'role:editor', (string) json_encode( $fragments ) );
+	}
+
+	/** A conditioned block is its own fragment, so the unsatisfiable policy cannot spread to its siblings. */
+	#[Test]
+	public function a_conditioned_block_splits_its_parent_so_only_it_is_hidden(): void {
+		$conditioned = array( 'conditionsEnabled' => true, 'conditions' => array( 'agend_wordpress:logged_in' ) );
+		$fragments   = $this->fragments( $this->group( array( $this->para( 'Open' ), $this->para( 'Conditioned', $conditioned ) ) ) );
+
+		$this->assertSame( array( 'block-0-0', 'block-0-1' ), $this->ids( $fragments ) );
+		$this->assertSame( array( 'mode' => 'inherit' ), $fragments[0]['policy'] );
+		$this->assertSame( array( 'mode' => 'selected_tiers', 'tier_ids' => array() ), $fragments[1]['policy'] );
 	}
 
 	#[Test]
