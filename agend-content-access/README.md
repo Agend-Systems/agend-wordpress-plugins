@@ -176,12 +176,24 @@ lifetime stays as the backstop.
 
 Rules the cache keeps:
 
-- It is per member. The key carries the WordPress user id and a generation
-  number from the `agend_content_access_facts_generation` option, so one bump
-  invalidates every member at once.
+- It is per member and per bearer. The key carries the WordPress user id, a
+  digest of the bearer the answer was fetched with, and two generation numbers:
+  a global one from the `agend_content_access_facts_generation` option, so one
+  bump invalidates every member at once, and the member's own, in the
+  `_agend_content_access_facts_gen` user meta, which a flush increments so a
+  webhook (which has no bearer) still reaches every entry for that member. The
+  bearer is in the key because the user id alone is not the identity the gateway
+  answered for: after a re-link, or with a bearer provider not tied to the
+  WordPress user, an entry fetched under the old bearer would otherwise be served
+  for the new one. The key is built through Core's `Agend_Apps_Cache::build_key()`
+  under `crm_me_entitlements`, so Core's Cache tab "Clear" button clears these
+  entries too.
 - A visitor with no WordPress user id is never cached, even when a bearer token
   reaches the plugin through the `agend_apps_bearer_token` filter. One shared
   key would serve every such visitor the same standing.
+- A visitor with no bearer is never read from or written to the cache either.
+  There is no identity to key an entry on, and an entry written under an earlier
+  bearer would be stale.
 - A failed lookup is never cached. It reads as unknown and denies.
 
 ## Running the tests

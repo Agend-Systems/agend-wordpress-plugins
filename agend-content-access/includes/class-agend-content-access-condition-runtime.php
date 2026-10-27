@@ -31,8 +31,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Each API-backed family is cached PER VIEWER, never globally: both responses
  * are entirely about who is asking, so a shared entry would hand one member's
- * standing or segments to the next visitor. Both caches are keyed by the same
- * generation number, so a single bump invalidates them together.
+ * standing or segments to the next visitor. The keys (built by the facts source)
+ * carry the user id, a digest of the bearer and the generations, so a single bump
+ * or flush invalidates both families together.
  *
  * A source that cannot answer returns null, which the engine reads as unknown
  * and denies on while naming the provider. The one case that answers
@@ -40,14 +41,6 @@ if ( ! defined( 'ABSPATH' ) ) {
  * belongs to no segments and holds no entitlements; that needs no network.
  */
 class Agend_Content_Access_Condition_Runtime {
-
-	/**
-	 * Cache key prefixes, aliased from the facts source that owns the keys.
-	 * Build a full key with `Agend_Content_Access_Viewer_Facts::member_cache_key()`
-	 * or `::segment_cache_key()`, which add the user id and the generation.
-	 */
-	const MEMBER_CACHE_KEY  = Agend_Content_Access_Viewer_Facts::MEMBER_KEY_PREFIX;
-	const SEGMENT_CACHE_KEY = Agend_Content_Access_Viewer_Facts::SEGMENT_KEY_PREFIX;
 
 	/**
 	 * Builds a checker bound to live sources.
@@ -196,8 +189,9 @@ class Agend_Content_Access_Condition_Runtime {
 	 * Clears the cached facts for one user.
 	 *
 	 * Called when membership changes arrive by webhook, so an upgrade or a
-	 * lapse takes effect without waiting out the TTL. Clears the membership
-	 * entry and the segment entry, under the current generation.
+	 * lapse takes effect without waiting out the TTL. Invalidates the membership
+	 * entries and the segment entries for that user under every bearer, without
+	 * needing to know one.
 	 *
 	 * @param int $user_id WordPress user id.
 	 */

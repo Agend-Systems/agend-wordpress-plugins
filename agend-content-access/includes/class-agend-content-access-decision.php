@@ -168,9 +168,9 @@ class Agend_Content_Access_Decision {
 			'degraded'         => false,
 		);
 
-		$bearer = function_exists( 'agend_apps_get_bearer_token' )
-			? agend_apps_get_bearer_token()
-			: '';
+		// The facts source's bearer, memoised per user per request, so the viewer
+		// and the facts it reads are bound to the same identity.
+		$bearer = Agend_Content_Access_Viewer_Facts::bearer();
 
 		if ( '' === $bearer ) {
 			self::$viewer_cache = $viewer;

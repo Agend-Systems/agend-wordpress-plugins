@@ -138,9 +138,13 @@ Rules carried over unchanged:
 
 ### Cache lifetime and invalidation
 
-- Transient key: the member's WordPress user id plus a **generation number**
-  stored in an option. Bumping the generation invalidates every member at once
-  without iterating users.
+- Transient key: the member's WordPress user id, a digest of the bearer the
+  answer was fetched with, a **generation number** stored in an option, and the
+  member's own generation in user meta. Bumping the global generation
+  invalidates every member at once without iterating users; flushing one member
+  increments their own, which reaches every bearer's entry without needing to
+  know one. The key is built through `Agend_Apps_Cache::build_key()` under
+  `crm_me_entitlements`.
 - Lifetime: the configured value (`crm_me_entitlements`, registered in
   `Agend_Apps_Cache` so the setting actually applies), default five minutes.
   When the gateway reports per-capability `expires_at`, the lifetime is capped

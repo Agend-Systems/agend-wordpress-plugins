@@ -49,12 +49,24 @@ if ( ! defined( 'ABSPATH' ) ) {
  *   - One gateway call per fact per request at most. The result, a failure
  *     included, is memoised for the request, so the document path and the
  *     condition path share it.
- *   - The cache is per member and never shared. The key carries the WordPress
- *     user id and a generation number (see `bump_generation()`).
- *   - Nothing is written to the transient store when the user id is 0. A bearer
- *     can reach this code through the `agend_apps_bearer_token` filter without a
- *     WordPress login, and a user-0 key would be one entry shared by every such
- *     visitor. That visitor is memoised for the request and nothing more.
+ *   - The cache is per member AND per bearer, and never shared. The key carries
+ *     the WordPress user id, a digest of the bearer the facts were fetched
+ *     with, the global generation (see `bump_generation()`) and the user's own
+ *     generation (see `flush()`). The bearer is in the key because the user id
+ *     alone is not the identity the gateway answered for: a re-link, or any
+ *     `agend_apps_bearer_token` provider not tied to the WordPress user, can put
+ *     a different member's bearer behind the same user id, and an entry fetched
+ *     under the old bearer would then be served for the new one until it
+ *     expired. Core's `identity_cache_suffix()` is the same rule for the same
+ *     reason.
+ *   - Nothing is read from or written to the transient store without a bearer,
+ *     or when the user id is 0. A bearer can reach this code through the
+ *     `agend_apps_bearer_token` filter without a WordPress login, and a user-0
+ *     key would be one entry shared by every such visitor. A logged-in user with
+ *     no bearer has nothing to key an entry on, and reading one written under an
+ *     earlier bearer would be serving stale facts to someone the gateway cannot
+ *     now identify. Those visitors are memoised for the request and nothing
+ *     more.
  *   - A failure is never cached. It yields "unknown" (null), which each adapter
  *     maps to its own denial. Caching it would stretch one blip into a
  *     TTL-long outage for that member.
@@ -73,14 +85,40 @@ class Agend_Content_Access_Viewer_Facts {
 	const GENERATION_OPTION = 'agend_content_access_facts_generation';
 
 	/**
-	 * Transient key prefixes. The per-member membership facts and the
-	 * per-member segment facts are separate entries because segments are
-	 * fetched only when something on the page needs them.
+	 * User meta holding one user's own cache generation.
+	 *
+	 * `flush()` increments it, and it is part of every key that user's entries are
+	 * stored under. That is how one user's entries are all invalidated by a caller
+	 * that holds no bearer, which is the only kind of caller a webhook can be: the
+	 * bearer digest is in the key, so without a per-user number there would be no
+	 * way to name the entries to delete.
 	 *
 	 * @var string
 	 */
-	const MEMBER_KEY_PREFIX  = 'agend_content_access_member_facts';
-	const SEGMENT_KEY_PREFIX = 'agend_content_access_segment_facts';
+	const USER_GENERATION_META = '_agend_content_access_facts_gen';
+
+	/**
+	 * The endpoint key every entry is stored under, and the transient prefix Core
+	 * puts in front of it.
+	 *
+	 * Core's Cache tab "Clear" button deletes every transient whose name starts
+	 * `agend_apps_crm_me_entitlements`, so building the key under that prefix means
+	 * the button clears these entries too. It is a setting in Core 1.48.0 and later;
+	 * on an older Core the key is simply not listed and nothing else changes.
+	 *
+	 * @var string
+	 */
+	const CACHE_ENDPOINT   = 'crm_me_entitlements';
+	const TRANSIENT_PREFIX = 'agend_apps_';
+
+	/**
+	 * Which fact an entry holds. Part of the key, so the membership entry and the
+	 * segment entry for one member under one bearer are separate transients.
+	 *
+	 * @var string
+	 */
+	const FACT_MEMBER   = 'member';
+	const FACT_SEGMENTS = 'segments';
 
 	/**
 	 * A gate key as the gateway defines it (`crm_benefits.gate_key`), and as the
@@ -123,11 +161,70 @@ class Agend_Content_Access_Viewer_Facts {
 	private static array $segment_memo = array();
 
 	/**
+	 * Per-request memo of the bearer, keyed by WordPress user id.
+	 *
+	 * The bearer comes out of a filter chain that can read user meta and refresh a
+	 * token, so it is asked once per user per request. Keyed by user id for the
+	 * same reason the fact memos are: a request that switches user must not be
+	 * handed the previous user's bearer.
+	 *
+	 * @var array<int, string>
+	 */
+	private static array $bearer_memo = array();
+
+	/**
+	 * Per-request memo of each user's own cache generation, read from user meta
+	 * once per user per request.
+	 *
+	 * @var array<int, int>
+	 */
+	private static array $user_generation_memo = array();
+
+	/**
 	 * Resets the per-request memos. Tests, and `bump_generation()`.
 	 */
 	public static function reset(): void {
-		self::$memo         = array();
-		self::$segment_memo = array();
+		self::$memo                 = array();
+		self::$segment_memo         = array();
+		self::$bearer_memo          = array();
+		self::$user_generation_memo = array();
+	}
+
+	/**
+	 * The bearer the current visitor's gateway calls are made under, or '' when
+	 * there is none.
+	 *
+	 * Asked of `agend_apps_get_bearer_token()` once per user per request, and only
+	 * when Core provides it. It is the identity every cached fact is bound to, and
+	 * the document path's definition of "identified", so both read it here and
+	 * cannot disagree about it within a request.
+	 *
+	 * @return string
+	 */
+	public static function bearer(): string {
+		$user_id = (int) get_current_user_id();
+
+		if ( ! array_key_exists( $user_id, self::$bearer_memo ) ) {
+			self::$bearer_memo[ $user_id ] = function_exists( 'agend_apps_get_bearer_token' )
+				? (string) agend_apps_get_bearer_token()
+				: '';
+		}
+
+		return self::$bearer_memo[ $user_id ];
+	}
+
+	/**
+	 * A short, non-reversible tag for a bearer, safe to put in a cache key or a
+	 * memo key. '' for no bearer.
+	 *
+	 * The same form as Core's `identity_cache_suffix()`: the first 16 hex digits of
+	 * a SHA-256. Truncated for key length only. The token never appears in a key.
+	 *
+	 * @param string $bearer Bearer token.
+	 * @return string
+	 */
+	public static function bearer_digest( string $bearer ): string {
+		return '' === $bearer ? '' : substr( hash( 'sha256', $bearer ), 0, 16 );
 	}
 
 	/**
@@ -180,15 +277,18 @@ class Agend_Content_Access_Viewer_Facts {
 			return null;
 		}
 
-		// Never cached for user 0. See the class docblock: a bearer can arrive
-		// without a login, and one key would then serve every such visitor.
-		$cacheable = $user_id > 0;
+		// Cached only for a real user holding a bearer. See the class docblock: a
+		// bearer can arrive without a login, and one key would then serve every
+		// such visitor; and without a bearer there is no identity to key on, so a
+		// stale entry from an earlier session must not be read.
+		$bearer    = $user_id > 0 ? self::bearer() : '';
+		$cacheable = $user_id > 0 && '' !== $bearer;
 
 		// The key is built ONCE, before the gateway is asked, and used for both
 		// the read and the write. Reading the generation again at write time
 		// would let a bump that lands mid-request store pre-change data under
 		// the new generation, which is exactly the entry the bump meant to kill.
-		$key = $cacheable ? self::member_cache_key( $user_id ) : '';
+		$key = $cacheable ? self::member_cache_key( $user_id, $bearer ) : '';
 
 		if ( $cacheable ) {
 			$cached = get_transient( $key );
@@ -265,8 +365,9 @@ class Agend_Content_Access_Viewer_Facts {
 	/**
 	 * Resolves a user's segments: transient first, then the gateway.
 	 *
-	 * Follows the same rules as `resolve()`: nothing is cached for user 0, the
-	 * key is built once before the call, and a failure is never cached.
+	 * Follows the same rules as `resolve()`: nothing is read or cached for user 0
+	 * or without a bearer, the key is built once before the call, and a failure is
+	 * never cached.
 	 *
 	 * @param int $user_id WordPress user id, 0 when none.
 	 * @return array{segment_ids: string[], segment_slugs: string[]}|null
@@ -277,8 +378,9 @@ class Agend_Content_Access_Viewer_Facts {
 			return null;
 		}
 
-		$cacheable = $user_id > 0;
-		$key       = $cacheable ? self::segment_cache_key( $user_id ) : '';
+		$bearer    = $user_id > 0 ? self::bearer() : '';
+		$cacheable = $user_id > 0 && '' !== $bearer;
+		$key       = $cacheable ? self::segment_cache_key( $user_id, $bearer ) : '';
 
 		if ( $cacheable ) {
 			$cached = get_transient( $key );
@@ -522,43 +624,133 @@ class Agend_Content_Access_Viewer_Facts {
 	}
 
 	/**
+	 * A user's own cache generation, read once per request.
+	 *
+	 * @param int $user_id WordPress user id.
+	 * @return int
+	 */
+	private static function user_generation( int $user_id ): int {
+		if ( ! array_key_exists( $user_id, self::$user_generation_memo ) ) {
+			self::$user_generation_memo[ $user_id ] = self::stored_user_generation( $user_id );
+		}
+
+		return self::$user_generation_memo[ $user_id ];
+	}
+
+	/**
+	 * A user's own cache generation as stored, bypassing the request memo.
+	 *
+	 * Anything that is not a non-negative integer reads as 0.
+	 *
+	 * @param int $user_id WordPress user id.
+	 * @return int
+	 */
+	private static function stored_user_generation( int $user_id ): int {
+		return max( 0, (int) get_user_meta( $user_id, self::USER_GENERATION_META, true ) );
+	}
+
+	/**
 	 * Transient key for a member's membership facts.
 	 *
-	 * Carries the WordPress user id, so one member's facts are never served to
-	 * another, and the generation the entry was written under, so a bump makes
-	 * every older entry unreachable. Both are integers joined by underscores,
-	 * which keeps the pair unambiguous.
+	 * Binds the entry to the WordPress user id (one member's facts are never
+	 * served to another), to the bearer it was fetched under (a different bearer
+	 * for the same user is a miss, never someone else's answer), and to both
+	 * generations (a global bump or a per-user flush makes every older entry
+	 * unreachable).
 	 *
-	 * @param int $user_id WordPress user id.
+	 * @param int    $user_id WordPress user id.
+	 * @param string $bearer  The bearer the facts are fetched with. Never '' for a cached entry.
 	 * @return string
 	 */
-	public static function member_cache_key( int $user_id ): string {
-		return self::MEMBER_KEY_PREFIX . '_g' . self::generation() . '_u' . $user_id;
+	public static function member_cache_key( int $user_id, string $bearer ): string {
+		return self::cache_key( self::FACT_MEMBER, $user_id, $bearer );
 	}
 
 	/**
-	 * Transient key for a member's segment facts, under the same generation.
+	 * Transient key for a member's segment facts, on the same terms.
 	 *
-	 * @param int $user_id WordPress user id.
+	 * @param int    $user_id WordPress user id.
+	 * @param string $bearer  The bearer the facts are fetched with.
 	 * @return string
 	 */
-	public static function segment_cache_key( int $user_id ): string {
-		return self::SEGMENT_KEY_PREFIX . '_g' . self::generation() . '_u' . $user_id;
+	public static function segment_cache_key( int $user_id, string $bearer ): string {
+		return self::cache_key( self::FACT_SEGMENTS, $user_id, $bearer );
 	}
 
 	/**
-	 * Forgets one member's cached facts, membership and segments, and drops
-	 * their entry from the request memo.
+	 * The transient name for one fact of one user under one bearer.
+	 *
+	 * Built through Core's `Agend_Apps_Cache::build_key()` whenever it exists, so
+	 * the name is `agend_apps_crm_me_entitlements_<hash>` and Core's Cache tab
+	 * "Clear" button, which deletes transients by that prefix, clears these entries
+	 * too. When it does not exist the same shape is produced locally, so the prefix
+	 * (and therefore the Clear button) works the same either way.
+	 *
+	 * The hash is over every input that decides who may read the entry. The bearer
+	 * enters as its digest only.
+	 *
+	 * @param string $fact    FACT_MEMBER or FACT_SEGMENTS.
+	 * @param int    $user_id WordPress user id.
+	 * @param string $bearer  Bearer token.
+	 * @return string
+	 */
+	private static function cache_key( string $fact, int $user_id, string $bearer ): string {
+		$parts = array(
+			'fact'     => $fact,
+			'user'     => $user_id,
+			'bearer'   => self::bearer_digest( $bearer ),
+			'gen'      => self::generation(),
+			'user_gen' => self::user_generation( $user_id ),
+		);
+
+		if ( class_exists( 'Agend_Apps_Cache' ) && method_exists( 'Agend_Apps_Cache', 'build_key' ) ) {
+			return self::TRANSIENT_PREFIX . Agend_Apps_Cache::build_key( self::CACHE_ENDPOINT, $parts );
+		}
+
+		return self::fallback_key( $parts );
+	}
+
+	/**
+	 * The key shape Core's `build_key()` produces, for a Core that predates it.
+	 *
+	 * Same prefix and the same hash formula, so an entry is findable by Core's
+	 * prefix-based clear whichever path built it.
+	 *
+	 * @param array $parts Everything that decides who may read the entry.
+	 * @return string
+	 */
+	private static function fallback_key( array $parts ): string {
+		return self::TRANSIENT_PREFIX . self::CACHE_ENDPOINT . '_' . md5( self::CACHE_ENDPOINT . serialize( $parts ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
+	}
+
+	/**
+	 * Forgets everything cached for one member, whatever bearer it was fetched
+	 * under, and drops their entries from the request memos.
 	 *
 	 * Called when a change for that member arrives, so an upgrade or a lapse
-	 * takes effect without waiting out the TTL.
+	 * takes effect without waiting out the TTL. The caller is a webhook, which has
+	 * no bearer, and the bearer is part of every key, so the entries cannot be
+	 * named to delete them. Instead the member's own generation is incremented, and
+	 * it is in every key, so every existing entry for that member (membership and
+	 * segments, under any bearer) stops being found. The orphaned entries expire on
+	 * their own, within the cache lifetime.
+	 *
+	 * Two flushes racing can land on the same number. That is harmless: either one
+	 * is already different from every key written before it.
 	 *
 	 * @param int $user_id WordPress user id.
 	 */
 	public static function flush( int $user_id ): void {
-		delete_transient( self::member_cache_key( $user_id ) );
-		delete_transient( self::segment_cache_key( $user_id ) );
+		if ( $user_id > 0 ) {
+			// Read from storage, not the request memo: another request may have
+			// flushed since this one first looked.
+			$next = self::stored_user_generation( $user_id ) + 1;
 
-		unset( self::$memo[ $user_id ], self::$segment_memo[ $user_id ] );
+			update_user_meta( $user_id, self::USER_GENERATION_META, $next );
+
+			self::$user_generation_memo[ $user_id ] = $next;
+		}
+
+		unset( self::$memo[ $user_id ], self::$segment_memo[ $user_id ], self::$bearer_memo[ $user_id ] );
 	}
 }

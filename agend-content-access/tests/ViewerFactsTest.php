@@ -8,7 +8,9 @@ declare( strict_types=1 );
 namespace Agend\Tests\ContentAccess;
 
 use Agend_Content_Access_Condition_Runtime as Runtime;
+use Agend_Apps_Cache;
 use Agend_Content_Access_Decision as Decision;
+use Agend_Content_Access_Policy as Policy;
 use Agend_Content_Access_Viewer_Facts as ViewerFacts;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
@@ -38,6 +40,10 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 final class ViewerFactsTest extends TestCase {
 
 	private const TIER_A = '11111111-1111-1111-1111-111111111111';
+	private const POST   = 501;
+
+	/** The bearer a signed-in member presents. Cache entries are bound to it. */
+	private const BEARER = 'member-token';
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -45,12 +51,30 @@ final class ViewerFactsTest extends TestCase {
 		$GLOBALS['agend_test_current_user_id'] = 0;
 	}
 
-	private function signIn( int $userId ): void {
+	/**
+	 * Signs a user in. A member session carries a bearer, and facts are cached
+	 * only under one, so the bearer is set too unless a test is about its absence.
+	 */
+	private function signIn( int $userId, bool $withBearer = true ): void {
 		$GLOBALS['agend_test_current_user_id'] = $userId;
+
+		if ( $withBearer ) {
+			$this->bearer();
+		}
 	}
 
-	private function bearer( string $token = 'member-token' ): void {
+	private function bearer( string $token = self::BEARER ): void {
 		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', $token );
+	}
+
+	/** The transient name the membership facts of a user are stored under. */
+	private function memberKey( int $userId, string $bearer = self::BEARER ): string {
+		return ViewerFacts::member_cache_key( $userId, $bearer );
+	}
+
+	/** The transient name the segment facts of a user are stored under. */
+	private function segmentKey( int $userId, string $bearer = self::BEARER ): string {
+		return ViewerFacts::segment_cache_key( $userId, $bearer );
 	}
 
 	/** Makes the gateway answer with a `data` envelope. */
@@ -123,7 +147,7 @@ final class ViewerFactsTest extends TestCase {
 		$first = ViewerFacts::member();
 
 		$this->assertSame( 1, $this->gatewayCalls() );
-		$this->assertArrayHasKey( ViewerFacts::member_cache_key( 7 ), Agend_Test_WP::$transients );
+		$this->assertArrayHasKey( $this->memberKey( 7 ), Agend_Test_WP::$transients );
 
 		$this->nextRequest();
 
@@ -239,14 +263,329 @@ final class ViewerFactsTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------
+	// Bound to the bearer
+	// -----------------------------------------------------------------
+
+	/**
+	 * Review finding F2, ported. Facts were cached by WordPress user id alone, so a
+	 * user presenting a different bearer (a re-link, or a provider not tied to the
+	 * WordPress user) was served the facts fetched with the first one until the
+	 * TTL ended. The current wrong behaviour was GRANTED here.
+	 */
+	#[Test]
+	public function cached_facts_do_not_follow_the_user_to_a_different_bearer(): void {
+		$GLOBALS['agend_test_current_user_id']               = 5;
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = false;
+		$GLOBALS['agend_test_post_meta'][ self::POST ][ Policy::META_KEY ] = array(
+			'mode'     => 'selected_tiers',
+			'tier_ids' => array( self::TIER_A ),
+		);
+
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'bearer-for-member-A' );
+		$this->gatewayReturns( array( 'is_member' => true, 'tier_ids' => array( self::TIER_A ), 'capabilities' => array() ) );
+		$this->assertSame( Decision::STATE_GRANTED, Decision::for_post( self::POST )['state'] );
+
+		// Next request: same WordPress user, a different member's bearer. The
+		// gateway says "holds nothing" for it.
+		$this->nextRequest();
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'bearer-for-member-B' );
+		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array(), 'capabilities' => array() ) );
+
+		$this->assertSame( Decision::STATE_MEMBERSHIP, Decision::for_post( self::POST )['state'] );
+		$this->assertSame( 2, $this->gatewayCalls(), 'the second bearer must ask the gateway' );
+	}
+
+	#[Test]
+	public function a_bearer_change_between_requests_misses_and_each_bearer_keeps_its_own_entry(): void {
+		$this->signIn( 7, false );
+
+		$this->bearer( 'bearer-a' );
+		$this->gatewayReturns( $this->memberData() );
+		$this->assertTrue( ViewerFacts::member()['is_member'] );
+
+		$this->nextRequest();
+		$this->bearer( 'bearer-b' );
+		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
+		$this->assertFalse( ViewerFacts::member()['is_member'] );
+		$this->assertSame( 2, $this->gatewayCalls() );
+
+		// Back to the first bearer: its own entry is still there.
+		$this->nextRequest();
+		$this->bearer( 'bearer-a' );
+		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
+		$this->assertTrue( ViewerFacts::member()['is_member'] );
+		$this->assertSame( 2, $this->gatewayCalls() );
+	}
+
+	#[Test]
+	public function a_segment_entry_is_bound_to_the_bearer_too(): void {
+		$this->signIn( 7, false );
+
+		$this->bearer( 'bearer-a' );
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+		$this->assertSame( array( 'seg-1' ), ViewerFacts::segments()['segment_ids'] );
+
+		$this->nextRequest();
+		$this->bearer( 'bearer-b' );
+		$this->segmentsReturn( array() );
+
+		$this->assertSame( array(), ViewerFacts::segments()['segment_ids'] );
+		$this->assertSame( 2, $this->segmentCalls() );
+	}
+
+	/**
+	 * A logged-in user with no bearer has no identity to key an entry on. Reading
+	 * one written under an earlier bearer would serve stale facts, so no transient
+	 * is read or written. The lookup itself and its failure semantics are as before.
+	 */
+	#[Test]
+	public function a_user_without_a_bearer_never_reads_or_writes_the_transient_store(): void {
+		$this->signIn( 7 );
+		$this->gatewayReturns( $this->memberData() );
+		ViewerFacts::member();
+		ViewerFacts::segments();
+		$this->assertCount( 2, Agend_Test_WP::$transients, 'written while the member had a bearer' );
+		$written = Agend_Test_WP::$transients;
+
+		// The session is gone: still logged in to WordPress, no bearer.
+		$this->nextRequest();
+		Agend_Test_WP::$filters = array();
+		$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
+		$this->segmentsReturn( array() );
+
+		$this->assertFalse( ViewerFacts::member()['is_member'], 'must not read the entry the bearer wrote' );
+		$this->assertSame( array(), ViewerFacts::segments()['segment_ids'] );
+		$this->assertSame( $written, Agend_Test_WP::$transients, 'and must write nothing' );
+		$this->assertSame( 2, $this->gatewayCalls() );
+		$this->assertSame( 2, $this->segmentCalls() );
+	}
+
+	#[Test]
+	public function a_logged_in_user_without_a_bearer_still_gets_unknown_on_failure_and_is_memoised(): void {
+		$this->signIn( 7, false );
+		$this->gatewayFails();
+
+		$this->assertNull( ViewerFacts::member() );
+		$this->assertNull( ViewerFacts::member() );
+		$this->assertSame( 1, $this->gatewayCalls() );
+		$this->assertSame( array(), Agend_Test_WP::$transients );
+	}
+
+	/** The filter chain behind the bearer can read user meta and refresh a token. */
+	#[Test]
+	public function the_bearer_is_asked_once_per_user_per_request(): void {
+		$asked = 0;
+
+		$this->signIn( 7, false );
+		Agend_Test_WP::$filters['agend_apps_bearer_token'] = static function () use ( &$asked ) {
+			++$asked;
+
+			return 'member-token';
+		};
+		$this->gatewayReturns( $this->memberData() );
+		$this->segmentsReturn( array() );
+
+		ViewerFacts::member();
+		ViewerFacts::segments();
+		Decision::viewer();
+		Runtime::member_facts();
+
+		$this->assertSame( 1, $asked );
+
+		// A different user in the same request is a different question.
+		$this->signIn( 8, false );
+		Agend_Test_WP::$filters['agend_apps_bearer_token'] = static function () use ( &$asked ) {
+			++$asked;
+
+			return 'other-token';
+		};
+		ViewerFacts::member();
+
+		$this->assertSame( 2, $asked );
+	}
+
+	#[Test]
+	public function the_user_generation_is_read_once_per_user_per_request(): void {
+		$this->signIn( 7 );
+		$this->gatewayReturns( $this->memberData() );
+		$GLOBALS['agend_test_user_meta'][7][ ViewerFacts::USER_GENERATION_META ] = 3;
+
+		ViewerFacts::member();
+		$key = $this->memberKey( 7 );
+
+		// Moved behind this request's back, by another process.
+		$GLOBALS['agend_test_user_meta'][7][ ViewerFacts::USER_GENERATION_META ] = 4;
+
+		$this->assertSame( $key, $this->memberKey( 7 ), 'memoised for the request' );
+
+		$this->nextRequest();
+		$this->assertNotSame( $key, $this->memberKey( 7 ), 'the next request reads the new number' );
+	}
+
+	/**
+	 * The mid-request guarantee, now with two generations. The key is fixed before
+	 * the gateway is asked, so a bump or a flush that lands while the call is in
+	 * flight leaves the (possibly pre-change) answer under a key nobody will ever
+	 * read, rather than under the new one.
+	 */
+	#[Test]
+	public function the_key_is_built_before_the_gateway_call_and_survives_a_mid_request_bump(): void {
+		$this->signIn( 7 );
+		$before = $this->memberKey( 7 );
+
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_entitlements_response'] = function () {
+			ViewerFacts::bump_generation();
+
+			return array( 'data' => $this->memberData() );
+		};
+
+		ViewerFacts::member();
+
+		$this->assertSame( array( $before ), array_keys( Agend_Test_WP::$transients ), 'stored under the key from before the call' );
+		$this->assertArrayNotHasKey( $this->memberKey( 7 ), Agend_Test_WP::$transients, 'and not under the new generation' );
+	}
+
+	#[Test]
+	public function the_key_is_built_before_the_gateway_call_and_survives_a_mid_request_flush(): void {
+		$this->signIn( 7 );
+		$before = $this->memberKey( 7 );
+
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_entitlements_response'] = function () {
+			ViewerFacts::flush( 7 );
+
+			return array( 'data' => $this->memberData() );
+		};
+
+		ViewerFacts::member();
+
+		$this->assertSame( array( $before ), array_keys( Agend_Test_WP::$transients ) );
+		$this->assertArrayNotHasKey( $this->memberKey( 7 ), Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function the_segment_key_is_built_before_the_gateway_call_too(): void {
+		$this->signIn( 7 );
+		$before = $this->segmentKey( 7 );
+
+		Agend_Test_WP::$filters['agend_apps_crm_get_my_segments_response'] = static function () {
+			ViewerFacts::bump_generation();
+
+			return array( 'data' => array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+		};
+
+		ViewerFacts::segments();
+
+		$this->assertSame( array( $before ), array_keys( Agend_Test_WP::$transients ) );
+	}
+
+	// -----------------------------------------------------------------
+	// Key shape: Core's cache prefix
+	// -----------------------------------------------------------------
+
+	/**
+	 * Core's Cache tab "Clear" button deletes transients by the prefix
+	 * `agend_apps_crm_me_entitlements`. Building the key through Core's builder is
+	 * what puts these entries under it.
+	 */
+	#[Test]
+	public function the_key_is_built_by_core_when_core_can_build_it(): void {
+		$this->assertTrue( method_exists( 'Agend_Apps_Cache', 'build_key' ) );
+
+		$expected = 'agend_apps_' . Agend_Apps_Cache::build_key(
+			'crm_me_entitlements',
+			array(
+				'fact'     => 'member',
+				'user'     => 7,
+				'bearer'   => ViewerFacts::bearer_digest( self::BEARER ),
+				'gen'      => 0,
+				'user_gen' => 0,
+			)
+		);
+
+		$this->assertSame( $expected, $this->memberKey( 7 ) );
+		$this->assertStringStartsWith( 'agend_apps_crm_me_entitlements', $this->memberKey( 7 ) );
+		$this->assertStringStartsWith( 'agend_apps_crm_me_entitlements', $this->segmentKey( 7 ) );
+
+		// Not the local shape: it differs from the test double's, so equality above
+		// can only come from asking Core.
+		$this->assertNotSame( $this->fallbackKey( 'member', 7, self::BEARER ), $this->memberKey( 7 ) );
+	}
+
+	/** An older Core without the builder gets an equivalent key under the same prefix. */
+	#[Test]
+	public function the_fallback_key_has_core_s_prefix_and_shape(): void {
+		$key = $this->fallbackKey( 'member', 7, self::BEARER );
+
+		$this->assertMatchesRegularExpression( '/^agend_apps_crm_me_entitlements_[0-9a-f]{32}$/', $key );
+		$this->assertNotSame( $key, $this->fallbackKey( 'segments', 7, self::BEARER ) );
+		$this->assertNotSame( $key, $this->fallbackKey( 'member', 8, self::BEARER ) );
+		$this->assertNotSame( $key, $this->fallbackKey( 'member', 7, 'another-bearer' ) );
+		$this->assertLessThanOrEqual( 172 - strlen( '_transient_timeout_' ) + strlen( '_transient_' ), strlen( $key ) );
+	}
+
+	/** The fallback builder is private: it is only reached when Core has no builder. */
+	private function fallbackKey( string $fact, int $userId, string $bearer ): string {
+		$method = new \ReflectionMethod( ViewerFacts::class, 'fallback_key' );
+
+		return $method->invoke(
+			null,
+			array(
+				'fact'     => $fact,
+				'user'     => $userId,
+				'bearer'   => ViewerFacts::bearer_digest( $bearer ),
+				'gen'      => 0,
+				'user_gen' => 0,
+			)
+		);
+	}
+
+	// -----------------------------------------------------------------
 	// Generation and flush
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function the_generation_starts_at_zero_and_is_part_of_the_key(): void {
+	public function the_generation_starts_at_zero(): void {
 		$this->assertSame( 0, ViewerFacts::generation() );
-		$this->assertSame( 'agend_content_access_member_facts_g0_u7', ViewerFacts::member_cache_key( 7 ) );
-		$this->assertSame( 'agend_content_access_segment_facts_g0_u7', ViewerFacts::segment_cache_key( 7 ) );
+	}
+
+	/**
+	 * Every input that decides who may read an entry must change the key: the
+	 * fact, the user, the bearer, and both generations. Each is varied alone, so
+	 * a missing input shows up as a collision.
+	 */
+	#[Test]
+	public function every_input_that_decides_who_may_read_an_entry_is_in_the_key(): void {
+		$this->signIn( 7 );
+
+		$base  = $this->memberKey( 7 );
+		$eight = $this->memberKey( 8 );
+
+		$this->assertNotSame( $base, $this->segmentKey( 7 ), 'membership and segments are separate entries' );
+		$this->assertNotSame( $base, $this->memberKey( 8 ), 'another user' );
+		$this->assertNotSame( $base, $this->memberKey( 7, 'another-bearer' ), 'another bearer' );
+
+		ViewerFacts::flush( 7 );
+		$after_flush = $this->memberKey( 7 );
+		$this->assertNotSame( $base, $after_flush, 'the user generation' );
+		$this->assertSame( $eight, $this->memberKey( 8 ), 'a flush of 7 leaves 8\'s key alone' );
+
+		ViewerFacts::bump_generation();
+		$this->assertNotSame( $after_flush, $this->memberKey( 7 ), 'the global generation' );
+	}
+
+	/** The same inputs always give the same key, or nothing would ever be a hit. */
+	#[Test]
+	public function the_key_is_stable_for_the_same_inputs(): void {
+		$this->assertSame( $this->memberKey( 7 ), $this->memberKey( 7 ) );
+		$this->assertSame( $this->segmentKey( 7 ), $this->segmentKey( 7 ) );
+	}
+
+	#[Test]
+	public function the_bearer_never_appears_in_the_key(): void {
+		$this->assertStringNotContainsString( self::BEARER, $this->memberKey( 7 ) );
+		$this->assertSame( 16, strlen( ViewerFacts::bearer_digest( self::BEARER ) ) );
+		$this->assertSame( substr( hash( 'sha256', self::BEARER ), 0, 16 ), ViewerFacts::bearer_digest( self::BEARER ) );
+		$this->assertSame( '', ViewerFacts::bearer_digest( '' ) );
 	}
 
 	#[Test]
@@ -273,8 +612,7 @@ final class ViewerFactsTest extends TestCase {
 		ViewerFacts::member();
 
 		$this->assertSame( 4, $this->gatewayCalls(), 'neither member may be served from the old generation' );
-		$this->assertStringContainsString( '_g1_', ViewerFacts::member_cache_key( 7 ) );
-		$this->assertArrayHasKey( ViewerFacts::member_cache_key( 7 ), Agend_Test_WP::$transients );
+		$this->assertArrayHasKey( $this->memberKey( 7 ), Agend_Test_WP::$transients );
 	}
 
 	#[Test]
@@ -305,28 +643,112 @@ final class ViewerFactsTest extends TestCase {
 	}
 
 	#[Test]
-	public function flushing_one_member_clears_the_entry_and_the_request_memo(): void {
+	public function flushing_one_member_makes_their_entries_unreachable_and_drops_the_request_memo(): void {
 		$this->signIn( 7 );
 		$this->gatewayReturns( $this->memberData() );
 		ViewerFacts::member();
-		Agend_Test_WP::$transients[ ViewerFacts::segment_cache_key( 7 ) ] = array( 'vic' );
-		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 8 ) ]  = array( 'is_member' => true );
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'vic' ) ) );
+		ViewerFacts::segments();
+
+		Agend_Test_WP::$transients[ $this->memberKey( 8 ) ] = array( 'is_member' => true );
 
 		Runtime::flush_member_facts( 7 );
 
-		$this->assertArrayNotHasKey( ViewerFacts::member_cache_key( 7 ), Agend_Test_WP::$transients );
-		$this->assertArrayNotHasKey( ViewerFacts::segment_cache_key( 7 ), Agend_Test_WP::$transients );
-		$this->assertArrayHasKey( ViewerFacts::member_cache_key( 8 ), Agend_Test_WP::$transients, 'another member is untouched' );
+		// The member's own generation moved, which is what every key carries.
+		$this->assertSame( 1, (int) $GLOBALS['agend_test_user_meta'][7][ ViewerFacts::USER_GENERATION_META ] );
+		$this->assertArrayNotHasKey( $this->memberKey( 7 ), Agend_Test_WP::$transients );
+		$this->assertArrayNotHasKey( $this->segmentKey( 7 ), Agend_Test_WP::$transients );
+		$this->assertArrayHasKey( $this->memberKey( 8 ), Agend_Test_WP::$transients, 'another member is untouched' );
 
-		// Same request: the memo is gone as well, so this reads fresh.
+		// Same request: the memos are gone as well, so both read fresh.
+		ViewerFacts::member();
+		ViewerFacts::segments();
+		$this->assertSame( 2, $this->gatewayCalls() );
+		$this->assertSame( 2, $this->segmentCalls() );
+	}
+
+	/**
+	 * A webhook has no bearer, and the bearer is in every key, so a flush cannot
+	 * name the entries to delete. It must still reach every one of them.
+	 */
+	#[Test]
+	public function flushing_a_member_invalidates_their_entry_under_every_bearer(): void {
+		$this->signIn( 7, false );
+
+		foreach ( array( 'bearer-a', 'bearer-b' ) as $bearer ) {
+			$this->nextRequest();
+			$this->bearer( $bearer );
+			$this->gatewayReturns( $this->memberData() );
+			ViewerFacts::member();
+			ViewerFacts::segments();
+		}
+
+		$this->assertSame( 2, $this->gatewayCalls() );
+		$this->assertCount( 4, Agend_Test_WP::$transients, 'two bearers, two facts each' );
+
+		// No bearer is in scope for the caller: that is what a webhook is.
+		$GLOBALS['agend_test_current_user_id'] = 0;
+		Agend_Test_WP::$filters               = array();
+		ViewerFacts::flush( 7 );
+
+		$GLOBALS['agend_test_current_user_id'] = 7;
+
+		foreach ( array( 'bearer-a', 'bearer-b' ) as $bearer ) {
+			$this->nextRequest();
+			$this->bearer( $bearer );
+			$this->gatewayReturns( array( 'is_member' => false, 'tier_ids' => array() ) );
+			$this->segmentsReturn( array() );
+
+			$this->assertFalse( ViewerFacts::member()['is_member'], $bearer . ' must read fresh after the flush' );
+			$this->assertSame( array(), ViewerFacts::segments()['segment_ids'], $bearer . ' segments must read fresh' );
+		}
+
+		$this->assertSame( 4, $this->gatewayCalls() );
+	}
+
+	#[Test]
+	public function a_flush_of_user_zero_writes_nothing_and_drops_the_memos(): void {
+		$this->bearer();
+		$this->gatewayReturns( $this->memberData() );
+		ViewerFacts::member();
+
+		ViewerFacts::flush( 0 );
+
+		$this->assertSame( array(), $GLOBALS['agend_test_user_meta'] );
 		ViewerFacts::member();
 		$this->assertSame( 2, $this->gatewayCalls() );
 	}
 
 	#[Test]
+	public function each_flush_is_a_new_user_generation_and_junk_reads_as_zero(): void {
+		$this->signIn( 7 );
+
+		ViewerFacts::flush( 7 );
+		ViewerFacts::flush( 7 );
+		$this->assertSame( 2, (int) $GLOBALS['agend_test_user_meta'][7][ ViewerFacts::USER_GENERATION_META ] );
+
+		$GLOBALS['agend_test_user_meta'][7][ ViewerFacts::USER_GENERATION_META ] = 'banana';
+		ViewerFacts::flush( 7 );
+		$this->assertSame( 1, (int) $GLOBALS['agend_test_user_meta'][7][ ViewerFacts::USER_GENERATION_META ], 'junk reads as 0, so the next is 1' );
+	}
+
+	/** The global bump still reaches everyone, with no per-user write. */
+	#[Test]
+	public function the_global_bump_invalidates_every_bearer_of_every_user_without_touching_user_meta(): void {
+		$this->signIn( 7 );
+		$this->gatewayReturns( $this->memberData() );
+		ViewerFacts::member();
+
+		ViewerFacts::bump_generation();
+
+		$this->assertSame( array(), $GLOBALS['agend_test_user_meta'] );
+		$this->assertArrayNotHasKey( $this->memberKey( 7 ), Agend_Test_WP::$transients );
+	}
+
+	#[Test]
 	public function a_segment_entry_written_under_an_old_generation_is_not_read(): void {
 		$this->signIn( 7 );
-		Agend_Test_WP::$transients[ ViewerFacts::segment_cache_key( 7 ) ] = array(
+		Agend_Test_WP::$transients[ $this->segmentKey( 7 ) ] = array(
 			'segment_ids'   => array( 'old-id' ),
 			'segment_slugs' => array( 'old-segment' ),
 		);
@@ -383,7 +805,7 @@ final class ViewerFactsTest extends TestCase {
 	 */
 	#[Test]
 	public function the_document_path_keys_on_the_bearer(): void {
-		$this->signIn( 7 );
+		$this->signIn( 7, false );
 		$this->gatewayReturns( $this->memberData() );
 
 		$viewer = Decision::viewer();
@@ -483,7 +905,7 @@ final class ViewerFactsTest extends TestCase {
 		$facts = ViewerFacts::member();
 
 		$this->assertSame( array( 'events.early_access', 'library_archive' ), $facts['entitlement_keys'] );
-		$this->assertSame( $facts, Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7 ) ], 'they are cached with the rest' );
+		$this->assertSame( $facts, Agend_Test_WP::$transients[ $this->memberKey( 7 ) ], 'they are cached with the rest' );
 	}
 
 	#[Test]
@@ -611,7 +1033,7 @@ final class ViewerFactsTest extends TestCase {
 
 		ViewerFacts::member();
 
-		$ttl = Agend_Test_WP::$transient_ttls[ ViewerFacts::member_cache_key( 7 ) ];
+		$ttl = Agend_Test_WP::$transient_ttls[ $this->memberKey( 7 ) ];
 
 		$this->assertLessThanOrEqual( 90, $ttl );
 		$this->assertGreaterThanOrEqual( 30, $ttl );
@@ -626,7 +1048,7 @@ final class ViewerFactsTest extends TestCase {
 
 		$this->assertSame(
 			ViewerFacts::cache_ttl(),
-			Agend_Test_WP::$transient_ttls[ ViewerFacts::member_cache_key( 7 ) ]
+			Agend_Test_WP::$transient_ttls[ $this->memberKey( 7 ) ]
 		);
 	}
 
@@ -634,7 +1056,7 @@ final class ViewerFactsTest extends TestCase {
 	#[Test]
 	public function a_cached_entry_with_fewer_fields_is_completed(): void {
 		$this->signIn( 7 );
-		Agend_Test_WP::$transients[ ViewerFacts::member_cache_key( 7 ) ] = array( 'is_member' => true, 'tier_ids' => array( self::TIER_A ) );
+		Agend_Test_WP::$transients[ $this->memberKey( 7 ) ] = array( 'is_member' => true, 'tier_ids' => array( self::TIER_A ) );
 
 		$facts = ViewerFacts::member();
 
@@ -710,10 +1132,10 @@ final class ViewerFactsTest extends TestCase {
 		$first = ViewerFacts::segments();
 
 		$this->assertSame( 1, $this->segmentCalls() );
-		$this->assertArrayHasKey( ViewerFacts::segment_cache_key( 7 ), Agend_Test_WP::$transients );
+		$this->assertArrayHasKey( $this->segmentKey( 7 ), Agend_Test_WP::$transients );
 		$this->assertSame(
 			ViewerFacts::cache_ttl(),
-			Agend_Test_WP::$transient_ttls[ ViewerFacts::segment_cache_key( 7 ) ]
+			Agend_Test_WP::$transient_ttls[ $this->segmentKey( 7 ) ]
 		);
 
 		$this->nextRequest();
@@ -800,7 +1222,7 @@ final class ViewerFactsTest extends TestCase {
 	#[Test]
 	public function an_entry_in_the_old_slug_list_shape_is_a_miss(): void {
 		$this->signIn( 7 );
-		Agend_Test_WP::$transients[ ViewerFacts::segment_cache_key( 7 ) ] = array( 'old-slug' );
+		Agend_Test_WP::$transients[ $this->segmentKey( 7 ) ] = array( 'old-slug' );
 		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'fresh' ) ) );
 
 		$this->assertSame(
