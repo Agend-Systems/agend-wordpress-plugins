@@ -154,6 +154,16 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 			return '';
 		}
 
+		/**
+		 * The member portal URL, empty unless a test sets the option. Declared so
+		 * a gate test can show a call to action is present for one state and
+		 * absent for another; with none set the gate renders no link at all, as
+		 * it does when `get_portal_url` does not exist.
+		 */
+		public static function get_portal_url(): string {
+			return (string) get_option( 'agend_apps_portal_url', '' );
+		}
+
 		public static function background_link_enabled(): bool {
 			return (bool) get_option( 'agend_apps_sso_background_link', false );
 		}

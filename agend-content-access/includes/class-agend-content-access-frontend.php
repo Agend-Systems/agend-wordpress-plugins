@@ -283,7 +283,7 @@ class Agend_Content_Access_Frontend {
 	 *
 	 * @param string     $teaser Teaser text.
 	 * @param string     $state  Decision state.
-	 * @param array|null $policy Policy, used to name the qualifying plans.
+	 * @param array|null $policy Policy, used to name the qualifying plans. Plans only: segments and entitlements are never named.
 	 * @return string
 	 */
 	public static function render_gate( string $teaser, string $state, ?array $policy = null ): string {
@@ -310,6 +310,17 @@ class Agend_Content_Access_Frontend {
 					);
 				$cta     = __( 'View membership options', 'agend-content-access' );
 				break;
+			case Agend_Content_Access_Decision::STATE_RESTRICTED:
+				// A segment or an entitlement is not something the visitor can
+				// join or upgrade into, so there is deliberately no call to
+				// action: "View membership options" would point at a purchase
+				// that does not unlock this. The copy is generic on purpose. A
+				// segment's name can describe the visitor ("Overdue renewals")
+				// and is not theirs to be told, so nothing here names the
+				// segment or reads the policy at all.
+				$message = __( 'This content is limited to selected members.', 'agend-content-access' );
+				$cta     = '';
+				break;
 			default:
 				$message = __( 'This content is for members. Please sign in to read it.', 'agend-content-access' );
 				$cta     = __( 'Sign in', 'agend-content-access' );
@@ -325,7 +336,7 @@ class Agend_Content_Access_Frontend {
 		$html .= '<div class="agend-access-gate-prompt">';
 		$html .= '<p>' . esc_html( $message ) . '</p>';
 
-		if ( '' !== $portal ) {
+		if ( '' !== $portal && '' !== $cta ) {
 			$return = home_url( add_query_arg( array() ) );
 			$url    = add_query_arg( 'return_to', rawurlencode( $return ), $portal );
 

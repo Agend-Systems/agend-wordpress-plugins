@@ -161,4 +161,111 @@ final class GateCopyTest extends TestCase {
 		);
 		$this->assertSame( array(), Agend_Content_Access_Frontend::plan_names_for( null ) );
 	}
+
+	// -----------------------------------------------------------------------
+	// access_restricted: segments and selected entitlements
+	// -----------------------------------------------------------------------
+
+	private const SEG_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+
+	private function segmentsPolicy(): array {
+		return array( 'mode' => 'segments', 'segment_ids' => array( self::SEG_A ) );
+	}
+
+	private function entitlementsPolicy(): array {
+		return array( 'mode' => 'selected_entitlements', 'entitlement_keys' => array( 'directory.access' ) );
+	}
+
+	#[Test]
+	public function the_restricted_gate_says_the_content_is_limited_to_selected_members(): void {
+		$html = Agend_Content_Access_Frontend::render_gate(
+			'',
+			Agend_Content_Access_Decision::STATE_RESTRICTED,
+			$this->segmentsPolicy()
+		);
+
+		$this->assertStringContainsString( 'limited to selected members', $html );
+		$this->assertStringNotContainsString( 'sign in', strtolower( $html ) );
+		$this->assertStringNotContainsString( 'membership is required', $html );
+	}
+
+	/**
+	 * A segment's name can describe the visitor ("Overdue renewals"), so the gate
+	 * must not put a segment's name, or its id, on the page.
+	 */
+	#[Test]
+	public function the_restricted_gate_names_no_segment(): void {
+		// A catalogue that would happily name a plan, to show the gate is not
+		// reading the policy or any catalogue for this state.
+		$this->seedCatalogue();
+
+		$html = Agend_Content_Access_Frontend::render_gate(
+			'',
+			Agend_Content_Access_Decision::STATE_RESTRICTED,
+			$this->segmentsPolicy()
+		);
+
+		$this->assertStringNotContainsString( self::SEG_A, $html );
+		$this->assertStringNotContainsString( 'Full Member', $html );
+		// The decisive assertion: whatever segment the policy names, the markup
+		// is identical to the one rendered with no policy at all, so there is
+		// no path by which a name or id can reach the page.
+		$this->assertSame(
+			$html,
+			Agend_Content_Access_Frontend::render_gate( '', Agend_Content_Access_Decision::STATE_RESTRICTED, null ),
+			'the policy does not change the copy at all'
+		);
+	}
+
+	#[Test]
+	public function the_restricted_gate_for_an_entitlement_names_no_entitlement_key(): void {
+		$html = Agend_Content_Access_Frontend::render_gate(
+			'',
+			Agend_Content_Access_Decision::STATE_RESTRICTED,
+			$this->entitlementsPolicy()
+		);
+
+		$this->assertStringNotContainsString( 'directory.access', $html );
+	}
+
+	/** There is nothing to join or upgrade into, so no link, even with a portal configured. */
+	#[Test]
+	public function the_restricted_gate_has_no_call_to_action_while_the_others_do(): void {
+		update_option( 'agend_apps_portal_url', 'https://portal.example.test/' );
+
+		$restricted = Agend_Content_Access_Frontend::render_gate( '', Agend_Content_Access_Decision::STATE_RESTRICTED, null );
+
+		$this->assertStringNotContainsString( 'agend-access-gate-cta', $restricted );
+		$this->assertStringNotContainsString( 'portal.example.test', $restricted );
+		$this->assertStringNotContainsString( '<a ', $restricted );
+
+		foreach ( array( Agend_Content_Access_Decision::STATE_AUTH, Agend_Content_Access_Decision::STATE_MEMBERSHIP, Agend_Content_Access_Decision::STATE_PLAN ) as $state ) {
+			$this->assertStringContainsString(
+				'agend-access-gate-cta',
+				Agend_Content_Access_Frontend::render_gate( '', $state, null ),
+				$state . ' keeps its call to action'
+			);
+		}
+	}
+
+	#[Test]
+	public function the_restricted_gate_still_shows_the_escaped_teaser(): void {
+		$html = Agend_Content_Access_Frontend::render_gate(
+			'Public teaser <b>text</b>',
+			Agend_Content_Access_Decision::STATE_RESTRICTED,
+			null
+		);
+
+		$this->assertStringContainsString( 'Public teaser', $html );
+		$this->assertStringNotContainsString( '<b>', $html );
+	}
+
+	/** Plan names stay a tier-only feature: other arms name nothing, even when the catalogue could. */
+	#[Test]
+	public function plan_names_remain_tier_only(): void {
+		$this->seedCatalogue();
+
+		$this->assertSame( array(), Agend_Content_Access_Frontend::plan_names_for( $this->segmentsPolicy() ) );
+		$this->assertSame( array(), Agend_Content_Access_Frontend::plan_names_for( $this->entitlementsPolicy() ) );
+	}
 }
