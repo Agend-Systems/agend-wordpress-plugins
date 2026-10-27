@@ -158,6 +158,28 @@ final class Agend_Test_WP {
 	public static array $enqueued_style_args = array();
 
 	/**
+	 * The arguments of each `wp_enqueue_script()` call, keyed by handle, for a
+	 * test that needs the src, dependencies or version and not just the handle.
+	 *
+	 * @var array<string, array{src: string, deps: array, ver: string|bool|null, args: mixed}>
+	 */
+	public static array $enqueued_script_args = array();
+
+	/**
+	 * Script translations registered by `wp_set_script_translations()`, keyed by handle.
+	 *
+	 * @var array<string, array{domain: string, path: string|null}>
+	 */
+	public static array $script_translations = array();
+
+	/**
+	 * Extra style data set by `wp_style_add_data()`, keyed by handle then key.
+	 *
+	 * @var array<string, array<string, mixed>>
+	 */
+	public static array $style_data = array();
+
+	/**
 	 * Value `wp_style_engine_get_stylesheet_from_context()` returns. A test
 	 * sets this directly to simulate block-supports layout CSS having been
 	 * generated during a render; '' (the default) simulates an empty store.
@@ -219,6 +241,9 @@ final class Agend_Test_WP {
 		self::$enqueued_styles   = array();
 		self::$enqueued_scripts  = array();
 		self::$enqueued_style_args = array();
+		self::$enqueued_script_args = array();
+		self::$script_translations = array();
+		self::$style_data = array();
 		self::$style_engine_stylesheet = '';
 		self::$settings_sections = array();
 		self::$roles             = array(
@@ -2382,8 +2407,20 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 		/** @var callable|null */
 		public $render_callback = null;
 
+		/** @var array<string, array> The block's attribute schema, after `register_block_type_args`. */
+		public array $attributes = array();
+
 		public function __construct( string $name, array $args = array() ) {
 			$this->name = $name;
+
+			// The real constructor runs this filter over every block type's
+			// arguments, which is what lets a plugin add an attribute to all of
+			// them. With no callback registered it returns the arguments as given.
+			$args = apply_filters( 'register_block_type_args', $args, $name );
+
+			if ( isset( $args['attributes'] ) && is_array( $args['attributes'] ) ) {
+				$this->attributes = $args['attributes'];
+			}
 
 			if ( isset( $args['style_handles'] ) ) {
 				$this->style_handles = (array) $args['style_handles'];
@@ -2881,6 +2918,41 @@ if ( ! function_exists( 'wp_enqueue_script' ) ) {
 	/** Records the handle so a test can assert on exactly what was enqueued. */
 	function wp_enqueue_script( string $handle, string $src = '', array $deps = array(), $ver = false, $args = array() ): void {
 		Agend_Test_WP::$enqueued_scripts[] = $handle;
+
+		Agend_Test_WP::$enqueued_script_args[ $handle ] = array(
+			'src'  => $src,
+			'deps' => $deps,
+			'ver'  => $ver,
+			'args' => $args,
+		);
+	}
+}
+
+if ( ! function_exists( 'wp_set_script_translations' ) ) {
+	/** Records the text domain and path, so a test can assert a script is made translatable. */
+	function wp_set_script_translations( string $handle, string $domain = 'default', ?string $path = null ): bool {
+		Agend_Test_WP::$script_translations[ $handle ] = array(
+			'domain' => $domain,
+			'path'   => $path,
+		);
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_style_add_data' ) ) {
+	/** Records the data, so a test can assert, for example, that a stylesheet declares its RTL twin. */
+	function wp_style_add_data( string $handle, string $key, $value ): bool {
+		Agend_Test_WP::$style_data[ $handle ][ $key ] = $value;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'rest_authorization_required_code' ) ) {
+	/** 401 for a visitor who is not signed in, 403 for one who is but is refused, as WordPress does. */
+	function rest_authorization_required_code(): int {
+		return is_user_logged_in() ? 403 : 401;
 	}
 }
 

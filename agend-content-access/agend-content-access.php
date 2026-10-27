@@ -85,6 +85,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/interface-agend-content-access-document-parser.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-elementor-parser.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-parser.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-editor.php';
 
 	// Gating is registered on EVERY request, admin included: the REST filters
 	// hang off it and a REST call never reaches template_redirect.
@@ -97,6 +98,11 @@ function agend_content_access_bootstrap(): void {
 	// Block editor enforcement, on every request for the same reason: a REST
 	// request renders blocks and never reaches template_redirect.
 	new Agend_Content_Access_Blocks();
+
+	// The block editor's `agendAccess` attribute and its panel. Also on every
+	// request: the block renderer is a REST request, and it rejects an
+	// attribute the block type does not declare.
+	new Agend_Content_Access_Block_Editor();
 
 	// Fragment policies, only when Elementor is present.
 	//
@@ -300,9 +306,11 @@ function agend_content_access_bootstrap_elementor(): void {
 function agend_content_access_bootstrap_rest(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/catalogue-routes.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/connector-routes.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/conditions-routes.php';
 
 	agend_content_access_register_catalogue_routes();
 	agend_content_access_register_connector_routes();
+	agend_content_access_register_conditions_routes();
 }
 
 /**
