@@ -2780,14 +2780,51 @@ if ( ! function_exists( 'disabled' ) ) {
 }
 
 if ( ! function_exists( 'wp_is_post_revision' ) ) {
+	/** Never a revision unless a test lists the id in `$GLOBALS['agend_test_revisions']`. */
 	function wp_is_post_revision( $post ): bool {
-		return false;
+		return ! empty( $GLOBALS['agend_test_revisions'][ is_object( $post ) ? (int) $post->ID : (int) $post ] );
 	}
 }
 
 if ( ! function_exists( 'wp_is_post_autosave' ) ) {
+	/** Never an autosave unless a test lists the id in `$GLOBALS['agend_test_autosaves']`. */
 	function wp_is_post_autosave( $post ): bool {
-		return false;
+		return ! empty( $GLOBALS['agend_test_autosaves'][ is_object( $post ) ? (int) $post->ID : (int) $post ] );
+	}
+}
+
+if ( ! function_exists( 'register_post_meta' ) ) {
+	/** Records each registration, post type then key, for a test to read back. */
+	function register_post_meta( $post_type, $meta_key, array $args = array() ) {
+		$GLOBALS['agend_test_registered_post_meta'][ $post_type ][ $meta_key ] = $args;
+
+		return true;
+	}
+}
+
+if ( ! class_exists( 'WP_Query' ) ) {
+	/**
+	 * Minimal `WP_Query` stand-in: the query variables and nothing else.
+	 *
+	 * Enough for a `pre_get_posts` callback to read and rewrite them, which is all
+	 * the unit suite runs against it. There is no loop and no database.
+	 */
+	class WP_Query {
+		/** @var array<string, mixed> */
+		public array $query_vars = array();
+
+		/** @param array<string, mixed> $query_vars Query variables. */
+		public function __construct( array $query_vars = array() ) {
+			$this->query_vars = $query_vars;
+		}
+
+		public function get( $query_var, $default_value = '' ) {
+			return $this->query_vars[ $query_var ] ?? $default_value;
+		}
+
+		public function set( $query_var, $value ): void {
+			$this->query_vars[ $query_var ] = $value;
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace Agend\Tests\ContentAccess;
 
 use Agend_Content_Access_Decision;
+use Agend_Content_Access_Fragment_Rules;
 use Agend_Content_Access_Frontend;
 use Agend_Content_Access_Policy;
 use Agend_Test_WP;
@@ -64,6 +65,7 @@ final class LatestPostsBlockTest extends TestCase {
 		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', '' );
 
 		( new Agend_Content_Access_Frontend() );
+		Agend_Content_Access_Fragment_Rules::init();
 
 		// `wp_trim_excerpt()` at priority 10: derive an excerpt from the body.
 		add_filter(
@@ -162,6 +164,7 @@ final class LatestPostsBlockTest extends TestCase {
 		$html = $this->render( $this->block( array( 'displayPostContent' => true, 'displayPostContentRadio' => 'full_post' ) ) );
 
 		$this->assertStringNotContainsString( 'THE MEMBERS BODY', $html );
+		$this->assertStringNotContainsString( 'THE SECTION SECRET', $html, 'nor the body of a public post carrying section rules' );
 		$this->assertStringNotContainsString( 'wp-block-latest-posts__post-full-content', $html );
 	}
 

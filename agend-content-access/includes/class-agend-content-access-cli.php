@@ -61,6 +61,64 @@ class Agend_Content_Access_CLI {
 			WP_CLI::halt( 1 );
 		}
 	}
+
+	/**
+	 * Flags every post whose document carries section-level rules.
+	 *
+	 * Core search, automatic excerpts and other readers of `post_content` see the
+	 * text of every section a page builder wrote into it, restricted ones
+	 * included. Posts that carry section rules are kept out of search by a flag
+	 * that is set when they are saved. This sets it for posts saved before it
+	 * existed, in batches, from the first post, so it can be run again.
+	 *
+	 * The same work runs on its own, a hundred posts at a time, when an
+	 * administrator loads wp-admin. Run this to finish it at once, or after
+	 * installing an integration for another editor. When it finishes the
+	 * background pass is marked done.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--batch-size=<number>]
+	 * : Posts to examine per pass.
+	 * ---
+	 * default: 100
+	 * ---
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp agend-content-access backfill-fragment-flags
+	 *     wp agend-content-access backfill-fragment-flags --batch-size=500
+	 *
+	 * @param array $args       Positional args.
+	 * @param array $assoc_args Flags.
+	 */
+	public function backfill_fragment_flags( $args, $assoc_args ): void {
+		$batch = isset( $assoc_args['batch-size'] )
+			? max( 1, (int) $assoc_args['batch-size'] )
+			: Agend_Content_Access_Fragment_Rules::BACKFILL_BATCH;
+
+		$total = Agend_Content_Access_Fragment_Rules::backfill_all(
+			$batch,
+			static function ( array $pass ): void {
+				WP_CLI::log(
+					sprintf(
+						'Examined up to post %d (%d in this pass, %d flagged).',
+						$pass['last_id'],
+						$pass['processed'],
+						$pass['flagged']
+					)
+				);
+			}
+		);
+
+		WP_CLI::success(
+			sprintf(
+				'%d posts examined, %d carry section-level rules.',
+				$total['processed'],
+				$total['flagged']
+			)
+		);
+	}
 }
 
 // Registered as an explicit subcommand rather than by exposing the class.
@@ -71,4 +129,9 @@ class Agend_Content_Access_CLI {
 WP_CLI::add_command(
 	'agend-content-access audit-originals',
 	array( 'Agend_Content_Access_CLI', 'audit_originals' )
+);
+
+WP_CLI::add_command(
+	'agend-content-access backfill-fragment-flags',
+	array( 'Agend_Content_Access_CLI', 'backfill_fragment_flags' )
 );

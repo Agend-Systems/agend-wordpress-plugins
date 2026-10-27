@@ -84,6 +84,11 @@ function agend_content_access_bootstrap(): void {
 	// hang off it and a REST call never reaches template_redirect.
 	new Agend_Content_Access_Frontend();
 
+	// Keeps the raw body of a post that carries section rules out of search, out of
+	// generated excerpts, and flags such posts. Every request, for the same reason:
+	// a search can be REST and a save can be an import.
+	Agend_Content_Access_Fragment_Rules::init();
+
 	// Fragment policies, only when Elementor is present.
 	//
 	// This bootstrap runs at plugins_loaded priority 20 and Elementor fires
