@@ -175,11 +175,29 @@ final class ExporterDispatchTest extends TestCase {
 	// The driver list
 	// -----------------------------------------------------------------
 
-	/** A driver placed ahead of Elementor takes precedence over it. */
+	/**
+	 * A driver placed ahead of Elementor used to take precedence over it, so one
+	 * that claimed an Elementor post could ship its plain text. An Elementor post
+	 * now always goes to the Elementor parser; the list decides only the rest.
+	 */
 	#[Test]
-	public function a_filtered_in_driver_wins_when_it_recognises_the_post(): void {
+	public function a_driver_ahead_of_elementor_cannot_claim_an_elementor_post(): void {
 		$this->storeElementor( array( $this->widget( 'wid0001', 'Elementor text' ) ) );
 
+		$custom = $this->driver( true, 'custom' );
+
+		Agend_Test_WP::$filters['agend_content_access_document_parsers'] =
+			static fn( array $parsers ): array => array_merge( array( $custom ), $parsers );
+
+		$fragments = Exporter::fragments_of( $this->post(), null );
+
+		$this->assertSame( 'wid0001', $fragments[0]['id'] );
+		$this->assertSame( 0, $custom->asked, 'an Elementor post is never offered to the list' );
+	}
+
+	/** A filtered-in driver still wins over every OTHER driver ahead of the fallback, in order. */
+	#[Test]
+	public function a_filtered_in_driver_wins_for_a_post_that_is_not_elementor(): void {
 		$custom = $this->driver( true, 'custom' );
 
 		Agend_Test_WP::$filters['agend_content_access_document_parsers'] =
@@ -210,12 +228,10 @@ final class ExporterDispatchTest extends TestCase {
 		Agend_Test_WP::$filters['agend_content_access_document_parsers'] =
 			static fn( array $parsers ): array => array_merge( array( $custom ), $parsers );
 
-		$this->storeElementor( array( $this->widget( 'wid0001', 'Elementor text' ) ) );
-
 		$fragments = Exporter::fragments_of( $this->post(), null );
 
 		$this->assertSame( 1, $custom->asked );
-		$this->assertSame( 'wid0001', $fragments[0]['id'] );
+		$this->assertSame( 'body', $fragments[0]['id'], 'nothing recognised the post, so it is the fallback' );
 	}
 
 	#[Test]
@@ -252,5 +268,96 @@ final class ExporterDispatchTest extends TestCase {
 
 		$this->assertCount( 1, Exporter::parsers() );
 		$this->assertSame( 'body', Exporter::fragments_of( $this->post(), null )[0]['id'] );
+	}
+
+	// -----------------------------------------------------------------
+	// An Elementor post is never decided by the filter
+	// -----------------------------------------------------------------
+
+	private function restrictedWidgetDocument(): array {
+		return array(
+			array(
+				'id'         => 'w1',
+				'elType'     => 'widget',
+				'widgetType' => 'text-editor',
+				'settings'   => array( 'editor' => 'secret', 'agend_access_mode' => 'active_member' ),
+			),
+		);
+	}
+
+	/**
+	 * Review finding F5, ported. A filter returning a list without the Elementor
+	 * driver left nothing to recognise the document, and `post_content` (which
+	 * holds every widget's plain text) shipped as one `inherit` body fragment. The
+	 * current wrong behaviour asserted exactly that.
+	 */
+	#[Test]
+	public function a_filter_that_drops_the_elementor_driver_cannot_make_an_elementor_post_export_its_body(): void {
+		$this->storeElementor( $this->restrictedWidgetDocument() );
+
+		$other = $this->driver( false, 'other' );
+		Agend_Test_WP::set_filter( 'agend_content_access_document_parsers', array( $other ) );
+
+		$fragments = Exporter::fragments_of( $this->post( 'secret' ), null );
+
+		$this->assertCount( 1, $fragments );
+		$this->assertSame( 'w1', $fragments[0]['id'] );
+		$this->assertSame( 'elementor:text-editor', $fragments[0]['type'] );
+		$this->assertSame( array( 'mode' => 'active_member' ), $fragments[0]['policy'], 'the restriction must reach the export' );
+		$this->assertNotSame( 'body', $fragments[0]['id'] );
+	}
+
+	#[Test]
+	public function an_empty_filtered_list_cannot_make_an_elementor_post_export_its_body(): void {
+		$this->storeElementor( $this->restrictedWidgetDocument() );
+
+		Agend_Test_WP::set_filter( 'agend_content_access_document_parsers', array() );
+
+		$this->assertSame( 'w1', Exporter::fragments_of( $this->post( 'secret' ), null )[0]['id'] );
+
+		Agend_Test_WP::set_filter( 'agend_content_access_document_parsers', 'nonsense' );
+
+		$this->assertSame( 'w1', Exporter::fragments_of( $this->post( 'secret' ), null )[0]['id'] );
+	}
+
+	/**
+	 * The case that must still fail the revision: a document that cannot be parsed
+	 * is a 422 whether or not the filter kept the Elementor driver.
+	 */
+	#[Test]
+	public function an_unparseable_elementor_document_still_throws_when_the_filter_drops_the_driver(): void {
+		$GLOBALS['agend_test_post_meta'][ self::POST_ID ]['_elementor_data'] = 'not json at all';
+
+		Agend_Test_WP::set_filter( 'agend_content_access_document_parsers', array( $this->driver( false, 'other' ) ) );
+
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'Elementor document could not be parsed' );
+
+		Exporter::fragments_of( $this->post( 'secret' ), null );
+	}
+
+	#[Test]
+	public function the_built_in_elementor_parser_is_used_even_when_the_filter_supplies_its_own_for_elementor(): void {
+		$this->storeElementor( array( $this->widget( 'wid0001', 'Elementor text' ) ) );
+
+		// A look-alike that claims the post and returns something else entirely.
+		$impostor = $this->driver( true, 'impostor' );
+		Agend_Test_WP::set_filter( 'agend_content_access_document_parsers', array( $impostor ) );
+
+		$fragments = Exporter::fragments_of( $this->post( 'Elementor text' ), null );
+
+		$this->assertSame( 'wid0001', $fragments[0]['id'] );
+		$this->assertSame( 0, $impostor->asked );
+	}
+
+	/** A blank `_elementor_data` is not an Elementor document, so the list decides. */
+	#[Test]
+	public function a_blank_elementor_meta_leaves_the_decision_to_the_filtered_list(): void {
+		$GLOBALS['agend_test_post_meta'][ self::POST_ID ]['_elementor_data'] = "  \n ";
+
+		$custom = $this->driver( true, 'custom' );
+		Agend_Test_WP::set_filter( 'agend_content_access_document_parsers', array( $custom ) );
+
+		$this->assertSame( 'custom', Exporter::fragments_of( $this->post(), null )[0]['id'] );
 	}
 }

@@ -17,6 +17,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * walks a list of drivers and asks each whether it recognises the post. The
  * first one that does produces the fragments; a post no driver recognises is
  * exported as a single `body` fragment, which is not a driver but the fallback.
+ * The one post the list does not decide is an Elementor document: the built-in
+ * Elementor parser always takes it, because `post_content` holds the text of
+ * every widget and the fallback would ship it in the open.
  *
  * A driver owns two decisions and nothing else:
  *

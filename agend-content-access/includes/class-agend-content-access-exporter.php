@@ -114,6 +114,11 @@ class Agend_Content_Access_Exporter {
 	 * list is walked in order and the first driver to recognise a post wins, so
 	 * a driver placed earlier takes precedence over one placed later.
 	 *
+	 * ONE EXCEPTION: a post holding an Elementor document never reaches this list.
+	 * `fragments_of()` hands it to the built-in Elementor parser first, whatever
+	 * this filter returned, so the list decides only how every OTHER post is
+	 * exported. See `fragments_of()` for why.
+	 *
 	 * Anything in the filtered list that is not a driver is dropped rather than
 	 * trusted: this runs on the connector path, where a fatal would fail the
 	 * sync for every post.
@@ -129,7 +134,9 @@ class Agend_Content_Access_Exporter {
 		 * Each driver implements `Agend_Content_Access_Document_Parser`. The
 		 * first one whose `recognises()` returns true builds the post's
 		 * fragments. A post no driver recognises is exported as one `body`
-		 * fragment.
+		 * fragment. A post holding an Elementor document is always parsed by the
+		 * built-in Elementor parser and is never offered to this list, so
+		 * dropping or reordering that driver here cannot change how it exports.
 		 *
 		 * @param Agend_Content_Access_Document_Parser[] $parsers Drivers, highest priority first.
 		 */
@@ -152,11 +159,23 @@ class Agend_Content_Access_Exporter {
 	/**
 	 * Ordered content fragments.
 	 *
-	 * The first document driver to recognise the post decomposes it. An
-	 * Elementor page becomes one fragment per widget, each carrying the policy
-	 * folded down its ancestor chain (US-4.3). Anything no driver recognises is
-	 * a single fragment holding the whole body with policy `inherit`, the same
-	 * shape Agend reads a legacy blob as (Decision 2.8).
+	 * A post holding an Elementor document (a non-blank `_elementor_data`) is
+	 * ALWAYS parsed by the built-in Elementor parser, whatever
+	 * `agend_content_access_document_parsers` returned. That is deliberate and not
+	 * a shortcut. For such a post `post_content` holds the plain text of every
+	 * widget, including the ones a policy restricts, and the only thing that says
+	 * which widget carries which policy is the Elementor document. A filter that
+	 * returns a list without the Elementor driver, or puts another driver ahead of
+	 * it that claims the post, would leave the exporter with nothing that
+	 * recognises the document, and it would fall through to the `body` fallback and
+	 * ship `post_content` as one `inherit` fragment: every restricted widget
+	 * published in the open, and the restriction itself gone. So the filter decides
+	 * how other posts export and cannot opt an Elementor post out.
+	 *
+	 * Every other post goes to the first driver in the filtered list to recognise
+	 * it. Anything no driver recognises is a single fragment holding the whole body
+	 * with policy `inherit`, the same shape Agend reads a legacy blob as
+	 * (Decision 2.8).
 	 *
 	 * A structural parse error is thrown by the driver, not swallowed. The
 	 * alternative is shipping a document whose restricted regions were quietly
@@ -169,6 +188,12 @@ class Agend_Content_Access_Exporter {
 	 * @throws RuntimeException When a driver recognises the document but cannot parse it.
 	 */
 	public static function fragments_of( $post, ?array $policy ): array {
+		$elementor = new Agend_Content_Access_Elementor_Parser();
+
+		if ( $elementor->recognises( $post ) ) {
+			return $elementor->fragments( $post );
+		}
+
 		foreach ( self::parsers() as $parser ) {
 			if ( $parser->recognises( $post ) ) {
 				return $parser->fragments( $post );
