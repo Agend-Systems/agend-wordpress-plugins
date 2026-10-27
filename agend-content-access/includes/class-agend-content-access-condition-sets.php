@@ -218,7 +218,8 @@ class Agend_Content_Access_Condition_Sets {
 	}
 
 	/**
-	 * Pages and posts an editor may choose as replacement content.
+	 * Pages, synced patterns and Elementor templates an editor may choose as
+	 * replacement content, with the kind of each.
 	 *
 	 * Offers PUBLIC content only. A restricted page chosen here would be shown
 	 * to exactly the visitors the conditions just excluded, which is the
@@ -235,14 +236,83 @@ class Agend_Content_Access_Condition_Sets {
 	 * page restricted AFTER being chosen must still not leak, and this list
 	 * cannot know about that.
 	 *
+	 * Three kinds, in this order and by title within each: pages (every post type
+	 * the rule panel is offered on), synced patterns, and Elementor templates when
+	 * Elementor is active. Each is labelled with its kind, "Page: Join us",
+	 * "Pattern: Members-only content", "Elementor template: Join banner", because
+	 * the three are chosen from one list and a title alone does not say which it
+	 * is. An unsynced pattern is left out: it is copied into a page and has nothing
+	 * to render in a place on its own.
+	 *
+	 * @return array<int, array{id: int, type: string, title: string, label: string}> `title` is the
+	 *         plain title, `label` is the one shown to an editor.
+	 */
+	public static function fallback_choices(): array {
+		$choices = array();
+
+		// A type the page query would otherwise list twice. They are labelled for what
+		// they are below, never as a page.
+		$pages = array_values( array_diff( Agend_Content_Access_Meta_Box::supported_post_types(), array( 'wp_block', 'elementor_library' ) ) );
+
+		foreach ( self::public_posts( $pages ) as $post ) {
+			$choices[] = self::choice( $post, Agend_Content_Access_Fragment_Rules::KIND_PAGE, self::page_kind_label( (string) $post->post_type ) );
+		}
+
+		foreach ( self::public_posts( array( 'wp_block' ) ) as $post ) {
+			if ( 'unsynced' === (string) get_post_meta( (int) $post->ID, 'wp_pattern_sync_status', true ) ) {
+				continue;
+			}
+
+			$choices[] = self::choice( $post, Agend_Content_Access_Fragment_Rules::KIND_PATTERN, __( 'Pattern', 'agend-content-access' ) );
+		}
+
+		if ( Agend_Content_Access_Fragment_Rules::elementor_is_active() ) {
+			foreach ( self::public_posts( array( 'elementor_library' ) ) as $post ) {
+				$choices[] = self::choice( $post, Agend_Content_Access_Fragment_Rules::KIND_ELEMENTOR_TEMPLATE, __( 'Elementor template', 'agend-content-access' ) );
+			}
+		}
+
+		return $choices;
+	}
+
+	/**
+	 * The same choices as a value-to-label map, for a select that takes one.
+	 *
+	 * The Elementor control reads this, and starts it with "Nothing", which is
+	 * what an empty value means there.
+	 *
 	 * @return array<string, string>
 	 */
 	public static function fallback_options(): array {
 		$options = array( '' => __( 'Nothing', 'agend-content-access' ) );
 
+		foreach ( self::fallback_choices() as $choice ) {
+			$options[ (string) $choice['id'] ] = $choice['label'];
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Published posts of the given types that anybody may be shown: no password,
+	 * and no rules of any kind.
+	 *
+	 * Rules of any kind are a restriction, including stored rules this version
+	 * cannot read, which deny everyone: the replacement is rendered for exactly the
+	 * visitors the rules of the thing it replaces just refused, so it must be
+	 * readable by anyone.
+	 *
+	 * @param string[] $post_types Post types.
+	 * @return WP_Post[]
+	 */
+	private static function public_posts( array $post_types ): array {
+		if ( array() === $post_types ) {
+			return array();
+		}
+
 		$posts = get_posts(
 			array(
-				'post_type'      => Agend_Content_Access_Meta_Box::supported_post_types(),
+				'post_type'      => $post_types,
 				'post_status'    => 'publish',
 				'has_password'   => false,
 				'posts_per_page' => 100,
@@ -251,18 +321,66 @@ class Agend_Content_Access_Condition_Sets {
 			)
 		);
 
-		foreach ( $posts as $post ) {
-			// Only a post with no rules is offered. Rules of any kind are a
-			// restriction, including stored rules this version cannot read, which deny
-			// everyone: the fallback is rendered for exactly the visitors the block's
-			// own rules just refused, so it must be readable by anyone.
-			if ( ! Agend_Content_Access_Rules::from_post( (int) $post->ID )->is_empty() ) {
-				continue;
-			}
+		return array_values(
+			array_filter(
+				$posts,
+				static function ( $post ): bool {
+					return $post instanceof WP_Post
+						&& Agend_Content_Access_Rules::from_post( (int) $post->ID )->is_empty();
+				}
+			)
+		);
+	}
 
-			$options[ (string) $post->ID ] = (string) get_the_title( $post );
+	/**
+	 * One choice.
+	 *
+	 * @param WP_Post $post  The post.
+	 * @param string  $type  A `Fragment_Rules::KIND_*` constant.
+	 * @param string  $kind_label What the kind is called to an editor.
+	 * @return array{id: int, type: string, title: string, label: string}
+	 */
+	private static function choice( WP_Post $post, string $type, string $kind_label ): array {
+		$title = (string) get_the_title( $post );
+
+		if ( '' === trim( $title ) ) {
+			$title = sprintf(
+				/* translators: %d: post id, shown for a post with no title. */
+				__( '(no title) #%d', 'agend-content-access' ),
+				(int) $post->ID
+			);
 		}
 
-		return $options;
+		return array(
+			'id'    => (int) $post->ID,
+			'type'  => $type,
+			'title' => $title,
+			'label' => sprintf(
+				/* translators: 1: the kind of content (Page, Pattern, Elementor template), 2: its title. */
+				__( '%1$s: %2$s', 'agend-content-access' ),
+				$kind_label,
+				$title
+			),
+		);
+	}
+
+	/**
+	 * What a page-like post type is called to an editor: "Page" for a page, and
+	 * the type's own singular name for any other (a post, a product).
+	 *
+	 * @param string $post_type Post type.
+	 * @return string
+	 */
+	private static function page_kind_label( string $post_type ): string {
+		if ( 'page' !== $post_type && function_exists( 'get_post_type_object' ) ) {
+			$object = get_post_type_object( $post_type );
+			$name   = is_object( $object ) && isset( $object->labels->singular_name ) ? (string) $object->labels->singular_name : '';
+
+			if ( '' !== $name ) {
+				return $name;
+			}
+		}
+
+		return __( 'Page', 'agend-content-access' );
 	}
 }

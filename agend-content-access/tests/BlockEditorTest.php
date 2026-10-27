@@ -17,6 +17,7 @@ use PHPUnit\Framework\Attributes\Test;
 use WP_Block_Type_Registry;
 use WP_Error;
 
+require_once __DIR__ . '/has-elementor-double.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-policy.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-catalogue.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-meta-box.php';
@@ -324,7 +325,7 @@ final class BlockEditorTest extends TestCase {
 	}
 
 	#[Test]
-	public function fallbacks_are_public_pages_as_id_and_title_without_the_nothing_choice(): void {
+	public function fallbacks_are_public_pages_as_id_title_and_type_without_the_nothing_choice(): void {
 		Agend_Test_WP::set_filter( 'agend_content_access_condition_sets', array() );
 
 		$GLOBALS['agend_test_posts'] = array(
@@ -345,7 +346,7 @@ final class BlockEditorTest extends TestCase {
 		$GLOBALS['agend_test_post_meta'][13] = array( '_agend_access_policy' => array( 'mode' => 'active_member' ) );
 
 		$this->assertSame(
-			array( array( 'id' => 12, 'title' => 'Join us' ) ),
+			array( array( 'id' => 12, 'title' => 'Page: Join us', 'type' => 'page' ) ),
 			agend_content_access_conditions_payload()['fallbacks'],
 			'a restricted page is not offered as replacement content'
 		);
@@ -370,7 +371,36 @@ final class BlockEditorTest extends TestCase {
 		}
 
 		$this->assertSame(
-			array( array( 'id' => 12, 'title' => 'Page 12' ) ),
+			array( array( 'id' => 12, 'title' => 'Page: Page 12', 'type' => 'page' ) ),
+			agend_content_access_conditions_payload()['fallbacks']
+		);
+	}
+
+	/**
+	 * The same list serves "show instead" and a page's placeholder, so it offers
+	 * synced patterns and Elementor templates too, and says which each is: a redirect
+	 * goes to a page, and a pattern or a template has no address of its own.
+	 */
+	#[Test]
+	public function fallbacks_include_synced_patterns_and_elementor_templates_with_their_type(): void {
+		Agend_Test_WP::set_filter( 'agend_content_access_condition_sets', array() );
+		Agend_Test_WP::$did_action['elementor/loaded'] = 1;
+
+		foreach ( array( 12 => 'page', 13 => 'wp_block', 14 => 'elementor_library' ) as $id => $type ) {
+			$GLOBALS['agend_test_posts'][ $id ] = (object) array(
+				'ID'          => $id,
+				'post_status' => 'publish',
+				'post_title'  => 'Item ' . $id,
+				'post_type'   => $type,
+			);
+		}
+
+		$this->assertSame(
+			array(
+				array( 'id' => 12, 'title' => 'Page: Item 12', 'type' => 'page' ),
+				array( 'id' => 13, 'title' => 'Pattern: Item 13', 'type' => 'pattern' ),
+				array( 'id' => 14, 'title' => 'Elementor template: Item 14', 'type' => 'elementor_template' ),
+			),
 			agend_content_access_conditions_payload()['fallbacks']
 		);
 	}

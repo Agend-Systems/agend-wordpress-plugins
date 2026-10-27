@@ -39,6 +39,17 @@ class Agend_Content_Access_Fragment_Rules {
 	const FALLBACK_KEY   = 'agend_conditions_fallback_id';
 
 	/**
+	 * The kinds of content that can be shown in place of something hidden, and how
+	 * each is rendered: a page through `the_content`, a synced pattern through
+	 * `do_blocks()`, an Elementor template through Elementor's own frontend.
+	 *
+	 * @var string
+	 */
+	const KIND_PAGE               = 'page';
+	const KIND_PATTERN            = 'pattern';
+	const KIND_ELEMENTOR_TEMPLATE = 'elementor_template';
+
+	/**
 	 * Whether a fragment has display conditions switched on.
 	 *
 	 * Kept in one place so the toggle's `'yes'` value is not re-spelled by every
@@ -75,6 +86,15 @@ class Agend_Content_Access_Fragment_Rules {
 	 * prompt, and the picker is not a defence: a password can be added to a post
 	 * after it was chosen, just as a policy can.
 	 *
+	 * Only content of a kind that can be shown is. A post type that can carry rules
+	 * is treated as public when it has none, and that reading is only safe for the
+	 * types the rule panel is offered on: a post type that cannot carry a rule has
+	 * never had one, so "no rules" would mean nothing about it and an id typed by
+	 * hand could print a private post type's body. The three kinds are a page of a
+	 * type the panel supports, a synced pattern (`wp_block`) and, when Elementor is
+	 * active, an Elementor template (`elementor_library`). Anything else renders
+	 * nothing, as does a template when Elementor is not there to render it.
+	 *
 	 * @param int  $fallback_id Post id chosen as the fallback.
 	 * @param bool $anonymous   Judge the fallback for a visitor who is nobody, as a
 	 *                          feed must: its output is shared whoever fetched it.
@@ -91,6 +111,12 @@ class Agend_Content_Access_Fragment_Rules {
 			return '';
 		}
 
+		$kind = self::kind_of( $post );
+
+		if ( '' === $kind ) {
+			return '';
+		}
+
 		// The access check the reference omits. The fallback's own page rules must
 		// admit THIS visitor: the same evaluator, on the same rules, as the page itself.
 		// A fallback whose stored rules cannot be read is unreadable and is not shown.
@@ -103,6 +129,77 @@ class Agend_Content_Access_Fragment_Rules {
 			return '';
 		}
 
-		return trim( (string) apply_filters( 'the_content', $post->post_content ) );
+		switch ( $kind ) {
+			case self::KIND_PATTERN:
+				// The block pass alone leaves a shortcode in the pattern as text: they
+				// are run by `the_content`'s own pass, which a pattern is not given.
+				return trim( do_shortcode( do_blocks( $post->post_content ) ) );
+			case self::KIND_ELEMENTOR_TEMPLATE:
+				return trim( self::elementor_template_html( (int) $post->ID ) );
+			default:
+				return trim( (string) apply_filters( 'the_content', $post->post_content ) );
+		}
+	}
+
+	/**
+	 * Which kind of fallback a post is, or an empty string when it is none.
+	 *
+	 * @param WP_Post $post The chosen post.
+	 * @return string One of the `KIND_*` constants, or ''.
+	 */
+	public static function kind_of( WP_Post $post ): string {
+		if ( 'wp_block' === $post->post_type ) {
+			return self::KIND_PATTERN;
+		}
+
+		// Checked before the supported types: a site can make templates public.
+		if ( 'elementor_library' === $post->post_type ) {
+			return self::elementor_is_active() ? self::KIND_ELEMENTOR_TEMPLATE : '';
+		}
+
+		return in_array( $post->post_type, Agend_Content_Access_Meta_Box::supported_post_types(), true )
+			? self::KIND_PAGE
+			: '';
+	}
+
+	/**
+	 * Whether Elementor has finished loading.
+	 *
+	 * Asked through the plugin's own probe when it is declared, and false when it
+	 * is not: a request that cannot say Elementor is there does not render its
+	 * templates.
+	 *
+	 * @return bool
+	 */
+	public static function elementor_is_active(): bool {
+		return function_exists( 'agend_content_access_has_elementor' ) && agend_content_access_has_elementor();
+	}
+
+	/**
+	 * An Elementor template's rendered content, through Elementor's own frontend.
+	 *
+	 * Guarded at every step: Elementor not loaded, its frontend not there, or the
+	 * method missing from a version that renamed it, each render nothing rather than
+	 * fatal on a page the visitor is already being refused. The template's own
+	 * section rules are enforced as for any Elementor render, for this visitor.
+	 *
+	 * @param int $template_id Template post id.
+	 * @return string The markup, or '' when it cannot be rendered.
+	 */
+	private static function elementor_template_html( int $template_id ): string {
+		if ( ! self::elementor_is_active() || ! class_exists( '\Elementor\Plugin', false ) ) {
+			return '';
+		}
+
+		$plugin   = \Elementor\Plugin::$instance;
+		$frontend = is_object( $plugin ) && isset( $plugin->frontend ) ? $plugin->frontend : null;
+
+		if ( ! is_object( $frontend ) || ! method_exists( $frontend, 'get_builder_content_for_display' ) ) {
+			return '';
+		}
+
+		// With its CSS, so a template renders styled when it is the only thing Elementor
+		// is asked for on the page.
+		return (string) $frontend->get_builder_content_for_display( $template_id, true );
 	}
 }

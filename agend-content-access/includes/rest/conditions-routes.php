@@ -108,7 +108,7 @@ function agend_content_access_vocabulary_group( string $key, string $label, arra
  *     { "key": "agend_entitlements", ... "kind": "entitlement" or "platform", "description": "..." },
  *     { "key": "agend_wordpress", ... "kind": "login" or "role" }
  *   ],
- *   "fallbacks": [ { "id": 12, "title": "Join us" } ],
+ *   "fallbacks": [ { "id": 12, "title": "Page: Join us", "type": "page" } ],
  *   "errors": [ { "group": "agend_entitlements", "message": "..." } ]
  * }
  * ```
@@ -133,9 +133,15 @@ function agend_content_access_vocabulary_group( string $key, string $label, arra
  * slug.
  *
  * `fallbacks` is public content only, with no password-protected post either,
- * from `Condition_Sets::fallback_options()`, and does not include the "Nothing"
- * choice: the panel adds its own. Every entry is checked rather than trusted:
- * one that is not the documented shape is skipped, not repaired.
+ * from `Condition_Sets::fallback_choices()`, and does not include the "Nothing"
+ * choice: the panel adds its own. It is the choices for "show instead" and for a
+ * page's placeholder: pages, synced patterns and, when Elementor is active, its
+ * templates. `title` is what an editor reads, labelled with the kind ("Page: Join
+ * us", "Pattern: Members-only content", "Elementor template: Join banner"), and
+ * `type` is `page`, `pattern` or `elementor_template` for a panel that must offer
+ * only some of them: a redirect goes to a page, and a pattern or a template has no
+ * address of its own. Every entry is checked rather than trusted: one that is not
+ * the documented shape is skipped, not repaired.
  *
  * @param bool $refresh Optional. Read the lists from the gateway again instead of the cache.
  * @return array{groups: array<int, array>, fallbacks: array<int, array>, errors: array<int, array>}
@@ -325,15 +331,15 @@ function agend_content_access_conditions_payload( bool $refresh = false ): array
 
 	$fallbacks = array();
 
-	foreach ( Agend_Content_Access_Condition_Sets::fallback_options() as $id => $title ) {
-		// The empty key is "Nothing", which the panel supplies itself.
-		if ( '' === (string) $id || ! ctype_digit( (string) $id ) ) {
+	foreach ( Agend_Content_Access_Condition_Sets::fallback_choices() as $choice ) {
+		if ( ! is_array( $choice ) || empty( $choice['id'] ) || ! isset( $choice['label'], $choice['type'] ) || ! is_scalar( $choice['label'] ) ) {
 			continue;
 		}
 
 		$fallbacks[] = array(
-			'id'    => (int) $id,
-			'title' => is_scalar( $title ) ? (string) $title : (string) $id,
+			'id'    => (int) $choice['id'],
+			'title' => (string) $choice['label'],
+			'type'  => (string) $choice['type'],
 		);
 	}
 

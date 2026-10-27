@@ -223,8 +223,8 @@ final class FallbackContentTest extends TestCase {
 
 		$options = Agend_Content_Access_Condition_Sets::fallback_options();
 
-		$this->assertContains( 'Open page', $options );
-		$this->assertNotContains( 'Protected page', $options );
+		$this->assertContains( 'Page: Open page', $options );
+		$this->assertNotContains( 'Page: Protected page', $options );
 	}
 
 	#[Test]
@@ -256,8 +256,8 @@ final class FallbackContentTest extends TestCase {
 			array( '', '5', '2', '1' ),
 			array_map( 'strval', array_keys( $options ) )
 		);
-		$this->assertNotContains( 'Unreadable page', $options );
-		$this->assertNotContains( 'Members page', $options );
-		$this->assertNotContains( 'Segments page', $options, 'a readable restriction is not offered either' );
+		$this->assertNotContains( 'Page: Unreadable page', $options );
+		$this->assertNotContains( 'Page: Members page', $options );
+		$this->assertNotContains( 'Page: Segments page', $options, 'a readable restriction is not offered either' );
 	}
 }
