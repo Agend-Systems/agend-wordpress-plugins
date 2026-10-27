@@ -2066,6 +2066,9 @@ if ( ! class_exists( 'WP_Post' ) ) {
 		public int $post_author = 0;
 		public string $post_password = '';
 
+		/** @var string|null As in core: the sanitising context the object was read in, 'raw' for a stored post. */
+		public $filter = 'raw';
+
 		public function __construct( array $fields = array() ) {
 			foreach ( $fields as $key => $value ) {
 				if ( property_exists( $this, $key ) ) {
@@ -2134,6 +2137,20 @@ if ( ! function_exists( 'get_post' ) ) {
 	 * the missing-post path without a database.
 	 */
 	function get_post( $id = null ) {
+		// A post object read in the `raw` context is returned as it is. One read in
+		// any other context is read again, as core's `WP_Post::filter( 'raw' )` does:
+		// a copy whose body was changed and that is not marked `raw` comes back as
+		// the stored post.
+		if ( $id instanceof WP_Post ) {
+			if ( 'raw' === $id->filter || ! isset( $GLOBALS['agend_test_posts'][ $id->ID ] ) ) {
+				return $id;
+			}
+
+			$stored = $GLOBALS['agend_test_posts'][ $id->ID ];
+
+			return $stored instanceof WP_Post ? $stored : new WP_Post( (array) $stored );
+		}
+
 		// No argument means the post WordPress is currently rendering, as in
 		// core: `$GLOBALS['post']`, which a test sets to put a post "in the loop".
 		if ( null === $id ) {
@@ -2897,6 +2914,281 @@ if ( ! function_exists( 'do_blocks' ) ) {
 		}
 
 		return $output;
+	}
+}
+
+if ( ! function_exists( 'has_filter' ) ) {
+	/**
+	 * `has_filter()` stand-in over {@see Agend_Test_WP::$filter_registry}: the
+	 * priority the callback was registered at, or false. A method callback is the
+	 * SAME object and method, and any other callback the same value, as core's
+	 * unique ids compare: two instances of one class are two callbacks.
+	 *
+	 * @param string         $hook     Hook name.
+	 * @param callable|false $callback Callback to look for, or false for any.
+	 * @return int|bool
+	 */
+	function has_filter( string $hook, $callback = false ) {
+		foreach ( Agend_Test_WP::$filter_registry[ $hook ] ?? array() as $entry ) {
+			if ( false === $callback ) {
+				return true;
+			}
+
+			$registered = $entry['callback'];
+
+			if ( is_array( $registered ) && is_array( $callback ) ) {
+				if ( $registered[0] === $callback[0] && $registered[1] === $callback[1] ) {
+					return $entry['priority'];
+				}
+
+				continue;
+			}
+
+			if ( $registered === $callback ) {
+				return $entry['priority'];
+			}
+		}
+
+		return false;
+	}
+}
+
+if ( ! function_exists( 'strip_core_block_namespace' ) ) {
+	/** Core's: a `core/` prefix is not written into block comments. */
+	function strip_core_block_namespace( $block_name = null ) {
+		if ( is_string( $block_name ) && 0 === strpos( $block_name, 'core/' ) ) {
+			return substr( $block_name, 5 );
+		}
+
+		return $block_name;
+	}
+}
+
+if ( ! function_exists( 'serialize_block_attributes' ) ) {
+	/** Core's escaping of a block's attributes for its comment delimiter. */
+	function serialize_block_attributes( $block_attributes ) {
+		$encoded = (string) json_encode( $block_attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+
+		return str_replace(
+			array( '--', '<', '>', '&', '\\"' ),
+			array( '\\u002d\\u002d', '\\u003c', '\\u003e', '\\u0026', '\\u0022' ),
+			$encoded
+		);
+	}
+}
+
+if ( ! function_exists( 'get_comment_delimited_block_content' ) ) {
+	/** Core's: the comment delimiters around a block's inner content. */
+	function get_comment_delimited_block_content( $block_name, $block_attributes, $block_content ) {
+		if ( is_null( $block_name ) ) {
+			return $block_content;
+		}
+
+		$serialized_block_name = strip_core_block_namespace( $block_name );
+		$serialized_attributes = empty( $block_attributes ) ? '' : serialize_block_attributes( $block_attributes ) . ' ';
+
+		if ( empty( $block_content ) ) {
+			return sprintf( '<!-- wp:%s %s/-->', $serialized_block_name, $serialized_attributes );
+		}
+
+		return sprintf(
+			'<!-- wp:%s %s-->%s<!-- /wp:%s -->',
+			$serialized_block_name,
+			$serialized_attributes,
+			$block_content,
+			$serialized_block_name
+		);
+	}
+}
+
+if ( ! function_exists( 'serialize_block' ) ) {
+	/**
+	 * Core's `serialize_block()`. Faithful on the point that matters to code that
+	 * REMOVES inner blocks: the children are taken from `innerBlocks` in the order
+	 * `innerContent` has a `null` placeholder for them, so a block whose
+	 * `innerContent` still holds a placeholder for a child that was removed does
+	 * not serialise.
+	 */
+	function serialize_block( $block ) {
+		$block_content = '';
+		$index         = 0;
+
+		foreach ( $block['innerContent'] as $chunk ) {
+			$block_content .= is_string( $chunk ) ? $chunk : serialize_block( $block['innerBlocks'][ $index++ ] );
+		}
+
+		if ( ! is_array( $block['attrs'] ) ) {
+			$block['attrs'] = array();
+		}
+
+		return get_comment_delimited_block_content( $block['blockName'], $block['attrs'], $block_content );
+	}
+}
+
+if ( ! function_exists( 'serialize_blocks' ) ) {
+	function serialize_blocks( $blocks ) {
+		return implode( '', array_map( 'serialize_block', $blocks ) );
+	}
+}
+
+if ( ! function_exists( 'wp_strip_all_tags' ) ) {
+	function wp_strip_all_tags( $text, $remove_breaks = false ) {
+		$text = preg_replace( '@<(script|style)[^>]*?>.*?</\\1>@si', '', (string) $text );
+		$text = strip_tags( $text );
+
+		if ( $remove_breaks ) {
+			$text = preg_replace( '/[\r\n\t ]+/', ' ', $text );
+		}
+
+		return trim( $text );
+	}
+}
+
+if ( ! function_exists( 'wp_trim_words' ) ) {
+	/** Core's `wp_trim_words()` for a language that separates words with spaces. */
+	function wp_trim_words( $text, $num_words = 55, $more = null ) {
+		if ( null === $more ) {
+			$more = '&hellip;';
+		}
+
+		$words = preg_split( "/[\n\r\t ]+/", wp_strip_all_tags( $text ), $num_words + 1, PREG_SPLIT_NO_EMPTY );
+
+		if ( count( $words ) > $num_words ) {
+			array_pop( $words );
+
+			return implode( ' ', $words ) . $more;
+		}
+
+		return implode( ' ', $words );
+	}
+}
+
+if ( ! function_exists( '_excerpt_render_inner_blocks' ) ) {
+	/**
+	 * Verbatim `_excerpt_render_inner_blocks()` from WordPress 6.7 (wp-includes/blocks.php).
+	 *
+	 * Kept faithful on purpose. This is the function that renders a wrapper's
+	 * LEAF children through `render_block()` and never renders the wrapper itself,
+	 * so a restriction on the wrapper never reaches `pre_render_block`. A stub
+	 * that rendered the wrapper would hide that.
+	 */
+	function _excerpt_render_inner_blocks( $parsed_block, $allowed_blocks ) {
+		$output = '';
+
+		foreach ( $parsed_block['innerBlocks'] as $inner_block ) {
+			if ( ! in_array( $inner_block['blockName'], $allowed_blocks, true ) ) {
+				continue;
+			}
+
+			if ( empty( $inner_block['innerBlocks'] ) ) {
+				$output .= render_block( $inner_block );
+			} else {
+				$output .= _excerpt_render_inner_blocks( $inner_block, $allowed_blocks );
+			}
+		}
+
+		return $output;
+	}
+}
+
+if ( ! function_exists( 'excerpt_remove_blocks' ) ) {
+	/** Verbatim `excerpt_remove_blocks()` from WordPress 6.7 (wp-includes/blocks.php). See {@see _excerpt_render_inner_blocks()}. */
+	function excerpt_remove_blocks( $content ) {
+		if ( ! has_blocks( $content ) ) {
+			return $content;
+		}
+
+		$allowed_inner_blocks = array(
+			null,
+			'core/freeform',
+			'core/heading',
+			'core/html',
+			'core/list',
+			'core/media-text',
+			'core/paragraph',
+			'core/preformatted',
+			'core/pullquote',
+			'core/quote',
+			'core/table',
+			'core/verse',
+		);
+
+		$allowed_wrapper_blocks = array(
+			'core/columns',
+			'core/column',
+			'core/group',
+		);
+
+		$allowed_wrapper_blocks = apply_filters( 'excerpt_allowed_wrapper_blocks', $allowed_wrapper_blocks );
+		$allowed_blocks         = array_merge( $allowed_inner_blocks, $allowed_wrapper_blocks );
+		$allowed_blocks         = apply_filters( 'excerpt_allowed_blocks', $allowed_blocks );
+		$blocks                 = parse_blocks( $content );
+		$output                 = '';
+
+		foreach ( $blocks as $block ) {
+			if ( in_array( $block['blockName'], $allowed_blocks, true ) ) {
+				if ( ! empty( $block['innerBlocks'] ) ) {
+					if ( in_array( $block['blockName'], $allowed_wrapper_blocks, true ) ) {
+						$output .= _excerpt_render_inner_blocks( $block, $allowed_blocks );
+						continue;
+					}
+
+					// Skip the block if it has disallowed or nested inner blocks.
+					foreach ( $block['innerBlocks'] as $inner_block ) {
+						if ( ! in_array( $inner_block['blockName'], $allowed_inner_blocks, true ) || ! empty( $inner_block['innerBlocks'] ) ) {
+							continue 2;
+						}
+					}
+				}
+
+				$output .= render_block( $block );
+			}
+		}
+
+		return $output;
+	}
+}
+
+if ( ! function_exists( 'wp_trim_excerpt' ) ) {
+	/**
+	 * `wp_trim_excerpt()` as core builds it: the manual excerpt untouched, else
+	 * the post's body, blocks reduced by `excerpt_remove_blocks()`, run through
+	 * `the_content` and cut to a length. Reads the body from the post OBJECT it is
+	 * given, as core does through `get_post( $post )`.
+	 */
+	function wp_trim_excerpt( $text = '', $post = null ) {
+		$raw_excerpt = $text;
+
+		if ( '' === trim( (string) $text ) ) {
+			$post = get_post( $post );
+			$text = $post instanceof WP_Post ? (string) $post->post_content : '';
+			$text = excerpt_remove_blocks( $text );
+			$text = apply_filters( 'the_content', $text );
+			$text = str_replace( ']]>', ']]&gt;', (string) $text );
+
+			$excerpt_length = (int) apply_filters( 'excerpt_length', 55 );
+			$excerpt_more   = apply_filters( 'excerpt_more', ' [&hellip;]' );
+			$text           = wp_trim_words( $text, $excerpt_length, $excerpt_more );
+		}
+
+		return apply_filters( 'wp_trim_excerpt', $text, $raw_excerpt );
+	}
+}
+
+if ( ! function_exists( 'get_the_excerpt' ) ) {
+	/**
+	 * `get_the_excerpt()`: the whole `get_the_excerpt` chain over the manual
+	 * excerpt. A test registers `wp_trim_excerpt` on it at priority 10, as core's
+	 * default filters do.
+	 */
+	function get_the_excerpt( $post = null ) {
+		$post = get_post( $post );
+
+		if ( ! $post instanceof WP_Post ) {
+			return '';
+		}
+
+		return Agend_Test_WP::apply_registered( 'get_the_excerpt', $post->post_excerpt, $post );
 	}
 }
 

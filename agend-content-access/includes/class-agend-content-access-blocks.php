@@ -130,6 +130,10 @@ class Agend_Content_Access_Blocks {
 		add_action( 'save_post', array( $this, 'sync_search_flag' ), 20 );
 		add_action( 'elementor/document/after_save', array( $this, 'sync_search_flag_after_elementor_save' ) );
 		add_action( 'pre_get_posts', array( $this, 'exclude_from_search' ), self::SEARCH_EXCLUSION_PRIORITY );
+
+		// The block half of the generated excerpt: `Agend_Content_Access_Frontend`
+		// owns the `get_the_excerpt` filter and asks this for the safe text.
+		add_filter( 'agend_content_access_safe_generated_excerpt', array( $this, 'safe_generated_excerpt' ), 10, 2 );
 	}
 
 	// -----------------------------------------------------------------------
@@ -465,6 +469,158 @@ class Agend_Content_Access_Blocks {
 		}
 
 		return false;
+	}
+
+	// -----------------------------------------------------------------------
+	// Generated excerpts
+	// -----------------------------------------------------------------------
+
+	/**
+	 * The excerpt of a block document with every ruled subtree taken out of it.
+	 *
+	 * The block half of `Agend_Content_Access_Frontend::filter_generated_excerpt()`,
+	 * which calls it through `agend_content_access_safe_generated_excerpt` for a
+	 * document that carries rules and has no manual excerpt.
+	 *
+	 * WHY THE TREE IS REBUILT INSTEAD OF THE EXCERPT BEING JUDGED. Core builds an
+	 * excerpt by rendering the body through `excerpt_remove_blocks()`, which renders
+	 * the children of a Group, Columns or Column and never the wrapper, so a rule on
+	 * a wrapper is never asked about (see `filter_generated_excerpt()`). Asking
+	 * `pre_render_block` per block cannot fix that from outside, and the answer
+	 * would be per viewer. So the ruled blocks are removed from the PARSED tree,
+	 * wrapper or leaf, the rest is serialised with `serialize_blocks()`, and
+	 * WordPress's own `wp_trim_excerpt()` runs over that markup, so the length, the
+	 * "more" text, `excerpt_allowed_blocks` and the `the_content` pass all stay
+	 * core's. No ruled text is in what it is given, so none can come out, and the
+	 * excerpt is the same for every viewer.
+	 *
+	 * A block is removed when it carries a policy or enabled display conditions,
+	 * the two tests the render path and the cache marking use. Synced patterns are
+	 * expanded with the usual guards first, so a ruled block inside a pattern
+	 * counts. A reference to a pattern that holds one is removed whole, and so is
+	 * one that could not be expanded (a cycle, the depth or the reference budget):
+	 * what is in it is not known. A reference to a pattern with no rules is kept
+	 * as the reference it was, which core's excerpt does not render at all.
+	 *
+	 * The copy `wp_trim_excerpt()` reads is marked `raw`, so `get_post()` hands it
+	 * back as it is instead of re-reading the stored post, which would put the
+	 * original body back.
+	 *
+	 * An Elementor document is not rebuilt: its `post_content` is the flattened
+	 * render, not a block tree. The incoming value, '', stands, which is how that
+	 * driver's documents end up with no generated excerpt.
+	 *
+	 * @param string       $excerpt The safe excerpt so far. Returned for anything this cannot rebuild.
+	 * @param WP_Post|null $post    Post the excerpt is for.
+	 * @return string
+	 */
+	public function safe_generated_excerpt( $excerpt, $post = null ) {
+		if (
+			! $post instanceof WP_Post
+			|| '' !== trim( (string) get_post_meta( (int) $post->ID, Agend_Content_Access_Elementor_Parser::META_KEY, true ) )
+		) {
+			return (string) $excerpt;
+		}
+
+		$ledger = Agend_Content_Access_Block_Attributes::ledger();
+		$blocks = Agend_Content_Access_Block_Attributes::expand( parse_blocks( (string) $post->post_content ), $ledger );
+
+		$safe               = clone $post;
+		$safe->post_content = serialize_blocks( self::without_ruled_blocks( $blocks ) );
+		$safe->post_excerpt = '';
+		$safe->filter       = 'raw';
+
+		return (string) wp_trim_excerpt( '', $safe );
+	}
+
+	/**
+	 * The blocks with every ruled one, and everything inside it, taken out.
+	 *
+	 * @param array $blocks Parsed blocks, already expanded.
+	 * @return array The blocks that are left, as a list.
+	 */
+	private static function without_ruled_blocks( array $blocks ): array {
+		$kept = array();
+
+		foreach ( $blocks as $block ) {
+			$clean = is_array( $block ) ? self::without_ruled_block( $block ) : null;
+
+			if ( null !== $clean ) {
+				$kept[] = $clean;
+			}
+		}
+
+		return $kept;
+	}
+
+	/**
+	 * One block without its ruled descendants, or null when it is ruled itself.
+	 *
+	 * `serialize_block()` walks `innerContent` and takes the next inner block at
+	 * each `null` in it, so a child cannot be dropped from `innerBlocks` alone: its
+	 * placeholder has to go with it, or the block no longer serialises. A block
+	 * whose placeholders do not match its children cannot be rebuilt reliably, and
+	 * is removed.
+	 *
+	 * @param array $block Parsed block, already expanded.
+	 * @return array|null
+	 */
+	private static function without_ruled_block( array $block ): ?array {
+		if (
+			Agend_Content_Access_Block_Attributes::carries_policy( $block )
+			|| Agend_Content_Access_Block_Attributes::carries_conditions( $block )
+		) {
+			return null;
+		}
+
+		$children = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? array_values( $block['innerBlocks'] ) : array();
+
+		if ( Agend_Content_Access_Block_Attributes::is_synced_reference( $block ) ) {
+			// Unknown content, or content holding a rule: the whole reference goes.
+			if ( ! Agend_Content_Access_Block_Attributes::is_expanded_reference( $block ) || self::blocks_carry_rules( $children ) ) {
+				return null;
+			}
+
+			// The reference as it was written: its pattern's blocks are not its own.
+			$block['innerBlocks'] = array();
+
+			return $block;
+		}
+
+		if ( array() === $children ) {
+			return $block;
+		}
+
+		$content = isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ? $block['innerContent'] : array();
+
+		if ( count( $children ) !== count( array_filter( $content, 'is_null' ) ) ) {
+			return null;
+		}
+
+		$kept_content  = array();
+		$kept_children = array();
+		$index         = 0;
+
+		foreach ( $content as $chunk ) {
+			if ( null !== $chunk ) {
+				$kept_content[] = $chunk;
+				continue;
+			}
+
+			$child = is_array( $children[ $index ] ) ? self::without_ruled_block( $children[ $index ] ) : null;
+
+			++$index;
+
+			if ( null !== $child ) {
+				$kept_content[]  = null;
+				$kept_children[] = $child;
+			}
+		}
+
+		$block['innerContent'] = $kept_content;
+		$block['innerBlocks']  = $kept_children;
+
+		return $block;
 	}
 
 	// -----------------------------------------------------------------------

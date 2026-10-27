@@ -36,6 +36,13 @@ class Agend_Content_Access_Frontend {
 	private const WITHHOLD_PRIORITY = 1;
 
 	/**
+	 * Priority of the generated excerpt filter: straight after core's
+	 * `wp_trim_excerpt` (10), which is what builds an excerpt from the body, and
+	 * before the gate at PHP_INT_MAX, which may still replace the result.
+	 */
+	private const GENERATED_EXCERPT_PRIORITY = 11;
+
+	/**
 	 * The REST route of the block editor's server-side block renderer.
 	 *
 	 * `ServerSideRender` and every dynamic block's editor preview call it.
@@ -129,11 +136,27 @@ class Agend_Content_Access_Frontend {
 	 * 10 on `get_the_excerpt`) is what builds an excerpt out of the body when
 	 * none was written, so a gate that ran before it would hand it an empty
 	 * string to fill with the opening of the protected post.
+	 *
+	 * The generated excerpt of a document that carries fragment rules is the
+	 * other half: see `filter_generated_excerpt()`, at 11, which runs between the
+	 * two because it replaces what `wp_trim_excerpt()` built and must be in place
+	 * before the gate decides whether to keep it.
 	 */
 	private function register_render_filters(): void {
 		add_filter( 'the_content', array( $this, 'withhold_in_loop' ), self::WITHHOLD_PRIORITY );
 		add_filter( 'the_content', array( $this, 'enforce_withheld' ), PHP_INT_MAX );
 		add_filter( 'get_the_excerpt', array( $this, 'filter_excerpt' ), PHP_INT_MAX, 2 );
+
+		// The ONE registration of the generated excerpt filter, and the one method
+		// behind it. The guard is for a second copy of this class's wiring: the
+		// same filter added twice would run the safe excerpt builder twice per
+		// excerpt. Anything that needs this behaviour calls the method.
+		$generated = array( $this, 'filter_generated_excerpt' );
+
+		if ( false === has_filter( 'get_the_excerpt', $generated ) ) {
+			add_filter( 'get_the_excerpt', $generated, self::GENERATED_EXCERPT_PRIORITY, 2 );
+		}
+
 		add_filter( 'the_content_feed', array( $this, 'filter_feed_content' ), PHP_INT_MAX );
 		add_filter( 'the_excerpt_rss', array( $this, 'filter_feed_excerpt' ), PHP_INT_MAX );
 	}
@@ -606,6 +629,89 @@ class Agend_Content_Access_Frontend {
 		$this->report_degraded( $post_id, $decision );
 
 		return self::teaser_for( $post );
+	}
+
+	/**
+	 * Replaces a generated excerpt that could carry text a viewer was not meant
+	 * to read, for a document with fragment rules.
+	 *
+	 * WHY IT EXISTS. `wp_trim_excerpt()` builds an excerpt when none was written,
+	 * and it does it by rendering the BODY through `excerpt_remove_blocks()`.
+	 * That function renders the children of a Group, Columns or Column block one
+	 * by one and never renders the wrapper itself, so a restriction on the wrapper
+	 * is never asked about and its text reaches every archive, search result, feed
+	 * description and `excerpt.rendered` in REST. An Elementor document's body is
+	 * worse: Elementor stores a flattened copy of the rendered page in
+	 * `post_content`, restricted sections included.
+	 *
+	 * WHAT IT DOES. For a post with no manual excerpt whose document carries
+	 * fragment rules (a policy or enabled display conditions), the generated
+	 * excerpt is whatever `agend_content_access_safe_generated_excerpt` returns,
+	 * starting from ''. A block document gets an excerpt rebuilt from its own tree
+	 * with every ruled subtree removed (`Agend_Content_Access_Blocks`); anything
+	 * else, an Elementor document included, keeps '' because no rule-free text can
+	 * be recovered from it. The result is the same for every viewer. It does not
+	 * depend on who is looking, so it is safe for the caches excerpts end up in.
+	 *
+	 * A MANUAL excerpt is untouched: it is the editor's deliberate public text,
+	 * the same rule `teaser_for()` applies. Judged as `wp_trim_excerpt()` judges
+	 * it, by `trim()`, so a whitespace-only excerpt, which core treats as empty and
+	 * generates over, is generated over here too.
+	 *
+	 * Authors are not filtered (`renders_for_visitors()`), so the editor and its
+	 * previews show the whole excerpt.
+	 *
+	 * @param string       $excerpt Excerpt as `wp_trim_excerpt()` left it.
+	 * @param WP_Post|null $post    Post the excerpt is for.
+	 * @return string
+	 */
+	public function filter_generated_excerpt( $excerpt, $post = null ) {
+		if ( ! $post instanceof WP_Post || ! self::renders_for_visitors() ) {
+			return $excerpt;
+		}
+
+		if ( '' !== trim( (string) $post->post_excerpt ) || ! self::carries_fragment_rules( $post ) ) {
+			return $excerpt;
+		}
+
+		/**
+		 * Filters the generated excerpt of a document that carries fragment rules.
+		 *
+		 * The block driver rebuilds it from the block tree without the ruled
+		 * blocks. Left alone it is the empty string, which is the answer for a
+		 * document nothing can rebuild, an Elementor one. Whatever is returned is
+		 * public and shared by every viewer, so it must not contain text from a
+		 * ruled block or section.
+		 *
+		 * @param string  $excerpt The safe generated excerpt so far. Starts empty.
+		 * @param WP_Post $post    Post the excerpt is for.
+		 */
+		return (string) apply_filters( 'agend_content_access_safe_generated_excerpt', '', $post );
+	}
+
+	/**
+	 * Whether a post's document carries fragment rules, for the excerpt.
+	 *
+	 * The saved flag first, which is a single meta read and covers both editors.
+	 * Then, when the block driver is loaded, a live scan, because the flag can be
+	 * stale in the unsafe direction: a synced pattern edited after the page was
+	 * saved changes what the page holds without touching the page's flag, and a
+	 * post saved before the flag existed has none. The scan is cheap next to the
+	 * excerpt it guards, which renders the body.
+	 *
+	 * The block driver is looked up, not required, so this class stays usable
+	 * without it.
+	 *
+	 * @param WP_Post $post Post.
+	 * @return bool
+	 */
+	private static function carries_fragment_rules( WP_Post $post ): bool {
+		if ( '1' === (string) get_post_meta( (int) $post->ID, self::FRAGMENT_RULES_META_KEY, true ) ) {
+			return true;
+		}
+
+		return class_exists( 'Agend_Content_Access_Blocks', false )
+			&& Agend_Content_Access_Blocks::document_carries_rules( $post );
 	}
 
 	/**
