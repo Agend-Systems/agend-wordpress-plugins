@@ -1874,6 +1874,7 @@ if ( ! class_exists( 'WP_Post' ) ) {
 		public string $post_excerpt = '';
 		public string $post_date_gmt = '';
 		public int $post_author = 0;
+		public string $post_password = '';
 
 		public function __construct( array $fields = array() ) {
 			foreach ( $fields as $key => $value ) {
@@ -2280,134 +2281,170 @@ if ( ! function_exists( 'agend_test_freeform_block' ) ) {
 	}
 }
 
+if ( ! function_exists( 'agend_test_next_block_token' ) ) {
+	/**
+	 * Finds the next block comment delimiter at or after `$from`.
+	 *
+	 * A comment that merely starts like a delimiter but does not parse as one is
+	 * left in the surrounding text, exactly as WordPress leaves it.
+	 *
+	 * @param string $content Serialized block content.
+	 * @param int    $from    Byte offset to search from.
+	 * @return array{kind: string, start: int, end: int, name: string, attrs: array}|null
+	 *         `kind` is `open`, `close` or `void` (self-closing).
+	 */
+	function agend_test_next_block_token( string $content, int $from ): ?array {
+		$offset = $from;
+
+		while ( 1 === preg_match( '#<!--\s+(/)?wp:#', $content, $found, PREG_OFFSET_CAPTURE, $offset ) ) {
+			$start = $found[0][1];
+			$end   = strpos( $content, '-->', $start );
+
+			if ( false === $end ) {
+				return null;
+			}
+
+			$end += 3;
+			$tag  = substr( $content, $start, $end - $start );
+
+			if ( 1 === preg_match( '#^<!--\s+(/)?wp:([a-z][a-z0-9_-]*(?:/[a-z][a-z0-9_-]*)?)\s*(\{.*\})?\s*(/)?-->$#s', $tag, $m ) ) {
+				$attrs = array();
+
+				if ( ! empty( $m[3] ) ) {
+					$decoded = json_decode( $m[3], true );
+					$attrs   = is_array( $decoded ) ? $decoded : array();
+				}
+
+				return array(
+					'kind'  => '' !== $m[1] ? 'close' : ( '' !== ( $m[4] ?? '' ) ? 'void' : 'open' ),
+					'start' => $start,
+					'end'   => $end,
+					// A block comment with no namespace is a core block.
+					'name'  => false === strpos( $m[2], '/' ) ? 'core/' . $m[2] : $m[2],
+					'attrs' => $attrs,
+				);
+			}
+
+			$offset = $start + 1;
+		}
+
+		return null;
+	}
+}
+
+if ( ! function_exists( 'agend_test_attach_block_text' ) ) {
+	/**
+	 * Files a run of text where WordPress files it: inside the block being
+	 * parsed (`innerHTML`, and in position in `innerContent`), or, at the top
+	 * level, as a freeform block of its own.
+	 *
+	 * @param string                           $text   Text found between two delimiters.
+	 * @param array<int, array<string, mixed>> $stack  Blocks currently open, innermost last.
+	 * @param array<int, array<string, mixed>> $output Top-level blocks so far.
+	 */
+	function agend_test_attach_block_text( string $text, array &$stack, array &$output ): void {
+		if ( '' === $text ) {
+			return;
+		}
+
+		if ( array() === $stack ) {
+			$output[] = agend_test_freeform_block( $text );
+			return;
+		}
+
+		$top                              = count( $stack ) - 1;
+		$stack[ $top ]['innerHTML']      .= $text;
+		$stack[ $top ]['innerContent'][]  = $text;
+	}
+}
+
+if ( ! function_exists( 'agend_test_attach_block' ) ) {
+	/**
+	 * Files a finished block: at the top level, or as the next inner block of
+	 * the block that encloses it, leaving the `null` placeholder WordPress
+	 * leaves in that parent's `innerContent`.
+	 *
+	 * @param array<string, mixed>             $block  Finished block.
+	 * @param array<int, array<string, mixed>> $stack  Blocks still open, innermost last.
+	 * @param array<int, array<string, mixed>> $output Top-level blocks so far.
+	 */
+	function agend_test_attach_block( array $block, array &$stack, array &$output ): void {
+		if ( array() === $stack ) {
+			$output[] = $block;
+			return;
+		}
+
+		$top                              = count( $stack ) - 1;
+		$stack[ $top ]['innerBlocks'][]   = $block;
+		$stack[ $top ]['innerContent'][]  = null;
+	}
+}
+
 if ( ! function_exists( 'agend_test_parse_block_list' ) ) {
 	/**
-	 * Parses one nesting level of serialized block content, recursing into
-	 * each block's own inner content.
+	 * Parses serialized block content into the arrays `WP_Block_Parser` returns.
+	 *
+	 * Faithful where code that REBUILDS a block's markup depends on it. Text
+	 * directly inside a block is that block's own `innerHTML`, and sits in
+	 * `innerContent` in its original position; each inner block leaves a `null`
+	 * there to mark where it went. An earlier version of this stub turned the
+	 * text inside every block into freeform INNER blocks and left `innerHTML`
+	 * and `innerContent` empty, which no consumer that reads the markup could
+	 * tell from a block with no markup at all.
+	 *
+	 * Text between top-level blocks becomes a freeform block, whitespace-only
+	 * runs included: WordPress emits the "\n\n" between two blocks as a block of
+	 * its own, and code that walks the top level has to cope with it.
+	 *
+	 * An unclosed block is closed at the end of the content, and a closing
+	 * comment with no opener is kept as text.
 	 *
 	 * @param string $content Serialized block content.
 	 * @return array<int, array<string, mixed>>
 	 */
 	function agend_test_parse_block_list( string $content ): array {
-		$blocks = array();
-		$pos    = 0;
-		$len    = strlen( $content );
+		$output = array();
+		$stack  = array();
+		$cursor = 0;
 
-		while ( $pos < $len ) {
-			$open = strpos( $content, '<!-- wp:', $pos );
+		while ( null !== ( $token = agend_test_next_block_token( $content, $cursor ) ) ) { // phpcs:ignore WordPress.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition
+			agend_test_attach_block_text( substr( $content, $cursor, $token['start'] - $cursor ), $stack, $output );
 
-			if ( false === $open ) {
-				$text = substr( $content, $pos );
-				if ( '' !== trim( $text ) ) {
-					$blocks[] = agend_test_freeform_block( $text );
-				}
-				break;
-			}
+			$cursor = $token['end'];
 
-			if ( $open > $pos ) {
-				$text = substr( $content, $pos, $open - $pos );
-				if ( '' !== trim( $text ) ) {
-					$blocks[] = agend_test_freeform_block( $text );
-				}
-			}
-
-			$open_tag_end = strpos( $content, '-->', $open );
-			if ( false === $open_tag_end ) {
-				break;
-			}
-			$open_tag_end += 3;
-			$tag           = substr( $content, $open, $open_tag_end - $open );
-
-			if ( ! preg_match( '#^<!--\s*wp:([a-z][a-z0-9_-]*(?:/[a-z][a-z0-9_-]*)?)\s*(\{.*\})?\s*(/)?-->#s', $tag, $m ) ) {
-				// Malformed comment; skip past it rather than looping forever.
-				$pos = $open_tag_end;
-				continue;
-			}
-
-			$name  = false === strpos( $m[1], '/' ) ? 'core/' . $m[1] : $m[1];
-			$attrs = array();
-
-			if ( ! empty( $m[2] ) ) {
-				$decoded = json_decode( $m[2], true );
-				$attrs   = is_array( $decoded ) ? $decoded : array();
-			}
-
-			if ( '' !== ( $m[3] ?? '' ) ) {
-				// Self-closing: no inner content, nothing further to find.
-				$blocks[] = array(
-					'blockName'    => $name,
-					'attrs'        => $attrs,
-					'innerBlocks'  => array(),
-					'innerHTML'    => '',
-					'innerContent' => array(),
-				);
-				$pos = $open_tag_end;
-				continue;
-			}
-
-			// Walk forward tracking nesting depth (further openers vs
-			// closers, ignoring self-closing openers) to find THIS block's
-			// own matching closing comment.
-			$depth       = 1;
-			$scan        = $open_tag_end;
-			$close_start = null;
-			$close_end   = null;
-
-			while ( $scan < $len ) {
-				$next_open  = strpos( $content, '<!-- wp:', $scan );
-				$next_close = strpos( $content, '<!-- /wp:', $scan );
-
-				if ( false === $next_close ) {
-					break;
-				}
-
-				if ( false !== $next_open && $next_open < $next_close ) {
-					$inner_open_end = strpos( $content, '-->', $next_open );
-					if ( false === $inner_open_end ) {
-						break;
-					}
-					$inner_open_end += 3;
-					if ( '/-->' !== substr( $content, $inner_open_end - 4, 4 ) ) {
-						++$depth;
-					}
-					$scan = $inner_open_end;
+			if ( 'close' === $token['kind'] ) {
+				if ( array() === $stack ) {
+					agend_test_attach_block_text( substr( $content, $token['start'], $token['end'] - $token['start'] ), $stack, $output );
 					continue;
 				}
 
-				$inner_close_end = strpos( $content, '-->', $next_close );
-				if ( false === $inner_close_end ) {
-					break;
-				}
-				$inner_close_end += 3;
-				--$depth;
-
-				if ( 0 === $depth ) {
-					$close_start = $next_close;
-					$close_end   = $inner_close_end;
-					break;
-				}
-
-				$scan = $inner_close_end;
+				agend_test_attach_block( array_pop( $stack ), $stack, $output );
+				continue;
 			}
 
-			if ( null === $close_start ) {
-				// Unclosed block; treat the remainder as its inner content.
-				$close_start = $len;
-				$close_end   = $len;
-			}
-
-			$blocks[] = array(
-				'blockName'    => $name,
-				'attrs'        => $attrs,
-				'innerBlocks'  => agend_test_parse_block_list( substr( $content, $open_tag_end, $close_start - $open_tag_end ) ),
+			$block = array(
+				'blockName'    => $token['name'],
+				'attrs'        => $token['attrs'],
+				'innerBlocks'  => array(),
 				'innerHTML'    => '',
 				'innerContent' => array(),
 			);
 
-			$pos = $close_end;
+			if ( 'void' === $token['kind'] ) {
+				agend_test_attach_block( $block, $stack, $output );
+				continue;
+			}
+
+			$stack[] = $block;
 		}
 
-		return $blocks;
+		agend_test_attach_block_text( substr( $content, $cursor ), $stack, $output );
+
+		while ( array() !== $stack ) {
+			agend_test_attach_block( array_pop( $stack ), $stack, $output );
+		}
+
+		return $output;
 	}
 }
 
@@ -2507,6 +2544,25 @@ if ( ! function_exists( 'has_block' ) ) {
 	}
 }
 
+if ( ! function_exists( 'has_blocks' ) ) {
+	/**
+	 * `has_blocks()` stand-in, matching WordPress: a substring search for the
+	 * opening of a block comment, no parsing, on the raw content of a post or on
+	 * a string.
+	 *
+	 * @param int|WP_Post|string|null $post Post id, post object or raw content.
+	 * @return bool
+	 */
+	function has_blocks( $post = null ): bool {
+		if ( ! is_string( $post ) ) {
+			$post_obj = is_object( $post ) ? $post : get_post( $post );
+			$post     = ( $post_obj instanceof WP_Post ) ? (string) $post_obj->post_content : '';
+		}
+
+		return false !== strpos( $post, '<!-- wp:' );
+	}
+}
+
 if ( ! function_exists( 'render_block' ) ) {
 	/**
 	 * Minimal `render_block()` stand-in: renders a single parsed block array
@@ -2517,20 +2573,44 @@ if ( ! function_exists( 'render_block' ) ) {
 	 * enough for these tests: the `$block` instance argument is not
 	 * reproduced, since nothing under test reads it.
 	 *
+	 * Inner blocks are placed where `innerContent` puts them, as WordPress does:
+	 * a `null` entry is the next inner block, a string is markup. A hand-built
+	 * block array with no `innerContent` falls back to its `innerHTML` followed
+	 * by its inner blocks, which is what this stub did before `parse_blocks()`
+	 * produced `innerContent`.
+	 *
 	 * @param array $block Parsed block array.
 	 * @return string
 	 */
 	function render_block( array $block ): string {
-		$inner = '';
+		$inner_blocks  = (array) ( $block['innerBlocks'] ?? array() );
+		$inner_content = $block['innerContent'] ?? array();
+		$inner         = '';
 
-		foreach ( (array) ( $block['innerBlocks'] ?? array() ) as $inner_block ) {
-			$inner .= render_block( $inner_block );
+		if ( is_array( $inner_content ) && array() !== $inner_content ) {
+			$next = 0;
+
+			foreach ( $inner_content as $chunk ) {
+				if ( null === $chunk ) {
+					$inner .= render_block( (array) ( $inner_blocks[ $next ] ?? array() ) );
+					++$next;
+					continue;
+				}
+
+				$inner .= (string) $chunk;
+			}
+		} else {
+			$inner = (string) ( $block['innerHTML'] ?? '' );
+
+			foreach ( $inner_blocks as $inner_block ) {
+				$inner .= render_block( $inner_block );
+			}
 		}
 
 		$name = $block['blockName'] ?? null;
 
 		if ( ! is_string( $name ) || '' === $name ) {
-			return (string) ( $block['innerHTML'] ?? '' ) . $inner;
+			return $inner;
 		}
 
 		$block_type = WP_Block_Type_Registry::get_instance()->get_registered( $name );
@@ -2539,7 +2619,7 @@ if ( ! function_exists( 'render_block' ) ) {
 			return (string) call_user_func( $block_type->render_callback, (array) ( $block['attrs'] ?? array() ), $inner );
 		}
 
-		return (string) ( $block['innerHTML'] ?? '' ) . $inner;
+		return $inner;
 	}
 }
 
