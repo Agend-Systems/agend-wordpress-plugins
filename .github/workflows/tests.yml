@@ -55,9 +55,9 @@ jobs:
         run: ./vendor/bin/phpunit
 
   blocks:
-    # Build output under agend-apps-core/build/ and agend-apps-shop/build/ is
-    # committed because deploys copy files without a build step; this proves
-    # the committed output is current.
+    # Build output under agend-apps-core/build/, agend-apps-shop/build/ and
+    # agend-content-access/build/ is committed because deploys copy files
+    # without a build step; this proves the committed output is current.
     name: Block build matches source
     runs-on: ubuntu-latest
     steps:
@@ -77,11 +77,15 @@ jobs:
       # Shares its case table with SearchLinkParseTest.php; this is what keeps
       # the browser's and the server's search link parse rules in step.
       - run: node --test agend-apps-core/tests/js/search-link.test.mjs
+      # The Agend Access block panel's logic and its once-per-session loader,
+      # both free of WordPress imports so they run here.
+      - run: node --test agend-content-access/tests/js/access-model.test.mjs
+      - run: node --test agend-content-access/tests/js/lists-loader.test.mjs
       - name: Committed build is up to date
         run: |
-          git add -N agend-apps-core/build agend-apps-shop/build
-          git diff --exit-code --stat -- agend-apps-core/build agend-apps-shop/build \
-            || { echo '::error::agend-apps-core/build or agend-apps-shop/build is stale: run `npm run build` and commit the result'; exit 1; }
+          git add -N agend-apps-core/build agend-apps-shop/build agend-content-access/build
+          git diff --exit-code --stat -- agend-apps-core/build agend-apps-shop/build agend-content-access/build \
+            || { echo '::error::agend-apps-core/build, agend-apps-shop/build or agend-content-access/build is stale: run `npm run build` and commit the result'; exit 1; }
 
   versions:
     # Guardrail for the release workflow (.github/workflows/release.yml):

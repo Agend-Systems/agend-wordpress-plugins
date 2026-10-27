@@ -35,11 +35,13 @@ rsync_args=(
 	--exclude 'composer.lock'
 )
 
-# Blocks ship built into agend-apps-core/build/; the src/ tree that builds
-# them has no place in the runtime zip. This must come before the generic
-# `--include '*/'` below: rsync filter rules are first-match-wins, and a
-# blanket directory include would otherwise shadow this exclude.
-if [[ "${slug}" == "agend-apps-core" ]]; then
+# Editor code ships built, into <slug>/build/ (agend-apps-core/build/blocks/,
+# agend-content-access/build/); the src/ tree that builds it has no place in the
+# runtime zip. Every other plugin keeps any src/ directory it has, so the
+# exclusion is named per plugin and not applied to all. This must come before
+# the generic `--include '*/'` below: rsync filter rules are first-match-wins,
+# and a blanket directory include would otherwise shadow this exclude.
+if [[ "${slug}" == "agend-apps-core" || "${slug}" == "agend-content-access" ]]; then
 	rsync_args+=(--exclude 'src/')
 fi
 

@@ -38,9 +38,9 @@
 #
 # Which changed files require a bump is derived from build-zip.sh's rsync
 # --exclude list (the actual shipped-files authority): tests/, node_modules/,
-# agend-apps-core/src/, non-README markdown, and its dotfile/lockfile
-# excludes. Keep the filter below and build-zip.sh's rsync_args in step; if
-# one changes, the other must too.
+# src/ for agend-apps-core and agend-content-access only, non-README markdown,
+# and its dotfile/lockfile excludes. Keep the filter below and build-zip.sh's
+# rsync_args in step; if one changes, the other must too.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -124,7 +124,7 @@ path_requires_bump() {
 		node_modules/*) return 1 ;;
 	esac
 
-	if [[ "${slug}" == "agend-apps-core" ]]; then
+	if [[ "${slug}" == "agend-apps-core" || "${slug}" == "agend-content-access" ]]; then
 		case "${rel}" in
 			src/*) return 1 ;;
 		esac
