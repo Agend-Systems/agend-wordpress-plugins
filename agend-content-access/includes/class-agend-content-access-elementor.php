@@ -411,13 +411,34 @@ class Agend_Content_Access_Elementor {
 	}
 
 	/**
+	 * Whether the render in progress is the author's, in front of an editor.
+	 *
+	 * Not the same question as `Frontend::is_authoring_context()`, which is true
+	 * for every `is_admin()` request and so for anonymous admin-ajax.php renders.
+	 * Here a request is authoring when it is not one a visitor can be reading
+	 * (a wp-admin screen, the editor, its preview iframe), or when it is the
+	 * editor's own AJAX. Everything else that reaches admin-ajax.php is a visitor.
+	 *
+	 * @return bool
+	 */
+	private static function is_authoring_render(): bool {
+		return ! Agend_Content_Access_Frontend::renders_for_visitors()
+			|| Agend_Content_Access_Frontend::is_elementor_editor_ajax();
+	}
+
+	/**
 	 * Suppresses an element the current visitor cannot see.
 	 *
 	 * Returning false removes the element's ENTIRE render, wrapper markup
 	 * included, so nothing is emitted and then hidden.
 	 *
 	 * Never suppresses in an authoring context: an editor must see the sections
-	 * they are laying out, including ones they have just restricted.
+	 * they are laying out, including ones they have just restricted. A request is
+	 * authoring only when somebody is actually authoring. admin-ajax.php is not
+	 * that: WordPress reports `is_admin()` for it, and JetEngine, Ajax Load More
+	 * and their kind render Elementor templates through it for ANONYMOUS visitors,
+	 * so treating every `is_admin()` request as authoring stood suppression down
+	 * for exactly those renders and printed every restricted section.
 	 *
 	 * @param bool                    $should_render Elementor's decision so far.
 	 * @param \Elementor\Element_Base $element       Element.
@@ -428,7 +449,7 @@ class Agend_Content_Access_Elementor {
 			return $should_render;
 		}
 
-		if ( Agend_Content_Access_Frontend::is_authoring_context() ) {
+		if ( self::is_authoring_render() ) {
 			return $should_render;
 		}
 
@@ -566,7 +587,7 @@ class Agend_Content_Access_Elementor {
 	 * @param \Elementor\Element_Base $element Element that just rendered, or did not.
 	 */
 	public function maybe_render_fallback( $element ): void {
-		if ( Agend_Content_Access_Frontend::is_authoring_context() ) {
+		if ( self::is_authoring_render() ) {
 			return;
 		}
 
@@ -597,7 +618,7 @@ class Agend_Content_Access_Elementor {
 	 * @param \Elementor\Element_Base $element Element about to render its wrapper.
 	 */
 	public function maybe_mark_in_editor( $element ): void {
-		if ( ! Agend_Content_Access_Frontend::is_authoring_context() ) {
+		if ( ! self::is_authoring_render() ) {
 			return;
 		}
 
