@@ -466,6 +466,52 @@ final class DirectoryMapTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_enlarge_zoom_18_carto_tiles_when_zoomed_in_to_19(): void {
+		update_option( AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION, 'abc123' );
+		$tiles = agend_apps_records_directory_map_tiles();
+
+		$this->assertSame( 19, $tiles['maxZoom'] );
+		$this->assertSame( 18, $tiles['maxNativeZoom'] );
+	}
+
+	#[Test]
+	public function should_request_openstreetmap_tiles_up_to_zoom_19_when_the_site_has_no_carto_key(): void {
+		$tiles = agend_apps_records_directory_map_tiles();
+
+		$this->assertSame( 19, $tiles['maxZoom'] );
+		$this->assertSame( 19, $tiles['maxNativeZoom'] );
+	}
+
+	#[Test]
+	public function should_default_the_native_zoom_to_the_max_zoom_when_a_filter_omits_it(): void {
+		add_filter(
+			'agend_apps_records_directory_map_tiles',
+			static fn() => array(
+				'url'         => 'https://tiles.example.test/{z}/{x}/{y}.png',
+				'attribution' => 'Example',
+				'maxZoom'     => 17,
+			)
+		);
+
+		$this->assertSame( 17, agend_apps_records_directory_map_tiles()['maxNativeZoom'] );
+	}
+
+	#[Test]
+	public function should_keep_the_native_zoom_at_or_below_the_max_zoom_when_a_filter_sets_it_deeper(): void {
+		add_filter(
+			'agend_apps_records_directory_map_tiles',
+			static fn() => array(
+				'url'           => 'https://tiles.example.test/{z}/{x}/{y}.png',
+				'attribution'   => 'Example',
+				'maxZoom'       => 16,
+				'maxNativeZoom' => 20,
+			)
+		);
+
+		$this->assertSame( 16, agend_apps_records_directory_map_tiles()['maxNativeZoom'] );
+	}
+
+	#[Test]
 	public function should_keep_anything_but_key_characters_out_of_the_tile_url(): void {
 		// Quotes, ampersands, equals signs, angle brackets and whitespace go;
 		// letters stay, so what remains can only ever be one query value.
