@@ -292,10 +292,10 @@ class Agend_Content_Access_Viewer_Facts {
 		$key = $cacheable ? self::member_cache_key( $user_id, $bearer ) : '';
 
 		if ( $cacheable ) {
-			$cached = get_transient( $key );
+			$cached = self::cached_member_facts( get_transient( $key ) );
 
-			if ( is_array( $cached ) ) {
-				return array_merge( self::empty_facts(), $cached );
+			if ( null !== $cached ) {
+				return $cached;
 			}
 		}
 
@@ -386,21 +386,10 @@ class Agend_Content_Access_Viewer_Facts {
 		$key       = $cacheable ? self::segment_cache_key( $user_id, $bearer ) : '';
 
 		if ( $cacheable ) {
-			$cached = get_transient( $key );
+			$cached = self::cached_segment_facts( get_transient( $key ) );
 
-			// An entry in any other shape is a miss, not a partial answer. The
-			// segment entry used to hold a bare list of slugs; one written
-			// before an upgrade would have no ids, and treating it as "no ids"
-			// would deny a policy the visitor satisfies for up to the cache
-			// lifetime.
-			if ( is_array( $cached )
-				&& isset( $cached['segment_ids'], $cached['segment_slugs'] )
-				&& is_array( $cached['segment_ids'] )
-				&& is_array( $cached['segment_slugs'] ) ) {
-				return array(
-					'segment_ids'   => self::strings( $cached['segment_ids'] ),
-					'segment_slugs' => self::strings( $cached['segment_slugs'] ),
-				);
+			if ( null !== $cached ) {
+				return $cached;
 			}
 		}
 
@@ -446,6 +435,104 @@ class Agend_Content_Access_Viewer_Facts {
 		}
 
 		return $facts;
+	}
+
+	/**
+	 * A cached membership entry, validated field by field, or null for a miss.
+	 *
+	 * The transient store is not ours alone: another plugin, a manual edit or an
+	 * older release can leave anything under a key. A field of the wrong type is
+	 * not repaired or skipped, because "skipped" is a guess about what the entry
+	 * meant. It makes the entry a miss and the gateway is asked. This also keeps a
+	 * malformed field from reaching an adapter, where a non-array
+	 * `entitlement_keys` would be a TypeError.
+	 *
+	 * A field that is ABSENT is completed with "holds nothing", which can only
+	 * deny, as it always was for an entry written with fewer fields.
+	 *
+	 * @param mixed $cached Value read from the transient.
+	 * @return array|null Facts in the full shape, or null when malformed.
+	 */
+	private static function cached_member_facts( $cached ): ?array {
+		if ( ! is_array( $cached ) ) {
+			return null;
+		}
+
+		$facts = self::empty_facts();
+
+		if ( array_key_exists( 'is_member', $cached ) ) {
+			if ( ! is_bool( $cached['is_member'] ) ) {
+				return null;
+			}
+
+			$facts['is_member'] = $cached['is_member'];
+		}
+
+		foreach ( array( 'tier_ids', 'tier_slugs', 'entitlement_keys' ) as $field ) {
+			if ( ! array_key_exists( $field, $cached ) ) {
+				continue;
+			}
+
+			if ( ! self::is_string_list( $cached[ $field ] ) ) {
+				return null;
+			}
+
+			$facts[ $field ] = $cached[ $field ];
+		}
+
+		if ( array_key_exists( 'entitlement_expires_at', $cached ) ) {
+			if ( null !== $cached['entitlement_expires_at'] && ! is_string( $cached['entitlement_expires_at'] ) ) {
+				return null;
+			}
+
+			$facts['entitlement_expires_at'] = $cached['entitlement_expires_at'];
+		}
+
+		return $facts;
+	}
+
+	/**
+	 * A cached segment entry, validated the same way, or null for a miss.
+	 *
+	 * Both lists must be present: the entry used to hold a bare list of slugs, and
+	 * one written before an upgrade would have no ids. Treating it as "no ids"
+	 * would deny a policy the visitor satisfies for up to the cache lifetime.
+	 *
+	 * @param mixed $cached Value read from the transient.
+	 * @return array{segment_ids: string[], segment_slugs: string[]}|null
+	 */
+	private static function cached_segment_facts( $cached ): ?array {
+		if ( ! is_array( $cached )
+			|| ! isset( $cached['segment_ids'], $cached['segment_slugs'] )
+			|| ! self::is_string_list( $cached['segment_ids'] )
+			|| ! self::is_string_list( $cached['segment_slugs'] ) ) {
+			return null;
+		}
+
+		return array(
+			'segment_ids'   => $cached['segment_ids'],
+			'segment_slugs' => $cached['segment_slugs'],
+		);
+	}
+
+	/**
+	 * Whether a value is a list of non-empty strings. An empty list is.
+	 *
+	 * @param mixed $value Candidate list.
+	 * @return bool
+	 */
+	private static function is_string_list( $value ): bool {
+		if ( ! is_array( $value ) || ! self::is_list( $value ) ) {
+			return false;
+		}
+
+		foreach ( $value as $item ) {
+			if ( ! is_string( $item ) || '' === $item ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**

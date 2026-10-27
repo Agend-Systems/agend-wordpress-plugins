@@ -199,6 +199,9 @@ Rules the cache keeps:
   `data` array, no `tier_ids` array (or, for segments, no list under `data`).
   An empty array, which Core returns for a 204, would otherwise read as "holds
   nothing", be cached, and let an inverted condition pass.
+- A cached entry is checked field by field before it is used. One with a field of
+  the wrong type is a miss and is replaced, never repaired, so a malformed entry
+  in the transient store cannot reach a condition.
 
 ## Running the tests
 

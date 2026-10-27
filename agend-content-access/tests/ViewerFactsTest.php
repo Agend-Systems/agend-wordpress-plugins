@@ -1259,6 +1259,109 @@ final class ViewerFactsTest extends TestCase {
 		$this->assertSame( 0, $this->gatewayCalls() );
 	}
 
+	/**
+	 * @return array<string, array{0: array}>
+	 */
+	public static function malformed_member_entries(): array {
+		return array(
+			'is_member a string'            => array( array( 'is_member' => 'yes', 'tier_ids' => array() ) ),
+			'is_member an int'              => array( array( 'is_member' => 1 ) ),
+			'tier_ids a string'             => array( array( 'is_member' => true, 'tier_ids' => 'tier' ) ),
+			'tier_ids null'                 => array( array( 'tier_ids' => null ) ),
+			'tier_ids with a non-string'    => array( array( 'tier_ids' => array( self::TIER_A, 5 ) ) ),
+			'tier_ids with an empty string' => array( array( 'tier_ids' => array( '' ) ) ),
+			'tier_ids not a list'           => array( array( 'tier_ids' => array( 'a' => self::TIER_A ) ) ),
+			'tier_slugs an object'          => array( array( 'tier_slugs' => new \stdClass() ) ),
+			'entitlement_keys a string'     => array( array( 'entitlement_keys' => 'events.early_access' ) ),
+			'entitlement_keys nested'       => array( array( 'entitlement_keys' => array( array( 'events.early_access' ) ) ) ),
+			'expires_at an array'           => array( array( 'entitlement_expires_at' => array( 'x' ) ) ),
+			'expires_at an int'             => array( array( 'entitlement_expires_at' => 1893456000 ) ),
+		);
+	}
+
+	/**
+	 * A non-array `entitlement_keys` reached `Runtime::entitlement_facts()` as a
+	 * TypeError. Any malformed field is now a miss: the gateway is asked and the
+	 * entry is replaced.
+	 */
+	#[Test]
+	#[DataProvider( 'malformed_member_entries' )]
+	public function a_malformed_cached_member_entry_is_a_miss( array $entry ): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::$transients[ $this->memberKey( 7 ) ] = $entry;
+		$this->gatewayReturns(
+			array(
+				'is_member'    => true,
+				'tier_ids'     => array( self::TIER_A ),
+				'capabilities' => array( array( 'gate_key' => 'fresh.key' ) ),
+			)
+		);
+
+		$this->assertSame( array( 'fresh.key' ), Runtime::entitlement_facts() );
+		$this->assertSame( 1, $this->gatewayCalls() );
+		$this->assertSame( array( 'fresh.key' ), Agend_Test_WP::$transients[ $this->memberKey( 7 ) ]['entitlement_keys'], 'and the entry is replaced' );
+	}
+
+	#[Test]
+	public function a_cached_entry_that_is_not_an_array_is_a_miss(): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::$transients[ $this->memberKey( 7 ) ] = 'garbage';
+		$this->gatewayReturns( $this->memberData() );
+
+		$this->assertTrue( ViewerFacts::member()['is_member'] );
+		$this->assertSame( 1, $this->gatewayCalls() );
+	}
+
+	#[Test]
+	public function a_well_formed_cached_entry_is_a_hit_and_extra_fields_are_dropped(): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::$transients[ $this->memberKey( 7 ) ] = array(
+			'is_member'              => true,
+			'tier_ids'               => array( self::TIER_A ),
+			'tier_slugs'             => array( 'gold' ),
+			'entitlement_keys'       => array( 'events.early_access' ),
+			'entitlement_expires_at' => '2099-01-01T00:00:00Z',
+			'planted'                => 'x',
+		);
+
+		$this->assertSame(
+			array(
+				'is_member'              => true,
+				'tier_ids'               => array( self::TIER_A ),
+				'tier_slugs'             => array( 'gold' ),
+				'entitlement_keys'       => array( 'events.early_access' ),
+				'entitlement_expires_at' => '2099-01-01T00:00:00Z',
+			),
+			ViewerFacts::member()
+		);
+		$this->assertSame( 0, $this->gatewayCalls() );
+	}
+
+	/**
+	 * @return array<string, array{0: mixed}>
+	 */
+	public static function malformed_segment_entries(): array {
+		return array(
+			'not an array'          => array( 'garbage' ),
+			'ids a string'          => array( array( 'segment_ids' => 'seg', 'segment_slugs' => array() ) ),
+			'slugs null'            => array( array( 'segment_ids' => array(), 'segment_slugs' => null ) ),
+			'ids with a non-string' => array( array( 'segment_ids' => array( 5 ), 'segment_slugs' => array() ) ),
+			'slugs not a list'      => array( array( 'segment_ids' => array(), 'segment_slugs' => array( 'a' => 'vic' ) ) ),
+			'slugs missing'         => array( array( 'segment_ids' => array( 'seg-1' ) ) ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'malformed_segment_entries' )]
+	public function a_malformed_cached_segment_entry_is_a_miss( $entry ): void {
+		$this->signIn( 7 );
+		Agend_Test_WP::$transients[ $this->segmentKey( 7 ) ] = $entry;
+		$this->segmentsReturn( array( array( 'id' => 'seg-1', 'slug' => 'fresh' ) ) );
+
+		$this->assertSame( array( 'fresh' ), Runtime::segment_facts() );
+		$this->assertSame( 1, $this->segmentCalls() );
+	}
+
 	// -----------------------------------------------------------------
 	// Segments: ids and slugs, on demand
 	// -----------------------------------------------------------------
