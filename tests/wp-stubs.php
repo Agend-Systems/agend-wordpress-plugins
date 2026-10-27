@@ -2254,7 +2254,8 @@ if ( ! function_exists( 'get_permalink' ) ) {
 			return false;
 		}
 
-		return 'https://example.test/page-' . $post_obj->ID . '/';
+		// A test that needs a permalink on another host, or in another shape, names it.
+		return $GLOBALS['agend_test_permalinks'][ $post_obj->ID ] ?? 'https://example.test/page-' . $post_obj->ID . '/';
 	}
 }
 

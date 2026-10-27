@@ -12,7 +12,6 @@ use Agend_Content_Access_Decision;
 use Agend_Content_Access_Frontend;
 use Agend_Content_Access_Policy;
 use Agend_Test_WP;
-use Agend_Test_WP_Die_Exception;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -29,6 +28,8 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-placeholder.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-destination.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
@@ -780,7 +781,7 @@ final class LoopGatingTest extends TestCase {
 	}
 
 	#[Test]
-	public function the_queried_post_keeps_its_teaser_path_and_is_not_gated_twice(): void {
+	public function the_queried_post_shows_one_placeholder_and_is_not_gated_twice(): void {
 		$this->withManualExcerpt( self::QUERIED, 'A public summary.' );
 		$frontend = $this->frontend();
 		$this->requestTheQueriedPage( $frontend );
@@ -788,7 +789,8 @@ final class LoopGatingTest extends TestCase {
 		$GLOBALS['agend_test_in_the_loop'] = true;
 		$html                              = $this->render( self::QUERIED );
 
-		$this->assertSame( 1, $this->gateCount( $html ), 'one gate, not a gate inside a gate' );
+		$this->assertSame( 1, substr_count( $html, 'class="agend-access-placeholder ' ), 'one placeholder, not a placeholder inside a gate' );
+		$this->assertSame( 0, $this->gateCount( $html ), 'the loop gate is not what a page\'s own URL shows' );
 		$this->assertSame( 1, substr_count( $html, 'A public summary.' ) );
 		$this->assertStringNotContainsString( self::BODY, $html );
 
@@ -796,13 +798,19 @@ final class LoopGatingTest extends TestCase {
 		$this->assertSame( array(), ( new \ReflectionProperty( $frontend, 'withheld' ) )->getValue( $frontend ), 'the loop pass left it to the singular path' );
 	}
 
+	/** The 403 and the bare message are gone: a page with no excerpt is the placeholder with no summary. */
 	#[Test]
-	public function the_queried_post_still_answers_403_without_an_excerpt(): void {
+	public function the_queried_post_without_an_excerpt_shows_the_placeholder_not_a_403(): void {
 		$frontend = $this->frontend();
-
-		$this->expectException( Agend_Test_WP_Die_Exception::class );
-
 		$this->requestTheQueriedPage( $frontend );
+
+		$GLOBALS['agend_test_in_the_loop'] = true;
+		$html                              = $this->render( self::QUERIED );
+
+		$this->assertSame( array( 200 ), Agend_Test_WP::$status_codes );
+		$this->assertStringContainsString( 'agend-access-placeholder', $html );
+		$this->assertStringNotContainsString( 'agend-access-placeholder__summary', $html );
+		$this->assertStringNotContainsString( self::BODY, $html );
 	}
 
 	/**

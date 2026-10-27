@@ -10,7 +10,6 @@ namespace Agend\Tests\ContentAccess;
 use Agend_Content_Access_Frontend;
 use Agend_Content_Access_Policy;
 use Agend_Test_WP;
-use Agend_Test_WP_Die_Exception;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -22,6 +21,8 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-meta-box.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-placeholder.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-destination.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-block-attributes.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-viewer-facts.php';
@@ -177,9 +178,15 @@ final class AuthoringContextTest extends TestCase {
 		$this->requestPage( self::RESTRICTED );
 		$this->preview( (string) self::OWN_DRAFT );
 
-		$this->expectException( Agend_Test_WP_Die_Exception::class );
-
 		$frontend->gate_request();
+
+		// Denied, and shown the placeholder: the body is replaced, not rendered.
+		$GLOBALS['agend_test_in_the_loop'] = true;
+		$html                              = $frontend->filter_the_content( 'THE PROTECTED BODY' );
+
+		$this->assertStringContainsString( 'agend-access-placeholder', $html );
+		$this->assertStringNotContainsString( 'THE PROTECTED BODY', $html );
+		unset( $GLOBALS['agend_test_in_the_loop'] );
 	}
 
 	#[Test]

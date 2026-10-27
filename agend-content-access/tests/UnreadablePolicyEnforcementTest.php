@@ -14,7 +14,6 @@ use Agend_Content_Access_Frontend;
 use Agend_Content_Access_Meta_Box;
 use Agend_Content_Access_Policy;
 use Agend_Test_WP;
-use Agend_Test_WP_Die_Exception;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -32,6 +31,8 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-viewer-facts.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-placeholder.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-destination.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-conditions.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-providers.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-condition-runtime.php';
@@ -186,26 +187,47 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 		return new Agend_Content_Access_Frontend();
 	}
 
+	/**
+	 * Unreadable is nobody, so the visitor is refused the body: it is replaced by the
+	 * placeholder, on a 200, and not a word of it is printed.
+	 */
 	#[Test]
 	#[DataProvider( 'unreadablePolicies' )]
 	public function the_page_gate_refuses_an_anonymous_visitor_when_the_stored_policy_is_unreadable( $value ): void {
 		$this->storePolicy( $value );
 
-		$this->expectException( Agend_Test_WP_Die_Exception::class );
-
-		$this->requestThePage()->gate_request();
-	}
-
-	/** With a hand-written excerpt the gate shows a teaser instead of a bare 403, and still withholds the body. */
-	#[Test]
-	public function the_teaser_path_replaces_the_body_when_the_stored_policy_is_unreadable(): void {
-		$this->storePolicy( self::UNREADABLE );
-		$this->registerPost( array( 'post_excerpt' => 'A public summary.' ) );
-
-		$this->requestThePage()->gate_request();
+		$frontend = $this->requestThePage();
+		$frontend->gate_request();
 
 		$this->assertContains( 'filter_the_content', $this->registeredMethods( 'the_content' ), 'the body must be replaced by the gate' );
 		$this->assertArrayHasKey( 'get_post_metadata', Agend_Test_WP::$filters, 'builder data must be blanked' );
+
+		$GLOBALS['agend_test_in_the_loop'] = true;
+		$html                              = $frontend->filter_the_content( 'THE PROTECTED BODY' );
+		unset( $GLOBALS['agend_test_in_the_loop'] );
+
+		$this->assertStringContainsString( 'agend-access-placeholder', $html );
+		$this->assertStringNotContainsString( 'THE PROTECTED BODY', $html );
+	}
+
+	/** With a hand-written excerpt the placeholder leads with it, and still withholds the body. */
+	#[Test]
+	public function the_placeholder_leads_with_the_excerpt_when_the_stored_policy_is_unreadable(): void {
+		$this->storePolicy( self::UNREADABLE );
+		$this->registerPost( array( 'post_excerpt' => 'A public summary.' ) );
+
+		$frontend = $this->requestThePage();
+		$frontend->gate_request();
+
+		$this->assertContains( 'filter_the_content', $this->registeredMethods( 'the_content' ), 'the body must be replaced by the gate' );
+		$this->assertArrayHasKey( 'get_post_metadata', Agend_Test_WP::$filters, 'builder data must be blanked' );
+
+		$GLOBALS['agend_test_in_the_loop'] = true;
+		$html                              = $frontend->filter_the_content( 'THE PROTECTED BODY' );
+		unset( $GLOBALS['agend_test_in_the_loop'] );
+
+		$this->assertStringContainsString( 'A public summary.', $html );
+		$this->assertStringNotContainsString( 'THE PROTECTED BODY', $html );
 	}
 
 	#[Test]

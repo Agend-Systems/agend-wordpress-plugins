@@ -115,6 +115,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_block_patterns']     = array();
 		$GLOBALS['agend_test_block_pattern_categories'] = array();
 		$GLOBALS['agend_test_post_type_objects']  = array();
+		$GLOBALS['agend_test_permalinks']         = array();
 		unset( $GLOBALS['agend_test_referer'] );
 
 		// The request WordPress is dispatching, whose `rest_route` query var is

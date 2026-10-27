@@ -89,6 +89,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-placeholder.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-destination.php';
 
 	// Loaded whether or not Elementor is. The class declares nothing that needs
 	// Elementor and is only INSTANTIATED when it is present (see

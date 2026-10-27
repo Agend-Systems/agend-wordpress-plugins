@@ -21,6 +21,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * not access control: the content is still in the payload, and view-source
  * defeats it.
  *
+ * WHAT A DENIED VISITOR GETS, for the page's own URL, is the page's choice: a
+ * placeholder in place of the body (the default, on the same URL, answered with
+ * 200 and kept out of every cache and search index), a redirect to another page,
+ * or a redirect back to where they came from. Lists, search, feeds and REST are
+ * not affected: they keep showing the summary only. See `gate_request()`.
+ *
  * `gate_request()` only ever sees the QUERIED post. A restricted post that
  * renders anywhere else, in a blog index, an archive, a search result, a
  * widget, a feed, or a block theme's query loop, is gated by the render filters
@@ -93,6 +99,37 @@ class Agend_Content_Access_Frontend {
 	 * @var array{post_id: int, decision: array}|null
 	 */
 	private static ?array $current_gate = null;
+
+	/**
+	 * The page this request is for, when it is denied.
+	 *
+	 * The placeholder is built for THIS post, not for whichever post
+	 * `the_content` is rendering when it asks: the main loop of a singular
+	 * request holds one, but a theme can print others inside it.
+	 *
+	 * @var WP_Post|null
+	 */
+	private ?WP_Post $gated_post = null;
+
+	/**
+	 * The page, pattern or template the author chose as the placeholder, 0 for the
+	 * built-in one. Only the placeholder action sets it: a page that redirects and
+	 * cannot has no chosen placeholder to fall back to.
+	 *
+	 * @var int
+	 */
+	private int $placeholder_target = 0;
+
+	/**
+	 * Whether the placeholder is being rendered right now.
+	 *
+	 * A chosen page is rendered through `the_content`, which is the filter that
+	 * builds the placeholder, so without this a chosen page would ask for its own
+	 * placeholder and never return.
+	 *
+	 * @var bool
+	 */
+	private bool $rendering_placeholder = false;
 
 	/**
 	 * Gate markup produced for posts whose body was withheld from a render
@@ -195,12 +232,34 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
-	 * Evaluates the current request and replaces the body when denied.
+	 * Evaluates the current request and, when the visitor is denied, does what the
+	 * page says to do with them.
 	 *
 	 * Runs at priority 1 so the decision is made before themes, page builders
 	 * and caching plugins get a chance to render or store anything.
+	 *
+	 * The page's `denied` setting says what, and the default is the placeholder, so
+	 * a page that only has a 0.1.x policy, or no setting at all, shows one:
+	 *
+	 *   - `placeholder`: the body is replaced on the same URL by the built-in
+	 *     placeholder, or by the page, pattern or template the author chose
+	 *     (`Agend_Content_Access_Placeholder`). Answered with 200, `noindex` and no
+	 *     caching. This is what the 403 and the teaser page used to be.
+	 *   - `redirect`: a 302 to the chosen page, before any output.
+	 *   - `back`: a 302 to the page the visitor came from, when that is on this site
+	 *     and not this page, else to the page the author chose for that.
+	 *
+	 * A redirect that cannot be made safely is the placeholder instead, never the
+	 * body: no destination, a destination the visitor could not open, one that is
+	 * this page, or a referrer that is off-site, missing or this page
+	 * (`Agend_Content_Access_Destination`). The action applies to whoever the rules
+	 * deny, so a page that is for people who do NOT match (Reverse) redirects the
+	 * people who do. It does not look at WHY the visitor was denied: an outage that
+	 * denied a member is acted on like any denial.
 	 */
 	public function gate_request(): void {
+		// A denial is per request. Forgotten first, before every early return, so a
+		// long-lived worker cannot show the last request's on this one.
 		self::$current_gate = null;
 
 		if ( self::is_authoring_context() ) {
@@ -225,20 +284,32 @@ class Agend_Content_Access_Frontend {
 
 		$this->report_degraded( (int) $post->ID, $decision );
 
-		$this->decision     = $decision;
-		self::$current_gate = array(
+		$this->decision           = $decision;
+		$this->gated_post         = $post;
+		$this->placeholder_target = 0;
+		self::$current_gate       = array(
 			'post_id'  => (int) $post->ID,
 			'decision' => $decision,
 		);
 
-		$teaser = self::teaser_for( $post );
+		$denied = $decision['rules'] instanceof Agend_Content_Access_Rules
+			? $decision['rules']->denied()
+			: array();
 
-		if ( '' === $teaser ) {
-			$this->send_forbidden();
-			return;
+		$action = isset( $denied['action'] ) ? (string) $denied['action'] : Agend_Content_Access_Rules::DENIED_PLACEHOLDER;
+
+		if ( Agend_Content_Access_Rules::DENIED_PLACEHOLDER === $action ) {
+			$this->placeholder_target = isset( $denied['target_id'] ) ? (int) $denied['target_id'] : 0;
+		} elseif ( class_exists( 'Agend_Content_Access_Destination', false ) ) {
+			$url = Agend_Content_Access_Destination::for_denied( $post, $denied );
+
+			if ( '' !== $url ) {
+				$this->redirect( $url, (int) $post->ID );
+				return;
+			}
 		}
 
-		$this->replace_body_with_teaser();
+		$this->serve_placeholder( $post );
 	}
 
 	/**
@@ -577,9 +648,9 @@ class Agend_Content_Access_Frontend {
 		/**
 		 * Filters the teaser shown in place of restricted content.
 		 *
-		 * Returning a non-empty string turns a 403 into a teaser page. Whatever
-		 * is returned is public: it is shown to anonymous visitors and is
-		 * indexable, so it must not contain protected material.
+		 * Shown above the message of a denied page's placeholder, in a list, and in a
+		 * feed. Whatever is returned is public: it is shown to anonymous visitors, so
+		 * it must not contain protected material.
 		 *
 		 * @param string  $teaser Teaser text.
 		 * @param WP_Post $post   Post being gated.
@@ -588,9 +659,54 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
-	 * Swaps the rendered body for the teaser and a portal call to action.
+	 * Sends the visitor to another page of this site and stops.
+	 *
+	 * The response depends on who asked, so it is marked uncacheable first: a page
+	 * cache that stored one visitor's redirect would send the next visitor, who may
+	 * be allowed, away from a page they can read.
+	 *
+	 * @param string $url     An address `Agend_Content_Access_Destination` approved.
+	 * @param int    $post_id The page being left.
 	 */
-	private function replace_body_with_teaser(): void {
+	private function redirect( string $url, int $post_id ): void {
+		self::mark_uncacheable( $post_id );
+
+		wp_safe_redirect( $url, 302, 'Agend Content Access' );
+
+		$this->terminate();
+	}
+
+	/**
+	 * Ends the request. Its own method so a test can stand in for the one thing
+	 * that cannot be run twice.
+	 */
+	protected function terminate(): void {
+		exit;
+	}
+
+	/**
+	 * Sends one response header, when headers can still be sent.
+	 *
+	 * The one place this class sends a header, and its own method for the same
+	 * reason as `terminate()`: PHP's command line keeps no list of the headers a
+	 * script set, so a test can only see them if somebody records them. Resolved
+	 * with `static::` for that.
+	 *
+	 * @param string $line A complete header line, such as `Cache-Control: private, no-store`.
+	 */
+	protected static function send_header( string $line ): void {
+		if ( ! headers_sent() ) {
+			header( $line, true );
+		}
+	}
+
+	/**
+	 * Swaps the rendered body for the placeholder and makes the response one that
+	 * says so.
+	 *
+	 * @param WP_Post $post The page being denied.
+	 */
+	private function serve_placeholder( WP_Post $post ): void {
 		add_filter( 'the_content', array( $this, 'filter_the_content' ), 1 );
 
 		// Page builders render from their own stored data rather than
@@ -598,14 +714,36 @@ class Agend_Content_Access_Frontend {
 		// Elementor layout would render the protected sections regardless.
 		add_filter( 'get_post_metadata', array( $this, 'suppress_builder_data' ), 10, 4 );
 
-		// A teaser page is a different page from the article. Telling search
-		// engines it is the article would index the teaser under the real
+		// The placeholder is a different page from the article. Telling search
+		// engines it is the article would index the placeholder under the real
 		// content's terms.
-		add_action( 'wp_head', array( $this, 'print_noindex' ), 1 );
+		add_filter( 'wp_robots', array( $this, 'robots_noindex' ) );
+
+		// A real page answering 200, not a 403 and not a 404: the visitor is on the
+		// page they asked for and is told what to do. `status_header()` does nothing
+		// once output has begun, so it is not guarded.
+		status_header( 200 );
+
+		static::send_header( 'X-Robots-Tag: noindex, nofollow' );
+
+		// What the placeholder says depends on who is asking, and the URL is one a
+		// member sees the real page on. A cache that kept the placeholder would show
+		// it to the next member.
+		self::mark_uncacheable( (int) $post->ID );
+
+		// In the head, where it is needed, when the built-in placeholder is what will
+		// be shown. A chosen page, pattern or template brings its own styling, and
+		// enqueues this too if it carries the message shortcode.
+		if ( $this->placeholder_target <= 0 && class_exists( 'Agend_Content_Access_Placeholder', false ) ) {
+			Agend_Content_Access_Placeholder::enqueue_style();
+		}
 	}
 
 	/**
-	 * Replaces the post body with the teaser and gate.
+	 * Replaces the post body with the placeholder.
+	 *
+	 * Without the class that renders the placeholder it returns nothing, never the
+	 * body: a deployment that is missing a file shows a blank page, not the page.
 	 *
 	 * @param string $content Original content.
 	 * @return string
@@ -615,13 +753,39 @@ class Agend_Content_Access_Frontend {
 			return $content;
 		}
 
-		$post = get_post();
+		// A chosen page is rendered through this very filter: see the property.
+		if ( $this->rendering_placeholder ) {
+			return $content;
+		}
 
-		return self::render_gate(
-			self::teaser_for( $post ),
-			$this->decision['state'],
-			$this->decision['policy']
-		);
+		if ( ! $this->gated_post instanceof WP_Post || ! class_exists( 'Agend_Content_Access_Placeholder', false ) ) {
+			return '';
+		}
+
+		$this->rendering_placeholder = true;
+
+		try {
+			return Agend_Content_Access_Placeholder::for_page( $this->gated_post, $this->decision, $this->placeholder_target );
+		} finally {
+			$this->rendering_placeholder = false;
+		}
+	}
+
+	/**
+	 * Adds `noindex, nofollow` to the page's robots meta tag.
+	 *
+	 * Through core's `wp_robots`, so there is one tag and not two, and an SEO plugin
+	 * that builds on it agrees.
+	 *
+	 * @param mixed $robots The directives so far.
+	 * @return array
+	 */
+	public function robots_noindex( $robots ): array {
+		$robots             = is_array( $robots ) ? $robots : array();
+		$robots['noindex']  = true;
+		$robots['nofollow'] = true;
+
+		return $robots;
 	}
 
 	/**
@@ -1176,8 +1340,10 @@ class Agend_Content_Access_Frontend {
 	 *
 	 * A page cache keys on the URL, not on who asked. If a member's render of a
 	 * listing is stored, the next anonymous visitor to that URL is served the
-	 * member's copy, restricted bodies included, and the gate never runs. So the
-	 * page is excluded two ways:
+	 * member's copy, restricted bodies included, and the gate never runs. The same
+	 * goes the other way for a denied visitor's placeholder or redirect, which would
+	 * be served to the next visitor, who may be allowed. So the page is excluded two
+	 * ways:
 	 *
 	 * - `DONOTCACHEPAGE`, the constant WP Super Cache, W3 Total Cache, WP Rocket
 	 *   and LiteSpeed Cache all honour. Defined while the page renders, and caches
@@ -1201,12 +1367,11 @@ class Agend_Content_Access_Frontend {
 			define( 'DONOTCACHEPAGE', true );
 		}
 
-		if ( ! headers_sent() ) {
-			header( 'Cache-Control: private, no-store', true );
-		}
+		static::send_header( 'Cache-Control: private, no-store' );
 
 		/**
-		 * Fires when a page carries a member's render of a restricted post.
+		 * Fires when a page carries a member's render of a restricted post, or a
+		 * placeholder or redirect in place of one.
 		 *
 		 * For cache integrations that do not read `DONOTCACHEPAGE`, such as a CDN
 		 * bypass rule or a host's own page cache.
@@ -1434,30 +1599,6 @@ class Agend_Content_Access_Frontend {
 		$html .= '</div></div>';
 
 		return $html;
-	}
-
-	/**
-	 * Sends a non-indexable 403 with no body.
-	 */
-	private function send_forbidden(): void {
-		if ( ! headers_sent() ) {
-			status_header( 403 );
-			header( 'X-Robots-Tag: noindex, nofollow', true );
-			nocache_headers();
-		}
-
-		wp_die(
-			esc_html__( 'This content is for members.', 'agend-content-access' ),
-			esc_html__( 'Members only', 'agend-content-access' ),
-			array( 'response' => 403 )
-		);
-	}
-
-	/**
-	 * Marks a teaser page non-indexable.
-	 */
-	public function print_noindex(): void {
-		echo '<meta name="robots" content="noindex, nofollow" />' . "\n";
 	}
 
 	/**
