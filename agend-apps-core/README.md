@@ -23,6 +23,7 @@ shape without a coordinated update to every consumer in this repository.
 | `Agend_Apps_Member_Session::has_session( int $user_id ): bool` | Static method | Stable | Returns `false`. |
 | `agend_apps_crm_get_me()` | Function | Stable | Returns a `WP_Error`. Never fabricate an empty member from it. |
 | `agend_apps_crm_get_tiers( array $query = array() )` | Function | Stable | Returns the tier catalogue. This endpoint is public and does NOT require a session. |
+| `agend_apps_crm_get_entitlement_types( array $query = array() )` | Function | Stable | Returns the entitlement type catalogue (scope `crm.entitlements.browse`). It is authorised by the API key alone and does NOT require a session. Core does not cache it. |
 | `Agend_Apps_Cache::build_key( string $endpoint_key, array $params = array() ): string` | Static method | Stable | Not session-dependent. See the identity warning below. |
 | `Agend_Apps_Settings::get_cache_ttl( string $endpoint_key ): int` | Static method | Stable | Not session-dependent. |
 
@@ -54,6 +55,22 @@ Both return the decoded gateway payload or a `WP_Error`. Always branch on
 
 `agend_apps_crm_get_me()` is member-scoped and needs a bearer.
 `agend_apps_crm_get_tiers()` is the public tier catalogue and does not.
+
+### `agend_apps_crm_get_entitlement_types()`
+
+Returns the account's entitlement type catalogue: every active benefit that has
+a `gate_key`, which is what content can be restricted by. Each entry in `data[]`
+has `id`, `gate_key`, `name`, `description`, `managed_by_source_id` and `kind`
+(`platform-gate`, `entitlement` or `unrecognised`, as the platform registry
+resolves it: never infer it from a prefix). Pass `array( 'search' => 'text' )`
+to narrow by a case-insensitive substring of the name or the `gate_key`.
+
+It is an administrator-catalogue read that needs the `crm.entitlements.browse`
+scope on the site's API key and no member bearer, and it says nothing about who
+holds a type. A consumer that fills an editor picker from it should cache the
+vocabulary itself, and guard the call with `function_exists()` so it still loads
+beside an older Core. Like the other wrappers it returns the decoded gateway
+payload or a `WP_Error`.
 
 ### Member sign-in mode
 
