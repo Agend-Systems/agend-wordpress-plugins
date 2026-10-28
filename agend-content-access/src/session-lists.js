@@ -26,8 +26,10 @@ const loader = createListsLoader( {
  * Starts the first load the first time any panel mounts; every later panel,
  * for any block, reads the same state without a request.
  *
- * @return {{vocabulary: {status: string, data: *}, retry: Function}} The state,
- *         with status one of idle, loading, ready or failed.
+ * @return {{vocabulary: {status: string, data: *, refreshing?: boolean, refreshFailed?: boolean}, retry: Function, refresh: Function}}
+ *         The state, with status one of idle, loading, ready or failed. `refresh()`
+ *         asks the server to read the lists again, and the state says whether that
+ *         is under way or did not work.
  */
 export function useAgendVocabulary() {
 	const [ state, setState ] = useState( loader.getState() );
@@ -42,5 +44,5 @@ export function useAgendVocabulary() {
 		return unsubscribe;
 	}, [] );
 
-	return { vocabulary: state.vocabulary, retry: loader.retry };
+	return { vocabulary: state.vocabulary, retry: loader.retry, refresh: loader.refresh };
 }

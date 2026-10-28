@@ -145,6 +145,74 @@ test( 'retry asks again, with a refresh, for the list that failed and leaves the
 	assert.equal( calls.catalogue.length, 2, 'nothing failed, so nothing is retried' );
 } );
 
+test( 'refresh asks again, with a refresh, for every list that loaded, and the old answer stays until the new one comes', async () => {
+	let release;
+	let attempt = 0;
+	const { loader, calls } = fixture( {
+		conditions: () => ( ++attempt === 1 ? Promise.resolve( { fallbacks: [ 'old' ] } ) : new Promise( ( resolve ) => { release = resolve; } ) ),
+	} );
+
+	loader.ensure();
+	await settle();
+	loader.refresh();
+
+	assert.deepEqual( calls.conditions, [ false, true ], 'a refresh, not the server cache' );
+	assert.equal( loader.getState().conditions.status, 'ready', 'never back to loading: the select would vanish under the author' );
+	assert.deepEqual( loader.getState().conditions.data, { fallbacks: [ 'old' ] } );
+	assert.equal( loader.getState().conditions.refreshing, true );
+
+	release( { fallbacks: [ 'old', 'new' ] } );
+	await settle();
+
+	assert.deepEqual( loader.getState().conditions.data, { fallbacks: [ 'old', 'new' ] } );
+	assert.equal( loader.getState().conditions.refreshing, undefined );
+	assert.equal( loader.getState().conditions.refreshFailed, undefined );
+	assert.equal( calls.conditions.length, 2, 'the cache is otherwise untouched' );
+} );
+
+test( 'a refresh that fails keeps the list that was there and says it did not work', async () => {
+	let attempt = 0;
+	const { loader } = fixture( {
+		conditions: () => ( ++attempt === 1 ? Promise.resolve( { fallbacks: [ 'old' ] } ) : Promise.reject( new Error( 'down' ) ) ),
+	} );
+
+	loader.ensure();
+	await settle();
+	loader.refresh();
+	await settle();
+
+	assert.equal( loader.getState().conditions.status, 'ready', 'still usable' );
+	assert.deepEqual( loader.getState().conditions.data, { fallbacks: [ 'old' ] } );
+	assert.equal( loader.getState().conditions.refreshFailed, true );
+
+	// A later refresh that works clears it.
+	attempt = 0;
+	loader.refresh();
+	await settle();
+	assert.equal( loader.getState().conditions.refreshFailed, undefined );
+} );
+
+test( 'refresh leaves alone a list that is idle, failed or already being fetched', async () => {
+	let release;
+	const { loader, calls } = fixture( {
+		catalogue: () => Promise.reject( new Error( 'down' ) ),
+		conditions: () => new Promise( ( resolve ) => { release = resolve; } ),
+	} );
+
+	loader.refresh();
+	assert.deepEqual( calls, { catalogue: [], conditions: [] }, 'idle: refresh is not the first load' );
+
+	loader.ensure();
+	await settle();
+	loader.refresh();
+
+	assert.deepEqual( calls.catalogue, [ false ], 'a failed list is for retry, not refresh' );
+	assert.deepEqual( calls.conditions, [ false ], 'one still on its way is left to finish' );
+
+	release( { fallbacks: [] } );
+	await settle();
+} );
+
 test( 'retry while a retry is already running does not start another', async () => {
 	let release;
 	let attempt = 0;

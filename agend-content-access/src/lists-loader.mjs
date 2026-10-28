@@ -26,7 +26,7 @@ function idle() {
 
 /**
  * @param {Object<string, Function>} fetchers One `( refresh ) => Promise<*>` per list, by name.
- * @return {{ensure: Function, retry: Function, getState: Function, subscribe: Function}} The loader.
+ * @return {{ensure: Function, retry: Function, refresh: Function, getState: Function, subscribe: Function}} The loader.
  */
 export function createListsLoader( fetchers ) {
 	const keys = Object.keys( fetchers );
@@ -51,8 +51,14 @@ export function createListsLoader( fetchers ) {
 			return;
 		}
 
+		// A refresh of a list that has loaded keeps showing what it has while the new
+		// answer is on its way, and keeps it if the new answer does not come: a list
+		// an author is choosing from must not vanish because they asked for a newer one.
+		const previous = state[ key ];
+		const keep = refresh && previous.status === 'ready';
+
 		inFlight[ key ] = true;
-		set( key, { status: 'loading', data: null } );
+		set( key, keep ? { status: 'ready', data: previous.data, refreshing: true } : { status: 'loading', data: null } );
 
 		// Called now, not on a later tick, and a fetcher that throws before it
 		// returns a promise is a failure like any other.
@@ -67,7 +73,7 @@ export function createListsLoader( fetchers ) {
 		request
 			.then(
 				( data ) => ( { status: 'ready', data } ),
-				() => ( { status: 'failed', data: null } )
+				() => ( keep ? { status: 'ready', data: previous.data, refreshFailed: true } : { status: 'failed', data: null } )
 			)
 			.then( ( next ) => {
 				inFlight[ key ] = false;
@@ -89,6 +95,20 @@ export function createListsLoader( fetchers ) {
 		retry() {
 			keys.forEach( ( key ) => {
 				if ( state[ key ].status === 'failed' ) {
+					run( key, true );
+				}
+			} );
+		},
+
+		/**
+		 * Asks again, with a refresh, for every list that has loaded, so a page created
+		 * since the editor opened is offered. What is on screen stays until the answer
+		 * arrives, and stays if it does not (`refreshFailed`). A list already being
+		 * fetched is left to finish. The once-per-session cache is otherwise untouched.
+		 */
+		refresh() {
+			keys.forEach( ( key ) => {
+				if ( state[ key ].status === 'ready' ) {
 					run( key, true );
 				}
 			} );

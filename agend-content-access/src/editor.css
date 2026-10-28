@@ -198,3 +198,7 @@
 .agend-access-page .agend-access__heading:first-of-type {
 	margin-top: 0;
 }
+
+.agend-access__refresh {
+	margin: -8px 0 16px;
+}

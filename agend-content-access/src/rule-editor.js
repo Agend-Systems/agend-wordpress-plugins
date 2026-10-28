@@ -51,7 +51,7 @@ function readVocabulary( data, strings ) {
  *         `vocabulary` and `index` are null until the list has loaded.
  */
 export function useRuleVocabulary() {
-	const { vocabulary: list, retry } = useAgendVocabulary();
+	const { vocabulary: list, retry, refresh } = useAgendVocabulary();
 	const strings = copy();
 	const { vocabulary, index } = list.status === 'ready' ? readVocabulary( list.data, strings ) : { vocabulary: null, index: null };
 
@@ -61,8 +61,35 @@ export function useRuleVocabulary() {
 		pending: list.status === 'idle' || list.status === 'loading',
 		failed: list.status === 'failed' || ( list.status === 'ready' && vocabulary === null ),
 		retry,
+		refresh,
+		refreshing: list.refreshing === true,
+		refreshFailed: list.refreshFailed === true,
 		strings,
 	};
+}
+
+/**
+ * "Refresh list", for under a select of pages: the lists are read once when the editor
+ * opens, so a page created since is not in them until this asks the server again.
+ *
+ * @param {Object} props
+ * @param {Object} props.lists From `useRuleVocabulary()`.
+ */
+export function RefreshList( { lists } ) {
+	if ( ! lists.vocabulary ) {
+		return null;
+	}
+
+	return (
+		<p className="agend-access__refresh">
+			<Button variant="link" onClick={ lists.refresh } disabled={ lists.refreshing }>
+				{ lists.refreshing ? __( 'Refreshing list', 'agend-content-access' ) : __( 'Refresh list', 'agend-content-access' ) }
+			</Button>
+			{ lists.refreshFailed && ! lists.refreshing && (
+				<span className="agend-access__help">{ ' ' + __( 'The list could not be refreshed.', 'agend-content-access' ) }</span>
+			) }
+		</p>
+	);
 }
 
 /**

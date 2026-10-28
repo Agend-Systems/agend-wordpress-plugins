@@ -17,7 +17,7 @@
 import { __ } from '@wordpress/i18n';
 import { PanelBody, Notice } from '@wordpress/components';
 import ChoiceSelect from './choice-select';
-import RuleEditor, { UnreadableSetting, useRuleVocabulary } from './rule-editor';
+import RuleEditor, { RefreshList, UnreadableSetting, useRuleVocabulary } from './rule-editor';
 import { summarise } from './access-summary.mjs';
 import {
 	ATTRIBUTE,
@@ -89,6 +89,7 @@ export default function AccessPanel( { attributes, setAttributes } ) {
 							current={ state.fallbackId }
 							onChange={ ( id ) => write( setFallback( stored, id ) ) }
 						/>
+						<RefreshList lists={ lists } />
 						<p className="agend-access__status">{ __( 'Visitors who are not allowed never receive this block.', 'agend-content-access' ) }</p>
 					</RuleEditor>
 				</>

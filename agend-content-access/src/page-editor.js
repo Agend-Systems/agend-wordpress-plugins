@@ -25,7 +25,7 @@ import { __ } from '@wordpress/i18n';
 import { useEffect, useMemo, useState } from '@wordpress/element';
 import { Notice, RadioControl } from '@wordpress/components';
 import ChoiceSelect from './choice-select';
-import RuleEditor, { UnreadableSetting, useRuleVocabulary } from './rule-editor';
+import RuleEditor, { RefreshList, UnreadableSetting, useRuleVocabulary } from './rule-editor';
 import { summarise } from './access-summary.mjs';
 import { fallbackChoices } from './rule-vocabulary.mjs';
 import {
@@ -50,12 +50,13 @@ import {
  *
  * @param {Object}   props
  * @param {Object}   props.state     The panel's state.
+ * @param {Object}   props.lists     From `useRuleVocabulary()`.
  * @param {Array}    props.fallbacks `fallbacks` from the vocabulary: public pages, patterns and templates.
  * @param {Object}   props.strings   Copy.
  * @param {Object}   props.errors    From `validatePage()`.
  * @param {Function} props.change    `( nextState ) => void`.
  */
-function DeniedControls( { state, fallbacks, strings, errors, change } ) {
+function DeniedControls( { state, lists, fallbacks, strings, errors, change } ) {
 	const { denied } = state;
 
 	return (
@@ -111,6 +112,8 @@ function DeniedControls( { state, fallbacks, strings, errors, change } ) {
 					onChange={ ( id ) => change( setFallback( state, id ) ) }
 				/>
 			) }
+
+			<RefreshList lists={ lists } />
 		</>
 	);
 }
@@ -209,6 +212,7 @@ export default function PageEditor( { stored, onCommit, saveError = null } ) {
 					>
 						<DeniedControls
 							state={ state }
+							lists={ lists }
 							fallbacks={ vocabulary ? vocabulary.fallbacks : [] }
 							strings={ strings }
 							errors={ check.errors }
