@@ -472,8 +472,13 @@ final class UnreadablePolicyEnforcementTest extends TestCase {
 		// before it reads anything else.
 		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
 
+		// The editor's form names the post it belongs to, which the save path
+		// requires before it applies anything.
 		$_POST = array_merge(
-			array( Agend_Content_Access_Meta_Box::NONCE_FIELD => wp_create_nonce( Agend_Content_Access_Meta_Box::NONCE_ACTION ) ),
+			array(
+				'post_ID'                                  => (string) self::POST_ID,
+				Agend_Content_Access_Meta_Box::NONCE_FIELD => wp_create_nonce( Agend_Content_Access_Meta_Box::NONCE_ACTION ),
+			),
 			$fields
 		);
 

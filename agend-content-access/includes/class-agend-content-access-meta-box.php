@@ -220,6 +220,15 @@ class Agend_Content_Access_Meta_Box {
 	 * A save that submits no mode, or a mode `Agend_Content_Access_Policy::MODES`
 	 * does not list, changes nothing. Only an explicit, recognised audience writes.
 	 *
+	 * `save_post` fires for EVERY post saved during a request, not only the one
+	 * the form is for. A translation plugin that syncs a second post, or any code
+	 * that calls `wp_update_post()` while the editor's save is in flight, runs this
+	 * method again with the other post's id and the same `$_POST`, and the nonce
+	 * in it is valid for the form, not for a post. Without a check, the first
+	 * post's submitted audience was applied to the second, and a submitted
+	 * "Public" turned a restricted post into a public one. The form names the post
+	 * it belongs to in `post_ID`, so a save is applied only to that post.
+	 *
 	 * @param int     $post_id Post id.
 	 * @param WP_Post $post    Post object.
 	 */
@@ -233,6 +242,18 @@ class Agend_Content_Access_Meta_Box {
 		}
 
 		if ( ! in_array( $post->post_type, self::supported_post_types(), true ) ) {
+			return;
+		}
+
+		// A form that does not name this post is not a save of this post, whatever
+		// else it carries. Compared as integers, so an array or a negative number
+		// never matches, and an absent field is zero, which no post has.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Only identifies the form's post; the nonce is verified just below, before anything is applied.
+		$form_post_id = isset( $_POST['post_ID'] ) && is_scalar( $_POST['post_ID'] )
+			? (int) wp_unslash( $_POST['post_ID'] )
+			: 0;
+
+		if ( $form_post_id !== (int) $post_id ) {
 			return;
 		}
 
