@@ -935,8 +935,10 @@ authors in the Agend Elementor README. The pieces here:
 - **Tiles**: `agend_apps_records_directory_map_tiles()` uses CARTO's light
   basemap with the key in the `agend_apps_map_carto_key` option (Settings >
   Agend Widgets > Maps), double-resolution (`{r}`) on a high-density screen,
-  otherwise OpenStreetMap's own tiles. The
-  `agend_apps_records_directory_map_tiles` filter swaps in another provider.
+  otherwise OpenStreetMap's own tiles. Both zoom to 19, but CARTO serves
+  keyed tiles only to zoom 18 (`maxNativeZoom`), so at 19 the map enlarges
+  zoom 18 tiles. The `agend_apps_records_directory_map_tiles` filter swaps
+  in another provider; its `maxNativeZoom` defaults to its `maxZoom`.
   OpenStreetMap's tile servers are for light use only, so a live site needs
   a CARTO key.
 - **Attribution**: the map drops Leaflet's own credit (and its flag) and
