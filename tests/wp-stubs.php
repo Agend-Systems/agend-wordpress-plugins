@@ -588,6 +588,10 @@ if ( ! class_exists( 'wpdb' ) ) {
 
 		public string $prefix = 'wp_';
 
+		public string $comments = 'wp_comments';
+
+		public string $postmeta = 'wp_postmeta';
+
 		/** @var string[] Every query() passed in, for assertions on SQL the stub does not model. */
 		public array $queries = array();
 
@@ -1254,6 +1258,13 @@ if ( ! function_exists( 'update_post_meta' ) ) {
 		$GLOBALS['agend_test_post_meta'][ (int) $post_id ][ $key ] = $value;
 
 		return true;
+	}
+}
+
+if ( ! function_exists( 'update_meta_cache' ) ) {
+	/** Priming a cache is not modelled: `get_post_meta()` reads the registry directly. */
+	function update_meta_cache( $meta_type, $object_ids ) {
+		return array();
 	}
 }
 
@@ -2826,9 +2837,16 @@ if ( ! class_exists( 'WP_Query' ) ) {
 		/** @var array<string, mixed> */
 		public array $query_vars = array();
 
+		/** Set by a test that models a single post's request. */
+		public bool $is_singular = false;
+
 		/** @param array<string, mixed> $query_vars Query variables. */
 		public function __construct( array $query_vars = array() ) {
 			$this->query_vars = $query_vars;
+		}
+
+		public function is_singular( $post_types = '' ): bool {
+			return $this->is_singular;
 		}
 
 		public function get( $query_var, $default_value = '' ) {

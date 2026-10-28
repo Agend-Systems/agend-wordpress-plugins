@@ -27,9 +27,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  * further down, at the point its body or auto-generated excerpt is produced.
  *
  * A post's comments are part of what it says, so they are withheld wherever the
- * post is: on a teaser page, in the post's own comment feed, and in any comment
- * list, widget or REST response that would print them for a viewer who cannot
- * read the post. See `withhold_comments_on_denied_posts()`.
+ * post is: on a teaser page, in the post's own comment feed, in the site-wide and
+ * archive comment feeds, and in any comment list, widget or REST response that
+ * would print them for a viewer who cannot read the post. See
+ * `withhold_comments_on_denied_posts()` and `withhold_comment_feed_on_denied_posts()`.
  */
 class Agend_Content_Access_Frontend {
 
@@ -90,6 +91,15 @@ class Agend_Content_Access_Frontend {
 	private array $comment_denials = array();
 
 	/**
+	 * Ids of the posts an anonymous reader is denied and that have comments, as
+	 * the comment feeds need them. Built on first use, and only when a comment
+	 * feed asks, so any other request never runs the query. Null until built.
+	 *
+	 * @var int[]|null
+	 */
+	private ?array $feed_denials = null;
+
+	/**
 	 * Registers hooks.
 	 */
 	public function __construct() {
@@ -140,7 +150,11 @@ class Agend_Content_Access_Frontend {
 	 *
 	 * Comments are judged where a comment query returns them, on `the_comments`, for
 	 * the same reason: a comment on a restricted post is shown by recent-comments
-	 * widgets and comment feeds that never render the post.
+	 * widgets and blocks that never render the post. The site-wide and archive
+	 * comment feeds are the exception: core builds them with its own SQL and never
+	 * runs a `WP_Comment_Query`, so `the_comments` is not offered them. They are
+	 * narrowed in the query itself, on `comment_feed_where`. See
+	 * `withhold_comment_feed_on_denied_posts()`.
 	 */
 	private function register_render_filters(): void {
 		add_filter( 'the_content', array( $this, 'withhold_in_loop' ), self::WITHHOLD_PRIORITY );
@@ -150,6 +164,7 @@ class Agend_Content_Access_Frontend {
 		add_filter( 'the_excerpt_rss', array( $this, 'filter_feed_excerpt' ), PHP_INT_MAX );
 		add_filter( 'render_block_data', array( $this, 'withhold_latest_posts_content' ), PHP_INT_MAX, 3 );
 		add_filter( 'the_comments', array( $this, 'withhold_comments_on_denied_posts' ), PHP_INT_MAX );
+		add_filter( 'comment_feed_where', array( $this, 'withhold_comment_feed_on_denied_posts' ), PHP_INT_MAX, 2 );
 	}
 
 	/**
@@ -880,11 +895,16 @@ class Agend_Content_Access_Frontend {
 	 * Leaves out the comments on every post the viewer is denied.
 	 *
 	 * A comment is read through more doors than its post is. A recent-comments
-	 * widget, the site-wide comment feed, a block that lists comments and the REST
-	 * comment collection all return comments by the query that matched them, and
-	 * none of them renders the post, so none of the filters above is ever asked
-	 * about it. Each comment is a quotation of what a reader of the post said about
-	 * it, so a restricted post's comments were readable by anyone who asked for them.
+	 * widget, a block that lists comments and the REST comment collection all
+	 * return comments by the query that matched them, and none of them renders the
+	 * post, so none of the filters above is ever asked about it. Each comment is a
+	 * quotation of what a reader of the post said about it, so a restricted post's
+	 * comments were readable by anyone who asked for them.
+	 *
+	 * The site-wide comment feed is NOT among the doors this covers. Core builds
+	 * the comment feeds in `WP_Query::get_posts()` with SQL of its own and reads
+	 * the rows back through `get_comment()`, so `the_comments` never runs for
+	 * them. They are handled in the query, by `withhold_comment_feed_on_denied_posts()`.
 	 *
 	 * Judged on `the_comments`, the result of a `WP_Comment_Query`, with
 	 * `Decision::for_post()` for each comment's post. That is the cheap place to do
@@ -949,6 +969,129 @@ class Agend_Content_Access_Frontend {
 		}
 
 		return $this->comment_denials[ $post_id ];
+	}
+
+	/**
+	 * Leaves comments on restricted posts out of the site-wide and archive comment
+	 * feeds, by narrowing the query that builds them.
+	 *
+	 * `/comments/feed/`, a search's comment feed (`?s=x&feed=comments-rss2`) and an
+	 * archive's comment feed are not a comment query. `WP_Query::get_posts()` writes
+	 * their SQL itself, selects the comment ids, and turns them into comments with
+	 * `get_comment()`, so neither `the_comments` nor any other comment hook is run
+	 * for them. The feed template then prints each comment's text and the title of
+	 * the post it is on. This is the one place the SQL can be changed:
+	 * `comment_feed_where`, which core offers the WHERE clause.
+	 *
+	 * What is appended is `AND comment_post_ID NOT IN ( <posts> )`, where the posts
+	 * are those an anonymous reader is denied. A feed is judged as an anonymous
+	 * reader whoever fetched it, as the feed filters above do and for the same
+	 * reason: it is fetched by aggregators with no session and shared through
+	 * caches, so a member's copy of it must never exist to be served to the next
+	 * reader. That also makes this safe with core's cache. Core caches the matched
+	 * comment ids under the md5 of the finished SQL, so the denied posts are part of
+	 * the cache key: the feed built while a post was public is not the one served
+	 * once it is restricted, and no viewer's copy can be handed to another, because
+	 * the SQL, and so the key, is the same for every viewer.
+	 *
+	 * Cheap: one query finds the posts that carry a policy and have an approved
+	 * comment, and each is judged with `Decision::for_post( $id, true )`, which
+	 * answers a public or unset policy at once and for an anonymous reader never
+	 * looks an identity up. The answer is kept for the request. A site with no
+	 * restricted post that has a comment appends nothing.
+	 *
+	 * Fails closed. If the list cannot be built, `AND 0` is appended and the feed
+	 * is empty, because a feed that cannot say which posts are restricted cannot
+	 * say which comments to print.
+	 *
+	 * A post's OWN comment feed is not narrowed here. It is a singular request,
+	 * which `gate_request()` has already judged for whoever is asking: refused to
+	 * somebody denied the post, served, and marked uncacheable, to somebody who is
+	 * not. Narrowing it as an anonymous reader would empty a member's feed.
+	 *
+	 * @param string        $where Comment feed WHERE clause.
+	 * @param WP_Query|null $query The query building the feed.
+	 * @return string
+	 */
+	public function withhold_comment_feed_on_denied_posts( $where, $query = null ) {
+		$where = (string) $where;
+
+		if ( is_object( $query ) && method_exists( $query, 'is_singular' ) && $query->is_singular() ) {
+			return $where;
+		}
+
+		$denied = $this->posts_denied_to_anonymous_with_comments();
+
+		if ( null === $denied ) {
+			return $where . ' AND 0';
+		}
+
+		if ( array() === $denied ) {
+			return $where;
+		}
+
+		global $wpdb;
+
+		return $where . " AND {$wpdb->comments}.comment_post_ID NOT IN ( " . implode( ', ', $denied ) . ' )';
+	}
+
+	/**
+	 * The posts an anonymous reader is denied that have an approved comment.
+	 *
+	 * Candidates are the posts that store a policy at all, found with the join to
+	 * the comments table so a restricted post nobody has commented on is never
+	 * judged. A post with no stored policy is public and is never a candidate. Each
+	 * candidate's answer is the full one, `Decision::for_post( $id, true )`: a
+	 * stored policy that says Public, or one that cannot be read, is judged for
+	 * what it is, the second as a denial.
+	 *
+	 * @return int[]|null Ids, or null when the query failed.
+	 */
+	private function posts_denied_to_anonymous_with_comments(): ?array {
+		if ( null !== $this->feed_denials ) {
+			return $this->feed_denials;
+		}
+
+		global $wpdb;
+
+		if ( ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_col' ) ) {
+			return null;
+		}
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Core table names; the one value is bound.
+		$sql = $wpdb->prepare(
+			"SELECT DISTINCT pm.post_id FROM {$wpdb->postmeta} AS pm INNER JOIN {$wpdb->comments} AS c ON c.comment_post_ID = pm.post_id WHERE pm.meta_key = %s AND c.comment_approved = '1'",
+			Agend_Content_Access_Policy::META_KEY
+		);
+
+		$rows = $wpdb->get_col( $sql ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
+
+		// `get_col()` answers an empty array for a failed query as well as for no
+		// rows, so the error is what tells the two apart.
+		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
+			return null;
+		}
+
+		$candidates = array_values( array_unique( array_filter( array_map( 'intval', $rows ) ) ) );
+
+		if ( array() !== $candidates ) {
+			// One query for every candidate's policy, not one each.
+			update_meta_cache( 'post', $candidates );
+		}
+
+		$denied = array();
+
+		foreach ( $candidates as $post_id ) {
+			$decision = Agend_Content_Access_Decision::for_post( $post_id, true );
+
+			if ( Agend_Content_Access_Decision::STATE_GRANTED !== $decision['state'] ) {
+				$denied[] = $post_id;
+			}
+		}
+
+		$this->feed_denials = $denied;
+
+		return $denied;
 	}
 
 	/**

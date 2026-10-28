@@ -306,7 +306,7 @@ final class CommentExposureTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------------
-	// Comment queries: widgets, the site-wide comment feed, blocks
+	// Comment queries: widgets, blocks. The site-wide comment feed is not one: see CommentFeedTest.
 	// -----------------------------------------------------------------------
 
 	/**
