@@ -680,6 +680,25 @@ of the whole SQL, so a clause that differs is a key that differs. If the list ca
 is `AND 0`, which lists no comment. The comment feed of one page that the visitor is denied is refused
 with a 403, as above.
 
+**SEO plugin descriptions.** The `<head>` is printed by `wp_head()`, not by the denied page's template,
+and an SEO plugin builds its meta description, `og:description` and `twitter:description` from the post
+itself: Rank Math's `%excerpt%` and Yoast's `%%excerpt%%` fall back to the opening of the body when no
+excerpt was written, and Jetpack's Open Graph tags and All in One SEO do the same. For a post the reader
+is denied, these hooks return the teaser (the manual excerpt, or nothing) as plain text:
+
+- Yoast SEO: `wpseo_metadesc`, `wpseo_opengraph_desc`, `wpseo_twitter_description`.
+- Rank Math: `rank_math/frontend/description`, `rank_math/opengraph/facebook/og_description`,
+  `rank_math/opengraph/twitter/twitter_description`.
+- All in One SEO: `aioseo_description`, `aioseo_facebook_tags`, `aioseo_twitter_tags`.
+- Jetpack: `jetpack_open_graph_tags`.
+
+A page with no rules, a reader the rules admit and an editor of the page keep the plugin's own text. A
+plugin's own custom description for a restricted page is replaced too, because a hook cannot tell it from
+one built out of the body, so write the manual excerpt to say what a visitor should see. Another SEO
+plugin or theme that prints a description of its own, and the structured data (JSON-LD) descriptions these
+plugins print, are not covered and need the same treatment. The page's own `post_content` and the cached
+post are only read, never changed.
+
 #### The built-in placeholder
 
 Rendered on the server by `Agend_Content_Access_Placeholder`, so it is the same in a block

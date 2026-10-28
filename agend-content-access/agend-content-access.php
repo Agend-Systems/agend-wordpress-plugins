@@ -90,6 +90,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-page-rules.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-comments.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-seo.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-placeholder.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-destination.php';
 
@@ -115,6 +116,11 @@ function agend_content_access_bootstrap(): void {
 	// kept out of every comment query and the REST comments route. Also on every
 	// request, because a REST request never reaches template_redirect.
 	new Agend_Content_Access_Comments();
+
+	// What the SEO plugins print in the head of a page the reader is denied: its
+	// description is the teaser, not the opening of the body. Also on every request,
+	// because a plugin's head can be asked for outside template_redirect.
+	new Agend_Content_Access_Seo();
 
 	// The placeholder a denied page shows, its `[agend_access_message]` shortcode
 	// and its block pattern. On every request: the shortcode runs wherever content
