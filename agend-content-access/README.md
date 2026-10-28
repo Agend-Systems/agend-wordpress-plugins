@@ -585,7 +585,7 @@ search, feeds and REST keep showing the summary and nothing else.
 | --- | --- |
 | `placeholder` (default) | The body is replaced on the same URL. `target_id` 0 is the built-in placeholder; otherwise a chosen public page, synced pattern or Elementor template. HTTP 200, `noindex` (the `wp_robots` filter and an `X-Robots-Tag` header), `Cache-Control: private, no-store` and `DONOTCACHEPAGE` |
 | `redirect` | A 302 to `target_id`'s permalink, on `template_redirect` before any output, also marked uncacheable |
-| `back` | A 302 to the page they came from, when `wp_get_referer()` is on this site and not this page; otherwise to `fallback_id`'s permalink; otherwise the placeholder |
+| `back` | A 302 to the page they came from, when the `Referer` header is on this site and not this page (the header only: `wp_get_referer()` prefers the `_wp_http_referer` request parameter, which a link can set); otherwise to `fallback_id`'s permalink; otherwise the placeholder |
 
 **This replaces the 403 and the teaser page.** A restricted page used to answer 403 when
 it had no manual excerpt and a teaser page when it had one. Both are now the placeholder:

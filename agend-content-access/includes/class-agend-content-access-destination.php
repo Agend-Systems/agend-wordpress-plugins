@@ -147,11 +147,21 @@ class Agend_Content_Access_Destination {
 	/**
 	 * The page the visitor came from, when it is on this site and is not this page.
 	 *
+	 * ONLY THE REFERER HEADER. `wp_get_referer()` is not used, because it prefers the
+	 * `_wp_http_referer` request parameter, which WordPress's own forms carry, to the
+	 * header, and a parameter is whatever the link that was followed says it is. A link
+	 * `/members/?_wp_http_referer=/anywhere-on-this-site/` would then choose where the
+	 * visitor is "sent back" to. The header is what the visitor's browser reports of the
+	 * page it came from, and is the thing "back" means. It is still not trusted: it is
+	 * checked and rebuilt below, as before.
+	 *
 	 * @param WP_Post $current The page being left.
 	 * @return string An address rebuilt on this site, or ''.
 	 */
 	public static function referer_url( WP_Post $current ): string {
-		$referer = wp_get_referer();
+		$referer = isset( $_SERVER['HTTP_REFERER'] ) && is_string( $_SERVER['HTTP_REFERER'] )
+			? wp_unslash( $_SERVER['HTTP_REFERER'] ) // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Not used until it has been checked and rebuilt on this site's own host.
+			: '';
 
 		if ( ! is_string( $referer ) || '' === $referer ) {
 			return '';

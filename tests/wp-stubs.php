@@ -3685,15 +3685,19 @@ if ( ! function_exists( 'status_header' ) ) {
 
 if ( ! function_exists( 'wp_get_referer' ) ) {
 	/**
-	 * The referer a test sets in `$GLOBALS['agend_test_referer']`, else false, as
-	 * core answers a request that has none. Core also drops a referer equal to the
+	 * The referer as core reads it: the `_wp_http_referer` request parameter first, and
+	 * only then the `Referer` header, which is what makes the function unfit for deciding
+	 * where a visitor is sent. Falls back to `$GLOBALS['agend_test_referer']`, else false,
+	 * as core answers a request that has none. Core also drops a referer equal to the
 	 * current URL and one `wp_validate_redirect()` refuses; this does neither, so
 	 * the code under test has to make those checks itself, which it must.
 	 *
 	 * @return string|false
 	 */
 	function wp_get_referer() {
-		$referer = $GLOBALS['agend_test_referer'] ?? false;
+		$referer = ! empty( $_REQUEST['_wp_http_referer'] )
+			? wp_unslash( $_REQUEST['_wp_http_referer'] )
+			: ( ! empty( $_SERVER['HTTP_REFERER'] ) ? wp_unslash( $_SERVER['HTTP_REFERER'] ) : ( $GLOBALS['agend_test_referer'] ?? false ) );
 
 		return is_string( $referer ) && '' !== $referer ? $referer : false;
 	}

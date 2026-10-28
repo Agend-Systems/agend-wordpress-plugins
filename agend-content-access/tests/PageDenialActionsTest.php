@@ -131,6 +131,9 @@ final class PageDenialActionsTest extends TestCase {
 	protected function tearDown(): void {
 		unset(
 			$_SERVER['REQUEST_URI'],
+			$_SERVER['HTTP_REFERER'],
+			$_REQUEST['_wp_http_referer'],
+			$_GET['_wp_http_referer'],
 			$GLOBALS['agend_test_is_singular'],
 			$GLOBALS['agend_test_queried_object'],
 			$GLOBALS['agend_test_in_the_loop'],
@@ -184,6 +187,15 @@ final class PageDenialActionsTest extends TestCase {
 
 	private function placeholderOf( int $target ): void {
 		$this->deniedPage( array( 'action' => 'placeholder', 'target_id' => $target, 'fallback_id' => 0 ) );
+	}
+
+	/**
+	 * Sets the `Referer` header as WordPress sees it. WordPress adds slashes to `$_SERVER`
+	 * before any plugin runs (`wp_magic_quotes()`), which is why anything that reads it
+	 * unslashes it, and why a test that wants to be read the way a request is has to slash it.
+	 */
+	private function referredFrom( string $url ): void {
+		$_SERVER['HTTP_REFERER'] = addslashes( $url );
 	}
 
 	private function anonymous(): void {
@@ -678,7 +690,7 @@ final class PageDenialActionsTest extends TestCase {
 	#[Test]
 	public function back_sends_the_visitor_to_the_same_site_page_they_came_from_keeping_its_query(): void {
 		$this->back( self::FALLBACK );
-		$GLOBALS['agend_test_referer'] = 'https://example.test/blog/a-post/?page=2';
+		$this->referredFrom( 'https://example.test/blog/a-post/?page=2' );
 
 		[ , $redirect ] = $this->gate();
 
@@ -690,7 +702,7 @@ final class PageDenialActionsTest extends TestCase {
 	#[Test]
 	public function back_normalises_the_scheme_and_host_of_the_referrer(): void {
 		$this->back();
-		$GLOBALS['agend_test_referer'] = 'http://EXAMPLE.test/blog/a-post/';
+		$this->referredFrom( 'http://EXAMPLE.test/blog/a-post/' );
 
 		[ , $redirect ] = $this->gate();
 
@@ -719,7 +731,7 @@ final class PageDenialActionsTest extends TestCase {
 	#[DataProvider( 'referrersThatAreNoUse' )]
 	public function back_falls_back_when_the_referrer_is_missing_off_site_or_this_page( ?string $referer ): void {
 		if ( null !== $referer ) {
-			$GLOBALS['agend_test_referer'] = $referer;
+			$this->referredFrom( $referer );
 		}
 
 		$this->back( self::FALLBACK );
@@ -740,10 +752,62 @@ final class PageDenialActionsTest extends TestCase {
 		$this->assertStringNotContainsString( self::BODY, $this->body() );
 	}
 
+	/**
+	 * `wp_get_referer()` prefers the `_wp_http_referer` request parameter to the header, so a link
+	 * `/members/?_wp_http_referer=/anywhere/` chose where "back" went. Only the header says where
+	 * the visitor came from.
+	 */
+	#[Test]
+	public function back_ignores_a_crafted_referer_parameter(): void {
+		$this->back( self::FALLBACK );
+		$_REQUEST['_wp_http_referer'] = 'https://example.test/blog/chosen-by-the-link/';
+		$_GET['_wp_http_referer']     = 'https://example.test/blog/chosen-by-the-link/';
+
+		[ , $redirect ] = $this->gate();
+
+		$this->assertSame( 'https://example.test/page-' . self::FALLBACK . '/', $redirect, 'no header, so the page the author chose' );
+	}
+
+	#[Test]
+	public function back_goes_where_the_header_says_whatever_the_parameter_says(): void {
+		$this->back( self::FALLBACK );
+		$this->referredFrom( 'https://example.test/blog/the-page-they-came-from/' );
+		$_REQUEST['_wp_http_referer'] = 'https://example.test/blog/chosen-by-the-link/';
+
+		[ , $redirect ] = $this->gate();
+
+		$this->assertSame( 'https://example.test/blog/the-page-they-came-from/', $redirect );
+	}
+
+	/** An off-site parameter is no more use than an on-site one: it is not read at all. */
+	#[Test]
+	public function back_ignores_an_off_site_referer_parameter_too(): void {
+		$this->back();
+		$_REQUEST['_wp_http_referer'] = 'https://evil.test/';
+
+		[ , $redirect ] = $this->gate();
+
+		$this->assertNull( $redirect );
+		$this->assertSame( array(), Agend_Test_WP::$redirects );
+	}
+
+	/** WordPress slashes `$_SERVER`, so the header is unslashed before it is read: an apostrophe is not a backslash. */
+	#[Test]
+	public function back_reads_the_header_unslashed(): void {
+		$this->back( self::FALLBACK );
+		$this->referredFrom( "https://example.test/blog/it's-a-post/" );
+
+		$this->assertSame( "https://example.test/blog/it\\'s-a-post/", $_SERVER['HTTP_REFERER'], 'as WordPress hands it over' );
+
+		[ , $redirect ] = $this->gate();
+
+		$this->assertSame( "https://example.test/blog/it's-a-post/", $redirect );
+	}
+
 	#[Test]
 	public function back_does_not_use_the_fallback_when_there_is_a_good_referrer(): void {
 		$this->back( self::FALLBACK );
-		$GLOBALS['agend_test_referer'] = 'https://example.test/somewhere/';
+		$this->referredFrom( 'https://example.test/somewhere/' );
 
 		[ , $redirect ] = $this->gate();
 
@@ -785,7 +849,7 @@ final class PageDenialActionsTest extends TestCase {
 	#[DataProvider( 'openRedirectAttempts' )]
 	public function back_is_never_an_open_redirect( string $referer ): void {
 		$this->back( self::FALLBACK );
-		$GLOBALS['agend_test_referer'] = $referer;
+		$this->referredFrom( $referer );
 
 		[ , $redirect ] = $this->gate();
 
@@ -798,7 +862,7 @@ final class PageDenialActionsTest extends TestCase {
 	#[DataProvider( 'openRedirectAttempts' )]
 	public function back_with_no_fallback_shows_the_placeholder_to_an_open_redirect_attempt( string $referer ): void {
 		$this->back();
-		$GLOBALS['agend_test_referer'] = $referer;
+		$this->referredFrom( $referer );
 
 		[ , $redirect ] = $this->gate();
 
@@ -881,8 +945,7 @@ final class PageDenialActionsTest extends TestCase {
 	public function a_denial_down_to_an_outage_does_not_send_the_visitor_back_either(): void {
 		$this->outage();
 		$this->back( self::FALLBACK );
-		$_SERVER['HTTP_REFERER'] = 'https://example.test/came-from/';
-		$GLOBALS['agend_test_referer'] = 'https://example.test/came-from/';
+		$this->referredFrom( 'https://example.test/came-from/' );
 
 		[ , $redirect ] = $this->gate();
 

@@ -173,7 +173,7 @@ Change:
 2. **Page denial actions and the default placeholder.** Built 2026-10-28, see "Page actions: as built".
    - Placeholder (the default): the built-in placeholder, or chosen public content, in place of the body.
    - Redirect: `wp_safe_redirect` at `template_redirect`.
-   - Back: `wp_get_referer()`, same host only, loop guard and fallback.
+   - Back: the `Referer` header only (not `wp_get_referer()`, which prefers a request parameter a link can set), same host only, loop guard and fallback.
    - Reverse on pages.
    - Ship the built-in placeholder renderer and register it as a block pattern.
    - Loops, feeds and REST keep the summary.
