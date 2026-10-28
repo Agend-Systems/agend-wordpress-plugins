@@ -70,6 +70,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		// every later test in the run a feed (or a checkout) request, and that
 		// only shows up as a failure in the full run.
 		$GLOBALS['agend_test_is_feed']            = false;
+		$GLOBALS['agend_test_is_comment_feed']    = false;
 		$GLOBALS['agend_test_is_cart']            = false;
 		$GLOBALS['agend_test_is_checkout']        = false;
 		$GLOBALS['agend_test_is_account_page']    = false;

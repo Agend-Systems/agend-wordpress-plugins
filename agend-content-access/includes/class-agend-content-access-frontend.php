@@ -25,6 +25,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * renders anywhere else, in a blog index, an archive, a search result, a
  * widget, a feed, or a block theme's query loop, is gated by the render filters
  * further down, at the point its body or auto-generated excerpt is produced.
+ *
+ * A post's comments are part of what it says, so they are withheld wherever the
+ * post is: on a teaser page, in the post's own comment feed, and in any comment
+ * list, widget or REST response that would print them for a viewer who cannot
+ * read the post. See `withhold_comments_on_denied_posts()`.
  */
 class Agend_Content_Access_Frontend {
 
@@ -62,6 +67,27 @@ class Agend_Content_Access_Frontend {
 	 * @var array<int, true>
 	 */
 	private array $degraded_reported = array();
+
+	/**
+	 * The queried post, when it was denied and is being served as a teaser. Zero
+	 * on every other request.
+	 *
+	 * The comment filters on a teaser page act for this post only. They are
+	 * registered when the teaser is chosen, so a request that is not gated pays
+	 * nothing for them.
+	 *
+	 * @var int
+	 */
+	private int $gated_post_id = 0;
+
+	/**
+	 * Whether the viewer is denied a post, as far as its comments go, keyed by
+	 * post id. One answer per post for the request: a list of comments is often
+	 * many comments on a few posts, and the viewer does not change mid-request.
+	 *
+	 * @var array<int, bool>
+	 */
+	private array $comment_denials = array();
 
 	/**
 	 * Registers hooks.
@@ -111,6 +137,10 @@ class Agend_Content_Access_Frontend {
 	 * The Latest Posts block is handled before it renders, on `render_block_data`:
 	 * its "full post" display prints `$post->post_content` itself, so none of the
 	 * filters above is ever offered the body. See `withhold_latest_posts_content()`.
+	 *
+	 * Comments are judged where a comment query returns them, on `the_comments`, for
+	 * the same reason: a comment on a restricted post is shown by recent-comments
+	 * widgets and comment feeds that never render the post.
 	 */
 	private function register_render_filters(): void {
 		add_filter( 'the_content', array( $this, 'withhold_in_loop' ), self::WITHHOLD_PRIORITY );
@@ -119,6 +149,7 @@ class Agend_Content_Access_Frontend {
 		add_filter( 'the_content_feed', array( $this, 'filter_feed_content' ), PHP_INT_MAX );
 		add_filter( 'the_excerpt_rss', array( $this, 'filter_feed_excerpt' ), PHP_INT_MAX );
 		add_filter( 'render_block_data', array( $this, 'withhold_latest_posts_content' ), PHP_INT_MAX, 3 );
+		add_filter( 'the_comments', array( $this, 'withhold_comments_on_denied_posts' ), PHP_INT_MAX );
 	}
 
 	/**
@@ -145,16 +176,27 @@ class Agend_Content_Access_Frontend {
 		$decision = Agend_Content_Access_Decision::for_post( (int) $post->ID );
 
 		if ( Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ) {
+			// A post's comment feed prints its comments and never calls
+			// `the_content`, which is where a member's render is otherwise marked
+			// as one no shared cache may keep.
+			if ( is_comment_feed() ) {
+				self::note_granted_render( (int) $post->ID, $decision );
+			}
+
 			return;
 		}
 
 		$this->report_degraded( (int) $post->ID, $decision );
 
-		$this->decision = $decision;
+		$this->decision      = $decision;
+		$this->gated_post_id = (int) $post->ID;
 
 		$teaser = self::teaser_for( $post );
 
-		if ( '' === $teaser ) {
+		// The teaser stands in for the body, and a comment feed has no body to
+		// replace: it is the comments, so there is nothing a teaser could be shown
+		// in place of. It is refused outright, teaser or not.
+		if ( '' === $teaser || is_comment_feed() ) {
 			$this->send_forbidden();
 			return;
 		}
@@ -381,6 +423,61 @@ class Agend_Content_Access_Frontend {
 		// engines it is the article would index the teaser under the real
 		// content's terms.
 		add_action( 'wp_head', array( $this, 'print_noindex' ), 1 );
+
+		// The theme prints the comment list, the form and the count around the
+		// body, from the post's own comments, so replacing the body leaves them.
+		// A page that tells a visitor it is for members cannot also show them the
+		// members' conversation, or invite them to join it. Closed rather than
+		// hidden: the list is emptied and the count zeroed, so a theme that tests
+		// either before printing anything prints nothing.
+		add_filter( 'comments_open', array( $this, 'close_comments_on_gated_post' ), PHP_INT_MAX, 2 );
+		add_filter( 'pings_open', array( $this, 'close_comments_on_gated_post' ), PHP_INT_MAX, 2 );
+		add_filter( 'comments_array', array( $this, 'empty_comments_on_gated_post' ), PHP_INT_MAX, 2 );
+		add_filter( 'get_comments_number', array( $this, 'zero_comment_count_on_gated_post' ), PHP_INT_MAX, 2 );
+	}
+
+	/**
+	 * Whether a post is the queried one this request has gated.
+	 *
+	 * @param mixed $post_id Post id a comment filter was handed.
+	 * @return bool
+	 */
+	private function is_gated_post( $post_id ): bool {
+		return 0 !== $this->gated_post_id && $this->gated_post_id === (int) $post_id;
+	}
+
+	/**
+	 * Closes comments and pings on the gated post, so no form is printed.
+	 *
+	 * @param bool $open    Whether the post accepts them.
+	 * @param int  $post_id Post the question is about.
+	 * @return bool
+	 */
+	public function close_comments_on_gated_post( $open, $post_id = 0 ) {
+		return $this->is_gated_post( $post_id ) ? false : $open;
+	}
+
+	/**
+	 * Empties the comment list of the gated post.
+	 *
+	 * @param array $comments Comments the template is about to print.
+	 * @param int   $post_id  Post they belong to.
+	 * @return array
+	 */
+	public function empty_comments_on_gated_post( $comments, $post_id = 0 ) {
+		return $this->is_gated_post( $post_id ) ? array() : $comments;
+	}
+
+	/**
+	 * Zeroes the comment count of the gated post, so "12 comments" is not printed
+	 * under a page that shows none.
+	 *
+	 * @param int|string $count   Comment count.
+	 * @param int        $post_id Post it counts.
+	 * @return int|string
+	 */
+	public function zero_comment_count_on_gated_post( $count, $post_id = 0 ) {
+		return $this->is_gated_post( $post_id ) ? 0 : $count;
 	}
 
 	/**
@@ -780,6 +877,81 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
+	 * Leaves out the comments on every post the viewer is denied.
+	 *
+	 * A comment is read through more doors than its post is. A recent-comments
+	 * widget, the site-wide comment feed, a block that lists comments and the REST
+	 * comment collection all return comments by the query that matched them, and
+	 * none of them renders the post, so none of the filters above is ever asked
+	 * about it. Each comment is a quotation of what a reader of the post said about
+	 * it, so a restricted post's comments were readable by anyone who asked for them.
+	 *
+	 * Judged on `the_comments`, the result of a `WP_Comment_Query`, with
+	 * `Decision::for_post()` for each comment's post. That is the cheap place to do
+	 * it. A post with a public or unset policy is answered before any identity
+	 * lookup, so a site with no restricted posts pays one policy read per post that
+	 * has a comment in the list. A restricted one costs one identity lookup for the
+	 * request, which `Decision` remembers, and the answer is kept per post here, so
+	 * fifty comments on three posts are three decisions. A user who can edit the
+	 * post keeps its comments: that is `Decision::can_preview()`, the same carve-out
+	 * the post itself has.
+	 *
+	 * The price of judging the result, not the query, is that a page of comments
+	 * can come back shorter than the page size it asked for, and that a count
+	 * (`get_comments( array( 'count' => true ) )`, or `X-WP-Total` on the REST
+	 * collection) still includes comments on posts the viewer cannot read. The query
+	 * has no way to say "except the restricted posts" without first listing every
+	 * restricted post, an unbounded query on every comment request. A query that
+	 * asks for ids only is not passed through this filter by core and is not
+	 * covered; nothing prints from an id.
+	 *
+	 * @param array $comments Comments the query matched.
+	 * @return array
+	 */
+	public function withhold_comments_on_denied_posts( $comments ) {
+		if ( ! is_array( $comments ) || array() === $comments ) {
+			return $comments;
+		}
+
+		$allowed = array();
+
+		foreach ( $comments as $comment ) {
+			if (
+				is_object( $comment )
+				&& isset( $comment->comment_post_ID )
+				&& $this->is_denied_comments_on( (int) $comment->comment_post_ID )
+			) {
+				continue;
+			}
+
+			$allowed[] = $comment;
+		}
+
+		return $allowed;
+	}
+
+	/**
+	 * Whether the viewer is denied the comments on a post.
+	 *
+	 * @param int $post_id Post the comments are on.
+	 * @return bool
+	 */
+	private function is_denied_comments_on( int $post_id ): bool {
+		if ( ! isset( $this->comment_denials[ $post_id ] ) ) {
+			$decision = Agend_Content_Access_Decision::for_post( $post_id );
+			$denied   = Agend_Content_Access_Decision::STATE_GRANTED !== $decision['state'];
+
+			if ( $denied ) {
+				$this->report_degraded( $post_id, $decision );
+			}
+
+			$this->comment_denials[ $post_id ] = $denied;
+		}
+
+		return $this->comment_denials[ $post_id ];
+	}
+
+	/**
 	 * Keeps a page that carries a member's render of restricted content out of
 	 * page caches.
 	 *
@@ -985,6 +1157,8 @@ class Agend_Content_Access_Frontend {
 				3
 			);
 		}
+
+		add_filter( 'rest_prepare_comment', array( $this, 'filter_rest_comment' ), 10, 3 );
 	}
 
 	/**
@@ -1059,6 +1233,43 @@ class Agend_Content_Access_Frontend {
 		$response->set_data( $data );
 
 		return $response;
+	}
+
+	/**
+	 * Refuses a single REST read of a comment on a post the requester is denied.
+	 *
+	 * `/wp/v2/comments/<id>` answers for any approved comment on a published post,
+	 * and a restricted post is published. A collection never reaches this with such
+	 * a comment, because `withhold_comments_on_denied_posts()` has already taken it
+	 * out of the query result, with or without a `post` parameter. A comment that
+	 * does arrive through a read is refused whole rather than blanked, so a read
+	 * that slipped past the query filter fails closed, not open.
+	 *
+	 * Only reads are refused. A write returns the comment through here too, and
+	 * core's delete handler then calls `get_data()` on whatever this returns, which
+	 * an error does not have. Whoever may change a comment may already read it, so
+	 * a write has nothing to be refused.
+	 *
+	 * @param WP_REST_Response $response Response.
+	 * @param WP_Comment       $comment  Comment.
+	 * @param WP_REST_Request  $request  Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function filter_rest_comment( $response, $comment, $request ) {
+		if (
+			! is_object( $comment )
+			|| ! isset( $comment->comment_post_ID )
+			|| ! in_array( $request->get_method(), array( 'GET', 'HEAD' ), true )
+			|| ! $this->is_denied_comments_on( (int) $comment->comment_post_ID )
+		) {
+			return $response;
+		}
+
+		return new WP_Error(
+			'rest_cannot_read_post',
+			__( 'Sorry, you are not allowed to read comments on this content.', 'agend-content-access' ),
+			array( 'status' => 403 )
+		);
 	}
 
 	/**

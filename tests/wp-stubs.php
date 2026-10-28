@@ -1374,6 +1374,13 @@ if ( ! function_exists( 'is_feed' ) ) {
 	}
 }
 
+if ( ! function_exists( 'is_comment_feed' ) ) {
+	/** Never a comment feed request in the unit harness unless a test says otherwise. */
+	function is_comment_feed(): bool {
+		return ! empty( $GLOBALS['agend_test_is_comment_feed'] );
+	}
+}
+
 if ( ! function_exists( 'is_embed' ) ) {
 	/** Never an embed request in the unit harness unless a test says otherwise. */
 	function is_embed(): bool {
