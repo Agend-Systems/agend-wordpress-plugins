@@ -808,8 +808,11 @@ class Agend_Content_Access_Frontend {
 	 * @return mixed Empty data for builder keys, otherwise the untouched value.
 	 */
 	public function suppress_builder_data( $value, $object_id, $meta_key, $single ) {
-		// Elementor stores its document here. Returning an empty array stops the
-		// builder rendering the protected layout from its own copy.
+		// Elementor stores its document here. Returning an empty value stops the
+		// builder rendering the protected layout from its own copy. For a single
+		// read WordPress returns `$check[0]`, so the short-circuit must hold one
+		// empty element: a bare empty array made WordPress read a missing key and
+		// raise a warning whose debug display echoed the post's content.
 		if ( '_elementor_data' !== $meta_key ) {
 			return $value;
 		}
@@ -818,7 +821,7 @@ class Agend_Content_Access_Frontend {
 		// one. Otherwise the builder would render a restricted post's layout from
 		// its own copy inside every archive that lists it.
 		if ( isset( $this->withheld[ (int) $object_id ] ) ) {
-			return $single ? array() : array( array() );
+			return $single ? array( '' ) : array();
 		}
 
 		if ( null === $this->decision ) {
@@ -831,7 +834,7 @@ class Agend_Content_Access_Frontend {
 			return $value;
 		}
 
-		return $single ? array() : array( array() );
+		return $single ? array( '' ) : array();
 	}
 
 	/**
