@@ -1,19 +1,18 @@
 /**
- * A select of public content, for the places a panel asks for one page, pattern or
- * template: a block's "Show instead", and a page's placeholder, redirect and
- * fallback.
+ * A searchable select of public content, for the places a panel asks for one page,
+ * pattern or template: a block's "Show instead", and a page's placeholder, redirect
+ * and fallback.
  *
- * A plain select while the list is short, a searchable one when it is long, so a
- * site with hundreds of pages can still find one. The choices are built by
- * `fallbackChoices()` in rule-vocabulary.mjs, which keeps a stored choice that is
- * no longer offered in the list, selected, so the control says what is stored.
+ * One control everywhere, whatever the length of the list: a combobox, so an author
+ * who knows the name types it, and a site with hundreds of pages can still find one.
+ * (It used to be a plain dropdown for a short list and a combobox for a long one,
+ * which made the same question look like two different controls.) The choices are
+ * built by `fallbackChoices()` in rule-vocabulary.mjs, which keeps a stored choice
+ * that is no longer offered in the list, selected, so the control says what is stored.
  */
 import { useState } from '@wordpress/element';
-import { SelectControl, ComboboxControl } from '@wordpress/components';
+import { ComboboxControl } from '@wordpress/components';
 import { filterChoices } from './rule-vocabulary.mjs';
-
-/** Past this many choices the select becomes a searchable one. */
-const LONG_LIST = 10;
 
 /**
  * @param {Object}   props
@@ -26,21 +25,6 @@ const LONG_LIST = 10;
 export default function ChoiceSelect( { label, help, choices, current, onChange } ) {
 	const [ filter, setFilter ] = useState( '' );
 	const value = current > 0 ? String( current ) : '';
-
-	if ( choices.length <= LONG_LIST ) {
-		return (
-			<SelectControl
-				label={ label }
-				help={ help }
-				value={ value }
-				options={ choices }
-				onChange={ onChange }
-				__nextHasNoMarginBottom
-				__next40pxDefaultSize
-			/>
-		);
-	}
-
 	const shown = filterChoices( choices, filter );
 	const selected = choices.find( ( choice ) => choice.value === value );
 
