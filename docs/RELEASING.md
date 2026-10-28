@@ -52,8 +52,9 @@ touches them never needs a bump:
 
 - anything under `<slug>/tests/`
 - anything under `<slug>/node_modules/`
-- for `agend-apps-core` only, anything under `agend-apps-core/src/`
-  (the built output that ships lives in `build/`)
+- for `agend-apps-core` and `agend-content-access` only, anything under
+  that plugin's `src/` (the built output that ships lives in `build/`).
+  Every other plugin keeps `src/` in the zip, and a change there needs a bump
 - any `*.md` file other than a `README.md`, which build-zip keeps at
   any depth
 - dotfiles and build artefacts build-zip.sh also drops: `.git*`,

@@ -295,6 +295,73 @@ test_open_pr_skip_flag() {
 	assert "(b) --skip-open-prs skips the comparison with a notice" "${ok}"
 }
 
+# --- Which changed files need a bump ----------------------------------------
+
+# Add <plugin> to main at 1.0.0 if it is not there, then commit one file under
+# it on a branch and run the check. build-zip.sh decides what ships, and this
+# filter has to agree with it: src/ is left out of the zip for agend-apps-core
+# and agend-content-access only, so a change there needs no bump, and the same
+# change under any other plugin does.
+# Usage: file_case <plugin> <path relative to the plugin>
+file_case() {
+	local plugin=$1 rel=$2 dir
+	new_case 1.0.0
+	dir="${case_dir}/work/${plugin}"
+	if [[ ! -f "${dir}/${plugin}.php" ]]; then
+		mkdir -p "${dir}"
+		plugin_php 1.0.0 >"${dir}/${plugin}.php"
+		git_work add -A
+		git_work commit -q -m "add ${plugin}"
+		git_work push -q origin main
+	fi
+	git_work checkout -q -b feature main
+	mkdir -p "$(dirname "${dir}/${rel}")"
+	echo "// change" >"${dir}/${rel}"
+	git_work add -A
+	git_work commit -q -m "change ${plugin}/${rel}"
+	git_work checkout -q main
+	run_check feature --skip-open-prs
+}
+
+exempt() {
+	local ok
+	ok="$([[ "$(rc_is 0)" == 1 && "$(has "OK $1 unchanged (no shipped-file changes)")" == 1 ]] && echo 1 || echo 0)"
+	assert "$2" "${ok}"
+}
+
+needs_bump() {
+	local ok
+	ok="$([[ "$(rc_is 1)" == 1 && "$(has "$1: Version header unchanged")" == 1 ]] && echo 1 || echo 0)"
+	assert "$2" "${ok}"
+}
+
+test_content_access_src_is_exempt() {
+	file_case agend-content-access src/index.js
+	exempt agend-content-access "agend-content-access src/ needs no bump"
+	file_case agend-content-access src/components/panel.js
+	exempt agend-content-access "agend-content-access nested src/ needs no bump"
+}
+
+test_content_access_js_tests_are_exempt() {
+	file_case agend-content-access tests/js/access-model.test.mjs
+	exempt agend-content-access "agend-content-access tests/js/ needs no bump"
+}
+
+test_content_access_build_needs_a_bump() {
+	file_case agend-content-access build/index.js
+	needs_bump agend-content-access "agend-content-access build/ is shipped and needs a bump"
+}
+
+test_core_src_is_still_exempt() {
+	file_case agend-apps-core src/blocks/shared/surface-edit.js
+	exempt agend-apps-core "agend-apps-core src/ still needs no bump"
+}
+
+test_other_plugins_src_is_shipped() {
+	file_case agend-other src/index.js
+	needs_bump agend-other "a plugin that is not Core or Content Access ships src/, so it needs a bump"
+}
+
 test_floor_below_latest_tag_fails
 test_floor_equal_to_latest_tag_fails
 test_floor_above_latest_tag_passes
@@ -308,6 +375,11 @@ test_open_pr_own_number_excluded
 test_open_pr_stacked_pr_not_listed
 test_open_pr_no_gh_is_skipped
 test_open_pr_skip_flag
+test_content_access_src_is_exempt
+test_content_access_js_tests_are_exempt
+test_content_access_build_needs_a_bump
+test_core_src_is_still_exempt
+test_other_plugins_src_is_shipped
 
 echo
 echo "${passed} passed, ${failed} failed"

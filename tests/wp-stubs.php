@@ -39,6 +39,15 @@ final class Agend_Test_WP {
 	public static array $transients = array();
 
 	/**
+	 * The expiry each transient was last written with, in seconds, keyed like
+	 * {@see $transients}. The stub store never expires anything, so this is how
+	 * a test asserts on the lifetime a caller asked for.
+	 *
+	 * @var array<string, int>
+	 */
+	public static array $transient_ttls = array();
+
+	/**
 	 * Site (network-wide) transients: a separate store from {@see $transients}
 	 * because plugin updates are network-wide (`get_site_transient()` /
 	 * `set_site_transient()`) even on a single-site install.
@@ -59,6 +68,18 @@ final class Agend_Test_WP {
 	/** @var array<string, callable> Filter callbacks keyed by hook name. */
 	public static array $filters = array();
 
+	/**
+	 * Every add_filter() registration, in order, keyed by hook name.
+	 *
+	 * {@see $filters} keeps ONE callback per hook, which is all most tests need
+	 * and what they set directly. This is the record alongside it, for a test
+	 * that has to see what was registered at which priority, or run a chain of
+	 * callbacks the way WordPress would ({@see apply_registered()}).
+	 *
+	 * @var array<string, array<int, array{callback: callable, priority: int, args: int}>>
+	 */
+	public static array $filter_registry = array();
+
 	/** @var array<string, mixed> The "database": what get_option()/update_option() persist. */
 	public static array $options = array();
 
@@ -77,6 +98,18 @@ final class Agend_Test_WP {
 
 	/** @var array<int, array{url: string, headers: array<string, string>}> */
 	public static array $requests = array();
+
+	/** @var array<int, array{namespace: string, route: string, args: array}> Routes passed to register_rest_route(), in call order. */
+	public static array $rest_routes = array();
+
+	/** @var array<int, array<string, mixed>> Meta boxes passed to add_meta_box(), in call order. */
+	public static array $meta_boxes = array();
+
+	/** @var array<int, array{post_type: string, key: string, args: array}> Meta passed to register_post_meta(), in call order. */
+	public static array $registered_post_meta = array();
+
+	/** @var array<int, array{object_type: string, name: string, args: array}> Fields passed to register_rest_field(), in call order. */
+	public static array $registered_rest_fields = array();
 
 	/** @var int[] User ids for which WordPress auth cookies were issued. */
 	public static array $auth_cookie_users = array();
@@ -110,6 +143,16 @@ final class Agend_Test_WP {
 	/** @var array<int, array{location: string, status: int}> Recorded `wp_safe_redirect()` calls. */
 	public static array $redirects = array();
 
+	/** @var int[] Codes passed to `status_header()`, in call order. */
+	public static array $status_codes = array();
+
+	/**
+	 * Inline CSS added with `wp_add_inline_style()`, keyed by style handle.
+	 *
+	 * @var array<string, string[]>
+	 */
+	public static array $inline_styles = array();
+
 	/** Number of `wp_update_plugins()` calls recorded. */
 	public static int $wp_update_plugins_calls = 0;
 
@@ -129,6 +172,28 @@ final class Agend_Test_WP {
 	 * @var array<string, array{src: string, deps: array, ver: string|bool|null, media: string}>
 	 */
 	public static array $enqueued_style_args = array();
+
+	/**
+	 * The arguments of each `wp_enqueue_script()` call, keyed by handle, for a
+	 * test that needs the src, dependencies or version and not just the handle.
+	 *
+	 * @var array<string, array{src: string, deps: array, ver: string|bool|null, args: mixed}>
+	 */
+	public static array $enqueued_script_args = array();
+
+	/**
+	 * Script translations registered by `wp_set_script_translations()`, keyed by handle.
+	 *
+	 * @var array<string, array{domain: string, path: string|null}>
+	 */
+	public static array $script_translations = array();
+
+	/**
+	 * Extra style data set by `wp_style_add_data()`, keyed by handle then key.
+	 *
+	 * @var array<string, array<string, mixed>>
+	 */
+	public static array $style_data = array();
 
 	/**
 	 * Value `wp_style_engine_get_stylesheet_from_context()` returns. A test
@@ -169,25 +234,36 @@ final class Agend_Test_WP {
 		self::$theme_has_theme_json = false;
 		self::$global_styles        = array();
 		self::$transients        = array();
+		self::$transient_ttls    = array();
 		self::$site_transients   = array();
 		self::$actions           = array();
 		self::$action_priorities = array();
 		self::$did_action        = array();
 		self::$filters           = array();
+		self::$filter_registry   = array();
 		self::$options           = array();
 		self::$object_cache      = array();
 		self::$requests          = array();
+		self::$rest_routes       = array();
+		self::$meta_boxes        = array();
+		self::$registered_post_meta   = array();
+		self::$registered_rest_fields = array();
 		self::$auth_cookie_users = array();
 		self::$auth_cookie_remembers = array();
 		self::$tiers_response    = array();
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
 		self::$redirects         = array();
+		self::$status_codes      = array();
+		self::$inline_styles     = array();
 		self::$wp_update_plugins_calls = 0;
 		self::$wp_update_themes_calls  = 0;
 		self::$enqueued_styles   = array();
 		self::$enqueued_scripts  = array();
 		self::$enqueued_style_args = array();
+		self::$enqueued_script_args = array();
+		self::$script_translations = array();
+		self::$style_data = array();
 		self::$style_engine_stylesheet = '';
 		self::$settings_sections = array();
 		self::$roles             = array(
@@ -221,6 +297,38 @@ final class Agend_Test_WP {
 	 */
 	public static function queue_transport_error( string $code, string $message ): void {
 		self::$canned_responses[] = array( 'error' => new WP_Error( $code, $message ) );
+	}
+
+	/**
+	 * Runs every callback registered on a hook, in WordPress's order: by
+	 * priority, and by registration order within one priority.
+	 *
+	 * @param string $hook  Hook name.
+	 * @param mixed  $value Value to filter.
+	 * @param mixed  ...$args Extra arguments, passed to callbacks that accept them.
+	 * @return mixed
+	 */
+	public static function apply_registered( string $hook, $value, ...$args ) {
+		$entries = array();
+
+		foreach ( self::$filter_registry[ $hook ] ?? array() as $order => $entry ) {
+			$entries[] = array( $entry['priority'], $order, $entry );
+		}
+
+		usort(
+			$entries,
+			static fn( array $a, array $b ): int => array( $a[0], $a[1] ) <=> array( $b[0], $b[1] )
+		);
+
+		foreach ( $entries as $item ) {
+			$entry = $item[2];
+			$value = call_user_func_array(
+				$entry['callback'],
+				array_slice( array_merge( array( $value ), $args ), 0, $entry['args'] )
+			);
+		}
+
+		return $value;
 	}
 
 	/**
@@ -262,7 +370,8 @@ function get_transient( string $key ) {
 }
 
 function set_transient( string $key, $value, int $ttl = 0 ): bool {
-	Agend_Test_WP::$transients[ $key ] = $value;
+	Agend_Test_WP::$transients[ $key ]     = $value;
+	Agend_Test_WP::$transient_ttls[ $key ] = $ttl;
 	return true;
 }
 
@@ -358,7 +467,12 @@ function apply_filters( string $hook, $value, ...$args ) {
 }
 
 function add_filter( string $hook, $callback, int $priority = 10, int $args = 1 ): bool {
-	Agend_Test_WP::$filters[ $hook ] = $callback;
+	Agend_Test_WP::$filters[ $hook ]           = $callback;
+	Agend_Test_WP::$filter_registry[ $hook ][] = array(
+		'callback' => $callback,
+		'priority' => $priority,
+		'args'     => $args,
+	);
 	return true;
 }
 
@@ -368,7 +482,7 @@ function add_filter( string $hook, $callback, int $priority = 10, int $args = 1 
  * parity and not compared.
  */
 function remove_filter( string $hook, $callback = null, int $priority = 10 ): bool {
-	unset( Agend_Test_WP::$filters[ $hook ] );
+	unset( Agend_Test_WP::$filters[ $hook ], Agend_Test_WP::$filter_registry[ $hook ] );
 	return true;
 }
 
@@ -538,6 +652,12 @@ if ( ! class_exists( 'wpdb' ) ) {
 
 		public string $prefix = 'wp_';
 
+		public string $posts = 'wp_posts';
+
+		public string $postmeta = 'wp_postmeta';
+
+		public string $comments = 'wp_comments';
+
 		/** @var string[] Every query() passed in, for assertions on SQL the stub does not model. */
 		public array $queries = array();
 
@@ -681,6 +801,29 @@ if ( ! class_exists( 'wpdb' ) ) {
 						$ids[] = (string) $user_id;
 					}
 				}
+				return $ids;
+			}
+
+			// The posts that carry any of two meta keys AND have a comment, which is what the
+			// comment exclusion asks. The comments table is not modelled: a test lists the posts
+			// that have comments in `$GLOBALS['agend_test_posts_with_comments']`.
+			if ( 1 === preg_match( "/^SELECT DISTINCT m\\.post_id FROM wp_postmeta AS m INNER JOIN wp_comments AS c ON c\\.comment_post_ID = m\\.post_id WHERE m\\.meta_key IN \\( '(.*?)', '(.*?)' \\)$/s", $query, $m ) ) {
+				$keys = array( stripslashes( $m[1] ), stripslashes( $m[2] ) );
+				$ids  = array();
+
+				foreach ( (array) ( $GLOBALS['agend_test_post_meta'] ?? array() ) as $post_id => $meta ) {
+					if ( ! in_array( (int) $post_id, (array) ( $GLOBALS['agend_test_posts_with_comments'] ?? array() ), true ) ) {
+						continue;
+					}
+
+					foreach ( $keys as $key ) {
+						if ( is_array( $meta ) && array_key_exists( $key, $meta ) ) {
+							$ids[] = (string) $post_id;
+							break;
+						}
+					}
+				}
+
 				return $ids;
 			}
 
@@ -1191,8 +1334,47 @@ if ( ! isset( $GLOBALS['agend_test_post_meta'] ) ) {
 	$GLOBALS['agend_test_post_meta'] = array();
 }
 
+if ( ! function_exists( 'wp_is_post_revision' ) ) {
+	/**
+	 * No test post is a revision unless it is listed in
+	 * `$GLOBALS['agend_test_revisions']` (post id => parent id), which is what
+	 * WordPress returns: the parent's id, or false.
+	 */
+	function wp_is_post_revision( $post_id ) {
+		return $GLOBALS['agend_test_revisions'][ (int) $post_id ] ?? false;
+	}
+}
+
+if ( ! function_exists( 'wp_is_post_autosave' ) ) {
+	/**
+	 * No test post is an autosave unless it is listed in
+	 * `$GLOBALS['agend_test_autosaves']` (post id => parent id).
+	 */
+	function wp_is_post_autosave( $post_id ) {
+		return $GLOBALS['agend_test_autosaves'][ (int) $post_id ] ?? false;
+	}
+}
+
+if ( ! function_exists( 'get_post_types' ) ) {
+	/**
+	 * Registered post types, `$GLOBALS['agend_test_post_types']` or post and page.
+	 * Ignores `$args`: a test that needs a narrower set sets the global.
+	 */
+	function get_post_types( $args = array(), $output = 'names' ) {
+		return $GLOBALS['agend_test_post_types'] ?? array( 'post' => 'post', 'page' => 'page' );
+	}
+}
+
 if ( ! function_exists( 'get_post_meta' ) ) {
 	function get_post_meta( $post_id, $key = '', $single = false ) {
+		// Core's short-circuit: a `get_post_metadata` callback may answer for the
+		// read, and a list answer to a single read is read at its first entry.
+		$check = Agend_Test_WP::apply_registered( 'get_post_metadata', null, $post_id, $key, $single, 'post' );
+
+		if ( null !== $check ) {
+			return $single && is_array( $check ) ? ( $check[0] ?? '' ) : $check;
+		}
+
 		$value = $GLOBALS['agend_test_post_meta'][ (int) $post_id ][ $key ] ?? '';
 
 		return $single ? $value : array( $value );
@@ -1306,6 +1488,18 @@ if ( ! function_exists( 'is_admin' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_is_serving_rest_request' ) ) {
+	/**
+	 * Never a REST request in the unit harness unless a test sets
+	 * `$GLOBALS['agend_test_rest_request']`. The real function reads the
+	 * `REST_REQUEST` constant, which cannot be undone once defined, so a test
+	 * could not put the next one back.
+	 */
+	function wp_is_serving_rest_request(): bool {
+		return ! empty( $GLOBALS['agend_test_rest_request'] );
+	}
+}
+
 if ( ! function_exists( 'is_feed' ) ) {
 	/** Never a feed request in the unit harness unless a test says otherwise. */
 	function is_feed(): bool {
@@ -1324,6 +1518,13 @@ if ( ! function_exists( 'is_main_query' ) ) {
 	/** The main query unless a test says otherwise (a secondary query on the same request). */
 	function is_main_query(): bool {
 		return empty( $GLOBALS['agend_test_not_main_query'] );
+	}
+}
+
+if ( ! function_exists( 'in_the_loop' ) ) {
+	/** Not inside a loop unless a test sets `$GLOBALS['agend_test_in_the_loop']`. */
+	function in_the_loop(): bool {
+		return ! empty( $GLOBALS['agend_test_in_the_loop'] );
 	}
 }
 
@@ -1363,6 +1564,51 @@ if ( ! class_exists( 'WP_User' ) ) {
 
 if ( ! isset( $GLOBALS['agend_test_users'] ) ) {
 	$GLOBALS['agend_test_users'] = array();
+}
+
+if ( ! function_exists( 'get_users' ) ) {
+	/**
+	 * User query stub, for the one lookup the plugins make: by an exact user
+	 * meta value, as `array( 'meta_key' => ..., 'meta_value' => ..., 'fields' =>
+	 * 'ID', 'number' => N )`. It scans the same `agend_test_user_meta` registry
+	 * `get_user_meta()` reads, so a test links users by writing meta and needs no
+	 * user objects. Returns ids for `fields` 'ID' and bare `WP_User` shells
+	 * otherwise, in ascending id order, honouring `number`.
+	 *
+	 * A suite that needs a richer query double (Loop Sync's, over its own user
+	 * registry) names it in `$GLOBALS['agend_test_get_users']`, which the base
+	 * TestCase clears before every test.
+	 *
+	 * @param array $args Query args.
+	 * @return array<int, int|WP_User>
+	 */
+	function get_users( array $args = array() ) {
+		$override = $GLOBALS['agend_test_get_users'] ?? null;
+
+		if ( is_callable( $override ) ) {
+			return $override( $args );
+		}
+
+		$ids = array();
+
+		foreach ( (array) ( $GLOBALS['agend_test_user_meta'] ?? array() ) as $user_id => $meta ) {
+			$value = isset( $args['meta_key'] ) ? ( $meta[ $args['meta_key'] ] ?? null ) : null;
+
+			if ( isset( $args['meta_value'] ) && is_scalar( $value ) && (string) $value === (string) $args['meta_value'] ) {
+				$ids[] = (int) $user_id;
+			}
+		}
+
+		sort( $ids );
+
+		if ( isset( $args['number'] ) && (int) $args['number'] > 0 ) {
+			$ids = array_slice( $ids, 0, (int) $args['number'] );
+		}
+
+		return 'ID' === ( $args['fields'] ?? '' )
+			? $ids
+			: array_map( static fn( int $id ) => new WP_User( $id ), $ids );
+	}
 }
 
 if ( ! function_exists( 'get_user_by' ) ) {
@@ -1428,6 +1674,21 @@ if ( ! function_exists( 'is_email' ) ) {
 if ( ! class_exists( 'WP_Roles' ) ) {
 	/** Minimal WP_Roles stand-in: only `get_names()`, backed by Agend_Test_WP::$roles. */
 	class WP_Roles {
+		/**
+		 * Role slug => role definition, as WordPress exposes it. Built from the
+		 * same registry as `get_names()` so the two cannot disagree. Only the
+		 * `name` of each definition is modelled; capabilities are not.
+		 *
+		 * @var array<string, array{name: string}>
+		 */
+		public array $roles = array();
+
+		public function __construct() {
+			foreach ( Agend_Test_WP::$roles as $slug => $name ) {
+				$this->roles[ $slug ] = array( 'name' => $name );
+			}
+		}
+
 		/** @return array<string, string> */
 		public function get_names(): array {
 			return Agend_Test_WP::$roles;
@@ -1450,6 +1711,15 @@ if ( ! function_exists( 'current_user_can' ) ) {
 	 * @return bool
 	 */
 	function current_user_can( string $capability ): bool {
+		// A capability granted for one object only, as `edit_post` is for a post
+		// the user wrote: `$GLOBALS['agend_test_current_user_can_for'][ $cap ][ $id ]`.
+		// Consulted before the blanket answer, which stays the default.
+		$arguments = func_get_args();
+
+		if ( isset( $arguments[1] ) && isset( $GLOBALS['agend_test_current_user_can_for'][ $capability ][ (int) $arguments[1] ] ) ) {
+			return (bool) $GLOBALS['agend_test_current_user_can_for'][ $capability ][ (int) $arguments[1] ];
+		}
+
 		return (bool) ( $GLOBALS['agend_test_current_user_can'][ $capability ] ?? true );
 	}
 }
@@ -1680,6 +1950,10 @@ if ( ! class_exists( 'WP_REST_Response' ) ) {
 			return $this->data;
 		}
 
+		public function set_data( $data ): void {
+			$this->data = $data;
+		}
+
 		public function get_status(): int {
 			return $this->status;
 		}
@@ -1710,14 +1984,93 @@ if ( ! class_exists( 'WP_REST_Controller' ) ) {
 
 if ( ! function_exists( 'register_rest_route' ) ) {
 	/**
-	 * No-op recording stub: route registration itself is WordPress dispatch
+	 * Recording stub: route registration itself is WordPress dispatch
 	 * machinery, out of scope for these unit tests, which call a
-	 * controller's route method directly.
+	 * controller's route method directly. The registration is recorded in
+	 * `Agend_Test_WP::$rest_routes` so a test can assert which routes a plugin
+	 * registers and with what callbacks and arguments.
 	 */
 	function register_rest_route( string $namespace, string $route, array $args = array(), bool $override = false ) {
-		unset( $namespace, $route, $args, $override );
+		unset( $override );
+
+		Agend_Test_WP::$rest_routes[] = array(
+			'namespace' => $namespace,
+			'route'     => $route,
+			'args'      => $args,
+		);
 
 		return true;
+	}
+}
+
+if ( ! function_exists( 'get_current_screen' ) ) {
+	/** The admin screen a test sets in `$GLOBALS['agend_test_current_screen']`, or none. */
+	function get_current_screen() {
+		return $GLOBALS['agend_test_current_screen'] ?? null;
+	}
+}
+
+if ( ! function_exists( 'register_post_meta' ) ) {
+	/**
+	 * Records the registration in `Agend_Test_WP::$registered_post_meta` so a test can
+	 * assert what a plugin registers and with what arguments, `show_in_rest` and
+	 * `auth_callback` included. The `auth_callback` is NOT hooked: a test calls it.
+	 */
+	function register_post_meta( string $post_type, string $key, array $args = array() ): bool {
+		Agend_Test_WP::$registered_post_meta[] = array(
+			'post_type' => $post_type,
+			'key'       => $key,
+			'args'      => $args,
+		);
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'register_rest_field' ) ) {
+	/**
+	 * Records the registration in `Agend_Test_WP::$registered_rest_fields` so a test
+	 * can assert which fields a plugin adds to which object, in which context, and
+	 * call their callbacks.
+	 *
+	 * @param string|string[] $object_type Object type or types.
+	 */
+	function register_rest_field( $object_type, string $name, array $args = array() ): void {
+		foreach ( (array) $object_type as $type ) {
+			Agend_Test_WP::$registered_rest_fields[] = array(
+				'object_type' => $type,
+				'name'        => $name,
+				'args'        => $args,
+			);
+		}
+	}
+}
+
+if ( ! function_exists( 'add_meta_box' ) ) {
+	/**
+	 * Recording stub: the box is not rendered, only noted in
+	 * `Agend_Test_WP::$meta_boxes`, so a test can assert how a plugin registers
+	 * one, including the callback args WordPress reads.
+	 *
+	 * @param string|string[] $screen
+	 */
+	function add_meta_box( string $id, string $title, $callback, $screen = null, string $context = 'advanced', string $priority = 'default', $callback_args = null ): void {
+		Agend_Test_WP::$meta_boxes[] = array(
+			'id'            => $id,
+			'title'         => $title,
+			'callback'      => $callback,
+			'screen'        => $screen,
+			'context'       => $context,
+			'priority'      => $priority,
+			'callback_args' => $callback_args,
+		);
+	}
+}
+
+if ( ! function_exists( 'rest_authorization_required_code' ) ) {
+	/** 401 for a visitor who is not signed in, 403 for one who is but is refused, as WordPress does. */
+	function rest_authorization_required_code(): int {
+		return is_user_logged_in() ? 403 : 401;
 	}
 }
 
@@ -1816,6 +2169,14 @@ if ( ! class_exists( 'WP_Post' ) ) {
 		public string $post_title = '';
 		public string $post_type = 'page';
 		public string $post_modified_gmt = '';
+		public string $post_name = '';
+		public string $post_excerpt = '';
+		public string $post_date_gmt = '';
+		public int $post_author = 0;
+		public string $post_password = '';
+
+		/** @var string|null As in core: the sanitising context the object was read in, 'raw' for a stored post. */
+		public $filter = 'raw';
 
 		public function __construct( array $fields = array() ) {
 			foreach ( $fields as $key => $value ) {
@@ -1823,6 +2184,37 @@ if ( ! class_exists( 'WP_Post' ) ) {
 					$this->$key = $value;
 				}
 			}
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_Query' ) ) {
+	/**
+	 * Minimal WP_Query stand-in: the query vars, and the two reads a
+	 * `pre_get_posts` callback makes. A real class, because production code
+	 * checks `instanceof WP_Query` before it touches a query.
+	 */
+	class WP_Query {
+		/** @var array<string, mixed> */
+		public array $query_vars = array();
+
+		public bool $is_main = true;
+
+		public function __construct( array $query_vars = array() ) {
+			$this->query_vars = $query_vars;
+		}
+
+		/** The var, or '' as WordPress returns for one that is not set. */
+		public function get( $query_var, $default_value = '' ) {
+			return $this->query_vars[ $query_var ] ?? $default_value;
+		}
+
+		public function set( $query_var, $value ): void {
+			$this->query_vars[ $query_var ] = $value;
+		}
+
+		public function is_main_query(): bool {
+			return $this->is_main;
 		}
 	}
 }
@@ -1854,6 +2246,28 @@ if ( ! function_exists( 'get_post' ) ) {
 	 * the missing-post path without a database.
 	 */
 	function get_post( $id = null ) {
+		// A post object read in the `raw` context is returned as it is. One read in
+		// any other context is read again, as core's `WP_Post::filter( 'raw' )` does:
+		// a copy whose body was changed and that is not marked `raw` comes back as
+		// the stored post.
+		if ( $id instanceof WP_Post ) {
+			if ( 'raw' === $id->filter || ! isset( $GLOBALS['agend_test_posts'][ $id->ID ] ) ) {
+				return $id;
+			}
+
+			$stored = $GLOBALS['agend_test_posts'][ $id->ID ];
+
+			return $stored instanceof WP_Post ? $stored : new WP_Post( (array) $stored );
+		}
+
+		// No argument means the post WordPress is currently rendering, as in
+		// core: `$GLOBALS['post']`, which a test sets to put a post "in the loop".
+		if ( null === $id ) {
+			$current = $GLOBALS['post'] ?? null;
+
+			return $current instanceof WP_Post ? $current : null;
+		}
+
 		$fields = $GLOBALS['agend_test_posts'][ (int) $id ] ?? null;
 
 		if ( null === $fields ) {
@@ -1861,6 +2275,45 @@ if ( ! function_exists( 'get_post' ) ) {
 		}
 
 		return $fields instanceof WP_Post ? $fields : new WP_Post( (array) $fields );
+	}
+}
+
+if ( ! function_exists( '_prime_post_caches' ) ) {
+	/**
+	 * Cache priming stub: the registry is already in memory, so there is nothing
+	 * to load. Each call is recorded in `$GLOBALS['agend_test_primed_caches']`, so a
+	 * test can assert that a batch was primed in one call and not one id at a time.
+	 *
+	 * @param int[] $ids               Post ids.
+	 * @param bool  $update_term_cache Whether the terms are primed too.
+	 * @param bool  $update_meta_cache Whether the meta is primed too.
+	 */
+	function _prime_post_caches( $ids, $update_term_cache = true, $update_meta_cache = true ): void {
+		$GLOBALS['agend_test_primed_caches'][] = array(
+			'function' => '_prime_post_caches',
+			'ids'      => array_values( (array) $ids ),
+			'terms'    => (bool) $update_term_cache,
+			'meta'     => (bool) $update_meta_cache,
+		);
+	}
+}
+
+if ( ! function_exists( 'update_meta_cache' ) ) {
+	/**
+	 * Meta cache priming stub, recorded as `_prime_post_caches()` is.
+	 *
+	 * @param string $meta_type  Meta type.
+	 * @param int[]  $object_ids Object ids.
+	 * @return array|false
+	 */
+	function update_meta_cache( $meta_type, $object_ids ) {
+		$GLOBALS['agend_test_primed_caches'][] = array(
+			'function' => 'update_meta_cache',
+			'type'     => (string) $meta_type,
+			'ids'      => array_values( (array) $object_ids ),
+		);
+
+		return array();
 	}
 }
 
@@ -1881,7 +2334,8 @@ if ( ! function_exists( 'get_permalink' ) ) {
 			return false;
 		}
 
-		return 'https://example.test/page-' . $post_obj->ID . '/';
+		// A test that needs a permalink on another host, or in another shape, names it.
+		return $GLOBALS['agend_test_permalinks'][ $post_obj->ID ] ?? 'https://example.test/page-' . $post_obj->ID . '/';
 	}
 }
 
@@ -2082,6 +2536,17 @@ if ( ! function_exists( 'get_the_title' ) ) {
 	}
 }
 
+if ( ! function_exists( 'metadata_exists' ) ) {
+	/**
+	 * Whether a meta row exists for the key, whatever its value. Only the post
+	 * store is modelled, which is the only one the unit tests write to.
+	 */
+	function metadata_exists( $meta_type, $object_id, $meta_key ): bool {
+		return 'post' === $meta_type
+			&& array_key_exists( $meta_key, $GLOBALS['agend_test_post_meta'][ (int) $object_id ] ?? array() );
+	}
+}
+
 if ( ! function_exists( 'delete_post_meta' ) ) {
 	function delete_post_meta( $post_id, $key ): bool {
 		unset( $GLOBALS['agend_test_post_meta'][ (int) $post_id ][ $key ] );
@@ -2108,8 +2573,23 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 		/** @var callable|null */
 		public $render_callback = null;
 
+		/** Whether the block renders its own inner blocks, so core does not render them first. */
+		public bool $skip_inner_blocks = false;
+
+		/** @var array<string, array> The block's attribute schema, after `register_block_type_args`. */
+		public array $attributes = array();
+
 		public function __construct( string $name, array $args = array() ) {
 			$this->name = $name;
+
+			// The real constructor runs this filter over every block type's
+			// arguments, which is what lets a plugin add an attribute to all of
+			// them. With no callback registered it returns the arguments as given.
+			$args = apply_filters( 'register_block_type_args', $args, $name );
+
+			if ( isset( $args['attributes'] ) && is_array( $args['attributes'] ) ) {
+				$this->attributes = $args['attributes'];
+			}
 
 			if ( isset( $args['style_handles'] ) ) {
 				$this->style_handles = (array) $args['style_handles'];
@@ -2126,6 +2606,8 @@ if ( ! class_exists( 'WP_Block_Type' ) ) {
 			if ( isset( $args['render_callback'] ) ) {
 				$this->render_callback = $args['render_callback'];
 			}
+
+			$this->skip_inner_blocks = ! empty( $args['skip_inner_blocks'] );
 		}
 	}
 }
@@ -2211,134 +2693,170 @@ if ( ! function_exists( 'agend_test_freeform_block' ) ) {
 	}
 }
 
+if ( ! function_exists( 'agend_test_next_block_token' ) ) {
+	/**
+	 * Finds the next block comment delimiter at or after `$from`.
+	 *
+	 * A comment that merely starts like a delimiter but does not parse as one is
+	 * left in the surrounding text, exactly as WordPress leaves it.
+	 *
+	 * @param string $content Serialized block content.
+	 * @param int    $from    Byte offset to search from.
+	 * @return array{kind: string, start: int, end: int, name: string, attrs: array}|null
+	 *         `kind` is `open`, `close` or `void` (self-closing).
+	 */
+	function agend_test_next_block_token( string $content, int $from ): ?array {
+		$offset = $from;
+
+		while ( 1 === preg_match( '#<!--\s+(/)?wp:#', $content, $found, PREG_OFFSET_CAPTURE, $offset ) ) {
+			$start = $found[0][1];
+			$end   = strpos( $content, '-->', $start );
+
+			if ( false === $end ) {
+				return null;
+			}
+
+			$end += 3;
+			$tag  = substr( $content, $start, $end - $start );
+
+			if ( 1 === preg_match( '#^<!--\s+(/)?wp:([a-z][a-z0-9_-]*(?:/[a-z][a-z0-9_-]*)?)\s*(\{.*\})?\s*(/)?-->$#s', $tag, $m ) ) {
+				$attrs = array();
+
+				if ( ! empty( $m[3] ) ) {
+					$decoded = json_decode( $m[3], true );
+					$attrs   = is_array( $decoded ) ? $decoded : array();
+				}
+
+				return array(
+					'kind'  => '' !== $m[1] ? 'close' : ( '' !== ( $m[4] ?? '' ) ? 'void' : 'open' ),
+					'start' => $start,
+					'end'   => $end,
+					// A block comment with no namespace is a core block.
+					'name'  => false === strpos( $m[2], '/' ) ? 'core/' . $m[2] : $m[2],
+					'attrs' => $attrs,
+				);
+			}
+
+			$offset = $start + 1;
+		}
+
+		return null;
+	}
+}
+
+if ( ! function_exists( 'agend_test_attach_block_text' ) ) {
+	/**
+	 * Files a run of text where WordPress files it: inside the block being
+	 * parsed (`innerHTML`, and in position in `innerContent`), or, at the top
+	 * level, as a freeform block of its own.
+	 *
+	 * @param string                           $text   Text found between two delimiters.
+	 * @param array<int, array<string, mixed>> $stack  Blocks currently open, innermost last.
+	 * @param array<int, array<string, mixed>> $output Top-level blocks so far.
+	 */
+	function agend_test_attach_block_text( string $text, array &$stack, array &$output ): void {
+		if ( '' === $text ) {
+			return;
+		}
+
+		if ( array() === $stack ) {
+			$output[] = agend_test_freeform_block( $text );
+			return;
+		}
+
+		$top                              = count( $stack ) - 1;
+		$stack[ $top ]['innerHTML']      .= $text;
+		$stack[ $top ]['innerContent'][]  = $text;
+	}
+}
+
+if ( ! function_exists( 'agend_test_attach_block' ) ) {
+	/**
+	 * Files a finished block: at the top level, or as the next inner block of
+	 * the block that encloses it, leaving the `null` placeholder WordPress
+	 * leaves in that parent's `innerContent`.
+	 *
+	 * @param array<string, mixed>             $block  Finished block.
+	 * @param array<int, array<string, mixed>> $stack  Blocks still open, innermost last.
+	 * @param array<int, array<string, mixed>> $output Top-level blocks so far.
+	 */
+	function agend_test_attach_block( array $block, array &$stack, array &$output ): void {
+		if ( array() === $stack ) {
+			$output[] = $block;
+			return;
+		}
+
+		$top                              = count( $stack ) - 1;
+		$stack[ $top ]['innerBlocks'][]   = $block;
+		$stack[ $top ]['innerContent'][]  = null;
+	}
+}
+
 if ( ! function_exists( 'agend_test_parse_block_list' ) ) {
 	/**
-	 * Parses one nesting level of serialized block content, recursing into
-	 * each block's own inner content.
+	 * Parses serialized block content into the arrays `WP_Block_Parser` returns.
+	 *
+	 * Faithful where code that REBUILDS a block's markup depends on it. Text
+	 * directly inside a block is that block's own `innerHTML`, and sits in
+	 * `innerContent` in its original position; each inner block leaves a `null`
+	 * there to mark where it went. An earlier version of this stub turned the
+	 * text inside every block into freeform INNER blocks and left `innerHTML`
+	 * and `innerContent` empty, which no consumer that reads the markup could
+	 * tell from a block with no markup at all.
+	 *
+	 * Text between top-level blocks becomes a freeform block, whitespace-only
+	 * runs included: WordPress emits the "\n\n" between two blocks as a block of
+	 * its own, and code that walks the top level has to cope with it.
+	 *
+	 * An unclosed block is closed at the end of the content, and a closing
+	 * comment with no opener is kept as text.
 	 *
 	 * @param string $content Serialized block content.
 	 * @return array<int, array<string, mixed>>
 	 */
 	function agend_test_parse_block_list( string $content ): array {
-		$blocks = array();
-		$pos    = 0;
-		$len    = strlen( $content );
+		$output = array();
+		$stack  = array();
+		$cursor = 0;
 
-		while ( $pos < $len ) {
-			$open = strpos( $content, '<!-- wp:', $pos );
+		while ( null !== ( $token = agend_test_next_block_token( $content, $cursor ) ) ) { // phpcs:ignore WordPress.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition
+			agend_test_attach_block_text( substr( $content, $cursor, $token['start'] - $cursor ), $stack, $output );
 
-			if ( false === $open ) {
-				$text = substr( $content, $pos );
-				if ( '' !== trim( $text ) ) {
-					$blocks[] = agend_test_freeform_block( $text );
-				}
-				break;
-			}
+			$cursor = $token['end'];
 
-			if ( $open > $pos ) {
-				$text = substr( $content, $pos, $open - $pos );
-				if ( '' !== trim( $text ) ) {
-					$blocks[] = agend_test_freeform_block( $text );
-				}
-			}
-
-			$open_tag_end = strpos( $content, '-->', $open );
-			if ( false === $open_tag_end ) {
-				break;
-			}
-			$open_tag_end += 3;
-			$tag           = substr( $content, $open, $open_tag_end - $open );
-
-			if ( ! preg_match( '#^<!--\s*wp:([a-z][a-z0-9_-]*(?:/[a-z][a-z0-9_-]*)?)\s*(\{.*\})?\s*(/)?-->#s', $tag, $m ) ) {
-				// Malformed comment; skip past it rather than looping forever.
-				$pos = $open_tag_end;
-				continue;
-			}
-
-			$name  = false === strpos( $m[1], '/' ) ? 'core/' . $m[1] : $m[1];
-			$attrs = array();
-
-			if ( ! empty( $m[2] ) ) {
-				$decoded = json_decode( $m[2], true );
-				$attrs   = is_array( $decoded ) ? $decoded : array();
-			}
-
-			if ( '' !== ( $m[3] ?? '' ) ) {
-				// Self-closing: no inner content, nothing further to find.
-				$blocks[] = array(
-					'blockName'    => $name,
-					'attrs'        => $attrs,
-					'innerBlocks'  => array(),
-					'innerHTML'    => '',
-					'innerContent' => array(),
-				);
-				$pos = $open_tag_end;
-				continue;
-			}
-
-			// Walk forward tracking nesting depth (further openers vs
-			// closers, ignoring self-closing openers) to find THIS block's
-			// own matching closing comment.
-			$depth       = 1;
-			$scan        = $open_tag_end;
-			$close_start = null;
-			$close_end   = null;
-
-			while ( $scan < $len ) {
-				$next_open  = strpos( $content, '<!-- wp:', $scan );
-				$next_close = strpos( $content, '<!-- /wp:', $scan );
-
-				if ( false === $next_close ) {
-					break;
-				}
-
-				if ( false !== $next_open && $next_open < $next_close ) {
-					$inner_open_end = strpos( $content, '-->', $next_open );
-					if ( false === $inner_open_end ) {
-						break;
-					}
-					$inner_open_end += 3;
-					if ( '/-->' !== substr( $content, $inner_open_end - 4, 4 ) ) {
-						++$depth;
-					}
-					$scan = $inner_open_end;
+			if ( 'close' === $token['kind'] ) {
+				if ( array() === $stack ) {
+					agend_test_attach_block_text( substr( $content, $token['start'], $token['end'] - $token['start'] ), $stack, $output );
 					continue;
 				}
 
-				$inner_close_end = strpos( $content, '-->', $next_close );
-				if ( false === $inner_close_end ) {
-					break;
-				}
-				$inner_close_end += 3;
-				--$depth;
-
-				if ( 0 === $depth ) {
-					$close_start = $next_close;
-					$close_end   = $inner_close_end;
-					break;
-				}
-
-				$scan = $inner_close_end;
+				agend_test_attach_block( array_pop( $stack ), $stack, $output );
+				continue;
 			}
 
-			if ( null === $close_start ) {
-				// Unclosed block; treat the remainder as its inner content.
-				$close_start = $len;
-				$close_end   = $len;
-			}
-
-			$blocks[] = array(
-				'blockName'    => $name,
-				'attrs'        => $attrs,
-				'innerBlocks'  => agend_test_parse_block_list( substr( $content, $open_tag_end, $close_start - $open_tag_end ) ),
+			$block = array(
+				'blockName'    => $token['name'],
+				'attrs'        => $token['attrs'],
+				'innerBlocks'  => array(),
 				'innerHTML'    => '',
 				'innerContent' => array(),
 			);
 
-			$pos = $close_end;
+			if ( 'void' === $token['kind'] ) {
+				agend_test_attach_block( $block, $stack, $output );
+				continue;
+			}
+
+			$stack[] = $block;
 		}
 
-		return $blocks;
+		agend_test_attach_block_text( substr( $content, $cursor ), $stack, $output );
+
+		while ( array() !== $stack ) {
+			agend_test_attach_block( array_pop( $stack ), $stack, $output );
+		}
+
+		return $output;
 	}
 }
 
@@ -2438,39 +2956,448 @@ if ( ! function_exists( 'has_block' ) ) {
 	}
 }
 
+if ( ! function_exists( 'has_blocks' ) ) {
+	/**
+	 * `has_blocks()` stand-in, matching WordPress: a substring search for the
+	 * opening of a block comment, no parsing, on the raw content of a post or on
+	 * a string.
+	 *
+	 * @param int|WP_Post|string|null $post Post id, post object or raw content.
+	 * @return bool
+	 */
+	function has_blocks( $post = null ): bool {
+		if ( ! is_string( $post ) ) {
+			$post_obj = is_object( $post ) ? $post : get_post( $post );
+			$post     = ( $post_obj instanceof WP_Post ) ? (string) $post_obj->post_content : '';
+		}
+
+		return false !== strpos( $post, '<!-- wp:' );
+	}
+}
+
+if ( ! class_exists( 'WP_Block' ) ) {
+	/**
+	 * Minimal `WP_Block`: the instance core builds for a block, with its inner
+	 * blocks as instances too, so a render callback can do what core's Navigation
+	 * and Widget Group do and render its children itself with
+	 * `$inner_block->render()`.
+	 *
+	 * `render()` follows core's order, which is what the access tests depend on:
+	 * each inner block is offered to `pre_render_block` and rendered only if that
+	 * returns null; a dynamic block's callback then gets `( attributes, content,
+	 * block )`; and the result is filtered through `render_block` for EVERY block
+	 * however its render was reached, which is the hook a backstop for the blocks
+	 * that skip `pre_render_block` has to sit on.
+	 *
+	 * Inner blocks are placed where `innerContent` puts them, as WordPress does: a
+	 * `null` entry is the next inner block, a string is markup. A hand-built block
+	 * array with no `innerContent` falls back to its `innerHTML` followed by its
+	 * inner blocks.
+	 */
+	class WP_Block {
+		public array $parsed_block;
+
+		public ?string $name;
+
+		public array $attributes;
+
+		public array $context;
+
+		/** @var WP_Block[] */
+		public array $inner_blocks = array();
+
+		public array $inner_content;
+
+		public ?WP_Block_Type $block_type;
+
+		public function __construct( array $block, array $context = array() ) {
+			$this->parsed_block  = $block;
+			$this->name          = isset( $block['blockName'] ) && is_string( $block['blockName'] ) ? $block['blockName'] : null;
+			$this->attributes    = (array) ( $block['attrs'] ?? array() );
+			$this->context       = $context;
+			$this->inner_content = (array) ( $block['innerContent'] ?? array() );
+			$this->block_type    = null !== $this->name ? WP_Block_Type_Registry::get_instance()->get_registered( $this->name ) : null;
+
+			foreach ( (array) ( $block['innerBlocks'] ?? array() ) as $inner_block ) {
+				$this->inner_blocks[] = new WP_Block( (array) $inner_block, $context );
+			}
+		}
+
+		/**
+		 * @param array $options `dynamic`: whether to call a dynamic block's callback.
+		 * @return string
+		 */
+		public function render( array $options = array() ): string {
+			$dynamic = ! array_key_exists( 'dynamic', $options ) || ! empty( $options['dynamic'] );
+			$inner   = '';
+
+			if ( ! $dynamic || null === $this->block_type || ! $this->block_type->skip_inner_blocks ) {
+				if ( array() !== $this->inner_content ) {
+					$next = 0;
+
+					foreach ( $this->inner_content as $chunk ) {
+						if ( null === $chunk ) {
+							if ( isset( $this->inner_blocks[ $next ] ) ) {
+								$inner .= $this->render_inner_block( $this->inner_blocks[ $next ] );
+							}
+
+							++$next;
+							continue;
+						}
+
+						$inner .= (string) $chunk;
+					}
+				} else {
+					$inner = (string) ( $this->parsed_block['innerHTML'] ?? '' );
+
+					foreach ( $this->inner_blocks as $inner_block ) {
+						$inner .= $this->render_inner_block( $inner_block );
+					}
+				}
+			}
+
+			$output = $inner;
+
+			if ( $dynamic && $this->block_type instanceof WP_Block_Type && is_callable( $this->block_type->render_callback ) ) {
+				$output = (string) call_user_func( $this->block_type->render_callback, $this->attributes, $inner, $this );
+			}
+
+			return (string) Agend_Test_WP::apply_registered( 'render_block', $output, $this->parsed_block, $this );
+		}
+
+		/** An inner block is offered to `pre_render_block` first, as `WP_Block::render()` does. */
+		private function render_inner_block( WP_Block $inner_block ): string {
+			$pre = Agend_Test_WP::apply_registered( 'pre_render_block', null, $inner_block->parsed_block, $this );
+
+			return null !== $pre ? (string) $pre : $inner_block->render();
+		}
+	}
+}
+
 if ( ! function_exists( 'render_block' ) ) {
 	/**
 	 * Minimal `render_block()` stand-in: renders a single parsed block array
-	 * (as returned by `parse_blocks()`), recursing into `innerBlocks` first
-	 * and handing a dynamic block's registered render callback the
-	 * concatenated inner markup. Matches WordPress's own
-	 * `(attributes, content, block)` render callback signature closely
-	 * enough for these tests: the `$block` instance argument is not
-	 * reproduced, since nothing under test reads it.
+	 * (as returned by `parse_blocks()`) as core does, through a {@see WP_Block}.
 	 *
-	 * @param array $block Parsed block array.
+	 * Like WordPress, it first runs the `pre_render_block` chain
+	 * ({@see Agend_Test_WP::apply_registered()}, so every registered callback
+	 * runs in priority order) and returns a non-null result WITHOUT rendering the
+	 * block or any of its inner blocks. {@see WP_Block::render()} applies the same
+	 * filter to each inner block, so a short-circuited container never renders its
+	 * children, which is what the access-control tests need to be able to assert.
+	 *
+	 * @param array             $block        Parsed block array.
+	 * @param array|object|null $parent_block The parent block, for inner blocks.
 	 * @return string
 	 */
-	function render_block( array $block ): string {
-		$inner = '';
+	function render_block( array $block, $parent_block = null ): string {
+		$pre = Agend_Test_WP::apply_registered( 'pre_render_block', null, $block, $parent_block );
 
-		foreach ( (array) ( $block['innerBlocks'] ?? array() ) as $inner_block ) {
-			$inner .= render_block( $inner_block );
+		if ( null !== $pre ) {
+			return (string) $pre;
 		}
 
-		$name = $block['blockName'] ?? null;
+		// As core does: the post being rendered is the block's `postId` context,
+		// which is how a block such as Footnotes finds the post it belongs to.
+		$post    = $GLOBALS['post'] ?? null;
+		$context = $post instanceof WP_Post ? array( 'postId' => $post->ID ) : array();
 
-		if ( ! is_string( $name ) || '' === $name ) {
-			return (string) ( $block['innerHTML'] ?? '' ) . $inner;
+		return ( new WP_Block( $block, $context ) )->render();
+	}
+}
+
+if ( ! function_exists( 'do_blocks' ) ) {
+	/**
+	 * Minimal `do_blocks()` stand-in: parses the content and renders each
+	 * top-level block through {@see render_block()}, so the `pre_render_block`
+	 * chain applies to every block, as it does in WordPress.
+	 *
+	 * @param string $content Serialized block content.
+	 * @return string
+	 */
+	function do_blocks( string $content ): string {
+		$output = '';
+
+		foreach ( parse_blocks( $content ) as $block ) {
+			$output .= render_block( $block );
 		}
 
-		$block_type = WP_Block_Type_Registry::get_instance()->get_registered( $name );
+		return $output;
+	}
+}
 
-		if ( $block_type instanceof WP_Block_Type && is_callable( $block_type->render_callback ) ) {
-			return (string) call_user_func( $block_type->render_callback, (array) ( $block['attrs'] ?? array() ), $inner );
+if ( ! function_exists( 'has_filter' ) ) {
+	/**
+	 * `has_filter()` stand-in over {@see Agend_Test_WP::$filter_registry}: the
+	 * priority the callback was registered at, or false. A method callback is the
+	 * SAME object and method, and any other callback the same value, as core's
+	 * unique ids compare: two instances of one class are two callbacks.
+	 *
+	 * @param string         $hook     Hook name.
+	 * @param callable|false $callback Callback to look for, or false for any.
+	 * @return int|bool
+	 */
+	function has_filter( string $hook, $callback = false ) {
+		foreach ( Agend_Test_WP::$filter_registry[ $hook ] ?? array() as $entry ) {
+			if ( false === $callback ) {
+				return true;
+			}
+
+			$registered = $entry['callback'];
+
+			if ( is_array( $registered ) && is_array( $callback ) ) {
+				if ( $registered[0] === $callback[0] && $registered[1] === $callback[1] ) {
+					return $entry['priority'];
+				}
+
+				continue;
+			}
+
+			if ( $registered === $callback ) {
+				return $entry['priority'];
+			}
 		}
 
-		return (string) ( $block['innerHTML'] ?? '' ) . $inner;
+		return false;
+	}
+}
+
+if ( ! function_exists( 'strip_core_block_namespace' ) ) {
+	/** Core's: a `core/` prefix is not written into block comments. */
+	function strip_core_block_namespace( $block_name = null ) {
+		if ( is_string( $block_name ) && 0 === strpos( $block_name, 'core/' ) ) {
+			return substr( $block_name, 5 );
+		}
+
+		return $block_name;
+	}
+}
+
+if ( ! function_exists( 'serialize_block_attributes' ) ) {
+	/** Core's escaping of a block's attributes for its comment delimiter. */
+	function serialize_block_attributes( $block_attributes ) {
+		$encoded = (string) json_encode( $block_attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+
+		return str_replace(
+			array( '--', '<', '>', '&', '\\"' ),
+			array( '\\u002d\\u002d', '\\u003c', '\\u003e', '\\u0026', '\\u0022' ),
+			$encoded
+		);
+	}
+}
+
+if ( ! function_exists( 'get_comment_delimited_block_content' ) ) {
+	/** Core's: the comment delimiters around a block's inner content. */
+	function get_comment_delimited_block_content( $block_name, $block_attributes, $block_content ) {
+		if ( is_null( $block_name ) ) {
+			return $block_content;
+		}
+
+		$serialized_block_name = strip_core_block_namespace( $block_name );
+		$serialized_attributes = empty( $block_attributes ) ? '' : serialize_block_attributes( $block_attributes ) . ' ';
+
+		if ( empty( $block_content ) ) {
+			return sprintf( '<!-- wp:%s %s/-->', $serialized_block_name, $serialized_attributes );
+		}
+
+		return sprintf(
+			'<!-- wp:%s %s-->%s<!-- /wp:%s -->',
+			$serialized_block_name,
+			$serialized_attributes,
+			$block_content,
+			$serialized_block_name
+		);
+	}
+}
+
+if ( ! function_exists( 'serialize_block' ) ) {
+	/**
+	 * Core's `serialize_block()`. Faithful on the point that matters to code that
+	 * REMOVES inner blocks: the children are taken from `innerBlocks` in the order
+	 * `innerContent` has a `null` placeholder for them, so a block whose
+	 * `innerContent` still holds a placeholder for a child that was removed does
+	 * not serialise.
+	 */
+	function serialize_block( $block ) {
+		$block_content = '';
+		$index         = 0;
+
+		foreach ( $block['innerContent'] as $chunk ) {
+			$block_content .= is_string( $chunk ) ? $chunk : serialize_block( $block['innerBlocks'][ $index++ ] );
+		}
+
+		if ( ! is_array( $block['attrs'] ) ) {
+			$block['attrs'] = array();
+		}
+
+		return get_comment_delimited_block_content( $block['blockName'], $block['attrs'], $block_content );
+	}
+}
+
+if ( ! function_exists( 'serialize_blocks' ) ) {
+	function serialize_blocks( $blocks ) {
+		return implode( '', array_map( 'serialize_block', $blocks ) );
+	}
+}
+
+if ( ! function_exists( 'wp_strip_all_tags' ) ) {
+	function wp_strip_all_tags( $text, $remove_breaks = false ) {
+		$text = preg_replace( '@<(script|style)[^>]*?>.*?</\\1>@si', '', (string) $text );
+		$text = strip_tags( $text );
+
+		if ( $remove_breaks ) {
+			$text = preg_replace( '/[\r\n\t ]+/', ' ', $text );
+		}
+
+		return trim( $text );
+	}
+}
+
+if ( ! function_exists( 'wp_trim_words' ) ) {
+	/** Core's `wp_trim_words()` for a language that separates words with spaces. */
+	function wp_trim_words( $text, $num_words = 55, $more = null ) {
+		if ( null === $more ) {
+			$more = '&hellip;';
+		}
+
+		$words = preg_split( "/[\n\r\t ]+/", wp_strip_all_tags( $text ), $num_words + 1, PREG_SPLIT_NO_EMPTY );
+
+		if ( count( $words ) > $num_words ) {
+			array_pop( $words );
+
+			return implode( ' ', $words ) . $more;
+		}
+
+		return implode( ' ', $words );
+	}
+}
+
+if ( ! function_exists( '_excerpt_render_inner_blocks' ) ) {
+	/**
+	 * Verbatim `_excerpt_render_inner_blocks()` from WordPress 6.7 (wp-includes/blocks.php).
+	 *
+	 * Kept faithful on purpose. This is the function that renders a wrapper's
+	 * LEAF children through `render_block()` and never renders the wrapper itself,
+	 * so a restriction on the wrapper never reaches `pre_render_block`. A stub
+	 * that rendered the wrapper would hide that.
+	 */
+	function _excerpt_render_inner_blocks( $parsed_block, $allowed_blocks ) {
+		$output = '';
+
+		foreach ( $parsed_block['innerBlocks'] as $inner_block ) {
+			if ( ! in_array( $inner_block['blockName'], $allowed_blocks, true ) ) {
+				continue;
+			}
+
+			if ( empty( $inner_block['innerBlocks'] ) ) {
+				$output .= render_block( $inner_block );
+			} else {
+				$output .= _excerpt_render_inner_blocks( $inner_block, $allowed_blocks );
+			}
+		}
+
+		return $output;
+	}
+}
+
+if ( ! function_exists( 'excerpt_remove_blocks' ) ) {
+	/** Verbatim `excerpt_remove_blocks()` from WordPress 6.7 (wp-includes/blocks.php). See {@see _excerpt_render_inner_blocks()}. */
+	function excerpt_remove_blocks( $content ) {
+		if ( ! has_blocks( $content ) ) {
+			return $content;
+		}
+
+		$allowed_inner_blocks = array(
+			null,
+			'core/freeform',
+			'core/heading',
+			'core/html',
+			'core/list',
+			'core/media-text',
+			'core/paragraph',
+			'core/preformatted',
+			'core/pullquote',
+			'core/quote',
+			'core/table',
+			'core/verse',
+		);
+
+		$allowed_wrapper_blocks = array(
+			'core/columns',
+			'core/column',
+			'core/group',
+		);
+
+		$allowed_wrapper_blocks = apply_filters( 'excerpt_allowed_wrapper_blocks', $allowed_wrapper_blocks );
+		$allowed_blocks         = array_merge( $allowed_inner_blocks, $allowed_wrapper_blocks );
+		$allowed_blocks         = apply_filters( 'excerpt_allowed_blocks', $allowed_blocks );
+		$blocks                 = parse_blocks( $content );
+		$output                 = '';
+
+		foreach ( $blocks as $block ) {
+			if ( in_array( $block['blockName'], $allowed_blocks, true ) ) {
+				if ( ! empty( $block['innerBlocks'] ) ) {
+					if ( in_array( $block['blockName'], $allowed_wrapper_blocks, true ) ) {
+						$output .= _excerpt_render_inner_blocks( $block, $allowed_blocks );
+						continue;
+					}
+
+					// Skip the block if it has disallowed or nested inner blocks.
+					foreach ( $block['innerBlocks'] as $inner_block ) {
+						if ( ! in_array( $inner_block['blockName'], $allowed_inner_blocks, true ) || ! empty( $inner_block['innerBlocks'] ) ) {
+							continue 2;
+						}
+					}
+				}
+
+				$output .= render_block( $block );
+			}
+		}
+
+		return $output;
+	}
+}
+
+if ( ! function_exists( 'wp_trim_excerpt' ) ) {
+	/**
+	 * `wp_trim_excerpt()` as core builds it: the manual excerpt untouched, else
+	 * the post's body, blocks reduced by `excerpt_remove_blocks()`, run through
+	 * `the_content` and cut to a length. Reads the body from the post OBJECT it is
+	 * given, as core does through `get_post( $post )`.
+	 */
+	function wp_trim_excerpt( $text = '', $post = null ) {
+		$raw_excerpt = $text;
+
+		if ( '' === trim( (string) $text ) ) {
+			$post = get_post( $post );
+			$text = $post instanceof WP_Post ? (string) $post->post_content : '';
+			$text = excerpt_remove_blocks( $text );
+			$text = apply_filters( 'the_content', $text );
+			$text = str_replace( ']]>', ']]&gt;', (string) $text );
+
+			$excerpt_length = (int) apply_filters( 'excerpt_length', 55 );
+			$excerpt_more   = apply_filters( 'excerpt_more', ' [&hellip;]' );
+			$text           = wp_trim_words( $text, $excerpt_length, $excerpt_more );
+		}
+
+		return apply_filters( 'wp_trim_excerpt', $text, $raw_excerpt );
+	}
+}
+
+if ( ! function_exists( 'get_the_excerpt' ) ) {
+	/**
+	 * `get_the_excerpt()`: the whole `get_the_excerpt` chain over the manual
+	 * excerpt. A test registers `wp_trim_excerpt` on it at priority 10, as core's
+	 * default filters do.
+	 */
+	function get_the_excerpt( $post = null ) {
+		$post = get_post( $post );
+
+		if ( ! $post instanceof WP_Post ) {
+			return '';
+		}
+
+		return Agend_Test_WP::apply_registered( 'get_the_excerpt', $post->post_excerpt, $post );
 	}
 }
 
@@ -2492,6 +3419,34 @@ if ( ! function_exists( 'wp_enqueue_script' ) ) {
 	/** Records the handle so a test can assert on exactly what was enqueued. */
 	function wp_enqueue_script( string $handle, string $src = '', array $deps = array(), $ver = false, $args = array() ): void {
 		Agend_Test_WP::$enqueued_scripts[] = $handle;
+
+		Agend_Test_WP::$enqueued_script_args[ $handle ] = array(
+			'src'  => $src,
+			'deps' => $deps,
+			'ver'  => $ver,
+			'args' => $args,
+		);
+	}
+}
+
+if ( ! function_exists( 'wp_set_script_translations' ) ) {
+	/** Records the text domain and path, so a test can assert a script is made translatable. */
+	function wp_set_script_translations( string $handle, string $domain = 'default', ?string $path = null ): bool {
+		Agend_Test_WP::$script_translations[ $handle ] = array(
+			'domain' => $domain,
+			'path'   => $path,
+		);
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_style_add_data' ) ) {
+	/** Records the data, so a test can assert, for example, that a stylesheet declares its RTL twin. */
+	function wp_style_add_data( string $handle, string $key, $value ): bool {
+		Agend_Test_WP::$style_data[ $handle ][ $key ] = $value;
+
+		return true;
 	}
 }
 
@@ -2607,5 +3562,314 @@ if ( ! function_exists( 'checked' ) ) {
 		}
 
 		return $result;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Post queries, the page gate and the source connector (agend-content-access)
+// ---------------------------------------------------------------------------
+
+if ( ! function_exists( 'get_posts' ) ) {
+	/**
+	 * Post query over the `agend_test_posts` registry, honouring only the args
+	 * the code under test passes: type, status and a title sort.
+	 */
+	function get_posts( array $args = array() ): array {
+		$types  = (array) ( $args['post_type'] ?? 'post' );
+		$status = $args['post_status'] ?? 'publish';
+		$found  = array();
+
+		foreach ( array_keys( $GLOBALS['agend_test_posts'] ?? array() ) as $id ) {
+			$post = get_post( $id );
+
+			if ( ! $post instanceof WP_Post || ! in_array( $post->post_type, $types, true ) ) {
+				continue;
+			}
+
+			if ( 'any' !== $status && $post->post_status !== $status ) {
+				continue;
+			}
+
+			// `has_password => false` leaves password-protected posts out, as core does.
+			if ( false === ( $args['has_password'] ?? null ) && '' !== $post->post_password ) {
+				continue;
+			}
+
+			$found[] = $post;
+		}
+
+		usort(
+			$found,
+			static function ( $a, $b ): int {
+				return strcmp( $a->post_title, $b->post_title );
+			}
+		);
+
+		return $found;
+	}
+}
+
+if ( ! function_exists( 'rest_ensure_response' ) ) {
+	/** Wraps plain data in a response and passes a response or an error through. */
+	function rest_ensure_response( $response ) {
+		if ( $response instanceof WP_Error || $response instanceof WP_REST_Response ) {
+			return $response;
+		}
+
+		return new WP_REST_Response( $response );
+	}
+}
+
+if ( ! function_exists( 'disabled' ) ) {
+	function disabled( $disabled, $current = true, bool $display = true ): string {
+		$result = ( (string) $disabled === (string) $current ) ? " disabled='disabled'" : '';
+
+		if ( $display ) {
+			echo $result; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		return $result;
+	}
+}
+
+if ( ! function_exists( 'has_excerpt' ) ) {
+	function has_excerpt( $post = 0 ): bool {
+		return is_object( $post ) && '' !== (string) ( $post->post_excerpt ?? '' );
+	}
+}
+
+if ( ! function_exists( 'get_the_author_meta' ) ) {
+	function get_the_author_meta( $field = '', $user_id = false ): string {
+		return 'Test Author';
+	}
+}
+
+if ( ! function_exists( 'get_the_post_thumbnail_url' ) ) {
+	function get_the_post_thumbnail_url( $post = null, $size = 'post-thumbnail' ) {
+		return false;
+	}
+}
+
+if ( ! function_exists( 'get_object_taxonomies' ) ) {
+	function get_object_taxonomies( $object_type, $output = 'names' ): array {
+		return array();
+	}
+}
+
+if ( ! function_exists( 'get_locale' ) ) {
+	function get_locale(): string {
+		return 'en_AU';
+	}
+}
+
+if ( ! function_exists( 'is_singular' ) ) {
+	/** Not a singular request unless a test sets `$GLOBALS['agend_test_is_singular']`. */
+	function is_singular( $post_types = '' ): bool {
+		return ! empty( $GLOBALS['agend_test_is_singular'] );
+	}
+}
+
+if ( ! function_exists( 'get_queried_object' ) ) {
+	/** The object a test sets in `$GLOBALS['agend_test_queried_object']`, else null. */
+	function get_queried_object() {
+		return $GLOBALS['agend_test_queried_object'] ?? null;
+	}
+}
+
+if ( ! function_exists( 'status_header' ) ) {
+	/** Records the code rather than sending it, so a test can assert what a gate answered. */
+	function status_header( $code, $description = '' ): void {
+		Agend_Test_WP::$status_codes[] = (int) $code;
+	}
+}
+
+if ( ! function_exists( 'wp_get_referer' ) ) {
+	/**
+	 * The referer as core reads it: the `_wp_http_referer` request parameter first, and
+	 * only then the `Referer` header, which is what makes the function unfit for deciding
+	 * where a visitor is sent. Falls back to `$GLOBALS['agend_test_referer']`, else false,
+	 * as core answers a request that has none. Core also drops a referer equal to the
+	 * current URL and one `wp_validate_redirect()` refuses; this does neither, so
+	 * the code under test has to make those checks itself, which it must.
+	 *
+	 * @return string|false
+	 */
+	function wp_get_referer() {
+		$referer = ! empty( $_REQUEST['_wp_http_referer'] )
+			? wp_unslash( $_REQUEST['_wp_http_referer'] )
+			: ( ! empty( $_SERVER['HTTP_REFERER'] ) ? wp_unslash( $_SERVER['HTTP_REFERER'] ) : ( $GLOBALS['agend_test_referer'] ?? false ) );
+
+		return is_string( $referer ) && '' !== $referer ? $referer : false;
+	}
+}
+
+if ( ! function_exists( 'wp_register_style' ) ) {
+	/** Registers nothing: only the enqueue and the inline CSS are asserted on. */
+	function wp_register_style( string $handle, $src, array $deps = array(), $ver = false, string $media = 'all' ): bool {
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_add_inline_style' ) ) {
+	/** Records the CSS, keyed by handle. */
+	function wp_add_inline_style( string $handle, string $css ): bool {
+		Agend_Test_WP::$inline_styles[ $handle ][] = $css;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_style_is' ) ) {
+	/** Only the `enqueued` list is modelled. */
+	function wp_style_is( string $handle, string $list = 'enqueued' ): bool {
+		return 'enqueued' === $list && in_array( $handle, Agend_Test_WP::$enqueued_styles, true );
+	}
+}
+
+if ( ! function_exists( 'add_shortcode' ) ) {
+	/** Registers the callback in `$GLOBALS['agend_test_shortcodes']`. */
+	function add_shortcode( string $tag, $callback ): void {
+		$GLOBALS['agend_test_shortcodes'][ $tag ] = $callback;
+	}
+}
+
+if ( ! function_exists( 'do_shortcode' ) ) {
+	/** Runs bare `[tag]` shortcodes through their registered callback. No attributes, no enclosing content. */
+	function do_shortcode( string $content ): string {
+		return (string) preg_replace_callback(
+			'/\[(\w+)\]/',
+			static function ( array $match ): string {
+				$callback = $GLOBALS['agend_test_shortcodes'][ $match[1] ] ?? null;
+
+				return null === $callback ? $match[0] : (string) call_user_func( $callback, array(), '', $match[1] );
+			},
+			$content
+		);
+	}
+}
+
+if ( ! function_exists( 'register_block_pattern' ) ) {
+	/** Records the pattern in `$GLOBALS['agend_test_block_patterns']`. */
+	function register_block_pattern( string $name, array $properties ): bool {
+		$GLOBALS['agend_test_block_patterns'][ $name ] = $properties;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'register_block_pattern_category' ) ) {
+	/** Records the category in `$GLOBALS['agend_test_block_pattern_categories']`. */
+	function register_block_pattern_category( string $name, array $properties ): bool {
+		$GLOBALS['agend_test_block_pattern_categories'][ $name ] = $properties;
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'get_post_type_object' ) ) {
+	/** A post type's object, from `$GLOBALS['agend_test_post_type_objects']` (type => singular name), else null. */
+	function get_post_type_object( string $post_type ) {
+		$name = $GLOBALS['agend_test_post_type_objects'][ $post_type ] ?? null;
+
+		return null === $name ? null : (object) array( 'labels' => (object) array( 'singular_name' => $name ) );
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The theme and the document shell, for the denied-page template
+// ---------------------------------------------------------------------------
+
+if ( ! function_exists( 'agend_test_theme_call' ) ) {
+	/**
+	 * Records one call the template made, in order, in `$GLOBALS['agend_test_theme_calls']`, and
+	 * prints a marker for it so a test can see where the placeholder sat between them.
+	 */
+	function agend_test_theme_call( string $name ): void {
+		$GLOBALS['agend_test_theme_calls'][] = $name;
+
+		echo '<!--' . $name . '-->';
+	}
+}
+
+if ( ! function_exists( 'get_header' ) ) {
+	/** A classic theme's header. Records itself. */
+	function get_header( $name = null, $args = array() ): void {
+		agend_test_theme_call( 'get_header' );
+	}
+}
+
+if ( ! function_exists( 'get_footer' ) ) {
+	/** A classic theme's footer. Records itself. */
+	function get_footer( $name = null, $args = array() ): void {
+		agend_test_theme_call( 'get_footer' );
+	}
+}
+
+if ( ! function_exists( 'wp_head' ) ) {
+	function wp_head(): void {
+		agend_test_theme_call( 'wp_head' );
+	}
+}
+
+if ( ! function_exists( 'wp_body_open' ) ) {
+	function wp_body_open(): void {
+		agend_test_theme_call( 'wp_body_open' );
+	}
+}
+
+if ( ! function_exists( 'wp_footer' ) ) {
+	function wp_footer(): void {
+		agend_test_theme_call( 'wp_footer' );
+	}
+}
+
+if ( ! function_exists( 'language_attributes' ) ) {
+	function language_attributes(): void {
+		echo 'lang="en-AU"';
+	}
+}
+
+if ( ! function_exists( 'bloginfo' ) ) {
+	function bloginfo( $show = '' ): void {
+		echo 'UTF-8';
+	}
+}
+
+if ( ! function_exists( 'body_class' ) ) {
+	function body_class( $class = '' ): void {
+		echo 'class="' . esc_attr( (string) $class ) . '"';
+	}
+}
+
+if ( ! function_exists( 'get_stylesheet' ) ) {
+	/** The active theme's directory name. */
+	function get_stylesheet(): string {
+		return 'test-theme';
+	}
+}
+
+if ( ! function_exists( 'wp_is_block_theme' ) ) {
+	/** A classic theme unless a test sets `$GLOBALS['agend_test_block_theme']`. */
+	function wp_is_block_theme(): bool {
+		return ! empty( $GLOBALS['agend_test_block_theme'] );
+	}
+}
+
+if ( ! function_exists( 'is_comment_feed' ) ) {
+	/** Not a comment feed unless a test sets `$GLOBALS['agend_test_is_comment_feed']`. */
+	function is_comment_feed(): bool {
+		return ! empty( $GLOBALS['agend_test_is_comment_feed'] );
+	}
+}
+
+if ( ! function_exists( 'get_comment' ) ) {
+	/** A comment object from `$GLOBALS['agend_test_comments']` (id => post id), else null. */
+	function get_comment( $comment_id = null ) {
+		$post_id = $GLOBALS['agend_test_comments'][ (int) $comment_id ] ?? null;
+
+		return null === $post_id ? null : (object) array(
+			'comment_ID'      => (int) $comment_id,
+			'comment_post_ID' => (int) $post_id,
+		);
 	}
 }

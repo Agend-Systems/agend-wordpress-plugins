@@ -1,0 +1,1569 @@
+<?php
+/**
+ * Block editor enforcement: per-block access rules.
+ *
+ * @package Agend_Content_Access
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Removes the blocks a visitor may not see, and keeps the response and the
+ * search results from giving them away.
+ *
+ * This is the block editor's equivalent of `Agend_Content_Access_Elementor`,
+ * and the decision it makes is the same one: a block carries an `agendAccess`
+ * attribute, which `Agend_Content_Access_Rules::from_block()` reads as one rule
+ * list (the new shape, or the v1 audience and display conditions the panel still
+ * writes), and the block is shown only when the visitor satisfies the INTERSECTION
+ * of the rules of the post it belongs to and its own, judged by the one evaluator,
+ * `Agend_Content_Access_Access`. Suppression only ever removes. It cannot reveal a
+ * block the post's rules hide.
+ *
+ * It is an access-control boundary: it decides whether member-only content
+ * inside an otherwise public page reaches a visitor, so every path that is not
+ * clearly a grant is a denial.
+ *
+ * WHY `pre_render_block`. It fires for every block, static and dynamic, before
+ * the block renders anything. Returning a non-null string from it skips the
+ * block AND its inner blocks, so a denied container never constructs its
+ * children, and no `render_callback` runs for content the visitor may not read.
+ * `render_block` filters output that was already produced, with every side
+ * effect already executed, which is the wrong order for access control.
+ *
+ * WHY `render_block` IS ALSO REGISTERED, AS A BACKSTOP. `pre_render_block` is
+ * asked by `WP_Block::render()` for each inner block and by `render_block()` for
+ * each top level one, but a block whose render callback renders its own children
+ * (Navigation, Navigation Submenu, Navigation Link, Widget Group) calls
+ * `$inner_block->render()` directly and never asks. A restriction on a link or a
+ * submenu in a navigation was therefore never applied. `render_block` runs inside
+ * `WP_Block::render()` for every block however it was reached, so it applies the
+ * same decision to what a direct render produced. It only ever does work for a
+ * block the main path did not already judge: see `render_block()`.
+ *
+ * WHY NOT THE DOCUMENT FOR THE QUERIED OBJECT. The Elementor driver reads the
+ * document policy of `get_queried_object_id()`, which is right where a document
+ * renders for the queried post. Blocks render inside query loops, template
+ * parts and synced patterns, where the queried object is not the post the block
+ * belongs to. In a loop the post a block belongs to is the post WordPress is
+ * rendering, `get_post()`, and that is what this reads. Reading the queried object
+ * there would judge a restricted post's block in a loop on a public page against
+ * the public page, and fail open. Outside a loop the global post is only what the
+ * main query left behind, and the queried object, or nothing, is the answer: see
+ * `context_post_id()`.
+ *
+ * Leak vectors beyond the render itself are closed here, and each fails
+ * silently if it is missed: page caches (`mark_page_uncacheable()` and the
+ * render-time marking), core search (`exclude_from_search()`), generated excerpts
+ * (`safe_generated_excerpt()`), footnotes (`filter_footnotes_meta()`), the
+ * authoring carve-out (`Agend_Content_Access_Frontend::is_authoring_context()`),
+ * a display-condition fallback that is itself restricted (`fallback_for()`), and
+ * a feed, whose output is shared and cached and so is judged for nobody
+ * (`verdict_for()`).
+ */
+class Agend_Content_Access_Blocks {
+
+	/**
+	 * Post meta flag: this document carries rules on a block or an Elementor section
+	 * somewhere in it.
+	 *
+	 * A block document is flagged from its block tree, synced patterns included;
+	 * an Elementor document from its decoded `_elementor_data`. Both editors
+	 * write the same flag so core search and the generated excerpt ask one
+	 * question and cannot disagree about what a rule is.
+	 *
+	 * The key lives on `Agend_Content_Access_Frontend`, which does not depend on
+	 * this class and also reads it. Protected (underscore) so it is not editable
+	 * as a custom field and, never having been registered for REST, is not exposed
+	 * there. Read by the search exclusion. Page caching never trusts it, because a
+	 * flag can be stale (see `exclude_from_search()`); that decision scans the
+	 * live tree.
+	 *
+	 * @var string
+	 */
+	const SEARCH_FLAG_META_KEY = Agend_Content_Access_Frontend::FRAGMENT_RULES_META_KEY;
+
+	/**
+	 * Option holding the progress of the flag backfill: `{last_id, done}`.
+	 *
+	 * @var string
+	 */
+	const BACKFILL_OPTION = 'agend_content_access_fragment_backfill';
+
+	/**
+	 * Posts examined per backfill pass.
+	 *
+	 * @var int
+	 */
+	const BACKFILL_BATCH = 100;
+
+	/**
+	 * Priority of the `pre_get_posts` search exclusion: last.
+	 *
+	 * Another plugin's `pre_get_posts` callback may replace the `meta_query` this
+	 * one wraps. Running after all of them means the exclusion is applied to the
+	 * query WordPress is about to run, and nothing can overwrite it.
+	 *
+	 * @var int
+	 */
+	const SEARCH_EXCLUSION_PRIORITY = PHP_INT_MAX;
+
+	/**
+	 * Priority of the `pre_render_block` callback: first.
+	 *
+	 * A later callback may return its own markup for a block, a block-level
+	 * cache does, and this callback honours a non-null value it is handed. Going
+	 * first means a denied block is already `''` by the time any of them sees it,
+	 * rather than whatever they would have produced.
+	 *
+	 * @var int
+	 */
+	const PRE_RENDER_PRIORITY = PHP_INT_MIN;
+
+	/**
+	 * The post meta key core stores a post's footnotes under: a JSON list of
+	 * `{id, content}`, rendered by the Footnotes block and, as the registered
+	 * `meta.footnotes` field, public in REST.
+	 *
+	 * @var string
+	 */
+	const FOOTNOTES_META_KEY = Agend_Content_Access_Frontend::FOOTNOTES_META_KEY;
+
+	/**
+	 * Priority of the `render_block` backstop: first, so a denied block is already
+	 * `''` before any other filter on its output sees it.
+	 *
+	 * @var int
+	 */
+	const BACKSTOP_PRIORITY = PHP_INT_MIN;
+
+	/**
+	 * Priority of the `template_redirect` cache marking. After the page gate
+	 * (priority 1), which may end the request with a 403 and has nothing to mark.
+	 *
+	 * @var int
+	 */
+	const TEMPLATE_REDIRECT_PRIORITY = 2;
+
+	/**
+	 * Posts this request has already been marked uncacheable for, by post id, so
+	 * the action cache integrations listen on fires once per post and not once
+	 * per block.
+	 *
+	 * @var array<int, true>
+	 */
+	private array $marked = array();
+
+	/**
+	 * Display-condition fallback posts being rendered right now, by post id.
+	 *
+	 * A fallback is rendered through `the_content`, so it is itself made of
+	 * blocks that may carry rules. A fallback that holds a block whose
+	 * fallback is the same post would otherwise recurse until PHP gave up.
+	 *
+	 * @var array<int, true>
+	 */
+	private array $fallbacks_open = array();
+
+	/**
+	 * Blocks the `pre_render_block` path has judged and allowed, not yet seen by
+	 * the `render_block` backstop: a count per block fingerprint.
+	 *
+	 * What stops the backstop deciding a block twice. `pre_render_block` never
+	 * receives the `WP_Block` instance, which does not exist yet for an inner
+	 * block, so a block cannot be remembered by instance. It is remembered by what
+	 * decides it: the post it is judged against, its name and its `agendAccess`
+	 * attribute. Two blocks with that in common get the same answer, so letting
+	 * one stand in for the other is sound, and a count rather than a flag keeps N
+	 * identical blocks accounted for N times.
+	 *
+	 * @var array<string, int>
+	 */
+	private array $granted = array();
+
+	/**
+	 * Whether the footnotes meta is being read by this class right now.
+	 *
+	 * The footnotes filter reads the stored value to filter it, and that read
+	 * comes back through the same filter.
+	 *
+	 * @var bool
+	 */
+	private bool $reading_footnotes = false;
+
+	/**
+	 * Registers hooks. Called on every request, front end and REST alike: a REST
+	 * request never reaches `template_redirect`, and renders blocks all the same.
+	 */
+	public function __construct() {
+		add_filter( 'pre_render_block', array( $this, 'pre_render_block' ), self::PRE_RENDER_PRIORITY, 3 );
+		add_filter( 'render_block', array( $this, 'render_block' ), self::BACKSTOP_PRIORITY, 3 );
+		add_action( 'template_redirect', array( $this, 'mark_page_uncacheable' ), self::TEMPLATE_REDIRECT_PRIORITY );
+		add_action( 'save_post', array( $this, 'sync_search_flag' ), 20 );
+		add_action( 'elementor/document/after_save', array( $this, 'sync_search_flag_after_elementor_save' ) );
+
+		// A document written without a save at all (an importer, WP-CLI, a search
+		// and replace tool) changes only the meta, and neither hook above fires.
+		add_action( 'added_post_meta', array( $this, 'sync_search_flag_on_meta_change' ), 10, 3 );
+		add_action( 'updated_post_meta', array( $this, 'sync_search_flag_on_meta_change' ), 10, 3 );
+		add_action( 'deleted_post_meta', array( $this, 'sync_search_flag_on_meta_change' ), 10, 3 );
+
+		// Posts saved before the flag existed converge on their own, a batch of
+		// them per wp-admin page load for an administrator.
+		add_action( 'admin_init', array( __CLASS__, 'maybe_backfill' ) );
+		add_action( 'pre_get_posts', array( $this, 'exclude_from_search' ), self::SEARCH_EXCLUSION_PRIORITY );
+		add_filter( 'get_post_metadata', array( $this, 'filter_footnotes_meta' ), 10, 4 );
+
+		// The block half of the generated excerpt: `Agend_Content_Access_Frontend`
+		// owns the `get_the_excerpt` filter and asks this for the safe text.
+		add_filter( 'agend_content_access_safe_generated_excerpt', array( $this, 'safe_generated_excerpt' ), 10, 2 );
+	}
+
+	// -----------------------------------------------------------------------
+	// Suppression
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Removes a block the current visitor may not see.
+	 *
+	 * Returns the incoming value untouched when it is already non-null, because
+	 * something earlier chose to render this block itself. Otherwise null, which
+	 * lets WordPress render the block, or a string, which replaces it entirely:
+	 * its inner blocks included.
+	 *
+	 * A block with no rules returns before any identity lookup, which is nearly
+	 * every block on every page. That is the whole of the cost of this plugin to a
+	 * page that does not use it.
+	 *
+	 * @param string|null           $pre          Short-circuit value so far.
+	 * @param array                 $parsed_block The block, as `parse_blocks()` returns it.
+	 * @param WP_Block|object|null  $parent_block Parent block, when this is an inner block.
+	 * @return string|null Null to render the block, a string to render in its place.
+	 */
+	public function pre_render_block( $pre, $parsed_block = array(), $parent_block = null ) {
+		if ( null !== $pre || ! is_array( $parsed_block ) ) {
+			return $pre;
+		}
+
+		$rules = self::rules_of( $parsed_block );
+
+		// The common case, and it must stay this cheap: no attribute, or one
+		// that only says `inherit`, is a block like any other.
+		if ( null === $rules ) {
+			return null;
+		}
+
+		$verdict = $this->verdict_for( $parsed_block, $rules );
+
+		if ( null === $verdict ) {
+			$this->remember_grant( $parsed_block );
+		}
+
+		return $verdict;
+	}
+
+	/**
+	 * Applies the same decision to a block that core rendered WITHOUT asking
+	 * `pre_render_block`: the backstop.
+	 *
+	 * Navigation, Navigation Submenu, Navigation Link and Widget Group render
+	 * their children by calling `$inner_block->render()` themselves, which never
+	 * reaches `pre_render_block`, so a restriction on one of those children was
+	 * never applied. `WP_Block::render()` ends by filtering the block's output
+	 * through `render_block` whichever way it was reached, so this is where a
+	 * block that skipped the front door is judged.
+	 *
+	 * It is a BACKSTOP and not the enforcement point: by now the block has
+	 * rendered, its callback has run and its side effects have happened. What it
+	 * guarantees is that no output of a denied block is returned, and that is the
+	 * property that reaches the visitor. The main path stays the one that keeps a
+	 * denied block from rendering at all, for the blocks that go through it.
+	 *
+	 * A block the main path already judged and allowed is not judged again
+	 * (`$granted`). One it denied never gets here, because a short-circuited block
+	 * is not rendered. What is left is exactly the blocks that skipped the front
+	 * door, which are decided here from the parsed block as it stands NOW, after
+	 * every `render_block_data` filter, so a block altered on the way in is judged
+	 * as it will be shown.
+	 *
+	 * Returns the replacement for a denied block, which is `''` or the display
+	 * condition fallback, exactly as the main path would have. Marks the response
+	 * uncacheable, as the main path does, because the verdict is made the same way.
+	 *
+	 * @param string               $content      The block's rendered output.
+	 * @param array                $parsed_block The block, as it stood when it rendered.
+	 * @param WP_Block|object|null $instance     The block instance. Not needed to decide.
+	 * @return string The output to keep.
+	 */
+	public function render_block( $content, $parsed_block = array(), $instance = null ) {
+		if ( ! is_string( $content ) || ! is_array( $parsed_block ) ) {
+			return $content;
+		}
+
+		$rules = self::rules_of( $parsed_block );
+
+		if ( null === $rules || $this->consume_grant( $parsed_block ) ) {
+			return $content;
+		}
+
+		$verdict = $this->verdict_for( $parsed_block, $rules );
+
+		return null === $verdict ? $content : $verdict;
+	}
+
+	/**
+	 * A block's rules, or null when it carries none.
+	 *
+	 * @param array $parsed_block The block, as `parse_blocks()` returns it.
+	 * @return Agend_Content_Access_Rules|null
+	 */
+	private static function rules_of( array $parsed_block ): ?Agend_Content_Access_Rules {
+		$rules = Agend_Content_Access_Rules::from_block( $parsed_block );
+
+		return $rules->is_empty() ? null : $rules;
+	}
+
+	/**
+	 * The verdict on a block that carries rules: null to let it render, or the
+	 * string to render in its place.
+	 *
+	 * Shared by the `pre_render_block` path and the `render_block` backstop, so the
+	 * two cannot disagree. Every path that is not clearly a grant is a denial.
+	 *
+	 * A block is shown only when ITS rules allow AND the rules of the post it
+	 * belongs to allow: one evaluation of the two together, so it can narrow what
+	 * its post admits and can never widen it. The post is the one in context, and
+	 * a post with no rules adds nothing.
+	 *
+	 * @param array                      $parsed_block The block.
+	 * @param Agend_Content_Access_Rules $rules        From `rules_of()`.
+	 * @param int|null                   $post_id      The post the block belongs to, when the caller
+	 *                                                 knows it and it is not the one being rendered.
+	 *                                                 Null is the post in context.
+	 * @return string|null
+	 */
+	private function verdict_for( array $parsed_block, Agend_Content_Access_Rules $rules, ?int $post_id = null ): ?string {
+		$post_id = null === $post_id ? self::context_post_id() : $post_id;
+
+		// Asked about the post the block belongs to, not about the request: an
+		// Elementor preview is authoring for the previewed post only, and a block of
+		// any other post it renders, in a query loop, a template or a pattern, is
+		// judged as a visitor's.
+		if ( self::is_authoring( $post_id ) ) {
+			return null;
+		}
+
+		// A FEED is judged for nobody. Its output is shared and routinely cached, so
+		// a copy personalised to whoever fetched it would be served to everyone
+		// after them: the page gate does the same for a document
+		// (`Decision::for_post()` with `$anonymous`).
+		$anonymous = is_feed();
+
+		// Marked whatever the verdict. The block is personalised, so the page is
+		// per-viewer: see `mark_uncacheable()`.
+		$this->mark_uncacheable( $post_id );
+
+		try {
+			// The post's own rules, enforced reading: unreadable rules on the post
+			// narrow the block to nobody instead of vanishing and leaving the block's
+			// own alone. No post in context is a block outside any post (a widget, a
+			// bare template part), which has no rules to narrow with.
+			$page = Agend_Content_Access_Rules::from_post( $post_id );
+
+			$verdict = Agend_Content_Access_Access::verdict(
+				Agend_Content_Access_Rules::all_of( $page, $rules ),
+				array( 'anonymous' => $anonymous )
+			);
+
+			if ( $verdict['allowed'] ) {
+				return null;
+			}
+
+			return $this->fallback_for( $rules, $anonymous );
+		} catch ( \Throwable $error ) {
+			// A decision that could not be made is a denial. The log names the
+			// failure for an administrator and nothing reaches the visitor.
+			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				'[Agend Content Access] Denied a block: its access check failed (' . get_class( $error ) . ').'
+			);
+
+			return '';
+		}
+	}
+
+	/**
+	 * Records that the main path judged a block and allowed it.
+	 *
+	 * @param array $parsed_block The block.
+	 */
+	private function remember_grant( array $parsed_block ): void {
+		$key = self::fingerprint( $parsed_block );
+
+		$this->granted[ $key ] = ( $this->granted[ $key ] ?? 0 ) + 1;
+	}
+
+	/**
+	 * Uses up one recorded grant for the block, if there is one.
+	 *
+	 * @param array $parsed_block The block.
+	 * @return bool Whether the main path had already allowed this block.
+	 */
+	private function consume_grant( array $parsed_block ): bool {
+		$key = self::fingerprint( $parsed_block );
+
+		if ( empty( $this->granted[ $key ] ) ) {
+			return false;
+		}
+
+		if ( 0 === --$this->granted[ $key ] ) {
+			unset( $this->granted[ $key ] );
+		}
+
+		return true;
+	}
+
+	/**
+	 * What decides a block: the post it is judged against, its name and its
+	 * `agendAccess` attribute.
+	 *
+	 * Serialised rather than JSON encoded, because the attribute is whatever the
+	 * stored markup held, and an encoder that fails on it would give every such
+	 * block the same key.
+	 *
+	 * @param array $parsed_block The block.
+	 * @return string
+	 */
+	private static function fingerprint( array $parsed_block ): string {
+		$attrs = isset( $parsed_block['attrs'] ) && is_array( $parsed_block['attrs'] ) ? $parsed_block['attrs'] : array();
+
+		return self::context_post_id() . ':' . md5(
+			serialize( // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- Never unserialised: only hashed.
+				array(
+					isset( $parsed_block['blockName'] ) ? $parsed_block['blockName'] : null,
+					isset( $attrs[ Agend_Content_Access_Block_Attributes::ATTRIBUTE ] ) ? $attrs[ Agend_Content_Access_Block_Attributes::ATTRIBUTE ] : null,
+				)
+			)
+		);
+	}
+
+	/**
+	 * Whether this render is somebody authoring, who is never filtered.
+	 *
+	 * The same question the loop gates ask (`renders_for_visitors()`), so the two
+	 * cannot disagree about an admin-ajax render, which WordPress reports as
+	 * `is_admin()` and which anonymous visitors reach through "load more" and
+	 * filter widgets. `is_authoring_context()` alone would call that authoring.
+	 *
+	 * And the user must be able to `edit_posts`. The question asked of the post is
+	 * already one of capability (`edit_post` for that post, `edit_others_posts` for
+	 * none), so this is a floor rather than the test: a subscriber on a wp-admin
+	 * screen, or a visitor on `admin-post.php`, is not authoring anything. Blocks
+	 * are not exempt for editors on the front end either, as Elementor sections are
+	 * not: only the editor's own renders are, which is what keeps an author able to
+	 * repair the content a policy hides from them.
+	 *
+	 * The question is asked about the post the block belongs to. Elementor's
+	 * preview is authoring for the previewed post only, so a block of any other
+	 * post rendered during a preview is a visitor's, and so is a block that belongs
+	 * to no post. The same post the footnote and the pattern checks already judge
+	 * against, so the three cannot disagree.
+	 *
+	 * @param int $post_id The post the block belongs to, 0 for none.
+	 * @return bool
+	 */
+	private static function is_authoring( int $post_id ): bool {
+		return ! Agend_Content_Access_Frontend::renders_for_visitors( $post_id )
+			&& current_user_can( 'edit_posts' );
+	}
+
+	/**
+	 * The id of the post a block belongs to, or 0 when it belongs to none.
+	 *
+	 * Inside a loop it is the post WordPress is rendering, `get_post()`: set by the
+	 * main loop, by every `WP_Query` loop (`the_post()`, which a query loop block
+	 * calls per item), and by the REST controllers. Never `get_queried_object_id()`
+	 * there: see the class docblock.
+	 *
+	 * OUTSIDE a loop the global post is not that post. WordPress sets it to the
+	 * first post of the MAIN query before any template runs, and leaves it at the
+	 * last once a loop has finished, so a header or footer template part on an
+	 * archive was judged against whichever post happened to be listed first or
+	 * last. That narrowed a block to the plan of an unrelated post and hid it from
+	 * a member who was entitled to it. Outside a loop the block belongs to the
+	 * queried post when the request is for one post, and to nothing otherwise: it is
+	 * judged on its own policy alone, as a block in a widget is.
+	 *
+	 * "Inside a loop" is NOT `in_the_loop()` alone, which is true only for the main
+	 * query's loop. A custom `WP_Query` loop, which is what a Query Loop block with
+	 * its own query runs, leaves `in_the_loop()` false while the global post is the
+	 * item being rendered, and treating that as "outside" would judge its blocks
+	 * against the page and fail open. The global post is the main query's leftover
+	 * only when it IS one of the main query's own post objects: a post read by any
+	 * other query, or by a REST controller, is a distinct object even when it is the
+	 * same post, and is a loop post.
+	 *
+	 * A synced pattern renders inside the post that holds it, so its blocks belong
+	 * to that post for this purpose, which can only narrow them further.
+	 *
+	 * @return int
+	 */
+	private static function context_post_id(): int {
+		$post = get_post();
+
+		if ( $post instanceof WP_Post && ( in_the_loop() || ! self::is_main_query_leftover( $post ) ) ) {
+			return (int) $post->ID;
+		}
+
+		$queried = is_singular() ? get_queried_object() : null;
+
+		return $queried instanceof WP_Post ? (int) $queried->ID : 0;
+	}
+
+	/**
+	 * Whether the post object is one the main query holds, which outside a loop is
+	 * only ever the global post WordPress left behind.
+	 *
+	 * Compared by identity. The main query's `post` is the object the global post
+	 * is set from, and its `posts` are the objects a loop steps through. Looked up
+	 * on `$wp_the_query`, the real main query, and on `$wp_query`, which a theme can
+	 * point at another query.
+	 *
+	 * @param WP_Post $post The global post.
+	 * @return bool
+	 */
+	private static function is_main_query_leftover( WP_Post $post ): bool {
+		foreach ( array( 'wp_the_query', 'wp_query' ) as $name ) {
+			$query = isset( $GLOBALS[ $name ] ) && is_object( $GLOBALS[ $name ] ) ? $GLOBALS[ $name ] : null;
+
+			if ( null === $query ) {
+				continue;
+			}
+
+			if ( isset( $query->post ) && $query->post === $post ) {
+				return true;
+			}
+
+			if ( isset( $query->posts ) && is_array( $query->posts ) && in_array( $post, $query->posts, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * The markup a denied block is replaced with: its fallback, when its own rules
+	 * are what denied it, otherwise nothing.
+	 *
+	 * The replacement belongs to the part of the block's rules that carries it. A
+	 * block with only an audience has never had one, and a block with an audience
+	 * AND display conditions showed it only when the CONDITIONS excluded it: a block
+	 * hidden by its audience is protected content, and a consolation render there
+	 * would blur the two, as it does for Elementor. So the part is asked on its own,
+	 * and a block the post's rules denied while its own would have admitted gets
+	 * none. The fallback is itself access-checked by `Fragment_Rules::fallback_html()`:
+	 * only content this visitor could have read on its own is shown.
+	 *
+	 * @param Agend_Content_Access_Rules $rules     The block's rules.
+	 * @param bool                       $anonymous Judge the fallback for nobody, as in a feed.
+	 * @return string The fallback markup, or '' for none.
+	 */
+	private function fallback_for( Agend_Content_Access_Rules $rules, bool $anonymous = false ): string {
+		$owner = $rules->fallback_owner();
+
+		if ( null === $owner ) {
+			return '';
+		}
+
+		$own = Agend_Content_Access_Access::verdict( $owner, array( 'anonymous' => $anonymous ) );
+
+		if ( $own['allowed'] ) {
+			return '';
+		}
+
+		$fallback_id = $owner->fallback_id();
+
+		// A fallback already being rendered is a cycle, and renders nothing.
+		if ( $fallback_id <= 0 || isset( $this->fallbacks_open[ $fallback_id ] ) ) {
+			return '';
+		}
+
+		$this->fallbacks_open[ $fallback_id ] = true;
+
+		try {
+			return Agend_Content_Access_Fragment_Rules::fallback_html( $fallback_id, $anonymous );
+		} finally {
+			unset( $this->fallbacks_open[ $fallback_id ] );
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Page caches
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Keeps a page whose post holds a restricted or conditioned block out of page
+	 * caches, decided before anything renders.
+	 *
+	 * Runs on `template_redirect` for a singular request and scans the queried
+	 * post's blocks, synced patterns included. This is the early decision: in a
+	 * classic theme output has usually begun before the first block renders, and
+	 * `Cache-Control` can only be sent while headers are unsent, so a mark left to
+	 * render time would carry the constant alone. A restricted block in a loop, a
+	 * template part or a widget is not in this post's content, and is caught by
+	 * the render-time marking in `pre_render_block()` instead.
+	 *
+	 * The scan is live, never the saved search flag: a pattern edited after the
+	 * page was saved changes what the page holds without touching the flag, and
+	 * a cache decision that is stale in that direction serves a member's copy.
+	 */
+	public function mark_page_uncacheable(): void {
+		if ( ! is_singular() ) {
+			return;
+		}
+
+		$post = get_queried_object();
+
+		if ( ! $post instanceof WP_Post ) {
+			return;
+		}
+
+		if ( self::tree_carries_rules( (string) $post->post_content ) ) {
+			$this->mark_uncacheable( (int) $post->ID );
+		}
+	}
+
+	/**
+	 * Marks the response uncacheable, through the frontend's own marking.
+	 *
+	 * ANONYMOUS RENDERS ARE MARKED TOO. It is tempting to mark only a page a
+	 * member saw, as the document gate does, since an anonymous render of a
+	 * restricted block is just the block's absence. But a page with a restricted
+	 * or conditioned block is PER-VIEWER for everybody, signed out included.
+	 * A page cache keys on the URL, not on who asked, and a member of Agend is
+	 * routinely not signed in to WordPress at all (their standing arrives as a
+	 * bearer, which a cache does not see), so the cache cannot tell the two
+	 * apart. Cache the anonymous copy and every member is served it, without the
+	 * block they are entitled to; cache a member's, and every anonymous visitor
+	 * is served the restricted block and the gate never runs. Personalisation
+	 * for a signed-out visitor is still personalisation, so neither copy may be
+	 * stored.
+	 *
+	 * @param int $post_id Post whose render carries the block, 0 for none.
+	 */
+	private function mark_uncacheable( int $post_id ): void {
+		if ( isset( $this->marked[ $post_id ] ) ) {
+			return;
+		}
+
+		$this->marked[ $post_id ] = true;
+
+		Agend_Content_Access_Frontend::mark_uncacheable( $post_id );
+	}
+
+	// -----------------------------------------------------------------------
+	// The tree check, shared by the cache marking and the search flag
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Whether the content holds a block with rules, anywhere in its tree.
+	 *
+	 * The tree is the parsed blocks with every synced pattern expanded in place
+	 * (`Block_Attributes::expand()`, with its cycle, depth and budget guards), so
+	 * a restriction inside a pattern counts for the page that uses it. A block
+	 * counts by the same test the render path uses (`carries_rules()`, which asks
+	 * `Rules::from_block()`), so the answer here and the decision at render time
+	 * cannot disagree about what a rule is. A rule in a
+	 * template part or a query loop's other posts is not in the content, and is
+	 * not seen here.
+	 *
+	 * Content with no `wp:` in it has no block delimiter and cannot hold a block,
+	 * so it is not parsed. That is the one shortcut, and it is a safe one:
+	 * the parser requires the literal `wp:` after the comment opener. Not
+	 * `has_blocks()`, which looks for `<!-- wp:` with exactly one space, and
+	 * misses a delimiter the parser accepts.
+	 *
+	 * @param string $content Raw `post_content`.
+	 * @return bool
+	 */
+	public static function tree_carries_rules( string $content ): bool {
+		if ( false === strpos( $content, 'wp:' ) ) {
+			return false;
+		}
+
+		$ledger = Agend_Content_Access_Block_Attributes::ledger();
+		$blocks = Agend_Content_Access_Block_Attributes::expand( parse_blocks( $content ), $ledger );
+
+		return self::blocks_carry_rules( $blocks );
+	}
+
+	/**
+	 * Whether any of the blocks, or anything inside them, carries a rule.
+	 *
+	 * @param array $blocks Parsed blocks, already expanded.
+	 * @return bool
+	 */
+	private static function blocks_carry_rules( array $blocks ): bool {
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			if ( Agend_Content_Access_Block_Attributes::carries_rules( $block ) ) {
+				return true;
+			}
+
+			if (
+				isset( $block['innerBlocks'] )
+				&& is_array( $block['innerBlocks'] )
+				&& self::blocks_carry_rules( $block['innerBlocks'] )
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether a document carries rules on a block or a section, whichever editor
+	 * wrote it.
+	 *
+	 * Elementor owns a document that has `_elementor_data`, exactly as the
+	 * exporter decides (`Agend_Content_Access_Elementor_Parser::recognises()`),
+	 * whatever `post_content` holds: Elementor writes a flattened copy of what it
+	 * rendered into `post_content`, which is not a block tree and says nothing
+	 * about the rules. Those documents are read from the decoded data with
+	 * `Agend_Content_Access_Elementor::subtree_carries_rules()`, the same test the
+	 * element cache exclusion uses. Everything else is read from its block tree.
+	 *
+	 * An Elementor document that does not decode is reported as carrying rules. It
+	 * cannot be shown to have none, and the cost of a false yes is a post left out
+	 * of search, an excerpt left blank and a raw body withheld from the REST edit
+	 * context, where a false no publishes text.
+	 *
+	 * @param WP_Post|mixed $post Post.
+	 * @return bool
+	 */
+	public static function document_carries_rules( $post ): bool {
+		if ( ! $post instanceof WP_Post ) {
+			return false;
+		}
+
+		$document = self::elementor_document( (int) $post->ID );
+
+		if ( null === $document ) {
+			return self::tree_carries_rules( (string) $post->post_content );
+		}
+
+		if ( false === $document ) {
+			return true;
+		}
+
+		foreach ( $document as $node ) {
+			if ( ! is_array( $node ) || Agend_Content_Access_Elementor::subtree_carries_rules( $node ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * The Elementor document a post stores, read once and the same way by every
+	 * caller.
+	 *
+	 * Elementor stores a JSON string, and a read can also come back as the decoded
+	 * list: a filter on the meta, an importer, or this plugin's own
+	 * `suppress_builder_data()`, which answers an empty list for a document it is
+	 * withholding. Both are read. What is neither a document nor nothing is
+	 * unreadable, so "I could not tell" is never mistaken for "there is none".
+	 *
+	 * @param int $post_id Post id.
+	 * @return array|false|null The decoded document, null when the post has none
+	 *                          (so it is a block document), false when one is stored
+	 *                          and cannot be read.
+	 */
+	private static function elementor_document( int $post_id ) {
+		$stored = get_post_meta( $post_id, Agend_Content_Access_Elementor_Parser::META_KEY, true );
+
+		if ( null === $stored || false === $stored ) {
+			return null;
+		}
+
+		if ( is_array( $stored ) ) {
+			return array() === $stored ? null : $stored;
+		}
+
+		if ( ! is_scalar( $stored ) ) {
+			return false;
+		}
+
+		$raw = trim( (string) $stored );
+
+		if ( '' === $raw ) {
+			return null;
+		}
+
+		$decoded = json_decode( $raw, true );
+
+		return is_array( $decoded ) ? $decoded : false;
+	}
+
+	// -----------------------------------------------------------------------
+	// Footnotes
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Keeps the footnotes of a block the viewer may not see out of the footnotes
+	 * block and out of REST.
+	 *
+	 * WHY. A footnote's text is not in the paragraph that cites it. The paragraph
+	 * holds only an anchor, `<sup data-fn="<uuid>">`, and the text lives in the
+	 * post's `footnotes` meta, which the Footnotes block renders in full and which
+	 * is public in REST as `meta.footnotes`. Removing a restricted paragraph left
+	 * its footnote readable in both places.
+	 *
+	 * WHAT. When the post holds a ruled block, each footnote whose id appears
+	 * inside a ruled block THIS VIEWER is denied is removed from the value read.
+	 * One filter on `get_post_metadata` covers both readers, since the block reads
+	 * the meta with `get_post_meta()` and the REST field with `get_metadata()`.
+	 * Whether a block is denied is the verdict the render path gives
+	 * (`verdict_for()`, against the post whose meta it is), so the footnotes of a
+	 * block a member may read stay for that member. The footnote list is not
+	 * renumbered: the anchors in the text carry their own numbers, and a gap is
+	 * what removing a paragraph leaves in a document anyway.
+	 *
+	 * FAIL CLOSED, because the mapping is by id and ids can be unreadable. A post
+	 * that holds a ruled block and whose footnotes meta is not a JSON list returns
+	 * no footnotes at all. So does an entry with no id, but only when a block was
+	 * denied: with nothing denied there is nothing it could belong to. An id is
+	 * matched anywhere in a denied block's markup and attributes, not just in a
+	 * `data-fn` attribute, so an anchor written some other way still counts.
+	 *
+	 * NOT COVERED. A post's footnotes read for a post whose whole DOCUMENT is
+	 * denied are not touched here: that is the page gate's, and REST strips them in
+	 * `Agend_Content_Access_Frontend::filter_rest_response()`. A read of every meta
+	 * key at once (`get_post_meta( $id )` with no key) returns the stored value:
+	 * it is not a reader this closes, and answering it would put work on every such
+	 * call on the site.
+	 *
+	 * Authors are never filtered: the block editor loads the footnotes to edit and
+	 * saves what it was given, and a filtered read there would delete the hidden
+	 * ones on the next save.
+	 *
+	 * @param mixed  $value     Short-circuit value so far, null for none.
+	 * @param int    $object_id Post id.
+	 * @param string $meta_key  Meta key being read.
+	 * @param bool   $single    Whether a single value was asked for.
+	 * @return mixed The value to return, or the incoming one to let WordPress read it.
+	 */
+	public function filter_footnotes_meta( $value, $object_id, $meta_key, $single ) {
+		// The first test is the one every meta read on the site pays for.
+		if ( self::FOOTNOTES_META_KEY !== $meta_key || null !== $value || $this->reading_footnotes ) {
+			return $value;
+		}
+
+		$this->reading_footnotes = true;
+
+		try {
+			$stored = get_post_meta( (int) $object_id, self::FOOTNOTES_META_KEY, true );
+		} finally {
+			$this->reading_footnotes = false;
+		}
+
+		if ( ! is_string( $stored ) || '' === $stored ) {
+			return $value;
+		}
+
+		$visible = $this->visible_footnotes( (int) $object_id, $stored );
+
+		if ( $visible === $stored ) {
+			return $value;
+		}
+
+		return $single ? $visible : array( $visible );
+	}
+
+	/**
+	 * The post's footnotes without the ones anchored in a block this viewer is
+	 * denied.
+	 *
+	 * @param int    $post_id Post the footnotes belong to.
+	 * @param string $stored  The stored value, a JSON list of `{id, content}`.
+	 * @return string The same string when nothing is removed, otherwise the JSON of what is left.
+	 */
+	private function visible_footnotes( int $post_id, string $stored ): string {
+		$post = get_post( $post_id );
+
+		if ( ! $post instanceof WP_Post || false === strpos( (string) $post->post_content, 'wp:' ) ) {
+			return $stored;
+		}
+
+		$blocks = parse_blocks( (string) $post->post_content );
+
+		// The common case, and the cheap one: no ruled block, nothing to hide.
+		if ( ! self::blocks_carry_rules( $blocks ) ) {
+			return $stored;
+		}
+
+		$footnotes = json_decode( $stored, true );
+
+		if ( ! is_array( $footnotes ) ) {
+			return '[]';
+		}
+
+		$ids = array();
+
+		foreach ( $footnotes as $footnote ) {
+			if ( is_array( $footnote ) && isset( $footnote['id'] ) && is_string( $footnote['id'] ) && '' !== $footnote['id'] ) {
+				$ids[] = $footnote['id'];
+			}
+		}
+
+		$hidden = $this->denied_markup( $blocks, $ids, $post_id );
+		$kept   = array();
+
+		foreach ( $footnotes as $footnote ) {
+			$id = is_array( $footnote ) && isset( $footnote['id'] ) && is_string( $footnote['id'] ) ? $footnote['id'] : '';
+
+			if ( '' !== $hidden && ( '' === $id || false !== strpos( $hidden, $id ) ) ) {
+				continue;
+			}
+
+			$kept[] = $footnote;
+		}
+
+		return count( $kept ) === count( $footnotes ) ? $stored : (string) wp_json_encode( $kept );
+	}
+
+	/**
+	 * The markup and attributes of every ruled block this viewer is denied that
+	 * mentions one of the ids, run together.
+	 *
+	 * A block whose subtree mentions none of the ids is not asked about, so a post
+	 * with ruled blocks and no footnote anchors in them costs no decision. A denied
+	 * block's whole subtree is taken, so a footnote anchored deeper inside it goes
+	 * with it. One that is allowed is searched for ruled descendants.
+	 *
+	 * @param array    $blocks  Parsed blocks, as `parse_blocks()` returns them.
+	 * @param string[] $ids     Footnote ids to look for.
+	 * @param int      $post_id Post the blocks belong to.
+	 * @return string
+	 */
+	private function denied_markup( array $blocks, array $ids, int $post_id ): string {
+		$denied = '';
+
+		foreach ( $blocks as $block ) {
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			$markup = self::markup_of( $block );
+
+			if ( ! self::mentions_any( $markup, $ids ) ) {
+				continue;
+			}
+
+			$rules = self::rules_of( $block );
+
+			if ( null !== $rules && null !== $this->verdict_for( $block, $rules, $post_id ) ) {
+				$denied .= $markup;
+				continue;
+			}
+
+			if ( isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$denied .= $this->denied_markup( $block['innerBlocks'], $ids, $post_id );
+			}
+		}
+
+		return $denied;
+	}
+
+	/**
+	 * Everything a block says in one string: its markup, its attributes and its
+	 * inner blocks'. Rich text lives in the markup for most blocks and in an
+	 * attribute for some, and an id found in either is an anchor.
+	 *
+	 * @param array $block Parsed block.
+	 * @return string
+	 */
+	private static function markup_of( array $block ): string {
+		$markup = ( isset( $block['innerHTML'] ) && is_string( $block['innerHTML'] ) ? $block['innerHTML'] : '' )
+			. ( isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? (string) wp_json_encode( $block['attrs'] ) : '' );
+
+		if ( isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+			foreach ( $block['innerBlocks'] as $inner_block ) {
+				$markup .= is_array( $inner_block ) ? self::markup_of( $inner_block ) : '';
+			}
+		}
+
+		return $markup;
+	}
+
+	/**
+	 * Whether the text contains any of the ids.
+	 *
+	 * @param string   $text Text.
+	 * @param string[] $ids  Ids.
+	 * @return bool
+	 */
+	private static function mentions_any( string $text, array $ids ): bool {
+		foreach ( $ids as $id ) {
+			if ( false !== strpos( $text, $id ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// -----------------------------------------------------------------------
+	// Generated excerpts
+	// -----------------------------------------------------------------------
+
+	/**
+	 * The excerpt of a block document with every ruled subtree taken out of it.
+	 *
+	 * The block half of `Agend_Content_Access_Frontend::filter_generated_excerpt()`,
+	 * which calls it through `agend_content_access_safe_generated_excerpt` for a
+	 * document that carries rules and has no manual excerpt.
+	 *
+	 * WHY THE TREE IS REBUILT INSTEAD OF THE EXCERPT BEING JUDGED. Core builds an
+	 * excerpt by rendering the body through `excerpt_remove_blocks()`, which renders
+	 * the children of a Group, Columns or Column and never the wrapper, so a rule on
+	 * a wrapper is never asked about (see `filter_generated_excerpt()`). Asking
+	 * `pre_render_block` per block cannot fix that from outside, and the answer
+	 * would be per viewer. So the ruled blocks are removed from the PARSED tree,
+	 * wrapper or leaf, the rest is serialised with `serialize_blocks()`, and
+	 * WordPress's own `wp_trim_excerpt()` runs over that markup, so the length, the
+	 * "more" text, `excerpt_allowed_blocks` and the `the_content` pass all stay
+	 * core's. No ruled text is in what it is given, so none can come out, and the
+	 * excerpt is the same for every viewer.
+	 *
+	 * A block is removed when it carries rules, the one test the render path and the
+	 * cache marking use. Synced patterns are expanded with the usual guards first, so
+	 * a ruled block inside a pattern counts. A reference to a pattern that holds one is removed whole, and so is
+	 * one that could not be expanded (a cycle, the depth or the reference budget):
+	 * what is in it is not known. A reference to a pattern with no rules is kept
+	 * as the reference it was, which core's excerpt does not render at all.
+	 *
+	 * The copy `wp_trim_excerpt()` reads is marked `raw`, so `get_post()` hands it
+	 * back as it is instead of re-reading the stored post, which would put the
+	 * original body back.
+	 *
+	 * An Elementor document is not rebuilt: its `post_content` is the flattened
+	 * render, not a block tree. The incoming value, '', stands, which is how that
+	 * driver's documents end up with no generated excerpt.
+	 *
+	 * @param string       $excerpt The safe excerpt so far. Returned for anything this cannot rebuild.
+	 * @param WP_Post|null $post    Post the excerpt is for.
+	 * @return string
+	 */
+	public function safe_generated_excerpt( $excerpt, $post = null ) {
+		if ( ! $post instanceof WP_Post || null !== self::elementor_document( (int) $post->ID ) ) {
+			return (string) $excerpt;
+		}
+
+		$ledger = Agend_Content_Access_Block_Attributes::ledger();
+		$blocks = Agend_Content_Access_Block_Attributes::expand( parse_blocks( (string) $post->post_content ), $ledger );
+
+		$safe               = clone $post;
+		$safe->post_content = serialize_blocks( self::without_ruled_blocks( $blocks ) );
+		$safe->post_excerpt = '';
+		$safe->filter       = 'raw';
+
+		return (string) wp_trim_excerpt( '', $safe );
+	}
+
+	/**
+	 * The blocks with every ruled one, and everything inside it, taken out.
+	 *
+	 * @param array $blocks Parsed blocks, already expanded.
+	 * @return array The blocks that are left, as a list.
+	 */
+	private static function without_ruled_blocks( array $blocks ): array {
+		$kept = array();
+
+		foreach ( $blocks as $block ) {
+			$clean = is_array( $block ) ? self::without_ruled_block( $block ) : null;
+
+			if ( null !== $clean ) {
+				$kept[] = $clean;
+			}
+		}
+
+		return $kept;
+	}
+
+	/**
+	 * One block without its ruled descendants, or null when it is ruled itself.
+	 *
+	 * `serialize_block()` walks `innerContent` and takes the next inner block at
+	 * each `null` in it, so a child cannot be dropped from `innerBlocks` alone: its
+	 * placeholder has to go with it, or the block no longer serialises. A block
+	 * whose placeholders do not match its children cannot be rebuilt reliably, and
+	 * is removed.
+	 *
+	 * @param array $block Parsed block, already expanded.
+	 * @return array|null
+	 */
+	private static function without_ruled_block( array $block ): ?array {
+		if ( Agend_Content_Access_Block_Attributes::carries_rules( $block ) ) {
+			return null;
+		}
+
+		$children = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? array_values( $block['innerBlocks'] ) : array();
+
+		if ( Agend_Content_Access_Block_Attributes::is_synced_reference( $block ) ) {
+			// Unknown content, or content holding a rule: the whole reference goes.
+			if ( ! Agend_Content_Access_Block_Attributes::is_expanded_reference( $block ) || self::blocks_carry_rules( $children ) ) {
+				return null;
+			}
+
+			// The reference as it was written: its pattern's blocks are not its own.
+			$block['innerBlocks'] = array();
+
+			return $block;
+		}
+
+		if ( array() === $children ) {
+			return $block;
+		}
+
+		$content = isset( $block['innerContent'] ) && is_array( $block['innerContent'] ) ? $block['innerContent'] : array();
+
+		if ( count( $children ) !== count( array_filter( $content, 'is_null' ) ) ) {
+			return null;
+		}
+
+		$kept_content  = array();
+		$kept_children = array();
+		$index         = 0;
+
+		foreach ( $content as $chunk ) {
+			if ( null !== $chunk ) {
+				$kept_content[] = $chunk;
+				continue;
+			}
+
+			$child = is_array( $children[ $index ] ) ? self::without_ruled_block( $children[ $index ] ) : null;
+
+			++$index;
+
+			if ( null !== $child ) {
+				$kept_content[]  = null;
+				$kept_children[] = $child;
+			}
+		}
+
+		$block['innerContent'] = $kept_content;
+		$block['innerBlocks']  = $kept_children;
+
+		return $block;
+	}
+
+	// -----------------------------------------------------------------------
+	// Core search
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Records on save whether the document carries a rule.
+	 *
+	 * The flag is what `exclude_from_search()` filters on, since a search query
+	 * cannot parse blocks or Elementor data. It is set or cleared from
+	 * `document_carries_rules()`, the same check for both editors.
+	 *
+	 * LIMITS, both documented in the README. A later edit to a synced pattern
+	 * does not update the flag on the pages that use it, so a restriction added
+	 * to a pattern is not hidden from search on those pages until each is saved
+	 * again. And the flag guards core search only: a third-party indexer that
+	 * reads raw `post_content` at save (Yoast, RankMath, ElasticPress and the
+	 * like) is outside this plugin's reach, and serves that text through its own
+	 * search UI.
+	 *
+	 * @param int $post_id Post being saved.
+	 */
+	public function sync_search_flag( $post_id ): void {
+		self::sync_flag( (int) $post_id );
+	}
+
+	/**
+	 * Brings a post's flag in line with its document.
+	 *
+	 * Writes only when the answer changed, so the common save of a post that has
+	 * none, and never had, costs no query. A row that exists with any value but
+	 * `'1'` is wrong either way: left in place it would keep the post out of search
+	 * (`NOT EXISTS` does not match it) without marking it as carrying anything.
+	 *
+	 * @param int $post_id Post id.
+	 * @return bool Whether the post carries rules. False when it was not examined:
+	 *              a revision, an autosave or a post that does not exist.
+	 */
+	public static function sync_flag( int $post_id ): bool {
+		// An autosave is stored as a revision and is not the post.
+		if ( $post_id <= 0 || wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
+			return false;
+		}
+
+		$post = get_post( $post_id );
+
+		if ( ! $post instanceof WP_Post ) {
+			return false;
+		}
+
+		$carries = self::document_carries_rules( $post );
+
+		if ( $carries ) {
+			if ( '1' !== (string) get_post_meta( $post_id, self::SEARCH_FLAG_META_KEY, true ) ) {
+				update_post_meta( $post_id, self::SEARCH_FLAG_META_KEY, '1' );
+			}
+		} elseif ( metadata_exists( 'post', $post_id, self::SEARCH_FLAG_META_KEY ) ) {
+			delete_post_meta( $post_id, self::SEARCH_FLAG_META_KEY );
+		}
+
+		return $carries;
+	}
+
+	/**
+	 * Records the flag again once Elementor has stored the document.
+	 *
+	 * Elementor writes `_elementor_data` after it has updated the post row, so on
+	 * `save_post` the data this plugin would read is the PREVIOUS save's: a rule
+	 * added in this save would not flag the post until the next one, and a rule
+	 * removed would keep it out of search. `elementor/document/after_save` fires
+	 * once the elements are stored.
+	 *
+	 * @param \Elementor\Core\Base\Document|object $document Document that was saved.
+	 */
+	public function sync_search_flag_after_elementor_save( $document ): void {
+		if ( is_object( $document ) && method_exists( $document, 'get_main_id' ) ) {
+			$this->sync_search_flag( (int) $document->get_main_id() );
+		}
+	}
+
+	/**
+	 * Records the flag again when an Elementor document is written without a save.
+	 *
+	 * An importer, WP-CLI (`wp post meta update`) or a search and replace tool
+	 * writes `_elementor_data` and nothing else, so neither `save_post` nor
+	 * Elementor's own save action fires, and the post would keep the flag it had:
+	 * a rule added that way would not hide the post from search until somebody
+	 * happened to save it. Every meta write on the site passes through here, so the
+	 * key is the first and only test most of them meet.
+	 *
+	 * @param mixed  $meta_id   Meta row id, or ids. Unused.
+	 * @param int    $object_id Post id.
+	 * @param string $meta_key  Meta key written.
+	 */
+	public function sync_search_flag_on_meta_change( $meta_id = 0, $object_id = 0, $meta_key = '' ): void {
+		if ( Agend_Content_Access_Elementor_Parser::META_KEY !== $meta_key ) {
+			return;
+		}
+
+		self::sync_flag( (int) $object_id );
+	}
+
+	// -----------------------------------------------------------------------
+	// Flag backfill
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Flags one batch of posts, in id order, after a given id.
+	 *
+	 * Posts saved before the flag existed have none, and the flag is the only thing
+	 * a search query can filter on. Each post is decided with
+	 * `document_carries_rules()`, the check a save uses, so a block document and an
+	 * Elementor document are covered by the same rule, and a flag that is no longer
+	 * right is cleared as well as a missing one set.
+	 *
+	 * @param int           $after_id Last post id already examined.
+	 * @param int           $limit    Posts to examine.
+	 * @param callable|null $fetch    Returns the ids, for a test: `fn( int $after_id, int $limit ): int[]`.
+	 * @return array{processed: int, flagged: int, last_id: int, done: bool}
+	 */
+	public static function backfill_batch( int $after_id, int $limit = self::BACKFILL_BATCH, ?callable $fetch = null ): array {
+		$limit = max( 1, $limit );
+		$ids   = null === $fetch ? self::post_ids_after( $after_id, $limit ) : (array) $fetch( $after_id, $limit );
+
+		self::prime_batch_caches( $ids );
+
+		$flagged = 0;
+		$last_id = $after_id;
+
+		foreach ( $ids as $id ) {
+			$id = (int) $id;
+
+			if ( self::sync_flag( $id ) ) {
+				++$flagged;
+			}
+
+			$last_id = max( $last_id, $id );
+		}
+
+		return array(
+			'processed' => count( $ids ),
+			'flagged'   => $flagged,
+			'last_id'   => $last_id,
+			// A short batch is the end. A full one may be, and costs one more empty
+			// pass to find out.
+			'done'      => count( $ids ) < $limit,
+		);
+	}
+
+	/**
+	 * Loads a batch's posts and their meta in one query each.
+	 *
+	 * The ids come from a plain `SELECT ID`, so nothing about them is cached, and
+	 * `sync_flag()` then reads each one with `get_post()` (twice more through the
+	 * revision and autosave checks) and reads its meta: a hundred ids was up to a
+	 * hundred single-row post queries and as many meta ones on every wp-admin page
+	 * load for an administrator, until the whole table had been covered. Priming
+	 * the post cache, with its meta, makes it two queries for the batch. Terms are
+	 * not primed: nothing here reads them.
+	 *
+	 * Each is looked up, not required, so a site on an older WordPress without one
+	 * of them still runs, one query a post.
+	 *
+	 * @param int[] $ids Post ids in the batch.
+	 */
+	private static function prime_batch_caches( array $ids ): void {
+		$ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+
+		if ( array() === $ids ) {
+			return;
+		}
+
+		if ( function_exists( '_prime_post_caches' ) ) {
+			_prime_post_caches( $ids, false, true );
+		}
+
+		// Skips the ids already cached, so it costs nothing after the call above
+		// and is the only one that runs where that function is missing.
+		if ( function_exists( 'update_meta_cache' ) ) {
+			update_meta_cache( 'post', $ids );
+		}
+	}
+
+	/**
+	 * Ids of the posts to examine, after a given id, lowest first.
+	 *
+	 * Every status but `auto-draft`, so a draft, a scheduled post or one in the
+	 * trash already has its flag right on the day it is published or restored.
+	 *
+	 * @param int $after_id Last id examined.
+	 * @param int $limit    Rows.
+	 * @return int[]
+	 */
+	public static function post_ids_after( int $after_id, int $limit ): array {
+		global $wpdb;
+
+		$types = Agend_Content_Access_Meta_Box::supported_post_types();
+
+		if ( array() === $types ) {
+			return array();
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $types ), '%s' ) );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Table name and a generated placeholder list; every value is bound.
+		$sql = $wpdb->prepare(
+			"SELECT ID FROM {$wpdb->posts} WHERE ID > %d AND post_type IN ( {$placeholders} ) AND post_status <> 'auto-draft' ORDER BY ID ASC LIMIT %d",
+			array_merge( array( $after_id ), array_values( $types ), array( $limit ) )
+		);
+
+		return array_map( 'intval', (array) $wpdb->get_col( $sql ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
+	}
+
+	/**
+	 * The progress of the one-off backfill.
+	 *
+	 * @return array{last_id: int, done: bool}
+	 */
+	public static function backfill_state(): array {
+		$stored = get_option( self::BACKFILL_OPTION, array() );
+		$stored = is_array( $stored ) ? $stored : array();
+
+		return array(
+			'last_id' => isset( $stored['last_id'] ) ? max( 0, (int) $stored['last_id'] ) : 0,
+			'done'    => ! empty( $stored['done'] ),
+		);
+	}
+
+	/**
+	 * Records the progress of the backfill.
+	 *
+	 * Not autoloaded while it runs, so a site that is partway through carries no
+	 * extra weight on every request; autoloaded once done, because every wp-admin
+	 * page for a manager reads it to find that out, and a lookup that costs a query
+	 * for ever is the worse trade.
+	 *
+	 * @param int  $last_id Last post id examined.
+	 * @param bool $done    Whether the whole table has been.
+	 */
+	private static function save_backfill_state( int $last_id, bool $done ): void {
+		update_option(
+			self::BACKFILL_OPTION,
+			array(
+				'last_id' => $last_id,
+				'done'    => $done,
+			),
+			$done
+		);
+	}
+
+	/**
+	 * Flags posts saved before the flag existed, a batch at a time.
+	 *
+	 * Runs for a user who can manage options, on a wp-admin page load, until the
+	 * whole table has been examined, so the flag converges on its own with nobody
+	 * having to run anything. A hundred posts a pass, so no one page load pays for
+	 * a big site; the same hundred processed twice by two administrators at once is
+	 * harmless, since the flag is written only when it is wrong.
+	 *
+	 * Skipped for AJAX: heartbeat requests would run it every fifteen seconds in a
+	 * tab nobody is looking at.
+	 */
+	public static function maybe_backfill(): void {
+		if ( wp_doing_ajax() || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$state = self::backfill_state();
+
+		if ( $state['done'] ) {
+			return;
+		}
+
+		$result = self::backfill_batch( $state['last_id'] );
+
+		self::save_backfill_state( $result['last_id'], $result['done'] );
+	}
+
+	/**
+	 * Flags every post, from the start, in batches.
+	 *
+	 * What `wp agend-content-access backfill-fragment-flags` runs. Starts from the
+	 * first post whatever the one-off recorded, so it can be run again, and marks
+	 * the one-off done when it finishes so the admin pass does not repeat it.
+	 *
+	 * @param int           $batch    Posts per pass.
+	 * @param callable|null $progress Called after each pass with its result.
+	 * @param callable|null $fetch    Returns the ids, for a test.
+	 * @return array{processed: int, flagged: int}
+	 */
+	public static function backfill_all( int $batch = self::BACKFILL_BATCH, ?callable $progress = null, ?callable $fetch = null ): array {
+		$last_id   = 0;
+		$processed = 0;
+		$flagged   = 0;
+
+		do {
+			$result = self::backfill_batch( $last_id, $batch, $fetch );
+
+			$last_id    = $result['last_id'];
+			$processed += $result['processed'];
+			$flagged   += $result['flagged'];
+
+			self::save_backfill_state( $last_id, $result['done'] );
+
+			if ( null !== $progress ) {
+				$progress( $result );
+			}
+			// A pass that examined nothing is the end whatever it reported, so a
+			// fetcher that never says "done" cannot hold this in a loop.
+		} while ( ! $result['done'] && $result['processed'] > 0 );
+
+		return array(
+			'processed' => $processed,
+			'flagged'   => $flagged,
+		);
+	}
+
+	/**
+	 * Keeps posts that carry a rule out of search for visitors.
+	 *
+	 * Core search matches the raw `post_content` with `LIKE` in SQL and never
+	 * touches the render pipeline, so a public page with a members-only block
+	 * matches a search for the protected text, and the hit alone tells the
+	 * searcher the text is there. Suppression cannot help: the block is removed
+	 * from the render, not from the question.
+	 *
+	 * Applies to any query that carries a search term, not only the main one,
+	 * because the same query is what the REST API runs for `?search=` and for
+	 * `/wp/v2/search`, and what a theme's live search runs. A query with no search
+	 * term is untouched. Users who can `edit_others_posts` are not filtered: they
+	 * can read the raw content of anyone's post anyway. Users who can only
+	 * `edit_posts` ARE filtered, because search would let a contributor test text
+	 * in posts that are not theirs: a search that returns a post tells the
+	 * searcher the words are in it, which is the read this prevents.
+	 *
+	 * The cost is real and is why this is filterable: the post's public parts
+	 * stop being searchable too. Return false from
+	 * `agend_content_access_search_excludes_fragment_rules` to turn it off.
+	 *
+	 * The existing `meta_query` is wrapped, never appended to. Appending a
+	 * clause to a query whose top-level relation is `OR` would read "or has no
+	 * flag", which widens the result instead of narrowing it.
+	 *
+	 * @param WP_Query $query Query about to run.
+	 */
+	public function exclude_from_search( $query ): void {
+		if ( ! $query instanceof WP_Query || ! self::is_search_query( $query ) ) {
+			return;
+		}
+
+		/**
+		 * Filters whether documents carrying rules on a block or an Elementor section
+		 * are excluded from search
+		 * for users who cannot edit others' posts.
+		 *
+		 * Excluding them also hides their public parts from search, which is the
+		 * price of not revealing that the protected text exists.
+		 *
+		 * @param bool     $exclude Whether to exclude. Default true.
+		 * @param WP_Query $query   The search query.
+		 */
+		if ( ! apply_filters( 'agend_content_access_search_excludes_fragment_rules', true, $query ) ) {
+			return;
+		}
+
+		if ( current_user_can( 'edit_others_posts' ) ) {
+			return;
+		}
+
+		$clause   = array(
+			'key'     => self::SEARCH_FLAG_META_KEY,
+			'compare' => 'NOT EXISTS',
+		);
+		$existing = $query->get( 'meta_query' );
+
+		$query->set(
+			'meta_query',
+			is_array( $existing ) && array() !== $existing
+				? array(
+					'relation' => 'AND',
+					$existing,
+					$clause,
+				)
+				: array( $clause )
+		);
+	}
+
+	/**
+	 * Whether the query searches for a term.
+	 *
+	 * Anything that is not plainly empty counts, including a value of an odd
+	 * type, because a search term this cannot read is one WordPress may still
+	 * match against the content.
+	 *
+	 * @param WP_Query $query Query.
+	 * @return bool
+	 */
+	private static function is_search_query( WP_Query $query ): bool {
+		$term = $query->get( 's' );
+
+		return null !== $term && false !== $term && '' !== $term && array() !== $term;
+	}
+}

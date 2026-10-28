@@ -53,12 +53,46 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Agend_Content_Access_Decision::reset_cache();
 		}
 
+		// The member facts source holds its own per-request memo, shared by the
+		// document path and the display condition path. `Decision::reset_cache()`
+		// clears it, but a suite that loads the facts source without the decision
+		// class (the condition runtime tests) would otherwise carry one test's
+		// visitor into the next.
+		if ( class_exists( 'Agend_Content_Access_Viewer_Facts', false ) ) {
+			\Agend_Content_Access_Viewer_Facts::reset();
+		}
+
+		// The page that is being denied is held for the shortcode that reads it, as
+		// a static: one request, one denial. Across tests it would show the last
+		// test's page denial in the next test's shortcode.
+		if ( class_exists( 'Agend_Content_Access_Frontend', false ) ) {
+			\Agend_Content_Access_Frontend::reset_gate();
+		}
+
+		// Which restricted posts a viewer is denied, for the comment queries of the
+		// request. Right in production; across tests it would hand one viewer's list to
+		// the next.
+		if ( class_exists( 'Agend_Content_Access_Comments', false ) ) {
+			\Agend_Content_Access_Comments::reset();
+		}
+
+		// The catalogue holds what each list answered, failures included, for the
+		// request. Right in production; across tests it would hand one test's
+		// outage, or its seeded list, to the next.
+		if ( class_exists( 'Agend_Content_Access_Catalogue', false ) ) {
+			\Agend_Content_Access_Catalogue::reset();
+		}
+
 		// Post and meta registries used by the WordPress stubs.
 		$GLOBALS['agend_test_posts']            = array();
 		$GLOBALS['agend_test_post_meta']        = array();
 		$GLOBALS['agend_test_user_meta']        = array();
 		$GLOBALS['agend_test_users']            = array();
+		$GLOBALS['agend_test_get_users']        = null;
 		$GLOBALS['agend_test_current_user_can'] = array();
+		$GLOBALS['agend_test_current_user_can_for'] = array();
+		$GLOBALS['agend_test_cache_ttls']       = array();
+		unset( $GLOBALS['agend_test_post_types'] );
 
 		// Request-shape flags the WordPress stubs and the WooCommerce page
 		// fixture read. Reset for the same reason as the registries above: a
@@ -77,6 +111,33 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_doing_cron']         = false;
 		$GLOBALS['agend_test_is_embed']           = false;
 		$GLOBALS['agend_test_not_main_query']     = false;
+		$GLOBALS['agend_test_is_singular']        = false;
+		$GLOBALS['agend_test_queried_object']     = null;
+		$GLOBALS['agend_test_in_the_loop']        = false;
+		$GLOBALS['agend_test_rest_request']       = false;
+		$GLOBALS['agend_test_revisions']          = array();
+		$GLOBALS['agend_test_primed_caches']      = array();
+		$GLOBALS['agend_test_autosaves']          = array();
+		$GLOBALS['agend_test_shortcodes']         = array();
+		$GLOBALS['agend_test_block_patterns']     = array();
+		$GLOBALS['agend_test_block_pattern_categories'] = array();
+		$GLOBALS['agend_test_post_type_objects']  = array();
+		$GLOBALS['agend_test_permalinks']         = array();
+		$GLOBALS['agend_test_theme_calls']        = array();
+		$GLOBALS['agend_test_block_theme']        = false;
+		$GLOBALS['agend_test_is_comment_feed']    = false;
+		$GLOBALS['agend_test_comments']           = array();
+		$GLOBALS['agend_test_posts_with_comments'] = array();
+		unset( $GLOBALS['agend_test_current_screen'] );
+		unset( $GLOBALS['agend_test_referer'] );
+
+		// The request WordPress is dispatching, whose `rest_route` query var is
+		// how a REST route is read. Absent unless a test is about REST.
+		unset( $GLOBALS['wp'] );
+		unset( $_GET['context'] );
+
+		// "The post being rendered" that get_post() resolves with no argument.
+		unset( $GLOBALS['post'] );
 
 		// Signed-out by default. Production code impersonates through
 		// `wp_set_current_user()` (the membership snapshot sync does, and
