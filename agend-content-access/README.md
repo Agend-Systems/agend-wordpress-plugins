@@ -466,13 +466,18 @@ everyone except these people" that widens who sees the element. Two things stop 
   later, draft and autosave saves included) gives the saved elements to
   `Agend_Content_Access_Elementor::preserve_unseen_rules()`, which adds to each element
   any rule it held before that the saved data lacks and the list does not offer (the
-  catalogue's own rules and their slug aliases are offered, so removing one of those
-  sticks). It only ever adds, and it asks the catalogue itself, because a save is not an
+  catalogue's own rules are offered, so removing one of those sticks), but only where
+  losing it widens who sees the element: the saved element matches "all of these", is
+  reversed ("everyone except these people"), or would be left with no rules at all. Under
+  plain "any of these" with other rules left, a removed rule stays removed, because it
+  can only narrow the audience. A match or reverse setting it cannot read counts as
+  widening. It only ever adds, and it asks the catalogue itself, because a save is not an
   editor request.
 
-**The cost:** an "Unavailable" rule cannot be removed from an element in the editor until
-the catalogue offers it again, or the element is replaced. It matches no one, so what
-stays is the safe side: it can only deny.
+**The cost:** under "all of these", reversed, or when it is the last rule, an "Unavailable"
+rule cannot be removed from an element in the editor until the catalogue offers it again,
+or the element is replaced. It is not the safe side in every mode: reversed, a rule that
+matches no one lets everyone in, which is why it is kept there.
 
 ## What this plugin owns
 

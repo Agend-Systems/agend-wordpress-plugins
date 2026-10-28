@@ -877,14 +877,63 @@ final class ElementorRuleControlsTest extends TestCase {
 		$saved = ( new ElementorControl() )->preserve_unseen_rules(
 			array(
 				'settings' => array( 'post_status' => 'draft' ),
-				'elements' => array( $this->element( 'aaaa001', array( 'agend_membership:' . self::TIER_A ), 'any' ) ),
+				'elements' => array( $this->element( 'aaaa001', array( 'agend_membership:' . self::TIER_A ), 'all' ) ),
 			),
 			$this->savingDocument( 500 )
 		);
 
 		$this->assertSame( array( 'agend_membership:' . self::TIER_A, 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ) );
 		$this->assertSame( array( 'post_status' => 'draft' ), $saved['settings'] );
-		$this->assertSame( 'any', $saved['elements'][0]['settings']['agend_access_match'] );
+		$this->assertSame( 'all', $saved['elements'][0]['settings']['agend_access_match'] );
+	}
+
+	/** Saves the element with the rules and settings given and returns what it holds afterwards. */
+	private function saveElement( array $before, array $settings ): array {
+		$this->seed();
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', $before ) ) );
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( array( 'id' => 'aaaa001', 'elType' => 'container', 'settings' => $settings, 'elements' => array() ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		return $this->rulesOf( $saved, 'aaaa001' );
+	}
+
+	/**
+	 * Under plain "any of these" with other rules left, losing a rule only narrows the audience, so
+	 * a rule the author removed stays removed. Putting it back resurrected a deliberate removal.
+	 */
+	#[Test]
+	public function under_any_with_other_rules_left_a_removed_rule_stays_removed(): void {
+		$tier = 'agend_membership:' . self::TIER_A;
+		$gone = 'agend_membership:' . self::GONE;
+
+		$this->assertSame( array( $tier ), $this->saveElement( array( $tier, $gone ), array( 'agend_access_rules' => array( $tier ), 'agend_access_match' => 'any' ) ) );
+		$this->assertSame( array( $tier ), $this->saveElement( array( $tier, $gone ), array( 'agend_access_rules' => array( $tier ) ) ), 'no match setting is "any", the control default' );
+		$this->assertSame( array( $tier ), $this->saveElement( array( $tier, $gone ), array( 'agend_access_rules' => array( $tier ), 'agend_access_match' => '', 'agend_access_invert' => '' ) ) );
+	}
+
+	/** The cases where losing a rule widens: "all of these", reversed, and a list left empty. */
+	#[Test]
+	public function a_rule_whose_loss_widens_the_audience_is_put_back(): void {
+		$tier = 'agend_membership:' . self::TIER_A;
+		$gone = 'agend_membership:' . self::GONE;
+
+		$this->assertSame( array( $tier, $gone ), $this->saveElement( array( $tier, $gone ), array( 'agend_access_rules' => array( $tier ), 'agend_access_match' => 'all' ) ), 'all of these' );
+		$this->assertSame( array( $tier, $gone ), $this->saveElement( array( $tier, $gone ), array( 'agend_access_rules' => array( $tier ), 'agend_access_match' => 'any', 'agend_access_invert' => 'yes' ) ), 'everyone except these people' );
+		$this->assertSame( array( $gone ), $this->saveElement( array( $gone ), array( 'agend_access_match' => 'any' ) ), 'any, but nothing is left: no rules is everyone' );
+		$this->assertSame( array( $gone ), $this->saveElement( array( $gone ), array( 'agend_access_rules' => array(), 'agend_access_match' => 'any' ) ), 'an empty list' );
+	}
+
+	/** A setting this does not read is doubt, and doubt keeps the rule. */
+	#[Test]
+	public function a_match_or_reverse_setting_it_cannot_read_keeps_the_rule(): void {
+		$tier = 'agend_membership:' . self::TIER_A;
+		$gone = 'agend_membership:' . self::GONE;
+
+		$this->assertSame( array( $tier, $gone ), $this->saveElement( array( $tier, $gone ), array( 'agend_access_rules' => array( $tier ), 'agend_access_match' => 'ALL' ) ) );
+		$this->assertSame( array( $tier, $gone ), $this->saveElement( array( $tier, $gone ), array( 'agend_access_rules' => array( $tier ), 'agend_access_match' => 'any', 'agend_access_invert' => 'maybe' ) ) );
 	}
 
 	/** A save already holding the rule adds nothing twice. */

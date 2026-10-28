@@ -447,13 +447,14 @@ class Agend_Content_Access_Elementor {
 	}
 
 	/**
-	 * Puts back a rule an element held that the author could neither see nor remove.
+	 * Puts back a rule an element held that the author could neither see nor remove,
+	 * where losing it would widen who sees the element.
 	 *
 	 * Runs on `elementor/document/save/data`, the filter Elementor applies to the whole
 	 * document before it saves it (3.3 and later), draft and autosave saves included, and
 	 * the one place the saved elements can be changed. For each element it saved, a rule the
 	 * element held before that the saved data has lost, and that the list does not offer,
-	 * is added back. "Does not offer" is exactly what `rule_options()` returns now, plus
+	 * is a candidate. "Does not offer" is exactly what `rule_options()` returns now, plus
 	 * the slug aliases of what it offers, which an author may drop as they are shown as
 	 * the rule they stand for: a plan that was switched off IS offered, so an author who
 	 * removes one means it, and so is anything the catalogue can name.
@@ -461,11 +462,18 @@ class Agend_Content_Access_Elementor {
 	 * That leaves the rules nobody can name, a plan, segment or entitlement that was
 	 * deleted, and every Agend rule for as long as the catalogue cannot be loaded. The
 	 * editor shows those as "Unavailable", but a multi-select that does not offer a value
-	 * cannot be trusted to hand it back, and under "all of these" or "show to everyone
-	 * except these people" a rule lost is a wider audience, not a narrower one. So they
-	 * stay. THE COST IS HONEST: an author cannot remove an "Unavailable" rule from an
-	 * element until the catalogue offers it again or the element is replaced. A rule that
-	 * no longer matches anyone only ever denies, so what stays is the safe side.
+	 * cannot be trusted to hand it back.
+	 *
+	 * A candidate is put back ONLY WHERE LOSING IT WIDENS: when the saved element matches
+	 * "all of these", when it is reversed ("everyone except these people"), or when it
+	 * would otherwise be left with no rules at all (which shows it to everyone). Under
+	 * "any of these" with other rules left, dropping a rule only narrows the audience, so a
+	 * rule the author removed stays removed. A rule that matches nobody is not the safe
+	 * side in every mode: reversed, it is a rule that lets everyone in. An element whose
+	 * match or reverse setting is not one this reads is treated as widening, so doubt keeps
+	 * the rule. THE COST IS HONEST: under those modes an author cannot remove an
+	 * "Unavailable" rule from an element until the catalogue offers it again or the
+	 * element is replaced.
 	 *
 	 * Only ever adds. It never removes a rule, never touches an element it has no stored
 	 * copy of (a new one, or one whose id changed), and never reads the editor's own
@@ -498,7 +506,7 @@ class Agend_Content_Access_Elementor {
 
 	/**
 	 * Adds the stored rules a list of saved elements has lost, in every element and every
-	 * list inside it.
+	 * list inside it, where losing them widens.
 	 *
 	 * @param array                $elements Saved elements.
 	 * @param array<string, array> $before   Element id to the rules it held.
@@ -516,7 +524,7 @@ class Agend_Content_Access_Elementor {
 				$saved    = isset( $settings[ self::RULES_KEY ] ) && is_array( $settings[ self::RULES_KEY ] ) ? array_values( $settings[ self::RULES_KEY ] ) : array();
 				$lost     = array_values( array_diff( array_diff( $before[ $element['id'] ], $offered ), $saved ) );
 
-				if ( array() !== $lost ) {
+				if ( array() !== $lost && self::losing_widens( $settings, $saved ) ) {
 					$settings[ self::RULES_KEY ] = array_merge( $saved, $lost );
 					$element['settings']         = $settings;
 				}
@@ -530,6 +538,40 @@ class Agend_Content_Access_Elementor {
 		}
 
 		return $elements;
+	}
+
+	/**
+	 * Whether an element, as saved, is one a lost rule widens the audience of.
+	 *
+	 * Yes when it would be left with no rules (no rules is everyone), when it is reversed,
+	 * and when it matches anything but "any of these". Only plain "any of these" with
+	 * other rules left narrows. A match or reverse value this does not read is a yes.
+	 *
+	 * @param array $settings Saved element settings.
+	 * @param array $saved    The rules the saved element holds.
+	 * @return bool
+	 */
+	private static function losing_widens( array $settings, array $saved ): bool {
+		$left = array_filter(
+			$saved,
+			static function ( $rule ): bool {
+				return is_string( $rule ) && '' !== $rule;
+			}
+		);
+
+		if ( array() === $left ) {
+			return true;
+		}
+
+		$invert = $settings[ self::INVERT_KEY ] ?? '';
+
+		if ( '' !== $invert && false !== $invert && null !== $invert ) {
+			return true;
+		}
+
+		$match = $settings[ self::MATCH_KEY ] ?? '';
+
+		return ! ( '' === $match || Agend_Content_Access_Rules::MATCH_ANY === $match );
 	}
 
 	/**
