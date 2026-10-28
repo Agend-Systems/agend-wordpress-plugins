@@ -191,7 +191,53 @@ final class RulesTest extends TestCase {
 			'an invert that is an array'     => array( array( 'rules' => array( self::MEMBER ), 'invert' => array( true ) ) ),
 			'all_of that is a string'        => array( array( 'rules' => array( self::MEMBER ), 'all_of' => 'x' ) ),
 			'all_of holding garbage'         => array( array( 'rules' => array( self::MEMBER ), 'all_of' => array( 'x' ) ) ),
+
+			// An object that is not one this version wrote. It used to be read for the keys it
+			// did know, and with none of them that is "no rules": a page publishes.
+			'only a key this version does not know'      => array( array( 'groups' => array( array( 'rules' => array( self::MEMBER ) ) ) ) ),
+			'a key this version does not know and rules' => array( array( 'rules' => array( self::MEMBER ), 'groups' => array() ) ),
+			'a key this version does not know and empty rules' => array( array( 'rules' => array(), 'extra' => 1 ) ),
+			'an unknown key with a known one'            => array( array( 'match' => 'all', 'flag' => true ) ),
+			'a key that differs only in case'            => array( array( 'Rules' => array( self::MEMBER ) ) ),
+			'a numbered key beside the keys'             => array( array( 'rules' => array( self::MEMBER ), 0 => 'x' ) ),
+			'a match and nothing else'                   => array( array( 'match' => 'all' ) ),
+			'an invert and nothing else'                 => array( array( 'invert' => false ) ),
+			'a replacement and nothing else'             => array( array( 'fallbackId' => 5 ) ),
+			'denial settings and nothing else'           => array( array( 'denied' => array( 'action' => 'placeholder', 'target_id' => 0, 'fallback_id' => 0 ) ) ),
+			'an unknown key in a part of all_of'         => array( array( 'rules' => array(), 'all_of' => array( array( 'rules' => array( self::MEMBER ), 'extra' => 1 ) ) ) ),
+			'a part of all_of with no rules'             => array( array( 'rules' => array(), 'all_of' => array( array( 'match' => 'all' ) ) ) ),
 		);
+	}
+
+	/** Every key this version writes is one it reads, and an object made of them alone is readable. */
+	#[Test]
+	public function the_keys_this_version_writes_are_all_readable(): void {
+		$written = array(
+			'rules'      => array( self::MEMBER ),
+			'match'      => 'all',
+			'invert'     => true,
+			'fallbackId' => 5,
+			'denied'     => array( 'action' => 'redirect', 'target_id' => 9, 'fallback_id' => 0 ),
+		);
+
+		$rules = Rules::from_array( $written );
+
+		$this->assertFalse( $rules->is_unreadable() );
+		$this->assertSame( array( self::MEMBER ), $rules->rules() );
+		$this->assertSame( 5, $rules->fallback_id() );
+
+		// A composition has `all_of` and may have empty rules of its own.
+		$this->assertFalse( Rules::from_array( array( 'rules' => array(), 'all_of' => array( array( 'rules' => array( self::MEMBER ) ), array( 'rules' => array( 'agend_wordpress:logged_in' ) ) ) ) )->is_unreadable() );
+		$this->assertFalse( Rules::from_array( array( 'all_of' => array( array( 'rules' => array( self::MEMBER ) ) ) ) )->is_unreadable(), '`all_of` alone is a value: it carries the rules' );
+
+		// What this class writes reads back, for every shape it has.
+		foreach ( array( Rules::none(), Rules::unreadable(), Rules::from_array( $written ) ) as $set ) {
+			$this->assertSame( $set->to_array(), Rules::from_array( $set->to_array() )->to_array() );
+		}
+
+		// And the object with nothing in it, which is what an empty stored object is.
+		$this->assertTrue( Rules::from_array( array( 'rules' => null ) )->is_empty() );
+		$this->assertTrue( Rules::from_array( array( 'rules' => array(), 'denied' => array( 'action' => 'back' ) ) )->is_empty() );
 	}
 
 	#[Test]
@@ -280,7 +326,26 @@ final class RulesTest extends TestCase {
 			'a bad invert'   => array( array( 'rules' => array( self::MEMBER ), 'invert' => 'yes' ) ),
 			'a bad rule'     => array( array( 'rules' => array( 5 ) ) ),
 			'bad rules'      => array( array( 'rules' => 'agend_membership:is_member' ) ),
+			'an object of a shape this version does not know' => array( array( 'groups' => array( array( 'rules' => array( self::MEMBER ) ) ) ) ),
+			'an object with no rules at all'                  => array( array( 'denied' => array( 'action' => 'placeholder' ) ) ),
 		);
+	}
+
+	/**
+	 * A stray `_agend_access_rules` value over a page's 0.1.x policy made the page public: an object
+	 * with keys this version did not know read as "no rules", and the new meta wins over the old
+	 * policy. A value that cannot be read says nothing about what the page should allow.
+	 */
+	#[Test]
+	public function a_stray_value_over_an_old_members_policy_does_not_make_the_page_public(): void {
+		$this->storePolicy( array( 'mode' => 'active_member' ) );
+		$this->storeRules( array( 'groups' => array( array( 'rules' => array( self::MEMBER ) ) ) ) );
+
+		$rules = Rules::from_post( self::POST );
+
+		$this->assertTrue( $rules->is_unreadable() );
+		$this->assertFalse( $rules->is_empty() );
+		$this->assertSame( Policy::UNSATISFIABLE, $rules->to_policy() );
 	}
 
 	/** The defect every release since 0.1.0 has had to avoid: a stored value we cannot read must not publish the page. */

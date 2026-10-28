@@ -274,6 +274,30 @@ final class PageDenialActionsTest extends TestCase {
 		$this->assertStringNotContainsString( self::BODY, $html );
 	}
 
+	/**
+	 * A stray value in the new meta, of a shape this version does not know, over a members policy
+	 * used to read as "no rules" and publish the page. It is a value that cannot be read, so it denies.
+	 */
+	#[Test]
+	public function a_page_with_a_stray_rules_value_over_a_members_policy_is_still_denied(): void {
+		$GLOBALS['agend_test_post_meta'][ self::DENIED ][ Agend_Content_Access_Policy::META_KEY ] = array( 'mode' => 'active_member' );
+		$GLOBALS['agend_test_post_meta'][ self::DENIED ][ Rules::META_KEY ]                         = array( 'groups' => array( array( 'rules' => array( self::MEMBER ) ) ) );
+
+		$html = $this->placeholderBody();
+
+		$this->assertStringContainsString( 'agend-access-placeholder', $html );
+		$this->assertStringNotContainsString( self::BODY, $html );
+
+		// Even somebody who is a member: what is stored cannot be read, and denies everyone.
+		$this->asMember( self::TIER_A );
+		Agend_Test_WP::$status_codes = array();
+
+		$html = $this->placeholderBody();
+
+		$this->assertStringContainsString( 'agend-access-placeholder', $html );
+		$this->assertStringNotContainsString( self::BODY, $html );
+	}
+
 	#[Test]
 	public function the_placeholder_says_why_the_visitor_was_refused(): void {
 		$this->deniedPage( array(), array( 'agend_membership:' . self::TIER_A ) );

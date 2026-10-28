@@ -133,6 +133,16 @@ class Agend_Content_Access_Rules {
 	const DENIED_BACK        = 'back';
 
 	/**
+	 * The keys a stored rule set may carry, and the only ones: `rules`, `match`, `invert`
+	 * and `fallbackId` for a plain set, `all_of` for a composition and `denied` for a
+	 * page's denial settings (read apart, by `from_post()`). Anything else makes the
+	 * value unreadable: see `from_array()`.
+	 *
+	 * @var string[]
+	 */
+	private const STORED_KEYS = array( 'rules', 'match', 'invert', 'fallbackId', 'all_of', 'denied' );
+
+	/**
 	 * This set's rules, trimmed and without blanks or duplicates. A composition has
 	 * none of its own: see `leaves()`.
 	 *
@@ -417,6 +427,14 @@ class Agend_Content_Access_Rules {
 	 * unreadable. An empty array is no rules, and a non-empty list (which has no
 	 * string keys) is not an object and is unreadable.
 	 *
+	 * AN OBJECT IS READ ONLY IF IT IS ONE THIS VERSION WROTE. It may carry the keys in
+	 * `STORED_KEYS` and no others, and it must carry `rules` or `all_of`. An object with a
+	 * key this version does not know, a later release's shape, a hand-written value, a
+	 * stray write, used to be read for the keys it did know, and with none of them that is
+	 * "no rules": a page with a value it could not read became public over its 0.1.x
+	 * policy. Not being able to tell what a value means is not evidence that it means
+	 * nothing, so it denies, as every other value this cannot read does.
+	 *
 	 * @param mixed $value Candidate rule set.
 	 * @return self
 	 */
@@ -430,6 +448,16 @@ class Agend_Content_Access_Rules {
 		}
 
 		if ( ! self::is_object_like( $value ) ) {
+			return self::unreadable();
+		}
+
+		foreach ( array_keys( $value ) as $key ) {
+			if ( ! in_array( $key, self::STORED_KEYS, true ) ) {
+				return self::unreadable();
+			}
+		}
+
+		if ( ! array_key_exists( 'rules', $value ) && ! isset( $value['all_of'] ) ) {
 			return self::unreadable();
 		}
 

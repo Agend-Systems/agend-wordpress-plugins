@@ -530,6 +530,7 @@ has always read it.
 | `selected_entitlements` | one `agend_entitlements:<gate key>` per key |
 | `public`, `inherit` | no rules |
 | A set-mode that names nothing | unreadable (nobody), never "no rules" |
+| A stored rule set with a key this version does not write (anything but `rules`, `match`, `invert`, `fallbackId`, `all_of` and `denied`), or with neither `rules` nor `all_of` | unreadable (nobody). It used to be read for the keys it did know, and with none of them that was "no rules": a stray value in a page's `_agend_access_rules` published the page over its 0.1.x policy |
 | A page's `_agend_access_policy` | the same, when `_agend_access_rules` is absent. The new meta wins when both exist |
 | An element's `agend_access_mode` and id lists, and `agend_conditions_*` | the same, plus the old display condition keys as they were |
 
