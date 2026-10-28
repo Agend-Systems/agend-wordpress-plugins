@@ -398,9 +398,12 @@ The list offers the block panel's vocabulary from the same PHP source
 with its kind in front: "Any current member", "Plan: Gold", "Segment: Board",
 "Entitlement: Premium directory", "Platform: Directory access", "Signed in",
 "Signed out", "Role: Editor". Plans and segments are stored by id and entitlements by
-gate key. A plan that was switched off is not offered. The options are built once per
-request and shared by every control stack Elementor registers, so about 800
-entitlements cost one read and not one per widget type.
+gate key. A plan that was switched off is offered as "Plan (inactive): Gold". The options
+are built in Elementor's editor only: a visitor's render registers the same controls
+with none, so it pays for no catalogue read and no query, and what a stored rule
+means never depends on them. In the editor they are built once per request and shared
+by every control stack Elementor registers, so about 800 entitlements cost one read and
+not one per widget type.
 
 Match, the reverse switch and "Show instead" only mean something with a rule, so the
 server hides them until one is chosen, and an emptied list leaves no rule behind
@@ -441,11 +444,27 @@ checked again at render, an element carrying any rule, old or new, or any such
 descendant, is kept out of Elementor's element cache, and the Editor V4 atomic
 element limitation above stands.
 
-**A known limit.** A rule an element holds that the list no longer offers (a deleted
-segment, a retired plan) is still enforced, and so denies, but Elementor's multi-select
-can only draw what it offers: the rule is not shown, and changing the list drops it.
-The block panel shows such a rule as "Unavailable" and keeps it. Check the elements
-that used a plan or segment before retiring it.
+**A rule the list does not offer is kept.** A multi-select writes back only the values it
+shows, so a rule an element holds that the list does not offer (a deleted segment, a
+rule from a provider a site removed, every Agend rule while the catalogue cannot be
+loaded) was lost on the next edit of the list, and under "all of these" or "show to
+everyone except these people" that widens who sees the element. Two things stop it:
+
+- The editor offers every rule the open document holds, read from its `_elementor_data`
+  when the editor loads: a plan that was switched off as "Plan (inactive): Gold", a slug
+  alias under the name of the plan or segment it stands for, and anything the list cannot
+  name as "Unavailable: <rule>".
+- A save puts back what it lost. `elementor/document/save/data` (Elementor 3.3 and
+  later, draft and autosave saves included) gives the saved elements to
+  `Agend_Content_Access_Elementor::preserve_unseen_rules()`, which adds to each element
+  any rule it held before that the saved data lacks and the list does not offer (the
+  catalogue's own rules and their slug aliases are offered, so removing one of those
+  sticks). It only ever adds, and it asks the catalogue itself, because a save is not an
+  editor request.
+
+**The cost:** an "Unavailable" rule cannot be removed from an element in the editor until
+the catalogue offers it again, or the element is replaced. It matches no one, so what
+stays is the safe side: it can only deny.
 
 ## What this plugin owns
 

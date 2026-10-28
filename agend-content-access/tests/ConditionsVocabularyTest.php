@@ -410,6 +410,7 @@ final class ConditionsVocabularyTest extends TestCase {
 			array(
 				'agend_membership:is_member'            => 'Any current member',
 				'agend_membership:' . self::PLAN_GOLD   => 'Plan: Gold',
+				'agend_membership:' . self::PLAN_OLD    => 'Plan (inactive): Retired',
 				'agend_membership:' . self::PLAN_BARE   => 'Plan: No slug',
 				'agend_segments:' . self::SEG_BOARD     => 'Segment: Board',
 				'agend_segments:' . self::SEG_BARE      => 'Segment: No slug',
@@ -428,13 +429,17 @@ final class ConditionsVocabularyTest extends TestCase {
 		);
 	}
 
+	/**
+	 * A control that does not offer a stored value cannot show it or keep it, so an element that
+	 * held a plan that was switched off lost it on the next edit of the list.
+	 */
 	#[Test]
-	public function a_plan_that_was_switched_off_is_not_offered_and_no_slug_is_a_second_choice(): void {
+	public function a_plan_that_was_switched_off_is_offered_labelled_inactive_and_no_slug_is_a_second_choice(): void {
 		$this->seed();
 
 		$options = Sets::rule_options();
 
-		$this->assertArrayNotHasKey( 'agend_membership:' . self::PLAN_OLD, $options );
+		$this->assertSame( 'Plan (inactive): Retired', $options[ 'agend_membership:' . self::PLAN_OLD ] );
 		$this->assertArrayNotHasKey( 'agend_membership:retired', $options );
 		$this->assertArrayNotHasKey( 'agend_membership:gold', $options, 'a slug is only an alias of the id rule' );
 		$this->assertArrayNotHasKey( 'agend_segments:board', $options );
@@ -485,5 +490,57 @@ final class ConditionsVocabularyTest extends TestCase {
 
 		$this->assertSame( 'Segment: Board', $options[ 'agend_segments:' . self::SEG_BOARD ] );
 		$this->assertSame( array(), array_filter( array_keys( $options ), static fn( string $rule ): bool => str_starts_with( $rule, 'agend_entitlements:' ) ) );
+	}
+
+	// -----------------------------------------------------------------
+	// Stored rules the list does not offer
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function the_slug_aliases_are_known_but_never_offered(): void {
+		$this->seed();
+
+		$aliases = Sets::rule_aliases();
+
+		$this->assertSame( 'agend_membership:' . self::PLAN_GOLD, $aliases['agend_membership:gold'] );
+		$this->assertSame( 'agend_membership:' . self::PLAN_OLD, $aliases['agend_membership:retired'], 'a plan that was switched off has its alias too' );
+		$this->assertSame( 'agend_segments:' . self::SEG_BOARD, $aliases['agend_segments:board'] );
+		$this->assertArrayNotHasKey( 'agend_membership:gold', Sets::rule_options() );
+	}
+
+	/** A control cannot show a value it does not offer, so each one an element holds is named. */
+	#[Test]
+	public function a_stored_rule_the_list_does_not_offer_is_named_unavailable(): void {
+		$this->seed();
+
+		$extra = Sets::unavailable_options(
+			array(
+				'agend_membership:99999999-9999-4999-8999-999999999999',
+				'agend_wordpress:role_editor',
+				'agend_membership:gold',
+				'',
+				42,
+				'agend_membership:99999999-9999-4999-8999-999999999999',
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'agend_membership:99999999-9999-4999-8999-999999999999' => 'Unavailable: agend_membership:99999999-9999-4999-8999-999999999999',
+				'agend_membership:gold'                                => 'Plan: Gold',
+			),
+			$extra,
+			'an offered rule needs no entry, an alias reads as its rule, anything else says it cannot be named, and a blank or a non-string is skipped'
+		);
+	}
+
+	/** Every Agend rule drops out of the list while the catalogue cannot be loaded. */
+	#[Test]
+	public function while_the_catalogue_is_down_every_stored_agend_rule_is_unavailable(): void {
+		Agend_Test_WP::$tiers_response = array( 'data' => array() );
+
+		$extra = Sets::unavailable_options( array( 'agend_membership:' . self::PLAN_GOLD, 'agend_wordpress:logged_in' ) );
+
+		$this->assertSame( array( 'agend_membership:' . self::PLAN_GOLD => 'Unavailable: agend_membership:' . self::PLAN_GOLD ), $extra );
 	}
 }

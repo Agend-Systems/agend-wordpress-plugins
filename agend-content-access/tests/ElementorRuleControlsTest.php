@@ -59,8 +59,19 @@ final class ElementorRuleControlsTest extends TestCase {
 	private const SEG_A    = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
 	private const SEG_B    = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2';
 
+	/**
+	 * Opens Elementor's editor, which is where the options are built. Outside it the
+	 * control stacks are registered with none: see `Agend_Content_Access_Elementor::access_controls()`.
+	 */
+	private function inEditor( bool $open = true ): void {
+		Agend_Test_WP::$did_action['elementor/loaded']           = 1;
+		\Elementor\Plugin::$instance->editor->is_edit_mode = $open;
+	}
+
 	/** Loads the three lists through the cache, the seam the Core wrappers sit behind. */
 	private function seed(): void {
+		$this->inEditor();
+
 		Agend_Test_WP::$tiers_response = array(
 			'data' => array(
 				array( 'id' => self::TIER_A, 'name' => 'Full Member', 'slug' => 'full', 'tier_type' => 'individual', 'is_active' => true ),
@@ -174,6 +185,7 @@ final class ElementorRuleControlsTest extends TestCase {
 			array(
 				'agend_membership:is_member'                         => 'Any current member',
 				'agend_membership:' . self::TIER_A                   => 'Plan: Full Member',
+				'agend_membership:' . self::TIER_OLD                 => 'Plan (inactive): Retired',
 				'agend_segments:' . self::SEG_A                      => 'Segment: Overdue renewals',
 				'agend_segments:' . self::SEG_B                      => 'Segment: Volunteers',
 				'agend_entitlements:directory.access'                => 'Platform: Directory access',
@@ -189,10 +201,10 @@ final class ElementorRuleControlsTest extends TestCase {
 	}
 
 	#[Test]
-	public function a_plan_that_was_switched_off_is_not_offered_and_no_option_is_a_slug(): void {
+	public function a_plan_that_was_switched_off_is_offered_labelled_inactive_and_no_option_is_a_slug(): void {
 		$options = $this->controls()[ ElementorControl::RULES_KEY ]['options'];
 
-		$this->assertArrayNotHasKey( 'agend_membership:' . self::TIER_OLD, $options );
+		$this->assertSame( 'Plan (inactive): Retired', $options[ 'agend_membership:' . self::TIER_OLD ] );
 		$this->assertArrayNotHasKey( 'agend_membership:full', $options );
 		$this->assertArrayNotHasKey( 'agend_segments:overdue', $options );
 	}
@@ -200,6 +212,8 @@ final class ElementorRuleControlsTest extends TestCase {
 	/** A list that could not be loaded leaves the control present, with what is left on offer. */
 	#[Test]
 	public function an_unavailable_list_leaves_the_control_present_with_the_rest(): void {
+		$this->inEditor();
+
 		// No cached sections and no Core wrappers in this process.
 		Agend_Test_WP::$tiers_response = array( 'data' => array() );
 
@@ -512,6 +526,8 @@ final class ElementorRuleControlsTest extends TestCase {
 		require_once __DIR__ . '/fixtures/core-segments-double.php';
 		require_once __DIR__ . '/fixtures/core-entitlement-types-double.php';
 
+		$this->inEditor();
+
 		Agend_Test_WP::$tiers_response = array( 'data' => array() );
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_segments_response', new WP_Error( 'http_request_failed', 'down' ) );
 		Agend_Test_WP::set_filter( 'agend_apps_crm_get_entitlement_types_response', new WP_Error( 'http_request_failed', 'down' ) );
@@ -571,5 +587,381 @@ final class ElementorRuleControlsTest extends TestCase {
 		$control->maybe_add_section( $stack, 'b', $args );
 
 		$this->assertSame( 1, count( array_keys( $stack->control_ids(), 'agend_access_rules', true ) ) );
+	}
+
+	// -----------------------------------------------------------------
+	// Options only where they are drawn
+	// -----------------------------------------------------------------
+
+	/**
+	 * A control stack is registered on every front-end render of an Elementor page too, and the
+	 * options are a catalogue read and three post queries. They are what an author picks from and
+	 * nothing else, so a visitor's render does not build them.
+	 */
+	#[Test]
+	public function outside_the_editor_the_options_are_not_built(): void {
+		$this->seed();
+		$this->inEditor( false );
+
+		// A public page that "Show instead" would offer in the editor.
+		$GLOBALS['agend_test_posts'][43] = (object) array(
+			'ID'           => 43,
+			'post_status'  => 'publish',
+			'post_type'    => 'page',
+			'post_title'   => 'Welcome',
+			'post_content' => '',
+		);
+
+		$before   = count( Agend_Test_WP::$requests );
+		$controls = ElementorControl::access_controls();
+
+		$this->assertSame( array(), $controls[ ElementorControl::RULES_KEY ]['options'] );
+		$this->assertSame( array( '' => 'Nothing' ), $controls[ ElementorControl::FALLBACK_KEY ]['options'] );
+		$this->assertSame( $before, count( Agend_Test_WP::$requests ), 'no catalogue read' );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	/** Not in the editor means not in its preview iframe either: nothing there picks from the list. */
+	#[Test]
+	public function the_preview_iframe_does_not_build_them_either(): void {
+		$this->seed();
+		$this->inEditor( false );
+
+		\Elementor\Plugin::$instance->preview->is_preview_mode = true;
+
+		$this->assertSame( array(), ElementorControl::access_controls()[ ElementorControl::RULES_KEY ]['options'] );
+	}
+
+	// -----------------------------------------------------------------
+	// A rule the author could not see
+	// -----------------------------------------------------------------
+
+	private const GONE = '99999999-9999-4999-8999-999999999999';
+
+	/** A document double that says which post is open, as Elementor's documents manager does in the editor. */
+	private function openDocument( int $id ): void {
+		\Elementor\Plugin::$instance->documents = new class( $id ) {
+			private int $id;
+
+			public function __construct( int $id ) {
+				$this->id = $id;
+			}
+
+			public function get_current() {
+				$id = $this->id;
+
+				return new class( $id ) {
+					private int $id;
+
+					public function __construct( int $id ) {
+						$this->id = $id;
+					}
+
+					public function get_main_id(): int {
+						return $this->id;
+					}
+				};
+			}
+		};
+	}
+
+	/** Stores a document the way Elementor does: JSON in `_elementor_data`. */
+	private function storeDocument( int $post_id, array $elements ): void {
+		$GLOBALS['agend_test_post_meta'][ $post_id ]['_elementor_data'] = json_encode( $elements );
+	}
+
+	/** One element holding the given rules, with the match mode. */
+	private function element( string $id, array $rules, string $match = 'all', array $children = array() ): array {
+		return array(
+			'id'       => $id,
+			'elType'   => 'container',
+			'settings' => array( 'agend_access_rules' => $rules, 'agend_access_match' => $match ),
+			'elements' => $children,
+		);
+	}
+
+	/** The document double a save is handed. */
+	private function savingDocument( int $main_id ): object {
+		return new class( $main_id ) {
+			private int $id;
+
+			public function __construct( int $id ) {
+				$this->id = $id;
+			}
+
+			public function get_main_id(): int {
+				return $this->id;
+			}
+		};
+	}
+
+	/** @return string[] The rules an element of the saved data holds, by walking to it. */
+	private function rulesOf( array $data, string ...$path ): array {
+		$elements = $data['elements'];
+		$element  = null;
+
+		foreach ( $path as $id ) {
+			foreach ( $elements as $candidate ) {
+				if ( $id === $candidate['id'] ) {
+					$element  = $candidate;
+					$elements = $candidate['elements'] ?? array();
+					break;
+				}
+			}
+		}
+
+		return $element['settings']['agend_access_rules'] ?? array();
+	}
+
+	/** In the editor the document's own rules are offered, so they show and stay in the list. */
+	#[Test]
+	public function the_editor_offers_every_rule_the_open_document_holds(): void {
+		$this->seed();
+		$this->openDocument( 500 );
+		$this->storeDocument(
+			500,
+			array(
+				$this->element(
+					'aaaa001',
+					array( 'agend_membership:' . self::TIER_A, 'agend_membership:' . self::TIER_OLD, 'agend_membership:' . self::GONE ),
+					'all',
+					array( $this->element( 'bbbb002', array( 'agend_membership:full', 'agend_wordpress:role_ghost' ) ) )
+				),
+			)
+		);
+
+		$options = ElementorControl::access_controls()[ ElementorControl::RULES_KEY ]['options'];
+
+		$this->assertSame( 'Plan (inactive): Retired', $options[ 'agend_membership:' . self::TIER_OLD ], 'a plan that was switched off' );
+		$this->assertSame( 'Unavailable: agend_membership:' . self::GONE, $options[ 'agend_membership:' . self::GONE ] );
+		$this->assertSame( 'Plan: Full Member', $options['agend_membership:full'], 'a slug alias reads as the plan it stands for, in a child element too' );
+		$this->assertSame( 'Unavailable: agend_wordpress:role_ghost', $options['agend_wordpress:role_ghost'] );
+		$this->assertSame( 'Plan: Full Member', $options[ 'agend_membership:' . self::TIER_A ], 'what the list offers keeps its own label' );
+	}
+
+	/** During an outage every Agend rule drops out of the list, and the document's own are what is left to show. */
+	#[Test]
+	public function during_an_outage_the_editor_still_shows_what_the_document_holds(): void {
+		$this->inEditor();
+		$this->openDocument( 500 );
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( 'agend_membership:' . self::TIER_A ) ) ) );
+
+		Agend_Test_WP::$tiers_response = array( 'data' => array() );
+
+		$options = ElementorControl::access_controls()[ ElementorControl::RULES_KEY ]['options'];
+
+		$this->assertSame( 'Unavailable: agend_membership:' . self::TIER_A, $options[ 'agend_membership:' . self::TIER_A ] );
+	}
+
+	/** A document the editor has not named has nothing to add, and breaks nothing. */
+	#[Test]
+	public function a_document_with_no_rules_adds_nothing(): void {
+		$this->seed();
+		$this->openDocument( 500 );
+		$this->storeDocument( 500, array( array( 'id' => 'aaaa001', 'elType' => 'widget', 'settings' => array(), 'elements' => array() ) ) );
+
+		$this->assertSame( Sets::rule_options(), ElementorControl::access_controls()[ ElementorControl::RULES_KEY ]['options'] );
+	}
+
+	// -----------------------------------------------------------------
+	// A save keeps what the author could neither see nor remove
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function the_save_filter_is_registered_with_the_document(): void {
+		new ElementorControl();
+
+		$this->assertSame(
+			array( 'preserve_unseen_rules' ),
+			array_map(
+				static fn( array $entry ): string => $entry['callback'][1],
+				Agend_Test_WP::$filter_registry['elementor/document/save/data'] ?? array()
+			)
+		);
+		$this->assertSame( 2, Agend_Test_WP::$filter_registry['elementor/document/save/data'][0]['args'], 'it needs the document, to know what was stored' );
+	}
+
+	/**
+	 * The whole finding. Under "all of these" the element is for people who hold every rule, and an
+	 * edit that loses one the author never saw widens the audience.
+	 */
+	#[Test]
+	public function an_edit_under_all_of_these_keeps_a_stored_rule_the_author_could_not_see(): void {
+		$this->seed();
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( 'agend_membership:' . self::TIER_A, 'agend_membership:' . self::GONE ) ) ) );
+
+		// The author's browser could only write back what the list showed.
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( $this->element( 'aaaa001', array( 'agend_membership:' . self::TIER_A ) ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( 'agend_membership:' . self::TIER_A, 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ) );
+		$this->assertSame( 'all', $saved['elements'][0]['settings']['agend_access_match'], 'nothing else about the element is touched' );
+	}
+
+	/** An element whose control the author cleared is saved with no key at all. */
+	#[Test]
+	public function a_cleared_list_comes_back_with_the_rule_nobody_could_name(): void {
+		$this->seed();
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( 'agend_membership:' . self::GONE ) ) ) );
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( array( 'id' => 'aaaa001', 'elType' => 'container', 'settings' => array(), 'elements' => array() ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ) );
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( array( 'id' => 'aaaa001', 'elType' => 'container', 'elements' => array() ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ), 'no settings at all' );
+	}
+
+	#[Test]
+	public function a_rule_in_a_nested_element_is_kept_too(): void {
+		$this->seed();
+		$this->storeDocument(
+			500,
+			array( $this->element( 'aaaa001', array(), 'any', array( $this->element( 'bbbb002', array( 'agend_membership:' . self::GONE ), 'all', array( $this->element( 'cccc003', array( 'agend_wordpress:role_ghost' ) ) ) ) ) ) )
+		);
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array(
+				'elements' => array(
+					$this->element( 'aaaa001', array(), 'any', array( $this->element( 'bbbb002', array(), 'all', array( $this->element( 'cccc003', array() ) ) ) ) ),
+				),
+			),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001', 'bbbb002' ) );
+		$this->assertSame( array( 'agend_wordpress:role_ghost' ), $this->rulesOf( $saved, 'aaaa001', 'bbbb002', 'cccc003' ) );
+	}
+
+	/**
+	 * What the author COULD see is theirs to remove. The list offers a plan that was switched off, a
+	 * slug alias reads as its plan, and anything the catalogue can name is offered: remove one of those and
+	 * it stays removed.
+	 */
+	#[Test]
+	public function a_rule_the_author_could_see_stays_removed(): void {
+		$this->seed();
+		$this->storeDocument(
+			500,
+			array(
+				$this->element(
+					'aaaa001',
+					array( 'agend_membership:' . self::TIER_A, 'agend_membership:' . self::TIER_OLD, 'agend_segments:overdue', 'agend_wordpress:role_editor', 'agend_membership:' . self::GONE )
+				),
+			)
+		);
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( $this->element( 'aaaa001', array( 'agend_wordpress:role_editor' ) ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( 'agend_wordpress:role_editor', 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ) );
+	}
+
+	/** It only ever adds: a rule the author added is kept, and the rest of the settings are left as saved. */
+	#[Test]
+	public function it_only_adds_and_a_new_rule_is_kept(): void {
+		$this->seed();
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( 'agend_membership:' . self::GONE ) ) ) );
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array(
+				'settings' => array( 'post_status' => 'draft' ),
+				'elements' => array( $this->element( 'aaaa001', array( 'agend_membership:' . self::TIER_A ), 'any' ) ),
+			),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( 'agend_membership:' . self::TIER_A, 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ) );
+		$this->assertSame( array( 'post_status' => 'draft' ), $saved['settings'] );
+		$this->assertSame( 'any', $saved['elements'][0]['settings']['agend_access_match'] );
+	}
+
+	/** A save already holding the rule adds nothing twice. */
+	#[Test]
+	public function a_rule_that_is_already_saved_is_not_added_again(): void {
+		$this->seed();
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( 'agend_membership:' . self::GONE ) ) ) );
+
+		$data  = array( 'elements' => array( $this->element( 'aaaa001', array( 'agend_membership:' . self::GONE ) ) ) );
+		$saved = ( new ElementorControl() )->preserve_unseen_rules( $data, $this->savingDocument( 500 ) );
+
+		$this->assertSame( $data, $saved );
+	}
+
+	/** An element the stored document did not have, or whose id changed, has nothing to keep. */
+	#[Test]
+	public function an_element_with_no_stored_copy_is_left_alone(): void {
+		$this->seed();
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( 'agend_membership:' . self::GONE ) ) ) );
+
+		$data  = array( 'elements' => array( $this->element( 'zzzz999', array( 'agend_membership:' . self::TIER_A ) ) ) );
+		$saved = ( new ElementorControl() )->preserve_unseen_rules( $data, $this->savingDocument( 500 ) );
+
+		$this->assertSame( $data, $saved );
+	}
+
+	/** While the catalogue cannot be loaded every Agend rule looks unknown: all of them are kept. */
+	#[Test]
+	public function during_an_outage_every_agend_rule_is_kept(): void {
+		$this->storeDocument(
+			500,
+			array( $this->element( 'aaaa001', array( 'agend_membership:' . self::TIER_A, 'agend_segments:' . self::SEG_A, 'agend_wordpress:role_editor' ) ) )
+		);
+
+		Agend_Test_WP::$tiers_response = array( 'data' => array() );
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( $this->element( 'aaaa001', array( 'agend_wordpress:role_editor' ) ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame(
+			array( 'agend_wordpress:role_editor', 'agend_membership:' . self::TIER_A, 'agend_segments:' . self::SEG_A ),
+			$this->rulesOf( $saved, 'aaaa001' )
+		);
+	}
+
+	/** A save is not an editor request, so it must not depend on the options the editor builds. */
+	#[Test]
+	public function the_save_does_not_depend_on_being_in_the_editor(): void {
+		$this->seed();
+		$this->inEditor( false );
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( 'agend_membership:' . self::TIER_A, 'agend_membership:' . self::GONE ) ) ) );
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( $this->element( 'aaaa001', array() ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ), 'the plan it can name is removed, the one it cannot is kept' );
+	}
+
+	#[Test]
+	public function data_it_cannot_read_is_returned_as_it_came(): void {
+		$this->seed();
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( 'agend_membership:' . self::GONE ) ) ) );
+
+		$control = new ElementorControl();
+
+		$this->assertSame( 'not data', $control->preserve_unseen_rules( 'not data', $this->savingDocument( 500 ) ) );
+		$this->assertSame( array( 'settings' => array() ), $control->preserve_unseen_rules( array( 'settings' => array() ), $this->savingDocument( 500 ) ) );
+		$this->assertSame( array( 'elements' => 'x' ), $control->preserve_unseen_rules( array( 'elements' => 'x' ), $this->savingDocument( 500 ) ) );
+
+		$data = array( 'elements' => array( $this->element( 'aaaa001', array() ) ) );
+
+		$this->assertSame( $data, $control->preserve_unseen_rules( $data, null ), 'no document, nothing to compare with' );
+		$this->assertSame( $data, $control->preserve_unseen_rules( $data, $this->savingDocument( 0 ) ) );
+		$this->assertSame( $data, $control->preserve_unseen_rules( $data, $this->savingDocument( 501 ) ), 'a document with nothing stored' );
 	}
 }

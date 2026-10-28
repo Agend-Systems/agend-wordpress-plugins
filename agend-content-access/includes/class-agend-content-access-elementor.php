@@ -41,6 +41,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  * a trap, so an element that still holds one shows a notice and the controls that
  * remove it. Those controls are hidden on every element that does not.
  *
+ * A RULE THE AUTHOR CANNOT SEE IS KEPT. A multi-select writes back only the values it
+ * shows, so a stored rule the list does not offer was lost on the next edit of the
+ * list, and under "all of these" or "show to everyone except these people" losing a
+ * rule widens who sees the element. Two things stop it. The editor offers every rule
+ * the element holds: a plan that was switched off as "Plan (inactive): Gold", and one
+ * the list cannot name as "Unavailable: <rule>" (`rule_list_options()`). And a save
+ * puts back any stored rule the list does not offer that the saved data has lost
+ * (`preserve_unseen_rules()`).
+ *
  * Suppression only ever REMOVES an element. It cannot reveal one the document
  * hides, because an element is shown only when its own rules AND the rules of its
  * document both allow (Decision 2.3).
@@ -132,6 +141,9 @@ class Agend_Content_Access_Elementor {
 
 		add_action( 'elementor/element/after_add_attributes', array( $this, 'maybe_mark_in_editor' ) );
 
+		// After Elementor's own content sanitiser (10), so what it leaves is what is checked.
+		add_filter( 'elementor/document/save/data', array( $this, 'preserve_unseen_rules' ), 20, 2 );
+
 		// Keep policy-bearing elements out of Elementor's frozen-HTML cache.
 		add_filter( 'elementor/element/is_dynamic_content', array( $this, 'policy_is_dynamic_content' ), 10, 3 );
 	}
@@ -207,6 +219,14 @@ class Agend_Content_Access_Elementor {
 	 * shows Match, the reverse switch and "Show instead" whether or not a rule is
 	 * chosen. The server is exact, and what it reads is what counts.
 	 *
+	 * THE OPTIONS ARE BUILT IN THE EDITOR ONLY. The rule list and "Show instead" are
+	 * the expensive part of this section: a catalogue read for the rules and three
+	 * queries for the replacement content, and a control stack is registered on every
+	 * front-end render of an Elementor page as well. The options are what the author
+	 * picks from and nothing else. Elementor does not check a stored value against them
+	 * when it renders, so enforcement reads the same settings with or without them, and a
+	 * visitor's render is spared the cost.
+	 *
 	 * @return array<string, array<string, mixed>> Control id to Elementor control args.
 	 */
 	public static function access_controls(): array {
@@ -233,7 +253,7 @@ class Agend_Content_Access_Elementor {
 				'label'       => __( 'Who can see this', 'agend-content-access' ),
 				'type'        => \Elementor\Controls_Manager::SELECT2,
 				'multiple'    => true,
-				'options'     => Agend_Content_Access_Condition_Sets::rule_options(),
+				'options'     => self::rule_list_options(),
 				'default'     => array(),
 				'label_block' => true,
 				'description' => __(
@@ -263,7 +283,7 @@ class Agend_Content_Access_Elementor {
 				'label'       => __( 'Show instead', 'agend-content-access' ),
 				'type'        => \Elementor\Controls_Manager::SELECT,
 				'default'     => '',
-				'options'     => Agend_Content_Access_Condition_Sets::fallback_options(),
+				'options'     => self::show_instead_options(),
 				'label_block' => true,
 				// Also an element with only older display conditions, which had a "Show
 				// instead" before: hiding it there would drop the content they show.
@@ -314,6 +334,202 @@ class Agend_Content_Access_Elementor {
 				),
 			),
 		);
+	}
+
+	/**
+	 * Whether Elementor's editor is open on this request: the editor itself and its own
+	 * AJAX, which is where the options are drawn.
+	 *
+	 * @return bool
+	 */
+	private static function in_editor(): bool {
+		if ( ! agend_content_access_has_elementor() ) {
+			return false;
+		}
+
+		$plugin = \Elementor\Plugin::$instance;
+
+		return is_object( $plugin ) && isset( $plugin->editor ) && is_object( $plugin->editor ) && $plugin->editor->is_edit_mode();
+	}
+
+	/**
+	 * The options of the "Who can see this" list: empty outside the editor, and in it
+	 * everything the author may pick plus every rule the document being edited already
+	 * holds that the list would not name.
+	 *
+	 * The stored rules are read from the document, once, when the editor loads, and added
+	 * as "Unavailable" entries (or an alias under its rule's name), so they are shown, and
+	 * stay in the list when the author changes it. See the class docblock.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function rule_list_options(): array {
+		if ( ! self::in_editor() ) {
+			return array();
+		}
+
+		$held = array();
+
+		foreach ( self::stored_rules_by_element( self::rendering_document_id() ) as $rules ) {
+			$held = array_merge( $held, $rules );
+		}
+
+		return Agend_Content_Access_Condition_Sets::rule_options() + Agend_Content_Access_Condition_Sets::unavailable_options( $held );
+	}
+
+	/**
+	 * The options of "Show instead": "Nothing" outside the editor, and in it the public
+	 * pages, patterns and templates that can be chosen.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function show_instead_options(): array {
+		return self::in_editor()
+			? Agend_Content_Access_Condition_Sets::fallback_options()
+			: array( '' => __( 'Nothing', 'agend-content-access' ) );
+	}
+
+	/**
+	 * The rules each element of a stored document holds, by element id.
+	 *
+	 * Read from the document's `_elementor_data`, the JSON Elementor saves. An element with
+	 * no rules is left out, and so is an entry that is not a string.
+	 *
+	 * @param int $post_id The post whose document to read.
+	 * @return array<string, string[]> Element id to the rules it holds.
+	 */
+	private static function stored_rules_by_element( int $post_id ): array {
+		if ( $post_id <= 0 ) {
+			return array();
+		}
+
+		$stored = get_post_meta( $post_id, '_elementor_data', true );
+
+		if ( is_string( $stored ) && '' !== $stored ) {
+			$stored = json_decode( $stored, true );
+		}
+
+		$found = array();
+
+		if ( is_array( $stored ) ) {
+			self::collect_rules( $stored, $found );
+		}
+
+		return $found;
+	}
+
+	/**
+	 * Walks a list of elements and every list inside it, collecting the rules each holds.
+	 *
+	 * @param array                $elements Elements, as Elementor stores them.
+	 * @param array<string, array> $found    Element id to rules, added to.
+	 */
+	private static function collect_rules( array $elements, array &$found ): void {
+		foreach ( $elements as $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+
+			$rules = isset( $element['settings'] ) && is_array( $element['settings'] ) ? ( $element['settings'][ self::RULES_KEY ] ?? null ) : null;
+
+			if ( isset( $element['id'] ) && is_string( $element['id'] ) && is_array( $rules ) ) {
+				$strings = array_values( array_filter( $rules, 'is_string' ) );
+
+				if ( array() !== $strings ) {
+					$found[ $element['id'] ] = $strings;
+				}
+			}
+
+			if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				self::collect_rules( $element['elements'], $found );
+			}
+		}
+	}
+
+	/**
+	 * Puts back a rule an element held that the author could neither see nor remove.
+	 *
+	 * Runs on `elementor/document/save/data`, the filter Elementor applies to the whole
+	 * document before it saves it (3.3 and later), draft and autosave saves included, and
+	 * the one place the saved elements can be changed. For each element it saved, a rule the
+	 * element held before that the saved data has lost, and that the list does not offer,
+	 * is added back. "Does not offer" is exactly what `rule_options()` returns now, plus
+	 * the slug aliases of what it offers, which an author may drop as they are shown as
+	 * the rule they stand for: a plan that was switched off IS offered, so an author who
+	 * removes one means it, and so is anything the catalogue can name.
+	 *
+	 * That leaves the rules nobody can name, a plan, segment or entitlement that was
+	 * deleted, and every Agend rule for as long as the catalogue cannot be loaded. The
+	 * editor shows those as "Unavailable", but a multi-select that does not offer a value
+	 * cannot be trusted to hand it back, and under "all of these" or "show to everyone
+	 * except these people" a rule lost is a wider audience, not a narrower one. So they
+	 * stay. THE COST IS HONEST: an author cannot remove an "Unavailable" rule from an
+	 * element until the catalogue offers it again or the element is replaced. A rule that
+	 * no longer matches anyone only ever denies, so what stays is the safe side.
+	 *
+	 * Only ever adds. It never removes a rule, never touches an element it has no stored
+	 * copy of (a new one, or one whose id changed), and never reads the editor's own
+	 * options, because a save is not an editor request: the options are asked for here.
+	 *
+	 * @param mixed $data     The document data being saved: `elements` and `settings`.
+	 * @param mixed $document The `\Elementor\Core\Base\Document` being saved.
+	 * @return mixed
+	 */
+	public function preserve_unseen_rules( $data, $document = null ) {
+		if ( ! is_array( $data ) || ! isset( $data['elements'] ) || ! is_array( $data['elements'] ) || ! is_object( $document ) || ! method_exists( $document, 'get_main_id' ) ) {
+			return $data;
+		}
+
+		$before = self::stored_rules_by_element( (int) $document->get_main_id() );
+
+		if ( array() === $before ) {
+			return $data;
+		}
+
+		$offered = array_merge(
+			array_keys( Agend_Content_Access_Condition_Sets::rule_options() ),
+			array_keys( Agend_Content_Access_Condition_Sets::rule_aliases() )
+		);
+
+		$data['elements'] = self::restore_rules( $data['elements'], $before, $offered );
+
+		return $data;
+	}
+
+	/**
+	 * Adds the stored rules a list of saved elements has lost, in every element and every
+	 * list inside it.
+	 *
+	 * @param array                $elements Saved elements.
+	 * @param array<string, array> $before   Element id to the rules it held.
+	 * @param string[]             $offered  Rules the list offers.
+	 * @return array
+	 */
+	private static function restore_rules( array $elements, array $before, array $offered ): array {
+		foreach ( $elements as $index => $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+
+			if ( isset( $element['id'] ) && is_string( $element['id'] ) && isset( $before[ $element['id'] ] ) ) {
+				$settings = isset( $element['settings'] ) && is_array( $element['settings'] ) ? $element['settings'] : array();
+				$saved    = isset( $settings[ self::RULES_KEY ] ) && is_array( $settings[ self::RULES_KEY ] ) ? array_values( $settings[ self::RULES_KEY ] ) : array();
+				$lost     = array_values( array_diff( array_diff( $before[ $element['id'] ], $offered ), $saved ) );
+
+				if ( array() !== $lost ) {
+					$settings[ self::RULES_KEY ] = array_merge( $saved, $lost );
+					$element['settings']         = $settings;
+				}
+			}
+
+			if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				$element['elements'] = self::restore_rules( $element['elements'], $before, $offered );
+			}
+
+			$elements[ $index ] = $element;
+		}
+
+		return $elements;
 	}
 
 	/**

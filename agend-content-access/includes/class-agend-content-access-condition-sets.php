@@ -517,10 +517,14 @@ class Agend_Content_Access_Condition_Sets {
 	 * kind of rule it is, as a block's chip does: "Plan: Gold" and "Segment: Gold" never
 	 * read alike, a platform capability reads "Platform: Directory access" and a bare
 	 * "Signed in" stands as it is. Groups keep the order the vocabulary lists them in.
-	 * A plan that was switched off is left out, as it is from a block's results: it can
-	 * no longer be chosen, and only the rule list a block already holds names one.
 	 *
-	 * Only the rule itself is offered, never a slug alias of it: one choice per rule.
+	 * A plan that was switched off IS offered, labelled "Plan (inactive): Gold". It used to
+	 * be left out, and a control that does not offer a stored value cannot show it or
+	 * keep it: an element that held one lost it on the next edit of the list, which under
+	 * "all of these" or "show to everyone except these people" widens who sees the element.
+	 *
+	 * Only the rule itself is offered, never a slug alias of it: one choice per rule. A
+	 * stored alias is named by `unavailable_options()` for the element that holds it.
 	 *
 	 * @param bool $refresh Optional. Read the lists from the gateway again instead of the cache.
 	 * @return array<string, string>
@@ -530,15 +534,74 @@ class Agend_Content_Access_Condition_Sets {
 
 		foreach ( self::rule_groups( $refresh )['groups'] as $group ) {
 			foreach ( $group['items'] as $item ) {
-				if ( ! empty( $item['inactive'] ) ) {
-					continue;
-				}
-
 				$options[ $item['value'] ] = self::rule_label( $item, $group['label'] );
 			}
 		}
 
 		return $options;
+	}
+
+	/**
+	 * The slug aliases of the rules the vocabulary offers: alias to the rule it stands for.
+	 *
+	 * A plan's or segment's slug still evaluates, and older blocks and imported conditions
+	 * hold it, so `agend_membership:gold` and `agend_membership:<gold's id>` are one rule
+	 * written two ways. Not offered as a choice of its own (see `rule_options()`), but known,
+	 * so what holds one can show it under the rule's name and can be allowed to drop it.
+	 *
+	 * @param bool $refresh Optional. Read the lists from the gateway again instead of the cache.
+	 * @return array<string, string>
+	 */
+	public static function rule_aliases( bool $refresh = false ): array {
+		$aliases = array();
+
+		foreach ( self::rule_groups( $refresh )['groups'] as $group ) {
+			foreach ( $group['items'] as $item ) {
+				foreach ( isset( $item['aliases'] ) && is_array( $item['aliases'] ) ? $item['aliases'] : array() as $alias ) {
+					$aliases[ (string) $alias ] = (string) $item['value'];
+				}
+			}
+		}
+
+		return $aliases;
+	}
+
+	/**
+	 * Labelled entries for stored rules that the list does not offer, so a control that
+	 * is given the list can still show them, and so keep them.
+	 *
+	 * A rule an element already holds can be missing from what `rule_options()` offers: a
+	 * plan, segment or entitlement that was deleted, every Agend rule while the catalogue
+	 * could not be loaded, a slug alias, a rule from a provider a site has since removed.
+	 * A multi-select that does not offer a value cannot display it, and a control that
+	 * cannot display a value drops it from what it writes back. So each is offered here:
+	 * an alias under the name of the rule it stands for, anything else as "Unavailable:
+	 * <rule>", which says what it is without guessing at a name.
+	 *
+	 * @param array<int, mixed> $values  Rules an element holds. Anything that is not a non-empty string is skipped.
+	 * @param bool              $refresh Optional. Read the lists from the gateway again instead of the cache.
+	 * @return array<string, string> Rule to label, for the rules that are not offered already.
+	 */
+	public static function unavailable_options( array $values, bool $refresh = false ): array {
+		$offered = self::rule_options( $refresh );
+		$aliases = self::rule_aliases( $refresh );
+		$extra   = array();
+
+		foreach ( $values as $value ) {
+			if ( ! is_string( $value ) || '' === $value || isset( $offered[ $value ] ) || isset( $extra[ $value ] ) ) {
+				continue;
+			}
+
+			if ( isset( $aliases[ $value ], $offered[ $aliases[ $value ] ] ) ) {
+				$extra[ $value ] = $offered[ $aliases[ $value ] ];
+				continue;
+			}
+
+			/* translators: %s: a rule the list no longer offers, for example agend_membership:5c0d.... */
+			$extra[ $value ] = sprintf( __( 'Unavailable: %s', 'agend-content-access' ), $value );
+		}
+
+		return $extra;
 	}
 
 	/**
@@ -555,6 +618,11 @@ class Agend_Content_Access_Condition_Sets {
 
 		switch ( isset( $item['kind'] ) ? (string) $item['kind'] : '' ) {
 			case 'plan':
+				if ( ! empty( $item['inactive'] ) ) {
+					/* translators: %s: name of a membership plan that was switched off. */
+					return sprintf( __( 'Plan (inactive): %s', 'agend-content-access' ), $name );
+				}
+
 				/* translators: %s: membership plan name. */
 				return sprintf( __( 'Plan: %s', 'agend-content-access' ), $name );
 			case 'segment':

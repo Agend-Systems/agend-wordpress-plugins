@@ -221,7 +221,11 @@ Change:
        Both are hidden elsewhere.
      - Known limits: Elementor's editor cannot test "list not empty", so the three controls
        are always visible there (the server hides them exactly); and a stored rule the list no
-       longer offers is enforced but not drawn, and is dropped if the list is changed.
+       longer offers was enforced but not drawn, and was dropped if the list was changed. Fixed
+       after the 2026-10-28 review: the editor offers every rule the open document holds ("Plan
+       (inactive): Gold", "Unavailable: <rule>"), a save puts back what it lost
+       (`elementor/document/save/data`), and the options are built in the editor only. An
+       "Unavailable" rule cannot be removed in the editor until the catalogue offers it again.
      - Open: the options ship in the editor config with the shared widget stack and again with
        each of section, column and container, so about 800 entitlements are sent a few times.
        Measure the editor's load on PCA before release.
