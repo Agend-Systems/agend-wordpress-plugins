@@ -17,9 +17,14 @@ const rules = ( count ) => Array.from( { length: count }, ( _, n ) => 'agend_seg
 const say = ( stored ) => summarise( normalise( stored ) );
 
 test( 'no rules is everyone who can see the page', () => {
-	for ( const stored of [ undefined, null, {}, [], { flag: 'x' } ] ) {
+	for ( const stored of [ undefined, null, {}, [], { meta: 'x' } ] ) {
 		assert.equal( say( stored ), 'Everyone who can see the page' );
 	}
+} );
+
+test( 'a value with a key outside the contract is hidden from everyone', () => {
+	assert.equal( say( { flag: 'x' } ), 'Hidden from everyone, because the setting cannot be read' );
+	assert.equal( say( { rules: rules( 1 ), groups: [] } ), 'Hidden from everyone, because the setting cannot be read' );
 } );
 
 test( 'a page with no rules is for everyone, and says so in two words', () => {

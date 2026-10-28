@@ -206,8 +206,20 @@ and segments by ID, never slug; a slug a block already holds still works and is
 recognised in the panel as the same rule.
 
 Removing the last rule removes `match`, `invert` and `fallbackId` with it, and
-with nothing chosen the attribute is removed (never saved as `{}`). A key the
-panel does not own, written by a script or a newer release, is kept untouched.
+with nothing chosen the attribute is removed (never saved as `{}`).
+
+**The contract is closed, and only `meta` is ignorable.** A block's `agendAccess` may carry
+`rules`, `match`, `invert`, `fallbackId`, the first panel's keys (below) and one reserved key,
+`meta`, which may hold data that has NO effect on who sees the block: it is ignored, and the
+panel keeps it as found. Any other top-level key makes the whole value unreadable, on the
+server (`Agend_Content_Access_Rules::BLOCK_KEYS`) and in the panel alike, and the block is
+hidden from everyone: `{rules: [A], groups: [...]}` is not read as `{rules: [A]}`, because that
+would drop a narrowing the version does not know about, and `{groups: [...]}` is not read as no
+rules. So a future release that adds a key which narrows access must add it at the top level:
+an older version then fails closed instead of showing the block more widely. Only `meta`, never
+a new key, may be used for something an older version can safely ignore. A script or tool that
+writes its own key into the attribute must use `meta`. A rule that is only whitespace is
+unreadable too, on both sides, rather than none on the server and a rule in the panel.
 
 **Blocks saved by the first panel.** The first panel stored two settings, an
 audience (`mode`, `tierIds`, `segmentIds`, `entitlementKeys`) and display
@@ -240,8 +252,9 @@ entry and reads the rest, but the panel would show it as a rule, and the first e
 would write it in the new shape, where a slug is evaluated. So are a value that is not
 an object, a rule list holding anything that is not a rule, a Match that is not `any`
 or `all`, a Reverse that is not a boolean (the server hides the block from everyone, so
-the panel must not show it as open), and a value that mixes both shapes. Reset clears
-the setting and keeps any key that is not ours.
+the panel must not show it as open), a rule that is only whitespace, a key outside the
+contract, and a value that mixes both shapes. Reset clears
+the setting and keeps `meta`.
 
 A blue stripe on the canvas marks a block that carries rules, or one the panel
 cannot read.

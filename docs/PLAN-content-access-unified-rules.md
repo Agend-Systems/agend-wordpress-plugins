@@ -155,6 +155,7 @@ Change:
 - **One stored shape.**
   - Block and Elementor attribute `agendAccess` becomes `{rules: string[], match: "any"|"all", invert: bool, fallbackId: int}` (0.2.0 is unreleased, so the block shape can change freely).
   - The page gets new meta `_agend_access_rules` `{rules, match, invert, denied: {action: "placeholder"|"redirect"|"back", target_id, fallback_id}}` (placeholder with `target_id` 0 means the built-in default).
+  - The block attribute is a closed contract (added from the final review): `rules`, `match`, `invert`, `fallbackId`, the v1 keys, and one reserved key `meta` for data with no access effect, which is ignored. Any other top-level key makes the block unreadable (hidden from everyone) on the server and in the panel, so a later release that narrows access with a new key must put it at the top level and an older version fails closed. The panel keeps only `meta` through an edit and a reset clears the rest. A rule that is only whitespace is unreadable on both sides.
   - Rule strings stay `"<provider>:<value>"`.
   - For new rules, plans and segments are named by id (`agend_membership:<tier uuid>`, `agend_segments:<segment uuid>`), and entitlements by gate key (`agend_entitlements:<gate_key>`). Slug values still evaluate, for ESAC compatibility.
 - **One evaluator.** Rules go to allow or deny via the existing condition engine. It fails closed: an unknown provider, a lookup failure or a malformed rule all deny, and an inverted rule over an unknown denies too.

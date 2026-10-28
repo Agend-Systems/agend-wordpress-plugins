@@ -143,6 +143,33 @@ class Agend_Content_Access_Rules {
 	private const STORED_KEYS = array( 'rules', 'match', 'invert', 'fallbackId', 'all_of', 'denied' );
 
 	/**
+	 * The only top-level keys a block's `agendAccess` may carry and still be read: the
+	 * current shape, the v1 keys the first panel wrote (`Block_Attributes::to_settings()`
+	 * reads them), and `meta`, which is reserved for data with NO access effect and is
+	 * ignored. The editor panel keeps the same list (`access-model.mjs`).
+	 *
+	 * A key outside it makes the block unreadable, so it is hidden from everyone. A later
+	 * release that adds a key which narrows access (a `groups` list, say) must add it at the
+	 * top level, and then an older version of this plugin, which cannot read it, denies the
+	 * block and does not show it with the narrowing silently dropped.
+	 */
+	private const BLOCK_KEYS = array(
+		'rules',
+		'match',
+		'invert',
+		'fallbackId',
+		'meta',
+		'mode',
+		'tierIds',
+		'segmentIds',
+		'entitlementKeys',
+		'conditionsEnabled',
+		'conditions',
+		'conditionsMatch',
+		'conditionsInvert',
+	);
+
+	/**
 	 * This set's rules, trimmed and without blanks or duplicates. A composition has
 	 * none of its own: see `leaves()`.
 	 *
@@ -422,7 +449,7 @@ class Agend_Content_Access_Rules {
 	/**
 	 * Reads the new stored shape, `{rules, match, invert}`.
 	 *
-	 * Strict. `rules` must be a list of strings, `match` `any` or `all`, `invert` a
+	 * Strict. `rules` must be a list of non-blank strings, `match` `any` or `all`, `invert` a
 	 * boolean, and a key that is null is as good as absent. Anything else is
 	 * unreadable. An empty array is no rules, and a non-empty list (which has no
 	 * string keys) is not an object and is unreadable.
@@ -511,9 +538,14 @@ class Agend_Content_Access_Rules {
 
 				$rule = trim( $rule );
 
-				if ( '' !== $rule ) {
-					$list[] = $rule;
+				// A rule that is nothing but whitespace is not a rule and is not nothing: the
+				// panel would show it as one, and a list this cannot say what it means is
+				// unreadable, not shorter.
+				if ( '' === $rule ) {
+					return self::unreadable();
 				}
+
+				$list[] = $rule;
 			}
 		}
 
@@ -660,6 +692,12 @@ class Agend_Content_Access_Rules {
 	 * who wrote `"agendAccess":"members"` meant to restrict the block. Absent or
 	 * null is no rules.
 	 *
+	 * AN OBJECT IS READ ONLY IF EVERY TOP-LEVEL KEY OF IT IS ONE THIS VERSION KNOWS
+	 * (`BLOCK_KEYS`). One that is not, a later release's key, a hand-written value, is
+	 * unreadable and hides the block from everyone, including `{rules: [A], groups: [...]}`:
+	 * reading it for the keys it knows would drop a narrowing it does not know about.
+	 * `meta` is the one reserved key that is ignored.
+	 *
 	 * @param array $parsed_block The block, as `parse_blocks()` returns it.
 	 * @return self
 	 */
@@ -671,6 +709,15 @@ class Agend_Content_Access_Rules {
 		// is read or built.
 		if ( null === $value ) {
 			return self::none();
+		}
+
+		// A list or a scalar keeps the reading above (members only); this is about objects.
+		if ( is_array( $value ) && self::is_object_like( $value ) ) {
+			foreach ( array_keys( $value ) as $key ) {
+				if ( ! in_array( $key, self::BLOCK_KEYS, true ) ) {
+					return self::unreadable();
+				}
+			}
 		}
 
 		// Neutral settings for the v1 keys. For a value that is not an object this is

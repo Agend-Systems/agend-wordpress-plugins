@@ -48,6 +48,7 @@
  * Deliberately ES2017 syntax: this file is also bundled for the browser.
  */
 import { DEFAULT_STRINGS } from './copy.mjs';
+import { phpTrim } from './legacy-access.mjs';
 
 /** The REST field the block editor reads and writes, and the code of a refused save. */
 export const REST_FIELD = 'agend_access_rules';
@@ -68,7 +69,7 @@ function isPlainObject( value ) {
 }
 
 function isRule( value ) {
-	return typeof value === 'string' && value !== '';
+	return typeof value === 'string' && phpTrim( value ) !== '';
 }
 
 function unique( list ) {

@@ -15,10 +15,19 @@
  *   match       any (default) or all. Written only when it is all.
  *   invert      boolean. Written only when it is true.
  *   fallbackId  positive integer, a post id. Written only when it is not zero.
+ *   meta        anything. RESERVED for data that has no effect on who can see the
+ *               block: it is ignored, and kept as found.
  *
  * Absent means "everyone who can see the page". The PHP side reads the same
  * object. Blocks saved by the first panel used another shape (legacy-access.mjs
  * says what it meant); they are read, never written.
+ *
+ * NO OTHER TOP-LEVEL KEY IS READABLE. A value with a key outside the contract, the
+ * first shape's keys and `meta` is unreadable, here and on the server
+ * (`Agend_Content_Access_Rules::BLOCK_KEYS`), and the block is hidden from
+ * everyone. A later release that adds a key which narrows access must add it at the
+ * top level, so that a version that does not know it fails closed instead of
+ * reading the keys it knows and dropping the narrowing.
  *
  * THE RULES THE PANEL KEEPS.
  *
@@ -33,11 +42,11 @@
  *     rules, and Reverse and the replacement content need one. The stored
  *     object always matches what the panel shows, so a stale value cannot sit
  *     in the post and come back to life after a later edit.
- *  3. Keys this panel does not own are kept exactly as found. A newer release,
- *     a script, or another tool may have written them, and silently deleting
- *     somebody else's data because an author nudged a toggle is worse than
- *     carrying a key the server ignores. (If nothing but such keys remains the
- *     object is still written, with only those keys: it is not empty.)
+ *  3. `meta` is kept exactly as found: it is the one key that is not ours and is
+ *     still readable, because it has no effect on access. (If nothing but `meta`
+ *     remains the object is still written, with only that key: it is not empty.)
+ *     Any other key makes the value unreadable (rule 4), so it is never kept
+ *     through an edit: the only write is the reset, which clears it.
  *  4. A stored value it cannot read never crashes the panel and never loosens
  *     anything by accident. The server fails closed on such a value, so the
  *     panel shows that state, offers only a reset, and refuses every other
@@ -50,7 +59,7 @@
  *
  * Deliberately ES2017 syntax: this file is also bundled for the browser.
  */
-import { LEGACY_KEYS, hasLegacyKeys, readLegacy } from './legacy-access.mjs';
+import { LEGACY_KEYS, hasLegacyKeys, phpTrim, readLegacy } from './legacy-access.mjs';
 
 export const ATTRIBUTE = 'agendAccess';
 
@@ -81,13 +90,22 @@ export const RULE_KEYS = Object.freeze( [ 'rules', 'match', 'invert', 'fallbackI
  */
 export const CONTRACT_KEYS = Object.freeze( RULE_KEYS.concat( LEGACY_KEYS ) );
 
+/** The one key that is not ours and is still readable: data with no access effect. */
+export const META_KEY = 'meta';
+
+/** Every top-level key a stored value may carry and still be read. Equal to the server's `BLOCK_KEYS`. */
+export const READABLE_KEYS = Object.freeze( CONTRACT_KEYS.concat( [ META_KEY ] ) );
+
 export function isPlainObject( value ) {
 	return value !== null && typeof value === 'object' && ! Array.isArray( value );
 }
 
-/** A rule is a non-empty string. Whether it is on offer is the vocabulary's business. */
+/**
+ * A rule is a string with something in it besides whitespace, as the server counts
+ * whitespace (PHP's `trim()`). Whether it is on offer is the vocabulary's business.
+ */
 export function isRule( value ) {
-	return typeof value === 'string' && value !== '';
+	return typeof value === 'string' && phpTrim( value ) !== '';
 }
 
 function unique( list ) {
@@ -231,9 +249,10 @@ function readRules( stored ) {
  *
  * `unreadable` is true where what the panel shows would differ from what the
  * server acts on, or where the server fails closed: a value that is not an
- * object at all, a rule list with something other than a rule in it, a Match
- * that is not `any` or `all`, a Reverse that is not a boolean, a mix of the two
- * shapes, and whatever `readLegacy()` cannot express as rules. The enums are the
+ * object at all, a rule list with something other than a rule in it (a rule that
+ * is only whitespace is not one), a Match that is not `any` or `all`, a Reverse
+ * that is not a boolean, a mix of the two shapes, a key outside the contract (only
+ * `meta` is ignorable), and whatever `readLegacy()` cannot express as rules. The enums are the
  * server's, and reading a bad one as its default would show a block the server
  * hides from everyone as open to whoever the rules name.
  *
@@ -258,6 +277,12 @@ export function normalise( stored ) {
 	}
 
 	if ( ! isPlainObject( stored ) ) {
+		return unreadableState();
+	}
+
+	// A key the server does not know makes the whole value unreadable there, so the
+	// panel must not read the keys it does know and show the block as less limited.
+	if ( Object.keys( stored ).some( ( key ) => READABLE_KEYS.indexOf( key ) === -1 ) ) {
 		return unreadableState();
 	}
 
@@ -322,12 +347,10 @@ function build( stored, state ) {
 		}
 	}
 
-	if ( isPlainObject( stored ) ) {
-		Object.keys( stored ).forEach( ( key ) => {
-			if ( CONTRACT_KEYS.indexOf( key ) === -1 ) {
-				next[ key ] = stored[ key ];
-			}
-		} );
+	// `meta` is kept as found. No other key is: a value with one is unreadable, so
+	// nothing but a reset reaches here with it, and a reset clears it.
+	if ( isPlainObject( stored ) && Object.prototype.hasOwnProperty.call( stored, META_KEY ) ) {
+		next[ META_KEY ] = stored[ META_KEY ];
 	}
 
 	// Nothing chosen and nothing of somebody else's: no attribute at all. An
@@ -444,7 +467,7 @@ export function setFallback( stored, id ) {
 
 /**
  * Clears the block's access setting, whatever it holds. The one write allowed
- * on a value the panel cannot read. Keys that are not ours are kept.
+ * on a value the panel cannot read. `meta` is kept, and every other key goes.
  *
  * @param {*} stored Stored attribute value.
  * @return {*} The next attribute value, `undefined` when nothing is left to store.

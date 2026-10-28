@@ -6,8 +6,8 @@
  * What these protect is what ends up in a post. The panel is the only thing
  * standing between an author's clicks and the stored `agendAccess` object, so
  * the cases are about that object: a block that was only looked at stays
- * clean, a stale value cannot linger after the rules it belonged to are gone, a
- * key the panel does not own survives an edit, a block saved by the first panel
+ * clean, a stale value cannot linger after the rules it belonged to are gone, the
+ * reserved `meta` key survives an edit, any other key makes the value unreadable, a block saved by the first panel
  * is only rewritten by a real change, and a stored value the panel cannot read
  * neither crashes it nor quietly loosens anything.
  */
@@ -19,6 +19,7 @@ import {
 	ATTRIBUTE,
 	CONTRACT_KEYS,
 	EXCLUDED_BLOCKS,
+	READABLE_KEYS,
 	RULE_KEYS,
 	addRule,
 	carriesAttribute,
@@ -215,19 +216,19 @@ test( 'the stray {} fix: nothing chosen is undefined, never an empty object', ()
 	}
 } );
 
-test( 'unknown keys keep the attribute alive: an object with only them, never undefined', () => {
-	const stored = { rules: [ GOLD ], match: 'any', newerRelease: { shape: [ 1 ] }, flag: 'x' };
+test( 'the reserved meta key keeps the attribute alive: an object with only it, never undefined', () => {
+	const stored = { rules: [ GOLD ], match: 'any', meta: { shape: [ 1 ] } };
 	const back = removeRule( stored, GOLD );
 
-	assert.deepEqual( back, { newerRelease: { shape: [ 1 ] }, flag: 'x' } );
-	assert.deepEqual( resetAccess( stored ), { newerRelease: { shape: [ 1 ] }, flag: 'x' } );
+	assert.deepEqual( back, { meta: { shape: [ 1 ] } } );
+	assert.deepEqual( resetAccess( stored ), { meta: { shape: [ 1 ] } } );
 
-	// And once the unknown key is the only thing left, the next edit still keeps it.
-	assert.deepEqual( addRule( back, GOLD ), { rules: [ GOLD ], newerRelease: { shape: [ 1 ] }, flag: 'x' } );
+	// And once meta is the only thing left, the next edit still keeps it.
+	assert.deepEqual( addRule( back, GOLD ), { rules: [ GOLD ], meta: { shape: [ 1 ] } } );
 } );
 
-test( 'a key the panel does not own is kept, untouched, through every kind of edit', () => {
-	const stored = { rules: [ GOLD, BOARD ], flag: 'x', nested: { a: [ 1, 2 ] } };
+test( 'meta is kept, untouched, through every kind of edit, and has no access effect', () => {
+	const stored = { rules: [ GOLD, BOARD ], meta: { a: [ 1, 2 ] } };
 	const edits = [
 		( v ) => addRule( v, EDITOR ),
 		( v ) => removeRule( v, GOLD ),
@@ -237,11 +238,44 @@ test( 'a key the panel does not own is kept, untouched, through every kind of ed
 	];
 
 	for ( const edit of edits ) {
-		const next = edit( stored );
-
-		assert.equal( next.flag, 'x' );
-		assert.deepEqual( next.nested, { a: [ 1, 2 ] } );
+		assert.deepEqual( edit( stored ).meta, { a: [ 1, 2 ] } );
 	}
+
+	assert.deepEqual( normalise( { meta: 'anything' } ), normalise( undefined ), 'meta alone says nothing' );
+	assert.deepEqual( normalise( { rules: [ GOLD ], meta: 7 } ).rules, [ GOLD ] );
+} );
+
+/**
+ * Any other key is unreadable, as the server reads it: reading the keys it knows would drop a
+ * narrowing a later release wrote, and `{ groups }` alone would show a block as open.
+ */
+test( 'a key outside the contract makes the value unreadable, with a reset as the only write', () => {
+	const groups = [ { rules: [ GOLD ] } ];
+
+	for ( const stored of [
+		{ groups },
+		{ rules: [ GOLD ], groups },
+		{ rules: [ GOLD ], flag: 'x' },
+		{ mode: 'active_member', extra: null },
+		{ rules: [ GOLD ], Meta: 1 },
+	] ) {
+		const state = normalise( stored );
+
+		assert.equal( state.unreadable, true, JSON.stringify( stored ) );
+		assert.equal( isRestricted( stored ), true, 'hidden from everyone is a restriction the author should see' );
+
+		for ( const edit of [ ( v ) => addRule( v, EDITOR ), ( v ) => removeRule( v, GOLD ), ( v ) => setMatch( v, 'all' ), ( v ) => setInvert( v, true ), ( v ) => setFallback( v, 4 ) ] ) {
+			assert.equal( edit( stored ), stored, 'refused' );
+		}
+
+		assert.equal( resetAccess( stored ), undefined, 'reset clears every key but meta' );
+	}
+
+	assert.deepEqual( resetAccess( { rules: [ GOLD ], groups, meta: 1 } ), { meta: 1 } );
+} );
+
+test( 'the readable keys are the contract and meta, the server list', () => {
+	assert.deepEqual( [ ...READABLE_KEYS ].sort(), [ ...CONTRACT_KEYS, 'meta' ].sort() );
 } );
 
 test( 'nothing the panel writes uses a key outside the contract', () => {
@@ -263,7 +297,7 @@ test( 'nothing the panel writes uses a key outside the contract', () => {
 } );
 
 test( 'no setter mutates the value it is given', () => {
-	const stored = deepFreeze( { rules: [ GOLD, BOARD ], match: 'all', invert: true, fallbackId: 3, flag: [ 1 ] } );
+	const stored = deepFreeze( { rules: [ GOLD, BOARD ], match: 'all', invert: true, fallbackId: 3, meta: [ 1 ] } );
 	const shared = deepFreeze( [] );
 	const legacy = deepFreeze( { mode: 'selected_tiers', tierIds: [ PLAN_A ], conditionsEnabled: true, conditions: [ SIGNED_IN ] } );
 
@@ -308,10 +342,20 @@ test( 'absent, null, {} and [] all read as no rules', () => {
 	}
 } );
 
-test( 'an unknown key alone reads as no rules, as the server reads it', () => {
-	assert.equal( normalise( { flag: 'x' } ).unreadable, false );
-	assert.deepEqual( normalise( { flag: 'x' } ).rules, [] );
-	assert.equal( isRestricted( { flag: 'x' } ), false );
+test( 'an unknown key alone is unreadable, as the server reads it: hidden from everyone', () => {
+	assert.equal( normalise( { flag: 'x' } ).unreadable, true );
+	assert.equal( isRestricted( { flag: 'x' } ), true );
+} );
+
+test( 'a rule that is only whitespace is unreadable, as the server reads it, and is never added', () => {
+	for ( const blank of [ '', ' ', ' \t\n', '\0' ] ) {
+		assert.equal( normalise( { rules: [ blank ] } ).unreadable, true, JSON.stringify( blank ) );
+		assert.equal( normalise( { rules: [ GOLD, blank ] } ).unreadable, true );
+		assert.equal( addRule( undefined, blank ), undefined );
+	}
+
+	// PHP's trim() leaves a no-break space, so it is a rule for both and not blank.
+	assert.equal( normalise( { rules: [ '\u00a0' ] } ).unreadable, false );
 } );
 
 test( 'rules are read once each, in order', () => {
@@ -454,11 +498,11 @@ for ( const [ label, stored ] of UNREADABLE ) {
 	} );
 }
 
-test( 'resetting clears an unreadable value, keeps the keys that are not ours, and unlocks the panel', () => {
+test( 'resetting clears an unreadable value, keeps only meta, and unlocks the panel', () => {
 	assert.equal( resetAccess( 'members' ), undefined );
 	assert.equal( resetAccess( { rules: [ 1 ] } ), undefined );
-	assert.deepEqual( resetAccess( { rules: [ 1 ], flag: 'x' } ), { flag: 'x' } );
-	assert.deepEqual( addRule( resetAccess( { rules: [ 1 ], flag: 'x' } ), GOLD ), { rules: [ GOLD ], flag: 'x' } );
+	assert.deepEqual( resetAccess( { rules: [ 1 ], meta: 'x' } ), { meta: 'x' } );
+	assert.deepEqual( addRule( resetAccess( { rules: [ 1 ], meta: 'x' } ), GOLD ), { rules: [ GOLD ], meta: 'x' } );
 } );
 
 // ---------------------------------------------------------------------------
@@ -480,11 +524,11 @@ test( 'a first-shape block is shown as rules and is not rewritten by being opene
 } );
 
 test( 'a first-shape block is rewritten as the current shape only by a real change, and nothing of the old shape survives', () => {
-	const stored = { mode: 'active_member', conditionsEnabled: true, conditions: [ EDITOR ], conditionsMatch: 'all', fallbackId: 5, flag: 'x' };
+	const stored = { mode: 'active_member', conditionsEnabled: true, conditions: [ EDITOR ], conditionsMatch: 'all', fallbackId: 5, meta: 'x' };
 
-	assert.deepEqual( addRule( stored, BOARD ), { rules: [ 'agend_membership:is_member', EDITOR, BOARD ], match: 'all', fallbackId: 5, flag: 'x' } );
-	assert.deepEqual( removeRule( stored, EDITOR ), { rules: [ 'agend_membership:is_member' ], fallbackId: 5, flag: 'x' } );
-	assert.deepEqual( removeRule( removeRule( stored, EDITOR ), 'agend_membership:is_member' ), { flag: 'x' }, 'all the old keys go' );
+	assert.deepEqual( addRule( stored, BOARD ), { rules: [ 'agend_membership:is_member', EDITOR, BOARD ], match: 'all', fallbackId: 5, meta: 'x' } );
+	assert.deepEqual( removeRule( stored, EDITOR ), { rules: [ 'agend_membership:is_member' ], fallbackId: 5, meta: 'x' } );
+	assert.deepEqual( removeRule( removeRule( stored, EDITOR ), 'agend_membership:is_member' ), { meta: 'x' }, 'all the old keys go' );
 } );
 
 test( 'a first-shape block that holds an audience and conditions is flagged as two-part', () => {

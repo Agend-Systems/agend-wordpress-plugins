@@ -149,13 +149,25 @@ final class RulesTest extends TestCase {
 		$this->assertTrue( Rules::from_array( array( 'rules' => array(), 'match' => 'all' ) )->is_empty() );
 	}
 
-	/** A blank was never a rule: the engine skips it, and so does the reader. Repeats add nothing. */
+	/** Repeats add nothing, and what is left is trimmed. */
 	#[Test]
-	public function blank_rules_and_repeats_are_dropped_and_the_rest_trimmed(): void {
-		$rules = Rules::from_array( array( 'rules' => array( '', '  ', ' ' . self::MEMBER . ' ', self::MEMBER ) ) );
+	public function repeats_are_dropped_and_the_rest_trimmed(): void {
+		$rules = Rules::from_array( array( 'rules' => array( ' ' . self::MEMBER . ' ', self::MEMBER ) ) );
 
 		$this->assertSame( array( self::MEMBER ), $rules->rules() );
-		$this->assertTrue( Rules::from_array( array( 'rules' => array( '', ' ' ) ) )->is_empty() );
+	}
+
+	/**
+	 * A rule that is nothing but whitespace is not a rule the panel can show or the engine can
+	 * evaluate, and it is not nothing either: the list is unreadable, as in the panel's reader.
+	 */
+	#[Test]
+	public function a_rule_that_is_only_whitespace_makes_the_list_unreadable(): void {
+		foreach ( array( '', ' ', "  \t\n", "\0" ) as $blank ) {
+			$this->assertTrue( Rules::from_array( array( 'rules' => array( $blank ) ) )->is_unreadable(), (string) wp_json_encode( $blank ) );
+			$this->assertTrue( Rules::from_array( array( 'rules' => array( self::MEMBER, $blank ) ) )->is_unreadable() );
+			$this->assertTrue( Rules::from_block( $this->block( array( 'rules' => array( $blank ) ) ) )->is_unreadable() );
+		}
 	}
 
 	/**
@@ -500,6 +512,44 @@ final class RulesTest extends TestCase {
 		$this->assertTrue( Rules::from_block( array() )->is_empty() );
 		$this->assertTrue( Rules::from_block( array( 'attrs' => 'nope' ) )->is_empty() );
 		$this->assertTrue( Rules::from_block( $this->block( array() ) )->is_empty(), '{} is the documented "nothing"' );
+	}
+
+	/**
+	 * A key this version does not know makes the block unreadable, whatever else it carries. Reading
+	 * `{rules, groups}` for `rules` alone would drop a narrowing a later release wrote, and
+	 * `{groups}` alone read as no rules would publish the block.
+	 */
+	#[Test]
+	public function a_block_with_a_key_outside_the_contract_denies_everyone(): void {
+		$groups = array( array( 'rules' => array( self::MEMBER ) ) );
+
+		foreach ( array(
+			array( 'groups' => $groups ),
+			array( 'rules' => array( 'agend_wordpress:logged_in' ), 'groups' => $groups ),
+			array( 'rules' => array( self::MEMBER ), 'flag' => 'x' ),
+			array( 'mode' => 'active_member', 'extra' => null ),
+			array( 'rules' => array( self::MEMBER ), 0 => 'x' ),
+		) as $attribute ) {
+			$rules = Rules::from_block( $this->block( $attribute ) );
+
+			$this->assertTrue( $rules->is_unreadable(), (string) wp_json_encode( $attribute ) );
+			$this->assertFalse( $rules->is_empty(), 'it carries rules: it is not public' );
+		}
+	}
+
+	/** The reserved `meta` key holds data with no access effect: it is read past, and so are all the contract keys. */
+	#[Test]
+	public function a_block_s_meta_key_is_ignored_and_the_contract_keys_are_read(): void {
+		$rules = Rules::from_block( $this->block( array( 'rules' => array( self::MEMBER ), 'match' => 'any', 'invert' => false, 'fallbackId' => 9, 'meta' => array( 'note' => 'x' ) ) ) );
+
+		$this->assertFalse( $rules->is_unreadable() );
+		$this->assertSame( array( self::MEMBER ), $rules->rules() );
+
+		$this->assertTrue( Rules::from_block( $this->block( array( 'meta' => array( 'note' => 'x' ) ) ) )->is_empty(), 'meta alone says nothing' );
+
+		$v1 = Rules::from_block( $this->block( array( 'mode' => 'active_member', 'meta' => 1 ) ) );
+
+		$this->assertSame( array( self::MEMBER ), $v1->rules(), 'a v1 value with meta' );
 	}
 
 	#[Test]

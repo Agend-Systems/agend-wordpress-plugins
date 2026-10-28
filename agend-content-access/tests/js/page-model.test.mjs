@@ -93,6 +93,8 @@ test( 'a setting that cannot be shown as rules is unreadable, never repaired int
 		{ rules: 'members' },
 		{ rules: [ MEMBER, 7 ] },
 		{ rules: [ MEMBER, '' ] },
+		{ rules: [ MEMBER, ' ' ] },
+		{ rules: [ ' \t' ] },
 		{ rules: [ MEMBER, null ] },
 		{ rules: [], invert: true },
 		{ unreadable: true, rules: [] },

@@ -102,7 +102,7 @@ const SET_MODES = Object.freeze( {
  * @param {string} text Text.
  * @return {string} Trimmed text.
  */
-function phpTrim( text ) {
+export function phpTrim( text ) {
 	return text.replace( /^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, '' );
 }
 
