@@ -1527,8 +1527,26 @@ class Agend_Content_Access_Frontend {
 			return $excerpt;
 		}
 
-		if ( '' !== trim( (string) $post->post_excerpt ) || ! self::carries_fragment_rules( $post ) ) {
-			return $excerpt;
+		$safe = self::safe_generated_excerpt_for( $post );
+
+		return null === $safe ? $excerpt : $safe;
+	}
+
+	/**
+	 * The safe generated excerpt of a post whose document carries fragment rules and that
+	 * has no manual excerpt, and null for any other post.
+	 *
+	 * What `filter_generated_excerpt()` swaps in, and what an SEO plugin's description is
+	 * given for such a post (`Agend_Content_Access_Seo`). Judged as `wp_trim_excerpt()`
+	 * judges a manual excerpt, by `trim()`. It does not ask who is looking: the caller
+	 * decides whether an author is exempt.
+	 *
+	 * @param WP_Post $post Post.
+	 * @return string|null Null when the post is not one this applies to.
+	 */
+	public static function safe_generated_excerpt_for( $post ): ?string {
+		if ( ! $post instanceof WP_Post || '' !== trim( (string) $post->post_excerpt ) || ! self::carries_fragment_rules( $post ) ) {
+			return null;
 		}
 
 		/**

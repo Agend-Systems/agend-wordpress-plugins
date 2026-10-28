@@ -72,14 +72,27 @@ final class SeoDescriptionTest extends TestCase {
 
 	private const BODY = 'OPENING OF THE PROTECTED BODY';
 
-	private const MEMBERS = 100;
-	private const PUBLIC  = 101;
+	private const MEMBERS   = 100;
+	private const PUBLIC    = 101;
+	private const FRAGMENTS = 102;
+
+	private const RESTRICTED_TEXT = 'MEMBERS ONLY BLOCK TEXT';
 
 	protected function setUp(): void {
 		parent::setUp();
 
 		$this->page( self::MEMBERS, 'Members', 'A public teaser' );
 		$this->page( self::PUBLIC, 'Public', '' );
+		$this->page( self::FRAGMENTS, 'Fragments', '' );
+
+		// A public page whose first block is for members, and whose body is that block's text first.
+		$GLOBALS['agend_test_posts'][ self::FRAGMENTS ]['post_content']                                   = self::RESTRICTED_TEXT . ' then public words';
+		$GLOBALS['agend_test_post_meta'][ self::FRAGMENTS ][ Agend_Content_Access_Frontend::FRAGMENT_RULES_META_KEY ] = '1';
+
+		// What the block driver rebuilds from the tree without the ruled blocks.
+		Agend_Test_WP::set_filter( 'agend_content_access_safe_generated_excerpt', 'Public <b>intro</b> only' );
+
+		Seo::reset();
 
 		$GLOBALS['agend_test_post_meta'][ self::MEMBERS ][ Rules::META_KEY ] = array( 'rules' => array( 'agend_membership:is_member' ), 'match' => 'any', 'invert' => false );
 		$GLOBALS['agend_test_current_user_can']['edit_post']                   = false;
@@ -260,6 +273,123 @@ final class SeoDescriptionTest extends TestCase {
 
 		$this->assertSame( self::BODY, $post->post_content );
 		$this->assertSame( 'A public teaser', $post->post_excerpt );
+	}
+
+	// -----------------------------------------------------------------------
+	// A page the reader may read, with a block or section the reader may not
+	// -----------------------------------------------------------------------
+
+	/** @return array<string, array{0: string}> Every hook, text and tag lists alike. */
+	public static function allHooks(): array {
+		return self::textHooks() + array(
+			'AIOSEO og'       => array( 'aioseo_facebook_tags' ),
+			'AIOSEO twitter'  => array( 'aioseo_twitter_tags' ),
+			'Jetpack'         => array( 'jetpack_open_graph_tags' ),
+		);
+	}
+
+	/** The description a hook hands back for the page, whether it is a string or a list of tags. */
+	private function descriptionFor( string $hook, string $value = self::RESTRICTED_TEXT . ' then public words' ): ?string {
+		if ( in_array( $hook, array( 'aioseo_facebook_tags', 'aioseo_twitter_tags', 'jetpack_open_graph_tags' ), true ) ) {
+			$key  = 'aioseo_twitter_tags' === $hook ? 'twitter:description' : 'og:description';
+			$tags = $this->describe( $hook, array( $key => $value ) );
+
+			return $tags[ $key ] ?? null;
+		}
+
+		return $this->describe( $hook, $value );
+	}
+
+	#[Test]
+	#[DataProvider( 'allHooks' )]
+	public function a_public_page_with_a_restricted_block_first_is_described_without_its_text( string $hook ): void {
+		$this->visit( self::FRAGMENTS );
+
+		$this->assertSame( 'Public intro only', $this->descriptionFor( $hook ) );
+	}
+
+	/** An Elementor document, or anything the driver cannot rebuild, has nothing public to say. */
+	#[Test]
+	#[DataProvider( 'allHooks' )]
+	public function a_page_the_driver_cannot_rebuild_has_no_description( string $hook ): void {
+		Agend_Test_WP::set_filter( 'agend_content_access_safe_generated_excerpt', '' );
+		$this->visit( self::FRAGMENTS );
+
+		$this->assertTrue( in_array( $this->descriptionFor( $hook ), array( '', null ), true ), $hook );
+	}
+
+	#[Test]
+	public function the_safe_description_is_cut_to_about_a_description_long_at_a_word(): void {
+		Agend_Test_WP::set_filter( 'agend_content_access_safe_generated_excerpt', str_repeat( 'public words ', 30 ) );
+		$this->visit( self::FRAGMENTS );
+
+		$text = (string) $this->describe( 'aioseo_description', self::RESTRICTED_TEXT );
+
+		$this->assertLessThanOrEqual( 161, mb_strlen( $text ) );
+		$this->assertStringEndsWith( "words\u{2026}", $text );
+	}
+
+	/** The author wrote it on purpose, and Yoast and Rank Math store it where it can be seen cheaply. */
+	#[Test]
+	public function a_description_the_author_wrote_in_yoast_or_rank_math_is_kept(): void {
+		$GLOBALS['agend_test_post_meta'][ self::FRAGMENTS ]['_yoast_wpseo_metadesc'] = 'Written by the author';
+		$GLOBALS['agend_test_post_meta'][ self::FRAGMENTS ]['rank_math_description'] = 'Written for Rank Math';
+		$this->visit( self::FRAGMENTS );
+
+		foreach ( array( 'wpseo_metadesc', 'wpseo_opengraph_desc', 'wpseo_twitter_description' ) as $hook ) {
+			$this->assertSame( 'Written by the author', $this->describe( $hook, 'Written by the author' ), $hook );
+		}
+
+		foreach ( array( 'rank_math/frontend/description', 'rank_math/opengraph/facebook/og_description', 'rank_math/opengraph/twitter/twitter_description' ) as $hook ) {
+			$this->assertSame( 'Written for Rank Math', $this->describe( $hook, 'Written for Rank Math' ), $hook );
+		}
+
+		// All in One SEO and Jetpack always get the safe excerpt on such a page.
+		$this->assertSame( 'Public intro only', $this->describe( 'aioseo_description', self::RESTRICTED_TEXT ) );
+		$this->assertSame( 'Public intro only', $this->descriptionFor( 'jetpack_open_graph_tags' ) );
+	}
+
+	/** An empty custom description is no description: the plugin built its text from the body. */
+	#[Test]
+	public function a_blank_custom_description_does_not_keep_the_plugin_s_text(): void {
+		$GLOBALS['agend_test_post_meta'][ self::FRAGMENTS ]['_yoast_wpseo_metadesc'] = '  ';
+		$GLOBALS['agend_test_post_meta'][ self::FRAGMENTS ]['rank_math_description'] = '';
+		$this->visit( self::FRAGMENTS );
+
+		$this->assertSame( 'Public intro only', $this->describe( 'wpseo_metadesc', self::RESTRICTED_TEXT ) );
+		$this->assertSame( 'Public intro only', $this->describe( 'rank_math/frontend/description', self::RESTRICTED_TEXT ) );
+	}
+
+	/** A page with no block or section rules is not touched, whatever the safe excerpt filter would say. */
+	#[Test]
+	#[DataProvider( 'allHooks' )]
+	public function a_public_page_with_no_fragment_rules_is_untouched( string $hook ): void {
+		$this->visit( self::PUBLIC );
+
+		$this->assertSame( 'Own text', $this->descriptionFor( $hook, 'Own text' ) );
+	}
+
+	/** A manual excerpt is the editor's own public text, so the plugin's description of it stands. */
+	#[Test]
+	public function a_page_with_a_manual_excerpt_is_untouched(): void {
+		$GLOBALS['agend_test_posts'][ self::FRAGMENTS ]['post_excerpt'] = 'Written excerpt';
+		Seo::reset();
+		$this->visit( self::FRAGMENTS );
+
+		$this->assertSame( 'Written excerpt', $this->describe( 'wpseo_metadesc', 'Written excerpt' ) );
+	}
+
+	#[Test]
+	public function the_post_of_a_page_with_fragment_rules_is_read_and_never_changed(): void {
+		$this->visit( self::FRAGMENTS );
+
+		$post = get_post( self::FRAGMENTS );
+
+		$this->describe( 'wpseo_metadesc', self::RESTRICTED_TEXT );
+		$this->describe( 'jetpack_open_graph_tags', array( 'og:description' => self::RESTRICTED_TEXT ) );
+
+		$this->assertSame( self::RESTRICTED_TEXT . ' then public words', $post->post_content );
+		$this->assertSame( '', $post->post_excerpt );
 	}
 
 	/** Last on each hook, so nothing that runs after can put the body back. */

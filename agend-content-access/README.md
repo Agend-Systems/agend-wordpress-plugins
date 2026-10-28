@@ -718,7 +718,17 @@ is denied, these hooks return the teaser (the manual excerpt, or nothing) as pla
 
 A page with no rules, a reader the rules admit and an editor of the page keep the plugin's own text. A
 plugin's own custom description for a restricted page is replaced too, because a hook cannot tell it from
-one built out of the body, so write the manual excerpt to say what a visitor should see. Another SEO
+one built out of the body, so write the manual excerpt to say what a visitor should see.
+
+**A page everyone may read, with a restricted block or section on it,** has the same leak by another
+road: with no manual excerpt these plugins build the description from the raw body, so a members-only
+block near the top is quoted in the `<head>`. For a singular page that carries block or section rules and
+has no manual excerpt, the same hooks are given the safe generated excerpt (the block tree rebuilt
+without its restricted blocks, and nothing for an Elementor page), as plain text of about 160
+characters. A description the author wrote is kept where it can be detected cheaply: Yoast's
+`_yoast_wpseo_metadesc` and Rank Math's `rank_math_description`, when not empty. All in One SEO and
+Jetpack always get the safe excerpt on such a page. A page with no block or section rules is not
+touched. Another SEO
 plugin or theme that prints a description of its own, and the structured data (JSON-LD) descriptions these
 plugins print, are not covered and need the same treatment. The page's own `post_content` and the cached
 post are only read, never changed.
