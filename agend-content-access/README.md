@@ -244,6 +244,11 @@ refused, and the picker does not offer one.
 
 - Code that reads `$post->post_content` or calls `get_the_content()` directly
   bypasses every content filter, and so this gate.
+- A denied page that has a manual excerpt is served through the theme's own
+  template with only the body replaced, so a theme or page builder that prints
+  custom fields, or renders a layout outside `the_content`, can still show them.
+  Do not give such a page a manual excerpt until 0.2.0, which serves denied pages
+  through a minimal template instead.
 - Core search matches its terms against the raw `post_content` of a restricted
   post too: it can be found by a word only its body contains, although the result
   then shows only the gate.
