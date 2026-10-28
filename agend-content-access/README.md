@@ -656,8 +656,11 @@ the comments, the comment form and the comment feed were served. So:
 
 - **The template is swapped.** `template_include` at `PHP_INT_MAX` hands WordPress the plugin's
   own `templates/denied-page.php`, so no theme, builder or plugin template can run after it.
-  It prints the theme's header, the placeholder and the theme's footer, and nothing else; it
-  reads nothing of the page, not its title, body, fields or comments. A classic theme gets
+  It prints the theme's header, the placeholder and the theme's footer, and the template
+  itself reads nothing of the page: not its title, body, fields or comments. The theme's own
+  header and footer, and `wp_head()`, still run, and they are the theme's and the plugins' to
+  print what they like about the page being served (a classic `header.php` can print a custom
+  field, an SEO plugin prints a description: see the "Not covered" list below). A classic theme gets
   `get_header()`, a `main` element holding the placeholder, and `get_footer()`. A block theme
   has no such files, so the document is built from the pieces core's template canvas uses: the
   charset, `wp_head()`, the body classes, `wp_body_open()`, a `wp-site-blocks` wrapper holding
@@ -1094,10 +1097,25 @@ editor panel, does not offer one.
   `post_content` when a post is saved, such as a sync to an external search
   service. The text of a post's restricted blocks and sections is in what they
   index, and the exclusions above cannot reach it.
-- SEO plugins that generate their own meta descriptions, social previews or
-  structured data from the raw body. They do not go through `get_the_excerpt`,
-  so a restricted block or section can be quoted in a page's `<head>`. Set a
-  written excerpt, or configure the plugin's description, on such pages.
+- SEO plugins and themes that generate their own meta descriptions, social previews or
+  structured data from the raw body, other than the descriptions listed under "SEO plugin
+  descriptions" above. They do not go through `get_the_excerpt`. For a page the reader is
+  denied, those listed plugins are given the teaser, but a restricted block or section on a
+  page the reader CAN read can still be quoted in its `<head>` by any of them. Set a written
+  excerpt, or configure the plugin's description, on such pages.
+- **Paths that never reach the denied-page template.** The body is still the placeholder in
+  each, but these show or print something about the page around it:
+  - **Embeds** (`/embed/`, and a page pasted into another WordPress site). WordPress's embed
+    view returns before the page gate decides anything, so the denied-page template does not
+    apply. The embed shows the page's comment count (the number only, never a comment), and a
+    theme with its own embed template could print the page's custom fields. The count is not
+    zeroed here: doing it needs a decision for the page in every embed, and it is a number.
+  - **Legacy AMP reader mode and print plugins.** They render a page of their own on
+    `template_redirect`, so they build their own template from the page and the plugin's
+    template is not the one that runs. What they print about the page is theirs to guard.
+  - **A classic theme's `header.php`.** The denied page runs the theme's header, and a header
+    that prints one of the page's custom fields (a banner image, a subtitle) prints it, because
+    the field is read from the post and not from the body.
 - Search results for authors and contributors. They cannot tell themselves from
   a visitor in a query, so they cannot find their own pages with rules by text
   either.
