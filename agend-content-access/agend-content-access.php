@@ -89,6 +89,7 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-page-rules.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-comments.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-placeholder.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-destination.php';
 
@@ -109,6 +110,11 @@ function agend_content_access_bootstrap(): void {
 	// Gating is registered on EVERY request, admin included: the REST filters
 	// hang off it and a REST call never reaches template_redirect.
 	new Agend_Content_Access_Frontend();
+
+	// The comments of a restricted page: closed on a page the visitor is denied, and
+	// kept out of every comment query and the REST comments route. Also on every
+	// request, because a REST request never reaches template_redirect.
+	new Agend_Content_Access_Comments();
 
 	// The placeholder a denied page shows, its `[agend_access_message]` shortcode
 	// and its block pattern. On every request: the shortcode runs wherever content

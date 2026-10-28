@@ -597,6 +597,50 @@ answers "no" for anything it cannot be sure of, and the page then shows the plac
   for redirects the site chooses, and a referrer is not one. No referrer, an off-site one and
   this page itself all go to `fallback_id`, and failing that to the placeholder.
 
+#### The whole page is replaced, and its comments are closed
+
+A denied page does not run its own template. Replacing only the body let everything else a
+template prints go to the visitor: a page builder that renders its layout from meta on
+`the_content` (Beaver Builder does) overwrote the placeholder, a template that never calls
+`the_content` printed protected fields (flexible content, a theme builder's dynamic tags), and
+the comments, the comment form and the comment feed were served. So:
+
+- **The template is swapped.** `template_include` at `PHP_INT_MAX` hands WordPress the plugin's
+  own `templates/denied-page.php`, so no theme, builder or plugin template can run after it.
+  It prints the theme's header, the placeholder and the theme's footer, and nothing else; it
+  reads nothing of the page, not its title, body, fields or comments. A classic theme gets
+  `get_header()`, a `main` element holding the placeholder, and `get_footer()`. A block theme
+  has no such files, so the document is built from the pieces core's template canvas uses: the
+  charset, `wp_head()`, the body classes, `wp_body_open()`, a `wp-site-blocks` wrapper holding
+  the theme's `header` template part, the placeholder in a constrained `main` and the `footer`
+  part, and `wp_footer()`. The parts are rendered with core's `core/template-part` block, so a
+  child theme's override and a part edited in the site editor are the ones shown. If the
+  template file is missing the request ends in a 403, never in the page's own template.
+- **The body is still replaced, and re-asserted.** For anything that still calls `the_content`
+  for the denied page (a widget, a template part, a builder that overwrites it at a later
+  priority): the swap at priority 1 stays, and a second pass at `PHP_INT_MAX` puts the
+  placeholder back.
+- **Its feed is refused.** A feed of a denied page, which is its comment feed, answers 403,
+  uncacheable, whatever the page's action says.
+- **Its comments are closed.** For the denied page, `comments_open` and `pings_open` are false,
+  `comments_array` is empty and `get_comments_number` is 0.
+
+**Comments on a restricted page, elsewhere.** Every list of comments is a `WP_Comment_Query`
+(`get_comments()`, a recent-comments widget, the global comment feed, the comment blocks, the REST
+collection `/wp/v2/comments` with or without `post=`). On `pre_get_comments` the posts the viewer is
+denied are added to the query's `post__not_in`, so a viewer who cannot read a page cannot read the
+comments on it. A user who may `edit_post` that page keeps them, and a feed is judged as an anonymous
+reader. A single comment (`GET /wp/v2/comments/<id>`) on such a page is refused with `rest_cannot_read`.
+
+It is done in the query's arguments rather than its SQL because `WP_Comment_Query` caches its result
+under a key made from its arguments alone: an exclusion added to the SQL would let a persistent object
+cache hand an editor's comments to the next visitor. If the list of restricted posts cannot be read the
+query is made to match nothing. **The cost:** only a request that asks for comments pays. One indexed
+query finds the posts that carry page rules and have a comment, so a site whose restricted pages have
+no comments pays that and nothing else; each such post then costs one decision, against the viewer's
+facts, which are memoised for the request, so the gateway is asked at most once. The result is kept for
+the request.
+
 #### The built-in placeholder
 
 Rendered on the server by `Agend_Content_Access_Placeholder`, so it is the same in a block
@@ -680,6 +724,10 @@ carries any rule is its own fragment, so that policy cannot spread to its siblin
   URL that is `noindex` and never cached. Pages that only have a 0.1.x policy get it too.
 - A fallback must be a page of a type that can carry rules, a synced pattern or an Elementor
   template. Any other post type renders nothing.
+- A denied page is served with a minimal template of the plugin's own (the theme's header, the
+  placeholder and the theme's footer), not the page's. Its comments are closed and its feed is
+  refused, and the comments on a restricted page are kept out of comment queries and the REST
+  comments route for a viewer who may not read it.
 - A denial down to an outage shows the placeholder instead of redirecting or sending the
   visitor back, so real members are not bounced away while Agend is unreachable. It used to
   be acted on like any other denial.

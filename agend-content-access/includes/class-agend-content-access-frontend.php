@@ -49,6 +49,21 @@ class Agend_Content_Access_Frontend {
 	private const GENERATED_EXCERPT_PRIORITY = 11;
 
 	/**
+	 * Priority of the passes that make a denied page final: the template swap and the
+	 * closing `the_content` pass. The last word on each, so nothing that runs after
+	 * the gate can put the page's own template or body back.
+	 */
+	private const FINAL_PRIORITY = PHP_INT_MAX;
+
+	/**
+	 * The action the denied page's template fires to print the page. See
+	 * `print_denied_page()`.
+	 *
+	 * @var string
+	 */
+	const DENIED_PAGE_ACTION = 'agend_content_access_print_denied_page';
+
+	/**
 	 * The REST route of the block editor's server-side block renderer.
 	 *
 	 * `ServerSideRender` and every dynamic block's editor preview call it.
@@ -130,6 +145,18 @@ class Agend_Content_Access_Frontend {
 	 * @var bool
 	 */
 	private bool $rendering_placeholder = false;
+
+	/**
+	 * The placeholder markup for the denied page, built once per request.
+	 *
+	 * The denied page can ask for it more than once: the template prints it, and
+	 * the `the_content` passes below repeat it for anything that still renders the
+	 * body. A chosen page, pattern or template is rendered each time it is built, so
+	 * it is built once. Null until it is needed, and forgotten with the denial.
+	 *
+	 * @var string|null
+	 */
+	private ?string $placeholder_html = null;
 
 	/**
 	 * Gate markup produced for posts whose body was withheld from a render
@@ -263,6 +290,15 @@ class Agend_Content_Access_Frontend {
 	 * sending them back would bounce real members off the site for the length of the
 	 * outage. A page that chose a placeholder shows that one, and any other page shows
 	 * the built-in one. The body is still never shown.
+	 *
+	 * A FEED OF A DENIED PAGE IS REFUSED, 403, whatever the page says to do. The page's
+	 * own feed is its comment feed, which lists the comments on a page the visitor may
+	 * not read, and it has no body to put a placeholder in or visitor to redirect.
+	 * See `refuse_feed()`.
+	 *
+	 * THE PLACEHOLDER IS THE WHOLE PAGE, NOT JUST ITS BODY. See `serve_placeholder()`:
+	 * the page's own template is replaced, so nothing it prints from the protected
+	 * document, a builder's layout, a custom field, the comments, ever runs.
 	 */
 	public function gate_request(): void {
 		// A denial is per request. Forgotten first, before every early return, so a
@@ -294,10 +330,16 @@ class Agend_Content_Access_Frontend {
 		$this->decision           = $decision;
 		$this->gated_post         = $post;
 		$this->placeholder_target = 0;
+		$this->placeholder_html   = null;
 		self::$current_gate       = array(
 			'post_id'  => (int) $post->ID,
 			'decision' => $decision,
 		);
+
+		if ( is_feed() ) {
+			$this->refuse_feed( (int) $post->ID );
+			return;
+		}
 
 		$denied = $decision['rules'] instanceof Agend_Content_Access_Rules
 			? $decision['rules']->denied()
@@ -711,13 +753,67 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
-	 * Swaps the rendered body for the placeholder and makes the response one that
+	 * Refuses a feed of a denied page: a 403 with nothing in it.
+	 *
+	 * The feed of a single page is its comment feed. It lists the comments on a page
+	 * the visitor was refused, and there is no body to put a placeholder in and no
+	 * visitor to redirect, since a feed reader is not a browser. So whatever the page
+	 * says to do with the people it denies, a feed of it is not served at all.
+	 *
+	 * Marked uncacheable first: it was refused to THIS visitor, and a shared cache that
+	 * kept the 403 would refuse the next one, who may be allowed.
+	 *
+	 * @param int $post_id The page whose feed was asked for.
+	 */
+	private function refuse_feed( int $post_id ): void {
+		self::mark_uncacheable( $post_id );
+
+		status_header( 403 );
+
+		$this->terminate();
+	}
+
+	/**
+	 * Makes the denied page the placeholder, the WHOLE page, and the response one that
 	 * says so.
+	 *
+	 * Three layers, because replacing the body alone was not enough. It used to be only
+	 * the body: the page's own template ran in full and a `the_content` filter swapped
+	 * what it printed. A template prints more than `the_content`, and a builder renders
+	 * its own copy of the layout from post meta, so everything the swap did not reach
+	 * went to the visitor:
+	 *
+	 *   - A builder that renders the layout from its meta on `the_content` (Beaver
+	 *     Builder does, at 10 and 11) overwrote the placeholder with the protected
+	 *     layout.
+	 *   - A template that never calls `the_content` printed protected fields itself
+	 *     (flexible content, a theme builder's dynamic tags, a custom field widget).
+	 *   - The comments, the comment form and the page's comment feed were served.
+	 *
+	 * So, in order of how much each is trusted:
+	 *
+	 *   1. THE TEMPLATE IS REPLACED (`use_denied_template()`, `template_include` at
+	 *      PHP_INT_MAX). The page's own template never runs, so nothing in it can print
+	 *      anything. The replacement prints the theme's header, the placeholder and the
+	 *      theme's footer, and nothing else (`print_denied_page()`).
+	 *   2. THE BODY IS REPLACED AND RE-ASSERTED (`filter_the_content()` at 1,
+	 *      `reassert_placeholder()` at PHP_INT_MAX). Defence in depth, for anything that
+	 *      still calls `the_content` for this page, such as a widget, a header or a
+	 *      template part, and for a builder that overwrites it.
+	 *   3. THE COMMENTS ARE CLOSED. `Agend_Content_Access_Comments` reads the denial this
+	 *      sets and closes, empties and zeroes the page's comments, and refuses its feed.
+	 *
+	 * The builder's own copy of the layout is blanked too (`suppress_builder_data()`), so
+	 * a builder that is run anyway renders nothing.
 	 *
 	 * @param WP_Post $post The page being denied.
 	 */
 	private function serve_placeholder( WP_Post $post ): void {
+		add_filter( 'template_include', array( $this, 'use_denied_template' ), self::FINAL_PRIORITY );
+		add_action( self::DENIED_PAGE_ACTION, array( $this, 'print_denied_page' ) );
+
 		add_filter( 'the_content', array( $this, 'filter_the_content' ), 1 );
+		add_filter( 'the_content', array( $this, 'reassert_placeholder' ), self::FINAL_PRIORITY );
 
 		// Page builders render from their own stored data rather than
 		// `the_content`, so the raw document has to be emptied too or an
@@ -750,6 +846,184 @@ class Agend_Content_Access_Frontend {
 	}
 
 	/**
+	 * The template a denied page is served with, in place of its own.
+	 *
+	 * Last on `template_include` (PHP_INT_MAX), after the theme, a theme builder and any
+	 * plugin that swaps templates have had their say, so none of them can put the page's
+	 * own template back. The template is a minimal file of the plugin's that fires
+	 * `DENIED_PAGE_ACTION`, which `print_denied_page()` answers.
+	 *
+	 * If that file is missing, which only a broken deployment does, the request ends in
+	 * a 403 rather than running the page's own template: nothing about the page is
+	 * served on a path that cannot be shown to be safe.
+	 *
+	 * @param mixed $template Path of the template WordPress chose.
+	 * @return mixed The plugin's template for a denied page, the given one otherwise.
+	 */
+	public function use_denied_template( $template ) {
+		if ( null === $this->decision || ! $this->gated_post instanceof WP_Post ) {
+			return $template;
+		}
+
+		$file = static::denied_template_file();
+
+		if ( ! is_readable( $file ) ) {
+			wp_die(
+				esc_html__( 'This content is restricted.', 'agend-content-access' ),
+				'',
+				array( 'response' => 403 )
+			);
+		}
+
+		return $file;
+	}
+
+	/**
+	 * The file `use_denied_template()` hands to WordPress. Its own method so a test can
+	 * point it somewhere else.
+	 *
+	 * @return string
+	 */
+	protected static function denied_template_file(): string {
+		return dirname( __DIR__ ) . '/templates/denied-page.php';
+	}
+
+	/**
+	 * Prints the denied page: the theme's header, the placeholder, the theme's footer.
+	 *
+	 * The placeholder is the ONLY thing printed between them. Nothing of the page is read
+	 * to print it, not its template, its body, its fields or its comments.
+	 *
+	 * A classic theme gives `get_header()` and `get_footer()`, the two files every
+	 * classic theme has, which open and close the page around whatever the template
+	 * prints. The placeholder sits in a `main` element between them.
+	 *
+	 * A block theme has no such files, its header and footer are template parts of the
+	 * site editor, so the document is built here from the same pieces core's template
+	 * canvas uses (`template-canvas.php`): the charset, `wp_head()`, the body classes,
+	 * `wp_body_open()`, a `wp-site-blocks` wrapper holding the theme's header template
+	 * part, the placeholder and the footer template part, and `wp_footer()`. The two
+	 * parts are rendered with the `core/template-part` block, core's own API for a
+	 * block theme's parts, so a child theme's override and a part edited in the site
+	 * editor are the ones shown, and the part brings its own `header` or `footer`
+	 * element. The page's own template (`$_wp_current_template_content`) is left
+	 * untouched and unused. The canvas itself is not reused because it renders THAT
+	 * template, which is the page.
+	 *
+	 * The parts are rendered before `wp_head()`, as the canvas renders its template,
+	 * so a block that enqueues a style or a script from its render callback is in time.
+	 *
+	 * The placeholder's wrapper has the classes core's Group block prints for a
+	 * constrained layout, so the theme's content width and padding apply to it.
+	 */
+	public function print_denied_page(): void {
+		$body = $this->placeholder_html();
+
+		if ( self::is_block_theme() ) {
+			$header = self::template_part( 'header' );
+			$footer = self::template_part( 'footer' );
+
+			// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- Markup the theme's template parts and the placeholder built, each escaped where it was made.
+			?>
+<!DOCTYPE html>
+<html <?php language_attributes(); ?>>
+<head>
+	<meta charset="<?php bloginfo( 'charset' ); ?>" />
+	<?php wp_head(); ?>
+</head>
+
+<body <?php body_class( 'agend-access-denied-page' ); ?>>
+<?php wp_body_open(); ?>
+
+<div class="wp-site-blocks">
+	<?php echo $header; ?>
+	<main id="wp--skip-link--target" class="wp-block-group has-global-padding is-layout-constrained agend-access-denied">
+		<?php echo $body; ?>
+	</main>
+	<?php echo $footer; ?>
+</div>
+
+<?php wp_footer(); ?>
+</body>
+</html>
+			<?php
+			// phpcs:enable WordPress.Security.EscapeOutput.OutputNotEscaped
+
+			return;
+		}
+
+		get_header();
+
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- The placeholder, escaped where it was made.
+		echo '<main id="main" class="site-main agend-access-denied">' . $body . '</main>';
+
+		get_footer();
+	}
+
+	/**
+	 * Whether the active theme is a block theme.
+	 *
+	 * `wp_is_block_theme()` is 5.9. Before it nothing is a block theme.
+	 *
+	 * @return bool
+	 */
+	private static function is_block_theme(): bool {
+		return function_exists( 'wp_is_block_theme' ) && wp_is_block_theme();
+	}
+
+	/**
+	 * One of the block theme's template parts, rendered.
+	 *
+	 * @param string $slug `header` or `footer`, which is also the element it is wrapped in.
+	 * @return string Markup, empty when the theme has no such part.
+	 */
+	private static function template_part( string $slug ): string {
+		return (string) render_block(
+			array(
+				'blockName'    => 'core/template-part',
+				'attrs'        => array(
+					'slug'    => $slug,
+					'theme'   => get_stylesheet(),
+					'tagName' => $slug,
+				),
+				'innerBlocks'  => array(),
+				'innerHTML'    => '',
+				'innerContent' => array(),
+			)
+		);
+	}
+
+	/**
+	 * The placeholder markup for the denied page, built once.
+	 *
+	 * Without the class that renders the placeholder it is nothing, never the body: a
+	 * deployment that is missing a file shows a blank page, not the page. A chosen page
+	 * is rendered through `the_content`, which is the filter that asks for this, so the
+	 * guard stops it asking for its own placeholder and never returning.
+	 *
+	 * @return string
+	 */
+	private function placeholder_html(): string {
+		if ( null !== $this->placeholder_html ) {
+			return $this->placeholder_html;
+		}
+
+		if ( ! $this->gated_post instanceof WP_Post || ! class_exists( 'Agend_Content_Access_Placeholder', false ) ) {
+			return '';
+		}
+
+		$this->rendering_placeholder = true;
+
+		try {
+			$this->placeholder_html = Agend_Content_Access_Placeholder::for_page( $this->gated_post, $this->decision ?? array(), $this->placeholder_target );
+		} finally {
+			$this->rendering_placeholder = false;
+		}
+
+		return $this->placeholder_html;
+	}
+
+	/**
 	 * Replaces the post body with the placeholder.
 	 *
 	 * Without the class that renders the placeholder it returns nothing, never the
@@ -763,22 +1037,42 @@ class Agend_Content_Access_Frontend {
 			return $content;
 		}
 
-		// A chosen page is rendered through this very filter: see the property.
+		// A chosen page is rendered through this very filter: see `placeholder_html()`.
 		if ( $this->rendering_placeholder ) {
 			return $content;
 		}
 
-		if ( ! $this->gated_post instanceof WP_Post || ! class_exists( 'Agend_Content_Access_Placeholder', false ) ) {
-			return '';
+		return $this->placeholder_html();
+	}
+
+	/**
+	 * Puts the placeholder back over the denied page's body after every other filter.
+	 *
+	 * The page's own template no longer runs, so this is for what still calls
+	 * `the_content` for the denied page: a widget, a template part, a header. And for a
+	 * builder that renders the layout from its own copy on that filter, at a priority
+	 * later than the swap at 1, as Beaver Builder does. Like `enforce_withheld()` it is
+	 * the word that stands, because a filter that only REPLACES content has to come last.
+	 *
+	 * For the denied page only, and not wherever the body is wanted: a post withheld from
+	 * a loop is `enforce_withheld()`'s, and a chosen page being rendered as the
+	 * placeholder is somebody else's content.
+	 *
+	 * @param mixed $content Content as the rest of the chain left it.
+	 * @return mixed
+	 */
+	public function reassert_placeholder( $content ) {
+		if ( null === $this->decision || ! $this->gated_post instanceof WP_Post || $this->rendering_placeholder ) {
+			return $content;
 		}
 
-		$this->rendering_placeholder = true;
+		$post = get_post();
 
-		try {
-			return Agend_Content_Access_Placeholder::for_page( $this->gated_post, $this->decision, $this->placeholder_target );
-		} finally {
-			$this->rendering_placeholder = false;
+		if ( ! $post instanceof WP_Post || (int) $post->ID !== (int) $this->gated_post->ID || isset( $this->withheld[ (int) $post->ID ] ) ) {
+			return $content;
 		}
+
+		return $this->placeholder_html();
 	}
 
 	/**

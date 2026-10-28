@@ -69,6 +69,13 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Agend_Content_Access_Frontend::reset_gate();
 		}
 
+		// Which restricted posts a viewer is denied, for the comment queries of the
+		// request. Right in production; across tests it would hand one viewer's list to
+		// the next.
+		if ( class_exists( 'Agend_Content_Access_Comments', false ) ) {
+			\Agend_Content_Access_Comments::reset();
+		}
+
 		// The catalogue holds what each list answered, failures included, for the
 		// request. Right in production; across tests it would hand one test's
 		// outage, or its seeded list, to the next.
@@ -116,6 +123,11 @@ abstract class TestCase extends PHPUnitTestCase {
 		$GLOBALS['agend_test_block_pattern_categories'] = array();
 		$GLOBALS['agend_test_post_type_objects']  = array();
 		$GLOBALS['agend_test_permalinks']         = array();
+		$GLOBALS['agend_test_theme_calls']        = array();
+		$GLOBALS['agend_test_block_theme']        = false;
+		$GLOBALS['agend_test_is_comment_feed']    = false;
+		$GLOBALS['agend_test_comments']           = array();
+		$GLOBALS['agend_test_posts_with_comments'] = array();
 		unset( $GLOBALS['agend_test_current_screen'] );
 		unset( $GLOBALS['agend_test_referer'] );
 

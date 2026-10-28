@@ -652,6 +652,12 @@ if ( ! class_exists( 'wpdb' ) ) {
 
 		public string $prefix = 'wp_';
 
+		public string $posts = 'wp_posts';
+
+		public string $postmeta = 'wp_postmeta';
+
+		public string $comments = 'wp_comments';
+
 		/** @var string[] Every query() passed in, for assertions on SQL the stub does not model. */
 		public array $queries = array();
 
@@ -795,6 +801,29 @@ if ( ! class_exists( 'wpdb' ) ) {
 						$ids[] = (string) $user_id;
 					}
 				}
+				return $ids;
+			}
+
+			// The posts that carry any of two meta keys AND have a comment, which is what the
+			// comment exclusion asks. The comments table is not modelled: a test lists the posts
+			// that have comments in `$GLOBALS['agend_test_posts_with_comments']`.
+			if ( 1 === preg_match( "/^SELECT DISTINCT m\\.post_id FROM wp_postmeta AS m INNER JOIN wp_comments AS c ON c\\.comment_post_ID = m\\.post_id WHERE m\\.meta_key IN \\( '(.*?)', '(.*?)' \\)$/s", $query, $m ) ) {
+				$keys = array( stripslashes( $m[1] ), stripslashes( $m[2] ) );
+				$ids  = array();
+
+				foreach ( (array) ( $GLOBALS['agend_test_post_meta'] ?? array() ) as $post_id => $meta ) {
+					if ( ! in_array( (int) $post_id, (array) ( $GLOBALS['agend_test_posts_with_comments'] ?? array() ), true ) ) {
+						continue;
+					}
+
+					foreach ( $keys as $key ) {
+						if ( is_array( $meta ) && array_key_exists( $key, $meta ) ) {
+							$ids[] = (string) $post_id;
+							break;
+						}
+					}
+				}
+
 				return $ids;
 			}
 
@@ -3739,5 +3768,104 @@ if ( ! function_exists( 'get_post_type_object' ) ) {
 		$name = $GLOBALS['agend_test_post_type_objects'][ $post_type ] ?? null;
 
 		return null === $name ? null : (object) array( 'labels' => (object) array( 'singular_name' => $name ) );
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The theme and the document shell, for the denied-page template
+// ---------------------------------------------------------------------------
+
+if ( ! function_exists( 'agend_test_theme_call' ) ) {
+	/**
+	 * Records one call the template made, in order, in `$GLOBALS['agend_test_theme_calls']`, and
+	 * prints a marker for it so a test can see where the placeholder sat between them.
+	 */
+	function agend_test_theme_call( string $name ): void {
+		$GLOBALS['agend_test_theme_calls'][] = $name;
+
+		echo '<!--' . $name . '-->';
+	}
+}
+
+if ( ! function_exists( 'get_header' ) ) {
+	/** A classic theme's header. Records itself. */
+	function get_header( $name = null, $args = array() ): void {
+		agend_test_theme_call( 'get_header' );
+	}
+}
+
+if ( ! function_exists( 'get_footer' ) ) {
+	/** A classic theme's footer. Records itself. */
+	function get_footer( $name = null, $args = array() ): void {
+		agend_test_theme_call( 'get_footer' );
+	}
+}
+
+if ( ! function_exists( 'wp_head' ) ) {
+	function wp_head(): void {
+		agend_test_theme_call( 'wp_head' );
+	}
+}
+
+if ( ! function_exists( 'wp_body_open' ) ) {
+	function wp_body_open(): void {
+		agend_test_theme_call( 'wp_body_open' );
+	}
+}
+
+if ( ! function_exists( 'wp_footer' ) ) {
+	function wp_footer(): void {
+		agend_test_theme_call( 'wp_footer' );
+	}
+}
+
+if ( ! function_exists( 'language_attributes' ) ) {
+	function language_attributes(): void {
+		echo 'lang="en-AU"';
+	}
+}
+
+if ( ! function_exists( 'bloginfo' ) ) {
+	function bloginfo( $show = '' ): void {
+		echo 'UTF-8';
+	}
+}
+
+if ( ! function_exists( 'body_class' ) ) {
+	function body_class( $class = '' ): void {
+		echo 'class="' . esc_attr( (string) $class ) . '"';
+	}
+}
+
+if ( ! function_exists( 'get_stylesheet' ) ) {
+	/** The active theme's directory name. */
+	function get_stylesheet(): string {
+		return 'test-theme';
+	}
+}
+
+if ( ! function_exists( 'wp_is_block_theme' ) ) {
+	/** A classic theme unless a test sets `$GLOBALS['agend_test_block_theme']`. */
+	function wp_is_block_theme(): bool {
+		return ! empty( $GLOBALS['agend_test_block_theme'] );
+	}
+}
+
+if ( ! function_exists( 'is_comment_feed' ) ) {
+	/** Not a comment feed unless a test sets `$GLOBALS['agend_test_is_comment_feed']`. */
+	function is_comment_feed(): bool {
+		return ! empty( $GLOBALS['agend_test_is_comment_feed'] );
+	}
+}
+
+if ( ! function_exists( 'get_comment' ) ) {
+	/** A comment object from `$GLOBALS['agend_test_comments']` (id => post id), else null. */
+	function get_comment( $comment_id = null ) {
+		$post_id = $GLOBALS['agend_test_comments'][ (int) $comment_id ] ?? null;
+
+		return null === $post_id ? null : (object) array(
+			'comment_ID'      => (int) $comment_id,
+			'comment_post_ID' => (int) $post_id,
+		);
 	}
 }

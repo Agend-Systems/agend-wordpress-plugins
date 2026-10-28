@@ -120,6 +120,24 @@ decided where the plan was silent.
 - **The page panel's controls** for the action and its targets write `denied` and offer
   `type: "page"` fallbacks only for a redirect: built as item 4 below.
 
+## A denied page runs no template of the page's own (added 2026-10-28, from the review)
+
+An independent review found that the placeholder swapped only `the_content` and still ran the page's
+own template. A builder that renders from meta on `the_content` overwrote the placeholder, a template
+that never calls `the_content` printed protected fields, and the comments, the comment form and the
+comment feed were served. The fix, in `Agend_Content_Access_Frontend::serve_placeholder()`:
+
+- `template_include` at `PHP_INT_MAX` replaces the template with `templates/denied-page.php`, which
+  prints the theme's header, the placeholder and the theme's footer. Classic themes use
+  `get_header()` and `get_footer()`. Block themes use the document the template canvas would print
+  with the theme's `header` and `footer` template parts rendered as `core/template-part` blocks
+  (the canvas itself renders the page's template, so it cannot be reused).
+- The `the_content` swap stays and a second pass at `PHP_INT_MAX` re-asserts it.
+- The denied page's comments are closed, emptied and counted as none, and its feed is a 403.
+- `Agend_Content_Access_Comments` keeps the comments of restricted posts out of every comment query
+  (`pre_get_comments`, so the exclusion is part of the cache key) and refuses a single comment over
+  REST, for a viewer who may not read the post. Users who may `edit_post` it keep them.
+
 ## How it works underneath (unchanged engine)
 
 Keep: the provider registry and Agend checks (`Viewer_Facts`, membership,
