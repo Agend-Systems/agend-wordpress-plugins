@@ -64,6 +64,7 @@ export function copy() {
 		/* translators: %d: number of search results. */
 		resultsCount: __( '%d results', 'agend-content-access' ),
 		resultsNone: __( 'No rules match that search.', 'agend-content-access' ),
+		resultsAdded: __( 'Already added.', 'agend-content-access' ),
 		/* translators: 1: number of results shown, 2: number of results found. */
 		resultsCapped: __( 'Showing %1$d of %2$d. Keep typing to narrow it down.', 'agend-content-access' ),
 		/* translators: %d: number of rules not listed. */

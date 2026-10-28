@@ -43,6 +43,7 @@ export const DEFAULT_STRINGS = Object.freeze( {
 	removeRule: 'Remove %s',
 	resultsCount: '%d results',
 	resultsNone: 'No rules match that search.',
+	resultsAdded: 'Already added.',
 	resultsCapped: 'Showing %1$d of %2$d. Keep typing to narrow it down.',
 	resultsMore: '%d more. Type to search them.',
 

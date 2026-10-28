@@ -462,6 +462,24 @@ test( '"Show instead" offers Nothing first, then the pages, and keeps a stored p
 	assert.deepEqual( fallbackChoices( null, 0 ), [ { value: '', label: 'Nothing' } ] );
 } );
 
+test( 'a search that finds only rules already added says so, and one that finds nothing says that', () => {
+	const index = indexOf();
+	const open = searchRules( index, 'gold', [] );
+
+	assert.equal( open.total > 0, true );
+	assert.equal( open.alreadyAdded, 0 );
+
+	const added = searchRules( index, 'gold', [ 'agend_membership:' + PLAN_GOLD ] );
+
+	assert.equal( added.total, 0, 'the rule is not offered again' );
+	assert.deepEqual( added.groups, [] );
+	assert.equal( added.alreadyAdded, 1, 'but the search is known to have found it' );
+
+	assert.equal( searchRules( index, 'zzz', [ 'agend_membership:' + PLAN_GOLD ] ).alreadyAdded, 0 );
+	assert.equal( searchRules( index, '', [ 'agend_membership:' + PLAN_GOLD ] ).alreadyAdded, 0, 'only a search counts' );
+	assert.equal( searchRules( null, 'gold', [] ).alreadyAdded, 0 );
+} );
+
 test( 'a page panel list can be limited to one kind and name its empty choice', () => {
 	const mixed = [
 		{ id: 12, title: 'Page: Join us', type: 'page' },

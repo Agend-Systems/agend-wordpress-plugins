@@ -350,13 +350,15 @@ function score( item, needle, first ) {
  * @param {Object|null} index  From `buildIndex()`.
  * @param {string}      query  What was typed.
  * @param {string[]}    rules  The block's rules.
- * @return {{mode: string, groups: Array, total: number, rendered: number, capped: boolean}}
+ * @return {{mode: string, groups: Array, total: number, rendered: number, capped: boolean, alreadyAdded: number}}
  *         `groups` are `{key, label, items, more}`, empty groups left out.
- *         `total` is every match, `rendered` how many are in `groups`, and
- *         `capped` whether a search had more than it rendered.
+ *         `total` is every match, `rendered` how many are in `groups`,
+ *         `capped` whether a search had more than it rendered, and
+ *         `alreadyAdded` how many rules the search matched that the block
+ *         already has, which are not offered again.
  */
 export function searchRules( index, query, rules ) {
-	const empty = { mode: 'preview', groups: [], total: 0, rendered: 0, capped: false };
+	const empty = { mode: 'preview', groups: [], total: 0, rendered: 0, capped: false, alreadyAdded: 0 };
 
 	if ( ! index ) {
 		return empty;
@@ -368,11 +370,16 @@ export function searchRules( index, query, rules ) {
 	const searching = tokens.length > 0;
 	const picks = [];
 	let total = 0;
+	let alreadyAdded = 0;
 
 	index.groups.forEach( ( group ) => {
 		let matches = group.items.filter( ( item ) => ! item.inactive && ! isChosen( item, chosen ) );
 
 		if ( searching ) {
+			// What the search found that is already a rule, so a search that finds only
+			// those can say so instead of saying nothing matches.
+			alreadyAdded += group.items.filter( ( item ) => isChosen( item, chosen ) && tokens.every( ( token ) => item.haystack.indexOf( token ) !== -1 ) ).length;
+
 			matches = matches
 				.filter( ( item ) => tokens.every( ( token ) => item.haystack.indexOf( token ) !== -1 ) )
 				.map( ( item ) => ( { item, score: score( item, needle, tokens[ 0 ] ) } ) )
@@ -408,6 +415,7 @@ export function searchRules( index, query, rules ) {
 		total,
 		rendered,
 		capped: searching && total > rendered,
+		alreadyAdded,
 	};
 }
 

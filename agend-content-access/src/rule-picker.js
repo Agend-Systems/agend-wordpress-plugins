@@ -13,9 +13,10 @@
  *                        move between results; Up from the first returns to
  *                        the search box.
  *
- * After a rule is added the search text is kept, so several matches can be
- * added in a row, and focus returns to the search box because the button that
- * had it has gone from the list.
+ * After a rule is added the search box is emptied, because what was typed has
+ * found what it was looking for, and keeps focus (the button that had it has gone
+ * from the list), so the next rule can be searched for at once. A search that finds
+ * only rules that are already added says so, rather than that nothing matches.
  */
 import { __ } from '@wordpress/i18n';
 import { useMemo, useRef, useState } from '@wordpress/element';
@@ -54,6 +55,7 @@ export default function RulePicker( { index, rules, strings, onAdd, notices, sea
 
 	const add = ( rule ) => {
 		onAdd( rule );
+		setQuery( '' );
 
 		const box = searchBox();
 
@@ -104,10 +106,12 @@ export default function RulePicker( { index, rules, strings, onAdd, notices, sea
 		}
 	};
 
+	// Nothing found, and why: everything that matched is already a rule, or nothing does.
+	const none = result.alreadyAdded > 0 ? strings.resultsAdded : strings.resultsNone;
 	let status = '';
 
 	if ( searching ) {
-		status = result.total === 0 ? strings.resultsNone : format( strings.resultsCount, result.total );
+		status = result.total === 0 ? none : format( strings.resultsCount, result.total );
 	}
 
 	return (
@@ -127,7 +131,7 @@ export default function RulePicker( { index, rules, strings, onAdd, notices, sea
 					{ status }
 				</span>
 			</VisuallyHidden>
-			{ searching && result.groups.length === 0 && <p className="agend-access__empty">{ strings.resultsNone }</p> }
+			{ searching && result.groups.length === 0 && <p className="agend-access__empty">{ none }</p> }
 			{ result.groups.length > 0 && (
 				<div className="agend-access__results">
 					{ result.groups.map( ( group ) => (
