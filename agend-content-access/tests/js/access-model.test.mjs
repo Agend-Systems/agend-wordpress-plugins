@@ -318,17 +318,75 @@ test( 'rules are read once each, in order', () => {
 	assert.deepEqual( normalise( { rules: [ GOLD, BOARD, GOLD ] } ).rules, [ GOLD, BOARD ] );
 } );
 
-test( 'only the match value "all" reads as all, and only a boolean true reverses', () => {
+test( 'Match is "any" or "all" and Reverse is a boolean, as the server reads them', () => {
 	assert.equal( normalise( { rules: [ GOLD ], match: 'all' } ).match, 'all' );
+	assert.equal( normalise( { rules: [ GOLD ], match: 'any' } ).match, 'any' );
+	assert.equal( normalise( { rules: [ GOLD ], invert: true } ).invert, true );
+	assert.equal( normalise( { rules: [ GOLD ], invert: false } ).invert, false );
 
-	for ( const junk of [ 'ALL', 'every', 3, true, null ] ) {
-		assert.equal( normalise( { rules: [ GOLD ], match: junk } ).match, 'any', String( junk ) );
+	// A key that is null is as good as absent, and so is `undefined`.
+	assert.equal( normalise( { rules: [ GOLD ], match: null, invert: null } ).unreadable, false );
+	assert.equal( normalise( { rules: [ GOLD ], match: undefined, invert: undefined } ).unreadable, false );
+} );
+
+/**
+ * The server reads a Match that is not `any` or `all`, and a Reverse that is not a boolean, as
+ * unreadable and denies everyone. A panel that read `"ALL"` as `any` and `"yes"` as off showed such
+ * a block as open to whoever the rules name, and the first edit wrote exactly that.
+ */
+test( 'a Match that is not any or all, or a Reverse that is not a boolean, is unreadable and hidden from everyone', () => {
+	for ( const junk of [ 'ALL', 'All', 'ANY', 'every', '', ' all', 'all ', 3, 0, true, false, [ 'all' ], {} ] ) {
+		const state = normalise( { rules: [ GOLD, BOARD ], match: junk } );
+
+		assert.equal( state.unreadable, true, 'match ' + JSON.stringify( junk ) );
+		assert.deepEqual( state.rules, [] );
+		assert.equal( isRestricted( { rules: [ GOLD, BOARD ], match: junk } ), true );
 	}
 
-	assert.equal( normalise( { rules: [ GOLD ], invert: true } ).invert, true );
+	for ( const junk of [ 'yes', 'true', 'false', '', 1, 0, [], {}, [ true ] ] ) {
+		const state = normalise( { rules: [ GOLD ], invert: junk } );
 
-	for ( const junk of [ 'yes', 1, 'true', {} ] ) {
-		assert.equal( normalise( { rules: [ GOLD ], invert: junk } ).invert, false, String( junk ) );
+		assert.equal( state.unreadable, true, 'invert ' + JSON.stringify( junk ) );
+		assert.equal( isRestricted( { rules: [ GOLD ], invert: junk } ), true );
+	}
+} );
+
+/** The three keys are read together, on the server too: a bad one is unreadable whether or not rules sit beside it. */
+test( 'a bad Match or Reverse is unreadable even when there are no rules beside it', () => {
+	assert.equal( normalise( { match: 'ALL' } ).unreadable, true );
+	assert.equal( normalise( { invert: 'yes' } ).unreadable, true );
+	assert.equal( normalise( { rules: [], match: 'ALL' } ).unreadable, true );
+} );
+
+test( 'an unreadable Match or Reverse refuses every edit, so a block the server hides is never opened by one', () => {
+	const stored = { rules: [ GOLD, BOARD ], match: 'ALL' };
+
+	assert.equal( addRule( stored, SIGNED_IN ), stored );
+	assert.equal( removeRule( stored, GOLD ), stored );
+	assert.equal( setMatch( stored, 'all' ), stored );
+	assert.equal( setInvert( stored, true ), stored );
+	assert.equal( setFallback( stored, 5 ), stored );
+
+	const reversed = { rules: [ GOLD ], invert: 'yes' };
+
+	assert.equal( setFallback( reversed, 5 ), reversed );
+	assert.equal( addRule( reversed, BOARD ), reversed );
+
+	// The one way out is the reset, which says what it does.
+	assert.equal( resetAccess( stored ), undefined );
+} );
+
+/**
+ * Ported from the review: the first panel's lists, whose ids the server holds to its patterns.
+ */
+test( 'a first-shape list with an id the server would drop is refused, not offered as rules to edit', () => {
+	const slug = { mode: 'segments', segmentIds: [ 'vip' ] };
+	const mixed = { mode: 'selected_tiers', tierIds: [ 'gold', PLAN_A ] };
+
+	for ( const stored of [ slug, mixed ] ) {
+		assert.equal( normalise( stored ).unreadable, true );
+		assert.equal( addRule( stored, SIGNED_IN ), stored, 'an edit would have written the slug as a rule the server acts on' );
+		assert.equal( isRestricted( stored ), true );
 	}
 } );
 

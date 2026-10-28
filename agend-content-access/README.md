@@ -233,9 +233,15 @@ show more loosely than the server enforces it is shown as "Unreadable setting
 (hidden from everyone)", with a reset and nothing else: a set-mode with nothing
 selected, conditions switched on, empty and reversed, an audience with reversed
 conditions, a mode this version does not know, or a list or condition that is
-not text. So are a value that is not an object, a rule list holding anything
-that is not a rule, and a value that mixes both shapes. Reset clears the
-setting and keeps any key that is not ours.
+not text. So is an audience list holding an entry the server's pattern refuses (a plan
+or segment id that is not a UUID, an entitlement key that is not a gate key, the
+server's own `UUID_PATTERN` and `ENTITLEMENT_KEY_PATTERN`): the server drops such an
+entry and reads the rest, but the panel would show it as a rule, and the first edit
+would write it in the new shape, where a slug is evaluated. So are a value that is not
+an object, a rule list holding anything that is not a rule, a Match that is not `any`
+or `all`, a Reverse that is not a boolean (the server hides the block from everyone, so
+the panel must not show it as open), and a value that mixes both shapes. Reset clears
+the setting and keeps any key that is not ours.
 
 A blue stripe on the canvas marks a block that carries rules, or one the panel
 cannot read.

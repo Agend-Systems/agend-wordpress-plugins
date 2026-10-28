@@ -201,6 +201,18 @@ function readRules( stored ) {
 		state.rules = unique( stored.rules );
 	}
 
+	// Match is `any` or `all` and Reverse is a boolean, and nothing else. The server
+	// reads anything else as unreadable and denies everyone, so a panel that read
+	// `"ALL"` as `any` or `"yes"` as off would show a block as open, and the first
+	// edit would write that, opening a block the server had hidden from everyone.
+	if ( has( stored, 'match' ) && ( typeof stored.match !== 'string' || ( stored.match !== MATCH.ANY && stored.match !== MATCH.ALL ) ) ) {
+		return unreadableState();
+	}
+
+	if ( has( stored, 'invert' ) && typeof stored.invert !== 'boolean' ) {
+		return unreadableState();
+	}
+
 	state.match = stored.match === MATCH.ALL ? MATCH.ALL : MATCH.ANY;
 	state.invert = stored.invert === true;
 	state.fallbackId = positiveInteger( stored.fallbackId );
@@ -219,10 +231,11 @@ function readRules( stored ) {
  *
  * `unreadable` is true where what the panel shows would differ from what the
  * server acts on, or where the server fails closed: a value that is not an
- * object at all, a rule list with something other than a rule in it, a mix of
- * the two shapes, and whatever `readLegacy()` cannot express as rules. Anything
- * the server shrugs off (an unknown match value) is read the same way here and
- * is not worth alarming an author about.
+ * object at all, a rule list with something other than a rule in it, a Match
+ * that is not `any` or `all`, a Reverse that is not a boolean, a mix of the two
+ * shapes, and whatever `readLegacy()` cannot express as rules. The enums are the
+ * server's, and reading a bad one as its default would show a block the server
+ * hides from everyone as open to whoever the rules name.
  *
  * `legacy` is true for a value written by the first panel, and `twoPart` for
  * one of those that holds an audience AND conditions, which the rules shown

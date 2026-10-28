@@ -39,6 +39,13 @@
  *
  *   - a set-mode with nothing valid selected. The server hides the block from
  *     everyone, and an empty rule list shows it to everyone.
+ *   - a set-mode with ANY entry that is not the shape of what the mode names: a
+ *     plan or segment id that is not a UUID, an entitlement key that is not a
+ *     gate key. The server drops such an entry and reads the rest. The panel
+ *     would show the entry as a rule, and the first edit would write it into
+ *     the new shape as one the server DOES act on (a slug evaluates), which
+ *     admits people the old setting never did. So the panel will not show a
+ *     list it cannot show exactly. The patterns are the server's own.
  *   - conditions switched on, empty and reversed. The server hides the block
  *     from everyone, for the same reason.
  *   - a mode this version does not recognise, a list that is not a list, a
@@ -69,12 +76,35 @@ export const LEGACY_KEYS = Object.freeze( [
 	'conditionsInvert',
 ] );
 
-/** The attribute key and rule provider of each set-mode. */
+/**
+ * What a plan or segment id looks like: the server's `Policy::UUID_PATTERN`. Hex
+ * is case insensitive. There is no multiline flag, so `$` is the end of the text
+ * and not also before a trailing newline, as the server's `D` modifier has it.
+ */
+export const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/** What an entitlement's gate key looks like: the server's `Policy::ENTITLEMENT_KEY_PATTERN`. */
+export const ENTITLEMENT_KEY_PATTERN = /^[a-z][a-z0-9_.]{1,62}[a-z0-9]$/;
+
+/** The attribute key, rule provider and entry pattern of each set-mode. */
 const SET_MODES = Object.freeze( {
-	selected_tiers: { key: 'tierIds', provider: 'agend_membership' },
-	segments: { key: 'segmentIds', provider: 'agend_segments' },
-	selected_entitlements: { key: 'entitlementKeys', provider: 'agend_entitlements' },
+	selected_tiers: { key: 'tierIds', provider: 'agend_membership', pattern: UUID_PATTERN },
+	segments: { key: 'segmentIds', provider: 'agend_segments', pattern: UUID_PATTERN },
+	selected_entitlements: { key: 'entitlementKeys', provider: 'agend_entitlements', pattern: ENTITLEMENT_KEY_PATTERN },
 } );
+
+/**
+ * PHP's `trim()`: space, tab, newline, carriage return, NUL and vertical tab, and
+ * nothing else. `String.prototype.trim` also strips no-break and other Unicode
+ * spaces, which PHP leaves, and an id that only one of them accepted would be
+ * shown as valid where the server drops it.
+ *
+ * @param {string} text Text.
+ * @return {string} Trimmed text.
+ */
+function phpTrim( text ) {
+	return text.replace( /^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, '' );
+}
 
 export const MEMBER_RULE = 'agend_membership:is_member';
 
@@ -140,7 +170,21 @@ function audienceRules( stored ) {
 		return null;
 	}
 
-	const rules = unique( chosen.filter( isText ) ).map( ( id ) => set.provider + ':' + id );
+	// Every entry must be what the mode names, as the server's pattern says. One
+	// that is not makes the list unreadable: see the top of the file.
+	const ids = [];
+
+	for ( const entry of chosen ) {
+		const id = typeof entry === 'string' ? phpTrim( entry ) : '';
+
+		if ( ! set.pattern.test( id ) ) {
+			return null;
+		}
+
+		ids.push( id );
+	}
+
+	const rules = unique( ids ).map( ( id ) => set.provider + ':' + id );
 
 	return rules.length > 0 ? rules : null;
 }

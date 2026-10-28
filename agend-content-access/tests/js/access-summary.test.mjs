@@ -54,7 +54,7 @@ test( 'a value the panel cannot read is said to be hidden from everyone', () => 
 } );
 
 test( 'a first-shape block is summarised as the rules it is shown as', () => {
-	assert.equal( say( { mode: 'selected_tiers', tierIds: [ 'a', 'b' ] } ), 'Only people who match any of these 2 rules' );
+	assert.equal( say( { mode: 'selected_tiers', tierIds: [ '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222' ] } ), 'Only people who match any of these 2 rules' );
 	assert.equal( say( { mode: 'active_member', conditionsEnabled: true, conditions: [ 'agend_wordpress:logged_in' ] } ), 'Only people who match all of these 2 rules' );
 } );
 

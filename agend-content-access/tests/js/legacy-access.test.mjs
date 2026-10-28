@@ -12,9 +12,10 @@
  * and flagged for the author.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { LEGACY_KEYS, MEMBER_RULE, hasLegacyKeys, readLegacy } from '../../src/legacy-access.mjs';
+import { ENTITLEMENT_KEY_PATTERN, LEGACY_KEYS, MEMBER_RULE, UUID_PATTERN, hasLegacyKeys, readLegacy } from '../../src/legacy-access.mjs';
 import { normalise } from '../../src/access-model.mjs';
 
 const PLAN_A = '11111111-1111-4111-8111-111111111111';
@@ -82,8 +83,77 @@ test( 'an audience in a set-mode matches any of its rules, so Match is Any', () 
 	assert.equal( read.invert, false );
 } );
 
-test( 'a list that holds something other than text drops it from an audience, as the server does', () => {
-	assert.deepEqual( readLegacy( { mode: 'segments', segmentIds: [ SEG_A, 7, null, '' ] } ).rules, [ 'agend_segments:' + SEG_A ] );
+// ---------------------------------------------------------------------------
+// An entry the server's pattern refuses
+// ---------------------------------------------------------------------------
+
+/**
+ * The server drops an id that is not a UUID (a plan or a segment) or a gate key
+ * (an entitlement), and reads the rest. A panel that showed such an id would have
+ * the first edit write it into the new shape, where the server ACTS on it: a slug
+ * evaluates. So any entry the patterns refuse makes the list unreadable, and the
+ * panel never shows a list it cannot show exactly.
+ */
+const REFUSED = [
+	[ 'a plan slug instead of its id', { mode: 'selected_tiers', tierIds: [ 'gold' ] } ],
+	[ 'a plan slug beside a plan id', { mode: 'selected_tiers', tierIds: [ 'gold', PLAN_A ] } ],
+	[ 'a segment slug, which the new shape would evaluate', { mode: 'segments', segmentIds: [ 'vip' ] } ],
+	[ 'a segment id that is one character short', { mode: 'segments', segmentIds: [ SEG_A.slice( 1 ) ] } ],
+	[ 'an id with a character that is not hex', { mode: 'selected_tiers', tierIds: [ PLAN_A.replace( '1111111', 'zzzzzzz' ) ] } ],
+	[ 'an id in braces', { mode: 'selected_tiers', tierIds: [ '{' + PLAN_A + '}' ] } ],
+	[ 'an id with a newline inside it', { mode: 'selected_tiers', tierIds: [ PLAN_A.slice( 0, 8 ) + '\n' + PLAN_A.slice( 8 ) ] } ],
+	[ 'an id with a no-break space at its end, which PHP does not trim', { mode: 'selected_tiers', tierIds: [ PLAN_A + '\u00a0' ] } ],
+	[ 'a plan id beside an entry that is not text', { mode: 'selected_tiers', tierIds: [ PLAN_A, 7 ] } ],
+	[ 'a segment id beside null', { mode: 'segments', segmentIds: [ SEG_A, null ] } ],
+	[ 'a segment id beside an empty text', { mode: 'segments', segmentIds: [ SEG_A, '' ] } ],
+	[ 'an entitlement key in upper case', { mode: 'selected_entitlements', entitlementKeys: [ 'Directory.access' ] } ],
+	[ 'an entitlement key that starts with a digit', { mode: 'selected_entitlements', entitlementKeys: [ '1directory.access' ] } ],
+	[ 'an entitlement key that is two characters', { mode: 'selected_entitlements', entitlementKeys: [ 'ab' ] } ],
+	[ 'an entitlement key that ends with a dot', { mode: 'selected_entitlements', entitlementKeys: [ 'directory.' ] } ],
+	[ 'an entitlement key with a hyphen', { mode: 'selected_entitlements', entitlementKeys: [ 'directory-access' ] } ],
+	[ 'an entitlement key that is 65 characters', { mode: 'selected_entitlements', entitlementKeys: [ 'a'.repeat( 65 ) ] } ],
+	[ 'a plan id given as an entitlement key', { mode: 'selected_entitlements', entitlementKeys: [ PLAN_A ] } ],
+	[ 'an entitlement key given as a plan id', { mode: 'selected_tiers', tierIds: [ 'directory.access' ] } ],
+];
+
+for ( const [ label, stored ] of REFUSED ) {
+	test( `an audience with ${ label } is unreadable, never shown as a rule`, () => {
+		const read = readLegacy( stored );
+
+		assert.equal( read.unreadable, true );
+		assert.deepEqual( read.rules, [] );
+		assert.equal( normalise( stored ).unreadable, true );
+	} );
+}
+
+/** The patterns are the server's own, so they are read from it: they cannot drift apart unseen. */
+test( 'the id and gate key patterns are the ones the server uses', () => {
+	const php = readFileSync( new URL( '../../includes/class-agend-content-access-policy.php', import.meta.url ), 'utf8' );
+	const server = ( name ) => {
+		const match = php.match( new RegExp( 'const ' + name + " = '/(.+)/D';" ) );
+
+		assert.notEqual( match, null, name + ' is declared' );
+
+		return match[ 1 ];
+	};
+
+	assert.equal( UUID_PATTERN.source, server( 'UUID_PATTERN' ) );
+	assert.equal( ENTITLEMENT_KEY_PATTERN.source, server( 'ENTITLEMENT_KEY_PATTERN' ) );
+	assert.equal( UUID_PATTERN.flags, '', 'no multiline flag, so $ is the end of the text, as the D modifier has it' );
+	assert.equal( ENTITLEMENT_KEY_PATTERN.flags, '' );
+} );
+
+test( 'what the patterns accept is read, trimmed as PHP trims, and the hex digits may be either case', () => {
+	assert.deepEqual( readLegacy( { mode: 'selected_tiers', tierIds: [ PLAN_A.toUpperCase() ] } ).rules, [ 'agend_membership:' + PLAN_A.toUpperCase() ] );
+	assert.deepEqual( readLegacy( { mode: 'selected_tiers', tierIds: [ ' \t' + PLAN_A + '\n\r\0\x0B' ] } ).rules, [ 'agend_membership:' + PLAN_A ] );
+	assert.deepEqual( readLegacy( { mode: 'selected_entitlements', entitlementKeys: [ 'a.b', 'a' + '_x'.repeat( 31 ) + '1' ] } ).rules.length, 2 );
+	assert.equal( readLegacy( { mode: 'selected_entitlements', entitlementKeys: [ 'a' + 'b'.repeat( 62 ) + 'c' ] } ).unreadable, false, '64 characters is the longest' );
+} );
+
+test( 'a value that is padded with a character only JavaScript trims is not read as the id', () => {
+	// String.prototype.trim would strip this and the id would match. PHP's trim() leaves
+	// it, the pattern refuses it and the server drops it.
+	assert.equal( readLegacy( { mode: 'segments', segmentIds: [ '\u00a0' + SEG_A ] } ).unreadable, true );
 } );
 
 test( 'conditions carry their Match, Reverse and replacement content with them', () => {
