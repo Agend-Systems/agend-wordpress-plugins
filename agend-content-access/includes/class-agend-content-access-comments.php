@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * comments are a second copy of what members said there, and until now nothing
  * governed them: a denied page's template ran and printed them, the REST comments
  * route listed them for any published post, and a recent-comments widget quoted them
- * in the sidebar of every other page. Two separate things, handled separately.
+ * in the sidebar of every other page. Three separate things, handled separately.
  *
  * THE DENIED PAGE ITSELF. The page gate (`Agend_Content_Access_Frontend`) replaces the
  * template of a denied page, so its comments are not printed by the template either.
@@ -27,11 +27,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * refused by the gate. They read the denial the gate left (`current_gate()`), so they
  * apply only to the page the request is for, and only when the visitor was denied.
  *
- * COMMENTS ON A RESTRICTED PAGE, ELSEWHERE. Every list of comments, whatever asks for
- * it, is a `WP_Comment_Query`: `get_comments()`, a recent-comments widget, the global
- * comment feed, the comment blocks and the REST collection (`/wp/v2/comments`, with or
- * without `post=`). So the rule is applied to the query, once, on `pre_get_comments`:
- * the posts the viewer is denied are added to its `post__not_in`.
+ * COMMENTS ON A RESTRICTED PAGE, ELSEWHERE. Nearly every list of comments is a
+ * `WP_Comment_Query`: `get_comments()`, a recent-comments widget, the comment blocks and
+ * the REST collection (`/wp/v2/comments`, with or without `post=`). So the rule is
+ * applied to the query, once, on `pre_get_comments`: the posts the viewer is denied are
+ * added to its `post__not_in`. The global comment feed is NOT one of them: see below.
  *
  * Why the query's own argument and not the SQL (`comments_clauses`): `WP_Comment_Query`
  * caches its result under a key made from its arguments alone, and a persistent object
@@ -44,10 +44,25 @@ if ( ! defined( 'ABSPATH' ) ) {
  * including the editor's preview, so a user who may `edit_post` the page keeps its
  * comments. A feed is judged as an anonymous reader, as every feed is.
  *
+ * THE GLOBAL COMMENT FEED IS A DIFFERENT QUERY. `/comments/feed/`, a search's comment
+ * feed (`?s=x&feed=comments-rss2`) and an archive's comment feed are not built by
+ * `WP_Comment_Query`: `WP_Query::get_posts()` writes their SQL itself (a join of the
+ * comments table to the posts table), so `pre_get_comments` never fires for them and
+ * the exclusion above saw nothing. They are filtered on `comment_feed_where`, at
+ * `PHP_INT_MAX`: `AND comment_post_ID NOT IN ( ... )` is appended, with the posts an
+ * anonymous reader is denied (a feed is judged as an anonymous reader, as everywhere
+ * else). This is cache-safe for the same reason as the above, by another route: core
+ * keeps the list of comment ids for a feed under a key made from the md5 of the WHOLE
+ * SQL, so a clause that differs is a key that differs, and no entry made without the
+ * exclusion can be handed to a request that has it. The single comment feed of one post
+ * is `refuse_feed()`'s, in the page gate, and needs nothing here. A query that runs with
+ * `suppress_filters` skips `comment_feed_where` altogether, as it skips every filter in
+ * that block; the main query of a feed never does.
+ *
  * FAIL CLOSED. If the list of restricted posts cannot be read, the query is made to
- * match nothing (`post__in` of `array( 0 )`), not everything. A post whose decision is
- * anything but granted is excluded, so a rule that cannot be evaluated hides the
- * comments, as it hides the page.
+ * match nothing (`post__in` of `array( 0 )`, and `AND 0` in the feed's SQL), not
+ * everything. A post whose decision is anything but granted is excluded, so a rule that
+ * cannot be evaluated hides the comments, as it hides the page.
  *
  * THE COST. Only a request that asks for comments pays, and only when a restricted post
  * has some. One indexed query finds the posts that carry page rules (`_agend_access_rules`
@@ -100,6 +115,10 @@ class Agend_Content_Access_Comments {
 
 		// Last, so a callback that rewrites the exclusions cannot undo this one.
 		add_action( 'pre_get_comments', array( $this, 'exclude_denied_posts' ), PHP_INT_MAX );
+
+		// The global comment feed builds its own SQL and never runs a comment query. Last,
+		// for the same reason as the line above.
+		add_filter( 'comment_feed_where', array( $this, 'exclude_denied_posts_from_feed' ), PHP_INT_MAX );
 
 		add_filter( 'rest_request_before_callbacks', array( $this, 'refuse_denied_rest_comment' ), 10, 3 );
 	}
@@ -200,6 +219,47 @@ class Agend_Content_Access_Comments {
 	}
 
 	/**
+	 * Keeps the comments of posts an anonymous reader is denied out of a comment feed.
+	 *
+	 * `WP_Query::get_posts()` builds the SQL of the global, search and archive comment
+	 * feeds itself, as `SELECT comment_ID FROM comments JOIN posts WHERE ...`, so no
+	 * `WP_Comment_Query` runs and `exclude_denied_posts()` is never called. This
+	 * filters the WHERE clause instead. The column is qualified with the comments table
+	 * because the query joins the posts table, which has an `ID` of its own, and
+	 * `comment_post_ID` must not be read as anything else.
+	 *
+	 * Cache-safe: core caches the ids a feed matched under the md5 of the whole SQL, so
+	 * a clause that differs gives a key that differs. A feed is also always judged as an
+	 * anonymous reader, so the viewer is not a factor in the clause at all.
+	 *
+	 * Fails closed. A list that cannot be made appends `AND 0`, so the feed lists no
+	 * comment. A clause that is not a string, or is empty, is not one this can append to
+	 * and is replaced by `WHERE 0`.
+	 *
+	 * @param mixed $where The feed's WHERE clause.
+	 * @return mixed
+	 */
+	public function exclude_denied_posts_from_feed( $where ) {
+		global $wpdb;
+
+		if ( ! is_string( $where ) || '' === trim( $where ) || ! is_object( $wpdb ) || ! isset( $wpdb->comments ) ) {
+			return 'WHERE 0';
+		}
+
+		$denied = self::denied_post_ids( true );
+
+		if ( null === $denied ) {
+			return $where . ' AND 0';
+		}
+
+		if ( array() === $denied ) {
+			return $where;
+		}
+
+		return $where . " AND {$wpdb->comments}.comment_post_ID NOT IN ( " . implode( ', ', array_map( 'intval', $denied ) ) . ' )';
+	}
+
+	/**
 	 * Refuses one comment, over REST, on a post the viewer is denied.
 	 *
 	 * `GET /wp/v2/comments/<id>` reads one comment by its id and is not a comment query.
@@ -253,11 +313,14 @@ class Agend_Content_Access_Comments {
 	 *
 	 * Made once per viewer per request. See the class docblock for the cost.
 	 *
+	 * @param bool|null $anonymous Judge as an anonymous reader. Null decides by whether this
+	 *                             is a feed, as every comment query does; the feed's own
+	 *                             WHERE clause passes true, so it never depends on that.
 	 * @return int[]|null Null when the list could not be made, which the caller reads as
 	 *                    "every post".
 	 */
-	private static function denied_post_ids(): ?array {
-		$anonymous = is_feed();
+	private static function denied_post_ids( ?bool $anonymous = null ): ?array {
+		$anonymous = $anonymous ?? is_feed();
 		$viewer    = $anonymous ? 'feed' : (string) get_current_user_id();
 
 		if ( array_key_exists( $viewer, self::$denied ) ) {

@@ -653,12 +653,12 @@ the comments, the comment form and the comment feed were served. So:
 - **Its comments are closed.** For the denied page, `comments_open` and `pings_open` are false,
   `comments_array` is empty and `get_comments_number` is 0.
 
-**Comments on a restricted page, elsewhere.** Every list of comments is a `WP_Comment_Query`
-(`get_comments()`, a recent-comments widget, the global comment feed, the comment blocks, the REST
-collection `/wp/v2/comments` with or without `post=`). On `pre_get_comments` the posts the viewer is
-denied are added to the query's `post__not_in`, so a viewer who cannot read a page cannot read the
-comments on it. A user who may `edit_post` that page keeps them, and a feed is judged as an anonymous
-reader. A single comment (`GET /wp/v2/comments/<id>`) on such a page is refused with `rest_cannot_read`.
+**Comments on a restricted page, elsewhere.** Nearly every list of comments is a `WP_Comment_Query`
+(`get_comments()`, a recent-comments widget, the comment blocks, the REST collection
+`/wp/v2/comments` with or without `post=`). On `pre_get_comments` the posts the viewer is denied are
+added to the query's `post__not_in`, so a viewer who cannot read a page cannot read the comments on
+it. A user who may `edit_post` that page keeps them. A single comment (`GET /wp/v2/comments/<id>`) on
+such a page is refused with `rest_cannot_read`.
 
 It is done in the query's arguments rather than its SQL because `WP_Comment_Query` caches its result
 under a key made from its arguments alone: an exclusion added to the SQL would let a persistent object
@@ -668,6 +668,17 @@ query finds the posts that carry page rules and have a comment, so a site whose 
 no comments pays that and nothing else; each such post then costs one decision, against the viewer's
 facts, which are memoised for the request, so the gateway is asked at most once. The result is kept for
 the request.
+
+**The site's comment feed is a different query.** `/comments/feed/`, a search's comment feed
+(`?s=x&feed=comments-rss2`) and an archive's comment feed are not built by `WP_Comment_Query`: core's
+`WP_Query` writes their SQL itself, so the exclusion above never ran for them and they listed the
+comments on restricted pages. They are filtered on `comment_feed_where` (at `PHP_INT_MAX`), which
+appends `AND comment_post_ID NOT IN ( ... )` with the posts an anonymous reader is denied. A feed is
+shared and cached, so it is judged as an anonymous reader whoever fetched it: an editor reading the
+feed does not see them either. It is cache-safe because core caches a feed's comment ids under the md5
+of the whole SQL, so a clause that differs is a key that differs. If the list cannot be made the clause
+is `AND 0`, which lists no comment. The comment feed of one page that the visitor is denied is refused
+with a 403, as above.
 
 #### The built-in placeholder
 

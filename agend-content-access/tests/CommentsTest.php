@@ -343,6 +343,114 @@ final class CommentsTest extends TestCase {
 	}
 
 	// -----------------------------------------------------------------------
+	// The global comment feed, which builds its own SQL and runs no comment query
+	// -----------------------------------------------------------------------
+
+	/** The WHERE clause `WP_Query::get_posts()` starts a front-page comment feed with. */
+	private const FEED_WHERE = "WHERE ( post_status = 'publish' OR ( post_status = 'inherit' AND post_type = 'attachment' ) ) AND comment_approved = '1'";
+
+	/** Runs `comment_feed_where`, as `WP_Query::get_posts()` does, for a comment feed. */
+	private function feedWhere( string $where = self::FEED_WHERE ) {
+		return Agend_Test_WP::apply_registered( 'comment_feed_where', $where, new \stdClass() );
+	}
+
+	/**
+	 * `/comments/feed/` is built by `WP_Query::get_posts()` with its own SQL, so
+	 * `pre_get_comments` never fires for it. It is the clause that must carry the exclusion.
+	 */
+	#[Test]
+	public function the_global_comment_feed_leaves_out_the_posts_an_anonymous_reader_is_denied(): void {
+		$GLOBALS['agend_test_is_feed'] = true;
+
+		$this->assertSame(
+			self::FEED_WHERE . ' AND wp_comments.comment_post_ID NOT IN ( 100, 102 )',
+			$this->feedWhere()
+		);
+	}
+
+	/** The clause is applied last, so nothing that ran before it can add the exclusion back out. */
+	#[Test]
+	public function the_feed_filter_is_the_last_word_on_the_clause(): void {
+		$entries = Agend_Test_WP::$filter_registry['comment_feed_where'] ?? array();
+
+		$this->assertCount( 1, $entries );
+		$this->assertSame( PHP_INT_MAX, $entries[0]['priority'] );
+	}
+
+	/** A feed is shared and cached whoever fetched it: an editor's own access is not applied to it. */
+	#[Test]
+	public function the_feed_is_judged_as_an_anonymous_reader_even_for_an_editor_or_a_member(): void {
+		// Not flagged as a feed on purpose: the clause is the feed's, whatever `is_feed()` says.
+		$GLOBALS['agend_test_is_feed'] = false;
+
+		$this->asEditor();
+
+		$this->assertStringContainsString( 'NOT IN ( 100, 102 )', (string) $this->feedWhere(), 'an editor' );
+
+		Comments::reset();
+		\Agend_Content_Access_Decision::reset_cache();
+		$this->asMember( self::TIER_A );
+
+		$this->assertStringContainsString( 'NOT IN ( 100, 102 )', (string) $this->feedWhere(), 'a member' );
+	}
+
+	/** The comments table is named, because the feed's query joins the posts table to it. */
+	#[Test]
+	public function the_feed_clause_names_the_comments_table(): void {
+		$this->assertMatchesRegularExpression( '/ AND wp_comments\.comment_post_ID NOT IN \( [\d, ]+ \)$/', (string) $this->feedWhere() );
+	}
+
+	#[Test]
+	public function a_feed_with_nothing_to_hide_is_left_as_it_was(): void {
+		$GLOBALS['agend_test_posts_with_comments'] = array( self::PUBLIC );
+
+		$this->assertSame( self::FEED_WHERE, $this->feedWhere() );
+	}
+
+	/** If the restricted posts cannot be listed the feed matches no comment, not every one. */
+	#[Test]
+	public function the_feed_fails_closed_when_the_restricted_posts_cannot_be_listed(): void {
+		$GLOBALS['wpdb']->last_error = 'Lost connection to MySQL server';
+
+		$this->assertSame( self::FEED_WHERE . ' AND 0', $this->feedWhere() );
+	}
+
+	/** A clause another plugin left as something this cannot append to is refused, not passed. */
+	#[Test]
+	public function a_feed_clause_that_cannot_be_appended_to_matches_nothing(): void {
+		$this->assertSame( 'WHERE 0', Agend_Test_WP::apply_registered( 'comment_feed_where', null, new \stdClass() ) );
+		$this->assertSame( 'WHERE 0', $this->feedWhere( '   ' ) );
+	}
+
+	/**
+	 * Core keeps a feed's comment ids under the md5 of its whole SQL. A viewer who is denied
+	 * different posts gets different SQL, so no entry is shared between them.
+	 */
+	#[Test]
+	public function the_feed_clause_is_part_of_the_sql_core_builds_its_cache_key_from(): void {
+		$denied = (string) $this->feedWhere();
+
+		Comments::reset();
+		$GLOBALS['agend_test_posts_with_comments'] = array( self::PUBLIC );
+
+		$this->assertNotSame( md5( $denied ), md5( (string) $this->feedWhere() ) );
+	}
+
+	/** The list is made once for the request, however many feeds ask. */
+	#[Test]
+	public function the_feed_and_a_comment_query_share_one_list(): void {
+		$GLOBALS['agend_test_is_feed'] = true;
+
+		$this->feedWhere();
+		$queries = count( $GLOBALS['wpdb']->queries );
+
+		$this->feedWhere();
+		$this->query();
+
+		$this->assertSame( $queries, count( $GLOBALS['wpdb']->queries ) );
+	}
+
+	// -----------------------------------------------------------------------
 	// One comment, over REST
 	// -----------------------------------------------------------------------
 

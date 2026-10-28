@@ -137,6 +137,11 @@ comment feed were served. The fix, in `Agend_Content_Access_Frontend::serve_plac
 - `Agend_Content_Access_Comments` keeps the comments of restricted posts out of every comment query
   (`pre_get_comments`, so the exclusion is part of the cache key) and refuses a single comment over
   REST, for a viewer who may not read the post. Users who may `edit_post` it keep them.
+- The site's own comment feed (`/comments/feed/`, a search's or an archive's comment feed) is not a
+  `WP_Comment_Query`: `WP_Query::get_posts()` writes its SQL, so `pre_get_comments` never fires for it.
+  Found by the final review. It is filtered on `comment_feed_where` at `PHP_INT_MAX`, appending
+  `AND comment_post_ID NOT IN ( ... )` for what an anonymous reader is denied (`AND 0` if the list
+  cannot be made). Core caches a feed by the md5 of the whole SQL, so this is cache-safe.
 
 ## How it works underneath (unchanged engine)
 
