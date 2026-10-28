@@ -389,7 +389,11 @@ final class BlockSearchTest extends BlockEnforcementTestCase {
 	public function the_flag_is_set_again_when_elementor_has_stored_the_document(): void {
 		$this->registerPost( 535, '' );
 		$document = new class( 535 ) {
-			public function __construct( private int $id ) {}
+			private int $id;
+
+			public function __construct( int $id ) {
+				$this->id = $id;
+			}
 
 			public function get_main_id(): int {
 				return $this->id;
