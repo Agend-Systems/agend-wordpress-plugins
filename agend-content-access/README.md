@@ -258,8 +258,17 @@ refused, and the picker does not offer one.
   the exclusions above cannot reach it.
 - SEO plugins that generate their own meta descriptions, social previews or
   structured data from the raw body. They do not go through `get_the_excerpt`,
-  so a restricted section can be quoted in a page's `<head>`. Set a written
-  excerpt, or configure the plugin's description, on such pages.
+  so a restricted section can be quoted in a page's `<head>`. On a denied page
+  served with its manual excerpt as a teaser, the description is replaced with
+  that excerpt for **Yoast SEO** (`wpseo_metadesc`, `wpseo_opengraph_desc`,
+  `wpseo_twitter_description`), **Rank Math** (`rank_math/frontend/description` and
+  its Facebook and Twitter description filters), **All in One SEO**
+  (`aioseo_description` and the descriptions in `aioseo_facebook_tags` and
+  `aioseo_twitter_tags`) and **Jetpack** Open Graph (`og:description` and
+  `twitter:description` in `jetpack_open_graph_tags`). Not covered: structured
+  data (JSON-LD) descriptions, such as Yoast's WebPage `description`, any other
+  SEO plugin, and a public page whose restricted sections a plugin quotes. Set a
+  written excerpt, or configure the plugin's description, on those.
 - Search results for authors and contributors. They cannot tell themselves from
   a visitor in a query, so they cannot find their own section-restricted pages
   by text either.

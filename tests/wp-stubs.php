@@ -1261,6 +1261,13 @@ if ( ! function_exists( 'update_post_meta' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_strip_all_tags' ) ) {
+	/** Tags and surrounding whitespace removed; enough for assertions, not core's algorithm. */
+	function wp_strip_all_tags( $text, $remove_breaks = false ): string {
+		return trim( strip_tags( (string) $text ) );
+	}
+}
+
 if ( ! function_exists( 'update_meta_cache' ) ) {
 	/** Priming a cache is not modelled: `get_post_meta()` reads the registry directly. */
 	function update_meta_cache( $meta_type, $object_ids ) {

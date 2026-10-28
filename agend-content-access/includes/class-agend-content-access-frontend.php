@@ -82,6 +82,15 @@ class Agend_Content_Access_Frontend {
 	private int $gated_post_id = 0;
 
 	/**
+	 * The public teaser of the gated post, as plain text. Empty on every request
+	 * that is not a teaser page. What an SEO plugin is given in place of the text
+	 * it built from the body. See `replace_seo_description()`.
+	 *
+	 * @var string
+	 */
+	private string $gated_teaser = '';
+
+	/**
 	 * Whether the viewer is denied a post, as far as its comments go, keyed by
 	 * post id. One answer per post for the request: a list of comments is often
 	 * many comments on a few posts, and the viewer does not change mid-request.
@@ -215,6 +224,8 @@ class Agend_Content_Access_Frontend {
 			$this->send_forbidden();
 			return;
 		}
+
+		$this->gated_teaser = trim( wp_strip_all_tags( $teaser ) );
 
 		$this->replace_body_with_teaser();
 	}
@@ -449,6 +460,90 @@ class Agend_Content_Access_Frontend {
 		add_filter( 'pings_open', array( $this, 'close_comments_on_gated_post' ), PHP_INT_MAX, 2 );
 		add_filter( 'comments_array', array( $this, 'empty_comments_on_gated_post' ), PHP_INT_MAX, 2 );
 		add_filter( 'get_comments_number', array( $this, 'zero_comment_count_on_gated_post' ), PHP_INT_MAX, 2 );
+
+		$this->replace_seo_descriptions();
+	}
+
+	/**
+	 * Points the SEO plugins' descriptions at the teaser.
+	 *
+	 * A teaser page renders the theme's `<head>`, and Yoast SEO, Rank Math, All in
+	 * One SEO and Jetpack's Open Graph build the meta description and the
+	 * `og:description` and `twitter:description` previews from the post itself, and
+	 * from the raw `post_content` when no description was written. None of that goes
+	 * through `the_content` or `get_the_excerpt`, so the body this page replaced was
+	 * printed in the head of the page that replaced it.
+	 *
+	 * Registered only here, on the teaser path, so any other request pays nothing.
+	 * Registering a filter for a plugin that is not installed costs nothing either,
+	 * because nothing ever applies it, and it is not guarded by a test for the
+	 * plugin: a guard that wrongly decides a plugin is absent would fail open.
+	 *
+	 * Hooks, from each plugin's own documentation:
+	 *
+	 * - Yoast SEO: `wpseo_metadesc`, `wpseo_opengraph_desc`, `wpseo_twitter_description`.
+	 * - Rank Math: `rank_math/frontend/description`,
+	 *   `rank_math/opengraph/facebook/og_description`,
+	 *   `rank_math/opengraph/twitter/twitter_description`.
+	 * - All in One SEO: `aioseo_description`, and the `og:description` and
+	 *   `twitter:description` entries of `aioseo_facebook_tags` and `aioseo_twitter_tags`.
+	 * - Jetpack: the same two entries of `jetpack_open_graph_tags`, which is also
+	 *   where its Twitter card is built.
+	 *
+	 * Structured data (JSON-LD) descriptions are not covered. See the README.
+	 */
+	private function replace_seo_descriptions(): void {
+		foreach ( array(
+			'wpseo_metadesc',
+			'wpseo_opengraph_desc',
+			'wpseo_twitter_description',
+			'rank_math/frontend/description',
+			'rank_math/opengraph/facebook/og_description',
+			'rank_math/opengraph/twitter/twitter_description',
+			'aioseo_description',
+		) as $hook ) {
+			add_filter( $hook, array( $this, 'replace_seo_description' ), PHP_INT_MAX );
+		}
+
+		foreach ( array( 'aioseo_facebook_tags', 'aioseo_twitter_tags', 'jetpack_open_graph_tags' ) as $hook ) {
+			add_filter( $hook, array( $this, 'replace_seo_description_tags' ), PHP_INT_MAX );
+		}
+	}
+
+	/**
+	 * Answers a plugin's description with the teaser, whatever it built.
+	 *
+	 * Runs last, so a description another filter wrote from the body is replaced
+	 * too. The teaser is a string read from the post's excerpt when the page was
+	 * gated; the cached `WP_Post` is never touched.
+	 *
+	 * @param mixed $description Description the plugin built.
+	 * @return mixed
+	 */
+	public function replace_seo_description( $description ) {
+		return '' === $this->gated_teaser ? $description : $this->gated_teaser;
+	}
+
+	/**
+	 * Replaces the description entries of a plugin's social tag array.
+	 *
+	 * Only entries the plugin set are replaced: a tag it did not print is not added.
+	 *
+	 * @param mixed $tags Tags keyed by property, such as `og:description`.
+	 * @return mixed
+	 */
+	public function replace_seo_description_tags( $tags ) {
+		if ( ! is_array( $tags ) || '' === $this->gated_teaser ) {
+			return $tags;
+		}
+
+		foreach ( array( 'og:description', 'twitter:description' ) as $key ) {
+			if ( array_key_exists( $key, $tags ) ) {
+				$tags[ $key ] = $this->gated_teaser;
+			}
+		}
+
+		return $tags;
 	}
 
 	/**
