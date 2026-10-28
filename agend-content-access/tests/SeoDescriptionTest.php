@@ -21,6 +21,7 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-catalogue.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-meta-box.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-decision.php';
+require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-fragment-rules.php';
 require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-content-access-frontend.php';
 
 /**
@@ -32,6 +33,9 @@ require_once AGEND_TESTS_ROOT . '/agend-content-access/includes/class-agend-cont
  * and from the raw `post_content` when none was written. Each plugin's description
  * hooks are pointed at the teaser. The plugins are stubbed by running their hooks
  * with what they would have built from the body.
+ *
+ * A page the reader may read is the same problem when its Elementor document
+ * carries section rules: the saved body quotes the restricted sections.
  */
 #[CoversClass( Agend_Content_Access_Frontend::class )]
 final class SeoDescriptionTest extends TestCase {
@@ -43,6 +47,16 @@ final class SeoDescriptionTest extends TestCase {
 	/** Members only with no excerpt: a denied visitor gets a 403, and no head at all. */
 	private const NO_TEASER = 72;
 	private const PUBLIC_POST = 73;
+
+	/** Public, and its Elementor document restricts one section; no excerpt. */
+	private const RULED = 74;
+	/** The same, with an excerpt an editor wrote. */
+	private const RULED_WITH_EXCERPT = 75;
+	/** Public, no section rules, no excerpt. */
+	private const PLAIN = 76;
+
+	/** What a page builder saved into `post_content`, restricted section included. */
+	private const SECTION = 'The restricted section text only members were meant to read.';
 
 	private const BODY    = 'The restricted opening paragraph of the members only article.';
 	private const TEASER  = 'A public summary.';
@@ -68,7 +82,24 @@ final class SeoDescriptionTest extends TestCase {
 		$this->registerPost( self::NO_TEASER, array( 'mode' => 'active_member' ), '' );
 		$this->registerPost( self::PUBLIC_POST, array( 'mode' => 'public' ), '' );
 
+		$this->registerElementorPage( self::RULED, '', true );
+		$this->registerElementorPage( self::RULED_WITH_EXCERPT, 'An editor wrote this.', true );
+		$this->registerElementorPage( self::PLAIN, '', false );
+
 		$this->become( 'anonymous' );
+	}
+
+	/** A public page whose saved body is `SECTION`, with or without a restricted section in its document. */
+	private function registerElementorPage( int $id, string $excerpt, bool $restricted_section ): void {
+		$this->registerPost( $id, array( 'mode' => 'public' ), $excerpt );
+
+		$GLOBALS['agend_test_posts'][ $id ]['post_content'] = self::SECTION;
+
+		$settings = $restricted_section ? array( 'agend_access_mode' => 'active_member' ) : array();
+
+		$GLOBALS['agend_test_post_meta'][ $id ]['_elementor_data'] = (string) wp_json_encode(
+			array( array( 'id' => 'a1', 'elType' => 'section', 'settings' => $settings, 'elements' => array() ) )
+		);
 	}
 
 	protected function tearDown(): void {
@@ -225,12 +256,15 @@ final class SeoDescriptionTest extends TestCase {
 
 	#[Test]
 	#[DataProvider( 'pagesThatAreNotTeasers' )]
-	public function a_page_that_is_not_a_teaser_registers_none_of_the_hooks( string $viewer, int $post_id ): void {
+	public function a_page_that_is_not_a_teaser_is_given_no_teaser_and_keeps_its_descriptions( string $viewer, int $post_id ): void {
 		$this->become( $viewer );
 		$this->requestPage( $post_id );
 
 		foreach ( array_merge( self::STRING_HOOKS, self::TAG_HOOKS ) as $hook ) {
-			$this->assertSame( array(), Agend_Test_WP::$filter_registry[ $hook ] ?? array(), $hook );
+			foreach ( Agend_Test_WP::$filter_registry[ $hook ] ?? array() as $entry ) {
+				$this->assertNotSame( 'replace_seo_description', $entry['callback'][1], $hook );
+				$this->assertNotSame( 'replace_seo_description_tags', $entry['callback'][1], $hook );
+			}
 		}
 
 		$this->assertSame( self::BODY, Agend_Test_WP::apply_registered( 'wpseo_metadesc', self::BODY ) );
@@ -258,5 +292,157 @@ final class SeoDescriptionTest extends TestCase {
 			$this->assertCount( 1, $entries, $hook );
 			$this->assertSame( PHP_INT_MAX, $entries[0]['priority'], $hook );
 		}
+	}
+
+	// -----------------------------------------------------------------------
+	// A readable page whose document restricts a section
+	// -----------------------------------------------------------------------
+
+	/** @return array<string, array{0: string}> Hooks of plugins whose written description is not read. */
+	public static function alwaysEmptiedStringHooks(): array {
+		return array( 'aioseo_description' => array( 'aioseo_description' ) );
+	}
+
+	/** @return array<string, array{0: string, 1: string}> Hook, and the post meta key holding that plugin's written description. */
+	public static function descriptionsWithAWrittenKey(): array {
+		$cases = array();
+
+		foreach ( array( 'wpseo_metadesc', 'wpseo_opengraph_desc', 'wpseo_twitter_description' ) as $hook ) {
+			$cases[ $hook ] = array( $hook, '_yoast_wpseo_metadesc' );
+		}
+
+		foreach ( array( 'rank_math/frontend/description', 'rank_math/opengraph/facebook/og_description', 'rank_math/opengraph/twitter/twitter_description' ) as $hook ) {
+			$cases[ $hook ] = array( $hook, 'rank_math_description' );
+		}
+
+		return $cases;
+	}
+
+	#[Test]
+	#[DataProvider( 'descriptionsWithAWrittenKey' )]
+	public function a_description_built_from_a_page_with_a_restricted_section_is_emptied( string $hook ): void {
+		$this->requestPage( self::RULED );
+
+		$this->assertSame( '', Agend_Test_WP::apply_registered( $hook, self::SECTION ), $hook );
+	}
+
+	#[Test]
+	#[DataProvider( 'alwaysEmptiedStringHooks' )]
+	public function aioseos_description_is_emptied_on_such_a_page( string $hook ): void {
+		$this->requestPage( self::RULED );
+
+		$this->assertSame( '', Agend_Test_WP::apply_registered( $hook, self::SECTION ) );
+	}
+
+	#[Test]
+	#[DataProvider( 'tagHooks' )]
+	public function the_social_tags_of_such_a_page_have_empty_descriptions( string $hook ): void {
+		$this->requestPage( self::RULED );
+
+		$this->assertSame(
+			array( 'og:title' => 'Post 74', 'og:description' => '', 'twitter:description' => '' ),
+			Agend_Test_WP::apply_registered(
+				$hook,
+				array( 'og:title' => 'Post 74', 'og:description' => self::SECTION, 'twitter:description' => self::SECTION )
+			),
+			$hook
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'descriptionsWithAWrittenKey' )]
+	public function a_description_the_author_wrote_is_kept( string $hook, string $meta_key ): void {
+		$GLOBALS['agend_test_post_meta'][ self::RULED ][ $meta_key ] = 'Written by the author.';
+
+		$this->requestPage( self::RULED );
+
+		$this->assertSame( 'Written by the author.', Agend_Test_WP::apply_registered( $hook, 'Written by the author.' ), $hook );
+	}
+
+	#[Test]
+	public function one_plugins_written_description_does_not_vouch_for_another_plugins_output(): void {
+		$GLOBALS['agend_test_post_meta'][ self::RULED ]['rank_math_description'] = 'Written for Rank Math.';
+
+		$this->requestPage( self::RULED );
+
+		$this->assertSame( '', Agend_Test_WP::apply_registered( 'wpseo_metadesc', self::SECTION ) );
+		$this->assertSame( '', Agend_Test_WP::apply_registered( 'aioseo_description', self::SECTION ) );
+		$this->assertSame( 'x', Agend_Test_WP::apply_registered( 'rank_math/frontend/description', 'x' ) );
+	}
+
+	#[Test]
+	public function a_written_description_that_prints_the_excerpt_variable_is_still_emptied(): void {
+		$GLOBALS['agend_test_post_meta'][ self::RULED ]['_yoast_wpseo_metadesc'] = 'News: %%excerpt%%';
+
+		$this->requestPage( self::RULED );
+
+		$this->assertSame( '', Agend_Test_WP::apply_registered( 'wpseo_metadesc', 'News: ' . self::SECTION ) );
+	}
+
+	#[Test]
+	public function a_blank_written_description_is_no_description(): void {
+		$GLOBALS['agend_test_post_meta'][ self::RULED ]['_yoast_wpseo_metadesc'] = '   ';
+
+		$this->requestPage( self::RULED );
+
+		$this->assertSame( '', Agend_Test_WP::apply_registered( 'wpseo_metadesc', self::SECTION ) );
+	}
+
+	#[Test]
+	#[DataProvider( 'stringHooks' )]
+	public function a_page_with_a_written_excerpt_keeps_its_descriptions( string $hook ): void {
+		$this->requestPage( self::RULED_WITH_EXCERPT );
+
+		$this->assertSame( 'plugin value', Agend_Test_WP::apply_registered( $hook, 'plugin value' ), $hook );
+	}
+
+	#[Test]
+	#[DataProvider( 'stringHooks' )]
+	public function a_page_without_section_rules_keeps_its_descriptions( string $hook ): void {
+		$this->requestPage( self::PLAIN );
+
+		$this->assertSame( 'plugin value', Agend_Test_WP::apply_registered( $hook, 'plugin value' ), $hook );
+	}
+
+	#[Test]
+	#[DataProvider( 'tagHooks' )]
+	public function a_page_without_section_rules_keeps_its_social_tags( string $hook ): void {
+		$this->requestPage( self::PLAIN );
+
+		$tags = array( 'og:description' => 'plugin value', 'twitter:description' => 'plugin value' );
+
+		$this->assertSame( $tags, Agend_Test_WP::apply_registered( $hook, $tags ), $hook );
+	}
+
+	#[Test]
+	public function the_document_is_not_read_until_a_plugin_asks_and_then_once(): void {
+		$reads = 0;
+
+		Agend_Test_WP::$filters['agend_content_access_post_carries_fragment_rules'] = static function ( $carries ) use ( &$reads ) {
+			++$reads;
+
+			return $carries;
+		};
+
+		$this->requestPage( self::RULED );
+		$this->assertSame( 0, $reads, 'a request no SEO plugin describes never reads it' );
+
+		Agend_Test_WP::apply_registered( 'wpseo_metadesc', self::SECTION );
+		Agend_Test_WP::apply_registered( 'wpseo_opengraph_desc', self::SECTION );
+		Agend_Test_WP::apply_registered( 'aioseo_facebook_tags', array( 'og:description' => self::SECTION ) );
+
+		$this->assertSame( 1, $reads );
+	}
+
+	#[Test]
+	public function the_post_is_not_changed_by_emptying_its_descriptions(): void {
+		$this->requestPage( self::RULED );
+		$post = $GLOBALS['agend_test_queried_object'];
+
+		Agend_Test_WP::apply_registered( 'wpseo_metadesc', self::SECTION );
+		Agend_Test_WP::apply_registered( 'jetpack_open_graph_tags', array( 'og:description' => self::SECTION ) );
+
+		$this->assertSame( self::SECTION, $post->post_content );
+		$this->assertSame( '', $post->post_excerpt );
 	}
 }

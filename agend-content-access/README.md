@@ -266,9 +266,17 @@ refused, and the picker does not offer one.
   (`aioseo_description` and the descriptions in `aioseo_facebook_tags` and
   `aioseo_twitter_tags`) and **Jetpack** Open Graph (`og:description` and
   `twitter:description` in `jetpack_open_graph_tags`). Not covered: structured
-  data (JSON-LD) descriptions, such as Yoast's WebPage `description`, any other
-  SEO plugin, and a public page whose restricted sections a plugin quotes. Set a
-  written excerpt, or configure the plugin's description, on those.
+  data (JSON-LD) descriptions, such as Yoast's WebPage `description`, and any
+  other SEO plugin. Set a written excerpt, or configure the plugin's description,
+  on those.
+- SEO plugins on a page the reader may read whose Elementor document carries
+  section rules: the saved body quotes the restricted sections. For the plugins
+  above, with no manual excerpt, their descriptions are emptied, as a generated
+  excerpt is. A
+  description written in Yoast SEO (`_yoast_wpseo_metadesc`) or Rank Math
+  (`rank_math_description`) is kept, unless it prints the excerpt variable. All in
+  One SEO and Jetpack have none that is read, so theirs are always emptied on such
+  a page. Give the page a manual excerpt to have one shown.
 - Search results for authors and contributors. They cannot tell themselves from
   a visitor in a query, so they cannot find their own section-restricted pages
   by text either.

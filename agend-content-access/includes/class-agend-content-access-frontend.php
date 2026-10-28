@@ -91,6 +91,23 @@ class Agend_Content_Access_Frontend {
 	private string $gated_teaser = '';
 
 	/**
+	 * The queried post, when it is readable and an SEO plugin may describe it from
+	 * a body that quotes its restricted sections. Zero on every other request. See
+	 * `withhold_seo_descriptions_built_from_the_body()`.
+	 *
+	 * @var int
+	 */
+	private int $seo_post_id = 0;
+
+	/**
+	 * Whether that post's descriptions are to be withheld. Decided on first use,
+	 * so a request no SEO plugin describes never reads the post's document.
+	 *
+	 * @var bool|null
+	 */
+	private ?bool $seo_body_withheld = null;
+
+	/**
 	 * Whether the viewer is denied a post, as far as its comments go, keyed by
 	 * post id. One answer per post for the request: a list of comments is often
 	 * many comments on a few posts, and the viewer does not change mid-request.
@@ -206,6 +223,8 @@ class Agend_Content_Access_Frontend {
 			if ( is_comment_feed() ) {
 				self::note_granted_render( (int) $post->ID, $decision );
 			}
+
+			$this->withhold_seo_descriptions_built_from_the_body( (int) $post->ID );
 
 			return;
 		}
@@ -508,6 +527,147 @@ class Agend_Content_Access_Frontend {
 		foreach ( array( 'aioseo_facebook_tags', 'aioseo_twitter_tags', 'jetpack_open_graph_tags' ) as $hook ) {
 			add_filter( $hook, array( $this, 'replace_seo_description_tags' ), PHP_INT_MAX );
 		}
+	}
+
+	/**
+	 * Keeps SEO plugins from describing a page with its restricted sections.
+	 *
+	 * A page the reader may read can still hold sections it may not: Elementor
+	 * writes the rendered text of every section into `post_content` when a document
+	 * is saved, restricted ones included. With no description written, Yoast SEO,
+	 * Rank Math, All in One SEO and Jetpack build the meta description and the
+	 * `og:description` and `twitter:description` previews from that body, in the
+	 * `<head>` of a page that withholds the sections. This is the same hook set the
+	 * teaser page uses, `replace_seo_descriptions()`, aimed at a different page.
+	 *
+	 * The hooks are registered for any readable singular page, which costs a few
+	 * `add_filter()` calls, and whether to act is decided when a plugin first asks
+	 * (`seo_body_is_withheld()`), so a request that no SEO plugin describes never
+	 * reads the document. Authoring requests have already returned from
+	 * `gate_request()`.
+	 *
+	 * @param int $post_id Queried post.
+	 */
+	private function withhold_seo_descriptions_built_from_the_body( int $post_id ): void {
+		$this->seo_post_id = $post_id;
+
+		foreach ( array( 'wpseo_metadesc', 'wpseo_opengraph_desc', 'wpseo_twitter_description' ) as $hook ) {
+			add_filter( $hook, array( $this, 'withhold_yoast_description' ), PHP_INT_MAX );
+		}
+
+		foreach ( array( 'rank_math/frontend/description', 'rank_math/opengraph/facebook/og_description', 'rank_math/opengraph/twitter/twitter_description' ) as $hook ) {
+			add_filter( $hook, array( $this, 'withhold_rank_math_description' ), PHP_INT_MAX );
+		}
+
+		add_filter( 'aioseo_description', array( $this, 'withhold_seo_description' ), PHP_INT_MAX );
+
+		foreach ( array( 'aioseo_facebook_tags', 'aioseo_twitter_tags', 'jetpack_open_graph_tags' ) as $hook ) {
+			add_filter( $hook, array( $this, 'withhold_seo_description_tags' ), PHP_INT_MAX );
+		}
+	}
+
+	/**
+	 * Whether the readable queried post's description would be built from a body
+	 * that quotes its restricted sections.
+	 *
+	 * True for a post that carries section rules and has no written excerpt: the
+	 * condition under which `Fragment_Rules::filter_excerpt()` empties a generated
+	 * excerpt. Whether somebody is authoring the page is not asked again here,
+	 * because the hooks are only registered after `gate_request()` has found they
+	 * are not. A written excerpt is an editor's deliberate summary. Read from the
+	 * post, never written to it.
+	 *
+	 * @return bool
+	 */
+	private function seo_body_is_withheld(): bool {
+		if ( null === $this->seo_body_withheld ) {
+			$post = $this->seo_post_id > 0 ? get_post( $this->seo_post_id ) : null;
+
+			$this->seo_body_withheld = $post instanceof WP_Post
+				&& ! has_excerpt( $post )
+				&& Agend_Content_Access_Fragment_Rules::carries( $post );
+		}
+
+		return $this->seo_body_withheld;
+	}
+
+	/**
+	 * Empties a description built from the body, unless the author wrote one.
+	 *
+	 * An author's own description is kept when the SEO plugin keeps it in post meta
+	 * where it is cheap to read, and it does not print the excerpt variable, which
+	 * would put the body back into it. Everything else is emptied, because a
+	 * description that cannot be told from the body is not safe to print.
+	 *
+	 * @param mixed  $description Description the plugin built.
+	 * @param string $meta_key    Post meta key of the plugin's written description, or ''.
+	 * @return mixed
+	 */
+	private function withheld_description( $description, string $meta_key ) {
+		if ( ! $this->seo_body_is_withheld() ) {
+			return $description;
+		}
+
+		if ( '' !== $meta_key ) {
+			$written = get_post_meta( $this->seo_post_id, $meta_key, true );
+
+			if ( is_string( $written ) && '' !== trim( $written ) && false === stripos( $written, '%%excerpt' ) ) {
+				return $description;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Yoast SEO's description, which `_yoast_wpseo_metadesc` can supply.
+	 *
+	 * @param mixed $description Description.
+	 * @return mixed
+	 */
+	public function withhold_yoast_description( $description ) {
+		return $this->withheld_description( $description, '_yoast_wpseo_metadesc' );
+	}
+
+	/**
+	 * Rank Math's description, which `rank_math_description` can supply.
+	 *
+	 * @param mixed $description Description.
+	 * @return mixed
+	 */
+	public function withhold_rank_math_description( $description ) {
+		return $this->withheld_description( $description, 'rank_math_description' );
+	}
+
+	/**
+	 * A description from a plugin whose written one is not cheap to read.
+	 *
+	 * @param mixed $description Description.
+	 * @return mixed
+	 */
+	public function withhold_seo_description( $description ) {
+		return $this->withheld_description( $description, '' );
+	}
+
+	/**
+	 * Empties the description entries of a social tag array that is always built
+	 * from the body when nothing is written: All in One SEO's and Jetpack's.
+	 *
+	 * @param mixed $tags Tags keyed by property, such as `og:description`.
+	 * @return mixed
+	 */
+	public function withhold_seo_description_tags( $tags ) {
+		if ( ! is_array( $tags ) || ! $this->seo_body_is_withheld() ) {
+			return $tags;
+		}
+
+		foreach ( array( 'og:description', 'twitter:description' ) as $key ) {
+			if ( array_key_exists( $key, $tags ) ) {
+				$tags[ $key ] = '';
+			}
+		}
+
+		return $tags;
 	}
 
 	/**
