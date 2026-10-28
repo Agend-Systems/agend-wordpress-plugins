@@ -20,6 +20,9 @@ import { useDispatch, useSelect } from '@wordpress/data';
 import PageEditor from './page-editor';
 import { REST_FIELD } from './page-model.mjs';
 
+/** The name of the save lock held while a choice on the page panel is half made. */
+const SAVE_LOCK = 'agend-content-access-page';
+
 /**
  * The panel component WordPress offers to a plugin for the document's settings.
  * `@wordpress/editor` has had it since 6.6; before that it was in the edit-post
@@ -50,8 +53,21 @@ function PageAccessDocumentPanel() {
 			saveError: type && id && core.getLastEntitySaveError ? core.getLastEntitySaveError( 'postType', type, id ) : null,
 		};
 	}, [] );
-	const { editPost } = useDispatch( 'core/editor' );
+	const { editPost, lockPostSaving, unlockPostSaving } = useDispatch( 'core/editor' );
 	const Panel = documentPanel();
+
+	// A half made choice is not written, so a save now would store the old setting and
+	// the editor would still say "Page updated". Locking saving until the choice is
+	// finished (or undone, or the panel closed) means the page cannot be saved in that
+	// state at all, and the panel says why. The lock has a name of its own so nothing
+	// else's lock is released with it.
+	const setIncomplete = ( incomplete ) => {
+		if ( incomplete && lockPostSaving ) {
+			lockPostSaving( SAVE_LOCK );
+		} else if ( ! incomplete && unlockPostSaving ) {
+			unlockPostSaving( SAVE_LOCK );
+		}
+	};
 
 	if ( ! Panel || value === undefined ) {
 		return null;
@@ -59,7 +75,7 @@ function PageAccessDocumentPanel() {
 
 	return (
 		<Panel name="agend-access" title={ __( 'Agend Access', 'agend-content-access' ) } className="agend-access-page-panel">
-			<PageEditor stored={ value } saveError={ saveError } onCommit={ ( payload ) => editPost( { [ REST_FIELD ]: payload } ) } />
+			<PageEditor stored={ value } saveError={ saveError } onIncomplete={ setIncomplete } onCommit={ ( payload ) => editPost( { [ REST_FIELD ]: payload } ) } />
 		</Panel>
 	);
 }

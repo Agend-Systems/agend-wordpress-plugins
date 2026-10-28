@@ -18,11 +18,13 @@
  * (`buildPayload()` in page-model.mjs). One that is not complete (a redirect with no
  * page chosen yet) is held here as a draft, shown with what is missing, and not
  * written, so it can never be saved half made and what is stored is kept until it is
- * finished. A stored value that changes from outside, because the page was saved or
- * an edit was undone, replaces the draft.
+ * finished. While a draft is held the host is told (`onIncomplete`), and locks saving,
+ * so the editor cannot answer "Page updated" for a change it did not save. A stored
+ * value that changes from outside, because the page was saved or an edit was undone,
+ * replaces the draft, and the lock goes with it.
  */
 import { __ } from '@wordpress/i18n';
-import { useEffect, useMemo, useState } from '@wordpress/element';
+import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { Notice, RadioControl } from '@wordpress/components';
 import ChoiceSelect from './choice-select';
 import RuleEditor, { RefreshList, UnreadableSetting, useRuleVocabulary } from './rule-editor';
@@ -125,8 +127,11 @@ function DeniedControls( { state, lists, fallbacks, strings, errors, change } ) 
  * @param {*}        [props.saveError] The error the editor holds for the last save of the page. The
  *                                     server's refusal of this panel's value is shown from it, until
  *                                     the author changes the value again.
+ * @param {Function} [props.onIncomplete] `( incomplete: boolean ) => void`, true while a choice
+ *                                     is half made, false when it is finished, undone or the panel
+ *                                     goes away.
  */
-export default function PageEditor( { stored, onCommit, saveError = null } ) {
+export default function PageEditor( { stored, onCommit, saveError = null, onIncomplete = null } ) {
 	const lists = useRuleVocabulary();
 	const { vocabulary, strings } = lists;
 	const base = useMemo( () => normalisePage( stored ), [ stored ] );
@@ -141,6 +146,26 @@ export default function PageEditor( { stored, onCommit, saveError = null } ) {
 	useEffect( () => {
 		setDraft( null );
 	}, [ signature ] );
+
+	// Tell the host while a choice is half made, so it can stop the page being saved
+	// without it. The panel goes away when it is collapsed, and its draft with it, so
+	// leaving counts as finished.
+	const incomplete = draft !== null;
+	const tell = useRef( onIncomplete );
+
+	tell.current = onIncomplete;
+
+	useEffect( () => {
+		if ( tell.current ) {
+			tell.current( incomplete );
+		}
+
+		return () => {
+			if ( tell.current ) {
+				tell.current( false );
+			}
+		};
+	}, [ incomplete ] );
 
 	// A refusal is about the value that was sent. Once the author has changed it the
 	// message is about something that is gone, so it is only shown for the value

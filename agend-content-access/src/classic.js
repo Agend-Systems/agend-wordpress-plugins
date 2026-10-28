@@ -21,6 +21,9 @@ import './editor.css';
 
 const ROOT_ID = 'agend-access-page-root';
 
+/** Whether a choice in the panel is half made, so the form is not submitted. */
+let incompleteChoice = false;
+
 /**
  * @param {Object}      props
  * @param {*}           props.initial The setting the page loaded with.
@@ -32,6 +35,9 @@ function ClassicPanel( { initial, input } ) {
 	return (
 		<PageEditor
 			stored={ stored }
+			onIncomplete={ ( incomplete ) => {
+				incompleteChoice = incomplete;
+			} }
 			onCommit={ ( payload ) => {
 				setStored( payload );
 				input.value = JSON.stringify( payload );
@@ -64,6 +70,18 @@ function start() {
 	}
 
 	const element = <ClassicPanel initial={ config.state } input={ input } />;
+
+	// A half made choice is not written, so submitting now would save the old setting
+	// and say the page was updated. The form is held until the choice is finished, and
+	// the panel, which says what is missing, is brought into view.
+	if ( input.form ) {
+		input.form.addEventListener( 'submit', ( event ) => {
+			if ( incompleteChoice ) {
+				event.preventDefault();
+				root.scrollIntoView( { block: 'center' } );
+			}
+		} );
+	}
 
 	// Enter in a text box submits the post form on a classic edit screen, and the
 	// search box is one. The picker already uses Enter to add the first result; this

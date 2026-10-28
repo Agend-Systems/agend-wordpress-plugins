@@ -337,9 +337,13 @@ an author sees one panel. It no longer claims to be block editor compatible.
    "If they did not come from this site, they go here instead").
 
 A redirect with no page chosen is not a setting, so the panel keeps it as a draft, says
-"Choose the page to send people to. Until you do, this change is not saved." and writes
-nothing until it is finished. Switching action starts the new action with nothing chosen:
-the pattern chosen as a placeholder is not a page to redirect to.
+"Choose the page to send people to. The page cannot be saved until you do." and writes
+nothing until it is finished. While the draft is held the page really cannot be saved: the
+block editor's save is locked (`lockPostSaving`, under a lock name of the panel's own), and
+the classic form is not submitted, so the editor never answers "Page updated" for a change
+it did not save. The lock goes when the choice is finished, undone, or the panel is closed.
+Switching action starts the new action with nothing chosen: the pattern chosen as a
+placeholder is not a page to redirect to.
 
 **How a page's rules are stored and kept private.** `Agend_Content_Access_Page_Rules`
 owns both editors' saves, so neither can accept what the other refuses.

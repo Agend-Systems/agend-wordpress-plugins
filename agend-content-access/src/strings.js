@@ -78,7 +78,7 @@ export function copy() {
 		builtInPlaceholder: __( 'Built-in placeholder', 'agend-content-access' ),
 		choosePage: __( 'Choose a page', 'agend-content-access' ),
 		noFallbackPage: __( 'No page (show the placeholder instead)', 'agend-content-access' ),
-		redirectNeedsPage: __( 'Choose the page to send people to. Until you do, this change is not saved.', 'agend-content-access' ),
+		redirectNeedsPage: __( 'Choose the page to send people to. The page cannot be saved until you do.', 'agend-content-access' ),
 	};
 
 	return translated;

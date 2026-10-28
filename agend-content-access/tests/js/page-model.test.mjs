@@ -295,6 +295,7 @@ test( 'a redirect with no page chosen is not a setting, and says what is missing
 
 	assert.equal( check.ok, false );
 	assert.equal( check.errors.target, DEFAULT_STRINGS.redirectNeedsPage );
+	assert.match( check.errors.target, /cannot be saved/, 'the host locks saving while this is shown, and the message says why' );
 	assert.equal( validatePage( redirect, { redirectNeedsPage: 'Choisissez une page.' } ).errors.target, 'Choisissez une page.' );
 	assert.equal( validatePage( setTarget( redirect, 12 ) ).ok, true );
 } );

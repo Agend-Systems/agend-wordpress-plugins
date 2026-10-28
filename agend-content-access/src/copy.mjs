@@ -57,7 +57,7 @@ export const DEFAULT_STRINGS = Object.freeze( {
 	builtInPlaceholder: 'Built-in placeholder',
 	choosePage: 'Choose a page',
 	noFallbackPage: 'No page (show the placeholder instead)',
-	redirectNeedsPage: 'Choose the page to send people to. Until you do, this change is not saved.',
+	redirectNeedsPage: 'Choose the page to send people to. The page cannot be saved until you do.',
 } );
 
 /**
