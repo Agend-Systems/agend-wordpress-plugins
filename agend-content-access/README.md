@@ -466,7 +466,10 @@ everyone except these people" that widens who sees the element. Two things stop 
   later, draft and autosave saves included) gives the saved elements to
   `Agend_Content_Access_Elementor::preserve_unseen_rules()`, which adds to each element
   any rule it held before that the saved data lacks and the list does not offer (the
-  catalogue's own rules are offered, so removing one of those sticks), but only where
+  catalogue's own rules are offered, so removing one of those sticks; a slug alias is put
+  back unless the rule it stands for was saved, because an element edited in place in a
+  second document, such as a header or footer part or a global widget, was never offered
+  its alias, and the list is built from the document the editor opened on), but only where
   losing it widens who sees the element: the saved element matches "all of these", is
   reversed ("everyone except these people"), or would be left with no rules at all. Under
   plain "any of these" with other rules left, a removed rule stays removed, because it

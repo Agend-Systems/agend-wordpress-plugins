@@ -454,10 +454,13 @@ class Agend_Content_Access_Elementor {
 	 * document before it saves it (3.3 and later), draft and autosave saves included, and
 	 * the one place the saved elements can be changed. For each element it saved, a rule the
 	 * element held before that the saved data has lost, and that the list does not offer,
-	 * is a candidate. "Does not offer" is exactly what `rule_options()` returns now, plus
-	 * the slug aliases of what it offers, which an author may drop as they are shown as
-	 * the rule they stand for: a plan that was switched off IS offered, so an author who
-	 * removes one means it, and so is anything the catalogue can name.
+	 * is a candidate. "Does not offer" is exactly what `rule_options()` returns now: a
+	 * plan that was switched off IS offered, so an author who removes one means it, and so
+	 * is anything the catalogue can name. A slug alias is not a choice of its own, and the
+	 * list is built from the document the editor was opened on, so an element edited in
+	 * place in another document (a header or footer part, a global widget) was never
+	 * offered the alias it holds, and its save would drop it. So a lost alias is a
+	 * candidate too, unless the rule it stands for is in the saved list.
 	 *
 	 * That leaves the rules nobody can name, a plan, segment or entitlement that was
 	 * deleted, and every Agend rule for as long as the catalogue cannot be loaded. The
@@ -494,12 +497,12 @@ class Agend_Content_Access_Elementor {
 			return $data;
 		}
 
-		$offered = array_merge(
+		$data['elements'] = self::restore_rules(
+			$data['elements'],
+			$before,
 			array_keys( Agend_Content_Access_Condition_Sets::rule_options() ),
-			array_keys( Agend_Content_Access_Condition_Sets::rule_aliases() )
+			Agend_Content_Access_Condition_Sets::rule_aliases()
 		);
-
-		$data['elements'] = self::restore_rules( $data['elements'], $before, $offered );
 
 		return $data;
 	}
@@ -510,10 +513,11 @@ class Agend_Content_Access_Elementor {
 	 *
 	 * @param array                $elements Saved elements.
 	 * @param array<string, array> $before   Element id to the rules it held.
-	 * @param string[]             $offered  Rules the list offers.
+	 * @param string[]             $offered  Rules the list offers as choices.
+	 * @param array<string, string> $aliases  Slug aliases: alias to the rule it stands for.
 	 * @return array
 	 */
-	private static function restore_rules( array $elements, array $before, array $offered ): array {
+	private static function restore_rules( array $elements, array $before, array $offered, array $aliases ): array {
 		foreach ( $elements as $index => $element ) {
 			if ( ! is_array( $element ) ) {
 				continue;
@@ -522,7 +526,7 @@ class Agend_Content_Access_Elementor {
 			if ( isset( $element['id'] ) && is_string( $element['id'] ) && isset( $before[ $element['id'] ] ) ) {
 				$settings = isset( $element['settings'] ) && is_array( $element['settings'] ) ? $element['settings'] : array();
 				$saved    = isset( $settings[ self::RULES_KEY ] ) && is_array( $settings[ self::RULES_KEY ] ) ? array_values( $settings[ self::RULES_KEY ] ) : array();
-				$lost     = array_values( array_diff( array_diff( $before[ $element['id'] ], $offered ), $saved ) );
+				$lost     = self::lost_rules( $before[ $element['id'] ], $saved, $offered, $aliases );
 
 				if ( array() !== $lost && self::losing_widens( $settings, $saved ) ) {
 					$settings[ self::RULES_KEY ] = array_merge( $saved, $lost );
@@ -531,13 +535,47 @@ class Agend_Content_Access_Elementor {
 			}
 
 			if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
-				$element['elements'] = self::restore_rules( $element['elements'], $before, $offered );
+				$element['elements'] = self::restore_rules( $element['elements'], $before, $offered, $aliases );
 			}
 
 			$elements[ $index ] = $element;
 		}
 
 		return $elements;
+	}
+
+	/**
+	 * The stored rules a saved element has lost that are candidates to be put back.
+	 *
+	 * A rule the list offers as a choice is the author's to remove. A rule it does not
+	 * name at all is a candidate. A slug alias is a candidate when the rule it stands for
+	 * is not in the saved list either: the author who dropped it in favour of the rule it
+	 * stands for keeps that rule, and one who never saw it (it was not offered where the
+	 * element was edited in place, such as a header or footer part or a global widget,
+	 * which the list is not built from) has neither, so it is the same loss.
+	 *
+	 * @param array                 $before  Rules the element held.
+	 * @param array                 $saved   Rules the saved element holds.
+	 * @param string[]              $offered Rules the list offers as choices.
+	 * @param array<string, string> $aliases Alias to the rule it stands for.
+	 * @return string[]
+	 */
+	private static function lost_rules( array $before, array $saved, array $offered, array $aliases ): array {
+		$lost = array();
+
+		foreach ( $before as $rule ) {
+			if ( in_array( $rule, $saved, true ) || in_array( $rule, $offered, true ) ) {
+				continue;
+			}
+
+			if ( isset( $aliases[ $rule ] ) && in_array( $aliases[ $rule ], $saved, true ) ) {
+				continue;
+			}
+
+			$lost[] = $rule;
+		}
+
+		return array_values( array_unique( $lost ) );
 	}
 
 	/**

@@ -843,9 +843,9 @@ final class ElementorRuleControlsTest extends TestCase {
 	}
 
 	/**
-	 * What the author COULD see is theirs to remove. The list offers a plan that was switched off, a
-	 * slug alias reads as its plan, and anything the catalogue can name is offered: remove one of those and
-	 * it stays removed.
+	 * What the author COULD see is theirs to remove. The list offers a plan that was switched off and
+	 * anything the catalogue can name: remove one of those and it stays removed. A slug alias is not a
+	 * choice of its own: it is put back unless the rule it stands for was saved.
 	 */
 	#[Test]
 	public function a_rule_the_author_could_see_stays_removed(): void {
@@ -865,7 +865,58 @@ final class ElementorRuleControlsTest extends TestCase {
 			$this->savingDocument( 500 )
 		);
 
-		$this->assertSame( array( 'agend_wordpress:role_editor', 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ) );
+		$this->assertSame( array( 'agend_wordpress:role_editor', 'agend_segments:overdue', 'agend_membership:' . self::GONE ), $this->rulesOf( $saved, 'aaaa001' ) );
+	}
+
+	/**
+	 * An element edited in place in a second document (a header or footer part, a global widget) was
+	 * never offered the slug alias it holds, because the list is built from the document the editor
+	 * opened on. The save drops it, and must put it back: the alias evaluates, and losing it widens.
+	 */
+	#[Test]
+	public function a_slug_alias_the_list_never_offered_is_put_back_on_save(): void {
+		$alias = 'agend_membership:full';
+		$other = 'agend_wordpress:role_editor';
+
+		$this->seed();
+		$this->openDocument( 501 );
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( $alias, $other ) ) ) );
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( $this->element( 'aaaa001', array( $other ) ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( $other, $alias ), $this->rulesOf( $saved, 'aaaa001' ) );
+	}
+
+	/** An author who swapped the alias for the rule it stands for has not lost it. */
+	#[Test]
+	public function a_slug_alias_is_not_put_back_when_the_rule_it_stands_for_was_saved(): void {
+		$alias = 'agend_membership:full';
+		$tier  = 'agend_membership:' . self::TIER_A;
+
+		$this->seed();
+		$this->storeDocument( 500, array( $this->element( 'aaaa001', array( $alias ) ) ) );
+
+		$saved = ( new ElementorControl() )->preserve_unseen_rules(
+			array( 'elements' => array( $this->element( 'aaaa001', array( $tier ) ) ) ),
+			$this->savingDocument( 500 )
+		);
+
+		$this->assertSame( array( $tier ), $this->rulesOf( $saved, 'aaaa001' ) );
+	}
+
+	/** A lost alias is put back on the same terms as any other lost rule: only where losing it widens. */
+	#[Test]
+	public function a_lost_slug_alias_follows_the_widening_rule(): void {
+		$alias = 'agend_membership:full';
+		$other = 'agend_wordpress:role_editor';
+
+		$this->assertSame( array( $other ), $this->saveElement( array( $alias, $other ), array( 'agend_access_rules' => array( $other ), 'agend_access_match' => 'any' ) ), 'any, others left: narrows' );
+		$this->assertSame( array( $other, $alias ), $this->saveElement( array( $alias, $other ), array( 'agend_access_rules' => array( $other ), 'agend_access_match' => 'all' ) ), 'all' );
+		$this->assertSame( array( $other, $alias ), $this->saveElement( array( $alias, $other ), array( 'agend_access_rules' => array( $other ), 'agend_access_invert' => 'yes' ) ), 'reversed' );
+		$this->assertSame( array( $alias ), $this->saveElement( array( $alias ), array( 'agend_access_match' => 'any' ) ), 'the last rule' );
 	}
 
 	/** It only ever adds: a rule the author added is kept, and the rest of the settings are left as saved. */
