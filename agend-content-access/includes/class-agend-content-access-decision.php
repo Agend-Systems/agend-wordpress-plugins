@@ -25,13 +25,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  * is read into the same rule list a block's and a section's are
  * (`Agend_Content_Access_Rules::from_post()`), and one evaluator judges them all,
  * so a fail-open mistake has one place to hide instead of two. What is left is the
- * page-level decision (`for_post()`), which adds the two things only a page has:
- * the authoring preview, and the anonymous reader a feed is.
+ * page-level decision (`for_post()`), which adds the one thing only a page has: the
+ * anonymous reader a feed is.
  *
  * Fail closed at every step. An unreachable Agend, an unparseable response, a
  * bearer that cannot be obtained: all deny. The only inputs that can GRANT are a
- * post with no rules, a WordPress edit capability, or rules the visitor actually
- * satisfies.
+ * post with no rules, or rules the visitor actually satisfies. A WordPress edit
+ * capability is not one.
  *
  * THE LOOKUP IS CACHED, deliberately. It comes from
  * `Agend_Content_Access_Viewer_Facts`, the one source shared by every rule:
@@ -83,21 +83,16 @@ class Agend_Content_Access_Decision {
 	}
 
 	/**
-	 * Whether the current WordPress user may preview regardless of membership.
-	 *
-	 * Editors and administrators see their own content (US-3.4 criterion 2).
-	 * This is an AUTHORING capability, not a membership claim, and it is the one
-	 * place a WordPress capability legitimately affects what is rendered.
-	 *
-	 * @param int $post_id Post id.
-	 * @return bool
-	 */
-	public static function can_preview( int $post_id ): bool {
-		return current_user_can( 'edit_post', $post_id );
-	}
-
-	/**
 	 * The full decision for one post.
+	 *
+	 * NO ONE IS EXEMPT BY CAPABILITY. An editor or an administrator who may `edit_post` the
+	 * post is judged here exactly like any other reader, by their own membership, on the live
+	 * front end, in a WordPress preview (`?preview=true`) and on the REST view path. What
+	 * shows an author everything is the AUTHORING carve-outs, which are about the request and
+	 * not about this decision: the block editor and its REST edit and render requests, the
+	 * Elementor editor and its preview, and wp-admin screens, each only for a post the user
+	 * may edit (`Agend_Content_Access_Frontend::is_authoring_for_post()`). The callers that
+	 * render for a reader ask that first and never reach this for an author's own request.
 	 *
 	 * The post's rules are `Agend_Content_Access_Rules::from_post()`: the new
 	 * `_agend_access_rules`, or the 0.1.x `_agend_access_policy` converted. No rules
@@ -105,7 +100,7 @@ class Agend_Content_Access_Decision {
 	 * version cannot parse never publishes a page.
 	 *
 	 * `$anonymous` evaluates the post for a reader who cannot be identified at all:
-	 * no editor preview and no identity lookup, so a restricted post is denied
+	 * no identity lookup, so a restricted post is denied
 	 * outright. It exists for syndication feeds. A feed is fetched by aggregators
 	 * that carry no session, and its response is routinely cached and shared, so a
 	 * render personalised to whoever happened to ask would be served to everyone
@@ -122,7 +117,7 @@ class Agend_Content_Access_Decision {
 	 *
 	 * @param int  $post_id   Post id.
 	 * @param bool $anonymous Evaluate as an anonymous reader.
-	 * @return array{state: string, policy: array|null, rules: Agend_Content_Access_Rules, preview: bool, degraded: bool}
+	 * @return array{state: string, policy: array|null, rules: Agend_Content_Access_Rules, degraded: bool}
 	 */
 	public static function for_post( int $post_id, bool $anonymous = false ): array {
 		$rules  = Agend_Content_Access_Rules::from_post( $post_id );
@@ -135,7 +130,6 @@ class Agend_Content_Access_Decision {
 				'state'    => self::STATE_GRANTED,
 				'policy'   => $policy,
 				'rules'    => $rules,
-				'preview'  => false,
 				'degraded' => false,
 			);
 		}
@@ -147,18 +141,7 @@ class Agend_Content_Access_Decision {
 				'state'    => $verdict['state'],
 				'policy'   => $policy,
 				'rules'    => $rules,
-				'preview'  => false,
 				'degraded' => $verdict['degraded'],
-			);
-		}
-
-		if ( self::can_preview( $post_id ) ) {
-			return array(
-				'state'    => self::STATE_GRANTED,
-				'policy'   => $policy,
-				'rules'    => $rules,
-				'preview'  => true,
-				'degraded' => false,
 			);
 		}
 
@@ -168,7 +151,6 @@ class Agend_Content_Access_Decision {
 			'state'    => $verdict['state'],
 			'policy'   => $policy,
 			'rules'    => $rules,
-			'preview'  => false,
 			'degraded' => $verdict['degraded'],
 		);
 	}

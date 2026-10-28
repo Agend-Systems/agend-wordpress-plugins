@@ -422,15 +422,14 @@ final class LoopGatingTest extends TestCase {
 	}
 
 	#[Test]
-	public function an_editor_who_can_edit_the_post_sees_it_in_a_loop(): void {
+	public function an_editor_who_can_edit_the_post_is_gated_in_a_loop_like_any_reader(): void {
 		$this->asEditor();
 		$this->frontend();
 
 		$html = $this->render( self::MEMBERS_ONLY );
 
-		$this->assertSame( self::BODY, $html );
-		$this->assertSame( 0, $this->identity_lookups );
-		$this->assertSame( array(), $this->uncacheable, 'an editor preview is a logged-in request, not a member render' );
+		$this->assertStringNotContainsString( self::BODY, $html );
+		$this->assertStringContainsString( 'agend-access-gate', $html );
 	}
 
 	#[Test]
@@ -923,13 +922,12 @@ final class LoopGatingTest extends TestCase {
 	}
 
 	#[Test]
-	public function an_editor_sees_the_auto_excerpt(): void {
+	public function an_editor_on_the_live_site_gets_no_auto_excerpt_of_a_restricted_post(): void {
 		$this->asEditor();
 		$this->frontend();
 		$this->installTrimExcerptFor( self::MEMBERS_ONLY );
 
-		$this->assertSame( self::BODY, $this->excerptOf( self::MEMBERS_ONLY ) );
-		$this->assertSame( array(), $this->uncacheable );
+		$this->assertSame( '', $this->excerptOf( self::MEMBERS_ONLY ) );
 	}
 
 	#[Test]
@@ -1133,7 +1131,6 @@ final class LoopGatingTest extends TestCase {
 		$public     = Agend_Content_Access_Decision::for_post( self::PUBLIC_POST, true );
 
 		$this->assertSame( Agend_Content_Access_Decision::STATE_AUTH, $restricted['state'] );
-		$this->assertFalse( $restricted['preview'] );
 		$this->assertSame( Agend_Content_Access_Decision::STATE_GRANTED, $public['state'] );
 		$this->assertSame( 0, $this->identity_lookups );
 	}

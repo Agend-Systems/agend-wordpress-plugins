@@ -25,8 +25,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * nothing), with tags stripped. The post is the one the plugin says it is describing
  * when it says (Yoast passes its presentation), else the page this request denied, else
  * the queried singular post. It is judged as every other gate is: a post with no rules,
- * an editor of the post and a reader the rules admit keep the plugin's own text. The
- * cached `WP_Post` is only read, never changed.
+ * a reader the rules admit, and an author in an editor for a post they may edit, keep the
+ * plugin's own text. An editor or administrator on the live site is judged like any reader.
+ * The cached `WP_Post` is only read, never changed.
  *
  * COVERED, by the hooks each plugin documents:
  *   - Yoast SEO: `wpseo_metadesc`, `wpseo_opengraph_desc`, `wpseo_twitter_description`.

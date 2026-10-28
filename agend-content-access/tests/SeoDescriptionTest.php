@@ -221,10 +221,21 @@ final class SeoDescriptionTest extends TestCase {
 		$this->assertSame( 'Own text', $this->describe( 'wpseo_metadesc', 'Own text' ) );
 	}
 
+	/** On the live site an editor who fails the rules is a reader like any other. */
 	#[Test]
-	public function an_editor_of_the_page_keeps_the_plugin_s_own_description(): void {
+	public function an_editor_who_fails_the_rules_gets_the_teaser_on_the_live_site(): void {
 		$GLOBALS['agend_test_current_user_id']               = 3;
 		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+		$this->visit( self::MEMBERS );
+
+		$this->assertSame( 'A public teaser', $this->describe( 'wpseo_metadesc', 'Own text' ) );
+	}
+
+	#[Test]
+	public function an_editor_in_an_editing_session_keeps_the_plugin_s_own_description(): void {
+		$GLOBALS['agend_test_current_user_id']               = 3;
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+		$GLOBALS['agend_test_is_admin']                      = true;
 		$this->visit( self::MEMBERS );
 
 		$this->assertSame( 'Own text', $this->describe( 'wpseo_metadesc', 'Own text' ) );

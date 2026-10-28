@@ -228,6 +228,28 @@ final class PreviewCarveOutTest extends TestCase {
 		$this->assertStringNotContainsString( self::BODY, $this->render( self::RESTRICTED ) );
 	}
 
+	/**
+	 * The Elementor preview of the document being edited shows an administrator everything, and the
+	 * same administrator on the live page of the same document is judged by membership: no flag, no
+	 * carve-out, and being able to edit the page grants nothing.
+	 */
+	#[Test]
+	public function an_administrator_sees_the_document_in_elementors_preview_and_is_gated_without_it(): void {
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+
+		$this->previewOwnPost();
+		$this->frontend->gate_request();
+
+		$this->assertSame( 'MY OWN BODY', $this->render( self::OWN ), 'the Elementor preview of the document being edited' );
+
+		Agend_Content_Access_Frontend::reset_gate();
+		$this->visitOwnPost();
+		$this->frontend->gate_request();
+
+		$this->assertNotNull( Agend_Content_Access_Frontend::current_gate(), 'the live page, for an administrator who is not a member' );
+		$this->assertStringNotContainsString( 'MY OWN BODY', $this->render( self::OWN ) );
+	}
+
 	#[Test]
 	public function a_builder_cannot_restore_a_restricted_post_listed_inside_the_preview(): void {
 		$this->previewOwnPost();

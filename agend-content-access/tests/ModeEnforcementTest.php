@@ -216,15 +216,13 @@ final class ModeEnforcementTest extends TestCase {
 	}
 
 	#[Test]
-	public function an_editor_previewing_a_segments_post_costs_no_call(): void {
+	public function an_editor_outside_the_segment_is_denied_like_anybody_else(): void {
 		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
 		$this->documentPolicy( $this->segmentsPolicy( self::SEG_A ) );
 
 		$decision = Decision::for_post( self::POST_ID );
 
-		$this->assertSame( Decision::STATE_GRANTED, $decision['state'] );
-		$this->assertTrue( $decision['preview'] );
-		$this->assertSame( array(), Agend_Test_WP::$requests );
+		$this->assertNotSame( Decision::STATE_GRANTED, $decision['state'] );
 	}
 
 	// -----------------------------------------------------------------------

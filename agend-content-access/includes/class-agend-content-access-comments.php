@@ -40,9 +40,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * viewers with different denied sets never share an entry.
  *
  * A viewer is denied a post when the decision for the post is anything but granted
- * (`Agend_Content_Access_Decision::for_post()`): the same verdict as the page gate,
- * including the editor's preview, so a user who may `edit_post` the page keeps its
- * comments. A feed is judged as an anonymous reader, as every feed is.
+ * (`Agend_Content_Access_Decision::for_post()`): the same verdict as the page gate, by the
+ * viewer's own membership, an editor or administrator included, on the live front end.
+ * Only an AUTHORING request for a post the user may edit keeps the post's comments: the
+ * comment screens of wp-admin, the block editor's REST requests and Elementor's editor
+ * (`Agend_Content_Access_Frontend::renders_for_visitors()`, the per-post rule every
+ * authoring carve-out rests on). A feed is judged as an anonymous reader, as every feed is.
  *
  * THE GLOBAL COMMENT FEED IS A DIFFERENT QUERY. `/comments/feed/`, a search's comment
  * feed (`?s=x&feed=comments-rss2`) and an archive's comment feed are not built by
@@ -290,9 +293,24 @@ class Agend_Content_Access_Comments {
 			return self::rest_refusal();
 		}
 
+		if ( self::is_authoring( (int) $comment->comment_post_ID ) ) {
+			return $response;
+		}
+
 		$decision = Agend_Content_Access_Decision::for_post( (int) $comment->comment_post_ID );
 
 		return Agend_Content_Access_Decision::STATE_GRANTED === $decision['state'] ? $response : self::rest_refusal();
+	}
+
+	/**
+	 * Whether this request is an author's own, for a post they may edit: a wp-admin comment
+	 * screen, the block editor, Elementor's editor. Never because of the capability alone.
+	 *
+	 * @param int $post_id Post id.
+	 * @return bool
+	 */
+	private static function is_authoring( int $post_id ): bool {
+		return class_exists( 'Agend_Content_Access_Frontend', false ) && ! Agend_Content_Access_Frontend::renders_for_visitors( $post_id );
 	}
 
 	/**
@@ -387,6 +405,12 @@ class Agend_Content_Access_Comments {
 		$denied = array();
 
 		foreach ( $ids as $post_id ) {
+			// An author's own screen for a post they may edit shows its comments. Not for a
+			// feed, which is shared and judged as nobody.
+			if ( ! $anonymous && self::is_authoring( $post_id ) ) {
+				continue;
+			}
+
 			$decision = Agend_Content_Access_Decision::for_post( $post_id, $anonymous );
 
 			if ( Agend_Content_Access_Decision::STATE_GRANTED !== $decision['state'] ) {

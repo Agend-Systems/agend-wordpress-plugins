@@ -237,8 +237,18 @@ final class DeniedPageTemplateTest extends TestCase {
 	}
 
 	#[Test]
-	public function an_editor_of_the_page_keeps_its_own_template(): void {
+	public function an_editor_who_fails_the_rules_gets_the_denied_template_on_the_live_site(): void {
 		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+
+		$this->gate();
+
+		$this->assertNotSame( array(), $this->registered( 'template_include' ) );
+	}
+
+	#[Test]
+	public function an_editor_in_an_editing_session_keeps_the_page_s_own_template(): void {
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+		$GLOBALS['agend_test_is_admin']                      = true;
 
 		$this->gate();
 

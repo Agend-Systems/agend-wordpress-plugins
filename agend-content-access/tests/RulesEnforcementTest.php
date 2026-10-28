@@ -926,7 +926,7 @@ final class RulesEnforcementTest extends BlockEnforcementTestCase {
 	}
 
 	#[Test]
-	public function a_page_whose_new_rules_cannot_be_read_denies_everyone_but_an_editor(): void {
+	public function a_page_whose_new_rules_cannot_be_read_denies_everyone_an_editor_included(): void {
 		$this->registerPost( 322, '' );
 		$GLOBALS['agend_test_post_meta'][322][ Rules::META_KEY ] = array( 'rules' => array( self::MEMBER ), 'match' => 'some' );
 
@@ -934,10 +934,8 @@ final class RulesEnforcementTest extends BlockEnforcementTestCase {
 		$this->assertNotSame( Agend_Content_Access_Decision::STATE_GRANTED, Agend_Content_Access_Decision::for_post( 322 )['state'] );
 
 		$this->asEditor();
-		$preview = Agend_Content_Access_Decision::for_post( 322 );
 
-		$this->assertSame( Agend_Content_Access_Decision::STATE_GRANTED, $preview['state'] );
-		$this->assertTrue( $preview['preview'] );
+		$this->assertNotSame( Agend_Content_Access_Decision::STATE_GRANTED, Agend_Content_Access_Decision::for_post( 322 )['state'] );
 	}
 
 	#[Test]

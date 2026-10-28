@@ -294,14 +294,15 @@ final class DecisionTest extends TestCase {
 	 * the one capability that is not a membership claim. Everybody else stays out.
 	 */
 	#[Test]
-	public function an_editor_can_still_preview_a_post_whose_stored_policy_is_unreadable(): void {
+	public function an_editor_is_judged_like_anybody_else_and_is_denied_an_unreadable_stored_policy(): void {
 		$this->storePolicy( array( 'mode' => 'authenticated' ) );
 		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
 
 		$decision = Agend_Content_Access_Decision::for_post( self::POST_ID );
 
-		$this->assertSame( Agend_Content_Access_Decision::STATE_GRANTED, $decision['state'] );
-		$this->assertTrue( $decision['preview'] );
+		$this->assertNotSame( Agend_Content_Access_Decision::STATE_GRANTED, $decision['state'] );
+		$this->assertArrayNotHasKey( 'preview', $decision );
+		$this->assertFalse( method_exists( Agend_Content_Access_Decision::class, 'can_preview' ), 'no capability grants a page' );
 	}
 
 }

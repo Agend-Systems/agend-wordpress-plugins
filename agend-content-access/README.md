@@ -613,7 +613,15 @@ it had no manual excerpt and a teaser page when it had one. Both are now the pla
 a 200, with the manual excerpt above the message when there is one, so 0.1.x pages look
 much as they did.
 
-Editors who can edit the page keep seeing it, and the authoring carve-outs are unchanged.
+**Editors see everything in the editor. On the live site and in previews everyone, administrators
+included, sees exactly what their own membership allows.** Being able to edit a page is not a
+membership, so it no longer lets an editor or administrator past the page's rules on the live
+front end, in a WordPress preview (`?preview=true`), in a list, an excerpt or the REST view
+context. What shows an author everything is the authoring carve-outs, which are unchanged and
+apply only to a post the user may edit: the block editor and its REST edit and render requests,
+the Elementor editor and its preview of the document being edited, and wp-admin screens
+(including the comment screens). An administrator who is not a member and who opens the live page,
+or its preview, gets the page's action (placeholder, redirect or back) like anybody else.
 The action applies to whoever the rules deny, so a page with Reverse on, such as a join
 page, redirects the people who DO match, its members, to their dashboard, and shows
 everyone else the page.
@@ -681,8 +689,9 @@ the comments, the comment form and the comment feed were served. So:
 (`get_comments()`, a recent-comments widget, the comment blocks, the REST collection
 `/wp/v2/comments` with or without `post=`). On `pre_get_comments` the posts the viewer is denied are
 added to the query's `post__not_in`, so a viewer who cannot read a page cannot read the comments on
-it. A user who may `edit_post` that page keeps them. A single comment (`GET /wp/v2/comments/<id>`) on
-such a page is refused with `rest_cannot_read`.
+it. Only an authoring request for a post the user may edit keeps them (the wp-admin comment screens, the
+block editor, Elementor's editor); an editor on the live site is judged by their own membership. A
+single comment (`GET /wp/v2/comments/<id>`) on such a page is refused with `rest_cannot_read`.
 
 It is done in the query's arguments rather than its SQL because `WP_Comment_Query` caches its result
 under a key made from its arguments alone: an exclusion added to the SQL would let a persistent object

@@ -85,6 +85,17 @@ height with scroll.
    back, so real members are not bounced away while Agend is down. Decided 2026-10-28,
    built with item 4.
 
+## Decisions (2026-10-28, browser test)
+
+1. **Editors and administrators are readers on the live site.** The `edit_post` grant is removed
+   from page decisions (`Agend_Content_Access_Decision::for_post()`, so the page gate, the loop,
+   excerpt and REST view gates, the comment exclusion and the SEO descriptions): on the live front
+   end, in `?preview=true` and in lists, everyone is judged by their own membership, as blocks
+   already were. The editor shows everything: the block editor and its REST edit and render
+   requests, the Elementor editor and its preview iframe for the document being edited, and
+   wp-admin screens, each only for a post the user may edit (`is_authoring_for_post()`, unchanged).
+   `Decision::can_preview()` and the `preview` key of a decision are gone.
+
 ## Page actions: as built (2026-10-28)
 
 Build-plan item 2. Code: `Agend_Content_Access_Frontend::gate_request()` chooses,
@@ -136,7 +147,7 @@ comment feed were served. The fix, in `Agend_Content_Access_Frontend::serve_plac
 - The denied page's comments are closed, emptied and counted as none, and its feed is a 403.
 - `Agend_Content_Access_Comments` keeps the comments of restricted posts out of every comment query
   (`pre_get_comments`, so the exclusion is part of the cache key) and refuses a single comment over
-  REST, for a viewer who may not read the post. Users who may `edit_post` it keep them.
+  REST, for a viewer who may not read the post. Only an authoring request for a post the user may edit keeps them (wp-admin screens, the block editor, Elementor's editor).
 - The site's own comment feed (`/comments/feed/`, a search's or an archive's comment feed) is not a
   `WP_Comment_Query`: `WP_Query::get_posts()` writes its SQL, so `pre_get_comments` never fires for it.
   Found by the final review. It is filtered on `comment_feed_where` at `PHP_INT_MAX`, appending

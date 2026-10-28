@@ -876,18 +876,100 @@ final class PageDenialActionsTest extends TestCase {
 	// -----------------------------------------------------------------------
 
 	#[Test]
-	public function somebody_who_may_edit_the_page_sees_it_whatever_the_action(): void {
+	public function somebody_who_may_edit_the_page_is_not_seen_past_the_action_on_the_live_site(): void {
 		$this->redirectTo( self::TARGET );
 		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
 
 		[ , $redirect ] = $this->gate();
 
+		$this->assertNotNull( $redirect, 'an editor who fails the rules is sent where the page says' );
+		$this->assertNotNull( Agend_Content_Access_Frontend::current_gate() );
+	}
+
+	/**
+	 * The product rule: editors see everything in the editor, and on the live site and in previews
+	 * everyone, administrators included, sees what their own membership allows. An administrator
+	 * who fails the page's rules gets the page's action, in a WordPress preview too.
+	 */
+	#[Test]
+	public function an_administrator_who_fails_the_rules_gets_the_action_on_the_live_page_and_in_a_preview(): void {
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+		$GLOBALS['agend_test_current_user_id']               = 1;
+
+		foreach ( array( 'live' => array(), 'preview' => array( 'preview' => 'true', 'preview_id' => (string) self::DENIED ) ) as $where => $query ) {
+			$_GET = $query;
+			Agend_Content_Access_Frontend::reset_gate();
+			Agend_Test_WP::$redirects = array();
+
+			$this->redirectTo( self::TARGET );
+			[ , $redirect ] = $this->gate();
+			$this->assertNotNull( $redirect, $where . ': redirect' );
+
+			Agend_Content_Access_Frontend::reset_gate();
+			Agend_Test_WP::$redirects = array();
+
+			$this->deniedPage( array( 'action' => 'placeholder', 'target_id' => 0, 'fallback_id' => 0 ) );
+			$this->gate();
+			$this->assertNotNull( Agend_Content_Access_Frontend::current_gate(), $where . ': placeholder' );
+			$this->assertStringNotContainsString( self::BODY, $this->body(), $where . ': placeholder body' );
+
+			Agend_Content_Access_Frontend::reset_gate();
+			Agend_Test_WP::$redirects = array();
+			$this->referredFrom( 'https://example.test/page-' . self::TARGET . '/' );
+
+			$this->back( self::FALLBACK );
+			[ , $redirect ] = $this->gate();
+			$this->assertNotNull( $redirect, $where . ': back' );
+		}
+
+		$_GET = array();
+	}
+
+	/** The same administrator who is a member sees the page, and a real member passes. */
+	#[Test]
+	public function an_administrator_who_passes_the_rules_and_a_member_see_the_page(): void {
+		$this->redirectTo( self::TARGET );
+
+		$this->asMember( '11111111-1111-1111-1111-111111111111' );
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+
+		[ , $redirect ] = $this->gate();
+
 		$this->assertNull( $redirect );
-		$this->assertSame( array(), Agend_Test_WP::$redirects );
-		$this->assertNotContains( 'filter_the_content', $this->registeredMethods( 'the_content' ) );
-		$this->assertSame( array(), Agend_Test_WP::$status_codes );
-		$this->assertSame( array(), $this->uncacheable );
+		$this->assertNull( Agend_Content_Access_Frontend::current_gate(), 'an administrator who is a member' );
+	}
+
+	/** In the editor the same administrator keeps everything: wp-admin and the block editor's REST edit context. */
+	#[Test]
+	public function the_same_administrator_still_has_everything_in_the_editor(): void {
+		$GLOBALS['agend_test_current_user_can']['edit_post'] = true;
+		$this->redirectTo( self::TARGET );
+
+		$GLOBALS['agend_test_is_admin'] = true;
+		[ , $redirect ] = $this->gate();
+		$this->assertNull( $redirect, 'a wp-admin screen for the page' );
 		$this->assertNull( Agend_Content_Access_Frontend::current_gate() );
+		unset( $GLOBALS['agend_test_is_admin'] );
+
+		$request = new WP_REST_Request( 'GET', '/wp/v2/pages/' . self::DENIED );
+		$request->set_param( 'context', 'edit' );
+
+		$frontend = new Agend_Content_Access_Frontend();
+		$data     = $frontend->filter_rest_response(
+			new WP_REST_Response( array( 'id' => self::DENIED, 'content' => array( 'rendered' => self::BODY, 'raw' => self::BODY ) ) ),
+			get_post( self::DENIED ),
+			$request
+		)->get_data();
+
+		$this->assertSame( self::BODY, $data['content']['raw'], 'the block editor\'s REST edit context' );
+
+		$view = $frontend->filter_rest_response(
+			new WP_REST_Response( array( 'id' => self::DENIED, 'content' => array( 'rendered' => self::BODY ) ) ),
+			get_post( self::DENIED ),
+			new WP_REST_Request( 'GET', '/wp/v2/pages/' . self::DENIED )
+		)->get_data();
+
+		$this->assertSame( '', $view['content']['rendered'], 'the same administrator in the view context is a reader' );
 	}
 
 	#[Test]

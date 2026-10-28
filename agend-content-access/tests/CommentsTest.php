@@ -210,9 +210,22 @@ final class CommentsTest extends TestCase {
 		$this->assertSame( 12, Agend_Test_WP::apply_registered( 'get_comments_number', 12, self::MEMBERS ) );
 	}
 
+	/** On the live site an editor is a reader: the rules deny them, so the comments are closed. */
 	#[Test]
-	public function an_editor_of_the_page_keeps_its_comments_open(): void {
+	public function an_editor_who_fails_the_rules_has_the_denied_page_s_comments_closed(): void {
 		$this->asEditor();
+
+		$this->gate( self::MEMBERS );
+
+		$this->assertFalse( Agend_Test_WP::apply_registered( 'comments_open', true, self::MEMBERS ) );
+		$this->assertSame( array(), Agend_Test_WP::apply_registered( 'comments_array', array( 'a comment' ), self::MEMBERS ) );
+	}
+
+	/** In an editing session for the page nothing is denied, so nothing is closed. */
+	#[Test]
+	public function an_editor_in_an_editing_session_keeps_the_page_s_comments_open(): void {
+		$this->asEditor();
+		$GLOBALS['agend_test_is_admin'] = true;
 
 		$this->gate( self::MEMBERS );
 
@@ -272,11 +285,31 @@ final class CommentsTest extends TestCase {
 		return $this->query();
 	}
 
+	/** On the live site a user who may edit the post is judged like any reader. */
 	#[Test]
-	public function a_user_who_may_edit_the_post_keeps_its_comments(): void {
+	public function a_user_who_may_edit_the_post_is_judged_by_their_own_membership_on_the_live_site(): void {
 		$this->asEditor();
 
+		$this->assertSame( array( self::MEMBERS, self::PLAN_B ), $this->excluded( $this->query() ) );
+	}
+
+	/** Their own screens for a post they may edit, a wp-admin comment list, keep its comments. */
+	#[Test]
+	public function a_user_who_may_edit_the_post_keeps_its_comments_in_wp_admin(): void {
+		$this->asEditor();
+		$GLOBALS['agend_test_is_admin'] = true;
+
 		$this->assertSame( array(), $this->excluded( $this->query() ) );
+	}
+
+	/** An admin-ajax request is a visitor's, whatever screen it came from. */
+	#[Test]
+	public function an_editor_s_admin_ajax_request_is_a_reader_s(): void {
+		$this->asEditor();
+		$GLOBALS['agend_test_is_admin']   = true;
+		$GLOBALS['agend_test_doing_ajax'] = true;
+
+		$this->assertSame( array( self::MEMBERS, self::PLAN_B ), $this->excluded( $this->query() ) );
 	}
 
 	/** A feed is shared and cached, and is judged as an anonymous reader whoever fetched it. */
@@ -477,8 +510,12 @@ final class CommentsTest extends TestCase {
 	}
 
 	#[Test]
-	public function an_editor_of_the_page_keeps_its_single_comment_over_rest(): void {
+	public function an_editor_is_refused_a_single_comment_over_rest_on_the_live_site_and_has_it_in_wp_admin(): void {
 		$this->asEditor();
+
+		$this->assertInstanceOf( WP_Error::class, $this->rest( '/wp/v2/comments/9' ) );
+
+		$GLOBALS['agend_test_is_admin'] = true;
 
 		$this->assertNull( $this->rest( '/wp/v2/comments/9' ) );
 	}

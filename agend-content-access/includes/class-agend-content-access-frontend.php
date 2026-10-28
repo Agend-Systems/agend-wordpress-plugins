@@ -1225,7 +1225,7 @@ class Agend_Content_Access_Frontend {
 	 * Everything else is evaluated for the actual visitor.
 	 *
 	 * @param int $post_id Post id.
-	 * @return array{state: string, policy: array|null, rules: Agend_Content_Access_Rules, preview: bool, degraded: bool}
+	 * @return array{state: string, policy: array|null, rules: Agend_Content_Access_Rules, degraded: bool}
 	 */
 	private static function decision_for_render( int $post_id ): array {
 		return Agend_Content_Access_Decision::for_post( $post_id, is_feed() );
@@ -1645,15 +1645,15 @@ class Agend_Content_Access_Frontend {
 	 * Keeps a page that carries a member's render of restricted content out of
 	 * page caches.
 	 *
-	 * Only when the body was granted to a visitor the rules actually admitted, who
-	 * is not merely previewing. Posts with no rules never reach a cache problem, and an
-	 * editor's preview is a logged-in request that caches already bypass.
+	 * Only when the body was granted to a visitor the rules actually admitted: every
+	 * reader is one now, an editor included, since an editor is judged by their own
+	 * membership. Posts with no rules never reach a cache problem.
 	 *
 	 * @param int   $post_id  Post id.
 	 * @param array $decision Result of `Agend_Content_Access_Decision::for_post()`.
 	 */
 	private static function note_granted_render( int $post_id, array $decision ): void {
-		if ( ! empty( $decision['preview'] ) || $decision['rules']->is_empty() ) {
+		if ( $decision['rules']->is_empty() ) {
 			return;
 		}
 
