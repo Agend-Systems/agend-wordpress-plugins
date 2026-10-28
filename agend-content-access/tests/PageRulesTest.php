@@ -869,6 +869,43 @@ final class PageRulesTest extends TestCase {
 		$this->assertSame( array( self::MEMBER ), $this->meta( Rules::META_KEY )['rules'] );
 	}
 
+	/**
+	 * A write can fail. The new meta wins over the old policy, so the policy is what is left to
+	 * enforce when it did not land: deleting it first left the page with neither, and public.
+	 */
+	#[Test]
+	public function a_failed_write_keeps_the_old_policy_so_the_page_stays_restricted(): void {
+		$this->storePolicy( array( 'mode' => 'active_member' ) );
+
+		// The write does not land: whatever is read back is what was there before.
+		add_filter( 'get_post_metadata', static fn( $value, $id, $key ) => Rules::META_KEY === $key ? array( '' ) : $value, 10, 3 );
+
+		$error = PageRules::save( self::POST, $this->setting( array( 'agend_wordpress:logged_in' ) ) );
+
+		$this->assertIsString( $error, 'the author is told it did not save' );
+		$this->assertSame( array( 'mode' => 'active_member' ), $this->meta( Policy::META_KEY ), 'the policy is what still restricts the page' );
+	}
+
+	/** A write that changed nothing returns false from `update_post_meta()`, and is not a failure: the value is already there. */
+	#[Test]
+	public function a_write_that_changed_nothing_is_not_a_failure(): void {
+		$this->storeRules( $this->setting() );
+		$this->storePolicy( array( 'mode' => 'active_member' ) );
+
+		$this->assertNull( PageRules::save( self::POST, $this->setting() ) );
+		$this->assertNull( $this->meta( Policy::META_KEY ) );
+	}
+
+	/** The error comes back through the REST field too, so an author is not told a save worked when it did not. */
+	#[Test]
+	public function a_failed_write_is_an_error_over_rest(): void {
+		add_filter( 'get_post_metadata', static fn( $value, $id, $key ) => Rules::META_KEY === $key ? array( '' ) : $value, 10, 3 );
+
+		$result = ( new PageRules() )->rest_update( $this->setting(), get_post( self::POST ) );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+	}
+
 	/** The page's own enforcement agrees: it follows the new rules, and nothing of the old policy is left to intersect. */
 	#[Test]
 	public function after_saving_the_page_is_judged_by_the_new_rules_alone(): void {

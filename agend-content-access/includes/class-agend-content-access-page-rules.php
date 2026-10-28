@@ -656,6 +656,15 @@ class Agend_Content_Access_Page_Rules {
 	 * nothing and comes back as a message. The caller has already checked who is
 	 * saving and for what: this checks the value, and writes.
 	 *
+	 * THE POLICY GOES ONLY AFTER THE NEW VALUE IS THERE. The new meta wins over the old
+	 * policy when both exist, so the policy is what is left to enforce if the new meta
+	 * is not. A write can fail (a database error, a filter that refused it), and
+	 * deleting the policy first would then leave the page with neither: public. So the
+	 * rules are written, read back, and only a value that reads back as written lets
+	 * the policy go. `update_post_meta()` cannot say it, because it returns false for
+	 * a write that failed AND for one that changed nothing. Anything else comes back
+	 * as a message, with the policy kept and the previous value as it was.
+	 *
 	 * @param int   $post_id Post id.
 	 * @param mixed $input   The submitted value.
 	 * @return string|null A message when the value was refused and nothing changed, null when it was saved.
@@ -675,6 +684,11 @@ class Agend_Content_Access_Page_Rules {
 		}
 
 		update_post_meta( $post_id, Agend_Content_Access_Rules::META_KEY, wp_slash( $result['value'] ) );
+
+		if ( $result['value'] !== get_post_meta( $post_id, Agend_Content_Access_Rules::META_KEY, true ) ) {
+			return __( 'The access setting could not be saved, so the previous one was kept. Please try again.', 'agend-content-access' );
+		}
+
 		delete_post_meta( $post_id, Agend_Content_Access_Policy::META_KEY );
 
 		return null;

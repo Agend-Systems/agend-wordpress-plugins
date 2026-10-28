@@ -378,7 +378,9 @@ used.
 **Saving replaces the 0.1.x policy.** The new meta wins over `_agend_access_policy`, so
 saving rules deletes the old key, and removing every rule deletes the rules AND the old
 policy: the page becomes open to everyone, which the author chose. The old key then cannot
-come back when the new one is removed.
+come back when the new one is removed. The old key is deleted only after the new value reads
+back as it was written: a write that fails leaves the old policy enforcing and the author is
+told, because deleting it first would leave the page with neither, which is public.
 
 ### The Agend Access section in Elementor
 
