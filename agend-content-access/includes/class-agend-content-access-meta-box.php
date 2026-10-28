@@ -282,6 +282,14 @@ class Agend_Content_Access_Meta_Box {
 	 * explicit, valid setting writes, and clearing a restriction is removing every
 	 * rule.
 	 *
+	 * THE POST BEING SAVED MUST BE THE POST THE FORM IS FOR. `save_post` fires for every
+	 * post written during a request, and `$_POST` is the whole request's. Another plugin
+	 * that updates a second post while the form's own is saved (a related-post sync, a
+	 * parent that updates its children, an import) would otherwise make this write the
+	 * form's setting to THAT post as well, with the nonce still valid, which is exactly
+	 * how one page's rules overwrite another's. The edit form carries the id of the post it
+	 * edits as `post_ID`, so a save for any other post is not the form's save.
+	 *
 	 * @param int     $post_id Post id.
 	 * @param WP_Post $post    Post object.
 	 */
@@ -295,6 +303,16 @@ class Agend_Content_Access_Meta_Box {
 		}
 
 		if ( ! in_array( $post->post_type, self::supported_post_types(), true ) ) {
+			return;
+		}
+
+		// The form's own post, and no other. Whole digits only: `(int)` reads '501abc' and
+		// '501.5' as 501 and a non-empty array as 1, and none of those is the form's id.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- The nonce is verified below, and this only narrows what that is allowed to write.
+		$sent      = isset( $_POST['post_ID'] ) ? $_POST['post_ID'] : null; // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$form_post = is_int( $sent ) || ( is_string( $sent ) && ctype_digit( $sent ) ) ? (int) $sent : 0;
+
+		if ( $form_post <= 0 || $form_post !== (int) $post_id ) {
 			return;
 		}
 

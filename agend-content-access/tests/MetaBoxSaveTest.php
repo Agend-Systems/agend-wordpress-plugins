@@ -109,7 +109,10 @@ final class MetaBoxSaveTest extends TestCase {
 	 */
 	private function savePanel( array $fields = array(), string $type = 'page' ): void {
 		$_POST = array_merge(
-			array( MetaBox::NONCE_FIELD => wp_create_nonce( MetaBox::NONCE_ACTION ) ),
+			array(
+				MetaBox::NONCE_FIELD => wp_create_nonce( MetaBox::NONCE_ACTION ),
+				'post_ID'            => (string) self::POST,
+			),
 			$fields
 		);
 
@@ -351,6 +354,69 @@ final class MetaBoxSaveTest extends TestCase {
 
 		$this->assertSame( $policy, $this->meta( Policy::META_KEY ) );
 		$this->assertNull( $this->meta( Rules::META_KEY ) );
+	}
+
+	/**
+	 * `save_post` fires for every post written in a request and `$_POST` is the request's. A second
+	 * post saved while the form's own is (a sync, an import, a parent updating its children) was
+	 * given the form's setting, nonce and all.
+	 */
+	#[Test]
+	public function a_save_of_another_post_in_the_same_request_is_not_the_forms_save(): void {
+		$policy = array( 'mode' => 'segments', 'segment_ids' => array( self::SEG ) );
+		$this->storePolicy( $policy );
+
+		// The form is for post 999, and clears every rule. This request also writes post 501.
+		$this->savePanel( array( 'post_ID' => '999', MetaBox::FIELD_RULES => $this->setting( array() ) ) );
+
+		$this->assertSame( $policy, $this->meta( Policy::META_KEY ), 'the other post is not cleared' );
+		$this->assertNull( $this->meta( Rules::META_KEY ) );
+
+		$this->savePanel( array( 'post_ID' => '999', MetaBox::FIELD_RULES => $this->setting( array( 'agend_wordpress:logged_in' ) ) ) );
+
+		$this->assertNull( $this->meta( Rules::META_KEY ), 'and is not given the form\'s rules' );
+	}
+
+	/** @return array<string, array{0: mixed}> */
+	public static function notTheFormsId(): array {
+		return array(
+			'none at all'              => array( null ),
+			'an empty string'          => array( '' ),
+			'zero'                     => array( '0' ),
+			'a different id'           => array( '502' ),
+			'the id with junk after'   => array( '501abc' ),
+			'the id in an array'       => array( array( '501' ) ),
+			'an array that is one'     => array( array( 'x' ) ),
+			'a negative id'            => array( '-501' ),
+			'the id as a fraction'     => array( '501.5' ),
+			'not a number'             => array( 'post' ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'notTheFormsId' )]
+	public function a_save_whose_form_is_not_for_this_post_changes_nothing( $form_post ): void {
+		$policy = array( 'mode' => 'segments', 'segment_ids' => array( self::SEG ) );
+		$this->storePolicy( $policy );
+
+		$fields = array( MetaBox::FIELD_RULES => $this->setting( array() ) );
+
+		if ( null === $form_post ) {
+			$_POST = array_merge( array( MetaBox::NONCE_FIELD => wp_create_nonce( MetaBox::NONCE_ACTION ) ), $fields );
+			( new MetaBox() )->save( self::POST, new WP_Post( array( 'ID' => self::POST, 'post_type' => 'page' ) ) );
+		} else {
+			$this->savePanel( array( 'post_ID' => $form_post ) + $fields );
+		}
+
+		$this->assertSame( $policy, $this->meta( Policy::META_KEY ) );
+		$this->assertNull( $this->meta( Rules::META_KEY ) );
+	}
+
+	#[Test]
+	public function a_save_of_the_forms_own_post_still_saves_whatever_its_id_is_typed_as(): void {
+		$this->savePanel( array( 'post_ID' => '501', MetaBox::FIELD_RULES => $this->setting() ) );
+
+		$this->assertSame( array( self::MEMBER ), $this->meta( Rules::META_KEY )['rules'] );
 	}
 
 	#[Test]

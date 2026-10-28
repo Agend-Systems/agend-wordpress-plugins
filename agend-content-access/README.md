@@ -305,7 +305,7 @@ shown and removed the same way everywhere.
 | Editor | Where the panel is | How it saves |
 | --- | --- | --- |
 | Block editor | A native document settings panel, **Agend Access** (`PluginDocumentSettingPanel`, from `src/page-panel-plugin.js`, part of the block editor script) | A REST field, `agend_access_rules`, sent with the post when the author clicks Update |
-| Classic editor, and any edit screen that is not the block editor | The **Agend Access** meta box, which renders a mount point; the same components are mounted on it by `build/classic.js` (a second, small entry that needs none of the block editor) | One hidden input, `agend_access_page_rules`, holding JSON, read by the nonce checked `save_post` handler |
+| Classic editor, and any edit screen that is not the block editor | The **Agend Access** meta box, which renders a mount point; the same components are mounted on it by `build/classic.js` (a second, small entry that needs none of the block editor) | One hidden input, `agend_access_page_rules`, holding JSON, read by the nonce checked `save_post` handler, and only when the form's `post_ID` is the post being saved: `save_post` fires for every post a request writes, and another post saved in the same request is not the form's |
 
 The meta box is declared `__back_compat_meta_box`, which hides it in the block editor so
 an author sees one panel. It no longer claims to be block editor compatible.
