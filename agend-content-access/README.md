@@ -963,10 +963,13 @@ the visitor may proceed. A stored policy the plugin cannot read, such as a mode
 written by a newer release, restricts the page to nobody rather than reading as
 unset. The same holds for the exemptions: a request counts as authoring only when
 it can be shown to be, and a stored document that cannot be read counts as
-carrying rules, so doubt always lands on the side of withholding. 0.1.3 is the
-minimum safe version to roll back to from 0.2.0: 0.1.0 served an unreadable
-policy as public, and 0.1.0 to 0.1.2 all had the authoring and REST exposures
-described below.
+carrying rules, so doubt always lands on the side of withholding.
+
+Do not roll back below 0.2.0. No 0.1.x release carries these protections:
+0.1.0 served an unreadable policy as public and had the authoring, REST and
+listing exposures described below. It also cannot read the rule lists 0.2.0
+stores, so every page, block or section restricted in 0.2.0 would be public
+again the moment 0.1.0 is active.
 
 ## Where a restricted post is gated
 
