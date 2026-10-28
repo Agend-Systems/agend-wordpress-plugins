@@ -465,8 +465,8 @@ final class LoopGatingTest extends TestCase {
 		$this->render( self::MEMBERS_ONLY );
 
 		$this->assertArrayHasKey( 'get_post_metadata', Agend_Test_WP::$filters, 'registered once something is withheld' );
-		$this->assertSame( array(), $frontend->suppress_builder_data( 'kept', self::MEMBERS_ONLY, '_elementor_data', true ) );
-		$this->assertSame( array( array() ), $frontend->suppress_builder_data( 'kept', self::MEMBERS_ONLY, '_elementor_data', false ) );
+		$this->assertSame( array( '' ), $frontend->suppress_builder_data( 'kept', self::MEMBERS_ONLY, '_elementor_data', true ) );
+		$this->assertSame( array(), $frontend->suppress_builder_data( 'kept', self::MEMBERS_ONLY, '_elementor_data', false ) );
 		$this->assertSame( 'kept', $frontend->suppress_builder_data( 'kept', self::MEMBERS_ONLY, '_thumbnail_id', true ), 'other keys' );
 		$this->assertSame( 'kept', $frontend->suppress_builder_data( 'kept', self::PUBLIC_POST, '_elementor_data', true ), 'other posts' );
 	}

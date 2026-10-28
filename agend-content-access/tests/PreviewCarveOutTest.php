@@ -242,7 +242,7 @@ final class PreviewCarveOutTest extends TestCase {
 		$GLOBALS['post'] = get_post( self::RESTRICTED );
 		$this->frontend->withhold_in_loop( self::BODY );
 
-		$this->assertSame( array(), $this->frontend->suppress_builder_data( 'kept', self::RESTRICTED, '_elementor_data', true ) );
+		$this->assertSame( array( '' ), $this->frontend->suppress_builder_data( 'kept', self::RESTRICTED, '_elementor_data', true ) );
 	}
 
 	// -----------------------------------------------------------------------
