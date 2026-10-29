@@ -102,15 +102,15 @@ class FakeNode {
 const fakeDocument = { activeElement: null, createElement: (tag) => new FakeNode(tag) };
 
 const {
-  markersQuery, pointsQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails, bindPinDetails, createPinLayers, showResponse,
+  markersQuery, pointsQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails, bindPinDetails, createPinLayers, showResponse, trackPopupPans,
 } = new Function(
   'document',
   'window',
   [
     cutVar(script, 'UNGROUPED_PIN_LIMIT'),
-    ...['el', 'withParam', 'markersQuery', 'pointsQuery', 'isMarkerRow', 'locationAt', 'drawsUngrouped', 'preloads', 'createPinDetails', 'popupStatus', 'bindPinDetails', 'createPinLayers', 'showResponse']
+    ...['el', 'withParam', 'markersQuery', 'pointsQuery', 'isMarkerRow', 'locationAt', 'drawsUngrouped', 'preloads', 'createPinDetails', 'popupStatus', 'bindPinDetails', 'createPinLayers', 'showResponse', 'trackPopupPans']
       .map((name) => cutFunction(script, name)),
-    'return { markersQuery, pointsQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails, bindPinDetails, createPinLayers, showResponse };',
+    'return { markersQuery, pointsQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails, bindPinDetails, createPinLayers, showResponse, trackPopupPans };',
   ].join('\n'),
 )(fakeDocument, { setTimeout });
 
@@ -521,7 +521,8 @@ function boundPin(fetchMarkers, text = TEXT) {
   const details = createPinDetails(fetchMarkers);
   details.reset({ q: 'physio' });
   const pin = fakePin();
-  bindPinDetails(pin, LISTING, details, shownDetails, text, { maxWidth: 260 });
+  pin.announced = [];
+  bindPinDetails(pin, LISTING, details, shownDetails, text, { popup: { maxWidth: 260 }, announce: (message) => pin.announced.push(message) });
   return pin;
 }
 
@@ -530,11 +531,21 @@ test('should show the loading state, then the details, when a pin is opened', as
 
   pin.openPopup();
   assert.equal(pin.status(), 'Loading details…');
-  assert.equal(pin.last().find('agend-map-popup__status').attributes.role, 'status');
   await flush();
 
   assert.equal(pin.last().text, 'Listing 1');
   assert.deepEqual(pin.options, { maxWidth: 260 });
+});
+
+test('should tell a screen reader each state the opened pin shows', async () => {
+  const pin = boundPin(gateway(new Error('offline'), { data: [marker(LISTING)] }).fetchMarkers);
+
+  pin.openPopup();
+  await flush();
+  pin.last().find('agend-map__retry').click();
+  await flush();
+
+  assert.deepEqual(pin.announced, ['Loading details…', 'Details could not be loaded. ', 'Loading details…', 'Listing 1']);
 });
 
 test('should say the details are no longer available when the listing is absent', async () => {
@@ -620,24 +631,73 @@ test('should show its own wording when the page config predates the pin details 
   assert.equal(pin.last().find('agend-map__retry').text, 'Try again');
 });
 
-// Leaflet stand-ins recording the layers made and those on the map.
+
+// Leaflet stand-ins. The group adds pins the way the vendored markercluster
+// does: one chunk at once and the rest on timers, reporting chunkProgress
+// after each chunk and before its final step, which (like each pin it adds)
+// reads the map and throws once the group is off it. Errors thrown from a
+// timer are kept for the test to assert on.
+const CHUNK = 500;
+
 function fakeLeaflet({ canGroup = true } = {}) {
-  const map = { layers: new Set(), addLayer(layer) { this.layers.add(layer); }, removeLayer(layer) { this.layers.delete(layer); } };
-  const L = {
-    layerGroup: (pins) => ({ kind: 'plain', pins }),
+  const errors = [];
+  const map = {
+    layers: new Set(),
+    addLayer(layer) {
+      this.layers.add(layer);
+      layer._map = this;
+      if (layer.kind === 'group') layer.addLayers([]);
+    },
+    removeLayer(layer) {
+      this.layers.delete(layer);
+      layer._map = null;
+    },
   };
+  const L = { layerGroup: (pins) => ({ kind: 'plain', pins }) };
   if (canGroup) {
     L.markerClusterGroup = (options) => ({
       kind: 'group',
       options,
-      addLayers(pins) { this.pins = pins; },
-      clearLayers() { this.cleared = true; },
+      pins: [],
+      _map: null,
+      _addLayer(pin) {
+        this._map.getMinZoom;
+        this.pins.push(pin);
+      },
+      addLayers(list) {
+        let done = 0;
+        const chunk = () => {
+          const end = Math.min(list.length, done + CHUNK);
+          for (; done < end; done += 1) this._addLayer(list[done]);
+          if (this.options.chunkProgress) this.options.chunkProgress(done, list.length);
+          if (done === list.length) {
+            this._map.getMinZoom;
+          } else {
+            setTimeout(() => {
+              try {
+                chunk();
+              } catch (error) {
+                errors.push(error);
+              }
+            }, 0);
+          }
+        };
+        chunk();
+      },
+      clearLayers() {
+        this.pins = [];
+      },
     });
   }
-  return { L, map };
+  return { L, map, errors };
 }
 
 const pins = (count) => Array.from({ length: count }, (_, i) => ({ pin: i }));
+
+// Lets every queued chunk run.
+async function settle() {
+  for (let i = 0; i < 50; i += 1) await flush();
+}
 
 test('should draw at most 2,000 pins on a plain layer when grouping is off', () => {
   const { L, map } = fakeLeaflet();
@@ -648,9 +708,10 @@ test('should draw at most 2,000 pins on a plain layer when grouping is off', () 
   assert.equal(layer.pins.length, 2000);
 });
 
-test('should group more than 2,000 pins when grouping is off', () => {
+test('should group more than 2,000 pins when grouping is off', async () => {
   const { L, map } = fakeLeaflet();
   createPinLayers(L, map, { cluster: false }, { maxClusterRadius: 80 })(pins(2001));
+  await settle();
 
   const [layer] = map.layers;
   assert.equal(layer.kind, 'group');
@@ -672,36 +733,115 @@ test('should draw a plain layer when the grouping library is missing', () => {
   assert.equal([...map.layers][0].kind, 'plain');
 });
 
-test('should replace the last response pins with the next response pins', () => {
-  const { L, map } = fakeLeaflet();
+test('should replace the last response pins with the next response pins once their add has finished', async () => {
+  const { L, map, errors } = fakeLeaflet();
   const show = createPinLayers(L, map, { cluster: true }, {});
   show(pins(10));
   const first = [...map.layers][0];
-  first.options.chunkProgress(10, 10);
 
   show(pins(4));
+  await settle();
 
   assert.equal(map.layers.has(first), false);
-  assert.equal([...map.layers][0].pins.length, 4);
+  assert.deepEqual([...map.layers].map((layer) => layer.pins.length), [4]);
+  assert.deepEqual(errors, []);
 });
 
-test('should empty a group replaced mid-add and take it off the map only once its add has run out', async () => {
-  const { L, map } = fakeLeaflet();
+test('should end a replaced add quietly, with none of its pins left, when the next response arrives mid-add', async () => {
+  const { L, map, errors } = fakeLeaflet();
   const show = createPinLayers(L, map, { cluster: true }, {});
   show(pins(20000));
   const stale = [...map.layers][0];
-  const addLayer = stale._addLayer;
+  assert.ok(stale.pins.length < 20000, 'the add is still in progress');
 
   show(pins(4));
+  await settle();
 
-  assert.equal(stale.cleared, true);
-  assert.notEqual(stale._addLayer, addLayer, 'its remaining chunks add nothing');
-  assert.equal(map.layers.has(stale), true, 'removing it now would make its next chunk throw');
-
-  stale.options.chunkProgress(20000, 20000);
-  assert.equal(map.layers.has(stale), true, 'the chunk that reported done still uses the map');
-  await flush();
-
+  assert.deepEqual(errors, []);
+  assert.equal(stale.pins.length, 0);
   assert.equal(map.layers.has(stale), false);
-  assert.equal(map.layers.size, 1);
+  assert.deepEqual([...map.layers].map((layer) => layer.pins.length), [4]);
+});
+
+test('should leave only the newest pins when two responses are replaced mid-add in a row', async () => {
+  const { L, map, errors } = fakeLeaflet();
+  const show = createPinLayers(L, map, { cluster: true }, {});
+  show(pins(20000));
+  show(pins(15000));
+  show(pins(3000));
+  await settle();
+
+  assert.deepEqual(errors, []);
+  assert.deepEqual([...map.layers].map((layer) => layer.pins.length), [3000]);
+});
+
+test('should end a replaced add quietly when the next response draws a plain layer', async () => {
+  const { L, map, errors } = fakeLeaflet();
+  const show = createPinLayers(L, map, { cluster: false }, {});
+  show(pins(20000));
+
+  show(pins(12));
+  await settle();
+
+  assert.deepEqual(errors, []);
+  assert.deepEqual([...map.layers].map((layer) => layer.kind), ['plain']);
+});
+
+// A Leaflet map stand-in that only emits events.
+function fakeMap() {
+  const handlers = {};
+  return {
+    on(type, fn) {
+      (handlers[type] = handlers[type] || []).push(fn);
+    },
+    fire(type) {
+      (handlers[type] || []).forEach((fn) => fn());
+    },
+  };
+}
+
+// Plays a move: movestart (unless left out), then moveend, reporting
+// whether the moveend was a popup's.
+function move(map, popupMoved, { start = true } = {}) {
+  if (start) map.fire('movestart');
+  return popupMoved();
+}
+
+test('should treat a visitor move as the visitor own', () => {
+  const map = fakeMap();
+  const popupMoved = trackPopupPans(map);
+
+  assert.equal(move(map, popupMoved), false);
+});
+
+test('should treat a popup pan as the map own move, then the next visitor move as the visitor own', () => {
+  const map = fakeMap();
+  const popupMoved = trackPopupPans(map);
+
+  map.fire('autopanstart');
+  assert.equal(move(map, popupMoved), true);
+  assert.equal(move(map, popupMoved), false);
+});
+
+test('should treat both moves as the map own when a second popup pan cuts the first short', () => {
+  const map = fakeMap();
+  const popupMoved = trackPopupPans(map);
+
+  map.fire('autopanstart');
+  map.fire('movestart');
+  map.fire('autopanstart');
+  map.fire('movestart');
+
+  assert.equal(popupMoved(), true, 'the first pan, stopped');
+  assert.equal(popupMoved(), true, 'the second pan');
+  assert.equal(move(map, popupMoved), false);
+});
+
+test('should not swallow the next visitor move when a popup pan rounds to nothing', () => {
+  const map = fakeMap();
+  const popupMoved = trackPopupPans(map);
+
+  map.fire('autopanstart');
+  assert.equal(move(map, popupMoved, { start: false }), true);
+  assert.equal(move(map, popupMoved), false);
 });

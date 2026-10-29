@@ -393,19 +393,20 @@
   // Pin details that are not a listing yet: loading, gone or failed.
   function popupStatus(message) {
     var box = el('div', 'agend-map-popup agend-map-popup--status');
-    var status = el('span', 'agend-map-popup__status', message);
-    status.setAttribute('role', 'status');
-    box.appendChild(status);
+    box.appendChild(el('span', 'agend-map-popup__status', message));
     return box;
   }
 
   // A map point's pin: its details load when it is opened, and the popup
   // redraws itself once they have arrived or failed. show(marker) builds a
   // found listing's details; text carries the status wording, with
-  // fallbacks for a page cached before the wording existed.
-  function bindPinDetails(pin, id, details, show, text, popupOptions) {
+  // fallbacks for a page cached before the wording existed. options.popup
+  // are Leaflet's popup options; options.announce(message) tells a screen
+  // reader what the popup now shows.
+  function bindPinDetails(pin, id, details, show, text, options) {
     var loading = false;
     var failed = false;
+    var announce = options.announce || function () {};
 
     // Redraws an open popup. Focus inside it (on Try again, which the
     // redraw removes) moves to the new content, not back to the page.
@@ -421,18 +422,27 @@
       var content = focused ? node.querySelector('.leaflet-popup-content') : null;
       if (content) {
         content.setAttribute('tabindex', '-1');
-        content.focus();
+        content.focus({ preventScroll: true });
       }
+    }
+
+    function status(message) {
+      announce(message);
+      return popupStatus(message);
     }
 
     pin.bindPopup(function () {
       var held = details.peek(id);
       if (held) {
-        return held.marker ? show(held.marker) : popupStatus(text.detailsGone || 'These details are no longer available.');
+        if (held.marker) {
+          announce(held.marker.name || '');
+          return show(held.marker);
+        }
+        return status(text.detailsGone || 'These details are no longer available.');
       }
       if (failed) {
         failed = false;
-        var box = popupStatus((text.detailsFailed || 'Details could not be loaded.') + ' ');
+        var box = status((text.detailsFailed || 'Details could not be loaded.') + ' ');
         var again = el('button', 'agend-map__retry', text.retry || 'Try again');
         again.type = 'button';
         again.addEventListener('click', function (e) {
@@ -456,8 +466,41 @@
           refresh();
         });
       }
-      return popupStatus(text.detailsLoading || 'Loading details…');
-    }, popupOptions);
+      return status(text.detailsLoading || 'Loading details…');
+    }, options.popup);
+  }
+
+  // Tells the moves a popup makes to fit its content apart from the
+  // visitor's own. Each popup pan starts a move and ends one, even when the
+  // next pan cuts its animation short, so the pans are counted. A pan that
+  // rounds to nothing ends a move it never started, so a pan still waiting
+  // for its start when a move ends is that move. A resize during a pan's
+  // quarter second can still use up its count; that is accepted, because
+  // stopping the map on a resize would also cut short the visitor's own pan.
+  // Returns a function a moveend handler asks: was this a popup's move?
+  function trackPopupPans(map) {
+    var starting = false;
+    var pans = 0;
+    map.on('autopanstart', function () {
+      starting = true;
+    });
+    map.on('movestart', function () {
+      if (starting) {
+        starting = false;
+        pans += 1;
+      }
+    });
+    return function popupMoved() {
+      if (starting) {
+        starting = false;
+        return true;
+      }
+      if (pans > 0) {
+        pans -= 1;
+        return true;
+      }
+      return false;
+    };
   }
 
   // Draws each points response into a layer of its own: a group when the
@@ -630,6 +673,10 @@
     var hint = el('div', 'agend-map__hint');
     hint.setAttribute('role', 'status');
     canvas.appendChild(hint);
+    // What an opened pin shows, for a screen reader, on the same terms.
+    var detailsStatus = el('div', 'agend-map__sr');
+    detailsStatus.setAttribute('role', 'status');
+    root.appendChild(detailsStatus);
     var hintTimer = null;
 
     function showHint(message, ms) {
@@ -981,7 +1028,12 @@
           } else {
             bindPinDetails(pin, row.id, details, function (marker) {
               return popupContent(cfg, catalogue, marker, locationAt(marker, lat, lng, index) || { latitude: lat, longitude: lng });
-            }, cfg.text, POPUP_OPTIONS);
+            }, cfg.text, {
+              popup: POPUP_OPTIONS,
+              announce: function (message) {
+                detailsStatus.textContent = message;
+              },
+            });
           }
           layers.push(pin);
           points.push([lat, lng]);
@@ -1144,24 +1196,11 @@
 
     // A popup panning the map to fit (on opening, or as its details arrive)
     // is the map moving itself: following it would reload the pins and
-    // close the popup the visitor just opened. Each such pan starts a move
-    // and ends one, even when the next pan cuts its animation short, so
-    // the pans are counted rather than flagged.
-    var autoPanStarting = false;
-    var autoPans = 0;
-    map.on('autopanstart', function () {
-      autoPanStarting = true;
-    });
-    map.on('movestart', function () {
-      if (autoPanStarting) {
-        autoPanStarting = false;
-        autoPans += 1;
-      }
-    });
+    // close the popup the visitor just opened.
+    var popupMoved = trackPopupPans(map);
 
     map.on('moveend', function () {
-      if (autoPans > 0) {
-        autoPans -= 1;
+      if (popupMoved()) {
         return;
       }
       if (!cfg.updateOnMove || programmatic || !catalogue || !catalogue.state) {
