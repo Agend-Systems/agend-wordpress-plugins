@@ -375,6 +375,25 @@ function set_transient( string $key, $value, int $ttl = 0 ): bool {
 	return true;
 }
 
+if ( ! function_exists( 'maybe_serialize' ) ) {
+	/** Core's contract minus double-serialising an already serialised string. */
+	function maybe_serialize( $data ) {
+		return is_array( $data ) || is_object( $data ) ? serialize( $data ) : $data; // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
+	}
+}
+
+if ( ! function_exists( 'maybe_unserialize' ) ) {
+	function maybe_unserialize( $data ) {
+		if ( ! is_string( $data ) ) {
+			return $data;
+		}
+
+		$value = @unserialize( $data, array( 'allowed_classes' => false ) ); // phpcs:ignore
+
+		return false === $value && 'b:0;' !== $data ? $data : $value;
+	}
+}
+
 if ( ! function_exists( 'current_time' ) ) {
 	/**
 	 * Fixed, deterministic timestamp: nothing under test asserts on wall-clock
@@ -742,13 +761,16 @@ if ( ! class_exists( 'wpdb' ) ) {
 				return 0;
 			}
 
-			// The member session's compare-and-set write and compare-and-delete,
-			// against the same registry get_user_meta() reads.
+			// The member session's and token worker's compare-and-set writes and
+			// the compare-and-delete, against the same registry get_user_meta()
+			// reads. The registry holds values unserialised, as get_user_meta()
+			// returns them, so an array is compared in the serialised form the
+			// database row would hold.
 			if ( 1 === preg_match( "/^UPDATE wp_usermeta SET meta_value = '(.*?)' WHERE user_id = (\\d+) AND meta_key = '(.*?)' AND meta_value = '(.*?)'$/s", $query, $m ) ) {
 				$user_id = (int) $m[2];
 				$key     = stripslashes( $m[3] );
-				if ( stripslashes( $m[4] ) === ( $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] ?? null ) ) {
-					$GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] = stripslashes( $m[1] );
+				if ( stripslashes( $m[4] ) === maybe_serialize( $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] ?? null ) ) {
+					$GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] = maybe_unserialize( stripslashes( $m[1] ) );
 					$this->rows_affected                                  = 1;
 					return 1;
 				}

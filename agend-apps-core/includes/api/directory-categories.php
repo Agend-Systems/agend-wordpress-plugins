@@ -39,28 +39,16 @@ if ( ! defined( 'AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT' ) ) {
  * failure is returned as it is, so an unreachable or failing gateway is not
  * asked twice.
  *
+ * The list is the same for every visitor, so it is read without the member
+ * token, from the entry an anonymous visitor shares.
+ *
  * @return array|WP_Error Decoded categories array on success, or WP_Error on failure.
  */
 function agend_apps_directory_get_categories() {
-	/**
-	 * Filters the directory categories request args before the request is sent.
-	 *
-	 * @param array $args Request args. `query` holds `limit`, `active_only`
-	 *                    and `counts`.
-	 */
-	$args = (array) apply_filters(
-		'agend_apps_directory_get_categories_args',
-		array(
-			'query' => array(
-				'limit'       => 500,
-				'active_only' => true,
-				'counts'      => false,
-			),
-		)
-	);
+	$args = agend_apps_directory_categories_args();
+	$ttl  = Agend_Apps_Settings::get_cache_ttl( 'directory_categories' );
 
-	$ttl      = Agend_Apps_Settings::get_cache_ttl( 'directory_categories' );
-	$response = agend_apps_api()->get_cached( '/directory/categories', $args, Agend_Apps_Cache::build_key( 'directory_categories', $args ), $ttl );
+	$response = agend_apps_api()->get_cached( '/directory/categories', array( 'anonymous' => true ) + $args, Agend_Apps_Cache::build_key( 'directory_categories', $args ), $ttl );
 
 	// An older gateway caps the list at 100 and rejects a larger limit
 	// outright, so one retry at its ceiling keeps the filters populated, if
@@ -68,7 +56,7 @@ function agend_apps_directory_get_categories() {
 	$limit = (int) ( $args['query']['limit'] ?? 0 );
 	if ( $limit > AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT && agend_apps_directory_categories_query_rejected( $response ) ) {
 		$args['query']['limit'] = AGEND_APPS_DIRECTORY_CATEGORIES_LEGACY_LIMIT;
-		$response               = agend_apps_api()->get_cached( '/directory/categories', $args, Agend_Apps_Cache::build_key( 'directory_categories', $args ), $ttl );
+		$response               = agend_apps_api()->get_cached( '/directory/categories', array( 'anonymous' => true ) + $args, Agend_Apps_Cache::build_key( 'directory_categories', $args ), $ttl );
 	}
 
 	if ( is_wp_error( $response ) ) {
@@ -81,6 +69,57 @@ function agend_apps_directory_get_categories() {
 	 * @param array $response Decoded response body.
 	 */
 	return apply_filters( 'agend_apps_directory_get_categories_response', $response );
+}
+
+/**
+ * The categories request args; their cache key names the entry.
+ *
+ * @return array
+ */
+function agend_apps_directory_categories_args(): array {
+	/**
+	 * Filters the directory categories request args before the request is sent.
+	 *
+	 * @param array $args Request args. `query` holds `limit`, `active_only`
+	 *                    and `counts`.
+	 */
+	return (array) apply_filters(
+		'agend_apps_directory_get_categories_args',
+		array(
+			'query' => array(
+				'limit'       => 500,
+				'active_only' => true,
+				'counts'      => false,
+			),
+		)
+	);
+}
+
+/**
+ * The shared categories entry for the full list, as the REST route would
+ * return it, read without calling the gateway. Null when it is not cached.
+ *
+ * The list an older gateway capped is never inlined: it may outlive a
+ * gateway upgrade, and inlined it would read as fresh while the route
+ * already serves the whole list.
+ *
+ * @return array{fetched_at: int, ttl: int, body: array}|null
+ */
+function agend_apps_directory_peek_categories(): ?array {
+	$cached = agend_apps_api()->peek_cached( Agend_Apps_Cache::build_key( 'directory_categories', agend_apps_directory_categories_args() ) );
+
+	if ( null === $cached ) {
+		return null;
+	}
+
+	/** This filter is documented in agend_apps_directory_get_categories(). */
+	$body = apply_filters( 'agend_apps_directory_get_categories_response', $cached['response'] );
+
+	return is_array( $body ) ? array(
+		'fetched_at' => $cached['fetched_at'],
+		'ttl'        => Agend_Apps_Settings::get_cache_ttl( 'directory_categories' ),
+		'body'       => $body,
+	) : null;
 }
 
 /**

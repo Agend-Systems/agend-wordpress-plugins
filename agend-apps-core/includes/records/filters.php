@@ -92,6 +92,41 @@ final class Agend_Apps_Records_Filter_Context {
 }
 
 /**
+ * The facet names a filter template's shells ask for, in the order the
+ * browser gathers them (assets/js/filters.js build()): each shell's
+ * `source.facet` in page order, the first time it appears.
+ *
+ * @param array<int, array> $configs Filter configs in render order.
+ * @return string[]
+ */
+function agend_apps_records_filter_facet_names( array $configs ): array {
+	$names = array();
+	foreach ( $configs as $config ) {
+		$facet = $config['source']['facet'] ?? '';
+		if ( is_string( $facet ) && '' !== $facet && ! in_array( $facet, $names, true ) ) {
+			$names[] = $facet;
+		}
+	}
+	return $names;
+}
+
+/**
+ * Whether any filter shell reads a list from the given endpoint.
+ *
+ * @param array<int, array> $configs Filter configs in render order.
+ * @param string            $path    Endpoint path, e.g. `/directory/categories`.
+ * @return bool
+ */
+function agend_apps_records_filters_read_endpoint( array $configs, string $path ): bool {
+	foreach ( $configs as $config ) {
+		if ( $path === ( $config['source']['path'] ?? '' ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Static value lists that need no API call.
  *
  * @param string $set The value set name.

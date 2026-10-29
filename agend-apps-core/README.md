@@ -142,6 +142,52 @@ cross-member leak on `/events`, `/lms/courses` and `/cart`, fixed centrally in
 varies by who is asking, confirm the identity bypass covers your endpoint
 before relying on it.
 
+**A bearer read is never stored.** A read that carries a signed-in member's
+token is resolved against that member's entitlements on every PHP request.
+`get_cached()` never writes it to a transient, an option, user meta or the
+object cache, and never reads it from one. Within a single PHP request it is
+held in memory under a digest of the token that fetched it, so one page
+render does not ask the gateway the same question twice; a cart read is not
+held even that long. Add any new member-token read through `get_cached()` and
+never write your own cache entry for it. The member responses earlier
+versions stored (`_transient_agend_apps_<key>_b<16 hex>`) are deleted once, on
+the first request after the update; under a persistent object cache they are
+not in the options table and lapse with their lifetime instead.
+
+**A response that is the same for every viewer is read anonymously.** Passing
+`'anonymous' => true` in `get_cached()`'s `$args` resolves and sends no member
+token and reads and writes the shared anonymous entry, for signed-in visitors
+too. Directory categories always use it, and so do facet requests that name at
+least one facet and no `custom.<key>` facet; a custom facet, or no facet named,
+depends on the member's grants. Use it for nothing that varies by viewer.
+
+**Directory filters work at first paint.** A directory catalogue reads the
+shared facets and categories entries its filter template needs from
+transients, read-only, and inlines them into its config with the time they
+were fetched, so `filters.js` builds those controls without a REST request. A
+cold entry is left out and fetched by the browser as before, so the render
+never calls the gateway for them. An entry a page cache serves after its
+lifetime is used for first paint and refreshed once.
+
+**A page render sends independent gateway reads together.**
+`Agend_Apps_API::get_cached_many()` takes several reads in `get_cached()`'s
+terms and serves each exactly as `get_cached()` would alone (the same stored
+and held copies, the same rate-limit and scope refusals, the same retry after
+a rejected member token), but sends the ones not already held at once through
+`Agend_Apps_Http_Batch`, so the page waits for the slowest rather than the
+sum. The member token is resolved once per batch, and each exchange is its own
+row in the API log. A signed-in visitor's custom-field facets depend on their
+grants and are never shared, so the directory catalogue fetches them beside
+its first-page search and inlines them; the page arrives no later than before.
+
+`Agend_Apps_Http_Batch` repeats what `WP_Http::request()` does for each
+request around the Requests library WordPress bundles, firing the same filters
+and actions with the same arguments, including `http_api_curl`, which core
+fires only for a single request. `agend_apps_api_parallel` returning false
+sends the same requests one after another through `wp_remote_request()`, and
+so does a site without the library. Any new page-render read that does not
+depend on another one goes through `get_cached_many()`.
+
 ### How long site config is cached
 
 `agend_apps_sites_get_config()`, and the `GET /agend-apps/v1/sites/config`
@@ -229,6 +275,39 @@ rejection on `agend_apps_bearer_rejected`, which the worker uses to clear the
 cache; a 403, or a token that is not the worker's, leaves it alone. A freshly
 minted token that is rejected too is negative-cached for 60 seconds, so a
 gateway that refuses every token costs one mint a minute per member.
+
+### The next token is minted after the page is sent
+
+A request that finds the member's token with more than 60 and at most 120
+seconds left uses it for every gateway call it makes, then mints the next one
+at `shutdown` (priority 9000), after `fastcgi_finish_request()` or
+`litespeed_finish_request()` has sent the response. A member who keeps
+browsing therefore never waits for a mint; one who returns after the token
+has expired still mints inline, once, through the lock. The token's 300 second
+lifetime and the 60 second inline threshold are unchanged.
+
+- At most one refresh-ahead mint is scheduled per request, and none for a
+  visitor who is not signed in, under WP-CLI, during WP-cron, after the gateway
+  has rejected a token in that request, or on a host with neither finish
+  function, where it would make the visitor wait.
+- It tries the mint lock once and never waits for it. It re-reads the stored
+  token from the store first, and mints nothing when that token has changed,
+  belongs to another external id, has more than 120 seconds left, or is gone.
+- The new token is written with a compare-and-set against the token it started
+  from, so a sign-out during the mint leaves no token stored.
+- A failed refresh-ahead mint never makes the member anonymous: it leaves the
+  current token and the negative cache alone, and sets
+  `agend_apps_sso_refresh_ahead_backoff_<user id>` for 60 seconds, during which
+  no refresh-ahead mint is scheduled for that member.
+
+The worker's invariants: every mint, inline or refresh-ahead, goes through the
+mint lock; a refresh-ahead mint never writes the negative cache; and a token is
+stored only in user meta.
+
+`agend_apps_token_refresh_ahead_enabled` returning false switches refresh-ahead
+off. `agend_apps_token_worker_finisher` and `agend_apps_token_worker_clock`
+replace the finish function and the clock, so tests can observe the order and
+pin the expiry boundaries.
 
 ### Member sessions: storage, refresh and sign-out
 
@@ -1349,10 +1428,15 @@ response bodies are never stored at all for `/auth/login`, `/auth/register`,
 `rate_limited`, `blocked`, `retried`, and for webhooks `signature_invalid`, `duplicate`,
 `invalid_payload`, `not_configured`), duration, attempt number, the gateway's
 `X-Request-Id` (or `X-Vercel-Id`), the webhook event type and id, a UUID shared
-by every call in one PHP request, and allowlisted response headers. Successful
-calls keep up to 5,000 characters of each redacted body, and a successful body
-over 256 KB is summarised rather than redacted; failed calls keep the whole
-redacted body up to 1 MB.
+by every call in one PHP request, and allowlisted response headers, including
+the gateway's `X-Agend-Instance` (`cold` on the first call a newly started
+gateway instance serves, `warm` after). Successful calls keep up to 5,000
+characters of each redacted body, and a successful body over 16 KB is
+summarised as its size rather than redacted, because the logger runs inside
+the page render that made the call; failed calls keep the whole redacted body
+up to 1 MB. On an endpoint whose bodies are never stored, a successful call's
+bodies are not decoded at all, while a failed call's bodies are still read to
+scrub its error message.
 
 **What cannot be guaranteed:** a third party's name or street address written
 as prose inside a non-personal field (an event description that names a
@@ -1373,6 +1457,10 @@ reaches that cap schedules a follow-up five minutes later.
 
 - `define( 'AGEND_APPS_API_LOG', false );` in `wp-config.php` turns logging off
   and locks the setting.
+- `define( 'AGEND_APPS_API_LOG_FULL_BODIES', true );` in `wp-config.php`
+  redacts and keeps the first 5,000 characters of successful bodies up to
+  256 KB, for debugging. It costs every page render that calls the gateway, so
+  remove it when you are done.
 - `agend_apps_log_sensitive_keys` / `agend_apps_log_safe_keys` widen the key
   rules. The safe list cannot un-redact a built-in personal key.
 - `agend_apps_log_body_excluded_paths` adds endpoints whose bodies are never

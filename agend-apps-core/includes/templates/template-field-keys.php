@@ -38,12 +38,16 @@ const AGEND_APPS_RECORDS_SEARCH_INCLUDE_BY_FIELD = array(
 /**
  * An empty key set.
  *
- * @return array{fields: string[], custom_fields: string[]}
+ * `all_custom_fields` is true when the template shows custom fields it does
+ * not name, so its search must not be narrowed to `custom_fields`.
+ *
+ * @return array{fields: string[], custom_fields: string[], all_custom_fields: bool}
  */
 function agend_apps_records_empty_binding_keys(): array {
 	return array(
-		'fields'        => array(),
-		'custom_fields' => array(),
+		'fields'            => array(),
+		'custom_fields'     => array(),
+		'all_custom_fields' => false,
 	);
 }
 
@@ -75,12 +79,17 @@ function agend_apps_records_binding_default_field( string $element, string $sett
  * The keys one element binds.
  *
  * @param string $element  Element kind, e.g. 'record-field'. Anything that is
- *                         not a field-binding element binds nothing.
+ *                         not a field-binding element binds nothing, except a
+ *                         panel showing every listing custom field.
  * @param array  $settings The element's saved settings.
- * @return array{fields: string[], custom_fields: string[]}
+ * @return array{fields: string[], custom_fields: string[], all_custom_fields: bool}
  */
 function agend_apps_records_template_binding_keys( string $element, array $settings ): array {
 	$keys = agend_apps_records_empty_binding_keys();
+	if ( 'record-block' === $element && 'listing_custom_fields' === ( $settings['block'] ?? '' ) ) {
+		$keys['all_custom_fields'] = true;
+		return $keys;
+	}
 	if ( ! array_key_exists( $element, AGEND_APPS_RECORDS_FIELD_BINDING_SCHEMAS ) ) {
 		return $keys;
 	}
@@ -112,6 +121,9 @@ function agend_apps_records_template_binding_keys( string $element, array $setti
 		$custom = '' !== $choice ? $choice : trim( (string) ( $settings['custom_field_key'] ?? '' ) );
 		if ( '' !== $custom ) {
 			$keys['custom_fields'][] = $custom;
+		} else {
+			// No key yet: what it will show once one is chosen cannot be named.
+			$keys['all_custom_fields'] = true;
 		}
 	}
 
@@ -122,7 +134,7 @@ function agend_apps_records_template_binding_keys( string $element, array $setti
  * Several key sets as one, each list distinct and sorted.
  *
  * @param array ...$sets Key sets as agend_apps_records_template_binding_keys() returns them.
- * @return array{fields: string[], custom_fields: string[]}
+ * @return array{fields: string[], custom_fields: string[], all_custom_fields: bool}
  */
 function agend_apps_records_merge_binding_keys( array ...$sets ): array {
 	$merged = agend_apps_records_empty_binding_keys();
@@ -130,6 +142,7 @@ function agend_apps_records_merge_binding_keys( array ...$sets ): array {
 		foreach ( array( 'fields', 'custom_fields' ) as $list ) {
 			$merged[ $list ] = array_merge( $merged[ $list ], (array) ( $set[ $list ] ?? array() ) );
 		}
+		$merged['all_custom_fields'] = $merged['all_custom_fields'] || ! empty( $set['all_custom_fields'] );
 	}
 	foreach ( array( 'fields', 'custom_fields' ) as $list ) {
 		$merged[ $list ] = array_values( array_unique( array_map( 'strval', $merged[ $list ] ) ) );
@@ -155,4 +168,27 @@ function agend_apps_records_search_include_for_keys( array $keys ): string {
 	}
 	ksort( $tokens );
 	return implode( ',', $tokens );
+}
+
+/**
+ * The directory search `fields` a template's custom fields need, as the comma
+ * list of `custom.<key>` names the gateway reads; '' when it shows none, and
+ * null when it must not be narrowed.
+ *
+ * A gateway that does not know `fields` ignores it and returns every card
+ * custom field, which renders the same cards.
+ *
+ * @param array $keys The template's keys, as Agend_Apps_Templates::field_keys() returns them.
+ * @return string|null
+ */
+function agend_apps_records_search_fields_for_keys( array $keys ): ?string {
+	if ( ! empty( $keys['all_custom_fields'] ) ) {
+		return null;
+	}
+
+	$names = array();
+	foreach ( (array) ( $keys['custom_fields'] ?? array() ) as $key ) {
+		$names[] = 'custom.' . (string) $key;
+	}
+	return implode( ',', $names );
 }

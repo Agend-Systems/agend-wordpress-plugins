@@ -40,6 +40,26 @@ class Agend_Apps_API {
 	private $vercel_bypass_token;
 
 	/**
+	 * Member-token GET responses already fetched in this PHP request, keyed by
+	 * the cache key plus the digest of the token that fetched them. Never
+	 * persisted: a member's response is resolved against their entitlements on
+	 * every request, so it lives only as long as the request that fetched it.
+	 *
+	 * @var array<string, array>
+	 */
+	private $identity_memo = array();
+
+	/**
+	 * The bearer the last successful exchange actually carried, '' for none.
+	 * A rejected token is retried with a re-resolved one or with none, so the
+	 * bearer a caller resolved beforehand is not always the one a response
+	 * belongs to.
+	 *
+	 * @var string|null
+	 */
+	private $sent_bearer = null;
+
+	/**
 	 * Initialises the client from current plugin settings.
 	 */
 	public function __construct() {
@@ -77,6 +97,9 @@ class Agend_Apps_API {
 	 *                                401/403-on-GET retry below; callers should not set this.
 	 *     @type bool   $bearer_auto_resolved Internal use only. Set by `get_cached()` when the
 	 *                                `bearer_token` it passes came from the shared resolver.
+	 *     @type bool   $bearer_resolved Internal use only. Set by `get_cached()` when the shared
+	 *                                resolver found no token, so it is not asked again and a
+	 *                                shared entry is never fetched with one.
 	 *     @type bool   $bearer_reminted Internal use only. Set on the one retry made with a
 	 *                                re-resolved bearer after a 401, so a second rejection falls
 	 *                                back to the unattended retry instead of resolving again.
@@ -87,6 +110,34 @@ class Agend_Apps_API {
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
 	public function request( string $method, string $path, array $args = array() ) {
+		$prepared = $this->prepare_request( $method, $path, $args );
+
+		if ( is_wp_error( $prepared ) ) {
+			return $prepared;
+		}
+
+		$started  = microtime( true );
+		$response = wp_remote_request( $prepared['url'], $prepared['request_args'] );
+		$elapsed  = (int) round( ( microtime( true ) - $started ) * 1000 );
+
+		$retry  = null;
+		$result = $this->finish_request( $prepared, $response, $elapsed, $retry );
+
+		return null === $retry ? $result : $this->request( $method, $prepared['path'], $retry );
+	}
+
+	/**
+	 * Builds an exchange up to the point of sending it: the filtered path and
+	 * URL, the headers with the member token, and the transport args. A call
+	 * the local rate limit or the scope guard refuses is logged and returned
+	 * as the WP_Error a caller receives; nothing is sent for it.
+	 *
+	 * @param string $method HTTP method.
+	 * @param string $path   Relative path.
+	 * @param array  $args   Request args, as accepted by request().
+	 * @return array{method: string, path: string, url: string, args: array, request_args: array, bearer_token: string, bearer_auto_resolved: bool}|WP_Error
+	 */
+	private function prepare_request( string $method, string $path, array $args ) {
 		// 1. Allow sibling plugins to rewrite the path.
 		/**
 		 * Filters the API request path before the URL is built.
@@ -168,7 +219,7 @@ class Agend_Apps_API {
 
 		if ( $bearer_supplied_by_caller ) {
 			$bearer_token = (string) $args['bearer_token'];
-		} elseif ( $bearer_unattended ) {
+		} elseif ( $bearer_unattended || ! empty( $args['bearer_resolved'] ) ) {
 			$bearer_token = '';
 		} else {
 			$bearer_token = agend_apps_get_bearer_token();
@@ -274,10 +325,40 @@ class Agend_Apps_API {
 		 */
 		$request_args = (array) apply_filters( 'agend_apps_api_request_args', $request_args, $method, $path );
 
-		// 10. Send the request.
-		$started  = microtime( true );
-		$response = wp_remote_request( $url, $request_args );
-		$elapsed  = (int) round( ( microtime( true ) - $started ) * 1000 );
+		return array(
+			'method'               => $method,
+			'path'                 => $path,
+			'url'                  => $url,
+			'args'                 => $args,
+			'request_args'         => $request_args,
+			'bearer_token'         => $bearer_token,
+			'bearer_auto_resolved' => $bearer_auto_resolved,
+		);
+	}
+
+	/**
+	 * Turns the transport's answer to a prepared exchange into what request()
+	 * returns, logging it once. A member token the gateway rejects is not
+	 * retried here: `$retry` receives the args to send the call again with,
+	 * and the return is null.
+	 *
+	 * @param array               $prepared  What prepare_request() returned.
+	 * @param array|WP_Error      $response  The transport's response.
+	 * @param int                 $elapsed   Milliseconds the exchange took.
+	 * @param array|null          $retry     Set to the retry's args when one is due.
+	 * @param callable|null       $reresolve Resolves the member token again after a 401;
+	 *                                       agend_apps_get_bearer_token() when null.
+	 * @return array|WP_Error|null
+	 */
+	private function finish_request( array $prepared, $response, int $elapsed, ?array &$retry, ?callable $reresolve = null ) {
+		$method               = $prepared['method'];
+		$path                 = $prepared['path'];
+		$url                  = $prepared['url'];
+		$args                 = $prepared['args'];
+		$request_args         = $prepared['request_args'];
+		$bearer_token         = $prepared['bearer_token'];
+		$bearer_auto_resolved = $prepared['bearer_auto_resolved'];
+		$retry                = null;
 
 		// Every exit below records the exchange exactly once.
 		$log = function ( string $outcome, ?int $status, string $error_code = '', string $error_message = '' ) use ( $method, $url, $request_args, $bearer_token, $args, $elapsed, $response ): void {
@@ -328,6 +409,7 @@ class Agend_Apps_API {
 			}
 
 			$log( 'success', $status_code );
+			$this->sent_bearer = $bearer_token;
 
 			return array(
 				'body'                => $body,
@@ -340,6 +422,7 @@ class Agend_Apps_API {
 		// 204 No Content — no body to decode.
 		if ( 204 === $status_code ) {
 			$log( 'success', $status_code );
+			$this->sent_bearer = $bearer_token;
 			return array();
 		}
 
@@ -396,7 +479,7 @@ class Agend_Apps_API {
 				$fresh_bearer = '';
 
 				if ( 401 === $status_code && empty( $args['bearer_reminted'] ) ) {
-					$fresh_bearer = agend_apps_get_bearer_token();
+					$fresh_bearer = null !== $reresolve ? (string) $reresolve() : agend_apps_get_bearer_token();
 				}
 
 				if ( '' !== $fresh_bearer && $fresh_bearer !== $bearer_token ) {
@@ -408,13 +491,13 @@ class Agend_Apps_API {
 
 					$log( 'retried', $status_code, 'agend_api_error' );
 
-					$retry_args                         = $args;
-					$retry_args['bearer_token']         = $fresh_bearer;
-					$retry_args['bearer_auto_resolved'] = true;
-					$retry_args['bearer_reminted']      = true;
-					$retry_args['log_attempt']          = (int) ( $args['log_attempt'] ?? 1 ) + 1;
+					$retry                         = $args;
+					$retry['bearer_token']         = $fresh_bearer;
+					$retry['bearer_auto_resolved'] = true;
+					$retry['bearer_reminted']      = true;
+					$retry['log_attempt']          = (int) ( $args['log_attempt'] ?? 1 ) + 1;
 
-					return $this->request( $method, $path, $retry_args );
+					return null;
 				}
 
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
@@ -425,12 +508,12 @@ class Agend_Apps_API {
 
 				$log( 'retried', $status_code, 'agend_api_error' );
 
-				$retry_args                = $args;
-				$retry_args['bearer_token'] = '';
-				$retry_args['unattended']   = true;
-				$retry_args['log_attempt']  = (int) ( $args['log_attempt'] ?? 1 ) + 1;
+				$retry                 = $args;
+				$retry['bearer_token'] = '';
+				$retry['unattended']   = true;
+				$retry['log_attempt']  = (int) ( $args['log_attempt'] ?? 1 ) + 1;
 
-				return $this->request( $method, $path, $retry_args );
+				return null;
 			}
 
 			$message = isset( $decoded['error']['message'] )
@@ -516,6 +599,7 @@ class Agend_Apps_API {
 		}
 
 		$log( 'success', $status_code );
+		$this->sent_bearer = $bearer_token;
 
 		return $decoded;
 	}
@@ -753,48 +837,6 @@ class Agend_Apps_API {
 	}
 
 	/**
-	 * Performs a cached GET request.
-	 *
-	 * Checks the transient store first; on a miss calls `request()` and caches
-	 * the successful response.
-	 *
-	 * IDENTITY BYPASS. Transients are SHARED across every visitor to the site,
-	 * so a response computed for one signed-in member must never be stored in
-	 * or served from them. When a member bearer is attached the shared cache is
-	 * skipped entirely, in both directions.
-	 *
-	 * This matters because several gateway endpoints enrich their response when
-	 * a bearer is present, and the cache key does not include the member:
-	 *
-	 *   - `/events` and `/events/{slug}` add `viewer_price_group` and
-	 *     `my_registration`, which is the caller's OWN ticket and registration
-	 *     id.
-	 *   - `/lms/courses` and `/lms/courses/{id}` add the caller's enrolment
-	 *     context.
-	 *   - `/cart` is per-identity in its entirety.
-	 *   - `/cms/content` and `/cms/content/{slug}` add the caller's access
-	 *     projection (SPEC-CMS-20260727 US-2.3).
-	 *
-	 * Without this bypass, member A loading an event page would populate a
-	 * shared transient with their registration details, and the next visitor to
-	 * that page inside the TTL would be served them.
-	 *
-	 * The bearer is resolved ONCE here and passed through in `$args`, because
-	 * the resolver reads user meta and can trigger a token refresh; letting
-	 * `request()` resolve it a second time would double that work.
-	 *
-	 * The cost is that signed-in members do not benefit from the shared cache
-	 * on catalogue reads that would in fact have been identical for them. That
-	 * is the correct trade: we cannot tell from here which endpoints vary by
-	 * identity, and guessing wrong leaks one member's data to another.
-	 *
-	 * @param string $path      Relative path, e.g. `/directory/listings`.
-	 * @param array  $args      Request args passed through to `request()`.
-	 * @param string $cache_key Unique cache identifier (without the `agend_apps_` prefix).
-	 * @param int    $ttl       Cache lifetime in seconds.
-	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
-	 */
-	/**
 	 * Encodes query parameters as name=value pairs, nesting arrays in bracket
 	 * notation.
 	 *
@@ -837,28 +879,33 @@ class Agend_Apps_API {
 	}
 
 	/**
-	 * Cache-key prefixes whose responses change faster than any useful TTL, so
-	 * an identity-scoped entry would serve the same member a stale answer. A
-	 * cart mutates on the visitor's own next click.
+	 * Cache-key prefixes never held even for the rest of the request: a cart
+	 * mutates on the visitor's own next action, which may be in this request.
 	 *
 	 * @var string[]
 	 */
 	private const IDENTITY_UNCACHEABLE_PREFIXES = array( 'cart' );
 
 	/**
-	 * Suffix that binds a transient to one member, so an identity-attached
-	 * response is never readable by another visitor.
+	 * Cache-key prefixes whose shared entries also record when they were
+	 * fetched, in a companion `<name>_at` transient, so a page render can
+	 * inline them with their age ({@see peek_cached()}). A page cache can
+	 * serve that HTML long after the entry itself expired.
+	 *
+	 * @var string[]
+	 */
+	private const FETCH_TIME_PREFIXES = array( 'directory_facets', 'directory_categories' );
+
+	/**
+	 * Suffix that binds a memo entry to one member token, so a response is
+	 * never returned for a different token or for a call without one.
 	 *
 	 * Derived from the bearer itself, never from the WordPress user id. The
 	 * token is the identity the response was actually fetched under, and the
 	 * two can diverge: a shared or generic WordPress login, or a bearer
 	 * resolved for someone other than the current user, collapses distinct
-	 * members onto one id and reinstates the leak this scoping exists to
-	 * prevent. A refreshed token simply starts a new entry, which costs a
-	 * fetch rather than correctness.
-	 *
-	 * The digest is truncated only for key length; it is never reversed and
-	 * never leaves the options table.
+	 * members onto one id. The digest is truncated only for key length and
+	 * never leaves the PHP process.
 	 */
 	private function identity_cache_suffix( string $bearer_token ): string {
 		return '_b' . substr( hash( 'sha256', $bearer_token ), 0, 16 );
@@ -879,65 +926,316 @@ class Agend_Apps_API {
 	}
 
 	/**
-	 * Fetches a GET response, serving a transient when one is fresh enough.
+	 * Fetches a GET response, serving a stored copy where one may be shared.
+	 *
+	 * A read without a member token goes through the transient store, which
+	 * every visitor to the site shares.
+	 *
+	 * A read with a member token (a bearer read) never touches the store, in
+	 * either direction. Several gateway endpoints enrich their response for
+	 * the member: `/events` adds the caller's own registration and price
+	 * group, `/lms/courses` their enrolment, `/cms/content` their access
+	 * projection, and directory reads the gated fields their grants cover. A
+	 * member's results are resolved against their entitlements on every
+	 * request, and gated values must not sit in `wp_options`, its backups and
+	 * its clones. Within one PHP request a bearer read is held in memory, so
+	 * one page render never asks the gateway the same question twice; nothing
+	 * outlives the request. Cart reads are not held at all.
+	 *
+	 * The bearer is resolved once here and passed through in `$args`, because
+	 * the resolver reads user meta and can mint a token.
+	 *
+	 * A response that is the same for every visitor (a category list, a facet
+	 * set with no custom field in it) is read with `anonymous` set: no member
+	 * token is resolved or sent, and the shared entry an anonymous visitor
+	 * uses is read and written, for signed-in visitors too.
 	 *
 	 * @param string $path      Relative path, e.g. `/directory/export-reports`.
-	 * @param array  $args      Request args, as accepted by `request()`.
+	 * @param array  $args      Request args, as accepted by `request()`, plus
+	 *                          `anonymous` (bool): read as an anonymous visitor
+	 *                          would. Only for a response that does not vary by
+	 *                          viewer.
 	 * @param string $cache_key Cache key the caller derived from the query.
-	 * @param int    $ttl       Transient lifetime in seconds.
-	 * @param bool   $fresh     When true, skip the transient read and always
-	 *                          call the gateway live, still writing the result
-	 *                          back into the same transient on success so a
-	 *                          later cached read picks up the new value too.
-	 *                          Used where a caller needs this call's own
-	 *                          answer to be current, not merely to warm the
-	 *                          cache for others.
+	 * @param int    $ttl       Transient lifetime in seconds, for a read
+	 *                          without a member token. 0 stores nothing.
+	 * @param bool   $fresh     When true, skip the stored or held copy and
+	 *                          always call the gateway live. A read without a
+	 *                          member token still writes the result back, so
+	 *                          a later cached read picks up the new value too.
 	 * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
 	 */
 	public function get_cached( string $path, array $args, string $cache_key, int $ttl, bool $fresh = false ) {
-		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
-			? (string) $args['bearer_token']
-			: agend_apps_get_bearer_token();
+		$plan = $this->plan_read( $args, $cache_key, 'agend_apps_get_bearer_token' );
+		$held = $fresh ? null : $this->held( $plan, $cache_key, $ttl );
 
-		if ( '' !== $bearer_token ) {
-			// Record whether the bearer was ours, so request() may drop it and
-			// retry unattended when the gateway rejects it (401/403).
-			$args['bearer_auto_resolved'] = empty( $args['bearer_token'] );
-			$args['bearer_token']         = $bearer_token;
-
-			if ( $this->is_identity_uncacheable( $cache_key ) ) {
-				return $this->request( 'GET', $path, $args );
-			}
-
-			// Identity-scoped rather than bypassed: the original defect was
-			// that the key carried the query but not the member, so one
-			// member's response was served to the next visitor. Naming the
-			// member in the key keeps that impossible while restoring a cache
-			// for signed-in visitors, who otherwise pay a live round trip on
-			// every page render.
-			$cache_key .= $this->identity_cache_suffix( $bearer_token );
+		if ( null !== $held ) {
+			return $held;
 		}
 
-		$transient_name = 'agend_apps_' . $cache_key;
-
-		if ( ! $fresh ) {
-			$cached = get_transient( $transient_name );
-
-			if ( false !== $cached ) {
-				return $cached;
-			}
-		}
-
-		$response = $this->request( 'GET', $path, $args );
-
-		if ( ! is_wp_error( $response ) ) {
-			// Always written, even on a forced-fresh call: the point of
-			// $fresh is that THIS call cannot serve a stale answer, not that
-			// the shared cache stays stale until it next expires on its own.
-			set_transient( $transient_name, $response, $ttl );
-		}
+		$this->sent_bearer = null;
+		$response          = $this->request( 'GET', $path, $plan['args'] );
+		$this->keep( $plan, $cache_key, $ttl, $response );
 
 		return $response;
+	}
+
+	/**
+	 * Fetches several independent GET responses, sending those not already
+	 * held together, so the slowest one sets the wait rather than their sum.
+	 *
+	 * Each read is served exactly as get_cached() would serve it alone: the
+	 * same stored and held copies, the same refusals by the local rate limit
+	 * and the scope guard, and the same retry after a rejected member token,
+	 * sent as a further batch. The member token is resolved once for the
+	 * batch, and again at most once after a 401. Each exchange is its own row
+	 * in the API log.
+	 *
+	 * @param array<string|int, array{path: string, args?: array, cache_key: string, ttl: int, fresh?: bool}> $reads
+	 *        Keyed by caller id; each entry takes get_cached()'s arguments.
+	 * @return array<string|int, array|WP_Error> Keyed and ordered as given.
+	 */
+	public function get_cached_many( array $reads ): array {
+		$resolved = null;
+		$resolve  = static function () use ( &$resolved ): string {
+			if ( null === $resolved ) {
+				$resolved = agend_apps_get_bearer_token();
+			}
+			return $resolved;
+		};
+
+		$reresolved = null;
+		$reresolve  = static function () use ( &$reresolved ): string {
+			if ( null === $reresolved ) {
+				$reresolved = agend_apps_get_bearer_token();
+			}
+			return $reresolved;
+		};
+
+		$results = array();
+		$batch   = array();
+
+		foreach ( $reads as $id => $read ) {
+			$cache_key = (string) $read['cache_key'];
+			$plan      = $this->plan_read( (array) ( $read['args'] ?? array() ), $cache_key, $resolve );
+			$held      = empty( $read['fresh'] ) ? $this->held( $plan, $cache_key, (int) $read['ttl'] ) : null;
+
+			if ( null !== $held ) {
+				$results[ $id ] = $held;
+				continue;
+			}
+
+			$batch[ $id ] = array(
+				'path'      => (string) $read['path'],
+				'args'      => $plan['args'],
+				'plan'      => $plan,
+				'cache_key' => $cache_key,
+				'ttl'       => (int) $read['ttl'],
+			);
+		}
+
+		while ( ! empty( $batch ) ) {
+			$prepared = array();
+
+			foreach ( $batch as $id => $item ) {
+				$exchange = $this->prepare_request( 'GET', $item['path'], $item['args'] );
+
+				if ( is_wp_error( $exchange ) ) {
+					$results[ $id ] = $exchange;
+					continue;
+				}
+
+				$prepared[ $id ] = $exchange;
+			}
+
+			$sent = Agend_Apps_Http_Batch::send(
+				array_map(
+					static function ( array $exchange ): array {
+						return array(
+							'url'  => $exchange['url'],
+							'args' => $exchange['request_args'],
+						);
+					},
+					$prepared
+				)
+			);
+
+			$retries = array();
+
+			foreach ( $prepared as $id => $exchange ) {
+				$retry             = null;
+				$this->sent_bearer = null;
+				$result            = $this->finish_request( $exchange, $sent[ $id ]['response'], $sent[ $id ]['elapsed'], $retry, $reresolve );
+
+				if ( null !== $retry ) {
+					$retries[ $id ]         = $batch[ $id ];
+					$retries[ $id ]['path'] = $exchange['path'];
+					$retries[ $id ]['args'] = $retry;
+					continue;
+				}
+
+				$this->keep( $batch[ $id ]['plan'], $batch[ $id ]['cache_key'], $batch[ $id ]['ttl'], $result );
+				$results[ $id ] = $result;
+			}
+
+			$batch = $retries;
+		}
+
+		$ordered = array();
+		foreach ( array_keys( $reads ) as $id ) {
+			$ordered[ $id ] = $results[ $id ];
+		}
+		return $ordered;
+	}
+
+	/**
+	 * How a cached read is served: its request args with the member token
+	 * resolved, and its store: `shared` (the transient every visitor without a
+	 * token shares), `memo` (held for this PHP request under the token), or
+	 * `none` (a cart read with a token).
+	 *
+	 * @param array    $args      Request args, as get_cached() accepts them.
+	 * @param string   $cache_key Cache key the caller derived from the query.
+	 * @param callable $resolve   Returns the member token, or ''.
+	 * @return array{args: array, store: string}
+	 */
+	private function plan_read( array $args, string $cache_key, callable $resolve ): array {
+		$anonymous = ! empty( $args['anonymous'] );
+		unset( $args['anonymous'] );
+
+		if ( $anonymous ) {
+			$args['bearer_token'] = '';
+			$args['unattended']   = true;
+
+			return array(
+				'args'  => $args,
+				'store' => 'shared',
+			);
+		}
+
+		$bearer_token = isset( $args['bearer_token'] ) && '' !== $args['bearer_token']
+			? (string) $args['bearer_token']
+			: (string) $resolve();
+
+		if ( '' === $bearer_token ) {
+			$args['bearer_resolved'] = true;
+
+			return array(
+				'args'  => $args,
+				'store' => 'shared',
+			);
+		}
+
+		// Record whether the bearer was ours, so request() may drop it and
+		// retry unattended when the gateway rejects it (401/403).
+		$args['bearer_auto_resolved'] = empty( $args['bearer_token'] );
+		$args['bearer_token']         = $bearer_token;
+
+		return array(
+			'args'  => $args,
+			'store' => $this->is_identity_uncacheable( $cache_key ) ? 'none' : 'memo',
+		);
+	}
+
+	/**
+	 * The copy a planned read can be served from, or null. A TTL of 0 keeps
+	 * nothing, so it serves nothing either, including an entry an earlier
+	 * version stored with no expiry.
+	 *
+	 * @param array  $plan      What plan_read() returned.
+	 * @param string $cache_key Cache key the caller derived from the query.
+	 * @param int    $ttl       Transient lifetime in seconds.
+	 * @return array|null
+	 */
+	private function held( array $plan, string $cache_key, int $ttl ): ?array {
+		if ( 'shared' === $plan['store'] ) {
+			if ( $ttl <= 0 ) {
+				return null;
+			}
+
+			$cached = get_transient( 'agend_apps_' . $cache_key );
+			return false !== $cached ? $cached : null;
+		}
+
+		if ( 'memo' === $plan['store'] ) {
+			$memo_key = $cache_key . $this->identity_cache_suffix( (string) $plan['args']['bearer_token'] );
+			return array_key_exists( $memo_key, $this->identity_memo ) ? $this->identity_memo[ $memo_key ] : null;
+		}
+
+		return null;
+	}
+
+	/**
+	 * Keeps a planned read's successful response in its store.
+	 *
+	 * A shared entry is written even on a forced-fresh call: the point of
+	 * `$fresh` is that THIS call cannot serve a stale answer, not that the
+	 * shared cache stays stale until it next expires on its own. A TTL of 0
+	 * would store the entry with no expiry and autoloaded, so it is not
+	 * written at all.
+	 *
+	 * A memo entry is keyed on the bearer the exchange actually carried, which
+	 * request() reports in `sent_bearer`: a retry after a rejected token is
+	 * held under the re-minted token, never the rejected one, and a retry that
+	 * carried no token is not held.
+	 *
+	 * @param array          $plan      What plan_read() returned.
+	 * @param string         $cache_key Cache key the caller derived from the query.
+	 * @param int            $ttl       Transient lifetime in seconds.
+	 * @param array|WP_Error $response  The response.
+	 */
+	private function keep( array $plan, string $cache_key, int $ttl, $response ): void {
+		if ( is_wp_error( $response ) ) {
+			return;
+		}
+
+		if ( 'shared' === $plan['store'] && $ttl > 0 ) {
+			set_transient( 'agend_apps_' . $cache_key, $response, $ttl );
+
+			if ( $this->records_fetch_time( $cache_key ) ) {
+				set_transient( 'agend_apps_' . $cache_key . '_at', time(), $ttl );
+			}
+			return;
+		}
+
+		if ( 'memo' === $plan['store'] && null !== $this->sent_bearer && '' !== $this->sent_bearer ) {
+			$this->identity_memo[ $cache_key . $this->identity_cache_suffix( $this->sent_bearer ) ] = $response;
+		}
+	}
+
+	/**
+	 * The shared entry for a cache key and when it was fetched, read without
+	 * calling the gateway, or null when either is missing. For a key whose
+	 * fetch time is recorded ({@see FETCH_TIME_PREFIXES}).
+	 *
+	 * @param string $cache_key Cache key, as passed to get_cached().
+	 * @return array{fetched_at: int, response: array}|null
+	 */
+	public function peek_cached( string $cache_key ): ?array {
+		if ( ! $this->records_fetch_time( $cache_key ) ) {
+			return null;
+		}
+
+		$response   = get_transient( 'agend_apps_' . $cache_key );
+		$fetched_at = get_transient( 'agend_apps_' . $cache_key . '_at' );
+
+		if ( ! is_array( $response ) || ! is_numeric( $fetched_at ) ) {
+			return null;
+		}
+
+		return array(
+			'fetched_at' => (int) $fetched_at,
+			'response'   => $response,
+		);
+	}
+
+	private function records_fetch_time( string $cache_key ): bool {
+		foreach ( self::FETCH_TIME_PREFIXES as $prefix ) {
+			if ( 0 === strpos( $cache_key, $prefix ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
 

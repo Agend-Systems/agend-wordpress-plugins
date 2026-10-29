@@ -68,11 +68,26 @@ if ( ! function_exists( 'agend_apps_directory_search' ) ) {
 		return agend_render_test_list( 'listing' );
 	}
 }
+if ( ! function_exists( 'agend_apps_directory_search_and_facets' ) ) {
+	/** Answers the facets from `agend_render_test_facets`, which may be a WP_Error. */
+	function agend_apps_directory_search_and_facets( string $term, array $filters, array $fields ): array {
+		$GLOBALS['agend_render_test_search_and_facets_args'][] = array(
+			'filters' => $filters,
+			'fields'  => $fields,
+		);
+		return array(
+			'search' => agend_render_test_list( 'listing' ),
+			'facets' => $GLOBALS['agend_render_test_facets'],
+		);
+	}
+}
 
 /** Resets the registry and request context to the state every render snapshot assumes. */
 function agend_render_test_reset(): void {
 	Agend_Test_WP::reset();
-	$GLOBALS['agend_render_test_directory_search_args'] = array();
+	$GLOBALS['agend_render_test_directory_search_args']  = array();
+	$GLOBALS['agend_render_test_search_and_facets_args'] = array();
+	$GLOBALS['agend_render_test_facets']                 = array( 'data' => array() );
 	Agend_Apps_Templates::reset();
 	$adapter = new Agend_Render_Test_Adapter();
 	Agend_Apps_Templates::register_renderer( $adapter );

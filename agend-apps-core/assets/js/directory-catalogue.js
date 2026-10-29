@@ -2122,6 +2122,7 @@
           reload: reloadCatalogue,
           apiGet: apiGet,
           setView: setView,
+          preload: cfg.preload,
           built: dropUnwritten,
           share: linksOn ? { link: shareLink, hasArea: shareHasArea } : null,
         });

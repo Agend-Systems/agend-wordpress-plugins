@@ -63,6 +63,33 @@ final class TemplateFieldKeysAdapterTest extends TestCase {
 
 		$this->assertSame( array( 'common:custom_field', 'listing:categories', 'listing:phone' ), $keys['fields'] );
 		$this->assertSame( array( 'payment_options' ), $keys['custom_fields'] );
+		$this->assertFalse( $keys['all_custom_fields'] );
+	}
+
+	#[Test]
+	public function should_need_all_custom_fields_when_a_panel_shows_every_listing_custom_field(): void {
+		$keys = Agend_Elementor_Template_Field_Keys_Adapter::from_meta(
+			array(
+				$this->container(
+					$this->widget( 'agend-record-field', array( 'field' => 'common:custom_field', 'custom_field_key_choice' => 'payment_options' ) ),
+					$this->container( $this->widget( 'agend-record-block', array( 'block' => 'listing_custom_fields' ) ) )
+				),
+			)
+		);
+
+		$this->assertTrue( $keys['all_custom_fields'] );
+	}
+
+	#[Test]
+	public function should_need_all_custom_fields_when_a_custom_field_widget_has_no_key(): void {
+		$keys = Agend_Elementor_Template_Field_Keys_Adapter::from_meta(
+			array(
+				$this->widget( 'agend-record-field', array( 'field' => 'common:custom_field', 'custom_field_key_choice' => 'payment_options' ) ),
+				$this->widget( 'agend-record-pills', array( 'field' => 'common:custom_field', 'custom_field_key' => '  ' ) ),
+			)
+		);
+
+		$this->assertTrue( $keys['all_custom_fields'] );
 	}
 
 	#[Test]

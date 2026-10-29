@@ -11,6 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 require_once __DIR__ . '/directory-locations.php';
 require_once __DIR__ . '/directory-categories.php';
+require_once __DIR__ . '/directory-facets.php';
 
 /**
  * Retrieves a paginated, filterable list of directory listings.
@@ -91,12 +92,8 @@ function agend_apps_directory_get_listing( string $listing_id, array $query = ar
 		$query
 	);
 
-	// A member bearer makes the response IDENTITY-SPECIFIC
-	// (SPEC-CORE-20260722 US-2.2: the viewer's own listing is flagged
-	// is_mine). get_cached() scopes the transient to the bearer, so a
-	// member's response is only ever served back to that member. This used
-	// to bypass the cache for members entirely, which cost a signed-in
-	// visitor a live gateway round trip on every profile they opened.
+	// A member bearer makes the response identity-specific (the viewer's own
+	// listing is flagged is_mine), so get_cached() never stores it.
 	$cache_key = Agend_Apps_Cache::build_key(
 		'directory_listing_single',
 		array_merge( array( 'id' => $listing_id ), $query )
@@ -134,6 +131,48 @@ function agend_apps_directory_get_listing( string $listing_id, array $query = ar
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
 function agend_apps_directory_search( string $search_query, array $filters = array() ) {
+	$read = agend_apps_directory_search_read( $search_query, $filters );
+
+	return agend_apps_directory_search_response(
+		agend_apps_api()->get_cached( $read['path'], $read['args'], $read['cache_key'], $read['ttl'] ),
+		$search_query,
+		$filters
+	);
+}
+
+/**
+ * Searches the directory and reads its facets at once, each exactly as
+ * agend_apps_directory_search() and agend_apps_directory_get_facets() would
+ * alone, so a page render waits for the slower of the two rather than both.
+ *
+ * @param string   $search_query The search term.
+ * @param array    $filters      Additional search parameters.
+ * @param string[] $fields       Facet names.
+ * @return array{search: array|WP_Error, facets: array|WP_Error}
+ */
+function agend_apps_directory_search_and_facets( string $search_query, array $filters, array $fields ): array {
+	$results = agend_apps_api()->get_cached_many(
+		array(
+			'search' => agend_apps_directory_search_read( $search_query, $filters ),
+			'facets' => agend_apps_directory_facets_read( $fields ),
+		)
+	);
+
+	return array(
+		'search' => agend_apps_directory_search_response( $results['search'], $search_query, $filters ),
+		'facets' => agend_apps_directory_facets_response( $results['facets'], $fields ),
+	);
+}
+
+/**
+ * The search request, as get_cached() and get_cached_many() take it, so a
+ * single and a batched search send the same.
+ *
+ * @param string $search_query The search term.
+ * @param array  $filters      Additional search parameters.
+ * @return array{path: string, args: array, cache_key: string, ttl: int}
+ */
+function agend_apps_directory_search_read( string $search_query, array $filters ): array {
 	$query = agend_apps_directory_round_coordinates( array_merge( array( 'q' => $search_query ), $filters ) );
 
 	/**
@@ -150,11 +189,23 @@ function agend_apps_directory_search( string $search_query, array $filters = arr
 		$filters
 	);
 
-	$cache_key = Agend_Apps_Cache::build_key( 'directory_search', $query );
-	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_search' );
+	return array(
+		'path'      => '/directory/search',
+		'args'      => $args,
+		'cache_key' => Agend_Apps_Cache::build_key( 'directory_search', $query ),
+		'ttl'       => Agend_Apps_Settings::get_cache_ttl( 'directory_search' ),
+	);
+}
 
-	$response = agend_apps_api()->get_cached( '/directory/search', $args, $cache_key, $ttl );
-
+/**
+ * A search read's result as agend_apps_directory_search() returns it.
+ *
+ * @param array|WP_Error $response     The get_cached() result.
+ * @param string         $search_query The search term.
+ * @param array          $filters      Additional search parameters.
+ * @return array|WP_Error
+ */
+function agend_apps_directory_search_response( $response, string $search_query, array $filters ) {
 	if ( is_wp_error( $response ) ) {
 		return $response;
 	}
@@ -167,61 +218,6 @@ function agend_apps_directory_search( string $search_query, array $filters = arr
 	 * @param array  $filters      Additional filter parameters.
 	 */
 	return apply_filters( 'agend_apps_directory_search_response', $response, $search_query, $filters );
-}
-
-/**
- * Retrieves the filterable facets for the directory, with the values that
- * exist for each.
- *
- * Answers "what can a visitor filter by, and what values does it admit" so a
- * filter control can be built without hardcoding a value list. The response is
- * scoped to the caller's entitlements: a custom field the caller may not read
- * is absent entirely rather than present and empty, so the endpoint cannot be
- * used to probe an account's field schema.
- *
- * @param string[] $fields Optional. Facet names (`categories`, `tags`,
- *                         `badges`, `custom.<field_key>`). Empty returns every
- *                         facet the caller may read.
- * @return array|WP_Error Decoded response, or WP_Error on failure.
- */
-function agend_apps_directory_get_facets( array $fields = array() ) {
-	$query = array();
-	$names = array_values( array_filter( array_map( 'trim', $fields ), 'strlen' ) );
-	if ( ! empty( $names ) ) {
-		$query['fields'] = implode( ',', $names );
-	}
-
-	/**
-	 * Filters the directory facets request args before the request is sent.
-	 *
-	 * @param array $args   Request args.
-	 * @param array $fields Requested facet names.
-	 */
-	$args = (array) apply_filters(
-		'agend_apps_directory_get_facets_args',
-		array( 'query' => $query ),
-		$fields
-	);
-
-	$cache_key = Agend_Apps_Cache::build_key( 'directory_facets', $query );
-	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_facets' );
-
-	// Identity-scoped for a signed-in member: get_cached() bypasses the shared
-	// transient whenever a bearer is attached, so one member's readable facet
-	// set is never served to the next visitor.
-	$response = agend_apps_api()->get_cached( '/directory/facets', $args, $cache_key, $ttl );
-
-	if ( is_wp_error( $response ) ) {
-		return $response;
-	}
-
-	/**
-	 * Filters the decoded directory facets response before it is returned.
-	 *
-	 * @param array $response Decoded response body.
-	 * @param array $fields   Requested facet names.
-	 */
-	return apply_filters( 'agend_apps_directory_get_facets_response', $response, $fields );
 }
 
 /**

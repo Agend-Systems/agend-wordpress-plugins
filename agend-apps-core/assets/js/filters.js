@@ -1057,18 +1057,132 @@
     });
   }
 
+  function itemParams(cfg) {
+    return cfg.source.limit ? { limit: cfg.source.limit } : {};
+  }
+
+  function itemsKey(cfg) {
+    return cfg.source.path + '|' + JSON.stringify(itemParams(cfg));
+  }
+
   // The raw records of an endpoint-backed source, one request per page.
   function loadItems(cfg, ctx) {
-    var params = cfg.source.limit ? { limit: cfg.source.limit } : {};
-    var cacheKey = cfg.source.path + '|' + JSON.stringify(params);
+    var cacheKey = itemsKey(cfg);
     if (!pending[cacheKey]) {
-      pending[cacheKey] = ctx.apiGet(cfg.source.path, params).catch(function () {
+      pending[cacheKey] = ctx.apiGet(cfg.source.path, itemParams(cfg)).catch(function () {
         return null;
       });
     }
     return pending[cacheKey].then(function (body) {
       return (body && Array.isArray(body.data)) ? body.data : (Array.isArray(body) ? body : []);
     });
+  }
+
+  // -- Preloaded data -------------------------------------------------------
+  //
+  // The page render inlines the shared facets and categories entries it found
+  // cached (render/directory-catalogue.php), so the filters work at first
+  // paint without asking. Each entry says when it was fetched and how long it
+  // lives: one a page cache served after that is used for first paint and
+  // refreshed once.
+
+  var CATEGORIES_PATH = '/directory/categories';
+  var preloaded = false;
+
+  function shellConfigs(scope) {
+    var list = [];
+    Array.prototype.forEach.call(scope.querySelectorAll('[data-agend-filter]'), function (shell) {
+      var cfg;
+      try {
+        cfg = JSON.parse(shell.getAttribute('data-agend-filter'));
+      } catch (e) {
+        return;
+      }
+      if (cfg) {
+        list.push({ shell: shell, cfg: cfg });
+      }
+    });
+    return list;
+  }
+
+  function isStale(entry) {
+    return typeof entry.fetched_at === 'number' && typeof entry.ttl === 'number' &&
+      Date.now() / 1000 - entry.fetched_at > entry.ttl;
+  }
+
+  // Whether a visitor has left a filter as it started, so redrawing it with
+  // fresher values takes nothing from them.
+  function isUnset(state, cfg) {
+    var value = state[cfg.state];
+    if (cfg.mode === 'map') {
+      value = value ? value[cfg.fieldKey] : undefined;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return Object.keys(value).length === 0;
+      }
+    }
+    if (Array.isArray(value)) {
+      return value.length === 0;
+    }
+    return value === undefined || value === null || value === '';
+  }
+
+  function redraw(scope, ctx, configs, matches) {
+    configs.forEach(function (entry) {
+      if (matches(entry.cfg) && isUnset(ctx.state, entry.cfg)) {
+        entry.shell.removeAttribute('data-agend-filter-ready');
+        buildOne(entry.shell, ctx, scope);
+      }
+    });
+  }
+
+  function isFacetBacked(cfg) {
+    return !!(cfg.source && cfg.source.facet);
+  }
+
+  function readsCategories(cfg) {
+    return !!(cfg.source && cfg.source.path === CATEGORIES_PATH);
+  }
+
+  function usePreload(scope, ctx, names) {
+    var preload = ctx.preload;
+    if (preloaded || !preload) {
+      return;
+    }
+    preloaded = true;
+    var configs = shellConfigs(scope);
+
+    var facets = preload.facets;
+    if (facets && facets.body && !facetRequest && sameSelection(facets.names || [], names)) {
+      facetRequest = Promise.resolve(facets.body.data || {});
+      if (isStale(facets)) {
+        ctx.apiGet('/directory/facets', { fields: names.join(',') })
+          .then(function (body) {
+            facetRequest = Promise.resolve((body && body.data) || {});
+            redraw(scope, ctx, configs, isFacetBacked);
+          })
+          .catch(function () {});
+      }
+    }
+
+    var categories = preload.categories;
+    var readers = configs.filter(function (entry) {
+      return readsCategories(entry.cfg);
+    });
+    if (categories && categories.body && readers.length) {
+      readers.forEach(function (entry) {
+        pending[itemsKey(entry.cfg)] = Promise.resolve(categories.body);
+      });
+      if (isStale(categories)) {
+        ctx.apiGet(CATEGORIES_PATH, itemParams(readers[0].cfg))
+          .then(function (body) {
+            readers.forEach(function (entry) {
+              pending[itemsKey(entry.cfg)] = Promise.resolve(body);
+            });
+            redraw(scope, ctx, configs, readsCategories);
+          })
+          .catch(function () {});
+      }
+    }
   }
 
   function loadValues(cfg, ctx) {
@@ -1361,9 +1475,10 @@
    * @param {Element} scope   The catalogue root.
    * @param {Object}  options state, reload and apiGet from the catalogue;
    *                          optionally setView for a List / Map switch, share
-   *                          for a Share control, and built, called with the
+   *                          for a Share control, built, called with the
    *                          scope once every control has its values (and has
-   *                          hidden itself if it has none).
+   *                          hidden itself if it has none), and preload, the
+   *                          catalogue config's inlined entries.
    * @return {number} How many filter shells were found.
    */
   function build(scope, options) {
@@ -1372,7 +1487,10 @@
     }
     var shells = scope.querySelectorAll('[data-agend-filter]');
     // Gather every facet this template needs first, so the endpoint is asked
-    // once for all of them rather than once per filter.
+    // once for all of them rather than once per filter. The server derives
+    // the same list to find the entry it inlines
+    // (agend_apps_records_filter_facet_names()); keep the two in step.
+    var names = [];
     Array.prototype.forEach.call(shells, function (shell) {
       var cfg;
       try {
@@ -1380,10 +1498,16 @@
       } catch (e) {
         return;
       }
-      if (cfg && cfg.source && cfg.source.facet && facetNames.indexOf(cfg.source.facet) === -1) {
-        facetNames.push(cfg.source.facet);
+      if (cfg && cfg.source && cfg.source.facet) {
+        if (facetNames.indexOf(cfg.source.facet) === -1) {
+          facetNames.push(cfg.source.facet);
+        }
+        if (names.indexOf(cfg.source.facet) === -1) {
+          names.push(cfg.source.facet);
+        }
       }
     });
+    usePreload(scope, options, names);
     var waits = [];
     Array.prototype.forEach.call(shells, function (shell) {
       var wait = buildOne(shell, options, scope);
