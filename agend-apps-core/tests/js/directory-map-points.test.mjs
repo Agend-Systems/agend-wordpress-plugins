@@ -35,13 +35,86 @@ function cutVar(source, name) {
   return line[0];
 }
 
-const { markersQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails } = new Function(
+// A minimal DOM node: enough for el(), popupStatus() and a click on the
+// Try again button.
+class FakeNode {
+  constructor(tag) {
+    this.tag = tag;
+    this.className = '';
+    this.children = [];
+    this.text = '';
+    this.attributes = {};
+    this.listeners = {};
+    this.parent = null;
+  }
+
+  set textContent(value) {
+    this.text = value;
+  }
+
+  get firstChild() {
+    return this.children[0] || null;
+  }
+
+  appendChild(child) {
+    child.parent = this;
+    this.children.push(child);
+    return child;
+  }
+
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+
+  addEventListener(type, fn) {
+    this.listeners[type] = fn;
+  }
+
+  click() {
+    const event = { stopped: false, stopPropagation() { this.stopped = true; } };
+    this.listeners.click(event);
+    return event;
+  }
+
+  focus() {
+    fakeDocument.activeElement = this;
+  }
+
+  contains(node) {
+    for (let at = node; at; at = at.parent) if (at === this) return true;
+    return false;
+  }
+
+  find(className) {
+    if (this.className.split(' ').includes(className)) return this;
+    for (const child of this.children) {
+      const found = child.find(className);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  querySelector(selector) {
+    return this.find(selector.replace(/^\./, ''));
+  }
+}
+
+const fakeDocument = { activeElement: null, createElement: (tag) => new FakeNode(tag) };
+
+const {
+  markersQuery, pointsQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails, bindPinDetails, createPinLayers, showResponse,
+} = new Function(
+  'document',
+  'window',
   [
     cutVar(script, 'UNGROUPED_PIN_LIMIT'),
-    ...['withParam', 'markersQuery', 'isMarkerRow', 'locationAt', 'drawsUngrouped', 'preloads', 'createPinDetails'].map((name) => cutFunction(script, name)),
-    'return { markersQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails };',
+    ...['el', 'withParam', 'markersQuery', 'pointsQuery', 'isMarkerRow', 'locationAt', 'drawsUngrouped', 'preloads', 'createPinDetails', 'popupStatus', 'bindPinDetails', 'createPinLayers', 'showResponse']
+      .map((name) => cutFunction(script, name)),
+    'return { markersQuery, pointsQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails, bindPinDetails, createPinLayers, showResponse };',
   ].join('\n'),
-)();
+)(fakeDocument, { setTimeout });
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const LISTING = '00000000-0000-4000-8000-000000000001';
 const OTHER = '00000000-0000-4000-8000-000000000002';
@@ -67,11 +140,10 @@ test('should keep the catalogue filters and drop paging, ordering and any page s
   assert.deepEqual(query, { q: 'physio', category: 'c1', bbox: '1,0,1,0' });
 });
 
-test('should ask for map points with no page size when the map loads', () => {
-  const load = cutFunction(script, 'load');
+test('should ask for map points with the catalogue filters and no page size when the map loads', () => {
+  const query = pointsQuery(markersQuery({ q: 'physio', category: 'c1', limit: 12, per_page: 12 }));
 
-  assert.match(load, /apiGet\('\/directory\/markers', withParam\(filters, 'projection', 'points'\)\)/);
-  assert.doesNotMatch(load, /\blimit\b/);
+  assert.deepEqual(query, { q: 'physio', category: 'c1', projection: 'points' });
 });
 
 test('should treat a row as a map marker when it carries a slug', () => {
@@ -322,15 +394,31 @@ test('should load each pin on open with no error when the preload fails', async 
   assert.deepEqual(queries[1], { ids: LISTING });
 });
 
-test('should show the same details from the preload as from a request on open', async () => {
-  const listing = marker(LISTING, { distance_km: 3.2, locations: [{ name: 'Office', latitude: -33.86, longitude: 151.2 }] });
-  const preloaded = createPinDetails(gateway({ data: [listing] }).fetchMarkers);
-  const onOpen = createPinDetails(gateway({ data: [listing] }).fetchMarkers);
+test('should hand a pin the map marker exactly as the gateway sent it, from the preload or on open', async () => {
+  const fromPreload = marker(LISTING, { distance_km: 3.2, locations: [{ name: 'Office', latitude: -33.86, longitude: 151.2 }] });
+  const fromIds = structuredClone(fromPreload);
+  const preloaded = createPinDetails(gateway({ data: [marker(OTHER), fromPreload] }).fetchMarkers);
+  const onOpen = createPinDetails(gateway({ data: [fromIds] }).fetchMarkers);
   preloaded.reset({});
   onOpen.reset({});
   preloaded.preload(500);
 
-  assert.deepEqual(await preloaded.get(LISTING), await onOpen.get(LISTING));
+  assert.equal(await preloaded.get(LISTING), fromPreload);
+  assert.equal(await onOpen.get(LISTING), fromIds);
+});
+
+test('should drop a pin waiting on a preload when a newer points response replaces it', async () => {
+  const { queries, fetchMarkers, release } = heldGateway({ data: [] });
+  const details = createPinDetails(fetchMarkers);
+  details.reset({ q: 'old' });
+  details.preload(500);
+  const opened = details.get(LISTING);
+
+  details.reset({ q: 'new' });
+  release();
+
+  assert.equal(await opened, null);
+  assert.deepEqual(queries, [{ q: 'old', limit: 500 }]);
 });
 
 test('should keep a superseded preload out of the details for the next points response', async () => {
@@ -347,11 +435,273 @@ test('should keep a superseded preload out of the details for the next points re
   assert.equal((await details.get(LISTING)).distance_km, 9);
 });
 
-test('should preload only after drawing a points response at or under the threshold', () => {
-  const load = cutFunction(script, 'load');
-  const drawAt = load.indexOf('draw(body.data');
-  const preloadAt = load.indexOf('details.preload(cfg.preload)');
+// Records what showResponse() does to the details store and the map, in order.
+function responseSteps(rows, total, threshold) {
+  const steps = [];
+  const details = {
+    reset: (filters) => steps.push(['reset', filters]),
+    preload: (limit) => steps.push(['preload', limit]),
+  };
+  showResponse(rows, total, { q: 'physio' }, threshold, details, (drawn) => steps.push(['draw', drawn.length]));
+  return steps;
+}
 
-  assert.ok(drawAt > -1 && preloadAt > drawAt, 'the preload starts after the pins are drawn');
-  assert.match(load, /!isMarkerRow\(body\.data\[0\]\) && preloads\(total, cfg\.preload\)/);
+const point = (id) => ({ id, name: 'Listing', locations: [{ latitude: -33.8, longitude: 151.2 }] });
+
+test('should drop the last details, draw the pins and only then preload when the total is at the threshold', () => {
+  assert.deepEqual(responseSteps([point(LISTING), point(OTHER)], 500, 500), [['reset', { q: 'physio' }], ['draw', 2], ['preload', 500]]);
+});
+
+test('should draw with no preload when the total is one over the threshold', () => {
+  assert.deepEqual(responseSteps([point(LISTING)], 501, 500), [['reset', { q: 'physio' }], ['draw', 1]]);
+});
+
+test('should draw with no preload when an older gateway answers with map markers', () => {
+  assert.deepEqual(responseSteps([marker(LISTING)], 1, 500), [['reset', { q: 'physio' }], ['draw', 1]]);
+});
+
+test('should draw with no preload when nothing matches', () => {
+  assert.deepEqual(responseSteps([], 0, 500), [['reset', { q: 'physio' }], ['draw', 0]]);
+});
+
+// A Leaflet marker stand-in: the popup content function runs on open and on
+// update(), as Leaflet runs it, and each render is kept.
+function fakePin() {
+  const element = new FakeNode('div');
+  const contentNode = element.appendChild(new FakeNode('div'));
+  contentNode.className = 'leaflet-popup-content';
+  const pin = {
+    open: false,
+    renders: [],
+    render() {
+      const node = this.content();
+      contentNode.children = [];
+      contentNode.appendChild(node);
+      this.renders.push(node);
+    },
+    bindPopup(content, options) {
+      this.content = content;
+      this.options = options;
+    },
+    isPopupOpen() {
+      return this.open;
+    },
+    getPopup() {
+      return { getElement: () => element, update: () => pin.render() };
+    },
+    openPopup() {
+      this.open = true;
+      this.render();
+    },
+    closePopup() {
+      this.open = false;
+    },
+    last() {
+      return this.renders[this.renders.length - 1];
+    },
+    status() {
+      const node = this.last().find('agend-map-popup__status');
+      return node ? node.text : null;
+    },
+    contentNode,
+  };
+  return pin;
+}
+
+const TEXT = { detailsLoading: 'Loading details…', detailsGone: 'These details are no longer available.', detailsFailed: 'Details could not be loaded.', retry: 'Try again' };
+
+function shownDetails(found) {
+  const node = new FakeNode('div');
+  node.className = 'agend-map-popup';
+  node.text = found.name;
+  return node;
+}
+
+function boundPin(fetchMarkers, text = TEXT) {
+  const details = createPinDetails(fetchMarkers);
+  details.reset({ q: 'physio' });
+  const pin = fakePin();
+  bindPinDetails(pin, LISTING, details, shownDetails, text, { maxWidth: 260 });
+  return pin;
+}
+
+test('should show the loading state, then the details, when a pin is opened', async () => {
+  const pin = boundPin(gateway({ data: [marker(LISTING)] }).fetchMarkers);
+
+  pin.openPopup();
+  assert.equal(pin.status(), 'Loading details…');
+  assert.equal(pin.last().find('agend-map-popup__status').attributes.role, 'status');
+  await flush();
+
+  assert.equal(pin.last().text, 'Listing 1');
+  assert.deepEqual(pin.options, { maxWidth: 260 });
+});
+
+test('should say the details are no longer available when the listing is absent', async () => {
+  const pin = boundPin(gateway({ data: [] }).fetchMarkers);
+
+  pin.openPopup();
+  await flush();
+
+  assert.equal(pin.status(), 'These details are no longer available.');
+});
+
+test('should offer Try again when the request fails and repeat it when pressed', async () => {
+  const { queries, fetchMarkers } = gateway(new Error('offline'), { data: [marker(LISTING)] });
+  const pin = boundPin(fetchMarkers);
+
+  pin.openPopup();
+  await flush();
+  assert.equal(pin.status(), 'Details could not be loaded. ');
+  const again = pin.last().find('agend-map__retry');
+  assert.equal(again.text, 'Try again');
+
+  const click = again.click();
+  assert.equal(click.stopped, true, 'the click must not reach the map, which would close the popup');
+  assert.equal(pin.status(), 'Loading details…');
+  await flush();
+
+  assert.equal(pin.last().text, 'Listing 1');
+  assert.equal(queries.length, 2);
+});
+
+test('should keep focus in the popup when Try again redraws it', async () => {
+  const pin = boundPin(gateway(new Error('offline'), { data: [marker(LISTING)] }).fetchMarkers);
+  pin.openPopup();
+  await flush();
+  const again = pin.last().find('agend-map__retry');
+  again.focus();
+
+  again.click();
+
+  assert.equal(fakeDocument.activeElement, pin.contentNode);
+  assert.equal(pin.contentNode.attributes.tabindex, '-1');
+});
+
+test('should keep showing a failure, with one request, when the pin was reopened while it loaded', async () => {
+  const { queries, fetchMarkers, release } = heldGateway(new Error('offline'), { data: [marker(LISTING)] });
+  const pin = boundPin(fetchMarkers);
+
+  pin.openPopup();
+  pin.closePopup();
+  pin.openPopup();
+  assert.equal(pin.status(), 'Loading details…');
+  release();
+  await flush();
+  await flush();
+
+  assert.equal(pin.status(), 'Details could not be loaded. ');
+  assert.equal(queries.length, 1);
+});
+
+test('should ask again when a pin whose request failed while it was closed is reopened', async () => {
+  const { queries, fetchMarkers } = gateway(new Error('offline'), { data: [marker(LISTING)] });
+  const pin = boundPin(fetchMarkers);
+  pin.openPopup();
+  pin.closePopup();
+  await flush();
+
+  pin.openPopup();
+  assert.equal(pin.status(), 'Loading details…');
+  await flush();
+
+  assert.equal(pin.last().text, 'Listing 1');
+  assert.equal(queries.length, 2);
+});
+
+test('should show its own wording when the page config predates the pin details states', async () => {
+  const pin = boundPin(gateway(new Error('offline')).fetchMarkers, {});
+
+  pin.openPopup();
+  assert.equal(pin.status(), 'Loading details…');
+  await flush();
+
+  assert.equal(pin.status(), 'Details could not be loaded. ');
+  assert.equal(pin.last().find('agend-map__retry').text, 'Try again');
+});
+
+// Leaflet stand-ins recording the layers made and those on the map.
+function fakeLeaflet({ canGroup = true } = {}) {
+  const map = { layers: new Set(), addLayer(layer) { this.layers.add(layer); }, removeLayer(layer) { this.layers.delete(layer); } };
+  const L = {
+    layerGroup: (pins) => ({ kind: 'plain', pins }),
+  };
+  if (canGroup) {
+    L.markerClusterGroup = (options) => ({
+      kind: 'group',
+      options,
+      addLayers(pins) { this.pins = pins; },
+      clearLayers() { this.cleared = true; },
+    });
+  }
+  return { L, map };
+}
+
+const pins = (count) => Array.from({ length: count }, (_, i) => ({ pin: i }));
+
+test('should draw at most 2,000 pins on a plain layer when grouping is off', () => {
+  const { L, map } = fakeLeaflet();
+  createPinLayers(L, map, { cluster: false }, {})(pins(2000));
+
+  const [layer] = map.layers;
+  assert.equal(layer.kind, 'plain');
+  assert.equal(layer.pins.length, 2000);
+});
+
+test('should group more than 2,000 pins when grouping is off', () => {
+  const { L, map } = fakeLeaflet();
+  createPinLayers(L, map, { cluster: false }, { maxClusterRadius: 80 })(pins(2001));
+
+  const [layer] = map.layers;
+  assert.equal(layer.kind, 'group');
+  assert.equal(layer.pins.length, 2001);
+  assert.equal(layer.options.maxClusterRadius, 80);
+});
+
+test('should group any number of pins when grouping is on', () => {
+  const { L, map } = fakeLeaflet();
+  createPinLayers(L, map, { cluster: true }, {})(pins(3));
+
+  assert.equal([...map.layers][0].kind, 'group');
+});
+
+test('should draw a plain layer when the grouping library is missing', () => {
+  const { L, map } = fakeLeaflet({ canGroup: false });
+  createPinLayers(L, map, { cluster: true }, {})(pins(5000));
+
+  assert.equal([...map.layers][0].kind, 'plain');
+});
+
+test('should replace the last response pins with the next response pins', () => {
+  const { L, map } = fakeLeaflet();
+  const show = createPinLayers(L, map, { cluster: true }, {});
+  show(pins(10));
+  const first = [...map.layers][0];
+  first.options.chunkProgress(10, 10);
+
+  show(pins(4));
+
+  assert.equal(map.layers.has(first), false);
+  assert.equal([...map.layers][0].pins.length, 4);
+});
+
+test('should empty a group replaced mid-add and take it off the map only once its add has run out', async () => {
+  const { L, map } = fakeLeaflet();
+  const show = createPinLayers(L, map, { cluster: true }, {});
+  show(pins(20000));
+  const stale = [...map.layers][0];
+  const addLayer = stale._addLayer;
+
+  show(pins(4));
+
+  assert.equal(stale.cleared, true);
+  assert.notEqual(stale._addLayer, addLayer, 'its remaining chunks add nothing');
+  assert.equal(map.layers.has(stale), true, 'removing it now would make its next chunk throw');
+
+  stale.options.chunkProgress(20000, 20000);
+  assert.equal(map.layers.has(stale), true, 'the chunk that reported done still uses the map');
+  await flush();
+
+  assert.equal(map.layers.has(stale), false);
+  assert.equal(map.layers.size, 1);
 });

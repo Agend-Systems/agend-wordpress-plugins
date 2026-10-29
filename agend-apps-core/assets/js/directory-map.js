@@ -236,9 +236,11 @@
       }
       if (preloading) {
         // A listing the preload did not hold, or a failed preload, falls
-        // back to its own request.
+        // back to its own request, unless a newer points response has
+        // replaced the pin meanwhile.
+        var held = memo;
         return preloading.then(function () {
-          return get(id);
+          return memo === held ? get(id) : null;
         });
       }
       return request(id);
@@ -391,8 +393,140 @@
   // Pin details that are not a listing yet: loading, gone or failed.
   function popupStatus(message) {
     var box = el('div', 'agend-map-popup agend-map-popup--status');
-    box.appendChild(el('span', 'agend-map-popup__status', message));
+    var status = el('span', 'agend-map-popup__status', message);
+    status.setAttribute('role', 'status');
+    box.appendChild(status);
     return box;
+  }
+
+  // A map point's pin: its details load when it is opened, and the popup
+  // redraws itself once they have arrived or failed. show(marker) builds a
+  // found listing's details; text carries the status wording, with
+  // fallbacks for a page cached before the wording existed.
+  function bindPinDetails(pin, id, details, show, text, popupOptions) {
+    var loading = false;
+    var failed = false;
+
+    // Redraws an open popup. Focus inside it (on Try again, which the
+    // redraw removes) moves to the new content, not back to the page.
+    function refresh() {
+      if (!pin.isPopupOpen()) {
+        failed = false;
+        return;
+      }
+      var popup = pin.getPopup();
+      var node = popup.getElement();
+      var focused = !!node && node.contains(document.activeElement);
+      popup.update();
+      var content = focused ? node.querySelector('.leaflet-popup-content') : null;
+      if (content) {
+        content.setAttribute('tabindex', '-1');
+        content.focus();
+      }
+    }
+
+    pin.bindPopup(function () {
+      var held = details.peek(id);
+      if (held) {
+        return held.marker ? show(held.marker) : popupStatus(text.detailsGone || 'These details are no longer available.');
+      }
+      if (failed) {
+        failed = false;
+        var box = popupStatus((text.detailsFailed || 'Details could not be loaded.') + ' ');
+        var again = el('button', 'agend-map__retry', text.retry || 'Try again');
+        again.type = 'button';
+        again.addEventListener('click', function (e) {
+          // The details are redrawn under this click, so Leaflet could no
+          // longer trace it to the popup and would close it as a click
+          // on the map.
+          e.stopPropagation();
+          refresh();
+        });
+        box.firstChild.appendChild(again);
+        return box;
+      }
+      // One request however often the popup reopens or redraws meanwhile,
+      // so a failure is shown once and stays.
+      if (!loading) {
+        loading = true;
+        details.get(id).catch(function () {
+          failed = true;
+        }).then(function () {
+          loading = false;
+          refresh();
+        });
+      }
+      return popupStatus(text.detailsLoading || 'Loading details…');
+    }, popupOptions);
+  }
+
+  // Draws each points response into a layer of its own: a group when the
+  // pins are grouped, adding tens of thousands of them in chunks so the page
+  // never stalls. A chunked add cannot be cancelled, and the vendored
+  // markercluster (1.5.3) throws from its next chunk if the group has left
+  // the map. So a group replaced mid-add is emptied, its remaining chunks
+  // add nothing, and it leaves the map once they have run out.
+  function createPinLayers(L, map, cfg, groupOptions) {
+    var current = null;
+
+    function newGroup() {
+      var group = null;
+      var options = withParam(groupOptions, 'chunkProgress', function (processed, total) {
+        if (processed === total) {
+          group.agendAdding = false;
+          if (group.agendRetired) {
+            // After the chunk that called this has finished with the map.
+            window.setTimeout(function () {
+              map.removeLayer(group);
+            }, 0);
+          }
+        }
+      });
+      group = L.markerClusterGroup(options);
+      return group;
+    }
+
+    function retire(layer) {
+      if (!layer.agendAdding) {
+        map.removeLayer(layer);
+        return;
+      }
+      layer.clearLayers();
+      layer._addLayer = function () {};
+      layer.agendRetired = true;
+    }
+
+    return function show(pins) {
+      if (current) {
+        retire(current);
+      }
+      if (typeof L.markerClusterGroup === 'function' && !drawsUngrouped(cfg, pins.length)) {
+        current = newGroup();
+        map.addLayer(current);
+        current.agendAdding = true;
+        current.addLayers(pins);
+      } else {
+        current = L.layerGroup(pins);
+        map.addLayer(current);
+      }
+    };
+  }
+
+  // The request for every pin: the catalogue's filters as map points.
+  function pointsQuery(filters) {
+    return withParam(filters, 'projection', 'points');
+  }
+
+  // What follows a points response: the last response's details are
+  // dropped, the pins drawn, and only then, when few enough listings match,
+  // every pin's details preloaded. Map markers from a gateway without
+  // points mode already hold their details.
+  function showResponse(rows, total, filters, threshold, details, draw) {
+    details.reset(filters);
+    draw(rows);
+    if (rows.length && !isMarkerRow(rows[0]) && preloads(total, threshold)) {
+      details.preload(threshold);
+    }
   }
 
   // The directions template from the server, with the listing's own
@@ -715,8 +849,7 @@
       popupAnchor: [0, -32],
     });
 
-    var canGroup = typeof L.markerClusterGroup === 'function';
-    var GROUP_OPTIONS = {
+    var showPins = createPinLayers(L, map, cfg, {
       maxClusterRadius: 80,
       showCoverageOnHover: false,
       chunkedLoading: true,
@@ -729,8 +862,7 @@
           iconSize: L.point(40, 40),
         });
       },
-    };
-    var pins = null;
+    });
     var searchArea = L.layerGroup().addTo(map);
     var POPUP_OPTIONS = { className: 'agend-map-popup-wrap', maxWidth: 260, minWidth: 200 };
     var details = createPinDetails(function (query) {
@@ -830,65 +962,6 @@
       return centre.toBounds(radius * 2000);
     }
 
-    // A map point's pin: its details load when it is opened, and the popup
-    // redraws itself once they have arrived or failed.
-    function bindDetails(pin, id, lat, lng, index) {
-      var failed = false;
-
-      function refresh() {
-        if (pin.isPopupOpen()) {
-          pin.getPopup().update();
-        } else {
-          failed = false;
-        }
-      }
-
-      pin.bindPopup(function () {
-        var held = details.peek(id);
-        if (held) {
-          return held.marker
-            ? popupContent(cfg, catalogue, held.marker, locationAt(held.marker, lat, lng, index) || { latitude: lat, longitude: lng })
-            : popupStatus(cfg.text.detailsGone);
-        }
-        if (failed) {
-          failed = false;
-          var box = popupStatus(cfg.text.detailsFailed + ' ');
-          var again = el('button', 'agend-map__retry', cfg.text.retry || 'Try again');
-          again.type = 'button';
-          again.addEventListener('click', function (e) {
-            // The details are redrawn under this click, so Leaflet could no
-            // longer trace it to the popup and would close it as a click
-            // on the map.
-            e.stopPropagation();
-            refresh();
-          });
-          box.firstChild.appendChild(again);
-          return box;
-        }
-        details.get(id).catch(function () {
-          failed = true;
-        }).then(refresh);
-        return popupStatus(cfg.text.detailsLoading);
-      }, POPUP_OPTIONS);
-    }
-
-    // Each response gets a layer of its own. A group adds tens of thousands
-    // of pins in chunks so the page never stalls, and clearing a group does
-    // not stop a chunked add already under way, so a superseded response
-    // would otherwise go on adding its pins.
-    function showPins(layers) {
-      if (pins) {
-        map.removeLayer(pins);
-      }
-      if (canGroup && !drawsUngrouped(cfg, layers.length)) {
-        pins = L.markerClusterGroup(GROUP_OPTIONS);
-        map.addLayer(pins);
-        pins.addLayers(layers);
-      } else {
-        pins = L.layerGroup(layers).addTo(map);
-      }
-    }
-
     function draw(rows, params, refit) {
       var layers = [];
       var points = [];
@@ -906,7 +979,9 @@
               return popupContent(cfg, catalogue, row, location);
             }, POPUP_OPTIONS);
           } else {
-            bindDetails(pin, row.id, lat, lng, index);
+            bindPinDetails(pin, row.id, details, function (marker) {
+              return popupContent(cfg, catalogue, marker, locationAt(marker, lat, lng, index) || { latitude: lat, longitude: lng });
+            }, cfg.text, POPUP_OPTIONS);
           }
           layers.push(pin);
           points.push([lat, lng]);
@@ -954,7 +1029,7 @@
       var filters = markersQuery(params);
       var id = ++requestId;
       root.setAttribute('aria-busy', 'true');
-      apiGet('/directory/markers', withParam(filters, 'projection', 'points')).then(function (body) {
+      apiGet('/directory/markers', pointsQuery(filters)).then(function (body) {
         if (id !== requestId) {
           return;
         }
@@ -972,14 +1047,9 @@
         } else {
           say('');
         }
-        details.reset(filters);
-        draw(body.data, filters, refit);
-        // Only once the pins are drawn, so the first pins never wait on it.
-        // Map markers from a gateway without points mode already hold
-        // their details.
-        if (body.data.length && !isMarkerRow(body.data[0]) && preloads(total, cfg.preload)) {
-          details.preload(cfg.preload);
-        }
+        showResponse(body.data, total, filters, cfg.preload, details, function (rows) {
+          draw(rows, filters, refit);
+        });
       }).catch(function () {
         if (id !== requestId) {
           return;
@@ -1072,7 +1142,28 @@
       showForView((e.detail || {}).view);
     });
 
+    // A popup panning the map to fit (on opening, or as its details arrive)
+    // is the map moving itself: following it would reload the pins and
+    // close the popup the visitor just opened. Each such pan starts a move
+    // and ends one, even when the next pan cuts its animation short, so
+    // the pans are counted rather than flagged.
+    var autoPanStarting = false;
+    var autoPans = 0;
+    map.on('autopanstart', function () {
+      autoPanStarting = true;
+    });
+    map.on('movestart', function () {
+      if (autoPanStarting) {
+        autoPanStarting = false;
+        autoPans += 1;
+      }
+    });
+
     map.on('moveend', function () {
+      if (autoPans > 0) {
+        autoPans -= 1;
+        return;
+      }
       if (!cfg.updateOnMove || programmatic || !catalogue || !catalogue.state) {
         return;
       }
