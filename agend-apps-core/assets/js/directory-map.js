@@ -6,7 +6,9 @@
  * the query it last asked as params(), reload(), hrefFor() and open()), and
  * dispatches two events on document:
  *  - agend:directory-results after every load, with the query it asked, so
- *    the map fetches the same listings as pins from /directory/markers;
+ *    the map fetches the same listings from /directory/markers, as map
+ *    points (id, name and coordinates) for every pin, and a pin's details
+ *    by its listing id when the visitor opens it;
  *  - agend:directory-view when a List / Map switch changes view, so a map
  *    set to follow the switch shows in place of the results list.
  * With no catalogue on the page the map pins every listing with a location.
@@ -22,6 +24,9 @@
   var FALLBACK_CENTRE = [-25.2744, 133.7751];
   var FALLBACK_ZOOM = 4;
   var MOVE_DEBOUNCE_MS = 400;
+  // With "Group nearby pins" off, the most pins drawn one by one. A plain
+  // layer of more is unreadable and slow to draw, so they are grouped anyway.
+  var UNGROUPED_PIN_LIMIT = 2000;
 
   function restBase() {
     return (window.agendApps && window.agendApps.restUrl) || '/wp-json/agend-apps/v1/';
@@ -119,6 +124,119 @@
 
   function validPoint(lat, lng) {
     return isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  }
+
+  function withParam(query, key, value) {
+    var copy = {};
+    Object.keys(query).forEach(function (name) {
+      copy[name] = query[name];
+    });
+    copy[key] = value;
+    return copy;
+  }
+
+  // The catalogue's question as the map asks it. Paging and ordering mean
+  // nothing to a set of pins, and the map sends no page size of its own, so
+  // the gateway's points cap applies (and a gateway without points mode
+  // answers with its default page of map markers).
+  function markersQuery(params) {
+    var query = {};
+    Object.keys(params || {}).forEach(function (key) {
+      if (key !== 'page' && key !== 'limit' && key !== 'per_page' && key !== 'sortBy' && key !== 'sortOrder') {
+        query[key] = params[key];
+      }
+    });
+    return query;
+  }
+
+  // A map marker always carries its slug and a map point never does. A
+  // gateway without points mode ignores `projection` and answers with map
+  // markers, which already hold everything the pin details show.
+  function isMarkerRow(row) {
+    return !!row && typeof row === 'object' && Object.prototype.hasOwnProperty.call(row, 'slug');
+  }
+
+  // The listing location a pin marks. Both projections return coordinates
+  // at their stored precision, so they compare exactly. Two locations can
+  // share coordinates (two practices at one address), so the location in
+  // the pin's own place in the list wins: both projections list locations
+  // in the same order.
+  function locationAt(marker, lat, lng, index) {
+    var locations = marker && Array.isArray(marker.locations) ? marker.locations : [];
+    function at(location) {
+      return !!location && Number(location.latitude) === lat && Number(location.longitude) === lng;
+    }
+    if (at(locations[index])) {
+      return locations[index];
+    }
+    for (var i = 0; i < locations.length; i += 1) {
+      if (at(locations[i])) {
+        return locations[i];
+      }
+    }
+    return null;
+  }
+
+  function drawsUngrouped(cfg, pinCount) {
+    return !cfg.cluster && pinCount <= UNGROUPED_PIN_LIMIT;
+  }
+
+  // Each listing's map marker for one points response, fetched by id when a
+  // pin is opened and kept for the next open. reset() starts afresh for the
+  // next points response, because whether a listing still matches, and its
+  // distance, depend on the request. fetchMarkers(query) resolves to a
+  // /directory/markers response body.
+  function createPinDetails(fetchMarkers) {
+    var filters = {};
+    var memo = {};
+
+    function markerIn(body, id) {
+      if (!body || !Array.isArray(body.data)) {
+        throw new Error('No markers in the response.');
+      }
+      for (var i = 0; i < body.data.length; i += 1) {
+        if (body.data[i] && body.data[i].id === id) {
+          return body.data[i];
+        }
+      }
+      return null;
+    }
+
+    function request(id) {
+      var held = memo;
+      var entry = {};
+      entry.promise = fetchMarkers(withParam(filters, 'ids', id)).then(function (body) {
+        return markerIn(body, id);
+      }).then(function (marker) {
+        entry.marker = marker;
+        return marker;
+      }, function (error) {
+        // A failed request is not kept, so opening the pin again retries.
+        if (held[id] === entry) {
+          delete held[id];
+        }
+        throw error;
+      });
+      held[id] = entry;
+      return entry.promise;
+    }
+
+    return {
+      reset: function (nextFilters) {
+        filters = nextFilters || {};
+        memo = {};
+      },
+      // The listing's map marker, or null once the response says it no
+      // longer matches; rejects when the request fails.
+      get: function (id) {
+        return memo[id] ? memo[id].promise : request(id);
+      },
+      // What get() would settle to, when it already has: { marker }.
+      peek: function (id) {
+        var entry = memo[id];
+        return entry && Object.prototype.hasOwnProperty.call(entry, 'marker') ? { marker: entry.marker } : null;
+      },
+    };
   }
 
   // The viewport as the `bbox` query value, north,south,east,west. Leaflet
@@ -226,6 +344,13 @@
       body.appendChild(directions);
     }
     box.appendChild(body);
+    return box;
+  }
+
+  // Pin details that are not a listing yet: loading, gone or failed.
+  function popupStatus(message) {
+    var box = el('div', 'agend-map-popup agend-map-popup--status');
+    box.appendChild(el('span', 'agend-map-popup__status', message));
     return box;
   }
 
@@ -549,24 +674,27 @@
       popupAnchor: [0, -32],
     });
 
-    var pins = cfg.cluster && typeof L.markerClusterGroup === 'function'
-      ? L.markerClusterGroup({
-        maxClusterRadius: 80,
-        showCoverageOnHover: false,
-        chunkedLoading: true,
-        iconCreateFunction: function (cluster) {
-          var count = cluster.getChildCount();
-          var size = count < 10 ? 'small' : (count < 100 ? 'medium' : 'large');
-          return L.divIcon({
-            html: '<span>' + count + '</span>',
-            className: 'agend-map-cluster agend-map-cluster--' + size,
-            iconSize: L.point(40, 40),
-          });
-        },
-      })
-      : L.layerGroup();
-    map.addLayer(pins);
+    var canGroup = typeof L.markerClusterGroup === 'function';
+    var GROUP_OPTIONS = {
+      maxClusterRadius: 80,
+      showCoverageOnHover: false,
+      chunkedLoading: true,
+      iconCreateFunction: function (cluster) {
+        var count = cluster.getChildCount();
+        var size = count < 10 ? 'small' : (count < 100 ? 'medium' : 'large');
+        return L.divIcon({
+          html: '<span>' + count + '</span>',
+          className: 'agend-map-cluster agend-map-cluster--' + size,
+          iconSize: L.point(40, 40),
+        });
+      },
+    };
+    var pins = null;
     var searchArea = L.layerGroup().addTo(map);
+    var POPUP_OPTIONS = { className: 'agend-map-popup-wrap', maxWidth: 260, minWidth: 200 };
+    var details = createPinDetails(function (query) {
+      return apiGet('/directory/markers', query);
+    });
 
     var catalogue = null;
     var requestId = 0;
@@ -661,24 +789,89 @@
       return centre.toBounds(radius * 2000);
     }
 
-    function draw(markers, params, refit) {
-      pins.clearLayers();
+    // A map point's pin: its details load when it is opened, and the popup
+    // redraws itself once they have arrived or failed.
+    function bindDetails(pin, id, lat, lng, index) {
+      var failed = false;
+
+      function refresh() {
+        if (pin.isPopupOpen()) {
+          pin.getPopup().update();
+        } else {
+          failed = false;
+        }
+      }
+
+      pin.bindPopup(function () {
+        var held = details.peek(id);
+        if (held) {
+          return held.marker
+            ? popupContent(cfg, catalogue, held.marker, locationAt(held.marker, lat, lng, index) || { latitude: lat, longitude: lng })
+            : popupStatus(cfg.text.detailsGone);
+        }
+        if (failed) {
+          failed = false;
+          var box = popupStatus(cfg.text.detailsFailed + ' ');
+          var again = el('button', 'agend-map__retry', cfg.text.retry || 'Try again');
+          again.type = 'button';
+          again.addEventListener('click', function (e) {
+            // The details are redrawn under this click, so Leaflet could no
+            // longer trace it to the popup and would close it as a click
+            // on the map.
+            e.stopPropagation();
+            refresh();
+          });
+          box.firstChild.appendChild(again);
+          return box;
+        }
+        details.get(id).catch(function () {
+          failed = true;
+        }).then(refresh);
+        return popupStatus(cfg.text.detailsLoading);
+      }, POPUP_OPTIONS);
+    }
+
+    // Each response gets a layer of its own. A group adds tens of thousands
+    // of pins in chunks so the page never stalls, and clearing a group does
+    // not stop a chunked add already under way, so a superseded response
+    // would otherwise go on adding its pins.
+    function showPins(layers) {
+      if (pins) {
+        map.removeLayer(pins);
+      }
+      if (canGroup && !drawsUngrouped(cfg, layers.length)) {
+        pins = L.markerClusterGroup(GROUP_OPTIONS);
+        map.addLayer(pins);
+        pins.addLayers(layers);
+      } else {
+        pins = L.layerGroup(layers).addTo(map);
+      }
+    }
+
+    function draw(rows, params, refit) {
+      var layers = [];
       var points = [];
-      markers.forEach(function (marker) {
-        (Array.isArray(marker.locations) ? marker.locations : []).forEach(function (location) {
+      rows.forEach(function (row) {
+        var full = isMarkerRow(row);
+        (Array.isArray(row.locations) ? row.locations : []).forEach(function (location, index) {
           var lat = Number(location.latitude);
           var lng = Number(location.longitude);
           if (!validPoint(lat, lng)) {
             return;
           }
-          var pin = L.marker([lat, lng], { icon: pinIcon, title: marker.name || '', alt: marker.name || '', keyboard: true, riseOnHover: true });
-          pin.bindPopup(function () {
-            return popupContent(cfg, catalogue, marker, location);
-          }, { className: 'agend-map-popup-wrap', maxWidth: 260, minWidth: 200 });
-          pins.addLayer(pin);
+          var pin = L.marker([lat, lng], { icon: pinIcon, title: row.name || '', alt: row.name || '', keyboard: true, riseOnHover: true });
+          if (full) {
+            pin.bindPopup(function () {
+              return popupContent(cfg, catalogue, row, location);
+            }, POPUP_OPTIONS);
+          } else {
+            bindDetails(pin, row.id, lat, lng, index);
+          }
+          layers.push(pin);
           points.push([lat, lng]);
         });
       });
+      showPins(layers);
 
       var area = drawSearchArea(params);
       if (!refit) {
@@ -717,16 +910,10 @@
     function load(params, refit, attempt) {
       lastLoad = { params: params, refit: refit };
       attempt = attempt || 0;
-      var query = {};
-      Object.keys(params || {}).forEach(function (key) {
-        if (key !== 'page' && key !== 'limit' && key !== 'per_page' && key !== 'sortBy' && key !== 'sortOrder') {
-          query[key] = params[key];
-        }
-      });
-      query.limit = cfg.limit;
+      var filters = markersQuery(params);
       var id = ++requestId;
       root.setAttribute('aria-busy', 'true');
-      apiGet('/directory/markers', query).then(function (body) {
+      apiGet('/directory/markers', withParam(filters, 'projection', 'points')).then(function (body) {
         if (id !== requestId) {
           return;
         }
@@ -744,7 +931,8 @@
         } else {
           say('');
         }
-        draw(body.data, query, refit);
+        details.reset(filters);
+        draw(body.data, filters, refit);
       }).catch(function () {
         if (id !== requestId) {
           return;

@@ -61,10 +61,11 @@ function agend_apps_records_schema_directory_map(): array {
 						'description' => __( 'Hides the map until a visitor picks Map on the catalogue\'s List / Map switch, and hides the results list while it shows. Place the map just below the catalogue. Leave off to show the map beside or below the list all the time.', 'agend-apps-core' ),
 					),
 					array(
-						'name'    => 'cluster',
-						'label'   => __( 'Group nearby pins', 'agend-apps-core' ),
-						'type'    => 'toggle',
-						'default' => true,
+						'name'        => 'cluster',
+						'label'       => __( 'Group nearby pins', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'Pins that would overlap are grouped into a numbered circle. A map with more than 2,000 pins always groups them.', 'agend-apps-core' ),
 					),
 					array(
 						'name'        => 'update_on_move',

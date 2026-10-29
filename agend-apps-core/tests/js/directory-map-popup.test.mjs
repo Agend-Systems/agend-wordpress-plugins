@@ -58,12 +58,18 @@ class FakeNode {
   }
 }
 
-const helpers = ['el', 'formatDistance', 'safeUrl', 'validPoint', 'addressOf', 'detailHref', 'directionsHref', 'popupContent']
+const helpers = ['el', 'formatDistance', 'safeUrl', 'validPoint', 'addressOf', 'detailHref', 'directionsHref', 'popupContent', 'locationAt']
   .map((name) => cutFunction(script, name))
   .join('\n');
-const popupContent = new Function('document', `${helpers}\nreturn popupContent;`)({
+const { popupContent, locationAt } = new Function('document', `${helpers}\nreturn { popupContent, locationAt };`)({
   createElement: (tag) => new FakeNode(tag),
 });
+
+// The details an opened map point's pin shows, as directory-map.js builds
+// them: the location at the pin's coordinates, or the pin alone.
+function pinDetails(config, listing, lat, lng, index = 0) {
+  return popupContent(config, null, listing, locationAt(listing, lat, lng, index) || { latitude: lat, longitude: lng });
+}
 
 function cfg(popup) {
   return {
@@ -103,4 +109,32 @@ test('should leave the pin details unchanged when the control is off', () => {
 
   assert.equal(off.find('agend-map-popup__location-name'), null);
   assert.deepEqual(off, unset);
+});
+
+test('should show the address and location name of the location at the opened pin when details load on open', () => {
+  const office = { name: 'Harbour Office', address_line_1: '1 Quay St', city: 'Sydney', state: 'NSW', latitude: -33.86, longitude: 151.2 };
+  const clinic = { name: 'Bay Clinic', address_line_1: '9 Bay Rd', city: 'Melbourne', state: 'VIC', latitude: -37.81, longitude: 144.96 };
+  const listing = { ...marker, locations: [office, clinic] };
+
+  const box = pinDetails(cfg({ locationName: true }), listing, -37.81, 144.96, 1);
+
+  assert.equal(box.find('agend-map-popup__location-name')?.text, 'Bay Clinic');
+  assert.equal(box.find('agend-map-popup__address')?.text, '9 Bay Rd, Melbourne VIC');
+});
+
+test('should show the listing with no address or location name when no location is at the opened pin', () => {
+  const listing = { ...marker, locations: [namedLocation] };
+
+  const box = pinDetails(cfg({ locationName: true }), listing, -34.0, 151.0);
+
+  assert.equal(box.find('agend-map-popup__title')?.text, 'Sample Listing');
+  assert.equal(box.find('agend-map-popup__location-name'), null);
+  assert.equal(box.find('agend-map-popup__address'), null);
+});
+
+test('should show the same details whether they came with the pins or were loaded on open', () => {
+  const listing = { ...marker, locations: [namedLocation] };
+  const config = cfg({ locationName: true });
+
+  assert.deepEqual(pinDetails(config, listing, -33.86, 151.2), popupContent(config, null, listing, namedLocation));
 });

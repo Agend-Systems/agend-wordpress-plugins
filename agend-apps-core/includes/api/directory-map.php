@@ -52,17 +52,23 @@ function agend_apps_directory_round_coordinates( array $query ): array {
 }
 
 /**
- * Retrieves the directory listings matching a search as map markers.
+ * Retrieves the directory listings matching a search as map markers, or as
+ * map points.
  *
  * Takes the same filters as agend_apps_directory_search() and returns one
  * slim row per listing with every geocoded location, up to `limit` (the
- * gateway's own default is 500, its maximum 2000). `meta.truncated` says
+ * gateway's own default is 500, its maximum 2000). With `projection` set to
+ * `points` each row carries only the listing's id, name and coordinates, and
+ * the default and maximum `limit` are both the gateway's points cap of
+ * 20,000. `ids` narrows either to the named listings. `meta.truncated` says
  * whether more matched than were returned. Listings with no map location are
  * never included.
  *
  * @param string $search_query The search term.
- * @param array  $filters      Optional. The search filters, plus `limit` and
- *                             `bbox` (north,south,east,west). Default empty.
+ * @param array  $filters      Optional. The search filters, plus `limit`,
+ *                             `bbox` (north,south,east,west), `projection`
+ *                             (points or markers) and `ids` (comma-separated
+ *                             listing ids). Default empty.
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
 function agend_apps_directory_get_markers( string $search_query, array $filters = array() ) {

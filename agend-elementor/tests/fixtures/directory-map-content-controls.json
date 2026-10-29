@@ -66,7 +66,8 @@
                     "args": {
                         "label": "Group nearby pins",
                         "type": "switcher",
-                        "default": "yes"
+                        "default": "yes",
+                        "description": "Pins that would overlap are grouped into a numbered circle. A map with more than 2,000 pins always groups them."
                     }
                 },
                 {

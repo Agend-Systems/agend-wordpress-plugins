@@ -526,7 +526,7 @@ final class DirectoryMapTest extends TestCase {
 		$this->assertTrue( $config['cluster'] );
 		$this->assertFalse( $config['updateOnMove'] );
 		$this->assertFalse( $config['scrollZoom'], 'the page should scroll past a map by default' );
-		$this->assertSame( 500, $config['limit'] );
+		$this->assertArrayNotHasKey( 'limit', $config, 'the map sends no page size, so the gateway points cap applies' );
 		$this->assertSame( 'View details', $config['popup']['linkText'] );
 		$this->assertTrue( $config['fullscreen'] );
 		$this->assertTrue( $config['locate'] );
@@ -585,9 +585,35 @@ final class DirectoryMapTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_only_accept_a_marker_limit_the_gateway_allows(): void {
-		$this->assertSame( 2000, agend_apps_records_directory_map_build_config( array( 'marker_limit' => '2000' ) )['limit'] );
-		$this->assertSame( 500, agend_apps_records_directory_map_build_config( array( 'marker_limit' => '50000' ) )['limit'] );
+	public function should_ask_the_visitor_to_filter_when_more_listings_match_than_the_map_holds_and_it_does_not_follow_the_view(): void {
+		$config = agend_apps_records_directory_map_build_config( array( 'update_on_move' => '' ) );
+
+		$this->assertSame( 'Showing the first {shown} of {total} listings. Filter to see the rest.', $config['text']['truncated'] );
+	}
+
+	#[Test]
+	public function should_ask_the_visitor_to_zoom_in_or_filter_when_more_listings_match_and_the_map_follows_the_view(): void {
+		$config = agend_apps_records_directory_map_build_config( array( 'update_on_move' => 'yes' ) );
+
+		$this->assertSame( 'Showing the first {shown} of {total} listings. Zoom in or filter to see the rest.', $config['text']['truncated'] );
+	}
+
+	#[Test]
+	public function should_carry_the_pin_details_states_when_details_load_on_open(): void {
+		$text = agend_apps_records_directory_map_build_config( array() )['text'];
+
+		$this->assertSame( 'These details are no longer available.', $text['detailsGone'] );
+		$this->assertSame( 'Details could not be loaded.', $text['detailsFailed'] );
+		$this->assertSame( 'Try again', $text['retry'] );
+		$this->assertNotSame( '', $text['detailsLoading'] );
+	}
+
+	#[Test]
+	public function should_explain_that_a_map_of_more_than_two_thousand_pins_always_groups_them(): void {
+		$this->assertSame(
+			'Pins that would overlap are grouped into a numbered circle. A map with more than 2,000 pins always groups them.',
+			$this->schema_field( 'cluster' )['description']
+		);
 	}
 
 	#[Test]
@@ -642,5 +668,19 @@ final class DirectoryMapTest extends TestCase {
 		foreach ( array( 'height', 'follow_view', 'update_on_move', 'marker_limit', 'popup_link_text', 'pin_colour', 'fullscreen_button', 'locate_button', 'popup_directions', 'popup_directions_text' ) as $name ) {
 			$this->assertContains( $name, $names );
 		}
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	private function schema_field( string $name ): array {
+		foreach ( agend_apps_records_surface_schema( 'directory-map' )['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				if ( ( $field['name'] ?? '' ) === $name ) {
+					return $field;
+				}
+			}
+		}
+		$this->fail( "No {$name} field in the map schema." );
 	}
 }
