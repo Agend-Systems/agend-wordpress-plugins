@@ -119,6 +119,7 @@ function agend_apps_records_directory_map_height( $value, int $fallback ): int {
  * @return array Config passed to the map script as JSON.
  */
 function agend_apps_records_directory_map_build_config( array $s ): array {
+	$preload   = (string) ( $s['marker_limit'] ?? '500' );
 	$empty     = trim( (string) ( $s['empty_text'] ?? '' ) );
 	$link      = trim( (string) ( $s['popup_link_text'] ?? '' ) );
 	$route     = trim( (string) ( $s['popup_directions_text'] ?? '' ) );
@@ -137,6 +138,9 @@ function agend_apps_records_directory_map_build_config( array $s ): array {
 		'showRadius'   => 'yes' === ( $s['show_radius'] ?? 'yes' ),
 		'fullscreen'   => 'yes' === ( $s['fullscreen_button'] ?? 'yes' ),
 		'locate'       => 'yes' === ( $s['locate_button'] ?? 'yes' ),
+		// The preload threshold, stored as `marker_limit` from when it was a
+		// pin limit; it never limits how many pins are drawn.
+		'preload'      => array_key_exists( $preload, agend_apps_records_directory_map_preload_options() ) ? (int) $preload : 500,
 		'emptyText'    => '' !== $empty ? $empty : __( 'No listings with a map location match these filters.', 'agend-apps-core' ),
 		'popup'        => array(
 			'logo'           => 'yes' === ( $s['popup_logo'] ?? 'yes' ),

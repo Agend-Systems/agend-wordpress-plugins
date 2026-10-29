@@ -35,11 +35,11 @@ function cutVar(source, name) {
   return line[0];
 }
 
-const { markersQuery, isMarkerRow, locationAt, drawsUngrouped, createPinDetails } = new Function(
+const { markersQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails } = new Function(
   [
     cutVar(script, 'UNGROUPED_PIN_LIMIT'),
-    ...['withParam', 'markersQuery', 'isMarkerRow', 'locationAt', 'drawsUngrouped', 'createPinDetails'].map((name) => cutFunction(script, name)),
-    'return { markersQuery, isMarkerRow, locationAt, drawsUngrouped, createPinDetails };',
+    ...['withParam', 'markersQuery', 'isMarkerRow', 'locationAt', 'drawsUngrouped', 'preloads', 'createPinDetails'].map((name) => cutFunction(script, name)),
+    'return { markersQuery, isMarkerRow, locationAt, drawsUngrouped, preloads, createPinDetails };',
   ].join('\n'),
 )();
 
@@ -225,4 +225,133 @@ test('should keep a superseded response out of the details for the next points r
 
   assert.equal(details.peek(LISTING), null);
   assert.equal((await details.get(LISTING)).distance_km, 9);
+});
+
+// A fetchMarkers stand-in whose first answer is held until release() is
+// called, so a test can open pins while a preload is in flight.
+function heldGateway(first, ...rest) {
+  let release;
+  const held = new Promise((resolve, reject) => {
+    release = () => (first instanceof Error ? reject(first) : resolve(first));
+  });
+  const queries = [];
+  const fetchMarkers = (query) => {
+    queries.push(query);
+    if (queries.length === 1) return held;
+    const answer = rest.length ? rest.shift() : { data: [] };
+    return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
+  };
+  return { queries, fetchMarkers, release };
+}
+
+test('should preload when the points total equals the threshold', () => {
+  assert.equal(preloads(500, 500), true);
+  assert.equal(preloads(1, 250), true);
+});
+
+test('should not preload when the points total is one over the threshold', () => {
+  assert.equal(preloads(501, 500), false);
+});
+
+test('should not preload when nothing matches', () => {
+  assert.equal(preloads(0, 500), false);
+  assert.equal(preloads(undefined, 500), false);
+});
+
+test('should preload in the default projection with the points filters and the threshold as the page size', () => {
+  const { queries, fetchMarkers } = gateway({ data: [] });
+  const details = createPinDetails(fetchMarkers);
+  details.reset({ q: 'physio', bbox: '1,0,1,0' });
+
+  details.preload(500);
+
+  assert.deepEqual(queries, [{ q: 'physio', bbox: '1,0,1,0', limit: 500 }]);
+});
+
+test('should show a preloaded listing with no further request when its pin is opened', async () => {
+  const { queries, fetchMarkers, release } = heldGateway({ data: [marker(LISTING), marker(OTHER)] });
+  const details = createPinDetails(fetchMarkers);
+  details.reset({});
+  details.preload(500);
+  release();
+
+  const found = await details.get(OTHER);
+
+  assert.equal(found.id, OTHER);
+  assert.equal(details.peek(LISTING).marker.id, LISTING);
+  assert.equal(queries.length, 1);
+});
+
+test('should wait for the preload and show its details when a pin is opened while it is in flight', async () => {
+  const { queries, fetchMarkers, release } = heldGateway({ data: [marker(LISTING)] });
+  const details = createPinDetails(fetchMarkers);
+  details.reset({});
+  details.preload(500);
+
+  const opened = details.get(LISTING);
+  assert.equal(details.peek(LISTING), null, 'the pin shows its loading state meanwhile');
+  release();
+
+  assert.equal((await opened).id, LISTING);
+  assert.equal(queries.length, 1);
+});
+
+test('should load a listing on open when the preload does not hold it', async () => {
+  const { queries, fetchMarkers, release } = heldGateway({ data: [marker(OTHER)] }, { data: [marker(LISTING)] });
+  const details = createPinDetails(fetchMarkers);
+  details.reset({ q: 'physio' });
+  details.preload(500);
+
+  const opened = details.get(LISTING);
+  release();
+
+  assert.equal((await opened).id, LISTING);
+  assert.deepEqual(queries[1], { q: 'physio', ids: LISTING });
+});
+
+test('should load each pin on open with no error when the preload fails', async () => {
+  const { queries, fetchMarkers, release } = heldGateway(new Error('offline'), { data: [marker(LISTING)] });
+  const details = createPinDetails(fetchMarkers);
+  details.reset({});
+  details.preload(500);
+
+  const opened = details.get(LISTING);
+  release();
+
+  assert.equal((await opened).id, LISTING);
+  assert.deepEqual(queries[1], { ids: LISTING });
+});
+
+test('should show the same details from the preload as from a request on open', async () => {
+  const listing = marker(LISTING, { distance_km: 3.2, locations: [{ name: 'Office', latitude: -33.86, longitude: 151.2 }] });
+  const preloaded = createPinDetails(gateway({ data: [listing] }).fetchMarkers);
+  const onOpen = createPinDetails(gateway({ data: [listing] }).fetchMarkers);
+  preloaded.reset({});
+  onOpen.reset({});
+  preloaded.preload(500);
+
+  assert.deepEqual(await preloaded.get(LISTING), await onOpen.get(LISTING));
+});
+
+test('should keep a superseded preload out of the details for the next points response', async () => {
+  const { fetchMarkers, release } = heldGateway({ data: [marker(LISTING, { distance_km: 4 })] }, { data: [marker(LISTING, { distance_km: 9 })] });
+  const details = createPinDetails(fetchMarkers);
+  details.reset({ q: 'old' });
+  details.preload(500);
+
+  details.reset({ q: 'new' });
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(details.peek(LISTING), null);
+  assert.equal((await details.get(LISTING)).distance_km, 9);
+});
+
+test('should preload only after drawing a points response at or under the threshold', () => {
+  const load = cutFunction(script, 'load');
+  const drawAt = load.indexOf('draw(body.data');
+  const preloadAt = load.indexOf('details.preload(cfg.preload)');
+
+  assert.ok(drawAt > -1 && preloadAt > drawAt, 'the preload starts after the pins are drawn');
+  assert.match(load, /!isMarkerRow\(body\.data\[0\]\) && preloads\(total, cfg\.preload\)/);
 });

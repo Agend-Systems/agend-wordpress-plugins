@@ -974,12 +974,26 @@ surface (`directory-map`, an Elementor widget and a block) are described for
 authors in the Agend Elementor README. The pieces here:
 
 - **Proxy routes**: `GET /agend-apps/v1/directory/markers` (the search filters
-  plus `limit` up to 2000 and `bbox`), `/directory/geocode?q=` and
-  `/directory/map-settings`, wrapping the gateway endpoints of the same names
-  in `includes/api/directory-map.php`. `/directory/search` also accepts `bbox`.
-  Gateway statuses pass through (403 without the geocoding feature, 404 for
-  no match, 503 while the geocoder is down), so the browser can tell them
-  apart.
+  plus `limit` up to 2000, `bbox`, `projection` and `ids`),
+  `/directory/geocode?q=` and `/directory/map-settings`, wrapping the gateway
+  endpoints of the same names in `includes/api/directory-map.php`.
+  `/directory/search` also accepts `bbox`. `projection` is forwarded only as
+  `points` or `markers`, and `ids` only as 1 to 100 comma-separated UUIDs;
+  any other value of either is dropped. Gateway statuses pass through (403
+  without the geocoding feature, 404 for no match, 503 while the geocoder is
+  down), so the browser can tell them apart.
+- **Points first**: the map asks for `projection=points` (each listing's id,
+  name and coordinates) with no `limit`, so the gateway's points cap of
+  20,000 applies, and draws every pin. A pin's details are the listing's map
+  marker, requested with `ids` and the same filters when the pin is opened and
+  kept until the next points response. When the points `total` is at or under
+  the "Preload pin details for up to" setting (stored as `marker_limit`), one
+  request with `limit` set to that threshold preloads every pin's details
+  after the pins are drawn; a pin missing from it, or a failed preload, falls
+  back to loading on open. A gateway that ignores `projection` answers with
+  map markers, which the map draws with their details as before. With "Group
+  nearby pins" off, more than 2,000 pins (`UNGROUPED_PIN_LIMIT`) are grouped
+  anyway.
 - **Coordinate rounding**: `agend_apps_directory_round_coordinates()` rounds
   `lat`/`lng` to 3 decimals (about 110 m), `radius` to 1 and `bbox` edges to 4
   before a search or markers request, so near-identical searches share one

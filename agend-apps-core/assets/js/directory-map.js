@@ -181,14 +181,23 @@
     return !cfg.cluster && pinCount <= UNGROUPED_PIN_LIMIT;
   }
 
+  // The preload threshold ("Preload pin details for up to"): at or under
+  // it, every matching listing's details load with the map.
+  function preloads(total, threshold) {
+    return typeof total === 'number' && total > 0 && total <= threshold;
+  }
+
   // Each listing's map marker for one points response, fetched by id when a
-  // pin is opened and kept for the next open. reset() starts afresh for the
-  // next points response, because whether a listing still matches, and its
-  // distance, depend on the request. fetchMarkers(query) resolves to a
-  // /directory/markers response body.
+  // pin is opened and kept for the next open, or held from one preload of
+  // every match. reset() starts afresh for the next points response, because
+  // whether a listing still matches, and its distance, depend on the
+  // request. fetchMarkers(query) resolves to a /directory/markers response
+  // body.
   function createPinDetails(fetchMarkers) {
     var filters = {};
     var memo = {};
+    // The preload in flight, if any; a pin opened meanwhile waits for it.
+    var preloading = null;
 
     function markerIn(body, id) {
       if (!body || !Array.isArray(body.data)) {
@@ -221,16 +230,48 @@
       return entry.promise;
     }
 
+    function get(id) {
+      if (memo[id]) {
+        return memo[id].promise;
+      }
+      if (preloading) {
+        // A listing the preload did not hold, or a failed preload, falls
+        // back to its own request.
+        return preloading.then(function () {
+          return get(id);
+        });
+      }
+      return request(id);
+    }
+
     return {
       reset: function (nextFilters) {
         filters = nextFilters || {};
         memo = {};
+        preloading = null;
+      },
+      // One request for every matching listing's map marker, up to limit.
+      // A failure is silent: each pin then loads its own details.
+      preload: function (limit) {
+        var held = memo;
+        var settled = fetchMarkers(withParam(filters, 'limit', limit)).then(function (body) {
+          if (body && Array.isArray(body.data)) {
+            body.data.forEach(function (row) {
+              if (row && typeof row.id === 'string' && !held[row.id]) {
+                held[row.id] = { promise: Promise.resolve(row), marker: row };
+              }
+            });
+          }
+        }).catch(function () {}).then(function () {
+          if (preloading === settled) {
+            preloading = null;
+          }
+        });
+        preloading = settled;
       },
       // The listing's map marker, or null once the response says it no
       // longer matches; rejects when the request fails.
-      get: function (id) {
-        return memo[id] ? memo[id].promise : request(id);
-      },
+      get: get,
       // What get() would settle to, when it already has: { marker }.
       peek: function (id) {
         var entry = memo[id];
@@ -933,6 +974,12 @@
         }
         details.reset(filters);
         draw(body.data, filters, refit);
+        // Only once the pins are drawn, so the first pins never wait on it.
+        // Map markers from a gateway without points mode already hold
+        // their details.
+        if (body.data.length && !isMarkerRow(body.data[0]) && preloads(total, cfg.preload)) {
+          details.preload(cfg.preload);
+        }
       }).catch(function () {
         if (id !== requestId) {
           return;

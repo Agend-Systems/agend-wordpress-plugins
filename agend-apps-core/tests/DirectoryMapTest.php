@@ -527,6 +527,7 @@ final class DirectoryMapTest extends TestCase {
 		$this->assertFalse( $config['updateOnMove'] );
 		$this->assertFalse( $config['scrollZoom'], 'the page should scroll past a map by default' );
 		$this->assertArrayNotHasKey( 'limit', $config, 'the map sends no page size, so the gateway points cap applies' );
+		$this->assertSame( 500, $config['preload'] );
 		$this->assertSame( 'View details', $config['popup']['linkText'] );
 		$this->assertTrue( $config['fullscreen'] );
 		$this->assertTrue( $config['locate'] );
@@ -606,6 +607,39 @@ final class DirectoryMapTest extends TestCase {
 		$this->assertSame( 'Details could not be loaded.', $text['detailsFailed'] );
 		$this->assertSame( 'Try again', $text['retry'] );
 		$this->assertNotSame( '', $text['detailsLoading'] );
+	}
+
+	#[Test]
+	public function should_use_a_saved_most_pins_value_as_the_preload_threshold(): void {
+		foreach ( array( 250, 500, 1000, 2000 ) as $saved ) {
+			$this->assertSame( $saved, agend_apps_records_directory_map_build_config( array( 'marker_limit' => (string) $saved ) )['preload'] );
+		}
+	}
+
+	#[Test]
+	public function should_fall_back_to_a_preload_threshold_of_five_hundred_when_the_saved_value_is_not_offered(): void {
+		$this->assertSame( 500, agend_apps_records_directory_map_build_config( array( 'marker_limit' => '50000' ) )['preload'] );
+	}
+
+	#[Test]
+	public function should_offer_the_preload_threshold_under_its_own_label_with_the_stored_values_unchanged(): void {
+		$field = $this->schema_field( 'marker_limit' );
+
+		$this->assertSame( 'Preload pin details for up to', $field['label'] );
+		$this->assertSame( '500', $field['default'] );
+		$this->assertSame(
+			array(
+				'250'  => '250 listings',
+				'500'  => '500 listings',
+				'1000' => '1,000 listings',
+				'2000' => '2,000 listings',
+			),
+			call_user_func( $field['options'] )
+		);
+		$this->assertSame(
+			'When this many listings match or fewer, every pin\'s details load with the map, so opening a pin is instant. When more match, a pin\'s details load when it is opened. The map always shows every matching listing.',
+			$field['description']
+		);
 	}
 
 	#[Test]
