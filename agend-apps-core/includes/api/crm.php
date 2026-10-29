@@ -406,11 +406,19 @@ function agend_apps_crm_verify_team_invitation( string $token ) {
  * getting a different answer from the rest of the platform.
  *
  * Never cached: standing changes the moment a membership lapses or a seat is
- * revoked, and the answer is specific to the caller.
+ * revoked, and the answer is specific to the caller. Core itself keeps that
+ * true. A consumer (Agend Content Access) may cache the answer per member under
+ * the `crm_me_entitlements` TTL, provided it clears that entry when an Agend
+ * webhook reports a change.
+ *
+ * `data.capabilities[]` carries the member's entitlements: each entry has the
+ * entitlement `gate_key`, its `name`, `granted_via` (`tier` and/or `direct`),
+ * and `quantity_allowed` and `quantity_remaining` (each an integer or null).
  *
  * Scope: `crm.memberships.browse`. Requires a member bearer token.
  *
- * @return array|WP_Error Decoded response with `tier_ids` and `is_member`, or WP_Error on failure.
+ * @return array|WP_Error Decoded response with `data.tier_ids`, `data.is_member`
+ *                        and `data.capabilities[]` (entitlement `gate_key`s), or WP_Error on failure.
  */
 function agend_apps_crm_get_my_entitlements() {
 	/**
@@ -2682,6 +2690,55 @@ function agend_apps_crm_get_my_segments() {
 	 * @param array $response Decoded response body.
 	 */
 	return apply_filters( 'agend_apps_crm_get_my_segments_response', $response );
+}
+
+/**
+ * Lists the account's entitlement types: every active benefit that has a
+ * `gate_key`, which is what content can be restricted by.
+ *
+ * An administrator-catalogue read, authorised by the API key alone. It needs no
+ * member bearer and says nothing about which members hold a type. The whole
+ * catalogue comes back in one response with no pagination.
+ *
+ * Scope: `crm.entitlements.browse`.
+ *
+ * Not cached here: a caller that fills an editor picker from it caches the
+ * vocabulary itself, as it does for segments.
+ *
+ * @param array $query Optional. Query parameters. `search` narrows by a
+ *                     case-insensitive substring of the type name or its
+ *                     `gate_key` (at most 200 characters). Default empty.
+ * @return array|WP_Error Decoded response (`data[]` of `id`, `gate_key`, `name`,
+ *                        `description`, `managed_by_source_id`, and `kind`:
+ *                        `platform-gate`, `entitlement` or `unrecognised`)
+ *                        on success, or WP_Error on failure.
+ */
+function agend_apps_crm_get_entitlement_types( array $query = array() ) {
+	/**
+	 * Filters the get-entitlement-types request args before the request is sent.
+	 *
+	 * @param array $args  Request args.
+	 * @param array $query Original query parameters.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_crm_get_entitlement_types_args',
+		array( 'query' => $query ),
+		$query
+	);
+
+	$response = agend_apps_api()->request( 'GET', '/crm/entitlements/types', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded get-entitlement-types response before it is returned.
+	 *
+	 * @param array $response Decoded response body.
+	 * @param array $query    Original query parameters.
+	 */
+	return apply_filters( 'agend_apps_crm_get_entitlement_types_response', $response, $query );
 }
 
 /**
