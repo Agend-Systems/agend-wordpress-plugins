@@ -977,8 +977,10 @@ authors in the Agend Elementor README. The pieces here:
 - **Tiles**: `agend_apps_records_directory_map_tiles()` uses CARTO's light
   basemap with the key in the `agend_apps_map_carto_key` option (Settings >
   Agend Widgets > Maps), double-resolution (`{r}`) on a high-density screen,
-  otherwise OpenStreetMap's own tiles. The
-  `agend_apps_records_directory_map_tiles` filter swaps in another provider.
+  otherwise OpenStreetMap's own tiles. Both zoom to 19, but CARTO serves
+  keyed tiles only to zoom 18 (`maxNativeZoom`), so at 19 the map enlarges
+  zoom 18 tiles. The `agend_apps_records_directory_map_tiles` filter swaps
+  in another provider; its `maxNativeZoom` defaults to its `maxZoom`.
   OpenStreetMap's tile servers are for light use only, so a live site needs
   a CARTO key.
 - **Attribution**: the map drops Leaflet's own credit (and its flag) and
@@ -1225,6 +1227,41 @@ capability, modelled on the equivalent link plugin-update-checker adds.
 Clicking it flushes both caches, forces `wp_update_plugins()`, and redirects
 back to the Plugins screen with a dismissible "Checked for Agend plugin
 updates." notice.
+
+### Theme updates
+
+The same class serves the Agend themes. The Agend Base theme lives in its own
+repository (`Agend-Systems/agend-base-theme`), which publishes a second
+manifest at `https://agend-systems.github.io/agend-base-theme/manifest.json`
+with a top-level `themes` map. The theme's `style.css` declares
+`Update URI: https://agend-systems.github.io/agend-base-theme/agend-base`, and
+Core registers `update_themes_agend-systems.github.io` to answer it. Every site
+that runs an Agend theme also runs Core, so the theme carries no updater of
+its own.
+
+The theme manifest is cached separately, in the
+`agend_apps_theme_update_manifest` site transient, with the same TTLs, and is
+flushed when WordPress deletes its `update_themes` site transient ("Check
+again" on Dashboard > Updates) or via `Agend_Apps_Updater::flush_theme_cache()`.
+
+**Theme updates are offered, not installed.** The site shows "New version
+available" for an Agend theme on the Themes screen and Dashboard > Updates, and
+an admin clicks "Update now". Agend themes get no special auto-update
+treatment: WordPress's own per-theme auto-update setting, and the host's
+(Kinsta's "Automatic updates"), decide as they would for any theme. The theme
+filter answers even when the installed theme is current (WordPress compares
+the versions), so WordPress knows the theme is managed. The Plugins screen's
+"Check for updates" link under any Agend plugin refreshes the Agend themes as
+well, so a new release shows up straight away instead of after the 12-hour
+cache.
+
+- `agend_apps_theme_update_manifest_url` — override the theme manifest URL.
+
+Agend Apps Core 1.46.0 briefly shipped a job that installed theme releases
+itself (daily, and after a plugin update or "Check for updates"). It was
+withdrawn in 1.47.0; on `init`, `Agend_Apps_Updater::clear_retired_theme_self_update()`
+removes the `agend_apps_theme_self_update` and `agend_apps_theme_self_update_now`
+cron events and the options that job left on sites that ran 1.46.0.
 
 
 ## Endpoint scope guard

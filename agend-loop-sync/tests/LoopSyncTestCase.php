@@ -37,6 +37,10 @@ abstract class LoopSyncTestCase extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Loop_Sync_Test_State::reset();
+
+		// The shared `get_users()` stub reads from this suite's user registry
+		// while one of its tests runs. The base TestCase clears the hook again.
+		$GLOBALS['agend_test_get_users'] = 'loop_sync_test_get_users';
 		Agend_Loop_Sync_Contact_Resolver::flush_cache();
 		\Agend_Loop_Sync_User_Sync::reset_request_state();
 

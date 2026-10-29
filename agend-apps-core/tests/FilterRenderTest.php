@@ -339,6 +339,35 @@ final class FilterRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_draw_a_disabled_share_button_without_a_label_when_the_share_filter_renders_live(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+		$settings = array( 'filter' => 'listing:share' );
+		$config   = agend_apps_records_filter_config( 'listing', 'share', $settings );
+
+		self::assertSame(
+			'<div class="agend-filter agend-filter--share agend-filter--share" data-agend-filter="' . esc_attr( (string) wp_json_encode( $config ) ) . '">'
+				. '<div class="agend-filter__control"><button type="button" class="agend-filter__button agend-filter__share agend-filter__placeholder" disabled>Share this search</button></div>'
+				. '</div>',
+			agend_apps_records_render_filter( $settings )
+		);
+	}
+
+	#[Test]
+	public function should_draw_the_authors_button_text_as_text_when_it_is_set(): void {
+		Agend_Apps_Records_Filter_Context::set( 'listing' );
+
+		self::assertStringContainsString( '>Send &lt;this&gt; search</button>', agend_apps_records_render_filter( array( 'filter' => 'listing:share', 'share_button_text' => 'Send <this> search' ) ) );
+	}
+
+	#[Test]
+	public function should_say_where_the_share_control_shows_when_it_is_previewed_in_an_editor(): void {
+		$html = agend_apps_records_render_filter( array( 'filter' => 'listing:share' ), array( 'preview' => true ) );
+
+		self::assertStringContainsString( '<button type="button" class="agend-filter__button agend-filter__share">Share this search</button>', $html );
+		self::assertStringContainsString( '<p class="agend-filter__notice" role="note">' . esc_html__( "Shares this page's directory search. Hidden on a page with more than one directory catalogue.", 'agend-apps-core' ) . '</p>', $html );
+	}
+
+	#[Test]
 	public function should_match_the_core_renderer_preview_when_the_editor_is_open(): void {
 		\Elementor\Plugin::$instance->editor->is_edit_mode = true;
 

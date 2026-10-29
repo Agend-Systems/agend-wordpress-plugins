@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-content-access
  * Description:       Restricts WordPress content to Agend members and membership plans. Agend authorises every protected response; WordPress only declares the intended audience.
- * Version:           0.1.0
+ * Version:           0.2.1
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-content-access
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_CONTENT_ACCESS_VERSION', '0.1.0' );
+define( 'AGEND_CONTENT_ACCESS_VERSION', '0.2.1' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -72,16 +72,78 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-assets.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-catalogue.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-policy.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-fragment-rules.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-attributes.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-viewer-facts.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-webhooks.php';
+
+	// The one rule list and the one evaluator, with the condition engine and the
+	// providers it runs on: every decision this plugin makes goes through them, so
+	// they are loaded before anything that decides.
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-conditions.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-providers.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-runtime.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-rules.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-decision.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-access.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-meta-box.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-page-rules.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-frontend.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-comments.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-seo.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-placeholder.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-destination.php';
+
+	// Loaded whether or not Elementor is. The class declares nothing that needs
+	// Elementor and is only INSTANTIATED when it is present (see
+	// `agend_content_access_bootstrap_elementor()`), but the document rules check
+	// reads a stored Elementor document with its static `subtree_carries_rules()`,
+	// and a site that deactivated Elementor still has those documents.
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-elementor.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-blocks.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-credentials.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-exporter.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/interface-agend-content-access-document-parser.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-elementor-parser.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-parser.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-editor.php';
 
 	// Gating is registered on EVERY request, admin included: the REST filters
 	// hang off it and a REST call never reaches template_redirect.
 	new Agend_Content_Access_Frontend();
+
+	// The comments of a restricted page: closed on a page the visitor is denied, and
+	// kept out of every comment query and the REST comments route. Also on every
+	// request, because a REST request never reaches template_redirect.
+	new Agend_Content_Access_Comments();
+
+	// What the SEO plugins print in the head of a page the reader is denied: its
+	// description is the teaser, not the opening of the body. Also on every request,
+	// because a plugin's head can be asked for outside template_redirect.
+	new Agend_Content_Access_Seo();
+
+	// The placeholder a denied page shows, its `[agend_access_message]` shortcode
+	// and its block pattern. On every request: the shortcode runs wherever content
+	// does and the editor, which is a REST request, needs the pattern.
+	Agend_Content_Access_Placeholder::init();
+
+	// Webhook invalidation, on EVERY request for the same reason: a delivery from
+	// Agend is a REST request, so nothing here may wait for `is_admin()`.
+	Agend_Content_Access_Webhooks::init();
+
+	// Block editor enforcement, on every request for the same reason: a REST
+	// request renders blocks and never reaches template_redirect.
+	new Agend_Content_Access_Blocks();
+
+	// The block editor's `agendAccess` attribute and its panel. Also on every
+	// request: the block renderer is a REST request, and it rejects an
+	// attribute the block type does not declare.
+	new Agend_Content_Access_Block_Editor();
+
+	// A page's rules: the meta, and the REST field the block editor's page panel
+	// saves through. Also on every request, because a REST request is not
+	// `is_admin()` and the block editor saves through one.
+	new Agend_Content_Access_Page_Rules();
 
 	// Fragment policies, only when Elementor is present.
 	//
@@ -98,10 +160,8 @@ function agend_content_access_bootstrap(): void {
 		add_action( 'elementor/loaded', 'agend_content_access_bootstrap_elementor' );
 	}
 
-	// Segmented display conditions: the Agend-native ESAC engine (US-6.1).
-	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-conditions.php';
-	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-providers.php';
-	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-runtime.php';
+	// The condition vocabularies the editors offer (US-6.1). The engine itself is
+	// loaded above, with the evaluator.
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-condition-sets.php';
 
 	// Legacy public-original audit (US-5.3) and its CLI surface. The audit is
@@ -129,10 +189,9 @@ function agend_content_access_bootstrap(): void {
 	if ( is_admin() ) {
 		require_once AGEND_CONTENT_ACCESS_DIR . 'admin/class-agend-content-access-admin.php';
 
+		// The classic editor's panel: its assets are queued by the meta box itself.
 		new Agend_Content_Access_Meta_Box();
 		new Agend_Content_Access_Admin();
-
-		add_action( 'admin_enqueue_scripts', 'agend_content_access_enqueue_admin_assets' );
 	}
 
 	/**
@@ -172,32 +231,6 @@ register_activation_hook( __FILE__, 'agend_content_access_flush_builder_cache' )
 // An upgrade replaces the files without firing the activation hook, so the same
 // stale-blob window opens on update. `upgrader_process_complete` covers it.
 add_action( 'upgrader_process_complete', 'agend_content_access_flush_builder_cache' );
-
-/**
- * Enqueues the policy panel's assets, on the post editor only.
- *
- * @param string $hook Current admin page.
- */
-function agend_content_access_enqueue_admin_assets( string $hook ): void {
-	if ( 'post.php' !== $hook && 'post-new.php' !== $hook ) {
-		return;
-	}
-
-	wp_enqueue_style(
-		'agend-content-access-policy-panel',
-		AGEND_CONTENT_ACCESS_URL . 'assets/css/policy-panel.css',
-		array(),
-		AGEND_CONTENT_ACCESS_VERSION
-	);
-
-	wp_enqueue_script(
-		'agend-content-access-policy-panel',
-		AGEND_CONTENT_ACCESS_URL . 'assets/js/policy-panel.js',
-		array(),
-		AGEND_CONTENT_ACCESS_VERSION,
-		true
-	);
-}
 
 /**
  * Registers the Elementor fragment-policy integration.
@@ -285,9 +318,11 @@ function agend_content_access_bootstrap_elementor(): void {
 function agend_content_access_bootstrap_rest(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/catalogue-routes.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/connector-routes.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/rest/conditions-routes.php';
 
 	agend_content_access_register_catalogue_routes();
 	agend_content_access_register_connector_routes();
+	agend_content_access_register_conditions_routes();
 }
 
 /**

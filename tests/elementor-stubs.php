@@ -24,6 +24,7 @@ namespace Elementor {
 			const CHOOSE      = 'choose';
 			const COLOR       = 'color';
 			const DIMENSIONS  = 'dimensions';
+			const DIVIDER     = 'divider';
 			const HEADING     = 'heading';
 			const ICONS       = 'icons';
 			const MEDIA       = 'media';
@@ -34,6 +35,7 @@ namespace Elementor {
 			const SELECT2     = 'select2';
 			const SLIDER      = 'slider';
 			const SWITCHER    = 'switcher';
+			const TAB_ADVANCED = 'advanced';
 			const TAB_CONTENT = 'content';
 			const TAB_STYLE   = 'style';
 			const TEXT        = 'text';
@@ -233,6 +235,12 @@ namespace Elementor {
 				/** @var Elementor_Test_Preview_Double */
 				public $preview;
 
+				/** @var object|null Documents manager double a test installs; `get_current()` names the document rendering. */
+				public $documents;
+
+				/** @var object|null Frontend double a test installs, with the `get_builder_content_for_display()` it is asked for. */
+				public $frontend;
+
 				public function __construct() {
 					$this->editor  = new Elementor_Test_Editor_Double();
 					$this->preview = new Elementor_Test_Preview_Double();
@@ -242,6 +250,8 @@ namespace Elementor {
 				public static function reset(): void {
 					self::$instance->editor->is_edit_mode     = false;
 					self::$instance->preview->is_preview_mode = false;
+					self::$instance->documents                = null;
+					self::$instance->frontend                 = null;
 				}
 			}
 

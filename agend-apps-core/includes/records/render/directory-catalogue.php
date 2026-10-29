@@ -25,6 +25,9 @@ require_once __DIR__ . '/../schema/directory-catalogue.php';
 // helpers, which live with the formatters.
 require_once __DIR__ . '/../format.php';
 
+// A search link on the request decides a templated catalogue's first page.
+require_once __DIR__ . '/../search-link.php';
+
 /**
  * Normalises a SELECT2 multiple value to a clean string list.
  *
@@ -458,6 +461,41 @@ function agend_apps_records_directory_catalogue_with_preload( array $config, arr
 }
 
 /**
+ * The first page of a templated catalogue's results: the default search, or
+ * the search a search link on the request asks for. A link's page past the
+ * last page of its search draws page 1 of that search instead, so the browser
+ * has nothing to ask again.
+ *
+ * Facets named in `$facet_names` are fetched beside the first search, so the
+ * page waits for the slower of the two rather than both.
+ *
+ * @param array      $config      The widget config.
+ * @param int        $template_id The card template id.
+ * @param array|null $restored    agend_apps_records_search_link_from_request() output.
+ * @param string[]   $facet_names Facets the page render fetches itself; none by default.
+ * @return array{items: array, pagination: array|null, error: bool, page: int, facets: array|WP_Error|null}
+ */
+function agend_apps_records_directory_catalogue_first_page( array $config, int $template_id, ?array $restored, array $facet_names = array() ): array {
+	$state = null === $restored ? array() : agend_apps_records_search_link_list_state( $restored['state'] );
+	$query = static function ( int $page ) use ( $config, $template_id, $state ): array {
+		return agend_apps_records_with_search_include( agend_apps_records_listings_list_args( $config, $page, $state ), $template_id );
+	};
+
+	$page    = null === $restored ? 1 : $restored['page'];
+	$fetched = empty( $facet_names ) ? null : agend_apps_records_fetch_listings_with_facets( $query( $page ), $facet_names );
+	$list    = agend_apps_records_unwrap_list( null !== $fetched ? $fetched['list'] : agend_apps_records_fetch_list( 'listing', $query( $page ) ) );
+	if ( $page > 1 && ! $list['error'] && null !== $list['pagination'] && (int) ( $list['pagination']['total_pages'] ?? 0 ) < $page ) {
+		$page = 1;
+		$list = agend_apps_records_unwrap_list( agend_apps_records_fetch_list( 'listing', $query( 1 ) ) );
+	}
+
+	return $list + array(
+		'page'   => $page,
+		'facets' => null !== $fetched ? $fetched['facets'] : null,
+	);
+}
+
+/**
  * The colour and radius CSS variables the catalogue styles read.
  *
  * @param array $config The widget config.
@@ -510,16 +548,15 @@ function agend_apps_records_directory_catalogue_scroll_class( array $config ): s
  * @param int    $columns     Desktop column count.
  */
 function agend_apps_records_directory_catalogue_render_templated( array $config, int $template_id, string $style, int $columns ): void {
-	$filters = agend_apps_records_directory_catalogue_filters( (int) $config['filterTemplate'] );
-	$names   = agend_apps_records_filter_facet_names( $filters['configs'] );
-	$query   = agend_apps_records_with_search_include( agend_apps_records_listings_list_args( $config, 1 ), $template_id );
+	$filters  = agend_apps_records_directory_catalogue_filters( (int) $config['filterTemplate'] );
+	$restored = agend_apps_records_search_link_from_request( $filters['configs'] );
+	$names    = agend_apps_records_filter_facet_names( $filters['configs'] );
 
 	// A signed-in visitor's custom facets depend on their grants, so they are
 	// never in the shared entry; fetched beside the search, they cost the page
 	// nothing it was not already waiting for.
-	$fetched = agend_apps_records_directory_catalogue_member_facets_due( $names ) ? agend_apps_records_fetch_listings_with_facets( $query, $names ) : null;
-	$list    = agend_apps_records_unwrap_list( null !== $fetched ? $fetched['list'] : agend_apps_records_fetch_list( 'listing', $query ) );
-	$cards   = agend_apps_records_render_cards(
+	$list  = agend_apps_records_directory_catalogue_first_page( $config, $template_id, $restored, agend_apps_records_directory_catalogue_member_facets_due( $names ) ? $names : array() );
+	$cards = agend_apps_records_render_cards(
 		'listing',
 		$template_id,
 		$list['items'],
@@ -533,12 +570,29 @@ function agend_apps_records_directory_catalogue_render_templated( array $config,
 	$config['initialError']      = $list['error'];
 
 	$config = agend_apps_records_directory_catalogue_with_preload( $config, $filters['configs'] );
-	if ( null !== $fetched && is_array( $fetched['facets'] ) ) {
+	if ( is_array( $list['facets'] ) ) {
 		$config['preload']['facets'] = array(
 			'names'      => $names,
 			'fetched_at' => time(),
 			'ttl'        => Agend_Apps_Settings::get_cache_ttl( 'directory_facets' ),
-			'body'       => $fetched['facets'],
+			'body'       => $list['facets'],
+		);
+	}
+
+	// Written only for a search link, so every other catalogue keeps its
+	// existing config (and its pinned render fixtures). The script adopts the
+	// cards only when it reads the same link the same way.
+	if ( null !== $restored ) {
+		// Maps stay JSON objects even when empty (a link that sets only a
+		// page) or keyed 0, 1, ..., as the script's own reading of the link is.
+		$drawn_state = $restored['state'];
+		if ( isset( $drawn_state['custom_fields'] ) ) {
+			$drawn_state['custom_fields'] = (object) $drawn_state['custom_fields'];
+		}
+		$config['searchLink'] = array(
+			'state' => (object) $drawn_state,
+			'page'  => $restored['page'],
+			'shown' => $list['page'],
 		);
 	}
 	?>

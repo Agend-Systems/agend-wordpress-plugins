@@ -354,13 +354,13 @@ function agend_apps_records_export_reports_catalogue_source_options(): array {
 	if ( function_exists( 'agend_apps_records_filter_registry' ) ) {
 		$registry = agend_apps_records_filter_registry();
 		foreach ( $registry['listing'] ?? array() as $key => $descriptor ) {
-			// A location is a point and a radius, and the view switch writes no
-			// query at all: neither is a value a report parameter can take.
-			// Organisation is a visitor-facing search box on the catalogue; no
-			// report declares a parameter it would fill. Both registry walks must
-			// exclude it: this one and
+			// A location is a point and a radius, and the view switch and the
+			// share button write no query at all: none is a value a report
+			// parameter can take. Organisation is a visitor-facing search box on
+			// the catalogue; no report declares a parameter it would fill. Both
+			// registry walks must exclude it: this one and
 			// agend_apps_records_export_reports_filter_state_keys().
-			if ( in_array( $key, array( 'reset', 'sort', 'location', 'view', 'organisation' ), true ) ) {
+			if ( in_array( $key, array( 'reset', 'sort', 'location', 'view', 'organisation', 'share' ), true ) ) {
 				continue;
 			}
 			$options[ $key ] = (string) $descriptor['label'];

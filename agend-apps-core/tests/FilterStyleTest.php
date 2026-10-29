@@ -100,7 +100,7 @@ final class FilterStyleTest extends TestCase {
 		$this->assertCount( 1, $buttons, 'one rule carries the height to the action buttons' );
 		$rule = reset( $buttons );
 
-		foreach ( array( '.agend-filter__location-search', '.agend-filter__location-locate', '.agend-filter__reset', '.agend-filter__view .agend-filter__button' ) as $selector ) {
+		foreach ( array( '.agend-filter__location-search', '.agend-filter__location-locate', '.agend-filter__reset', '.agend-filter__share', '.agend-filter__view .agend-filter__button' ) as $selector ) {
 			$this->assertStringContainsString( $selector, $rule[1] );
 		}
 		$this->assertStringContainsString( 'height: var(--agend-filter-height)', $rule[2] );

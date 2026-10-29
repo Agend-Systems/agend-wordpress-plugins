@@ -54,6 +54,7 @@
                                     "listing:badge": "Badge",
                                     "listing:location": "Location",
                                     "listing:view": "View",
+                                    "listing:share": "Share",
                                     "listing:custom_field": "Custom field"
                                 }
                             }
@@ -143,6 +144,9 @@
                                 "date",
                                 "reset",
                                 "location"
+                            ],
+                            "filter!": [
+                                "listing:share"
                             ]
                         }
                     }
@@ -162,7 +166,8 @@
                             ],
                             "filter!": [
                                 "listing:location",
-                                "listing:view"
+                                "listing:view",
+                                "listing:share"
                             ]
                         }
                     }
@@ -422,6 +427,103 @@
                             "filter": "listing:view"
                         }
                     }
+                },
+                {
+                    "id": "share_heading",
+                    "args": {
+                        "label": "Share",
+                        "type": "heading",
+                        "separator": "before",
+                        "condition": {
+                            "filter": "listing:share"
+                        }
+                    }
+                },
+                {
+                    "id": "share_button_text",
+                    "args": {
+                        "label": "Button text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Share this search",
+                        "condition": {
+                            "filter": "listing:share"
+                        }
+                    }
+                },
+                {
+                    "id": "share_heading_text",
+                    "args": {
+                        "label": "Dialog heading",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Share this search",
+                        "condition": {
+                            "filter": "listing:share"
+                        }
+                    }
+                },
+                {
+                    "id": "share_copy_text",
+                    "args": {
+                        "label": "Copy button text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Copy",
+                        "condition": {
+                            "filter": "listing:share"
+                        }
+                    }
+                },
+                {
+                    "id": "share_share_text",
+                    "args": {
+                        "label": "Share button text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Share",
+                        "description": "Shown only in a browser that can open the device's share sheet.",
+                        "condition": {
+                            "filter": "listing:share"
+                        }
+                    }
+                },
+                {
+                    "id": "share_close_text",
+                    "args": {
+                        "label": "Close button text",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Close",
+                        "condition": {
+                            "filter": "listing:share"
+                        }
+                    }
+                },
+                {
+                    "id": "share_area_label",
+                    "args": {
+                        "label": "Map area tickbox label",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Include the current map area",
+                        "description": "Shown only when the search is limited to a map area the visitor chose.",
+                        "condition": {
+                            "filter": "listing:share"
+                        }
+                    }
+                },
+                {
+                    "id": "share_area_note",
+                    "args": {
+                        "label": "Map area note",
+                        "type": "text",
+                        "default": "",
+                        "placeholder": "Results are limited to the area shown on your map.",
+                        "condition": {
+                            "filter": "listing:share"
+                        }
+                    }
                 }
             ]
         },
@@ -442,7 +544,8 @@
                     ],
                     "filter!": [
                         "listing:location",
-                        "listing:view"
+                        "listing:view",
+                        "listing:share"
                     ]
                 }
             },

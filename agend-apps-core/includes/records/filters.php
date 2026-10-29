@@ -36,8 +36,10 @@ final class Agend_Apps_Records_Filter_Context {
 	private static $type = '';
 
 	/**
-	 * The config of each filter rendered since set(), in render order, which
-	 * is the order the shells appear in the page.
+	 * The config of each filter drawn for a visitor since set(), in render
+	 * order, which is the order the shells appear in the page. Whatever a page
+	 * render needs to know about its filters (the search link parameters it
+	 * reads, the facets they ask for) is derived from this one record.
 	 *
 	 * @var array<int, array>
 	 */
@@ -399,6 +401,15 @@ function agend_apps_records_filter_registry(): array {
 				'controls' => array( 'view' ),
 				'source'   => null,
 			),
+			// A button that opens a dialog offering the catalogue's current
+			// search as a link. Writes nothing, so it never reloads results.
+			'share'        => array(
+				'label'    => __( 'Share', 'agend-apps-core' ),
+				'state'    => '',
+				'mode'     => 'scalar',
+				'controls' => array( 'share' ),
+				'source'   => null,
+			),
 			// A custom field is addressed by key, so one registry entry backs
 			// every field an account has configured as a filter. The facet
 			// endpoint decides which keys this viewer may see at all.
@@ -538,6 +549,10 @@ function agend_apps_records_filter_config( string $type, string $key, array $set
 	}
 	if ( 'view' === $control ) {
 		$config['view'] = agend_apps_records_filter_view_config( $settings );
+		return $config;
+	}
+	if ( 'share' === $control ) {
+		$config['share'] = agend_apps_records_filter_share_config( $settings );
 		return $config;
 	}
 	// Range brackets write the same {min, max} the Number range control does,
@@ -708,6 +723,37 @@ function agend_apps_records_filter_view_config( array $settings ): array {
 		'listLabel' => trim( (string) ( $settings['view_list_label'] ?? '' ) ),
 		'mapLabel'  => trim( (string) ( $settings['view_map_label'] ?? '' ) ),
 	);
+}
+
+/**
+ * The share control's text: the author's own, or the default for each blank
+ * setting, plus the fixed messages the dialog announces.
+ *
+ * @param array $settings Widget settings.
+ * @return array<string, string>
+ */
+function agend_apps_records_filter_share_config( array $settings ): array {
+	$texts = array(
+		'buttonText' => array( 'share_button_text', __( 'Share this search', 'agend-apps-core' ) ),
+		'heading'    => array( 'share_heading_text', __( 'Share this search', 'agend-apps-core' ) ),
+		'copyText'   => array( 'share_copy_text', __( 'Copy', 'agend-apps-core' ) ),
+		'shareText'  => array( 'share_share_text', __( 'Share', 'agend-apps-core' ) ),
+		'closeText'  => array( 'share_close_text', __( 'Close', 'agend-apps-core' ) ),
+		'areaLabel'  => array( 'share_area_label', __( 'Include the current map area', 'agend-apps-core' ) ),
+		'areaNote'   => array( 'share_area_note', __( 'Results are limited to the area shown on your map.', 'agend-apps-core' ) ),
+	);
+
+	$config = array();
+	foreach ( $texts as $key => $text ) {
+		// An unset Elementor text control is an empty string, not its default.
+		$value          = trim( (string) ( $settings[ $text[0] ] ?? '' ) );
+		$config[ $key ] = '' !== $value ? $value : $text[1];
+	}
+	$config['linkLabel']    = __( 'Link to this search', 'agend-apps-core' );
+	$config['copied']       = __( 'Link copied', 'agend-apps-core' );
+	$config['copyFallback'] = __( 'Select and copy the link', 'agend-apps-core' );
+
+	return $config;
 }
 
 /**

@@ -30,7 +30,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Raw Elementor JSON is never emitted (US-4.3 criterion 1). Fragments carry the
  * widget type and an extracted text payload, not the source node.
  */
-class Agend_Content_Access_Elementor_Parser {
+class Agend_Content_Access_Elementor_Parser implements Agend_Content_Access_Document_Parser {
+
+	/**
+	 * Post meta key Elementor stores a document in.
+	 *
+	 * @var string
+	 */
+	const META_KEY = '_elementor_data';
 
 	/**
 	 * Structural node types whose children are walked.
@@ -48,6 +55,44 @@ class Agend_Content_Access_Elementor_Parser {
 	 * @var string[]
 	 */
 	const TEXT_KEYS = array( 'title', 'editor', 'text', 'heading', 'description', 'html', 'caption' );
+
+	/**
+	 * Whether the post holds an Elementor document.
+	 *
+	 * Decided by the post meta Elementor writes, exactly as the exporter did
+	 * before drivers existed: a non-blank `_elementor_data` means Elementor owns
+	 * the document, whatever `post_content` holds.
+	 *
+	 * @param WP_Post $post Post being exported.
+	 * @return bool
+	 */
+	public function recognises( $post ): bool {
+		return '' !== trim( (string) get_post_meta( (int) $post->ID, self::META_KEY, true ) );
+	}
+
+	/**
+	 * The post's Elementor document as ordered fragments.
+	 *
+	 * A structural parse error is thrown, not swallowed. The alternative is
+	 * shipping a document whose restricted regions were quietly dropped, which
+	 * the projection would then serve in full because it never learned they
+	 * existed.
+	 *
+	 * @param WP_Post $post Post being exported.
+	 * @return array<int, array<string, mixed>>
+	 * @throws RuntimeException When the Elementor document cannot be parsed.
+	 */
+	public function fragments( $post ): array {
+		$parsed = self::parse( (string) get_post_meta( (int) $post->ID, self::META_KEY, true ) );
+
+		if ( array() !== $parsed['errors'] ) {
+			throw new RuntimeException(
+				'Elementor document could not be parsed: ' . implode( ' ', $parsed['errors'] )
+			);
+		}
+
+		return $parsed['fragments'];
+	}
 
 	/**
 	 * Parses `_elementor_data` into fragments.
@@ -108,7 +153,7 @@ class Agend_Content_Access_Elementor_Parser {
 		// The node's own policy, narrowed against everything above it. Passing
 		// the inherited policy as the "document" argument is what enforces the
 		// never-widen rule at every level, not just at the page boundary.
-		$own       = Agend_Content_Access_Elementor::policy_from_settings( $settings );
+		$own       = Agend_Content_Access_Rules::from_elementor_settings( $settings )->to_policy();
 		$effective = null === $own
 			? $inherited
 			: Agend_Content_Access_Policy::effective_policy( $inherited, $own );

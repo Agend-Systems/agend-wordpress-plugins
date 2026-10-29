@@ -45,8 +45,14 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 			return '';
 		}
 
+		/**
+		 * The configured lifetime for an endpoint key: 300 unless a test sets
+		 * `$GLOBALS['agend_test_cache_ttls'][ $endpoint_key ]`, which is how a test
+		 * models an operator's setting, or an older Core's 60 second fallback for
+		 * an unregistered key. Reset for every test by the base test case.
+		 */
 		public static function get_cache_ttl( string $endpoint_key ): int {
-			return 300;
+			return (int) ( $GLOBALS['agend_test_cache_ttls'][ $endpoint_key ] ?? 300 );
 		}
 
 		public static function get_member_auth_mode(): string {
@@ -152,6 +158,16 @@ if ( ! class_exists( 'Agend_Apps_Settings' ) ) {
 
 		public static function get_portal_home_url(): string {
 			return '';
+		}
+
+		/**
+		 * The member portal URL, empty unless a test sets the option. Declared so
+		 * a gate test can show a call to action is present for one state and
+		 * absent for another; with none set the gate renders no link at all, as
+		 * it does when `get_portal_url` does not exist.
+		 */
+		public static function get_portal_url(): string {
+			return (string) get_option( 'agend_apps_portal_url', '' );
 		}
 
 		public static function background_link_enabled(): bool {

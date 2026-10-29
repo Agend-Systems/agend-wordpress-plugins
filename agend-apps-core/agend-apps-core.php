@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.44.0
+ * Version:           1.47.1
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.44.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.47.1' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -207,6 +207,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/preview-records.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/filters.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/query.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/search-link.php';
 
 	// Content-settings schema: the page-builder-agnostic declaration every
 	// presentation adapter (Elementor, later the block editor) renders its
@@ -522,10 +523,13 @@ register_activation_hook( __FILE__, 'agend_apps_core_activate' );
  * Deactivation hook.
  *
  * Settings and the API log persist across deactivation so that re-activating
- * the plugin does not require reconfiguration. Only the prune event is
- * cleared; `init` reschedules it on reactivation.
+ * the plugin does not require reconfiguration. Only the cron events are
+ * cleared; `init` reschedules them on reactivation.
  */
 function agend_apps_core_deactivate() {
 	Agend_Apps_Logger::clear_cron();
+	// Events left by the withdrawn 1.46.0 theme self-updater.
+	wp_clear_scheduled_hook( 'agend_apps_theme_self_update' );
+	wp_clear_scheduled_hook( 'agend_apps_theme_self_update_now' );
 }
 register_deactivation_hook( __FILE__, 'agend_apps_core_deactivate' );

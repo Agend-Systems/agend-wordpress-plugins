@@ -311,7 +311,11 @@
     // Leaflet's own credit is optional; the map data's licence requires
     // the OpenStreetMap (and CARTO) one, which stays.
     map.attributionControl.setPrefix(false);
-    L.tileLayer(cfg.tiles.url, { maxZoom: cfg.tiles.maxZoom, attribution: cfg.tiles.attribution }).addTo(map);
+    L.tileLayer(cfg.tiles.url, {
+      maxZoom: cfg.tiles.maxZoom,
+      maxNativeZoom: cfg.tiles.maxNativeZoom,
+      attribution: cfg.tiles.attribution,
+    }).addTo(map);
     L.control.scale({ position: 'bottomleft', metric: true, imperial: false, maxWidth: 200 }).addTo(map);
 
     function syncDragging() {
@@ -524,8 +528,12 @@
             .bindTooltip(cfg.text.here)
             .addTo(here);
           // A move the visitor asked for, so "Update results as the map
-          // moves" follows it like a drag.
-          map.setView(point, Math.max(map.getZoom(), 13));
+          // moves" follows it like a drag. Its area is centred on the
+          // visitor, so it is marked as theirs and kept out of the page
+          // address; not animated, so the move ends inside this mark.
+          moveOrigin = 'device';
+          map.setView(point, Math.max(map.getZoom(), 13), { animate: false });
+          moveOrigin = 'visitor';
         }, function () {
           button.removeAttribute('aria-busy');
           showHint(cfg.text.locateFailed, 3000);
@@ -567,6 +575,13 @@
     var programmatic = false;
     var userMoved = false;
     var moveTimer = null;
+    // Where the move in progress came from: the visitor (a drag or a zoom),
+    // the map itself ('map', showing it), or "Show my location" ('device').
+    // Only the visitor's area may enter the page address.
+    var moveOrigin = 'visitor';
+    // The map search area the map last wrote or fitted itself to.
+    var shownArea = '';
+    var fits = 0;
 
     function say(message) {
       if (!notice) {
@@ -595,6 +610,7 @@
 
     function fitTo(bounds) {
       lastBounds = bounds;
+      fits += 1;
       if (!visible()) {
         // A hidden map has no size to fit to; do it once it is shown.
         fitPending = true;
@@ -606,9 +622,13 @@
       });
     }
 
-    function fitToAccount() {
+    // The account's own extent, the view before anything else is known. Once
+    // something else has been fitted (a restored map search area) it would
+    // only move the map off what the results are bounded by.
+    function fitToAccount(onlyFirst) {
+      var before = fits;
       mapSettings().then(function (settings) {
-        if (!settings) {
+        if (!settings || (onlyFirst && fits !== before)) {
           return;
         }
         var b = settings.listing_bounds;
@@ -758,25 +778,58 @@
       }
     }
 
+    // A map search area the visitor chose: by moving this map, or by opening
+    // a search link that carries one.
+    function chosenArea(state) {
+      return !!state && typeof state.bbox === 'string' && state.bbox !== '' && state.bboxOrigin === 'visitor' && !state.near;
+    }
+
+    function areaBounds(bbox) {
+      var edges = bbox.split(',').map(Number);
+      return L.latLngBounds([edges[1], edges[3]], [edges[0], edges[2]]);
+    }
+
     function showForView(view) {
       if (!cfg.followView) {
         return;
       }
       root.classList.toggle('agend-directory-map--awaiting-view', view !== 'map');
       if (view === 'map') {
-        map.invalidateSize();
+        if (catalogue && chosenArea(catalogue.state)) {
+          // The results are already bounded by an area the visitor chose;
+          // showing the map must not replace it.
+          moveQuietly(function () {
+            map.invalidateSize();
+          });
+        } else {
+          moveOrigin = 'map';
+          map.invalidateSize();
+          moveOrigin = 'visitor';
+        }
         if (fitPending && lastBounds) {
           fitTo(lastBounds);
         }
       }
     }
 
+    // A map search area the map has not shown yet came from a search link:
+    // the map fits to it, and not to the results it bounds.
+    function follow(params) {
+      var state = catalogue && catalogue.state;
+      var refit = !userMoved;
+      userMoved = false;
+      if (chosenArea(state) && state.bbox !== shownArea) {
+        shownArea = state.bbox;
+        fitTo(areaBounds(state.bbox));
+        refit = false;
+      }
+      load(params || {}, refit);
+    }
+
     document.addEventListener('agend:directory-results', function (e) {
       var detail = e.detail || {};
       adopt(detail.catalogue);
-      var refit = !userMoved;
-      userMoved = false;
-      load(detail.params || {}, refit);
+      follow(detail.params);
     });
 
     document.addEventListener('agend:directory-view', function (e) {
@@ -788,6 +841,7 @@
       if (!cfg.updateOnMove || programmatic || !catalogue || !catalogue.state) {
         return;
       }
+      var origin = moveOrigin;
       window.clearTimeout(moveTimer);
       moveTimer = window.setTimeout(function () {
         var state = catalogue.state;
@@ -798,6 +852,8 @@
         }
         var b = map.getBounds();
         state.bbox = bboxParam(b.getNorth(), b.getSouth(), b.getEast(), b.getWest());
+        state.bboxOrigin = origin;
+        shownArea = state.bbox;
         userMoved = true;
         catalogue.reload();
       }, MOVE_DEBOUNCE_MS);
@@ -818,7 +874,7 @@
       }).observe(canvas);
     }
 
-    fitToAccount();
+    fitToAccount(true);
 
     // The catalogue may have loaded before this script ran, in which case its
     // first results event has already gone; it keeps the question it asked.
@@ -827,7 +883,7 @@
       adopt(existing);
       showForView(existing.view);
       if (existing.lastParams) {
-        load(existing.lastParams, true);
+        follow(existing.lastParams);
       }
       return;
     }
@@ -842,7 +898,7 @@
         adopt(late);
         showForView(late.view);
         if (late.lastParams) {
-          load(late.lastParams, true);
+          follow(late.lastParams);
         }
         return;
       }

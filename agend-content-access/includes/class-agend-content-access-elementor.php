@@ -22,38 +22,81 @@ if ( ! defined( 'ABSPATH' ) ) {
  * What is NOT kept is that experiment's rule model. It authorised from
  * arbitrary WordPress user metadata and failed OPEN: an enabled condition with
  * no rules, or a rule with a blank meta key, rendered the element to everyone.
- * This replaces it with typed policies over Agend tier UUIDs, evaluated against
- * a member standing Agend resolved, and fails closed at every branch.
+ * This replaces it with one rule list per element
+ * (`Agend_Content_Access_Rules::from_elementor_settings()`), judged by the one
+ * evaluator, `Agend_Content_Access_Access`, against a member standing Agend
+ * resolved, and fails closed at every branch.
+ *
+ * ONE LIST, NOT TWO SETTINGS. The section shows who can see the element as one
+ * searchable list of rules, with Match, "Show to everyone except these people" and
+ * "Show instead" under it, the same words the block editor's panel uses. The
+ * section used to show an audience select AND "Add display conditions", two
+ * settings an author could not tell apart.
+ *
+ * OLDER SETTINGS ARE NEVER DROPPED. An element saved before the rule list keeps its
+ * `agend_access_mode` (and its plan, segment and entitlement lists) and its
+ * `agend_conditions_*` keys, and `Agend_Content_Access_Rules::from_elementor_settings()`
+ * still enforces them, alongside any rules, as an intersection that can only narrow.
+ * The new controls cannot show them, and a restriction an author cannot see would be
+ * a trap, so an element that still holds one shows a notice and the controls that
+ * remove it. Those controls are hidden on every element that does not.
+ *
+ * A RULE THE AUTHOR CANNOT SEE IS KEPT. A multi-select writes back only the values it
+ * shows, so a stored rule the list does not offer was lost on the next edit of the
+ * list, and under "all of these" or "show to everyone except these people" losing a
+ * rule widens who sees the element. Two things stop it. The editor offers every rule
+ * the element holds: a plan that was switched off as "Plan (inactive): Gold", and one
+ * the list cannot name as "Unavailable: <rule>" (`rule_list_options()`). And a save
+ * puts back any stored rule the list does not offer that the saved data has lost
+ * (`preserve_unseen_rules()`).
  *
  * Suppression only ever REMOVES an element. It cannot reveal one the document
- * policy hides, because the effective policy is the intersection of the two
- * (Decision 2.3).
+ * hides, because an element is shown only when its own rules AND the rules of its
+ * document both allow (Decision 2.3).
  */
 class Agend_Content_Access_Elementor {
 
 	const SECTION_ID = 'agend_access_section';
-	const MODE_KEY   = 'agend_access_mode';
-	const TIERS_KEY  = 'agend_access_tier_ids';
 
 	/**
-	 * Display-condition controls (US-6.1, ESAC parity).
-	 *
-	 * Kept in their own control group and evaluated separately from the access
-	 * POLICY above, because the two are different things wearing similar
-	 * clothes. The policy travels to Agend and drives the server-side
-	 * projection: it is a security boundary, enforced whether or not WordPress
-	 * renders correctly. Display conditions are evaluated HERE, in the theme,
-	 * and personalise what a page shows.
-	 *
-	 * Merging them into one control would invite an editor to treat a local
-	 * render decision as protection. They compose instead: either can hide an
-	 * element, neither can reveal one the other hid.
+	 * The keys of the new controls, aliased from the editor-neutral definitions, whose
+	 * one reader is `Agend_Content_Access_Rules::from_elementor_settings()`. They cannot
+	 * drift from what it reads because they ARE what it reads.
 	 */
-	const CONDITIONS_ENABLED_KEY = 'agend_conditions_enabled';
-	const CONDITIONS_KEY         = 'agend_conditions';
-	const CONDITIONS_MATCH_KEY   = 'agend_conditions_match';
-	const CONDITIONS_INVERT_KEY  = 'agend_conditions_invert';
-	const CONDITIONS_FALLBACK_KEY = 'agend_conditions_fallback_id';
+	const RULES_KEY  = Agend_Content_Access_Rules::ELEMENTOR_RULES_KEY;
+	const MATCH_KEY  = Agend_Content_Access_Rules::ELEMENTOR_MATCH_KEY;
+	const INVERT_KEY = Agend_Content_Access_Rules::ELEMENTOR_INVERT_KEY;
+
+	/**
+	 * The keys the earlier releases wrote, which are still read and still enforced.
+	 *
+	 * Only the audience mode and the display conditions switch have a control now, to
+	 * remove what they hold. The plan, segment and entitlement lists and the conditions,
+	 * match and reverse keys are no longer registered as controls: Elementor passes a
+	 * stored setting with no control through to `get_settings_for_display()` untouched,
+	 * so what they hold keeps applying until the mode or the switch is turned off.
+	 */
+	const MODE_KEY         = Agend_Content_Access_Policy::FRAGMENT_MODE_KEY;
+	const TIERS_KEY        = Agend_Content_Access_Policy::FRAGMENT_TIERS_KEY;
+	const SEGMENTS_KEY     = Agend_Content_Access_Policy::FRAGMENT_SEGMENTS_KEY;
+	const ENTITLEMENTS_KEY = Agend_Content_Access_Policy::FRAGMENT_ENTITLEMENTS_KEY;
+
+	const CONDITIONS_ENABLED_KEY = Agend_Content_Access_Fragment_Rules::ENABLED_KEY;
+	const CONDITIONS_KEY         = Agend_Content_Access_Fragment_Rules::CONDITIONS_KEY;
+	const CONDITIONS_MATCH_KEY   = Agend_Content_Access_Fragment_Rules::MATCH_KEY;
+	const CONDITIONS_INVERT_KEY  = Agend_Content_Access_Fragment_Rules::INVERT_KEY;
+
+	/**
+	 * The replacement content's key. It is the old conditions' key, kept: the control
+	 * is the same "Show instead", and an element that already has one keeps it.
+	 */
+	const FALLBACK_KEY            = Agend_Content_Access_Fragment_Rules::FALLBACK_KEY;
+	const CONDITIONS_FALLBACK_KEY = Agend_Content_Access_Fragment_Rules::FALLBACK_KEY;
+
+	/**
+	 * The notice shown on an element that still holds an older setting.
+	 */
+	const OLDER_NOTICE_ID = 'agend_access_older_notice';
 
 	/**
 	 * Control stacks already given the section this request.
@@ -65,6 +108,21 @@ class Agend_Content_Access_Elementor {
 	 * @var array<string, true>
 	 */
 	private array $processed_stacks = array();
+
+	/**
+	 * The section's controls, with their options, built once per request.
+	 *
+	 * Elementor registers a control stack for every widget type when the editor
+	 * loads, and the rule list is the largest thing in it: one SELECT2 option per plan,
+	 * segment, entitlement and role, about 800 entitlements on one account. A list that
+	 * could not be loaded is never cached, so building it per stack would ask the
+	 * gateway again each time, during an outage as much as at any other time. The
+	 * options are the same for every stack, so they are read once, and every stack
+	 * shares the one array.
+	 *
+	 * @var array<string, array<string, mixed>>|null
+	 */
+	private ?array $controls = null;
 
 	/**
 	 * Registers hooks. Only ever called when Elementor is loaded.
@@ -82,6 +140,9 @@ class Agend_Content_Access_Elementor {
 		}
 
 		add_action( 'elementor/element/after_add_attributes', array( $this, 'maybe_mark_in_editor' ) );
+
+		// After Elementor's own content sanitiser (10), so what it leaves is what is checked.
+		add_filter( 'elementor/document/save/data', array( $this, 'preserve_unseen_rules' ), 20, 2 );
 
 		// Keep policy-bearing elements out of Elementor's frozen-HTML cache.
 		add_filter( 'elementor/element/is_dynamic_content', array( $this, 'policy_is_dynamic_content' ), 10, 3 );
@@ -125,146 +186,445 @@ class Agend_Content_Access_Elementor {
 			)
 		);
 
-		$element->add_control(
-			self::MODE_KEY,
-			array(
-				'label'       => __( 'Who can see this', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => Agend_Content_Access_Policy::MODE_INHERIT,
-				'options'     => array(
-					Agend_Content_Access_Policy::MODE_INHERIT => __( 'Same as the page', 'agend-content-access' ),
-					Agend_Content_Access_Policy::MODE_MEMBERS => __( 'All active members', 'agend-content-access' ),
-					Agend_Content_Access_Policy::MODE_TIERS   => __( 'Selected membership plans', 'agend-content-access' ),
-				),
-				'description' => __(
-					'A section can only narrow the page\'s audience, never widen it. If the page is already restricted, this section stays restricted too.',
-					'agend-content-access'
-				),
-			)
-		);
+		if ( null === $this->controls ) {
+			$this->controls = self::access_controls();
+		}
 
-		$element->add_control(
-			self::TIERS_KEY,
-			array(
-				'label'       => __( 'Membership plans', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT2,
-				'multiple'    => true,
-				'options'     => self::plan_options(),
-				'default'     => array(),
-				'condition'   => array(
-					self::MODE_KEY => Agend_Content_Access_Policy::MODE_TIERS,
-				),
-				'description' => __(
-					'Members on any one of these plans can see this section. Selecting none hides it from everybody.',
-					'agend-content-access'
-				),
-			)
-		);
-
-		$element->add_control(
-			'agend_conditions_divider',
-			array(
-				'type' => \Elementor\Controls_Manager::DIVIDER,
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_ENABLED_KEY,
-			array(
-				'label'        => __( 'Add display conditions', 'agend-content-access' ),
-				'type'         => \Elementor\Controls_Manager::SWITCHER,
-				'default'      => '',
-				'return_value' => 'yes',
-				'description'  => __(
-					'Show or hide this element based on the visitor: their WordPress role, their membership, or a segment. This is presentation, applied by this site. For content that must be protected, use the setting above, which Agend enforces.',
-					'agend-content-access'
-				),
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_KEY,
-			array(
-				'label'       => __( 'Conditions', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT2,
-				'multiple'    => true,
-				'options'     => Agend_Content_Access_Condition_Sets::as_options(),
-				'default'     => array(),
-				'label_block' => true,
-				'condition'   => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
-				'description' => __(
-					'Choosing none shows the element to everybody.',
-					'agend-content-access'
-				),
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_MATCH_KEY,
-			array(
-				'label'     => __( 'Match', 'agend-content-access' ),
-				'type'      => \Elementor\Controls_Manager::SELECT,
-				'default'   => Agend_Content_Access_Conditions::MATCH_ANY,
-				'options'   => array(
-					Agend_Content_Access_Conditions::MATCH_ANY => __( 'Any of these', 'agend-content-access' ),
-					Agend_Content_Access_Conditions::MATCH_ALL => __( 'All of these', 'agend-content-access' ),
-				),
-				'condition' => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_INVERT_KEY,
-			array(
-				'label'        => __( 'Reverse the result', 'agend-content-access' ),
-				'type'         => \Elementor\Controls_Manager::SWITCHER,
-				'default'      => '',
-				'return_value' => 'yes',
-				'condition'    => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
-				'description'  => __(
-					'Show the element to everyone the conditions do NOT match. Use this for content aimed at signed-out visitors, or at people who are not yet members.',
-					'agend-content-access'
-				),
-			)
-		);
-
-		$element->add_control(
-			self::CONDITIONS_FALLBACK_KEY,
-			array(
-				'label'       => __( 'Show instead', 'agend-content-access' ),
-				'type'        => \Elementor\Controls_Manager::SELECT,
-				'default'     => '',
-				'options'     => Agend_Content_Access_Condition_Sets::fallback_options(),
-				'label_block' => true,
-				'condition'   => array( self::CONDITIONS_ENABLED_KEY => 'yes' ),
-				'description' => __(
-					'Optional. Content to show to visitors the conditions exclude, for example a sign-in prompt. Only public content can be chosen: anything restricted would be shown to exactly the people who were just refused.',
-					'agend-content-access'
-				),
-			)
-		);
+		foreach ( $this->controls as $control_id => $control_args ) {
+			$element->add_control( $control_id, $control_args );
+		}
 
 		$element->end_controls_section();
 	}
 
 	/**
-	 * Plan choices for the editor, id to name.
+	 * The section's controls, in the order they appear.
 	 *
-	 * Reuses the reduced catalogue, so the Elementor control and the native
-	 * panel offer exactly the same list from the same cache. An outage yields an
-	 * empty list, which the control's own copy explains.
+	 * Public to be testable without an Elementor control stack. The first four are the
+	 * rule list and what goes with it. They are shown for every element, and the last
+	 * three are the older settings: they are shown on an element only while it still
+	 * holds one, so they cost an author who has none nothing and never offer a way to
+	 * set one up.
+	 *
+	 * HOW A CONTROL IS HIDDEN, AND WHAT THAT DOES TO ENFORCEMENT. Elementor reads a
+	 * control whose condition is not met as unset (`null`) in `get_settings_for_display()`,
+	 * which is what suppression reads. Every condition below hides a control only where
+	 * its value could not change who sees the element: Match and the reverse switch
+	 * mean nothing without rules, "Show instead" is only ever shown in place of an
+	 * element something else hid, and the older mode and conditions switch are hidden
+	 * only when they are off. The rule list itself has no condition.
+	 *
+	 * The editor evaluates the same conditions in the browser, where a list "not empty"
+	 * cannot be told from an empty one (two arrays are never identical there), so it
+	 * shows Match, the reverse switch and "Show instead" whether or not a rule is
+	 * chosen. The server is exact, and what it reads is what counts.
+	 *
+	 * THE OPTIONS ARE BUILT IN THE EDITOR ONLY. The rule list and "Show instead" are
+	 * the expensive part of this section: a catalogue read for the rules and three
+	 * queries for the replacement content, and a control stack is registered on every
+	 * front-end render of an Elementor page as well. The options are what the author
+	 * picks from and nothing else. Elementor does not check a stored value against them
+	 * when it renders, so enforcement reads the same settings with or without them, and a
+	 * visitor's render is spared the cost.
+	 *
+	 * @return array<string, array<string, mixed>> Control id to Elementor control args.
+	 */
+	public static function access_controls(): array {
+		$rules_chosen = array(
+			'name'     => self::RULES_KEY,
+			'operator' => '!==',
+			'value'    => array(),
+		);
+
+		$conditions_on = array(
+			'name'     => self::CONDITIONS_ENABLED_KEY,
+			'operator' => '==',
+			'value'    => 'yes',
+		);
+
+		$older_mode_set = array(
+			'name'     => self::MODE_KEY,
+			'operator' => '!in',
+			'value'    => array( Agend_Content_Access_Policy::MODE_INHERIT, '' ),
+		);
+
+		return array(
+			self::RULES_KEY               => array(
+				'label'       => __( 'Who can see this', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT2,
+				'multiple'    => true,
+				'options'     => self::rule_list_options(),
+				'default'     => array(),
+				'label_block' => true,
+				'description' => __(
+					'Leave empty to show this to everyone who can see the page. Visitors who are not allowed never receive this element.',
+					'agend-content-access'
+				),
+			),
+			self::MATCH_KEY               => array(
+				'label'      => __( 'Match', 'agend-content-access' ),
+				'type'       => \Elementor\Controls_Manager::SELECT,
+				'default'    => Agend_Content_Access_Rules::MATCH_ANY,
+				'options'    => array(
+					Agend_Content_Access_Rules::MATCH_ANY => __( 'Any of these', 'agend-content-access' ),
+					Agend_Content_Access_Rules::MATCH_ALL => __( 'All of these', 'agend-content-access' ),
+				),
+				'conditions' => array( 'terms' => array( $rules_chosen ) ),
+			),
+			self::INVERT_KEY              => array(
+				'label'        => __( 'Show to everyone except these people', 'agend-content-access' ),
+				'type'         => \Elementor\Controls_Manager::SWITCHER,
+				'default'      => '',
+				'return_value' => 'yes',
+				'conditions'   => array( 'terms' => array( $rules_chosen ) ),
+				'description'  => __( 'Useful for a join banner that members should not see.', 'agend-content-access' ),
+			),
+			self::FALLBACK_KEY            => array(
+				'label'       => __( 'Show instead', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => '',
+				'options'     => self::show_instead_options(),
+				'label_block' => true,
+				// Also an element with only older display conditions, which had a "Show
+				// instead" before: hiding it there would drop the content they show.
+				'conditions'  => array(
+					'relation' => 'or',
+					'terms'    => array( $rules_chosen, $conditions_on ),
+				),
+				'description' => __(
+					'Optional. Content to show to visitors who are not allowed, for example a sign-in prompt. Only public content can be chosen: anything restricted would be shown to exactly the people who were just refused.',
+					'agend-content-access'
+				),
+			),
+			self::OLDER_NOTICE_ID         => array(
+				'type'            => \Elementor\Controls_Manager::RAW_HTML,
+				'raw'             => esc_html__( 'This element still uses an older access setting, which keeps applying alongside the rules above. You can remove it below.', 'agend-content-access' ),
+				'content_classes' => 'elementor-panel-alert elementor-panel-alert-warning',
+				'conditions'      => array(
+					'relation' => 'or',
+					'terms'    => array( $older_mode_set, $conditions_on ),
+				),
+			),
+			self::MODE_KEY                => array(
+				'label'       => __( 'Older audience setting', 'agend-content-access' ),
+				'type'        => \Elementor\Controls_Manager::SELECT,
+				'default'     => Agend_Content_Access_Policy::MODE_INHERIT,
+				'options'     => array(
+					Agend_Content_Access_Policy::MODE_INHERIT      => __( 'Remove', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_MEMBERS      => __( 'All active members', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_TIERS        => __( 'Selected membership plans', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_SEGMENTS     => __( 'Selected segments', 'agend-content-access' ),
+					Agend_Content_Access_Policy::MODE_ENTITLEMENTS => __( 'Selected entitlements', 'agend-content-access' ),
+				),
+				'conditions'  => array( 'terms' => array( $older_mode_set ) ),
+				'description' => __(
+					'Choose Remove to stop applying it. Only this older audience is removed: the rules above stay.',
+					'agend-content-access'
+				),
+			),
+			self::CONDITIONS_ENABLED_KEY  => array(
+				'label'        => __( 'Older display conditions', 'agend-content-access' ),
+				'type'         => \Elementor\Controls_Manager::SWITCHER,
+				'default'      => '',
+				'return_value' => 'yes',
+				'conditions'   => array( 'terms' => array( $conditions_on ) ),
+				'description'  => __(
+					'Switch off to remove them. Only these older conditions are removed: the rules above stay.',
+					'agend-content-access'
+				),
+			),
+		);
+	}
+
+	/**
+	 * Whether Elementor's editor is open on this request: the editor itself and its own
+	 * AJAX, which is where the options are drawn.
+	 *
+	 * @return bool
+	 */
+	private static function in_editor(): bool {
+		if ( ! agend_content_access_has_elementor() ) {
+			return false;
+		}
+
+		$plugin = \Elementor\Plugin::$instance;
+
+		return is_object( $plugin ) && isset( $plugin->editor ) && is_object( $plugin->editor ) && $plugin->editor->is_edit_mode();
+	}
+
+	/**
+	 * The options of the "Who can see this" list: empty outside the editor, and in it
+	 * everything the author may pick plus every rule the document being edited already
+	 * holds that the list would not name.
+	 *
+	 * The stored rules are read from the document, once, when the editor loads, and added
+	 * as "Unavailable" entries (or an alias under its rule's name), so they are shown, and
+	 * stay in the list when the author changes it. See the class docblock.
 	 *
 	 * @return array<string, string>
 	 */
-	public static function plan_options(): array {
-		$catalogue = Agend_Content_Access_Catalogue::get();
-		$options   = array();
-
-		foreach ( Agend_Content_Access_Catalogue::selectable( $catalogue['plans'] ) as $plan ) {
-			$options[ $plan['id'] ] = $plan['name'];
+	private static function rule_list_options(): array {
+		if ( ! self::in_editor() ) {
+			return array();
 		}
 
-		return $options;
+		$held = array();
+
+		foreach ( self::stored_rules_by_element( self::rendering_document_id() ) as $rules ) {
+			$held = array_merge( $held, $rules );
+		}
+
+		return Agend_Content_Access_Condition_Sets::rule_options() + Agend_Content_Access_Condition_Sets::unavailable_options( $held );
+	}
+
+	/**
+	 * The options of "Show instead": "Nothing" outside the editor, and in it the public
+	 * pages, patterns and templates that can be chosen.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function show_instead_options(): array {
+		return self::in_editor()
+			? Agend_Content_Access_Condition_Sets::fallback_options()
+			: array( '' => __( 'Nothing', 'agend-content-access' ) );
+	}
+
+	/**
+	 * The rules each element of a stored document holds, by element id.
+	 *
+	 * Read from the document's `_elementor_data`, the JSON Elementor saves. An element with
+	 * no rules is left out, and so is an entry that is not a string.
+	 *
+	 * @param int $post_id The post whose document to read.
+	 * @return array<string, string[]> Element id to the rules it holds.
+	 */
+	private static function stored_rules_by_element( int $post_id ): array {
+		if ( $post_id <= 0 ) {
+			return array();
+		}
+
+		$stored = get_post_meta( $post_id, '_elementor_data', true );
+
+		if ( is_string( $stored ) && '' !== $stored ) {
+			$stored = json_decode( $stored, true );
+		}
+
+		$found = array();
+
+		if ( is_array( $stored ) ) {
+			self::collect_rules( $stored, $found );
+		}
+
+		return $found;
+	}
+
+	/**
+	 * Walks a list of elements and every list inside it, collecting the rules each holds.
+	 *
+	 * @param array                $elements Elements, as Elementor stores them.
+	 * @param array<string, array> $found    Element id to rules, added to.
+	 */
+	private static function collect_rules( array $elements, array &$found ): void {
+		foreach ( $elements as $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+
+			$rules = isset( $element['settings'] ) && is_array( $element['settings'] ) ? ( $element['settings'][ self::RULES_KEY ] ?? null ) : null;
+
+			if ( isset( $element['id'] ) && is_string( $element['id'] ) && is_array( $rules ) ) {
+				$strings = array_values( array_filter( $rules, 'is_string' ) );
+
+				if ( array() !== $strings ) {
+					$found[ $element['id'] ] = $strings;
+				}
+			}
+
+			if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				self::collect_rules( $element['elements'], $found );
+			}
+		}
+	}
+
+	/**
+	 * Puts back a rule an element held that the author could neither see nor remove,
+	 * where losing it would widen who sees the element.
+	 *
+	 * Runs on `elementor/document/save/data`, the filter Elementor applies to the whole
+	 * document before it saves it (3.3 and later), draft and autosave saves included, and
+	 * the one place the saved elements can be changed. For each element it saved, a rule the
+	 * element held before that the saved data has lost, and that the list does not offer,
+	 * is a candidate. "Does not offer" is exactly what `rule_options()` returns now: a
+	 * plan that was switched off IS offered, so an author who removes one means it, and so
+	 * is anything the catalogue can name. A slug alias is not a choice of its own, and the
+	 * list is built from the document the editor was opened on, so an element edited in
+	 * place in another document (a header or footer part, a global widget) was never
+	 * offered the alias it holds, and its save would drop it. So a lost alias is a
+	 * candidate too, unless the rule it stands for is in the saved list.
+	 *
+	 * That leaves the rules nobody can name, a plan, segment or entitlement that was
+	 * deleted, and every Agend rule for as long as the catalogue cannot be loaded. The
+	 * editor shows those as "Unavailable", but a multi-select that does not offer a value
+	 * cannot be trusted to hand it back.
+	 *
+	 * A candidate is put back ONLY WHERE LOSING IT WIDENS: when the saved element matches
+	 * "all of these", when it is reversed ("everyone except these people"), or when it
+	 * would otherwise be left with no rules at all (which shows it to everyone). Under
+	 * "any of these" with other rules left, dropping a rule only narrows the audience, so a
+	 * rule the author removed stays removed. A rule that matches nobody is not the safe
+	 * side in every mode: reversed, it is a rule that lets everyone in. An element whose
+	 * match or reverse setting is not one this reads is treated as widening, so doubt keeps
+	 * the rule. THE COST IS HONEST: under those modes an author cannot remove an
+	 * "Unavailable" rule from an element until the catalogue offers it again or the
+	 * element is replaced.
+	 *
+	 * Only ever adds. It never removes a rule, never touches an element it has no stored
+	 * copy of (a new one, or one whose id changed), and never reads the editor's own
+	 * options, because a save is not an editor request: the options are asked for here.
+	 *
+	 * @param mixed $data     The document data being saved: `elements` and `settings`.
+	 * @param mixed $document The `\Elementor\Core\Base\Document` being saved.
+	 * @return mixed
+	 */
+	public function preserve_unseen_rules( $data, $document = null ) {
+		if ( ! is_array( $data ) || ! isset( $data['elements'] ) || ! is_array( $data['elements'] ) || ! is_object( $document ) || ! method_exists( $document, 'get_main_id' ) ) {
+			return $data;
+		}
+
+		$before = self::stored_rules_by_element( (int) $document->get_main_id() );
+
+		if ( array() === $before ) {
+			return $data;
+		}
+
+		$data['elements'] = self::restore_rules(
+			$data['elements'],
+			$before,
+			array_keys( Agend_Content_Access_Condition_Sets::rule_options() ),
+			Agend_Content_Access_Condition_Sets::rule_aliases()
+		);
+
+		return $data;
+	}
+
+	/**
+	 * Adds the stored rules a list of saved elements has lost, in every element and every
+	 * list inside it, where losing them widens.
+	 *
+	 * @param array                $elements Saved elements.
+	 * @param array<string, array> $before   Element id to the rules it held.
+	 * @param string[]             $offered  Rules the list offers as choices.
+	 * @param array<string, string> $aliases  Slug aliases: alias to the rule it stands for.
+	 * @return array
+	 */
+	private static function restore_rules( array $elements, array $before, array $offered, array $aliases ): array {
+		foreach ( $elements as $index => $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+
+			if ( isset( $element['id'] ) && is_string( $element['id'] ) && isset( $before[ $element['id'] ] ) ) {
+				$settings = isset( $element['settings'] ) && is_array( $element['settings'] ) ? $element['settings'] : array();
+				$saved    = isset( $settings[ self::RULES_KEY ] ) && is_array( $settings[ self::RULES_KEY ] ) ? array_values( $settings[ self::RULES_KEY ] ) : array();
+				$lost     = self::lost_rules( $before[ $element['id'] ], $saved, $offered, $aliases );
+
+				if ( array() !== $lost && self::losing_widens( $settings, $saved ) ) {
+					$settings[ self::RULES_KEY ] = array_merge( $saved, $lost );
+					$element['settings']         = $settings;
+				}
+			}
+
+			if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				$element['elements'] = self::restore_rules( $element['elements'], $before, $offered, $aliases );
+			}
+
+			$elements[ $index ] = $element;
+		}
+
+		return $elements;
+	}
+
+	/**
+	 * The stored rules a saved element has lost that are candidates to be put back.
+	 *
+	 * A rule the list offers as a choice is the author's to remove. A rule it does not
+	 * name at all is a candidate. A slug alias is a candidate when the rule it stands for
+	 * is not in the saved list either: the author who dropped it in favour of the rule it
+	 * stands for keeps that rule, and one who never saw it (it was not offered where the
+	 * element was edited in place, such as a header or footer part or a global widget,
+	 * which the list is not built from) has neither, so it is the same loss.
+	 *
+	 * @param array                 $before  Rules the element held.
+	 * @param array                 $saved   Rules the saved element holds.
+	 * @param string[]              $offered Rules the list offers as choices.
+	 * @param array<string, string> $aliases Alias to the rule it stands for.
+	 * @return string[]
+	 */
+	private static function lost_rules( array $before, array $saved, array $offered, array $aliases ): array {
+		$lost = array();
+
+		foreach ( $before as $rule ) {
+			if ( in_array( $rule, $saved, true ) || in_array( $rule, $offered, true ) ) {
+				continue;
+			}
+
+			if ( isset( $aliases[ $rule ] ) && in_array( $aliases[ $rule ], $saved, true ) ) {
+				continue;
+			}
+
+			$lost[] = $rule;
+		}
+
+		return array_values( array_unique( $lost ) );
+	}
+
+	/**
+	 * Whether an element, as saved, is one a lost rule widens the audience of.
+	 *
+	 * Yes when it would be left with no rules (no rules is everyone), when it is reversed,
+	 * and when it matches anything but "any of these". Only plain "any of these" with
+	 * other rules left narrows. A match or reverse value this does not read is a yes.
+	 *
+	 * @param array $settings Saved element settings.
+	 * @param array $saved    The rules the saved element holds.
+	 * @return bool
+	 */
+	private static function losing_widens( array $settings, array $saved ): bool {
+		$left = array_filter(
+			$saved,
+			static function ( $rule ): bool {
+				return is_string( $rule ) && '' !== $rule;
+			}
+		);
+
+		if ( array() === $left ) {
+			return true;
+		}
+
+		$invert = $settings[ self::INVERT_KEY ] ?? '';
+
+		if ( '' !== $invert && false !== $invert && null !== $invert ) {
+			return true;
+		}
+
+		$match = $settings[ self::MATCH_KEY ] ?? '';
+
+		return ! ( '' === $match || Agend_Content_Access_Rules::MATCH_ANY === $match );
+	}
+
+	/**
+	 * Whether an element still holds a setting from the earlier releases.
+	 *
+	 * An audience mode other than "same as the page", or display conditions switched
+	 * on. It reads the settings as `Agend_Content_Access_Rules::from_elementor_settings()`
+	 * does, so what is called older here is exactly what that still enforces.
+	 *
+	 * @param array $settings Element settings.
+	 * @return bool
+	 */
+	public static function has_older_settings( array $settings ): bool {
+		return null !== Agend_Content_Access_Policy::from_fragment_settings( $settings )
+			|| Agend_Content_Access_Fragment_Rules::conditions_enabled( $settings );
 	}
 
 	/**
@@ -296,53 +656,66 @@ class Agend_Content_Access_Elementor {
 	}
 
 	/**
-	 * Reads an element's fragment policy from its settings.
+	 * Whether the render in progress is the author's, in front of an editor.
 	 *
-	 * Fails closed: an unrecognised mode, or selected-plans with nothing
-	 * selected, both yield a policy nobody satisfies rather than being ignored.
-	 * The experiment this replaces treated both as "no condition" and rendered
-	 * the element to everyone.
+	 * Not the same question as `Frontend::is_authoring_context()`, which is about
+	 * the requested page. Here a request is authoring when it is not one a visitor
+	 * can be reading (a wp-admin screen, the editor), or when it is the editor's own
+	 * AJAX. Everything else that reaches admin-ajax.php is a visitor.
 	 *
-	 * @param array $settings Element settings.
-	 * @return array|null Fragment policy, or null when the element opts out.
+	 * Both are asked of the DOCUMENT being rendered, not of the request. Elementor's
+	 * edit mode is true for the whole editor AJAX request once the user may edit the
+	 * one document the editor names, and that request can render others: a Loop
+	 * Grid listing posts, a Template widget pulling in a template, a shortcode. A
+	 * contributor who opens the editor on their own draft could otherwise put a
+	 * widget in it that renders a restricted template, and have every section of
+	 * every document that request renders shown to them with suppression off. So the
+	 * editor's AJAX is authoring for a document only when the user may edit THAT
+	 * document, and for one that cannot be identified it is not authoring at all,
+	 * since the rule cannot be applied to a document it cannot name.
+	 *
+	 * Elementor's preview is authoring for the document being previewed and for no
+	 * other. A template, a header, a loop item or an embedded section is a document
+	 * of its own, and is suppressed in the preview as it is for a visitor.
+	 *
+	 * @return bool
 	 */
-	public static function policy_from_settings( array $settings ): ?array {
-		$mode = isset( $settings[ self::MODE_KEY ] ) ? (string) $settings[ self::MODE_KEY ] : '';
+	private static function is_authoring_render(): bool {
+		$document_id = self::rendering_document_id();
 
-		if ( '' === $mode || Agend_Content_Access_Policy::MODE_INHERIT === $mode ) {
-			return null;
+		if ( ! Agend_Content_Access_Frontend::renders_for_visitors( $document_id ) ) {
+			return true;
 		}
 
-		if ( Agend_Content_Access_Policy::MODE_MEMBERS === $mode ) {
-			return array( 'mode' => Agend_Content_Access_Policy::MODE_MEMBERS );
+		return $document_id > 0
+			&& Agend_Content_Access_Frontend::is_elementor_editor_ajax()
+			&& current_user_can( 'edit_post', $document_id );
+	}
+
+	/**
+	 * The post whose Elementor document is rendering right now.
+	 *
+	 * Zero when Elementor does not say, and zero is never the previewed post, so an
+	 * element whose document cannot be identified is treated as a visitor's.
+	 *
+	 * @return int
+	 */
+	private static function rendering_document_id(): int {
+		if ( ! agend_content_access_has_elementor() ) {
+			return 0;
 		}
 
-		if ( Agend_Content_Access_Policy::MODE_TIERS === $mode ) {
-			$raw   = isset( $settings[ self::TIERS_KEY ] ) && is_array( $settings[ self::TIERS_KEY ] )
-				? $settings[ self::TIERS_KEY ]
-				: array();
-			$clean = array();
+		$documents = \Elementor\Plugin::$instance->documents ?? null;
 
-			foreach ( $raw as $tier_id ) {
-				$tier_id = is_string( $tier_id ) ? trim( $tier_id ) : '';
-
-				if ( 1 === preg_match( Agend_Content_Access_Policy::UUID_PATTERN, $tier_id ) ) {
-					$clean[] = $tier_id;
-				}
-			}
-
-			// An empty list here is NOT "no restriction". The editor asked for
-			// selected plans, so the honest reading is a restriction nobody
-			// satisfies, which hides the element until the policy is repaired.
-			return array(
-				'mode'     => Agend_Content_Access_Policy::MODE_TIERS,
-				'tier_ids' => array_values( array_unique( $clean ) ),
-			);
+		if ( ! is_object( $documents ) || ! method_exists( $documents, 'get_current' ) ) {
+			return 0;
 		}
 
-		// An unrecognised mode is a policy we cannot honour. Treat it as
-		// members-only rather than ignoring it.
-		return array( 'mode' => Agend_Content_Access_Policy::MODE_MEMBERS );
+		$document = $documents->get_current();
+
+		return is_object( $document ) && method_exists( $document, 'get_main_id' )
+			? (int) $document->get_main_id()
+			: 0;
 	}
 
 	/**
@@ -352,7 +725,16 @@ class Agend_Content_Access_Elementor {
 	 * included, so nothing is emitted and then hidden.
 	 *
 	 * Never suppresses in an authoring context: an editor must see the sections
-	 * they are laying out, including ones they have just restricted.
+	 * they are laying out, including ones they have just restricted. A request is
+	 * authoring only when somebody is actually authoring. admin-ajax.php is not
+	 * that: WordPress reports `is_admin()` for it, and JetEngine, Ajax Load More
+	 * and their kind render Elementor templates through it for ANONYMOUS visitors,
+	 * so treating every `is_admin()` request as authoring stood suppression down
+	 * for exactly those renders and printed every restricted section.
+	 *
+	 * In a feed the element is judged for nobody, conditions and policy both, as the
+	 * page gate judges the document and block enforcement judges a block: the
+	 * output is shared and cached, whoever fetched it.
 	 *
 	 * @param bool                    $should_render Elementor's decision so far.
 	 * @param \Elementor\Element_Base $element       Element.
@@ -363,40 +745,40 @@ class Agend_Content_Access_Elementor {
 			return $should_render;
 		}
 
-		if ( Agend_Content_Access_Frontend::is_authoring_context() ) {
+		if ( self::is_authoring_render() ) {
 			return $should_render;
 		}
 
-		$settings = $element->get_settings_for_display();
+		$rules = Agend_Content_Access_Rules::from_elementor_settings( $element->get_settings_for_display() );
 
-		// Display conditions are evaluated FIRST and independently. They can
-		// only ever remove an element, so an element hidden here is hidden
-		// whatever the access policy says, and vice versa. Neither can reveal
-		// what the other hid.
-		if ( ! self::conditions_pass( $settings ) ) {
-			return false;
-		}
-
-		$fragment = self::policy_from_settings( $settings );
-
-		if ( null === $fragment ) {
+		if ( $rules->is_empty() ) {
 			// Inherits the page, which the page-level gate already handled.
 			return $should_render;
 		}
 
-		$document  = Agend_Content_Access_Policy::get_for_post( (int) get_queried_object_id() );
-		$effective = Agend_Content_Access_Policy::effective_policy( $document, $fragment );
+		// A FEED is judged for nobody. Its output is shared and routinely cached, so
+		// a copy personalised to whoever fetched it would be served to everyone
+		// after them. Blocks and the page gate do the same.
+		$anonymous = is_feed();
 
-		$state = Agend_Content_Access_Decision::evaluate(
-			$effective,
-			Agend_Content_Access_Decision::viewer()
+		// The element's rules AND the rules of its document, in one evaluation: it
+		// can only ever remove an element, so one hidden here is hidden whatever the
+		// document says, and the document's rules cannot be widened by it. The
+		// enforced reading of the document: unreadable rules narrow the section to
+		// nobody, not vanish and leave the section's own alone.
+		$verdict = Agend_Content_Access_Access::verdict(
+			Agend_Content_Access_Rules::all_of(
+				Agend_Content_Access_Rules::from_post( (int) get_queried_object_id() ),
+				$rules
+			),
+			array( 'anonymous' => $anonymous )
 		);
 
-		return Agend_Content_Access_Decision::STATE_GRANTED === $state;
+		return $verdict['allowed'];
 	}
 
 	/**
-	 * Treats any element carrying an access policy as dynamic content.
+	 * Treats any element carrying rules as dynamic content.
 	 *
 	 * This is a SECURITY control, not an optimisation, and it is the reason
 	 * `should_render` can be trusted at all under Elementor's element cache.
@@ -433,34 +815,32 @@ class Agend_Content_Access_Elementor {
 			return $is_dynamic;
 		}
 
-		return self::subtree_carries_policy( is_array( $raw_data ) ? $raw_data : array() );
+		return self::subtree_carries_rules( is_array( $raw_data ) ? $raw_data : array() );
 	}
 
 	/**
-	 * Whether a raw element node, or anything beneath it, carries a policy.
+	 * Whether a raw element node, or anything beneath it, carries rules.
+	 *
+	 * Rules personalise per visitor just as much as an audience restricts per
+	 * visitor, so an element with either must leave the shared cache. They are asked
+	 * of `Rules::from_elementor_settings()`, the same reading `maybe_suppress()`
+	 * judges, so the cache decision and the render decision cannot disagree about
+	 * what a rule is.
+	 *
+	 * The US-4.4 fix covered policy-bearing elements only, and the condition control
+	 * arrived later. Caught by loading a conditioned page as a member and being
+	 * served the anonymous render. The reverse is worse, since a member-warmed cache
+	 * would then show member-only sections to anonymous visitors.
 	 *
 	 * @param array $node Raw element data.
 	 * @return bool
 	 */
-	public static function subtree_carries_policy( array $node ): bool {
+	public static function subtree_carries_rules( array $node ): bool {
 		$settings = isset( $node['settings'] ) && is_array( $node['settings'] )
 			? $node['settings']
 			: array();
 
-		if ( null !== self::policy_from_settings( $settings ) ) {
-			return true;
-		}
-
-		// Display conditions personalise per visitor just as much as a policy
-		// restricts per visitor, so they must leave the shared cache too.
-		//
-		// Missed on the first pass: the US-4.4 fix covered policy-bearing
-		// elements only, and the condition control arrived later. Caught by
-		// loading a conditioned page as a member and being served the
-		// anonymous render. The reverse is worse, since a member-warmed cache
-		// would then show member-only sections to anonymous visitors.
-		if ( ! empty( $settings[ self::CONDITIONS_ENABLED_KEY ] )
-			&& 'yes' === $settings[ self::CONDITIONS_ENABLED_KEY ] ) {
+		if ( ! Agend_Content_Access_Rules::from_elementor_settings( $settings )->is_empty() ) {
 			return true;
 		}
 
@@ -469,66 +849,12 @@ class Agend_Content_Access_Elementor {
 			: array();
 
 		foreach ( $children as $child ) {
-			if ( is_array( $child ) && self::subtree_carries_policy( $child ) ) {
+			if ( is_array( $child ) && self::subtree_carries_rules( $child ) ) {
 				return true;
 			}
 		}
 
 		return false;
-	}
-
-	/**
-	 * Do this element's display conditions admit the current visitor?
-	 *
-	 * Returns true when conditions are switched off or none are chosen, which
-	 * is the overwhelmingly common case and must cost nothing.
-	 *
-	 * An unknown provider or a malformed condition DENIES, and the reason is
-	 * logged for an administrator rather than surfaced to the visitor. The
-	 * reference implementation passes in both cases, which turns a deactivated
-	 * plugin into a silent disclosure.
-	 *
-	 * @param array $settings Element settings.
-	 * @return bool
-	 */
-	public static function conditions_pass( array $settings ): bool {
-		if ( empty( $settings[ self::CONDITIONS_ENABLED_KEY ] )
-			|| 'yes' !== $settings[ self::CONDITIONS_ENABLED_KEY ] ) {
-			return true;
-		}
-
-		$conditions = isset( $settings[ self::CONDITIONS_KEY ] ) && is_array( $settings[ self::CONDITIONS_KEY ] )
-			? $settings[ self::CONDITIONS_KEY ]
-			: array();
-
-		$match = ( isset( $settings[ self::CONDITIONS_MATCH_KEY ] )
-			&& Agend_Content_Access_Conditions::MATCH_ALL === $settings[ self::CONDITIONS_MATCH_KEY ] )
-			? Agend_Content_Access_Conditions::MATCH_ALL
-			: Agend_Content_Access_Conditions::MATCH_ANY;
-
-		$invert = ! empty( $settings[ self::CONDITIONS_INVERT_KEY ] )
-			&& 'yes' === $settings[ self::CONDITIONS_INVERT_KEY ];
-
-		$result = Agend_Content_Access_Conditions::evaluate(
-			$conditions,
-			Agend_Content_Access_Condition_Runtime::checker(),
-			$match,
-			$invert
-		);
-
-		if ( array() !== $result['unknown'] ) {
-			// Loud in the log, silent to the visitor. An administrator needs to
-			// know a rule is broken; a visitor must not learn which providers a
-			// site uses.
-			error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-				sprintf(
-					'[Agend Content Access] Denied an element: unrecognised display conditions (%s). A provider plugin may be inactive.',
-					implode( ', ', $result['unknown'] )
-				)
-			);
-		}
-
-		return (bool) $result['passes'];
 	}
 
 	/**
@@ -552,80 +878,72 @@ class Agend_Content_Access_Elementor {
 	 * @param \Elementor\Element_Base $element Element that just rendered, or did not.
 	 */
 	public function maybe_render_fallback( $element ): void {
-		if ( Agend_Content_Access_Frontend::is_authoring_context() ) {
+		if ( self::is_authoring_render() ) {
 			return;
 		}
 
-		$settings = $element->get_settings_for_display();
+		$rules = Agend_Content_Access_Rules::from_elementor_settings( $element->get_settings_for_display() );
+		$owner = $rules->fallback_owner();
 
-		// Only elements the CONDITIONS excluded get a fallback. An element
-		// hidden by the access policy is protected content, and offering a
-		// consolation render there would blur the two.
-		if ( self::conditions_pass( $settings ) ) {
+		if ( null === $owner ) {
 			return;
 		}
 
-		$fallback_id = isset( $settings[ self::CONDITIONS_FALLBACK_KEY ] )
-			? (int) $settings[ self::CONDITIONS_FALLBACK_KEY ]
-			: 0;
+		// Judged for nobody in a feed, as `maybe_suppress()` judges the element, so
+		// the two cannot disagree about whether the rules excluded it.
+		$anonymous = is_feed();
 
-		if ( $fallback_id <= 0 ) {
+		// Only an element the part of its rules that carries the fallback excluded
+		// gets one. An element hidden by the access policy is protected content, and
+		// offering a consolation render there would blur the two.
+		$own = Agend_Content_Access_Access::verdict( $owner, array( 'anonymous' => $anonymous ) );
+
+		if ( $own['allowed'] ) {
 			return;
 		}
 
-		echo self::fallback_html( $fallback_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-	}
-
-	/**
-	 * The rendered fallback, or an empty string when it may not be shown.
-	 *
-	 * @param int $fallback_id Post id chosen as the fallback.
-	 * @return string
-	 */
-	public static function fallback_html( int $fallback_id ): string {
-		$post = get_post( $fallback_id );
-
-		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
-			return '';
-		}
-
-		// The access check the reference omits. `evaluate` returns the state
-		// for THIS visitor against the fallback's own policy.
-		$state = Agend_Content_Access_Decision::evaluate(
-			Agend_Content_Access_Policy::get_for_post( $fallback_id ),
-			Agend_Content_Access_Decision::viewer()
-		);
-
-		if ( Agend_Content_Access_Decision::STATE_GRANTED !== $state ) {
-			return '';
-		}
-
-		return trim( (string) apply_filters( 'the_content', $post->post_content ) );
+		echo Agend_Content_Access_Fragment_Rules::fallback_html( $owner->fallback_id(), $anonymous ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/**
 	 * Marks a restricted element in the editor so the author can see which
-	 * sections carry a policy.
+	 * sections carry rules.
+	 *
+	 * Any element that carries rules is marked, whether they are the new rule list, an
+	 * older audience or older display conditions, or a mix: all of them are read into
+	 * the one rule set `maybe_suppress()` judges, so what is marked is what is enforced.
+	 * An element that still holds an older setting says so as well, which is the
+	 * setting its notice and removal control are about.
 	 *
 	 * @param \Elementor\Element_Base $element Element about to render its wrapper.
 	 */
 	public function maybe_mark_in_editor( $element ): void {
-		if ( ! Agend_Content_Access_Frontend::is_authoring_context() ) {
+		if ( ! self::is_authoring_render() ) {
 			return;
 		}
 
-		$fragment = self::policy_from_settings( $element->get_settings_for_display() );
+		$settings = $element->get_settings_for_display();
+		$rules    = Agend_Content_Access_Rules::from_elementor_settings( $settings );
 
-		if ( null === $fragment ) {
+		if ( $rules->is_empty() ) {
 			return;
 		}
 
-		$element->add_render_attribute(
-			'_wrapper',
-			array(
-				'class'                  => 'agend-access-restricted',
-				'data-agend-access-mode' => (string) $fragment['mode'],
-			)
+		// The audience the rules say, when an access policy says it; `rules` for a
+		// list no policy can (a role, a reverse, "all of"), and for one that cannot
+		// be read.
+		$policy = $rules->is_unreadable() ? null : $rules->to_policy();
+		$mode   = null === $policy || Agend_Content_Access_Policy::UNSATISFIABLE === $policy ? 'rules' : (string) $policy['mode'];
+
+		$attributes = array(
+			'class'                  => 'agend-access-restricted',
+			'data-agend-access-mode' => $mode,
 		);
+
+		if ( self::has_older_settings( $settings ) ) {
+			$attributes['data-agend-access-older'] = 'yes';
+		}
+
+		$element->add_render_attribute( '_wrapper', $attributes );
 	}
 }

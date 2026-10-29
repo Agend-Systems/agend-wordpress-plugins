@@ -1,0 +1,1534 @@
+{
+  "description": "Search link cases shared by the browser's parse rules (decode() in assets/js/search-link.js, run by tests/js/search-link.test.mjs) and the server's (agend_apps_records_search_link_decode() in includes/records/search-link.php, run by SearchLinkParseTest.php). Each decode case reads `query` with the filters named by `controls` on the page, with a map that updates results as it moves when `bbox` is true, and must produce `expect`. Each encode case writes `state` with `options` and must produce `query` exactly; it runs in the Node suite only, because only the browser writes search links. Each case carries 'outcome' and 'when', which name its test: should <outcome> when <when>.",
+  "controls": {
+    "full": [
+      {
+        "type": "listing",
+        "state": "search",
+        "mode": "scalar",
+        "control": "search",
+        "filter": "search"
+      },
+      {
+        "type": "listing",
+        "state": "location_name",
+        "mode": "scalar",
+        "control": "search",
+        "filter": "organisation"
+      },
+      {
+        "type": "listing",
+        "state": "categories",
+        "mode": "array",
+        "control": "select",
+        "filter": "category"
+      },
+      {
+        "type": "listing",
+        "state": "location_city",
+        "mode": "array",
+        "control": "checkboxes",
+        "filter": "city"
+      },
+      {
+        "type": "listing",
+        "state": "location_state",
+        "mode": "array",
+        "control": "select",
+        "filter": "state"
+      },
+      {
+        "type": "listing",
+        "state": "location_postcode",
+        "mode": "array",
+        "control": "select",
+        "filter": "postcode"
+      },
+      {
+        "type": "listing",
+        "state": "location_country",
+        "mode": "array",
+        "control": "select",
+        "filter": "country"
+      },
+      {
+        "type": "listing",
+        "state": "tag_ids",
+        "mode": "array",
+        "control": "checkboxes",
+        "filter": "tag"
+      },
+      {
+        "type": "listing",
+        "state": "badge_ids",
+        "mode": "array",
+        "control": "buttons",
+        "filter": "badge"
+      },
+      {
+        "type": "listing",
+        "state": "rating",
+        "mode": "scalar",
+        "control": "select",
+        "filter": "rating"
+      },
+      {
+        "type": "listing",
+        "state": "sortBy",
+        "mode": "scalar",
+        "control": "select",
+        "filter": "sort"
+      },
+      {
+        "type": "listing",
+        "state": "featured",
+        "mode": "scalar",
+        "control": "buttons",
+        "filter": "featured"
+      },
+      {
+        "type": "listing",
+        "state": "near",
+        "mode": "location",
+        "control": "location",
+        "filter": "location",
+        "location": {
+          "radii": [
+            5,
+            10,
+            15,
+            20,
+            25,
+            50,
+            100
+          ],
+          "radius": 15
+        }
+      },
+      {
+        "type": "listing",
+        "state": "view",
+        "mode": "view",
+        "control": "view",
+        "filter": "view",
+        "view": {
+          "default": "list"
+        }
+      },
+      {
+        "type": "listing",
+        "state": "custom_fields",
+        "mode": "map",
+        "control": "select",
+        "filter": "custom_field",
+        "fieldKey": "education_level"
+      },
+      {
+        "type": "listing",
+        "state": "custom_fields",
+        "mode": "map",
+        "control": "checkboxes",
+        "filter": "custom_field",
+        "fieldKey": "funding"
+      },
+      {
+        "type": "listing",
+        "state": "custom_fields",
+        "mode": "map",
+        "control": "range",
+        "filter": "custom_field",
+        "fieldKey": "fees"
+      },
+      {
+        "type": "listing",
+        "state": "custom_fields",
+        "mode": "map",
+        "control": "range_brackets",
+        "filter": "custom_field",
+        "fieldKey": "price"
+      },
+      {
+        "type": "listing",
+        "state": "",
+        "mode": "scalar",
+        "control": "reset",
+        "filter": "reset"
+      },
+      {
+        "type": "listing",
+        "state": "",
+        "mode": "scalar",
+        "control": "share",
+        "filter": "share"
+      }
+    ],
+    "none": [],
+    "reset_only": [
+      {
+        "type": "listing",
+        "state": "",
+        "mode": "scalar",
+        "control": "reset",
+        "filter": "reset"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "decode_01",
+      "outcome": "read nothing",
+      "when": "the address has no query string",
+      "controls": "full",
+      "bbox": true,
+      "query": "",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_02",
+      "outcome": "read the search text",
+      "when": "q is set",
+      "controls": "full",
+      "bbox": true,
+      "query": "q=Sarah+Smith",
+      "expect": {
+        "state": {
+          "search": "Sarah Smith"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_03",
+      "outcome": "take the last value",
+      "when": "a parameter repeats",
+      "controls": "full",
+      "bbox": true,
+      "query": "q=first&q=second",
+      "expect": {
+        "state": {
+          "search": "second"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_04",
+      "outcome": "ignore a bracketed name",
+      "when": "a parameter is sent as an array",
+      "controls": "full",
+      "bbox": true,
+      "query": "q[]=Sarah",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_05",
+      "outcome": "keep an invalid percent sequence as written",
+      "when": "q holds one",
+      "controls": "full",
+      "bbox": true,
+      "query": "q=100%ZZ",
+      "expect": {
+        "state": {
+          "search": "100%ZZ"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_06",
+      "outcome": "drop whitespace-only text",
+      "when": "q holds only spaces",
+      "controls": "full",
+      "bbox": true,
+      "query": "q=+++",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_07",
+      "outcome": "keep a non-breaking space",
+      "when": "q starts and ends with one",
+      "controls": "full",
+      "bbox": true,
+      "query": "q=%C2%A0Sarah%C2%A0",
+      "expect": {
+        "state": {
+          "search": " Sarah "
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_08",
+      "outcome": "cut the search text to 200 characters",
+      "when": "q is longer",
+      "controls": "full",
+      "bbox": true,
+      "query": "q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expect": {
+        "state": {
+          "search": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_09",
+      "outcome": "cut by character, not by UTF-16 unit",
+      "when": "q is 201 emoji",
+      "controls": "full",
+      "bbox": true,
+      "query": "q=%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80",
+      "expect": {
+        "state": {
+          "search": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_10",
+      "outcome": "ignore every search parameter",
+      "when": "the template has no filters",
+      "controls": "none",
+      "bbox": true,
+      "query": "q=Sarah&rating=4&cf_funding=ndis&near=-37.8,144.96&view=map",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_11",
+      "outcome": "ignore a value no control writes",
+      "when": "only a reset filter is present",
+      "controls": "reset_only",
+      "bbox": true,
+      "query": "rating=4&sort=name",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_12",
+      "outcome": "ignore a parameter the table does not name",
+      "when": "utm parameters are present",
+      "controls": "full",
+      "bbox": true,
+      "query": "utm_source=mail&gclid=abc&rating=4",
+      "expect": {
+        "state": {
+          "rating": "4"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_13",
+      "outcome": "read category ids in lower case and drop entries that are not UUIDs",
+      "when": "category_ids mixes valid and invalid entries",
+      "controls": "full",
+      "bbox": true,
+      "query": "category_ids=11111111-2222-4333-8444-555555555555,not-a-uuid,aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      "expect": {
+        "state": {
+          "categories": [
+            "11111111-2222-4333-8444-555555555555",
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+          ]
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_14",
+      "outcome": "read tag and badge ids",
+      "when": "tag_ids and badge_ids are set",
+      "controls": "full",
+      "bbox": true,
+      "query": "tag_ids=11111111-2222-4333-8444-555555555555&badge_ids=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee,x",
+      "expect": {
+        "state": {
+          "tag_ids": [
+            "11111111-2222-4333-8444-555555555555"
+          ],
+          "badge_ids": [
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+          ]
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_15",
+      "outcome": "keep a value whose comma and percent sign were escaped",
+      "when": "a custom field value holds both",
+      "controls": "full",
+      "bbox": true,
+      "query": "cf_funding=ndis,home%252Ccare,50%2525",
+      "expect": {
+        "state": {
+          "custom_fields": {
+            "funding": [
+              "ndis",
+              "home,care",
+              "50%"
+            ]
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_16",
+      "outcome": "drop empty list entries",
+      "when": "a list has doubled commas",
+      "controls": "full",
+      "bbox": true,
+      "query": "cf_funding=,ndis,,",
+      "expect": {
+        "state": {
+          "custom_fields": {
+            "funding": [
+              "ndis"
+            ]
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_17",
+      "outcome": "drop a cf_ value for a range control",
+      "when": "fees has a number range control",
+      "controls": "full",
+      "bbox": true,
+      "query": "cf_fees=100",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_18",
+      "outcome": "drop an rf_ value for a value-list control",
+      "when": "funding has checkboxes",
+      "controls": "full",
+      "bbox": true,
+      "query": "rf_funding=1:2",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_19",
+      "outcome": "drop a custom field with no control",
+      "when": "cf_unknown is set",
+      "controls": "full",
+      "bbox": true,
+      "query": "cf_unknown=x&rf_unknown=1:2",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_20",
+      "outcome": "read both bounds of a range",
+      "when": "rf_fees has a minimum and a maximum",
+      "controls": "full",
+      "bbox": true,
+      "query": "rf_fees=100:500",
+      "expect": {
+        "state": {
+          "custom_fields": {
+            "fees": {
+              "min": "100",
+              "max": "500"
+            }
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_21",
+      "outcome": "read an open-ended range",
+      "when": "rf_fees has only a maximum",
+      "controls": "full",
+      "bbox": true,
+      "query": "rf_fees=:500",
+      "expect": {
+        "state": {
+          "custom_fields": {
+            "fees": {
+              "max": "500"
+            }
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_22",
+      "outcome": "read a range for a range bracket control",
+      "when": "rf_price is set",
+      "controls": "full",
+      "bbox": true,
+      "query": "rf_price=10000:",
+      "expect": {
+        "state": {
+          "custom_fields": {
+            "price": {
+              "min": "10000"
+            }
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_23",
+      "outcome": "drop a range with neither bound",
+      "when": "rf_fees is a bare colon",
+      "controls": "full",
+      "bbox": true,
+      "query": "rf_fees=:",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_24",
+      "outcome": "drop a range with a bound that is not a number",
+      "when": "rf_fees has text or an exponent",
+      "controls": "full",
+      "bbox": true,
+      "query": "rf_fees=abc:5&rf_price=1e3:",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_25",
+      "outcome": "drop a range without a colon",
+      "when": "rf_fees is one number",
+      "controls": "full",
+      "bbox": true,
+      "query": "rf_fees=100",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_26",
+      "outcome": "sort custom fields by key",
+      "when": "their parameters arrive out of order",
+      "controls": "full",
+      "bbox": true,
+      "query": "rf_price=1:2&cf_funding=ndis&cf_education_level=masters",
+      "expect": {
+        "state": {
+          "custom_fields": {
+            "education_level": [
+              "masters"
+            ],
+            "funding": [
+              "ndis"
+            ],
+            "price": {
+              "min": "1",
+              "max": "2"
+            }
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_27",
+      "outcome": "keep an apostrophe and a backslash in a location name",
+      "when": "location_name holds both",
+      "controls": "full",
+      "bbox": true,
+      "query": "location_name=St+Vincent%27s+%5C+Co",
+      "expect": {
+        "state": {
+          "location_name": "St Vincent's \\ Co"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_28",
+      "outcome": "cut a location name to 100 characters",
+      "when": "location_name is longer",
+      "controls": "full",
+      "bbox": true,
+      "query": "location_name=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expect": {
+        "state": {
+          "location_name": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_29",
+      "outcome": "drop a location value over 100 characters",
+      "when": "city holds one",
+      "controls": "full",
+      "bbox": true,
+      "query": "city=Carlton,ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc,Fitzroy",
+      "expect": {
+        "state": {
+          "location_city": [
+            "Carlton",
+            "Fitzroy"
+          ]
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_30",
+      "outcome": "read only the first 50 location values",
+      "when": "state holds 55",
+      "controls": "full",
+      "bbox": true,
+      "query": "state=s0,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,s13,s14,s15,s16,s17,s18,s19,s20,s21,s22,s23,s24,s25,s26,s27,s28,s29,s30,s31,s32,s33,s34,s35,s36,s37,s38,s39,s40,s41,s42,s43,s44,s45,s46,s47,s48,s49,s50,s51,s52,s53,s54",
+      "expect": {
+        "state": {
+          "location_state": [
+            "s0",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "s5",
+            "s6",
+            "s7",
+            "s8",
+            "s9",
+            "s10",
+            "s11",
+            "s12",
+            "s13",
+            "s14",
+            "s15",
+            "s16",
+            "s17",
+            "s18",
+            "s19",
+            "s20",
+            "s21",
+            "s22",
+            "s23",
+            "s24",
+            "s25",
+            "s26",
+            "s27",
+            "s28",
+            "s29",
+            "s30",
+            "s31",
+            "s32",
+            "s33",
+            "s34",
+            "s35",
+            "s36",
+            "s37",
+            "s38",
+            "s39",
+            "s40",
+            "s41",
+            "s42",
+            "s43",
+            "s44",
+            "s45",
+            "s46",
+            "s47",
+            "s48",
+            "s49"
+          ]
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_31",
+      "outcome": "read postcode and country",
+      "when": "both are set",
+      "controls": "full",
+      "bbox": true,
+      "query": "postcode=3053&country=AU",
+      "expect": {
+        "state": {
+          "location_postcode": [
+            "3053"
+          ],
+          "location_country": [
+            "AU"
+          ]
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_32",
+      "outcome": "read a whole rating",
+      "when": "rating is 4",
+      "controls": "full",
+      "bbox": true,
+      "query": "rating=4",
+      "expect": {
+        "state": {
+          "rating": "4"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_33",
+      "outcome": "read a rating without its trailing zero",
+      "when": "rating is 4.0",
+      "controls": "full",
+      "bbox": true,
+      "query": "rating=4.0",
+      "expect": {
+        "state": {
+          "rating": "4"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_34",
+      "outcome": "read a fractional rating",
+      "when": "rating is 4.50",
+      "controls": "full",
+      "bbox": true,
+      "query": "rating=4.50",
+      "expect": {
+        "state": {
+          "rating": "4.5"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_35",
+      "outcome": "drop a rating outside 1 to 5",
+      "when": "rating is 6",
+      "controls": "full",
+      "bbox": true,
+      "query": "rating=6",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_36",
+      "outcome": "drop a rating of zero",
+      "when": "rating is 0",
+      "controls": "full",
+      "bbox": true,
+      "query": "rating=0",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_37",
+      "outcome": "drop a rating that is not a number",
+      "when": "rating is text",
+      "controls": "full",
+      "bbox": true,
+      "query": "rating=four",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_38",
+      "outcome": "read featured only",
+      "when": "featured_only is true",
+      "controls": "full",
+      "bbox": true,
+      "query": "featured_only=true",
+      "expect": {
+        "state": {
+          "featured": "1"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_39",
+      "outcome": "drop featured only",
+      "when": "it is anything but true",
+      "controls": "full",
+      "bbox": true,
+      "query": "featured_only=1",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_40",
+      "outcome": "read a known sort",
+      "when": "sort is name",
+      "controls": "full",
+      "bbox": true,
+      "query": "sort=name",
+      "expect": {
+        "state": {
+          "sortBy": "name"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_41",
+      "outcome": "drop an unknown sort",
+      "when": "sort is price",
+      "controls": "full",
+      "bbox": true,
+      "query": "sort=price",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_42",
+      "outcome": "read a typed place",
+      "when": "near, radius and address are set",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=-37.8,144.96&radius=20&address=Carlton",
+      "expect": {
+        "state": {
+          "near": {
+            "lat": -37.8,
+            "lng": 144.96,
+            "radius": 20,
+            "label": "Carlton",
+            "source": "place"
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_43",
+      "outcome": "read a typed place whose address has a comma",
+      "when": "address is Carlton, VIC",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=-37.8,144.96&radius=20&address=Carlton,%20VIC",
+      "expect": {
+        "state": {
+          "near": {
+            "lat": -37.8,
+            "lng": 144.96,
+            "radius": 20,
+            "label": "Carlton, VIC",
+            "source": "place"
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_44",
+      "outcome": "use the Location filter default radius",
+      "when": "the radius is missing",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=-37.8,144.96&address=Carlton",
+      "expect": {
+        "state": {
+          "near": {
+            "lat": -37.8,
+            "lng": 144.96,
+            "radius": 15,
+            "label": "Carlton",
+            "source": "place"
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_45",
+      "outcome": "use the default radius",
+      "when": "the radius is 0",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=-37.8,144.96&radius=0&address=Carlton",
+      "expect": {
+        "state": {
+          "near": {
+            "lat": -37.8,
+            "lng": 144.96,
+            "radius": 15,
+            "label": "Carlton",
+            "source": "place"
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_46",
+      "outcome": "use the default radius",
+      "when": "the radius is above 1000",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=-37.8,144.96&radius=1001&address=Carlton",
+      "expect": {
+        "state": {
+          "near": {
+            "lat": -37.8,
+            "lng": 144.96,
+            "radius": 15,
+            "label": "Carlton",
+            "source": "place"
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_47",
+      "outcome": "label a place by its point",
+      "when": "the address is missing",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=-37.8,144.96&radius=20",
+      "expect": {
+        "state": {
+          "near": {
+            "lat": -37.8,
+            "lng": 144.96,
+            "radius": 20,
+            "label": "-37.8,144.96",
+            "source": "place"
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_48",
+      "outcome": "cut an address to 200 characters",
+      "when": "address is longer",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=1,2&radius=5&address=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "expect": {
+        "state": {
+          "near": {
+            "lat": 1,
+            "lng": 2,
+            "radius": 5,
+            "label": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source": "place"
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_49",
+      "outcome": "drop a place with a latitude out of range",
+      "when": "near is 91,0",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=91,0&radius=20&address=Nowhere",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_50",
+      "outcome": "drop a place with a longitude out of range",
+      "when": "near is 0,-181",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=0,-181&radius=20",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_51",
+      "outcome": "drop a place that is not two numbers",
+      "when": "near has three parts or text",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=1,2,3&radius=20",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_52",
+      "outcome": "drop a place with an exponent",
+      "when": "near uses one",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=1e1,2&radius=20",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_53",
+      "outcome": "drop a place",
+      "when": "the template has no Location filter",
+      "controls": "reset_only",
+      "bbox": true,
+      "query": "near=-37.8,144.96&radius=20&address=Carlton",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_54",
+      "outcome": "read a map search area",
+      "when": "the map updates results as it moves",
+      "controls": "full",
+      "bbox": true,
+      "query": "bbox=-37.7,-37.9,145.1,144.9",
+      "expect": {
+        "state": {
+          "bbox": "-37.7,-37.9,145.1,144.9",
+          "bboxOrigin": "visitor"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_55",
+      "outcome": "drop a map search area",
+      "when": "the map does not update results as it moves",
+      "controls": "full",
+      "bbox": false,
+      "query": "bbox=-37.7,-37.9,145.1,144.9",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_56",
+      "outcome": "drop a map search area whose south is above its north",
+      "when": "bbox is upside down",
+      "controls": "full",
+      "bbox": true,
+      "query": "bbox=-37.9,-37.7,145.1,144.9",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_57",
+      "outcome": "drop a map search area with an edge out of range",
+      "when": "east is 181",
+      "controls": "full",
+      "bbox": true,
+      "query": "bbox=-37.7,-37.9,181,144.9",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_58",
+      "outcome": "drop a map search area without four edges",
+      "when": "bbox has three",
+      "controls": "full",
+      "bbox": true,
+      "query": "bbox=-37.7,-37.9,145.1",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_59",
+      "outcome": "keep the place and drop the area",
+      "when": "both near and bbox are set",
+      "controls": "full",
+      "bbox": true,
+      "query": "near=-37.8,144.96&radius=20&address=Carlton&bbox=-37.7,-37.9,145.1,144.9",
+      "expect": {
+        "state": {
+          "near": {
+            "lat": -37.8,
+            "lng": 144.96,
+            "radius": 20,
+            "label": "Carlton",
+            "source": "place"
+          }
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_60",
+      "outcome": "read the map view",
+      "when": "view is map",
+      "controls": "full",
+      "bbox": true,
+      "query": "view=map",
+      "expect": {
+        "state": {
+          "view": "map"
+        },
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_61",
+      "outcome": "drop an unknown view",
+      "when": "view is grid",
+      "controls": "full",
+      "bbox": true,
+      "query": "view=grid",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_62",
+      "outcome": "drop the view",
+      "when": "the template has no List / Map switch",
+      "controls": "reset_only",
+      "bbox": true,
+      "query": "view=map",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_63",
+      "outcome": "read a page",
+      "when": "pg is 3",
+      "controls": "full",
+      "bbox": true,
+      "query": "pg=3",
+      "expect": {
+        "state": {},
+        "page": 3
+      }
+    },
+    {
+      "name": "decode_64",
+      "outcome": "read page 1",
+      "when": "pg is 0",
+      "controls": "full",
+      "bbox": true,
+      "query": "pg=0",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_65",
+      "outcome": "read page 1",
+      "when": "pg is negative",
+      "controls": "full",
+      "bbox": true,
+      "query": "pg=-2",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_66",
+      "outcome": "read page 1",
+      "when": "pg is not whole",
+      "controls": "full",
+      "bbox": true,
+      "query": "pg=2.5",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_67",
+      "outcome": "read page 1",
+      "when": "pg is text",
+      "controls": "full",
+      "bbox": true,
+      "query": "pg=two",
+      "expect": {
+        "state": {},
+        "page": 1
+      }
+    },
+    {
+      "name": "decode_68",
+      "outcome": "read the last page any directory reaches",
+      "when": "pg is enormous",
+      "controls": "full",
+      "bbox": true,
+      "query": "pg=99999999999999999999",
+      "expect": {
+        "state": {},
+        "page": 10000
+      }
+    },
+    {
+      "name": "decode_69",
+      "outcome": "read every parameter together",
+      "when": "a link sets all of them",
+      "controls": "full",
+      "bbox": true,
+      "query": "q=physio&category_ids=11111111-2222-4333-8444-555555555555&cf_funding=ndis&rf_fees=10:20&location_name=Clinic&city=Carlton&tag_ids=11111111-2222-4333-8444-555555555555&badge_ids=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&rating=3&featured_only=true&sort=rating&near=-37.8,144.96&radius=10&address=Carlton&view=map&pg=2",
+      "expect": {
+        "state": {
+          "search": "physio",
+          "categories": [
+            "11111111-2222-4333-8444-555555555555"
+          ],
+          "tag_ids": [
+            "11111111-2222-4333-8444-555555555555"
+          ],
+          "badge_ids": [
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+          ],
+          "custom_fields": {
+            "fees": {
+              "min": "10",
+              "max": "20"
+            },
+            "funding": [
+              "ndis"
+            ]
+          },
+          "location_name": "Clinic",
+          "location_city": [
+            "Carlton"
+          ],
+          "rating": "3",
+          "featured": "1",
+          "sortBy": "rating",
+          "near": {
+            "lat": -37.8,
+            "lng": 144.96,
+            "radius": 10,
+            "label": "Carlton",
+            "source": "place"
+          },
+          "view": "map"
+        },
+        "page": 2
+      }
+    }
+  ],
+  "encodeCases": [
+    {
+      "name": "encode_01",
+      "outcome": "write nothing",
+      "when": "the search is empty",
+      "state": {
+        "search": "",
+        "categories": [],
+        "custom_fields": {},
+        "near": null,
+        "bbox": "",
+        "view": ""
+      },
+      "options": {
+        "page": 1,
+        "numbered": true,
+        "defaultView": "list",
+        "bbox": true
+      },
+      "query": ""
+    },
+    {
+      "name": "encode_02",
+      "outcome": "write a typed place at search precision",
+      "when": "a place is set",
+      "state": {
+        "near": {
+          "lat": -37.81356,
+          "lng": 144.96312,
+          "radius": 20,
+          "label": "Carlton",
+          "source": "place"
+        }
+      },
+      "options": {},
+      "query": "near=-37.814,144.963&radius=20&address=Carlton"
+    },
+    {
+      "name": "encode_03",
+      "outcome": "round a radius half away from zero",
+      "when": "the radius is 12.25",
+      "state": {
+        "near": {
+          "lat": -37.81356,
+          "lng": 144.96312,
+          "radius": 12.25,
+          "label": "Carlton",
+          "source": "place"
+        }
+      },
+      "options": {},
+      "query": "near=-37.814,144.963&radius=12.3&address=Carlton"
+    },
+    {
+      "name": "encode_04",
+      "outcome": "write no device position",
+      "when": "Use my location set the point",
+      "state": {
+        "search": "physio",
+        "near": {
+          "lat": -37.8,
+          "lng": 144.9,
+          "radius": 10,
+          "label": "your location",
+          "source": "device"
+        }
+      },
+      "options": {},
+      "query": "q=physio"
+    },
+    {
+      "name": "encode_05",
+      "outcome": "write the view",
+      "when": "it differs from the switch default",
+      "state": {
+        "view": "map"
+      },
+      "options": {
+        "defaultView": "list"
+      },
+      "query": "view=map"
+    },
+    {
+      "name": "encode_06",
+      "outcome": "leave the view out",
+      "when": "it matches the switch default",
+      "state": {
+        "view": "list"
+      },
+      "options": {
+        "defaultView": "list"
+      },
+      "query": ""
+    },
+    {
+      "name": "encode_07",
+      "outcome": "write the page",
+      "when": "pagination is numbered",
+      "state": {},
+      "options": {
+        "page": 3,
+        "numbered": true
+      },
+      "query": "pg=3"
+    },
+    {
+      "name": "encode_08",
+      "outcome": "leave the page out",
+      "when": "pagination loads more",
+      "state": {},
+      "options": {
+        "page": 3,
+        "numbered": false
+      },
+      "query": ""
+    },
+    {
+      "name": "encode_09",
+      "outcome": "escape a comma and a percent sign inside a value",
+      "when": "a custom field value holds them",
+      "state": {
+        "custom_fields": {
+          "funding": [
+            "home,care",
+            "50%"
+          ]
+        }
+      },
+      "options": {},
+      "query": "cf_funding=home%252Ccare,50%2525"
+    },
+    {
+      "name": "encode_10",
+      "outcome": "write custom fields by key, lists before ranges",
+      "when": "several are set",
+      "state": {
+        "custom_fields": {
+          "price": {
+            "min": "1",
+            "max": ""
+          },
+          "funding": [
+            "ndis"
+          ],
+          "fees": {
+            "max": "500"
+          },
+          "education_level": [
+            "masters"
+          ]
+        }
+      },
+      "options": {},
+      "query": "cf_education_level=masters&cf_funding=ndis&rf_fees=:500&rf_price=1:"
+    },
+    {
+      "name": "encode_11",
+      "outcome": "write a visitor-chosen area",
+      "when": "the map may write one",
+      "state": {
+        "bbox": "-37.7,-37.9,145.1,144.9",
+        "bboxOrigin": "visitor"
+      },
+      "options": {
+        "bbox": true
+      },
+      "query": "bbox=-37.7,-37.9,145.1,144.9"
+    },
+    {
+      "name": "encode_12",
+      "outcome": "leave out an area the map chose itself",
+      "when": "its origin is the map",
+      "state": {
+        "bbox": "-37.7,-37.9,145.1,144.9",
+        "bboxOrigin": "map"
+      },
+      "options": {
+        "bbox": true
+      },
+      "query": ""
+    },
+    {
+      "name": "encode_13",
+      "outcome": "leave out an area from Show my location",
+      "when": "its origin is the device",
+      "state": {
+        "bbox": "-37.7,-37.9,145.1,144.9",
+        "bboxOrigin": "device"
+      },
+      "options": {
+        "bbox": true
+      },
+      "query": ""
+    },
+    {
+      "name": "encode_14",
+      "outcome": "leave out an area",
+      "when": "the map does not update results as it moves",
+      "state": {
+        "bbox": "-37.7,-37.9,145.1,144.9",
+        "bboxOrigin": "visitor"
+      },
+      "options": {
+        "bbox": false
+      },
+      "query": ""
+    },
+    {
+      "name": "encode_15",
+      "outcome": "write text with spaces and a comma readably",
+      "when": "q and address hold them",
+      "state": {
+        "search": "Sarah Smith",
+        "near": {
+          "lat": -37.81356,
+          "lng": 144.96312,
+          "radius": 20,
+          "label": "Carlton, VIC",
+          "source": "place"
+        }
+      },
+      "options": {},
+      "query": "q=Sarah%20Smith&near=-37.814,144.963&radius=20&address=Carlton,%20VIC"
+    },
+    {
+      "name": "encode_16",
+      "outcome": "write every value in table order",
+      "when": "all are set",
+      "state": {
+        "search": "physio",
+        "categories": [
+          "11111111-2222-4333-8444-555555555555"
+        ],
+        "custom_fields": {
+          "fees": {
+            "min": "10",
+            "max": "20"
+          },
+          "funding": [
+            "ndis"
+          ]
+        },
+        "location_name": "St Vincent's \\ Co",
+        "location_city": [
+          "Carlton"
+        ],
+        "tag_ids": [
+          "11111111-2222-4333-8444-555555555555"
+        ],
+        "badge_ids": [
+          "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        ],
+        "rating": "3",
+        "featured": "1",
+        "sortBy": "rating",
+        "near": {
+          "lat": -37.81356,
+          "lng": 144.96312,
+          "radius": 10,
+          "label": "Carlton",
+          "source": "place"
+        },
+        "view": "map"
+      },
+      "options": {
+        "page": 2,
+        "numbered": true,
+        "defaultView": "list",
+        "bbox": true
+      },
+      "query": "q=physio&category_ids=11111111-2222-4333-8444-555555555555&cf_funding=ndis&rf_fees=10:20&location_name=St%20Vincent%27s%20%5C%20Co&city=Carlton&tag_ids=11111111-2222-4333-8444-555555555555&badge_ids=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&rating=3&featured_only=true&sort=rating&near=-37.814,144.963&radius=10&address=Carlton&view=map&pg=2"
+    }
+  ]
+}

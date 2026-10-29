@@ -129,10 +129,11 @@
 }
 
 /* The Height setting reaches the filter's action buttons too, so a Search
-   button, "Use my location", the clear button and the List / Map switch line
-   up with the fields beside them. The choice buttons of the Buttons
-   presentation are left out: they are pills in a list, not a row of fields. */
-.agend-filter.agend-filter--field-height .agend-filter__control :is(.agend-filter__location-search, .agend-filter__location-locate, .agend-filter__reset, .agend-filter__view .agend-filter__button) {
+   button, "Use my location", the clear and share buttons and the List / Map
+   switch line up with the fields beside them. The choice buttons of the
+   Buttons presentation are left out: they are pills in a list, not a row of
+   fields. */
+.agend-filter.agend-filter--field-height .agend-filter__control :is(.agend-filter__location-search, .agend-filter__location-locate, .agend-filter__reset, .agend-filter__share, .agend-filter__view .agend-filter__button) {
   box-sizing: border-box;
   height: var(--agend-filter-height);
   min-height: var(--agend-filter-height);
@@ -427,4 +428,57 @@
 .agend-filter .agend-filter__view--joined .agend-filter__button:last-child {
   border-top-right-radius: var(--agend-filter-button-radius, 4px);
   border-bottom-right-radius: var(--agend-filter-button-radius, 4px);
+}
+
+/* Share dialog. It sits in the browser's top layer, outside the filter
+   template's own background, so it carries its own surface. */
+.agend-share {
+  box-sizing: border-box;
+  width: min(32rem, calc(100vw - 2rem));
+  padding: 1.25rem;
+  border: 0;
+  border-radius: 8px;
+  color: #1e1e1e;
+  background: #fff;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+
+.agend-share::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.agend-share__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.25em;
+}
+
+.agend-share__link {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.5em 0.6em;
+  font: inherit;
+}
+
+.agend-share__area {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.agend-share__note,
+.agend-share__status {
+  margin: 0.25rem 0 0;
+  font-size: 0.875em;
+}
+
+.agend-share__status:empty {
+  display: none;
+}
+
+.agend-share__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
