@@ -21,7 +21,11 @@ class Agend_Apps_Cache {
 	/**
 	 * Map of all cacheable endpoint keys with their labels and default TTLs.
 	 *
-	 * @var array<string, array{label: string, default_ttl: int}>
+	 * An entry may carry an optional `description`, shown under its label on the
+	 * Cache tab and beside its TTL field. It is for a key whose use is not
+	 * obvious from the label, such as one a sibling plugin owns the cache for.
+	 *
+	 * @var array<string, array{label: string, default_ttl: int, description?: string}>
 	 */
 	private static $keys = array(
 		'cart_get'                 => array(
@@ -132,6 +136,11 @@ class Agend_Apps_Cache {
 			'label'       => 'Single Membership Tier',
 			'default_ttl' => 3600,
 		),
+		'crm_me_entitlements'      => array(
+			'label'       => 'Member Standing',
+			'description' => 'The per-member standing cache used by Content Access. Agend webhooks clear it, so a lapse that arrives without a webhook applies within this time.',
+			'default_ttl' => 300,
+		),
 		'crm_types'                => array(
 			'label'       => 'CRM Deal Types',
 			'default_ttl' => 3600,
@@ -166,7 +175,7 @@ class Agend_Apps_Cache {
 	/**
 	 * Returns the full endpoint key map.
 	 *
-	 * @return array<string, array{label: string, default_ttl: int}>
+	 * @return array<string, array{label: string, default_ttl: int, description?: string}>
 	 */
 	public static function get_all_keys(): array {
 		return self::$keys;
