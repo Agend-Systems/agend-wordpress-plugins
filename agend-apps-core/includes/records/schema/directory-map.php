@@ -23,6 +23,22 @@ function agend_apps_records_directory_map_height_options(): array {
 }
 
 /**
+ * Preload threshold choices: the most matching listings for which a map
+ * loads every pin's details with its pins. Keyed by the values stored as
+ * `marker_limit`, so a map saved when it was a pin limit keeps its value.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_directory_map_preload_options(): array {
+	return array(
+		'250'  => __( '250 listings', 'agend-apps-core' ),
+		'500'  => __( '500 listings', 'agend-apps-core' ),
+		'1000' => __( '1,000 listings', 'agend-apps-core' ),
+		'2000' => __( '2,000 listings', 'agend-apps-core' ),
+	);
+}
+
+/**
  * The Agend Map widget's content-settings schema.
  *
  * @return array
@@ -61,10 +77,11 @@ function agend_apps_records_schema_directory_map(): array {
 						'description' => __( 'Hides the map until a visitor picks Map on the catalogue\'s List / Map switch, and hides the results list while it shows. Place the map just below the catalogue. Leave off to show the map beside or below the list all the time.', 'agend-apps-core' ),
 					),
 					array(
-						'name'    => 'cluster',
-						'label'   => __( 'Group nearby pins', 'agend-apps-core' ),
-						'type'    => 'toggle',
-						'default' => true,
+						'name'        => 'cluster',
+						'label'       => __( 'Group nearby pins', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'Pins that would overlap are grouped into a numbered circle. A map with more than 2,000 pins always groups them.', 'agend-apps-core' ),
 					),
 					array(
 						'name'        => 'update_on_move',
@@ -101,16 +118,11 @@ function agend_apps_records_schema_directory_map(): array {
 					),
 					array(
 						'name'        => 'marker_limit',
-						'label'       => __( 'Most pins', 'agend-apps-core' ),
+						'label'       => __( 'Preload pin details for up to', 'agend-apps-core' ),
 						'type'        => 'select',
 						'default'     => '500',
-						'options'     => array(
-							'250'  => '250',
-							'500'  => '500',
-							'1000' => '1000',
-							'2000' => '2000',
-						),
-						'description' => __( 'When more listings match, the map says so and asks the visitor to zoom in or filter.', 'agend-apps-core' ),
+						'options'     => 'agend_apps_records_directory_map_preload_options',
+						'description' => __( 'When this many listings match or fewer, every pin\'s details load with the map, so opening a pin is instant. When more match, a pin\'s details load when it is opened. The map always shows every matching listing.', 'agend-apps-core' ),
 					),
 					array(
 						'name'        => 'empty_text',

@@ -119,20 +119,28 @@ function agend_apps_records_directory_map_height( $value, int $fallback ): int {
  * @return array Config passed to the map script as JSON.
  */
 function agend_apps_records_directory_map_build_config( array $s ): array {
-	$limit = (string) ( $s['marker_limit'] ?? '500' );
-	$empty = trim( (string) ( $s['empty_text'] ?? '' ) );
-	$link  = trim( (string) ( $s['popup_link_text'] ?? '' ) );
-	$route = trim( (string) ( $s['popup_directions_text'] ?? '' ) );
+	$preload   = (string) ( $s['marker_limit'] ?? '500' );
+	$empty     = trim( (string) ( $s['empty_text'] ?? '' ) );
+	$link      = trim( (string) ( $s['popup_link_text'] ?? '' ) );
+	$route     = trim( (string) ( $s['popup_directions_text'] ?? '' ) );
+	$on_move   = 'yes' === ( $s['update_on_move'] ?? '' );
+	// A map that does not follow its viewport shows the same pins at every
+	// zoom, so only a filter reaches the rest.
+	$truncated = $on_move
+		? __( 'Showing the first {shown} of {total} listings. Zoom in or filter to see the rest.', 'agend-apps-core' )
+		: __( 'Showing the first {shown} of {total} listings. Filter to see the rest.', 'agend-apps-core' );
 
 	return array(
 		'followView'   => 'yes' === ( $s['follow_view'] ?? '' ),
 		'cluster'      => 'yes' === ( $s['cluster'] ?? 'yes' ),
-		'updateOnMove' => 'yes' === ( $s['update_on_move'] ?? '' ),
+		'updateOnMove' => $on_move,
 		'scrollZoom'   => 'yes' === ( $s['scroll_zoom'] ?? '' ),
 		'showRadius'   => 'yes' === ( $s['show_radius'] ?? 'yes' ),
 		'fullscreen'   => 'yes' === ( $s['fullscreen_button'] ?? 'yes' ),
 		'locate'       => 'yes' === ( $s['locate_button'] ?? 'yes' ),
-		'limit'        => in_array( $limit, array( '250', '500', '1000', '2000' ), true ) ? (int) $limit : 500,
+		// The preload threshold, stored as `marker_limit` from when it was a
+		// pin limit; it never limits how many pins are drawn.
+		'preload'      => array_key_exists( $preload, agend_apps_records_directory_map_preload_options() ) ? (int) $preload : 500,
 		'emptyText'    => '' !== $empty ? $empty : __( 'No listings with a map location match these filters.', 'agend-apps-core' ),
 		'popup'        => array(
 			'logo'           => 'yes' === ( $s['popup_logo'] ?? 'yes' ),
@@ -151,9 +159,12 @@ function agend_apps_records_directory_map_build_config( array $s ): array {
 		'detailBase'   => class_exists( 'Agend_Apps_Records_Pages' ) ? Agend_Apps_Records_Pages::page_url( 'listing' ) : '',
 		'prettyLinks'  => (bool) get_option( 'permalink_structure' ),
 		'text'         => array(
-			'truncated'      => __( 'Showing the first {shown} of {total} listings. Zoom in or filter to see the rest.', 'agend-apps-core' ),
+			'truncated'      => $truncated,
 			'failed'         => __( 'The map could not load listings.', 'agend-apps-core' ),
 			'retry'          => __( 'Try again', 'agend-apps-core' ),
+			'detailsLoading' => __( 'Loading details…', 'agend-apps-core' ),
+			'detailsGone'    => __( 'These details are no longer available.', 'agend-apps-core' ),
+			'detailsFailed'  => __( 'Details could not be loaded.', 'agend-apps-core' ),
 			'region'         => __( 'Map of directory listings', 'agend-apps-core' ),
 			'you'            => __( 'Your search location', 'agend-apps-core' ),
 			/* translators: shown over the map when a visitor scrolls the page across it. */

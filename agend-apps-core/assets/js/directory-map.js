@@ -6,7 +6,9 @@
  * the query it last asked as params(), reload(), hrefFor() and open()), and
  * dispatches two events on document:
  *  - agend:directory-results after every load, with the query it asked, so
- *    the map fetches the same listings as pins from /directory/markers;
+ *    the map fetches the same listings from /directory/markers, as map
+ *    points (id, name and coordinates) for every pin, and a pin's details
+ *    by its listing id when the visitor opens it;
  *  - agend:directory-view when a List / Map switch changes view, so a map
  *    set to follow the switch shows in place of the results list.
  * With no catalogue on the page the map pins every listing with a location.
@@ -22,6 +24,9 @@
   var FALLBACK_CENTRE = [-25.2744, 133.7751];
   var FALLBACK_ZOOM = 4;
   var MOVE_DEBOUNCE_MS = 400;
+  // With "Group nearby pins" off, the most pins drawn one by one. A plain
+  // layer of more is unreadable and slow to draw, so they are grouped anyway.
+  var UNGROUPED_PIN_LIMIT = 2000;
 
   function restBase() {
     return (window.agendApps && window.agendApps.restUrl) || '/wp-json/agend-apps/v1/';
@@ -119,6 +124,162 @@
 
   function validPoint(lat, lng) {
     return isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  }
+
+  function withParam(query, key, value) {
+    var copy = {};
+    Object.keys(query).forEach(function (name) {
+      copy[name] = query[name];
+    });
+    copy[key] = value;
+    return copy;
+  }
+
+  // The catalogue's question as the map asks it. Paging and ordering mean
+  // nothing to a set of pins, and the map sends no page size of its own, so
+  // the gateway's points cap applies (and a gateway without points mode
+  // answers with its default page of map markers).
+  function markersQuery(params) {
+    var query = {};
+    Object.keys(params || {}).forEach(function (key) {
+      if (key !== 'page' && key !== 'limit' && key !== 'per_page' && key !== 'sortBy' && key !== 'sortOrder') {
+        query[key] = params[key];
+      }
+    });
+    return query;
+  }
+
+  // A map marker always carries its slug and a map point never does. A
+  // gateway without points mode ignores `projection` and answers with map
+  // markers, which already hold everything the pin details show.
+  function isMarkerRow(row) {
+    return !!row && typeof row === 'object' && Object.prototype.hasOwnProperty.call(row, 'slug');
+  }
+
+  // The listing location a pin marks. Both projections return coordinates
+  // at their stored precision, so they compare exactly. Two locations can
+  // share coordinates (two practices at one address), so the location in
+  // the pin's own place in the list wins: both projections list locations
+  // in the same order.
+  function locationAt(marker, lat, lng, index) {
+    var locations = marker && Array.isArray(marker.locations) ? marker.locations : [];
+    function at(location) {
+      return !!location && Number(location.latitude) === lat && Number(location.longitude) === lng;
+    }
+    if (at(locations[index])) {
+      return locations[index];
+    }
+    for (var i = 0; i < locations.length; i += 1) {
+      if (at(locations[i])) {
+        return locations[i];
+      }
+    }
+    return null;
+  }
+
+  function drawsUngrouped(cfg, pinCount) {
+    return !cfg.cluster && pinCount <= UNGROUPED_PIN_LIMIT;
+  }
+
+  // The preload threshold ("Preload pin details for up to"): at or under
+  // it, every matching listing's details load with the map.
+  function preloads(total, threshold) {
+    return typeof total === 'number' && total > 0 && total <= threshold;
+  }
+
+  // Each listing's map marker for one points response, fetched by id when a
+  // pin is opened and kept for the next open, or held from one preload of
+  // every match. reset() starts afresh for the next points response, because
+  // whether a listing still matches, and its distance, depend on the
+  // request. fetchMarkers(query) resolves to a /directory/markers response
+  // body.
+  function createPinDetails(fetchMarkers) {
+    var filters = {};
+    var memo = {};
+    // The preload in flight, if any; a pin opened meanwhile waits for it.
+    var preloading = null;
+
+    function markerIn(body, id) {
+      if (!body || !Array.isArray(body.data)) {
+        throw new Error('No markers in the response.');
+      }
+      for (var i = 0; i < body.data.length; i += 1) {
+        if (body.data[i] && body.data[i].id === id) {
+          return body.data[i];
+        }
+      }
+      return null;
+    }
+
+    function request(id) {
+      var held = memo;
+      var entry = {};
+      entry.promise = fetchMarkers(withParam(filters, 'ids', id)).then(function (body) {
+        return markerIn(body, id);
+      }).then(function (marker) {
+        entry.marker = marker;
+        return marker;
+      }, function (error) {
+        // A failed request is not kept, so opening the pin again retries.
+        if (held[id] === entry) {
+          delete held[id];
+        }
+        throw error;
+      });
+      held[id] = entry;
+      return entry.promise;
+    }
+
+    function get(id) {
+      if (memo[id]) {
+        return memo[id].promise;
+      }
+      if (preloading) {
+        // A listing the preload did not hold, or a failed preload, falls
+        // back to its own request, unless a newer points response has
+        // replaced the pin meanwhile.
+        var held = memo;
+        return preloading.then(function () {
+          return memo === held ? get(id) : null;
+        });
+      }
+      return request(id);
+    }
+
+    return {
+      reset: function (nextFilters) {
+        filters = nextFilters || {};
+        memo = {};
+        preloading = null;
+      },
+      // One request for every matching listing's map marker, up to limit.
+      // A failure is silent: each pin then loads its own details.
+      preload: function (limit) {
+        var held = memo;
+        var settled = fetchMarkers(withParam(filters, 'limit', limit)).then(function (body) {
+          if (body && Array.isArray(body.data)) {
+            body.data.forEach(function (row) {
+              if (row && typeof row.id === 'string' && !held[row.id]) {
+                held[row.id] = { promise: Promise.resolve(row), marker: row };
+              }
+            });
+          }
+        }).catch(function () {}).then(function () {
+          if (preloading === settled) {
+            preloading = null;
+          }
+        });
+        preloading = settled;
+      },
+      // The listing's map marker, or null once the response says it no
+      // longer matches; rejects when the request fails.
+      get: get,
+      // What get() would settle to, when it already has: { marker }.
+      peek: function (id) {
+        var entry = memo[id];
+        return entry && Object.prototype.hasOwnProperty.call(entry, 'marker') ? { marker: entry.marker } : null;
+      },
+    };
   }
 
   // The viewport as the `bbox` query value, north,south,east,west. Leaflet
@@ -229,6 +390,188 @@
     return box;
   }
 
+  // Pin details that are not a listing yet: loading, gone or failed.
+  function popupStatus(message) {
+    var box = el('div', 'agend-map-popup agend-map-popup--status');
+    box.appendChild(el('span', 'agend-map-popup__status', message));
+    return box;
+  }
+
+  // A map point's pin: its details load when it is opened, and the popup
+  // redraws itself once they have arrived or failed. show(marker) builds a
+  // found listing's details; text carries the status wording, with
+  // fallbacks for a page cached before the wording existed. options.popup
+  // are Leaflet's popup options; options.announce(message) tells a screen
+  // reader what the popup now shows.
+  function bindPinDetails(pin, id, details, show, text, options) {
+    var loading = false;
+    var failed = false;
+    var announce = options.announce || function () {};
+
+    // Redraws an open popup. Focus inside it (on Try again, which the
+    // redraw removes) moves to the new content, not back to the page.
+    function refresh() {
+      if (!pin.isPopupOpen()) {
+        failed = false;
+        return;
+      }
+      var popup = pin.getPopup();
+      var node = popup.getElement();
+      var focused = !!node && node.contains(document.activeElement);
+      popup.update();
+      var content = focused ? node.querySelector('.leaflet-popup-content') : null;
+      if (content) {
+        content.setAttribute('tabindex', '-1');
+        content.focus({ preventScroll: true });
+      }
+    }
+
+    function status(message) {
+      announce(message);
+      return popupStatus(message);
+    }
+
+    pin.bindPopup(function () {
+      var held = details.peek(id);
+      if (held) {
+        if (held.marker) {
+          announce(held.marker.name || '');
+          return show(held.marker);
+        }
+        return status(text.detailsGone || 'These details are no longer available.');
+      }
+      if (failed) {
+        failed = false;
+        var box = status((text.detailsFailed || 'Details could not be loaded.') + ' ');
+        var again = el('button', 'agend-map__retry', text.retry || 'Try again');
+        again.type = 'button';
+        again.addEventListener('click', function (e) {
+          // The details are redrawn under this click, so Leaflet could no
+          // longer trace it to the popup and would close it as a click
+          // on the map.
+          e.stopPropagation();
+          refresh();
+        });
+        box.firstChild.appendChild(again);
+        return box;
+      }
+      // One request however often the popup reopens or redraws meanwhile,
+      // so a failure is shown once and stays.
+      if (!loading) {
+        loading = true;
+        details.get(id).catch(function () {
+          failed = true;
+        }).then(function () {
+          loading = false;
+          refresh();
+        });
+      }
+      return status(text.detailsLoading || 'Loading details…');
+    }, options.popup);
+  }
+
+  // Tells the moves a popup makes to fit its content apart from the
+  // visitor's own. Each popup pan starts a move and ends one, even when the
+  // next pan cuts its animation short, so the pans are counted. A pan that
+  // rounds to nothing ends a move it never started, so a pan still waiting
+  // for its start when a move ends is that move. A resize during a pan's
+  // quarter second can still use up its count; that is accepted, because
+  // stopping the map on a resize would also cut short the visitor's own pan.
+  // Returns a function a moveend handler asks: was this a popup's move?
+  function trackPopupPans(map) {
+    var starting = false;
+    var pans = 0;
+    map.on('autopanstart', function () {
+      starting = true;
+    });
+    map.on('movestart', function () {
+      if (starting) {
+        starting = false;
+        pans += 1;
+      }
+    });
+    return function popupMoved() {
+      if (starting) {
+        starting = false;
+        return true;
+      }
+      if (pans > 0) {
+        pans -= 1;
+        return true;
+      }
+      return false;
+    };
+  }
+
+  // Draws each points response into a layer of its own: a group when the
+  // pins are grouped, adding tens of thousands of them in chunks so the page
+  // never stalls. A chunked add cannot be cancelled, and the vendored
+  // markercluster (1.5.3) throws from its next chunk if the group has left
+  // the map. So a group replaced mid-add is emptied, its remaining chunks
+  // add nothing, and it leaves the map once they have run out.
+  function createPinLayers(L, map, cfg, groupOptions) {
+    var current = null;
+
+    function newGroup() {
+      var group = null;
+      var options = withParam(groupOptions, 'chunkProgress', function (processed, total) {
+        if (processed === total) {
+          group.agendAdding = false;
+          if (group.agendRetired) {
+            // After the chunk that called this has finished with the map.
+            window.setTimeout(function () {
+              map.removeLayer(group);
+            }, 0);
+          }
+        }
+      });
+      group = L.markerClusterGroup(options);
+      return group;
+    }
+
+    function retire(layer) {
+      if (!layer.agendAdding) {
+        map.removeLayer(layer);
+        return;
+      }
+      layer.clearLayers();
+      layer._addLayer = function () {};
+      layer.agendRetired = true;
+    }
+
+    return function show(pins) {
+      if (current) {
+        retire(current);
+      }
+      if (typeof L.markerClusterGroup === 'function' && !drawsUngrouped(cfg, pins.length)) {
+        current = newGroup();
+        map.addLayer(current);
+        current.agendAdding = true;
+        current.addLayers(pins);
+      } else {
+        current = L.layerGroup(pins);
+        map.addLayer(current);
+      }
+    };
+  }
+
+  // The request for every pin: the catalogue's filters as map points.
+  function pointsQuery(filters) {
+    return withParam(filters, 'projection', 'points');
+  }
+
+  // What follows a points response: the last response's details are
+  // dropped, the pins drawn, and only then, when few enough listings match,
+  // every pin's details preloaded. Map markers from a gateway without
+  // points mode already hold their details.
+  function showResponse(rows, total, filters, threshold, details, draw) {
+    details.reset(filters);
+    draw(rows);
+    if (rows.length && !isMarkerRow(rows[0]) && preloads(total, threshold)) {
+      details.preload(threshold);
+    }
+  }
+
   // The directions template from the server, with the listing's own
   // coordinates in place of {lat} and {lng}.
   function directionsHref(template, location) {
@@ -330,6 +673,10 @@
     var hint = el('div', 'agend-map__hint');
     hint.setAttribute('role', 'status');
     canvas.appendChild(hint);
+    // What an opened pin shows, for a screen reader, on the same terms.
+    var detailsStatus = el('div', 'agend-map__sr');
+    detailsStatus.setAttribute('role', 'status');
+    root.appendChild(detailsStatus);
     var hintTimer = null;
 
     function showHint(message, ms) {
@@ -549,24 +896,25 @@
       popupAnchor: [0, -32],
     });
 
-    var pins = cfg.cluster && typeof L.markerClusterGroup === 'function'
-      ? L.markerClusterGroup({
-        maxClusterRadius: 80,
-        showCoverageOnHover: false,
-        chunkedLoading: true,
-        iconCreateFunction: function (cluster) {
-          var count = cluster.getChildCount();
-          var size = count < 10 ? 'small' : (count < 100 ? 'medium' : 'large');
-          return L.divIcon({
-            html: '<span>' + count + '</span>',
-            className: 'agend-map-cluster agend-map-cluster--' + size,
-            iconSize: L.point(40, 40),
-          });
-        },
-      })
-      : L.layerGroup();
-    map.addLayer(pins);
+    var showPins = createPinLayers(L, map, cfg, {
+      maxClusterRadius: 80,
+      showCoverageOnHover: false,
+      chunkedLoading: true,
+      iconCreateFunction: function (cluster) {
+        var count = cluster.getChildCount();
+        var size = count < 10 ? 'small' : (count < 100 ? 'medium' : 'large');
+        return L.divIcon({
+          html: '<span>' + count + '</span>',
+          className: 'agend-map-cluster agend-map-cluster--' + size,
+          iconSize: L.point(40, 40),
+        });
+      },
+    });
     var searchArea = L.layerGroup().addTo(map);
+    var POPUP_OPTIONS = { className: 'agend-map-popup-wrap', maxWidth: 260, minWidth: 200 };
+    var details = createPinDetails(function (query) {
+      return apiGet('/directory/markers', query);
+    });
 
     var catalogue = null;
     var requestId = 0;
@@ -661,24 +1009,37 @@
       return centre.toBounds(radius * 2000);
     }
 
-    function draw(markers, params, refit) {
-      pins.clearLayers();
+    function draw(rows, params, refit) {
+      var layers = [];
       var points = [];
-      markers.forEach(function (marker) {
-        (Array.isArray(marker.locations) ? marker.locations : []).forEach(function (location) {
+      rows.forEach(function (row) {
+        var full = isMarkerRow(row);
+        (Array.isArray(row.locations) ? row.locations : []).forEach(function (location, index) {
           var lat = Number(location.latitude);
           var lng = Number(location.longitude);
           if (!validPoint(lat, lng)) {
             return;
           }
-          var pin = L.marker([lat, lng], { icon: pinIcon, title: marker.name || '', alt: marker.name || '', keyboard: true, riseOnHover: true });
-          pin.bindPopup(function () {
-            return popupContent(cfg, catalogue, marker, location);
-          }, { className: 'agend-map-popup-wrap', maxWidth: 260, minWidth: 200 });
-          pins.addLayer(pin);
+          var pin = L.marker([lat, lng], { icon: pinIcon, title: row.name || '', alt: row.name || '', keyboard: true, riseOnHover: true });
+          if (full) {
+            pin.bindPopup(function () {
+              return popupContent(cfg, catalogue, row, location);
+            }, POPUP_OPTIONS);
+          } else {
+            bindPinDetails(pin, row.id, details, function (marker) {
+              return popupContent(cfg, catalogue, marker, locationAt(marker, lat, lng, index) || { latitude: lat, longitude: lng });
+            }, cfg.text, {
+              popup: POPUP_OPTIONS,
+              announce: function (message) {
+                detailsStatus.textContent = message;
+              },
+            });
+          }
+          layers.push(pin);
           points.push([lat, lng]);
         });
       });
+      showPins(layers);
 
       var area = drawSearchArea(params);
       if (!refit) {
@@ -717,16 +1078,10 @@
     function load(params, refit, attempt) {
       lastLoad = { params: params, refit: refit };
       attempt = attempt || 0;
-      var query = {};
-      Object.keys(params || {}).forEach(function (key) {
-        if (key !== 'page' && key !== 'limit' && key !== 'per_page' && key !== 'sortBy' && key !== 'sortOrder') {
-          query[key] = params[key];
-        }
-      });
-      query.limit = cfg.limit;
+      var filters = markersQuery(params);
       var id = ++requestId;
       root.setAttribute('aria-busy', 'true');
-      apiGet('/directory/markers', query).then(function (body) {
+      apiGet('/directory/markers', pointsQuery(filters)).then(function (body) {
         if (id !== requestId) {
           return;
         }
@@ -744,7 +1099,9 @@
         } else {
           say('');
         }
-        draw(body.data, query, refit);
+        showResponse(body.data, total, filters, cfg.preload, details, function (rows) {
+          draw(rows, filters, refit);
+        });
       }).catch(function () {
         if (id !== requestId) {
           return;
@@ -837,7 +1194,15 @@
       showForView((e.detail || {}).view);
     });
 
+    // A popup panning the map to fit (on opening, or as its details arrive)
+    // is the map moving itself: following it would reload the pins and
+    // close the popup the visitor just opened.
+    var popupMoved = trackPopupPans(map);
+
     map.on('moveend', function () {
+      if (popupMoved()) {
+        return;
+      }
       if (!cfg.updateOnMove || programmatic || !catalogue || !catalogue.state) {
         return;
       }

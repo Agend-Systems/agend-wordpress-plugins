@@ -73,6 +73,7 @@ jobs:
       - run: node --test agend-apps-core/tests/js/category-levels.test.mjs
       - run: node --test agend-apps-core/tests/js/directory-map-popup.test.mjs
       - run: node --test agend-apps-core/tests/js/directory-map-bbox.test.mjs
+      - run: node --test agend-apps-core/tests/js/directory-map-points.test.mjs
       - run: node --test agend-apps-core/tests/js/record-fields-rest.test.mjs
       # Shares its case table with SearchLinkParseTest.php; this is what keeps
       # the browser's and the server's search link parse rules in step.

@@ -201,4 +201,112 @@ final class DirectoryRestArgBoundsTest extends TestCase {
 		$this->assertStringContainsString( '/directory/markers?', $url );
 		$this->assertStringContainsString( 'limit=2000', $url );
 	}
+
+	#[Test]
+	public function should_keep_a_projection_when_it_is_points_or_markers(): void {
+		$this->assertSame( 'points', $this->sanitise( 'markers_args', 'projection', 'points' ) );
+		$this->assertSame( 'markers', $this->sanitise( 'markers_args', 'projection', 'markers' ) );
+	}
+
+	/**
+	 * @return array<string, array{mixed}>
+	 */
+	public static function unknown_projections(): array {
+		return array(
+			'another value' => array( 'clusters' ),
+			'other case'    => array( 'Points' ),
+			'empty'         => array( '' ),
+			'array'         => array( array( 'points' ) ),
+		);
+	}
+
+	/**
+	 * @param mixed $value Raw query value.
+	 */
+	#[Test]
+	#[DataProvider( 'unknown_projections' )]
+	public function should_drop_a_projection_when_it_is_neither_points_nor_markers( $value ): void {
+		$this->assertSame( '', $this->sanitise( 'markers_args', 'projection', $value ) );
+	}
+
+	#[Test]
+	public function should_keep_listing_ids_when_they_are_one_to_one_hundred_uuids(): void {
+		$one     = self::uuid( 1 );
+		$hundred = implode( ',', array_map( array( self::class, 'uuid' ), range( 1, 100 ) ) );
+
+		$this->assertSame( $one, $this->sanitise( 'markers_args', 'ids', $one ) );
+		$this->assertSame( $hundred, $this->sanitise( 'markers_args', 'ids', $hundred ) );
+	}
+
+	/**
+	 * @return array<string, array{mixed}>
+	 */
+	public static function unusable_ids(): array {
+		return array(
+			'not a uuid'         => array( 'listing-slug' ),
+			'one of two invalid' => array( self::uuid( 1 ) . ',42' ),
+			'empty entry'        => array( self::uuid( 1 ) . ',,' . self::uuid( 2 ) ),
+			'padded entry'       => array( self::uuid( 1 ) . ', ' . self::uuid( 2 ) ),
+			'over one hundred'   => array( implode( ',', array_map( array( self::class, 'uuid' ), range( 1, 101 ) ) ) ),
+			'empty'              => array( '' ),
+			'array'              => array( array( self::uuid( 1 ) ) ),
+		);
+	}
+
+	/**
+	 * @param mixed $value Raw query value.
+	 */
+	#[Test]
+	#[DataProvider( 'unusable_ids' )]
+	public function should_drop_listing_ids_when_any_part_is_not_a_uuid_or_there_are_too_many( $value ): void {
+		$this->assertSame( '', $this->sanitise( 'markers_args', 'ids', $value ) );
+	}
+
+	#[Test]
+	public function should_forward_points_and_listing_ids_without_a_page_size_when_a_map_sends_none(): void {
+		Agend_Test_WP::queue_response( 200, array( 'data' => array(), 'meta' => array( 'truncated' => false ) ) );
+
+		( new Agend_Apps_Directory_REST_Controller() )->get_markers(
+			$this->sanitised_request(
+				'markers_args',
+				array(
+					'projection' => 'points',
+					'ids'        => self::uuid( 7 ),
+					'category'   => 'c1',
+				)
+			)
+		);
+
+		$query = self::sent_query();
+		$this->assertSame( 'points', $query['projection'] );
+		$this->assertSame( self::uuid( 7 ), $query['ids'] );
+		$this->assertSame( 'c1', $query['category_ids'] );
+		$this->assertArrayNotHasKey( 'limit', $query );
+	}
+
+	#[Test]
+	public function should_forward_neither_parameter_when_both_values_are_dropped(): void {
+		Agend_Test_WP::queue_response( 200, array( 'data' => array(), 'meta' => array( 'truncated' => false ) ) );
+
+		( new Agend_Apps_Directory_REST_Controller() )->get_markers(
+			$this->sanitised_request( 'markers_args', array( 'projection' => 'auto', 'ids' => 'not-an-id' ) )
+		);
+
+		$query = self::sent_query();
+		$this->assertArrayNotHasKey( 'projection', $query );
+		$this->assertArrayNotHasKey( 'ids', $query );
+	}
+
+	private static function uuid( int $n ): string {
+		return sprintf( '00000000-0000-4000-8000-%012d', $n );
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	private static function sent_query(): array {
+		parse_str( (string) wp_parse_url( Agend_Test_WP::$requests[0]['url'], PHP_URL_QUERY ), $query );
+
+		return $query;
+	}
 }

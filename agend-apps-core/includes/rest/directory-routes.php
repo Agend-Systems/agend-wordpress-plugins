@@ -514,14 +514,42 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 
 	/**
 	 * The query arguments `GET /directory/markers` accepts: every search
-	 * argument, with a page size up to the gateway's 2000 marker cap.
+	 * argument, with a page size up to the gateway's 2000 marker cap, plus
+	 * `projection` (`points` for id, name and coordinates only, `markers`
+	 * for the full map marker) and `ids` (up to 100 comma-separated listing
+	 * ids). A value of either outside that is dropped rather than forwarded,
+	 * so the gateway only ever sees one the map itself would send.
 	 *
 	 * @return array
 	 */
 	private function markers_args(): array {
 		$args = $this->search_args();
 		unset( $args['page'], $args['per_page'], $args['sortBy'], $args['sortOrder'] );
-		$args['limit'] = self::bounded_integer_arg( 1, 2000 );
+		$args['limit']      = self::bounded_integer_arg( 1, 2000 );
+		$args['projection'] = array(
+			'type'              => 'string',
+			'sanitize_callback' => static function ( $value ): string {
+				return is_string( $value ) && in_array( $value, array( 'points', 'markers' ), true ) ? $value : '';
+			},
+		);
+		$args['ids']        = array(
+			'type'              => 'string',
+			'sanitize_callback' => static function ( $value ): string {
+				if ( ! is_string( $value ) || '' === $value ) {
+					return '';
+				}
+				$ids = explode( ',', $value );
+				if ( count( $ids ) > 100 ) {
+					return '';
+				}
+				foreach ( $ids as $id ) {
+					if ( 1 !== preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id ) ) {
+						return '';
+					}
+				}
+				return $value;
+			},
+		);
 		return $args;
 	}
 
@@ -668,6 +696,13 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		$filters = $this->search_filters( $request );
 		// Paging and ordering mean nothing to a set of pins.
 		unset( $filters['page'], $filters['per_page'], $filters['sortBy'], $filters['sortOrder'] );
+
+		foreach ( array( 'projection', 'ids' ) as $key ) {
+			$value = $request->get_param( $key );
+			if ( is_string( $value ) && '' !== $value ) {
+				$filters[ $key ] = $value;
+			}
+		}
 
 		return $this->prepare_api_response( agend_apps_directory_get_markers( $search_query, $filters ) );
 	}
