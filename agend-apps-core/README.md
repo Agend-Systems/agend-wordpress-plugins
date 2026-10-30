@@ -157,9 +157,16 @@ not in the options table and lapse with their lifetime instead.
 **A response that is the same for every viewer is read anonymously.** Passing
 `'anonymous' => true` in `get_cached()`'s `$args` resolves and sends no member
 token and reads and writes the shared anonymous entry, for signed-in visitors
-too. Directory categories always use it, and so do facet requests that name at
-least one facet and no `custom.<key>` facet; a custom facet, or no facet named,
-depends on the member's grants. Use it for nothing that varies by viewer.
+too. Directory categories and the site config always use it, and so do facet
+requests that name at least one facet and no `custom.<key>` facet; a custom
+facet, or no facet named, depends on the member's grants. Use it for nothing
+that varies by viewer.
+
+**`get_cached()` stores only a successful response.** Every error, a 404
+included, is returned and forgotten, so the next call asks the gateway again.
+The site config is the one read that also remembers an answer that is not a
+success: the gateway's not-found reply when the account has no published
+config (see "How long site config is cached").
 
 **Directory filters work at first paint.** A directory catalogue reads the
 shared facets and categories entries its filter template needs from
@@ -202,14 +209,38 @@ one hour default, shown as "Site Config" on the Cache tab and adjustable there
 like every other entry. A site that never saved a TTL for it picks up the
 default on upgrade, with no activation step.
 
-- **Per member.** A signed-in visitor's response is cached under that member's
-  own entry (see "Caching and identity"), so each member still costs one
-  gateway fetch an hour.
-- **No automatic flush.** Nothing clears `sites_config` when the config changes
-  in the Agend dashboard, or when the site's API key, environment or custom URL
-  changes, because the cache key carries none of them. Until the hour is up the
-  old config is served. To see a change straight away, clear the "Site Config"
-  row on the Cache tab, or use "Clear All Caches".
+- **One entry for every visitor.** The config belongs to the API key's account
+  and does not vary by viewer, so it is read anonymously (see "Caching and
+  identity"): no member token is resolved or sent, and signed-in and anonymous
+  visitors share one stored entry. Earlier versions sent the member token, so a
+  signed-in visitor's read was never stored and asked the gateway on every page
+  view. A site that needs the token sent returns `'anonymous' => false` from
+  the `agend_apps_sites_get_config_args` filter; the read is then held for one
+  PHP request only, like any other member read, and a missing config is not
+  remembered. A filter that returns args of its own without `anonymous` keeps
+  the anonymous read.
+- **No published config is remembered too.** When the account has no published
+  site config, the gateway answers 404 `NOT_FOUND` with a message naming the
+  site config. That answer is stored in the same `sites_config` entry, for the
+  same lifetime, so a site that does not use one asks once an hour instead of
+  on every page view, and each call in between returns the same `WP_Error`.
+  Serving it does not extend its lifetime. Nothing else is remembered: a
+  transport error, a 5xx, a 401 or 403, a 404 with any other code or message
+  (the gateway also answers `NOT_FOUND` for an endpoint it does not have), and
+  a local scope, app or rate-limit refusal are all asked again on the next
+  call, because each can clear and must not hide a config that exists. A
+  found config always replaces a remembered 404, and a 404 never replaces a
+  stored config.
+- **No automatic flush.** Nothing clears `sites_config` when the config is
+  published or changed in the Agend dashboard, or when the site's API key,
+  environment or custom URL changes, because the cache key carries none of
+  them. Until the hour is up the old answer, found or not, is served. To see a
+  change straight away, clear the "Site Config" row on the Cache tab, or use
+  "Clear All Caches"; either removes a remembered "no published config" too.
+  Both delete from the options table, so on a site with a persistent object
+  cache (Redis, Memcached), where transients are not stored there, neither
+  reaches the entry. It lapses with its lifetime, or when the object cache is
+  flushed. This applies to every row on the Cache tab.
 
 ### How long member standing is cached
 
