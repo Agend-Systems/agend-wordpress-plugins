@@ -61,18 +61,40 @@ class Agend_Content_Access_Webhook_Setup {
 	const ACCESS_OPTION = 'agend_content_access_webhook_access_events';
 
 	/**
-	 * Name of the short lock held while a setup action runs.
+	 * The option that holds the lock while a setup action runs. Its value is the
+	 * time the lock was taken.
+	 *
+	 * An option rather than a transient because `add_option()` is atomic (the name
+	 * is unique in the database), where a transient read followed by a write is
+	 * not: two requests could both see no lock and both proceed.
 	 *
 	 * @var string
 	 */
 	const LOCK = 'agend_content_access_webhook_setup_lock';
 
 	/**
-	 * How long that lock lasts, in seconds.
+	 * How long a lock is honoured, in seconds. Longer than the slowest action
+	 * (a list over several pages, then up to two writes), and what lets a lock left
+	 * behind by a crashed request be taken over.
 	 *
 	 * @var int
 	 */
-	const LOCK_TTL = 30;
+	const LOCK_TTL = 120;
+
+	/**
+	 * Subscriptions requested per page.
+	 *
+	 * @var int
+	 */
+	const PAGE_SIZE = 100;
+
+	/**
+	 * The most pages followed before giving up. An account with more webhooks than
+	 * this cannot be read in full, so nothing is done rather than guessing.
+	 *
+	 * @var int
+	 */
+	const MAX_PAGES = 50;
 
 	/**
 	 * The description the gateway stores on the subscription.
@@ -190,9 +212,10 @@ class Agend_Content_Access_Webhook_Setup {
 	 * - `subscribed`       One complete, active subscription points here.
 	 * - `duplicates`       More than one subscription points here.
 	 *
+	 * @param bool|null $include_access Whether to judge completeness against the entitlement and segment events too; null uses the stored choice.
 	 * @return array{state: string, receiver_url: string, subscription: array|null, missing_events: string[], duplicates: string[], secret_stored: bool, message: string}
 	 */
-	public function status(): array {
+	public function status( ?bool $include_access = null ): array {
 		$status = array(
 			'state'          => 'unavailable',
 			'receiver_url'   => $this->receiver_url(),
@@ -212,15 +235,15 @@ class Agend_Content_Access_Webhook_Setup {
 			return $status;
 		}
 
-		$response = $this->gateway->list_subscriptions();
+		$rows = $this->all_subscriptions();
 
-		if ( is_wp_error( $response ) ) {
+		if ( is_wp_error( $rows ) ) {
 			$status['state']   = 'error';
-			$status['message'] = $this->error_message( $response );
+			$status['message'] = $this->error_message( $rows );
 			return $status;
 		}
 
-		$matches = $this->matching( $this->rows( $response ) );
+		$matches = $this->matching( $rows );
 
 		if ( array() === $matches ) {
 			$status['state'] = 'not_subscribed';
@@ -248,12 +271,12 @@ class Agend_Content_Access_Webhook_Setup {
 			'id'     => isset( $subscription['id'] ) ? (string) $subscription['id'] : '',
 			'url'    => isset( $subscription['url'] ) ? (string) $subscription['url'] : '',
 			'events' => $this->event_ids( $subscription ),
-			'active' => ! ( isset( $subscription['active'] ) && false === $subscription['active'] ),
+			'active' => self::is_active( $subscription ),
 		);
 
 		$status['missing_events'] = array_values(
 			array_diff(
-				$this->wanted_events( $this->include_access_events() ),
+				$this->wanted_events( null === $include_access ? $this->include_access_events() : $include_access ),
 				$status['subscription']['events']
 			)
 		);
@@ -325,18 +348,14 @@ class Agend_Content_Access_Webhook_Setup {
 	public function complete( ?bool $include_access = null ): array {
 		return $this->locked(
 			function () use ( $include_access ) {
-				if ( null !== $include_access ) {
-					update_option( self::ACCESS_OPTION, $include_access ? '1' : '0' );
-				}
-
-				$status = $this->status();
+				$status = $this->status( $include_access );
 
 				if ( 'incomplete' !== $status['state'] ) {
 					return $this->refusal( 'subscribed' === $status['state'] ? 'nothing_to_add' : $this->refusal_code( $status['state'] ), $status['message'] );
 				}
 
 				$subscription = $status['subscription'];
-				$wanted       = $this->wanted_events( $this->include_access_events() );
+				$wanted       = $this->wanted_events( null === $include_access ? $this->include_access_events() : $include_access );
 				$events       = array_values( array_unique( array_merge( $subscription['events'], $wanted ) ) );
 				$omitted      = array();
 
@@ -354,6 +373,10 @@ class Agend_Content_Access_Webhook_Setup {
 
 				if ( is_wp_error( $response ) ) {
 					return $this->refusal( 'update_failed', $this->error_message( $response ) );
+				}
+
+				if ( null !== $include_access ) {
+					update_option( self::ACCESS_OPTION, $include_access ? '1' : '0' );
 				}
 
 				return $this->success( 'updated', $payload['events'], $omitted );
@@ -467,17 +490,104 @@ class Agend_Content_Access_Webhook_Setup {
 	 * @return array
 	 */
 	private function locked( callable $action ): array {
-		if ( false !== get_transient( self::LOCK ) ) {
+		if ( ! $this->acquire_lock() ) {
 			return $this->refusal( 'busy' );
 		}
-
-		set_transient( self::LOCK, '1', self::LOCK_TTL );
 
 		try {
 			return $action();
 		} finally {
-			delete_transient( self::LOCK );
+			delete_option( self::LOCK );
 		}
+	}
+
+	/**
+	 * Takes the lock, atomically, or reports that someone else holds it.
+	 *
+	 * A lock older than its lifetime was left by a request that died, and is
+	 * replaced; the atomic add then decides which of two takers wins.
+	 *
+	 * @return bool Whether this request now holds the lock.
+	 */
+	private function acquire_lock(): bool {
+		$now = time();
+
+		if ( add_option( self::LOCK, (string) $now, '', 'no' ) ) {
+			return true;
+		}
+
+		$held = (int) get_option( self::LOCK, 0 );
+
+		if ( $held > 0 && ( $now - $held ) < self::LOCK_TTL ) {
+			return false;
+		}
+
+		delete_option( self::LOCK );
+
+		return add_option( self::LOCK, (string) $now, '', 'no' );
+	}
+
+	/**
+	 * Every subscription on the account, following the gateway's pages.
+	 *
+	 * @return array[]|WP_Error The rows, or an error when any page cannot be read
+	 *                          or the account has more pages than are followed.
+	 */
+	private function all_subscriptions() {
+		$rows = array();
+
+		for ( $page = 1; $page <= self::MAX_PAGES; $page++ ) {
+			$response = $this->gateway->list_subscriptions( $page, self::PAGE_SIZE );
+
+			if ( is_wp_error( $response ) ) {
+				return $response;
+			}
+
+			$rows = array_merge( $rows, $this->rows( $response ) );
+
+			if ( ! $this->has_next_page( $response, $page ) ) {
+				return $rows;
+			}
+		}
+
+		return new WP_Error(
+			'agend_content_access_too_many_webhooks',
+			__( 'This account has more webhooks than can be read here. Manage them in the Agend dashboard.', 'agend-content-access' )
+		);
+	}
+
+	/**
+	 * Whether the gateway says there is another page after this one.
+	 *
+	 * @param mixed $response Decoded list response.
+	 * @param int   $page     The page just read.
+	 * @return bool
+	 */
+	private function has_next_page( $response, int $page ): bool {
+		$pagination = ( is_array( $response ) && isset( $response['meta']['pagination'] ) && is_array( $response['meta']['pagination'] ) )
+			? $response['meta']['pagination']
+			: array();
+
+		if ( isset( $pagination['has_next'] ) ) {
+			return true === $pagination['has_next'];
+		}
+
+		return isset( $pagination['total_pages'] ) && (int) $pagination['total_pages'] > $page;
+	}
+
+	/**
+	 * Whether a subscription row is switched on. Anything but an explicit off
+	 * value counts as on, so a row that omits the field is not shown as paused.
+	 *
+	 * @param array $row Subscription row.
+	 * @return bool
+	 */
+	private static function is_active( array $row ): bool {
+		if ( ! array_key_exists( 'active', $row ) ) {
+			return true;
+		}
+
+		return ! ( false === $row['active'] || 0 === $row['active'] || '0' === $row['active'] || 'false' === $row['active'] );
 	}
 
 	/**
@@ -670,7 +780,7 @@ class Agend_Content_Access_Webhook_Setup {
 			$base  = (string) preg_replace( '#/index\.php$#', '', $path );
 		} elseif ( false !== strpos( $path, '/wp-json/' ) ) {
 			$position = (int) strpos( $path, '/wp-json/' );
-			$base     = substr( $path, 0, $position );
+			$base     = (string) preg_replace( '#/index\.php$#', '', substr( $path, 0, $position ) );
 			$route    = substr( $path, $position + strlen( '/wp-json' ) );
 		} else {
 			$base = $path;

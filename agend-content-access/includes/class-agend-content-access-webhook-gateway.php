@@ -35,11 +35,17 @@ interface Agend_Content_Access_Webhook_Gateway {
 	public function can_manage(): ?bool;
 
 	/**
-	 * Lists the account's subscriptions.
+	 * Lists one page of the account's subscriptions.
 	 *
+	 * The gateway paginates the list, so the caller follows `meta.pagination`
+	 * until it has them all; reading only the first page would miss a
+	 * subscription on a later one.
+	 *
+	 * @param int $page  Page number, from 1.
+	 * @param int $limit Subscriptions per page.
 	 * @return array|WP_Error
 	 */
-	public function list_subscriptions();
+	public function list_subscriptions( int $page = 1, int $limit = 100 );
 
 	/**
 	 * Creates a subscription. The response carries its signing secret once.
@@ -133,8 +139,29 @@ class Agend_Content_Access_Core_Webhook_Gateway implements Agend_Content_Access_
 	/**
 	 * {@inheritdoc}
 	 */
-	public function list_subscriptions() {
-		return agend_apps_webhooks_list_subscriptions();
+	public function list_subscriptions( int $page = 1, int $limit = 100 ) {
+		// Core's wrapper takes no arguments of its own; its documented extension
+		// point is this filter, so the page rides on it for exactly one call.
+		$paging = static function ( $args ) use ( $page, $limit ) {
+			$args          = is_array( $args ) ? $args : array();
+			$args['query'] = array_merge(
+				isset( $args['query'] ) && is_array( $args['query'] ) ? $args['query'] : array(),
+				array(
+					'page'  => $page,
+					'limit' => $limit,
+				)
+			);
+
+			return $args;
+		};
+
+		add_filter( 'agend_apps_webhooks_list_subscriptions_args', $paging );
+
+		try {
+			return agend_apps_webhooks_list_subscriptions();
+		} finally {
+			remove_filter( 'agend_apps_webhooks_list_subscriptions_args', $paging );
+		}
 	}
 
 	/**

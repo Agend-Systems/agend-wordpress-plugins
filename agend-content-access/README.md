@@ -1381,7 +1381,8 @@ receiver in one click, so nobody has to copy event names between screens.
   (`agend_apps_webhook_secret`). Agend shows that secret only once, at creation,
   so it goes straight to the option and is never displayed, logged or returned.
 - **It never makes a second webhook.** Every action starts from the account's real
-  list of webhooks and matches on the receiver URL, whichever way WordPress
+  list of webhooks, every page of it (an account too large to read in full is
+  left alone with an error), and matches on the receiver URL, whichever way WordPress
   spells it (`/wp-json/...` or `?rest_route=`, `http` or `https`, with or
   without a trailing slash). One match is completed, never duplicated. More than one
   match stops every action until the extras are removed in the Agend dashboard:

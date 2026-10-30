@@ -32,6 +32,14 @@ final class FakeWebhookGateway implements Gateway {
 	/** @var array|WP_Error */
 	public $list = array( 'data' => array() );
 
+	/** @var array<int, array|WP_Error> One answer per page, when a test needs pages. */
+	public array $pages = array();
+
+	/** @var array<int, array{0: int, 1: int}> The page and limit of each list call. */
+	public array $list_calls = array();
+
+	public bool $list_throws = false;
+
 	/** @var array<int, array|WP_Error> Answers to successive create calls. */
 	public array $create_answers = array();
 
@@ -66,8 +74,17 @@ final class FakeWebhookGateway implements Gateway {
 		return $this->can_manage;
 	}
 
-	public function list_subscriptions() {
+	public function list_subscriptions( int $page = 1, int $limit = 100 ) {
 		++$this->lists;
+		$this->list_calls[] = array( $page, $limit );
+
+		if ( $this->list_throws ) {
+			throw new \RuntimeException( 'gateway exploded' );
+		}
+
+		if ( array() !== $this->pages ) {
+			return $this->pages[ $page - 1 ] ?? array( 'data' => array() );
+		}
 
 		return $this->list;
 	}
@@ -128,7 +145,7 @@ final class WebhookSetupTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		unset( $_POST[ Panel::FIELD ], $_POST['agend_content_access_include_access'], $GLOBALS['agend_test_current_user_can']['manage_options'] );
+		unset( $_POST[ Panel::FIELD ], $_POST['agend_content_access_include_access'], $_POST['agend_content_access_confirm_rotate'], $GLOBALS['agend_test_current_user_can']['manage_options'] );
 
 		parent::tearDown();
 	}
@@ -165,6 +182,7 @@ final class WebhookSetupTest extends TestCase {
 			'default port'              => array( 'https://example.test:443/wp-json/agend-apps/v1/webhooks/incoming', self::RECEIVER, true ),
 			'plain permalink spelling'  => array( 'https://example.test/?rest_route=/agend-apps/v1/webhooks/incoming', self::RECEIVER, true ),
 			'index.php spelling'        => array( 'https://example.test/index.php?rest_route=/agend-apps/v1/webhooks/incoming', self::RECEIVER, true ),
+			'index.php before wp-json'  => array( 'https://example.test/index.php/wp-json/agend-apps/v1/webhooks/incoming', self::RECEIVER, true ),
 			'different route'           => array( 'https://example.test/wp-json/agend-apps/v1/webhooks/other', self::RECEIVER, false ),
 			'different host'            => array( 'https://other.test/wp-json/agend-apps/v1/webhooks/incoming', self::RECEIVER, false ),
 			'different site base path'  => array( 'https://example.test/blog/wp-json/agend-apps/v1/webhooks/incoming', self::RECEIVER, false ),
@@ -473,7 +491,7 @@ final class WebhookSetupTest extends TestCase {
 	#[Test]
 	public function subscribe_does_nothing_while_another_setup_action_holds_the_lock(): void {
 		$this->listing();
-		set_transient( Setup::LOCK, '1', 30 );
+		update_option( Setup::LOCK, (string) time() );
 
 		$result = $this->setup_under_test()->subscribe( true );
 
@@ -482,12 +500,43 @@ final class WebhookSetupTest extends TestCase {
 	}
 
 	#[Test]
+	public function a_lock_left_by_a_crashed_request_is_taken_over_once_it_is_old_enough(): void {
+		$this->listing();
+		update_option( Setup::LOCK, (string) ( time() - Setup::LOCK_TTL - 5 ) );
+
+		$result = $this->setup_under_test()->subscribe( true );
+
+		$this->assertTrue( $result['ok'] );
+		$this->assertFalse( get_option( Setup::LOCK, false ) );
+	}
+
+	#[Test]
+	public function the_lock_is_an_option_so_taking_it_is_atomic(): void {
+		$this->assertTrue( add_option( Setup::LOCK, (string) time(), '', 'no' ) );
+		$this->assertFalse( add_option( Setup::LOCK, (string) time(), '', 'no' ) );
+	}
+
+	#[Test]
+	public function the_lock_is_released_even_when_the_gateway_throws(): void {
+		$this->gateway->list_throws = true;
+
+		try {
+			$this->setup_under_test()->subscribe( true );
+			$this->fail( 'The gateway exception should propagate.' );
+		} catch ( \RuntimeException $exception ) {
+			$this->assertSame( 'gateway exploded', $exception->getMessage() );
+		}
+
+		$this->assertFalse( get_option( Setup::LOCK, false ) );
+	}
+
+	#[Test]
 	public function the_lock_is_released_when_an_action_finishes(): void {
 		$this->listing();
 
 		$this->setup_under_test()->subscribe( true );
 
-		$this->assertFalse( get_transient( Setup::LOCK ) );
+		$this->assertFalse( get_option( Setup::LOCK, false ) );
 	}
 
 	#[Test]
@@ -566,13 +615,35 @@ final class WebhookSetupTest extends TestCase {
 	}
 
 	#[Test]
-	public function complete_can_switch_the_access_events_off_and_remembers_it(): void {
+	public function complete_leaves_the_stored_choice_alone_when_it_changes_nothing(): void {
 		$this->listing( $this->subscription( 'sub-1', self::RECEIVER, Setup::LIFECYCLE_EVENTS ) );
 
 		$result = $this->setup_under_test()->complete( false );
 
 		$this->assertSame( 'nothing_to_add', $result['code'] );
+		$this->assertTrue( $this->setup_under_test()->include_access_events() );
+	}
+
+	#[Test]
+	public function complete_remembers_a_lifecycle_only_choice_once_the_update_succeeds(): void {
+		$this->listing( $this->subscription( 'sub-1', self::RECEIVER, array( 'crm.membership.lapsed' ) ) );
+
+		$result = $this->setup_under_test()->complete( false );
+
+		$this->assertTrue( $result['ok'] );
 		$this->assertFalse( $this->setup_under_test()->include_access_events() );
+		$this->assertEqualsCanonicalizing( Setup::LIFECYCLE_EVENTS, $this->gateway->updates[0][1]['events'] );
+	}
+
+	#[Test]
+	public function complete_does_not_remember_a_choice_when_the_update_fails(): void {
+		$this->listing( $this->subscription( 'sub-1', self::RECEIVER, array( 'crm.membership.lapsed' ) ) );
+		$this->gateway->update_answers = array( new WP_Error( 'agend_api_error', 'Nope', array( 'status_code' => 500 ) ) );
+
+		$result = $this->setup_under_test()->complete( false );
+
+		$this->assertSame( 'update_failed', $result['code'] );
+		$this->assertTrue( $this->setup_under_test()->include_access_events() );
 	}
 
 	#[Test]
@@ -632,6 +703,198 @@ final class WebhookSetupTest extends TestCase {
 		$this->assertSame( array(), $this->gateway->tests );
 	}
 
+	/** @return array<string, array{0: mixed, 1: bool}> */
+	public static function activeValues(): array {
+		return array(
+			'true'          => array( true, true ),
+			'absent'        => array( null, true ),
+			'false'         => array( false, false ),
+			'zero'          => array( 0, false ),
+			'zero string'   => array( '0', false ),
+			'false string'  => array( 'false', false ),
+			'one'           => array( 1, true ),
+		);
+	}
+
+	#[Test]
+	#[DataProvider( 'activeValues' )]
+	public function a_subscription_counts_as_paused_only_for_an_explicit_off_value( $active, bool $expectedActive ): void {
+		$row = $this->subscription( 'sub-1', self::RECEIVER, $this->complete_events() );
+
+		if ( null === $active ) {
+			unset( $row['active'] );
+		} else {
+			$row['active'] = $active;
+		}
+
+		$this->listing( $row );
+
+		$this->assertSame( $expectedActive, $this->setup_under_test()->status()['subscription']['active'] );
+	}
+
+	#[Test]
+	public function status_follows_every_page_and_finds_a_subscription_on_a_later_one(): void {
+		$this->gateway->pages = array(
+			array(
+				'data' => array( $this->subscription( 'other', 'https://other.test/hook', array() ) ),
+				'meta' => array( 'pagination' => array( 'has_next' => true, 'page' => 1, 'total_pages' => 2 ) ),
+			),
+			array(
+				'data' => array( $this->subscription( 'sub-2', self::RECEIVER, $this->complete_events() ) ),
+				'meta' => array( 'pagination' => array( 'has_next' => false, 'page' => 2, 'total_pages' => 2 ) ),
+			),
+		);
+
+		$status = $this->setup_under_test()->status();
+
+		$this->assertSame( 'subscribed', $status['state'] );
+		$this->assertSame( 'sub-2', $status['subscription']['id'] );
+		$this->assertSame( array( array( 1, 100 ), array( 2, 100 ) ), $this->gateway->list_calls );
+	}
+
+	#[Test]
+	public function subscribe_does_not_create_a_duplicate_of_a_subscription_on_a_later_page(): void {
+		$this->gateway->pages = array(
+			array(
+				'data' => array( $this->subscription( 'other', 'https://other.test/hook', array() ) ),
+				'meta' => array( 'pagination' => array( 'has_next' => true ) ),
+			),
+			array(
+				'data' => array( $this->subscription( 'sub-2', self::RECEIVER, $this->complete_events() ) ),
+				'meta' => array( 'pagination' => array( 'has_next' => false ) ),
+			),
+		);
+
+		$result = $this->setup_under_test()->subscribe( true );
+
+		$this->assertSame( 'already_subscribed', $result['code'] );
+		$this->assertSame( array(), $this->gateway->creates );
+	}
+
+	#[Test]
+	public function status_follows_total_pages_when_the_gateway_sends_no_has_next(): void {
+		$this->gateway->pages = array(
+			array( 'data' => array(), 'meta' => array( 'pagination' => array( 'total_pages' => 2 ) ) ),
+			array( 'data' => array( $this->subscription( 'sub-2', self::RECEIVER, $this->complete_events() ) ) ),
+		);
+
+		$this->assertSame( 'subscribed', $this->setup_under_test()->status()['state'] );
+	}
+
+	#[Test]
+	public function status_is_an_error_and_nothing_is_created_when_a_later_page_cannot_be_read(): void {
+		$this->gateway->pages = array(
+			array( 'data' => array(), 'meta' => array( 'pagination' => array( 'has_next' => true ) ) ),
+			new WP_Error( 'agend_api_error', 'Boom', array( 'status_code' => 500 ) ),
+		);
+
+		$this->assertSame( 'error', $this->setup_under_test()->status()['state'] );
+
+		$result = $this->setup_under_test()->subscribe( true );
+
+		$this->assertSame( 'error', $result['code'] );
+		$this->assertSame( array(), $this->gateway->creates );
+	}
+
+	#[Test]
+	public function status_gives_up_with_an_error_rather_than_follow_pages_for_ever(): void {
+		$this->gateway->pages = array_fill(
+			0,
+			Setup::MAX_PAGES + 5,
+			array( 'data' => array(), 'meta' => array( 'pagination' => array( 'has_next' => true ) ) )
+		);
+
+		$status = $this->setup_under_test()->status();
+
+		$this->assertSame( 'error', $status['state'] );
+		$this->assertCount( Setup::MAX_PAGES, $this->gateway->list_calls );
+	}
+
+	/** @return string[] The URLs redirected to. */
+	private function panelRedirects( ?array &$redirects = null ): callable {
+		$redirects = array();
+
+		return static function ( string $url ) use ( &$redirects ): void {
+			$redirects[] = $url;
+		};
+	}
+
+	#[Test]
+	public function the_panel_reads_the_account_once_for_repeated_views_and_again_after_an_action(): void {
+		$this->listing();
+		$panel = new Panel( $this->setup_under_test(), $this->panelRedirects() );
+
+		$panel->status();
+		$panel->status();
+
+		$this->assertSame( 1, $this->gateway->lists );
+
+		$_POST[ Panel::FIELD ] = 'test';
+		$panel->handle_action();
+		$panel->status();
+
+		$this->assertGreaterThan( 1, $this->gateway->lists );
+	}
+
+	#[Test]
+	public function the_panel_does_not_remember_a_failed_read(): void {
+		$this->gateway->list = new WP_Error( 'agend_api_error', 'Down', array( 'status_code' => 503 ) );
+		$panel               = new Panel( $this->setup_under_test(), $this->panelRedirects() );
+
+		$panel->status();
+		$panel->status();
+
+		$this->assertSame( 2, $this->gateway->lists );
+	}
+
+	#[Test]
+	public function the_panel_redirects_after_an_action_and_shows_its_outcome_once(): void {
+		$_POST[ Panel::FIELD ] = 'subscribe';
+		$this->listing();
+		$panel = new Panel( $this->setup_under_test(), $this->panelRedirects( $redirects ) );
+
+		$panel->handle_action();
+
+		$this->assertCount( 1, $redirects );
+		$this->assertStringContainsString( 'page=agend-content-access', $redirects[0] );
+
+		$shown = $panel->pending_result();
+
+		$this->assertIsArray( $shown );
+		$this->assertSame( 'created', $shown['code'] );
+		$this->assertNull( $panel->pending_result() );
+	}
+
+	#[Test]
+	public function the_panel_redirects_nowhere_when_no_known_action_was_submitted(): void {
+		$_POST[ Panel::FIELD ] = 'no-such-action';
+		$panel                 = new Panel( $this->setup_under_test(), $this->panelRedirects( $redirects ) );
+
+		$panel->handle_action();
+
+		$this->assertSame( array(), $redirects );
+	}
+
+	#[Test]
+	public function the_rendered_panel_escapes_a_gateway_error_and_never_prints_the_secret(): void {
+		update_option( Setup::SECRET_OPTION, 'super-secret-value' );
+		$this->gateway->list = new WP_Error( 'agend_api_error', '<script>alert(1)</script>Boom', array( 'status_code' => 502 ) );
+
+		if ( ! defined( 'AGEND_CONTENT_ACCESS_DIR' ) ) {
+			define( 'AGEND_CONTENT_ACCESS_DIR', AGEND_TESTS_ROOT . '/agend-content-access/' );
+		}
+
+		ob_start();
+		( new Panel( $this->setup_under_test(), $this->panelRedirects() ) )->render();
+		$html = (string) ob_get_clean();
+
+		$this->assertStringNotContainsString( '<script>alert', $html );
+		$this->assertStringContainsString( 'Boom', $html );
+		$this->assertStringNotContainsString( 'super-secret-value', $html );
+		$this->assertStringContainsString( 'Stored on this site.', $html );
+		$this->assertStringContainsString( self::RECEIVER, $html );
+	}
+
 	/** @return array<string, array{0: string}> */
 	public static function resultCodes(): array {
 		$codes = array(
@@ -670,7 +933,7 @@ final class WebhookSetupTest extends TestCase {
 		$_POST[ Panel::FIELD ]                                    = 'subscribe';
 		$this->listing();
 
-		( new Panel( $this->setup_under_test() ) )->handle_action();
+		( new Panel( $this->setup_under_test(), $this->panelRedirects() ) )->handle_action();
 
 		$this->assertSame( 0, $this->gateway->lists );
 		$this->assertSame( array(), $this->gateway->creates );
@@ -681,7 +944,7 @@ final class WebhookSetupTest extends TestCase {
 		$_POST[ Panel::FIELD ] = 'subscribe';
 		$this->listing();
 
-		( new Panel( $this->setup_under_test() ) )->handle_action();
+		( new Panel( $this->setup_under_test(), $this->panelRedirects() ) )->handle_action();
 
 		$this->assertCount( 1, $this->gateway->creates );
 	}
@@ -691,7 +954,7 @@ final class WebhookSetupTest extends TestCase {
 		$_POST[ Panel::FIELD ] = 'rotate';
 		$this->listing( $this->subscription( 'sub-1', self::RECEIVER, $this->complete_events() ) );
 
-		( new Panel( $this->setup_under_test() ) )->handle_action();
+		( new Panel( $this->setup_under_test(), $this->panelRedirects() ) )->handle_action();
 
 		$this->assertSame( array(), $this->gateway->rotates );
 	}

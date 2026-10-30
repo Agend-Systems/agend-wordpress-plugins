@@ -24,6 +24,36 @@ class Agend_Content_Access_Webhook_Panel {
 	const FIELD = 'agend_content_access_webhook_action';
 
 	/**
+	 * The settings screen slug this panel lives on.
+	 *
+	 * @var string
+	 */
+	const PAGE = 'agend-content-access';
+
+	/**
+	 * Transient holding the last status read, so opening the screen does not ask
+	 * Agend every time. Cleared by every action.
+	 *
+	 * @var string
+	 */
+	const STATUS_CACHE = 'agend_content_access_webhook_status';
+
+	/**
+	 * How long a status read is reused, in seconds.
+	 *
+	 * @var int
+	 */
+	const STATUS_TTL = 30;
+
+	/**
+	 * Prefix of the per-user transient that carries an action's outcome across the
+	 * redirect that follows it.
+	 *
+	 * @var string
+	 */
+	const RESULT_PREFIX = 'agend_content_access_webhook_result_';
+
+	/**
 	 * The setup logic.
 	 *
 	 * @var Agend_Content_Access_Webhook_Setup
@@ -31,19 +61,24 @@ class Agend_Content_Access_Webhook_Panel {
 	private $setup;
 
 	/**
-	 * The outcome of the action run on this request, if any.
+	 * Sends the browser back to the screen after an action.
 	 *
-	 * @var array|null
+	 * @var callable
 	 */
-	private $result = null;
+	private $redirect;
 
 	/**
 	 * Registers the form handler.
 	 *
-	 * @param Agend_Content_Access_Webhook_Setup|null $setup Setup to use; the default talks to Core.
+	 * @param Agend_Content_Access_Webhook_Setup|null $setup    Setup to use; the default talks to Core.
+	 * @param callable|null                           $redirect Called with the URL to return to; the default redirects and stops.
 	 */
-	public function __construct( ?Agend_Content_Access_Webhook_Setup $setup = null ) {
-		$this->setup = $setup ?? new Agend_Content_Access_Webhook_Setup();
+	public function __construct( ?Agend_Content_Access_Webhook_Setup $setup = null, ?callable $redirect = null ) {
+		$this->setup    = $setup ?? new Agend_Content_Access_Webhook_Setup();
+		$this->redirect = $redirect ?? static function ( string $url ): void {
+			wp_safe_redirect( $url );
+			exit;
+		};
 
 		add_action( 'admin_init', array( $this, 'handle_action' ) );
 	}
@@ -71,12 +106,14 @@ class Agend_Content_Access_Webhook_Panel {
 		$replace = isset( $_POST['agend_content_access_replace_secret'] );
 		$confirm = isset( $_POST['agend_content_access_confirm_rotate'] );
 
+		$result = null;
+
 		if ( 'subscribe' === $action ) {
-			$this->result = $this->setup->subscribe( $access, $replace );
+			$result = $this->setup->subscribe( $access, $replace );
 		} elseif ( 'complete' === $action ) {
-			$this->result = $this->setup->complete( $access );
+			$result = $this->setup->complete( $access );
 		} elseif ( 'rotate' === $action ) {
-			$this->result = $confirm
+			$result = $confirm
 				? $this->setup->rotate_secret()
 				: array(
 					'ok'      => false,
@@ -86,8 +123,62 @@ class Agend_Content_Access_Webhook_Panel {
 					'omitted' => array(),
 				);
 		} elseif ( 'test' === $action ) {
-			$this->result = $this->setup->send_test();
+			$result = $this->setup->send_test();
 		}
+
+		if ( null === $result ) {
+			return;
+		}
+
+		// Post, then redirect: a refresh of the result page would otherwise submit
+		// the form again, and a repeated "replace signing secret" breaks the secret
+		// the previous submit had just stored.
+		delete_transient( self::STATUS_CACHE );
+		set_transient( self::RESULT_PREFIX . get_current_user_id(), $result, 60 );
+
+		call_user_func( $this->redirect, admin_url( 'options-general.php?page=' . self::PAGE ) );
+	}
+
+	/**
+	 * What Agend has for this site, reused for a short while.
+	 *
+	 * Only a read that reached the account is kept; an outage or a missing scope
+	 * is asked again next time, so a fix shows up at once.
+	 *
+	 * @return array The `Agend_Content_Access_Webhook_Setup::status()` result.
+	 */
+	public function status(): array {
+		$cached = get_transient( self::STATUS_CACHE );
+
+		if ( is_array( $cached ) && isset( $cached['state'] ) ) {
+			return $cached;
+		}
+
+		$status = $this->setup->status();
+
+		if ( in_array( $status['state'], array( 'not_subscribed', 'incomplete', 'subscribed', 'duplicates' ), true ) ) {
+			set_transient( self::STATUS_CACHE, $status, self::STATUS_TTL );
+		}
+
+		return $status;
+	}
+
+	/**
+	 * The outcome of the action this user just ran, shown once.
+	 *
+	 * @return array|null
+	 */
+	public function pending_result(): ?array {
+		$key    = self::RESULT_PREFIX . get_current_user_id();
+		$result = get_transient( $key );
+
+		if ( ! is_array( $result ) ) {
+			return null;
+		}
+
+		delete_transient( $key );
+
+		return $result;
 	}
 
 	/**
@@ -99,8 +190,8 @@ class Agend_Content_Access_Webhook_Panel {
 		}
 
 		$setup          = $this->setup;
-		$status         = $setup->status();
-		$result         = $this->result;
+		$status         = $this->status();
+		$result         = $this->pending_result();
 		$include_access = $setup->include_access_events();
 		$wanted         = $setup->wanted_events( $include_access );
 		$panel          = $this;
