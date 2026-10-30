@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-10-30T05:24:32Z",
+  "repository": "https://github.com/Agend-Systems/agend-wordpress-plugins",
+  "plugins": {
+    "agend-apps-core": {
+      "slug": "agend-apps-core",
+      "name": "Agend Apps Core",
+      "version": "1.51.0",
+      "requires": "6.0",
+      "requires_php": "7.4",
+      "package": "https://agend-systems.github.io/agend-wordpress-plugins/packages/agend-apps-core.zip",
+      "url": "https://github.com/Agend-Systems/agend-wordpress-plugins/releases/tag/agend-apps-core-v1.51.0",
+      "last_updated": "2026-10-30T02:36:57Z",
+      "author": "Agend",
+      "author_url": "https://agend.com.au",
+      "sections": {
+        "description": "<p>Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.</p>",
+        "changelog": "<ul><li>chore(agend-apps-core): bump to 1.51.0 (1b9b7ee)</li><li>fix(agend-apps-core): address the review of the remembered missing site config (fe15cbc)</li><li>feat(agend-apps-core): remember when a site has no published site config (8111cf6)</li></ul><p>**Full changelog**: https://github.com/Agend-Systems/agend-wordpress-plugins/compare/agend-apps-core-v1.50.0...agend-apps-core-v1.51.0</p>"
+      },
+      "tested": "7.1"
+    },
+    "agend-apps-shop": {
+      "slug": "agend-apps-shop",
+      "name": "Agend Apps Shop",
+      "version": "1.2.0",
+      "requires": "6.0",
+      "requires_php": "7.4",
+      "package": "https://agend-systems.github.io/agend-wordpress-plugins/packages/agend-apps-shop.zip",
+      "url": "https://github.com/Agend-Systems/agend-wordpress-plugins/releases/tag/agend-apps-shop-v1.2.0",
+      "last_updated": "2026-10-06T03:00:07Z",
+      "author": "Agend",
+      "author_url": "https://agend.com.au",
+      "sections": {
+        "description": "<p>Extends Agend Apps Core with Elementor cart widgets for end-user checkout flows.</p>",
+        "changelog": "<ul><li>feat(agend-elementor): disable widgets whose API key lacks the scopes they need (c4b518b)</li></ul><p>**Full changelog**: https://github.com/Agend-Systems/agend-wordpress-plugins/compare/agend-apps-shop-v1.1.1...agend-apps-shop-v1.2.0</p>"
+      },
+      "tested": "7.1"
+    },
+    "agend-content-access": {
+      "slug": "agend-content-access",
+      "name": "Agend Content Access",
+      "version": "0.3.0",
+      "requires": "6.0",
+      "requires_php": "7.4",
+      "package": "https://agend-systems.github.io/agend-wordpress-plugins/packages/agend-content-access.zip",
+      "url": "https://github.com/Agend-Systems/agend-wordpress-plugins/releases/tag/agend-content-access-v0.3.0",
+      "last_updated": "2026-10-30T05:24:24Z",
+      "author": "Agend",
+      "author_url": "https://agend.com.au",
+      "sections": {
+        "description": "<p>Restricts WordPress content to Agend members and membership plans. Agend authorises every protected response; WordPress only declares the intended audience.</p>",
+        "changelog": "<ul><li>fix(agend-content-access): address the review of the webhook setup (d4c6cab)</li><li>feat(agend-content-access): connect Agend to this site&#x27;s webhook receiver in one click (961d66b)</li></ul><p>**Full changelog**: https://github.com/Agend-Systems/agend-wordpress-plugins/compare/agend-content-access-v0.2.1...agend-content-access-v0.3.0</p>"
+      },
+      "tested": "7.1"
+    },
+    "agend-directory-sync": {
+      "slug": "agend-directory-sync",
+      "name": "Agend Directory Sync",
+      "version": "0.13.1",
+      "requires": "6.0",
+      "requires_php": "7.4",
+      "package": "https://agend-systems.github.io/agend-wordpress-plugins/packages/agend-directory-sync.zip",
+      "url": "https://github.com/Agend-Systems/agend-wordpress-plugins/releases/tag/agend-directory-sync-v0.13.1",
+      "last_updated": "2026-10-16T05:25:41Z",
+      "author": "Agend",
+      "author_url": "https://agend.com.au",
+      "sections": {
+        "description": "<p>Sync directory records from Upbeat, any JSON API, or Microsoft Dataverse to the Agend directory via the bulk-upsert API.</p>",
+        "changelog": "<ul><li>chore(agend-directory-sync): bump to 0.13.1 (4825d34)</li><li>fix(agend-directory-sync): send false custom field values instead of dropping them (307a85c)</li></ul><p>**Full changelog**: https://github.com/Agend-Systems/agend-wordpress-plugins/compare/agend-directory-sync-v0.13.0...agend-directory-sync-v0.13.1</p>"
+      },
+      "tested": "7.1"
+    },
+    "agend-elementor": {
+      "slug": "agend-elementor",
+      "name": "Agend Elementor Widgets",
+      "version": "0.35.2",
+      "requires": "6.0",
+      "requires_php": "7.4",
+      "package": "https://agend-systems.github.io/agend-wordpress-plugins/packages/agend-elementor.zip",
+      "url": "https://github.com/Agend-Systems/agend-wordpress-plugins/releases/tag/agend-elementor-v0.35.2",
+      "last_updated": "2026-10-29T22:47:02Z",
+      "author": "Agend",
+      "author_url": "https://agend.com.au",
+      "sections": {
+        "description": "<p>Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.</p>",
+        "changelog": "<ul><li>chore(agend-elementor): bump to 0.35.2 (55e33a6)</li><li>feat(agend-apps-core): preload every pin&#x27;s details on a smaller directory (f7d7bf5)</li><li>feat(agend-apps-core): draw every matching listing on the Agend Map from first load (4efdefc)</li><li>perf(agend-apps-core): ask directory search only for the custom fields a card template shows (ad9ced5)</li></ul><p>**Full changelog**: https://github.com/Agend-Systems/agend-wordpress-plugins/compare/agend-elementor-v0.35.1...agend-elementor-v0.35.2</p>"
+      },
+      "tested": "7.1"
+    },
+    "agend-embed": {
+      "slug": "agend-embed",
+      "name": "Agend Embed",
+      "version": "1.0.0",
+      "requires": "6.0",
+      "requires_php": "7.4",
+      "package": "https://agend-systems.github.io/agend-wordpress-plugins/packages/agend-embed.zip",
+      "url": "https://github.com/Agend-Systems/agend-wordpress-plugins/releases/tag/agend-embed-v1.0.0",
+      "last_updated": "2026-09-07T23:59:56Z",
+      "author": "Agend",
+      "author_url": "https://agend.com.au",
+      "sections": {
+        "description": "<p>Embeds Agend app surfaces (LMS, Loop) in an iframe with host-assisted single sign-on. When the embed reports it has no session, this plugin navigates the iframe through the site&#x27;s own IdP-initiated SSO so a logged-in member is signed into the embed without re-entering credentials. Works with any WordPress SAML IdP via a driver filter.</p>",
+        "changelog": "<ul><li>feat: self-hosted plugin updates from per-plugin GitHub Releases (9d9b208)</li><li>feat: agend-embed plugin - host-assisted embed SSO, IdP-agnostic (0ca8391)</li></ul>"
+      }
+    },
+    "agend-entitlement-mirror": {
+      "slug": "agend-entitlement-mirror",
+      "name": "Agend Entitlement Mirror",
+      "version": "0.2.1",
+      "requires": "6.0",
+      "requires_php": "7.4",
+      "package": "https://agend-systems.github.io/agend-wordpress-plugins/packages/agend-entitlement-mirror.zip",
+      "url": "https://github.com/Agend-Systems/agend-wordpress-plugins/releases/tag/agend-entitlement-mirror-v0.2.1",
+      "last_updated": "2026-09-22T00:29:17Z",
+      "author": "Agend",
+      "author_url": "https://agend.com.au",
+      "sections": {
+        "description": "<p>Mirrors Upbeat entitlements into Agend CRM entitlement grants, so directory/content gating segments react to standing granted or revoked in Upbeat.</p>",
+        "changelog": "<ul><li>chore: bump agend-entitlement-mirror to 0.2.1 (01a582b)</li><li>fix(entitlement-mirror): run webhook listeners after the kiosk cache erase (2f76d92)</li></ul><p>**Full changelog**: https://github.com/Agend-Systems/agend-wordpress-plugins/compare/agend-entitlement-mirror-v0.2.0...agend-entitlement-mirror-v0.2.1</p>"
+      },
+      "tested": "7.1"
+    },
+    "agend-loop-sync": {
+      "slug": "agend-loop-sync",
+      "name": "Agend Loop Sync",
+      "version": "1.3.0",
+      "requires": "6.0",
+      "requires_php": "7.4",
+      "package": "https://agend-systems.github.io/agend-wordpress-plugins/packages/agend-loop-sync.zip",
+      "url": "https://github.com/Agend-Systems/agend-wordpress-plugins/releases/tag/agend-loop-sync-v1.3.0",
+      "last_updated": "2026-10-20T22:18:18Z",
+      "author": "Agend",
+      "author_url": "https://agend.com.au",
+      "sections": {
+        "description": "<p>Syncs WordPress users, roles, and Upbeat committees into Agend Loop channels via the Agend gateway. Users sync on login/role change; committees sync on a schedule or on demand.</p>",
+        "changelog": "<ul><li>docs(agend-loop-sync): describe removal and the Loop membership lock as live (201b5ba)</li><li>fix(agend-loop-sync): keep hold reasons out of the log and read hold fields safely (3e6a44e)</li><li>chore(agend-loop-sync): bump to 1.3.0 (6d52af6)</li><li>docs(agend-loop-sync): explain sync holds and website-managed access (3f79704)</li><li>feat(agend-loop-sync): show held members in the last-run summary (9e508fa)</li><li>feat(agend-loop-sync): show sync holds in the hand-over picker (6bc3957)</li><li>feat(agend-loop-sync): record sync holds from the committee sync (dcac534)</li></ul><p>**Full changelog**: https://github.com/Agend-Systems/agend-wordpress-plugins/compare/agend-loop-sync-v1.2.0...agend-loop-sync-v1.3.0</p>"
+      },
+      "tested": "7.1"
+    }
+  }
+}
