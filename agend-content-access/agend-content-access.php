@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-content-access
  * Description:       Restricts WordPress content to Agend members and membership plans. Agend authorises every protected response; WordPress only declares the intended audience.
- * Version:           0.2.1
+ * Version:           0.3.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-content-access
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_CONTENT_ACCESS_VERSION', '0.2.1' );
+define( 'AGEND_CONTENT_ACCESS_VERSION', '0.3.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -76,6 +76,8 @@ function agend_content_access_bootstrap(): void {
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-block-attributes.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-viewer-facts.php';
 	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-webhooks.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-webhook-gateway.php';
+	require_once AGEND_CONTENT_ACCESS_DIR . 'includes/class-agend-content-access-webhook-setup.php';
 
 	// The one rule list and the one evaluator, with the condition engine and the
 	// providers it runs on: every decision this plugin makes goes through them, so
@@ -187,6 +189,7 @@ function agend_content_access_bootstrap(): void {
 	add_action( 'rest_api_init', 'agend_content_access_bootstrap_rest' );
 
 	if ( is_admin() ) {
+		require_once AGEND_CONTENT_ACCESS_DIR . 'admin/class-agend-content-access-webhook-panel.php';
 		require_once AGEND_CONTENT_ACCESS_DIR . 'admin/class-agend-content-access-admin.php';
 
 		// The classic editor's panel: its assets are queued by the meta box itself.
