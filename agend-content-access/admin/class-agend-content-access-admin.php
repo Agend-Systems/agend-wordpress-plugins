@@ -29,11 +29,20 @@ class Agend_Content_Access_Admin {
 	private string $new_token = '';
 
 	/**
+	 * The webhook setup panel shown under the credential.
+	 *
+	 * @var Agend_Content_Access_Webhook_Panel
+	 */
+	private $webhook_panel;
+
+	/**
 	 * Registers hooks.
 	 */
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'register_page' ) );
 		add_action( 'admin_init', array( $this, 'handle_actions' ) );
+
+		$this->webhook_panel = new Agend_Content_Access_Webhook_Panel();
 	}
 
 	/**
@@ -177,6 +186,8 @@ class Agend_Content_Access_Admin {
 					</p>
 				<?php endif; ?>
 			</form>
+
+			<?php $this->webhook_panel->render(); ?>
 		</div>
 		<?php
 	}

@@ -1369,6 +1369,43 @@ Agend dashboard. Core verifies the signature, drops repeat deliveries and handle
 `crm.membership.*` and `crm.seat.*` for its own membership snapshot, then hands
 every verified delivery on. This plugin adds no route and no secret of its own.
 
+### Quick setup
+
+Settings, then Agend Content Access, then Member webhooks connects Agend to the
+receiver in one click, so nobody has to copy event names between screens.
+
+- **Connect Agend to this site** creates one webhook for this site's receiver
+  URL, subscribes it to the member lifecycle events and (unless the box is
+  cleared) the entitlement, segment and contact events in the table below, and
+  stores the signing secret where Core's receiver reads it
+  (`agend_apps_webhook_secret`). Agend shows that secret only once, at creation,
+  so it goes straight to the option and is never displayed, logged or returned.
+- **It never makes a second webhook.** Every action starts from the account's real
+  list of webhooks and matches on the receiver URL, whichever way WordPress
+  spells it (`/wp-json/...` or `?rest_route=`, `http` or `https`, with or
+  without a trailing slash). One match is completed, never duplicated. More than one
+  match stops every action until the extras are removed in the Agend dashboard:
+  this plugin never deletes a webhook. A short lock stops a double click racing
+  two creates.
+- **Add missing events** tops up a webhook that lacks events or is paused. It
+  keeps every event already on it, including ones this plugin does not know.
+- **Replace signing secret** is for a webhook made elsewhere, whose secret this
+  site does not hold. The old secret stops working at once, so it asks for a
+  tick first. A stored secret is also never overwritten when creating a webhook
+  unless that is ticked.
+- **Send a test delivery** asks Agend to deliver a sample event to this site.
+- An event the gateway does not recognise yet (an older Agend release) is left
+  out and named on screen rather than failing the whole setup.
+
+It needs Agend Apps Core with the webhook subscription functions and an API key
+holding the `webhooks.subscriptions.manage` scope. Without either, the panel
+says which is missing and shows the same steps to do by hand: the receiver URL,
+the event list, and where the signing secret goes.
+
+`crm.membership.seats_affected`, which lists the seat holders of a corporate
+membership whose standing changed, is not subscribed by the quick setup: this
+plugin does not act on it yet.
+
 | Event type | What it clears |
 | --- | --- |
 | `crm.membership.created`, `updated`, `cancelled`, `renewed`, `reinstated`, `lapsed` | That member's cached facts |
