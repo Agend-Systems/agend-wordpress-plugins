@@ -9,6 +9,7 @@ namespace Agend\Tests\AppsCore;
 
 use Agend_Apps_Endpoint_Scopes;
 use Agend_Apps_Key_Scopes;
+use Agend_Test_Real_Cache;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -19,26 +20,27 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-api.
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-endpoint-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/sites.php';
+require_once __DIR__ . '/fixtures/real-cache.php';
 
 /**
  * A site whose account has no published site config is told so by the
  * gateway once per cache lifetime, not on every page view, and the answer is
  * the same for every visitor.
  *
- * Agend_Apps_Cache is a bootstrap-time double, so the real class is loaded
- * here under another name to prove that clearing the "Site Config" row
- * forgets the remembered answer. The wpdb double does not model the LIKE
- * delete clear() issues, so this test applies it to the stored transients.
+ * Clearing the "Site Config" row is proven with the real Agend_Apps_Cache.
+ * The wpdb double does not model the LIKE delete clear() issues, so this test
+ * applies it to the stored transients.
  */
 final class SitesConfigNotFoundTest extends TestCase {
 
-	private const REAL_CACHE = 'Agend_Test_Site_Config_Real_Cache';
+	private const SHARED_ENTRY = 'agend_apps_sites_config';
 
+	/** What the gateway sends for an account with no published site config. */
 	private const NOT_FOUND = array(
 		'success' => false,
 		'error'   => array(
 			'code'    => 'NOT_FOUND',
-			'message' => 'No published site config for this account',
+			'message' => 'Site config not found',
 		),
 	);
 
@@ -49,21 +51,7 @@ final class SitesConfigNotFoundTest extends TestCase {
 
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
-
-		if ( class_exists( self::REAL_CACHE, false ) ) {
-			return;
-		}
-
-		$file        = AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-cache.php';
-		$source      = (string) file_get_contents( $file );
-		$declaration = 'class Agend_Apps_Cache {';
-
-		if ( 1 !== substr_count( $source, $declaration ) ) {
-			throw new \RuntimeException( sprintf( 'Expected exactly one "%s" in %s.', $declaration, $file ) );
-		}
-
-		// phpcs:ignore Squiz.PHP.Eval.Discouraged
-		eval( '?>' . str_replace( $declaration, 'class ' . self::REAL_CACHE . ' {', $source ) );
+		agend_test_load_real_cache();
 	}
 
 	protected function setUp(): void {
@@ -93,20 +81,30 @@ final class SitesConfigNotFoundTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_remember_the_missing_config_when_the_gateway_words_it_as_the_domain_does(): void {
+		Agend_Test_WP::queue_response( 404, array( 'error' => array( 'code' => 'NOT_FOUND', 'message' => 'No published site config for this account' ) ) );
+
+		agend_apps_sites_get_config();
+		agend_apps_sites_get_config();
+
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
 	public function should_remember_the_missing_config_for_the_site_config_lifetime_when_the_gateway_says_not_found(): void {
 		$GLOBALS['agend_test_cache_ttls']['sites_config'] = 1234;
 		Agend_Test_WP::queue_response( 404, self::NOT_FOUND );
 
 		agend_apps_sites_get_config();
 
-		$this->assertSame( array( 1234 ), array_values( $this->siteConfigTtls() ) );
+		$this->assertSame( array( self::SHARED_ENTRY => 1234 ), $this->siteConfigTtls() );
 	}
 
 	#[Test]
 	public function should_keep_the_original_expiry_when_a_remembered_missing_config_is_served(): void {
 		Agend_Test_WP::queue_response( 404, self::NOT_FOUND );
 		agend_apps_sites_get_config();
-		$stored = array_keys( $this->siteConfigTtls() );
+		$stored = $this->siteConfigTtls();
 		Agend_Test_WP::$transient_ttls = array();
 
 		agend_apps_sites_get_config();
@@ -132,19 +130,20 @@ final class SitesConfigNotFoundTest extends TestCase {
 	 * @return array<string, array{0: callable(): void}>
 	 */
 	public static function gateway_failures(): array {
-		$error = static fn( int $status, string $code ): callable => static function () use ( $status, $code ): void {
-			Agend_Test_WP::queue_response( $status, array( 'error' => array( 'code' => $code, 'message' => 'refused' ) ) );
+		$error = static fn( int $status, string $code, string $message = 'refused' ): callable => static function () use ( $status, $code, $message ): void {
+			Agend_Test_WP::queue_response( $status, array( 'success' => false, 'error' => array( 'code' => $code, 'message' => $message ) ) );
 		};
 
 		return array(
-			'a transport error'            => array( static fn() => Agend_Test_WP::queue_transport_error( 'http_request_failed', 'cURL error 28: timed out' ) ),
-			'a 500'                        => array( $error( 500, 'INTERNAL_ERROR' ) ),
-			'a 503 page that is not JSON'  => array( static fn() => Agend_Test_WP::queue_response( 503, '<html>Unavailable</html>' ) ),
-			'a 401'                        => array( $error( 401, 'UNAUTHORIZED' ) ),
-			'a 403'                        => array( $error( 403, 'FORBIDDEN' ) ),
-			'a 429 from the gateway'       => array( $error( 429, 'RATE_LIMITED' ) ),
-			'a 404 for an unknown app'     => array( $error( 404, 'APP_NOT_FOUND' ) ),
-			'a 404 page that is not JSON'  => array( static fn() => Agend_Test_WP::queue_response( 404, '<html>Not found</html>' ) ),
+			'a transport error'                 => array( static fn() => Agend_Test_WP::queue_transport_error( 'http_request_failed', 'cURL error 28: timed out' ) ),
+			'a 500'                             => array( $error( 500, 'INTERNAL_ERROR' ) ),
+			'a 503 page that is not JSON'       => array( static fn() => Agend_Test_WP::queue_response( 503, '<html>Unavailable</html>' ) ),
+			'a 401'                             => array( $error( 401, 'UNAUTHORIZED' ) ),
+			'a 403'                             => array( $error( 403, 'FORBIDDEN' ) ),
+			'a 429 from the gateway'            => array( $error( 429, 'RATE_LIMITED' ) ),
+			'a 404 for an unknown app'          => array( $error( 404, 'APP_NOT_FOUND' ) ),
+			'a 404 for an endpoint not deployed' => array( $error( 404, 'NOT_FOUND', 'The requested endpoint does not exist. See /v1/docs for API documentation.' ) ),
+			'a 404 page that is not JSON'       => array( static fn() => Agend_Test_WP::queue_response( 404, '<html>Not found</html>' ) ),
 		);
 	}
 
@@ -214,8 +213,24 @@ final class SitesConfigNotFoundTest extends TestCase {
 		$this->assertCount( 1, Agend_Test_WP::$requests );
 		$this->assertSame( self::CONFIG['data'], $first['data'] );
 		$this->assertSame( $first, $second );
-		$this->assertSame( $first, Agend_Test_WP::$transients['agend_apps_sites_config'] ?? null );
-		$this->assertSame( array( 'agend_apps_sites_config' => 1234 ), $this->siteConfigTtls() );
+		$this->assertSame( $first, Agend_Test_WP::$transients[ self::SHARED_ENTRY ] ?? null );
+		$this->assertSame( array( self::SHARED_ENTRY => 1234 ), $this->siteConfigTtls() );
+	}
+
+	#[Test]
+	public function should_keep_a_config_stored_meanwhile_when_a_slow_missing_config_arrives(): void {
+		Agend_Test_WP::queue_response( 404, self::NOT_FOUND );
+		Agend_Test_WP::$filters['agend_apps_api_request_args'] = static function ( array $request_args ): array {
+			set_transient( 'agend_apps_sites_config', array( 'success' => true, 'data' => array( 'published' => true ) ), 300 );
+			return $request_args;
+		};
+
+		agend_apps_sites_get_config();
+		unset( Agend_Test_WP::$filters['agend_apps_api_request_args'] );
+		$next = agend_apps_sites_get_config();
+
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+		$this->assertSame( array( 'published' => true ), $next['data'] );
 	}
 
 	#[Test]
@@ -226,7 +241,7 @@ final class SitesConfigNotFoundTest extends TestCase {
 		agend_apps_sites_get_config();
 		$this->assertCount( 1, Agend_Test_WP::$requests, 'the missing config is remembered before the clear' );
 
-		\Agend_Test_Site_Config_Real_Cache::clear( 'sites_config' );
+		Agend_Test_Real_Cache::clear( 'sites_config' );
 		$this->applyOptionDeletes();
 		$after = agend_apps_sites_get_config();
 
@@ -236,15 +251,15 @@ final class SitesConfigNotFoundTest extends TestCase {
 
 	#[Test]
 	public function should_forget_a_missing_config_under_the_production_cache_key_when_the_row_is_cleared(): void {
-		$cache_key = \Agend_Test_Site_Config_Real_Cache::build_key( 'sites_config', array() );
+		$cache_key = Agend_Test_Real_Cache::build_key( 'sites_config', array() );
 		Agend_Test_WP::queue_response( 404, self::NOT_FOUND );
 		agend_apps_sites_remember_missing_config( $cache_key, 60, agend_apps_api()->request( 'GET', '/sites/config' ) );
-		$this->assertNotNull( agend_apps_sites_remembered_missing_config( $cache_key, 60 ) );
+		$this->assertNotFalse( get_transient( 'agend_apps_' . $cache_key ) );
 
-		\Agend_Test_Site_Config_Real_Cache::clear( 'sites_config' );
+		Agend_Test_Real_Cache::clear( 'sites_config' );
 		$this->applyOptionDeletes();
 
-		$this->assertNull( agend_apps_sites_remembered_missing_config( $cache_key, 60 ) );
+		$this->assertFalse( get_transient( 'agend_apps_' . $cache_key ) );
 	}
 
 	#[Test]
@@ -254,7 +269,7 @@ final class SitesConfigNotFoundTest extends TestCase {
 		agend_apps_sites_get_config();
 		$this->assertCount( 1, Agend_Test_WP::$requests, 'the missing config is remembered before the clear' );
 
-		\Agend_Test_Site_Config_Real_Cache::clear_all();
+		Agend_Test_Real_Cache::clear_all();
 		$this->applyOptionDeletes();
 		agend_apps_sites_get_config();
 
@@ -313,13 +328,38 @@ final class SitesConfigNotFoundTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_send_the_member_token_when_the_args_filter_drops_the_anonymous_read(): void {
+	public function should_read_anonymously_when_an_args_filter_returns_args_of_its_own(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token-own-args' );
+		Agend_Test_WP::set_filter( 'agend_apps_sites_get_config_args', array( 'headers' => array( 'X-Example' => 'yes' ) ) );
+
+		agend_apps_sites_get_config();
+
+		$this->assertSame( 'yes', Agend_Test_WP::$requests[0]['headers']['X-Example'] ?? null );
+		$this->assertArrayNotHasKey( 'Authorization', Agend_Test_WP::$requests[0]['headers'] );
+	}
+
+	#[Test]
+	public function should_send_the_member_token_when_the_args_filter_turns_off_the_anonymous_read(): void {
 		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token-filter-opt-out' );
-		Agend_Test_WP::set_filter( 'agend_apps_sites_get_config_args', array() );
+		Agend_Test_WP::set_filter( 'agend_apps_sites_get_config_args', array( 'anonymous' => false ) );
 
 		agend_apps_sites_get_config();
 
 		$this->assertSame( 'Bearer member-token-filter-opt-out', Agend_Test_WP::$requests[0]['headers']['Authorization'] ?? null );
+	}
+
+	#[Test]
+	public function should_not_share_a_members_missing_config_when_the_args_filter_turns_off_the_anonymous_read(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token-filter-opt-out-missing' );
+		Agend_Test_WP::set_filter( 'agend_apps_sites_get_config_args', array( 'anonymous' => false ) );
+		Agend_Test_WP::queue_response( 404, self::NOT_FOUND );
+		Agend_Test_WP::queue_response( 404, self::NOT_FOUND );
+
+		agend_apps_sites_get_config();
+		agend_apps_sites_get_config();
+
+		$this->assertCount( 2, Agend_Test_WP::$requests );
+		$this->assertSame( array(), $this->siteConfigTtls() );
 	}
 
 	/**
@@ -338,7 +378,7 @@ final class SitesConfigNotFoundTest extends TestCase {
 	private function siteConfigTtls(): array {
 		return array_filter(
 			Agend_Test_WP::$transient_ttls,
-			static fn( $key ): bool => 0 === strpos( (string) $key, 'agend_apps_sites_config' ),
+			static fn( $key ): bool => 0 === strpos( (string) $key, self::SHARED_ENTRY ),
 			ARRAY_FILTER_USE_KEY
 		);
 	}

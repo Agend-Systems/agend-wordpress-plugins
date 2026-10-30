@@ -214,23 +214,33 @@ default on upgrade, with no activation step.
   identity"): no member token is resolved or sent, and signed-in and anonymous
   visitors share one stored entry. Earlier versions sent the member token, so a
   signed-in visitor's read was never stored and asked the gateway on every page
-  view. A site that needs the token sent can drop `anonymous` through the
-  `agend_apps_sites_get_config_args` filter; the read is then held for one PHP
-  request only, like any other member read.
+  view. A site that needs the token sent returns `'anonymous' => false` from
+  the `agend_apps_sites_get_config_args` filter; the read is then held for one
+  PHP request only, like any other member read, and a missing config is not
+  remembered. A filter that returns args of its own without `anonymous` keeps
+  the anonymous read.
 - **No published config is remembered too.** When the account has no published
-  site config, the gateway answers 404 `NOT_FOUND`. That answer is remembered
-  for the same lifetime as a found config, so a site that does not use one asks
-  once an hour instead of on every page view, and each call in between returns
-  the same `WP_Error`. Nothing else is remembered: a transport error, a 5xx, a
-  401 or 403, a 404 with any other error code, and a local scope, app or
-  rate-limit refusal are all asked again on the next call, because each can
-  clear and must not hide a config that exists.
+  site config, the gateway answers 404 `NOT_FOUND` with a message naming the
+  site config. That answer is stored in the same `sites_config` entry, for the
+  same lifetime, so a site that does not use one asks once an hour instead of
+  on every page view, and each call in between returns the same `WP_Error`.
+  Serving it does not extend its lifetime. Nothing else is remembered: a
+  transport error, a 5xx, a 401 or 403, a 404 with any other code or message
+  (the gateway also answers `NOT_FOUND` for an endpoint it does not have), and
+  a local scope, app or rate-limit refusal are all asked again on the next
+  call, because each can clear and must not hide a config that exists. A
+  found config always replaces a remembered 404, and a 404 never replaces a
+  stored config.
 - **No automatic flush.** Nothing clears `sites_config` when the config is
   published or changed in the Agend dashboard, or when the site's API key,
   environment or custom URL changes, because the cache key carries none of
   them. Until the hour is up the old answer, found or not, is served. To see a
   change straight away, clear the "Site Config" row on the Cache tab, or use
   "Clear All Caches"; either removes a remembered "no published config" too.
+  Both delete from the options table, so on a site with a persistent object
+  cache (Redis, Memcached), where transients are not stored there, neither
+  reaches the entry. It lapses with its lifetime, or when the object cache is
+  flushed. This applies to every row on the Cache tab.
 
 ### How long member standing is cached
 

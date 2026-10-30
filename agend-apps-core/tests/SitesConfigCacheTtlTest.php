@@ -10,6 +10,8 @@ namespace Agend\Tests\AppsCore;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
+require_once __DIR__ . '/fixtures/real-cache.php';
+
 /**
  * The site config response has its own cache lifetime rather than the 60
  * second fallback `Agend_Apps_Settings::get_cache_ttl()` gives a key that is
@@ -29,30 +31,17 @@ final class SitesConfigCacheTtlTest extends TestCase {
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
 
-		if ( class_exists( self::REAL_CACHE, false ) ) {
+		agend_test_load_real_cache();
+
+		if ( class_exists( self::REAL_SETTINGS, false ) ) {
 			return;
 		}
 
-		$includes = AGEND_TESTS_ROOT . '/agend-apps-core/includes/';
-
-		$cache    = self::renamed( $includes . 'class-agend-apps-cache.php', 'class Agend_Apps_Cache {', 'class ' . self::REAL_CACHE . ' {' );
-		$settings = self::renamed( $includes . 'class-agend-apps-settings.php', 'class Agend_Apps_Settings {', 'class ' . self::REAL_SETTINGS . ' {' );
+		$settings = agend_test_renamed_class_source( AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-settings.php', 'Agend_Apps_Settings', self::REAL_SETTINGS );
 		$settings = str_replace( 'Agend_Apps_Cache::', self::REAL_CACHE . '::', $settings );
 
 		// phpcs:ignore Squiz.PHP.Eval.Discouraged
-		eval( '?>' . $cache );
-		// phpcs:ignore Squiz.PHP.Eval.Discouraged
 		eval( '?>' . $settings );
-	}
-
-	private static function renamed( string $file, string $declaration, string $replacement ): string {
-		$source = (string) file_get_contents( $file );
-
-		if ( 1 !== substr_count( $source, $declaration ) ) {
-			throw new \RuntimeException( sprintf( 'Expected exactly one "%s" in %s.', $declaration, $file ) );
-		}
-
-		return str_replace( $declaration, $replacement, $source );
 	}
 
 	#[Test]
