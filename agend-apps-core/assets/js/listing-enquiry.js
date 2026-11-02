@@ -325,9 +325,12 @@
       setBusy(form, status, true, m.sending);
 
       var tokenPromise = captcha ? captcha.token() : Promise.resolve('');
+      var scriptFailed = false;
 
       tokenPromise
         .catch(function () {
+          // The provider's script did not load or ran into an error.
+          scriptFailed = true;
           return '';
         })
         .then(function (token) {
@@ -336,7 +339,8 @@
             // not a failure: ask them to complete it.
             var e = new Error('no captcha token');
             e.captcha = true;
-            e.challenge = cfg.captcha && cfg.captcha.provider === 'turnstile';
+            e.loadFailed = scriptFailed;
+            e.challenge = !scriptFailed && cfg.captcha && cfg.captcha.provider === 'turnstile';
             throw e;
           }
           return send(cfg, payload(form, token));
@@ -375,7 +379,10 @@
             captcha.reset();
           }
           setBusy(form, status, false, '');
-          showStatusError(status, err && err.challenge ? m.challenge : err && err.captcha ? m.captcha : m.failed);
+          showStatusError(
+            status,
+            err && err.loadFailed ? m.captchaLoad : err && err.challenge ? m.challenge : err && err.captcha ? m.captcha : m.failed
+          );
         });
     });
   }

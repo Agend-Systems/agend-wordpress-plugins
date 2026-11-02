@@ -1066,6 +1066,14 @@ submissions without one; the gateway's rate limiting is then the only control.
 The hostname the provider reports must be the site's own (`home_url()` or
 `site_url()`); the `agend_apps_captcha_allowed_hostnames` filter widens that list.
 
+The providers' documented test keys answer with a fixed placeholder hostname
+(Google's reCAPTCHA test keys report `testkey.google.com`), not the site's own,
+so a local, staging or Playwright setup using them is refused as a hostname
+mismatch until `agend_apps_captcha_allowed_hostnames` adds that host. Every
+captcha refusal records its reason code (`hostname_mismatch`, `action_mismatch`,
+`low_score`, `rejected`, `unreachable`, `bad_response`, `missing_token`,
+`not_configured`) in the API log, never the token or secret.
+
 `Agend_Apps_Captcha::verify()` fails closed: a provider selected without a
 secret, an unreachable provider, a non-2xx or malformed answer, a hostname
 mismatch, a missing score, a low score and an action mismatch all refuse the

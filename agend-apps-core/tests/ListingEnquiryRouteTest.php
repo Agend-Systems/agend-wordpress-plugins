@@ -22,6 +22,10 @@ use WP_REST_Request;
 use WP_REST_Response;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/tests/fixtures/enquiry-stubs.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-apps-log-redactor.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-apps-log-store.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-apps-logger.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/tests/fixtures/memory-log-store.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-secret-store.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-captcha.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-api.php';
@@ -472,7 +476,7 @@ final class ListingEnquiryRouteTest extends TestCase {
 	public static function gateway_failures(): array {
 		return array(
 			'validation error naming no known field' => array( 400, 'VALIDATION_ERROR', 'send_failed', 502 ),
-			'unprocessable'       => array( 422, '', 'validation_failed', 400 ),
+			'unprocessable, no code, no field' => array( 422, '', 'send_failed', 502 ),
 			'not found'           => array( 404, 'NOT_FOUND', 'not_found', 404 ),
 			'not accepting'       => array( 409, 'LISTING_NOT_ACCEPTING_ENQUIRIES', 'not_accepting', 409 ),
 			'not accepting (422)' => array( 422, 'LISTING_NOT_ACCEPTING_ENQUIRIES', 'not_accepting', 409 ),
@@ -629,11 +633,95 @@ final class ListingEnquiryRouteTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_map_a_validation_error_with_a_different_conventional_code_by_its_status(): void {
+	public function should_say_it_could_not_send_for_a_bare_400_that_names_no_field(): void {
 		Agend_Test_WP::queue_response( 400, array( 'error' => array( 'message' => 'Bad request' ) ) );
 
-		$this->assertSame( 'validation_failed', $this->submit()->get_data()['code'] );
+		$response = $this->submit();
+
+		$this->assertSame( 'send_failed', $response->get_data()['code'] );
+		$this->assertArrayNotHasKey( 'fields', $response->get_data() );
 	}
+
+	#[Test]
+	public function should_say_it_could_not_send_when_a_validation_error_names_only_unknown_fields(): void {
+		Agend_Test_WP::queue_response(
+			400,
+			array( 'error' => array( 'code' => 'VALIDATION_ERROR', 'details' => array( 'fields' => array( 'captcha' => array( 'x' ), 'extra' => array( 'y' ) ) ) ) )
+		);
+
+		$response = $this->submit();
+
+		$this->assertSame( 'send_failed', $response->get_data()['code'] );
+		$this->assertArrayNotHasKey( 'fields', $response->get_data() );
+	}
+
+	// -----------------------------------------------------------------
+	// Captcha refusal log
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_log_the_captcha_refusal_reason_and_never_the_token_or_secret(): void {
+		\Agend_Apps_Logger::set_instance( new \Agend_Apps_Logger( new \Agend\Tests\AppsCore\MemoryLogStore() ) );
+		$this->use_turnstile();
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'hostname' => 'attacker.test' ) );
+
+		$this->submit( array( 'captcha_token' => 'visitor-token-123' ) );
+
+		$rows = agend_apps_logger()->pending();
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'hostname_mismatch', $rows[0]['error_code'] );
+		$this->assertSame( 'captcha_refused', $rows[0]['outcome'] );
+		$this->assertStringNotContainsString( 'visitor-token-123', (string) json_encode( $rows ) );
+		$this->assertStringNotContainsString( 'captcha-secret', (string) json_encode( $rows ) );
+		$this->assertStringNotContainsString( 'ada@example.test', (string) json_encode( $rows ) );
+	}
+
+	#[Test]
+	public function should_log_nothing_when_the_captcha_passes(): void {
+		\Agend_Apps_Logger::set_instance( new \Agend_Apps_Logger( new \Agend\Tests\AppsCore\MemoryLogStore() ) );
+		$this->use_turnstile();
+		Agend_Test_WP::queue_response( 200, array( 'success' => true ) );
+		Agend_Test_WP::queue_response( 201, array( 'data' => array() ) );
+
+		$this->submit( array( 'captcha_token' => 'ok' ) );
+
+		$outcomes = array_column( agend_apps_logger()->pending(), 'outcome' );
+		$this->assertNotContains( 'captcha_refused', $outcomes );
+	}
+
+	// -----------------------------------------------------------------
+	// Invisible characters
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_strip_format_and_c1_characters_from_names_and_bidi_overrides_from_the_message(): void {
+		Agend_Test_WP::queue_response( 201, array( 'data' => array() ) );
+
+		$this->submit(
+			array(
+				'first_name' => "A\u{202E}da\u{200B}\u{0085}",
+				'last_name'  => "Love\u{200D}lace",
+				'message'    => "Hello \u{202E}evil\u{2066} text \u{1F468}\u{200D}\u{1F469} fine\u{0085}",
+			)
+		);
+
+		$sent = json_decode( (string) $this->gateway_requests()[0]['body'], true );
+
+		$this->assertSame( 'Ada', $sent['first_name'] );
+		$this->assertSame( 'Lovelace', $sent['last_name'] );
+		$this->assertSame( "Hello evil text \u{1F468}\u{200D}\u{1F469} fine", $sent['message'], 'bidi overrides and C1 go, an emoji joiner stays' );
+	}
+
+	#[Test]
+	public function should_keep_tabs_and_line_breaks_in_the_message(): void {
+		Agend_Test_WP::queue_response( 201, array( 'data' => array() ) );
+
+		$this->submit( array( 'message' => "Line one\n\tindented line two here" ) );
+
+		$this->assertSame( "Line one\n\tindented line two here", json_decode( (string) $this->gateway_requests()[0]['body'], true )['message'] );
+	}
+
 
 	// -----------------------------------------------------------------
 	// WordPress sends no email

@@ -371,7 +371,7 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return string
 	 */
 	public static function sanitize_enquiry_line( $value ): string {
-		return trim( (string) preg_replace( '/\s+/u', ' ', self::strip_unsafe_characters( $value ) ) );
+		return trim( (string) preg_replace( '/\s+/u', ' ', self::strip_invisible_characters( self::strip_unsafe_characters( $value ), true ) ) );
 	}
 
 	/**
@@ -382,7 +382,7 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return string
 	 */
 	public static function sanitize_enquiry_message( $value ): string {
-		return trim( str_replace( "\r\n", "\n", self::strip_unsafe_characters( $value ) ) );
+		return trim( str_replace( "\r\n", "\n", self::strip_invisible_characters( self::strip_unsafe_characters( $value ), false ) ) );
 	}
 
 	/**
@@ -397,6 +397,25 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		$text  = false === $clean ? '' : $clean;
 
 		return (string) preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $text );
+	}
+
+	/**
+	 * Removes characters that can make text display misleadingly in the
+	 * member's mail client. A name loses every Unicode format character
+	 * (bidi overrides, zero-width characters) and C1 control. A message loses
+	 * C1 controls and the bidi overrides and isolates only, so a zero-width
+	 * joiner inside an emoji sequence survives. Tabs and line breaks are kept.
+	 *
+	 * @param string $text      Text already passed through strip_unsafe_characters().
+	 * @param bool   $is_name   Whether the strict class for names applies.
+	 * @return string
+	 */
+	private static function strip_invisible_characters( string $text, bool $is_name ): string {
+		$pattern = $is_name
+			? '/(?![\t\n\r])[\p{Cc}\p{Cf}]/u'
+			: '/(?![\t\n\r])\p{Cc}|[\x{202A}-\x{202E}\x{2066}-\x{2069}]/u';
+
+		return (string) preg_replace( $pattern, '', $text );
 	}
 
 	/**
@@ -428,6 +447,8 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		if ( is_wp_error( $captcha ) ) {
 			$reason = is_array( $captcha->get_error_data() ) ? (string) ( $captcha->get_error_data()['reason'] ?? '' ) : '';
 
+			$this->log_captcha_refusal( $reason );
+
 			return 'not_configured' === $reason
 				? $this->enquiry_error( 'send_failed', 503 )
 				: $this->enquiry_error( 'captcha_failed', 400 );
@@ -440,6 +461,36 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		return new WP_REST_Response( array( 'success' => true ), 200 );
+	}
+
+	/**
+	 * Records why a captcha refused a submission, so an administrator can find
+	 * a configuration cause (a hostname not on the allow-list, a threshold set
+	 * too high) that the visitor's message cannot name. Only the reason code is
+	 * recorded: never the token, the secret or anything the visitor typed.
+	 *
+	 * @param string $reason Reason code from {@see Agend_Apps_Captcha::verify()}.
+	 */
+	private function log_captcha_refusal( string $reason ): void {
+		if ( ! function_exists( 'agend_apps_logger' ) ) {
+			return;
+		}
+
+		agend_apps_logger()->record(
+			array(
+				'source'       => 'agend-apps-core',
+				'direction'    => 'inbound',
+				'method'       => 'POST',
+				'url'          => rest_url( $this->namespace . '/' . $this->rest_base . '/listings/enquiries' ),
+				'status'       => 'not_configured' === $reason ? 503 : 400,
+				'outcome'      => 'captcha_refused',
+				'auth_mode'    => 'nonce',
+				'store_bodies' => false,
+				'error_code'   => '' === $reason ? 'unknown' : $reason,
+				'error_message' => 'Captcha refused an enquiry: ' . ( '' === $reason ? 'unknown' : $reason ),
+				'user_id'      => 0,
+			)
+		);
 	}
 
 	/**
@@ -602,7 +653,7 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 
 			// A validation error naming no field we know is the generic failure:
 			// "check the highlighted fields" with nothing highlighted helps no one.
-			return array() === $fields && false !== strpos( $code, 'VALIDATION' )
+			return array() === $fields
 				? $this->enquiry_error( 'send_failed', 502 )
 				: $this->enquiry_error( 'validation_failed', 400, $fields );
 		}

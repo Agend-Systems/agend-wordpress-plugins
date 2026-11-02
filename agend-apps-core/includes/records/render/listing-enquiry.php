@@ -290,6 +290,7 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 			'fix'          => __( 'Please check the highlighted fields and try again.', 'agend-apps-core' ),
 			'sending'      => __( 'Sending your message…', 'agend-apps-core' ),
 			'captcha'      => __( 'We could not confirm you are not a robot. Please try again.', 'agend-apps-core' ),
+			'captchaLoad'  => __( 'The security check could not load. Please reload the page and try again.', 'agend-apps-core' ),
 			'challenge'    => __( 'Please complete the check above, then send your message again.', 'agend-apps-core' ),
 			'session'      => __( 'Your session has expired. Please reload the page and try again.', 'agend-apps-core' ),
 			'failed'       => __( 'Sorry, we could not send your enquiry right now. Please try again later.', 'agend-apps-core' ),
