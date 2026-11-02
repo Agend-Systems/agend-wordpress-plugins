@@ -998,6 +998,61 @@ filter template and choosing Organisation. The label is translatable through the
   `locationName` on `GET /v1/directory/search` and `/v1/directory/markers`
   (`SPEC-DIR-20261012-directory-organisation-filter`).
 
+## Listing enquiry form
+
+A visitor on a directory listing page can send an enquiry to the listed member.
+WordPress sends no email: the browser posts to a nonce-checked route here, the
+route checks the captcha, and the Agend gateway sends both messages.
+
+- **Route**: `POST /agend-apps/v1/directory/listings/{slugOrId}/enquiries`,
+  forwarded to `POST /v1/directory/listings/{slugOrId}/enquiries` by
+  `agend_apps_directory_send_listing_enquiry()` in
+  `includes/api/directory-enquiries.php`. Body: `first_name`, `last_name`,
+  `email`, optional `phone`, `message`, optional `terms_accepted`, and
+  `captcha_token` (read here, never forwarded). Fields are sanitised and checked
+  against the gateway's limits first, so a visitor who mistyped a field keeps an
+  unspent captcha token. Success is `{ "success": true }`; a failure is
+  `{ "success": false, "code", "message", "fields"? }` with a visitor-safe
+  message. A gateway or provider error body is never passed through.
+- **Scope**: `directory.enquiries.send`. It is in the endpoint scope map and in
+  the optional-feature registry as `directory_enquiry_form`, so the form stays
+  hidden until the connected key holds it (run Verify Key after adding it).
+- **The call is made without the member token**: an enquiry is a visitor's
+  message, whoever is signed in.
+- **Visitor IP**: sent as `x-agend-visitor-ip` for the gateway's per-visitor rate
+  limit. It is `REMOTE_ADDR`; `X-Forwarded-For` is not trusted. A site behind a
+  trusted proxy returns the real address from the `agend_apps_visitor_ip` filter.
+- **Errors**: the gateway's error `code` (`VALIDATION_ERROR`, `NOT_FOUND`,
+  `LISTING_NOT_ACCEPTING_ENQUIRIES`, `TERMS_REQUIRED`, `RATE_LIMITED`) is read
+  from the standard error envelope, falling back to the HTTP status
+  (400/422, 404, 429). Anything else is a generic "could not send" message.
+- **Renderer**: `agend_apps_records_render_listing_enquiry()` in
+  `includes/records/render/listing-enquiry.php`, page-builder agnostic. The
+  Agend Elementor "Agend Listing Enquiry Form" widget is an adapter over it.
+  It renders only for a listing in record context that the gateway says
+  `accepts_enquiries`, and shows a terms checkbox only when the listing has an
+  `enquiry_terms_url`. The listing's own email address is never read.
+- **Assets**: `agend-apps-records-listing-enquiry` (script and style) are
+  enqueued by the widget only on pages that use it. The script loads the
+  captcha provider's own script itself, so a cached page or Elementor's element
+  cache cannot leave a form without one, and no other page loads it.
+
+### Captcha
+
+Settings > Agend Apps > Form Captcha:
+
+| Setting | Notes |
+| --- | --- |
+| Provider | None, Cloudflare Turnstile, or Google reCAPTCHA v3. With None the route still works and the gateway's rate limiting remains. |
+| Site key | The provider's public key. Rendered into the page. |
+| Secret key | Write-only. Stored encrypted in the secret store, never rendered; the `AGEND_APPS_CAPTCHA_SECRET` constant overrides it. |
+| reCAPTCHA score threshold | v3 only. Default 0.5. |
+| reCAPTCHA action name | v3 only. Default `agend_enquiry`; the siteverify answer must carry the same action. |
+
+`Agend_Apps_Captcha::verify()` fails closed: a provider selected without a
+secret, an unreachable provider, a non-2xx or malformed answer, a missing score,
+a low score and an action mismatch all refuse the submission.
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map

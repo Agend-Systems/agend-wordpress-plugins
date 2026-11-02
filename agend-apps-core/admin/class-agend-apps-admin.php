@@ -361,6 +361,111 @@ class Agend_Apps_Admin {
 			'agend_apps_api_section'
 		);
 
+		// Captcha section (visitor-facing forms such as the listing enquiry form).
+		add_settings_section(
+			'agend_apps_captcha_section',
+			__( 'Form Captcha', 'agend-apps-core' ),
+			array( $this, 'render_captcha_section' ),
+			self::PAGE_SLUG
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			Agend_Apps_Captcha::OPTION_PROVIDER,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( 'Agend_Apps_Captcha', 'normalize_provider' ),
+				'default'           => Agend_Apps_Captcha::PROVIDER_NONE,
+			)
+		);
+
+		add_settings_field(
+			Agend_Apps_Captcha::OPTION_PROVIDER,
+			__( 'Provider', 'agend-apps-core' ),
+			array( $this, 'render_captcha_provider_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_captcha_section',
+			array( 'label_for' => Agend_Apps_Captcha::OPTION_PROVIDER )
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			Agend_Apps_Captcha::OPTION_SITE_KEY,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+				'default'           => '',
+			)
+		);
+
+		add_settings_field(
+			Agend_Apps_Captcha::OPTION_SITE_KEY,
+			__( 'Site key', 'agend-apps-core' ),
+			array( $this, 'render_captcha_site_key_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_captcha_section',
+			array( 'label_for' => Agend_Apps_Captcha::OPTION_SITE_KEY )
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_captcha_secret',
+			array(
+				'type'              => 'string',
+				// Write-only, like the API key: a posted secret goes into the
+				// encrypted secret store and this plain option stays ''.
+				'sanitize_callback' => array( $this, 'sanitize_captcha_secret_setting' ),
+				'default'           => '',
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_captcha_secret',
+			__( 'Secret key', 'agend-apps-core' ),
+			array( $this, 'render_captcha_secret_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_captcha_section',
+			array( 'label_for' => 'agend_apps_captcha_secret' )
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			Agend_Apps_Captcha::OPTION_THRESHOLD,
+			array(
+				'type'              => 'number',
+				'sanitize_callback' => array( 'Agend_Apps_Captcha', 'normalize_threshold' ),
+				'default'           => Agend_Apps_Captcha::DEFAULT_THRESHOLD,
+			)
+		);
+
+		add_settings_field(
+			Agend_Apps_Captcha::OPTION_THRESHOLD,
+			__( 'reCAPTCHA score threshold', 'agend-apps-core' ),
+			array( $this, 'render_captcha_threshold_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_captcha_section',
+			array( 'label_for' => Agend_Apps_Captcha::OPTION_THRESHOLD )
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
+			Agend_Apps_Captcha::OPTION_ACTION,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_captcha_action' ),
+				'default'           => Agend_Apps_Captcha::DEFAULT_ACTION,
+			)
+		);
+
+		add_settings_field(
+			Agend_Apps_Captcha::OPTION_ACTION,
+			__( 'reCAPTCHA action name', 'agend-apps-core' ),
+			array( $this, 'render_captcha_action_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_captcha_section',
+			array( 'label_for' => Agend_Apps_Captcha::OPTION_ACTION )
+		);
+
 		// Cache TTL section.
 		add_settings_section(
 			'agend_apps_cache_section',
@@ -397,6 +502,135 @@ class Agend_Apps_Admin {
 				)
 			);
 		}
+	}
+
+	/**
+	 * Renders the Form Captcha section description.
+	 */
+	public function render_captcha_section(): void {
+		echo '<p>' . esc_html__( 'Protects visitor-facing forms, such as the Listing Enquiry Form widget, from automated submissions. The token is verified on this server before anything is sent to Agend. With no provider selected, forms still work and Agend rate limits submissions.', 'agend-apps-core' ) . '</p>';
+	}
+
+	/**
+	 * Renders the captcha provider select.
+	 */
+	public function render_captcha_provider_field(): void {
+		$value = Agend_Apps_Captcha::provider();
+
+		printf( '<select id="%1$s" name="%1$s">', esc_attr( Agend_Apps_Captcha::OPTION_PROVIDER ) );
+		foreach ( Agend_Apps_Captcha::providers() as $provider => $label ) {
+			printf(
+				'<option value="%s"%s>%s</option>',
+				esc_attr( $provider ),
+				selected( $value, $provider, false ),
+				esc_html( $label )
+			);
+		}
+		echo '</select>';
+	}
+
+	/**
+	 * Renders the captcha site key field. The site key is public by design.
+	 */
+	public function render_captcha_site_key_field(): void {
+		printf(
+			'<input type="text" id="%1$s" name="%1$s" value="%2$s" class="regular-text" autocomplete="off" />',
+			esc_attr( Agend_Apps_Captcha::OPTION_SITE_KEY ),
+			esc_attr( Agend_Apps_Captcha::site_key() )
+		);
+		echo '<p class="description">' . esc_html__( 'The public key from your captcha provider. It is rendered into pages that carry a form.', 'agend-apps-core' ) . '</p>';
+	}
+
+	/**
+	 * Renders the write-only captcha secret field with a set / not-set status.
+	 * The stored secret is never rendered.
+	 */
+	public function render_captcha_secret_field(): void {
+		$source = Agend_Apps_Captcha::secret_source();
+
+		printf(
+			'<input type="password" id="agend_apps_captcha_secret" name="agend_apps_captcha_secret" value="" placeholder="%s" class="regular-text" autocomplete="new-password" />',
+			esc_attr( '' !== $source ? '********' : '' )
+		);
+
+		echo '<p class="description">' . esc_html__( 'Status:', 'agend-apps-core' ) . ' ';
+		if ( 'constant' === $source ) {
+			echo '<strong>' . esc_html__( 'set via the AGEND_APPS_CAPTCHA_SECRET wp-config.php constant (overrides the field above)', 'agend-apps-core' ) . '</strong>';
+		} elseif ( 'stored' === $source ) {
+			echo '<strong>' . esc_html__( 'set (stored encrypted)', 'agend-apps-core' ) . '</strong>';
+		} else {
+			echo '<strong style="color:#b32d2e;">' . esc_html__( 'not set', 'agend-apps-core' ) . '</strong>';
+		}
+		echo '</p>';
+
+		echo '<p class="description">' . esc_html__( 'Stored encrypted and never shown again after saving. Leave blank on save to keep the stored value. While a provider is selected without a secret, submissions are refused.', 'agend-apps-core' ) . '</p>';
+
+		if ( 'stored' === $source ) {
+			echo '<p><label>';
+			echo '<input type="checkbox" name="agend_apps_captcha_secret_clear" value="1" /> ';
+			esc_html_e( 'Clear the stored secret on save', 'agend-apps-core' );
+			echo '</label></p>';
+		}
+	}
+
+	/**
+	 * Renders the reCAPTCHA v3 score threshold field.
+	 */
+	public function render_captcha_threshold_field(): void {
+		printf(
+			'<input type="number" id="%1$s" name="%1$s" value="%2$s" min="0" max="1" step="0.1" class="small-text" />',
+			esc_attr( Agend_Apps_Captcha::OPTION_THRESHOLD ),
+			esc_attr( (string) Agend_Apps_Captcha::score_threshold() )
+		);
+		echo '<p class="description">' . esc_html__( 'reCAPTCHA v3 only. Submissions scoring below this are refused. 0.5 is Google\'s default; raise it to be stricter.', 'agend-apps-core' ) . '</p>';
+	}
+
+	/**
+	 * Renders the reCAPTCHA v3 action name field.
+	 */
+	public function render_captcha_action_field(): void {
+		printf(
+			'<input type="text" id="%1$s" name="%1$s" value="%2$s" class="regular-text" autocomplete="off" />',
+			esc_attr( Agend_Apps_Captcha::OPTION_ACTION ),
+			esc_attr( Agend_Apps_Captcha::action() )
+		);
+		echo '<p class="description">' . esc_html__( 'reCAPTCHA v3 only. The action the form reports and the server expects back. Letters, numbers, underscores and slashes.', 'agend-apps-core' ) . '</p>';
+	}
+
+	/**
+	 * Settings-API interceptor for the captcha secret: routes a posted secret
+	 * into the encrypted secret store and returns '' so nothing lands in the
+	 * plain option. A blank submit keeps the stored value; the explicit clear
+	 * checkbox removes it. The secret is trimmed but never content-sanitised.
+	 *
+	 * @param mixed $value The posted field value.
+	 * @return string Always '': the plain option never holds the secret.
+	 */
+	public function sanitize_captcha_secret_setting( $value ): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- options.php has already verified the settings nonce before sanitize callbacks run.
+		if ( ! empty( $_POST['agend_apps_captcha_secret_clear'] ) ) {
+			Agend_Apps_Secret_Store::delete( Agend_Apps_Captcha::SECRET_STORE_KEY );
+			return '';
+		}
+
+		$posted = trim( (string) $value );
+		if ( '' !== $posted ) {
+			Agend_Apps_Secret_Store::set( Agend_Apps_Captcha::SECRET_STORE_KEY, $posted );
+		}
+
+		return '';
+	}
+
+	/**
+	 * Sanitizes the reCAPTCHA action name to the characters Google allows.
+	 *
+	 * @param mixed $value Raw submitted value.
+	 * @return string The action, or the default when nothing usable remains.
+	 */
+	public function sanitize_captcha_action( $value ): string {
+		$action = preg_replace( '/[^A-Za-z0-9_\/]/', '', (string) $value );
+
+		return '' === (string) $action ? Agend_Apps_Captcha::DEFAULT_ACTION : (string) $action;
 	}
 
 	/**
