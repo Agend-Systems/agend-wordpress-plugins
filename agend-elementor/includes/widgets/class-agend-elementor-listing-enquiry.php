@@ -101,6 +101,23 @@ class Agend_Elementor_Listing_Enquiry extends \Elementor\Widget_Base {
 			array( 'description' => __( '{listing_name} becomes the listing\'s name. Clear the field to hide the heading.', 'agend-elementor' ) )
 		);
 
+		$this->add_control(
+			'heading_tag',
+			array(
+				'label'   => __( 'Heading level', 'agend-elementor' ),
+				'type'    => \Elementor\Controls_Manager::SELECT,
+				'default' => $defaults['heading_tag'],
+				'options' => array(
+					'h1' => 'H1',
+					'h2' => 'H2',
+					'h3' => 'H3',
+					'h4' => 'H4',
+					'h5' => 'H5',
+					'h6' => 'H6',
+				),
+			)
+		);
+
 		$this->add_text_control( 'button_text', __( 'Button text', 'agend-elementor' ), $defaults['button_text'] );
 
 		$this->add_control(
@@ -450,6 +467,9 @@ class Agend_Elementor_Listing_Enquiry extends \Elementor\Widget_Base {
 					? agend_apps_records_feature_missing_scope_notice( 'directory_enquiry_form' )
 					: __( 'The Agend API key does not allow sending listing enquiries.', 'agend-elementor' );
 
+			case 'no_captcha':
+				return __( 'No captcha is configured, so visitors will not see this form. Set a provider, site key and secret key in Settings > Agend Apps > Form Captcha.', 'agend-elementor' );
+
 			case 'closed':
 				return __( 'This listing does not accept enquiries, so visitors will not see this form. It is drawn here so you can style it.', 'agend-elementor' );
 		}
@@ -469,7 +489,7 @@ class Agend_Elementor_Listing_Enquiry extends \Elementor\Widget_Base {
 
 		// An editor still sees the form for a listing that is closed to
 		// enquiries, so it can be styled. A visitor never does.
-		if ( 'closed' === $state['status'] && $this->is_editor() ) {
+		if ( in_array( $state['status'], array( 'closed', 'no_captcha' ), true ) && $this->is_editor() ) {
 			$state['status'] = 'ready';
 		}
 

@@ -508,7 +508,15 @@ class Agend_Apps_Admin {
 	 * Renders the Form Captcha section description.
 	 */
 	public function render_captcha_section(): void {
-		echo '<p>' . esc_html__( 'Protects visitor-facing forms, such as the Listing Enquiry Form widget, from automated submissions. The token is verified on this server before anything is sent to Agend. With no provider selected, forms still work and Agend rate limits submissions.', 'agend-apps-core' ) . '</p>';
+		echo '<p>' . esc_html__( 'Protects visitor-facing forms, such as the Listing Enquiry Form widget, from automated submissions. The token is verified on this server before anything is sent to Agend. A form needs a provider with both its site key and secret key: until then it is hidden from visitors and submissions are refused.', 'agend-apps-core' ) . '</p>';
+
+		if ( ! Agend_Apps_Captcha::is_configured() ) {
+			$reason = Agend_Apps_Captcha::is_enabled()
+				? __( 'The selected provider is missing its site key or secret key, so it is treated as not configured.', 'agend-apps-core' )
+				: __( 'No captcha provider is selected.', 'agend-apps-core' );
+
+			echo '<div class="notice notice-warning inline"><p>' . esc_html( $reason ) . ' ' . esc_html__( 'Forms that need a captcha, such as the Listing Enquiry Form, will not show.', 'agend-apps-core' ) . '</p></div>';
+		}
 	}
 
 	/**

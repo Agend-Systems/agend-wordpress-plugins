@@ -43,6 +43,11 @@ final class Agend_Apps_Captcha {
 	 */
 	const SECRET_CONSTANT = 'AGEND_APPS_CAPTCHA_SECRET';
 
+	/**
+	 * Constant that lets a form submit with no captcha. For local development.
+	 */
+	const ALLOW_NONE_CONSTANT = 'AGEND_APPS_CAPTCHA_ALLOW_NONE';
+
 	const DEFAULT_THRESHOLD = 0.5;
 	const DEFAULT_ACTION    = 'agend_enquiry';
 
@@ -98,10 +103,46 @@ final class Agend_Apps_Captcha {
 	}
 
 	/**
-	 * Whether a captcha is required for submissions.
+	 * Whether a provider is selected, whether or not it is fully set up.
 	 */
 	public static function is_enabled(): bool {
 		return self::PROVIDER_NONE !== self::provider();
+	}
+
+	/**
+	 * Whether the selected provider has both its site key and its secret.
+	 * A provider missing either is treated as not configured.
+	 */
+	public static function is_configured(): bool {
+		return self::is_enabled() && '' !== self::site_key() && '' !== self::secret();
+	}
+
+	/**
+	 * Whether submissions are accepted with no captcha at all. Off unless
+	 * `AGEND_APPS_CAPTCHA_ALLOW_NONE` is defined true (local development) or
+	 * the `agend_apps_captcha_allow_none` filter says so.
+	 */
+	public static function allow_none(): bool {
+		$allowed = defined( self::ALLOW_NONE_CONSTANT ) && true === constant( self::ALLOW_NONE_CONSTANT );
+
+		/**
+		 * Filters whether a form may submit with no captcha configured.
+		 *
+		 * Development only: without a captcha the only abuse control left is the
+		 * gateway's rate limiting.
+		 *
+		 * @param bool $allowed Whether the constant allows it.
+		 */
+		return (bool) apply_filters( 'agend_apps_captcha_allow_none', $allowed );
+	}
+
+	/**
+	 * Whether a form may take submissions: a configured captcha, or the
+	 * explicit development opt-out. The form is hidden and the route refuses
+	 * otherwise, so an unconfigured site fails closed.
+	 */
+	public static function submissions_open(): bool {
+		return self::is_configured() || self::allow_none();
 	}
 
 	/**
@@ -146,14 +187,13 @@ final class Agend_Apps_Captcha {
 	 * What a page needs to render the provider's widget: the provider, the
 	 * public site key and the reCAPTCHA action. Null when no captcha applies.
 	 *
-	 * A selected provider with no site key yields null as well, so a page does
-	 * not load a script that cannot work. Submissions are still refused by
-	 * {@see verify()} in that state.
+	 * A provider missing its site key or secret yields null too, so a page does
+	 * not load a script that cannot work.
 	 *
 	 * @return array{provider: string, siteKey: string, action: string}|null
 	 */
 	public static function client_config(): ?array {
-		if ( ! self::is_enabled() || '' === self::site_key() ) {
+		if ( ! self::is_configured() ) {
 			return null;
 		}
 
@@ -167,7 +207,8 @@ final class Agend_Apps_Captcha {
 	/**
 	 * Verifies a visitor's token with the selected provider.
 	 *
-	 * Returns true straight away when no provider is selected.
+	 * With no provider configured, passes only when {@see allow_none()} says a
+	 * form may submit without one; otherwise refuses with `not_configured`.
 	 *
 	 * @param string $token     The token the browser produced.
 	 * @param string $remote_ip The visitor's IP address, or ''.
@@ -176,15 +217,10 @@ final class Agend_Apps_Captcha {
 	 */
 	public static function verify( string $token, string $remote_ip = '' ) {
 		$provider = self::provider();
+		$secret   = self::secret();
 
-		if ( self::PROVIDER_NONE === $provider ) {
-			return true;
-		}
-
-		$secret = self::secret();
-
-		if ( '' === $secret ) {
-			return self::failure( 'not_configured' );
+		if ( self::PROVIDER_NONE === $provider || '' === self::site_key() || '' === $secret ) {
+			return self::allow_none() ? true : self::failure( 'not_configured' );
 		}
 
 		if ( '' === trim( $token ) ) {
@@ -224,11 +260,44 @@ final class Agend_Apps_Captcha {
 			return self::failure( 'rejected' );
 		}
 
+		if ( ! self::hostname_allowed( $decoded ) ) {
+			return self::failure( 'hostname_mismatch' );
+		}
+
 		if ( self::PROVIDER_RECAPTCHA === $provider ) {
 			return self::check_recaptcha_result( $decoded );
 		}
 
 		return true;
+	}
+
+	/**
+	 * Whether the hostname the provider says the token was minted on is this
+	 * site's. A token minted for another site with the same key is refused.
+	 * An answer that names no hostname is not refused on that ground.
+	 *
+	 * @param array $decoded The decoded siteverify answer.
+	 */
+	private static function hostname_allowed( array $decoded ): bool {
+		if ( ! isset( $decoded['hostname'] ) || ! is_string( $decoded['hostname'] ) || '' === $decoded['hostname'] ) {
+			return true;
+		}
+
+		$allowed = array_filter(
+			array(
+				wp_parse_url( home_url(), PHP_URL_HOST ),
+				wp_parse_url( site_url(), PHP_URL_HOST ),
+			)
+		);
+
+		/**
+		 * Filters the hostnames a captcha token may have been minted on.
+		 *
+		 * @param string[] $allowed The site's own hosts.
+		 */
+		$allowed = array_map( 'strtolower', array_map( 'strval', (array) apply_filters( 'agend_apps_captcha_allowed_hostnames', array_values( $allowed ) ) ) );
+
+		return in_array( strtolower( $decoded['hostname'] ), $allowed, true );
 	}
 
 	/**

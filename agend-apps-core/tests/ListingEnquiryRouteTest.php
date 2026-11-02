@@ -17,6 +17,7 @@ use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
 
@@ -45,6 +46,7 @@ final class ListingEnquiryRouteTest extends TestCase {
 		parent::setUp();
 		Agend_Test_Mail::$sent = array();
 		unset( $_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_X_FORWARDED_FOR'] );
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', true );
 	}
 
 	protected function tearDown(): void {
@@ -127,7 +129,7 @@ final class ListingEnquiryRouteTest extends TestCase {
 		$this->assertCount( 1, $routes );
 		$this->assertSame( 'agend-apps/v1', $routes[0]['namespace'] );
 		$this->assertSame( 'POST', $routes[0]['args'][0]['methods'] );
-		$this->assertEquals( array( $this->controller(), 'nonce_check' ), $routes[0]['args'][0]['permission_callback'] );
+		$this->assertEquals( array( $this->controller(), 'enquiry_permission' ), $routes[0]['args'][0]['permission_callback'] );
 	}
 
 	#[Test]
@@ -150,29 +152,54 @@ final class ListingEnquiryRouteTest extends TestCase {
 		$this->assertSame( array( array( 'directory.enquiries.send' ) ), $entry['scopes'] );
 	}
 
+	#[Test]
+	public function should_answer_a_stale_nonce_with_the_routes_own_code_and_a_reload_message(): void {
+		$request = new WP_REST_Request( 'POST', '/x' );
+		$request->set_header( 'X-WP-Nonce', 'stale' );
+
+		$result = $this->controller()->enquiry_permission( $request );
+
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'agend_enquiry_session_expired', $result->get_error_code() );
+		$this->assertSame( 403, $result->get_error_data()['status'] );
+		$this->assertStringContainsString( 'reload the page', $result->get_error_message() );
+
+		$request->set_header( 'X-WP-Nonce', wp_create_nonce( 'wp_rest' ) );
+		$this->assertTrue( $this->controller()->enquiry_permission( $request ) );
+	}
+
 	// -----------------------------------------------------------------
 	// Sanitising
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function should_strip_markup_from_every_text_field_before_forwarding(): void {
-		Agend_Test_WP::queue_response( 201, array( 'data' => array( 'sent' => true ) ) );
+	public function should_forward_message_text_unchanged_when_it_holds_angle_brackets_and_percent_octets(): void {
+		Agend_Test_WP::queue_response( 201, array( 'data' => array() ) );
+
+		$this->submit( array( 'message' => "Budget <\$500k & 100%ab sure,\nplease call after 5pm" ) );
+
+		$sent = json_decode( (string) $this->gateway_requests()[0]['body'], true );
+
+		$this->assertSame( "Budget <\$500k & 100%ab sure,\nplease call after 5pm", $sent['message'] );
+	}
+
+	#[Test]
+	public function should_remove_control_characters_and_invalid_utf8_but_nothing_else(): void {
+		Agend_Test_WP::queue_response( 201, array( 'data' => array() ) );
 
 		$this->submit(
 			array(
-				'first_name' => '<b>Ada</b>',
-				'last_name'  => 'Love<script>alert(1)</script>lace',
-				'phone'      => '<i>0400</i> 000 000',
-				'message'    => 'Hello <img src=x onerror=alert(1)> there, I have a question.',
+				'first_name' => "Ada\x00\x07 \n Marie",
+				'last_name'  => "Love\xC3\x28lace",
+				'message'    => "Line one\x00 here\r\nline\ttwo \x7F ok",
 			)
 		);
 
 		$sent = json_decode( (string) $this->gateway_requests()[0]['body'], true );
 
-		$this->assertSame( 'Ada', $sent['first_name'] );
-		$this->assertSame( 'Lovealert(1)lace', $sent['last_name'] );
-		$this->assertSame( '0400 000 000', $sent['phone'] );
-		$this->assertStringNotContainsString( '<', $sent['message'] );
+		$this->assertSame( 'Ada Marie', $sent['first_name'] );
+		$this->assertSame( 'Love(lace', $sent['last_name'] );
+		$this->assertSame( "Line one here\nline\ttwo  ok", $sent['message'] );
 	}
 
 	#[Test]
@@ -231,6 +258,15 @@ final class ListingEnquiryRouteTest extends TestCase {
 		$response = $this->submit( array( 'first_name' => str_repeat( 'é', 100 ) ) );
 
 		$this->assertSame( 200, $response->get_status() );
+	}
+
+	#[Test]
+	public function should_count_utf16_units_like_the_gateway_so_emoji_heavy_messages_are_refused_here(): void {
+		$response = $this->submit( array( 'message' => str_repeat( "\u{1F600}", 2501 ) ) );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertArrayHasKey( 'message', $response->get_data()['fields'] );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
 	}
 
 	#[Test]
@@ -359,7 +395,27 @@ final class ListingEnquiryRouteTest extends TestCase {
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function should_call_the_gateway_without_a_captcha_request_when_no_provider_is_selected(): void {
+	public function should_refuse_and_send_nothing_when_no_captcha_is_configured_and_the_opt_out_is_not_set(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', false );
+
+		$response = $this->submit();
+
+		$this->assertSame( 503, $response->get_status() );
+		$this->assertSame( 'send_failed', $response->get_data()['code'] );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_refuse_when_a_provider_is_selected_but_has_no_site_key_or_secret(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', false );
+		update_option( Agend_Apps_Captcha::OPTION_PROVIDER, Agend_Apps_Captcha::PROVIDER_TURNSTILE );
+
+		$this->assertSame( 503, $this->submit( array( 'captcha_token' => 'x' ) )->get_status() );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_call_the_gateway_without_a_captcha_request_when_the_development_opt_out_is_set(): void {
 		Agend_Test_WP::queue_response( 201, array( 'data' => array() ) );
 
 		$this->assertSame( 200, $this->submit()->get_status() );
@@ -415,13 +471,13 @@ final class ListingEnquiryRouteTest extends TestCase {
 	 */
 	public static function gateway_failures(): array {
 		return array(
-			'validation error'    => array( 400, 'VALIDATION_ERROR', 'validation_failed', 400 ),
+			'validation error naming no known field' => array( 400, 'VALIDATION_ERROR', 'send_failed', 502 ),
 			'unprocessable'       => array( 422, '', 'validation_failed', 400 ),
 			'not found'           => array( 404, 'NOT_FOUND', 'not_found', 404 ),
 			'not accepting'       => array( 409, 'LISTING_NOT_ACCEPTING_ENQUIRIES', 'not_accepting', 409 ),
 			'not accepting (422)' => array( 422, 'LISTING_NOT_ACCEPTING_ENQUIRIES', 'not_accepting', 409 ),
 			'terms required'      => array( 400, 'TERMS_REQUIRED', 'terms_required', 422 ),
-			'rate limited'        => array( 429, 'RATE_LIMITED', 'rate_limited', 429 ),
+			'rate limited'        => array( 429, 'RATE_LIMIT_EXCEEDED', 'rate_limited', 429 ),
 			'rate limited, code unknown' => array( 429, 'SOMETHING_ELSE', 'rate_limited', 429 ),
 			'internal error'      => array( 500, 'INTERNAL_ERROR', 'send_failed', 502 ),
 			'unauthorised key'    => array( 403, 'FORBIDDEN', 'send_failed', 502 ),
@@ -451,6 +507,114 @@ final class ListingEnquiryRouteTest extends TestCase {
 		$this->assertNotSame( '', $data['message'] );
 		$this->assertStringNotContainsString( 'RAW gateway wording', (string) json_encode( $data ) );
 		$this->assertStringNotContainsString( 'owner@example.test', (string) json_encode( $data ) );
+	}
+
+	/**
+	 * @return array<string, array{mixed, array<int, string>}>
+	 */
+	public static function gateway_field_details(): array {
+		return array(
+			'zod field error map' => array( array( 'email' => array( 'Invalid email' ), 'message' => array( 'Too short' ), 'unknown' => array( 'x' ) ), array( 'email', 'message' ) ),
+			'list of names'       => array( array( 'first_name', 'terms_accepted' ), array( 'first_name', 'terms_accepted' ) ),
+		);
+	}
+
+	/**
+	 * @param mixed             $details  The gateway's details.fields.
+	 * @param array<int,string> $expected Fields the visitor should see highlighted.
+	 */
+	#[Test]
+	#[DataProvider( 'gateway_field_details' )]
+	public function should_highlight_the_fields_the_gateway_names_with_our_own_wording( $details, array $expected ): void {
+		Agend_Test_WP::queue_response(
+			400,
+			array(
+				'error' => array(
+					'code'    => 'VALIDATION_ERROR',
+					'message' => 'RAW zod wording',
+					'details' => array( 'fields' => $details ),
+				),
+			)
+		);
+
+		$response = $this->submit();
+		$data     = $response->get_data();
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'validation_failed', $data['code'] );
+		$this->assertSame( $expected, array_keys( $data['fields'] ) );
+		$this->assertStringNotContainsString( 'RAW zod', (string) json_encode( $data ) );
+		$this->assertStringNotContainsString( 'Invalid email', (string) json_encode( $data ) );
+	}
+
+	#[Test]
+	public function should_not_report_the_site_wide_short_circuit_as_the_visitors_own_rate_limit(): void {
+		$error = new WP_Error( 'agend_apps_rate_limited', 'Agend API rate limit exceeded.', array( 'status_code' => 429 ) );
+
+		$method = new \ReflectionMethod( Agend_Apps_Directory_REST_Controller::class, 'enquiry_gateway_error' );
+		$method->setAccessible( true );
+		$response = $method->invoke( $this->controller(), $error );
+
+		$this->assertSame( 'send_failed', $response->get_data()['code'] );
+		$this->assertSame( 502, $response->get_status() );
+	}
+
+	// -----------------------------------------------------------------
+	// Rate-limit isolation
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_not_let_an_enquiry_429_stop_other_agend_calls_on_the_site(): void {
+		Agend_Test_WP::queue_response(
+			429,
+			array( 'error' => array( 'code' => 'RATE_LIMIT_EXCEEDED', 'message' => 'Too many' ) ),
+			array( 'X-RateLimit-Remaining' => '0', 'X-RateLimit-Reset' => (string) ( time() + 600 ) )
+		);
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'ok' => true ) ) );
+
+		$this->assertSame( 'rate_limited', $this->submit()->get_data()['code'] );
+
+		$this->assertFalse( get_transient( 'agend_apps_rate_limit_remaining' ) );
+		$this->assertFalse( get_transient( 'agend_apps_rate_limit_reset' ) );
+
+		$other = ( new \Agend_Apps_API() )->request( 'GET', '/events' );
+
+		$this->assertIsArray( $other, 'the next ordinary call is sent, not short-circuited' );
+		$this->assertCount( 2, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_not_let_a_successful_enquiry_overwrite_the_site_wide_rate_limit_state(): void {
+		set_transient( 'agend_apps_rate_limit_remaining', 500, 60 );
+		set_transient( 'agend_apps_rate_limit_reset', 'keep-me', 60 );
+		Agend_Test_WP::queue_response(
+			201,
+			array( 'data' => array() ),
+			array( 'X-RateLimit-Remaining' => '19', 'X-RateLimit-Reset' => (string) ( time() + 60 ) )
+		);
+
+		$this->assertSame( 200, $this->submit()->get_status() );
+
+		$this->assertSame( 500, get_transient( 'agend_apps_rate_limit_remaining' ) );
+		$this->assertSame( 'keep-me', get_transient( 'agend_apps_rate_limit_reset' ) );
+	}
+
+	#[Test]
+	public function should_send_an_enquiry_even_while_the_site_wide_state_says_the_budget_is_spent(): void {
+		set_transient( 'agend_apps_rate_limit_remaining', 0, 60 );
+		Agend_Test_WP::queue_response( 201, array( 'data' => array() ) );
+
+		$this->assertSame( 200, $this->submit()->get_status() );
+		$this->assertCount( 1, $this->gateway_requests() );
+	}
+
+	#[Test]
+	public function should_keep_recording_rate_limit_headers_for_every_other_call(): void {
+		Agend_Test_WP::queue_response( 200, array( 'data' => array() ), array( 'X-RateLimit-Remaining' => '42', 'X-RateLimit-Reset' => (string) ( time() + 60 ) ) );
+
+		( new \Agend_Apps_API() )->request( 'GET', '/events' );
+
+		$this->assertSame( 42, get_transient( 'agend_apps_rate_limit_remaining' ) );
 	}
 
 	#[Test]

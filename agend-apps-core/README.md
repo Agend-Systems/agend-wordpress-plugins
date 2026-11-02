@@ -1023,9 +1023,19 @@ route checks the captcha, and the Agend gateway sends both messages.
   limit. It is `REMOTE_ADDR`; `X-Forwarded-For` is not trusted. A site behind a
   trusted proxy returns the real address from the `agend_apps_visitor_ip` filter.
 - **Errors**: the gateway's error `code` (`VALIDATION_ERROR`, `NOT_FOUND`,
-  `LISTING_NOT_ACCEPTING_ENQUIRIES`, `TERMS_REQUIRED`, `RATE_LIMITED`) is read
-  from the standard error envelope, falling back to the HTTP status
-  (400/422, 404, 429). Anything else is a generic "could not send" message.
+  `LISTING_NOT_ACCEPTING_ENQUIRIES`, `TERMS_REQUIRED`, `RATE_LIMIT_EXCEEDED`) is
+  read from the standard error envelope, falling back to the HTTP status
+  (400/422, 404, 429). A validation error's `details.fields` is used for its
+  field names only: each known field gets this route's own message and the form
+  highlights it. Anything else, including a validation error naming no known
+  field, is a generic "could not send" message. A stale or missing nonce answers
+  403 `agend_enquiry_session_expired`, which the form shows as "reload the page".
+- **Rate limits are the gateway's, not the site's**: the call sets
+  `isolated_rate_limit`, so a 429 for one visitor neither short-circuits other
+  Agend calls on the site nor is overwritten by a successful enquiry's headers.
+- **Text is not rewritten**: only invalid UTF-8 and control characters are
+  removed. `<`, `&` and `%ab` reach the member as typed; the gateway owns output
+  escaping. Length limits are counted in UTF-16 units, as the gateway counts.
 - **Renderer**: `agend_apps_records_render_listing_enquiry()` in
   `includes/records/render/listing-enquiry.php`, page-builder agnostic. The
   Agend Elementor "Agend Listing Enquiry Form" widget is an adapter over it.
@@ -1043,15 +1053,23 @@ Settings > Agend Apps > Form Captcha:
 
 | Setting | Notes |
 | --- | --- |
-| Provider | None, Cloudflare Turnstile, or Google reCAPTCHA v3. With None the route still works and the gateway's rate limiting remains. |
+| Provider | None, Cloudflare Turnstile, or Google reCAPTCHA v3. A provider missing its site key or secret counts as not configured. |
 | Site key | The provider's public key. Rendered into the page. |
 | Secret key | Write-only. Stored encrypted in the secret store, never rendered; the `AGEND_APPS_CAPTCHA_SECRET` constant overrides it. |
 | reCAPTCHA score threshold | v3 only. Default 0.5. |
 | reCAPTCHA action name | v3 only. Default `agend_enquiry`; the siteverify answer must carry the same action. |
 
+With no provider configured the form is hidden and the route refuses
+submissions. For local development only, define `AGEND_APPS_CAPTCHA_ALLOW_NONE`
+true (or return true from the `agend_apps_captcha_allow_none` filter) to allow
+submissions without one; the gateway's rate limiting is then the only control.
+The hostname the provider reports must be the site's own (`home_url()` or
+`site_url()`); the `agend_apps_captcha_allowed_hostnames` filter widens that list.
+
 `Agend_Apps_Captcha::verify()` fails closed: a provider selected without a
-secret, an unreachable provider, a non-2xx or malformed answer, a missing score,
-a low score and an action mismatch all refuse the submission.
+secret, an unreachable provider, a non-2xx or malformed answer, a hostname
+mismatch, a missing score, a low score and an action mismatch all refuse the
+submission.
 
 ## Directory map
 

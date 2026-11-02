@@ -286,7 +286,7 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 				array(
 					'methods'             => WP_REST_Server::CREATABLE,
 					'callback'            => array( $this, 'submit_enquiry' ),
-					'permission_callback' => array( $this, 'nonce_check' ),
+					'permission_callback' => array( $this, 'enquiry_permission' ),
 					'args'                => $this->enquiry_args(),
 				),
 			)
@@ -331,11 +331,11 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			),
 			'first_name'     => array(
 				'type'              => 'string',
-				'sanitize_callback' => 'sanitize_text_field',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enquiry_line' ),
 			),
 			'last_name'      => array(
 				'type'              => 'string',
-				'sanitize_callback' => 'sanitize_text_field',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enquiry_line' ),
 			),
 			'email'          => array(
 				'type'              => 'string',
@@ -343,11 +343,11 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			),
 			'phone'          => array(
 				'type'              => 'string',
-				'sanitize_callback' => 'sanitize_text_field',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enquiry_line' ),
 			),
 			'message'        => array(
 				'type'              => 'string',
-				'sanitize_callback' => 'sanitize_textarea_field',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enquiry_message' ),
 			),
 			'terms_accepted' => array(
 				'type'              => 'boolean',
@@ -358,6 +358,45 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 				'sanitize_callback' => 'sanitize_text_field',
 			),
 		);
+	}
+
+	/**
+	 * Cleans a single-line enquiry field: invalid UTF-8 and control characters
+	 * go, line breaks and tabs become spaces, and the ends are trimmed. Markup
+	 * is left alone: the value travels as JSON and the gateway sends plain text
+	 * email, so rewriting `<` or deleting `%ab` would only corrupt what the
+	 * visitor typed.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	public static function sanitize_enquiry_line( $value ): string {
+		return trim( (string) preg_replace( '/\s+/u', ' ', self::strip_unsafe_characters( $value ) ) );
+	}
+
+	/**
+	 * Cleans the enquiry message: as {@see sanitize_enquiry_line()}, but line
+	 * breaks and tabs are kept.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	public static function sanitize_enquiry_message( $value ): string {
+		return trim( str_replace( "\r\n", "\n", self::strip_unsafe_characters( $value ) ) );
+	}
+
+	/**
+	 * Removes invalid UTF-8 and control characters, keeping tabs and line breaks.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	private static function strip_unsafe_characters( $value ): string {
+		$text  = (string) $value;
+		$clean = function_exists( 'iconv' ) ? @iconv( 'UTF-8', 'UTF-8//IGNORE', $text ) : $text; // phpcs:ignore WordPress.PHP.NoSilencedErrors
+		$text  = false === $clean ? '' : $clean;
+
+		return (string) preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $text );
 	}
 
 	/**
@@ -387,7 +426,11 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		$captcha    = Agend_Apps_Captcha::verify( (string) $request->get_param( 'captcha_token' ), $visitor_ip );
 
 		if ( is_wp_error( $captcha ) ) {
-			return $this->enquiry_error( 'captcha_failed', 400 );
+			$reason = is_array( $captcha->get_error_data() ) ? (string) ( $captcha->get_error_data()['reason'] ?? '' ) : '';
+
+			return 'not_configured' === $reason
+				? $this->enquiry_error( 'send_failed', 503 )
+				: $this->enquiry_error( 'captcha_failed', 400 );
 		}
 
 		$result = agend_apps_directory_send_listing_enquiry( (string) $request->get_param( 'listing_id' ), $enquiry, $visitor_ip );
@@ -471,14 +514,19 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	}
 
 	/**
-	 * Character count, not byte count, so a name with accents is not
-	 * penalised against the gateway's character limits.
+	 * Length in UTF-16 code units, which is how the gateway's schema counts, so
+	 * a message full of emoji is refused here when the gateway would refuse it.
+	 * Not bytes: a name with accents is not penalised.
 	 *
 	 * @param string $text Text to measure.
 	 * @return int
 	 */
 	private function text_length( string $text ): int {
-		return function_exists( 'mb_strlen' ) ? mb_strlen( $text, 'UTF-8' ) : strlen( $text );
+		if ( function_exists( 'mb_convert_encoding' ) ) {
+			return (int) ( strlen( mb_convert_encoding( $text, 'UTF-16LE', 'UTF-8' ) ) / 2 );
+		}
+
+		return strlen( $text );
 	}
 
 	/**
@@ -535,7 +583,13 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			return $this->enquiry_error( 'terms_required', 422 );
 		}
 
-		if ( 429 === $status || 'RATE_LIMITED' === $code || 'agend_apps_rate_limited' === $error->get_error_code() ) {
+		// A local short-circuit comes from other traffic on the site, not from
+		// this visitor, so it is not reported as their rate limit.
+		if ( 'agend_apps_rate_limited' === $error->get_error_code() ) {
+			return $this->enquiry_error( 'send_failed', 502 );
+		}
+
+		if ( 429 === $status || 'RATE_LIMIT_EXCEEDED' === $code || 'RATE_LIMITED' === $code ) {
 			return $this->enquiry_error( 'rate_limited', 429 );
 		}
 
@@ -544,10 +598,52 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		if ( false !== strpos( $code, 'VALIDATION' ) || ( '' === $code && in_array( $status, array( 400, 422 ), true ) ) ) {
-			return $this->enquiry_error( 'validation_failed', 400 );
+			$fields = $this->gateway_field_errors( is_array( $data ) ? $data['body']['error']['details']['fields'] ?? null : null );
+
+			// A validation error naming no field we know is the generic failure:
+			// "check the highlighted fields" with nothing highlighted helps no one.
+			return array() === $fields && false !== strpos( $code, 'VALIDATION' )
+				? $this->enquiry_error( 'send_failed', 502 )
+				: $this->enquiry_error( 'validation_failed', 400, $fields );
 		}
 
 		return $this->enquiry_error( 'send_failed', 502 );
+	}
+
+	/**
+	 * The route's own per-field messages for the fields the gateway named.
+	 *
+	 * The gateway's `details.fields` is a map of field name to messages, or a
+	 * list of field names. Only the names are used; its wording never reaches
+	 * the visitor.
+	 *
+	 * @param mixed $details The gateway's `details.fields`.
+	 * @return array<string, string>
+	 */
+	protected function gateway_field_errors( $details ): array {
+		if ( ! is_array( $details ) ) {
+			return array();
+		}
+
+		$messages = array(
+			'first_name'     => __( 'Please check your first name.', 'agend-apps-core' ),
+			'last_name'      => __( 'Please check your last name.', 'agend-apps-core' ),
+			'email'          => __( 'Please enter a valid email address.', 'agend-apps-core' ),
+			'phone'          => __( 'Please check your phone number.', 'agend-apps-core' ),
+			'message'        => __( 'Please check your message.', 'agend-apps-core' ),
+			'terms_accepted' => __( 'Please accept the terms to send your enquiry.', 'agend-apps-core' ),
+		);
+
+		$names  = array_keys( $details ) === range( 0, count( $details ) - 1 ) ? array_values( $details ) : array_keys( $details );
+		$fields = array();
+
+		foreach ( $names as $name ) {
+			if ( is_string( $name ) && isset( $messages[ $name ] ) ) {
+				$fields[ $name ] = $messages[ $name ];
+			}
+		}
+
+		return $fields;
 	}
 
 	/**
@@ -580,6 +676,27 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		return new WP_REST_Response( $body, $status );
+	}
+
+	/**
+	 * Permission check for the enquiry route: the same nonce check as the other
+	 * writes, but a stale or missing nonce answers with this route's own code,
+	 * so the form can tell the visitor to reload instead of showing core's
+	 * wording. A page served from a full-page cache outlives its nonce.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return true|WP_Error
+	 */
+	public function enquiry_permission( WP_REST_Request $request ) {
+		if ( $this->nonce_check( $request ) ) {
+			return true;
+		}
+
+		return new WP_Error(
+			'agend_enquiry_session_expired',
+			__( 'Your session has expired. Please reload the page and try again.', 'agend-apps-core' ),
+			array( 'status' => 403 )
+		);
 	}
 
 	/**

@@ -19,6 +19,17 @@
   var LIMITS = { first_name: 100, last_name: 100, email: 254, phone: 40, message: 5000 };
   var FIELDS = ['first_name', 'last_name', 'email', 'phone', 'message', 'terms_accepted'];
 
+  // Codes the enquiry route answers with for refusals other than a stale nonce.
+  var OWN_CODES = {
+    validation_failed: true,
+    captcha_failed: true,
+    not_accepting: true,
+    terms_required: true,
+    rate_limited: true,
+    not_found: true,
+    send_failed: true,
+  };
+
   var scriptPromises = {};
 
   function loadScript(src) {
@@ -321,8 +332,11 @@
         })
         .then(function (token) {
           if (captcha && !token) {
+            // An interactive Turnstile challenge the visitor has not solved is
+            // not a failure: ask them to complete it.
             var e = new Error('no captcha token');
             e.captcha = true;
+            e.challenge = cfg.captcha && cfg.captcha.provider === 'turnstile';
             throw e;
           }
           return send(cfg, payload(form, token));
@@ -333,6 +347,8 @@
             status.textContent = cfg.successMessage || '';
             status.classList.add('agend-enquiry__status--success');
             form.setAttribute('aria-busy', 'false');
+            // The form is hidden, so focus would be lost: move it to the message.
+            status.focus();
             return;
           }
 
@@ -347,7 +363,9 @@
           }
 
           var text = json.message;
-          if (result.status === 403 && !json.code) {
+          // A stale or missing nonce is refused by the route's own code or by
+          // WordPress core's: either way the answer is to reload the page.
+          if ((result.status === 401 || result.status === 403) && !OWN_CODES[json.code]) {
             text = m.session;
           }
           showStatusError(status, text || m.failed);
@@ -357,7 +375,7 @@
             captcha.reset();
           }
           setBusy(form, status, false, '');
-          showStatusError(status, err && err.captcha ? m.captcha : m.failed);
+          showStatusError(status, err && err.challenge ? m.challenge : err && err.captcha ? m.captcha : m.failed);
         });
     });
   }

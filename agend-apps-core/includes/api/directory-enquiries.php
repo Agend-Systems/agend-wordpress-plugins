@@ -40,6 +40,9 @@ function agend_apps_directory_send_listing_enquiry( string $listing_id, array $e
 	$args = array(
 		'body'       => $enquiry,
 		'unattended' => true,
+		// The gateway limits enquiries per visitor and per key. Its refusal must
+		// not become the site-wide rate-limit state that stops every other call.
+		'isolated_rate_limit' => true,
 	);
 
 	if ( '' !== $visitor_ip ) {

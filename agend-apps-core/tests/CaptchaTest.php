@@ -54,9 +54,67 @@ final class CaptchaTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_pass_without_calling_a_provider_when_no_provider_is_selected(): void {
-		$this->assertTrue( Agend_Apps_Captcha::verify( '' ) );
+	public function should_refuse_when_no_provider_is_selected_and_the_development_opt_out_is_not_set(): void {
+		$this->assertSame( 'not_configured', $this->reason( Agend_Apps_Captcha::verify( '' ) ) );
+		$this->assertFalse( Agend_Apps_Captcha::submissions_open() );
 		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_pass_without_calling_a_provider_only_when_the_development_opt_out_is_set(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', true );
+
+		$this->assertTrue( Agend_Apps_Captcha::verify( '' ) );
+		$this->assertTrue( Agend_Apps_Captcha::submissions_open() );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_treat_a_provider_missing_its_site_key_or_its_secret_as_not_configured(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_TURNSTILE, 'the-secret', '' );
+		$this->assertFalse( Agend_Apps_Captcha::is_configured() );
+		$this->assertFalse( Agend_Apps_Captcha::submissions_open() );
+		$this->assertSame( 'not_configured', $this->reason( Agend_Apps_Captcha::verify( 'visitor-token' ) ) );
+
+		Agend_Apps_Secret_Store::delete( Agend_Apps_Captcha::SECRET_STORE_KEY );
+		update_option( Agend_Apps_Captcha::OPTION_SITE_KEY, 'the-site-key' );
+		$this->assertFalse( Agend_Apps_Captcha::is_configured() );
+		$this->assertSame( 'not_configured', $this->reason( Agend_Apps_Captcha::verify( 'visitor-token' ) ) );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_refuse_a_token_minted_on_another_hostname(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_TURNSTILE );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'hostname' => 'attacker.test' ) );
+
+		$this->assertSame( 'hostname_mismatch', $this->reason( Agend_Apps_Captcha::verify( 'visitor-token' ) ) );
+	}
+
+	#[Test]
+	public function should_accept_this_sites_hostname_and_any_the_allow_list_filter_adds(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_TURNSTILE );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'hostname' => 'EXAMPLE.test' ) );
+		$this->assertTrue( Agend_Apps_Captcha::verify( 'visitor-token' ) );
+
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allowed_hostnames', array( 'example.test', 'staging.example.test' ) );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'hostname' => 'staging.example.test' ) );
+		$this->assertTrue( Agend_Apps_Captcha::verify( 'visitor-token' ) );
+	}
+
+	#[Test]
+	public function should_warn_an_administrator_when_no_captcha_is_configured(): void {
+		ob_start();
+		( new Agend_Apps_Admin() )->render_captcha_section();
+		$html = (string) ob_get_clean();
+
+		$this->assertStringContainsString( 'notice-warning', $html );
+		$this->assertStringContainsString( 'will not show', $html );
+
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA );
+		ob_start();
+		( new Agend_Apps_Admin() )->render_captcha_section();
+		$this->assertStringNotContainsString( 'notice-warning', (string) ob_get_clean() );
 	}
 
 	#[Test]
@@ -218,6 +276,11 @@ final class CaptchaTest extends TestCase {
 		$this->assertNull( Agend_Apps_Captcha::client_config() );
 
 		$this->configure( Agend_Apps_Captcha::PROVIDER_TURNSTILE, 'the-secret', '' );
+
+		$this->assertNull( Agend_Apps_Captcha::client_config() );
+
+		$this->configure( Agend_Apps_Captcha::PROVIDER_TURNSTILE, '' );
+		Agend_Apps_Secret_Store::delete( Agend_Apps_Captcha::SECRET_STORE_KEY );
 
 		$this->assertNull( Agend_Apps_Captcha::client_config() );
 	}

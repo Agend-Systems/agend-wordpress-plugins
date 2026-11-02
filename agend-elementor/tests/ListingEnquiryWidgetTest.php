@@ -8,6 +8,7 @@ declare( strict_types=1 );
 namespace Agend\Tests\Elementor;
 
 use Agend_Apps_Key_Scopes;
+use Agend_Test_WP;
 use Agend_Apps_Records_Record_Context;
 use Agend_Elementor_Listing_Enquiry;
 use Agend\Tests\TestCase;
@@ -56,6 +57,7 @@ final class ListingEnquiryWidgetTest extends TestCase {
 		parent::setUp();
 		Agend_Apps_Records_Record_Context::reset();
 		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'directory.enquiries.send' ) ) ) );
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', true );
 	}
 
 	protected function tearDown(): void {
@@ -161,6 +163,33 @@ final class ListingEnquiryWidgetTest extends TestCase {
 		$this->assertStringNotContainsString( 'elementor-alert', $html );
 		$this->assertStringContainsString( 'data-agend-enquiry-preview="1"', $html );
 		$this->assertStringContainsString( 'Get in touch with Sample Listing', $html );
+	}
+
+	#[Test]
+	public function should_render_nothing_for_a_visitor_and_tell_an_editor_when_no_captcha_is_configured(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', false );
+		$this->pushListing();
+
+		$this->assertSame( '', $this->widget()->run_render() );
+
+		$this->openEditor();
+		$html = $this->widget()->run_render();
+
+		$this->assertStringContainsString( 'No captcha is configured', $html );
+		$this->assertStringContainsString( 'data-agend-enquiry-preview="1"', $html );
+	}
+
+	#[Test]
+	public function should_offer_a_heading_level_control_that_defaults_to_h3_and_apply_it(): void {
+		$widget = $this->widget();
+		$widget->run_controls();
+
+		$control = array_values( array_filter( $widget->recordings, static fn( array $r ): bool => 'add_control' === $r['method'] && 'heading_tag' === $r['id'] ) );
+
+		$this->assertSame( 'h3', $control[0]['args']['default'] );
+
+		$this->pushListing();
+		$this->assertStringContainsString( '<h4 class="agend-enquiry__heading">', $this->widget( array( 'heading_tag' => 'h4' ) )->run_render() );
 	}
 
 	#[Test]

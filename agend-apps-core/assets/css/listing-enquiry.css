@@ -82,8 +82,16 @@
 	margin-top: 0.75rem;
 }
 
+/* Kept rendered while empty so a screen reader already has the live region
+   when text arrives; collapsed rather than display:none. */
 .agend-enquiry__status:empty {
-	display: none;
+	margin: 0;
+	height: 0;
+	overflow: hidden;
+}
+
+.agend-enquiry__status:focus {
+	outline-offset: 2px;
 }
 
 .agend-enquiry__status--error {

@@ -41,6 +41,7 @@ final class ListingEnquiryRenderTest extends TestCase {
 		parent::setUp();
 		Agend_Apps_Records_Record_Context::reset();
 		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'directory.enquiries.send' ) ) ) );
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', true );
 	}
 
 	protected function tearDown(): void {
@@ -158,13 +159,47 @@ final class ListingEnquiryRenderTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_never_enqueue_or_print_a_captcha_script_while_rendering(): void {
+	public function should_hide_the_form_when_no_captcha_is_configured_and_the_opt_out_is_not_set(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', false );
+		$this->pushListing();
+
+		$this->assertSame( '', $this->render() );
+		$this->assertSame( 'no_captcha', agend_apps_records_listing_enquiry_state()['status'] );
+	}
+
+	#[Test]
+	public function should_hide_the_form_when_a_provider_is_selected_without_its_site_key_or_secret(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', false );
 		update_option( Agend_Apps_Captcha::OPTION_PROVIDER, Agend_Apps_Captcha::PROVIDER_RECAPTCHA );
 		update_option( Agend_Apps_Captcha::OPTION_SITE_KEY, 'site-key' );
 		$this->pushListing();
 
+		$this->assertSame( '', $this->render() );
+
+		Agend_Apps_Secret_Store::set( Agend_Apps_Captcha::SECRET_STORE_KEY, 'secret' );
+
+		$this->assertNotSame( '', $this->render() );
+	}
+
+	#[Test]
+	public function should_render_the_heading_as_an_h3_unless_the_author_chooses_another_level(): void {
+		$this->pushListing();
+
+		$this->assertStringContainsString( '<h3 class="agend-enquiry__heading">', $this->render() );
+		$this->assertStringContainsString( '<h2 class="agend-enquiry__heading">Get in touch', $this->render( array( 'heading_tag' => 'h2' ) ) );
+		$this->assertStringContainsString( '<h3 class="agend-enquiry__heading">', $this->render( array( 'heading_tag' => 'script' ) ) );
+	}
+
+	#[Test]
+	public function should_never_enqueue_or_print_a_captcha_script_while_rendering(): void {
+		update_option( Agend_Apps_Captcha::OPTION_PROVIDER, Agend_Apps_Captcha::PROVIDER_RECAPTCHA );
+		update_option( Agend_Apps_Captcha::OPTION_SITE_KEY, 'site-key' );
+		Agend_Apps_Secret_Store::set( Agend_Apps_Captcha::SECRET_STORE_KEY, 'secret' );
+		$this->pushListing();
+
 		$html = $this->render();
 
+		$this->assertStringContainsString( 'agend-enquiry__form', $html );
 		$this->assertStringNotContainsString( '<script', $html );
 		$this->assertStringNotContainsString( 'recaptcha/api.js', $html );
 		$this->assertStringNotContainsString( 'turnstile/v0/api.js', $html );
@@ -275,7 +310,7 @@ final class ListingEnquiryRenderTest extends TestCase {
 			$this->assertStringContainsString( 'id="agend-enquiry-abc123-' . $key . '"', $html );
 			$this->assertStringContainsString( 'id="agend-enquiry-abc123-' . $key . '-error"', $html );
 		}
-		$this->assertStringContainsString( 'role="status" aria-live="polite"', $html );
+		$this->assertStringContainsString( 'role="status" aria-live="polite" tabindex="-1"', $html );
 		$this->assertStringContainsString( 'novalidate', $html );
 	}
 
@@ -369,6 +404,7 @@ final class ListingEnquiryRenderTest extends TestCase {
 	public function should_include_a_widget_container_for_turnstile(): void {
 		update_option( Agend_Apps_Captcha::OPTION_PROVIDER, Agend_Apps_Captcha::PROVIDER_TURNSTILE );
 		update_option( Agend_Apps_Captcha::OPTION_SITE_KEY, 'public-site-key' );
+		Agend_Apps_Secret_Store::set( Agend_Apps_Captcha::SECRET_STORE_KEY, 'secret' );
 		$this->pushListing();
 
 		$this->assertStringContainsString( 'data-agend-enquiry-captcha', $this->render() );

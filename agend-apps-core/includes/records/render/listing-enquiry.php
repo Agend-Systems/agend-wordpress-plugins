@@ -41,7 +41,20 @@ function agend_apps_records_listing_enquiry_defaults(): array {
 		'success_message'     => __( 'Thanks for contacting us! We will get in touch with you shortly.', 'agend-apps-core' ),
 		'terms_label'         => __( 'I agree to the {terms_link}', 'agend-apps-core' ),
 		'terms_link_text'     => __( 'terms and conditions', 'agend-apps-core' ),
+		'heading_tag'         => 'h3',
 	);
+}
+
+/**
+ * The heading element an author chose, restricted to h1 to h6.
+ *
+ * @param array $settings Surface settings.
+ * @return string
+ */
+function agend_apps_records_listing_enquiry_heading_tag( array $settings ): string {
+	$tag = strtolower( (string) ( $settings['heading_tag'] ?? 'h3' ) );
+
+	return in_array( $tag, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true ) ? $tag : 'h3';
 }
 
 /**
@@ -75,6 +88,9 @@ function agend_apps_records_listing_enquiry_text( array $settings, string $key )
  * - `no_listing`: no record is in scope (the widget is on an ordinary page).
  * - `wrong_type`: the record in scope is not a listing.
  * - `unavailable`: the API key does not hold the enquiry scope.
+ * - `no_captcha`: no captcha provider is fully configured and the development
+ *   opt-out is not set. The route would refuse every submission, so the form
+ *   is hidden.
  * - `closed`: the gateway says the listing does not accept enquiries, or
  *   could not say. Fails closed.
  *
@@ -115,6 +131,11 @@ function agend_apps_records_listing_enquiry_state( array $opts = array() ): arra
 
 	if ( function_exists( 'agend_apps_records_feature_available' ) && ! agend_apps_records_feature_available( 'directory_enquiry_form' ) ) {
 		$state['status'] = 'unavailable';
+		return $state;
+	}
+
+	if ( ! Agend_Apps_Captcha::submissions_open() ) {
+		$state['status'] = 'no_captcha';
 		return $state;
 	}
 
@@ -269,13 +290,15 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 			'fix'          => __( 'Please check the highlighted fields and try again.', 'agend-apps-core' ),
 			'sending'      => __( 'Sending your message…', 'agend-apps-core' ),
 			'captcha'      => __( 'We could not confirm you are not a robot. Please try again.', 'agend-apps-core' ),
+			'challenge'    => __( 'Please complete the check above, then send your message again.', 'agend-apps-core' ),
 			'session'      => __( 'Your session has expired. Please reload the page and try again.', 'agend-apps-core' ),
 			'failed'       => __( 'Sorry, we could not send your enquiry right now. Please try again later.', 'agend-apps-core' ),
 		),
 	);
 
 	$html  = '<div class="agend-enquiry" data-agend-enquiry-config="' . esc_attr( (string) wp_json_encode( $config ) ) . '"' . ( $preview ? ' data-agend-enquiry-preview="1"' : '' ) . '>';
-	$html .= '' !== $heading ? '<h3 class="agend-enquiry__heading">' . esc_html( $heading ) . '</h3>' : '';
+	$tag   = agend_apps_records_listing_enquiry_heading_tag( $settings );
+	$html .= '' !== $heading ? '<' . $tag . ' class="agend-enquiry__heading">' . esc_html( $heading ) . '</' . $tag . '>' : '';
 	$html .= '<form class="agend-enquiry__form" id="' . esc_attr( $uid ) . '" novalidate>';
 
 	$html .= '<div class="agend-enquiry__row">'
@@ -307,7 +330,7 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 		. '</div>';
 
 	$html .= '</form>';
-	$html .= '<div class="agend-enquiry__status" role="status" aria-live="polite" data-agend-enquiry-status></div>';
+	$html .= '<div class="agend-enquiry__status" role="status" aria-live="polite" tabindex="-1" data-agend-enquiry-status></div>';
 	$html .= '</div>';
 
 	return $html;
