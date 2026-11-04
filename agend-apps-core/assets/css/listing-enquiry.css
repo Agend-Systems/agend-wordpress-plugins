@@ -1,0 +1,105 @@
+/* Listing enquiry form. Colours and type inherit from the theme unless the
+   widget's style controls set them. */
+.agend-enquiry {
+	max-width: 100%;
+}
+
+.agend-enquiry__heading {
+	margin: 0 0 1rem;
+}
+
+.agend-enquiry__form[hidden] {
+	display: none;
+}
+
+.agend-enquiry__row {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1rem;
+	margin-bottom: 1rem;
+}
+
+.agend-enquiry__row--full {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.agend-enquiry__field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	min-width: 0;
+}
+
+.agend-enquiry__label {
+	font-weight: 600;
+}
+
+.agend-enquiry__required {
+	color: #b32d2e;
+}
+
+.agend-enquiry__input {
+	box-sizing: border-box;
+	width: 100%;
+	font: inherit;
+}
+
+.agend-enquiry__input[aria-invalid='true'] {
+	border-color: #b32d2e;
+}
+
+.agend-enquiry__terms {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5rem;
+}
+
+.agend-enquiry__error {
+	margin: 0;
+	color: #b32d2e;
+	font-size: 0.875em;
+}
+
+.agend-enquiry__captcha {
+	margin-bottom: 1rem;
+}
+
+.agend-enquiry__actions {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.agend-enquiry__submit {
+	cursor: pointer;
+}
+
+.agend-enquiry__submit:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+
+.agend-enquiry__status {
+	margin-top: 0.75rem;
+}
+
+/* Kept rendered while empty so a screen reader already has the live region
+   when text arrives; collapsed rather than display:none. */
+.agend-enquiry__status:empty {
+	margin: 0;
+	height: 0;
+	overflow: hidden;
+}
+
+.agend-enquiry__status:focus {
+	outline-offset: 2px;
+}
+
+.agend-enquiry__status--error {
+	color: #b32d2e;
+}
+
+@media (max-width: 600px) {
+	.agend-enquiry__row {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}

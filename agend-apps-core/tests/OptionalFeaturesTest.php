@@ -53,6 +53,7 @@ namespace Agend\Tests\Core {
 			$this->assertArrayHasKey( 'directory_achievements', $features );
 			$this->assertArrayHasKey( 'directory_export_reports', $features );
 			$this->assertArrayHasKey( 'directory_review_form', $features );
+			$this->assertArrayHasKey( 'directory_enquiry_form', $features );
 			$this->assertArrayHasKey( 'directory_my_listing', $features );
 			$this->assertArrayHasKey( 'sso_account_link', $features );
 
@@ -60,6 +61,7 @@ namespace Agend\Tests\Core {
 			$this->assertSame( AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION, $features['directory_achievements']['option'] );
 			$this->assertSame( array( 'directory.export_reports.browse', 'directory.export_reports.run' ), $features['directory_export_reports']['scopes'] );
 			$this->assertSame( array( 'directory.reviews.manage' ), $features['directory_review_form']['scopes'] );
+			$this->assertSame( array( 'directory.enquiries.send' ), $features['directory_enquiry_form']['scopes'] );
 			$this->assertSame( array( 'directory.listings.self_update' ), $features['directory_my_listing']['scopes'] );
 			$this->assertSame( array( 'sso.identities.read', 'sso.tokens.create' ), $features['sso_account_link']['scopes'] );
 		}

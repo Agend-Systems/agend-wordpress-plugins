@@ -95,6 +95,9 @@ class Agend_Apps_API {
 	 *                                entirely (no Authorization header is sent), even though
 	 *                                `bearer_token` was not supplied. Used by the internal
 	 *                                401/403-on-GET retry below; callers should not set this.
+	 *     @type bool   $isolated_rate_limit When true, the call neither obeys nor updates the
+	 *                                site-wide rate-limit state: for a route with its own
+	 *                                gateway bucket, such as a visitor's enquiry.
 	 *     @type bool   $bearer_auto_resolved Internal use only. Set by `get_cached()` when the
 	 *                                `bearer_token` it passes came from the shared resolver.
 	 *     @type bool   $bearer_resolved Internal use only. Set by `get_cached()` when the shared
@@ -273,7 +276,11 @@ class Agend_Apps_API {
 		}
 
 		// 8. Check rate limit before sending.
-		$rate_remaining = get_transient( 'agend_apps_rate_limit_remaining' );
+		// A call that sets `isolated_rate_limit` is governed by its own bucket on
+		// the gateway (a per-visitor limit, say), so it neither obeys nor feeds
+		// the site-wide state below: one visitor's refusal must not stop every
+		// other Agend call on the site.
+		$rate_remaining = empty( $args['isolated_rate_limit'] ) ? get_transient( 'agend_apps_rate_limit_remaining' ) : false;
 		if ( false !== $rate_remaining && 0 === (int) $rate_remaining ) {
 			$reset = get_transient( 'agend_apps_rate_limit_reset' );
 
@@ -377,7 +384,7 @@ class Agend_Apps_API {
 		// 12. Store rate limit header values for subsequent calls.
 		$remaining  = wp_remote_retrieve_header( $response, 'X-RateLimit-Remaining' );
 		$reset_time = wp_remote_retrieve_header( $response, 'X-RateLimit-Reset' );
-		if ( '' !== $remaining ) {
+		if ( '' !== $remaining && empty( $args['isolated_rate_limit'] ) ) {
 			$ttl = ( '' !== $reset_time ) ? max( 1, (int) $reset_time - time() ) : 60;
 			set_transient( 'agend_apps_rate_limit_remaining', (int) $remaining, $ttl );
 			set_transient( 'agend_apps_rate_limit_reset', $reset_time, $ttl );

@@ -1013,6 +1013,10 @@ return array(
 		'app'    => 'directory',
 		'scopes' => array( array( 'directory.listings.bulk_upsert' ) ),
 	),
+	'POST /directory/listings/{slugOrId}/enquiries' => array(
+		'app'    => 'directory',
+		'scopes' => array( array( 'directory.enquiries.send' ) ),
+	),
 	'POST /directory/reviews' => array(
 		'app'    => 'directory',
 		'scopes' => array( array( 'directory.reviews.manage' ) ),

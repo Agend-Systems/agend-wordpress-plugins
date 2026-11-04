@@ -239,6 +239,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/filter.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-map.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/listing-enquiry.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
@@ -259,6 +260,7 @@ function agend_apps_core_bootstrap() {
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-secret-store.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-settings.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-captcha.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-cache.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/member-transient-purge.php';
 	add_action( 'init', 'agend_apps_maybe_purge_member_transients' );
@@ -308,6 +310,7 @@ function agend_apps_core_bootstrap() {
 
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cart.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-enquiries.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-map.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';

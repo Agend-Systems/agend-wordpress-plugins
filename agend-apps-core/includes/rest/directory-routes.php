@@ -39,6 +39,7 @@ function agend_apps_register_directory_routes(): void {
  * - `GET  /agend-apps/v1/directory/geocode`                   — resolve a place to a point.
  * - `GET  /agend-apps/v1/directory/map-settings`              — map defaults.
  * - `POST /agend-apps/v1/directory/reviews`                   — submit a listing review.
+ * - `POST /agend-apps/v1/directory/listings/{slugOrId}/enquiries` (send an enquiry to a listing).
  */
 class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 
@@ -278,6 +279,19 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 			)
 		);
 
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/listings/(?P<listing_id>[a-zA-Z0-9_-]+)/enquiries',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'submit_enquiry' ),
+					'permission_callback' => array( $this, 'enquiry_permission' ),
+					'args'                => $this->enquiry_args(),
+				),
+			)
+		);
+
 		// Member self-service: the signed-in member's own listing
 		// (SPEC-CORE-20260722 US-2.6). Identity is derived server-side from
 		// the member bearer; no listing id is accepted from the browser.
@@ -296,6 +310,443 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 					'permission_callback' => array( $this, 'nonce_check' ),
 				),
 			)
+		);
+	}
+
+	/**
+	 * The arguments `POST /directory/listings/{slugOrId}/enquiries` accepts.
+	 *
+	 * Sanitised here, validated in {@see submit_enquiry()}. Nothing is marked
+	 * `required` and no length is declared: WordPress would answer a miss with
+	 * its own wording, and the form needs a friendly message per field.
+	 *
+	 * @return array<string, array<string, mixed>>
+	 */
+	protected function enquiry_args(): array {
+		return array(
+			'listing_id'     => array(
+				'required'          => true,
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+			'first_name'     => array(
+				'type'              => 'string',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enquiry_line' ),
+			),
+			'last_name'      => array(
+				'type'              => 'string',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enquiry_line' ),
+			),
+			'email'          => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_email',
+			),
+			'phone'          => array(
+				'type'              => 'string',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enquiry_line' ),
+			),
+			'message'        => array(
+				'type'              => 'string',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_enquiry_message' ),
+			),
+			'terms_accepted' => array(
+				'type'              => 'boolean',
+				'sanitize_callback' => 'rest_sanitize_boolean',
+			),
+			'captcha_token'  => array(
+				'type'              => 'string',
+				'sanitize_callback' => 'sanitize_text_field',
+			),
+		);
+	}
+
+	/**
+	 * Cleans a single-line enquiry field: invalid UTF-8 and control characters
+	 * go, line breaks and tabs become spaces, and the ends are trimmed. Markup
+	 * is left alone: the value travels as JSON and the gateway sends plain text
+	 * email, so rewriting `<` or deleting `%ab` would only corrupt what the
+	 * visitor typed.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	public static function sanitize_enquiry_line( $value ): string {
+		return trim( (string) preg_replace( '/\s+/u', ' ', self::strip_invisible_characters( self::strip_unsafe_characters( $value ), true ) ) );
+	}
+
+	/**
+	 * Cleans the enquiry message: as {@see sanitize_enquiry_line()}, but line
+	 * breaks and tabs are kept.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	public static function sanitize_enquiry_message( $value ): string {
+		return trim( str_replace( "\r\n", "\n", self::strip_invisible_characters( self::strip_unsafe_characters( $value ), false ) ) );
+	}
+
+	/**
+	 * Removes invalid UTF-8 and control characters, keeping tabs and line breaks.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	private static function strip_unsafe_characters( $value ): string {
+		$text  = (string) $value;
+		$clean = function_exists( 'iconv' ) ? @iconv( 'UTF-8', 'UTF-8//IGNORE', $text ) : $text; // phpcs:ignore WordPress.PHP.NoSilencedErrors
+		$text  = false === $clean ? '' : $clean;
+
+		return (string) preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $text );
+	}
+
+	/**
+	 * Removes characters that can make text display misleadingly in the
+	 * member's mail client. A name loses every Unicode format character
+	 * (bidi overrides, zero-width characters) and C1 control. A message loses
+	 * C1 controls and the bidi overrides and isolates only, so a zero-width
+	 * joiner inside an emoji sequence survives. Tabs and line breaks are kept.
+	 *
+	 * @param string $text      Text already passed through strip_unsafe_characters().
+	 * @param bool   $is_name   Whether the strict class for names applies.
+	 * @return string
+	 */
+	private static function strip_invisible_characters( string $text, bool $is_name ): string {
+		$pattern = $is_name
+			? '/(?![\t\n\r])[\p{Cc}\p{Cf}]/u'
+			: '/(?![\t\n\r])\p{Cc}|[\x{202A}-\x{202E}\x{2066}-\x{2069}]/u';
+
+		return (string) preg_replace( $pattern, '', $text );
+	}
+
+	/**
+	 * Sends a visitor's enquiry to the listing through the Agend gateway.
+	 *
+	 * WordPress sends no email: the gateway does, and answers with nothing
+	 * about the listing's address. The order is field validation, captcha,
+	 * then the gateway call, so a visitor who mistyped a field keeps a captcha
+	 * token that was never spent.
+	 *
+	 * The response is `{ success: true }` or `{ code, message, fields? }` with
+	 * a visitor-safe message. A gateway or provider error body is never passed
+	 * through.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function submit_enquiry( WP_REST_Request $request ): WP_REST_Response {
+		$enquiry = $this->enquiry_from_request( $request );
+		$fields  = $this->enquiry_field_errors( $enquiry );
+
+		if ( array() !== $fields ) {
+			return $this->enquiry_error( 'validation_failed', 400, $fields );
+		}
+
+		$visitor_ip = $this->visitor_ip( $request );
+		$captcha    = Agend_Apps_Captcha::verify( (string) $request->get_param( 'captcha_token' ), $visitor_ip );
+
+		if ( is_wp_error( $captcha ) ) {
+			$reason = is_array( $captcha->get_error_data() ) ? (string) ( $captcha->get_error_data()['reason'] ?? '' ) : '';
+
+			$this->log_captcha_refusal( $reason );
+
+			return 'not_configured' === $reason
+				? $this->enquiry_error( 'send_failed', 503 )
+				: $this->enquiry_error( 'captcha_failed', 400 );
+		}
+
+		$result = agend_apps_directory_send_listing_enquiry( (string) $request->get_param( 'listing_id' ), $enquiry, $visitor_ip );
+
+		if ( is_wp_error( $result ) ) {
+			return $this->enquiry_gateway_error( $result );
+		}
+
+		return new WP_REST_Response( array( 'success' => true ), 200 );
+	}
+
+	/**
+	 * Records why a captcha refused a submission, so an administrator can find
+	 * a configuration cause (a hostname not on the allow-list, a threshold set
+	 * too high) that the visitor's message cannot name. Only the reason code is
+	 * recorded: never the token, the secret or anything the visitor typed.
+	 *
+	 * @param string $reason Reason code from {@see Agend_Apps_Captcha::verify()}.
+	 */
+	private function log_captcha_refusal( string $reason ): void {
+		if ( ! function_exists( 'agend_apps_logger' ) ) {
+			return;
+		}
+
+		agend_apps_logger()->record(
+			array(
+				'source'       => 'agend-apps-core',
+				'direction'    => 'inbound',
+				'method'       => 'POST',
+				'url'          => rest_url( $this->namespace . '/' . $this->rest_base . '/listings/enquiries' ),
+				'status'       => 'not_configured' === $reason ? 503 : 400,
+				'outcome'      => 'captcha_refused',
+				'auth_mode'    => 'nonce',
+				'store_bodies' => false,
+				'error_code'   => '' === $reason ? 'unknown' : $reason,
+				'error_message' => 'Captcha refused an enquiry: ' . ( '' === $reason ? 'unknown' : $reason ),
+				'user_id'      => 0,
+			)
+		);
+	}
+
+	/**
+	 * The enquiry payload the gateway expects, from the sanitised request.
+	 *
+	 * `phone` is left out when blank, and `terms_accepted` is sent only when
+	 * the visitor ticked the box.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return array<string, mixed>
+	 */
+	protected function enquiry_from_request( WP_REST_Request $request ): array {
+		$enquiry = array(
+			'first_name' => trim( (string) $request->get_param( 'first_name' ) ),
+			'last_name'  => trim( (string) $request->get_param( 'last_name' ) ),
+			'email'      => trim( (string) $request->get_param( 'email' ) ),
+			'message'    => trim( (string) $request->get_param( 'message' ) ),
+		);
+
+		$phone = trim( (string) $request->get_param( 'phone' ) );
+		if ( '' !== $phone ) {
+			$enquiry['phone'] = $phone;
+		}
+
+		if ( rest_sanitize_boolean( $request->get_param( 'terms_accepted' ) ) ) {
+			$enquiry['terms_accepted'] = true;
+		}
+
+		return $enquiry;
+	}
+
+	/**
+	 * Checks an enquiry against the gateway's limits, so a visitor hears about
+	 * a bad field before any captcha token or rate limit is spent.
+	 *
+	 * @param array<string, mixed> $enquiry Payload from {@see enquiry_from_request()}.
+	 * @return array<string, string> Visitor-safe message per failing field. Empty when valid.
+	 */
+	protected function enquiry_field_errors( array $enquiry ): array {
+		$errors = array();
+
+		foreach ( array(
+			'first_name' => __( 'Please enter your first name.', 'agend-apps-core' ),
+			'last_name'  => __( 'Please enter your last name.', 'agend-apps-core' ),
+		) as $field => $missing ) {
+			$length = $this->text_length( (string) $enquiry[ $field ] );
+
+			if ( 0 === $length ) {
+				$errors[ $field ] = $missing;
+			} elseif ( $length > 100 ) {
+				$errors[ $field ] = __( 'Please use 100 characters or fewer.', 'agend-apps-core' );
+			}
+		}
+
+		$email = (string) $enquiry['email'];
+		if ( '' === $email || strlen( $email ) > 254 || ! is_email( $email ) ) {
+			$errors['email'] = __( 'Please enter a valid email address.', 'agend-apps-core' );
+		}
+
+		if ( isset( $enquiry['phone'] ) && $this->text_length( (string) $enquiry['phone'] ) > 40 ) {
+			$errors['phone'] = __( 'Please use 40 characters or fewer.', 'agend-apps-core' );
+		}
+
+		$message_length = $this->text_length( (string) $enquiry['message'] );
+		if ( $message_length < 10 ) {
+			$errors['message'] = __( 'Please write a message of at least 10 characters.', 'agend-apps-core' );
+		} elseif ( $message_length > 5000 ) {
+			$errors['message'] = __( 'Please keep your message to 5,000 characters or fewer.', 'agend-apps-core' );
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Length in UTF-16 code units, which is how the gateway's schema counts, so
+	 * a message full of emoji is refused here when the gateway would refuse it.
+	 * Not bytes: a name with accents is not penalised.
+	 *
+	 * @param string $text Text to measure.
+	 * @return int
+	 */
+	private function text_length( string $text ): int {
+		if ( function_exists( 'mb_convert_encoding' ) ) {
+			return (int) ( strlen( mb_convert_encoding( $text, 'UTF-16LE', 'UTF-8' ) ) / 2 );
+		}
+
+		return strlen( $text );
+	}
+
+	/**
+	 * The visitor's IP address as the gateway should rate limit it.
+	 *
+	 * `REMOTE_ADDR` only. A forwarded-for header is attacker-controlled unless
+	 * a trusted proxy sets it, so a site behind one opts in through the
+	 * `agend_apps_visitor_ip` filter.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return string A valid IP address, or '' when none can be established.
+	 */
+	protected function visitor_ip( WP_REST_Request $request ): string {
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+
+		/**
+		 * Filters the visitor IP sent with an enquiry for rate limiting.
+		 *
+		 * Return the real client address on a site behind a trusted proxy.
+		 *
+		 * @param string          $ip      `REMOTE_ADDR`, or ''.
+		 * @param WP_REST_Request $request Current request.
+		 */
+		$ip = (string) apply_filters( 'agend_apps_visitor_ip', $ip, $request );
+
+		return false !== filter_var( $ip, FILTER_VALIDATE_IP ) ? $ip : '';
+	}
+
+	/**
+	 * Turns a gateway failure into a visitor-safe enquiry error.
+	 *
+	 * Reads the gateway's error `code` from the standard error envelope and
+	 * falls back to the HTTP status, so it keeps working if the gateway picks
+	 * a different conventional code. Anything unrecognised is the generic
+	 * failure: the gateway's own wording is never shown.
+	 *
+	 * @param WP_Error $error The client's error.
+	 * @return WP_REST_Response
+	 */
+	protected function enquiry_gateway_error( WP_Error $error ): WP_REST_Response {
+		$data   = $error->get_error_data();
+		$status = is_array( $data ) && isset( $data['status_code'] ) ? (int) $data['status_code'] : 0;
+		$code   = '';
+
+		if ( is_array( $data ) && isset( $data['body']['error']['code'] ) && is_scalar( $data['body']['error']['code'] ) ) {
+			$code = strtoupper( (string) $data['body']['error']['code'] );
+		}
+
+		if ( 'LISTING_NOT_ACCEPTING_ENQUIRIES' === $code ) {
+			return $this->enquiry_error( 'not_accepting', 409 );
+		}
+
+		if ( 'TERMS_REQUIRED' === $code ) {
+			return $this->enquiry_error( 'terms_required', 422 );
+		}
+
+		// A local short-circuit comes from other traffic on the site, not from
+		// this visitor, so it is not reported as their rate limit.
+		if ( 'agend_apps_rate_limited' === $error->get_error_code() ) {
+			return $this->enquiry_error( 'send_failed', 502 );
+		}
+
+		if ( 429 === $status || 'RATE_LIMIT_EXCEEDED' === $code || 'RATE_LIMITED' === $code ) {
+			return $this->enquiry_error( 'rate_limited', 429 );
+		}
+
+		if ( 404 === $status || 'NOT_FOUND' === $code ) {
+			return $this->enquiry_error( 'not_found', 404 );
+		}
+
+		if ( false !== strpos( $code, 'VALIDATION' ) || ( '' === $code && in_array( $status, array( 400, 422 ), true ) ) ) {
+			$fields = $this->gateway_field_errors( is_array( $data ) ? $data['body']['error']['details']['fields'] ?? null : null );
+
+			// A validation error naming no field we know is the generic failure:
+			// "check the highlighted fields" with nothing highlighted helps no one.
+			return array() === $fields
+				? $this->enquiry_error( 'send_failed', 502 )
+				: $this->enquiry_error( 'validation_failed', 400, $fields );
+		}
+
+		return $this->enquiry_error( 'send_failed', 502 );
+	}
+
+	/**
+	 * The route's own per-field messages for the fields the gateway named.
+	 *
+	 * The gateway's `details.fields` is a map of field name to messages, or a
+	 * list of field names. Only the names are used; its wording never reaches
+	 * the visitor.
+	 *
+	 * @param mixed $details The gateway's `details.fields`.
+	 * @return array<string, string>
+	 */
+	protected function gateway_field_errors( $details ): array {
+		if ( ! is_array( $details ) ) {
+			return array();
+		}
+
+		$messages = array(
+			'first_name'     => __( 'Please check your first name.', 'agend-apps-core' ),
+			'last_name'      => __( 'Please check your last name.', 'agend-apps-core' ),
+			'email'          => __( 'Please enter a valid email address.', 'agend-apps-core' ),
+			'phone'          => __( 'Please check your phone number.', 'agend-apps-core' ),
+			'message'        => __( 'Please check your message.', 'agend-apps-core' ),
+			'terms_accepted' => __( 'Please accept the terms to send your enquiry.', 'agend-apps-core' ),
+		);
+
+		$names  = array_keys( $details ) === range( 0, count( $details ) - 1 ) ? array_values( $details ) : array_keys( $details );
+		$fields = array();
+
+		foreach ( $names as $name ) {
+			if ( is_string( $name ) && isset( $messages[ $name ] ) ) {
+				$fields[ $name ] = $messages[ $name ];
+			}
+		}
+
+		return $fields;
+	}
+
+	/**
+	 * A visitor-safe enquiry error response.
+	 *
+	 * @param string               $code   Stable code the widget keys off.
+	 * @param int                  $status HTTP status.
+	 * @param array<string,string> $fields Per-field messages, when the failure is about fields.
+	 * @return WP_REST_Response
+	 */
+	protected function enquiry_error( string $code, int $status, array $fields = array() ): WP_REST_Response {
+		$messages = array(
+			'validation_failed' => __( 'Please check the highlighted fields and try again.', 'agend-apps-core' ),
+			'captcha_failed'    => __( 'We could not confirm you are not a robot. Please try again.', 'agend-apps-core' ),
+			'not_accepting'     => __( 'This listing is not accepting enquiries right now.', 'agend-apps-core' ),
+			'terms_required'    => __( 'Please accept the terms to send your enquiry.', 'agend-apps-core' ),
+			'rate_limited'      => __( 'You have sent several enquiries recently. Please wait a few minutes and try again.', 'agend-apps-core' ),
+			'not_found'         => __( 'We could not find this listing.', 'agend-apps-core' ),
+			'send_failed'       => __( 'Sorry, we could not send your enquiry right now. Please try again later.', 'agend-apps-core' ),
+		);
+
+		$body = array(
+			'success' => false,
+			'code'    => $code,
+			'message' => $messages[ $code ] ?? $messages['send_failed'],
+		);
+
+		if ( array() !== $fields ) {
+			$body['fields'] = $fields;
+		}
+
+		return new WP_REST_Response( $body, $status );
+	}
+
+	/**
+	 * Permission check for the enquiry route: the same nonce check as the other
+	 * writes, but a stale or missing nonce answers with this route's own code,
+	 * so the form can tell the visitor to reload instead of showing core's
+	 * wording. A page served from a full-page cache outlives its nonce.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return true|WP_Error
+	 */
+	public function enquiry_permission( WP_REST_Request $request ) {
+		if ( $this->nonce_check( $request ) ) {
+			return true;
+		}
+
+		return new WP_Error(
+			'agend_enquiry_session_expired',
+			__( 'Your session has expired. Please reload the page and try again.', 'agend-apps-core' ),
+			array( 'status' => 403 )
 		);
 	}
 

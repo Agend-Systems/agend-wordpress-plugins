@@ -55,6 +55,11 @@ function agend_apps_records_optional_features(): array {
 			'scopes'      => array( 'directory.reviews.manage' ),
 			'description' => __( 'Lets visitors submit a Directory listing review from the detail view.', 'agend-apps-core' ),
 		),
+		'directory_enquiry_form'  => array(
+			'label'       => __( 'Listing Enquiry Form', 'agend-apps-core' ),
+			'scopes'      => array( 'directory.enquiries.send' ),
+			'description' => __( 'Lets visitors send an enquiry to a Directory listing from the Listing Enquiry Form widget.', 'agend-apps-core' ),
+		),
 		'directory_my_listing'    => array(
 			'label'       => __( 'Member "My Listing" Self-Service', 'agend-apps-core' ),
 			'scopes'      => array( 'directory.listings.self_update' ),
