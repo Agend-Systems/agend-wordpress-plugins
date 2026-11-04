@@ -92,7 +92,7 @@ class Agend_Elementor {
 
 		$widgets_manager->register( new Agend_Elementor_Events_Catalogue() );
 		$widgets_manager->register( new Agend_Elementor_Courses_Catalogue() );
-		// Needs a core that ships the jobs-catalogue surface (1.52.0).
+		// Needs a core that ships the jobs-catalogue surface (1.53.0).
 		if ( function_exists( 'agend_apps_records_render_jobs_catalogue' ) ) {
 			$widgets_manager->register( new Agend_Elementor_Jobs_Catalogue() );
 		}
