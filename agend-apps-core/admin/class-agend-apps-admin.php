@@ -440,7 +440,7 @@ class Agend_Apps_Admin {
 
 		add_settings_field(
 			Agend_Apps_Captcha::OPTION_THRESHOLD,
-			__( 'reCAPTCHA score threshold', 'agend-apps-core' ),
+			__( 'reCAPTCHA v3 score threshold', 'agend-apps-core' ),
 			array( $this, 'render_captcha_threshold_field' ),
 			self::PAGE_SLUG,
 			'agend_apps_captcha_section',
@@ -459,7 +459,7 @@ class Agend_Apps_Admin {
 
 		add_settings_field(
 			Agend_Apps_Captcha::OPTION_ACTION,
-			__( 'reCAPTCHA action name', 'agend-apps-core' ),
+			__( 'reCAPTCHA v3 action name', 'agend-apps-core' ),
 			array( $this, 'render_captcha_action_field' ),
 			self::PAGE_SLUG,
 			'agend_apps_captcha_section',
@@ -546,7 +546,7 @@ class Agend_Apps_Admin {
 			esc_attr( Agend_Apps_Captcha::OPTION_SITE_KEY ),
 			esc_attr( Agend_Apps_Captcha::site_key() )
 		);
-		echo '<p class="description">' . esc_html__( 'The public key from your captcha provider. It is rendered into pages that carry a form.', 'agend-apps-core' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'The public key from your captcha provider, for the version selected above. It is rendered into pages that carry a form.', 'agend-apps-core' ) . '</p>';
 	}
 
 	/**
@@ -590,7 +590,7 @@ class Agend_Apps_Admin {
 			esc_attr( Agend_Apps_Captcha::OPTION_THRESHOLD ),
 			esc_attr( (string) Agend_Apps_Captcha::score_threshold() )
 		);
-		echo '<p class="description">' . esc_html__( 'reCAPTCHA v3 only. Submissions scoring below this are refused. 0.5 is Google\'s default; raise it to be stricter.', 'agend-apps-core' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'reCAPTCHA v3 only (ignored by v2 and Turnstile). Submissions scoring below this are refused. 0.5 is Google\'s default; raise it to be stricter.', 'agend-apps-core' ) . '</p>';
 	}
 
 	/**
@@ -602,7 +602,7 @@ class Agend_Apps_Admin {
 			esc_attr( Agend_Apps_Captcha::OPTION_ACTION ),
 			esc_attr( Agend_Apps_Captcha::action() )
 		);
-		echo '<p class="description">' . esc_html__( 'reCAPTCHA v3 only. The action the form reports and the server expects back. Letters, numbers, underscores and slashes.', 'agend-apps-core' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'reCAPTCHA v3 only (ignored by v2 and Turnstile). The action the form reports and the server expects back. Letters, numbers, underscores and slashes.', 'agend-apps-core' ) . '</p>';
 	}
 
 	/**

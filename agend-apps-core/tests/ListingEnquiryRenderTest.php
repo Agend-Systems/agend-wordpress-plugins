@@ -401,6 +401,22 @@ final class ListingEnquiryRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_hand_the_script_the_recaptcha_v2_provider_and_site_key_and_render_a_widget_container(): void {
+		update_option( Agend_Apps_Captcha::OPTION_PROVIDER, Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2 );
+		update_option( Agend_Apps_Captcha::OPTION_SITE_KEY, 'v2-site-key' );
+		Agend_Apps_Secret_Store::set( Agend_Apps_Captcha::SECRET_STORE_KEY, 'never-in-the-page' );
+		$this->pushListing();
+
+		$html = $this->render();
+
+		$this->assertStringContainsString( '&quot;provider&quot;:&quot;recaptcha_v2&quot;', $html );
+		$this->assertStringContainsString( '&quot;siteKey&quot;:&quot;v2-site-key&quot;', $html );
+		$this->assertStringContainsString( 'data-agend-enquiry-captcha', $html );
+		$this->assertLessThan( strpos( $html, 'agend-enquiry__actions' ), strpos( $html, 'data-agend-enquiry-captcha' ) );
+		$this->assertStringNotContainsString( 'never-in-the-page', $html );
+	}
+
+	#[Test]
 	public function should_include_a_widget_container_for_turnstile(): void {
 		update_option( Agend_Apps_Captcha::OPTION_PROVIDER, Agend_Apps_Captcha::PROVIDER_TURNSTILE );
 		update_option( Agend_Apps_Captcha::OPTION_SITE_KEY, 'public-site-key' );

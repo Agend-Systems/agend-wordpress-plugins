@@ -322,7 +322,7 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 			. '</div>';
 	}
 
-	if ( null !== $config['captcha'] && Agend_Apps_Captcha::PROVIDER_TURNSTILE === $config['captcha']['provider'] ) {
+	if ( null !== $config['captcha'] && in_array( $config['captcha']['provider'], array( Agend_Apps_Captcha::PROVIDER_TURNSTILE, Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2 ), true ) ) {
 		$html .= '<div class="agend-enquiry__captcha" data-agend-enquiry-captcha></div>';
 	}
 

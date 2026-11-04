@@ -14,6 +14,7 @@
   'use strict';
 
   var TURNSTILE_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  var RECAPTCHA_V2_SRC = 'https://www.google.com/recaptcha/api.js?render=explicit';
   var RECAPTCHA_SRC = 'https://www.google.com/recaptcha/api.js?render=';
   var EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   var LIMITS = { first_name: 100, last_name: 100, email: 254, phone: 40, message: 5000 };
@@ -213,6 +214,34 @@
       };
     }
 
+    if (captcha.provider === 'recaptcha_v2') {
+      var v2Holder = root.querySelector('[data-agend-enquiry-captcha]');
+      var v2WidgetId = null;
+      var v2Ready = loadScript(RECAPTCHA_V2_SRC)
+        .then(function () {
+          return waitFor(function () {
+            return window.grecaptcha && typeof window.grecaptcha.render === 'function';
+          });
+        })
+        .then(function () {
+          // Rendering into a container inside a closed <details> still works.
+          v2WidgetId = window.grecaptcha.render(v2Holder, { sitekey: captcha.siteKey });
+        });
+
+      return {
+        token: function () {
+          return v2Ready.then(function () {
+            return window.grecaptcha.getResponse(v2WidgetId) || '';
+          });
+        },
+        reset: function () {
+          if (v2WidgetId !== null && window.grecaptcha) {
+            window.grecaptcha.reset(v2WidgetId);
+          }
+        },
+      };
+    }
+
     if (captcha.provider === 'recaptcha') {
       var loaded = loadScript(RECAPTCHA_SRC + encodeURIComponent(captcha.siteKey)).then(function () {
         return waitFor(function () {
@@ -340,7 +369,7 @@
             var e = new Error('no captcha token');
             e.captcha = true;
             e.loadFailed = scriptFailed;
-            e.challenge = !scriptFailed && cfg.captcha && cfg.captcha.provider === 'turnstile';
+            e.challenge = !scriptFailed && cfg.captcha && (cfg.captcha.provider === 'turnstile' || cfg.captcha.provider === 'recaptcha_v2');
             throw e;
           }
           return send(cfg, payload(form, token));

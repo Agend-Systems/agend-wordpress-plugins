@@ -12,7 +12,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Reads the captcha settings and verifies a visitor's token with the provider.
  *
- * Two providers are supported: Cloudflare Turnstile and Google reCAPTCHA v3.
+ * Three providers are supported: Cloudflare Turnstile, Google reCAPTCHA v3
+ * (invisible, scored) and Google reCAPTCHA v2 (the "I'm not a robot" checkbox).
  * The site key is public and rendered into the page. The secret key never is:
  * it lives in the encrypted secret store (or the `AGEND_APPS_CAPTCHA_SECRET`
  * constant) and is only read here, server-side, when a token is verified.
@@ -27,6 +28,12 @@ final class Agend_Apps_Captcha {
 	const PROVIDER_NONE      = 'none';
 	const PROVIDER_TURNSTILE = 'turnstile';
 	const PROVIDER_RECAPTCHA = 'recaptcha';
+
+	/**
+	 * Google reCAPTCHA v2 checkbox. `PROVIDER_RECAPTCHA` keeps its stored value
+	 * and means v3, so existing sites are unaffected.
+	 */
+	const PROVIDER_RECAPTCHA_V2 = 'recaptcha_v2';
 
 	const OPTION_PROVIDER  = 'agend_apps_captcha_provider';
 	const OPTION_SITE_KEY  = 'agend_apps_captcha_site_key';
@@ -63,7 +70,8 @@ final class Agend_Apps_Captcha {
 		return array(
 			self::PROVIDER_NONE      => __( 'None', 'agend-apps-core' ),
 			self::PROVIDER_TURNSTILE => __( 'Cloudflare Turnstile', 'agend-apps-core' ),
-			self::PROVIDER_RECAPTCHA => __( 'Google reCAPTCHA v3', 'agend-apps-core' ),
+			self::PROVIDER_RECAPTCHA => __( 'Google reCAPTCHA v3 (invisible, score)', 'agend-apps-core' ),
+			self::PROVIDER_RECAPTCHA_V2 => __( 'Google reCAPTCHA v2 (checkbox)', 'agend-apps-core' ),
 		);
 	}
 
