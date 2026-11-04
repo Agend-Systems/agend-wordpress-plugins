@@ -1140,6 +1140,13 @@
   flex: 1 1 auto;
 }
 
+/* A classic Elementor section grows, but its inner container stays as tall as
+   its content, so a section background (a coloured top bar drawn as section
+   padding, say) shows below a shorter card's columns. */
+.agend-dir-grid--grid.agend-dir-grid--templated > .agend-card-link > .elementor > .elementor-section:last-child > .elementor-container {
+  height: 100%;
+}
+
 .agend-dir-filter-slot:empty {
   display: none;
 }
