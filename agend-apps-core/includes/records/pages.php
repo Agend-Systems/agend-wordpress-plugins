@@ -48,6 +48,14 @@ class Agend_Apps_Records_Pages {
 				'query_var' => 'course',
 				'legacy'    => 'agend_course',
 			),
+			// /{page}/job/{slug}/ arrives on the namespaced `agend_job`
+			// query var, which is also the plain-permalink parameter.
+			'job'    => array(
+				'option'    => AGEND_APPS_RECORDS_JOBS_PAGE_OPTION,
+				'segment'   => 'job/',
+				'query_var' => 'agend_job',
+				'legacy'    => 'agend_job',
+			),
 			// The directory detail path is /{page}/listing/{slug}/ like the
 			// others, but the slug arrives on a namespaced private query var
 			// (see routing.php).

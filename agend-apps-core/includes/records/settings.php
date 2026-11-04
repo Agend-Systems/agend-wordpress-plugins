@@ -59,6 +59,13 @@ const AGEND_APPS_RECORDS_COURSES_PAGE_OPTION = 'agend_elementor_courses_page_id'
 const AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION = 'agend_elementor_directory_page_id';
 
 /**
+ * Option name storing the configured Jobs board/detail page id (0 = unset).
+ *
+ * @var string
+ */
+const AGEND_APPS_RECORDS_JOBS_PAGE_OPTION = 'agend_elementor_jobs_page_id';
+
+/**
  * Option names storing the saved template used for a type's detail page
  * (template post id, 0 = built-in layout).
  *
@@ -189,6 +196,24 @@ function agend_apps_records_settings_init(): void {
 		AGEND_APPS_RECORDS_DIRECTORY_PAGE_OPTION,
 		__( 'Directory page', 'agend-apps-core' ),
 		'agend_apps_records_settings_field_directory_page',
+		'agend-elementor',
+		'agend_elementor_section_pages'
+	);
+
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_APPS_RECORDS_JOBS_PAGE_OPTION,
+		array(
+			'type'              => 'integer',
+			'sanitize_callback' => 'absint',
+			'default'           => 0,
+		)
+	);
+
+	add_settings_field(
+		AGEND_APPS_RECORDS_JOBS_PAGE_OPTION,
+		__( 'Jobs page', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_jobs_page',
 		'agend-elementor',
 		'agend_elementor_section_pages'
 	);
@@ -418,6 +443,26 @@ function agend_apps_records_settings_field_courses_page(): void {
 		$selected,
 		'courses-catalogue',
 		__( 'This page does not appear to contain a Courses Catalogue.', 'agend-apps-core' )
+	);
+}
+
+/**
+ * Renders the Jobs page picker.
+ */
+function agend_apps_records_settings_field_jobs_page(): void {
+	$selected = absint( get_option( AGEND_APPS_RECORDS_JOBS_PAGE_OPTION, 0 ) );
+	wp_dropdown_pages(
+		array(
+			'name'              => AGEND_APPS_RECORDS_JOBS_PAGE_OPTION,
+			'show_option_none'  => __( 'Select a page', 'agend-apps-core' ),
+			'option_none_value' => '0',
+			'selected'          => $selected,
+		)
+	);
+	agend_apps_records_settings_widget_advisory(
+		$selected,
+		'jobs-catalogue',
+		__( 'This page does not appear to contain a Jobs board.', 'agend-apps-core' )
 	);
 }
 

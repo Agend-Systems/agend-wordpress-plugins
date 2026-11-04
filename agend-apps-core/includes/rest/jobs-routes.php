@@ -25,7 +25,8 @@ function agend_apps_register_jobs_routes(): void {
  * Read routes are publicly readable (no authentication required).
  *
  * Exposes:
- * - `GET  /agend-apps/v1/jobs`                      — paginated jobs index.
+ * - `GET  /agend-apps/v1/jobs`                      — paginated jobs index, filterable
+ *   by `search`, `category` (slug), `location`, `type` and `featuredOnly`.
  * - `GET  /agend-apps/v1/jobs/{slug_or_id}`         — single job by slug or ID.
  */
 class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
@@ -65,14 +66,46 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
+						// WordPress checks `enum` and `maxLength` only for an
+						// argument with no sanitize callback, so the filters
+						// below name the validator explicitly.
 						'sortBy'   => array(
 							'type'              => 'string',
+							'enum'              => array( 'created_at', 'published_at', 'title', 'salary_min', 'salary_max', 'expires_at' ),
+							'validate_callback' => 'rest_validate_request_arg',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
 						'sortOrder' => array(
 							'type'              => 'string',
 							'enum'              => array( 'asc', 'desc' ),
+							'validate_callback' => 'rest_validate_request_arg',
 							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'category' => array(
+							'type'              => 'string',
+							'maxLength'         => 120,
+							'validate_callback' => 'rest_validate_request_arg',
+							// Not sanitize_title directly: WordPress passes the
+							// request as the second argument, which sanitize_title
+							// reads as its fallback title for an empty value.
+							'sanitize_callback' => static function ( $value ): string {
+								return sanitize_title( (string) $value );
+							},
+						),
+						'location' => array(
+							'type'              => 'string',
+							'maxLength'         => 120,
+							'validate_callback' => 'rest_validate_request_arg',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'type'     => array(
+							'type'              => 'string',
+							'enum'              => array( 'full-time', 'part-time', 'contract', 'casual', 'internship' ),
+							'validate_callback' => 'rest_validate_request_arg',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'featuredOnly' => array(
+							'type' => 'boolean',
 						),
 					),
 				),
@@ -106,13 +139,32 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function get_jobs( WP_REST_Request $request ): WP_REST_Response {
-		$allowed = array( 'page', 'limit', 'search', 'sortBy', 'sortOrder' );
+		$allowed = array( 'page', 'limit', 'search', 'sortBy', 'sortOrder', 'category', 'location', 'type', 'featuredOnly' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {
 				return in_array( $key, $allowed, true );
 			},
 			ARRAY_FILTER_USE_KEY
+		);
+
+		// The gateway reads featuredOnly as the string 'true'; anything else
+		// (including false) is the same as leaving it out.
+		if ( array_key_exists( 'featuredOnly', $query ) ) {
+			if ( rest_sanitize_boolean( $query['featuredOnly'] ) ) {
+				$query['featuredOnly'] = 'true';
+			} else {
+				unset( $query['featuredOnly'] );
+			}
+		}
+
+		// Empty strings would reach the gateway as `?category=` and fail its
+		// min-length validation.
+		$query = array_filter(
+			$query,
+			static function ( $value ) {
+				return '' !== $value && null !== $value;
+			}
 		);
 
 		$result = agend_apps_jobs_get_jobs( $query );

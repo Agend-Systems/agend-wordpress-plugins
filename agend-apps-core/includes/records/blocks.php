@@ -39,6 +39,7 @@ require_once __DIR__ . '/surface-gate.php';
 const AGEND_APPS_RECORDS_BLOCK_SURFACES = array(
 	'events-catalogue',
 	'courses-catalogue',
+	'jobs-catalogue',
 	'directory-catalogue',
 	'directory-map',
 	'memberships-catalogue',

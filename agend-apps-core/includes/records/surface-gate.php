@@ -54,6 +54,10 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Courses', 'agend-apps-core' ),
 			'scopes' => array( 'lms.courses.browse' ),
 		),
+		'jobs-catalogue'            => array(
+			'label'  => __( 'Agend Jobs', 'agend-apps-core' ),
+			'scopes' => array( 'jobs.listings.browse' ),
+		),
 		'memberships-catalogue'     => array(
 			'label'  => __( 'Agend Memberships', 'agend-apps-core' ),
 			'scopes' => array( 'crm.tiers.browse' ),
@@ -479,6 +483,7 @@ function agend_apps_records_rest_route_surface( string $route ): string {
 		'#^/cards/events$#'                                      => 'events-catalogue',
 		'#^/lms/courses(/[^/]+)?$#'                              => 'courses-catalogue',
 		'#^/cards/courses$#'                                     => 'courses-catalogue',
+		'#^/jobs(/[^/]+)?$#'                                     => 'jobs-catalogue',
 		'#^/crm/tiers(/|$)#'                                     => 'memberships-catalogue',
 		'#^/account-link(/|$)#'                                  => 'account-link',
 	);

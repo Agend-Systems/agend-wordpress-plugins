@@ -30,6 +30,11 @@ function agend_apps_records_add_rewrite_endpoints(): void {
 	add_rewrite_endpoint( 'event', EP_PAGES );
 	add_rewrite_endpoint( 'course', EP_PAGES );
 
+	// Jobs: the public path segment is `job`, but the slug lands on a
+	// namespaced query var, since `job` is a name job board themes and
+	// plugins commonly claim (see the directory note below).
+	add_rewrite_endpoint( 'job', EP_PAGES, 'agend_job' );
+
 	// Directory detail deliberately does NOT use add_rewrite_endpoint( 'listing' ).
 	// `listing` is a very common query var that directory themes/plugins register
 	// (typically via a `listing` custom post type, which claims the query var
@@ -70,6 +75,7 @@ function agend_apps_records_register_query_vars( array $vars ): array {
 	// redirect (pages.php) to see on the request.
 	$vars[] = 'agend_event';
 	$vars[] = 'agend_course';
+	$vars[] = 'agend_job';
 
 	return $vars;
 }

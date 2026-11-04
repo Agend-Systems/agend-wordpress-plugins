@@ -27,6 +27,7 @@ final class Agend_Elementor_Template_Source_Adapter implements Agend_Apps_Templa
 		$widget_types = array(
 			'events-catalogue'    => 'agend-events-catalogue',
 			'courses-catalogue'   => 'agend-courses-catalogue',
+			'jobs-catalogue'      => 'agend-jobs-catalogue',
 			'directory-catalogue' => 'agend-directory-catalogue',
 		);
 

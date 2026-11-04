@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/jobs-catalogue",
+	"version": "1.0.0",
+	"title": "Agend Jobs Board",
+	"category": "agend",
+	"icon": "businessperson",
+	"description": "Jobs from Agend Careers, with search, filters and job detail pages.",
+	"keywords": [ "agend", "jobs", "careers", "board" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-records-jobs-catalogue" ],
+	"style": [ "agend-apps-records-jobs-catalogue" ],
+	"render": "file:./render.php"
+}

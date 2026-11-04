@@ -90,7 +90,7 @@ define( 'AGEND_APPS_PORTAL_LOCAL_URL', 'http://localhost:3074' );
  *
  * @var string
  */
-define( 'AGEND_APPS_RECORDS_REWRITE_VERSION', '20260723-1' );
+define( 'AGEND_APPS_RECORDS_REWRITE_VERSION', '20261104-1' );
 
 // Detail-URL rewrite endpoints (SPEC-INFRA-20260717 US-1.1). Loaded
 // unconditionally so the endpoints register even when a page-builder plugin
@@ -222,6 +222,7 @@ function agend_apps_core_bootstrap() {
 	// Server renders of the record surfaces, shared by every editor adapter.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/jobs-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-login.php';
