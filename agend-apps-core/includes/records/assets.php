@@ -253,6 +253,20 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	wp_register_style(
+		'agend-apps-records-jobs-catalogue',
+		agend_apps_records_asset_url( 'css/jobs-catalogue.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-jobs-catalogue',
+		agend_apps_records_asset_url( 'js/jobs-catalogue.js' ),
+		array( 'agend-apps-records-dompurify' ),
+		agend_apps_records_asset_version(),
+		true
+	);
+
 	// The item list table and list, shared by the listing detail and the Agend
 	// Field surface, which each depend on it.
 	wp_register_style(

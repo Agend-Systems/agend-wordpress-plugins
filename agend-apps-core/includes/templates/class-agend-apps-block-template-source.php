@@ -388,6 +388,7 @@ final class Agend_Apps_Block_Template_Source implements Agend_Apps_Template_Sour
 		$block_names = array(
 			'events-catalogue'    => 'agend-apps/events-catalogue',
 			'courses-catalogue'   => 'agend-apps/courses-catalogue',
+			'jobs-catalogue'      => 'agend-apps/jobs-catalogue',
 			'directory-catalogue' => 'agend-apps/directory-catalogue',
 		);
 

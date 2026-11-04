@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-elementor
  * Description:       Elementor widgets that surface Agend Events, Learning, and Directory data natively inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
- * Version:           0.36.0
+ * Version:           0.37.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-elementor
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_ELEMENTOR_VERSION', '0.36.0' );
+define( 'AGEND_ELEMENTOR_VERSION', '0.37.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -205,7 +205,7 @@ function agend_elementor_enqueue_scripts(): void {
 	// nothing, so its script would only look for a shell that is not there.
 	// Directory export reports: the list is per-visitor, so it is fetched at
 	// view time rather than rendered into a cacheable page.
-	foreach ( array( 'export-reports', 'events-catalogue', 'courses-catalogue', 'directory-catalogue', 'account-link', 'member-login', 'memberships-catalogue', 'header-auth' ) as $surface ) {
+	foreach ( array( 'export-reports', 'events-catalogue', 'courses-catalogue', 'jobs-catalogue', 'directory-catalogue', 'account-link', 'member-login', 'memberships-catalogue', 'header-auth' ) as $surface ) {
 		if ( function_exists( 'agend_apps_records_surface_gated' ) && agend_apps_records_surface_gated( $surface ) ) {
 			continue;
 		}

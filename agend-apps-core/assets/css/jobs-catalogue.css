@@ -1,0 +1,601 @@
+/**
+ * Agend Jobs (Agend Careers) surface styles.
+ * Colour and layout tokens are set as CSS custom properties on the container
+ * by the core renderer and the frontend script.
+ */
+
+.agend-jobs-catalogue {
+  --agend-jobs-heading: #1e2a4a;
+  --agend-jobs-body: #26304d;
+  --agend-jobs-accent: #ff6b55;
+  --agend-jobs-button: #ff6b55;
+  --agend-jobs-button-text: #ffffff;
+  --agend-jobs-card-radius: 10px;
+  --agend-jobs-cols-desktop: 3;
+  --agend-jobs-cols-tablet: 2;
+  --agend-jobs-border: #e3e6ee;
+  color: var(--agend-jobs-body);
+  font-family: var(--agend-jobs-font-body, inherit);
+}
+
+.agend-jobs-catalogue h2,
+.agend-jobs-catalogue h3 {
+  font-family: var(--agend-jobs-font-heading, inherit);
+}
+
+/* -- Heading and filters --------------------------------------------------- */
+
+.agend-jobs-heading {
+  margin-bottom: 1.5rem;
+}
+
+.agend-jobs-heading__title {
+  color: var(--agend-jobs-heading);
+  margin: 0 0 0.25rem;
+}
+
+.agend-jobs-heading__subtitle {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.agend-jobs-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.agend-jobs-input,
+.agend-jobs-select {
+  padding: 0.6rem 0.85rem;
+  border: 1px solid #d7dbe6;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: #fff;
+  color: var(--agend-jobs-body);
+  min-height: 2.6rem;
+}
+
+.agend-jobs-input--search {
+  flex: 2 1 240px;
+}
+
+.agend-jobs-input--location {
+  flex: 1 1 180px;
+}
+
+.agend-jobs-select {
+  flex: 0 1 200px;
+}
+
+@media (max-width: 640px) {
+  .agend-jobs-select {
+    flex: 1 1 100%;
+  }
+
+  .agend-jobs-logo--card {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+.agend-jobs-input:focus,
+.agend-jobs-select:focus {
+  outline: 2px solid var(--agend-jobs-accent);
+  outline-offset: 1px;
+}
+
+.agend-jobs-count {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  opacity: 0.75;
+}
+
+.agend-jobs-count:empty {
+  display: none;
+}
+
+.agend-jobs-status {
+  padding: 2rem 0;
+  text-align: center;
+  opacity: 0.75;
+}
+
+/* -- Board ----------------------------------------------------------------- */
+
+.agend-jobs-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.agend-jobs-catalogue--grid .agend-jobs-grid {
+  grid-template-columns: repeat(var(--agend-jobs-cols-desktop), minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 1024px) {
+  .agend-jobs-catalogue--grid .agend-jobs-grid {
+    grid-template-columns: repeat(var(--agend-jobs-cols-tablet), minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .agend-jobs-catalogue--grid .agend-jobs-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.agend-jobs-card {
+  position: relative;
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--agend-jobs-border);
+  border-radius: var(--agend-jobs-card-radius);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(30, 42, 74, 0.06);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.agend-jobs-card:hover {
+  border-color: #cfd4e2;
+  box-shadow: 0 4px 14px rgba(30, 42, 74, 0.1);
+}
+
+.agend-jobs-card:focus-within {
+  outline: 2px solid var(--agend-jobs-accent);
+  outline-offset: 2px;
+}
+
+.agend-jobs-card.is-featured {
+  border-left: 4px solid var(--agend-jobs-accent);
+}
+
+.agend-jobs-catalogue--grid .agend-jobs-card {
+  flex-direction: column;
+}
+
+.agend-jobs-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Theme paragraph and heading margins would double the flex gap. */
+.agend-jobs-card__body > p,
+.agend-jobs-card__body > h3,
+.agend-jobs-card__body > div {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.agend-jobs-card__flag {
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--agend-jobs-accent);
+}
+
+.agend-jobs-card__title {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.3;
+}
+
+.agend-jobs-card__link {
+  color: var(--agend-jobs-heading);
+  text-decoration: none;
+}
+
+.agend-jobs-card__link:hover,
+.agend-jobs-card__link:focus {
+  text-decoration: underline;
+}
+
+.agend-jobs-card__link:focus {
+  outline: none;
+}
+
+.agend-jobs-card__company {
+  margin: 0;
+  font-weight: 600;
+}
+
+.agend-jobs-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  font-size: 0.9rem;
+}
+
+.agend-jobs-card__salary {
+  font-weight: 600;
+  color: var(--agend-jobs-heading);
+}
+
+.agend-jobs-card__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.agend-jobs-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: #eef0f5;
+  color: var(--agend-jobs-body);
+}
+
+.agend-jobs-pill--remote {
+  background: #dcf3e5;
+  color: #17643a;
+}
+
+.agend-jobs-pill--category {
+  background: transparent;
+  border: 1px solid var(--agend-jobs-accent);
+  color: var(--agend-jobs-heading);
+}
+
+.agend-jobs-card__summary {
+  margin: 0.2rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.agend-jobs-card__dates {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+/* -- Logos ----------------------------------------------------------------- */
+
+.agend-jobs-logo {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--agend-jobs-border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.agend-jobs-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.agend-jobs-logo--card {
+  width: 56px;
+  height: 56px;
+}
+
+.agend-jobs-logo--detail {
+  width: 80px;
+  height: 80px;
+}
+
+.agend-jobs-logo.is-placeholder {
+  background: var(--agend-jobs-heading);
+  border-color: var(--agend-jobs-heading);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.4rem;
+}
+
+/* -- Pagination and buttons ------------------------------------------------ */
+
+.agend-jobs-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.agend-jobs-page {
+  border: 1px solid #d7dbe6;
+  background: #fff;
+  color: var(--agend-jobs-body);
+  padding: 0.45rem 0.8rem;
+  border-radius: 8px;
+  cursor: pointer;
+  min-width: 2.4rem;
+}
+
+.agend-jobs-page.is-active {
+  background: var(--agend-jobs-accent);
+  border-color: var(--agend-jobs-accent);
+  color: #fff;
+}
+
+.agend-jobs-button {
+  display: inline-block;
+  padding: 0.75rem 1.4rem;
+  border: 1px solid var(--agend-jobs-button);
+  border-radius: 8px;
+  background: var(--agend-jobs-button);
+  color: var(--agend-jobs-button-text);
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.agend-jobs-button:hover,
+.agend-jobs-button:focus {
+  filter: brightness(0.95);
+  color: var(--agend-jobs-button-text);
+}
+
+.agend-jobs-button--ghost {
+  background: #fff;
+  color: var(--agend-jobs-body);
+  border-color: #d7dbe6;
+}
+
+.agend-jobs-button--ghost:hover,
+.agend-jobs-button--ghost:focus {
+  color: var(--agend-jobs-body);
+}
+
+/* -- Detail ---------------------------------------------------------------- */
+
+.agend-jobs-detail__back {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: var(--agend-jobs-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.agend-jobs-detail__head {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--agend-jobs-border);
+}
+
+.agend-jobs-detail__head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.agend-jobs-detail__title {
+  color: var(--agend-jobs-heading);
+  margin: 0;
+  font-size: 1.8rem;
+  line-height: 1.2;
+}
+
+.agend-jobs-detail__company {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.agend-jobs-detail__layout {
+  display: grid;
+  /* minmax(0, …) so long description content cannot squash the sidebar. */
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 2rem;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .agend-jobs-detail__head {
+    flex-direction: column;
+  }
+
+  .agend-jobs-detail__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* On a phone the apply panel comes first, ahead of a long description,
+     and the employer panel stays after it: the side column dissolves so its
+     panels take their own places in the single column. */
+  .agend-jobs-detail__layout > .agend-jobs-detail__side {
+    display: contents;
+  }
+
+  .agend-jobs-detail__side > .agend-jobs-detail__panel:first-child {
+    order: -1;
+  }
+
+  .agend-jobs-detail__side > .agend-jobs-detail__panel {
+    order: 1;
+  }
+}
+
+.agend-jobs-detail__description,
+.agend-jobs-detail__about {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.agend-jobs-detail__description p,
+.agend-jobs-detail__about p {
+  margin: 0 0 0.9rem;
+}
+
+.agend-jobs-detail__description ul,
+.agend-jobs-detail__description ol {
+  margin: 0 0 0.9rem 1.25rem;
+}
+
+.agend-jobs-detail__description h2,
+.agend-jobs-detail__description h3,
+.agend-jobs-detail__description h4,
+.agend-jobs-detail__description h5,
+.agend-jobs-detail__description h6 {
+  color: var(--agend-jobs-heading);
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1.15rem;
+  line-height: 1.3;
+}
+
+.agend-jobs-detail__description h2 {
+  font-size: 1.3rem;
+}
+
+.agend-jobs-detail__section {
+  margin-top: 1.5rem;
+}
+
+.agend-jobs-detail__section-title {
+  color: var(--agend-jobs-heading);
+  margin: 0 0 0.6rem;
+  font-size: 1.1rem;
+}
+
+.agend-jobs-detail__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 1.5rem;
+}
+
+.agend-jobs-detail__side {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.agend-jobs-detail__panel {
+  padding: 1.25rem;
+  border: 1px solid var(--agend-jobs-border);
+  border-radius: var(--agend-jobs-card-radius);
+  background: #fff;
+}
+
+.agend-jobs-apply {
+  margin-bottom: 1rem;
+}
+
+.agend-jobs-apply .agend-jobs-button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.agend-jobs-apply__email {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.agend-jobs-detail__closed {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: #f4f5f8;
+  font-weight: 600;
+}
+
+.agend-jobs-detail__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.45rem 1rem;
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.agend-jobs-detail__facts dt {
+  font-weight: 600;
+  color: var(--agend-jobs-heading);
+}
+
+.agend-jobs-detail__facts dd {
+  margin: 0;
+}
+
+.agend-jobs-detail__website {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: var(--agend-jobs-accent);
+  font-weight: 600;
+}
+
+.agend-jobs-detail--missing {
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* -- Sign-in prompt (jobs visibility) ----------------------------------- */
+
+.agend-jobs-signin {
+  padding: 2rem 1.5rem;
+  border: 1px solid var(--agend-jobs-border);
+  border-radius: var(--agend-jobs-card-radius);
+  background: #fff;
+  text-align: center;
+}
+
+.agend-jobs-signin .agend-jobs-detail__back {
+  display: block;
+  text-align: left;
+}
+
+.agend-jobs-signin__text {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+}
+
+/* -- Loading skeletons ----------------------------------------------------- */
+
+@keyframes agend-skel-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+.agend-skel-line {
+  background: #eceef4 linear-gradient(90deg, #eceef4 0px, #f7f8fb 60px, #eceef4 120px) no-repeat -200px 0 / 200px 100%;
+  animation: agend-skel-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+  height: 0.85rem;
+  margin: 0.45rem 0;
+}
+
+.agend-jobs-skeleton {
+  pointer-events: none;
+  cursor: default;
+}
+
+.agend-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agend-skel-line {
+    animation: none;
+  }
+
+  .agend-jobs-card {
+    transition: none;
+  }
+}
