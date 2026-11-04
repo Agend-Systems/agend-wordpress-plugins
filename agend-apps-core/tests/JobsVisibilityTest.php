@@ -33,8 +33,8 @@ final class JobsVisibilityTest extends TestCase {
 
 	private const JOB = array(
 		'id'                       => '11111111-1111-1111-1111-111111111111',
-		'title'                    => 'SMSF Auditor',
-		'slug'                     => 'smsf-auditor',
+		'title'                    => 'Senior Auditor',
+		'slug'                     => 'senior-auditor',
 		'company_name'             => 'Example Audit',
 		'location_city'            => 'Melbourne',
 		'location_state'           => 'VIC',
@@ -92,8 +92,8 @@ final class JobsVisibilityTest extends TestCase {
 	 */
 	private function get_job(): array {
 		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => self::JOB ) );
-		$request = new WP_REST_Request( 'GET', '/agend-apps/v1/jobs/smsf-auditor' );
-		$request->set_param( 'slug_or_id', 'smsf-auditor' );
+		$request = new WP_REST_Request( 'GET', '/agend-apps/v1/jobs/senior-auditor' );
+		$request->set_param( 'slug_or_id', 'senior-auditor' );
 		$response = ( new Agend_Apps_Jobs_REST_Controller() )->get_job( $request );
 
 		return array( $response->get_status(), (array) $response->get_data() );
@@ -134,7 +134,7 @@ final class JobsVisibilityTest extends TestCase {
 		$job               = $body['data'][0];
 
 		self::assertSame( 200, $status );
-		self::assertSame( 'SMSF Auditor', $job['title'] );
+		self::assertSame( 'Senior Auditor', $job['title'] );
 		self::assertSame( 'Example Audit', $job['company_name'] );
 		self::assertSame( 'mid', $job['experience_level'] );
 		foreach ( array( 'short_description', 'description', 'salary_min', 'salary_max', 'application_url', 'application_email', 'application_instructions', 'company_description' ) as $hidden ) {
