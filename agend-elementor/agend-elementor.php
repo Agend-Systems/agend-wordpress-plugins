@@ -205,7 +205,7 @@ function agend_elementor_enqueue_scripts(): void {
 	// nothing, so its script would only look for a shell that is not there.
 	// Directory export reports: the list is per-visitor, so it is fetched at
 	// view time rather than rendered into a cacheable page.
-	foreach ( array( 'export-reports', 'events-catalogue', 'courses-catalogue', 'directory-catalogue', 'account-link', 'member-login', 'memberships-catalogue', 'header-auth' ) as $surface ) {
+	foreach ( array( 'export-reports', 'events-catalogue', 'courses-catalogue', 'jobs-catalogue', 'directory-catalogue', 'account-link', 'member-login', 'memberships-catalogue', 'header-auth' ) as $surface ) {
 		if ( function_exists( 'agend_apps_records_surface_gated' ) && agend_apps_records_surface_gated( $surface ) ) {
 			continue;
 		}

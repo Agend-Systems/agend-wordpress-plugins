@@ -1,6 +1,6 @@
 # Agend Elementor Widgets
 
-Elementor widgets that surface Agend Events, Learning and Directory data inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
+Elementor widgets that surface Agend Events, Learning, Directory and Careers (jobs) data inside WordPress pages, powered by the Agend gateway via Agend Apps Core.
 
 **The block editor is the primary target for new surface work.** Every surface in this pack also ships as a Gutenberg block from Agend Apps Core, and both editors build from the same declarations: one page-builder-agnostic schema per surface for the settings, and one core renderer per surface for the output. This plugin is an adapter over those, not the place a surface is defined. A setting or a rendering decision added here and not in the schema or the renderer exists in Elementor only, which is the class of defect that seam exists to prevent. See the Content-settings schema and Block editor surface sections of `agend-apps-core/README.md`.
 
@@ -8,14 +8,27 @@ Both editors can also supply card and detail templates, and a site can run both 
 
 ## Dedicated catalogue pages
 
-Settings > Agend Widgets > Catalogue Pages lets a site nominate one **Events page**, one **Courses page** and one **Directory page**. With a page set:
+Settings > Agend Widgets > Catalogue Pages lets a site nominate one **Events page**, one **Courses page**, one **Directory page** and one **Jobs page**. With a page set:
 
 - every Events, Courses or Directory Catalogue widget, wherever it sits, links items to `{page}/event/{slug}/`, `{page}/course/{slug}/` or `{page}/listing/{slug}/` (or the `?agend_event=` / `?agend_course=` / `?agend_listing=` form without pretty permalinks);
 - a widget on any other page (a homepage CTA, for example) navigates to the dedicated page instead of opening the detail in place;
 - a detail URL requested on any other page is redirected (301) to the dedicated page;
 - the server-rendered detail only ever replaces the dedicated page.
 
+Jobs follow the same rules at `{page}/job/{slug}/` (`?agend_job=` without pretty permalinks). The slug arrives on the namespaced `agend_job` query var, since `job` is a name job board plugins commonly claim. Job detail is client-rendered only for now: there is no server-rendered job detail or job detail template yet.
+
 With no page set, behaviour is unchanged: the page hosting the widget acts as its own detail page.
+
+## Agend Jobs (Agend Careers)
+
+The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with keyword, location, category and employment type filters, and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
+
+- **Featured jobs strip**: turn on "Featured jobs only", hide the filters and set a small page size. With a Jobs page set, the strip links there.
+- **One category**: "Only this category" pins the board to one category and hides the visitor category filter.
+- The category options come from the categories on published jobs (a wide list fetch), since the gateway has no public job categories endpoint.
+- Needs the `jobs.listings.browse` scope; without it the widget draws nothing for visitors.
+
+Not yet available, because the public jobs API does not support it: filtering by work arrangement, state, salary band or tag; featured listings first across every page of results (featured jobs are marked, not pinned); hiding listings past their closing date (a closed listing says so and offers no apply button).
 
 ## Card and detail templates
 

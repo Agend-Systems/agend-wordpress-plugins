@@ -75,6 +75,7 @@ class Agend_Elementor {
 	public function register_widgets( $widgets_manager ): void {
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-events-catalogue.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-courses-catalogue.php';
+		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-jobs-catalogue.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-directory-catalogue.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-directory-map.php';
 		require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-account-link.php';
@@ -91,6 +92,10 @@ class Agend_Elementor {
 
 		$widgets_manager->register( new Agend_Elementor_Events_Catalogue() );
 		$widgets_manager->register( new Agend_Elementor_Courses_Catalogue() );
+		// Needs a core that ships the jobs-catalogue surface (1.52.0).
+		if ( function_exists( 'agend_apps_records_render_jobs_catalogue' ) ) {
+			$widgets_manager->register( new Agend_Elementor_Jobs_Catalogue() );
+		}
 		$widgets_manager->register( new Agend_Elementor_Directory_Catalogue() );
 		$widgets_manager->register( new Agend_Elementor_Directory_Map() );
 		$widgets_manager->register( new Agend_Elementor_Account_Link() );
