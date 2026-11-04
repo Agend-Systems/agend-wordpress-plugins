@@ -55,6 +55,7 @@ final class ListingEnquiryWidgetTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		agend_apps_records_listing_enquiry_claim_anchor( true );
 		Agend_Apps_Records_Record_Context::reset();
 		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'directory.enquiries.send' ) ) ) );
 		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', true );
@@ -216,6 +217,43 @@ final class ListingEnquiryWidgetTest extends TestCase {
 		$this->assertStringNotContainsString( 'agend-enquiry__form', $html );
 	}
 
+	#[Test]
+	public function should_render_folded_in_details_for_a_visitor_when_start_folded_is_on(): void {
+		$this->pushListing();
+
+		$html = $this->widget( array( 'start_folded' => 'yes', 'folded_intro' => 'Replies come straight to your inbox.' ) )->run_render();
+
+		$this->assertStringContainsString( '<details class="agend-enquiry__details"><summary', $html );
+		$this->assertStringContainsString( 'Replies come straight to your inbox.', $html );
+	}
+
+	#[Test]
+	public function should_show_the_form_open_in_the_editor_when_start_folded_is_on(): void {
+		$this->openEditor();
+		$this->pushListing();
+
+		$html = $this->widget( array( 'start_folded' => 'yes' ) )->run_render();
+
+		$this->assertStringContainsString( '<details class="agend-enquiry__details" open>', $html );
+	}
+
+	#[Test]
+	public function should_offer_start_folded_off_by_default_with_an_intro_and_summary_style_controls(): void {
+		$widget = $this->widget();
+		$widget->run_controls();
+		$ids = array();
+		foreach ( $widget->recordings as $r ) {
+			if ( isset( $r['id'] ) ) {
+				$ids[ $r['id'] ] = $r;
+			}
+		}
+
+		$this->assertSame( '', $ids['start_folded']['args']['default'] );
+		$this->assertArrayHasKey( 'folded_intro', $ids );
+		$this->assertArrayHasKey( 'summary_background', $ids );
+		$this->assertArrayHasKey( 'summary_padding', $ids );
+	}
+
 	// -----------------------------------------------------------------
 	// Registration and controls
 	// -----------------------------------------------------------------
@@ -250,7 +288,7 @@ final class ListingEnquiryWidgetTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_offer_style_controls_for_heading_labels_fields_button_and_messages(): void {
+	public function should_offer_style_controls_for_heading_summary_labels_fields_button_and_messages(): void {
 		$widget = $this->widget();
 		$widget->run_controls();
 
@@ -262,7 +300,7 @@ final class ListingEnquiryWidgetTest extends TestCase {
 		}
 
 		$this->assertSame(
-			array( 'section_style_heading', 'section_style_labels', 'section_style_fields', 'section_style_button', 'section_style_messages' ),
+			array( 'section_style_heading', 'section_style_summary', 'section_style_labels', 'section_style_fields', 'section_style_button', 'section_style_messages' ),
 			$style_sections
 		);
 	}
