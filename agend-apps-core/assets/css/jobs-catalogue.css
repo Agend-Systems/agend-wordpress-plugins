@@ -538,6 +538,26 @@
   padding: 2rem 0;
 }
 
+/* -- Sign-in prompt (jobs visibility) ----------------------------------- */
+
+.agend-jobs-signin {
+  padding: 2rem 1.5rem;
+  border: 1px solid var(--agend-jobs-border);
+  border-radius: var(--agend-jobs-card-radius);
+  background: #fff;
+  text-align: center;
+}
+
+.agend-jobs-signin .agend-jobs-detail__back {
+  display: block;
+  text-align: left;
+}
+
+.agend-jobs-signin__text {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+}
+
 /* -- Loading skeletons ----------------------------------------------------- */
 
 @keyframes agend-skel-shimmer {

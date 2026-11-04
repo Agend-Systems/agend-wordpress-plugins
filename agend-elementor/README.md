@@ -21,14 +21,20 @@ With no page set, behaviour is unchanged: the page hosting the widget acts as it
 
 ## Agend Jobs (Agend Careers)
 
-The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with keyword, location, category and employment type filters, and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
+The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with keyword, location, category, employment type and experience level filters, and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
 
 - **Featured jobs strip**: turn on "Featured jobs only", hide the filters and set a small page size. With a Jobs page set, the strip links there.
 - **One category**: "Only this category" pins the board to one category and hides the visitor category filter.
 - The category options come from the categories on published jobs (a wide list fetch), since the gateway has no public job categories endpoint.
 - Needs the `jobs.listings.browse` scope; without it the widget draws nothing for visitors.
+- **Who can see it** is a site setting, Settings > Agend Widgets > Jobs visibility:
+  - **Public:** everyone sees everything.
+  - **Titles public:** anyone sees the list; a job's description, salary and how to apply need a signed-in visitor.
+  - **Members only:** the board itself needs a signed-in visitor.
 
-Not yet available, because the public jobs API does not support it: filtering by work arrangement, state, salary band or tag; featured listings first across every page of results (featured jobs are marked, not pinned); hiding listings past their closing date (a closed listing says so and offers no apply button).
+  The setting is enforced by the `/agend-apps/v1/jobs` REST proxy as well as the page, so hidden data is never sent to the browser. "Signed in" is a logged-in WordPress user. A site that must tell members from other accounts narrows it with the `agend_apps_records_jobs_visitor_can_view` filter. The sign-in wording is on the widget, under Job Detail.
+
+The experience level filter needs the gateway's `experienceLevel` parameter on `GET /v1/jobs`; until that ships, the gateway ignores it and the filter shows every job. Not yet used by the board, although the gateway is gaining them: filtering by work arrangement, state, tag or minimum salary, featured listings first across every page, and the gateway's categories list. The board still derives its category options from a wide list fetch.
 
 ## Card and detail templates
 

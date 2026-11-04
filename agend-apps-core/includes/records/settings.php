@@ -14,6 +14,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/jobs-visibility.php';
+
 // The stored option names keep the pre-rename `agend_elementor_*` prefix on
 // purpose: they are live site data, and renaming them would strand every
 // existing install's configuration under a key nothing reads any more.
@@ -214,6 +216,24 @@ function agend_apps_records_settings_init(): void {
 		AGEND_APPS_RECORDS_JOBS_PAGE_OPTION,
 		__( 'Jobs page', 'agend-apps-core' ),
 		'agend_apps_records_settings_field_jobs_page',
+		'agend-elementor',
+		'agend_elementor_section_pages'
+	);
+
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_APPS_RECORDS_JOBS_VISIBILITY_OPTION,
+		array(
+			'type'              => 'string',
+			'sanitize_callback' => 'agend_apps_records_sanitize_jobs_visibility',
+			'default'           => 'public',
+		)
+	);
+
+	add_settings_field(
+		AGEND_APPS_RECORDS_JOBS_VISIBILITY_OPTION,
+		__( 'Jobs visibility', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_jobs_visibility',
 		'agend-elementor',
 		'agend_elementor_section_pages'
 	);
@@ -464,6 +484,19 @@ function agend_apps_records_settings_field_jobs_page(): void {
 		'jobs-catalogue',
 		__( 'This page does not appear to contain a Jobs board.', 'agend-apps-core' )
 	);
+}
+
+/**
+ * Renders the jobs board visibility picker.
+ */
+function agend_apps_records_settings_field_jobs_visibility(): void {
+	$selected = agend_apps_records_jobs_visibility();
+	echo '<select name="' . esc_attr( AGEND_APPS_RECORDS_JOBS_VISIBILITY_OPTION ) . '">';
+	foreach ( agend_apps_records_jobs_visibility_choices() as $value => $label ) {
+		echo '<option value="' . esc_attr( $value ) . '"' . selected( $selected, $value, false ) . '>' . esc_html( $label ) . '</option>';
+	}
+	echo '</select>';
+	echo '<p class="description">' . esc_html__( 'Who can see the jobs board. Applied to the board itself and to the jobs data it loads, so a hidden job is never sent to the browser.', 'agend-apps-core' ) . '</p>';
 }
 
 /**

@@ -96,6 +96,7 @@ final class JobsRestQueryTest extends TestCase {
 				'category'     => 'financial-planning',
 				'location'     => 'Sydney',
 				'type'         => 'full-time',
+				'experienceLevel' => 'senior',
 				'featuredOnly' => 'true',
 				'search'       => 'auditor',
 			)
@@ -104,6 +105,7 @@ final class JobsRestQueryTest extends TestCase {
 		self::assertSame( 'financial-planning', $query['category'] ?? null );
 		self::assertSame( 'Sydney', $query['location'] ?? null );
 		self::assertSame( 'full-time', $query['type'] ?? null );
+		self::assertSame( 'senior', $query['experienceLevel'] ?? null );
 		self::assertSame( 'true', $query['featuredOnly'] ?? null );
 		self::assertSame( 'auditor', $query['search'] ?? null );
 	}
@@ -132,7 +134,7 @@ final class JobsRestQueryTest extends TestCase {
 	public function should_validate_each_filter_since_a_sanitize_callback_switches_off_the_default_check(): void {
 		$args = $this->list_args();
 
-		foreach ( array( 'sortBy', 'sortOrder', 'category', 'location', 'type' ) as $name ) {
+		foreach ( array( 'sortBy', 'sortOrder', 'category', 'location', 'type', 'experienceLevel' ) as $name ) {
 			self::assertSame( 'rest_validate_request_arg', $args[ $name ]['validate_callback'] ?? null, $name );
 		}
 	}

@@ -161,6 +161,12 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'default' => true,
 					),
 					array(
+						'name'    => 'show_experience',
+						'label'   => __( 'Show experience level', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => true,
+					),
+					array(
 						'name'    => 'show_work_arrangement',
 						'label'   => __( 'Show work arrangement (on site, hybrid, remote)', 'agend-apps-core' ),
 						'type'    => 'toggle',
@@ -231,6 +237,12 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'default' => true,
 					),
 					array(
+						'name'    => 'show_experience_filter',
+						'label'   => __( 'Show experience level filter', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => true,
+					),
+					array(
 						'name'        => 'show_location_filter',
 						'label'       => __( 'Show location search', 'agend-apps-core' ),
 						'type'        => 'toggle',
@@ -261,6 +273,24 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'label'   => __( 'Show "About the employer"', 'agend-apps-core' ),
 						'type'    => 'toggle',
 						'default' => true,
+					),
+					array(
+						'name'    => 'visibility_note',
+						'type'    => 'note',
+						'content' => __( 'Who can see the board and each job\'s details is a site setting: Settings, Agend Widgets, Jobs visibility. The text below is what a visitor who needs to sign in sees.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'signin_text',
+						'label'       => __( 'Sign-in message', 'agend-apps-core' ),
+						'type'        => 'textarea',
+						'default'     => __( 'Sign in as a member to see the full job details.', 'agend-apps-core' ),
+						'label_block' => true,
+					),
+					array(
+						'name'    => 'signin_button',
+						'label'   => __( 'Sign-in button text', 'agend-apps-core' ),
+						'type'    => 'text',
+						'default' => __( 'Sign in', 'agend-apps-core' ),
 					),
 				),
 			),

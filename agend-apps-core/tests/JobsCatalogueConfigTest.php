@@ -117,6 +117,25 @@ final class JobsCatalogueConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_offer_the_experience_level_on_cards_and_as_a_filter_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array() );
+
+		self::assertTrue( $config['card']['experience'] );
+		self::assertTrue( $config['filters']['experience'] );
+	}
+
+	#[Test]
+	public function should_fall_back_to_the_default_sign_in_wording_when_it_is_blank(): void {
+		$default = agend_apps_records_jobs_catalogue_build_config( array( 'signin_text' => '  ', 'signin_button' => '' ) );
+		$custom  = agend_apps_records_jobs_catalogue_build_config( array( 'signin_text' => 'Members, sign in.', 'signin_button' => 'Log in' ) );
+
+		self::assertSame( 'Sign in as a member to see the full job details.', $default['signIn']['text'] );
+		self::assertSame( 'Sign in', $default['signIn']['button'] );
+		self::assertSame( 'Members, sign in.', $custom['signIn']['text'] );
+		self::assertSame( 'Log in', $custom['signIn']['button'] );
+	}
+
+	#[Test]
 	public function should_read_block_toggles_stored_as_yes_or_empty(): void {
 		$config = agend_apps_records_jobs_catalogue_build_config(
 			array(

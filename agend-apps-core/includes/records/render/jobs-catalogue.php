@@ -18,6 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Every renderer asks the surface gate before it fetches or draws anything;
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
+require_once __DIR__ . '/../jobs-visibility.php';
 
 /**
  * The sort orders the jobs catalogue offers, as gateway `sortBy`/`sortOrder`.
@@ -83,6 +84,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'company'         => $on( 'show_company' ),
 			'location'        => $on( 'show_location' ),
 			'employmentType'  => $on( 'show_employment_type' ),
+			'experience'      => $on( 'show_experience' ),
 			'workArrangement' => $on( 'show_work_arrangement' ),
 			'salary'          => $on( 'show_salary' ),
 			'categories'      => $on( 'show_categories' ),
@@ -96,12 +98,17 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			// A board pinned to one category has nothing to choose between.
 			'category' => '' === $category && $on( 'show_category_filter' ),
 			'type'     => $on( 'show_type_filter' ),
+			'experience' => $on( 'show_experience_filter' ),
 			'location' => $on( 'show_location_filter' ),
 		),
 		'detail'     => array(
 			'applyLabel'   => '' !== $apply ? $apply : __( 'Apply now', 'agend-apps-core' ),
 			'emailApply'   => $on( 'allow_email_apply' ),
 			'companyPanel' => $on( 'show_company_panel' ),
+		),
+		'signIn'     => array(
+			'text'   => '' !== trim( (string) ( $s['signin_text'] ?? '' ) ) ? (string) $s['signin_text'] : __( 'Sign in as a member to see the full job details.', 'agend-apps-core' ),
+			'button' => '' !== trim( (string) ( $s['signin_button'] ?? '' ) ) ? (string) $s['signin_button'] : __( 'Sign in', 'agend-apps-core' ),
 		),
 		'pagination' => array(
 			'style'   => in_array( $s['pagination_style'] ?? '', array( 'numbered', 'load_more', 'none' ), true ) ? (string) $s['pagination_style'] : 'numbered',
@@ -176,7 +183,40 @@ function agend_apps_records_render_jobs_catalogue( array $settings ): string {
 		$config['deepLink'] = '';
 	}
 
+	// The site's jobs visibility setting (jobs-visibility.php), applied here
+	// and in the REST proxy. The sign-in URL carries a placeholder the script
+	// swaps for the job the visitor wanted, so they land back on it.
+	$current_url      = $config['basePath'];
+	$config['access'] = array(
+		'visibility'  => agend_apps_records_jobs_visibility(),
+		'canList'     => agend_apps_records_jobs_visitor_can_view( 'list' ),
+		'canDetail'   => agend_apps_records_jobs_visitor_can_view( 'detail' ),
+		'signInUrl'   => agend_apps_records_jobs_sign_in_url( '__AGEND_JOB_RETURN__' ),
+		'placeholder' => '__AGEND_JOB_RETURN__',
+	);
+
 	$style     = agend_apps_records_jobs_catalogue_inline_style( $config );
+
+	// Members only, and this visitor is not signed in: no board and no data,
+	// only the invitation to sign in and come back to this page.
+	if ( ! $config['access']['canList'] ) {
+		$return = '' !== $current_url ? $current_url : home_url( '/' );
+		ob_start();
+		?>
+			<div class="agend-jobs-catalogue agend-jobs-catalogue--signin" style="<?php echo esc_attr( $style ); ?>">
+				<?php if ( ! empty( $config['heading']['show'] ) && '' !== $config['heading']['title'] ) : ?>
+					<div class="agend-jobs-heading">
+						<h2 class="agend-jobs-heading__title"><?php echo esc_html( $config['heading']['title'] ); ?></h2>
+					</div>
+				<?php endif; ?>
+				<div class="agend-jobs-signin">
+					<p class="agend-jobs-signin__text"><?php echo esc_html( $config['signIn']['text'] ); ?></p>
+					<a class="agend-jobs-button" href="<?php echo esc_url( agend_apps_records_jobs_sign_in_url( $return ) ); ?>"><?php echo esc_html( $config['signIn']['button'] ); ?></a>
+				</div>
+			</div>
+			<?php
+		return (string) ob_get_clean();
+	}
 	$skeletons = 'grid' === $config['layout']['style'] ? max( 1, (int) $config['layout']['desktop'] ) : 3;
 
 	ob_start();

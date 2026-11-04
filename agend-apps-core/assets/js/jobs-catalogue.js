@@ -30,6 +30,13 @@
     remote: 'Remote',
   };
 
+  var EXPERIENCE_LABELS = {
+    entry: 'Entry level',
+    mid: 'Mid level',
+    senior: 'Senior',
+    executive: 'Executive',
+  };
+
   var SALARY_PERIOD_LABELS = {
     hour: 'per hour',
     hourly: 'per hour',
@@ -235,6 +242,15 @@
     return 'Posted ' + formatDate(value);
   }
 
+  // Gateway values are entry, mid, senior or executive; anything else (an
+  // older free-text value) is shown as written.
+  function experienceLabel(value) {
+    if (!value) {
+      return '';
+    }
+    return EXPERIENCE_LABELS[value] || String(value);
+  }
+
   function isClosed(job) {
     if (!job.expires_at) {
       return false;
@@ -375,6 +391,12 @@
   }
 
   function renderCard(job, cfg, href, onOpen) {
+    // A visitor who may see the list but not the details goes to sign in,
+    // and comes back to this job afterwards.
+    if (cfg.access && !cfg.access.canDetail) {
+      href = signInUrl(cfg, href);
+      onOpen = null;
+    }
     var card = el('article', 'agend-jobs-card' + (job.is_featured ? ' is-featured' : ''));
     var c = cfg.card;
 
@@ -426,6 +448,9 @@
     if (c.workArrangement && WORK_ARRANGEMENT_LABELS[job.location_type]) {
       pills.appendChild(pill(WORK_ARRANGEMENT_LABELS[job.location_type], job.location_type === 'remote' ? 'remote' : ''));
     }
+    if (c.experience && experienceLabel(job.experience_level)) {
+      pills.appendChild(pill(experienceLabel(job.experience_level)));
+    }
     if (c.categories && Array.isArray(job.categories)) {
       job.categories.forEach(function (category) {
         if (category && category.name) {
@@ -467,6 +492,36 @@
     });
 
     return card;
+  }
+
+  // The sign-in URL with the page to come back to swapped in for the
+  // placeholder the server put in it.
+  function signInUrl(cfg, returnUrl) {
+    var access = cfg.access || {};
+    var url = access.signInUrl || (window.agendApps && window.agendApps.loginUrl) || '/wp-login.php';
+    if (access.placeholder && url.indexOf(access.placeholder) !== -1) {
+      return url.split(access.placeholder).join(encodeURIComponent(returnUrl));
+    }
+    return url;
+  }
+
+  function renderSignIn(cfg, returnUrl, onBack) {
+    var view = el('div', 'agend-jobs-detail agend-jobs-signin');
+    if (onBack) {
+      var back = el('a', 'agend-jobs-detail__back', '← All jobs');
+      back.href = cfg.detailBase || cfg.basePath || '#';
+      back.addEventListener('click', function (e) {
+        e.preventDefault();
+        onBack();
+      });
+      view.appendChild(back);
+    }
+    var signIn = cfg.signIn || {};
+    view.appendChild(el('p', 'agend-jobs-signin__text', signIn.text || 'Sign in as a member to see the full job details.'));
+    var button = el('a', 'agend-jobs-button', signIn.button || 'Sign in');
+    button.href = signInUrl(cfg, returnUrl);
+    view.appendChild(button);
+    return view;
   }
 
   function detailRow(list, label, value) {
@@ -579,7 +634,7 @@
     detailRow(facts, 'Location', locationLabel(job));
     detailRow(facts, 'Work arrangement', WORK_ARRANGEMENT_LABELS[job.location_type] || '');
     detailRow(facts, 'Employment type', EMPLOYMENT_TYPE_LABELS[job.employment_type] || '');
-    detailRow(facts, 'Experience', job.experience_level || '');
+    detailRow(facts, 'Experience', experienceLabel(job.experience_level));
     detailRow(facts, 'Salary', salaryLabel(job));
     detailRow(facts, 'Posted', formatDate(job.published_at || job.created_at));
     detailRow(facts, isClosed(job) ? 'Closed' : 'Closes', formatDate(job.expires_at));
@@ -636,7 +691,7 @@
 
   function buildFilterBar(target, cfg, state, reload) {
     var f = cfg.filters;
-    if (!f.search && !f.category && !f.type && !f.location) {
+    if (!f.search && !f.category && !f.type && !f.experience && !f.location) {
       return;
     }
     var bar = el('div', 'agend-jobs-filterbar');
@@ -718,6 +773,21 @@
       bar.appendChild(type);
     }
 
+    if (f.experience) {
+      var experience = el('select', 'agend-jobs-select');
+      experience.setAttribute('aria-label', 'Experience level');
+      experience.appendChild(new Option('All experience levels', ''));
+      Object.keys(EXPERIENCE_LABELS).forEach(function (key) {
+        experience.appendChild(new Option(EXPERIENCE_LABELS[key], key, false, key === state.experience));
+      });
+      experience.addEventListener('change', function () {
+        state.experience = experience.value;
+        state.page = 1;
+        reload();
+      });
+      bar.appendChild(experience);
+    }
+
     target.appendChild(bar);
   }
 
@@ -770,7 +840,7 @@
       return;
     }
 
-    var state = { search: '', location: '', category: '', type: '', page: 1, append: false };
+    var state = { search: '', location: '', category: '', type: '', experience: '', page: 1, append: false };
     var pageTitle = document.title;
 
     applySiteTheme(root, cfg);
@@ -850,6 +920,13 @@
 
     function showDetail(slug, updateUrl) {
       root.innerHTML = '';
+      if (cfg.access && !cfg.access.canDetail) {
+        root.appendChild(renderSignIn(cfg, detailUrl(slug), function () { showBoard(true); }));
+        if (updateUrl) {
+          setUrl(slug);
+        }
+        return;
+      }
       root.appendChild(renderDetailSkeleton());
       if (updateUrl) {
         setUrl(slug);
@@ -861,8 +938,14 @@
         }
       }
       apiGet('/jobs/' + encodeURIComponent(slug), {}).then(function (body) {
-        var job = unwrapOne(body);
         root.innerHTML = '';
+        // Signed out since the page loaded, or a site filter narrowed who may
+        // see details: the proxy refused, so offer the sign-in.
+        if (body && body.code === 'agend_apps_sign_in_required') {
+          root.appendChild(renderSignIn(cfg, detailUrl(slug), function () { showBoard(true); }));
+          return;
+        }
+        var job = unwrapOne(body);
         if (!job || !job.slug) {
           root.appendChild(renderNotFound(function () { showBoard(true); }));
           return;
@@ -896,11 +979,20 @@
         featuredOnly: cfg.listing.featuredOnly ? 'true' : '',
         category: cfg.listing.category || state.category,
         type: state.type,
+        experienceLevel: state.experience,
         search: state.search.length >= 2 ? state.search : '',
         location: state.location.length >= 2 ? state.location : '',
       };
       apiGet('/jobs', params).then(function (body) {
         if (seq !== requestSeq) {
+          return;
+        }
+        if (body && body.code === 'agend_apps_sign_in_required') {
+          grid.innerHTML = '';
+          pager.innerHTML = '';
+          count.textContent = '';
+          status.style.display = 'none';
+          grid.appendChild(renderSignIn(cfg, boardUrl(), null));
           return;
         }
         if (body && body.success === false) {
@@ -917,7 +1009,7 @@
         // A result count answers a search; a strip with no filters (featured
         // jobs on the home page) has nothing to count against.
         var f = cfg.filters;
-        var searchable = f.search || f.category || f.type || f.location;
+        var searchable = f.search || f.category || f.type || f.experience || f.location;
         var total = result.pagination ? result.pagination.total : result.items.length;
         count.textContent = searchable && total ? total + (total === 1 ? ' job' : ' jobs') : '';
         if (!result.items.length && !grid.childNodes.length) {
