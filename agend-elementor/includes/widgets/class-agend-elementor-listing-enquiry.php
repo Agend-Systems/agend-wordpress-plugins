@@ -141,6 +141,19 @@ class Agend_Elementor_Listing_Enquiry extends \Elementor\Widget_Base {
 			)
 		);
 
+		$this->add_control(
+			'recaptcha_notice',
+			array(
+				'label'        => __( 'Show reCAPTCHA notice instead of the badge', 'agend-elementor' ),
+				'type'         => \Elementor\Controls_Manager::SWITCHER,
+				'label_on'     => __( 'Yes', 'agend-elementor' ),
+				'label_off'    => __( 'No', 'agend-elementor' ),
+				'return_value' => 'yes',
+				'default'      => '',
+				'description'  => __( 'Only when the captcha provider is reCAPTCHA. Shows Google\'s required notice beside the button and hides the floating badge on this page.', 'agend-elementor' ),
+			)
+		);
+
 		$this->add_text_control( 'button_text', __( 'Button text', 'agend-elementor' ), $defaults['button_text'] );
 
 		$this->add_control(
@@ -268,6 +281,36 @@ class Agend_Elementor_Listing_Enquiry extends \Elementor\Widget_Base {
 				'type'       => \Elementor\Controls_Manager::DIMENSIONS,
 				'size_units' => array( 'px', 'em' ),
 				'selectors'  => array( '{{WRAPPER}} .agend-enquiry__summary' => 'padding: {{TOP}}{{UNIT}} {{RIGHT}}{{UNIT}} {{BOTTOM}}{{UNIT}} {{LEFT}}{{UNIT}};' ),
+			)
+		);
+		$this->add_control(
+			'toggle_colour',
+			array(
+				'label'     => __( 'Indicator colour', 'agend-elementor' ),
+				'type'      => $colour,
+				'selectors' => array( '{{WRAPPER}} .agend-enquiry__toggle' => 'color: {{VALUE}};' ),
+			)
+		);
+		$this->add_control(
+			'toggle_background',
+			array(
+				'label'       => __( 'Indicator background', 'agend-elementor' ),
+				'type'        => $colour,
+				'description' => __( 'Draws the indicator as a filled circle.', 'agend-elementor' ),
+				'selectors'   => array(
+					'{{WRAPPER}} .agend-enquiry__toggle' => 'background-color: {{VALUE}}; border-radius: 50%;',
+					'{{WRAPPER}} .agend-enquiry__toggle::before, {{WRAPPER}} .agend-enquiry__toggle::after' => 'left: 25%; width: 50%;',
+				),
+			)
+		);
+		$this->add_responsive_control(
+			'toggle_size',
+			array(
+				'label'      => __( 'Indicator size', 'agend-elementor' ),
+				'type'       => \Elementor\Controls_Manager::SLIDER,
+				'size_units' => array( 'px' ),
+				'range'      => array( 'px' => array( 'min' => 12, 'max' => 64 ) ),
+				'selectors'  => array( '{{WRAPPER}} .agend-enquiry__toggle' => '--agend-toggle-size: {{SIZE}}{{UNIT}};' ),
 			)
 		);
 		$this->end_controls_section();

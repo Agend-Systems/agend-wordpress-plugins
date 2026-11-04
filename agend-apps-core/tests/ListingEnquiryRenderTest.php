@@ -411,6 +411,50 @@ final class ListingEnquiryRenderTest extends TestCase {
 		$this->assertStringContainsString( 'data-agend-enquiry-captcha', $this->render() );
 	}
 
+	private function useRecaptcha(): void {
+		update_option( Agend_Apps_Captcha::OPTION_PROVIDER, Agend_Apps_Captcha::PROVIDER_RECAPTCHA );
+		update_option( Agend_Apps_Captcha::OPTION_SITE_KEY, 'public-site-key' );
+		Agend_Apps_Secret_Store::set( Agend_Apps_Captcha::SECRET_STORE_KEY, 'secret' );
+		$this->pushListing();
+	}
+
+	#[Test]
+	public function should_render_the_linked_recaptcha_notice_beside_the_button_and_hide_the_badge_when_the_notice_is_on(): void {
+		$this->useRecaptcha();
+
+		$html = $this->render( array( 'recaptcha_notice' => 'yes' ) );
+
+		$this->assertStringContainsString( '.grecaptcha-badge{visibility:hidden}', $html );
+		$this->assertStringContainsString( 'href="https://policies.google.com/privacy"', $html );
+		$this->assertStringContainsString( 'href="https://policies.google.com/terms"', $html );
+		$this->assertStringContainsString( 'Protected by reCAPTCHA.', $html );
+		$this->assertLessThan( strpos( $html, 'data-agend-enquiry-submit' ), strpos( $html, 'agend-enquiry__recaptcha' ) );
+	}
+
+	#[Test]
+	public function should_render_no_notice_and_leave_the_badge_alone_when_the_notice_is_off(): void {
+		$this->useRecaptcha();
+
+		$html = $this->render();
+
+		$this->assertStringNotContainsString( 'grecaptcha-badge', $html );
+		$this->assertStringNotContainsString( 'agend-enquiry__recaptcha', $html );
+	}
+
+	#[Test]
+	public function should_render_no_notice_for_turnstile_or_no_provider_when_the_notice_is_on(): void {
+		$this->pushListing();
+		$this->assertStringNotContainsString( 'agend-enquiry__recaptcha', $this->render( array( 'recaptcha_notice' => 'yes' ) ) );
+
+		update_option( Agend_Apps_Captcha::OPTION_PROVIDER, Agend_Apps_Captcha::PROVIDER_TURNSTILE );
+		update_option( Agend_Apps_Captcha::OPTION_SITE_KEY, 'public-site-key' );
+		Agend_Apps_Secret_Store::set( Agend_Apps_Captcha::SECRET_STORE_KEY, 'secret' );
+		$html = $this->render( array( 'recaptcha_notice' => 'yes' ) );
+
+		$this->assertStringNotContainsString( 'agend-enquiry__recaptcha', $html );
+		$this->assertStringNotContainsString( 'grecaptcha-badge', $html );
+	}
+
 	// -----------------------------------------------------------------
 	// Endpoint and privacy
 	// -----------------------------------------------------------------

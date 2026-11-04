@@ -43,6 +43,7 @@ function agend_apps_records_listing_enquiry_defaults(): array {
 		'terms_link_text'     => __( 'terms and conditions', 'agend-apps-core' ),
 		'heading_tag'         => 'h3',
 		'folded_intro'        => '',
+		'recaptcha_notice'    => '',
 		'folded_label'        => __( 'Send an enquiry', 'agend-apps-core' ),
 	);
 }
@@ -409,7 +410,22 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 		$html .= '<div class="agend-enquiry__captcha" data-agend-enquiry-captcha></div>';
 	}
 
+	$notice = '';
+	if ( 'yes' === ( $settings['recaptcha_notice'] ?? '' ) && null !== $config['captcha'] && Agend_Apps_Captcha::PROVIDER_RECAPTCHA === $config['captcha']['provider'] ) {
+		// Google permits hiding the badge only while this notice is shown, so
+		// the CSS travels with the notice and never applies site-wide.
+		$notice = '<style>.grecaptcha-badge{visibility:hidden}</style>'
+			. '<p class="agend-enquiry__recaptcha">' . sprintf(
+				/* translators: 1: opening Privacy Policy link, 2: opening Terms link, 3: closing link tag (used twice). */
+				esc_html__( 'Protected by reCAPTCHA. Google\'s %1$sPrivacy Policy%3$s and %2$sTerms%3$s apply.', 'agend-apps-core' ),
+				'<a href="https://policies.google.com/privacy" target="_blank" rel="noopener">',
+				'<a href="https://policies.google.com/terms" target="_blank" rel="noopener">',
+				'</a>'
+			) . '</p>';
+	}
+
 	$html .= '<div class="agend-enquiry__actions">'
+		. $notice
 		. '<button type="submit" class="agend-enquiry__submit" data-agend-enquiry-submit>' . esc_html( agend_apps_records_listing_enquiry_text( $settings, 'button_text' ) ) . '</button>'
 		. '</div>';
 

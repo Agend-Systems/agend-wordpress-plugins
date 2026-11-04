@@ -252,6 +252,10 @@ final class ListingEnquiryWidgetTest extends TestCase {
 		$this->assertArrayHasKey( 'folded_intro', $ids );
 		$this->assertArrayHasKey( 'summary_background', $ids );
 		$this->assertArrayHasKey( 'summary_padding', $ids );
+		foreach ( array( 'toggle_colour', 'toggle_background', 'toggle_size', 'recaptcha_notice' ) as $name ) {
+			$this->assertArrayHasKey( $name, $ids );
+		}
+		$this->assertSame( '', $ids['recaptcha_notice']['args']['default'] );
 	}
 
 	// -----------------------------------------------------------------

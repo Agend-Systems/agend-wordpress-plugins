@@ -429,6 +429,19 @@
                     }
                 },
                 {
+                    "id": "list_display",
+                    "args": {
+                        "label": "List display",
+                        "type": "select",
+                        "default": "inline",
+                        "options": {
+                            "inline": "Inline, with the separator",
+                            "bullets": "Bulleted list"
+                        },
+                        "description": "Applies to multi-value fields. A bulleted list uses the maximum but ignores the separator and \"Show the rest\"."
+                    }
+                },
+                {
                     "id": "list_max",
                     "args": {
                         "label": "Maximum list items",

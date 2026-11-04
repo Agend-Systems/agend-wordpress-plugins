@@ -1333,6 +1333,13 @@ function agend_apps_records_format_field( $value, string $kind, array $opts = ar
 			$items     = is_array( $value ) ? array_values( array_filter( array_map( 'strval', array_filter( $value, 'is_scalar' ) ) ) ) : array( (string) $value );
 			$max       = isset( $opts['list_max'] ) ? (int) $opts['list_max'] : 0;
 			$separator = esc_html( (string) ( $opts['list_separator'] ?? ', ' ) );
+			if ( 'bullets' === ( $opts['list_display'] ?? '' ) ) {
+				// Bullets honour the maximum but not "show the rest": there is no inline run to reveal into.
+				if ( $max > 0 ) {
+					$items = array_slice( $items, 0, $max );
+				}
+				return '<ul class="agend-field__list"><li>' . implode( '</li><li>', array_map( 'esc_html', $items ) ) . '</li></ul>';
+			}
 			if ( $max > 0 && count( $items ) > $max && ! empty( $opts['list_show_rest'] ) ) {
 				$rest = array_slice( $items, $max );
 				return '<span class="agend-list" data-agend-rest-group>'
