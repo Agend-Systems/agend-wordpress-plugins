@@ -197,6 +197,23 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// The listing enquiry form. The captcha provider's own script is not
+	// registered here: the form script loads it, and only on a page that has a
+	// form, so a cached or element-cached page cannot skip it.
+	wp_register_style(
+		'agend-apps-records-listing-enquiry',
+		agend_apps_records_asset_url( 'css/listing-enquiry.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-listing-enquiry',
+		agend_apps_records_asset_url( 'js/listing-enquiry.js' ),
+		array(),
+		agend_apps_records_asset_version(),
+		true
+	);
+
 	wp_register_style(
 		'agend-apps-records-events-catalogue',
 		agend_apps_records_asset_url( 'css/events-catalogue.css' ),
