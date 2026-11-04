@@ -205,6 +205,67 @@ final class CaptchaTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_pass_a_recaptcha_v2_answer_shaped_like_googles_test_key_when_its_hostname_is_allowed(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2 );
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allowed_hostnames', array( 'testkey.google.com' ) );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'challenge_ts' => '2026-11-04T00:00:00Z', 'hostname' => 'testkey.google.com' ) );
+
+		$this->assertTrue( Agend_Apps_Captcha::verify( 'visitor-token' ) );
+		$this->assertSame( 'https://www.google.com/recaptcha/api/siteverify', Agend_Test_WP::$requests[0]['url'] );
+	}
+
+	#[Test]
+	public function should_refuse_a_recaptcha_v2_answer_when_success_is_false(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2 );
+		Agend_Test_WP::queue_response( 200, array( 'success' => false, 'error-codes' => array( 'invalid-input-response' ) ) );
+
+		$this->assertSame( 'rejected', $this->reason( Agend_Apps_Captcha::verify( 'visitor-token' ) ) );
+	}
+
+	#[Test]
+	public function should_refuse_a_recaptcha_v2_answer_when_the_hostname_does_not_match(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2 );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'hostname' => 'testkey.google.com' ) );
+
+		$this->assertSame( 'hostname_mismatch', $this->reason( Agend_Apps_Captcha::verify( 'visitor-token' ) ) );
+	}
+
+	#[Test]
+	public function should_ignore_score_and_action_when_the_provider_is_recaptcha_v2(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2 );
+		update_option( Agend_Apps_Captcha::OPTION_THRESHOLD, 0.9 );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'score' => 0.1, 'action' => 'something_else' ) );
+
+		$this->assertTrue( Agend_Apps_Captcha::verify( 'visitor-token' ) );
+	}
+
+	#[Test]
+	public function should_still_refuse_a_test_key_shaped_answer_as_bad_response_when_the_provider_is_recaptcha_v3(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA );
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allowed_hostnames', array( 'testkey.google.com' ) );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'challenge_ts' => '2026-11-04T00:00:00Z', 'hostname' => 'testkey.google.com' ) );
+
+		$this->assertSame( 'bad_response', $this->reason( Agend_Apps_Captcha::verify( 'visitor-token' ) ) );
+	}
+
+	#[Test]
+	public function should_accept_recaptcha_v2_as_a_provider_and_keep_the_v3_stored_value_when_sanitising_the_option(): void {
+		$this->assertSame( 'recaptcha_v2', Agend_Apps_Captcha::normalize_provider( 'recaptcha_v2' ) );
+		$this->assertSame( 'recaptcha', Agend_Apps_Captcha::normalize_provider( 'recaptcha' ) );
+		$this->assertSame( 'none', Agend_Apps_Captcha::normalize_provider( 'recaptcha_v4' ) );
+		$this->assertSame( 'Google reCAPTCHA v2 (checkbox)', Agend_Apps_Captcha::providers()['recaptcha_v2'] );
+		$this->assertSame( 'Google reCAPTCHA v3 (invisible, score)', Agend_Apps_Captcha::providers()['recaptcha'] );
+	}
+
+	#[Test]
+	public function should_treat_recaptcha_v2_missing_its_site_key_as_not_configured(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2, 'the-secret', '' );
+
+		$this->assertFalse( Agend_Apps_Captcha::submissions_open() );
+		$this->assertNull( Agend_Apps_Captcha::client_config() );
+	}
+
+	#[Test]
 	public function should_refuse_without_calling_the_provider_when_the_token_is_missing(): void {
 		$this->configure( Agend_Apps_Captcha::PROVIDER_TURNSTILE );
 

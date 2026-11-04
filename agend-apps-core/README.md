@@ -1053,11 +1053,11 @@ Settings > Agend Apps > Form Captcha:
 
 | Setting | Notes |
 | --- | --- |
-| Provider | None, Cloudflare Turnstile, or Google reCAPTCHA v3. A provider missing its site key or secret counts as not configured. |
-| Site key | The provider's public key. Rendered into the page. |
+| Provider | None, Cloudflare Turnstile, Google reCAPTCHA v3 (invisible, score; stored value `recaptcha`) or Google reCAPTCHA v2 ("I'm not a robot" checkbox; stored value `recaptcha_v2`). A provider missing its site key or secret counts as not configured. |
+| Site key | The provider's public key, for the selected version (v2 and v3 keys are not interchangeable). Rendered into the page. |
 | Secret key | Write-only. Stored encrypted in the secret store, never rendered; the `AGEND_APPS_CAPTCHA_SECRET` constant overrides it. |
-| reCAPTCHA score threshold | v3 only. Default 0.5. |
-| reCAPTCHA action name | v3 only. Default `agend_enquiry`; the siteverify answer must carry the same action. |
+| reCAPTCHA v3 score threshold | v3 only. Default 0.5. |
+| reCAPTCHA v3 action name | v3 only. Default `agend_enquiry`; the siteverify answer must carry the same action. |
 
 With no provider configured the form is hidden and the route refuses
 submissions. For local development only, define `AGEND_APPS_CAPTCHA_ALLOW_NONE`
@@ -1065,6 +1065,15 @@ true (or return true from the `agend_apps_captcha_allow_none` filter) to allow
 submissions without one; the gateway's rate limiting is then the only control.
 The hostname the provider reports must be the site's own (`home_url()` or
 `site_url()`); the `agend_apps_captcha_allowed_hostnames` filter widens that list.
+
+reCAPTCHA v2 renders the checkbox just above the submit row (where Turnstile
+renders) and verifies success and hostname only; it has no score or action.
+Google's published reCAPTCHA test keys (site key
+`6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI`, secret
+`6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe`) are v2 keys: choose reCAPTCHA v2 and
+allow `testkey.google.com` through `agend_apps_captcha_allowed_hostnames`. They
+always pass, and there are no v3 test keys; a v3 provider refuses their answer
+(no score) as `bad_response`.
 
 The providers' documented test keys answer with a fixed placeholder hostname
 (Google's reCAPTCHA test keys report `testkey.google.com`), not the site's own,
