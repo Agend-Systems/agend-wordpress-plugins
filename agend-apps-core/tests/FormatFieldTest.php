@@ -86,6 +86,26 @@ final class FormatFieldTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_render_a_bulleted_list_with_escaped_items_when_list_display_is_bullets(): void {
+		$this->assertSame(
+			'<ul class="agend-field__list"><li>A&lt;b&gt;</li><li>B</li></ul>',
+			agend_apps_records_format_field( array( 'A<b>', 'B' ), 'list', array( 'list_display' => 'bullets', 'list_separator' => ' | ' ) )
+		);
+	}
+
+	#[Test]
+	public function should_apply_the_maximum_and_ignore_show_the_rest_when_list_display_is_bullets(): void {
+		$html = agend_apps_records_format_field( array( 'A', 'B', 'C' ), 'list', array( 'list_display' => 'bullets', 'list_max' => 2, 'list_show_rest' => true ) );
+
+		$this->assertSame( '<ul class="agend-field__list"><li>A</li><li>B</li></ul>', $html );
+	}
+
+	#[Test]
+	public function should_keep_the_inline_list_unchanged_when_list_display_is_inline(): void {
+		$this->assertSame( 'A, B', agend_apps_records_format_field( array( 'A', 'B' ), 'list', array( 'list_display' => 'inline' ) ) );
+	}
+
+	#[Test]
 	public function should_render_bool_texts_and_hide_when_false_text_empty(): void {
 		$this->assertSame( 'Yes', agend_apps_records_format_field( true, 'bool' ) );
 		$this->assertSame( 'Sold out', agend_apps_records_format_field( true, 'bool', array( 'bool_true' => 'Sold out' ) ) );

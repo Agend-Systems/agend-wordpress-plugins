@@ -23,6 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Every renderer asks the surface gate before it fetches or draws anything;
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
+require_once __DIR__ . '/listing-enquiry.php';
 
 /**
  * The record's detail URL from context, falling back to the page resolver.
@@ -211,6 +212,45 @@ function agend_apps_records_record_link_resolve( array $settings, array $opts = 
 				'href'     => rest_url( 'agend-apps/v1/events/' . rawurlencode( $slug ) . '/ical' ),
 				'label'    => '' !== $text ? $text : __( 'Add to Calendar', 'agend-apps-core' ),
 				'new_tab'  => 'yes' === ( $settings['new_tab'] ?? '' ),
+				'disabled' => false,
+				'slug'     => $slug,
+			);
+
+		case 'call':
+			$phone = 'listing' === $ctx['type'] ? agend_apps_records_field_value( 'listing:phone', 'listing', $record, $ctx['extra'] ) : null;
+			$phone = is_scalar( $phone ) ? trim( (string) $phone ) : '';
+			$href  = '' !== $phone ? agend_apps_records_tel_href( $phone ) : '';
+			if ( '' === $href ) {
+				return agend_apps_records_record_link_none( $ctx );
+			}
+			return array(
+				'reason'   => '',
+				'ctx'      => $ctx,
+				'kind'     => 'anchor',
+				'action'   => $action,
+				'href'     => $href,
+				'label'    => '' !== $text ? str_replace( '{phone}', $phone, $text ) : sprintf(
+					/* translators: %s: the listing's phone number. */
+					__( 'Call %s', 'agend-apps-core' ),
+					$phone
+				),
+				'new_tab'  => false,
+				'disabled' => false,
+				'slug'     => $slug,
+			);
+
+		case 'enquiry':
+			if ( 'listing' !== $ctx['type'] || ! agend_apps_records_listing_enquiry_available( $opts ) ) {
+				return agend_apps_records_record_link_none( $ctx );
+			}
+			return array(
+				'reason'   => '',
+				'ctx'      => $ctx,
+				'kind'     => 'anchor',
+				'action'   => $action,
+				'href'     => '#agend-enquiry',
+				'label'    => '' !== $text ? $text : __( 'Send an enquiry', 'agend-apps-core' ),
+				'new_tab'  => false,
 				'disabled' => false,
 				'slug'     => $slug,
 			);

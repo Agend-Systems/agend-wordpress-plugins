@@ -7,7 +7,9 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\Core;
 
+use Agend_Apps_Key_Scopes;
 use Agend_Apps_Records_Record_Context;
+use Agend_Test_WP;
 use Agend_Elementor_Record_Link;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -21,6 +23,12 @@ use PHPUnit\Framework\Attributes\Test;
  * agend-apps-core/includes/records/render/record-link.php, reachable by any
  * caller, not only the Elementor widget.
  */
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/tests/fixtures/enquiry-stubs.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-secret-store.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-captcha.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/features.php';
+
 final class RecordLinkRenderTest extends TestCase {
 
 	protected function setUp(): void {
@@ -370,5 +378,89 @@ final class RecordLinkRenderTest extends TestCase {
 			'<div class="elementor-alert elementor-alert-warning">' . $notice . '</div>',
 			$this->render_widget( array( 'action' => $action ) )
 		);
+	}
+
+	// -------------------------------------------------------------------
+	// The `call` and `enquiry` actions
+	// -------------------------------------------------------------------
+
+	#[Test]
+	public function should_render_a_tel_link_labelled_with_the_phone_when_the_listing_has_one(): void {
+		$this->pushRecord( 'listing', array( 'phone' => '+61 (0)2 9000 0000' ) );
+
+		self::assertSame(
+			'<a class="agend-record-link agend-record-link--button agend-record-link--action-call" href="tel:+61290000000">Call +61 (0)2 9000 0000</a>',
+			agend_apps_records_render_record_link( array( 'action' => 'call' ) )
+		);
+	}
+
+	#[Test]
+	public function should_replace_the_phone_placeholder_in_the_text_when_the_call_text_is_set(): void {
+		$this->pushRecord( 'listing', array( 'phone' => '(03) 9876 5432' ) );
+
+		self::assertStringContainsString(
+			'href="tel:0398765432">Ring us on (03) 9876 5432</a>',
+			agend_apps_records_render_record_link( array( 'action' => 'call', 'text' => 'Ring us on {phone}' ) )
+		);
+		self::assertStringContainsString( '>Phone us</a>', agend_apps_records_render_record_link( array( 'action' => 'call', 'text' => 'Phone us' ) ) );
+	}
+
+	#[Test]
+	public function should_render_nothing_when_the_call_action_has_no_phone(): void {
+		$this->pushRecord( 'listing', array( 'phone' => null ) );
+		self::assertSame( '', agend_apps_records_render_record_link( array( 'action' => 'call' ) ) );
+
+		Agend_Apps_Records_Record_Context::reset();
+		$this->pushRecord( 'listing', array( 'phone' => '   ' ) );
+		self::assertSame( '', agend_apps_records_render_record_link( array( 'action' => 'call' ) ) );
+	}
+
+	#[Test]
+	public function should_render_nothing_when_the_call_action_is_not_on_a_listing(): void {
+		$this->pushRecord( 'event', array( 'phone' => '0398765432' ) );
+
+		self::assertSame( '', agend_apps_records_render_record_link( array( 'action' => 'call' ) ) );
+	}
+
+	private function allowEnquiries(): void {
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'directory.listings.search', 'directory.enquiries.send' ) ) ) );
+		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', true );
+	}
+
+	#[Test]
+	public function should_link_to_the_enquiry_form_anchor_when_the_listing_accepts_enquiries(): void {
+		$this->allowEnquiries();
+		$this->pushRecord( 'listing', array( 'accepts_enquiries' => true ) );
+
+		self::assertSame(
+			'<a class="agend-record-link agend-record-link--button agend-record-link--action-enquiry" href="#agend-enquiry">Send an enquiry</a>',
+			agend_apps_records_render_record_link( array( 'action' => 'enquiry' ) )
+		);
+		self::assertStringContainsString( '>Ask us</a>', agend_apps_records_render_record_link( array( 'action' => 'enquiry', 'text' => 'Ask us' ) ) );
+	}
+
+	#[Test]
+	public function should_render_nothing_for_the_enquiry_action_when_the_listing_does_not_accept_enquiries(): void {
+		$this->allowEnquiries();
+		$this->pushRecord( 'listing', array( 'accepts_enquiries' => false ) );
+
+		self::assertSame( '', agend_apps_records_render_record_link( array( 'action' => 'enquiry' ) ) );
+	}
+
+	#[Test]
+	public function should_render_nothing_for_the_enquiry_action_when_the_key_lacks_the_enquiry_scope(): void {
+		$this->allowEnquiries();
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'directory.listings.search' ) ) ) );
+		$this->pushRecord( 'listing', array( 'accepts_enquiries' => true ) );
+
+		self::assertSame( '', agend_apps_records_render_record_link( array( 'action' => 'enquiry' ) ) );
+	}
+
+	#[Test]
+	public function should_offer_the_call_and_enquiry_actions_in_the_action_options(): void {
+		$options = agend_apps_records_record_link_action_options();
+
+		self::assertArrayHasKey( 'call', $options );
+		self::assertArrayHasKey( 'enquiry', $options );
 	}
 }

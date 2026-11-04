@@ -8,6 +8,79 @@
 	margin: 0 0 1rem;
 }
 
+/* Start folded: a native details element, so it works without script. */
+.agend-enquiry {
+	scroll-margin-top: 1rem;
+}
+
+.agend-enquiry__summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	cursor: pointer;
+	list-style: none;
+}
+
+.agend-enquiry__summary::-webkit-details-marker {
+	display: none;
+}
+
+.agend-enquiry__summary-text {
+	display: block;
+	min-width: 0;
+}
+
+.agend-enquiry__summary .agend-enquiry__heading {
+	display: block;
+	margin: 0;
+}
+
+.agend-enquiry__intro {
+	display: block;
+	margin-top: 0.25rem;
+}
+
+.agend-enquiry__toggle {
+	flex: none;
+	position: relative;
+	box-sizing: border-box;
+	width: var(--agend-toggle-size, 1rem);
+	height: var(--agend-toggle-size, 1rem);
+	color: inherit;
+}
+
+.agend-enquiry__toggle::before,
+.agend-enquiry__toggle::after {
+	content: '';
+	position: absolute;
+	top: 50%;
+	left: 0;
+	width: 100%;
+	height: 2px;
+	background: currentColor;
+	transition: transform 0.2s ease;
+}
+
+.agend-enquiry__toggle::after {
+	transform: rotate(90deg);
+}
+
+.agend-enquiry__details[open] > .agend-enquiry__summary .agend-enquiry__toggle::after {
+	transform: rotate(0deg);
+}
+
+.agend-enquiry__details[open] > .agend-enquiry__summary {
+	margin-bottom: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.agend-enquiry__toggle::before,
+	.agend-enquiry__toggle::after {
+		transition: none;
+	}
+}
+
 .agend-enquiry__form[hidden] {
 	display: none;
 }
@@ -66,7 +139,20 @@
 
 .agend-enquiry__actions {
 	display: flex;
-	justify-content: flex-end;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem 1rem;
+}
+
+.agend-enquiry__submit {
+	margin-left: auto;
+}
+
+.agend-enquiry__recaptcha {
+	flex: 1 1 14rem;
+	margin: 0;
+	font-size: 0.8125em;
 }
 
 .agend-enquiry__submit {

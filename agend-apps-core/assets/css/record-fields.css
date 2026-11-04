@@ -4,6 +4,33 @@
   margin: 0;
 }
 
+.agend-field__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agend-field__list li {
+  position: relative;
+  margin: 0 0 6px;
+  padding-left: 1.1em;
+}
+
+.agend-field__list li:last-child {
+  margin-bottom: 0;
+}
+
+.agend-field__list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 0.4em;
+  height: 0.4em;
+  background: var(--agend-list-marker, currentColor);
+  transform: rotate(45deg);
+}
+
 .agend-field--preview {
   outline: 1px dashed rgba(0, 0, 0, 0.15);
   outline-offset: 2px;

@@ -256,6 +256,17 @@ function agend_apps_records_schema_record_field(): array {
 						'description' => __( 'Applies to list fields such as categories and learning outcomes.', 'agend-apps-core' ),
 					),
 					array(
+						'name'        => 'list_display',
+						'label'       => __( 'List display', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'inline',
+						'options'     => array(
+							'inline'  => __( 'Inline, with the separator', 'agend-apps-core' ),
+							'bullets' => __( 'Bulleted list', 'agend-apps-core' ),
+						),
+						'description' => __( 'Applies to multi-value fields. A bulleted list uses the maximum but ignores the separator and "Show the rest".', 'agend-apps-core' ),
+					),
+					array(
 						'name'        => 'list_max',
 						'label'       => __( 'Maximum list items', 'agend-apps-core' ),
 						'type'        => 'number',

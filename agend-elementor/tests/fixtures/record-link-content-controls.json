@@ -19,6 +19,8 @@
                             "register": "Register (events)",
                             "enrol": "Enrol (courses)",
                             "ical": "Add to calendar (events)",
+                            "call": "Call (listings)",
+                            "enquiry": "Open enquiry form (listings)",
                             "custom": "Custom URL"
                         }
                     }
@@ -42,7 +44,7 @@
                         "label": "Text",
                         "type": "text",
                         "default": "",
-                        "description": "Leave empty for the default label of the chosen action."
+                        "description": "Leave empty for the default label of the chosen action. For Call, {phone} becomes the phone number."
                     }
                 },
                 {

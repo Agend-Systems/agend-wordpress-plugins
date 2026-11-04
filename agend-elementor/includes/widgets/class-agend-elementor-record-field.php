@@ -86,6 +86,17 @@ class Agend_Elementor_Record_Field extends \Elementor\Widget_Base {
 		);
 
 		$this->add_control(
+			'list_marker_colour',
+			array(
+				'label'       => __( 'Bullet colour', 'agend-elementor' ),
+				'type'        => \Elementor\Controls_Manager::COLOR,
+				'description' => __( 'For fields shown as a bulleted list.', 'agend-elementor' ),
+				'selectors'   => array( '{{WRAPPER}} .agend-field__list li::before' => 'background: {{VALUE}};' ),
+				'condition'   => array( 'list_display' => 'bullets' ),
+			)
+		);
+
+		$this->add_control(
 			'label_style_heading',
 			array(
 				'label'     => __( 'Label', 'agend-elementor' ),

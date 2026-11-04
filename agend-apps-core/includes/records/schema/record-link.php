@@ -46,7 +46,7 @@ function agend_apps_records_schema_record_link(): array {
 						'label'       => __( 'Text', 'agend-apps-core' ),
 						'type'        => 'text',
 						'default'     => '',
-						'description' => __( 'Leave empty for the default label of the chosen action.', 'agend-apps-core' ),
+						'description' => __( 'Leave empty for the default label of the chosen action. For Call, {phone} becomes the phone number.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'style_as',
@@ -113,6 +113,8 @@ function agend_apps_records_record_link_action_options(): array {
 		'register'  => __( 'Register (events)', 'agend-apps-core' ),
 		'enrol'     => __( 'Enrol (courses)', 'agend-apps-core' ),
 		'ical'      => __( 'Add to calendar (events)', 'agend-apps-core' ),
+		'call'      => __( 'Call (listings)', 'agend-apps-core' ),
+		'enquiry'   => __( 'Open enquiry form (listings)', 'agend-apps-core' ),
 		'custom'    => __( 'Custom URL', 'agend-apps-core' ),
 	);
 }

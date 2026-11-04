@@ -126,6 +126,7 @@ function agend_apps_records_record_field_format_options( array $s ): array {
 		'date_format'        => $date_format,
 		'price_free_label'   => (string) ( $s['price_free_label'] ?? '' ),
 		'list_separator'     => (string) ( $s['list_separator'] ?? ', ' ),
+		'list_display'       => 'bullets' === ( $s['list_display'] ?? '' ) ? 'bullets' : 'inline',
 		'list_max'           => (int) ( $s['list_max'] ?? 0 ),
 		'list_show_rest'     => 'yes' === ( $s['show_rest'] ?? '' ),
 		'list_overflow_text' => (string) ( $s['overflow_text'] ?? '' ),
