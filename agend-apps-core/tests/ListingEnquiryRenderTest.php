@@ -39,6 +39,7 @@ final class ListingEnquiryRenderTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		agend_apps_records_listing_enquiry_claim_anchor( true );
 		Agend_Apps_Records_Record_Context::reset();
 		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'directory.enquiries.send' ) ) ) );
 		Agend_Test_WP::set_filter( 'agend_apps_captcha_allow_none', true );
@@ -448,5 +449,99 @@ final class ListingEnquiryRenderTest extends TestCase {
 		);
 
 		$this->assertStringContainsString( 'data-agend-enquiry-preview="1"', $html );
+	}
+
+	// -----------------------------------------------------------------
+	// Anchor and start folded
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_give_the_wrapper_the_enquiry_anchor_id_when_it_is_the_first_form_on_the_page(): void {
+		$this->pushListing();
+
+		$this->assertStringContainsString( '<div class="agend-enquiry" id="agend-enquiry" data-agend-enquiry-config=', $this->render() );
+	}
+
+	#[Test]
+	public function should_give_a_second_form_on_the_page_no_anchor_id_when_one_already_holds_it(): void {
+		$this->pushListing();
+
+		$first  = $this->render();
+		$second = $this->render();
+
+		$this->assertSame( 1, substr_count( $first . $second, 'id="agend-enquiry"' ) );
+		$this->assertStringStartsWith( '<div class="agend-enquiry" data-agend-enquiry-config=', $second );
+	}
+
+	#[Test]
+	public function should_render_the_form_unfolded_without_details_when_start_folded_is_off(): void {
+		$this->pushListing();
+
+		$html = $this->render( array( 'folded_intro' => 'Replies come straight to your inbox.' ) );
+
+		$this->assertStringNotContainsString( '<details', $html );
+		$this->assertStringNotContainsString( 'agend-enquiry--folded', $html );
+		$this->assertStringNotContainsString( 'Replies come straight', $html );
+		$this->assertStringContainsString( '<h3 class="agend-enquiry__heading">Get in touch with Jane Smith Advisory</h3><form', $html );
+	}
+
+	#[Test]
+	public function should_render_the_heading_and_intro_in_the_summary_and_the_fields_inside_the_details_when_start_folded_is_on(): void {
+		$this->pushListing();
+
+		$html = $this->render(
+			array(
+				'start_folded' => 'yes',
+				'heading_tag'  => 'h2',
+				'folded_intro' => 'Replies come straight to your inbox.',
+			)
+		);
+
+		$this->assertStringContainsString( 'agend-enquiry--folded', $html );
+		$this->assertMatchesRegularExpression(
+			'#<details class="agend-enquiry__details"><summary class="agend-enquiry__summary"><span class="agend-enquiry__summary-text"><h2 class="agend-enquiry__heading">Get in touch with Jane Smith Advisory</h2><span class="agend-enquiry__intro">Replies come straight to your inbox\.</span></span><span class="agend-enquiry__toggle" aria-hidden="true"></span></summary>#',
+			$html
+		);
+		$this->assertGreaterThan( strpos( $html, '</summary>' ), strpos( $html, '<form class="agend-enquiry__form"' ) );
+		$this->assertLessThan( strpos( $html, '</details>' ), strpos( $html, 'data-agend-enquiry-field="message"' ) );
+	}
+
+	#[Test]
+	public function should_keep_the_status_region_inside_the_details_when_start_folded_is_on(): void {
+		$this->pushListing();
+
+		$html = $this->render( array( 'start_folded' => 'yes' ) );
+
+		$this->assertLessThan( strpos( $html, '</details>' ), strpos( $html, 'role="status" aria-live="polite"' ) );
+		$this->assertStringEndsWith( '</details></div>', $html );
+	}
+
+	#[Test]
+	public function should_fall_back_to_a_summary_label_when_the_heading_is_blank_and_start_folded_is_on(): void {
+		$this->pushListing();
+
+		$html = $this->render( array( 'start_folded' => 'yes', 'heading' => '' ) );
+
+		$this->assertStringContainsString( '<span class="agend-enquiry__heading">Send an enquiry</span>', $html );
+	}
+
+	#[Test]
+	public function should_render_the_details_open_in_the_editor_even_when_start_folded_is_on(): void {
+		$html = agend_apps_records_render_listing_enquiry(
+			array( 'start_folded' => 'yes' ),
+			array(
+				'id'      => 'abc123',
+				'preview' => true,
+				'state'   => array(
+					'status'     => 'ready',
+					'identifier' => 'jane-smith',
+					'name'       => 'Jane Smith Advisory',
+					'terms_url'  => '',
+					'is_preview' => true,
+				),
+			)
+		);
+
+		$this->assertStringContainsString( '<details class="agend-enquiry__details" open>', $html );
 	}
 }

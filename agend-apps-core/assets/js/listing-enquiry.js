@@ -387,6 +387,53 @@
     });
   }
 
+  var ANCHOR = 'agend-enquiry';
+
+  function prefersReducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  /** Opens the folded form, brings it into view and focuses its first field. */
+  function openEnquiry() {
+    var root = document.getElementById(ANCHOR);
+    if (!root) {
+      return false;
+    }
+    var details = root.querySelector('details');
+    if (details && !details.open) {
+      details.open = true;
+    }
+    root.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    var target = root.querySelector('.agend-enquiry__form:not([hidden]) input, .agend-enquiry__form:not([hidden]) textarea');
+    if (!target) {
+      target = root.querySelector('[data-agend-enquiry-status]');
+    }
+    if (target && target.focus) {
+      target.focus({ preventScroll: true });
+    }
+    return true;
+  }
+
+  document.addEventListener('click', function (event) {
+    var node = event.target;
+    var link = node && node.closest ? node.closest('a[href="#' + ANCHOR + '"]') : null;
+    if (link && openEnquiry()) {
+      event.preventDefault();
+    }
+  });
+
+  window.addEventListener('hashchange', function () {
+    if (window.location.hash === '#' + ANCHOR) {
+      openEnquiry();
+    }
+  });
+
+  function openOnLoad() {
+    if (window.location.hash === '#' + ANCHOR) {
+      openEnquiry();
+    }
+  }
+
   function initAll() {
     var roots = document.querySelectorAll('.agend-enquiry');
     for (var i = 0; i < roots.length; i++) {
@@ -395,9 +442,13 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initAll);
+    document.addEventListener('DOMContentLoaded', function () {
+      initAll();
+      openOnLoad();
+    });
   } else {
     initAll();
+    openOnLoad();
   }
 
   // Elementor redraws a widget in the editor and when a popup opens.

@@ -42,7 +42,48 @@ function agend_apps_records_listing_enquiry_defaults(): array {
 		'terms_label'         => __( 'I agree to the {terms_link}', 'agend-apps-core' ),
 		'terms_link_text'     => __( 'terms and conditions', 'agend-apps-core' ),
 		'heading_tag'         => 'h3',
+		'folded_intro'        => '',
+		'folded_label'        => __( 'Send an enquiry', 'agend-apps-core' ),
 	);
+}
+
+/**
+ * The element id that links to the form (`#agend-enquiry`), or '' once a form
+ * on this page already holds it.
+ *
+ * Only one form per page is expected; a second one gets no id rather than a
+ * duplicate one.
+ *
+ * @param bool $reset Forget a claimed id (the tests render several pages in one process).
+ * @return string
+ */
+function agend_apps_records_listing_enquiry_claim_anchor( bool $reset = false ): string {
+	static $claimed = false;
+
+	if ( $reset ) {
+		$claimed = false;
+		return '';
+	}
+
+	if ( $claimed ) {
+		return '';
+	}
+
+	$claimed = true;
+
+	return 'agend-enquiry';
+}
+
+/**
+ * Whether the form starts folded behind its heading.
+ *
+ * @param array $settings Surface settings.
+ * @return bool
+ */
+function agend_apps_records_listing_enquiry_start_folded( array $settings ): bool {
+	$value = $settings['start_folded'] ?? '';
+
+	return 'yes' === $value || true === $value || '1' === $value || 1 === $value;
 }
 
 /**
@@ -73,6 +114,10 @@ function agend_apps_records_listing_enquiry_text( array $settings, string $key )
 
 	if ( 'heading' === $key && array_key_exists( 'heading', $settings ) ) {
 		return trim( (string) $settings['heading'] );
+	}
+
+	if ( 'folded_intro' === $key ) {
+		return isset( $settings[ $key ] ) ? trim( (string) $settings[ $key ] ) : '';
 	}
 
 	$value = isset( $settings[ $key ] ) ? trim( (string) $settings[ $key ] ) : '';
@@ -159,6 +204,21 @@ function agend_apps_records_listing_enquiry_state( array $opts = array() ): arra
 	$state['status']    = ! empty( $record['accepts_enquiries'] ) ? 'ready' : 'closed';
 
 	return $state;
+}
+
+/**
+ * Whether a visitor is offered the enquiry form for the listing in scope.
+ *
+ * The one decision the form and the record link's "Open enquiry form" action
+ * share, so a link never points at a form that does not render.
+ *
+ * @param array $opts 'preview' / 'preview_type', as for the state; or 'state': a state already resolved.
+ * @return bool
+ */
+function agend_apps_records_listing_enquiry_available( array $opts = array() ): bool {
+	$state = is_array( $opts['state'] ?? null ) ? $opts['state'] : agend_apps_records_listing_enquiry_state( $opts );
+
+	return 'ready' === $state['status'];
 }
 
 /**
@@ -266,7 +326,7 @@ function agend_apps_records_listing_enquiry_terms( string $id, array $settings, 
 function agend_apps_records_render_listing_enquiry( array $settings, array $opts = array() ): string {
 	$state = is_array( $opts['state'] ?? null ) ? $opts['state'] : agend_apps_records_listing_enquiry_state( $opts );
 
-	if ( 'ready' !== $state['status'] ) {
+	if ( ! agend_apps_records_listing_enquiry_available( array( 'state' => $state ) ) ) {
 		return '';
 	}
 
@@ -297,9 +357,32 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 		),
 	);
 
-	$html  = '<div class="agend-enquiry" data-agend-enquiry-config="' . esc_attr( (string) wp_json_encode( $config ) ) . '"' . ( $preview ? ' data-agend-enquiry-preview="1"' : '' ) . '>';
-	$tag   = agend_apps_records_listing_enquiry_heading_tag( $settings );
-	$html .= '' !== $heading ? '<' . $tag . ' class="agend-enquiry__heading">' . esc_html( $heading ) . '</' . $tag . '>' : '';
+	$folded       = agend_apps_records_listing_enquiry_start_folded( $settings );
+	$anchor       = agend_apps_records_listing_enquiry_claim_anchor();
+	$tag          = agend_apps_records_listing_enquiry_heading_tag( $settings );
+	$heading_html = '' !== $heading ? '<' . $tag . ' class="agend-enquiry__heading">' . esc_html( $heading ) . '</' . $tag . '>' : '';
+
+	$html = '<div class="agend-enquiry' . ( $folded ? ' agend-enquiry--folded' : '' ) . '"'
+		. ( '' !== $anchor ? ' id="' . esc_attr( $anchor ) . '"' : '' )
+		. ' data-agend-enquiry-config="' . esc_attr( (string) wp_json_encode( $config ) ) . '"'
+		. ( $preview ? ' data-agend-enquiry-preview="1"' : '' )
+		. ( $folded ? ' data-agend-enquiry-folded="1"' : '' ) . '>';
+
+	if ( $folded ) {
+		$intro = agend_apps_records_listing_enquiry_text( $settings, 'folded_intro' );
+		if ( '' === $heading_html ) {
+			$heading_html = '<span class="agend-enquiry__heading">' . esc_html( agend_apps_records_listing_enquiry_text( $settings, 'folded_label' ) ) . '</span>';
+		}
+		// The editor shows the form open so it can be styled.
+		$html .= '<details class="agend-enquiry__details"' . ( $preview ? ' open' : '' ) . '>'
+			. '<summary class="agend-enquiry__summary">'
+			. '<span class="agend-enquiry__summary-text">' . $heading_html
+			. ( '' !== $intro ? '<span class="agend-enquiry__intro">' . esc_html( $intro ) . '</span>' : '' )
+			. '</span><span class="agend-enquiry__toggle" aria-hidden="true"></span></summary>';
+	} else {
+		$html .= $heading_html;
+	}
+
 	$html .= '<form class="agend-enquiry__form" id="' . esc_attr( $uid ) . '" novalidate>';
 
 	$html .= '<div class="agend-enquiry__row">'
@@ -332,7 +415,7 @@ function agend_apps_records_render_listing_enquiry( array $settings, array $opts
 
 	$html .= '</form>';
 	$html .= '<div class="agend-enquiry__status" role="status" aria-live="polite" tabindex="-1" data-agend-enquiry-status></div>';
-	$html .= '</div>';
+	$html .= $folded ? '</details></div>' : '</div>';
 
 	return $html;
 }
