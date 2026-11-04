@@ -1147,6 +1147,32 @@
   height: 100%;
 }
 
+/* The column and its widget wrapper fill the card's height, so content can be
+   pinned to the bottom of a shorter card. */
+.agend-dir-grid--grid.agend-dir-grid--templated > .agend-card-link > .elementor > .elementor-section:last-child > .elementor-container > .elementor-column > .elementor-widget-wrap {
+  align-self: stretch;
+}
+
+/* Pin to the bottom of a templated card: a widget carrying `agend-pin-bottom`
+   (the Agend Link's "Pin to the bottom of the card" setting adds it, or add it
+   under Advanced > CSS Classes) is pushed to the bottom of its column. Its
+   column turns into a nowrap stack so the auto margin has room to work; the
+   first pinned widget takes the free space and any pinned widget after it
+   stays attached, so a divider and a link can be pinned together.
+   Scoped to directory cards: the other catalogues do not equalise card heights. */
+.agend-dir-grid--templated .elementor-widget-wrap:has(> .agend-pin-bottom) {
+  flex-wrap: nowrap;
+  flex-direction: column;
+}
+
+.agend-dir-grid--templated .agend-pin-bottom {
+  margin-top: auto;
+}
+
+.agend-dir-grid--templated .agend-pin-bottom ~ .agend-pin-bottom {
+  margin-top: 0;
+}
+
 .agend-dir-filter-slot:empty {
   display: none;
 }

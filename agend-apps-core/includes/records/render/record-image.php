@@ -27,6 +27,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Every renderer asks the surface gate before it fetches or draws anything;
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
+require_once __DIR__ . '/../assets.php';
 
 /**
  * The image URL for the current record: the record's own field value, or the
@@ -46,7 +47,7 @@ require_once __DIR__ . '/../surface-gate.php';
 function agend_apps_records_record_image_url( array $settings, array $ctx ): string {
 	if ( 'yes' === ( $settings['use_term_images'] ?? '' ) ) {
 		$match = agend_apps_records_record_image_term_match( $settings, $ctx );
-		return '' !== $match['url'] ? $match['url'] : agend_apps_records_normalise_url_setting( $settings['fallback_image'] ?? '' );
+		return '' !== $match['url'] ? $match['url'] : agend_apps_records_record_image_fallback_url( $settings );
 	}
 
 	$key = (string) ( $settings['field'] ?? 'common:image' );
@@ -54,7 +55,45 @@ function agend_apps_records_record_image_url( array $settings, array $ctx ): str
 	$url = is_string( $url ) ? $url : '';
 
 	if ( '' === $url ) {
-		$url = agend_apps_records_normalise_url_setting( $settings['fallback_image'] ?? '' );
+		$url = agend_apps_records_record_image_fallback_url( $settings );
+	}
+
+	return $url;
+}
+
+/**
+ * The URL of the built-in placeholder image.
+ *
+ * @return string
+ */
+function agend_apps_records_record_image_placeholder_url(): string {
+	return agend_apps_records_asset_url( 'images/record-image-placeholder.svg' );
+}
+
+/**
+ * Whether `$url` is the built-in placeholder this surface was asked to show.
+ *
+ * @param array  $settings Surface settings.
+ * @param string $url      Resolved image URL.
+ * @return bool
+ */
+function agend_apps_records_record_image_is_placeholder( array $settings, string $url ): bool {
+	return 'yes' === ( $settings['placeholder'] ?? '' ) && agend_apps_records_record_image_placeholder_url() === $url;
+}
+
+/**
+ * What to show when the record itself has no image: the configured fallback
+ * image, else the built-in placeholder when `placeholder` is on, else ''.
+ * A configured fallback always wins, so enabling the placeholder never changes
+ * a site that already has a fallback.
+ *
+ * @param array $settings Surface settings.
+ * @return string
+ */
+function agend_apps_records_record_image_fallback_url( array $settings ): string {
+	$url = agend_apps_records_normalise_url_setting( $settings['fallback_image'] ?? '' );
+	if ( '' === $url && 'yes' === ( $settings['placeholder'] ?? '' ) ) {
+		return agend_apps_records_record_image_placeholder_url();
 	}
 
 	return $url;
@@ -322,6 +361,7 @@ function agend_apps_records_record_image_render_reason( array $settings, array $
  * @return string
  */
 function agend_apps_records_record_image_render_background( array $settings, string $url, string $title, bool $inline_style ): string {
+	$is_placeholder = agend_apps_records_record_image_is_placeholder( $settings, $url );
 	$placement = agend_apps_records_record_image_placement( $settings );
 
 	$style = sprintf(
@@ -339,9 +379,9 @@ function agend_apps_records_record_image_render_background( array $settings, str
 	// container; the wrapper class that requires is an Elementor-only concern
 	// applied by the widget itself, since this markup carries only the
 	// surface's own inner element.
-	$attrs  = 'class="agend-record-image agend-record-image--bg agend-record-image--' . esc_attr( $placement ) . '"';
+	$attrs  = 'class="agend-record-image agend-record-image--bg agend-record-image--' . esc_attr( $placement ) . ( $is_placeholder ? ' agend-record-image--placeholder' : '' ) . '"';
 	$attrs .= ' style="' . esc_attr( $style ) . '"';
-	$attrs .= ' role="img" aria-label="' . esc_attr( $title ) . '"';
+	$attrs .= $is_placeholder ? ' aria-hidden="true"' : ' role="img" aria-label="' . esc_attr( $title ) . '"';
 	$attrs .= ' data-agend-bg-url="' . esc_url( $url ) . '"';
 	$attrs .= ' data-agend-bg-style="' . esc_attr( $style ) . '"';
 	if ( 'parent' === $placement ) {
@@ -363,8 +403,10 @@ function agend_apps_records_record_image_render_background( array $settings, str
  * @return string
  */
 function agend_apps_records_record_image_render_img( array $settings, array $ctx, string $url, string $title, bool $inline_style ): string {
-	$shape = agend_apps_records_record_image_shape( $settings );
-	$attrs = 'class="' . esc_attr( implode( ' ', array_merge( array( 'agend-record-image', 'agend-record-image--img' ), $shape['classes'] ) ) ) . '"';
+	$shape          = agend_apps_records_record_image_shape( $settings );
+	$is_placeholder = agend_apps_records_record_image_is_placeholder( $settings, $url );
+	$classes        = array_merge( array( 'agend-record-image', 'agend-record-image--img' ), $shape['classes'], $is_placeholder ? array( 'agend-record-image--placeholder' ) : array() );
+	$attrs          = 'class="' . esc_attr( implode( ' ', $classes ) ) . '"';
 
 	$style = $inline_style ? agend_apps_records_record_image_inline_styles( $settings, 'img', '' )['img'] : '';
 	if ( '' !== $shape['style'] ) {
@@ -374,7 +416,7 @@ function agend_apps_records_record_image_render_img( array $settings, array $ctx
 		$attrs .= ' style="' . esc_attr( $style ) . '"';
 	}
 
-	$attrs .= ' src="' . esc_url( $url ) . '" alt="' . esc_attr( $title ) . '" loading="lazy"';
+	$attrs .= ' src="' . esc_url( $url ) . '" alt="' . ( $is_placeholder ? '' : esc_attr( $title ) ) . '" loading="lazy"';
 
 	$img = '<img ' . $attrs . ' />';
 

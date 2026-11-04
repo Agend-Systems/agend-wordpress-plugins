@@ -43,7 +43,14 @@ function agend_apps_records_schema_record_image(): array {
 						'name'        => 'fallback_image',
 						'label'       => __( 'Fallback image', 'agend-apps-core' ),
 						'type'        => 'media',
-						'description' => __( 'Used when the record has no image.', 'agend-apps-core' ),
+						'description' => __( 'Used when the record has no image. When set, it is shown instead of the built-in placeholder below.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'placeholder',
+						'label'       => __( 'Show a placeholder when there is no image', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Shows a neutral built-in silhouette when the record has no image and no fallback image is set. A fallback image always takes priority.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'mode',

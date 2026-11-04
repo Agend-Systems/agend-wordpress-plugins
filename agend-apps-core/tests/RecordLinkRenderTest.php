@@ -463,4 +463,11 @@ final class RecordLinkRenderTest extends TestCase {
 		self::assertArrayHasKey( 'call', $options );
 		self::assertArrayHasKey( 'enquiry', $options );
 	}
+
+	#[Test]
+	public function should_give_the_pin_class_only_when_pin_bottom_is_on(): void {
+		self::assertSame( 'agend-pin-bottom', agend_apps_records_record_link_pin_class( array( 'pin_bottom' => 'yes' ) ) );
+		self::assertSame( '', agend_apps_records_record_link_pin_class( array( 'pin_bottom' => '' ) ) );
+		self::assertSame( '', agend_apps_records_record_link_pin_class( array() ) );
+	}
 }

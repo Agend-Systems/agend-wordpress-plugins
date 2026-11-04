@@ -33,6 +33,9 @@ final class RecordImageRenderTest extends TestCase {
 		require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/class-agend-elementor-field-widget-trait.php';
 		require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/widgets/class-agend-elementor-record-image.php';
 		Agend_Apps_Records_Record_Context::reset();
+		if ( ! defined( 'AGEND_APPS_CORE_URL' ) ) {
+			define( 'AGEND_APPS_CORE_URL', 'https://example.test/wp-content/plugins/agend-apps-core/' );
+		}
 	}
 
 	protected function tearDown(): void {
@@ -413,5 +416,80 @@ final class RecordImageRenderTest extends TestCase {
 			'<div class="elementor-alert elementor-alert-warning">This record has no image and no fallback image is set.</div>',
 			$this->render_widget( array() )
 		);
+	}
+
+	private const PLACEHOLDER_URL = 'https://example.test/wp-content/plugins/agend-apps-core/assets/images/record-image-placeholder.svg';
+
+	#[Test]
+	public function should_render_nothing_when_placeholder_is_off_and_there_is_no_image_or_fallback(): void {
+		$this->pushEvent( array( 'hero_image_url' => '' ) );
+
+		self::assertSame( '', agend_apps_records_render_record_image( array( 'placeholder' => '' ) ) );
+		self::assertSame( 'no_image', agend_apps_records_record_image_render_reason( array( 'placeholder' => '' ) ) );
+	}
+
+	#[Test]
+	public function should_render_the_built_in_placeholder_with_empty_alt_when_on_and_there_is_no_image_or_fallback(): void {
+		$this->pushEvent( array( 'hero_image_url' => '' ) );
+
+		self::assertSame(
+			'<img class="agend-record-image agend-record-image--img agend-record-image--placeholder" src="' . self::PLACEHOLDER_URL . '" alt="" loading="lazy" />',
+			agend_apps_records_render_record_image( array( 'placeholder' => 'yes' ) )
+		);
+		self::assertSame( '', agend_apps_records_record_image_render_reason( array( 'placeholder' => 'yes' ) ) );
+	}
+
+	#[Test]
+	public function should_prefer_the_configured_fallback_image_whatever_the_placeholder_setting_says(): void {
+		$this->pushEvent( array( 'hero_image_url' => '' ) );
+		$fallback = array( 'url' => 'https://site.test/fallback.png', 'id' => 5 );
+
+		$off = agend_apps_records_render_record_image( array( 'fallback_image' => $fallback ) );
+		$on  = agend_apps_records_render_record_image( array( 'fallback_image' => $fallback, 'placeholder' => 'yes' ) );
+
+		self::assertSame( '<img class="agend-record-image agend-record-image--img" src="https://site.test/fallback.png" alt="Sample Event" loading="lazy" />', $off );
+		self::assertSame( $off, $on );
+	}
+
+	#[Test]
+	public function should_keep_the_record_image_when_the_placeholder_is_on(): void {
+		$this->pushEvent();
+
+		self::assertSame(
+			'<img class="agend-record-image agend-record-image--img" src="https://cdn.test/hero.jpg" alt="Sample Event" loading="lazy" />',
+			agend_apps_records_render_record_image( array( 'placeholder' => 'yes' ) )
+		);
+	}
+
+	#[Test]
+	public function should_render_the_placeholder_when_no_term_matches_and_there_is_no_fallback(): void {
+		Agend_Apps_Records_Record_Context::push(
+			'listing',
+			array( 'name' => 'Alex Example', 'categories' => array( array( 'name' => 'Volunteer' ) ) )
+		);
+
+		$settings = array(
+			'use_term_images' => 'yes',
+			'term_field'      => 'listing:categories',
+			'term_images'     => array( array( 'term_match' => 'Gold Member', 'term_image' => 'https://site.test/gold.png' ) ),
+			'placeholder'     => 'yes',
+		);
+
+		self::assertStringContainsString( 'src="' . self::PLACEHOLDER_URL . '" alt=""', agend_apps_records_render_record_image( $settings ) );
+
+		$with_fallback = $settings + array( 'fallback_image' => 'https://site.test/fallback.png' );
+		self::assertStringContainsString( 'src="https://site.test/fallback.png"', agend_apps_records_render_record_image( $with_fallback ) );
+	}
+
+	#[Test]
+	public function should_mark_a_background_placeholder_decorative_without_an_aria_label(): void {
+		$this->pushEvent( array( 'hero_image_url' => '' ) );
+
+		$html = agend_apps_records_render_record_image( array( 'placeholder' => 'yes', 'mode' => 'background' ) );
+
+		self::assertStringContainsString( 'agend-record-image--placeholder', $html );
+		self::assertStringContainsString( 'aria-hidden="true"', $html );
+		self::assertStringNotContainsString( 'aria-label', $html );
+		self::assertStringNotContainsString( 'role="img"', $html );
 	}
 }

@@ -29,6 +29,7 @@
                                     "listing:tags": "Tags",
                                     "listing:badges": "Badges",
                                     "listing:locations": "All locations",
+                                    "listing:other_locations": "Other locations (all but the one shown)",
                                     "listing:state": "State"
                                 }
                             },
