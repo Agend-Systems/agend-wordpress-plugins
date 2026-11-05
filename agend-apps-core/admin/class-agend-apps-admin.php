@@ -516,6 +516,8 @@ class Agend_Apps_Admin {
 				: __( 'No captcha provider is selected.', 'agend-apps-core' );
 
 			echo '<div class="notice notice-warning inline"><p>' . esc_html( $reason ) . ' ' . esc_html__( 'Forms that need a captcha, such as the Listing Enquiry Form, will not show.', 'agend-apps-core' ) . '</p></div>';
+		} elseif ( Agend_Apps_Captcha::uses_test_keys() ) {
+			echo '<div class="notice notice-warning inline"><p>' . esc_html__( 'Google\'s reCAPTCHA test keys are in use. Every check passes, so forms have no spam protection, and visitors see a "for testing purposes only" note. Use them on development and staging sites only, never on a live site.', 'agend-apps-core' ) . '</p></div>';
 		}
 	}
 
