@@ -1071,14 +1071,16 @@ renders) and verifies success and hostname only; it has no score or action.
 Google's published reCAPTCHA test keys (site key
 `6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI`, secret
 `6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe`) are v2 keys: choose reCAPTCHA v2 and
-allow `testkey.google.com` through `agend_apps_captcha_allowed_hostnames`. They
-always pass, and there are no v3 test keys; a v3 provider refuses their answer
-(no score) as `bad_response`.
+enter both in the settings. They always pass, and Google reports the placeholder
+hostname `testkey.google.com` instead of the site's own; with reCAPTCHA v2
+selected and the test site key stored, that host is accepted automatically and
+the settings page warns that the test site key is in use. With any other site
+key it is refused. There are no v3 test keys; a v3 provider holding them refuses
+their answer as `hostname_mismatch`, because the hostname is checked first.
 
-The providers' documented test keys answer with a fixed placeholder hostname
-(Google's reCAPTCHA test keys report `testkey.google.com`), not the site's own,
-so a local, staging or Playwright setup using them is refused as a hostname
-mismatch until `agend_apps_captcha_allowed_hostnames` adds that host. Every
+Other providers' documented test keys also answer with a fixed placeholder
+hostname, so a local, staging or Playwright setup using them is refused as a
+hostname mismatch until `agend_apps_captcha_allowed_hostnames` adds that host. Every
 captcha refusal records its reason code (`hostname_mismatch`, `action_mismatch`,
 `low_score`, `rejected`, `unreachable`, `bad_response`, `missing_token`,
 `not_configured`) in the API log, never the token or secret.

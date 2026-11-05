@@ -324,7 +324,8 @@ final class Agend_Apps_Captcha {
 		/**
 		 * Filters the hostnames a captcha token may have been minted on.
 		 *
-		 * @param string[] $allowed The site's own hosts.
+		 * @param string[] $allowed The site's own hosts, plus Google's test host while
+		 *                          the reCAPTCHA v2 test site key is in use.
 		 */
 		$allowed = array_map( 'strtolower', array_map( 'strval', (array) apply_filters( 'agend_apps_captcha_allowed_hostnames', array_values( $allowed ) ) ) );
 

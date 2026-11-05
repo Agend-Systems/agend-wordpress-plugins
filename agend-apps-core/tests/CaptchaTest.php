@@ -423,6 +423,34 @@ final class CaptchaTest extends TestCase {
 		$html = (string) ob_get_clean();
 
 		$this->assertStringContainsString( 'notice-warning', $html );
-		$this->assertStringContainsString( 'test keys are in use', $html );
+		$this->assertStringContainsString( 'test site key is in use', $html );
+	}
+
+	#[Test]
+	public function should_refuse_googles_test_hostname_when_the_v3_provider_holds_the_test_site_key(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA, 'the-test-secret', Agend_Apps_Captcha::RECAPTCHA_TEST_SITE_KEY );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'hostname' => 'testkey.google.com' ) );
+
+		$this->assertSame( 'hostname_mismatch', $this->reason( Agend_Apps_Captcha::verify( 'visitor-token' ) ) );
+	}
+
+	#[Test]
+	public function should_recognise_the_test_site_key_when_it_was_stored_with_surrounding_whitespace(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2, 'the-test-secret', '  ' . Agend_Apps_Captcha::RECAPTCHA_TEST_SITE_KEY . ' ' );
+
+		$this->assertTrue( Agend_Apps_Captcha::uses_test_keys() );
+	}
+
+	#[Test]
+	public function should_not_warn_about_test_keys_when_a_real_site_key_or_the_v3_provider_is_configured(): void {
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA_V2 );
+		ob_start();
+		( new Agend_Apps_Admin() )->render_captcha_section();
+		$this->assertStringNotContainsString( 'test site key is in use', (string) ob_get_clean() );
+
+		$this->configure( Agend_Apps_Captcha::PROVIDER_RECAPTCHA, 'the-test-secret', Agend_Apps_Captcha::RECAPTCHA_TEST_SITE_KEY );
+		ob_start();
+		( new Agend_Apps_Admin() )->render_captcha_section();
+		$this->assertStringNotContainsString( 'test site key is in use', (string) ob_get_clean() );
 	}
 }
