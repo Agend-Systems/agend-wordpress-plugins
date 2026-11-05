@@ -69,12 +69,30 @@ function agend_apps_records_directory_map_tiles(): array {
 
 	$max_zoom = max( 1, min( 22, (int) ( $tiles['maxZoom'] ?? 19 ) ) );
 
+	// The Amazon credit is for the pins, not the basemap: listing coordinates
+	// may come from Amazon Location Service, whose terms require the credit
+	// wherever they are shown. It is added after the filter, so a site that
+	// swaps its tiles cannot drop it.
+	$attribution = trim( (string) ( $tiles['attribution'] ?? '' ) );
+	$attribution = ( '' !== $attribution ? $attribution . ' | ' : '' ) . agend_apps_records_directory_map_locations_credit();
+
 	return array(
 		'url'           => (string) ( $tiles['url'] ?? '' ),
-		'attribution'   => (string) ( $tiles['attribution'] ?? '' ),
+		'attribution'   => $attribution,
 		'maxZoom'       => $max_zoom,
 		'maxNativeZoom' => max( 1, min( $max_zoom, (int) ( $tiles['maxNativeZoom'] ?? $max_zoom ) ) ),
 	);
+}
+
+/**
+ * The map's credit for the source of its listing coordinates.
+ *
+ * @return string Trusted attribution markup.
+ */
+function agend_apps_records_directory_map_locations_credit(): string {
+	return '<a href="https://docs.aws.amazon.com/location/latest/developerguide/data-attribution.html">'
+		. esc_html__( 'Locations: Amazon Location Service', 'agend-apps-core' )
+		. '</a>';
 }
 
 /**

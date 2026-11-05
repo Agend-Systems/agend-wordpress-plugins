@@ -244,9 +244,31 @@ function agend_apps_records_render_filter_location_control( array $config, bool 
 
 	$html .= '<p class="agend-filter__location-status" role="status" aria-live="polite" hidden></p>';
 	$html .= '<div class="agend-filter__location-chip" hidden><span class="agend-filter__location-chip-text"></span><button type="button" class="agend-filter__location-clear" aria-label="' . esc_attr__( 'Remove location', 'agend-apps-core' ) . '">&times;</button></div>';
+	if ( $location['search'] ) {
+		$html .= agend_apps_records_render_filter_place_search_credit();
+	}
 	$html .= '</div>';
 
 	return $html;
+}
+
+/**
+ * The OpenStreetMap credit beneath the Location filter's place box.
+ *
+ * Place search answers from OpenStreetMap's geocoder, whose licence asks for
+ * the credit wherever its results are used. Drawn only with the place box,
+ * and hidden by buildLocation() in assets/js/filters.js whenever it hides
+ * the box. The link opens in a new tab so the visitor keeps their search.
+ *
+ * @return string
+ */
+function agend_apps_records_render_filter_place_search_credit(): string {
+	$link = '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">'
+		. esc_html__( 'OpenStreetMap contributors', 'agend-apps-core' )
+		. '</a>';
+
+	/* translators: %s: the linked words "OpenStreetMap contributors". */
+	return '<p class="agend-filter__location-credit">' . sprintf( esc_html__( 'Place search © %s', 'agend-apps-core' ), $link ) . '</p>';
 }
 
 /**

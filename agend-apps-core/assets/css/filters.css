@@ -337,8 +337,24 @@
   font-size: 0.875em;
 }
 
+/* Place search's data credit: a footnote, so smaller and quieter than the
+   controls, in the filter's text colour so it reads on a coloured band. */
+.agend-filter__location-credit {
+  align-self: flex-start;
+  margin: 0;
+  color: var(--agend-filter-text, inherit);
+  font-size: 0.75em;
+  opacity: 0.75;
+}
+
+.agend-filter__location-credit a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .agend-filter__location-chip[hidden],
 .agend-filter__location-status[hidden],
+.agend-filter__location-credit[hidden],
 .agend-filter__location-row[hidden] {
   display: none;
 }

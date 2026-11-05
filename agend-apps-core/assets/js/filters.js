@@ -775,6 +775,7 @@
     var chip = wrap.querySelector('.agend-filter__location-chip');
     var chipText = wrap.querySelector('.agend-filter__location-chip-text');
     var clearBtn = wrap.querySelector('.agend-filter__location-clear');
+    var credit = wrap.querySelector('.agend-filter__location-credit');
     if (!status || !chip || !chipText || !clearBtn) {
       // Markup older than this control: nothing to adopt, and inventing it
       // here would drift from the server-drawn version.
@@ -787,6 +788,16 @@
     function currentRadius() {
       var value = radiusSel ? Number(radiusSel.value) : Number(opts.radius);
       return isFinite(value) && value > 0 ? value : radii[0];
+    }
+
+    // The OpenStreetMap credit belongs to the place box, so it goes with it.
+    function hideSearch() {
+      if (searchRow) {
+        searchRow.hidden = true;
+      }
+      if (credit) {
+        credit.hidden = true;
+      }
     }
 
     function say(message) {
@@ -854,9 +865,7 @@
           } else if (code === 403) {
             // The account does not include place search after all; the
             // button still works.
-            if (searchRow) {
-              searchRow.hidden = true;
-            }
+            hideSearch();
             say('');
           } else if (code === 429 || code === 503) {
             say(GEO_MESSAGES.busy);
@@ -981,7 +990,7 @@
     if (searchRow && opts.search) {
       return mapSettings(ctx).then(function (settings) {
         if (settings && settings.geocoding_available === false) {
-          searchRow.hidden = true;
+          hideSearch();
           if (!locateBtn) {
             shell.hidden = true;
           }
