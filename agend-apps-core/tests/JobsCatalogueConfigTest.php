@@ -147,4 +147,105 @@ final class JobsCatalogueConfigTest extends TestCase {
 		self::assertFalse( $config['card']['salary'] );
 		self::assertFalse( $config['detail']['emailApply'] );
 	}
+
+	#[Test]
+	public function should_put_featured_jobs_first_and_offer_work_arrangement_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array() );
+
+		self::assertTrue( $config['listing']['featuredFirst'] );
+		self::assertTrue( $config['filters']['workArrangement'] );
+		self::assertFalse( $config['filters']['multiple'] );
+		self::assertFalse( $config['filters']['state'] );
+		self::assertFalse( $config['filters']['posted'] );
+		self::assertSame( array(), $config['filters']['tags'] );
+	}
+
+	#[Test]
+	public function should_offer_the_australian_states_by_default_when_the_state_filter_is_on(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'show_state_filter' => 'yes' ) );
+
+		self::assertTrue( $config['filters']['state'] );
+		self::assertSame( array( 'ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA' ), $config['filters']['states'] );
+	}
+
+	#[Test]
+	public function should_read_the_states_offered_dropping_blanks_and_repeats(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_state_filter' => 'yes',
+				'state_options'     => ' NSW, ,Victoria, nsw ,<b>QLD</b>',
+			)
+		);
+
+		self::assertSame( array( 'NSW', 'Victoria', 'QLD' ), $config['filters']['states'] );
+	}
+
+	#[Test]
+	public function should_hide_the_state_filter_when_no_state_is_offered(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_state_filter' => 'yes',
+				'state_options'     => ' , ',
+			)
+		);
+
+		self::assertFalse( $config['filters']['state'] );
+	}
+
+	#[Test]
+	public function should_build_one_tag_filter_per_row_that_names_a_tag(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'tag_filters' => array(
+					array(
+						'label' => 'Salary band',
+						'tags'  => array( 'salary-under-80k', 'salary-80k-120k', 'salary-120k-plus' ),
+						'style' => 'select',
+					),
+					array(
+						'label' => '',
+						'tags'  => array( 'Accreditation Required' ),
+						'style' => 'checkboxes',
+					),
+					array(
+						'label' => 'Nothing picked',
+						'tags'  => array(),
+					),
+					array(
+						'label' => 'Odd style',
+						'tags'  => array( 'remote-friendly' ),
+						'style' => 'radio',
+					),
+				),
+			)
+		);
+
+		self::assertSame(
+			array(
+				array(
+					'label' => 'Salary band',
+					'style' => 'select',
+					'tags'  => array( 'salary-under-80k', 'salary-80k-120k', 'salary-120k-plus' ),
+				),
+				array(
+					'label' => 'Tags',
+					'style' => 'checkboxes',
+					'tags'  => array( 'accreditation-required' ),
+				),
+				array(
+					'label' => 'Odd style',
+					'style' => 'select',
+					'tags'  => array( 'remote-friendly' ),
+				),
+			),
+			$config['filters']['tags']
+		);
+	}
+
+	#[Test]
+	public function should_let_visitors_pick_several_only_when_switched_on(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'allow_multiple' => 'yes' ) );
+
+		self::assertTrue( $config['filters']['multiple'] );
+	}
 }

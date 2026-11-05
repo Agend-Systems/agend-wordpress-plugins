@@ -21,20 +21,36 @@ With no page set, behaviour is unchanged: the page hosting the widget acts as it
 
 ## Agend Jobs (Agend Careers)
 
-The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with keyword, location, category, employment type and experience level filters, and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
+The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with a filter bar and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
 
 - **Featured jobs strip**: turn on "Featured jobs only", hide the filters and set a small page size. With a Jobs page set, the strip links there.
+- **Featured jobs first** (on by default) puts sponsored and featured listings ahead of the chosen order, across every page.
 - **One category**: "Only this category" pins the board to one category and hides the visitor category filter.
-- The category options come from the categories on published jobs (a wide list fetch), since the gateway has no public job categories endpoint.
 - Needs the `jobs.listings.browse` scope; without it the widget draws nothing for visitors.
 - **Who can see it** is a site setting, Settings > Agend Widgets > Jobs visibility:
   - **Public:** everyone sees everything.
   - **Titles public:** anyone sees the list; a job's description, salary and how to apply need a signed-in visitor.
   - **Members only:** the board itself needs a signed-in visitor.
 
-  The setting is enforced by the `/agend-apps/v1/jobs` REST proxy as well as the page, so hidden data is never sent to the browser. "Signed in" is a logged-in WordPress user. A site that must tell members from other accounts narrows it with the `agend_apps_records_jobs_visitor_can_view` filter. The sign-in wording is on the widget, under Job Detail.
+  The setting is enforced by the `/agend-apps/v1/jobs` REST proxy (and its `/jobs/categories` and `/jobs/tags` lists) as well as the page, so hidden data is never sent to the browser. "Signed in" is a logged-in WordPress user. A site that must tell members from other accounts narrows it with the `agend_apps_records_jobs_visitor_can_view` filter. The sign-in wording is on the widget, under Job Detail.
 
-The experience level filter needs the gateway's `experienceLevel` parameter on `GET /v1/jobs`; until that ships, the gateway ignores it and the filter shows every job. Not yet used by the board, although the gateway is gaining them: filtering by work arrangement, state, tag or minimum salary, featured listings first across every page, and the gateway's categories list. The board still derives its category options from a wide list fetch.
+### Visitor filter bar
+
+Each filter is switched on under Visitor Filter Bar:
+
+| Filter | Notes |
+| --- | --- |
+| Keyword search | Title, summary and employer. |
+| Location search | Typed text matched against city, state or country. |
+| State | A dropdown of the states in "States offered" (Australian states by default). Each must match the state as written on the listings. |
+| Category | The board's active categories, in their admin order. |
+| Employment type, work arrangement, experience level | Fixed lists. |
+| Date posted | Last 24 hours, 3, 7, 14 or 30 days. |
+| Tag filters | A repeater: each row is its own filter built from chosen tags. **Dropdown** lets the visitor pick one of the row's tags (for example a "Salary band"); **Checkboxes** offers each tag on its own (for example "Accreditation required"). |
+
+"Let visitors pick several" turns category, employment type, work arrangement and experience level into checkbox lists, where a job matching any ticked option shows. Different filters combine: a job must match all of them, including every tag set across the tag filters.
+
+Several values per filter, tags, state, date posted, featured first and the categories and tags lists need the gateway release that adds them to `GET /v1/jobs` (agend-dashboard #6826 and #7037). Against an older gateway those filters are ignored and show every job, and the category options fall back to the categories on published jobs.
 
 ## Card and detail templates
 

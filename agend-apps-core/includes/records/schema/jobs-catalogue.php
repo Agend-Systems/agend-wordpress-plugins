@@ -83,6 +83,13 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 							'salary_max:desc'   => __( 'Highest salary', 'agend-apps-core' ),
 						),
 					),
+					array(
+						'name'        => 'featured_first',
+						'label'       => __( 'Featured jobs first', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'Puts sponsored and featured listings ahead of the order above.', 'agend-apps-core' ),
+					),
 				),
 			),
 			array(
@@ -243,11 +250,78 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'default' => true,
 					),
 					array(
+						'name'    => 'show_work_arrangement_filter',
+						'label'   => __( 'Show work arrangement filter', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => true,
+					),
+					array(
+						'name'        => 'allow_multiple',
+						'label'       => __( 'Let visitors pick several', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'The category, employment type, work arrangement and experience level filters become checkbox lists. A job matching any ticked option shows.', 'agend-apps-core' ),
+					),
+					array(
+						'name'    => 'show_state_filter',
+						'label'   => __( 'Show state filter', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => false,
+					),
+					array(
+						'name'        => 'state_options',
+						'label'       => __( 'States offered', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => 'ACT, NSW, NT, QLD, SA, TAS, VIC, WA',
+						'label_block' => true,
+						'description' => __( 'Separate with commas. Each must match the state as written on the listings.', 'agend-apps-core' ),
+						'condition'   => array( 'show_state_filter' => 'yes' ),
+					),
+					array(
+						'name'    => 'show_posted_filter',
+						'label'   => __( 'Show date posted filter', 'agend-apps-core' ),
+						'type'    => 'toggle',
+						'default' => false,
+					),
+					array(
 						'name'        => 'show_location_filter',
 						'label'       => __( 'Show location search', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => true,
 						'description' => __( 'Matches the typed text against a listing\'s city, state or country.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'tag_filters',
+						'label'       => __( 'Tag filters', 'agend-apps-core' ),
+						'type'        => 'repeater',
+						'row_label'   => 'label',
+						'default'     => array(),
+						'description' => __( 'Each row is its own filter built from tags, for example a "Salary band" dropdown or an "Accreditation required" checkbox. A job must match every filter the visitor sets.', 'agend-apps-core' ),
+						'fields'      => array(
+							array(
+								'name'    => 'label',
+								'label'   => __( 'Label', 'agend-apps-core' ),
+								'type'    => 'text',
+								'default' => '',
+							),
+							array(
+								'name'        => 'tags',
+								'label'       => __( 'Tags', 'agend-apps-core' ),
+								'type'        => 'multiselect',
+								'label_block' => true,
+								'options'     => 'agend_apps_records_jobs_catalogue_tag_options',
+							),
+							array(
+								'name'        => 'style',
+								'label'       => __( 'Shown as', 'agend-apps-core' ),
+								'type'        => 'select',
+								'default'     => 'select',
+								'options'     => array(
+									'select'     => __( 'Dropdown: pick one of the tags', 'agend-apps-core' ),
+									'checkboxes' => __( 'Checkboxes: each ticked tag must match', 'agend-apps-core' ),
+								),
+							),
+						),
 					),
 				),
 			),
@@ -374,33 +448,48 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 }
 
 /**
- * Category options for the jobs catalogue's "Only this category" picker.
- *
- * The gateway has no public job categories endpoint, so the distinct set is
- * derived from a wide, cached list fetch, keyed by category slug (what the
- * list endpoint filters on). Empty outside an editor
+ * Category options for the jobs catalogue's "Only this category" picker,
+ * keyed by category slug (what the list endpoint filters on), in the board's
+ * display order. Empty outside an editor
  * {@see agend_apps_records_is_editor_request()}.
  *
  * @return array Options keyed by category slug, with an "all" entry first.
  */
 function agend_apps_records_jobs_catalogue_category_options(): array {
-	$options = array( '' => __( 'All categories', 'agend-apps-core' ) );
+	return array( '' => __( 'All categories', 'agend-apps-core' ) ) + agend_apps_records_jobs_catalogue_term_options( 'categories' );
+}
 
-	if ( ! function_exists( 'agend_apps_jobs_get_jobs' ) || ! agend_apps_records_is_editor_request() || agend_apps_records_surface_gated( 'jobs-catalogue' ) ) {
-		return $options;
+/**
+ * Tag options for the jobs catalogue's tag filters, keyed by tag slug.
+ * Empty outside an editor.
+ *
+ * @return array Options keyed by tag slug.
+ */
+function agend_apps_records_jobs_catalogue_tag_options(): array {
+	return agend_apps_records_jobs_catalogue_term_options( 'tags' );
+}
+
+/**
+ * A board's active categories or tags as editor options, slug to name.
+ *
+ * @param string $kind `categories` or `tags`.
+ * @return array<string, string>
+ */
+function agend_apps_records_jobs_catalogue_term_options( string $kind ): array {
+	if ( ! function_exists( 'agend_apps_jobs_get_terms' ) || ! agend_apps_records_is_editor_request() || agend_apps_records_surface_gated( 'jobs-catalogue' ) ) {
+		return array();
 	}
 
-	$response = agend_apps_jobs_get_jobs( array( 'limit' => 100 ) );
+	$response = agend_apps_jobs_get_terms( $kind );
 
 	if ( is_wp_error( $response ) || empty( $response['data'] ) || ! is_array( $response['data'] ) ) {
-		return $options;
+		return array();
 	}
 
-	foreach ( $response['data'] as $job ) {
-		foreach ( (array) ( $job['categories'] ?? array() ) as $category ) {
-			if ( ! empty( $category['slug'] ) ) {
-				$options[ (string) $category['slug'] ] = (string) ( $category['name'] ?? $category['slug'] );
-			}
+	$options = array();
+	foreach ( $response['data'] as $term ) {
+		if ( is_array( $term ) && ! empty( $term['slug'] ) ) {
+			$options[ (string) $term['slug'] ] = (string) ( $term['name'] ?? $term['slug'] );
 		}
 	}
 

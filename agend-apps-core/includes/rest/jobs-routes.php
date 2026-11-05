@@ -28,7 +28,11 @@ function agend_apps_register_jobs_routes(): void {
  *
  * Exposes:
  * - `GET  /agend-apps/v1/jobs`                      — paginated jobs index, filterable
- *   by `search`, `category` (slug), `location`, `type` and `featuredOnly`.
+ *   by `search`, `location`, `state`, `postedWithin` (days), `featuredOnly`
+ *   and the list filters `category`, `tag`, `type`, `locationType` and
+ *   `experienceLevel`; `featuredFirst` puts featured listings first.
+ * - `GET  /agend-apps/v1/jobs/categories`           : the board's active categories.
+ * - `GET  /agend-apps/v1/jobs/tags`                 : the board's active tags.
  * - `GET  /agend-apps/v1/jobs/{slug_or_id}`         — single job by slug or ID.
  */
 class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
@@ -83,34 +87,38 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 							'validate_callback' => 'rest_validate_request_arg',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
-						'category' => array(
-							'type'              => 'string',
-							'maxLength'         => 120,
-							'validate_callback' => 'rest_validate_request_arg',
-							// Not sanitize_title directly: WordPress passes the
-							// request as the second argument, which sanitize_title
-							// reads as its fallback title for an empty value.
-							'sanitize_callback' => static function ( $value ): string {
-								return sanitize_title( (string) $value );
-							},
-						),
+						// The list filters take several values, as an array or a
+						// comma-separated string (WordPress splits one for an
+						// `array` argument). A category matches any listed one,
+						// a tag only when the job carries every listed tag.
+						'category' => $this->slug_list_arg(),
+						'tag'      => $this->slug_list_arg(),
 						'location' => array(
 							'type'              => 'string',
 							'maxLength'         => 120,
 							'validate_callback' => 'rest_validate_request_arg',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
-						'type'     => array(
+						'state'    => array(
 							'type'              => 'string',
-							'enum'              => array( 'full-time', 'part-time', 'contract', 'casual', 'internship' ),
+							'maxLength'         => 60,
 							'validate_callback' => 'rest_validate_request_arg',
 							'sanitize_callback' => 'sanitize_text_field',
 						),
-						'experienceLevel' => array(
-							'type'              => 'string',
-							'enum'              => array( 'entry', 'mid', 'senior', 'executive' ),
+						'type'     => $this->enum_list_arg( array( 'full-time', 'part-time', 'contract', 'casual', 'internship' ) ),
+						'locationType' => $this->enum_list_arg( array( 'on-site', 'hybrid', 'remote' ) ),
+						'experienceLevel' => $this->enum_list_arg( array( 'entry', 'mid', 'senior', 'executive' ) ),
+						// Days back from today, turned into the gateway's
+						// postedAfter date here so a board's cache key holds
+						// for the day rather than changing every second.
+						'postedWithin' => array(
+							'type'              => 'integer',
+							'enum'              => self::POSTED_WITHIN_DAYS,
 							'validate_callback' => 'rest_validate_request_arg',
-							'sanitize_callback' => 'sanitize_text_field',
+							'sanitize_callback' => 'absint',
+						),
+						'featuredFirst' => array(
+							'type' => 'boolean',
 						),
 						'featuredOnly' => array(
 							'type' => 'boolean',
@@ -119,6 +127,22 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 				),
 			)
 		);
+
+		// Registered ahead of the single-job route so these are never read as
+		// a job slug (the gateway reserves both slugs for the same reason).
+		foreach ( array( 'categories', 'tags' ) as $kind ) {
+			register_rest_route(
+				$this->namespace,
+				'/' . $this->rest_base . '/' . $kind,
+				array(
+					array(
+						'methods'             => WP_REST_Server::READABLE,
+						'callback'            => array( $this, 'get_' . $kind ),
+						'permission_callback' => '__return_true',
+					),
+				)
+			);
+		}
 
 		register_rest_route(
 			$this->namespace,
@@ -154,7 +178,7 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 			return $this->sign_in_required();
 		}
 
-		$allowed = array( 'page', 'limit', 'search', 'sortBy', 'sortOrder', 'category', 'location', 'type', 'experienceLevel', 'featuredOnly' );
+		$allowed = array( 'page', 'limit', 'search', 'sortBy', 'sortOrder', 'category', 'tag', 'location', 'state', 'type', 'locationType', 'experienceLevel', 'postedWithin', 'featuredOnly', 'featuredFirst' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {
@@ -163,22 +187,33 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 			ARRAY_FILTER_USE_KEY
 		);
 
-		// The gateway reads featuredOnly as the string 'true'; anything else
-		// (including false) is the same as leaving it out.
-		if ( array_key_exists( 'featuredOnly', $query ) ) {
-			if ( rest_sanitize_boolean( $query['featuredOnly'] ) ) {
-				$query['featuredOnly'] = 'true';
+		// The gateway reads these flags as the string 'true'; anything else
+		// (including false) is the same as leaving them out.
+		foreach ( array( 'featuredOnly', 'featuredFirst' ) as $flag ) {
+			if ( ! array_key_exists( $flag, $query ) ) {
+				continue;
+			}
+			if ( rest_sanitize_boolean( $query[ $flag ] ) ) {
+				$query[ $flag ] = 'true';
 			} else {
-				unset( $query['featuredOnly'] );
+				unset( $query[ $flag ] );
 			}
 		}
 
-		// Empty strings would reach the gateway as `?category=` and fail its
-		// min-length validation.
+		if ( array_key_exists( 'postedWithin', $query ) ) {
+			$days = (int) $query['postedWithin'];
+			unset( $query['postedWithin'] );
+			if ( in_array( $days, self::POSTED_WITHIN_DAYS, true ) ) {
+				$query['postedAfter'] = gmdate( 'Y-m-d\T00:00:00\Z', time() - $days * DAY_IN_SECONDS );
+			}
+		}
+
+		// Empty strings and empty lists would reach the gateway as `?category=`
+		// and fail its min-length validation.
 		$query = array_filter(
 			$query,
 			static function ( $value ) {
-				return '' !== $value && null !== $value;
+				return '' !== $value && null !== $value && array() !== $value;
 			}
 		);
 
@@ -196,6 +231,97 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 		}
 
 		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * The `postedWithin` values a board offers, in days.
+	 *
+	 * @var int[]
+	 */
+	public const POSTED_WITHIN_DAYS = array( 1, 3, 7, 14, 30 );
+
+	/**
+	 * The most values one list filter forwards; the gateway takes 20.
+	 *
+	 * @var int
+	 */
+	public const LIST_FILTER_MAX_VALUES = 20;
+
+	/**
+	 * A list-of-slugs argument: categories or tags.
+	 *
+	 * @return array
+	 */
+	private function slug_list_arg(): array {
+		return array(
+			'type'              => 'array',
+			'items'             => array(
+				'type'      => 'string',
+				'maxLength' => 120,
+			),
+			'maxItems'          => self::LIST_FILTER_MAX_VALUES,
+			'validate_callback' => 'rest_validate_request_arg',
+			// Not sanitize_title directly: WordPress passes the request as the
+			// second argument, which sanitize_title reads as its fallback
+			// title for an empty value.
+			'sanitize_callback' => static function ( $value ): array {
+				return array_values( array_unique( array_filter( array_map( 'sanitize_title', wp_parse_list( $value ) ) ) ) );
+			},
+		);
+	}
+
+	/**
+	 * A list argument whose values come from a fixed set.
+	 *
+	 * @param string[] $values The accepted values.
+	 * @return array
+	 */
+	private function enum_list_arg( array $values ): array {
+		return array(
+			'type'              => 'array',
+			'items'             => array(
+				'type' => 'string',
+				'enum' => $values,
+			),
+			'maxItems'          => self::LIST_FILTER_MAX_VALUES,
+			'validate_callback' => 'rest_validate_request_arg',
+			'sanitize_callback' => static function ( $value ) use ( $values ): array {
+				return array_values( array_intersect( array_unique( wp_parse_list( $value ) ), $values ) );
+			},
+		);
+	}
+
+	/**
+	 * Returns the board's active job categories.
+	 *
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_categories(): WP_REST_Response {
+		return $this->get_terms( 'categories' );
+	}
+
+	/**
+	 * Returns the board's active job tags.
+	 *
+	 * @return WP_REST_Response REST response.
+	 */
+	public function get_tags(): WP_REST_Response {
+		return $this->get_terms( 'tags' );
+	}
+
+	/**
+	 * A term list for the board's filters, under the same visibility rule as
+	 * the job list: a members-only board names nothing to a signed-out visitor.
+	 *
+	 * @param string $kind `categories` or `tags`.
+	 * @return WP_REST_Response REST response.
+	 */
+	private function get_terms( string $kind ): WP_REST_Response {
+		if ( ! agend_apps_records_jobs_visitor_can_view( 'list' ) ) {
+			return $this->sign_in_required();
+		}
+
+		return $this->prepare_api_response( agend_apps_jobs_get_terms( $kind ) );
 	}
 
 	/**

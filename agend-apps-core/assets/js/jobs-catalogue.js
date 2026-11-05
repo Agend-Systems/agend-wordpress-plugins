@@ -76,6 +76,10 @@
     var qs = [];
     Object.keys(params || {}).forEach(function (key) {
       var value = params[key];
+      if (Array.isArray(value)) {
+        // A list filter: WordPress splits a comma list for an array argument.
+        value = value.join(',');
+      }
       if (value === undefined || value === null || value === '' || value === false) {
         return;
       }
@@ -689,13 +693,162 @@
 
   // -- Filters and pagination --------------------------------------------------
 
+  var POSTED_WITHIN_LABELS = [
+    ['1', 'Last 24 hours'],
+    ['3', 'Last 3 days'],
+    ['7', 'Last 7 days'],
+    ['14', 'Last 14 days'],
+    ['30', 'Last 30 days'],
+  ];
+
+  function labelPairs(labels) {
+    return Object.keys(labels).map(function (key) {
+      return [key, labels[key]];
+    });
+  }
+
+  // A slug as words, for a term whose name has not loaded.
+  function slugLabel(slug) {
+    var words = String(slug).replace(/[-_]+/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+
+  // The board's categories or tags as [slug, name] pairs, from the gateway's
+  // term list. Until a gateway offers that list, categories fall back to the
+  // distinct set on the published jobs.
+  function loadTerms(kind) {
+    return apiGet('/jobs/' + kind, {}).then(function (body) {
+      if (!body || !Array.isArray(body.data)) {
+        throw new Error(kind);
+      }
+      return body.data
+        .filter(function (term) {
+          return term && term.slug;
+        })
+        .map(function (term) {
+          return [term.slug, term.name || term.slug];
+        });
+    }).catch(function () {
+      if (kind !== 'categories') {
+        return [];
+      }
+      return apiGet('/jobs', { limit: 100 }).then(function (body) {
+        var seen = {};
+        unwrapList(body).items.forEach(function (job) {
+          (job.categories || []).forEach(function (cat) {
+            if (cat && cat.slug && !seen[cat.slug]) {
+              seen[cat.slug] = cat.name || cat.slug;
+            }
+          });
+        });
+        return Object.keys(seen)
+          .sort(function (a, b) { return seen[a].localeCompare(seen[b]); })
+          .map(function (slug) { return [slug, seen[slug]]; });
+      }).catch(function () {
+        return [];
+      });
+    });
+  }
+
+  var choiceSeq = 0;
+
+  // One filter whose value is a list. A dropdown sets a list of at most one;
+  // with `multiple`, a checkbox list in a disclosure sets any number, and a
+  // job matching any ticked option shows.
+  function choiceFilter(opts) {
+    var onChange = opts.onChange;
+    var selected = opts.selected || [];
+
+    if (!opts.multiple) {
+      var select = el('select', 'agend-jobs-select');
+      select.setAttribute('aria-label', opts.label);
+      function fillSelect(pairs) {
+        select.innerHTML = '';
+        select.appendChild(new Option(opts.allLabel, ''));
+        pairs.forEach(function (pair) {
+          select.appendChild(new Option(pair[1], pair[0], false, selected.indexOf(pair[0]) !== -1));
+        });
+      }
+      fillSelect(opts.options || []);
+      select.addEventListener('change', function () {
+        selected = select.value ? [select.value] : [];
+        onChange(selected);
+      });
+      return { node: select, fill: fillSelect };
+    }
+
+    var box = el('details', 'agend-jobs-choices');
+    var summary = el('summary', 'agend-jobs-choices__summary');
+    var list = el('div', 'agend-jobs-choices__list');
+    list.setAttribute('role', 'group');
+    list.setAttribute('aria-label', opts.label);
+    box.appendChild(summary);
+    box.appendChild(list);
+
+    function updateSummary() {
+      summary.textContent = selected.length ? opts.label + ' (' + selected.length + ')' : opts.allLabel;
+    }
+
+    function fillList(pairs) {
+      list.innerHTML = '';
+      pairs.forEach(function (pair) {
+        var id = 'agend-jobs-choice-' + (++choiceSeq);
+        var row = el('label', 'agend-jobs-choices__option');
+        row.setAttribute('for', id);
+        var input = el('input');
+        input.type = 'checkbox';
+        input.id = id;
+        input.value = pair[0];
+        input.checked = selected.indexOf(pair[0]) !== -1;
+        input.addEventListener('change', function () {
+          selected = Array.prototype.map.call(
+            list.querySelectorAll('input:checked'),
+            function (node) { return node.value; }
+          );
+          updateSummary();
+          onChange(selected);
+        });
+        row.appendChild(input);
+        row.appendChild(document.createTextNode(' ' + pair[1]));
+        list.appendChild(row);
+      });
+      updateSummary();
+    }
+    fillList(opts.options || []);
+
+    // One list open at a time, and a click outside closes it.
+    box.addEventListener('toggle', function () {
+      if (!box.open) {
+        return;
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('.agend-jobs-choices[open]'), function (other) {
+        if (other !== box) {
+          other.open = false;
+        }
+      });
+    });
+    document.addEventListener('click', function (event) {
+      if (box.open && !box.contains(event.target)) {
+        box.open = false;
+      }
+    });
+
+    return { node: box, fill: fillList };
+  }
+
   function buildFilterBar(target, cfg, state, reload) {
     var f = cfg.filters;
-    if (!f.search && !f.category && !f.type && !f.experience && !f.location) {
+    var tagFilters = Array.isArray(f.tags) ? f.tags : [];
+    if (!f.search && !f.category && !f.type && !f.experience && !f.location && !f.workArrangement && !f.state && !f.posted && !tagFilters.length) {
       return;
     }
     var bar = el('div', 'agend-jobs-filterbar');
     bar.setAttribute('role', 'search');
+
+    function changed() {
+      state.page = 1;
+      reload();
+    }
 
     function debounced(input, key) {
       var timer;
@@ -703,10 +856,25 @@
         window.clearTimeout(timer);
         timer = window.setTimeout(function () {
           state[key] = input.value.trim();
-          state.page = 1;
-          reload();
+          changed();
         }, 300);
       });
+    }
+
+    function listFilter(key, label, allLabel, options) {
+      var filter = choiceFilter({
+        label: label,
+        allLabel: allLabel,
+        options: options,
+        multiple: !!f.multiple,
+        selected: state[key],
+        onChange: function (values) {
+          state[key] = values;
+          changed();
+        },
+      });
+      bar.appendChild(filter.node);
+      return filter;
     }
 
     if (f.search) {
@@ -729,63 +897,124 @@
       bar.appendChild(location);
     }
 
-    if (f.category) {
-      var category = el('select', 'agend-jobs-select');
-      category.setAttribute('aria-label', 'Category');
-      category.appendChild(new Option('All categories', ''));
-      // No public categories endpoint: derive the distinct set from a wide
-      // fetch of the published jobs.
-      apiGet('/jobs', { limit: 100 }).then(function (body) {
-        var seen = {};
-        unwrapList(body).items.forEach(function (job) {
-          (job.categories || []).forEach(function (cat) {
-            if (cat && cat.slug && !seen[cat.slug]) {
-              seen[cat.slug] = cat.name || cat.slug;
-            }
-          });
-        });
-        Object.keys(seen)
-          .sort(function (a, b) { return seen[a].localeCompare(seen[b]); })
-          .forEach(function (slug) {
-            category.appendChild(new Option(seen[slug], slug, false, slug === state.category));
-          });
-      }).catch(function () {});
-      category.addEventListener('change', function () {
-        state.category = category.value;
-        state.page = 1;
-        reload();
+    if (f.state && Array.isArray(f.states) && f.states.length) {
+      var stateSelect = el('select', 'agend-jobs-select');
+      stateSelect.setAttribute('aria-label', 'State');
+      stateSelect.appendChild(new Option('All states', ''));
+      f.states.forEach(function (name) {
+        stateSelect.appendChild(new Option(name, name, false, name === state.state));
       });
-      bar.appendChild(category);
+      stateSelect.addEventListener('change', function () {
+        state.state = stateSelect.value;
+        changed();
+      });
+      bar.appendChild(stateSelect);
+    }
+
+    if (f.category) {
+      var category = listFilter('category', 'Category', 'All categories', []);
+      loadTerms('categories').then(category.fill);
     }
 
     if (f.type) {
-      var type = el('select', 'agend-jobs-select');
-      type.setAttribute('aria-label', 'Employment type');
-      type.appendChild(new Option('All job types', ''));
-      Object.keys(EMPLOYMENT_TYPE_LABELS).forEach(function (key) {
-        type.appendChild(new Option(EMPLOYMENT_TYPE_LABELS[key], key, false, key === state.type));
-      });
-      type.addEventListener('change', function () {
-        state.type = type.value;
-        state.page = 1;
-        reload();
-      });
-      bar.appendChild(type);
+      listFilter('type', 'Job type', 'All job types', labelPairs(EMPLOYMENT_TYPE_LABELS));
+    }
+
+    if (f.workArrangement) {
+      listFilter('workArrangement', 'Work arrangement', 'All work arrangements', labelPairs(WORK_ARRANGEMENT_LABELS));
     }
 
     if (f.experience) {
-      var experience = el('select', 'agend-jobs-select');
-      experience.setAttribute('aria-label', 'Experience level');
-      experience.appendChild(new Option('All experience levels', ''));
-      Object.keys(EXPERIENCE_LABELS).forEach(function (key) {
-        experience.appendChild(new Option(EXPERIENCE_LABELS[key], key, false, key === state.experience));
+      listFilter('experience', 'Experience level', 'All experience levels', labelPairs(EXPERIENCE_LABELS));
+    }
+
+    if (f.posted) {
+      var posted = el('select', 'agend-jobs-select');
+      posted.setAttribute('aria-label', 'Date posted');
+      posted.appendChild(new Option('Any time', ''));
+      POSTED_WITHIN_LABELS.forEach(function (pair) {
+        posted.appendChild(new Option(pair[1], pair[0], false, pair[0] === state.postedWithin));
       });
-      experience.addEventListener('change', function () {
-        state.experience = experience.value;
-        state.page = 1;
-        reload();
+      posted.addEventListener('change', function () {
+        state.postedWithin = posted.value;
+        changed();
       });
-      bar.appendChild(experience);
+      bar.appendChild(posted);
+    }
+
+    // Each tag filter sets its own tags; the gateway keeps a job only when it
+    // carries every tag set across all of them.
+    if (tagFilters.length) {
+      var fills = [];
+      tagFilters.forEach(function (row, index) {
+        var pairs = row.tags.map(function (slug) { return [slug, slugLabel(slug)]; });
+        state.tagChoices[index] = state.tagChoices[index] || [];
+
+        if (row.style === 'checkboxes') {
+          // A labelled group rather than a fieldset: themes restyle legends
+          // onto their own line, which breaks the filter row.
+          var group = el('div', 'agend-jobs-tagchecks');
+          var legendId = 'agend-jobs-choice-' + (++choiceSeq);
+          var legend = el('span', 'agend-jobs-tagchecks__legend', row.label);
+          legend.id = legendId;
+          group.setAttribute('role', 'group');
+          group.setAttribute('aria-labelledby', legendId);
+          group.appendChild(legend);
+          var inner = el('div', 'agend-jobs-tagchecks__list');
+          group.appendChild(inner);
+          var fillChecks = function (labelled) {
+            inner.innerHTML = '';
+            labelled.forEach(function (pair) {
+              var id = 'agend-jobs-choice-' + (++choiceSeq);
+              var item = el('label', 'agend-jobs-tagchecks__option');
+              item.setAttribute('for', id);
+              var input = el('input');
+              input.type = 'checkbox';
+              input.id = id;
+              input.value = pair[0];
+              input.checked = state.tagChoices[index].indexOf(pair[0]) !== -1;
+              input.addEventListener('change', function () {
+                state.tagChoices[index] = Array.prototype.map.call(
+                  inner.querySelectorAll('input:checked'),
+                  function (node) { return node.value; }
+                );
+                changed();
+              });
+              item.appendChild(input);
+              item.appendChild(document.createTextNode(' ' + pair[1]));
+              inner.appendChild(item);
+            });
+          };
+          fillChecks(pairs);
+          bar.appendChild(group);
+          fills.push({ tags: row.tags, fill: fillChecks });
+          return;
+        }
+
+        var filter = choiceFilter({
+          label: row.label,
+          allLabel: row.label + ': any',
+          options: pairs,
+          multiple: false,
+          selected: state.tagChoices[index],
+          onChange: function (values) {
+            state.tagChoices[index] = values;
+            changed();
+          },
+        });
+        bar.appendChild(filter.node);
+        fills.push({ tags: row.tags, fill: filter.fill });
+      });
+
+      // Swap the slugs for the tags' own names once they load, keeping the
+      // order the row lists them in.
+      loadTerms('tags').then(function (terms) {
+        var names = {};
+        terms.forEach(function (pair) { names[pair[0]] = pair[1]; });
+        fills.forEach(function (entry) {
+          entry.fill(entry.tags.map(function (slug) { return [slug, names[slug] || slugLabel(slug)]; }));
+        });
+      });
     }
 
     target.appendChild(bar);
@@ -828,6 +1057,19 @@
     target.appendChild(nav);
   }
 
+  // Every tag the visitor has set, across the tag filters, once each.
+  function selectedTags(state) {
+    var tags = [];
+    Object.keys(state.tagChoices).forEach(function (index) {
+      state.tagChoices[index].forEach(function (slug) {
+        if (tags.indexOf(slug) === -1) {
+          tags.push(slug);
+        }
+      });
+    });
+    return tags;
+  }
+
   // -- Orchestration -----------------------------------------------------------
 
   // bindsUrl: only the first board in document order reads and writes the
@@ -840,7 +1082,19 @@
       return;
     }
 
-    var state = { search: '', location: '', category: '', type: '', experience: '', page: 1, append: false };
+    var state = {
+      search: '',
+      location: '',
+      state: '',
+      postedWithin: '',
+      category: [],
+      type: [],
+      workArrangement: [],
+      experience: [],
+      tagChoices: {},
+      page: 1,
+      append: false,
+    };
     var pageTitle = document.title;
 
     applySiteTheme(root, cfg);
@@ -977,9 +1231,14 @@
         sortBy: cfg.listing.sortBy,
         sortOrder: cfg.listing.sortOrder,
         featuredOnly: cfg.listing.featuredOnly ? 'true' : '',
-        category: cfg.listing.category || state.category,
+        featuredFirst: cfg.listing.featuredFirst ? 'true' : '',
+        category: cfg.listing.category ? [cfg.listing.category] : state.category,
         type: state.type,
+        locationType: state.workArrangement,
         experienceLevel: state.experience,
+        state: state.state,
+        postedWithin: state.postedWithin,
+        tag: selectedTags(state),
         search: state.search.length >= 2 ? state.search : '',
         location: state.location.length >= 2 ? state.location : '',
       };

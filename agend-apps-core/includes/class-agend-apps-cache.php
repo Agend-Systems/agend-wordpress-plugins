@@ -165,6 +165,11 @@ class Agend_Apps_Cache {
 			'label'       => 'Single Job',
 			'default_ttl' => 300,
 		),
+		// The board's category and tag filters; terms change rarely.
+		'jobs_terms'               => array(
+			'label'       => 'Job Categories and Tags',
+			'default_ttl' => 900,
+		),
 		// Every catalogue page load fetches this, and brand and theme config rarely changes.
 		'sites_config'             => array(
 			'label'       => 'Site Config',
