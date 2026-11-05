@@ -101,6 +101,19 @@ function agend_apps_records_record_link_output_anchor( string $href, string $lab
 }
 
 /**
+ * The utility class that pins a record link's wrapper to the bottom of a
+ * templated card, or '' when `pin_bottom` is off. The wrapper is the editor's
+ * own element (the Elementor widget wrapper), so callers apply this to it
+ * rather than to the anchor. See `.agend-pin-bottom` in directory-catalogue.css.
+ *
+ * @param array $settings Surface settings.
+ * @return string
+ */
+function agend_apps_records_record_link_pin_class( array $settings ): string {
+	return 'yes' === ( $settings['pin_bottom'] ?? '' ) ? 'agend-pin-bottom' : '';
+}
+
+/**
  * A "renders nothing" recipe: no reason to give beyond that, unless `$reason`
  * says otherwise.
  *

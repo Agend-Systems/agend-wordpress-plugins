@@ -71,6 +71,15 @@
                     }
                 },
                 {
+                    "id": "pin_bottom",
+                    "args": {
+                        "label": "Pin to the bottom of the card",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "Keeps this link at the bottom of an equal-height directory card. To pin another widget too, such as a divider above the link, add the CSS class agend-pin-bottom to it (Advanced > CSS Classes)."
+                    }
+                },
+                {
                     "id": "new_tab",
                     "args": {
                         "label": "Open in new tab",

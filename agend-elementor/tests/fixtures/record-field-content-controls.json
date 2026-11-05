@@ -45,6 +45,7 @@
                                     "listing:location": "Location (city, state)",
                                     "listing:location_name": "Location name",
                                     "listing:locations": "All locations",
+                                    "listing:other_locations": "Other locations (all but the one shown)",
                                     "listing:city": "City",
                                     "listing:state": "State",
                                     "listing:postcode": "Postcode",

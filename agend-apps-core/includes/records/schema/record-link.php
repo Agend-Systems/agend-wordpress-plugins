@@ -66,6 +66,13 @@ function agend_apps_records_schema_record_link(): array {
 						'condition' => array( 'style_as' => 'button' ),
 					),
 					array(
+						'name'        => 'pin_bottom',
+						'label'       => __( 'Pin to the bottom of the card', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Keeps this link at the bottom of an equal-height directory card. To pin another widget too, such as a divider above the link, add the CSS class agend-pin-bottom to it (Advanced > CSS Classes).', 'agend-apps-core' ),
+					),
+					array(
 						'name'      => 'new_tab',
 						'label'     => __( 'Open in new tab', 'agend-apps-core' ),
 						'type'      => 'toggle',

@@ -564,4 +564,45 @@ final class ListingFieldsTest extends TestCase {
 		$this->assertSame( 'date', agend_apps_records_field_kind( 'listing:updated_at' ) );
 		$this->assertSame( '2026-09-02T04:41:29+00:00', agend_apps_records_field_value( 'listing:updated_at', 'listing', array( 'updated_at' => '2026-09-02T04:41:29+00:00' ) ) );
 	}
+
+	#[Test]
+	public function should_offer_an_other_locations_list_field(): void {
+		$this->assertSame( 'Other locations (all but the one shown)', agend_apps_records_field_label( 'listing:other_locations' ) );
+		$this->assertSame( 'list', agend_apps_records_field_kind( 'listing:other_locations' ) );
+	}
+
+	#[Test]
+	public function should_list_no_other_locations_when_the_listing_has_one_location(): void {
+		$record = array(
+			'locations' => array( array( 'id' => 'loc-a', 'name' => 'Head Office', 'city' => 'Sydney', 'state' => 'NSW', 'is_primary' => true ) ),
+		);
+
+		$this->assertSame( array(), agend_apps_records_field_value( 'listing:other_locations', 'listing', $record ) );
+		$this->assertSame( array(), agend_apps_records_field_value( 'listing:other_locations', 'listing', array() ) );
+	}
+
+	#[Test]
+	public function should_list_only_the_non_selected_location_when_the_listing_has_two(): void {
+		$record = array(
+			'locations' => array(
+				array( 'id' => 'loc-a', 'name' => 'Head Office', 'city' => 'Sydney', 'state' => 'NSW', 'is_primary' => true ),
+				array( 'id' => 'loc-b', 'name' => 'Second Office', 'city' => 'Perth', 'state' => 'WA' ),
+			),
+		);
+
+		$this->assertSame( array( 'Second Office, Perth WA' ), agend_apps_records_field_value( 'listing:other_locations', 'listing', $record ) );
+	}
+
+	#[Test]
+	public function should_exclude_the_search_selected_location_from_the_other_locations(): void {
+		$record = array(
+			'selected_location_id' => 'loc-b',
+			'locations'            => array(
+				array( 'id' => 'loc-a', 'name' => 'Head Office', 'city' => 'Sydney', 'state' => 'NSW', 'is_primary' => true ),
+				array( 'id' => 'loc-b', 'name' => 'Second Office', 'city' => 'Perth', 'state' => 'WA' ),
+			),
+		);
+
+		$this->assertSame( array( 'Head Office, Sydney NSW' ), agend_apps_records_field_value( 'listing:other_locations', 'listing', $record ) );
+	}
 }

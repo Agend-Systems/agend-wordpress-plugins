@@ -185,6 +185,11 @@ class Agend_Elementor_Record_Link extends \Elementor\Widget_Base {
 				return;
 		}
 
+		$pin_class = agend_apps_records_record_link_pin_class( $s );
+		if ( '' !== $pin_class ) {
+			$this->add_render_attribute( '_wrapper', 'class', $pin_class );
+		}
+
 		echo agend_apps_records_render_record_link( $s, $opts ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
 	}
 }

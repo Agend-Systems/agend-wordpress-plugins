@@ -17,4 +17,12 @@
  * @package Agend_Apps_Core
  */
 
-echo agend_apps_records_render_block( 'record-link', $attributes ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.
+$html = agend_apps_records_render_block( 'record-link', $attributes );
+
+// The block has no editor wrapper to carry the pin class, so it gets its own.
+$pin_class = agend_apps_records_record_link_pin_class( agend_apps_records_settings_from_attributes( agend_apps_records_surface_schema( 'record-link' ), $attributes ) );
+if ( '' !== $html && '' !== $pin_class ) {
+	$html = '<div class="' . esc_attr( $pin_class ) . '">' . $html . '</div>';
+}
+
+echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the core renderer.

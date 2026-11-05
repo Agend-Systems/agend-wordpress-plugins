@@ -321,6 +321,17 @@ function agend_apps_records_record_listing_all_locations( array $record ): array
 		$locations = array_merge( array( $selected ), array_values( $locations ) );
 	}
 
+	return agend_apps_records_record_listing_location_entries( $locations );
+}
+
+/**
+ * One line per location, "Location name, one-line address", leaving out
+ * whichever half is empty and skipping a location with neither.
+ *
+ * @param array[] $locations Listing locations.
+ * @return string[]
+ */
+function agend_apps_records_record_listing_location_entries( array $locations ): array {
 	$entries = array();
 	foreach ( $locations as $location ) {
 		$entry = implode(
@@ -338,6 +349,25 @@ function agend_apps_records_record_listing_all_locations( array $record ): array
 		}
 	}
 	return $entries;
+}
+
+/**
+ * The listing's locations other than the one it presents (see
+ * agend_apps_records_record_listing_selected_location()), in payload order, in
+ * the same line format as agend_apps_records_record_listing_all_locations().
+ * Empty when the listing has one location, so a "second office" row hides.
+ *
+ * @param array $record The listing record.
+ * @return string[]
+ */
+function agend_apps_records_record_listing_other_locations( array $record ): array {
+	$locations      = agend_apps_records_record_listing_locations( $record );
+	$selected_index = array_search( agend_apps_records_record_listing_selected_location( $record ), $locations, true );
+	if ( false !== $selected_index ) {
+		unset( $locations[ $selected_index ] );
+	}
+
+	return agend_apps_records_record_listing_location_entries( array_values( $locations ) );
 }
 
 /**
@@ -890,6 +920,7 @@ function agend_apps_records_field_registry(): array {
 			},
 		),
 		'listing:locations'         => array( 'label' => __( 'All locations', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_listing_all_locations' ),
+		'listing:other_locations'   => array( 'label' => __( 'Other locations (all but the one shown)', 'agend-apps-core' ), 'kind' => 'list', 'pill' => true, 'get' => 'agend_apps_records_record_listing_other_locations' ),
 		'listing:city'              => array(
 			'label' => __( 'City', 'agend-apps-core' ),
 			'kind'  => 'text',
