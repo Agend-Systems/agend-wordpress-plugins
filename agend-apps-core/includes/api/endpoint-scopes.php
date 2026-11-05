@@ -17,6 +17,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 return array(
+	'DELETE /cart/discount' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.manage' ) ),
+	),
 	'DELETE /crm/companies/{id}' => array(
 		'app'    => 'crm',
 		'scopes' => array( array( 'crm.companies.delete' ) ),
@@ -172,6 +176,10 @@ return array(
 	'GET /cart' => array(
 		'app'    => 'cart',
 		'scopes' => array( array( 'cart.items.browse' ) ),
+	),
+	'GET /cart/add-ons' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.manage' ) ),
 	),
 	'GET /cart/checkout-options' => array(
 		'app'    => 'cart',
@@ -454,6 +462,14 @@ return array(
 		'scopes' => array( array( 'events.tickets.browse' ) ),
 	),
 	'GET /jobs' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.listings.browse' ) ),
+	),
+	'GET /jobs/categories' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.listings.browse' ) ),
+	),
+	'GET /jobs/tags' => array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.listings.browse' ) ),
 	),
@@ -865,6 +881,10 @@ return array(
 		'app'    => 'cart',
 		'scopes' => array( array( 'cart.sessions.delete' ) ),
 	),
+	'POST /cart/discount' => array(
+		'app'    => 'cart',
+		'scopes' => array( array( 'cart.items.manage' ) ),
+	),
 	'POST /cart/items' => array(
 		'app'    => 'cart',
 		'scopes' => array( array( 'cart.items.manage' ) ),
@@ -1192,6 +1212,10 @@ return array(
 	'POST /webhooks/subscriptions/{id}/test' => array(
 		'app'    => 'webhooks',
 		'scopes' => array( array( 'webhooks.subscriptions.manage' ) ),
+	),
+	'POST /workflows/upbeat/record-refreshes' => array(
+		'app'    => 'workflows',
+		'scopes' => array( array( 'workflows.records.refresh' ) ),
 	),
 	'PUT /directory/listings/{slugOrId}' => array(
 		'app'    => 'directory',

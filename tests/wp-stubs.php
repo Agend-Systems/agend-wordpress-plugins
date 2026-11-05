@@ -1145,6 +1145,8 @@ function wp_remote_request( string $url, array $args = array() ) {
 	// builder returned it is not the same as proving it reached the wire.
 	Agend_Test_WP::$requests[] = array(
 		'url'     => $url,
+		'method'  => $args['method'] ?? null,
+		'timeout' => $args['timeout'] ?? null,
 		'headers' => $args['headers'] ?? array(),
 		'body'    => $args['body'] ?? null,
 	);
