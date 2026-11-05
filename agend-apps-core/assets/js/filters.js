@@ -757,7 +757,10 @@
     unavailable: 'Your location is unavailable. Check that Location Services are turned on, then try again.',
   };
 
-  // Nominatim, behind the gateway, allows about one lookup a second.
+  // Place search behind the gateway is Nominatim, whose one lookup a second
+  // is a single budget shared by every website and app, so one visitor's
+  // lookups are spaced here. The site's geocode route also refuses an address
+  // over its own per-minute limit, which lookup() shows as busy.
   var GEOCODE_MIN_INTERVAL_MS = 1500;
 
   function buildLocation(shell, cfg, ctx) {
