@@ -26,6 +26,31 @@ const AGEND_APPS_DIRECTORY_GEOCODE_PER_IP_LIMIT = 10;
 const AGEND_APPS_DIRECTORY_GEOCODE_PER_IP_WINDOW = 60;
 
 /**
+ * The address a visitor's place searches are counted against.
+ *
+ * An IPv4 address is its own bucket. An IPv6 address is counted against its
+ * /64 network: one connection is usually given a whole /64, so counting each
+ * address apart would let a single host pick a fresh address for every
+ * request and never reach the limit.
+ *
+ * @param string $ip The visitor's `REMOTE_ADDR`.
+ * @return string
+ */
+function agend_apps_directory_geocode_bucket( string $ip ): string {
+	if ( false !== filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+		$packed = inet_pton( $ip );
+		if ( false !== $packed ) {
+			$network = inet_ntop( substr( $packed, 0, 8 ) . str_repeat( "\0", 8 ) );
+			if ( false !== $network ) {
+				return $network . '/64';
+			}
+		}
+	}
+
+	return $ip;
+}
+
+/**
  * Counts one place search against a visitor address, and says whether it may
  * go ahead.
  *
@@ -48,7 +73,7 @@ const AGEND_APPS_DIRECTORY_GEOCODE_PER_IP_WINDOW = 60;
  *             address may search again.
  */
 function agend_apps_directory_geocode_throttle( string $ip, int $now ): int {
-	$key   = 'agend_apps_geocode_ip_' . wp_hash( $ip );
+	$key   = 'agend_apps_geocode_ip_' . wp_hash( agend_apps_directory_geocode_bucket( $ip ) );
 	$entry = get_transient( $key );
 
 	if ( ! is_array( $entry ) || ! isset( $entry['count'], $entry['reset'] ) || (int) $entry['reset'] <= $now ) {

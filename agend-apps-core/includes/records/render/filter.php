@@ -198,7 +198,8 @@ function agend_apps_records_filter_number( float $value ): string {
  * Mirrors buildLocation() in assets/js/filters.js node for node: a place
  * box and its Search button, the "Use my location" button, the radius
  * dropdown (only when there is more than one choice), a status line for
- * lookup errors, and the chip that names the active location.
+ * lookup errors, the chip that names the active location, and, with the
+ * place box, its OpenStreetMap credit.
  *
  * @param array $config   The filter config (see agend_apps_records_filter_config()).
  * @param bool  $disabled Draw every control disabled, as the live stand-in does.

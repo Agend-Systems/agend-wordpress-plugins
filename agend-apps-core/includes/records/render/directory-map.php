@@ -60,7 +60,9 @@ function agend_apps_records_directory_map_tiles(): array {
 	 * Filters the tile layer an Agend Map draws on.
 	 *
 	 * A site with another tile service swaps the URL here. The attribution is
-	 * shown on the map as HTML, so it must stay trusted markup.
+	 * shown on the map as HTML, so it must stay trusted markup. It credits the
+	 * tiles only: the Amazon Location Service credit for the pins is appended
+	 * after this filter, so do not add it here.
 	 *
 	 * @param array $tiles `url` (Leaflet template), `attribution`, `maxZoom`,
 	 *                     `maxNativeZoom` (defaults to `maxZoom`).

@@ -180,6 +180,38 @@ final class DirectoryGeocodeProxyLimitTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_count_every_address_in_one_ipv6_64_together_when_a_host_rotates_addresses(): void {
+		$now = 1_700_000_000;
+		for ( $i = 1; $i <= 10; $i++ ) {
+			$this->assertSame( 0, agend_apps_directory_geocode_throttle( '2001:db8:aa:1::' . dechex( $i ), $now ) );
+		}
+
+		$this->assertGreaterThan( 0, agend_apps_directory_geocode_throttle( '2001:db8:aa:1:ffff:ffff:ffff:ffff', $now ), 'a fresh address in the same /64 is refused' );
+		$this->assertSame( 0, agend_apps_directory_geocode_throttle( '2001:db8:aa:2::1', $now ), 'the next /64 is another visitor' );
+	}
+
+	#[Test]
+	public function should_bucket_an_ipv6_address_by_its_64_and_keep_an_ipv4_address_whole(): void {
+		$this->assertSame( '2001:db8:aa:1::/64', agend_apps_directory_geocode_bucket( '2001:db8:aa:1:1234:5678:9abc:def0' ) );
+		$this->assertSame( '2001:db8:aa:1::/64', agend_apps_directory_geocode_bucket( '2001:0db8:00aa:0001::1' ), 'every spelling of one network is one bucket' );
+		$this->assertSame( self::VISITOR, agend_apps_directory_geocode_bucket( self::VISITOR ) );
+		$this->assertSame( '', agend_apps_directory_geocode_bucket( '' ) );
+	}
+
+	#[Test]
+	public function should_refuse_a_rotating_ipv6_host_at_the_route_when_it_has_searched_ten_times(): void {
+		$this->queue_found_places( 10 );
+		for ( $i = 1; $i <= 10; $i++ ) {
+			$_SERVER['REMOTE_ADDR'] = '2001:db8:aa:1::' . dechex( $i );
+			$this->assertSame( 200, $this->geocode( 'Place ' . $i )->get_status() );
+		}
+
+		$_SERVER['REMOTE_ADDR'] = '2001:db8:aa:1::ff';
+		$this->assertSame( 429, $this->geocode( 'Place 11' )->get_status() );
+		$this->assertCount( 10, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
 	public function should_expire_the_counter_with_its_window_when_it_is_written(): void {
 		$now = 1_700_000_000;
 		agend_apps_directory_geocode_throttle( self::VISITOR, $now );
