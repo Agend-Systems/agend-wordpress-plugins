@@ -7,6 +7,8 @@ declare( strict_types=1 );
 
 namespace Agend\Tests\AppsCore;
 
+use Agend_Apps_Endpoint_Scopes;
+use Agend_Apps_Key_Scopes;
 use Agend_Apps_Logger;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
@@ -15,7 +17,10 @@ use PHPUnit\Framework\Attributes\Test;
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-apps-log-redactor.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-apps-log-store.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-apps-logger.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/health.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-api.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-endpoint-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/upbeat-record-refresh.php';
 require_once __DIR__ . '/fixtures/memory-log-store.php';
 
@@ -28,6 +33,12 @@ final class UpbeatRecordRefreshTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Agend_Apps_Logger::set_instance( new Agend_Apps_Logger( new MemoryLogStore() ) );
+		Agend_Apps_Endpoint_Scopes::set_map( null );
+	}
+
+	protected function tearDown(): void {
+		Agend_Apps_Endpoint_Scopes::set_map( null );
+		parent::tearDown();
 	}
 
 	/**
@@ -116,5 +127,38 @@ final class UpbeatRecordRefreshTest extends TestCase {
 		agend_apps_request_upbeat_record_refresh( ' ', '  ' );
 
 		$this->assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_send_nothing_when_the_key_is_known_to_lack_the_refresh_scope(): void {
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'directory.listings.browse' ), 'app_ids' => array() ) ) );
+
+		agend_apps_request_upbeat_record_refresh( 'members', 'M12345' );
+
+		$this->assertCount( 0, $this->refresh_requests() );
+		$rows = agend_apps_logger()->pending();
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'blocked', $rows[0]['outcome'] );
+		$this->assertSame( 'agend_apps_scope_missing', $rows[0]['error_code'] );
+	}
+
+	#[Test]
+	public function should_send_nothing_when_the_key_is_restricted_to_apps_other_than_workflows(): void {
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'workflows.records.refresh' ), 'app_ids' => array( 'directory' ) ) ) );
+
+		agend_apps_request_upbeat_record_refresh( 'members', 'M12345' );
+
+		$this->assertCount( 0, $this->refresh_requests() );
+		$this->assertSame( 'agend_apps_app_not_allowed', agend_apps_logger()->pending()[0]['error_code'] );
+	}
+
+	#[Test]
+	public function should_send_the_refresh_when_the_key_holds_the_scope_and_the_workflows_app(): void {
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'workflows.records.refresh' ), 'app_ids' => array( 'directory', 'workflows' ) ) ) );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array() ) );
+
+		agend_apps_request_upbeat_record_refresh( 'members', 'M12345' );
+
+		$this->assertCount( 1, $this->refresh_requests() );
 	}
 }
