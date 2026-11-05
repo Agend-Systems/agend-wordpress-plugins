@@ -72,7 +72,8 @@ function agend_apps_directory_geocode_bucket( string $ip ): string {
  * cache unbounded.
  *
  * The address is first reduced to its bucket
- * (agend_apps_directory_geocode_bucket(): an IPv6 address to its /64). The
+ * (agend_apps_directory_geocode_bucket(): an IPv6 address to its /64, an
+ * IPv4-mapped address to its IPv4 address). The
  * transient key holds wp_hash() of that bucket, never the address: the hash
  * is salted with the site's own keys, so the stored key cannot be turned back
  * into an address by trying every IPv4 address.

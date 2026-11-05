@@ -205,6 +205,15 @@ final class DirectoryGeocodeProxyLimitTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_keep_an_embedded_ipv4_on_the_64_path_when_the_address_is_not_ipv4_mapped(): void {
+		// Only ::ffff:0:0/96 is unpacked; any looser test would let a client
+		// choose the IPv4 bucket it is counted against.
+		$this->assertSame( '::/64', agend_apps_directory_geocode_bucket( '::203.0.113.7' ) );
+		$this->assertSame( '::/64', agend_apps_directory_geocode_bucket( '::ffff:0:203.0.113.7' ) );
+		$this->assertSame( '64:ff9b::/64', agend_apps_directory_geocode_bucket( '64:ff9b::203.0.113.7' ) );
+	}
+
+	#[Test]
 	public function should_keep_two_ipv4_visitors_apart_when_both_arrive_ipv4_mapped(): void {
 		$now = 1_700_000_000;
 		for ( $i = 0; $i < 10; $i++ ) {
