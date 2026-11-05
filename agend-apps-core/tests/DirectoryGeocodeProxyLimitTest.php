@@ -199,6 +199,23 @@ final class DirectoryGeocodeProxyLimitTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_count_an_ipv4_mapped_address_as_its_ipv4_address_when_a_dual_stack_socket_reports_it(): void {
+		$this->assertSame( self::VISITOR, agend_apps_directory_geocode_bucket( '::ffff:203.0.113.7' ) );
+		$this->assertSame( self::VISITOR, agend_apps_directory_geocode_bucket( '::FFFF:CB00:7107' ), 'the hex spelling is the same address' );
+	}
+
+	#[Test]
+	public function should_keep_two_ipv4_visitors_apart_when_both_arrive_ipv4_mapped(): void {
+		$now = 1_700_000_000;
+		for ( $i = 0; $i < 10; $i++ ) {
+			$this->assertSame( 0, agend_apps_directory_geocode_throttle( '::ffff:203.0.113.7', $now ) );
+		}
+
+		$this->assertGreaterThan( 0, agend_apps_directory_geocode_throttle( '203.0.113.7', $now ), 'the plain spelling of the same visitor shares the counter' );
+		$this->assertSame( 0, agend_apps_directory_geocode_throttle( '::ffff:198.51.100.9', $now ), 'another IPv4 visitor is not refused' );
+	}
+
+	#[Test]
 	public function should_refuse_a_rotating_ipv6_host_at_the_route_when_it_has_searched_ten_times(): void {
 		$this->queue_found_places( 10 );
 		for ( $i = 1; $i <= 10; $i++ ) {

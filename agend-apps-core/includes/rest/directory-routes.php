@@ -33,12 +33,23 @@ const AGEND_APPS_DIRECTORY_GEOCODE_PER_IP_WINDOW = 60;
  * address apart would let a single host pick a fresh address for every
  * request and never reach the limit.
  *
+ * An IPv4-mapped address (`::ffff:203.0.113.7`, as a dual-stack socket
+ * reports an IPv4 client) is counted against the IPv4 address it carries.
+ * Its first 64 bits are zero, so as IPv6 every IPv4 visitor would share one
+ * bucket.
+ *
  * @param string $ip The visitor's `REMOTE_ADDR`.
  * @return string
  */
 function agend_apps_directory_geocode_bucket( string $ip ): string {
 	if ( false !== filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
 		$packed = inet_pton( $ip );
+		if ( false !== $packed && str_repeat( "\0", 10 ) . "\xff\xff" === substr( $packed, 0, 12 ) ) {
+			$ipv4 = inet_ntop( substr( $packed, 12 ) );
+			if ( false !== $ipv4 ) {
+				return $ipv4;
+			}
+		}
 		if ( false !== $packed ) {
 			$network = inet_ntop( substr( $packed, 0, 8 ) . str_repeat( "\0", 8 ) );
 			if ( false !== $network ) {
@@ -60,9 +71,11 @@ function agend_apps_directory_geocode_bucket( string $ip ): string {
  * counts, cached places included, so the route cannot be used to probe the
  * cache unbounded.
  *
- * The transient key holds wp_hash() of the address, never the address: the
- * hash is salted with the site's own keys, so the stored key cannot be turned
- * back into an address by trying every IPv4 address.
+ * The address is first reduced to its bucket
+ * (agend_apps_directory_geocode_bucket(): an IPv6 address to its /64). The
+ * transient key holds wp_hash() of that bucket, never the address: the hash
+ * is salted with the site's own keys, so the stored key cannot be turned back
+ * into an address by trying every IPv4 address.
  *
  * Two concurrent requests can read the same count, so a burst can overshoot
  * the limit by the requests in flight. Transients offer no atomic increment.
