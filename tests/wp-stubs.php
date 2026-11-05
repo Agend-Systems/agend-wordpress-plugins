@@ -2262,6 +2262,22 @@ if ( ! function_exists( 'rest_sanitize_boolean' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_parse_list' ) ) {
+	/**
+	 * Matches WordPress: a string splits on commas and whitespace, an array
+	 * keeps its scalar entries.
+	 *
+	 * @param array|string $input_list List of values.
+	 * @return array
+	 */
+	function wp_parse_list( $input_list ): array {
+		if ( ! is_array( $input_list ) ) {
+			return preg_split( '/[\s,]+/', (string) $input_list, -1, PREG_SPLIT_NO_EMPTY );
+		}
+		return array_filter( $input_list, 'is_scalar' );
+	}
+}
+
 if ( ! function_exists( 'get_post' ) ) {
 	/**
 	 * Post lookup stub, backed by a global registry of field arrays.

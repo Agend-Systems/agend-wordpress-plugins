@@ -26,7 +26,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Scope: `jobs.listings.browse`. Cached.
  *
- * @param array $query Optional. Query parameters (camelCase): `page`, `limit`, `search`, `sortBy`, `sortOrder`, date filters. Default empty.
+ * @param array $query Optional. Query parameters (camelCase): `page`, `limit`, `search`, `sortBy`, `sortOrder`,
+ *                     `state`, `postedAfter`, `featuredOnly`, `featuredFirst`, and the list filters `category`,
+ *                     `tag`, `type`, `locationType` and `experienceLevel` supplied as arrays. Default empty.
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
 function agend_apps_jobs_get_jobs( array $query = array() ) {
@@ -36,9 +38,29 @@ function agend_apps_jobs_get_jobs( array $query = array() ) {
 	 * @param array $args  Request args.
 	 * @param array $query Original query parameters.
 	 */
+	// List-valued filters (category, tag, type, locationType,
+	// experienceLevel) repeat on the gateway; split them out so the client
+	// sends repeated bare keys rather than PHP-style brackets.
+	$scalar = array();
+	$multi  = array();
+
+	foreach ( $query as $key => $value ) {
+		if ( is_array( $value ) ) {
+			$multi[ $key ] = array_values( $value );
+		} else {
+			$scalar[ $key ] = $value;
+		}
+	}
+
+	$request_args = array( 'query' => $scalar );
+
+	if ( $multi ) {
+		$request_args['query_multi'] = $multi;
+	}
+
 	$args = (array) apply_filters(
 		'agend_apps_jobs_get_jobs_args',
-		array( 'query' => $query ),
+		$request_args,
 		$query
 	);
 
@@ -93,4 +115,51 @@ function agend_apps_jobs_get_job( string $slug_or_id ) {
 	 * @param string $slug_or_id Job slug or UUID.
 	 */
 	return apply_filters( 'agend_apps_jobs_get_job_response', $response, $slug_or_id );
+}
+
+/**
+ * Lists the account's active job categories, in the board's display order.
+ *
+ * Scope: `jobs.listings.browse`. Cached.
+ *
+ * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
+ */
+function agend_apps_jobs_get_categories() {
+	return agend_apps_jobs_get_terms( 'categories' );
+}
+
+/**
+ * Lists the account's active job tags.
+ *
+ * Scope: `jobs.listings.browse`. Cached.
+ *
+ * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
+ */
+function agend_apps_jobs_get_tags() {
+	return agend_apps_jobs_get_terms( 'tags' );
+}
+
+/**
+ * Reads one of the jobs board's term lists.
+ *
+ * @param string $kind `categories` or `tags`.
+ * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
+ */
+function agend_apps_jobs_get_terms( string $kind ) {
+	$cache_key = Agend_Apps_Cache::build_key( 'jobs_terms', array( 'kind' => $kind ) );
+	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'jobs_terms' );
+
+	$response = agend_apps_api()->get_cached( '/jobs/' . $kind, array(), $cache_key, $ttl );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters a decoded jobs term list (categories or tags) before it is returned.
+	 *
+	 * @param array  $response Decoded response body.
+	 * @param string $kind     `categories` or `tags`.
+	 */
+	return apply_filters( 'agend_apps_jobs_get_terms_response', $response, $kind );
 }

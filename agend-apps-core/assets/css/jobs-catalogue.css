@@ -86,6 +86,125 @@
   outline-offset: 1px;
 }
 
+/* A filter that takes several values: a checkbox list in a disclosure. */
+.agend-jobs-catalogue .agend-jobs-choices {
+  position: relative;
+  flex: 0 1 200px;
+}
+
+.agend-jobs-catalogue .agend-jobs-choices__summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.6rem 2rem 0.6rem 0.85rem;
+  border: 1px solid #d7dbe6;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: #fff;
+  color: var(--agend-jobs-body);
+  min-height: 2.6rem;
+  box-sizing: border-box;
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agend-jobs-catalogue .agend-jobs-choices__summary::-webkit-details-marker {
+  display: none;
+}
+
+.agend-jobs-catalogue .agend-jobs-choices__summary::after {
+  content: '';
+  position: absolute;
+  right: 0.85rem;
+  top: 50%;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-70%) rotate(45deg);
+  opacity: 0.6;
+}
+
+.agend-jobs-catalogue .agend-jobs-choices__summary:focus-visible {
+  outline: 2px solid var(--agend-jobs-accent);
+  outline-offset: 1px;
+}
+
+.agend-jobs-catalogue .agend-jobs-choices__list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.4rem 0;
+  background: #fff;
+  border: 1px solid #d7dbe6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(30, 42, 74, 0.12);
+}
+
+.agend-jobs-catalogue .agend-jobs-choices__option,
+.agend-jobs-catalogue .agend-jobs-tagchecks__option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agend-jobs-catalogue .agend-jobs-choices__option:hover {
+  background: #f4f6fa;
+}
+
+.agend-jobs-catalogue .agend-jobs-choices__option input,
+.agend-jobs-catalogue .agend-jobs-tagchecks__option input {
+  margin: 0;
+  accent-color: var(--agend-jobs-accent);
+}
+
+/* A tag filter shown as checkboxes: each ticked tag must match. */
+.agend-jobs-catalogue .agend-jobs-tagchecks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  min-height: 2.6rem;
+}
+
+.agend-jobs-catalogue .agend-jobs-tagchecks__legend {
+  padding: 0 0.25rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.agend-jobs-catalogue .agend-jobs-tagchecks__list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.agend-jobs-catalogue .agend-jobs-tagchecks__option {
+  padding-left: 0.25rem;
+}
+
+/* Themes give labels a bottom margin that knocks the row out of line. */
+.agend-jobs-catalogue .agend-jobs-choices__option,
+.agend-jobs-catalogue .agend-jobs-tagchecks__option,
+.agend-jobs-catalogue .agend-jobs-tagchecks__legend {
+  margin: 0;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .agend-jobs-catalogue .agend-jobs-choices {
+    flex: 1 1 100%;
+  }
+}
+
 .agend-jobs-count {
   margin: 0 0 0.75rem;
   font-size: 0.9rem;

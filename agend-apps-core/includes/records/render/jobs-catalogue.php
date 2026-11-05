@@ -35,6 +35,52 @@ function agend_apps_records_jobs_catalogue_sorts(): array {
 }
 
 /**
+ * The states a board's state filter offers, from the comma-separated setting.
+ *
+ * @param string $setting The "States offered" setting.
+ * @return string[]
+ */
+function agend_apps_records_jobs_catalogue_states( string $setting ): array {
+	$states = array();
+	foreach ( explode( ',', $setting ) as $state ) {
+		$state = trim( sanitize_text_field( $state ) );
+		if ( '' !== $state && strlen( $state ) <= 60 && ! isset( $states[ strtolower( $state ) ] ) ) {
+			$states[ strtolower( $state ) ] = $state;
+		}
+	}
+	return array_values( $states );
+}
+
+/**
+ * The board's tag filters: one per repeater row that names at least one tag.
+ * A dropdown row lets the visitor pick one of its tags; a checkboxes row
+ * offers each tag on its own. The gateway keeps a job only when it carries
+ * every tag the visitor sets, across all rows.
+ *
+ * @param mixed $rows The `tag_filters` repeater value.
+ * @return array<int, array{label: string, style: string, tags: string[]}>
+ */
+function agend_apps_records_jobs_catalogue_tag_filters( $rows ): array {
+	$filters = array();
+	foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+		if ( ! is_array( $row ) ) {
+			continue;
+		}
+		$tags = array_values( array_unique( array_filter( array_map( 'sanitize_title', array_map( 'strval', (array) ( $row['tags'] ?? array() ) ) ) ) ) );
+		if ( array() === $tags ) {
+			continue;
+		}
+		$label     = trim( (string) ( $row['label'] ?? '' ) );
+		$filters[] = array(
+			'label' => '' !== $label ? $label : __( 'Tags', 'agend-apps-core' ),
+			'style' => 'checkboxes' === ( $row['style'] ?? '' ) ? 'checkboxes' : 'select',
+			'tags'  => $tags,
+		);
+	}
+	return $filters;
+}
+
+/**
  * Builds the client-side config object from the surface settings.
  *
  * @param array $s Surface settings (Elementor-shaped values: toggles are 'yes'/'').
@@ -57,6 +103,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 	};
 
 	$category = sanitize_title( (string) ( $s['category'] ?? '' ) );
+	$states   = agend_apps_records_jobs_catalogue_states( (string) ( $s['state_options'] ?? 'ACT, NSW, NT, QLD, SA, TAS, VIC, WA' ) );
 	$layout   = 'grid' === ( $s['layout_style'] ?? 'list' ) ? 'grid' : 'list';
 	$apply    = trim( (string) ( $s['apply_label'] ?? '' ) );
 
@@ -67,7 +114,8 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'subtitle' => (string) ( $s['subheading_text'] ?? '' ),
 		),
 		'listing'    => array(
-			'featuredOnly' => $on( 'featured_only', '' ),
+			'featuredOnly'  => $on( 'featured_only', '' ),
+			'featuredFirst' => $on( 'featured_first' ),
 			'category'     => $category,
 			'sortBy'       => $sorts[ $sort ][0],
 			'sortOrder'    => $sorts[ $sort ][1],
@@ -94,12 +142,18 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'closingDate'     => $on( 'show_closing_date' ),
 		),
 		'filters'    => array(
-			'search'   => $on( 'show_search' ),
+			'search'          => $on( 'show_search' ),
 			// A board pinned to one category has nothing to choose between.
-			'category' => '' === $category && $on( 'show_category_filter' ),
-			'type'     => $on( 'show_type_filter' ),
-			'experience' => $on( 'show_experience_filter' ),
-			'location' => $on( 'show_location_filter' ),
+			'category'        => '' === $category && $on( 'show_category_filter' ),
+			'type'            => $on( 'show_type_filter' ),
+			'experience'      => $on( 'show_experience_filter' ),
+			'workArrangement' => $on( 'show_work_arrangement_filter' ),
+			'multiple'        => $on( 'allow_multiple', '' ),
+			'state'           => $on( 'show_state_filter', '' ) && array() !== $states,
+			'states'          => $states,
+			'posted'          => $on( 'show_posted_filter', '' ),
+			'location'        => $on( 'show_location_filter' ),
+			'tags'            => agend_apps_records_jobs_catalogue_tag_filters( $s['tag_filters'] ?? array() ),
 		),
 		'detail'     => array(
 			'applyLabel'   => '' !== $apply ? $apply : __( 'Apply now', 'agend-apps-core' ),

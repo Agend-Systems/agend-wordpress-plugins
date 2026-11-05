@@ -66,9 +66,52 @@ final class JobsRestQueryTest extends TestCase {
 
 		$this->assertCount( 1, Agend_Test_WP::$requests );
 		$query = array();
-		parse_str( (string) parse_url( Agend_Test_WP::$requests[0]['url'], PHP_URL_QUERY ), $query );
+		parse_str( $this->last_query_string(), $query );
 
 		return $query;
+	}
+
+	/**
+	 * The raw query string of the last gateway request, where a repeated key
+	 * is still repeated (parse_str keeps only the last one).
+	 *
+	 * @return string
+	 */
+	private function last_query_string(): string {
+		return (string) parse_url( Agend_Test_WP::$requests[0]['url'], PHP_URL_QUERY );
+	}
+
+	/**
+	 * Each `name=value` pair of the last gateway request, decoded, in order.
+	 *
+	 * @return array<int, array{0: string, 1: string}>
+	 */
+	private function last_query_pairs(): array {
+		$pairs = array();
+		foreach ( explode( '&', $this->last_query_string() ) as $pair ) {
+			if ( '' === $pair ) {
+				continue;
+			}
+			[ $name, $value ] = array_pad( explode( '=', $pair, 2 ), 2, '' );
+			$pairs[]          = array( rawurldecode( $name ), rawurldecode( $value ) );
+		}
+		return $pairs;
+	}
+
+	/**
+	 * The values sent for one repeated key.
+	 *
+	 * @param string $name Parameter name.
+	 * @return string[]
+	 */
+	private function sent( string $name ): array {
+		$values = array();
+		foreach ( $this->last_query_pairs() as [ $key, $value ] ) {
+			if ( $key === $name ) {
+				$values[] = $value;
+			}
+		}
+		return $values;
 	}
 
 	/**
@@ -134,7 +177,7 @@ final class JobsRestQueryTest extends TestCase {
 	public function should_validate_each_filter_since_a_sanitize_callback_switches_off_the_default_check(): void {
 		$args = $this->list_args();
 
-		foreach ( array( 'sortBy', 'sortOrder', 'category', 'location', 'type', 'experienceLevel' ) as $name ) {
+		foreach ( array( 'sortBy', 'sortOrder', 'category', 'tag', 'location', 'state', 'type', 'locationType', 'experienceLevel', 'postedWithin' ) as $name ) {
 			self::assertSame( 'rest_validate_request_arg', $args[ $name ]['validate_callback'] ?? null, $name );
 		}
 	}
@@ -147,7 +190,7 @@ final class JobsRestQueryTest extends TestCase {
 		$callback = $this->list_args()['category']['sanitize_callback'];
 
 		self::assertNotSame( 'sanitize_title', $callback );
-		self::assertSame( '', call_user_func( $callback, '', new WP_REST_Request(), 'category' ) );
+		self::assertSame( array(), call_user_func( $callback, '', new WP_REST_Request(), 'category' ) );
 	}
 
 	#[Test]
@@ -155,5 +198,83 @@ final class JobsRestQueryTest extends TestCase {
 		$query = $this->gateway_query_for( array( 'account_id' => 'someone-else' ) );
 
 		self::assertArrayNotHasKey( 'account_id', $query );
+	}
+
+	#[Test]
+	public function should_send_each_value_of_a_list_filter_as_a_repeated_key(): void {
+		$this->gateway_query_for(
+			array(
+				'category'        => array( 'audit', 'accounting' ),
+				'tag'             => 'salary-120k-plus,accreditation-required',
+				'type'            => 'full-time,part-time',
+				'locationType'    => array( 'hybrid', 'remote' ),
+				'experienceLevel' => array( 'mid', 'senior' ),
+			)
+		);
+
+		self::assertSame( array( 'audit', 'accounting' ), $this->sent( 'category' ) );
+		self::assertSame( array( 'salary-120k-plus', 'accreditation-required' ), $this->sent( 'tag' ) );
+		self::assertSame( array( 'full-time', 'part-time' ), $this->sent( 'type' ) );
+		self::assertSame( array( 'hybrid', 'remote' ), $this->sent( 'locationType' ) );
+		self::assertSame( array( 'mid', 'senior' ), $this->sent( 'experienceLevel' ) );
+		// Never PHP's bracketed form, which the gateway does not read.
+		self::assertStringNotContainsString( '[', rawurldecode( $this->last_query_string() ) );
+	}
+
+	#[Test]
+	public function should_drop_a_value_outside_a_fixed_list_and_a_repeated_value(): void {
+		$this->gateway_query_for(
+			array(
+				'type' => array( 'full-time', 'volunteer', 'full-time' ),
+			)
+		);
+
+		self::assertSame( array( 'full-time' ), $this->sent( 'type' ) );
+	}
+
+	#[Test]
+	public function should_cap_each_list_filter_at_what_the_gateway_accepts(): void {
+		$args = $this->list_args();
+
+		foreach ( array( 'category', 'tag', 'type', 'locationType', 'experienceLevel' ) as $name ) {
+			self::assertSame( 'array', $args[ $name ]['type'], $name );
+			self::assertSame( Agend_Apps_Jobs_REST_Controller::LIST_FILTER_MAX_VALUES, $args[ $name ]['maxItems'], $name );
+		}
+		self::assertSame( 20, Agend_Apps_Jobs_REST_Controller::LIST_FILTER_MAX_VALUES );
+	}
+
+	#[Test]
+	public function should_forward_the_state_and_featured_first(): void {
+		$query = $this->gateway_query_for(
+			array(
+				'state'         => 'NSW',
+				'featuredFirst' => 'true',
+			)
+		);
+
+		self::assertSame( 'NSW', $query['state'] ?? null );
+		self::assertSame( 'true', $query['featuredFirst'] ?? null );
+	}
+
+	#[Test]
+	public function should_leave_featured_first_out_when_it_is_false(): void {
+		$query = $this->gateway_query_for( array( 'featuredFirst' => 'false' ) );
+
+		self::assertArrayNotHasKey( 'featuredFirst', $query );
+	}
+
+	#[Test]
+	public function should_turn_posted_within_into_the_gateway_posted_after_date_at_midnight(): void {
+		$query = $this->gateway_query_for( array( 'postedWithin' => '7' ) );
+
+		self::assertArrayNotHasKey( 'postedWithin', $query );
+		self::assertSame( gmdate( 'Y-m-d\T00:00:00\Z', time() - 7 * DAY_IN_SECONDS ), $query['postedAfter'] ?? null );
+	}
+
+	#[Test]
+	public function should_ignore_a_posted_within_the_board_does_not_offer(): void {
+		$query = $this->gateway_query_for( array( 'postedWithin' => '5' ) );
+
+		self::assertArrayNotHasKey( 'postedAfter', $query );
 	}
 }
