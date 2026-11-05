@@ -285,4 +285,12 @@ final class ApiLogRedactorTest extends TestCase {
 		$this->assertFalse( Agend_Apps_Log_Redactor::is_body_excluded( '/v1/crm/me' ) );
 		$this->assertTrue( Agend_Apps_Log_Redactor::is_body_excluded( '/v1/crm/me', array( '/crm/me' ) ) );
 	}
+
+	#[Test]
+	public function should_redact_a_record_refresh_lookup_value_when_it_identifies_a_member(): void {
+		$out = json_decode( $this->redactor()->redact_body( '{"resource_path":"members","lookup_value":"M12345"}', 'application/json' ), true );
+
+		$this->assertSame( 'members', $out['resource_path'] );
+		$this->assertStringStartsWith( '[redacted:ref#', $out['lookup_value'] );
+	}
 }
