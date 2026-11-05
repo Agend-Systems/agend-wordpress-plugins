@@ -13,7 +13,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Longest the member's request waits for the gateway to answer.
+ * Longest the member's request waits for the gateway to answer. A filter that
+ * replaces the request's `timeout` widens that wait.
  */
 const AGEND_APPS_RECORD_REFRESH_TIMEOUT_SECONDS = 3;
 
@@ -48,14 +49,19 @@ function agend_apps_request_upbeat_record_refresh( string $resource_path, string
 				'lookup_value'  => $lookup_value,
 			),
 			'timeout'    => AGEND_APPS_RECORD_REFRESH_TIMEOUT_SECONDS,
-			'unattended' => true,
-			// A refused or slow refresh must not become the site-wide
-			// rate-limit state that stops every other call.
+			// No member token, and no bearer resolver in the member's request.
+			'unattended'          => true,
+			// The member's save must never be refused by stale local
+			// rate-limit state; the gateway's own answer is logged instead.
 			'isolated_rate_limit' => true,
+			// A stale "scope missing" verdict is acted on without the
+			// synchronous /health recheck, which would exceed the timeout.
+			'scope_recheck'       => false,
 		);
 
 		/**
 		 * Filters the record refresh request args before the request is sent.
+		 * `timeout` bounds how long the member's save waits.
 		 *
 		 * @param array  $args          Request args.
 		 * @param string $resource_path Upbeat resource path.
@@ -65,8 +71,11 @@ function agend_apps_request_upbeat_record_refresh( string $resource_path, string
 
 		agend_apps_api()->request( 'POST', '/workflows/upbeat/record-refreshes', $args );
 	} catch ( \Throwable $e ) {
-		// The API client has already logged any exchange it made; nothing
-		// here may reach the caller.
-		return;
+		// The API client logs every exchange it makes, but a throw from a
+		// filter or the logger happens before one. Nothing may reach the caller.
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			error_log( '[Agend Apps] Upbeat record refresh failed: ' . get_class( $e ) . ': ' . $e->getMessage() );
+		}
 	}
 }

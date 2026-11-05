@@ -91,13 +91,21 @@ class Agend_Apps_API {
 	 *                                (no JSON decoding) as an array with `body`, `status_code`,
 	 *                                `content_type`, and `content_disposition` keys. For
 	 *                                non-JSON payloads such as iCal files. Default false.
-	 *     @type bool   $unattended   Internal use only. When true, skips the bearer resolver
-	 *                                entirely (no Authorization header is sent), even though
-	 *                                `bearer_token` was not supplied. Used by the internal
-	 *                                401/403-on-GET retry below; callers should not set this.
+	 *     @type bool   $unattended   When true, skips the bearer resolver entirely (no
+	 *                                Authorization header is sent), even though `bearer_token`
+	 *                                was not supplied. Set by the internal 401/403-on-GET retry
+	 *                                below, and by site-initiated calls that must never carry a
+	 *                                member token or wait on the resolver (the key scope refresh,
+	 *                                the Upbeat record refresh).
 	 *     @type bool   $isolated_rate_limit When true, the call neither obeys nor updates the
 	 *                                site-wide rate-limit state: for a route with its own
-	 *                                gateway bucket, such as a visitor's enquiry.
+	 *                                gateway bucket, such as a visitor's enquiry, or a call that
+	 *                                must never be refused by stale local state, such as the
+	 *                                Upbeat record refresh.
+	 *     @type bool   $scope_recheck Default true. When false, a stale stored verdict that the
+	 *                                key lacks the endpoint's scope or app is acted on without the
+	 *                                synchronous `/health` recheck, so a caller with a tight time
+	 *                                budget never waits on it. The next ordinary call rechecks.
 	 *     @type bool   $bearer_auto_resolved Internal use only. Set by `get_cached()` when the
 	 *                                `bearer_token` it passes came from the shared resolver.
 	 *     @type bool   $bearer_resolved Internal use only. Set by `get_cached()` when the shared
@@ -302,7 +310,7 @@ class Agend_Apps_API {
 		// 8b. Refuse a call the stored key is known not to be allowed to make.
 		// The gateway would answer 403 anyway; refusing here saves the round
 		// trip, and the log row says why a developer got nothing back.
-		$refusal = $this->unauthorised_call( $method, $path );
+		$refusal = $this->unauthorised_call( $method, $path, ! isset( $args['scope_recheck'] ) || false !== $args['scope_recheck'] );
 
 		if ( null !== $refusal ) {
 			$this->log_exchange( $method, $url, $request_args, $bearer_token, $args, null, null, 'blocked', null, $refusal['code'], $refusal['message'] );
@@ -627,11 +635,12 @@ class Agend_Apps_API {
 	 * {@see Agend_Apps_Key_Scopes::RECHECK_AFTER}, one throttled refresh is
 	 * made and the verdict re-evaluated against it.
 	 *
-	 * @param string $method HTTP method.
-	 * @param string $path   Relative path, as filtered.
+	 * @param string $method  HTTP method.
+	 * @param string $path    Relative path, as filtered.
+	 * @param bool   $recheck Whether a stale refusal may be rechecked against the gateway first.
 	 * @return array{code: string, message: string, missing: string[], app: string}|null Null to send.
 	 */
-	private function unauthorised_call( string $method, string $path ): ?array {
+	private function unauthorised_call( string $method, string $path, bool $recheck = true ): ?array {
 		if ( ! class_exists( 'Agend_Apps_Key_Scopes' ) || ! class_exists( 'Agend_Apps_Endpoint_Scopes' ) ) {
 			return null;
 		}
@@ -674,7 +683,7 @@ class Agend_Apps_API {
 
 		$age = time() - Agend_Apps_Key_Scopes::fetched_at();
 
-		if ( $age >= Agend_Apps_Key_Scopes::RECHECK_AFTER && false === get_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT ) ) {
+		if ( $recheck && $age >= Agend_Apps_Key_Scopes::RECHECK_AFTER && false === get_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT ) ) {
 			// Set first, so a failing gateway is not asked again for five
 			// minutes either.
 			set_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT, 1, Agend_Apps_Key_Scopes::RECHECK_AFTER );

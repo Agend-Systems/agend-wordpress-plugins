@@ -161,4 +161,34 @@ final class UpbeatRecordRefreshTest extends TestCase {
 
 		$this->assertCount( 1, $this->refresh_requests() );
 	}
+
+	#[Test]
+	public function should_refuse_without_a_scope_recheck_when_the_stored_scopes_are_stale(): void {
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'directory.listings.browse' ), 'app_ids' => array() ) ) );
+		$stored               = get_option( Agend_Apps_Key_Scopes::OPTION );
+		$stored['fetched_at'] = time() - 10 * MINUTE_IN_SECONDS;
+		update_option( Agend_Apps_Key_Scopes::OPTION, $stored );
+
+		agend_apps_request_upbeat_record_refresh( 'members', 'M12345' );
+
+		$this->assertCount( 0, Agend_Test_WP::$requests, 'neither the /health recheck nor the refresh goes out' );
+		$this->assertSame( 'agend_apps_scope_missing', agend_apps_logger()->pending()[0]['error_code'] );
+	}
+
+	#[Test]
+	public function should_send_no_member_token_when_a_member_is_logged_in(): void {
+		add_filter(
+			'agend_apps_bearer_token',
+			static function (): string {
+				return 'member.jwt.token';
+			}
+		);
+		Agend_Test_WP::queue_response( 200, array( 'data' => array() ) );
+
+		agend_apps_request_upbeat_record_refresh( 'members', 'M12345' );
+
+		$requests = $this->refresh_requests();
+		$this->assertCount( 1, $requests );
+		$this->assertArrayNotHasKey( 'Authorization', $requests[0]['headers'] );
+	}
 }
