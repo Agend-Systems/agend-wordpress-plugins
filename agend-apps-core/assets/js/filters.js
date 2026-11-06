@@ -757,7 +757,10 @@
     unavailable: 'Your location is unavailable. Check that Location Services are turned on, then try again.',
   };
 
-  // Nominatim, behind the gateway, allows about one lookup a second.
+  // Place search behind the gateway is Nominatim, whose one lookup a second
+  // is a single budget shared by every website and app, so one visitor's
+  // lookups are spaced here. The site's geocode route also refuses an address
+  // over its own per-minute limit, which lookup() shows as busy.
   var GEOCODE_MIN_INTERVAL_MS = 1500;
 
   function buildLocation(shell, cfg, ctx) {
@@ -772,6 +775,7 @@
     var chip = wrap.querySelector('.agend-filter__location-chip');
     var chipText = wrap.querySelector('.agend-filter__location-chip-text');
     var clearBtn = wrap.querySelector('.agend-filter__location-clear');
+    var credit = wrap.querySelector('.agend-filter__location-credit');
     if (!status || !chip || !chipText || !clearBtn) {
       // Markup older than this control: nothing to adopt, and inventing it
       // here would drift from the server-drawn version.
@@ -784,6 +788,16 @@
     function currentRadius() {
       var value = radiusSel ? Number(radiusSel.value) : Number(opts.radius);
       return isFinite(value) && value > 0 ? value : radii[0];
+    }
+
+    // The OpenStreetMap credit belongs to the place box, so it goes with it.
+    function hideSearch() {
+      if (searchRow) {
+        searchRow.hidden = true;
+      }
+      if (credit) {
+        credit.hidden = true;
+      }
     }
 
     function say(message) {
@@ -851,9 +865,7 @@
           } else if (code === 403) {
             // The account does not include place search after all; the
             // button still works.
-            if (searchRow) {
-              searchRow.hidden = true;
-            }
+            hideSearch();
             say('');
           } else if (code === 429 || code === 503) {
             say(GEO_MESSAGES.busy);
@@ -978,7 +990,7 @@
     if (searchRow && opts.search) {
       return mapSettings(ctx).then(function (settings) {
         if (settings && settings.geocoding_available === false) {
-          searchRow.hidden = true;
+          hideSearch();
           if (!locateBtn) {
             shell.hidden = true;
           }

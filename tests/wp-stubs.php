@@ -2170,6 +2170,13 @@ if ( ! function_exists( 'wp_salt' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_hash' ) ) {
+	/** Core's contract: an HMAC of the data under the scheme's salt. */
+	function wp_hash( $data, string $scheme = 'auth', string $algo = 'md5' ): string {
+		return hash_hmac( $algo, (string) $data, wp_salt( $scheme ) );
+	}
+}
+
 if ( ! function_exists( 'delete_user_meta' ) ) {
 	function delete_user_meta( int $user_id, string $key ): bool {
 		unset( $GLOBALS['agend_test_user_meta'][ $user_id ][ $key ] );
