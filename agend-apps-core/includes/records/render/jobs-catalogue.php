@@ -19,6 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
 require_once __DIR__ . '/../jobs-visibility.php';
+require_once __DIR__ . '/../filters.php';
 
 /**
  * The sort orders the jobs catalogue offers, as gateway `sortBy`/`sortOrder`.
@@ -31,6 +32,83 @@ function agend_apps_records_jobs_catalogue_sorts(): array {
 		'expires_at:asc'    => array( 'expires_at', 'asc' ),
 		'title:asc'         => array( 'title', 'asc' ),
 		'salary_max:desc'   => array( 'salary_max', 'desc' ),
+	);
+}
+
+/**
+ * The orders a visitor's sort dropdown offers, as value to label. `distance`
+ * is not listed: the script adds "Nearest" once the visitor has set a
+ * location, since the gateway refuses it without one.
+ *
+ * @return array<string, string>
+ */
+function agend_apps_records_jobs_catalogue_visitor_sorts(): array {
+	return array(
+		'published_at:desc' => __( 'Newest first', 'agend-apps-core' ),
+		'expires_at:asc'    => __( 'Closing soonest', 'agend-apps-core' ),
+		'title:asc'         => __( 'Title, A to Z', 'agend-apps-core' ),
+	);
+}
+
+/**
+ * The sort dropdown's options. The board's own order setting always leads,
+ * even when it is one a visitor could not otherwise pick (highest salary), so
+ * the dropdown opens on the order the board is actually in.
+ *
+ * @param string $default The board's `sort` setting, as `sortBy:sortOrder`.
+ * @return array<int, array{value: string, label: string}>
+ */
+function agend_apps_records_jobs_catalogue_sort_options( string $default ): array {
+	$labels = agend_apps_records_jobs_catalogue_visitor_sorts() + array( 'salary_max:desc' => __( 'Highest salary', 'agend-apps-core' ) );
+	$values = array_unique( array_merge( array( $default ), array_keys( agend_apps_records_jobs_catalogue_visitor_sorts() ) ) );
+
+	$options = array();
+	foreach ( $values as $value ) {
+		if ( isset( $labels[ $value ] ) ) {
+			$options[] = array(
+				'value' => $value,
+				'label' => $labels[ $value ],
+			);
+		}
+	}
+	return $options;
+}
+
+/**
+ * The distance search's runtime settings: the radius choices (what the
+ * directory's Location filter accepts, from 1 up to the gateway's 1000 km,
+ * ascending) and the choice the control opens on, the nearest to the default
+ * the author set.
+ *
+ * @param array $s Surface settings.
+ * @return array{radii: float[], radius: float}
+ */
+function agend_apps_records_jobs_catalogue_distance_config( array $s ): array {
+	// The jobs list takes a radius of 1 km or more; the directory's helper
+	// also lets a fraction through, which the route would refuse.
+	$radii = array_values(
+		array_filter(
+			agend_apps_records_filter_radius_choices( $s['distance_radius_choices'] ?? '10, 25, 50, 100, 250' ),
+			static function ( $km ) {
+				return $km >= 1;
+			}
+		)
+	);
+	if ( array() === $radii ) {
+		$radii = array( 10.0, 25.0, 50.0, 100.0, 250.0 );
+	}
+	$default = is_numeric( $s['distance_radius_default'] ?? null ) ? (float) $s['distance_radius_default'] : 50.0;
+
+	$radius = $radii[0];
+	foreach ( $radii as $choice ) {
+		if ( abs( $choice - $default ) < abs( $radius - $default ) ) {
+			$radius = $choice;
+		}
+	}
+
+	return array(
+		'radii'  => $radii,
+		'radius' => $radius,
 	);
 }
 
@@ -106,6 +184,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 	$states   = agend_apps_records_jobs_catalogue_states( (string) ( $s['state_options'] ?? 'ACT, NSW, NT, QLD, SA, TAS, VIC, WA' ) );
 	$layout   = 'grid' === ( $s['layout_style'] ?? 'list' ) ? 'grid' : 'list';
 	$apply    = trim( (string) ( $s['apply_label'] ?? '' ) );
+	$distance = agend_apps_records_jobs_catalogue_distance_config( $s );
 
 	return array(
 		'heading'    => array(
@@ -119,6 +198,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'category'     => $category,
 			'sortBy'       => $sorts[ $sort ][0],
 			'sortOrder'    => $sorts[ $sort ][1],
+			'sort'         => $sort,
 		),
 		'layout'     => array(
 			'style'      => $layout,
@@ -153,6 +233,11 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'states'          => $states,
 			'posted'          => $on( 'show_posted_filter', '' ),
 			'location'        => $on( 'show_location_filter' ),
+			'distance'        => $on( 'show_distance_filter', '' ),
+			'distanceRadii'   => $distance['radii'],
+			'distanceRadius'  => $distance['radius'],
+			'sort'            => $on( 'show_sort', '' ),
+			'sortOptions'     => agend_apps_records_jobs_catalogue_sort_options( $sort ),
 			'tags'            => agend_apps_records_jobs_catalogue_tag_filters( $s['tag_filters'] ?? array() ),
 		),
 		'detail'     => array(

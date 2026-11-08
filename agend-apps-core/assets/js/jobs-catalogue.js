@@ -263,10 +263,31 @@
     return !isNaN(time) && time < Date.now();
   }
 
+  // "City, STATE 1234, Country": the postcode sits with the state, as an
+  // Australian address is written. Any part the listing lacks is left out.
   function locationLabel(job) {
-    return [job.location_city, job.location_state, job.location_country]
+    var region = [job.location_state, job.location_postcode]
+      .filter(function (part) { return part; })
+      .join(' ');
+    return [job.location_city, region, job.location_country]
       .filter(function (part) { return part; })
       .join(', ');
+  }
+
+  // "12.3 km away", present only when the search carried a point; the
+  // gateway sends null otherwise.
+  function distanceLabel(job) {
+    var km = job.distance_km;
+    if (typeof km !== 'number' || !isFinite(km) || km < 0) {
+      return '';
+    }
+    return km.toFixed(1) + ' km away';
+  }
+
+  // A tel: link needs digits; anything else a poster typed is shown as text.
+  function telHref(phone) {
+    var number = String(phone || '').replace(/[^\d+]/g, '');
+    return number.replace(/\D/g, '').length >= 3 ? 'tel:' + number : '';
   }
 
   function salaryLabel(job) {
@@ -437,6 +458,9 @@
     if (c.location && locationLabel(job)) {
       meta.appendChild(el('span', 'agend-jobs-card__location', locationLabel(job)));
     }
+    if (distanceLabel(job)) {
+      meta.appendChild(el('span', 'agend-jobs-card__distance', distanceLabel(job)));
+    }
     var salary = c.salary ? salaryLabel(job) : '';
     if (salary) {
       meta.appendChild(el('span', 'agend-jobs-card__salary', salary));
@@ -561,6 +585,34 @@
     return wrap;
   }
 
+  // Who to ask about the role: a name and a phone number, each only when
+  // the listing has one.
+  function contactBlock(job) {
+    var name = job.contact_name ? String(job.contact_name).trim() : '';
+    var phone = job.contact_phone ? String(job.contact_phone).trim() : '';
+    if (!name && !phone) {
+      return null;
+    }
+    var box = el('div', 'agend-jobs-detail__contact');
+    box.appendChild(el('h3', 'agend-jobs-detail__section-title', 'Contact'));
+    if (name) {
+      box.appendChild(el('p', 'agend-jobs-detail__contact-name', name));
+    }
+    if (phone) {
+      var line = el('p', 'agend-jobs-detail__contact-phone');
+      var href = telHref(phone);
+      if (href) {
+        var link = el('a', 'agend-jobs-detail__contact-link', phone);
+        link.href = href;
+        line.appendChild(link);
+      } else {
+        line.textContent = phone;
+      }
+      box.appendChild(line);
+    }
+    return box;
+  }
+
   function renderDetail(job, cfg, onBack) {
     var view = el('div', 'agend-jobs-detail');
 
@@ -583,6 +635,9 @@
     headText.appendChild(el('h2', 'agend-jobs-detail__title', job.title));
     if (job.company_name) {
       headText.appendChild(el('p', 'agend-jobs-detail__company', job.company_name));
+    }
+    if (job.reference_number) {
+      headText.appendChild(el('p', 'agend-jobs-detail__reference', 'Reference: ' + job.reference_number));
     }
     var pills = el('div', 'agend-jobs-card__pills');
     if (EMPLOYMENT_TYPE_LABELS[job.employment_type]) {
@@ -643,6 +698,10 @@
     detailRow(facts, 'Posted', formatDate(job.published_at || job.created_at));
     detailRow(facts, isClosed(job) ? 'Closed' : 'Closes', formatDate(job.expires_at));
     summary.appendChild(facts);
+    var contact = contactBlock(job);
+    if (contact) {
+      summary.appendChild(contact);
+    }
     side.appendChild(summary);
 
     var website = safeUrl(job.company_website);
@@ -836,10 +895,250 @@
     return { node: box, fill: fillList };
   }
 
+  // Wording matches the directory's Location filter (assets/js/filters.js),
+  // so a visitor meets the same messages on either.
+  var GEO_MESSAGES = {
+    empty: 'Enter a suburb, postcode or address.',
+    notFound: 'We could not find that place. Try a suburb or postcode.',
+    busy: 'Place search is busy. Please try again in a moment.',
+    failed: 'Place search failed. Please try again in a moment.',
+    unsupported: 'Your browser does not support finding your location.',
+    denied: 'Location permission was denied. Update your browser settings to use this feature.',
+    timeout: 'Could not get your location. Please try again.',
+    unavailable: 'Your location is unavailable. Check that Location Services are turned on, then try again.',
+    degraded: 'Distance search is not available right now, so every job is shown.',
+  };
+
+  // Nominatim, behind the gateway, allows about one lookup a second; the
+  // directory's filter spaces lookups the same way.
+  var GEOCODE_MIN_INTERVAL_MS = 1500;
+
+  // The directory's map defaults, fetched once per page and shared with the
+  // directory's Location filter and map (they read window.agendDirectory),
+  // so they say whether the account's place search is on.
+  function mapSettings() {
+    var shared = (window.agendDirectory = window.agendDirectory || {});
+    if (!shared.mapSettings) {
+      shared.mapSettings = apiGet('/directory/map-settings', {})
+        .then(function (body) {
+          return (body && body.data && typeof body.data === 'object') ? body.data : null;
+        })
+        .catch(function () {
+          return null;
+        });
+    }
+    return shared.mapSettings;
+  }
+
+  function radiusText(km) {
+    return 'Within ' + km + ' km';
+  }
+
+  // The "near a place" control: a typed suburb or postcode (resolved to a
+  // point by the directory's geocode route), or the device's position, plus a
+  // radius. Sets state.near to {lat, lng, radius, label} or null. Returns the
+  // node and a `say` function for messages.
+  function buildNearControl(cfg, state, changed) {
+    var f = cfg.filters;
+    var radii = Array.isArray(f.distanceRadii) && f.distanceRadii.length ? f.distanceRadii : [50];
+    var wrap = el('div', 'agend-jobs-near');
+    wrap.setAttribute('role', 'group');
+    wrap.setAttribute('aria-label', 'Search near a place');
+
+    var row = el('div', 'agend-jobs-near__row');
+    var searchRow = el('div', 'agend-jobs-near__search');
+    var input = el('input', 'agend-jobs-input agend-jobs-input--near');
+    input.type = 'search';
+    input.placeholder = 'Suburb or postcode';
+    input.setAttribute('aria-label', 'Suburb or postcode to search near');
+    input.maxLength = 200;
+    var searchBtn = el('button', 'agend-jobs-button agend-jobs-button--ghost', 'Search');
+    searchBtn.type = 'button';
+    searchRow.appendChild(input);
+    searchRow.appendChild(searchBtn);
+    var locateBtn = el('button', 'agend-jobs-button agend-jobs-button--ghost agend-jobs-near__locate', 'Use my location');
+    locateBtn.type = 'button';
+
+    var radiusSel = null;
+    if (radii.length > 1) {
+      radiusSel = el('select', 'agend-jobs-select agend-jobs-near__radius');
+      radiusSel.setAttribute('aria-label', 'Distance');
+      radii.forEach(function (km) {
+        radiusSel.appendChild(new Option(radiusText(km), String(km), false, km === f.distanceRadius));
+      });
+    }
+
+    row.appendChild(searchRow);
+    row.appendChild(locateBtn);
+    if (radiusSel) {
+      row.appendChild(radiusSel);
+    }
+    wrap.appendChild(row);
+
+    var status = el('p', 'agend-jobs-near__status');
+    status.setAttribute('role', 'status');
+    status.hidden = true;
+    wrap.appendChild(status);
+
+    var chip = el('p', 'agend-jobs-near__chip');
+    chip.hidden = true;
+    var chipText = el('span', 'agend-jobs-near__chip-text');
+    var clearBtn = el('button', 'agend-jobs-near__clear', 'Clear');
+    clearBtn.type = 'button';
+    chip.appendChild(chipText);
+    chip.appendChild(clearBtn);
+    wrap.appendChild(chip);
+
+    var lastLookup = 0;
+
+    function currentRadius() {
+      var value = radiusSel ? Number(radiusSel.value) : Number(f.distanceRadius);
+      return isFinite(value) && value > 0 ? value : radii[0];
+    }
+
+    function say(message) {
+      status.textContent = message || '';
+      status.hidden = !message;
+    }
+
+    function paintChip() {
+      if (!state.near) {
+        chip.hidden = true;
+        chipText.textContent = '';
+        return;
+      }
+      chipText.textContent = radiusText(state.near.radius) + ' of ' + state.near.label;
+      chip.hidden = false;
+    }
+
+    function busy(on) {
+      [input, searchBtn, locateBtn].forEach(function (node) {
+        node.disabled = on;
+      });
+      wrap.setAttribute('aria-busy', on ? 'true' : 'false');
+    }
+
+    function apply(lat, lng, label) {
+      state.near = { lat: lat, lng: lng, radius: currentRadius(), label: label };
+      say('');
+      paintChip();
+      changed();
+    }
+
+    function lookup() {
+      var text = input.value.trim();
+      if (!text) {
+        say(GEO_MESSAGES.empty);
+        return;
+      }
+      var now = Date.now();
+      if (now - lastLookup < GEOCODE_MIN_INTERVAL_MS) {
+        return;
+      }
+      lastLookup = now;
+      busy(true);
+      apiGet('/directory/geocode', { q: text.slice(0, 200) })
+        .then(function (body) {
+          busy(false);
+          var point = body && body.data;
+          if (point && isFinite(Number(point.latitude)) && isFinite(Number(point.longitude))) {
+            apply(Number(point.latitude), Number(point.longitude), text);
+            return;
+          }
+          var code = body && body.data && body.data.status_code;
+          if (code === 404) {
+            say(GEO_MESSAGES.notFound);
+          } else if (code === 403) {
+            // The account does not include place search after all; the
+            // button still works.
+            searchRow.hidden = true;
+            say('');
+          } else if (code === 429 || code === 503) {
+            say(GEO_MESSAGES.busy);
+          } else {
+            say(GEO_MESSAGES.failed);
+          }
+        })
+        .catch(function () {
+          busy(false);
+          say(GEO_MESSAGES.failed);
+        });
+    }
+
+    function locate() {
+      if (!navigator.geolocation) {
+        say(GEO_MESSAGES.unsupported);
+        return;
+      }
+      busy(true);
+      var onSuccess = function (position) {
+        busy(false);
+        input.value = '';
+        apply(position.coords.latitude, position.coords.longitude, 'your location');
+      };
+      var onError = function (error, retried) {
+        // A quick, low-accuracy fix fails on some desktops; one precise
+        // attempt is worth making before giving up.
+        if (error && error.code === 2 && !retried) {
+          navigator.geolocation.getCurrentPosition(onSuccess, function (again) {
+            onError(again, true);
+          }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+          return;
+        }
+        busy(false);
+        if (error && error.code === 1) {
+          say(GEO_MESSAGES.denied);
+        } else if (error && error.code === 3) {
+          say(GEO_MESSAGES.timeout);
+        } else {
+          say(GEO_MESSAGES.unavailable);
+        }
+      };
+      navigator.geolocation.getCurrentPosition(onSuccess, function (error) {
+        onError(error, false);
+      }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+    }
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        lookup();
+      }
+    });
+    searchBtn.addEventListener('click', lookup);
+    locateBtn.addEventListener('click', locate);
+    if (radiusSel) {
+      radiusSel.addEventListener('change', function () {
+        if (state.near) {
+          state.near.radius = currentRadius();
+          paintChip();
+          changed();
+        }
+      });
+    }
+    clearBtn.addEventListener('click', function () {
+      state.near = null;
+      input.value = '';
+      say('');
+      paintChip();
+      changed();
+    });
+
+    // An account without place search cannot answer a typed place, so the
+    // box is hidden rather than left to fail; "Use my location" remains.
+    mapSettings().then(function (settings) {
+      if (settings && settings.geocoding_available === false) {
+        searchRow.hidden = true;
+      }
+    });
+
+    return { node: wrap, say: say };
+  }
+
   function buildFilterBar(target, cfg, state, reload) {
     var f = cfg.filters;
     var tagFilters = Array.isArray(f.tags) ? f.tags : [];
-    if (!f.search && !f.category && !f.type && !f.experience && !f.location && !f.workArrangement && !f.state && !f.posted && !tagFilters.length) {
+    if (!f.search && !f.category && !f.type && !f.experience && !f.location && !f.workArrangement && !f.state && !f.posted && !tagFilters.length && !f.distance && !f.sort) {
       return;
     }
     var bar = el('div', 'agend-jobs-filterbar');
@@ -895,6 +1194,15 @@
       location.value = state.location;
       debounced(location, 'location');
       bar.appendChild(location);
+    }
+
+    if (f.distance) {
+      var near = buildNearControl(cfg, state, function () {
+        syncSort(true);
+        changed();
+      });
+      state.say = near.say;
+      bar.appendChild(near.node);
     }
 
     if (f.state && Array.isArray(f.states) && f.states.length) {
@@ -1017,6 +1325,43 @@
       });
     }
 
+    // The visitor's sort. "Nearest" is offered only while a location is set:
+    // the gateway refuses it without one. Setting a location opens on it, as
+    // the question just asked was "what is close to me".
+    var sortSel = null;
+    function syncSort(locationChanged) {
+      if (!sortSel) {
+        return;
+      }
+      var hasNearest = !!sortSel.querySelector('option[value="distance:asc"]');
+      if (state.near && !hasNearest) {
+        sortSel.appendChild(new Option('Nearest', 'distance:asc'));
+      } else if (!state.near && hasNearest) {
+        sortSel.removeChild(sortSel.querySelector('option[value="distance:asc"]'));
+      }
+      if (locationChanged) {
+        if (state.near) {
+          state.sort = 'distance:asc';
+        } else if (state.sort === 'distance:asc') {
+          state.sort = cfg.listing.sort;
+        }
+      }
+      sortSel.value = state.sort;
+    }
+
+    if (f.sort && Array.isArray(f.sortOptions) && f.sortOptions.length) {
+      sortSel = el('select', 'agend-jobs-select agend-jobs-select--sort');
+      sortSel.setAttribute('aria-label', 'Sort jobs');
+      f.sortOptions.forEach(function (option) {
+        sortSel.appendChild(new Option(option.label, option.value, false, option.value === state.sort));
+      });
+      sortSel.addEventListener('change', function () {
+        state.sort = sortSel.value;
+        changed();
+      });
+      bar.appendChild(sortSel);
+    }
+
     target.appendChild(bar);
   }
 
@@ -1092,6 +1437,9 @@
       workArrangement: [],
       experience: [],
       tagChoices: {},
+      near: null,
+      sort: cfg.listing.sort || '',
+      say: null,
       page: 1,
       append: false,
     };
@@ -1225,11 +1573,17 @@
         grid.innerHTML = '';
         appendSkeletons(grid, cfg);
       }
+      // The visitor's sort, when the dropdown is on; otherwise the board's.
+      // "Nearest" has no meaning without a point to measure from.
+      var sort = String(cfg.filters.sort ? state.sort : cfg.listing.sort || '').split(':');
+      if (sort[0] === 'distance' && !state.near) {
+        sort = String(cfg.listing.sort || '').split(':');
+      }
       var params = {
         page: state.page,
         limit: cfg.pagination.perPage,
-        sortBy: cfg.listing.sortBy,
-        sortOrder: cfg.listing.sortOrder,
+        sortBy: sort[0] || cfg.listing.sortBy,
+        sortOrder: sort[1] || cfg.listing.sortOrder,
         featuredOnly: cfg.listing.featuredOnly ? 'true' : '',
         featuredFirst: cfg.listing.featuredFirst ? 'true' : '',
         category: cfg.listing.category ? [cfg.listing.category] : state.category,
@@ -1242,7 +1596,47 @@
         search: state.search.length >= 2 ? state.search : '',
         location: state.location.length >= 2 ? state.location : '',
       };
-      apiGet('/jobs', params).then(function (body) {
+      if (state.near) {
+        params.lat = state.near.lat;
+        params.lng = state.near.lng;
+        params.radius = state.near.radius;
+      }
+
+      // A distance search that the gateway refuses (a release that does not
+      // know the parameters yet) must not blank the board: ask again without
+      // it and say so.
+      var degraded = false;
+      // The proxy's own refusal (a WordPress error body) or the gateway's.
+      function failed(body) {
+        return !body || body.success === false || !!(body.code && body.data && body.data.status >= 400);
+      }
+      function load(query) {
+        return apiGet('/jobs', query).catch(function () {
+          return { success: false };
+        });
+      }
+      function withoutNear(query) {
+        var plain = {};
+        Object.keys(query).forEach(function (key) {
+          plain[key] = query[key];
+        });
+        delete plain.lat;
+        delete plain.lng;
+        delete plain.radius;
+        if (plain.sortBy === 'distance') {
+          plain.sortBy = cfg.listing.sortBy;
+          plain.sortOrder = cfg.listing.sortOrder;
+        }
+        return plain;
+      }
+
+      load(params).then(function (body) {
+        if (state.near && failed(body) && body.code !== 'agend_apps_sign_in_required') {
+          degraded = true;
+          return load(withoutNear(params));
+        }
+        return body;
+      }).then(function (body) {
         if (seq !== requestSeq) {
           return;
         }
@@ -1268,12 +1662,21 @@
         // A result count answers a search; a strip with no filters (featured
         // jobs on the home page) has nothing to count against.
         var f = cfg.filters;
-        var searchable = f.search || f.category || f.type || f.experience || f.location;
+        var searchable = f.search || f.category || f.type || f.experience || f.location || f.distance;
         var total = result.pagination ? result.pagination.total : result.items.length;
         count.textContent = searchable && total ? total + (total === 1 ? ' job' : ' jobs') : '';
+        // A gateway that does not know the distance parameters ignores them
+        // and answers with every job, none carrying a distance: say so rather
+        // than let the list pass for a search within the radius.
+        if (state.near && state.say) {
+          var unmeasured = result.items.length && result.items.every(function (job) {
+            return typeof job.distance_km !== 'number';
+          });
+          state.say(degraded || unmeasured ? GEO_MESSAGES.degraded : '');
+        }
         if (!result.items.length && !grid.childNodes.length) {
           status.style.display = '';
-          status.textContent = cfg.listing.featuredOnly ? 'There are no featured jobs right now.' : 'No jobs match your search.';
+          status.textContent = cfg.listing.featuredOnly ? 'There are no featured jobs right now.' : (state.near && !degraded ? 'No jobs within ' + state.near.radius + ' km of ' + state.near.label + '.' : 'No jobs match your search.');
           renderPagination(pager, cfg, state, null, reloadBoard);
           return;
         }

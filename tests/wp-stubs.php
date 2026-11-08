@@ -2243,6 +2243,22 @@ if ( ! class_exists( 'WP_Query' ) ) {
 	}
 }
 
+if ( ! function_exists( 'rest_sanitize_request_arg' ) ) {
+	/**
+	 * Matches WordPress for a `number` argument, the only type the routes
+	 * under test sanitise this way: the value as a float. WordPress calls it
+	 * as ( $value, $request, $param ).
+	 *
+	 * @param mixed  $value   Raw value.
+	 * @param object $request The request.
+	 * @param string $param   The argument name.
+	 * @return float
+	 */
+	function rest_sanitize_request_arg( $value, $request = null, $param = '' ): float { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found
+		return (float) $value;
+	}
+}
+
 if ( ! function_exists( 'rest_sanitize_boolean' ) ) {
 	/**
 	 * Matches WordPress: the strings 'false', '0' and '' are false, anything

@@ -248,4 +248,93 @@ final class JobsCatalogueConfigTest extends TestCase {
 
 		self::assertTrue( $config['filters']['multiple'] );
 	}
+	#[Test]
+	public function should_leave_the_distance_search_and_sort_off_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array() );
+
+		self::assertFalse( $config['filters']['distance'] );
+		self::assertFalse( $config['filters']['sort'] );
+		self::assertSame( array( 10.0, 25.0, 50.0, 100.0, 250.0 ), $config['filters']['distanceRadii'] );
+		self::assertSame( 50.0, $config['filters']['distanceRadius'] );
+		self::assertSame( 'published_at:desc', $config['listing']['sort'] );
+	}
+
+	#[Test]
+	public function should_switch_the_distance_search_and_sort_on_from_the_toggles(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_distance_filter' => 'yes',
+				'show_sort'            => 'yes',
+			)
+		);
+
+		self::assertTrue( $config['filters']['distance'] );
+		self::assertTrue( $config['filters']['sort'] );
+	}
+
+	#[Test]
+	public function should_read_the_radius_choices_the_way_the_directory_location_filter_does(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_distance_filter'    => 'yes',
+				'distance_radius_choices' => '100, 5, abc, 5, 2000, -3, 25',
+				'distance_radius_default' => '20',
+			)
+		);
+
+		// Sorted, de-duplicated, positive and within the gateway's 1000 km.
+		self::assertSame( array( 5.0, 25.0, 100.0 ), $config['filters']['distanceRadii'] );
+		// A default that is not a choice snaps to the nearest one.
+		self::assertSame( 25.0, $config['filters']['distanceRadius'] );
+	}
+
+	#[Test]
+	public function should_fall_back_to_the_directory_radius_choices_when_none_are_usable(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_radius_choices' => 'nope' ) );
+
+		self::assertSame( array( 5.0, 10.0, 15.0, 20.0, 25.0, 50.0, 100.0 ), $config['filters']['distanceRadii'] );
+	}
+
+	#[Test]
+	public function should_offer_the_visitor_sorts_but_not_nearest_which_needs_a_location(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'show_sort' => 'yes' ) );
+		$values = array_column( $config['filters']['sortOptions'], 'value' );
+
+		self::assertSame( array( 'published_at:desc', 'expires_at:asc', 'title:asc' ), $values );
+		self::assertNotContains( 'distance:asc', $values );
+	}
+
+	#[Test]
+	public function should_open_the_sort_dropdown_on_the_boards_own_order(): void {
+		$config  = agend_apps_records_jobs_catalogue_build_config( array( 'show_sort' => 'yes', 'sort' => 'salary_max:desc' ) );
+		$options = $config['filters']['sortOptions'];
+
+		self::assertSame( 'salary_max:desc', $options[0]['value'] );
+		self::assertSame( 'Highest salary', $options[0]['label'] );
+		self::assertCount( 4, $options );
+		self::assertSame( 'salary_max:desc', $config['listing']['sort'] );
+
+		$closing = agend_apps_records_jobs_catalogue_build_config( array( 'show_sort' => 'yes', 'sort' => 'expires_at:asc' ) );
+		self::assertSame( array( 'expires_at:asc', 'published_at:desc', 'title:asc' ), array_column( $closing['filters']['sortOptions'], 'value' ) );
+	}
+
+	#[Test]
+	public function should_declare_the_new_settings_off_by_default_in_the_schema(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/jobs-catalogue.php';
+
+		$fields = array();
+		foreach ( agend_apps_records_schema_jobs_catalogue()['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				$fields[ $field['name'] ] = $field;
+			}
+		}
+
+		self::assertFalse( $fields['show_distance_filter']['default'] );
+		self::assertFalse( $fields['show_sort']['default'] );
+		self::assertSame( '10, 25, 50, 100, 250', $fields['distance_radius_choices']['default'] );
+		self::assertSame( 50, $fields['distance_radius_default']['default'] );
+		self::assertSame( array( 'show_distance_filter' => 'yes' ), $fields['distance_radius_choices']['condition'] );
+		// The board's existing order setting stays the default order.
+		self::assertSame( 'published_at:desc', $fields['sort']['default'] );
+	}
 }
