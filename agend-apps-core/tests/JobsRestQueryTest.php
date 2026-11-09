@@ -277,4 +277,161 @@ final class JobsRestQueryTest extends TestCase {
 
 		self::assertArrayNotHasKey( 'postedAfter', $query );
 	}
+	#[Test]
+	public function should_declare_the_point_and_radius_with_the_directory_routes_limits(): void {
+		$args = $this->list_args();
+
+		foreach ( array( 'lat' => array( -90, 90 ), 'lng' => array( -180, 180 ), 'radius' => array( 1, 1000 ) ) as $name => $range ) {
+			self::assertSame( 'number', $args[ $name ]['type'], $name );
+			self::assertSame( $range[0], $args[ $name ]['minimum'], $name );
+			self::assertSame( $range[1], $args[ $name ]['maximum'], $name );
+			self::assertSame( 'rest_sanitize_request_arg', $args[ $name ]['sanitize_callback'], $name );
+			self::assertSame( 'rest_validate_request_arg', $args[ $name ]['validate_callback'], $name );
+		}
+		self::assertContains( 'distance', $args['sortBy']['enum'] );
+	}
+
+	#[Test]
+	public function should_forward_a_point_and_radius_together_rounded_for_the_cache(): void {
+		$query = $this->gateway_query_for(
+			array(
+				'lat'    => '-34.9284989',
+				'lng'    => '138.6007456',
+				'radius' => '25.04',
+			)
+		);
+
+		self::assertSame( '-34.928', $query['lat'] ?? null );
+		self::assertSame( '138.601', $query['lng'] ?? null );
+		self::assertSame( '25', $query['radius'] ?? null );
+	}
+
+	#[Test]
+	public function should_forward_none_of_the_point_unless_all_three_arrive(): void {
+		$sets = array(
+			'no radius' => array( 'lat' => '-34.9', 'lng' => '138.6' ),
+			'no lng'    => array( 'lat' => '-34.9', 'radius' => '25' ),
+			'only lat'  => array( 'lat' => '-34.9' ),
+			'radius'    => array( 'radius' => '25' ),
+		);
+
+		foreach ( $sets as $label => $params ) {
+			Agend_Test_WP::$requests = array();
+			// A distinct search keeps each set clear of the cache.
+			$query = $this->gateway_query_for( $params + array( 'search' => $label ) );
+
+			foreach ( array( 'lat', 'lng', 'radius' ) as $name ) {
+				self::assertArrayNotHasKey( $name, $query, $label );
+			}
+		}
+	}
+
+	#[Test]
+	public function should_forward_the_orders_the_board_and_the_visitor_can_pick(): void {
+		foreach ( Agend_Apps_Jobs_REST_Controller::SORT_ORDERS as $pair ) {
+			[ $by, $order ] = explode( ':', $pair );
+			Agend_Test_WP::$requests = array();
+			$params                  = array( 'sortBy' => $by, 'sortOrder' => $order );
+			if ( 'distance' === $by ) {
+				$params += array( 'lat' => '-34.9', 'lng' => '138.6', 'radius' => '25' );
+			}
+			$query = $this->gateway_query_for( $params );
+
+			self::assertSame( $by, $query['sortBy'] ?? null, $pair );
+			self::assertSame( $order, $query['sortOrder'] ?? null, $pair );
+		}
+		self::assertSame( array( 'published_at:desc', 'expires_at:asc', 'title:asc', 'salary_max:desc', 'distance:asc' ), Agend_Apps_Jobs_REST_Controller::SORT_ORDERS );
+	}
+
+	#[Test]
+	public function should_drop_an_order_that_is_not_on_the_list_and_leave_the_gateway_default(): void {
+		$query = $this->gateway_query_for( array( 'sortBy' => 'title', 'sortOrder' => 'desc' ) );
+
+		self::assertArrayNotHasKey( 'sortBy', $query );
+		self::assertArrayNotHasKey( 'sortOrder', $query );
+	}
+
+	#[Test]
+	public function should_drop_a_distance_sort_that_has_no_location_rather_than_let_the_gateway_refuse_it(): void {
+		$query = $this->gateway_query_for( array( 'sortBy' => 'distance', 'sortOrder' => 'asc' ) );
+
+		self::assertArrayNotHasKey( 'sortBy', $query );
+		self::assertArrayNotHasKey( 'sortOrder', $query );
+	}
+
+	#[Test]
+	public function should_drop_a_distance_sort_when_the_location_is_only_partly_given(): void {
+		$query = $this->gateway_query_for( array( 'sortBy' => 'distance', 'sortOrder' => 'asc', 'lat' => '-34.9', 'lng' => '138.6' ) );
+
+		self::assertArrayNotHasKey( 'sortBy', $query );
+		self::assertArrayNotHasKey( 'lat', $query );
+	}
+
+	#[Test]
+	public function should_always_send_the_distance_sort_nearest_first(): void {
+		$query = $this->gateway_query_for(
+			array(
+				'sortBy'    => 'distance',
+				'sortOrder' => 'desc',
+				'lat'       => '-34.9',
+				'lng'       => '138.6',
+				'radius'    => '25',
+			)
+		);
+
+		self::assertSame( 'distance', $query['sortBy'] ?? null );
+		self::assertSame( 'asc', $query['sortOrder'] ?? null );
+	}
+
+	#[Test]
+	public function should_cache_a_search_by_its_point_radius_and_sort(): void {
+		$base = array(
+			'lat'    => -34.928,
+			'lng'    => 138.6,
+			'radius' => 25.0,
+		);
+		$body = array( 'success' => true, 'data' => array() );
+
+		agend_apps_jobs_get_jobs( $base );
+		Agend_Test_WP::queue_response( 200, $body );
+		agend_apps_jobs_get_jobs( $base );
+		self::assertCount( 1, Agend_Test_WP::$requests, 'The same search is answered from the cache.' );
+
+		$variants = array(
+			'another point'  => array( 'lat' => -33.868 ) + $base,
+			'another radius' => array( 'radius' => 50.0 ) + $base,
+			'nearest first'  => array( 'sortBy' => 'distance', 'sortOrder' => 'asc' ) + $base,
+			'no point'       => array(),
+		);
+		$expected = 1;
+		foreach ( $variants as $label => $query ) {
+			Agend_Test_WP::queue_response( 200, $body );
+			agend_apps_jobs_get_jobs( $query );
+			++$expected;
+			self::assertCount( $expected, Agend_Test_WP::$requests, $label . ' is its own cache entry.' );
+		}
+	}
+
+	#[Test]
+	public function should_keep_the_distance_and_postcode_in_the_list_a_visitor_without_details_sees(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/jobs-visibility.php';
+
+		$teaser = agend_apps_records_jobs_teaser(
+			array(
+				'title'             => 'Auditor',
+				'location_postcode' => '5000',
+				'distance_km'       => 12.3,
+				'contact_name'      => 'Sam',
+				'contact_phone'     => '0400 000 000',
+				'reference_number'  => 'REF-1',
+				'description'       => 'Full details.',
+			)
+		);
+
+		self::assertSame( '5000', $teaser['location_postcode'] );
+		self::assertSame( 12.3, $teaser['distance_km'] );
+		foreach ( array( 'contact_name', 'contact_phone', 'reference_number', 'description' ) as $detail ) {
+			self::assertArrayNotHasKey( $detail, $teaser );
+		}
+	}
 }

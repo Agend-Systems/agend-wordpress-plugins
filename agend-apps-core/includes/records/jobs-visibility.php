@@ -109,6 +109,8 @@ function agend_apps_records_jobs_teaser_fields(): array {
 		'location_city',
 		'location_state',
 		'location_country',
+		'location_postcode',
+		'distance_km',
 		'employment_type',
 		'experience_level',
 		'is_featured',

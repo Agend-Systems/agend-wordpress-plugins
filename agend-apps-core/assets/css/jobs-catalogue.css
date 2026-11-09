@@ -86,6 +86,75 @@
   outline-offset: 1px;
 }
 
+/* Distance search: a place box, "Use my location" and a radius, on a row of
+   their own so the filter bar's other controls keep their place. */
+.agend-jobs-catalogue .agend-jobs-near {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.agend-jobs-near__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.agend-jobs-near__search {
+  display: flex;
+  flex: 2 1 280px;
+  gap: 0.5rem;
+}
+
+.agend-jobs-input--near {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.agend-jobs-near__row .agend-jobs-button {
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  min-height: 2.6rem;
+}
+
+.agend-jobs-near__row .agend-jobs-select {
+  flex: 0 1 160px;
+}
+
+.agend-jobs-near__status {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.agend-jobs-near__chip {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--agend-jobs-heading);
+}
+
+.agend-jobs-near__clear {
+  margin-left: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agend-jobs-accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .agend-jobs-near__search,
+  .agend-jobs-near__locate,
+  .agend-jobs-near__row .agend-jobs-select {
+    flex: 1 1 100%;
+  }
+}
+
 /* A filter that takes several values: a checkbox list in a disclosure. */
 .agend-jobs-catalogue .agend-jobs-choices {
   position: relative;
@@ -340,6 +409,11 @@
   color: var(--agend-jobs-heading);
 }
 
+.agend-jobs-card__distance {
+  font-weight: 600;
+  color: var(--agend-jobs-accent);
+}
+
 .agend-jobs-card__pills {
   display: flex;
   flex-wrap: wrap;
@@ -510,6 +584,12 @@
   font-size: 1.05rem;
 }
 
+.agend-jobs-detail__reference {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
 .agend-jobs-detail__layout {
   display: grid;
   /* minmax(0, …) so long description content cannot squash the sidebar. */
@@ -643,6 +723,28 @@
 
 .agend-jobs-detail__facts dd {
   margin: 0;
+}
+
+.agend-jobs-detail__contact {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--agend-jobs-border);
+  font-size: 0.92rem;
+}
+
+.agend-jobs-detail__contact .agend-jobs-detail__section-title {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.agend-jobs-detail__contact p {
+  margin: 0 0 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.agend-jobs-detail__contact-link {
+  color: var(--agend-jobs-accent);
+  font-weight: 600;
 }
 
 .agend-jobs-detail__website {

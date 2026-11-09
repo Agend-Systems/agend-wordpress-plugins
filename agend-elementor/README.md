@@ -41,7 +41,9 @@ Each filter is switched on under Visitor Filter Bar:
 | Filter | Notes |
 | --- | --- |
 | Keyword search | Title, summary and employer. |
-| Location search | Typed text matched against city, state or country. |
+| Location search | Typed text matched against city, state, country or postcode. |
+| Distance search | Off by default. A suburb or postcode box, a **Use my location** button and a radius dropdown. Only jobs within the radius show, each card saying "12.3 km away". See [Distance search and sort](#distance-search-and-sort). |
+| Sort | Off by default. A dropdown of Newest first, Closing soonest and Title, A to Z, plus **Nearest** once a location is set. The Order setting under Listings stays the order the board opens in, and is the first option when it is not one of these (Highest salary). |
 | State | A dropdown of the states in "States offered" (Australian states by default). Each must match the state as written on the listings. |
 | Category | The board's active categories, in their admin order. |
 | Employment type, work arrangement, experience level | Fixed lists. |
@@ -49,6 +51,17 @@ Each filter is switched on under Visitor Filter Bar:
 | Tag filters | A repeater: each row is its own filter built from chosen tags. **Dropdown** lets the visitor pick one of the row's tags (for example a "Salary band"); **Checkboxes** offers each tag on its own (for example "Accreditation required"). |
 
 "Let visitors pick several" turns category, employment type, work arrangement and experience level into checkbox lists, where a job matching any ticked option shows. Different filters combine: a job must match all of them, including every tag set across the tag filters.
+
+### Distance search and sort
+
+Switch on **Show distance search** under Visitor Filter Bar. It reuses what the Directory's Location filter does, so a visitor meets the same controls and messages on either:
+
+- A typed suburb, postcode or address is turned into a point by the `/agend-apps/v1/directory/geocode` route, and a site whose account has no place search hides the box (the same `/directory/map-settings` check the Directory uses). **Use my location** asks the browser for the device's position and needs no place search. A device position never enters the page address.
+- **Radius choices (km)** (default `10, 25, 50, 100, 250`, from 1 to 1000) and **Default radius (km)** set the dropdown. A single choice fixes the radius and hides the dropdown.
+- Setting a location sends `lat`, `lng` and `radius` together (never one or two of them) and, with the sort dropdown on, opens the board on **Nearest**. Clearing it returns to the board's own order.
+- Each job found shows its distance on the card. A job's page shows its **reference number**, the **postcode** in the location line, and the **contact name and phone** (the phone as a `tel:` link) under the apply button. A field a listing does not have is not drawn.
+
+Distance search, the Nearest sort and the postcode in text search need the gateway release that adds `lat`, `lng`, `radius`, `sortBy=distance` and the `location_postcode`, `distance_km`, `reference_number`, `contact_name` and `contact_phone` fields (the matching agend-dashboard change). Before it ships, a board with the controls on stays usable: a gateway that refuses the distance parameters is asked again without them and every job is shown with a note, and one that ignores them shows every job with the same note. Both settings are off by default, so a board that has not opted in changes only in showing the new job fields once the gateway sends them.
 
 Several values per filter, tags, state, date posted, featured first and the categories and tags lists need the gateway release that adds them to `GET /v1/jobs` (agend-dashboard #6826 and #7037). Against an older gateway those filters are ignored and show every job, and the category options fall back to the categories on published jobs.
 

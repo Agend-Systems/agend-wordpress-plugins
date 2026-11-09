@@ -27,7 +27,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Scope: `jobs.listings.browse`. Cached.
  *
  * @param array $query Optional. Query parameters (camelCase): `page`, `limit`, `search`, `sortBy`, `sortOrder`,
- *                     `state`, `postedAfter`, `featuredOnly`, `featuredFirst`, and the list filters `category`,
+ *                     `state`, `postedAfter`, `featuredOnly`, `featuredFirst`, `lat`, `lng` and `radius` (km, all three or
+ *                     none; `sortBy=distance` needs them), and the list filters `category`,
  *                     `tag`, `type`, `locationType` and `experienceLevel` supplied as arrays. Default empty.
  * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
  */
