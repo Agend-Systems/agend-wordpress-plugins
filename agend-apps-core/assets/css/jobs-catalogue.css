@@ -839,6 +839,14 @@
   --agend-jobs-tint: #f1f4f9;
   --agend-jobs-tint-ink: var(--agend-jobs-heading);
   --agend-jobs-muted: #5d6677;
+  --agend-jobs-surface: #fff;
+  --agend-jobs-pill-bg: #f6f8fb;
+  --agend-jobs-control-border: #d7dbe6;
+  /* Text on the job page header panel, and its softer secondary lines. */
+  --agend-jobs-header-ink: #fff;
+  --agend-jobs-header-ink-soft: rgba(255, 255, 255, 0.88);
+  /* The remove button inside an applied-filter chip. */
+  --agend-jobs-chip-remove-bg: rgba(255, 255, 255, 0.24);
 }
 
 @supports (color: color-mix(in srgb, red 10%, white)) {
@@ -1079,9 +1087,9 @@
   gap: 0.4rem;
   margin: 0;
   padding-left: 0.8rem;
-  border: 1px solid #d7dbe6;
+  border: 1px solid var(--agend-jobs-control-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--agend-jobs-surface);
 }
 
 .agend-jobs-sb-sort__label {
@@ -1147,7 +1155,7 @@
   width: 1.2rem;
   height: 1.2rem;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.24);
+  background: var(--agend-jobs-chip-remove-bg);
   font-size: 0.85rem;
   line-height: 1;
 }
@@ -1219,16 +1227,21 @@
 .agend-jobs-catalogue--filters-sidebar .agend-jobs-pill {
   padding: 0.18rem 0.65rem;
   border: 1px solid var(--agend-jobs-border);
-  background: #f6f8fb;
+  background: var(--agend-jobs-pill-bg);
   font-weight: 500;
 }
 
+/* Every pill is neutral in this layout except the category, which takes the
+   accent tint with no outline. */
 .agend-jobs-catalogue--filters-sidebar .agend-jobs-pill--remote {
-  background: #dcf3e5;
-  border-color: transparent;
+  background: var(--agend-jobs-pill-bg);
+  color: var(--agend-jobs-body);
 }
 
 .agend-jobs-catalogue--filters-sidebar .agend-jobs-pill--category {
+  background: var(--agend-jobs-tint);
+  border-color: transparent;
+  color: var(--agend-jobs-tint-ink);
   font-weight: 600;
 }
 
@@ -1260,10 +1273,36 @@
     flex: 1 1 100%;
   }
 
+  /* Keep "Within 50 km" whole beside the place field. */
+  .agend-jobs-sb-search .agend-jobs-near__search {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .agend-jobs-sb-search .agend-jobs-near__radius {
+    flex: 0 0 auto;
+    min-width: 9.5rem;
+  }
+
+  /* One column, with the filter panel opening under the count bar that
+     holds the Filters button rather than above it. */
   .agend-jobs-sb-layout {
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
     gap: 1rem;
   }
+
+  .agend-jobs-sb-results {
+    display: contents;
+  }
+
+  .agend-jobs-sb-bar { order: 1; }
+  .agend-jobs-sb-filters { order: 2; }
+  .agend-jobs-sb-chips { order: 3; }
+  .agend-jobs-sb-results > .agend-jobs-status { order: 4; }
+  .agend-jobs-sb-results > .agend-jobs-grid { order: 5; }
+  .agend-jobs-sb-results > .agend-jobs-pager { order: 6; }
 
   /* The groups wait behind the Filters button and open as a panel. */
   .agend-jobs-sb-filters {
@@ -1271,7 +1310,7 @@
     padding: 1rem;
     border: 1px solid var(--agend-jobs-border);
     border-radius: 10px;
-    background: #fff;
+    background: var(--agend-jobs-surface);
   }
 
   .agend-jobs-sb-filters.is-open {
@@ -1306,7 +1345,7 @@
   padding: 1.5rem 1.75rem 3.5rem;
   border-radius: 14px;
   background: var(--agend-jobs-header, var(--agend-jobs-heading));
-  color: #fff;
+  color: var(--agend-jobs-header-ink);
 }
 
 .agend-jobs-detail--no-facts .agend-jobs-hero {
@@ -1320,7 +1359,7 @@
 .agend-jobs-catalogue .agend-jobs-hero__back {
   justify-self: start;
   margin-bottom: 0.35rem;
-  color: rgba(255, 255, 255, 0.92);
+  color: var(--agend-jobs-header-ink-soft);
   font-size: 0.9rem;
   font-weight: 600;
   text-decoration: none;
@@ -1328,12 +1367,12 @@
 
 .agend-jobs-catalogue .agend-jobs-hero__back:hover,
 .agend-jobs-catalogue .agend-jobs-hero__back:focus {
-  color: #fff;
+  color: var(--agend-jobs-header-ink);
   text-decoration: underline;
 }
 
 .agend-jobs-hero__back:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--agend-jobs-header-ink);
   outline-offset: 3px;
 }
 
@@ -1343,23 +1382,23 @@
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--agend-jobs-header-ink-soft);
 }
 
 .agend-jobs-catalogue .agend-jobs-hero__title {
-  color: #fff;
+  color: var(--agend-jobs-header-ink);
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.2;
 }
 
 .agend-jobs-hero__company {
-  color: rgba(255, 255, 255, 0.92);
+  color: var(--agend-jobs-header-ink-soft);
   font-size: 1.05rem;
 }
 
 .agend-jobs-hero__meta {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--agend-jobs-header-ink-soft);
   font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
@@ -1384,7 +1423,7 @@
   display: grid;
   gap: 0.15rem;
   padding: 0.85rem 1.1rem;
-  background: #fff;
+  background: var(--agend-jobs-surface);
   min-width: 0;
 }
 
@@ -1423,11 +1462,19 @@
 .agend-jobs-catalogue--detail-header .agend-jobs-pill {
   padding: 0.18rem 0.7rem;
   border: 1px solid var(--agend-jobs-border);
-  background: #f6f8fb;
+  background: var(--agend-jobs-pill-bg);
   font-weight: 500;
 }
 
+.agend-jobs-catalogue--detail-header .agend-jobs-pill--remote {
+  background: var(--agend-jobs-pill-bg);
+  color: var(--agend-jobs-body);
+}
+
 .agend-jobs-catalogue--detail-header .agend-jobs-pill--category {
+  background: var(--agend-jobs-tint);
+  border-color: transparent;
+  color: var(--agend-jobs-tint-ink);
   font-weight: 600;
 }
 
@@ -1437,7 +1484,7 @@
   padding: 1.15rem;
   border: 1px solid var(--agend-jobs-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--agend-jobs-surface);
 }
 
 .agend-jobs-catalogue .agend-jobs-box > * {

@@ -1929,6 +1929,14 @@
       var open = !aside.classList.contains('is-open');
       aside.classList.toggle('is-open', open);
       toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      // The panel sits before the results in the markup, so take keyboard
+      // and screen reader users straight into it when it opens.
+      if (open) {
+        var first = aside.querySelector('input, button, select');
+        if (first) {
+          first.focus({ preventScroll: true });
+        }
+      }
     });
     tools.appendChild(toggle);
 
