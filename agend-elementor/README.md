@@ -58,6 +58,7 @@ Switch on **Show distance search** under Visitor Filter Bar. It reuses what the 
 
 - A typed suburb, postcode or address is turned into a point by the `/agend-apps/v1/directory/geocode` route, and a site whose account has no place search hides the box (the same `/directory/map-settings` check the Directory uses). **Use my location** asks the browser for the device's position and needs no place search. A device position never enters the page address.
 - **Radius choices (km)** (default `10, 25, 50, 100, 250`, from 1 to 1000) and **Default radius (km)** set the dropdown. A single choice fixes the radius and hides the dropdown.
+- **Region** (blank by default) is added to every typed place before it is looked up, as the Directory location filter's Region setting does, so a bare postcode such as `5000` resolves in that country (for example "Australia") rather than wherever the geocoder's first match is. Text that already names the region is sent as typed, and the chip keeps the visitor's own words.
 - Setting a location sends `lat`, `lng` and `radius` together (never one or two of them) and, with the sort dropdown on, opens the board on **Nearest**. Clearing it returns to the board's own order.
 - Each job found shows its distance on the card. A job's page shows its **reference number**, the **postcode** in the location line, and the **contact name and phone** (the phone as a `tel:` link) under the apply button. A field a listing does not have is not drawn.
 

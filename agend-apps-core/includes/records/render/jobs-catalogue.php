@@ -113,6 +113,19 @@ function agend_apps_records_jobs_catalogue_distance_config( array $s ): array {
 }
 
 /**
+ * The country added to a typed place before it is looked up, from the
+ * Region setting: plain text, at most 60 characters,
+ * blank when unset.
+ *
+ * @param string $setting The setting as saved.
+ * @return string
+ */
+function agend_apps_records_jobs_catalogue_place_country( string $setting ): string {
+	$country = trim( sanitize_text_field( $setting ) );
+	return strlen( $country ) <= 60 ? $country : '';
+}
+
+/**
  * The states a board's state filter offers, from the comma-separated setting.
  *
  * @param string $setting The "States offered" setting.
@@ -248,6 +261,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'distance'        => $on( 'show_distance_filter', '' ),
 			'distanceRadii'   => $distance['radii'],
 			'distanceRadius'  => $distance['radius'],
+			'placeCountry'    => agend_apps_records_jobs_catalogue_place_country( (string) ( $s['distance_place_country'] ?? '' ) ),
 			'sort'            => $on( 'show_sort', '' ),
 			'sortOptions'     => agend_apps_records_jobs_catalogue_sort_options( $sort ),
 			'layout'          => $filter_layout,

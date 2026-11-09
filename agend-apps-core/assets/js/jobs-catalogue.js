@@ -1166,6 +1166,18 @@
     return shared.mapSettings;
   }
 
+  // A typed place with the board's country added, so a bare postcode such as
+  // "5000" is looked up in that country rather than wherever the geocoder's
+  // first match happens to be. Text that already names the country is left
+  // as typed. The chip and messages keep the visitor's own words.
+  function placeQuery(text, country) {
+    country = (country || '').trim();
+    if (!country || text.toLowerCase().indexOf(country.toLowerCase()) !== -1) {
+      return text;
+    }
+    return text + ', ' + country;
+  }
+
   function radiusText(km) {
     return 'Within ' + km + ' km';
   }
@@ -1284,7 +1296,7 @@
       }
       lastLookup = now;
       busy(true);
-      apiGet('/directory/geocode', { q: text.slice(0, 200) })
+      apiGet('/directory/geocode', { q: placeQuery(text, cfg.filters.placeCountry).slice(0, 200) })
         .then(function (body) {
           busy(false);
           var point = body && body.data;

@@ -328,6 +328,15 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'condition' => array( 'show_distance_filter' => 'yes' ),
 					),
 					array(
+						'name'        => 'distance_place_country',
+						'label'       => __( 'Region', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => '',
+						'label_block' => true,
+						'description' => __( 'Added to every typed place before it is looked up, as the Directory location filter does, so a bare postcode such as "5000" finds the place in this country rather than somewhere abroad. For example: Australia. Leave blank to look the text up as typed.', 'agend-apps-core' ),
+						'condition'   => array( 'show_distance_filter' => 'yes' ),
+					),
+					array(
 						'name'        => 'show_sort',
 						'label'       => __( 'Show sort dropdown', 'agend-apps-core' ),
 						'type'        => 'toggle',
