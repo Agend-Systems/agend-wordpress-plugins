@@ -63,6 +63,16 @@ Switch on **Show distance search** under Visitor Filter Bar. It reuses what the 
 
 Distance search, the Nearest sort and the postcode in text search need the gateway release that adds `lat`, `lng`, `radius`, `sortBy=distance` and the `location_postcode`, `distance_km`, `reference_number`, `contact_name` and `contact_phone` fields (the matching agend-dashboard change). Before it ships, a board with the controls on stays usable: a gateway that refuses the distance parameters is asked again without them and every job is shown with a note, and one that ignores them shows every job with the same note. Both settings are off by default, so a board that has not opted in changes only in showing the new job fields once the gateway sends them.
 
+### Filter sidebar and job page header layouts
+
+Two opt-in presentations of the same board. Both are off by default, and a board that has not chosen them renders exactly as before.
+
+- **Filter layout** (Visitor Filter Bar): `Filter bar` (default) or `Filter sidebar`. The sidebar puts the keyword, place and radius in a tinted search panel with one Search button (place and radius only while Show distance search is on), and each filter you have switched on becomes a group on the left: tick boxes for category, employment type, work arrangement, experience level and tag groups in checkbox style, and radio lists with an Any option for state, date posted and tag groups in select style. A long list shows its first five options with a **Show N more** toggle. The results bar has the count, the sort dropdown (when Show sort is on) and, in a narrow container, a **Filters (n)** button that opens the groups as a panel. What is applied shows as removable chips above the results with **Clear all**. Filters apply as soon as they change, the same as the bar. Cards gain a right-hand column with the closing date and how long ago the job was posted, and the salary is emphasised.
+- **Job page layout** (Job Detail): `Standard` (default) or `Header panel`. The header layout draws a rounded panel in the content area (not a full width band) with a back link, the title, the employer and "Reference X, posted date", and a facts strip overlapping its bottom edge with location, salary, job type and closing date. Below, the description and its pills sit on the left; an apply box (with "or email" when Offer apply by email is on), a "Questions about the role" box (contact name and phone as a `tel:` link) and the employer panel sit on the right. Any box or cell with no data is not drawn. Both columns stack in a narrow container.
+- **Job page header colour** (Style, Colours) sets the panel's colour. Blank uses the heading colour. It applies to the header layout only.
+
+The layouts use the board's existing colours (heading, body, accent, button), so a category pill is a pale tint of the accent colour with darker text and titles take the heading colour, inside these two layouts only.
+
 Several values per filter, tags, state, date posted, featured first and the categories and tags lists need the gateway release that adds them to `GET /v1/jobs` (agend-dashboard #6826 and #7037). Against an older gateway those filters are ignored and show every job, and the category options fall back to the categories on published jobs.
 
 ## Card and detail templates

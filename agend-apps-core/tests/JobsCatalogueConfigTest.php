@@ -337,4 +337,95 @@ final class JobsCatalogueConfigTest extends TestCase {
 		// The board's existing order setting stays the default order.
 		self::assertSame( 'published_at:desc', $fields['sort']['default'] );
 	}
+
+	#[Test]
+	public function should_keep_the_filter_bar_and_standard_job_page_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array() );
+
+		self::assertSame( 'bar', $config['filters']['layout'] );
+		self::assertSame( 'standard', $config['detail']['layout'] );
+		self::assertSame( '', $config['colours']['jobHeader'] );
+		self::assertSame( '', agend_apps_records_jobs_catalogue_layout_classes( $config ) );
+		self::assertStringNotContainsString( '--agend-jobs-header', agend_apps_records_jobs_catalogue_inline_style( $config ) );
+	}
+
+	#[Test]
+	public function should_switch_the_sidebar_and_header_layouts_on_from_their_settings(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'filter_layout' => 'sidebar',
+				'detail_layout' => 'header',
+			)
+		);
+
+		self::assertSame( 'sidebar', $config['filters']['layout'] );
+		self::assertSame( 'header', $config['detail']['layout'] );
+		self::assertSame(
+			' agend-jobs-catalogue--filters-sidebar agend-jobs-catalogue--detail-header',
+			agend_apps_records_jobs_catalogue_layout_classes( $config )
+		);
+	}
+
+	#[Test]
+	public function should_ignore_a_layout_value_it_does_not_know(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'filter_layout' => 'columns',
+				'detail_layout' => 'sidebar',
+			)
+		);
+
+		self::assertSame( 'bar', $config['filters']['layout'] );
+		self::assertSame( 'standard', $config['detail']['layout'] );
+	}
+
+	#[Test]
+	public function should_use_the_header_colour_only_with_the_header_layout(): void {
+		$header = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'detail_layout'     => 'header',
+				'job_header_colour' => '#0C5998',
+			)
+		);
+		self::assertSame( '#0C5998', $header['colours']['jobHeader'] );
+		self::assertStringContainsString( '--agend-jobs-header:#0C5998;', agend_apps_records_jobs_catalogue_inline_style( $header ) );
+
+		// Blank follows the heading colour: nothing is set, so the stylesheet falls back.
+		$blank = agend_apps_records_jobs_catalogue_build_config( array( 'detail_layout' => 'header' ) );
+		self::assertSame( '', $blank['colours']['jobHeader'] );
+		self::assertStringNotContainsString( '--agend-jobs-header', agend_apps_records_jobs_catalogue_inline_style( $blank ) );
+
+		// A colour left over from the header layout does nothing on the standard one.
+		$standard = agend_apps_records_jobs_catalogue_build_config( array( 'job_header_colour' => '#0C5998' ) );
+		self::assertSame( '', $standard['colours']['jobHeader'] );
+
+		// An unsafe value is dropped.
+		$unsafe = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'detail_layout'     => 'header',
+				'job_header_colour' => 'red;background:url(x)',
+			)
+		);
+		self::assertSame( '', $unsafe['colours']['jobHeader'] );
+	}
+
+	#[Test]
+	public function should_declare_the_layout_settings_opt_in_in_the_schema(): void {
+		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/schema/jobs-catalogue.php';
+
+		$fields = array();
+		foreach ( agend_apps_records_schema_jobs_catalogue()['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				$fields[ $field['name'] ] = $field;
+			}
+		}
+
+		self::assertSame( 'bar', $fields['filter_layout']['default'] );
+		self::assertSame( array( 'bar', 'sidebar' ), array_keys( $fields['filter_layout']['options'] ) );
+		self::assertSame( 'standard', $fields['detail_layout']['default'] );
+		self::assertSame( array( 'standard', 'header' ), array_keys( $fields['detail_layout']['options'] ) );
+		self::assertSame( '', $fields['job_header_colour']['default'] );
+		self::assertSame( 'colour', $fields['job_header_colour']['type'] );
+		self::assertSame( array( 'detail_layout' => 'header' ), $fields['job_header_colour']['condition'] );
+	}
 }
