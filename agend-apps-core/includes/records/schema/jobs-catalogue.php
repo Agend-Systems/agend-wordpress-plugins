@@ -226,6 +226,17 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 				'label'  => __( 'Visitor Filter Bar', 'agend-apps-core' ),
 				'fields' => array(
 					array(
+						'name'        => 'filter_layout',
+						'label'       => __( 'Filter layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'bar',
+						'options'     => array(
+							'bar'     => __( 'Filter bar: a row of dropdowns above the results', 'agend-apps-core' ),
+							'sidebar' => __( 'Filter sidebar: groups of tick boxes beside the results', 'agend-apps-core' ),
+						),
+						'description' => __( 'The sidebar shows each filter you switch on below as a group on the left, with removable chips for what is applied and a Filters button on a phone. Category, employment type, work arrangement and experience level become tick boxes. Results show as a list of cards.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'show_search',
 						'label'   => __( 'Show keyword search', 'agend-apps-core' ),
 						'type'    => 'toggle',
@@ -363,6 +374,17 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 				'label'  => __( 'Job Detail', 'agend-apps-core' ),
 				'fields' => array(
 					array(
+						'name'        => 'detail_layout',
+						'label'       => __( 'Job page layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'standard',
+						'options'     => array(
+							'standard' => __( 'Standard', 'agend-apps-core' ),
+							'header'   => __( 'Header panel: coloured title panel, facts strip and an apply box', 'agend-apps-core' ),
+						),
+						'description' => __( 'The header layout puts the job title in a coloured panel (set its colour under Style, Colours), with location, salary, job type and closing date in a strip beneath it.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'apply_label',
 						'label'   => __( 'Apply button text', 'agend-apps-core' ),
 						'type'    => 'text',
@@ -473,6 +495,14 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'type'      => 'colour',
 						'default'   => '#FFFFFF',
 						'condition' => array( 'inherit_colours!' => 'yes' ),
+					),
+					array(
+						'name'        => 'job_header_colour',
+						'label'       => __( 'Job page header colour', 'agend-apps-core' ),
+						'type'        => 'colour',
+						'default'     => '',
+						'description' => __( 'The panel behind the job title in the header job page layout. Blank uses the heading colour.', 'agend-apps-core' ),
+						'condition'   => array( 'detail_layout' => 'header' ),
 					),
 				),
 			),

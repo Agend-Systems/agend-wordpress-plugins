@@ -186,6 +186,18 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 	$apply    = trim( (string) ( $s['apply_label'] ?? '' ) );
 	$distance = agend_apps_records_jobs_catalogue_distance_config( $s );
 
+	// The two opt-in presentations. Anything but the exact opt-in value keeps
+	// the board's long-standing look.
+	$filter_layout = 'sidebar' === ( $s['filter_layout'] ?? 'bar' ) ? 'sidebar' : 'bar';
+	$detail_layout = 'header' === ( $s['detail_layout'] ?? 'standard' ) ? 'header' : 'standard';
+
+	// The job page header panel's colour: its own setting, else the heading
+	// colour (left blank here so the stylesheet follows the live heading
+	// colour, which a connected account's theme may still set client-side).
+	$header_colour = (string) ( $s['job_header_colour'] ?? '' );
+	$header_colour = agend_apps_records_colour_is_safe( $header_colour ) ? $header_colour : '';
+	$colours['colours']['jobHeader'] = 'header' === $detail_layout ? $header_colour : '';
+
 	return array(
 		'heading'    => array(
 			'show'     => $on( 'show_heading' ),
@@ -238,12 +250,14 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'distanceRadius'  => $distance['radius'],
 			'sort'            => $on( 'show_sort', '' ),
 			'sortOptions'     => agend_apps_records_jobs_catalogue_sort_options( $sort ),
+			'layout'          => $filter_layout,
 			'tags'            => agend_apps_records_jobs_catalogue_tag_filters( $s['tag_filters'] ?? array() ),
 		),
 		'detail'     => array(
 			'applyLabel'   => '' !== $apply ? $apply : __( 'Apply now', 'agend-apps-core' ),
 			'emailApply'   => $on( 'allow_email_apply' ),
 			'companyPanel' => $on( 'show_company_panel' ),
+			'layout'       => $detail_layout,
 		),
 		'signIn'     => array(
 			'text'   => '' !== trim( (string) ( $s['signin_text'] ?? '' ) ) ? (string) $s['signin_text'] : __( 'Sign in as a member to see the full job details.', 'agend-apps-core' ),
@@ -268,7 +282,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
  * @return string
  */
 function agend_apps_records_jobs_catalogue_inline_style( array $config ): string {
-	return sprintf(
+	$style = sprintf(
 		'--agend-jobs-heading:%1$s;--agend-jobs-body:%2$s;--agend-jobs-accent:%3$s;--agend-jobs-button:%4$s;--agend-jobs-button-text:%5$s;--agend-jobs-card-radius:%6$dpx;--agend-jobs-cols-desktop:%7$d;--agend-jobs-cols-tablet:%8$d;',
 		esc_attr( $config['colours']['heading'] ),
 		esc_attr( $config['colours']['body'] ),
@@ -279,6 +293,32 @@ function agend_apps_records_jobs_catalogue_inline_style( array $config ): string
 		(int) $config['layout']['desktop'],
 		(int) $config['layout']['tablet']
 	);
+
+	// Only the job page header layout reads this; a blank one leaves the
+	// stylesheet on the heading colour.
+	if ( ! empty( $config['colours']['jobHeader'] ) ) {
+		$style .= sprintf( '--agend-jobs-header:%s;', esc_attr( $config['colours']['jobHeader'] ) );
+	}
+
+	return $style;
+}
+
+/**
+ * The modifier classes the container carries for the opt-in layouts. Empty
+ * for a board on the defaults, so its markup is unchanged.
+ *
+ * @param array $config The surface config.
+ * @return string Leading space included when not empty.
+ */
+function agend_apps_records_jobs_catalogue_layout_classes( array $config ): string {
+	$classes = '';
+	if ( 'sidebar' === ( $config['filters']['layout'] ?? 'bar' ) ) {
+		$classes .= ' agend-jobs-catalogue--filters-sidebar';
+	}
+	if ( 'header' === ( $config['detail']['layout'] ?? 'standard' ) ) {
+		$classes .= ' agend-jobs-catalogue--detail-header';
+	}
+	return $classes;
 }
 
 /**
@@ -360,7 +400,7 @@ function agend_apps_records_render_jobs_catalogue( array $settings ): string {
 
 	ob_start();
 	?>
-		<div class="agend-jobs-catalogue agend-jobs-catalogue--<?php echo esc_attr( $config['layout']['style'] ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-jobs-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
+		<div class="agend-jobs-catalogue agend-jobs-catalogue--<?php echo esc_attr( $config['layout']['style'] ); ?><?php echo esc_attr( agend_apps_records_jobs_catalogue_layout_classes( $config ) ); ?>" style="<?php echo esc_attr( $style ); ?>" data-agend-jobs-config="<?php echo esc_attr( wp_json_encode( $config ) ); ?>">
 			<span class="agend-visually-hidden" role="status"><?php esc_html_e( 'Loading jobs…', 'agend-apps-core' ); ?></span>
 			<div class="agend-jobs-grid">
 				<?php for ( $i = 0; $i < $skeletons; $i++ ) : ?>
