@@ -114,7 +114,8 @@ function agend_apps_records_jobs_catalogue_distance_config( array $s ): array {
 
 /**
  * The country added to a typed place before it is looked up, from the
- * Region setting: plain text, at most 60 characters,
+ * Region setting: plain text, at most 60 characters (not bytes, so a
+ * name in another script is not cut short),
  * blank when unset.
  *
  * @param string $setting The setting as saved.
@@ -122,7 +123,8 @@ function agend_apps_records_jobs_catalogue_distance_config( array $s ): array {
  */
 function agend_apps_records_jobs_catalogue_place_country( string $setting ): string {
 	$country = trim( sanitize_text_field( $setting ) );
-	return strlen( $country ) <= 60 ? $country : '';
+	$length  = function_exists( 'mb_strlen' ) ? mb_strlen( $country, 'UTF-8' ) : strlen( $country );
+	return $length <= 60 ? $country : '';
 }
 
 /**

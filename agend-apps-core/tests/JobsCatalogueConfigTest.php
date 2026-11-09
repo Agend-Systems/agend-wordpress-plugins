@@ -303,6 +303,15 @@ final class JobsCatalogueConfigTest extends TestCase {
 		// Longer than any country name: ignored rather than cut short.
 		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_place_country' => str_repeat( 'x', 61 ) ) );
 		self::assertSame( '', $config['filters']['placeCountry'] );
+
+		// Whitespace only is the same as blank.
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_place_country' => "   \t " ) );
+		self::assertSame( '', $config['filters']['placeCountry'] );
+
+		// The limit counts characters, not bytes: 40 three-byte characters fit.
+		$name   = str_repeat( 'ニ', 40 );
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_place_country' => $name ) );
+		self::assertSame( $name, $config['filters']['placeCountry'] );
 	}
 
 	#[Test]

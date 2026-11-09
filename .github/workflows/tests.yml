@@ -78,6 +78,8 @@ jobs:
       # Shares its case table with SearchLinkParseTest.php; this is what keeps
       # the browser's and the server's search link parse rules in step.
       - run: node --test agend-apps-core/tests/js/search-link.test.mjs
+      # The jobs board's Region added to a typed place before the geocode lookup.
+      - run: node --test agend-apps-core/tests/js/jobs-place-query.test.mjs
       # The Agend Access panels' logic (the block panel's and the page panel's)
       # and the once-per-session loader, all free of WordPress imports so they
       # run here.

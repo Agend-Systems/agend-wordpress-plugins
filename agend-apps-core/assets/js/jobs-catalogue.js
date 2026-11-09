@@ -1166,17 +1166,32 @@
     return shared.mapSettings;
   }
 
-  // A typed place with the board's country added, so a bare postcode such as
+  var PLACE_QUERY_MAX = 200;
+
+  // A typed place with the board's region added, so a bare postcode such as
   // "5000" is looked up in that country rather than wherever the geocoder's
-  // first match happens to be. Text that already names the country is left
-  // as typed. The chip and messages keep the visitor's own words.
-  function placeQuery(text, country) {
-    country = (country || '').trim();
-    if (!country || text.toLowerCase().indexOf(country.toLowerCase()) !== -1) {
-      return text;
+  // first match happens to be. Text that already names the region as a whole
+  // word is left as typed: "Adelaide, Australia" stays as it is, but a region
+  // of "US" is still added to "Houston". The visitor's text is cut to leave
+  // room for the region, so the 200 character limit never clips it. The chip
+  // and messages keep the visitor's own words.
+  function placeQuery(text, region) {
+    text = String(text || '');
+    region = String(region || '').trim();
+    if (!region) {
+      return text.slice(0, PLACE_QUERY_MAX);
     }
-    return text + ', ' + country;
+    var escaped = region.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var named = new RegExp('(^|[^\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', 'iu');
+    if (named.test(text)) {
+      return text.slice(0, PLACE_QUERY_MAX);
+    }
+    var suffix = ', ' + region;
+    return text.slice(0, Math.max(0, PLACE_QUERY_MAX - suffix.length)) + suffix;
   }
+
+  // Exposed for the script's own tests; not an API.
+  window.agendJobsBoard = { placeQuery: placeQuery };
 
   function radiusText(km) {
     return 'Within ' + km + ' km';
@@ -1296,7 +1311,7 @@
       }
       lastLookup = now;
       busy(true);
-      apiGet('/directory/geocode', { q: placeQuery(text, cfg.filters.placeCountry).slice(0, 200) })
+      apiGet('/directory/geocode', { q: placeQuery(text, cfg.filters.placeCountry) })
         .then(function (body) {
           busy(false);
           var point = body && body.data;
