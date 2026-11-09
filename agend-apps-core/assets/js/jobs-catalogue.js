@@ -2307,9 +2307,12 @@
       // know the parameters yet) must not blank the board: ask again without
       // it and say so.
       var degraded = false;
-      // The proxy's own refusal (a WordPress error body) or the gateway's.
+      // The proxy's own refusal or the gateway's. A WordPress error body has a
+      // string `code` and no list; a gateway refusal it passes on carries the
+      // HTTP status as `data.status_code`, not `data.status`, so the shape is
+      // the test rather than either number.
       function failed(body) {
-        return !body || body.success === false || !!(body.code && body.data && body.data.status >= 400);
+        return !body || body.success === false || (typeof body.code === 'string' && !Array.isArray(body.data));
       }
       function load(query) {
         return apiGet('/jobs', query).catch(function () {
