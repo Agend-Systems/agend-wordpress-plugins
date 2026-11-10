@@ -1190,8 +1190,21 @@
     return text.slice(0, Math.max(0, PLACE_QUERY_MAX - suffix.length)) + suffix;
   }
 
+  // Whether a distance search came back unmeasured: a gateway that does not
+  // know the distance parameters ignores them and returns jobs with no
+  // distance. Remote jobs never carry one, so when they were asked for they
+  // are left out of the test; when they were not, every job counts, as before.
+  function isUnmeasured(items, remoteAsked) {
+    var located = remoteAsked ? items.filter(function (job) {
+      return job.location_type !== 'remote';
+    }) : items;
+    return located.length > 0 && located.every(function (job) {
+      return typeof job.distance_km !== 'number';
+    });
+  }
+
   // Exposed for the script's own tests; not an API.
-  window.agendJobsBoard = { placeQuery: placeQuery };
+  window.agendJobsBoard = { placeQuery: placeQuery, isUnmeasured: isUnmeasured };
 
   function radiusText(km) {
     return 'Within ' + km + ' km';
@@ -1201,7 +1214,10 @@
   // point by the directory's geocode route), or the device's position, plus a
   // radius. Sets state.near to {lat, lng, radius, label} or null. Returns the
   // node and a `say` function for messages.
-  function buildNearControl(cfg, state, changed, panel) {
+  // `changed` is called when the location itself changes (the layouts also
+  // move the sort to Nearest then); `filterChanged`, when only a qualifier of
+  // it does, such as "Exclude remote jobs", which must leave the sort alone.
+  function buildNearControl(cfg, state, changed, panel, filterChanged) {
     var f = cfg.filters;
     var radii = Array.isArray(f.distanceRadii) && f.distanceRadii.length ? f.distanceRadii : [50];
     var wrap = el('div', 'agend-jobs-near');
@@ -1265,7 +1281,7 @@
       remoteBox.addEventListener('change', function () {
         state.excludeRemote = remoteBox.checked;
         if (state.near) {
-          changed();
+          (filterChanged || changed)();
         }
       });
       wrap.appendChild(remoteWrap);
@@ -1492,6 +1508,9 @@
 
     function changed() {
       state.page = 1;
+      // A filter changed while "Load more" was still loading starts a fresh
+      // list; without this the new first page was added after the old cards.
+      state.append = false;
       reload();
     }
 
@@ -1550,7 +1569,7 @@
           sorter.sync(true);
         }
         changed();
-      });
+      }, false, changed);
       state.say = near.say;
       bar.appendChild(near.node);
     }
@@ -1815,6 +1834,8 @@
 
     function changed() {
       state.page = 1;
+      // See the bar layout's changed(): a fresh list, not an appended page.
+      state.append = false;
       refresh();
       reload();
     }
@@ -1845,7 +1866,7 @@
             sorter.sync(true);
           }
           changed();
-        }, true);
+        }, true, changed);
         state.say = near.say;
         panel.appendChild(near.node);
       } else if (f.location) {
@@ -2394,12 +2415,32 @@
         return plain;
       }
 
+      // A gateway that refuses includeRemote (rather than ignoring it) costs
+      // only the remote jobs: the distance search is asked again on its own
+      // before it is given up.
+      function withoutRemote(query) {
+        var plain = {};
+        Object.keys(query).forEach(function (key) {
+          plain[key] = query[key];
+        });
+        delete plain.includeRemote;
+        return plain;
+      }
+      function giveUpNear() {
+        degraded = true;
+        return load(withoutNear(params));
+      }
+
       load(params).then(function (body) {
-        if (state.near && failed(body) && body.code !== 'agend_apps_sign_in_required') {
-          degraded = true;
-          return load(withoutNear(params));
+        if (!state.near || !failed(body) || body.code === 'agend_apps_sign_in_required') {
+          return body;
         }
-        return body;
+        if (params.includeRemote) {
+          return load(withoutRemote(params)).then(function (retry) {
+            return failed(retry) && retry.code !== 'agend_apps_sign_in_required' ? giveUpNear() : retry;
+          });
+        }
+        return giveUpNear();
       }).then(function (body) {
         if (seq !== requestSeq) {
           return;
@@ -2433,14 +2474,7 @@
         // and answers with every job, none carrying a distance: say so rather
         // than let the list pass for a search within the radius.
         if (state.near && state.say) {
-          // Remote jobs added to the search never carry a distance, so only
-          // the others say whether the gateway measured anything.
-          var located = result.items.filter(function (job) {
-            return job.location_type !== 'remote';
-          });
-          var unmeasured = located.length && located.every(function (job) {
-            return typeof job.distance_km !== 'number';
-          });
+          var unmeasured = isUnmeasured(result.items, !!params.includeRemote);
           state.say(degraded || unmeasured ? GEO_MESSAGES.degraded : '');
         }
         if (!result.items.length && !grid.childNodes.length) {

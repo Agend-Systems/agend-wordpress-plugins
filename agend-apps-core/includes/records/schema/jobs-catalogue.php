@@ -341,7 +341,7 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'label'       => __( 'Include remote jobs', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => false,
-						'description' => __( 'Remote jobs have no location, so a distance search leaves them out. With this on they are listed after the nearby jobs, and the visitor gets an "Exclude remote jobs" checkbox. Needs the gateway release that adds includeRemote to the jobs list; before it, the setting has no effect.', 'agend-apps-core' ),
+						'description' => __( 'Remote jobs have no location, so a distance search leaves them out. With this on they are listed after the nearby jobs, and the visitor gets an "Exclude remote jobs" checkbox. Needs the gateway release that adds includeRemote to the jobs list: switch it on only once that is live, since before it remote jobs are not added and the checkbox does nothing.', 'agend-apps-core' ),
 						'condition'   => array( 'show_distance_filter' => 'yes' ),
 					),
 					array(

@@ -149,6 +149,11 @@
   accent-color: var(--agend-jobs-accent);
 }
 
+.agend-jobs-near__remote-box:focus-visible {
+  outline: 2px solid var(--agend-jobs-accent);
+  outline-offset: 2px;
+}
+
 .agend-jobs-near__chip {
   margin: 0;
   font-size: 0.9rem;

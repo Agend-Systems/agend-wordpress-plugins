@@ -321,6 +321,17 @@ final class JobsRestQueryTest extends TestCase {
 		Agend_Test_WP::$requests = array();
 		$query = $this->gateway_query_for( array( 'includeRemote' => 'true', 'search' => 'no point' ) );
 		self::assertArrayNotHasKey( 'includeRemote', $query );
+
+		// Nor with part of one.
+		Agend_Test_WP::$requests = array();
+		$query = $this->gateway_query_for( array( 'lat' => '-34.9', 'lng' => '138.6', 'includeRemote' => 'true', 'search' => 'part point' ) );
+		self::assertArrayNotHasKey( 'includeRemote', $query );
+
+		// It stays beside the nearest-first sort.
+		Agend_Test_WP::$requests = array();
+		$query = $this->gateway_query_for( $point + array( 'includeRemote' => 'true', 'sortBy' => 'distance', 'sortOrder' => 'asc', 'search' => 'nearest' ) );
+		self::assertSame( 'true', $query['includeRemote'] ?? null );
+		self::assertSame( 'distance', $query['sortBy'] ?? null );
 	}
 
 	#[Test]
