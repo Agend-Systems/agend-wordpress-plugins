@@ -128,6 +128,32 @@
   font-size: 0.9rem;
 }
 
+/* "Exclude remote jobs", shown while a location is set. */
+.agend-jobs-near__remote {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.agend-jobs-near__remote[hidden] {
+  display: none;
+}
+
+.agend-jobs-near__remote-box {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--agend-jobs-accent);
+}
+
+.agend-jobs-near__remote-box:focus-visible {
+  outline: 2px solid var(--agend-jobs-accent);
+  outline-offset: 2px;
+}
+
 .agend-jobs-near__chip {
   margin: 0;
   font-size: 0.9rem;

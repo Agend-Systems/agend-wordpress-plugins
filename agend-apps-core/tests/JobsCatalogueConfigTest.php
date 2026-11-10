@@ -315,6 +315,22 @@ final class JobsCatalogueConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_include_remote_jobs_only_when_distance_search_is_on_too(): void {
+		self::assertFalse( agend_apps_records_jobs_catalogue_build_config( array() )['filters']['distanceRemote'] );
+
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_include_remote' => 'yes' ) );
+		self::assertFalse( $config['filters']['distanceRemote'] );
+
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'show_distance_filter'    => 'yes',
+				'distance_include_remote' => 'yes',
+			)
+		);
+		self::assertTrue( $config['filters']['distanceRemote'] );
+	}
+
+	#[Test]
 	public function should_fall_back_to_the_directory_radius_choices_when_none_are_usable(): void {
 		$config = agend_apps_records_jobs_catalogue_build_config( array( 'distance_radius_choices' => 'nope' ) );
 
@@ -362,6 +378,8 @@ final class JobsCatalogueConfigTest extends TestCase {
 		self::assertSame( array( 'show_distance_filter' => 'yes' ), $fields['distance_radius_choices']['condition'] );
 		self::assertSame( '', $fields['distance_place_country']['default'] );
 		self::assertSame( array( 'show_distance_filter' => 'yes' ), $fields['distance_place_country']['condition'] );
+		self::assertFalse( $fields['distance_include_remote']['default'] );
+		self::assertSame( array( 'show_distance_filter' => 'yes' ), $fields['distance_include_remote']['condition'] );
 		// The board's existing order setting stays the default order.
 		self::assertSame( 'published_at:desc', $fields['sort']['default'] );
 	}

@@ -1,8 +1,11 @@
 /**
- * Jobs board place lookups (assets/js/jobs-catalogue.js): the board's Region
- * is added to a typed place before it goes to the geocoder, unless the text
- * already names it as a whole word, and the region always fits the lookup's
- * 200 character limit.
+ * Jobs board distance search helpers (assets/js/jobs-catalogue.js):
+ * - placeQuery: the board's Region is added to a typed place before it goes
+ *   to the geocoder, unless the text already names it as a whole word, and
+ *   the region always fits the lookup's 200 character limit.
+ * - isUnmeasured: whether a distance search came back without distances
+ *   (a gateway that ignores the parameters), leaving out remote jobs only
+ *   when they were asked for.
  *
  * Run with: node --test agend-apps-core/tests/js/jobs-place-query.test.mjs
  *
@@ -58,4 +61,32 @@ test('should keep the whole region within the 200 character limit', () => {
   assert.equal(query.length, 200);
   assert.ok(query.endsWith(', Australia'));
   assert.equal(placeQuery(long, '').length, 200);
+});
+
+const { isUnmeasured } = fakeWindow.agendJobsBoard;
+const near = (km) => ({ location_type: 'on-site', distance_km: km });
+const remote = { location_type: 'remote', distance_km: null };
+const unmeasuredOnSite = { location_type: 'on-site', distance_km: null };
+
+test('should call a distance search measured when the located jobs carry a distance', () => {
+  assert.equal(isUnmeasured([near(2.4), remote], true), false);
+});
+
+test('should call a page of only remote jobs measured when remote jobs were asked for', () => {
+  assert.equal(isUnmeasured([remote, remote], true), false);
+});
+
+test('should count remote jobs as before when they were not asked for', () => {
+  // A gateway that ignores lat/lng and returns only remote jobs: the note shows.
+  assert.equal(isUnmeasured([remote, remote], false), true);
+});
+
+test('should call a list with no distances unmeasured', () => {
+  assert.equal(isUnmeasured([unmeasuredOnSite, remote], true), true);
+  assert.equal(isUnmeasured([unmeasuredOnSite], false), true);
+});
+
+test('should not call an empty list unmeasured', () => {
+  assert.equal(isUnmeasured([], true), false);
+  assert.equal(isUnmeasured([], false), false);
 });
