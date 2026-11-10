@@ -307,6 +307,23 @@ final class JobsRestQueryTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_forward_include_remote_as_true_only_with_a_point(): void {
+		$point = array( 'lat' => '-34.9', 'lng' => '138.6', 'radius' => '25' );
+
+		$query = $this->gateway_query_for( $point + array( 'includeRemote' => 'true', 'search' => 'with point' ) );
+		self::assertSame( 'true', $query['includeRemote'] ?? null );
+
+		Agend_Test_WP::$requests = array();
+		$query = $this->gateway_query_for( $point + array( 'includeRemote' => 'false', 'search' => 'false flag' ) );
+		self::assertArrayNotHasKey( 'includeRemote', $query );
+
+		// Without a point there is no radius for remote jobs to be added to.
+		Agend_Test_WP::$requests = array();
+		$query = $this->gateway_query_for( array( 'includeRemote' => 'true', 'search' => 'no point' ) );
+		self::assertArrayNotHasKey( 'includeRemote', $query );
+	}
+
+	#[Test]
 	public function should_forward_none_of_the_point_unless_all_three_arrive(): void {
 		$sets = array(
 			'no radius' => array( 'lat' => '-34.9', 'lng' => '138.6' ),

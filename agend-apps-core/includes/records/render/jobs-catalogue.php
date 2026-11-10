@@ -264,6 +264,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'distanceRadii'   => $distance['radii'],
 			'distanceRadius'  => $distance['radius'],
 			'placeCountry'    => agend_apps_records_jobs_catalogue_place_country( (string) ( $s['distance_place_country'] ?? '' ) ),
+			'distanceRemote'  => $on( 'show_distance_filter', '' ) && $on( 'distance_include_remote', '' ),
 			'sort'            => $on( 'show_sort', '' ),
 			'sortOptions'     => agend_apps_records_jobs_catalogue_sort_options( $sort ),
 			'layout'          => $filter_layout,

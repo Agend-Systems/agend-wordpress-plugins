@@ -1250,6 +1250,27 @@
     status.hidden = true;
     wrap.appendChild(status);
 
+    // With remote jobs added to a distance search, the visitor can leave them
+    // out. Shown only while a location is set, since only then are they added.
+    var remoteWrap = null;
+    var remoteBox = null;
+    if (f.distanceRemote) {
+      remoteWrap = el('label', 'agend-jobs-near__remote');
+      remoteBox = el('input', 'agend-jobs-near__remote-box');
+      remoteBox.type = 'checkbox';
+      remoteBox.checked = !!state.excludeRemote;
+      remoteWrap.appendChild(remoteBox);
+      remoteWrap.appendChild(el('span', 'agend-jobs-near__remote-text', 'Exclude remote jobs'));
+      remoteWrap.hidden = true;
+      remoteBox.addEventListener('change', function () {
+        state.excludeRemote = remoteBox.checked;
+        if (state.near) {
+          changed();
+        }
+      });
+      wrap.appendChild(remoteWrap);
+    }
+
     var chip = el('p', 'agend-jobs-near__chip');
     chip.hidden = true;
     var chipText = el('span', 'agend-jobs-near__chip-text');
@@ -1274,6 +1295,9 @@
     }
 
     function paintChip() {
+      if (remoteWrap) {
+        remoteWrap.hidden = !state.near;
+      }
       if (!state.near) {
         chip.hidden = true;
         chipText.textContent = '';
@@ -1394,6 +1418,10 @@
     }
     function clear() {
       state.near = null;
+      state.excludeRemote = false;
+      if (remoteBox) {
+        remoteBox.checked = false;
+      }
       input.value = '';
       say('');
       paintChip();
@@ -2159,6 +2187,7 @@
       experience: [],
       tagChoices: {},
       near: null,
+      excludeRemote: false,
       sort: cfg.listing.sort || '',
       say: null,
       page: 1,
@@ -2328,6 +2357,9 @@
         params.lat = state.near.lat;
         params.lng = state.near.lng;
         params.radius = state.near.radius;
+        if (cfg.filters.distanceRemote && !state.excludeRemote) {
+          params.includeRemote = true;
+        }
       }
 
       // A distance search that the gateway refuses (a release that does not
@@ -2354,6 +2386,7 @@
         delete plain.lat;
         delete plain.lng;
         delete plain.radius;
+        delete plain.includeRemote;
         if (plain.sortBy === 'distance') {
           plain.sortBy = cfg.listing.sortBy;
           plain.sortOrder = cfg.listing.sortOrder;
@@ -2400,7 +2433,12 @@
         // and answers with every job, none carrying a distance: say so rather
         // than let the list pass for a search within the radius.
         if (state.near && state.say) {
-          var unmeasured = result.items.length && result.items.every(function (job) {
+          // Remote jobs added to the search never carry a distance, so only
+          // the others say whether the gateway measured anything.
+          var located = result.items.filter(function (job) {
+            return job.location_type !== 'remote';
+          });
+          var unmeasured = located.length && located.every(function (job) {
             return typeof job.distance_km !== 'number';
           });
           state.say(degraded || unmeasured ? GEO_MESSAGES.degraded : '');

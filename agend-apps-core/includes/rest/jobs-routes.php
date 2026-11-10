@@ -153,6 +153,12 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 							'validate_callback' => 'rest_validate_request_arg',
 							'sanitize_callback' => 'rest_sanitize_request_arg',
 						),
+						// With a point: also list remote jobs, which have no
+						// coordinates and so never fall inside a radius. Means
+						// nothing without a point, so it is dropped with it.
+						'includeRemote' => array(
+							'type' => 'boolean',
+						),
 					),
 				),
 			)
@@ -208,7 +214,7 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 			return $this->sign_in_required();
 		}
 
-		$allowed = array( 'page', 'limit', 'search', 'sortBy', 'sortOrder', 'category', 'tag', 'location', 'state', 'type', 'locationType', 'experienceLevel', 'postedWithin', 'featuredOnly', 'featuredFirst', 'lat', 'lng', 'radius' );
+		$allowed = array( 'page', 'limit', 'search', 'sortBy', 'sortOrder', 'category', 'tag', 'location', 'state', 'type', 'locationType', 'experienceLevel', 'postedWithin', 'featuredOnly', 'featuredFirst', 'lat', 'lng', 'radius', 'includeRemote' );
 		$query   = array_filter(
 			$request->get_params(),
 			function ( $key ) use ( $allowed ) {
@@ -219,7 +225,7 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 
 		// The gateway reads these flags as the string 'true'; anything else
 		// (including false) is the same as leaving them out.
-		foreach ( array( 'featuredOnly', 'featuredFirst' ) as $flag ) {
+		foreach ( array( 'featuredOnly', 'featuredFirst', 'includeRemote' ) as $flag ) {
 			if ( ! array_key_exists( $flag, $query ) ) {
 				continue;
 			}
@@ -289,8 +295,9 @@ class Agend_Apps_Jobs_REST_Controller extends Agend_Apps_REST_Controller {
 
 		foreach ( $keys as $key ) {
 			if ( ! isset( $query[ $key ] ) || ! is_numeric( $query[ $key ] ) ) {
-				// Anything missing or not a number voids the whole set.
-				return array_diff_key( $query, array_flip( $keys ) );
+				// Anything missing or not a number voids the whole set, and
+				// includeRemote with it: it only qualifies a radius search.
+				return array_diff_key( $query, array_flip( array_merge( $keys, array( 'includeRemote' ) ) ) );
 			}
 		}
 
