@@ -815,6 +815,15 @@ if ( ! class_exists( 'wpdb' ) ) {
 		public function get_col( string $query ): array {
 			$this->queries[] = $query;
 
+			// Option names matching a LIKE pattern (with \_ and \% escapes), in name order.
+			if ( 1 === preg_match( "/^SELECT option_name FROM wp_options WHERE option_name LIKE '(.*?)'( ORDER BY option_name)?$/s", $query, $m ) ) {
+				$like  = stripslashes( str_replace( array( '\\\\_', '\\\\%' ), array( "\x01", "\x02" ), $m[1] ) );
+				$regex = '/^' . str_replace( array( '%', '_', "\x01", "\x02" ), array( '.*', '.', '_', '%' ), preg_quote( $like, '/' ) ) . '$/s';
+				$names = array_values( array_filter( array_map( 'strval', array_keys( Agend_Test_WP::$options ) ), static fn( string $name ): bool => 1 === preg_match( $regex, $name ) ) );
+				sort( $names );
+				return $names;
+			}
+
 			if ( 1 === preg_match( "/^SELECT user_id FROM wp_usermeta WHERE meta_key = '(.*?)'$/s", $query, $m ) ) {
 				$key = stripslashes( $m[1] );
 				$ids = array();

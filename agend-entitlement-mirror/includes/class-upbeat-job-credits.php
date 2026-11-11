@@ -118,11 +118,19 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 			$credit    = $this->find( $member_id, $ref );
 
 			if ( is_wp_error( $credit ) ) {
-				return $credit;
+				// Nothing was written: the re-check itself failed.
+				return self::not_applied( $credit );
 			}
 
 			if ( null === $credit || $credit['used'] ) {
-				return new WP_Error( 'agend_jobs_credit_not_available', __( 'That job posting credit has already been used or has expired.', 'agend-entitlement-mirror' ), array( 'status' => 409 ) );
+				return new WP_Error(
+					'agend_jobs_credit_not_available',
+					__( 'That job posting credit has already been used or has expired.', 'agend-entitlement-mirror' ),
+					array(
+						'status'  => 409,
+						'applied' => false,
+					)
+				);
 			}
 
 			return $this->store->set_used( $member_id, $ref, true );
@@ -140,7 +148,14 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 			}
 
 			if ( null === $credit ) {
-				return new WP_Error( 'agend_jobs_credit_expired', __( 'The job posting credit has expired, so it could not be given back.', 'agend-entitlement-mirror' ), array( 'status' => 410 ) );
+				return new WP_Error(
+					'agend_jobs_credit_expired',
+					__( 'The job posting credit has expired, so it could not be given back.', 'agend-entitlement-mirror' ),
+					array(
+						'status' => 410,
+						'gone'   => true,
+					)
+				);
 			}
 
 			if ( ! $credit['used'] ) {
@@ -148,6 +163,20 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 			}
 
 			return $this->store->set_used( $member_id, $ref, false );
+		}
+
+		/**
+		 * Copies an error, marking that nothing was changed.
+		 *
+		 * @param WP_Error $error Error.
+		 * @return WP_Error
+		 */
+		private static function not_applied( WP_Error $error ): WP_Error {
+			$data            = $error->get_error_data();
+			$data            = is_array( $data ) ? $data : array();
+			$data['applied'] = false;
+
+			return new WP_Error( $error->get_error_code(), $error->get_error_message(), $data );
 		}
 
 		/**

@@ -72,10 +72,18 @@ how many credits a member has and when each expires. Records inherited from the
 member's account count, as they do everywhere else in the kiosk.
 
 - Credits are spent soonest to expire first.
-- Reads go straight to Upbeat's entitlements endpoint for the member and each
-  account the kiosk inherits entitlements from, uncached. The kiosk's own
-  reads turn a failed request into an empty list and cache it, which would
-  show a CRM outage as "no credits left". Any failed request fails the read.
+- Reads go straight to Upbeat, uncached: the member, their account (when the
+  kiosk inherits account entitlements) and the entitlements endpoint for each
+  id. The kiosk's own reads turn a failed request into an empty list and cache
+  it, which would show a CRM outage as "no credits left", and cache member
+  details for a day, which would let a member who moved firm spend the old
+  firm's credits. Any failed request, including a member whose account cannot
+  be read, fails the whole read.
+- A spend re-checks the credit is still unused first. When the CRM refuses
+  the spend, or the re-check itself fails, the error says nothing changed, so
+  core leaves its ledger alone; any other write failure is treated as "may
+  have been applied" and core gives the credit back.
+- Giving back an expired credit is reported as gone, so core stops trying.
 - A write sends only the record's unique id and `downloadCount`, then clears
   the member's and their accounts' kiosk entitlement caches.
 - Like the kiosk, the store does not follow the endpoint's further pages, so
@@ -84,8 +92,8 @@ member's account count, as they do everywhere else in the kiosk.
   again.
 
 agend-apps-core decides when a credit is spent and given back, keeps the
-per-credit ledger and locks, and retries give-backs the CRM could not confirm;
-see its `includes/jobs-credits.php`.
+per-credit ledger and locks, and runs a 15 minute sweep that finishes or
+retries anything left part way; see its `includes/jobs-credits.php`.
 
 ## Triggers
 

@@ -11,23 +11,28 @@
  * The lifecycle of one credit:
  *
  * 1. {@see Agend_Apps_Jobs_Credits::reserve()} spends the member's first
- *    available credit (soonest to expire) at the provider and returns its
- *    reference. The submission is then sent to the gateway with that
- *    reference as its `credit_ref`.
- * 2. {@see Agend_Apps_Jobs_Credits::attach()} records the job the credit paid
- *    for, once the gateway has accepted the submission.
+ *    available credit (soonest to expire) and returns a `credit_ref`: the
+ *    provider's credit reference plus a reservation id unique to this spend.
+ *    The submission is sent to the gateway with it.
+ * 2. {@see Agend_Apps_Jobs_Credits::attach()} records the job the reservation
+ *    paid for, once the gateway has accepted the submission.
  * 3. {@see Agend_Apps_Jobs_Credits::release()} gives the credit back: straight
  *    away when the gateway refuses the submission, or later when a
  *    `jobs.submission.rejected` or `jobs.submission.withdrawn` webhook arrives.
  *
- * The ledger is one record per credit (an option, not user meta), because a
- * credit can be shared: members of a firm draw on the firm's credits. Every
- * change to a record happens under that credit's lock, so a credit is never
- * spent twice and a release always finds the member who spent it. The ledger
- * is also what makes a release safe: a webhook is only honoured for a credit
- * this site spent, on the job the webhook names, so a duplicate or late
- * delivery can never hand back a credit that has since paid for another job.
- * A release the CRM cannot confirm is retried on cron rather than lost.
+ * The ledger is one option per credit, not per member, because members of a
+ * firm share the firm's credits. It is always read from the database, never
+ * this request's cache, and every change happens under that credit's lock, so
+ * a credit is never spent twice and a release always reaches the member who
+ * spent it. Because every attach, release and webhook names one reservation, a
+ * late or repeated event about an earlier use of a credit can never hand back
+ * a credit that has been spent again since.
+ *
+ * Nothing is lost when a request fails part way: a webhook's release request
+ * is saved before it is acted on, and a recurring sweep finishes saved
+ * requests, retries releases the CRM could not confirm, and gives back spends
+ * left half done by a request that died. Credits that still cannot be put
+ * right are listed for administrators.
  *
  * @package Agend_Apps_Core
  */
@@ -72,7 +77,13 @@ if ( ! interface_exists( 'Agend_Apps_Jobs_Credit_Provider' ) ) :
 		public function get_available_credits( int $user_id );
 
 		/**
-		 * Marks one of the member's credits as used.
+		 * Marks one of the member's credits as used, re-checking with the CRM
+		 * that it is still unused.
+		 *
+		 * An error whose data has `'applied' => false` means nothing was
+		 * changed (the credit is already used or gone, or the request was never
+		 * sent). Any other error means the outcome is unknown, and core gives
+		 * the credit back to be safe.
 		 *
 		 * @param int    $user_id WordPress user id.
 		 * @param string $ref     Credit reference from get_available_credits().
@@ -81,7 +92,11 @@ if ( ! interface_exists( 'Agend_Apps_Jobs_Credit_Provider' ) ) :
 		public function spend( int $user_id, string $ref );
 
 		/**
-		 * Marks a previously spent credit as unused again.
+		 * Marks a previously spent credit as unused again. Returns true when it
+		 * is already unused.
+		 *
+		 * An error whose data has `'gone' => true` means the credit has expired
+		 * or no longer exists, so there is nothing to give back.
 		 *
 		 * @param int    $user_id WordPress user id the credit was spent by.
 		 * @param string $ref     Credit reference.
@@ -106,12 +121,16 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 * - reserved: spent, the submission has not been accepted yet.
 		 * - submitted: spent on the job in `job_id`.
 		 * - release_pending: to be given back; the provider has not confirmed it yet.
+		 * - release_failed: giving it back has failed for MAX_ATTEMPTS sweeps and
+		 *   staff are told. The sweep keeps trying, so once staff put it right
+		 *   in the CRM it becomes released.
 		 * - released: given back, free to be spent again.
 		 */
 		const STATE_SPENDING        = 'spending';
 		const STATE_RESERVED        = 'reserved';
 		const STATE_SUBMITTED       = 'submitted';
 		const STATE_RELEASE_PENDING = 'release_pending';
+		const STATE_RELEASE_FAILED  = 'release_failed';
 		const STATE_RELEASED        = 'released';
 
 		/**
@@ -119,7 +138,8 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 *
 		 * A `submitted` credit is not in this list: once its job is live, the
 		 * provider is the record. If the CRM shows it unused again, staff gave
-		 * it back by hand and the member may spend it.
+		 * it back by hand and the member may spend it; spend() re-checks the
+		 * CRM under the credit's lock before it does.
 		 *
 		 * @var string[]
 		 */
@@ -133,32 +153,37 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		const RELEASE_EVENTS = array( 'jobs.submission.rejected', 'jobs.submission.withdrawn' );
 
 		/**
-		 * Option name prefix of a credit's ledger record.
+		 * Option name prefixes: a credit's ledger record, a received release
+		 * request, and the two kinds of lock. Distinct prefixes, so a LIKE scan
+		 * of one never matches another.
 		 *
 		 * @var string
 		 */
-		const LEDGER_PREFIX = 'agend_apps_jobs_credit_';
+		const LEDGER_PREFIX      = 'agend_apps_jobs_ledger_';
+		const REQUEST_PREFIX     = 'agend_apps_jobs_release_';
+		const CREDIT_LOCK_PREFIX = 'agend_apps_jobs_lock_credit_';
+		const MEMBER_LOCK_PREFIX = 'agend_apps_jobs_lock_member_';
 
 		/**
-		 * Option holding the credits whose release is waiting for a retry,
-		 * as ledger key => attempts so far.
+		 * Option listing credits that need staff attention, written by the sweep.
 		 *
 		 * @var string
 		 */
-		const PENDING_OPTION = 'agend_apps_jobs_credits_pending';
+		const ATTENTION_OPTION = 'agend_apps_jobs_credits_attention';
 
 		/**
-		 * Lock option name prefixes.
+		 * Separator between the provider's credit reference and the
+		 * reservation id in the `credit_ref` sent to the gateway.
 		 *
 		 * @var string
 		 */
-		const CREDIT_LOCK_PREFIX = 'agend_apps_jobs_credit_lock_';
-		const MEMBER_LOCK_PREFIX = 'agend_apps_jobs_member_lock_';
+		const SEPARATOR = '#';
 
 		/**
 		 * Seconds before a lock is treated as left behind by a request that
 		 * died. Longer than several slow CRM calls in a row, so a live request
-		 * never loses its lock.
+		 * never loses its lock. A `spending` record older than this was left by
+		 * a request that died, and the sweep gives it back.
 		 *
 		 * @var int
 		 */
@@ -172,28 +197,31 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		const LOCK_WAIT = 10;
 
 		/**
-		 * Cron hook that retries pending releases.
+		 * Cron hook of the recurring sweep, and its schedule.
 		 *
 		 * @var string
 		 */
-		const RETRY_HOOK = 'agend_apps_jobs_credits_retry';
+		const SWEEP_HOOK     = 'agend_apps_jobs_credits_sweep';
+		const SWEEP_SCHEDULE = 'agend_apps_fifteen_minutes';
 
 		/**
-		 * Seconds between retries of pending releases.
-		 *
-		 * @var int
-		 */
-		const RETRY_DELAY = 900;
-
-		/**
-		 * Retries before a pending release is given up and logged for staff.
+		 * Give-back attempts before a credit is marked release_failed (24 hours
+		 * of 15 minute sweeps).
 		 *
 		 * @var int
 		 */
 		const MAX_ATTEMPTS = 96;
 
 		/**
-		 * Job ids kept per credit to refuse late events about earlier jobs.
+		 * Seconds a reservation may stay unattached before staff are told.
+		 *
+		 * @var int
+		 */
+		const STALE_RESERVATION = DAY_IN_SECONDS;
+
+		/**
+		 * Released reservation ids kept per credit, so a repeated event about
+		 * one is acknowledged rather than refused.
 		 *
 		 * @var int
 		 */
@@ -207,13 +235,32 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		public static $lock_poll = 250000;
 
 		/**
-		 * Registers the webhook listener and the retry hook.
+		 * Registers the webhook listener, the sweep and the admin notice.
 		 *
 		 * @return void
 		 */
 		public static function register(): void {
 			add_action( 'agend_apps_webhook_received', array( __CLASS__, 'handle_webhook' ), 10, 2 );
-			add_action( self::RETRY_HOOK, array( __CLASS__, 'retry_pending' ) );
+			add_action( self::SWEEP_HOOK, array( __CLASS__, 'sweep' ) );
+			add_filter( 'cron_schedules', array( __CLASS__, 'cron_schedules' ) ); // phpcs:ignore WordPress.WP.CronInterval
+			add_action( 'admin_notices', array( __CLASS__, 'render_attention_notice' ) );
+		}
+
+		/**
+		 * Adds the sweep's 15 minute schedule.
+		 *
+		 * @param array $schedules Cron schedules.
+		 * @return array
+		 */
+		public static function cron_schedules( $schedules ): array {
+			$schedules = is_array( $schedules ) ? $schedules : array();
+
+			$schedules[ self::SWEEP_SCHEDULE ] = array(
+				'interval' => 15 * MINUTE_IN_SECONDS,
+				'display'  => __( 'Every 15 minutes (Agend job credits)', 'agend-apps-core' ),
+			);
+
+			return $schedules;
 		}
 
 		/**
@@ -247,8 +294,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		}
 
 		/**
-		 * The member's unused credits, leaving out any tied up in a submission
-		 * that is still in progress here.
+		 * The member's unused credits, leaving out any tied up here.
 		 *
 		 * @param int $user_id WordPress user id.
 		 * @return array<int, array{ref: string, expires_at: ?string}>|WP_Error
@@ -295,16 +341,21 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		}
 
 		/**
-		 * Spends the member's first available credit and records it.
+		 * Spends the member's first available credit.
+		 *
+		 * Returns the `credit_ref` to send with the submission: the provider's
+		 * credit reference plus a reservation id unique to this spend, so every
+		 * later attach, release or webhook names this spend exactly, never an
+		 * earlier or later use of the same credit.
 		 *
 		 * One reserve runs per member at a time (a double submit is refused),
 		 * and each credit is spent under its own lock, so two members of a firm
 		 * sharing the firm's credits never spend the same one. The ledger
 		 * record is written before the provider is called, so a spend whose
-		 * outcome is unknown is always given back rather than lost.
+		 * outcome is unknown is given back rather than lost.
 		 *
 		 * @param int $user_id WordPress user id.
-		 * @return string|WP_Error The spent credit's reference.
+		 * @return string|WP_Error The credit_ref.
 		 */
 		public static function reserve( int $user_id ) {
 			$provider = self::provider();
@@ -316,6 +367,8 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 			if ( $user_id <= 0 ) {
 				return self::no_member_error();
 			}
+
+			self::schedule_sweep();
 
 			$member_lock = self::acquire_lock( self::MEMBER_LOCK_PREFIX . $user_id );
 
@@ -334,7 +387,8 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 
 				foreach ( $credits as $credit ) {
 					$ref  = $credit['ref'];
-					$lock = self::acquire_lock( self::credit_lock_name( $ref ) );
+					$name = self::credit_lock_name( $ref );
+					$lock = self::acquire_lock( $name );
 
 					if ( null === $lock ) {
 						$contended = true;
@@ -349,9 +403,17 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 							continue;
 						}
 
-						return self::spend_locked( $provider, $user_id, $ref, $entry );
+						$result = self::spend_locked( $provider, $user_id, $ref, $entry );
+
+						if ( is_wp_error( $result ) && self::not_applied( $result ) ) {
+							// The CRM says this credit was used or has gone
+							// since the list was read; try the next one.
+							continue;
+						}
+
+						return $result;
 					} finally {
-						self::release_lock( self::credit_lock_name( $ref ), $lock );
+						self::release_lock( $name, $lock );
 					}
 				}
 
@@ -366,32 +428,35 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		}
 
 		/**
-		 * Records the job a reserved credit paid for.
+		 * Records the job a reservation paid for.
 		 *
-		 * @param int    $user_id WordPress user id.
-		 * @param string $ref     Credit reference from reserve().
-		 * @param string $job_id  Gateway job id.
-		 * @return bool False when the credit is not reserved by this member,
-		 *              including when a rejection for the job arrived first and
-		 *              the credit is already being given back.
+		 * @param int    $user_id    WordPress user id.
+		 * @param string $credit_ref The credit_ref reserve() returned.
+		 * @param string $job_id     Gateway job id.
+		 * @return bool False when the reservation is not this member's current
+		 *              one, including when a rejection for the job arrived first
+		 *              and the credit has already been given back.
 		 */
-		public static function attach( int $user_id, string $ref, string $job_id ): bool {
-			if ( '' === $job_id ) {
+		public static function attach( int $user_id, string $credit_ref, string $job_id ): bool {
+			$parts = self::parse( $credit_ref );
+
+			if ( null === $parts || '' === $job_id ) {
 				return false;
 			}
 
 			return (bool) self::with_credit_lock(
-				$ref,
-				static function () use ( $user_id, $ref, $job_id ): bool {
-					$entry = self::entry( $ref );
+				$parts['ref'],
+				self::LOCK_WAIT,
+				static function () use ( $user_id, $parts, $job_id ): bool {
+					$entry = self::entry( $parts['ref'] );
 
-					if ( null === $entry || self::STATE_RESERVED !== $entry['state'] || $user_id !== $entry['user_id'] ) {
+					if ( null === $entry || self::STATE_RESERVED !== $entry['state'] || $user_id !== $entry['user_id'] || $parts['reservation'] !== $entry['reservation'] ) {
 						return false;
 					}
 
 					$entry['state']  = self::STATE_SUBMITTED;
 					$entry['job_id'] = $job_id;
-					self::write_entry( $ref, $entry );
+					self::write_entry( $parts['ref'], $entry );
 
 					return true;
 				},
@@ -400,44 +465,56 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		}
 
 		/**
-		 * Gives a spent credit back.
+		 * Gives back the credit behind one reservation.
 		 *
-		 * Without a job id, only a credit that never reached a job (the gateway
-		 * refused the submission) is released. With one, the credit must be
-		 * tied to that job, or still be reserved for a submission that has not
-		 * been attached yet (a rejection can arrive before attach() runs). An
-		 * event about a job the credit has already been given back for is
-		 * ignored, so a late duplicate cannot free a credit that has paid for
-		 * another job since.
+		 * Without a job id, only a reservation that never reached a job (the
+		 * gateway refused the submission) is released. With one, the
+		 * reservation must still be reserved (a rejection can arrive before
+		 * attach() runs) or be submitted for that job. A reservation already
+		 * given back is acknowledged; any other reservation of the same credit
+		 * is refused, so a late or repeated event can never hand back a credit
+		 * that has been spent again since.
 		 *
 		 * When the provider cannot confirm the release, the credit stays
-		 * `release_pending` and is retried by cron, so it is never lost.
+		 * `release_pending` and the sweep retries it, so it is never lost.
 		 *
-		 * @param string $ref    Credit reference.
-		 * @param string $job_id Gateway job id, or '' for a refused submission.
+		 * @param string $credit_ref The credit_ref reserve() returned.
+		 * @param string $job_id     Gateway job id, or '' for a refused submission.
+		 * @param int    $wait       Seconds to wait for the credit's lock.
 		 * @return true|WP_Error
 		 */
-		public static function release( string $ref, string $job_id = '' ) {
+		public static function release( string $credit_ref, string $job_id = '', int $wait = self::LOCK_WAIT ) {
 			$provider = self::provider();
 
 			if ( null === $provider ) {
 				return self::unavailable_error();
 			}
 
+			$parts = self::parse( $credit_ref );
+
+			if ( null === $parts ) {
+				return new WP_Error( 'agend_jobs_credits_unknown', 'The credit reference was not issued by this site.', array( 'status' => 404 ) );
+			}
+
 			return self::with_credit_lock(
-				$ref,
-				static function () use ( $provider, $ref, $job_id ) {
-					$entry = self::entry( $ref );
+				$parts['ref'],
+				$wait,
+				static function () use ( $provider, $parts, $job_id ) {
+					$entry = self::entry( $parts['ref'] );
 
 					if ( null === $entry ) {
 						return new WP_Error( 'agend_jobs_credits_unknown', 'No member on this site spent this credit.', array( 'status' => 404 ) );
 					}
 
-					if ( '' !== $job_id && in_array( $job_id, $entry['history'], true ) ) {
+					if ( in_array( $parts['reservation'], $entry['released'], true ) ) {
 						return true;
 					}
 
-					if ( '' !== $job_id && $job_id === $entry['job_id'] && self::STATE_RELEASE_PENDING === $entry['state'] ) {
+					if ( $parts['reservation'] !== $entry['reservation'] ) {
+						return new WP_Error( 'agend_jobs_credits_stale', 'The credit has been spent again since, so it was left as it is.', array( 'status' => 409 ) );
+					}
+
+					if ( in_array( $entry['state'], array( self::STATE_RELEASE_PENDING, self::STATE_RELEASE_FAILED ), true ) ) {
 						return true;
 					}
 
@@ -449,66 +526,24 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 						return new WP_Error( 'agend_jobs_credits_stale', 'The credit is not tied to this job, so it was left as it is.', array( 'status' => 409 ) );
 					}
 
-					$entry['state']  = self::STATE_RELEASE_PENDING;
-					$entry['job_id'] = $job_id;
-					self::write_entry( $ref, $entry );
+					$entry['state']    = self::STATE_RELEASE_PENDING;
+					$entry['job_id']   = '' !== $job_id ? $job_id : $entry['job_id'];
+					$entry['attempts'] = 0;
+					self::write_entry( $parts['ref'], $entry );
 
-					return self::restore_locked( $provider, $ref, $entry );
+					return self::restore_locked( $provider, $parts['ref'], $entry );
 				},
 				self::busy_error()
 			);
 		}
 
 		/**
-		 * Retries every pending release. Runs on cron; reschedules itself
-		 * while any remain.
-		 *
-		 * @return void
-		 */
-		public static function retry_pending(): void {
-			$provider = self::provider();
-			$pending  = self::pending();
-
-			if ( null === $provider || empty( $pending ) ) {
-				return;
-			}
-
-			foreach ( array_keys( $pending ) as $key ) {
-				$ref = (string) get_option( self::LEDGER_PREFIX . $key . '_ref', '' );
-
-				if ( '' === $ref ) {
-					self::forget_pending( $key );
-					continue;
-				}
-
-				self::with_credit_lock(
-					$ref,
-					static function () use ( $provider, $ref ): bool {
-						$entry = self::entry( $ref );
-
-						if ( null === $entry || self::STATE_RELEASE_PENDING !== $entry['state'] ) {
-							self::forget_pending( self::key( $ref ) );
-							return true;
-						}
-
-						self::restore_locked( $provider, $ref, $entry );
-
-						return true;
-					},
-					false
-				);
-			}
-
-			self::schedule_retry();
-		}
-
-		/**
 		 * Releases the credit behind a rejected or withdrawn submission.
 		 *
-		 * The delivery has already been signature checked by the receiver, and
-		 * release() only acts on a credit this site spent, for the job the
-		 * event names. A release the provider cannot confirm is queued for
-		 * retry, so acknowledging the delivery never loses the credit.
+		 * The delivery has already been signature checked by the receiver. The
+		 * request is saved before anything else, and only deleted once it has
+		 * been dealt with, so a lock held by another request, a CRM outage or
+		 * this request dying never loses it: the sweep picks it up.
 		 *
 		 * @param string $type     Event type.
 		 * @param array  $envelope Decoded delivery envelope.
@@ -519,60 +554,231 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 				return;
 			}
 
-			$data   = ( isset( $envelope['data'] ) && is_array( $envelope['data'] ) ) ? $envelope['data'] : array();
-			$ref    = isset( $data['credit_ref'] ) && is_scalar( $data['credit_ref'] ) ? trim( (string) $data['credit_ref'] ) : '';
-			$job_id = isset( $data['job_id'] ) && is_scalar( $data['job_id'] ) ? trim( (string) $data['job_id'] ) : '';
+			$data       = ( isset( $envelope['data'] ) && is_array( $envelope['data'] ) ) ? $envelope['data'] : array();
+			$credit_ref = isset( $data['credit_ref'] ) && is_scalar( $data['credit_ref'] ) ? trim( (string) $data['credit_ref'] ) : '';
+			$job_id     = isset( $data['job_id'] ) && is_scalar( $data['job_id'] ) ? trim( (string) $data['job_id'] ) : '';
 
-			if ( '' === $ref || '' === $job_id || null === self::provider() ) {
+			if ( null === self::parse( $credit_ref ) || '' === $job_id ) {
 				return;
 			}
 
-			$result = self::release( $ref, $job_id );
+			$name = self::REQUEST_PREFIX . md5( $credit_ref );
+			self::write_option(
+				$name,
+				array(
+					'credit_ref'  => $credit_ref,
+					'job_id'      => $job_id,
+					'type'        => (string) $type,
+					'received_at' => time(),
+				)
+			);
+			self::schedule_sweep();
 
-			if ( is_wp_error( $result ) ) {
-				self::log(
-					'Job credit not released for ' . $type . ': ' . $result->get_error_message(),
-					array(
-						'job_id' => $job_id,
-						'code'   => $result->get_error_code(),
-					)
-				);
+			if ( null !== self::provider() ) {
+				self::process_request( $name, 0 );
 			}
 		}
 
 		/**
-		 * A credit's ledger record.
+		 * Recovers everything a request could leave behind. Runs every 15
+		 * minutes on cron.
 		 *
-		 * @param string $ref Credit reference.
-		 * @return array{state: string, user_id: int, job_id: string, history: string[], spent_at: string}|null
+		 * - Saved release requests are processed.
+		 * - `release_pending` and `release_failed` credits are given back.
+		 * - `spending` records older than the lock TTL (left by a request that
+		 *   died mid-spend) are given back: restoring a credit that was never
+		 *   spent changes nothing.
+		 * - Credits that need staff attention are listed for the admin notice.
+		 *
+		 * @return void
+		 */
+		public static function sweep(): void {
+			$provider = self::provider();
+
+			if ( null === $provider ) {
+				return;
+			}
+
+			foreach ( self::option_names( self::REQUEST_PREFIX ) as $name ) {
+				self::process_request( $name, 0 );
+			}
+
+			$attention = array();
+
+			foreach ( self::option_names( self::LEDGER_PREFIX ) as $name ) {
+				$stored = self::read_option( $name );
+				$ref    = is_array( $stored ) && isset( $stored['ref'] ) ? (string) $stored['ref'] : '';
+
+				if ( '' === $ref ) {
+					continue;
+				}
+
+				self::with_credit_lock(
+					$ref,
+					0,
+					static function () use ( $provider, $ref ): bool {
+						$entry = self::entry( $ref );
+
+						if ( null === $entry ) {
+							return true;
+						}
+
+						if ( self::STATE_SPENDING === $entry['state'] && $entry['updated_at'] < time() - self::LOCK_TTL ) {
+							$entry['state'] = self::STATE_RELEASE_PENDING;
+							self::write_entry( $ref, $entry );
+						}
+
+						if ( in_array( $entry['state'], array( self::STATE_RELEASE_PENDING, self::STATE_RELEASE_FAILED ), true ) ) {
+							self::restore_locked( $provider, $ref, $entry );
+						}
+
+						return true;
+					},
+					false
+				);
+
+				$entry = self::entry( $ref );
+
+				if ( null !== $entry && self::needs_attention( $entry ) ) {
+					$attention[] = array(
+						'ref'     => $ref,
+						'state'   => $entry['state'],
+						'user_id' => $entry['user_id'],
+						'since'   => $entry['updated_at'],
+					);
+				}
+			}
+
+			self::write_option( self::ATTENTION_OPTION, $attention );
+		}
+
+		/**
+		 * Shows administrators how many credits need putting right by hand.
+		 *
+		 * @return void
+		 */
+		public static function render_attention_notice(): void {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				return;
+			}
+
+			$attention = get_option( self::ATTENTION_OPTION, array() );
+
+			if ( ! is_array( $attention ) || empty( $attention ) ) {
+				return;
+			}
+
+			printf(
+				'<div class="notice notice-warning"><p>%s</p></div>',
+				esc_html(
+					sprintf(
+						/* translators: %d: number of credits. */
+						_n(
+							'%d member job posting credit needs checking in the CRM: it could not be given back automatically, or its submission never completed. See the agend_apps_jobs_credits_attention option for the credit references.',
+							'%d member job posting credits need checking in the CRM: they could not be given back automatically, or their submissions never completed. See the agend_apps_jobs_credits_attention option for the credit references.',
+							count( $attention ),
+							'agend-apps-core'
+						),
+						count( $attention )
+					)
+				)
+			);
+		}
+
+		/**
+		 * A credit's ledger record, read from the database rather than this
+		 * request's cache, so a change made by another request is always seen.
+		 *
+		 * @param string $ref Provider credit reference.
+		 * @return array{ref: string, state: string, user_id: int, reservation: string, job_id: string, released: string[], attempts: int, updated_at: int}|null
 		 */
 		public static function entry( string $ref ): ?array {
 			if ( '' === $ref ) {
 				return null;
 			}
 
-			$entry = get_option( self::LEDGER_PREFIX . self::key( $ref ), null );
+			$entry = self::read_option( self::LEDGER_PREFIX . md5( $ref ) );
 
 			if ( ! is_array( $entry ) || ! isset( $entry['state'] ) ) {
 				return null;
 			}
 
-			$entry['user_id'] = isset( $entry['user_id'] ) ? (int) $entry['user_id'] : 0;
-			$entry['job_id']  = isset( $entry['job_id'] ) ? (string) $entry['job_id'] : '';
-			$entry['history'] = isset( $entry['history'] ) && is_array( $entry['history'] ) ? array_values( array_map( 'strval', $entry['history'] ) ) : array();
+			$entry['ref']         = $ref;
+			$entry['user_id']     = isset( $entry['user_id'] ) ? (int) $entry['user_id'] : 0;
+			$entry['reservation'] = isset( $entry['reservation'] ) ? (string) $entry['reservation'] : '';
+			$entry['job_id']      = isset( $entry['job_id'] ) ? (string) $entry['job_id'] : '';
+			$entry['released']    = isset( $entry['released'] ) && is_array( $entry['released'] ) ? array_values( array_map( 'strval', $entry['released'] ) ) : array();
+			$entry['attempts']    = isset( $entry['attempts'] ) ? (int) $entry['attempts'] : 0;
+			$entry['updated_at']  = isset( $entry['updated_at'] ) ? (int) $entry['updated_at'] : 0;
 
 			return $entry;
 		}
 
 		/**
-		 * Credits whose release is waiting for a retry, as ledger key => attempts.
+		 * Splits a credit_ref into the provider's reference and the
+		 * reservation id.
 		 *
-		 * @return array<string, int>
+		 * @param string $credit_ref credit_ref.
+		 * @return array{ref: string, reservation: string}|null
 		 */
-		public static function pending(): array {
-			$pending = get_option( self::PENDING_OPTION, array() );
+		public static function parse( string $credit_ref ): ?array {
+			$at = strrpos( $credit_ref, self::SEPARATOR );
 
-			return is_array( $pending ) ? $pending : array();
+			if ( false === $at ) {
+				return null;
+			}
+
+			$ref         = substr( $credit_ref, 0, $at );
+			$reservation = substr( $credit_ref, $at + 1 );
+
+			if ( '' === $ref || 1 !== preg_match( '/^[a-f0-9]{16}$/', $reservation ) ) {
+				return null;
+			}
+
+			return array(
+				'ref'         => $ref,
+				'reservation' => $reservation,
+			);
+		}
+
+		/**
+		 * Processes one saved release request, deleting it once dealt with.
+		 * It is kept when the credit's lock is held or the provider is down,
+		 * and given up (with a log line) after a week.
+		 *
+		 * @param string $name Request option name.
+		 * @param int    $wait Seconds to wait for the credit's lock.
+		 * @return void
+		 */
+		private static function process_request( string $name, int $wait ): void {
+			$request = self::read_option( $name );
+
+			if ( ! is_array( $request ) || empty( $request['credit_ref'] ) ) {
+				delete_option( $name );
+				return;
+			}
+
+			$result = self::release( (string) $request['credit_ref'], (string) ( $request['job_id'] ?? '' ), $wait );
+
+			if ( is_wp_error( $result ) && in_array( $result->get_error_code(), array( 'agend_jobs_credits_busy', 'agend_jobs_credits_unavailable' ), true ) ) {
+				if ( (int) ( $request['received_at'] ?? 0 ) < time() - WEEK_IN_SECONDS ) {
+					self::log( 'Gave up on a job credit release request after a week.', array( 'job_id' => (string) ( $request['job_id'] ?? '' ) ) );
+					delete_option( $name );
+				}
+				return;
+			}
+
+			if ( is_wp_error( $result ) && 'agend_jobs_credits_unknown' !== $result->get_error_code() ) {
+				self::log(
+					'Job credit not released for ' . (string) ( $request['type'] ?? 'a release request' ) . ': ' . $result->get_error_message(),
+					array(
+						'job_id' => (string) ( $request['job_id'] ?? '' ),
+						'code'   => $result->get_error_code(),
+					)
+				);
+			}
+
+			delete_option( $name );
 		}
 
 		/**
@@ -580,23 +786,38 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 *
 		 * @param Agend_Apps_Jobs_Credit_Provider $provider Provider.
 		 * @param int                             $user_id  WordPress user id.
-		 * @param string                          $ref      Credit reference.
-		 * @param array|null                      $entry    Its current ledger record.
+		 * @param string                          $ref      Provider credit reference.
+		 * @param array|null                      $previous Its current ledger record.
 		 * @return string|WP_Error
 		 */
-		private static function spend_locked( Agend_Apps_Jobs_Credit_Provider $provider, int $user_id, string $ref, ?array $entry ) {
+		private static function spend_locked( Agend_Apps_Jobs_Credit_Provider $provider, int $user_id, string $ref, ?array $previous ) {
 			$entry = array(
-				'state'    => self::STATE_SPENDING,
-				'user_id'  => $user_id,
-				'job_id'   => '',
-				'history'  => null === $entry ? array() : $entry['history'],
-				'spent_at' => gmdate( 'c' ),
+				'ref'         => $ref,
+				'state'       => self::STATE_SPENDING,
+				'user_id'     => $user_id,
+				'reservation' => bin2hex( random_bytes( 8 ) ),
+				'job_id'      => '',
+				'released'    => null === $previous ? array() : $previous['released'],
+				'attempts'    => 0,
+				'spent_at'    => time(),
 			);
 			self::write_entry( $ref, $entry );
 
 			$spent = $provider->spend( $user_id, $ref );
 
 			if ( is_wp_error( $spent ) ) {
+				if ( self::not_applied( $spent ) ) {
+					// The CRM refused the spend outright: nothing changed, so
+					// the ledger goes back to how it was.
+					if ( null === $previous ) {
+						delete_option( self::LEDGER_PREFIX . md5( $ref ) );
+					} else {
+						self::write_entry( $ref, $previous );
+					}
+
+					return $spent;
+				}
+
 				// The spend may have been applied before the error (a timeout
 				// after the CRM committed). Give it back: restoring a credit
 				// that is still unused changes nothing.
@@ -610,132 +831,207 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 			$entry['state'] = self::STATE_RESERVED;
 			self::write_entry( $ref, $entry );
 
-			return $ref;
+			return $ref . self::SEPARATOR . $entry['reservation'];
 		}
 
 		/**
-		 * Restores a `release_pending` credit whose lock the caller holds, and
-		 * queues a retry when the provider cannot confirm it.
+		 * Restores a `release_pending` credit whose lock the caller holds. On
+		 * failure the credit stays release_pending for the sweep, until
+		 * MAX_ATTEMPTS, when it becomes release_failed for staff.
 		 *
 		 * @param Agend_Apps_Jobs_Credit_Provider $provider Provider.
-		 * @param string                          $ref      Credit reference.
+		 * @param string                          $ref      Provider credit reference.
 		 * @param array                           $entry    Its ledger record, in release_pending.
 		 * @return true|WP_Error
 		 */
 		private static function restore_locked( Agend_Apps_Jobs_Credit_Provider $provider, string $ref, array $entry ) {
-			$restored = $provider->restore( $entry['user_id'], $ref );
+			$restored = $provider->restore( (int) $entry['user_id'], $ref );
+
+			if ( is_wp_error( $restored ) && self::gone( $restored ) ) {
+				// The credit has expired or no longer exists: there is nothing
+				// to give back.
+				self::log( 'Job credit not given back because it has expired.', array( 'credit' => $ref ) );
+				$restored = true;
+			}
 
 			if ( is_wp_error( $restored ) ) {
-				self::queue_retry( $ref, $restored );
+				$entry['attempts'] = (int) ( $entry['attempts'] ?? 0 ) + 1;
+
+				if ( $entry['attempts'] >= self::MAX_ATTEMPTS && self::STATE_RELEASE_FAILED !== $entry['state'] ) {
+					$entry['state'] = self::STATE_RELEASE_FAILED;
+					self::log(
+						'Gave up giving back a job credit; restore it by hand in the CRM.',
+						array(
+							'credit' => $ref,
+							'code'   => $restored->get_error_code(),
+						)
+					);
+				}
+
+				self::write_entry( $ref, $entry );
 
 				return $restored;
 			}
 
-			if ( '' !== $entry['job_id'] ) {
-				$entry['history'][] = $entry['job_id'];
-				$entry['history']   = array_slice( array_values( array_unique( $entry['history'] ) ), -self::HISTORY_LIMIT );
-			}
-
+			$entry['released'][]  = (string) $entry['reservation'];
+			$entry['released']    = array_slice( array_values( array_unique( $entry['released'] ) ), -self::HISTORY_LIMIT );
 			$entry['state']       = self::STATE_RELEASED;
-			$entry['job_id']      = '';
-			$entry['released_at'] = gmdate( 'c' );
+			$entry['released_at'] = time();
 			self::write_entry( $ref, $entry );
-			self::forget_pending( self::key( $ref ) );
 
 			return true;
 		}
 
 		/**
-		 * Adds a credit to the retry queue, or gives up on it after
-		 * MAX_ATTEMPTS and logs it for staff to put right by hand.
+		 * Whether a provider error says the change was definitely not made.
 		 *
-		 * @param string   $ref   Credit reference.
-		 * @param WP_Error $error Why the release failed.
-		 * @return void
+		 * @param WP_Error $error Provider error.
+		 * @return bool
 		 */
-		private static function queue_retry( string $ref, WP_Error $error ): void {
-			$key      = self::key( $ref );
-			$pending  = self::pending();
-			$attempts = ( $pending[ $key ] ?? 0 ) + 1;
+		private static function not_applied( WP_Error $error ): bool {
+			$data = $error->get_error_data();
 
-			if ( $attempts > self::MAX_ATTEMPTS ) {
-				self::forget_pending( $key );
-				self::log(
-					'Gave up giving back a job credit; restore it by hand in the CRM.',
-					array(
-						'ledger' => self::LEDGER_PREFIX . $key,
-						'code'   => $error->get_error_code(),
-					)
-				);
-				return;
-			}
-
-			$pending[ $key ] = $attempts;
-			update_option( self::PENDING_OPTION, $pending, false );
-			self::schedule_retry();
+			return is_array( $data ) && array_key_exists( 'applied', $data ) && false === $data['applied'];
 		}
 
 		/**
-		 * Removes a credit from the retry queue.
+		 * Whether a provider error says the credit no longer exists (expired or
+		 * deleted), so it cannot and need not be given back.
 		 *
-		 * @param string $key Ledger key.
-		 * @return void
+		 * @param WP_Error $error Provider error.
+		 * @return bool
 		 */
-		private static function forget_pending( string $key ): void {
-			$pending = self::pending();
+		private static function gone( WP_Error $error ): bool {
+			$data = $error->get_error_data();
 
-			if ( isset( $pending[ $key ] ) ) {
-				unset( $pending[ $key ] );
-				update_option( self::PENDING_OPTION, $pending, false );
-			}
+			return is_array( $data ) && ! empty( $data['gone'] );
 		}
 
 		/**
-		 * Schedules the next retry run while any release is pending.
+		 * Whether a credit needs staff attention: its release failed for good,
+		 * or its reservation never reached a job.
+		 *
+		 * @param array $entry Ledger record.
+		 * @return bool
+		 */
+		private static function needs_attention( array $entry ): bool {
+			if ( self::STATE_RELEASE_FAILED === $entry['state'] ) {
+				return true;
+			}
+
+			return self::STATE_RESERVED === $entry['state'] && $entry['updated_at'] < time() - self::STALE_RESERVATION;
+		}
+
+		/**
+		 * Schedules the recurring sweep if it is not scheduled.
 		 *
 		 * @return void
 		 */
-		private static function schedule_retry(): void {
-			if ( ! empty( self::pending() ) && ! wp_next_scheduled( self::RETRY_HOOK ) ) {
-				wp_schedule_single_event( time() + self::RETRY_DELAY, self::RETRY_HOOK );
+		private static function schedule_sweep(): void {
+			if ( ! wp_next_scheduled( self::SWEEP_HOOK ) ) {
+				wp_schedule_event( time() + 15 * MINUTE_IN_SECONDS, self::SWEEP_SCHEDULE, self::SWEEP_HOOK );
 			}
 		}
 
 		/**
-		 * The ledger key of a credit reference.
+		 * Writes a credit's ledger record.
 		 *
-		 * @param string $ref Credit reference.
-		 * @return string
-		 */
-		private static function key( string $ref ): string {
-			return md5( $ref );
-		}
-
-		/**
-		 * Writes a credit's ledger record, and the reference it belongs to.
-		 *
-		 * @param string $ref   Credit reference.
+		 * @param string $ref   Provider credit reference.
 		 * @param array  $entry Ledger record.
 		 * @return void
 		 */
 		private static function write_entry( string $ref, array $entry ): void {
-			$entry['updated_at'] = gmdate( 'c' );
-			update_option( self::LEDGER_PREFIX . self::key( $ref ), $entry, false );
-			update_option( self::LEDGER_PREFIX . self::key( $ref ) . '_ref', $ref, false );
+			$entry['ref']        = $ref;
+			$entry['updated_at'] = time();
+			self::write_option( self::LEDGER_PREFIX . md5( $ref ), $entry );
 		}
 
 		/**
-		 * Runs a callback under a credit's lock, waiting up to LOCK_WAIT seconds
+		 * Reads an option from the database, not this request's cache.
+		 *
+		 * @param string $name Option name.
+		 * @return mixed Null when the option does not exist.
+		 */
+		private static function read_option( string $name ) {
+			self::forget_cached_option( $name );
+
+			return get_option( $name, null );
+		}
+
+		/**
+		 * Writes a non-autoloaded option, comparing against the database rather
+		 * than this request's cache (update_option() skips the write when the
+		 * cached value already matches).
+		 *
+		 * @param string $name  Option name.
+		 * @param mixed  $value Value.
+		 * @return void
+		 */
+		private static function write_option( string $name, $value ): void {
+			self::forget_cached_option( $name );
+			update_option( $name, $value, false );
+		}
+
+		/**
+		 * Drops this request's cached copy of an option, including a cached
+		 * "does not exist".
+		 *
+		 * @param string $name Option name.
+		 * @return void
+		 */
+		private static function forget_cached_option( string $name ): void {
+			wp_cache_delete( $name, 'options' );
+
+			$notoptions = wp_cache_get( 'notoptions', 'options' );
+
+			if ( ! is_array( $notoptions ) ) {
+				return;
+			}
+
+			// WordPress keys it by option name; tolerate a plain list too.
+			$position = array_search( $name, $notoptions, true );
+
+			if ( isset( $notoptions[ $name ] ) || false !== $position ) {
+				unset( $notoptions[ $name ] );
+
+				if ( false !== $position ) {
+					unset( $notoptions[ $position ] );
+				}
+
+				wp_cache_set( 'notoptions', $notoptions, 'options' );
+			}
+		}
+
+		/**
+		 * Option names starting with a prefix, from the database.
+		 *
+		 * @param string $prefix Option name prefix.
+		 * @return string[]
+		 */
+		private static function option_names( string $prefix ): array {
+			global $wpdb;
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- a scan of this feature's own rows.
+			$names = $wpdb->get_col(
+				$wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s ORDER BY option_name", $wpdb->esc_like( $prefix ) . '%' )
+			);
+
+			return array_map( 'strval', (array) $names );
+		}
+
+		/**
+		 * Runs a callback under a credit's lock, waiting up to $wait seconds
 		 * for it.
 		 *
-		 * @param string   $ref      Credit reference.
+		 * @param string   $ref      Provider credit reference.
+		 * @param int      $wait     Seconds to wait; 0 tries once.
 		 * @param callable $callback Work to do while holding the lock.
 		 * @param mixed    $busy     Returned when the lock could not be taken.
 		 * @return mixed
 		 */
-		private static function with_credit_lock( string $ref, callable $callback, $busy ) {
+		private static function with_credit_lock( string $ref, int $wait, callable $callback, $busy ) {
 			$name     = self::credit_lock_name( $ref );
-			$deadline = microtime( true ) + self::LOCK_WAIT;
+			$deadline = microtime( true ) + $wait;
 
 			do {
 				$lock = self::acquire_lock( $name );
@@ -748,10 +1044,12 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 					}
 				}
 
-				if ( self::$lock_poll > 0 ) {
-					usleep( self::$lock_poll );
+				if ( $wait <= 0 || self::$lock_poll <= 0 ) {
+					break;
 				}
-			} while ( microtime( true ) < $deadline && self::$lock_poll > 0 );
+
+				usleep( self::$lock_poll );
+			} while ( microtime( true ) < $deadline );
 
 			return $busy;
 		}
@@ -759,11 +1057,11 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		/**
 		 * The lock name of a credit.
 		 *
-		 * @param string $ref Credit reference.
+		 * @param string $ref Provider credit reference.
 		 * @return string
 		 */
 		private static function credit_lock_name( string $ref ): string {
-			return self::CREDIT_LOCK_PREFIX . self::key( $ref );
+			return self::CREDIT_LOCK_PREFIX . md5( $ref );
 		}
 
 		/**
@@ -849,7 +1147,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 * Logs a credit event under WP_DEBUG and exposes it to site monitoring.
 		 *
 		 * @param string $message Message.
-		 * @param array  $context Structured context. Never includes the credit reference.
+		 * @param array  $context Structured context.
 		 * @return void
 		 */
 		private static function log( string $message, array $context = array() ): void {

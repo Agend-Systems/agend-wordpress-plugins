@@ -155,6 +155,7 @@ final class UpbeatJobCreditsTest extends TestCase {
 		$this->store->add( 'M100', 'other', array( 'type' => 'Support Ticket' ) );
 
 		$this->assertSame( 'agend_jobs_credit_not_available', $this->provider->spend( 7, 'a' )->get_error_code() );
+		$this->assertFalse( $this->provider->spend( 7, 'a' )->get_error_data()['applied'], 'a refused spend changed nothing' );
 		$this->assertSame( 'agend_jobs_credit_not_available', $this->provider->spend( 7, 'other' )->get_error_code() );
 		$this->assertSame( 'agend_jobs_credit_not_available', $this->provider->spend( 7, 'missing' )->get_error_code() );
 		$this->assertSame( array(), $this->store->writes );
@@ -177,8 +178,22 @@ final class UpbeatJobCreditsTest extends TestCase {
 	}
 
 	#[Test]
-	public function restoring_an_expired_credit_reports_it(): void {
-		$this->assertSame( 'agend_jobs_credit_expired', $this->provider->restore( 7, 'gone' )->get_error_code() );
+	public function restoring_an_expired_credit_reports_it_as_gone(): void {
+		$error = $this->provider->restore( 7, 'gone' );
+
+		$this->assertSame( 'agend_jobs_credit_expired', $error->get_error_code() );
+		$this->assertTrue( $error->get_error_data()['gone'] );
+	}
+
+	#[Test]
+	public function a_spend_whose_recheck_fails_changed_nothing(): void {
+		$this->store->add( 'M100', 'a' );
+		$this->store->fail = new WP_Error( 'agend_jobs_credit_lookup_failed', 'down', array( 'status' => 503 ) );
+
+		$error = $this->provider->spend( 7, 'a' );
+
+		$this->assertFalse( $error->get_error_data()['applied'] );
+		$this->assertSame( array(), $this->store->writes );
 	}
 
 	#[Test]

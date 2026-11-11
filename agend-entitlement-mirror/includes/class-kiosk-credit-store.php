@@ -100,15 +100,21 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 
 			try {
 				$api    = $this->api();
-				$member = $api->get_member_details_by_id( $member_id );
+				$member = $this->member( $api, $member_id );
 
 				if ( ! $this->is_member( $member ) ) {
 					return $this->lookup_failed();
 				}
 
+				$ids = $this->entitlement_ids( $api, $member_id, $member );
+
+				if ( null === $ids ) {
+					return $this->lookup_failed();
+				}
+
 				$rows = array();
 
-				foreach ( $this->entitlement_ids( $member_id, $member ) as $id ) {
+				foreach ( $ids as $id ) {
 					$records = $api->get_objects( 'get', $api::get_entitlements_for_id_api_url( $id ), null, array(), 'Iugo_Membership_Kiosk_API_Entitlement' );
 
 					if ( ! is_array( $records ) ) {
@@ -147,10 +153,11 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 
 			try {
 				$api    = $this->api();
-				$member = $api->get_member_details_by_id( $member_id );
+				$member = $this->member( $api, $member_id );
 
 				if ( ! $this->is_member( $member ) ) {
-					return $this->lookup_failed();
+					// Nothing was sent to the CRM.
+					return $this->lookup_failed( false );
 				}
 
 				$update = new Iugo_Membership_Kiosk_API_Entitlement();
@@ -171,21 +178,42 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 		}
 
 		/**
+		 * The member's details, read uncached so a member who has moved firm
+		 * cannot spend the old firm's credits from a day-old cache.
+		 *
+		 * @param object $api       Kiosk API.
+		 * @param string $member_id Upbeat membership number.
+		 * @return mixed
+		 */
+		private function member( $api, string $member_id ) {
+			return $api->get_object( 'get', $api::get_member_details_by_id_url( $member_id ), null, array(), 'Iugo_Membership_Kiosk_API_MemberDetail' );
+		}
+
+		/**
 		 * The ids whose entitlements the member draws on: their own, and their
 		 * account's and ultimate parent account's where the kiosk is set to
-		 * inherit them, matching get_all_member_entitlements().
+		 * inherit them, matching get_all_member_entitlements(). The account is
+		 * read uncached, and a member whose account cannot be read is a failed
+		 * lookup rather than a member without an account.
 		 *
+		 * @param object $api       Kiosk API.
 		 * @param string $member_id Upbeat membership number.
 		 * @param object $member    Member details.
-		 * @return string[]
+		 * @return string[]|null Null when the account could not be read.
 		 */
-		private function entitlement_ids( string $member_id, $member ): array {
+		private function entitlement_ids( $api, string $member_id, $member ): ?array {
 			$ids = array( $member_id );
 
 			if ( function_exists( 'agend_should_fetch_entitlements_from_account' ) && agend_should_fetch_entitlements_from_account() ) {
-				$account = $member->get_account();
+				$account_id = method_exists( $member, 'get_account_id' ) ? (string) $member->get_account_id() : '';
 
-				if ( is_object( $account ) && method_exists( $account, 'get_membership_number' ) ) {
+				if ( '' !== $account_id ) {
+					$account = $api->get_object( 'get', $api::get_account_by_id_url( $account_id ), null, array(), 'Iugo_Membership_Kiosk_API_Account' );
+
+					if ( ! is_object( $account ) || ! method_exists( $account, 'get_membership_number' ) ) {
+						return null;
+					}
+
 					$ids[] = (string) $account->get_membership_number();
 				}
 			}
@@ -209,7 +237,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 		private function forget( $api, string $member_id, $member ): void {
 			$api->erase_entitlements_cache_for_member_id( $member_id );
 
-			foreach ( $this->entitlement_ids( $member_id, $member ) as $id ) {
+			foreach ( (array) $this->entitlement_ids( $api, $member_id, $member ) as $id ) {
 				if ( $id !== $member_id ) {
 					$api->erase_entitlements_cache_for_account_id( $id );
 				}
@@ -224,7 +252,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 		 */
 		private function is_member( $member ): bool {
 			return is_object( $member )
-				&& method_exists( $member, 'get_account' )
+				&& method_exists( $member, 'get_ultimate_parent_account_id' )
 				&& ( ! method_exists( $member, 'exists' ) || $member->exists() );
 		}
 
@@ -240,10 +268,17 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 		/**
 		 * The error returned when a read fails.
 		 *
+		 * @param bool|null $applied False when this failure means a write was never sent.
 		 * @return WP_Error
 		 */
-		private function lookup_failed(): WP_Error {
-			return new WP_Error( 'agend_jobs_credit_lookup_failed', __( 'Your job posting credits could not be checked. Please try again shortly.', 'agend-entitlement-mirror' ), array( 'status' => 503 ) );
+		private function lookup_failed( ?bool $applied = null ): WP_Error {
+			$data = array( 'status' => 503 );
+
+			if ( null !== $applied ) {
+				$data['applied'] = $applied;
+			}
+
+			return new WP_Error( 'agend_jobs_credit_lookup_failed', __( 'Your job posting credits could not be checked. Please try again shortly.', 'agend-entitlement-mirror' ), $data );
 		}
 
 		/**
