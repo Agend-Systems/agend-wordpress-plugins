@@ -865,7 +865,8 @@ if ( ! class_exists( 'wpdb' ) ) {
 		public function get_var( string $query ) {
 			if ( 1 === preg_match( "/^SELECT option_value FROM .*? WHERE option_name = '(.*?)'$/s", $query, $m ) ) {
 				$name = stripslashes( $m[1] );
-				return array_key_exists( $name, Agend_Test_WP::$options ) ? (string) Agend_Test_WP::$options[ $name ] : null;
+				// As stored in the database: serialized when not a scalar.
+				return array_key_exists( $name, Agend_Test_WP::$options ) ? (string) maybe_serialize( Agend_Test_WP::$options[ $name ] ) : null;
 			}
 
 			return null;

@@ -156,6 +156,7 @@ final class UpbeatJobCreditsTest extends TestCase {
 
 		$this->assertSame( 'agend_jobs_credit_not_available', $this->provider->spend( 7, 'a' )->get_error_code() );
 		$this->assertFalse( $this->provider->spend( 7, 'a' )->get_error_data()['applied'], 'a refused spend changed nothing' );
+		$this->assertTrue( $this->provider->spend( 7, 'a' )->get_error_data()['taken'], 'and the next credit should be tried' );
 		$this->assertSame( 'agend_jobs_credit_not_available', $this->provider->spend( 7, 'other' )->get_error_code() );
 		$this->assertSame( 'agend_jobs_credit_not_available', $this->provider->spend( 7, 'missing' )->get_error_code() );
 		$this->assertSame( array(), $this->store->writes );
@@ -179,10 +180,30 @@ final class UpbeatJobCreditsTest extends TestCase {
 
 	#[Test]
 	public function restoring_an_expired_credit_reports_it_as_gone(): void {
-		$error = $this->provider->restore( 7, 'gone' );
+		$this->store->add( 'M100', 'old', array( 'used' => true, 'current' => false ) );
+
+		$error = $this->provider->restore( 7, 'old' );
 
 		$this->assertSame( 'agend_jobs_credit_expired', $error->get_error_code() );
 		$this->assertTrue( $error->get_error_data()['gone'] );
+	}
+
+	#[Test]
+	public function a_credit_the_spender_can_no_longer_see_is_an_error_to_retry_not_gone(): void {
+		// The member moved firm: the old firm's credit is not in their list.
+		$error = $this->provider->restore( 7, 'old-firm-credit' );
+
+		$this->assertSame( 'agend_jobs_credit_not_found', $error->get_error_code() );
+		$this->assertArrayNotHasKey( 'gone', $error->get_error_data() );
+	}
+
+	#[Test]
+	public function expired_records_are_not_offered_or_spent(): void {
+		$this->store->add( 'M100', 'old', array( 'current' => false ) );
+		$this->store->add( 'M100', 'new' );
+
+		$this->assertSame( array( 'new' ), array_column( $this->provider->get_available_credits( 7 ), 'ref' ) );
+		$this->assertTrue( $this->provider->spend( 7, 'old' )->get_error_data()['taken'] );
 	}
 
 	#[Test]
@@ -193,6 +214,7 @@ final class UpbeatJobCreditsTest extends TestCase {
 		$error = $this->provider->spend( 7, 'a' );
 
 		$this->assertFalse( $error->get_error_data()['applied'] );
+		$this->assertArrayNotHasKey( 'taken', $error->get_error_data(), 'a failed re-check is not a used credit' );
 		$this->assertSame( array(), $this->store->writes );
 	}
 

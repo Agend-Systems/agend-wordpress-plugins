@@ -40,12 +40,13 @@ if ( ! interface_exists( 'Agend_Entitlement_Mirror_Credit_Store' ) ) :
 		public function is_available(): bool;
 
 		/**
-		 * The member's current entitlement records, read fresh from Upbeat.
+		 * The member's entitlement records, current or not, read fresh from
+		 * Upbeat. `current` says whether the record is within its dates.
 		 * Includes records inherited from the member's account, as the kiosk
 		 * does everywhere else.
 		 *
 		 * @param string $member_id Upbeat membership number.
-		 * @return array<int, array{ref: string, category: string, type: string, used: bool, starts_at: ?DateTimeInterface, expires_at: ?DateTimeInterface}>|WP_Error
+		 * @return array<int, array{ref: string, category: string, type: string, used: bool, current: bool, starts_at: ?DateTimeInterface, expires_at: ?DateTimeInterface}>|WP_Error
 		 */
 		public function member_entitlements( string $member_id );
 
@@ -122,7 +123,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 					}
 
 					foreach ( $records as $entitlement ) {
-						if ( ! ( $entitlement instanceof Iugo_Membership_Kiosk_API_Entitlement ) || ! $entitlement->is_current() ) {
+						if ( ! ( $entitlement instanceof Iugo_Membership_Kiosk_API_Entitlement ) ) {
 							continue;
 						}
 
@@ -131,6 +132,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 							'category'   => (string) $entitlement->get_entitlement_category(),
 							'type'       => (string) $entitlement->get_entitlement_type(),
 							'used'       => (int) $entitlement->get_download_count() > 0,
+							'current'    => (bool) $entitlement->is_current(),
 							'starts_at'  => $entitlement->get_the_start_date(),
 							'expires_at' => $entitlement->get_the_end_date(),
 						);

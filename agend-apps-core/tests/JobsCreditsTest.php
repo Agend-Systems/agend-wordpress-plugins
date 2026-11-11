@@ -40,6 +40,9 @@ final class FakeJobsCreditProvider implements Agend_Apps_Jobs_Credit_Provider {
 
 	public ?WP_Error $spend_error = null;
 
+	/** Runs at the start of spend(), to simulate other requests meanwhile. */
+	public $on_spend = null;
+
 	/** Apply the spend before returning spend_error (a timeout after the CRM committed). */
 	public bool $spend_commits_before_error = false;
 
@@ -84,6 +87,10 @@ final class FakeJobsCreditProvider implements Agend_Apps_Jobs_Credit_Provider {
 	public function spend( int $user_id, string $ref ) {
 		$this->calls[] = "spend:$user_id:$ref";
 
+		if ( is_callable( $this->on_spend ) ) {
+			( $this->on_spend )();
+		}
+
 		if ( $this->spend_error ) {
 			if ( $this->spend_commits_before_error ) {
 				$this->used[ $ref ] = true;
@@ -94,7 +101,14 @@ final class FakeJobsCreditProvider implements Agend_Apps_Jobs_Credit_Provider {
 
 		// Like the real provider: re-check under the lock.
 		if ( $this->used[ $ref ] ?? true ) {
-			return new WP_Error( 'not_available', 'Used', array( 'applied' => false ) );
+			return new WP_Error(
+				'not_available',
+				'Used',
+				array(
+					'applied' => false,
+					'taken'   => true,
+				)
+			);
 		}
 
 		$this->used[ $ref ] = true;
@@ -309,13 +323,86 @@ final class JobsCreditsTest extends TestCase {
 		$before = Agend_Apps_Jobs_Credits::entry( 'cr-1' );
 
 		// Staff appear to refund it, but the provider's own re-check refuses.
-		$this->provider->spend_error = new WP_Error( 'not_available', 'Used', array( 'applied' => false ) );
+		$this->provider->spend_error = new WP_Error(
+			'not_available',
+			'Used',
+			array(
+				'applied' => false,
+				'taken'   => true,
+			)
+		);
 		$this->provider->used['cr-1'] = false;
 
 		$this->assertSame( 'agend_jobs_credits_none', Agend_Apps_Jobs_Credits::reserve( 7 )->get_error_code() );
 		$this->assertSame( $before['reservation'], Agend_Apps_Jobs_Credits::entry( 'cr-1' )['reservation'] );
 		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_SUBMITTED, $this->state( 'cr-1' ) );
 		$this->assertNotContains( 'restore:7:cr-1', $this->provider->calls );
+	}
+
+	#[Test]
+	public function a_failed_recheck_during_the_spend_is_reported_not_as_running_out(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$this->provider->give( 'cr-2', 7 );
+		$this->provider->spend_error = new WP_Error( 'crm_down', 'Down', array( 'status' => 503, 'applied' => false ) );
+
+		$result = Agend_Apps_Jobs_Credits::reserve( 7 );
+
+		$this->assertSame( 'crm_down', $result->get_error_code() );
+		$this->assertSame( array( 'spend:7:cr-1' ), $this->provider->calls, 'the next credit is not tried during an outage' );
+		$this->assertNull( Agend_Apps_Jobs_Credits::entry( 'cr-1' ), 'the ledger is left as it was' );
+	}
+
+	#[Test]
+	public function a_spend_that_outlived_its_lock_writes_nothing_over_the_sweep(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$provider = $this->provider;
+		$test     = $this;
+
+		// While the CRM is answering, the sweep takes the spend over and gives
+		// the credit back, and a colleague spends it again.
+		$this->provider->on_spend = static function () use ( $test ) {
+			$entry = get_option( Agend_Apps_Jobs_Credits::LEDGER_PREFIX . md5( 'cr-1' ) );
+			\Agend_Test_WP::write_option_bypassing_cache(
+				Agend_Apps_Jobs_Credits::LEDGER_PREFIX . md5( 'cr-1' ),
+				array_merge(
+					$entry,
+					array(
+						'state'       => Agend_Apps_Jobs_Credits::STATE_RESERVED,
+						'user_id'     => 8,
+						'reservation' => 'fedcba9876543210',
+					)
+				)
+			);
+			// The sweep took this spend's lock over, and has since let it go.
+			unset( \Agend_Test_WP::$options[ Agend_Apps_Jobs_Credits::CREDIT_LOCK_PREFIX . md5( 'cr-1' ) ] );
+		};
+
+		$result = Agend_Apps_Jobs_Credits::reserve( 7 );
+
+		$this->assertSame( 'agend_jobs_credits_timeout', $result->get_error_code() );
+		$entry = Agend_Apps_Jobs_Credits::entry( 'cr-1' );
+		$this->assertSame( 'fedcba9876543210', $entry['reservation'], "the colleague's reservation is kept" );
+		$this->assertSame( 8, $entry['user_id'] );
+		$this->assertNotContains( 'restore:0:cr-1', $provider->calls );
+		$this->assertNotContains( 'restore:8:cr-1', $provider->calls, "the colleague's spend is not refunded" );
+		unset( $test );
+	}
+
+	#[Test]
+	public function a_spend_that_outlived_its_lock_after_the_sweep_gave_it_back_is_given_back_again(): void {
+		$this->provider->give( 'cr-1', 7 );
+
+		$this->provider->on_spend = static function () {
+			$entry = get_option( Agend_Apps_Jobs_Credits::LEDGER_PREFIX . md5( 'cr-1' ) );
+			\Agend_Test_WP::write_option_bypassing_cache(
+				Agend_Apps_Jobs_Credits::LEDGER_PREFIX . md5( 'cr-1' ),
+				array_merge( $entry, array( 'state' => Agend_Apps_Jobs_Credits::STATE_RELEASED ) )
+			);
+			unset( \Agend_Test_WP::$options[ Agend_Apps_Jobs_Credits::CREDIT_LOCK_PREFIX . md5( 'cr-1' ) ] );
+		};
+
+		$this->assertSame( 'agend_jobs_credits_timeout', Agend_Apps_Jobs_Credits::reserve( 7 )->get_error_code() );
+		$this->assertFalse( $this->provider->used['cr-1'], 'the late spend is undone' );
 	}
 
 	#[Test]
@@ -586,6 +673,60 @@ final class JobsCreditsTest extends TestCase {
 		Agend_Apps_Jobs_Credits::sweep();
 
 		$this->assertSame( 'reserved', get_option( Agend_Apps_Jobs_Credits::ATTENTION_OPTION )[0]['state'] );
+	}
+
+	#[Test]
+	public function staff_can_give_back_a_stuck_reservation(): void {
+		$this->provider->give( 'cr-1', 7 );
+		Agend_Apps_Jobs_Credits::reserve( 7 );
+		$this->change_elsewhere( 'cr-1', array( 'updated_at' => time() - Agend_Apps_Jobs_Credits::STALE_RESERVATION - 1 ) );
+		Agend_Apps_Jobs_Credits::sweep();
+		$this->assertCount( 1, get_option( Agend_Apps_Jobs_Credits::ATTENTION_OPTION ) );
+
+		$this->assertTrue( Agend_Apps_Jobs_Credits::resolve( 'cr-1', 'release' ) );
+
+		$this->assertFalse( $this->provider->used['cr-1'] );
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RELEASED, $this->state( 'cr-1' ) );
+		$this->assertSame( array(), get_option( Agend_Apps_Jobs_Credits::ATTENTION_OPTION ) );
+	}
+
+	#[Test]
+	public function staff_can_keep_a_stuck_reservation_as_used(): void {
+		$this->provider->give( 'cr-1', 7 );
+		Agend_Apps_Jobs_Credits::reserve( 7 );
+
+		$this->assertTrue( Agend_Apps_Jobs_Credits::resolve( 'cr-1', 'keep' ) );
+
+		$this->assertTrue( $this->provider->used['cr-1'] );
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_SUBMITTED, $this->state( 'cr-1' ) );
+	}
+
+	#[Test]
+	public function only_a_stuck_credit_can_be_resolved(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		Agend_Apps_Jobs_Credits::attach( 7, $credit_ref, 'job-1' );
+
+		$this->assertSame( 'agend_jobs_credits_stale', Agend_Apps_Jobs_Credits::resolve( 'cr-1', 'release' )->get_error_code() );
+		$this->assertSame( 'agend_jobs_credits_resolution', Agend_Apps_Jobs_Credits::resolve( 'cr-1', 'delete' )->get_error_code() );
+		$this->assertTrue( $this->provider->used['cr-1'] );
+	}
+
+	#[Test]
+	public function the_notice_lists_each_stuck_credit_with_its_two_actions(): void {
+		$this->provider->give( 'cr-1', 7 );
+		Agend_Apps_Jobs_Credits::reserve( 7 );
+		$this->change_elsewhere( 'cr-1', array( 'updated_at' => time() - Agend_Apps_Jobs_Credits::STALE_RESERVATION - 1 ) );
+		Agend_Apps_Jobs_Credits::sweep();
+
+		ob_start();
+		Agend_Apps_Jobs_Credits::render_attention_notice();
+		$html = (string) ob_get_clean();
+
+		$this->assertStringContainsString( '<code>cr-1</code>', $html );
+		$this->assertStringContainsString( 'value="release"', $html );
+		$this->assertStringContainsString( 'value="keep"', $html );
+		$this->assertStringContainsString( Agend_Apps_Jobs_Credits::RESOLVE_ACTION, $html );
 	}
 
 	#[Test]

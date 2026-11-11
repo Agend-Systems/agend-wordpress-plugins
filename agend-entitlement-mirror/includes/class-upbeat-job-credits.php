@@ -92,7 +92,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 				array_filter(
 					$credits,
 					static function ( array $credit ): bool {
-						return ! $credit['used'];
+						return $credit['current'] && ! $credit['used'];
 					}
 				)
 			);
@@ -122,13 +122,14 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 				return self::not_applied( $credit );
 			}
 
-			if ( null === $credit || $credit['used'] ) {
+			if ( null === $credit || ! $credit['current'] || $credit['used'] ) {
 				return new WP_Error(
 					'agend_jobs_credit_not_available',
 					__( 'That job posting credit has already been used or has expired.', 'agend-entitlement-mirror' ),
 					array(
 						'status'  => 409,
 						'applied' => false,
+						'taken'   => true,
 					)
 				);
 			}
@@ -148,6 +149,18 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 			}
 
 			if ( null === $credit ) {
+				// Not among the records the spender can see: they may have
+				// moved firm, or the record may be past the first page. The
+				// credit may well still exist, so this is a failure to retry
+				// (and, in the end, to show staff), not "gone".
+				return new WP_Error(
+					'agend_jobs_credit_not_found',
+					__( 'The job posting credit could not be found for this member, so it could not be given back.', 'agend-entitlement-mirror' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( ! $credit['current'] ) {
 				return new WP_Error(
 					'agend_jobs_credit_expired',
 					__( 'The job posting credit has expired, so it could not be given back.', 'agend-entitlement-mirror' ),
@@ -206,7 +219,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 		}
 
 		/**
-		 * The member's current records of the credit type, used or not.
+		 * The member's records of the credit type, current or not, used or not.
 		 *
 		 * @param string $member_id Upbeat membership number.
 		 * @return array<int, array>|WP_Error
@@ -228,6 +241,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 				$credits[ (string) $row['ref'] ] = array(
 					'ref'        => (string) $row['ref'],
 					'used'       => ! empty( $row['used'] ),
+					'current'    => ! array_key_exists( 'current', $row ) || ! empty( $row['current'] ),
 					'starts_at'  => $row['starts_at'] ?? null,
 					'expires_at' => $row['expires_at'] ?? null,
 				);
@@ -237,7 +251,7 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Upbeat_Job_Credits' ) && interfac
 		}
 
 		/**
-		 * One of the member's current credit records, or null.
+		 * One of the member's credit records, or null.
 		 *
 		 * @param string $member_id Upbeat membership number.
 		 * @param string $ref       Entitlement unique id.

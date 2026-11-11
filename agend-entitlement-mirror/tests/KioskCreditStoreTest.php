@@ -157,7 +157,7 @@ final class KioskCreditStoreTest extends TestCase {
 	}
 
 	#[Test]
-	public function it_maps_current_records_and_reads_download_count_as_used(): void {
+	public function it_maps_records_and_reads_download_count_as_used(): void {
 		$this->api->records['M1'] = array(
 			$this->record( 'a', 'Job Credit', '0' ),
 			$this->record( 'b', 'Job Credit', '1' ),
@@ -167,8 +167,9 @@ final class KioskCreditStoreTest extends TestCase {
 
 		$rows = $this->store->member_entitlements( 'M1' );
 
-		$this->assertSame( array( 'a', 'b', 'c' ), array_column( $rows, 'ref' ) );
-		$this->assertSame( array( false, true, false ), array_column( $rows, 'used' ) );
+		$this->assertSame( array( 'a', 'b', 'c', 'd' ), array_column( $rows, 'ref' ) );
+		$this->assertSame( array( false, true, false, false ), array_column( $rows, 'used' ) );
+		$this->assertSame( array( true, true, true, false ), array_column( $rows, 'current' ), 'expired records are returned, flagged' );
 		$this->assertSame( 'Job Credit', $rows[0]['type'] );
 	}
 
