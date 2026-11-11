@@ -72,15 +72,20 @@ how many credits a member has and when each expires. Records inherited from the
 member's account count, as they do everywhere else in the kiosk.
 
 - Credits are spent soonest to expire first.
-- Every read clears the member's (and their accounts') kiosk entitlement caches
-  first, and every write clears them again, because the kiosk caches the list
-  for 15 minutes and `update_entitlement()` overwrites that cache entry with
-  the single updated record.
-- A write sends only the record's unique id and `downloadCount`.
-- A CRM failure is reported as an error, never as "no credits left".
+- Reads go straight to Upbeat's entitlements endpoint for the member and each
+  account the kiosk inherits entitlements from, uncached. The kiosk's own
+  reads turn a failed request into an empty list and cache it, which would
+  show a CRM outage as "no credits left". Any failed request fails the read.
+- A write sends only the record's unique id and `downloadCount`, then clears
+  the member's and their accounts' kiosk entitlement caches.
+- Like the kiosk, the store does not follow the endpoint's further pages, so
+  an account with more records than one page returns shows only the first.
+- If staff set a used credit back to unused in Upbeat, the member can spend it
+  again.
 
-agend-apps-core decides when a credit is spent and given back; see its
-`includes/jobs-credits.php`.
+agend-apps-core decides when a credit is spent and given back, keeps the
+per-credit ledger and locks, and retries give-backs the CRM could not confirm;
+see its `includes/jobs-credits.php`.
 
 ## Triggers
 

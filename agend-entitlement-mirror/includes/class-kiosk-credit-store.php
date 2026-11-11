@@ -5,14 +5,18 @@
  * Kept apart from the provider so the provider's rules can be tested without
  * the kiosk, and so every kiosk quirk lives in one place:
  *
- * - Entitlement lists are cached for 15 minutes, which is far too stale to
- *   decide whether a credit is still unused, so every read clears the
- *   member's (and their account's) entitlement caches first.
- * - `update_entitlement()` stores the single updated record under the cache
- *   key of the member's whole entitlement list, so the caches are cleared
- *   again after every write.
+ * - The kiosk's own entitlement reads turn a failed request into an empty
+ *   list and cache it for up to 15 minutes, which would show a CRM outage as
+ *   "no credits" and is too stale to decide whether a credit is unused. So
+ *   reads go straight to the entitlements endpoint for the member and each
+ *   account their entitlements are inherited from (the same ids the kiosk
+ *   uses), uncached, and any failed request fails the whole read.
+ * - After a write, the member's and their accounts' kiosk entitlement caches
+ *   are cleared so the rest of the site sees the change.
  * - Only the record's unique id and `downloadCount` are sent on a write, the
  *   same partial update the kiosk's support ticket credits use.
+ * - Neither the kiosk nor this store follows the endpoint's further pages, so
+ *   an account with more records than one page holds shows only the first.
  *
  * @package Agend_Entitlement_Mirror
  */
@@ -66,10 +70,24 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 	final class Agend_Entitlement_Mirror_Kiosk_Credit_Store implements Agend_Entitlement_Mirror_Credit_Store {
 
 		/**
+		 * Kiosk API, or null to use Iugo_Membership_Kiosk_API::instance().
+		 *
+		 * @var object|null
+		 */
+		private $api;
+
+		/**
+		 * @param object|null $api Kiosk API; injectable for tests.
+		 */
+		public function __construct( $api = null ) {
+			$this->api = $api;
+		}
+
+		/**
 		 * {@inheritDoc}
 		 */
 		public function is_available(): bool {
-			return class_exists( 'Iugo_Membership_Kiosk_API' ) && class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' );
+			return null !== $this->api || ( class_exists( 'Iugo_Membership_Kiosk_API' ) && class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) );
 		}
 
 		/**
@@ -81,33 +99,39 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 			}
 
 			try {
-				$api = Iugo_Membership_Kiosk_API::instance();
-				$this->forget( $api, $member_id );
+				$api    = $this->api();
+				$member = $api->get_member_details_by_id( $member_id );
 
-				$entitlements = $api->get_all_member_entitlements( $member_id );
-			} catch ( Throwable $e ) {
-				return new WP_Error( 'agend_jobs_credit_lookup_failed', __( 'Your job posting credits could not be checked. Please try again shortly.', 'agend-entitlement-mirror' ), array( 'status' => 503 ) );
-			}
-
-			if ( ! is_array( $entitlements ) ) {
-				return new WP_Error( 'agend_jobs_credit_lookup_failed', __( 'Your job posting credits could not be checked. Please try again shortly.', 'agend-entitlement-mirror' ), array( 'status' => 503 ) );
-			}
-
-			$rows = array();
-
-			foreach ( $entitlements as $entitlement ) {
-				if ( ! ( $entitlement instanceof Iugo_Membership_Kiosk_API_Entitlement ) ) {
-					continue;
+				if ( ! $this->is_member( $member ) ) {
+					return $this->lookup_failed();
 				}
 
-				$rows[] = array(
-					'ref'        => (string) $entitlement->get_unique_id(),
-					'category'   => (string) $entitlement->get_entitlement_category(),
-					'type'       => (string) $entitlement->get_entitlement_type(),
-					'used'       => (int) $entitlement->get_download_count() > 0,
-					'starts_at'  => $entitlement->get_the_start_date(),
-					'expires_at' => $entitlement->get_the_end_date(),
-				);
+				$rows = array();
+
+				foreach ( $this->entitlement_ids( $member_id, $member ) as $id ) {
+					$records = $api->get_objects( 'get', $api::get_entitlements_for_id_api_url( $id ), null, array(), 'Iugo_Membership_Kiosk_API_Entitlement' );
+
+					if ( ! is_array( $records ) ) {
+						return $this->lookup_failed();
+					}
+
+					foreach ( $records as $entitlement ) {
+						if ( ! ( $entitlement instanceof Iugo_Membership_Kiosk_API_Entitlement ) || ! $entitlement->is_current() ) {
+							continue;
+						}
+
+						$rows[] = array(
+							'ref'        => (string) $entitlement->get_unique_id(),
+							'category'   => (string) $entitlement->get_entitlement_category(),
+							'type'       => (string) $entitlement->get_entitlement_type(),
+							'used'       => (int) $entitlement->get_download_count() > 0,
+							'starts_at'  => $entitlement->get_the_start_date(),
+							'expires_at' => $entitlement->get_the_end_date(),
+						);
+					}
+				}
+			} catch ( Throwable $e ) {
+				return $this->lookup_failed();
 			}
 
 			return $rows;
@@ -122,11 +146,11 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 			}
 
 			try {
-				$api    = Iugo_Membership_Kiosk_API::instance();
+				$api    = $this->api();
 				$member = $api->get_member_details_by_id( $member_id );
 
-				if ( ! ( $member instanceof Iugo_Membership_Kiosk_API_MemberDetail ) ) {
-					return new WP_Error( 'agend_jobs_credit_no_member', __( 'Your membership record could not be found.', 'agend-entitlement-mirror' ), array( 'status' => 404 ) );
+				if ( ! $this->is_member( $member ) ) {
+					return $this->lookup_failed();
 				}
 
 				$update = new Iugo_Membership_Kiosk_API_Entitlement();
@@ -134,47 +158,101 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Kiosk_Credit_Store' ) ) :
 				$update->set_download_count( $used ? 1 : 0 );
 
 				$result = $api->update_entitlement( $update, $member );
-				$this->forget( $api, $member_id );
+				$this->forget( $api, $member_id, $member );
 			} catch ( Throwable $e ) {
-				return new WP_Error( 'agend_jobs_credit_write_failed', __( 'Your job posting credit could not be updated. Please try again shortly.', 'agend-entitlement-mirror' ), array( 'status' => 503 ) );
+				return $this->write_failed();
 			}
 
-			if ( false === $result || null === $result ) {
-				return new WP_Error( 'agend_jobs_credit_write_failed', __( 'Your job posting credit could not be updated. Please try again shortly.', 'agend-entitlement-mirror' ), array( 'status' => 503 ) );
+			if ( ! is_object( $result ) ) {
+				return $this->write_failed();
 			}
 
 			return true;
 		}
 
 		/**
+		 * The ids whose entitlements the member draws on: their own, and their
+		 * account's and ultimate parent account's where the kiosk is set to
+		 * inherit them, matching get_all_member_entitlements().
+		 *
+		 * @param string $member_id Upbeat membership number.
+		 * @param object $member    Member details.
+		 * @return string[]
+		 */
+		private function entitlement_ids( string $member_id, $member ): array {
+			$ids = array( $member_id );
+
+			if ( function_exists( 'agend_should_fetch_entitlements_from_account' ) && agend_should_fetch_entitlements_from_account() ) {
+				$account = $member->get_account();
+
+				if ( is_object( $account ) && method_exists( $account, 'get_membership_number' ) ) {
+					$ids[] = (string) $account->get_membership_number();
+				}
+			}
+
+			if ( function_exists( 'agend_should_fetch_entitlements_from_ultimate_parent_account' ) && agend_should_fetch_entitlements_from_ultimate_parent_account() ) {
+				$ids[] = (string) $member->get_ultimate_parent_account_id();
+			}
+
+			return array_values( array_unique( array_filter( array_map( 'strval', $ids ) ) ) );
+		}
+
+		/**
 		 * Clears the member's entitlement caches, and those of the accounts
 		 * their entitlements are inherited from.
 		 *
-		 * @param Iugo_Membership_Kiosk_API $api       Kiosk API.
-		 * @param string                    $member_id Upbeat membership number.
+		 * @param object $api       Kiosk API.
+		 * @param string $member_id Upbeat membership number.
+		 * @param object $member    Member details.
 		 * @return void
 		 */
-		private function forget( $api, string $member_id ): void {
+		private function forget( $api, string $member_id, $member ): void {
 			$api->erase_entitlements_cache_for_member_id( $member_id );
 
-			$member = $api->get_member_details_by_id( $member_id );
-
-			if ( ! ( $member instanceof Iugo_Membership_Kiosk_API_MemberDetail ) ) {
-				return;
+			foreach ( $this->entitlement_ids( $member_id, $member ) as $id ) {
+				if ( $id !== $member_id ) {
+					$api->erase_entitlements_cache_for_account_id( $id );
+				}
 			}
+		}
 
-			$account_ids = array();
-			$account     = $member->get_account();
+		/**
+		 * Whether a kiosk member lookup found the member.
+		 *
+		 * @param mixed $member Lookup result.
+		 * @return bool
+		 */
+		private function is_member( $member ): bool {
+			return is_object( $member )
+				&& method_exists( $member, 'get_account' )
+				&& ( ! method_exists( $member, 'exists' ) || $member->exists() );
+		}
 
-			if ( is_object( $account ) && method_exists( $account, 'get_membership_number' ) ) {
-				$account_ids[] = (string) $account->get_membership_number();
-			}
+		/**
+		 * The kiosk API.
+		 *
+		 * @return object
+		 */
+		private function api() {
+			return $this->api ?? Iugo_Membership_Kiosk_API::instance();
+		}
 
-			$account_ids[] = (string) $member->get_ultimate_parent_account_id();
+		/**
+		 * The error returned when a read fails.
+		 *
+		 * @return WP_Error
+		 */
+		private function lookup_failed(): WP_Error {
+			return new WP_Error( 'agend_jobs_credit_lookup_failed', __( 'Your job posting credits could not be checked. Please try again shortly.', 'agend-entitlement-mirror' ), array( 'status' => 503 ) );
+		}
 
-			foreach ( array_unique( array_filter( $account_ids ) ) as $account_id ) {
-				$api->erase_entitlements_cache_for_account_id( $account_id );
-			}
+		/**
+		 * The error returned when a write fails.
+		 *
+		 * @return WP_Error
+		 */
+		private function write_failed(): WP_Error {
+			return new WP_Error( 'agend_jobs_credit_write_failed', __( 'Your job posting credit could not be updated. Please try again shortly.', 'agend-entitlement-mirror' ), array( 'status' => 503 ) );
 		}
 
 		/**
