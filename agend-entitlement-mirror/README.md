@@ -50,6 +50,38 @@ register the webhook/login listeners (a known caveat carried over unchanged
 from the original module): flipping it on takes effect from the next request
 onward, not retroactively within the same request.
 
+## Job credits
+
+Lets members pay for job postings with credits held in Upbeat, through
+agend-apps-core's job credit provider contract
+(`agend_apps_jobs_credit_provider`). Independent of the mirror: it works with
+**Enable Entitlement Mirror** off.
+
+Tools > Agend Entitlement Mirror > Job Credits:
+
+- **Enable Job Credits**: off by default.
+- **Credit Entitlement Type**: the Upbeat entitlement type whose records are
+  credits. Job credits stay off until it is set.
+- **Credit Entitlement Category**: optional, for a type name reused across
+  categories.
+
+One Upbeat entitlement record is one credit, so a five credit pack is five
+records. A record's `downloadCount` marks it used (1) or unused (0), the same
+convention as the kiosk's support ticket credits, so Upbeat stays the record of
+how many credits a member has and when each expires. Records inherited from the
+member's account count, as they do everywhere else in the kiosk.
+
+- Credits are spent soonest to expire first.
+- Every read clears the member's (and their accounts') kiosk entitlement caches
+  first, and every write clears them again, because the kiosk caches the list
+  for 15 minutes and `update_entitlement()` overwrites that cache entry with
+  the single updated record.
+- A write sends only the record's unique id and `downloadCount`.
+- A CRM failure is reported as an error, never as "no credits left".
+
+agend-apps-core decides when a credit is spent and given back; see its
+`includes/jobs-credits.php`.
+
 ## Triggers
 
 - The kiosk's `agend_webhook_entitlement_created` / `_updated` /

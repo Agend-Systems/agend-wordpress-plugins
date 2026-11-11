@@ -191,6 +191,92 @@ if ( ! class_exists( 'Agend_Entitlement_Mirror_Admin_Page' ) ) :
 				self::MENU_SLUG,
 				'agend_entitlement_mirror_section'
 			);
+
+			add_settings_section(
+				'agend_entitlement_mirror_job_credits_section',
+				__( 'Job Credits', 'agend-entitlement-mirror' ),
+				array( __CLASS__, 'render_job_credits_section' ),
+				self::MENU_SLUG
+			);
+
+			register_setting(
+				self::OPTION_GROUP,
+				'agend_entitlement_mirror_job_credits_enabled',
+				array(
+					'type'              => 'boolean',
+					'sanitize_callback' => array( __CLASS__, 'sanitize_checkbox' ),
+					'default'           => false,
+				)
+			);
+			add_settings_field(
+				'agend_entitlement_mirror_job_credits_enabled',
+				__( 'Enable Job Credits', 'agend-entitlement-mirror' ),
+				array( __CLASS__, 'render_job_credits_enabled_field' ),
+				self::MENU_SLUG,
+				'agend_entitlement_mirror_job_credits_section'
+			);
+
+			foreach ( array(
+				'agend_entitlement_mirror_job_credits_type'     => __( 'Credit Entitlement Type', 'agend-entitlement-mirror' ),
+				'agend_entitlement_mirror_job_credits_category' => __( 'Credit Entitlement Category', 'agend-entitlement-mirror' ),
+			) as $option => $label ) {
+				register_setting(
+					self::OPTION_GROUP,
+					$option,
+					array(
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_text_field',
+						'default'           => '',
+					)
+				);
+				add_settings_field(
+					$option,
+					$label,
+					array( __CLASS__, 'render_job_credits_text_field' ),
+					self::MENU_SLUG,
+					'agend_entitlement_mirror_job_credits_section',
+					array( 'option' => $option )
+				);
+			}
+		}
+
+		/**
+		 * Renders the Job Credits section description.
+		 */
+		public static function render_job_credits_section(): void {
+			echo '<p>' . esc_html__( 'Lets members pay for job postings with credits held in Upbeat. Each credit is one entitlement record of the type below; its download count marks it used (1) or unused (0). Works whether or not the mirror above is enabled.', 'agend-entitlement-mirror' ) . '</p>';
+		}
+
+		/**
+		 * Renders the enable-job-credits checkbox.
+		 */
+		public static function render_job_credits_enabled_field(): void {
+			printf(
+				'<label><input type="checkbox" id="agend_entitlement_mirror_job_credits_enabled" name="agend_entitlement_mirror_job_credits_enabled" value="1"%s /> %s</label>',
+				checked( Agend_Entitlement_Mirror_Settings::is_job_credits_enabled(), true, false ),
+				esc_html__( 'Use Upbeat entitlements as job posting credits.', 'agend-entitlement-mirror' )
+			);
+		}
+
+		/**
+		 * Renders the credit type or category text field.
+		 *
+		 * @param array{option: string} $args Field args.
+		 */
+		public static function render_job_credits_text_field( array $args ): void {
+			$option = (string) $args['option'];
+			printf(
+				'<input type="text" id="%1$s" name="%1$s" value="%2$s" class="regular-text" />',
+				esc_attr( $option ),
+				esc_attr( (string) get_option( $option, '' ) )
+			);
+			echo '<p class="description">';
+			if ( 'agend_entitlement_mirror_job_credits_type' === $option ) {
+				esc_html_e( 'The Upbeat entitlement type, exactly as Upbeat names it (case does not matter). Job credits stay off until this is set.', 'agend-entitlement-mirror' );
+			} else {
+				esc_html_e( 'Optional. Only needed when the same type name is used in more than one Upbeat category.', 'agend-entitlement-mirror' );
+			}
+			echo '</p>';
 		}
 
 		/**
