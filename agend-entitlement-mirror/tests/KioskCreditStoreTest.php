@@ -20,7 +20,11 @@ require_once __DIR__ . '/fixtures/kiosk-inherit-flags.php';
  * A kiosk account: only its membership number is read.
  */
 final class FakeKioskAccount {
-	public function __construct( private string $number ) {}
+	private string $number;
+
+	public function __construct( string $number ) {
+		$this->number = $number;
+	}
 
 	public function get_membership_number(): string {
 		return $this->number;
@@ -31,7 +35,15 @@ final class FakeKioskAccount {
  * A kiosk member.
  */
 final class FakeKioskMember {
-	public function __construct( private string $account_id = '', private string $parent = '', private bool $exists = true ) {}
+	private string $account_id;
+	private string $parent;
+	private bool $exists;
+
+	public function __construct( string $account_id = '', string $parent = '', bool $exists = true ) {
+		$this->account_id = $account_id;
+		$this->parent     = $parent;
+		$this->exists     = $exists;
+	}
 
 	public function get_account_id(): string {
 		return $this->account_id;
