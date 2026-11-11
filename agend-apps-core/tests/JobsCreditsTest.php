@@ -140,6 +140,12 @@ final class JobsCreditsTest extends TestCase {
 
 	private FakeJobsCreditProvider $provider;
 
+	/** What the gateway lookup returns: a submission item, null, or a WP_Error. */
+	private $found = null;
+
+	/** @var array<int, string> user_id:credit_ref for each gateway lookup */
+	private array $lookups = array();
+
 	protected function setUp(): void {
 		parent::setUp();
 		Agend_Apps_Jobs_Credits::$lock_poll = 0;
@@ -151,6 +157,22 @@ final class JobsCreditsTest extends TestCase {
 				return $provider;
 			}
 		);
+
+		Agend_Apps_Jobs_Credits::$submission_finder = function ( int $user_id, string $credit_ref ) {
+			$this->lookups[] = "$user_id:$credit_ref";
+
+			return $this->found;
+		};
+	}
+
+	protected function tearDown(): void {
+		Agend_Apps_Jobs_Credits::$submission_finder = null;
+		parent::tearDown();
+	}
+
+	/** Ages a reservation past the point the sweep looks it up. */
+	private function age_for_lookup( string $ref ): void {
+		$this->change_elsewhere( $ref, array( 'updated_at' => time() - Agend_Apps_Jobs_Credits::LOOKUP_AFTER - 1 ) );
 	}
 
 	private function event( string $job_id, string $credit_ref ): array {
@@ -752,11 +774,186 @@ final class JobsCreditsTest extends TestCase {
 	public function other_event_types_are_ignored(): void {
 		$this->provider->give( 'cr-1', 7 );
 		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
-		Agend_Apps_Jobs_Credits::attach( 7, $credit_ref, 'job-1' );
+
+		Agend_Apps_Jobs_Credits::handle_webhook( 'jobs.listing.updated', $this->event( 'job-1', $credit_ref ) );
+
+		$this->assertTrue( $this->provider->used['cr-1'] );
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RESERVED, $this->state( 'cr-1' ) );
+		$this->assertSame( array(), $this->requests() );
+	}
+
+	#[Test]
+	public function an_approval_records_the_job_when_attach_was_lost(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
 
 		Agend_Apps_Jobs_Credits::handle_webhook( 'jobs.submission.approved', $this->event( 'job-1', $credit_ref ) );
 
+		$entry = Agend_Apps_Jobs_Credits::entry( 'cr-1' );
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_SUBMITTED, $entry['state'] );
+		$this->assertSame( 'job-1', $entry['job_id'] );
 		$this->assertTrue( $this->provider->used['cr-1'] );
+		$this->assertSame( array(), $this->requests() );
+	}
+
+	#[Test]
+	public function an_approval_for_an_attached_job_is_acknowledged(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		Agend_Apps_Jobs_Credits::attach( 7, $credit_ref, 'job-1' );
+
+		$this->assertTrue( Agend_Apps_Jobs_Credits::confirm( $credit_ref, 'job-1' ) );
+		$this->assertSame( 'agend_jobs_credits_stale', Agend_Apps_Jobs_Credits::confirm( $credit_ref, 'job-2' )->get_error_code(), 'never moved to another job' );
+		$this->assertSame( 'job-1', Agend_Apps_Jobs_Credits::entry( 'cr-1' )['job_id'] );
+	}
+
+	#[Test]
+	public function an_approval_fills_in_the_job_of_a_credit_staff_kept_as_used(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		Agend_Apps_Jobs_Credits::resolve( 'cr-1', 'keep' );
+
+		$this->assertTrue( Agend_Apps_Jobs_Credits::confirm( $credit_ref, 'job-1' ) );
+		$this->assertSame( 'job-1', Agend_Apps_Jobs_Credits::entry( 'cr-1' )['job_id'] );
+	}
+
+	#[Test]
+	public function an_approval_after_the_credit_was_given_back_is_logged_and_spends_nothing(): void {
+		$logged = array();
+		add_action(
+			'agend_apps_jobs_credits_log',
+			static function ( $message ) use ( &$logged ) {
+				$logged[] = $message;
+			}
+		);
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		Agend_Apps_Jobs_Credits::release( $credit_ref );
+
+		Agend_Apps_Jobs_Credits::handle_webhook( 'jobs.submission.approved', $this->event( 'job-1', $credit_ref ) );
+
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RELEASED, $this->state( 'cr-1' ) );
+		$this->assertFalse( $this->provider->used['cr-1'] );
+		$this->assertCount( 1, preg_grep( '/went ahead after its credit was given back/', $logged ) );
+		$this->assertSame( array(), $this->requests() );
+	}
+
+	#[Test]
+	public function an_approval_for_an_earlier_reservation_leaves_the_current_one_alone(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$first = Agend_Apps_Jobs_Credits::reserve( 7 );
+		Agend_Apps_Jobs_Credits::release( $first );
+		$second = Agend_Apps_Jobs_Credits::reserve( 7 );
+
+		$this->assertSame( 'agend_jobs_credits_conflict', Agend_Apps_Jobs_Credits::confirm( $first, 'job-1' )->get_error_code() );
+
+		$entry = Agend_Apps_Jobs_Credits::entry( 'cr-1' );
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RESERVED, $entry['state'] );
+		$this->assertSame( Agend_Apps_Jobs_Credits::parse( $second )['reservation'], $entry['reservation'] );
+	}
+
+	#[Test]
+	public function an_approval_that_cannot_get_the_lock_is_kept_and_finished_by_the_sweep(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		$this->hold_lock( Agend_Apps_Jobs_Credits::CREDIT_LOCK_PREFIX . md5( 'cr-1' ) );
+
+		Agend_Apps_Jobs_Credits::handle_webhook( 'jobs.submission.approved', $this->event( 'job-1', $credit_ref ) );
+
+		$this->assertCount( 1, $this->requests() );
+
+		unset( \Agend_Test_WP::$options[ Agend_Apps_Jobs_Credits::CREDIT_LOCK_PREFIX . md5( 'cr-1' ) ] );
+		Agend_Apps_Jobs_Credits::sweep();
+
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_SUBMITTED, $this->state( 'cr-1' ) );
+		$this->assertSame( array(), $this->requests() );
+	}
+
+	#[Test]
+	public function the_sweep_records_the_job_of_an_unattached_reservation_the_gateway_has(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		$this->age_for_lookup( 'cr-1' );
+		$this->found = array(
+			'id'         => 'job-9',
+			'status'     => 'pending',
+			'credit_ref' => $credit_ref,
+		);
+
+		Agend_Apps_Jobs_Credits::sweep();
+
+		$this->assertSame( array( "7:$credit_ref" ), $this->lookups, 'looked up as the member who spent it' );
+		$entry = Agend_Apps_Jobs_Credits::entry( 'cr-1' );
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_SUBMITTED, $entry['state'] );
+		$this->assertSame( 'job-9', $entry['job_id'] );
+		$this->assertTrue( $this->provider->used['cr-1'] );
+	}
+
+	#[Test]
+	public function the_sweep_gives_back_an_unattached_reservation_whose_submission_was_refused(): void {
+		foreach ( array( 7 => 'rejected', 8 => 'withdrawn' ) as $user_id => $status ) {
+			$ref = "cr-$status";
+			$this->provider->give( $ref, $user_id );
+			$credit_ref = Agend_Apps_Jobs_Credits::reserve( $user_id );
+			$this->age_for_lookup( $ref );
+			$this->found = array(
+				'id'         => "job-$status",
+				'status'     => $status,
+				'credit_ref' => $credit_ref,
+			);
+
+			Agend_Apps_Jobs_Credits::sweep();
+
+			$this->assertFalse( $this->provider->used[ $ref ], $status );
+			$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RELEASED, $this->state( $ref ), $status );
+		}
+	}
+
+	#[Test]
+	public function an_unattached_reservation_the_gateway_has_no_submission_for_is_left_for_staff(): void {
+		$this->provider->give( 'cr-1', 7 );
+		Agend_Apps_Jobs_Credits::reserve( 7 );
+		$this->change_elsewhere( 'cr-1', array( 'updated_at' => time() - Agend_Apps_Jobs_Credits::STALE_RESERVATION - 1 ) );
+
+		Agend_Apps_Jobs_Credits::sweep();
+
+		$this->assertCount( 1, $this->lookups );
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RESERVED, $this->state( 'cr-1' ) );
+		$this->assertTrue( $this->provider->used['cr-1'] );
+		$this->assertSame( 'reserved', get_option( Agend_Apps_Jobs_Credits::ATTENTION_OPTION )[0]['state'] );
+	}
+
+	#[Test]
+	public function a_failed_lookup_or_an_unknown_status_changes_nothing(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		$this->age_for_lookup( 'cr-1' );
+
+		foreach ( array(
+			new WP_Error( 'down', 'Down' ),
+			array( 'id' => 'job-1', 'status' => 'archived', 'credit_ref' => $credit_ref ),
+			array( 'status' => 'pending', 'credit_ref' => $credit_ref ),
+		) as $found ) {
+			$this->found = $found;
+			Agend_Apps_Jobs_Credits::sweep();
+
+			$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RESERVED, $this->state( 'cr-1' ) );
+			$this->assertTrue( $this->provider->used['cr-1'] );
+		}
+	}
+
+	#[Test]
+	public function a_recent_reservation_or_an_attached_one_is_not_looked_up(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$this->provider->give( 'cr-2', 8 );
+		Agend_Apps_Jobs_Credits::reserve( 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 8 );
+		Agend_Apps_Jobs_Credits::attach( 8, $credit_ref, 'job-1' );
+		$this->age_for_lookup( 'cr-2' );
+
+		Agend_Apps_Jobs_Credits::sweep();
+
+		$this->assertSame( array(), $this->lookups );
 	}
 
 	#[Test]

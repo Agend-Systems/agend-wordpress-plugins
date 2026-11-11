@@ -15,7 +15,11 @@
  *    provider's credit reference plus a reservation id unique to this spend.
  *    The submission is sent to the gateway with it.
  * 2. {@see Agend_Apps_Jobs_Credits::attach()} records the job the reservation
- *    paid for, once the gateway has accepted the submission.
+ *    paid for, once the gateway has accepted the submission. The credit_ref
+ *    is also the submission's Idempotency-Key, so a timed-out submit can be
+ *    retried without a second job. When attach() is lost, a
+ *    `jobs.submission.approved` webhook or the sweep's gateway lookup
+ *    records the job instead.
  * 3. {@see Agend_Apps_Jobs_Credits::release()} gives the credit back: straight
  *    away when the gateway refuses the submission, or later when a
  *    `jobs.submission.rejected` or `jobs.submission.withdrawn` webhook arrives.
@@ -156,6 +160,23 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		const RELEASE_EVENTS = array( 'jobs.submission.rejected', 'jobs.submission.withdrawn' );
 
 		/**
+		 * Webhook event types that confirm the job a credit paid for, so a
+		 * reservation whose attach() was lost is still recorded as submitted.
+		 *
+		 * @var string[]
+		 */
+		const CONFIRM_EVENTS = array( 'jobs.submission.approved' );
+
+		/**
+		 * Gateway submission statuses. A job in a live status keeps its credit;
+		 * a refused one gives it back. Any other status is left alone.
+		 *
+		 * @var string[]
+		 */
+		const LIVE_STATUSES    = array( 'pending', 'published', 'expired', 'closed', 'filled' );
+		const REFUSED_STATUSES = array( 'rejected', 'withdrawn' );
+
+		/**
 		 * Option name prefixes: a credit's ledger record, a received release
 		 * request, and the two kinds of lock. Distinct prefixes, so a LIKE scan
 		 * of one never matches another.
@@ -188,6 +209,14 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 * @var string
 		 */
 		const SEPARATOR = '#';
+
+		/**
+		 * Job id recorded when staff keep a stuck credit as used before the
+		 * job it paid for is known.
+		 *
+		 * @var string
+		 */
+		const STAFF_JOB_ID = 'resolved-by-staff';
 
 		/**
 		 * Seconds before a lock is treated as left behind by a request that
@@ -228,6 +257,26 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 * @var int
 		 */
 		const STALE_RESERVATION = DAY_IN_SECONDS;
+
+		/**
+		 * Seconds a reservation may stay unattached before the sweep asks the
+		 * gateway what became of its submission. A submit takes seconds, so a
+		 * reservation this old lost its attach() or never reached the gateway.
+		 *
+		 * @var int
+		 */
+		const LOOKUP_AFTER = HOUR_IN_SECONDS;
+
+		/**
+		 * Finds the gateway submission made with a credit_ref, as the member
+		 * who spent it: `function ( int $user_id, string $credit_ref )`
+		 * returning the submission item, null when there is none, or a
+		 * WP_Error. Null uses {@see Agend_Apps_Jobs_Credits::find_submission()}.
+		 * Overridable in tests.
+		 *
+		 * @var callable|null
+		 */
+		public static $submission_finder = null;
 
 		/**
 		 * Released reservation ids kept per credit, so a repeated event about
@@ -551,7 +600,93 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		}
 
 		/**
-		 * Releases the credit behind a rejected or withdrawn submission.
+		 * Records that a reservation's submission reached the gateway, when
+		 * attach() never did: the request died after the gateway accepted the
+		 * job, or the job was approved before attach() ran.
+		 *
+		 * A reservation still `reserved` becomes `submitted` for the job, and
+		 * one already submitted for it is acknowledged. A credit already given
+		 * back, or being given back, for a job that went ahead is logged for
+		 * staff rather than spent again behind the member's back.
+		 *
+		 * @param string $credit_ref The credit_ref the submission was made with.
+		 * @param string $job_id     Gateway job id.
+		 * @param int    $wait       Seconds to wait for the credit's lock.
+		 * @return true|WP_Error
+		 */
+		public static function confirm( string $credit_ref, string $job_id, int $wait = self::LOCK_WAIT ) {
+			$provider = self::provider();
+
+			if ( null === $provider ) {
+				return self::unavailable_error();
+			}
+
+			$parts = self::parse( $credit_ref );
+
+			if ( null === $parts || '' === $job_id ) {
+				return new WP_Error( 'agend_jobs_credits_unknown', 'The credit reference was not issued by this site.', array( 'status' => 404 ) );
+			}
+
+			return self::with_credit_lock(
+				$parts['ref'],
+				$wait,
+				static function () use ( $parts, $job_id ) {
+					$entry = self::entry( $parts['ref'] );
+
+					if ( null === $entry ) {
+						return new WP_Error( 'agend_jobs_credits_unknown', 'No member on this site spent this credit.', array( 'status' => 404 ) );
+					}
+
+					$given_back = in_array( $parts['reservation'], $entry['released'], true )
+						|| ( $parts['reservation'] === $entry['reservation'] && in_array( $entry['state'], array( self::STATE_RELEASE_PENDING, self::STATE_RELEASE_FAILED ), true ) );
+
+					if ( $given_back ) {
+						self::log(
+							'A job went ahead after its credit was given back; check the member\'s credits in the CRM.',
+							array(
+								'credit' => $parts['ref'],
+								'job_id' => $job_id,
+							)
+						);
+
+						return new WP_Error( 'agend_jobs_credits_conflict', 'The job went ahead after its credit was given back.', array( 'status' => 409 ) );
+					}
+
+					if ( $parts['reservation'] !== $entry['reservation'] ) {
+						return new WP_Error( 'agend_jobs_credits_stale', 'The credit has been spent again since, so it was left as it is.', array( 'status' => 409 ) );
+					}
+
+					if ( self::STATE_RESERVED === $entry['state'] ) {
+						$entry['state']  = self::STATE_SUBMITTED;
+						$entry['job_id'] = $job_id;
+						self::write_entry( $parts['ref'], $entry );
+
+						return true;
+					}
+
+					if ( self::STATE_SUBMITTED === $entry['state'] ) {
+						if ( $job_id === $entry['job_id'] ) {
+							return true;
+						}
+
+						if ( in_array( $entry['job_id'], array( '', self::STAFF_JOB_ID ), true ) ) {
+							// Staff kept it as used before the job was known.
+							$entry['job_id'] = $job_id;
+							self::write_entry( $parts['ref'], $entry );
+
+							return true;
+						}
+					}
+
+					return new WP_Error( 'agend_jobs_credits_stale', 'The credit is not tied to this job, so it was left as it is.', array( 'status' => 409 ) );
+				},
+				self::busy_error()
+			);
+		}
+
+		/**
+		 * Acts on a submission webhook: a rejected or withdrawn submission gives
+		 * its credit back, an approved one confirms the job it paid for.
 		 *
 		 * The delivery has already been signature checked by the receiver. The
 		 * request is saved before anything else, and only deleted once it has
@@ -563,7 +698,9 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 * @return void
 		 */
 		public static function handle_webhook( $type, $envelope ): void {
-			if ( ! in_array( (string) $type, self::RELEASE_EVENTS, true ) || ! is_array( $envelope ) ) {
+			$type = (string) $type;
+
+			if ( ! in_array( $type, array_merge( self::RELEASE_EVENTS, self::CONFIRM_EVENTS ), true ) || ! is_array( $envelope ) ) {
 				return;
 			}
 
@@ -575,13 +712,13 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 				return;
 			}
 
-			$name = self::REQUEST_PREFIX . md5( $credit_ref );
+			$name = self::REQUEST_PREFIX . md5( $type . '|' . $credit_ref );
 			self::write_option(
 				$name,
 				array(
 					'credit_ref'  => $credit_ref,
 					'job_id'      => $job_id,
-					'type'        => (string) $type,
+					'type'        => $type,
 					'received_at' => time(),
 				)
 			);
@@ -601,6 +738,11 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 * - `spending` records older than the lock TTL (left by a request that
 		 *   died mid-spend) are given back: restoring a credit that was never
 		 *   spent changes nothing.
+		 * - `reserved` records older than LOOKUP_AFTER are looked up on the
+		 *   gateway as the member who spent them: a live submission keeps the
+		 *   credit, a rejected or withdrawn one gives it back. One with no
+		 *   submission is left for staff, since the submit may yet have landed
+		 *   under a contact the member is no longer linked to.
 		 * - Credits that need staff attention are listed for the admin notice.
 		 *
 		 * @return void
@@ -655,6 +797,11 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 					$entry = self::entry( $ref );
 				}
 
+				if ( null !== $entry && self::needs_lookup( $entry ) ) {
+					self::reconcile( $entry );
+					$entry = self::entry( $ref );
+				}
+
 				if ( null !== $entry && self::needs_attention( $entry ) ) {
 					$attention[] = array(
 						'ref'     => $ref,
@@ -693,7 +840,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 				$user  = get_user_by( 'id', (int) ( $item['user_id'] ?? 0 ) );
 				$label = self::STATE_RELEASE_FAILED === ( $item['state'] ?? '' )
 					? __( 'could not be given back automatically', 'agend-apps-core' )
-					: __( 'its submission never completed', 'agend-apps-core' );
+					: __( 'no job submission was found for it', 'agend-apps-core' );
 
 				echo '<li><code>' . esc_html( $ref ) . '</code> ';
 				echo esc_html(
@@ -778,7 +925,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 
 					if ( 'keep' === $resolution ) {
 						$entry['state']  = self::STATE_SUBMITTED;
-						$entry['job_id'] = '' !== $entry['job_id'] ? $entry['job_id'] : 'resolved-by-staff';
+						$entry['job_id'] = '' !== $entry['job_id'] ? $entry['job_id'] : self::STAFF_JOB_ID;
 						self::write_entry( $ref, $entry );
 
 						return true;
@@ -885,19 +1032,22 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 				return;
 			}
 
-			$result = self::release( (string) $request['credit_ref'], (string) ( $request['job_id'] ?? '' ), $wait );
+			$credit_ref = (string) $request['credit_ref'];
+			$job_id     = (string) ( $request['job_id'] ?? '' );
+			$confirms   = in_array( (string) ( $request['type'] ?? '' ), self::CONFIRM_EVENTS, true );
+			$result     = $confirms ? self::confirm( $credit_ref, $job_id, $wait ) : self::release( $credit_ref, $job_id, $wait );
 
 			if ( is_wp_error( $result ) && in_array( $result->get_error_code(), array( 'agend_jobs_credits_busy', 'agend_jobs_credits_unavailable' ), true ) ) {
 				if ( (int) ( $request['received_at'] ?? 0 ) < time() - WEEK_IN_SECONDS ) {
-					self::log( 'Gave up on a job credit release request after a week.', array( 'job_id' => (string) ( $request['job_id'] ?? '' ) ) );
+					self::log( 'Gave up on a job credit webhook after a week.', array( 'job_id' => $job_id ) );
 					delete_option( $name );
 				}
 				return;
 			}
 
-			if ( is_wp_error( $result ) && 'agend_jobs_credits_unknown' !== $result->get_error_code() ) {
+			if ( is_wp_error( $result ) && ! in_array( $result->get_error_code(), array( 'agend_jobs_credits_unknown', 'agend_jobs_credits_conflict' ), true ) ) {
 				self::log(
-					'Job credit not released for ' . (string) ( $request['type'] ?? 'a release request' ) . ': ' . $result->get_error_message(),
+					'Job credit left as it is for ' . (string) ( $request['type'] ?? 'a webhook' ) . ': ' . $result->get_error_message(),
 					array(
 						'job_id' => (string) ( $request['job_id'] ?? '' ),
 						'code'   => $result->get_error_code(),
@@ -1116,6 +1266,78 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 			}
 
 			return self::STATE_SPENDING === $entry['state'] && $entry['updated_at'] < time() - self::LOCK_TTL;
+		}
+
+		/**
+		 * Whether the sweep should ask the gateway what became of a
+		 * reservation that has not been attached.
+		 *
+		 * @param array $entry Ledger record.
+		 * @return bool
+		 */
+		private static function needs_lookup( array $entry ): bool {
+			return self::STATE_RESERVED === $entry['state'] && '' !== $entry['reservation'] && $entry['updated_at'] < time() - self::LOOKUP_AFTER;
+		}
+
+		/**
+		 * Settles an unattached reservation from its gateway submission: a live
+		 * one confirms the job, a rejected or withdrawn one gives the credit
+		 * back. Nothing happens when there is no submission, the gateway cannot
+		 * be asked, or the status is not one this site knows. The lookup runs
+		 * outside the credit's lock; confirm() and release() re-check the
+		 * reservation under it.
+		 *
+		 * @param array $entry Ledger record, in reserved.
+		 * @return void
+		 */
+		private static function reconcile( array $entry ): void {
+			$credit_ref = $entry['ref'] . self::SEPARATOR . $entry['reservation'];
+			$finder     = is_callable( self::$submission_finder ) ? self::$submission_finder : array( __CLASS__, 'find_submission' );
+			$found      = call_user_func( $finder, (int) $entry['user_id'], $credit_ref );
+
+			if ( ! is_array( $found ) ) {
+				return;
+			}
+
+			$status = isset( $found['status'] ) && is_scalar( $found['status'] ) ? (string) $found['status'] : '';
+			$job_id = isset( $found['id'] ) && is_scalar( $found['id'] ) ? (string) $found['id'] : '';
+
+			if ( '' === $job_id ) {
+				return;
+			}
+
+			if ( in_array( $status, self::LIVE_STATUSES, true ) ) {
+				self::confirm( $credit_ref, $job_id, 0 );
+			} elseif ( in_array( $status, self::REFUSED_STATUSES, true ) ) {
+				self::release( $credit_ref, $job_id, 0 );
+			}
+		}
+
+		/**
+		 * Finds the gateway submission made with a credit_ref, signed in as the
+		 * member who spent it, so the request carries their own token.
+		 *
+		 * @param int    $user_id    WordPress user id who spent the credit.
+		 * @param string $credit_ref credit_ref.
+		 * @return array|null|WP_Error The submission item, or null when there is none.
+		 */
+		public static function find_submission( int $user_id, string $credit_ref ) {
+			if ( ! function_exists( 'agend_apps_jobs_find_my_submission' ) ) {
+				return new WP_Error( 'agend_jobs_credits_lookup_unavailable', 'The jobs gateway client is not loaded.' );
+			}
+
+			if ( $user_id <= 0 || ! get_userdata( $user_id ) ) {
+				return new WP_Error( 'agend_jobs_credits_no_member', 'The member who spent the credit no longer exists.' );
+			}
+
+			$previous = get_current_user_id();
+			wp_set_current_user( $user_id );
+
+			try {
+				return agend_apps_jobs_find_my_submission( $credit_ref );
+			} finally {
+				wp_set_current_user( $previous );
+			}
 		}
 
 		/**
