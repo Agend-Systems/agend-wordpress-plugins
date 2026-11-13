@@ -980,13 +980,33 @@ function add_query_arg( ...$args ) {
 	return $url . $sep . implode( '&', $query );
 }
 
+if ( ! function_exists( 'remove_query_arg' ) ) {
+	/** Removes one query key from a URL; enough for the single-key calls under test. */
+	function remove_query_arg( $key, $url = '' ) {
+		$stripped = (string) preg_replace( '/([?&])' . preg_quote( (string) $key, '/' ) . '=[^&#]*(&|$)/', '$1', (string) $url );
+		return rtrim( $stripped, '?&' );
+	}
+}
+
+if ( ! function_exists( 'wp_lostpassword_url' ) ) {
+	function wp_lostpassword_url( string $redirect = '' ): string {
+		return home_url( '/wp-login.php?action=lostpassword' );
+	}
+}
+
+if ( ! function_exists( 'wp_specialchars_decode' ) ) {
+	function wp_specialchars_decode( $text, $quote_style = ENT_NOQUOTES ): string {
+		return htmlspecialchars_decode( (string) $text, $quote_style );
+	}
+}
+
 function home_url( $path = '' ): string {
 	return 'https://example.test' . $path;
 }
 
 if ( ! function_exists( 'site_url' ) ) {
-	function site_url( $path = '' ): string {
-		return 'https://example.test' . $path;
+	function site_url( $path = '', $scheme = null ): string {
+		return 'https://example.test' . ( '' !== $path && '/' !== $path[0] ? '/' : '' ) . $path;
 	}
 }
 
@@ -1231,6 +1251,17 @@ if ( ! class_exists( 'WP_Error' ) ) {
 			return $this->code;
 		}
 
+		/** @var string[] */
+		private array $extra_codes = array();
+
+		public function add( string $code, string $message = '', $data = '' ): void {
+			$this->extra_codes[] = $code;
+		}
+
+		public function get_error_codes(): array {
+			return array_merge( '' === $this->code ? array() : array( $this->code ), $this->extra_codes );
+		}
+
 		public function get_error_message(): string {
 			return $this->message;
 		}
@@ -1260,6 +1291,9 @@ if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
 if ( ! function_exists( 'get_bloginfo' ) ) {
 	/** Fixed 'version' value; the updater's tests only assert the User-Agent is well-formed. */
 	function get_bloginfo( string $show = '' ): string {
+		if ( 'name' === $show ) {
+			return (string) ( $GLOBALS['agend_test_blogname'] ?? 'Example Site' );
+		}
 		return 'version' === $show ? '6.8' : '';
 	}
 }

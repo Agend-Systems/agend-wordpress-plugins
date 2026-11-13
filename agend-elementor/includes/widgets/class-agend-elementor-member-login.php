@@ -105,7 +105,7 @@ class Agend_Elementor_Member_Login extends \Elementor\Widget_Base {
 		// here, in the widget: the core renderer's '' return is what a real
 		// front-end visitor sees, but an editor needs to know why the canvas
 		// is empty.
-		if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() ) {
+		if ( class_exists( 'Agend_Apps_Settings' ) && ! Agend_Apps_Settings::credential_login_enabled() && ! ( method_exists( 'Agend_Apps_Settings', 'wordpress_idp_enabled' ) && Agend_Apps_Settings::wordpress_idp_enabled() ) ) {
 			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
 				echo '<div class="agend-widget-notice">' . esc_html__( 'Member sign-in is set to SSO in Agend Apps settings.', 'agend-elementor' ) . '</div>';
 			}
