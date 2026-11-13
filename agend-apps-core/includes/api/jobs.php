@@ -174,7 +174,7 @@ function agend_apps_jobs_get_terms( string $kind ) {
  * submission they have just made, edited or withdrawn.
  *
  * @param array $query Optional. `page` and `limit`. Default empty.
- * @return array|WP_Error Decoded response (`data` items and `pagination`), or WP_Error on failure.
+ * @return array|WP_Error Decoded response (`data` items and `meta.pagination`), or WP_Error on failure.
  */
 function agend_apps_jobs_get_my_submissions( array $query = array() ) {
 	return agend_apps_api()->request( 'GET', '/jobs/me', array( 'query' => $query ) );
@@ -192,8 +192,8 @@ function agend_apps_jobs_get_my_submissions( array $query = array() ) {
  *
  * A `400` or `403` means no job was created, so the caller gives the credit
  * back with {@see Agend_Apps_Jobs_Credits::release()}. A `409`
- * (`CREDIT_REF_IN_USE` or `IDEMPOTENCY_KEY_REUSED`) means an earlier attempt
- * with this credit_ref reached the gateway, and a timeout or `5xx` leaves the
+ * (`CREDIT_REF_IN_USE`, `IDEMPOTENCY_KEY_REUSED` or `IDEMPOTENCY_IN_PROGRESS`)
+ * means an earlier attempt with this credit_ref reached the gateway, and a timeout or `5xx` leaves the
  * outcome unknown: in all three, never give the credit back here. Retry a
  * timeout with the same fields, and otherwise leave the reservation for the
  * sweep, which looks it up and settles it.
@@ -257,7 +257,7 @@ function agend_apps_jobs_find_my_submission( string $credit_ref, int $max_pages 
 			$match = $match ?? $item;
 		}
 
-		$total_pages = (int) ( $response['pagination']['total_pages'] ?? 1 );
+		$total_pages = (int) ( $response['meta']['pagination']['total_pages'] ?? 1 );
 
 		if ( $page >= $total_pages || array() === $response['data'] ) {
 			return $match;

@@ -41,13 +41,17 @@ final class JobsSubmissionsApiTest extends TestCase {
 
 	private function page( array $items, int $page, int $total_pages ): array {
 		return array(
-			'success'    => true,
-			'data'       => $items,
-			'pagination' => array(
-				'page'        => $page,
-				'limit'       => 100,
-				'total'       => count( $items ),
-				'total_pages' => $total_pages,
+			'success' => true,
+			'data'    => $items,
+			'meta'    => array(
+				'pagination' => array(
+					'page'        => $page,
+					'limit'       => 100,
+					'total'       => count( $items ),
+					'total_pages' => $total_pages,
+					'has_next'    => $page < $total_pages,
+					'has_prev'    => $page > 1,
+				),
 			),
 		);
 	}
