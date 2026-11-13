@@ -939,6 +939,14 @@
       var tiersQuery = cfg.membershipType ? { tierType: cfg.membershipType } : {};
       apiGet('/crm/tiers', tiersQuery).then(function (body) {
         var result = unwrapList(body);
+
+        // Runs before the empty-grid return: a member on a tier the
+        // organisation hides still needs their summary and Pay Now when no
+        // tier is listed.
+        if (window.agendApps && window.agendApps.loggedIn) {
+          renderMyMembershipStatus(result.items);
+        }
+
         if (!result.items.length) {
           if (status) {
             status.style.display = '';
@@ -948,10 +956,6 @@
         }
 
         renderTiers(result.items);
-
-        if (window.agendApps && window.agendApps.loggedIn) {
-          renderMyMembershipStatus(result.items);
-        }
 
         apiGet('/crm/fields', { entityType: 'contact' }).then(function (fieldsBody) {
           var fieldsResult = unwrapList(fieldsBody);
