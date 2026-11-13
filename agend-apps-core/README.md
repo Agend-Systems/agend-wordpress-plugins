@@ -1090,6 +1090,49 @@ secret, an unreachable provider, a non-2xx or malformed answer, a hostname
 mismatch, a missing score, a low score and an action mismatch all refuse the
 submission.
 
+## Member job submissions
+
+A signed-in member posts a job to the jobs board from this site, paid for with
+one of their job credits, and staff approve it in Agend before it goes live.
+The **Agend Member Jobs** surface (`member-jobs`; Elementor widget in Agend
+Elementor) shows the member's credits, their submissions with status, and the
+"Post a job" form.
+
+- **Credits**: `Agend_Apps_Jobs_Credits` (`includes/jobs-credits.php`) over the
+  active `agend_apps_jobs_credit_provider`, for example Agend Entitlement
+  Mirror's Upbeat provider. Job posting needs one.
+- **Routes** (`includes/rest/jobs-me-routes.php`, signed-in user only, cookie
+  nonce): `GET /agend-apps/v1/jobs/me` (`page`), `POST /jobs/me`,
+  `GET /jobs/me/credits`, `PATCH /jobs/me/{id}`, `POST /jobs/me/{id}/withdraw`
+  and `POST /jobs/me/{id}/close` (`filled`). Answers are `{ success, data }` or
+  `{ success: false, code, message, fields? }`; `code` is stable and `message`
+  is this site's own wording, never the gateway's. Registered before the public
+  `jobs/{slug_or_id}` route, which would otherwise read `me` as a slug.
+- **The credit rule** (`Agend_Apps_Jobs_Submissions::submit()`): checks that
+  cost nothing come first (signed in, credits on, the key holds
+  `jobs.submissions.self_manage`, the member has a gateway bearer), because a
+  spend and a give-back are two CRM writes. Then a credit is reserved and the
+  job is sent with the `credit_ref` as its `Idempotency-Key`. Created: the job
+  is attached to the reservation. `400`, `401`, `403` or `429`: no job was
+  made, so the credit is given back. `409`, a timeout, a `5xx` or an unreadable
+  answer: the job may exist, so the credit is left reserved and the
+  `jobs.submission.*` webhooks or the sweep settle it; the member is told to
+  check their list (`unconfirmed`, `202`).
+- **Withdraw** gives the credit back straight away as well as through the
+  `jobs.submission.withdrawn` webhook; both are the same idempotent release.
+  **Close** gives nothing back: the listing ran.
+- **Fields**: everything `POST /v1/jobs/me` takes except the logo (the gateway
+  only accepts an `https` address the site hosts, and there is no upload yet).
+  The description is typed as plain text and sent as escaped paragraphs.
+  Title, employment type and work arrangement are always required; the widget
+  chooses which other fields are required or hidden (enforced by the form, the
+  gateway re-checks its own rules) and adds "tag questions", each a dropdown or
+  tick boxes over some of the board's tags, for example a salary band.
+- **Gateway setup**: the organisation's member job submissions switch on, its
+  approver addresses set, and the site's API key holding
+  `jobs.submissions.self_read` and `jobs.submissions.self_manage`. Without the
+  scopes the surface draws nothing for a visitor.
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map

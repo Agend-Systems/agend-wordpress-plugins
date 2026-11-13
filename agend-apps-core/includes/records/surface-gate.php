@@ -58,6 +58,10 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Jobs', 'agend-apps-core' ),
 			'scopes' => array( 'jobs.listings.browse' ),
 		),
+		'member-jobs'               => array(
+			'label'  => __( 'Agend Member Jobs', 'agend-apps-core' ),
+			'scopes' => array( 'jobs.submissions.self_read', 'jobs.submissions.self_manage' ),
+		),
 		'memberships-catalogue'     => array(
 			'label'  => __( 'Agend Memberships', 'agend-apps-core' ),
 			'scopes' => array( 'crm.tiers.browse' ),

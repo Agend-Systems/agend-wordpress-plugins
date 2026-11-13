@@ -77,6 +77,14 @@ The layouts use the board's existing colours (heading, body, accent, button), so
 
 Several values per filter, tags, state, date posted, featured first and the categories and tags lists need the gateway release that adds them to `GET /v1/jobs` (agend-dashboard #6826 and #7037). Against an older gateway those filters are ignored and show every job, and the category options fall back to the categories on published jobs.
 
+### Agend Member Jobs
+
+A separate widget for the page where members manage their own jobs: their job credits, their submissions with status (awaiting review, live, not approved with the reason, withdrawn, closed, filled), and a **Post a job** button that opens the job form. A pending job can be edited or withdrawn (the credit is returned); a live one can be marked filled or closed. A visitor who is not signed in sees a sign-in link. In the editor it shows sample jobs and calls nothing.
+
+- **Content**: heading, introduction, post button label, the page where members buy credits and its link text, and the no-credits, submitted and signed-out messages.
+- **Job Form**: required fields and hidden fields (title, employment type and work arrangement are always required), the State dropdown's options, and **Tag questions**: each row a dropdown or tick boxes over chosen board tags, for example "Salary band" (dropdown, required) and "Accreditation" (tick box). Match these to the board's tag filters.
+- Needs job credits switched on (for example in Agend Entitlement Mirror) and an API key with `jobs.submissions.self_read` and `jobs.submissions.self_manage`; see "Member job submissions" in the Agend Apps Core README.
+
 ## Card and detail templates
 
 Cards and detail pages for events, courses and directory listings can be designed as ordinary Elementor saved templates (Templates > Saved Templates, type Section, Container or Page) built from the widgets in the Agend Apps category:

@@ -193,10 +193,11 @@ function agend_apps_jobs_get_my_submissions( array $query = array() ) {
  * A `400` or `403` means no job was created, so the caller gives the credit
  * back with {@see Agend_Apps_Jobs_Credits::release()}. A `409`
  * (`CREDIT_REF_IN_USE`, `IDEMPOTENCY_KEY_REUSED` or `IDEMPOTENCY_IN_PROGRESS`)
- * means an earlier attempt with this credit_ref reached the gateway, and a timeout or `5xx` leaves the
- * outcome unknown: in all three, never give the credit back here. Retry a
- * timeout with the same fields, and otherwise leave the reservation for the
- * sweep, which looks it up and settles it.
+ * means an earlier attempt with this credit_ref reached the gateway, and a
+ * timeout or `5xx` leaves the outcome unknown: in all three, never give the
+ * credit back here. Retry a timeout with the same fields, and otherwise leave
+ * the reservation for the sweep, which looks it up and settles it.
+ * {@see Agend_Apps_Jobs_Submissions::submit()} applies this rule.
  *
  * @param array  $fields     Job fields, as accepted by `POST /v1/jobs/me`.
  * @param string $credit_ref The credit_ref {@see Agend_Apps_Jobs_Credits::reserve()} returned.
@@ -265,4 +266,46 @@ function agend_apps_jobs_find_my_submission( string $credit_ref, int $max_pages 
 	}
 
 	return new WP_Error( 'agend_jobs_submissions_too_many', 'The member has too many submissions to search.' );
+}
+
+/**
+ * Edits one of the signed-in member's pending submissions.
+ *
+ * Scope: `jobs.submissions.self_manage`. Only a `pending` submission can be
+ * edited (`409 JOB_NOT_EDITABLE` otherwise); a `null` clears an optional field.
+ * Another contact's or organisation's job is the same `404` as a missing one.
+ *
+ * @param string $job_id The submission's job id.
+ * @param array  $fields The fields to change, as accepted by `PATCH /v1/jobs/me/{id}`.
+ * @return array|WP_Error The updated submission item, or WP_Error on failure.
+ */
+function agend_apps_jobs_update_my_submission( string $job_id, array $fields ) {
+	return agend_apps_api()->request( 'PATCH', '/jobs/me/' . rawurlencode( $job_id ), array( 'body' => $fields ) );
+}
+
+/**
+ * Withdraws one of the signed-in member's pending submissions.
+ *
+ * Scope: `jobs.submissions.self_manage`. Final; frees the submission's
+ * credit_ref and sends `jobs.submission.withdrawn`, which gives the credit
+ * back. `409 INVALID_STATUS_TRANSITION` when it is no longer pending.
+ *
+ * @param string $job_id The submission's job id.
+ * @return array|WP_Error The withdrawn submission item, or WP_Error on failure.
+ */
+function agend_apps_jobs_withdraw_my_submission( string $job_id ) {
+	return agend_apps_api()->request( 'POST', '/jobs/me/' . rawurlencode( $job_id ) . '/withdraw', array( 'body' => '{}' ) );
+}
+
+/**
+ * Takes one of the signed-in member's published jobs off the board.
+ *
+ * Scope: `jobs.submissions.self_manage`. Gives no credit back: the listing ran.
+ *
+ * @param string $job_id The submission's job id.
+ * @param bool   $filled True when the position was filled, false when it was closed.
+ * @return array|WP_Error The closed submission item, or WP_Error on failure.
+ */
+function agend_apps_jobs_close_my_submission( string $job_id, bool $filled ) {
+	return agend_apps_api()->request( 'POST', '/jobs/me/' . rawurlencode( $job_id ) . '/close', array( 'body' => array( 'filled' => $filled ) ) );
 }

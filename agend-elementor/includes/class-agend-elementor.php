@@ -110,6 +110,12 @@ class Agend_Elementor {
 		$widgets_manager->register( new Agend_Elementor_Filter() );
 		$widgets_manager->register( new Agend_Elementor_Export_Reports() );
 
+		// Needs a core that ships the member-jobs surface (1.64.0).
+		if ( function_exists( 'agend_apps_records_render_member_jobs' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-member-jobs.php';
+			$widgets_manager->register( new Agend_Elementor_Member_Jobs() );
+		}
+
 		// The renderer lives in Agend Apps Core, which updates independently:
 		// an older core has no listing enquiry surface to adapt.
 		if ( function_exists( 'agend_apps_records_render_listing_enquiry' ) ) {

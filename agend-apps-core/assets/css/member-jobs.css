@@ -1,0 +1,295 @@
+/* Member Jobs: a member's job credits, their job submissions and the job form. */
+
+.agend-member-jobs {
+  --agend-mj-heading: #1e2a4a;
+  --agend-mj-body: #26304d;
+  --agend-mj-accent: #ff6b55;
+  --agend-mj-button: #ff6b55;
+  --agend-mj-button-text: #ffffff;
+  --agend-mj-border: rgba(38, 48, 77, 0.18);
+  --agend-mj-muted: rgba(38, 48, 77, 0.72);
+  color: var(--agend-mj-body);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.agend-member-jobs--inherit-fonts {
+  font-family: inherit;
+}
+
+.agend-member-jobs *,
+.agend-member-jobs *::before,
+.agend-member-jobs *::after {
+  box-sizing: border-box;
+}
+
+.agend-member-jobs__heading {
+  color: var(--agend-mj-heading);
+  margin: 0 0 0.5em;
+}
+
+.agend-member-jobs__intro,
+.agend-member-jobs__empty,
+.agend-member-jobs__notice {
+  margin: 0 0 1em;
+}
+
+.agend-member-jobs__status {
+  margin: 0 0 1em;
+  padding: 0.75em 1em;
+  border-left: 4px solid var(--agend-mj-accent);
+  background: rgba(38, 48, 77, 0.04);
+}
+
+.agend-member-jobs__status:focus {
+  outline: 2px solid var(--agend-mj-accent);
+  outline-offset: 2px;
+}
+
+.agend-member-jobs__status--error {
+  border-left-color: #b42318;
+  color: #8a1c12;
+}
+
+.agend-member-jobs__credits {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75em 1.5em;
+  margin: 0 0 1.5em;
+  padding: 1em;
+  border: 1px solid var(--agend-mj-border);
+  border-radius: 8px;
+}
+
+.agend-member-jobs__credits p {
+  margin: 0;
+}
+
+.agend-member-jobs__credits-none {
+  flex-basis: 100%;
+  order: 2;
+}
+
+.agend-member-jobs__toolbar,
+.agend-member-jobs__footer,
+.agend-member-jobs__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em 1em;
+}
+
+.agend-member-jobs__button {
+  display: inline-block;
+  padding: 0.6em 1.25em;
+  border: 0;
+  border-radius: 6px;
+  background: var(--agend-mj-button);
+  color: var(--agend-mj-button-text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.agend-member-jobs__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.agend-member-jobs__link,
+.agend-member-jobs__more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agend-mj-heading);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.agend-member-jobs__more {
+  margin-top: 1em;
+}
+
+.agend-member-jobs__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agend-member-jobs__item {
+  margin: 0 0 0.75em;
+  padding: 1em;
+  border: 1px solid var(--agend-mj-border);
+  border-radius: 8px;
+}
+
+.agend-member-jobs__item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+}
+
+.agend-member-jobs__title {
+  margin: 0;
+  color: var(--agend-mj-heading);
+  font-size: 1.1em;
+}
+
+.agend-member-jobs__badge {
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  background: rgba(38, 48, 77, 0.08);
+  font-size: 0.85em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.agend-member-jobs__badge--published {
+  background: #e3f4e8;
+  color: #135d2e;
+}
+
+.agend-member-jobs__badge--pending {
+  background: #fff4dc;
+  color: #7a4b00;
+}
+
+.agend-member-jobs__badge--rejected {
+  background: #fde8e6;
+  color: #8a1c12;
+}
+
+.agend-member-jobs__meta,
+.agend-member-jobs__reason {
+  margin: 0.35em 0 0;
+  color: var(--agend-mj-muted);
+  font-size: 0.9em;
+}
+
+.agend-member-jobs__actions {
+  margin-top: 0.75em;
+}
+
+.agend-member-jobs__action {
+  padding: 0.35em 0.9em;
+  border: 1px solid var(--agend-mj-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agend-mj-heading);
+  font: inherit;
+  font-size: 0.9em;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.agend-member-jobs__action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.agend-member-jobs__confirm {
+  font-weight: 600;
+}
+
+.agend-member-jobs__section {
+  margin: 0 0 1.5em;
+  padding: 0;
+  border: 0;
+}
+
+/* Themes size and colour a bare legend; these must win. */
+.agend-member-jobs legend.agend-member-jobs__legend {
+  margin: 0 0 0.5em;
+  padding: 0;
+  border: 0;
+  color: var(--agend-mj-heading);
+  font-size: 1.25em;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.agend-member-jobs legend.agend-member-jobs__label {
+  border: 0;
+  color: inherit;
+  font-size: 1em;
+  line-height: 1.5;
+}
+
+.agend-member-jobs__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12em, 1fr));
+  gap: 0 1em;
+}
+
+.agend-member-jobs__field {
+  margin: 0 0 1em;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.agend-member-jobs__label {
+  display: block;
+  margin: 0 0 0.3em;
+  padding: 0;
+  font-weight: 600;
+}
+
+.agend-member-jobs__required {
+  color: #b42318;
+}
+
+.agend-member-jobs__hint {
+  margin: 0 0 0.3em;
+  color: var(--agend-mj-muted);
+  font-size: 0.875em;
+}
+
+.agend-member-jobs__input {
+  display: block;
+  width: 100%;
+  padding: 0.55em 0.7em;
+  border: 1px solid var(--agend-mj-border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: inherit;
+  font: inherit;
+}
+
+.agend-member-jobs__input:focus {
+  outline: 2px solid var(--agend-mj-accent);
+  outline-offset: 1px;
+}
+
+.agend-member-jobs__input[aria-invalid='true'] {
+  border-color: #b42318;
+}
+
+.agend-member-jobs__check {
+  display: block;
+  margin: 0.25em 0;
+}
+
+.agend-member-jobs__error {
+  margin: 0.3em 0 0;
+  color: #b42318;
+  font-size: 0.875em;
+}
+
+.agend-member-jobs__note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--agend-mj-muted);
+  font-size: 0.9em;
+}
+
+.agend-member-jobs--signed-out p {
+  margin: 0 0 1em;
+}
