@@ -198,10 +198,51 @@ final class MemberLoginRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_leave_the_failure_to_wp_login_when_any_error_code_is_one_the_form_cannot_explain(): void {
+		$error = new \WP_Error( 'incorrect_password' );
+		$error->add( 'jetpack_login_blocked', 'Locked out' );
+
+		self::assertSame( '', agend_apps_wp_login_inline_failure_redirect( $error, array( 'agend_ml_return' => 'https://example.test/sign-in/' ) ) );
+	}
+
+	#[Test]
+	public function should_escape_the_site_name_in_the_wp_login_header_text(): void {
+		$GLOBALS['agend_test_blogname'] = '&lt;img src=x onerror=alert(1)&gt;';
+		agend_apps_wp_login_inline_register();
+
+		$text = apply_filters( 'login_headertext', 'WordPress' );
+
+		self::assertStringNotContainsString( '<img', $text );
+		self::assertStringContainsString( '&lt;img', $text );
+	}
+
+	#[Test]
+	public function should_run_the_failure_redirect_after_other_login_failed_callbacks(): void {
+		agend_apps_wp_login_inline_register();
+
+		$index = array_search( 'agend_apps_wp_login_inline_on_failure', \Agend_Test_WP::$actions['wp_login_failed'], true );
+
+		self::assertSame( PHP_INT_MAX, \Agend_Test_WP::$action_priorities['wp_login_failed'][ $index ] );
+	}
+
+	#[Test]
 	public function should_leave_the_failure_to_wp_login_when_it_did_not_come_from_the_inline_form_or_needs_its_screen(): void {
 		self::assertSame( '', agend_apps_wp_login_inline_failure_redirect( new \WP_Error( 'incorrect_password' ), array() ) );
 		self::assertSame( '', agend_apps_wp_login_inline_failure_redirect( new \WP_Error( 'agend_apps_mfa_required' ), array( 'agend_ml_return' => 'https://example.test/sign-in/' ) ) );
 		self::assertSame( '', agend_apps_wp_login_inline_failure_redirect( new \WP_Error( 'incorrect_password' ), array( 'agend_ml_return' => 'https://evil.test/' ) ) );
+	}
+
+	#[Test]
+	public function should_render_the_form_through_the_elementor_widget_in_wordpress_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$widget = new Agend_Elementor_Member_Login( array(), null, self::CUSTOM );
+
+		ob_start();
+		( function () {
+			$this->render();
+		} )->call( $widget );
+
+		self::assertStringContainsString( 'name="pwd"', (string) ob_get_clean() );
 	}
 
 	#[Test]

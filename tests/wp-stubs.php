@@ -1005,8 +1005,8 @@ function home_url( $path = '' ): string {
 }
 
 if ( ! function_exists( 'site_url' ) ) {
-	function site_url( $path = '' ): string {
-		return 'https://example.test' . $path;
+	function site_url( $path = '', $scheme = null ): string {
+		return 'https://example.test' . ( '' !== $path && '/' !== $path[0] ? '/' : '' ) . $path;
 	}
 }
 
@@ -1251,8 +1251,15 @@ if ( ! class_exists( 'WP_Error' ) ) {
 			return $this->code;
 		}
 
+		/** @var string[] */
+		private array $extra_codes = array();
+
+		public function add( string $code, string $message = '', $data = '' ): void {
+			$this->extra_codes[] = $code;
+		}
+
 		public function get_error_codes(): array {
-			return '' === $this->code ? array() : array( $this->code );
+			return array_merge( '' === $this->code ? array() : array( $this->code ), $this->extra_codes );
 		}
 
 		public function get_error_message(): string {

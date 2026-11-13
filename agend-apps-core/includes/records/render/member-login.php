@@ -237,7 +237,7 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 		$intro = trim( (string) ( $settings['intro_text'] ?? '' ) );
 		// The schema default names an Agend account, which a `wordpress`-mode
 		// member has not heard of: treat it, like an empty value, as unset.
-		if ( '' === $intro || __( 'Sign in with your Agend member account.', 'agend-apps-core' ) === $intro ) {
+		if ( '' === $intro || in_array( $intro, array( 'Sign in with your Agend member account.', __( 'Sign in with your Agend member account.', 'agend-apps-core' ) ), true ) ) {
 			$intro = sprintf(
 				/* translators: %s: the site name. */
 				__( 'Sign in with your %s email and password.', 'agend-apps-core' ),
@@ -257,6 +257,12 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 		// phpcs:enable
 		$error = agend_apps_wp_login_inline_failure_message( $flag );
 
+		// The markup carries request-dependent values (the error and the
+		// return destinations), so a page cache must not serve it to others.
+		if ( ( '' !== $requested || '' !== $flag ) && ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+
 		$page_url    = remove_query_arg( AGEND_APPS_WP_LOGIN_FAILURE_ARG, $current_url );
 		$redirect_to = '' !== $requested ? $requested : $page_url;
 
@@ -273,7 +279,7 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 				<?php if ( '' !== $error ) : ?>
 					<p class="agend-ml-form__error" role="alert" data-agend-ml-error><?php echo esc_html( $error ); ?></p>
 				<?php endif; ?>
-				<form class="agend-ml-form" method="post" action="<?php echo esc_url( wp_login_url() ); ?>">
+				<form class="agend-ml-form" method="post" action="<?php echo esc_url( site_url( 'wp-login.php', 'login_post' ) ); ?>">
 					<label class="agend-ml-form__label" for="<?php echo esc_attr( $id ); ?>-log">
 						<?php esc_html_e( 'Email address', 'agend-apps-core' ); ?>
 						<input class="agend-ml-form__input" type="text" name="log" id="<?php echo esc_attr( $id ); ?>-log" autocomplete="username" autocapitalize="none" required>
