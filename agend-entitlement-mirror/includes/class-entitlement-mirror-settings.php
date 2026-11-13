@@ -153,4 +153,35 @@ class Agend_Entitlement_Mirror_Settings {
 
 		return $value > 0 ? $value : self::ENTITLEMENT_MIRROR_DEFAULT_LOGIN_THROTTLE;
 	}
+
+	/**
+	 * Whether Upbeat entitlements are used as member job posting credits.
+	 * Independent of the mirror itself: a site can use job credits with
+	 * mirroring switched off.
+	 *
+	 * @return bool
+	 */
+	public static function is_job_credits_enabled(): bool {
+		return '1' === (string) get_option( 'agend_entitlement_mirror_job_credits_enabled', '0' );
+	}
+
+	/**
+	 * The Upbeat entitlement type whose records are job posting credits, one
+	 * record per credit.
+	 *
+	 * @return string
+	 */
+	public static function get_job_credits_type(): string {
+		return trim( (string) get_option( 'agend_entitlement_mirror_job_credits_type', '' ) );
+	}
+
+	/**
+	 * Optional Upbeat entitlement category the job credit type must also be
+	 * in, for sites where a type name is reused across categories.
+	 *
+	 * @return string
+	 */
+	public static function get_job_credits_category(): string {
+		return trim( (string) get_option( 'agend_entitlement_mirror_job_credits_category', '' ) );
+	}
 }

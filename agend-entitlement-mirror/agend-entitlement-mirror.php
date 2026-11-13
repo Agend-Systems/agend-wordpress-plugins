@@ -7,7 +7,7 @@
  * Author:          Iugo Pty Ltd
  * Author URI:      https://www.iugo.com.au
  * Text Domain:     agend-entitlement-mirror
- * Version:         0.2.1
+ * Version:         0.3.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Tested up to:      7.1
@@ -69,6 +69,11 @@ function agend_entitlement_mirror_bootstrap() {
 
 	Agend_Entitlement_Mirror_Admin_Page::setup_hooks();
 
+	// Upbeat entitlements as member job posting credits. Registered lazily:
+	// the provider implements agend-apps-core's interface, so its file is only
+	// loaded when core is active and the filter is actually asked.
+	add_filter( 'agend_apps_jobs_credit_provider', 'agend_entitlement_mirror_job_credit_provider' );
+
 	// Subscribes to the kiosk's existing webhook actions and wp_login. No-ops
 	// silently when the module is disabled (the enable option is read here,
 	// once, at boot time) -- turning the option on within the same request
@@ -84,3 +89,25 @@ function agend_entitlement_mirror_bootstrap() {
 	}
 }
 add_action( 'plugins_loaded', 'agend_entitlement_mirror_bootstrap' );
+
+/**
+ * Supplies the Upbeat job credit provider to agend-apps-core when Job credits
+ * are switched on.
+ *
+ * @param mixed $provider Provider from an earlier filter, or null.
+ * @return mixed
+ */
+function agend_entitlement_mirror_job_credit_provider( $provider ) {
+	if ( null !== $provider || ! interface_exists( 'Agend_Apps_Jobs_Credit_Provider' ) || ! Agend_Entitlement_Mirror_Settings::is_job_credits_enabled() ) {
+		return $provider;
+	}
+
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-kiosk-credit-store.php';
+	require_once AGEND_ENTITLEMENT_MIRROR_DIR . '/includes/class-upbeat-job-credits.php';
+
+	return new Agend_Entitlement_Mirror_Upbeat_Job_Credits(
+		new Agend_Entitlement_Mirror_Kiosk_Credit_Store(),
+		Agend_Entitlement_Mirror_Settings::get_job_credits_type(),
+		Agend_Entitlement_Mirror_Settings::get_job_credits_category()
+	);
+}

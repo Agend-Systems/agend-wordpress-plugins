@@ -50,6 +50,51 @@ register the webhook/login listeners (a known caveat carried over unchanged
 from the original module): flipping it on takes effect from the next request
 onward, not retroactively within the same request.
 
+## Job credits
+
+Lets members pay for job postings with credits held in Upbeat, through
+agend-apps-core's job credit provider contract
+(`agend_apps_jobs_credit_provider`). Independent of the mirror: it works with
+**Enable Entitlement Mirror** off.
+
+Tools > Agend Entitlement Mirror > Job Credits:
+
+- **Enable Job Credits**: off by default.
+- **Credit Entitlement Type**: the Upbeat entitlement type whose records are
+  credits. Job credits stay off until it is set.
+- **Credit Entitlement Category**: optional, for a type name reused across
+  categories.
+
+One Upbeat entitlement record is one credit, so a five credit pack is five
+records. A record's `downloadCount` marks it used (1) or unused (0), the same
+convention as the kiosk's support ticket credits, so Upbeat stays the record of
+how many credits a member has and when each expires. Records inherited from the
+member's account count, as they do everywhere else in the kiosk.
+
+- Credits are spent soonest to expire first.
+- Reads go straight to Upbeat, uncached: the member, their account (when the
+  kiosk inherits account entitlements) and the entitlements endpoint for each
+  id. The kiosk's own reads turn a failed request into an empty list and cache
+  it, which would show a CRM outage as "no credits left", and cache member
+  details for a day, which would let a member who moved firm spend the old
+  firm's credits. Any failed request, including a member whose account cannot
+  be read, fails the whole read.
+- A spend re-checks the credit is still unused first. When the CRM refuses
+  the spend, or the re-check itself fails, the error says nothing changed, so
+  core leaves its ledger alone; any other write failure is treated as "may
+  have been applied" and core gives the credit back.
+- Giving back an expired credit is reported as gone, so core stops trying.
+- A write sends only the record's unique id and `downloadCount`, then clears
+  the member's and their accounts' kiosk entitlement caches.
+- Like the kiosk, the store does not follow the endpoint's further pages, so
+  an account with more records than one page returns shows only the first.
+- If staff set a used credit back to unused in Upbeat, the member can spend it
+  again.
+
+agend-apps-core decides when a credit is spent and given back, keeps the
+per-credit ledger and locks, and runs a 15 minute sweep that finishes or
+retries anything left part way; see its `includes/jobs-credits.php`.
+
 ## Triggers
 
 - The kiosk's `agend_webhook_entitlement_created` / `_updated` /

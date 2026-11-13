@@ -559,9 +559,14 @@ if ( ! class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) ) {
 		private ?string $quantity_allowed;
 		private ?string $quantity_remaining;
 
+		/** Unique id, download count and currency, for the job credit store. */
+		private string $unique_id      = '';
+		private ?string $download_count = null;
+		private bool $current           = true;
+
 		public function __construct(
-			string $category,
-			string $type,
+			string $category = '',
+			string $type = '',
 			string $display_name = '',
 			?DateTime $start_date = null,
 			?DateTime $end_date = null,
@@ -603,6 +608,33 @@ if ( ! class_exists( 'Iugo_Membership_Kiosk_API_Entitlement' ) ) {
 
 		public function get_quantity_remaining(): ?string {
 			return $this->quantity_remaining;
+		}
+
+		public function get_unique_id() {
+			return $this->unique_id;
+		}
+
+		public function set_unique_id( $unique_id ) {
+			$this->unique_id = (string) $unique_id;
+			return $this;
+		}
+
+		public function get_download_count() {
+			return $this->download_count;
+		}
+
+		public function set_download_count( $download_count ) {
+			$this->download_count = null === $download_count ? null : (string) $download_count;
+			return $this;
+		}
+
+		public function is_current() {
+			return $this->current;
+		}
+
+		public function set_current( bool $current ) {
+			$this->current = $current;
+			return $this;
 		}
 	}
 }
