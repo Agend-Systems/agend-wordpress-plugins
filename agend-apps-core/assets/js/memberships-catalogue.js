@@ -843,16 +843,26 @@
           return;
         }
 
-        var tier = tiers.filter(function (t) { return t.id === current.tier_id; })[0];
+        var listed = tiers.filter(function (t) { return t.id === current.tier_id; })[0];
+        // The grid holds only publicly listed tiers, so a member on a tier
+        // the organisation hides from the catalogue needs a single-tier read
+        // for its name.
+        var tierLookup = listed
+          ? Promise.resolve(listed)
+          : apiGet('/crm/tiers/' + encodeURIComponent(current.tier_id), {})
+            .then(function (tierBody) { return unwrapOne(tierBody); })
+            .catch(function () { return null; });
 
-        apiGet('/crm/me/transactions', {}).then(function (txBody) {
-          var transactions = unwrapList(txBody).items;
-          var unpaidOrder = transactions.filter(function (tx) {
-            return tx.membership_id === current.id && tx.payment_status && tx.payment_status !== 'paid';
-          })[0];
-          renderMembershipStatusPanel(current, tier, unpaidOrder);
-        }).catch(function () {
-          renderMembershipStatusPanel(current, tier, null);
+        tierLookup.then(function (tier) {
+          apiGet('/crm/me/transactions', {}).then(function (txBody) {
+            var transactions = unwrapList(txBody).items;
+            var unpaidOrder = transactions.filter(function (tx) {
+              return tx.membership_id === current.id && tx.payment_status && tx.payment_status !== 'paid';
+            })[0];
+            renderMembershipStatusPanel(current, tier, unpaidOrder);
+          }).catch(function () {
+            renderMembershipStatusPanel(current, tier, null);
+          });
         });
       }).catch(function () {
         // Progressive enhancement only — the tier grid below still works.
