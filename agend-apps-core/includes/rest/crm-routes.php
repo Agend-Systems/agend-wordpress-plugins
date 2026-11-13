@@ -368,6 +368,14 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 			ARRAY_FILTER_USE_KEY
 		);
 
+		// This route is the anonymous website catalogue, so it only ever asks
+		// for tiers the organisation lists publicly. It is forced here, not
+		// taken from the request, so a visitor cannot ask for hidden tiers.
+		// PHP callers of agend_apps_crm_get_tiers() (content access editor,
+		// membership sync) still read every tier, because members can hold an
+		// unlisted tier.
+		$query['isPubliclyListed'] = 'true';
+
 		$result = agend_apps_crm_get_tiers( $query );
 		return $this->prepare_api_response( $result );
 	}

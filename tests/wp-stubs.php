@@ -119,6 +119,9 @@ final class Agend_Test_WP {
 	/** @var mixed Value the next agend_apps_crm_get_tiers() call returns. */
 	public static $tiers_response = array();
 
+	/** @var array<int, array> Query each agend_apps_crm_get_tiers() call received, in call order. */
+	public static array $tiers_queries = array();
+
 	/** @var array<int, array{timestamp: int, hook: string, args: array<int, mixed>}> WP-Cron events scheduled via wp_schedule_single_event(). */
 	public static array $scheduled_events = array();
 
@@ -251,6 +254,7 @@ final class Agend_Test_WP {
 		self::$auth_cookie_users = array();
 		self::$auth_cookie_remembers = array();
 		self::$tiers_response    = array();
+		self::$tiers_queries     = array();
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
 		self::$redirects         = array();
