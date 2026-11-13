@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.62.0
+ * Version:           1.64.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.62.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.64.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -400,6 +400,13 @@ function agend_apps_core_bootstrap() {
 		// this filter directly (rather than checking credential_login_enabled())
 		// also stands down in `sso` mode.
 		add_filter( 'agend_apps_wp_login_bridge_enabled', '__return_false' );
+	}
+
+	// `wordpress` mode: the member login surface's inline sign-in form posts
+	// to wp-login.php, which needs its failure return and branding hooks.
+	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
+		require_once AGEND_APPS_CORE_DIR . 'includes/wp-login-inline-form.php';
+		agend_apps_wp_login_inline_register();
 	}
 
 	// Bearer identity for outbound gateway calls (addendum E-11): mints and

@@ -85,18 +85,123 @@ final class MemberLoginRenderTest extends TestCase {
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function should_render_a_wordpress_login_prompt_when_signed_out_in_wordpress_mode(): void {
+	public function should_render_an_inline_sign_in_form_without_naming_wordpress_when_signed_out_in_wordpress_mode(): void {
 		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
 
 		$markup = agend_apps_records_render_member_login( self::CUSTOM );
 
 		self::assertStringContainsString( 'Custom &lt;Heading&gt;', $markup );
-		self::assertStringContainsString( 'Sign in with your WordPress account to continue.', $markup );
-		self::assertStringContainsString( 'wp-login.php', $markup );
+		self::assertStringContainsString( '<form class="agend-ml-form" method="post" action="https://example.test/wp-login.php"', $markup );
+		self::assertStringContainsString( 'name="log"', $markup );
+		self::assertStringContainsString( 'name="pwd"', $markup );
+		self::assertStringContainsString( 'name="rememberme"', $markup );
+		self::assertStringContainsString( 'Email address', $markup );
+		self::assertStringContainsString( 'Log me in', $markup );
+		self::assertStringContainsString( 'action=lostpassword', agend_apps_records_render_member_login( array() ) );
+		self::assertStringNotContainsStringIgnoringCase( 'wordpress', $markup );
+		self::assertStringNotContainsStringIgnoringCase( 'agend', str_replace( 'agend-', '', str_replace( 'agend_', '', $markup ) ) );
 		self::assertStringNotContainsString( 'is-signed-in', $markup );
-		// No client-side session probe in this mode: the config attribute the
-		// script keys off is deliberately absent.
 		self::assertStringNotContainsString( 'data-agend-member-login-config', $markup );
+	}
+
+	#[Test]
+	public function should_use_the_site_name_for_the_intro_when_the_intro_is_left_at_its_default_in_wordpress_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$GLOBALS['agend_test_blogname'] = 'ATEM';
+
+		$markup = agend_apps_records_render_member_login( array( 'intro_text' => 'Sign in with your Agend member account.' ) );
+
+		self::assertStringContainsString( 'Sign in with your ATEM email and password.', $markup );
+	}
+
+	#[Test]
+	public function should_render_the_custom_intro_text_when_one_is_set_in_wordpress_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+
+		$markup = agend_apps_records_render_member_login( self::CUSTOM );
+
+		self::assertStringContainsString( 'Sign in &amp; continue', $markup );
+		self::assertStringNotContainsString( 'email and password.', $markup );
+	}
+
+	#[Test]
+	public function should_hide_the_forgot_link_when_its_label_is_empty_in_wordpress_mode(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+
+		self::assertStringNotContainsString( 'lostpassword', agend_apps_records_render_member_login( self::CUSTOM ) );
+	}
+
+	#[Test]
+	public function should_return_to_the_current_page_after_sign_in_when_no_redirect_was_requested(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$_SERVER['REQUEST_URI'] = '/members/sign-in/';
+
+		$markup = agend_apps_records_render_member_login( self::CUSTOM );
+
+		self::assertStringContainsString( 'name="redirect_to" value="https://example.test/members/sign-in/"', $markup );
+	}
+
+	#[Test]
+	public function should_preserve_a_local_redirect_to_the_page_was_reached_with(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$_SERVER['REQUEST_URI'] = '/members/sign-in/?redirect_to=https%3A%2F%2Fexample.test%2Fsaml%2Fcontinue%3Fa%3D1';
+		$_GET['redirect_to']    = 'https://example.test/saml/continue?a=1';
+
+		$markup = agend_apps_records_render_member_login( self::CUSTOM );
+
+		self::assertStringContainsString( 'name="redirect_to" value="https://example.test/saml/continue?a=1"', $markup );
+	}
+
+	#[Test]
+	public function should_ignore_a_redirect_to_that_leaves_the_site(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$_SERVER['REQUEST_URI'] = '/sign-in/';
+		$_GET['redirect_to']    = 'https://evil.test/phish';
+
+		$markup = agend_apps_records_render_member_login( self::CUSTOM );
+
+		self::assertStringNotContainsString( 'evil.test', $markup );
+		self::assertStringContainsString( 'name="redirect_to" value="https://example.test/sign-in/"', $markup );
+	}
+
+	#[Test]
+	public function should_show_an_inline_error_when_the_page_is_reached_after_a_failed_sign_in(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$_GET['agend_login'] = 'failed';
+
+		$markup = agend_apps_records_render_member_login( self::CUSTOM );
+
+		self::assertStringContainsString( 'role="alert"', $markup );
+		self::assertStringContainsString( 'The email or password you entered is incorrect.', $markup );
+	}
+
+	#[Test]
+	public function should_show_no_error_for_an_unknown_failure_flag(): void {
+		update_option( 'agend_apps_member_auth_mode', 'wordpress' );
+		$_GET['agend_login'] = '<script>';
+
+		self::assertStringNotContainsString( 'role="alert"', agend_apps_records_render_member_login( self::CUSTOM ) );
+	}
+
+	#[Test]
+	public function should_return_to_the_form_page_with_a_flag_when_an_inline_sign_in_fails(): void {
+		$post = array( 'agend_ml_return' => 'https://example.test/sign-in/?x=1&agend_login=failed' );
+
+		self::assertSame(
+			'https://example.test/sign-in/?x=1&agend_login=failed',
+			agend_apps_wp_login_inline_failure_redirect( new \WP_Error( 'incorrect_password' ), $post )
+		);
+		self::assertSame(
+			'https://example.test/sign-in/?agend_login=verify',
+			agend_apps_wp_login_inline_failure_redirect( new \WP_Error( 'agend_apps_verification_required' ), array( 'agend_ml_return' => 'https://example.test/sign-in/' ) )
+		);
+	}
+
+	#[Test]
+	public function should_leave_the_failure_to_wp_login_when_it_did_not_come_from_the_inline_form_or_needs_its_screen(): void {
+		self::assertSame( '', agend_apps_wp_login_inline_failure_redirect( new \WP_Error( 'incorrect_password' ), array() ) );
+		self::assertSame( '', agend_apps_wp_login_inline_failure_redirect( new \WP_Error( 'agend_apps_mfa_required' ), array( 'agend_ml_return' => 'https://example.test/sign-in/' ) ) );
+		self::assertSame( '', agend_apps_wp_login_inline_failure_redirect( new \WP_Error( 'incorrect_password' ), array( 'agend_ml_return' => 'https://evil.test/' ) ) );
 	}
 
 	#[Test]
@@ -110,7 +215,7 @@ final class MemberLoginRenderTest extends TestCase {
 		self::assertStringContainsString( 'You are in', $markup );
 		self::assertStringContainsString( 'Log out', $markup );
 		self::assertStringContainsString( 'wp-login.php?action=logout', $markup );
-		self::assertStringNotContainsString( 'Sign in with your WordPress account', $markup );
+		self::assertStringNotContainsString( '<form', $markup );
 		self::assertStringNotContainsString( 'data-agend-member-login-config', $markup );
 	}
 
@@ -127,6 +232,8 @@ final class MemberLoginRenderTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		unset( $_GET['redirect_to'], $_GET['agend_login'], $GLOBALS['agend_test_blogname'] );
+		$_SERVER['REQUEST_URI'] = '';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/palette.php';
 		require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/render/member-login.php';
 		require_once AGEND_TESTS_ROOT . '/agend-elementor/includes/widgets/class-agend-elementor-member-login.php';

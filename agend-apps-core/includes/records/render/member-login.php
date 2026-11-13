@@ -16,6 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Every renderer asks the surface gate before it fetches or draws anything;
 // callers that load one renderer on its own (the unit tests) need it present.
 require_once __DIR__ . '/../surface-gate.php';
+require_once __DIR__ . '/../../wp-login-inline-form.php';
 
 /**
  * Colour role defaults the member login surface exposes: the same four roles
@@ -175,10 +176,12 @@ function agend_apps_records_render_member_login( array $settings ): string {
  * still loads because a `credentials`-mode surface elsewhere on the site
  * needs it -- leaves this instance alone.
  *
- * Signed out: a prompt linking to `wp_login_url()`, carrying the current URL
- * as the redirect so the member lands back here once signed in. WordPress
- * owns the credential in this mode, so the copy never implies a separate
- * Agend password.
+ * Signed out: an inline email and password form posting to `wp_login_url()`,
+ * so WordPress's own handler (authenticate filters, SAML IdP continuation,
+ * rate limiting) still runs. The member lands back on this page, or on a
+ * validated `redirect_to` the page was reached with, once signed in; a failed
+ * attempt returns here with a message (see wp-login-inline-form.php). The copy
+ * never names WordPress or Agend.
  *
  * Signed in: the same "signed in" card `credentials` mode renders -- same
  * CSS classes, same `signed_in_message` / `portal_button_label` /
@@ -231,18 +234,65 @@ function agend_apps_records_render_member_login_wordpress( array $settings, stri
 		</div>
 		<?php
 	} else {
+		$intro = trim( (string) ( $settings['intro_text'] ?? '' ) );
+		// The schema default names an Agend account, which a `wordpress`-mode
+		// member has not heard of: treat it, like an empty value, as unset.
+		if ( '' === $intro || __( 'Sign in with your Agend member account.', 'agend-apps-core' ) === $intro ) {
+			$intro = sprintf(
+				/* translators: %s: the site name. */
+				__( 'Sign in with your %s email and password.', 'agend-apps-core' ),
+				wp_specialchars_decode( (string) get_bloginfo( 'name' ), ENT_QUOTES )
+			);
+		}
+
+		$submit_label = trim( (string) ( $settings['submit_label'] ?? '' ) );
+		if ( '' === $submit_label ) {
+			$submit_label = __( 'Sign in', 'agend-apps-core' );
+		}
+		$forgot_label = trim( (string) ( $settings['forgot_label'] ?? __( 'Forgot your password?', 'agend-apps-core' ) ) );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- read-only display state; the login form carries no nonce.
+		$requested = isset( $_GET['redirect_to'] ) ? wp_validate_redirect( esc_url_raw( wp_unslash( (string) $_GET['redirect_to'] ) ), '' ) : '';
+		$flag      = isset( $_GET[ AGEND_APPS_WP_LOGIN_FAILURE_ARG ] ) ? sanitize_text_field( wp_unslash( (string) $_GET[ AGEND_APPS_WP_LOGIN_FAILURE_ARG ] ) ) : '';
+		// phpcs:enable
+		$error = agend_apps_wp_login_inline_failure_message( $flag );
+
+		$page_url    = remove_query_arg( AGEND_APPS_WP_LOGIN_FAILURE_ARG, $current_url );
+		$redirect_to = '' !== $requested ? $requested : $page_url;
+
+		static $instance = 0;
+		++$instance;
+		$id = 'agend-ml-wp-' . $instance;
 		?>
 		<div class="agend-member-login" style="<?php echo esc_attr( $style ); ?>">
 			<div class="agend-ml-card">
 				<?php if ( '' !== $heading ) : ?>
 					<h3 class="agend-ml-card__heading"><?php echo esc_html( $heading ); ?></h3>
 				<?php endif; ?>
-				<p class="agend-ml-card__text">
-					<?php esc_html_e( 'Sign in with your WordPress account to continue.', 'agend-apps-core' ); ?>
-				</p>
-				<a class="agend-ml-card__button" href="<?php echo esc_url( wp_login_url( $current_url ) ); ?>">
-					<?php esc_html_e( 'Sign in', 'agend-apps-core' ); ?>
-				</a>
+				<p class="agend-ml-card__text"><?php echo esc_html( $intro ); ?></p>
+				<?php if ( '' !== $error ) : ?>
+					<p class="agend-ml-form__error" role="alert" data-agend-ml-error><?php echo esc_html( $error ); ?></p>
+				<?php endif; ?>
+				<form class="agend-ml-form" method="post" action="<?php echo esc_url( wp_login_url() ); ?>">
+					<label class="agend-ml-form__label" for="<?php echo esc_attr( $id ); ?>-log">
+						<?php esc_html_e( 'Email address', 'agend-apps-core' ); ?>
+						<input class="agend-ml-form__input" type="text" name="log" id="<?php echo esc_attr( $id ); ?>-log" autocomplete="username" autocapitalize="none" required>
+					</label>
+					<label class="agend-ml-form__label" for="<?php echo esc_attr( $id ); ?>-pwd">
+						<?php esc_html_e( 'Password', 'agend-apps-core' ); ?>
+						<input class="agend-ml-form__input" type="password" name="pwd" id="<?php echo esc_attr( $id ); ?>-pwd" autocomplete="current-password" required>
+					</label>
+					<label class="agend-ml-form__remember">
+						<input type="checkbox" name="rememberme" value="forever">
+						<?php esc_html_e( 'Remember me', 'agend-apps-core' ); ?>
+					</label>
+					<input type="hidden" name="redirect_to" value="<?php echo esc_attr( $redirect_to ); ?>">
+					<input type="hidden" name="<?php echo esc_attr( AGEND_APPS_WP_LOGIN_RETURN_FIELD ); ?>" value="<?php echo esc_attr( $page_url ); ?>">
+					<button class="agend-ml-card__button" type="submit" name="wp-submit"><?php echo esc_html( $submit_label ); ?></button>
+				</form>
+				<?php if ( '' !== $forgot_label ) : ?>
+					<a class="agend-ml-card__link" href="<?php echo esc_url( wp_lostpassword_url() ); ?>"><?php echo esc_html( $forgot_label ); ?></a>
+				<?php endif; ?>
 			</div>
 		</div>
 		<?php

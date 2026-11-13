@@ -20,7 +20,8 @@
                     "args": {
                         "label": "Intro text",
                         "type": "textarea",
-                        "default": "Sign in with your Agend member account."
+                        "default": "Sign in with your Agend member account.",
+                        "description": "When members sign in with their site (WordPress) account, leaving this at the default shows \"Sign in with your [site name] email and password.\" instead."
                     }
                 },
                 {

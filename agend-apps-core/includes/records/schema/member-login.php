@@ -35,6 +35,7 @@ function agend_apps_records_schema_member_login(): array {
 						'label'   => __( 'Intro text', 'agend-apps-core' ),
 						'type'    => 'textarea',
 						'default' => __( 'Sign in with your Agend member account.', 'agend-apps-core' ),
+						'description' => __( 'When members sign in with their site (WordPress) account, leaving this at the default shows "Sign in with your [site name] email and password." instead.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'submit_label',
