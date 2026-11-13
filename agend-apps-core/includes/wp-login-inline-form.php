@@ -8,7 +8,9 @@
  * apply. wp-login.php answers a failed attempt by rendering its own screen
  * rather than redirecting back, so this file hooks `wp_login_failed` to send
  * the member back to the page they signed in from, with a flag the surface
- * turns into an inline message. Failures that need wp-login.php's own UI
+ * turns into an inline message. Empty-field failures never fire
+ * `wp_login_failed`, so they (like crafted submissions) show wp-login.php's own
+ * message; the form's `required` attributes cover ordinary use. Failures that need wp-login.php's own UI
  * (an MFA step, a lockout) are left to it.
  *
  * It also gives the wp-login.php screens the member can still reach (lost
@@ -47,8 +49,6 @@ function agend_apps_wp_login_inline_failure_flags(): array {
 		'invalid_username'                 => 'failed',
 		'invalid_email'                    => 'failed',
 		'incorrect_password'               => 'failed',
-		'empty_username'                   => 'failed',
-		'empty_password'                   => 'failed',
 		'agend_apps_invalid_credentials'   => 'failed',
 		'agend_apps_verification_required' => 'verify',
 	);
@@ -151,7 +151,9 @@ function agend_apps_wp_login_inline_print_branding(): void {
  * Registers the `wordpress`-mode hooks.
  */
 function agend_apps_wp_login_inline_register(): void {
-	add_action( 'wp_login_failed', 'agend_apps_wp_login_inline_on_failure', 10, 2 );
+	// Last, so every other `wp_login_failed` callback (lockouts, audit logs)
+	// has run before the redirect ends the request.
+	add_action( 'wp_login_failed', 'agend_apps_wp_login_inline_on_failure', PHP_INT_MAX, 2 );
 	add_action( 'login_enqueue_scripts', 'agend_apps_wp_login_inline_print_branding' );
 	add_filter(
 		'login_headerurl',
@@ -162,7 +164,8 @@ function agend_apps_wp_login_inline_register(): void {
 	add_filter(
 		'login_headertext',
 		static function () {
-			return wp_specialchars_decode( (string) get_bloginfo( 'name' ), ENT_QUOTES );
+			// wp-login.php prints this value unescaped.
+			return esc_html( wp_specialchars_decode( (string) get_bloginfo( 'name' ), ENT_QUOTES ) );
 		}
 	);
 }
