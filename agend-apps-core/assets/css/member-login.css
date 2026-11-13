@@ -131,3 +131,12 @@
   color: #1a7f37;
   font-size: 0.9375rem;
 }
+
+/* `wordpress` sign-in mode: inline form posting to wp-login.php. */
+.agend-ml-form__remember {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--agend-ml-body);
+  font-size: 0.875rem;
+}
