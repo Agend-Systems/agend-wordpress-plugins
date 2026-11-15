@@ -580,9 +580,12 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 						return true;
 					}
 
+					// A submitted entry whose job was never recorded (staff kept
+					// it, or it is still unknown) belongs to the job this
+					// credit_ref names: the reservation id is unique to one spend.
 					$ok = '' === $job_id
 						? self::STATE_RESERVED === $entry['state']
-						: ( self::STATE_RESERVED === $entry['state'] || ( self::STATE_SUBMITTED === $entry['state'] && $job_id === $entry['job_id'] ) );
+						: ( self::STATE_RESERVED === $entry['state'] || ( self::STATE_SUBMITTED === $entry['state'] && in_array( $entry['job_id'], array( $job_id, '', self::STAFF_JOB_ID ), true ) ) );
 
 					if ( ! $ok ) {
 						return new WP_Error( 'agend_jobs_credits_stale', 'The credit is not tied to this job, so it was left as it is.', array( 'status' => 409 ) );

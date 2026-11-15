@@ -818,6 +818,28 @@ final class JobsCreditsTest extends TestCase {
 	}
 
 	#[Test]
+	public function withdrawing_the_job_of_a_credit_staff_kept_gives_it_back(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		Agend_Apps_Jobs_Credits::resolve( 'cr-1', 'keep' );
+
+		Agend_Apps_Jobs_Credits::handle_webhook( 'jobs.submission.withdrawn', $this->event( 'job-1', $credit_ref ) );
+
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RELEASED, $this->state( 'cr-1' ) );
+		$this->assertFalse( $this->provider->used['cr-1'] );
+	}
+
+	#[Test]
+	public function a_release_for_another_job_still_leaves_a_recorded_job_alone(): void {
+		$this->provider->give( 'cr-1', 7 );
+		$credit_ref = Agend_Apps_Jobs_Credits::reserve( 7 );
+		Agend_Apps_Jobs_Credits::attach( 7, $credit_ref, 'job-1' );
+
+		$this->assertSame( 'agend_jobs_credits_stale', Agend_Apps_Jobs_Credits::release( $credit_ref, 'job-2' )->get_error_code() );
+		$this->assertTrue( $this->provider->used['cr-1'] );
+	}
+
+	#[Test]
 	public function an_approval_after_the_credit_was_given_back_is_logged_and_spends_nothing(): void {
 		$logged = array();
 		add_action(
