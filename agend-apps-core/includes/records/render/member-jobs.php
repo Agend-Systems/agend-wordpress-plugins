@@ -252,6 +252,7 @@ function agend_apps_records_member_jobs_messages(): array {
 			'submitNote'   => __( 'Submitting uses one job credit. If the job is not approved, or you withdraw it before then, the credit is returned.', 'agend-apps-core' ),
 			/* translators: %d: number of job credits the member has. */
 			'submitNoteCount' => __( 'Uses 1 of your %d job credits. It is returned if the job is not approved, or if you withdraw it before then.', 'agend-apps-core' ),
+			'submitNoteLast' => __( 'Uses your last job credit. It is returned if the job is not approved, or if you withdraw it before then.', 'agend-apps-core' ),
 			'back'         => __( '← Back to my jobs', 'agend-apps-core' ),
 			'save'         => __( 'Save changes', 'agend-apps-core' ),
 			'cancel'       => __( 'Cancel', 'agend-apps-core' ),

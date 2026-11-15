@@ -338,7 +338,7 @@
       } else {
         line.appendChild(el('strong', '', format(count === 1 ? m.creditsOne : m.creditsMany, count)));
         if (self.credits.next_expiry) {
-          line.appendChild(document.createTextNode(' · ' + format(m.creditsExpiry, formatDate(self.credits.next_expiry))));
+          line.appendChild(document.createTextNode(' ' + format(m.creditsExpiry, formatDate(self.credits.next_expiry))));
         }
       }
       bar.appendChild(line);
@@ -825,7 +825,7 @@
     var footer = el('div', 'agend-member-jobs__footer');
     if (!editing) {
       var count = self.creditCount();
-      footer.appendChild(el('p', 'agend-member-jobs__note', count ? format(f.submitNoteCount, count) : f.submitNote));
+      footer.appendChild(el('p', 'agend-member-jobs__note', count === 1 ? f.submitNoteLast : count ? format(f.submitNoteCount, count) : f.submitNote));
     }
     var submit = el('button', 'agend-member-jobs__button', editing ? f.save : f.submit);
     submit.type = 'submit';
