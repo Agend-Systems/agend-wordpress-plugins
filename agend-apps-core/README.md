@@ -1128,6 +1128,23 @@ Elementor) shows the member's credits, their submissions with status, and the
   chooses which other fields are required or hidden (enforced by the form, the
   gateway re-checks its own rules) and adds "tag questions", each a dropdown or
   tick boxes over some of the board's tags, for example a salary band.
+- **Identity**: with the default key, each call carries the member's own
+  bearer. When the key also holds `jobs.submissions.on_behalf`, the site acts
+  for the member instead: no bearer, the member's CRM external id (membership
+  number) in `X-Agend-Contact-External-Id`, and on a new job a `submitter`
+  (email and name) so the gateway can create their contact. The member never
+  signs in to Agend or leaves the site. `agend_apps_jobs_me_args()` adds this to
+  every `/v1/jobs/me` call, the sweep's lookup included.
+- **My Account > Jobs** (`includes/my-account-jobs.php`, WooCommerce only):
+  a "Jobs" item after Orders at `/my-account/jobs/`. It shows the template
+  chosen in Agend Widgets settings ("My Account Jobs template"), or the Member
+  Jobs surface on its own. Lay the template out with Content Personalisation
+  rules such as Entitlement Mirror's "Has an unused job credit".
+- **Buying credits**: "Job credit products" in Agend Widgets settings picks up
+  to three WooCommerce products (the CRM credit products, imported by the
+  products extension). Each becomes a Buy button in the widget, linking to
+  `?agend_jobs_buy=<id>`, which puts the product in the cart once and opens
+  checkout. Only a configured product is accepted.
 - **Gateway setup**: the organisation's member job submissions switch on, its
   approver addresses set, and the site's API key holding
   `jobs.submissions.self_read` and `jobs.submissions.self_manage`. Without the

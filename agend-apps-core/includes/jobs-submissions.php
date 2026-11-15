@@ -51,6 +51,22 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 		const READ_SCOPE = 'jobs.submissions.self_read';
 
 		/**
+		 * The scope that lets this site act for a signed-in member, named by
+		 * their CRM external id, with no member sign-in to Agend: the member
+		 * never leaves the site.
+		 *
+		 * @var string
+		 */
+		const ON_BEHALF_SCOPE = 'jobs.submissions.on_behalf';
+
+		/**
+		 * The header naming the member in on-behalf mode.
+		 *
+		 * @var string
+		 */
+		const ON_BEHALF_HEADER = 'X-Agend-Contact-External-Id';
+
+		/**
 		 * Gateway statuses that mean the submission was refused before a job
 		 * was created, so the credit is given back. A 404 or 405 on
 		 * `POST /jobs/me` (no id in the path) can only mean the route is not
@@ -335,11 +351,79 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				return new WP_Error( 'rate_limited', __( 'Too many requests. Please wait a minute and try again.', 'agend-apps-core' ), array( 'status' => 429 ) );
 			}
 
-			if ( '' === agend_apps_get_bearer_token() ) {
+			$identified = self::on_behalf()
+				? '' !== self::external_id( $user_id )
+				: '' !== agend_apps_get_bearer_token();
+
+			if ( ! $identified ) {
 				return new WP_Error( 'not_connected', __( 'Your account is not connected to the jobs board yet. Please sign out and sign in again, or contact us.', 'agend-apps-core' ), array( 'status' => 403 ) );
 			}
 
 			return true;
+		}
+
+		/**
+		 * Whether the site acts for members by their CRM external id: the key
+		 * is known to hold {@see ON_BEHALF_SCOPE}.
+		 *
+		 * @return bool
+		 */
+		public static function on_behalf(): bool {
+			return class_exists( 'Agend_Apps_Key_Scopes' ) && Agend_Apps_Key_Scopes::known() && Agend_Apps_Key_Scopes::has( self::ON_BEHALF_SCOPE );
+		}
+
+		/**
+		 * The member's CRM external id (their membership number), or ''.
+		 *
+		 * @param int $user_id WordPress user id.
+		 * @return string
+		 */
+		public static function external_id( int $user_id ): string {
+			if ( $user_id <= 0 || ! function_exists( 'agend_apps_external_id_meta_key' ) ) {
+				return '';
+			}
+
+			return trim( (string) get_user_meta( $user_id, agend_apps_external_id_meta_key(), true ) );
+		}
+
+		/**
+		 * Request args identifying a member to the `/v1/jobs/me` routes: in
+		 * on-behalf mode their external id in a header and no bearer;
+		 * otherwise nothing, so their own bearer is attached as usual.
+		 *
+		 * @param int $user_id WordPress user id.
+		 * @return array
+		 */
+		public static function identity_args( int $user_id ): array {
+			if ( ! self::on_behalf() ) {
+				return array();
+			}
+
+			return array(
+				'unattended' => true,
+				'headers'    => array( self::ON_BEHALF_HEADER => self::external_id( $user_id ) ),
+			);
+		}
+
+		/**
+		 * Who is submitting, sent with a new job in on-behalf mode so the
+		 * gateway can create the member's CRM contact if it has none.
+		 *
+		 * @param int $user_id WordPress user id.
+		 * @return array{email: string, first_name: string, last_name: string}|null
+		 */
+		public static function submitter( int $user_id ): ?array {
+			$user = get_userdata( $user_id );
+
+			if ( ! $user || '' === (string) $user->user_email ) {
+				return null;
+			}
+
+			return array(
+				'email'      => (string) $user->user_email,
+				'first_name' => (string) get_user_meta( $user_id, 'first_name', true ),
+				'last_name'  => (string) get_user_meta( $user_id, 'last_name', true ),
+			);
 		}
 
 		/**
@@ -361,6 +445,13 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 
 			if ( is_wp_error( $credit_ref ) ) {
 				return self::credit_error( $credit_ref );
+			}
+
+			if ( self::on_behalf() ) {
+				$submitter = self::submitter( $user_id );
+				if ( null !== $submitter ) {
+					$fields['submitter'] = $submitter;
+				}
 			}
 
 			return self::settle( $user_id, $credit_ref, agend_apps_jobs_submit( $fields, $credit_ref ) );

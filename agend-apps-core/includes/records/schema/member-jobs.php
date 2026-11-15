@@ -105,7 +105,7 @@ function agend_apps_records_schema_member_jobs(): array {
 						'name'    => 'no_credits_message',
 						'label'   => __( 'No credits message', 'agend-apps-core' ),
 						'type'    => 'textarea',
-						'default' => __( 'You have no job credits left. Buy a credit to post a job.', 'agend-apps-core' ),
+						'default' => __( 'Each job you post uses one credit and runs on the board once our team approves it.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'success_message',

@@ -388,6 +388,7 @@ function agend_apps_core_bootstrap() {
 	// the routes above; every hook it registers checks
 	// class_exists( 'WooCommerce' ) itself (see agend_apps_my_account_directory_enabled()).
 	require_once AGEND_APPS_CORE_DIR . 'includes/my-account-directory.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/my-account-jobs.php';
 
 	if ( $agend_apps_credential_login_enabled ) {
 		require_once AGEND_APPS_CORE_DIR . 'includes/rest/auth-routes.php';

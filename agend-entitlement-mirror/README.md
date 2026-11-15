@@ -95,6 +95,17 @@ agend-apps-core decides when a credit is spent and given back, keeps the
 per-credit ledger and locks, and runs a 15 minute sweep that finishes or
 retries anything left part way; see its `includes/jobs-credits.php`.
 
+### Content Personalisation rule
+
+While job credits are on, Agend Content Personalisation (ESAC) offers an
+**Agend Jobs > Has an unused job credit** condition. It passes for a signed-in
+member with at least one unused, current credit that is not tied up in a
+submission (the same count the Member Jobs widget shows). Signed out, or with
+the CRM unreachable, it does not pass, so a section offering "Post a job" stays
+hidden and its inverted twin offering credits shows. The kiosk's own "Member
+Entitlement - Careers: Job Credit" rule is not a substitute: it passes for a
+used or expired credit too.
+
 ## Triggers
 
 - The kiosk's `agend_webhook_entitlement_created` / `_updated` /

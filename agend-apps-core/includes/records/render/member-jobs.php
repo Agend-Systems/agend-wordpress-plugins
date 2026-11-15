@@ -164,6 +164,7 @@ function agend_apps_records_member_jobs_build_config( array $s ): array {
 		'jobsPage'    => class_exists( 'Agend_Apps_Records_Pages' ) ? Agend_Apps_Records_Pages::page_url( 'job' ) : '',
 		'prettyLinks' => (bool) get_option( 'permalink_structure' ),
 		'buyUrl'      => 1 === preg_match( '#^https?://#i', $buy_url ) || 0 === strpos( $buy_url, '/' ) ? $buy_url : '',
+		'buy'         => function_exists( 'agend_apps_member_jobs_buy_options' ) ? agend_apps_member_jobs_buy_options() : array(),
 		'text'        => array(
 			'heading'   => $text( 'heading', $defaults['heading'] ),
 			'intro'     => $text( 'intro', $defaults['intro'] ),
@@ -205,6 +206,14 @@ function agend_apps_records_member_jobs_messages(): array {
 		'creditsExpiry'  => __( 'The next one expires on %s.', 'agend-apps-core' ),
 		'creditsUnknown' => __( 'Your job credits could not be checked just now.', 'agend-apps-core' ),
 		'none'           => __( 'You have not posted any jobs yet.', 'agend-apps-core' ),
+		'noCreditsTitle' => __( 'You have no job credits', 'agend-apps-core' ),
+		'buyNote'        => __( 'Each button takes you straight to checkout.', 'agend-apps-core' ),
+		'columns'        => array(
+			'job'       => __( 'Job', 'agend-apps-core' ),
+			'status'    => __( 'Status', 'agend-apps-core' ),
+			'submitted' => __( 'Submitted', 'agend-apps-core' ),
+			'actions'   => __( 'Actions', 'agend-apps-core' ),
+		),
 		'more'           => __( 'Show more', 'agend-apps-core' ),
 		/* translators: %s: a date. */
 		'submittedOn'    => __( 'Submitted %s', 'agend-apps-core' ),
@@ -222,6 +231,7 @@ function agend_apps_records_member_jobs_messages(): array {
 		),
 		'actions'        => array(
 			'view'            => __( 'View', 'agend-apps-core' ),
+			'again'           => __( 'Post again', 'agend-apps-core' ),
 			'edit'            => __( 'Edit', 'agend-apps-core' ),
 			'withdraw'        => __( 'Withdraw', 'agend-apps-core' ),
 			'withdrawConfirm' => __( 'Withdraw this job? Your credit will be returned.', 'agend-apps-core' ),
@@ -240,6 +250,9 @@ function agend_apps_records_member_jobs_messages(): array {
 			'editHeading'  => __( 'Edit job', 'agend-apps-core' ),
 			'submit'       => __( 'Submit for review', 'agend-apps-core' ),
 			'submitNote'   => __( 'Submitting uses one job credit. If the job is not approved, or you withdraw it before then, the credit is returned.', 'agend-apps-core' ),
+			/* translators: %d: number of job credits the member has. */
+			'submitNoteCount' => __( 'Uses 1 of your %d job credits. It is returned if the job is not approved, or if you withdraw it before then.', 'agend-apps-core' ),
+			'back'         => __( '← Back to my jobs', 'agend-apps-core' ),
 			'save'         => __( 'Save changes', 'agend-apps-core' ),
 			'cancel'       => __( 'Cancel', 'agend-apps-core' ),
 			'sending'      => __( 'Sending…', 'agend-apps-core' ),

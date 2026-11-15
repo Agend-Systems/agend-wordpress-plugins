@@ -24,6 +24,7 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-api.
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-endpoint-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/jobs.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/identity.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/jobs-credits.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/jobs-submissions.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/rest/class-agend-apps-rest-controller.php';
@@ -469,6 +470,79 @@ final class JobsMemberSubmissionsTest extends TestCase {
 			),
 			Agend_Apps_Jobs_Submissions::credits( 7 )
 		);
+	}
+
+	// ------------------------------------------------------------ on behalf --
+
+	/** The key may act for members; member 7 has membership number M100. */
+	private function act_on_behalf(): void {
+		Agend_Apps_Key_Scopes::store_from_response(
+			array( 'data' => array( 'scopes' => array( 'jobs.submissions.self_read', 'jobs.submissions.self_manage', Agend_Apps_Jobs_Submissions::ON_BEHALF_SCOPE ) ) )
+		);
+		$GLOBALS['agend_test_user_meta'][7]['imk_membership_number'] = 'M100';
+		$user             = new \WP_User( 7 );
+		$user->user_email = 'pat@example.org';
+		$GLOBALS['agend_test_users'][] = $user;
+		$GLOBALS['agend_test_user_meta'][7]['first_name'] = 'Pat';
+		$GLOBALS['agend_test_user_meta'][7]['last_name']  = 'Lee';
+	}
+
+	#[Test]
+	public function on_behalf_the_member_is_named_by_external_id_and_no_bearer_is_sent(): void {
+		$this->act_on_behalf();
+		$this->provider->used['cr-1'] = false;
+		Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
+
+		Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
+
+		$request = Agend_Test_WP::$requests[0];
+		$this->assertSame( 'M100', $request['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ] );
+		$this->assertArrayNotHasKey( 'Authorization', $request['headers'] );
+		$this->assertArrayHasKey( 'Idempotency-Key', $request['headers'] );
+		$this->assertSame(
+			array(
+				'email'      => 'pat@example.org',
+				'first_name' => 'Pat',
+				'last_name'  => 'Lee',
+			),
+			json_decode( (string) $request['body'], true )['submitter']
+		);
+	}
+
+	#[Test]
+	public function on_behalf_a_member_without_a_membership_number_spends_nothing(): void {
+		$this->act_on_behalf();
+		unset( $GLOBALS['agend_test_user_meta'][7]['imk_membership_number'] );
+		$this->provider->used['cr-1'] = false;
+
+		$this->assertSame( 'not_connected', Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() )->get_error_code() );
+		$this->assertSame( array(), $this->provider->calls );
+	}
+
+	#[Test]
+	public function on_behalf_needs_no_bearer_and_the_list_carries_the_header(): void {
+		$this->act_on_behalf();
+		add_filter(
+			'agend_apps_bearer_token',
+			static function () {
+				return '';
+			},
+			99
+		);
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array(), 'meta' => array( 'pagination' => array() ) ) );
+
+		$this->assertSame( array(), Agend_Apps_Jobs_Submissions::mine( 7 )['items'] );
+		$this->assertSame( 'M100', Agend_Test_WP::$requests[0]['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ] );
+	}
+
+	#[Test]
+	public function without_the_on_behalf_scope_the_bearer_is_used_and_no_header_is_sent(): void {
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array(), 'meta' => array( 'pagination' => array() ) ) );
+
+		Agend_Apps_Jobs_Submissions::mine( 7 );
+
+		$this->assertArrayNotHasKey( Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER, Agend_Test_WP::$requests[0]['headers'] );
+		$this->assertSame( 'Bearer member-jwt', Agend_Test_WP::$requests[0]['headers']['Authorization'] );
 	}
 
 	// --------------------------------------------------------------- routes --

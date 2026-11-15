@@ -1615,6 +1615,18 @@ if ( ! isset( $GLOBALS['agend_test_users'] ) ) {
 	$GLOBALS['agend_test_users'] = array();
 }
 
+if ( ! function_exists( 'get_userdata' ) ) {
+	/** `get_userdata()` stand-in over the `agend_test_users` registry of WP_User instances. */
+	function get_userdata( $user_id ) {
+		foreach ( (array) $GLOBALS['agend_test_users'] as $user ) {
+			if ( $user instanceof WP_User && (int) $user_id === $user->ID ) {
+				return $user;
+			}
+		}
+		return false;
+	}
+}
+
 if ( ! function_exists( 'get_users' ) ) {
 	/**
 	 * User query stub, for the one lookup the plugins make: by an exact user

@@ -269,6 +269,27 @@
     return status;
   };
 
+  MemberJobs.prototype.creditCount = function () {
+    return this.credits ? parseInt(this.credits.available, 10) || 0 : null;
+  };
+
+  /** The Buy buttons: the configured credit products, or the site's buy page. */
+  MemberJobs.prototype.buyLinks = function (className, firstClassName) {
+    var cfg = this.cfg;
+    var links = [];
+    (cfg.buy || []).forEach(function (option, index) {
+      var a = el('a', index === 0 && firstClassName ? firstClassName : className, option.label);
+      a.href = option.url;
+      links.push(a);
+    });
+    if (!links.length && cfg.buyUrl && cfg.text.buy) {
+      var a = el('a', firstClassName || className, cfg.text.buy);
+      a.href = cfg.buyUrl;
+      links.push(a);
+    }
+    return links;
+  };
+
   MemberJobs.prototype.drawList = function () {
     var self = this;
     var cfg = self.cfg;
@@ -290,26 +311,39 @@
       return;
     }
 
-    var bar = el('div', 'agend-member-jobs__credits');
-    var canPost = true;
+    var count = self.creditCount();
 
-    if (self.credits) {
-      var count = parseInt(self.credits.available, 10) || 0;
-      var line = el('p', 'agend-member-jobs__credits-text', format(count === 1 ? m.creditsOne : m.creditsMany, count));
-      if (count > 0 && self.credits.next_expiry) {
-        line.appendChild(document.createTextNode(' ' + format(m.creditsExpiry, formatDate(self.credits.next_expiry))));
+    if (count === 0) {
+      // No credits: the buy box takes the place of the credits line.
+      var empty = el('div', 'agend-member-jobs__empty-credits');
+      empty.appendChild(el('p', 'agend-member-jobs__empty-title', m.noCreditsTitle));
+      if (cfg.text.noCredits) {
+        empty.appendChild(el('p', '', cfg.text.noCredits));
+      }
+      var links = self.buyLinks('agend-member-jobs__button agend-member-jobs__button--ghost', 'agend-member-jobs__button');
+      if (links.length) {
+        var row = el('div', 'agend-member-jobs__toolbar');
+        links.forEach(function (link) {
+          row.appendChild(link);
+        });
+        empty.appendChild(row);
+        empty.appendChild(el('p', 'agend-member-jobs__note', m.buyNote));
+      }
+      root.appendChild(empty);
+    } else {
+      var bar = el('div', 'agend-member-jobs__credits');
+      var line = el('p', 'agend-member-jobs__credits-text');
+      if (count === null) {
+        line.textContent = self.creditsFailed ? m.creditsUnknown : '';
+      } else {
+        line.appendChild(el('strong', '', format(count === 1 ? m.creditsOne : m.creditsMany, count)));
+        if (self.credits.next_expiry) {
+          line.appendChild(document.createTextNode(' · ' + format(m.creditsExpiry, formatDate(self.credits.next_expiry))));
+        }
       }
       bar.appendChild(line);
-      if (count === 0) {
-        canPost = false;
-        bar.appendChild(el('p', 'agend-member-jobs__credits-none', cfg.text.noCredits));
-      }
-    } else if (self.creditsFailed) {
-      bar.appendChild(el('p', 'agend-member-jobs__credits-text', m.creditsUnknown));
-    }
 
-    var actions = el('div', 'agend-member-jobs__toolbar');
-    if (canPost) {
+      var actions = el('div', 'agend-member-jobs__toolbar');
       var post = el('button', 'agend-member-jobs__button', cfg.text.post);
       post.type = 'button';
       post.disabled = self.preview;
@@ -318,14 +352,12 @@
         self.drawForm(null);
       });
       actions.appendChild(post);
+      self.buyLinks('agend-member-jobs__link').forEach(function (link) {
+        actions.appendChild(link);
+      });
+      bar.appendChild(actions);
+      root.appendChild(bar);
     }
-    if (cfg.buyUrl && cfg.text.buy) {
-      var buy = el('a', 'agend-member-jobs__link', cfg.text.buy);
-      buy.href = cfg.buyUrl;
-      actions.appendChild(buy);
-    }
-    bar.appendChild(actions);
-    root.appendChild(bar);
 
     if (self.items === null) {
       root.appendChild(el('p', 'agend-member-jobs__notice', m.loadFailed));
@@ -337,11 +369,27 @@
       return;
     }
 
-    var list = el('ul', 'agend-member-jobs__list');
-    self.items.forEach(function (item) {
-      list.appendChild(self.drawItem(item));
+    var wrap = el('div', 'agend-member-jobs__table-wrap');
+    var table = el('table', 'agend-member-jobs__table');
+    var thead = el('thead');
+    var headRow = el('tr');
+    [m.columns.job, m.columns.status, m.columns.submitted, m.columns.actions].forEach(function (label, index) {
+      var th = el('th', '', label);
+      th.scope = 'col';
+      if (index === 3) {
+        th.className = 'agend-member-jobs__sr';
+      }
+      headRow.appendChild(th);
     });
-    root.appendChild(list);
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    var tbody = el('tbody');
+    self.items.forEach(function (item) {
+      tbody.appendChild(self.drawItem(item));
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    root.appendChild(wrap);
 
     if (self.hasMore) {
       var more = el('button', 'agend-member-jobs__more', m.more);
@@ -357,32 +405,29 @@
     var self = this;
     var m = self.m;
     var status = String(item.status || '');
-    var li = el('li', 'agend-member-jobs__item agend-member-jobs__item--' + status.replace(/[^a-z-]/g, ''));
+    var tr = el('tr', 'agend-member-jobs__row agend-member-jobs__row--' + status.replace(/[^a-z-]/g, ''));
 
-    var head = el('div', 'agend-member-jobs__item-head');
-    head.appendChild(el('h3', 'agend-member-jobs__title', item.title || ''));
-    head.appendChild(el('span', 'agend-member-jobs__badge agend-member-jobs__badge--' + status.replace(/[^a-z-]/g, ''), (m.status && m.status[status]) || status));
-    li.appendChild(head);
-
-    var meta = [];
-    if (item.submitted_at) {
-      meta.push(format(m.submittedOn, formatDate(item.submitted_at)));
-    }
+    var job = el('td', 'agend-member-jobs__job');
+    job.appendChild(el('span', 'agend-member-jobs__title', item.title || ''));
     if (status === 'published' && item.expires_at) {
-      meta.push(format(m.expiresOn, formatDate(item.expires_at)));
-    }
-    if (meta.length) {
-      li.appendChild(el('p', 'agend-member-jobs__meta', meta.join(' · ')));
+      job.appendChild(el('span', 'agend-member-jobs__sub', format(m.expiresOn, formatDate(item.expires_at))));
     }
     if (status === 'rejected' && item.rejection_reason) {
-      var reason = el('p', 'agend-member-jobs__reason');
-      reason.appendChild(el('strong', '', m.reason));
-      reason.appendChild(document.createTextNode(' ' + item.rejection_reason));
-      li.appendChild(reason);
+      job.appendChild(el('span', 'agend-member-jobs__sub', m.reason + ' ' + item.rejection_reason));
     }
+    tr.appendChild(job);
+
+    var statusCell = el('td');
+    statusCell.appendChild(el('span', 'agend-member-jobs__badge agend-member-jobs__badge--' + status.replace(/[^a-z-]/g, ''), (m.status && m.status[status]) || status));
+    tr.appendChild(statusCell);
+
+    tr.appendChild(el('td', 'agend-member-jobs__date', formatDate(item.submitted_at)));
 
     var a = m.actions || {};
+    var cell = el('td', 'agend-member-jobs__actions-cell');
     var buttons = el('div', 'agend-member-jobs__actions');
+    cell.appendChild(buttons);
+    tr.appendChild(cell);
 
     function button(label, onClick) {
       var b = el('button', 'agend-member-jobs__action', label);
@@ -402,7 +447,7 @@
         run();
       });
       var no = button(a.no, function () {
-        li.parentNode.replaceChild(self.drawItem(item), li);
+        tr.parentNode.replaceChild(self.drawItem(item), tr);
       });
       yes.focus();
     }
@@ -420,7 +465,7 @@
     } else if (status === 'published') {
       var url = jobUrl(self.cfg, item.slug);
       if (url) {
-        var view = el('a', 'agend-member-jobs__action agend-member-jobs__action--link', a.view);
+        var view = el('a', 'agend-member-jobs__action', a.view);
         view.href = url;
         buttons.appendChild(view);
       }
@@ -434,12 +479,15 @@
           self.act(item, '/close', { filled: false }, a.closed);
         });
       });
+    } else if ((status === 'rejected' || status === 'withdrawn' || status === 'expired') && (self.creditCount() || 0) > 0) {
+      // A fresh submission prefilled from this one: it uses a new credit.
+      button(a.again, function () {
+        self.say('');
+        self.drawForm(item, true);
+      });
     }
 
-    if (buttons.childNodes.length) {
-      li.appendChild(buttons);
-    }
-    return li;
+    return tr;
   };
 
   MemberJobs.prototype.act = function (item, suffix, body, done) {
@@ -461,19 +509,30 @@
 
   /* ---------------------------------------------------------------- form -- */
 
-  MemberJobs.prototype.drawForm = function (item) {
+  /**
+   * The job form. `item` with `asNew` false edits that pending job; with
+   * `asNew` true it prefills a new job from it ("Post again").
+   */
+  MemberJobs.prototype.drawForm = function (item, asNew) {
     var self = this;
     var cfg = self.cfg;
     var f = self.m.form;
     var form = cfg.form || {};
     var hidden = form.hidden || [];
     var required = form.required || [];
-    var editing = !!item;
+    var editing = !!item && !asNew;
     var root = self.root;
     var uid = 'agend-mj-' + Math.random().toString(36).slice(2, 8);
     var controls = {};
 
     root.textContent = '';
+    var back = el('button', 'agend-member-jobs__back', f.back);
+    back.type = 'button';
+    back.addEventListener('click', function () {
+      self.say('');
+      self.drawList();
+    });
+    root.appendChild(back);
     root.appendChild(el('h2', 'agend-member-jobs__heading', editing ? f.editHeading : f.newHeading));
     root.appendChild(self.statusNode());
 
@@ -765,7 +824,8 @@
 
     var footer = el('div', 'agend-member-jobs__footer');
     if (!editing) {
-      footer.appendChild(el('p', 'agend-member-jobs__note', f.submitNote));
+      var count = self.creditCount();
+      footer.appendChild(el('p', 'agend-member-jobs__note', count ? format(f.submitNoteCount, count) : f.submitNote));
     }
     var submit = el('button', 'agend-member-jobs__button', editing ? f.save : f.submit);
     submit.type = 'submit';

@@ -177,7 +177,30 @@ function agend_apps_jobs_get_terms( string $kind ) {
  * @return array|WP_Error Decoded response (`data` items and `meta.pagination`), or WP_Error on failure.
  */
 function agend_apps_jobs_get_my_submissions( array $query = array() ) {
-	return agend_apps_api()->request( 'GET', '/jobs/me', array( 'query' => $query ) );
+	return agend_apps_api()->request( 'GET', '/jobs/me', agend_apps_jobs_me_args( array( 'query' => $query ) ) );
+}
+
+/**
+ * Request args for a `/v1/jobs/me` call, with how the current user is
+ * identified to the gateway added.
+ *
+ * With a key that may act for members ({@see Agend_Apps_Jobs_Submissions::ON_BEHALF_SCOPE}),
+ * the member is named by their CRM external id in a header and no bearer is
+ * sent, so they never leave the site. Otherwise the member's own bearer is
+ * attached as usual.
+ *
+ * @param array $args Request args.
+ * @return array
+ */
+function agend_apps_jobs_me_args( array $args ): array {
+	$identity = class_exists( 'Agend_Apps_Jobs_Submissions' ) ? Agend_Apps_Jobs_Submissions::identity_args( get_current_user_id() ) : array();
+
+	if ( isset( $identity['headers'] ) ) {
+		$args['headers'] = array_merge( $args['headers'] ?? array(), $identity['headers'] );
+		unset( $identity['headers'] );
+	}
+
+	return array_merge( $args, $identity );
 }
 
 /**
@@ -209,9 +232,11 @@ function agend_apps_jobs_submit( array $fields, string $credit_ref ) {
 	return agend_apps_api()->request(
 		'POST',
 		'/jobs/me',
-		array(
-			'body'    => $fields,
-			'headers' => array( 'Idempotency-Key' => $credit_ref ),
+		agend_apps_jobs_me_args(
+			array(
+				'body'    => $fields,
+				'headers' => array( 'Idempotency-Key' => $credit_ref ),
+			)
 		)
 	);
 }
@@ -280,7 +305,7 @@ function agend_apps_jobs_find_my_submission( string $credit_ref, int $max_pages 
  * @return array|WP_Error The updated submission item, or WP_Error on failure.
  */
 function agend_apps_jobs_update_my_submission( string $job_id, array $fields ) {
-	return agend_apps_api()->request( 'PATCH', '/jobs/me/' . rawurlencode( $job_id ), array( 'body' => $fields ) );
+	return agend_apps_api()->request( 'PATCH', '/jobs/me/' . rawurlencode( $job_id ), agend_apps_jobs_me_args( array( 'body' => $fields ) ) );
 }
 
 /**
@@ -294,7 +319,7 @@ function agend_apps_jobs_update_my_submission( string $job_id, array $fields ) {
  * @return array|WP_Error The withdrawn submission item, or WP_Error on failure.
  */
 function agend_apps_jobs_withdraw_my_submission( string $job_id ) {
-	return agend_apps_api()->request( 'POST', '/jobs/me/' . rawurlencode( $job_id ) . '/withdraw', array( 'body' => '{}' ) );
+	return agend_apps_api()->request( 'POST', '/jobs/me/' . rawurlencode( $job_id ) . '/withdraw', agend_apps_jobs_me_args( array( 'body' => '{}' ) ) );
 }
 
 /**
@@ -307,5 +332,5 @@ function agend_apps_jobs_withdraw_my_submission( string $job_id ) {
  * @return array|WP_Error The closed submission item, or WP_Error on failure.
  */
 function agend_apps_jobs_close_my_submission( string $job_id, bool $filled ) {
-	return agend_apps_api()->request( 'POST', '/jobs/me/' . rawurlencode( $job_id ) . '/close', array( 'body' => array( 'filled' => $filled ) ) );
+	return agend_apps_api()->request( 'POST', '/jobs/me/' . rawurlencode( $job_id ) . '/close', agend_apps_jobs_me_args( array( 'body' => array( 'filled' => $filled ) ) ) );
 }
