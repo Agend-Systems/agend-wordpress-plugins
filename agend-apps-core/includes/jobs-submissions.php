@@ -77,6 +77,15 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 		const REFUSED_STATUSES = array( 400, 401, 403, 404, 405, 429 );
 
 		/**
+		 * Gateway codes that refuse a submission before anything is created,
+		 * whatever their status. `AMBIGUOUS_CONTACT` is a 409, unlike the
+		 * idempotency 409s that mean an earlier attempt landed.
+		 *
+		 * @var string[]
+		 */
+		const REFUSED_CODES = array( 'AMBIGUOUS_CONTACT' );
+
+		/**
 		 * The longest description a member may type. The gateway's 10000
 		 * applies to the HTML it is turned into, which escaping and the
 		 * paragraph tags make longer.
@@ -481,7 +490,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				return $item;
 			}
 
-			if ( ! in_array( self::status( $response ), self::REFUSED_STATUSES, true ) ) {
+			if ( ! in_array( self::status( $response ), self::REFUSED_STATUSES, true ) && ! in_array( self::gateway_code( $response ), self::REFUSED_CODES, true ) ) {
 				return self::unconfirmed();
 			}
 
@@ -685,6 +694,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				'JOB_SUBMISSIONS_DISABLED'  => array( 'disabled', 403, __( 'The jobs board is not taking job submissions right now.', 'agend-apps-core' ) ),
 				'NOT_ACCOUNT_CONTACT'       => array( 'not_contact', 403, __( 'Your account is not set up to post jobs yet. Please contact us.', 'agend-apps-core' ) ),
 				'NOT_ACCOUNT_MEMBER'        => array( 'not_contact', 403, __( 'Your account is not set up to post jobs yet. Please contact us.', 'agend-apps-core' ) ),
+				'AMBIGUOUS_CONTACT'         => array( 'not_contact', 409, __( 'Your account matches more than one record, so jobs cannot be posted from it yet. Please contact us.', 'agend-apps-core' ) ),
 				'MISSING_USER_TOKEN'        => array( 'not_connected', 403, __( 'Your account is not connected to the jobs board yet. Please sign out and sign in again, or contact us.', 'agend-apps-core' ) ),
 				'INVALID_USER_TOKEN'        => array( 'not_connected', 403, __( 'Your account is not connected to the jobs board yet. Please sign out and sign in again, or contact us.', 'agend-apps-core' ) ),
 				'INSUFFICIENT_SCOPES'       => array( 'unavailable', 503, __( 'Job posting is not available on this site.', 'agend-apps-core' ) ),

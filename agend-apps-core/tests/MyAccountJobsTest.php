@@ -10,6 +10,31 @@ namespace {
 		class WooCommerce {}
 	}
 
+	if ( ! function_exists( 'WC' ) ) {
+		/** The test's WooCommerce: `$GLOBALS['agend_test_wc']`, an object with a `cart`. */
+		function WC() {
+			return $GLOBALS['agend_test_wc'];
+		}
+	}
+
+	if ( ! function_exists( 'wc_get_checkout_url' ) ) {
+		function wc_get_checkout_url() {
+			return 'https://example.test/checkout/';
+		}
+	}
+
+	if ( ! function_exists( 'wc_get_cart_url' ) ) {
+		function wc_get_cart_url() {
+			return 'https://example.test/cart/';
+		}
+	}
+
+	if ( ! function_exists( 'wc_get_account_endpoint_url' ) ) {
+		function wc_get_account_endpoint_url( $endpoint ) {
+			return 'https://example.test/my-account/' . $endpoint . '/';
+		}
+	}
+
 	if ( ! function_exists( 'wc_get_product' ) ) {
 		/** Products from `$GLOBALS['agend_test_wc_products']` (id => object). */
 		function wc_get_product( $id ) {
@@ -80,6 +105,109 @@ namespace Agend\Tests\Core {
 			};
 		}
 
+		/** A cart holding `$ids`, recording each add; `$refuse` makes add_to_cart fail. */
+		private function cart( array $ids = array(), bool $refuse = false ) {
+			$cart = new class( $ids, $refuse ) {
+				public $added = array();
+				private $ids;
+				private $refuse;
+				public function __construct( array $ids, bool $refuse ) {
+					$this->ids    = $ids;
+					$this->refuse = $refuse;
+				}
+				public function get_cart() {
+					return array_map(
+						static function ( $id ) {
+							return array( 'product_id' => $id );
+						},
+						$this->ids
+					);
+				}
+				public function add_to_cart( $id, $qty ) {
+					if ( $this->refuse ) {
+						return false;
+					}
+					$this->added[] = $id;
+					return 'key';
+				}
+			};
+			$GLOBALS['agend_test_wc'] = (object) array( 'cart' => $cart );
+			return $cart;
+		}
+
+		private function sell( int ...$ids ): void {
+			update_option(
+				AGEND_APPS_MEMBER_JOBS_BUY_OPTION,
+				array_map(
+					static function ( $id ) {
+						return array( 'product_id' => $id, 'label' => '' );
+					},
+					$ids
+				)
+			);
+		}
+
+		#[Test]
+		public function only_a_configured_product_is_bought(): void {
+			$this->sell( 11 );
+			wp_set_current_user( 7 );
+			$cart = $this->cart();
+
+			$this->assertSame( '', agend_apps_member_jobs_buy( 99 ) );
+			$this->assertSame( 'https://example.test/checkout/', agend_apps_member_jobs_buy( 11 ) );
+			$this->assertSame( array( 11 ), $cart->added );
+		}
+
+		#[Test]
+		public function a_signed_out_visitor_signs_in_first_and_nothing_is_added(): void {
+			$this->sell( 11 );
+			wp_set_current_user( 0 );
+			$cart = $this->cart();
+
+			$url = agend_apps_member_jobs_buy( 11 );
+
+			$this->assertStringContainsString( 'wp-login.php', $url );
+			$this->assertStringContainsString( AGEND_APPS_MEMBER_JOBS_BUY_ARG, $url, 'returns to the buy link after sign-in' );
+			$this->assertSame( array(), $cart->added );
+		}
+
+		#[Test]
+		public function a_product_already_in_the_cart_is_not_added_twice(): void {
+			$this->sell( 11 );
+			wp_set_current_user( 7 );
+			$cart = $this->cart( array( 11 ) );
+
+			$this->assertSame( 'https://example.test/checkout/', agend_apps_member_jobs_buy( 11 ) );
+			$this->assertSame( array(), $cart->added );
+		}
+
+		#[Test]
+		public function woocommerces_add_to_cart_checks_apply_and_a_refusal_goes_back_to_my_jobs(): void {
+			$this->credits_on();
+			$this->sell( 11 );
+			wp_set_current_user( 7 );
+			$cart = $this->cart();
+			add_filter(
+				'woocommerce_add_to_cart_validation',
+				static function () {
+					return false;
+				}
+			);
+
+			$this->assertSame( 'https://example.test/my-account/my-jobs/', agend_apps_member_jobs_buy( 11 ) );
+			$this->assertSame( array(), $cart->added );
+		}
+
+		#[Test]
+		public function a_failed_add_goes_back_to_my_jobs_not_to_checkout(): void {
+			$this->credits_on();
+			$this->sell( 11 );
+			wp_set_current_user( 7 );
+			$this->cart( array(), true );
+
+			$this->assertSame( 'https://example.test/my-account/my-jobs/', agend_apps_member_jobs_buy( 11 ) );
+		}
+
 		#[Test]
 		public function nothing_changes_without_job_credits(): void {
 			$items = array(
@@ -104,7 +232,7 @@ namespace Agend\Tests\Core {
 				)
 			);
 
-			$this->assertSame( array( 'dashboard', 'orders', 'jobs', 'edit-account', 'customer-logout' ), array_keys( $menu ) );
+			$this->assertSame( array( 'dashboard', 'orders', 'my-jobs', 'edit-account', 'customer-logout' ), array_keys( $menu ) );
 		}
 
 		#[Test]
@@ -118,7 +246,7 @@ namespace Agend\Tests\Core {
 				)
 			);
 
-			$this->assertSame( array( 'dashboard', 'jobs', 'customer-logout' ), array_keys( $menu ) );
+			$this->assertSame( array( 'dashboard', 'my-jobs', 'customer-logout' ), array_keys( $menu ) );
 		}
 
 		#[Test]

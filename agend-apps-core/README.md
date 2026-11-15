@@ -1136,15 +1136,19 @@ Elementor) shows the member's credits, their submissions with status, and the
   signs in to Agend or leaves the site. `agend_apps_jobs_me_args()` adds this to
   every `/v1/jobs/me` call, the sweep's lookup included.
 - **My Account > Jobs** (`includes/my-account-jobs.php`, WooCommerce only):
-  a "Jobs" item after Orders at `/my-account/jobs/`. It shows the template
+  a "Jobs" item after Orders at `/my-account/my-jobs/` (namespaced: a bare
+  `jobs` endpoint would also claim any page path ending in `/jobs/`). It shows the template
   chosen in Agend Widgets settings ("My Account Jobs template"), or the Member
   Jobs surface on its own. Lay the template out with Content Personalisation
   rules such as Entitlement Mirror's "Has an unused job credit".
 - **Buying credits**: "Job credit products" in Agend Widgets settings picks up
   to three WooCommerce products (the CRM credit products, imported by the
   products extension). Each becomes a Buy button in the widget, linking to
-  `?agend_jobs_buy=<id>`, which puts the product in the cart once and opens
-  checkout. Only a configured product is accepted.
+  `?agend_jobs_buy=<id>`. A signed-out visitor signs in first. WooCommerce's
+  add-to-cart checks run as for any add (the products extension keeps a CRM
+  renewal invoice on its own this way); the product goes in the cart once and
+  checkout opens, or a refusal returns to My Account > Jobs with WooCommerce's
+  notice. Only a configured product is accepted.
 - **Gateway setup**: the organisation's member job submissions switch on, its
   approver addresses set, and the site's API key holding
   `jobs.submissions.self_read` and `jobs.submissions.self_manage`. Without the

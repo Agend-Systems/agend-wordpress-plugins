@@ -536,6 +536,47 @@ final class JobsMemberSubmissionsTest extends TestCase {
 	}
 
 	#[Test]
+	public function an_ambiguous_contact_refuses_the_job_and_gives_the_credit_back(): void {
+		$this->act_on_behalf();
+		$this->provider->used['cr-1'] = false;
+		Agend_Test_WP::queue_response( 409, $this->gateway_error( 409, 'AMBIGUOUS_CONTACT' ) );
+
+		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
+
+		$this->assertSame( 'not_contact', $result->get_error_code() );
+		$this->assertSame( array( 'spend:cr-1', 'restore:cr-1' ), $this->provider->calls );
+	}
+
+	#[Test]
+	public function on_behalf_every_change_names_the_member(): void {
+		$this->act_on_behalf();
+		foreach ( array( 'update', 'withdraw', 'close' ) as $action ) {
+			Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
+		}
+
+		Agend_Apps_Jobs_Submissions::update( 7, self::JOB_ID, array( 'title' => 'New' ) );
+		Agend_Apps_Jobs_Submissions::withdraw( 7, self::JOB_ID );
+		Agend_Apps_Jobs_Submissions::close( 7, self::JOB_ID, false );
+
+		$this->assertCount( 3, Agend_Test_WP::$requests );
+		foreach ( Agend_Test_WP::$requests as $request ) {
+			$this->assertSame( 'M100', $request['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ], $request['url'] );
+			$this->assertArrayNotHasKey( 'Authorization', $request['headers'] );
+		}
+	}
+
+	#[Test]
+	public function the_sweep_looks_up_as_the_member_who_spent_the_credit(): void {
+		$this->act_on_behalf();
+		wp_set_current_user( 0 );
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array(), 'meta' => array( 'pagination' => array( 'total_pages' => 1 ) ) ) );
+
+		$this->assertNull( Agend_Apps_Jobs_Credits::find_submission( 7, 'cr-1#0123456789abcdef' ) );
+		$this->assertSame( 'M100', Agend_Test_WP::$requests[0]['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ] );
+		$this->assertSame( 0, get_current_user_id(), 'the cron user is restored' );
+	}
+
+	#[Test]
 	public function without_the_on_behalf_scope_the_bearer_is_used_and_no_header_is_sent(): void {
 		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array(), 'meta' => array( 'pagination' => array() ) ) );
 

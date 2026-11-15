@@ -588,6 +588,22 @@ function agend_apps_records_settings_field_member_jobs_buy(): void {
 		)
 		: array();
 
+	// A saved product outside that list (a large catalogue, or a product
+	// no longer published) is still offered, so saving never drops it.
+	$listed = array();
+	foreach ( $products as $product ) {
+		$listed[ $product->get_id() ] = true;
+	}
+	foreach ( $rows as $row ) {
+		if ( ! isset( $listed[ $row['product_id'] ] ) && function_exists( 'wc_get_product' ) ) {
+			$product = wc_get_product( $row['product_id'] );
+			if ( $product ) {
+				$products[]                     = $product;
+				$listed[ $row['product_id'] ] = true;
+			}
+		}
+	}
+
 	for ( $i = 0; $i < 3; $i++ ) {
 		$row  = $rows[ $i ] ?? array(
 			'product_id' => 0,

@@ -3,7 +3,9 @@
  * WooCommerce My Account "Jobs": where a member posts and manages their own
  * jobs, and buys job credits.
  *
- * - A "Jobs" item after "Orders" in the My Account menu, at `/my-account/jobs/`.
+ * - A "Jobs" item after "Orders" in the My Account menu, at `/my-account/my-jobs/`.
+ *   The slug is namespaced: a bare `jobs` endpoint would also claim any page
+ *   path ending in `/jobs/`, and a jobs board site is likely to have one.
  * - The page shows the Elementor (or block) template chosen in Agend Widgets
  *   settings, so the association can lay it out with Agend Content
  *   Personalisation rules ("Has an unused job credit" from Agend Entitlement
@@ -28,14 +30,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-const AGEND_APPS_MY_ACCOUNT_JOBS_ENDPOINT = 'jobs';
+const AGEND_APPS_MY_ACCOUNT_JOBS_ENDPOINT = 'my-jobs';
 
 /**
  * Rewrite ruleset version; bump when the endpoint changes.
  *
  * @var string
  */
-const AGEND_APPS_MY_ACCOUNT_JOBS_REWRITE_VERSION = '20261116-1';
+const AGEND_APPS_MY_ACCOUNT_JOBS_REWRITE_VERSION = '20261116-2';
 
 /**
  * Option: the template the Jobs page shows, or 0 for the surface alone.
@@ -86,12 +88,24 @@ function agend_apps_my_account_jobs_url(): string {
 }
 
 /**
- * Registers the endpoint, as WooCommerce registers its own.
+ * Registers the endpoint wherever WooCommerce registers its own (pages, and
+ * the site root only when My Account is the front page).
+ *
+ * Registered whenever WooCommerce is active, not only while job credits are
+ * on: otherwise a rules flush while they were off would drop the rule, and
+ * switching them back on would leave the page answering 404 until the
+ * permalinks were saved. The menu item and content stay gated.
  */
 function agend_apps_my_account_jobs_add_rewrite_endpoint(): void {
-	if ( agend_apps_my_account_jobs_enabled() ) {
-		add_rewrite_endpoint( AGEND_APPS_MY_ACCOUNT_JOBS_ENDPOINT, EP_ROOT | EP_PAGES );
+	if ( ! class_exists( 'WooCommerce' ) ) {
+		return;
 	}
+
+	$mask = function_exists( 'WC' ) && isset( WC()->query ) && method_exists( WC()->query, 'get_endpoints_mask' )
+		? WC()->query->get_endpoints_mask()
+		: EP_PAGES;
+
+	add_rewrite_endpoint( AGEND_APPS_MY_ACCOUNT_JOBS_ENDPOINT, $mask );
 }
 add_action( 'init', 'agend_apps_my_account_jobs_add_rewrite_endpoint' );
 
@@ -100,7 +114,7 @@ add_action( 'init', 'agend_apps_my_account_jobs_add_rewrite_endpoint' );
  * runs no activation hook) does not leave the endpoint answering 404.
  */
 function agend_apps_my_account_jobs_maybe_flush_rewrite_rules(): void {
-	if ( ! agend_apps_my_account_jobs_enabled() || get_option( 'agend_apps_my_account_jobs_rewrite_version' ) === AGEND_APPS_MY_ACCOUNT_JOBS_REWRITE_VERSION ) {
+	if ( ! class_exists( 'WooCommerce' ) || get_option( 'agend_apps_my_account_jobs_rewrite_version' ) === AGEND_APPS_MY_ACCOUNT_JOBS_REWRITE_VERSION ) {
 		return;
 	}
 
@@ -281,37 +295,67 @@ function agend_apps_member_jobs_buy_options(): array {
 }
 
 /**
- * Handles a Buy button: puts the product in the cart unless it is already
- * there (so a reload or a second click never buys two), then opens checkout.
- * Only a configured job credit product is accepted.
+ * Where a Buy button sends the visitor, putting the product in their cart
+ * first when it should: '' for a request that is not a configured job credit
+ * product (the page loads as normal).
+ *
+ * - Signed out: the sign-in page, returning here, so a credit is never
+ *   bought into a guest cart with no member to give it to.
+ * - Already in the cart: checkout, without adding a second (a reload or a
+ *   second click never buys two).
+ * - Otherwise WooCommerce's add-to-cart checks run first, as for any add to
+ *   cart (the products extension uses them, for example to keep a CRM
+ *   renewal invoice on its own). Added: checkout. Refused or failed: back to
+ *   My Account > Jobs, where WooCommerce shows its notice.
+ *
+ * @param int $id Product id from the request.
+ * @return string Redirect URL, or ''.
  */
-function agend_apps_member_jobs_handle_buy(): void {
-	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Adding a configured product to the visitor's own cart, as WooCommerce's add-to-cart links do.
-	$id = isset( $_GET[ AGEND_APPS_MEMBER_JOBS_BUY_ARG ] ) ? absint( wp_unslash( $_GET[ AGEND_APPS_MEMBER_JOBS_BUY_ARG ] ) ) : 0;
-
-	if ( $id <= 0 || ! function_exists( 'WC' ) || ! WC()->cart ) {
-		return;
+function agend_apps_member_jobs_buy( int $id ): string {
+	if ( $id <= 0 || ! in_array( $id, wp_list_pluck( agend_apps_member_jobs_buy_settings(), 'product_id' ), true ) ) {
+		return '';
 	}
 
-	$allowed = wp_list_pluck( agend_apps_member_jobs_buy_settings(), 'product_id' );
+	$here = add_query_arg( AGEND_APPS_MEMBER_JOBS_BUY_ARG, $id, home_url( '/' ) );
 
-	if ( ! in_array( $id, $allowed, true ) ) {
-		return;
+	if ( ! is_user_logged_in() ) {
+		return wp_login_url( $here );
 	}
 
-	$in_cart = false;
+	if ( ! function_exists( 'WC' ) || ! WC()->cart ) {
+		return '';
+	}
+
 	foreach ( WC()->cart->get_cart() as $item ) {
 		if ( (int) ( $item['product_id'] ?? 0 ) === $id ) {
-			$in_cart = true;
-			break;
+			return wc_get_checkout_url();
 		}
 	}
 
-	if ( ! $in_cart ) {
-		WC()->cart->add_to_cart( $id, 1 );
+	$back = agend_apps_my_account_jobs_url();
+	$back = '' !== $back ? $back : wc_get_cart_url();
+
+	// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own hook.
+	if ( ! apply_filters( 'woocommerce_add_to_cart_validation', true, $id, 1 ) ) {
+		return $back;
 	}
 
-	wp_safe_redirect( wc_get_checkout_url() );
+	return false !== WC()->cart->add_to_cart( $id, 1 ) ? wc_get_checkout_url() : $back;
+}
+
+/**
+ * Handles a Buy button request.
+ */
+function agend_apps_member_jobs_handle_buy(): void {
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Adds a configured product to the visitor's own cart, as WooCommerce's add-to-cart links do.
+	$id  = isset( $_GET[ AGEND_APPS_MEMBER_JOBS_BUY_ARG ] ) ? absint( wp_unslash( $_GET[ AGEND_APPS_MEMBER_JOBS_BUY_ARG ] ) ) : 0;
+	$url = agend_apps_member_jobs_buy( $id );
+
+	if ( '' === $url ) {
+		return;
+	}
+
+	wp_safe_redirect( $url );
 	exit;
 }
 add_action( 'template_redirect', 'agend_apps_member_jobs_handle_buy', 5 );
