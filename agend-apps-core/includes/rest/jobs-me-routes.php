@@ -180,7 +180,7 @@ class Agend_Apps_Jobs_Me_REST_Controller extends Agend_Apps_REST_Controller {
 		return is_wp_error( $result ) ? $this->answer( $result ) : new WP_REST_Response(
 			array(
 				'success' => true,
-				'data'    => $result,
+				'data'    => Agend_Apps_Jobs_Submissions::public_item( $result ),
 			),
 			201
 		);
@@ -199,7 +199,7 @@ class Agend_Apps_Jobs_Me_REST_Controller extends Agend_Apps_REST_Controller {
 			return $this->invalid( $clean['errors'] );
 		}
 
-		return $this->answer( Agend_Apps_Jobs_Submissions::update( get_current_user_id(), strtolower( (string) $request->get_param( 'id' ) ), $clean['fields'] ) );
+		return $this->item( Agend_Apps_Jobs_Submissions::update( get_current_user_id(), strtolower( (string) $request->get_param( 'id' ) ), $clean['fields'] ) );
 	}
 
 	/**
@@ -209,7 +209,7 @@ class Agend_Apps_Jobs_Me_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response
 	 */
 	public function withdraw( WP_REST_Request $request ): WP_REST_Response {
-		return $this->answer( Agend_Apps_Jobs_Submissions::withdraw( get_current_user_id(), strtolower( (string) $request->get_param( 'id' ) ) ) );
+		return $this->item( Agend_Apps_Jobs_Submissions::withdraw( get_current_user_id(), strtolower( (string) $request->get_param( 'id' ) ) ) );
 	}
 
 	/**
@@ -219,7 +219,17 @@ class Agend_Apps_Jobs_Me_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response
 	 */
 	public function close( WP_REST_Request $request ): WP_REST_Response {
-		return $this->answer( Agend_Apps_Jobs_Submissions::close( get_current_user_id(), strtolower( (string) $request->get_param( 'id' ) ), (bool) $request->get_param( 'filled' ) ) );
+		return $this->item( Agend_Apps_Jobs_Submissions::close( get_current_user_id(), strtolower( (string) $request->get_param( 'id' ) ), (bool) $request->get_param( 'filled' ) ) );
+	}
+
+	/**
+	 * A single submission as the route's answer, without its private keys.
+	 *
+	 * @param array|WP_Error $result Item, or WP_Error.
+	 * @return WP_REST_Response
+	 */
+	private function item( $result ): WP_REST_Response {
+		return $this->answer( is_wp_error( $result ) ? $result : Agend_Apps_Jobs_Submissions::public_item( $result ) );
 	}
 
 	/**

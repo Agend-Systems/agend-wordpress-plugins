@@ -242,7 +242,7 @@ final class JobsMemberSubmissionsTest extends TestCase {
 
 	#[Test]
 	public function a_refused_job_gives_the_credit_back(): void {
-		foreach ( array( 400 => 'VALIDATION_ERROR', 401 => 'MISSING_USER_TOKEN', 403 => 'JOB_SUBMISSIONS_DISABLED', 429 => 'RATE_LIMITED' ) as $status => $code ) {
+		foreach ( array( 400 => 'VALIDATION_ERROR', 401 => 'MISSING_USER_TOKEN', 403 => 'JOB_SUBMISSIONS_DISABLED', 404 => 'NOT_FOUND', 405 => 'METHOD_NOT_ALLOWED', 429 => 'RATE_LIMITED' ) as $status => $code ) {
 			$this->provider->used  = array( 'cr-1' => false );
 			$this->provider->calls = array();
 			Agend_Test_WP::queue_response( $status, $this->gateway_error( $status, $code ) );
@@ -262,6 +262,9 @@ final class JobsMemberSubmissionsTest extends TestCase {
 			'500' => fn() => Agend_Test_WP::queue_response( 500, $this->gateway_error( 500, 'INTERNAL_ERROR' ) ),
 			'timeout' => fn() => Agend_Test_WP::queue_transport_error( 'http_request_failed', 'cURL error 28: Operation timed out' ),
 			'201 without an id' => fn() => Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array() ) ),
+			'202 with an operation id' => fn() => Agend_Test_WP::queue_response( 202, array( 'success' => true, 'data' => array( 'id' => 'op-123' ) ) ),
+			'500 that is not JSON' => fn() => Agend_Test_WP::queue_response( 500, '<html>Bad gateway</html>' ),
+			'2xx that is not an object' => fn() => Agend_Test_WP::queue_response( 200, 'true' ),
 		);
 
 		$n = 0;
@@ -320,6 +323,59 @@ final class JobsMemberSubmissionsTest extends TestCase {
 
 		$this->assertSame( 'unavailable', $result->get_error_code() );
 		$this->assertSame( array(), $this->provider->calls );
+	}
+
+	#[Test]
+	public function nothing_is_spent_while_the_site_is_rate_limited(): void {
+		$this->provider->used['cr-1'] = false;
+		set_transient( 'agend_apps_rate_limit_remaining', 0, 60 );
+
+		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
+
+		$this->assertSame( 'rate_limited', $result->get_error_code() );
+		$this->assertSame( array(), $this->provider->calls );
+		$this->assertSame( array(), Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function a_description_longer_than_the_typed_limit_is_refused(): void {
+		$clean = Agend_Apps_Jobs_Submissions::sanitize( $this->job_fields() + array( 'description' => str_repeat( 'a', Agend_Apps_Jobs_Submissions::DESCRIPTION_TEXT_MAX + 1 ) ), true );
+
+		$this->assertSame( array( 'description' ), array_keys( $clean['errors'] ) );
+	}
+
+	#[Test]
+	public function closing_a_job_never_touches_its_credit(): void {
+		$this->provider->used['cr-1'] = false;
+		Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
+		Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
+		$credit_ref = json_decode( (string) Agend_Test_WP::$requests[0]['body'], true )['credit_ref'];
+
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'filled', 'credit_ref' => $credit_ref ) ) );
+		$item = Agend_Apps_Jobs_Submissions::close( 7, self::JOB_ID, true );
+
+		$this->assertSame( 'filled', $item['status'] );
+		$this->assertSame( array( 'filled' => true ), json_decode( (string) Agend_Test_WP::$requests[1]['body'], true ) );
+		$this->assertSame( array( 'spend:cr-1' ), $this->provider->calls );
+		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_SUBMITTED, $this->state( 'cr-1' ) );
+	}
+
+	#[Test]
+	public function the_browser_never_gets_the_credit_reference(): void {
+		Agend_Test_WP::queue_response(
+			200,
+			array(
+				'success' => true,
+				'data'    => array( array( 'id' => self::JOB_ID, 'status' => 'pending', 'credit_ref' => 'cr-1#0123456789abcdef', 'account_id' => 'acc' ) ),
+				'meta'    => array( 'pagination' => array() ),
+			)
+		);
+
+		$item = Agend_Apps_Jobs_Submissions::mine( 7 )['items'][0];
+
+		$this->assertArrayNotHasKey( 'credit_ref', $item );
+		$this->assertArrayNotHasKey( 'account_id', $item );
+		$this->assertSame( 'pending', $item['status'] );
 	}
 
 	#[Test]

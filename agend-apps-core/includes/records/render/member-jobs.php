@@ -256,6 +256,8 @@ function agend_apps_records_member_jobs_messages(): array {
 			'fix'          => __( 'Please check the highlighted fields and try again.', 'agend-apps-core' ),
 			'session'      => __( 'Your session has expired. Please reload the page and try again.', 'agend-apps-core' ),
 			'failed'       => __( 'Sorry, something went wrong. Please try again later.', 'agend-apps-core' ),
+			'noChanges'    => __( 'Nothing was changed.', 'agend-apps-core' ),
+			'unconfirmed'  => __( 'We could not confirm your job was received. Please check your jobs below in a few minutes before posting it again. If it has not appeared within an hour, contact us and we will return your credit.', 'agend-apps-core' ),
 			'sections'     => array(
 				'role'     => __( 'The role', 'agend-apps-core' ),
 				'employer' => __( 'Employer', 'agend-apps-core' ),

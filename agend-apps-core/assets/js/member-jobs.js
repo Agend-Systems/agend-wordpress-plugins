@@ -16,7 +16,7 @@
     title: 200,
     reference_number: 100,
     short_description: 500,
-    description: 9000,
+    description: 8000,
     company_name: 200,
     company_website: 1000,
     location_city: 100,
@@ -606,16 +606,18 @@
       );
     }
 
-    // Tag questions. Tags a job carries that no question offers are kept.
+    // Tag questions. Tags a job carries that the form does not show (a
+    // second tag from a dropdown question, or one no question offers, such
+    // as a tag staff added) are kept as they are.
     var itemTags = idsOf(item && item.tags);
     var offered = {};
     var tagGroups = [];
     (form.tagGroups || []).forEach(function (group, index) {
       var name = 'tags_' + index;
-      group.tags.forEach(function (tag) {
-        offered[String(tag.id).toLowerCase()] = true;
-      });
       if (group.style === 'checkboxes') {
+        group.tags.forEach(function (tag) {
+          offered[String(tag.id).toLowerCase()] = true;
+        });
         var box = el('fieldset', 'agend-member-jobs__field agend-member-jobs__field--checks');
         box.appendChild(el('legend', 'agend-member-jobs__label', group.label));
         var boxes = [];
@@ -639,6 +641,9 @@
             current = String(tag.id).toLowerCase();
           }
         });
+        if (current) {
+          offered[current] = true;
+        }
         r3.appendChild(
           select(
             name,
@@ -848,13 +853,12 @@
         body.show_salary = !!controls.show_salary.checkbox.checked;
       }
       if (controls.category) {
-        // One category from the form; any others the job had are kept.
+        // The form shows the job's first category; the choice replaces it
+        // and any others the job has are kept.
         var chosen = text('category');
         body.category_ids = (chosen ? [chosen] : []).concat(
-          categoryIds.filter(function (id) {
-            return id !== chosen && !(form.categories || []).some(function (c) {
-              return String(c.id).toLowerCase() === id;
-            });
+          categoryIds.slice(1).filter(function (id) {
+            return id !== chosen;
           })
         );
       }
@@ -874,6 +878,21 @@
         body.tag_ids = tags;
       }
       return body;
+    }
+
+    // What the form held when it opened: an edit sends only what changed,
+    // so fields the member did not touch (a description staff formatted,
+    // say) are never rewritten from the form's plain-text version.
+    var initial = editing ? payload() : null;
+
+    function changes(body) {
+      var out = {};
+      Object.keys(body).forEach(function (key) {
+        if (JSON.stringify(body[key]) !== JSON.stringify(initial[key])) {
+          out[key] = body[key];
+        }
+      });
+      return out;
     }
 
     function showErrors(errors) {
@@ -905,23 +924,35 @@
         return;
       }
 
+      var body = editing ? changes(payload()) : payload();
+      if (editing && !Object.keys(body).length) {
+        self.notice = { text: f.noChanges, error: false };
+        self.drawList();
+        return;
+      }
+
       formNode.setAttribute('aria-busy', 'true');
       submit.disabled = true;
       self.say(editing ? f.saving : f.sending);
 
       var send = editing
-        ? request(cfg, 'PATCH', '/' + encodeURIComponent(item.id), payload())
-        : request(cfg, 'POST', '', payload());
+        ? request(cfg, 'PATCH', '/' + encodeURIComponent(item.id), body)
+        : request(cfg, 'POST', '', body);
 
       send.then(function (result) {
         formNode.setAttribute('aria-busy', 'false');
         submit.disabled = false;
         var json = result.json || {};
 
-        if (result.ok || json.code === 'unconfirmed') {
+        // A new job whose answer never arrived, or arrived without one of
+        // our codes (a proxy timeout, a server error page), may have been
+        // created and paid for. Never offer a second submit: show the list.
+        var unknown = !editing && !result.ok && !OWN_CODES[json.code] && (result.status === 0 || result.status >= 500 || !json.code);
+
+        if (result.ok || json.code === 'unconfirmed' || unknown) {
           self.notice = result.ok
             ? { text: editing ? self.m.actions.saved : cfg.text.success, error: false }
-            : { text: json.message, error: true };
+            : { text: json.code === 'unconfirmed' ? json.message : f.unconfirmed, error: true };
           self.load().then(function () {
             var status = self.root.querySelector('[data-agend-mj-status]');
             if (status) {

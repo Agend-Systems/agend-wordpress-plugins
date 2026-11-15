@@ -52,11 +52,30 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 
 		/**
 		 * Gateway statuses that mean the submission was refused before a job
-		 * was created, so the credit is given back.
+		 * was created, so the credit is given back. A 404 or 405 on
+		 * `POST /jobs/me` (no id in the path) can only mean the route is not
+		 * there. A status is only ever set from a decoded JSON answer.
 		 *
 		 * @var int[]
 		 */
-		const REFUSED_STATUSES = array( 400, 401, 403, 429 );
+		const REFUSED_STATUSES = array( 400, 401, 403, 404, 405, 429 );
+
+		/**
+		 * The longest description a member may type. The gateway's 10000
+		 * applies to the HTML it is turned into, which escaping and the
+		 * paragraph tags make longer.
+		 *
+		 * @var int
+		 */
+		const DESCRIPTION_TEXT_MAX = 8000;
+
+		/**
+		 * Item keys never sent to the browser: the credit reference names the
+		 * CRM record, and the account id is the organisation's.
+		 *
+		 * @var string[]
+		 */
+		const PRIVATE_KEYS = array( 'credit_ref', 'account_id' );
 
 		/**
 		 * The fields a member may send, with their gateway limits.
@@ -227,7 +246,11 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 					return self::fits( sanitize_textarea_field( $text ), $max );
 
 				case 'html':
-					return self::fits( self::paragraphs( sanitize_textarea_field( $text ) ), $max );
+					$plain = sanitize_textarea_field( $text );
+					if ( mb_strlen( $plain ) > self::DESCRIPTION_TEXT_MAX ) {
+						return array( 'error' => 'too_long' );
+					}
+					return self::fits( self::paragraphs( $plain ), $max );
 
 				default:
 					return self::fits( sanitize_text_field( $text ), $max );
@@ -305,6 +328,13 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				return new WP_Error( 'unavailable', __( 'Job posting is not available on this site.', 'agend-apps-core' ), array( 'status' => 503 ) );
 			}
 
+			// The API client would refuse the call without sending it; a
+			// reserve before it would cost a spend and a give-back.
+			$remaining = get_transient( 'agend_apps_rate_limit_remaining' );
+			if ( false !== $remaining && 0 === (int) $remaining ) {
+				return new WP_Error( 'rate_limited', __( 'Too many requests. Please wait a minute and try again.', 'agend-apps-core' ), array( 'status' => 429 ) );
+			}
+
 			if ( '' === agend_apps_get_bearer_token() ) {
 				return new WP_Error( 'not_connected', __( 'Your account is not connected to the jobs board yet. Please sign out and sign in again, or contact us.', 'agend-apps-core' ), array( 'status' => 403 ) );
 			}
@@ -347,9 +377,11 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 		public static function settle( int $user_id, string $credit_ref, $response ) {
 			if ( ! is_wp_error( $response ) ) {
 				$item   = isset( $response['data'] ) && is_array( $response['data'] ) ? $response['data'] : array();
-				$job_id = isset( $item['id'] ) && is_scalar( $item['id'] ) ? (string) $item['id'] : '';
+				$job_id = isset( $item['id'] ) && is_string( $item['id'] ) ? strtolower( $item['id'] ) : '';
 
-				if ( '' === $job_id ) {
+				// Only a created job carries a job id: anything else (another
+				// 2xx shape, an operation id) is an outcome we cannot read.
+				if ( false === ( $response['success'] ?? true ) || ! self::is_uuid( $job_id ) ) {
 					return self::unconfirmed();
 				}
 
@@ -456,7 +488,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 			}
 
 			return array(
-				'items'      => isset( $response['data'] ) && is_array( $response['data'] ) ? array_values( array_filter( $response['data'], 'is_array' ) ) : array(),
+				'items'      => isset( $response['data'] ) && is_array( $response['data'] ) ? array_map( array( __CLASS__, 'public_item' ), array_values( array_filter( $response['data'], 'is_array' ) ) ) : array(),
 				'pagination' => isset( $response['meta']['pagination'] ) && is_array( $response['meta']['pagination'] ) ? $response['meta']['pagination'] : array(),
 			);
 		}
@@ -485,6 +517,26 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				'available'   => count( $credits ),
 				'next_expiry' => array() === $expiries ? null : (string) reset( $expiries ),
 			);
+		}
+
+		/**
+		 * Whether a string is a UUID.
+		 *
+		 * @param string $value Value.
+		 * @return bool
+		 */
+		public static function is_uuid( string $value ): bool {
+			return 1 === preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $value );
+		}
+
+		/**
+		 * An item as the browser gets it, without {@see PRIVATE_KEYS}.
+		 *
+		 * @param array $item Gateway submission item.
+		 * @return array
+		 */
+		public static function public_item( array $item ): array {
+			return array_diff_key( $item, array_flip( self::PRIVATE_KEYS ) );
 		}
 
 		/**
@@ -570,7 +622,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				}
 			}
 
-			if ( 'agend_apps_rate_limited' !== $error->get_error_code() && ( 429 === $status || false !== strpos( $code, 'RATE_LIMIT' ) ) ) {
+			if ( 'agend_apps_rate_limited' === $error->get_error_code() || 429 === $status || false !== strpos( $code, 'RATE_LIMIT' ) ) {
 				return new WP_Error( 'rate_limited', __( 'Too many requests. Please wait a minute and try again.', 'agend-apps-core' ), array( 'status' => 429 ) );
 			}
 
