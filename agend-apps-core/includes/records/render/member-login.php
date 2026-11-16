@@ -81,7 +81,7 @@ function agend_apps_records_member_login_build_config( array $s, array $colours 
 			// surface that names a duplicate email; the sign-in form never does.
 			'register'         => (string) ( $s['register_label'] ?? '' ),
 			'registerTitle'    => __( 'Create your account', 'agend-apps-core' ),
-			'registerIntro'    => __( 'Create an Agend member account to sign in on this site.', 'agend-apps-core' ),
+			'registerIntro'    => __( 'Create a member account to sign in on this site.', 'agend-apps-core' ),
 			'firstName'        => __( 'First name', 'agend-apps-core' ),
 			'lastName'         => __( 'Last name', 'agend-apps-core' ),
 			'registerSubmit'   => __( 'Create account', 'agend-apps-core' ),
@@ -89,6 +89,9 @@ function agend_apps_records_member_login_build_config( array $s, array $colours 
 			'registerError'    => __( 'Could not create the account. Check your details and try again.', 'agend-apps-core' ),
 			// Email ownership verification (SPEC-CORE-20260907 US-4.3).
 			'resend'              => __( 'Send another link', 'agend-apps-core' ),
+			// The gateway's own 202 message says a link was sent but not what to
+			// do with it; the member must return here and sign in again once.
+			'verificationSent'    => (string) ( $s['verification_sent_message'] ?? '' ),
 			'verificationPending' => __( 'Your email address is not yet verified. Check your inbox for the verification link, or request a new one below.', 'agend-apps-core' ),
 		),
 		// Seconds the resend button stays disabled after each attempt

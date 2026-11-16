@@ -249,7 +249,7 @@
           // Verification pending (SPEC-CORE-20260907 US-4.3 AC1): WordPress
           // has already signed the member in server-side; the form just
           // shows the notice and offers a resend, it never reloads here.
-          done.textContent = data.message || '';
+          done.textContent = cfg.messages.verificationSent || data.message || '';
           done.style.display = '';
           error.style.display = 'none';
           Array.prototype.forEach.call(form.querySelectorAll('input'), function (i) {
@@ -421,7 +421,7 @@
           return;
         }
         if (r.status === 202) {
-          done.textContent = data.message || '';
+          done.textContent = cfg.messages.verificationSent || data.message || '';
           done.style.display = '';
           Array.prototype.forEach.call(form.querySelectorAll('input'), function (i) {
             i.disabled = true;
