@@ -74,6 +74,17 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 				</tfoot>
 			</table>
 
+			<?php if ( '' === agend_apps_get_bearer_token() ) : ?>
+				<div class="agend-shop-cart-buyer">
+					<label><?php esc_html_e( 'Your name', 'agend-apps-shop' ); ?>
+						<input class="agend-shop-buyer-name" type="text" autocomplete="name" maxlength="200" required>
+					</label>
+					<label><?php esc_html_e( 'Your email', 'agend-apps-shop' ); ?>
+						<input class="agend-shop-buyer-email" type="email" autocomplete="email" required>
+					</label>
+				</div>
+			<?php endif; ?>
+
 			<div class="agend-shop-cart-actions">
 				<button class="agend-shop-btn-clear-cart"><?php esc_html_e( 'Clear Cart', 'agend-apps-shop' ); ?></button>
 				<div class="agend-shop-cart-primary-actions">
@@ -81,11 +92,14 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 				</div>
 			</div>
 
+			<?php if ( current_user_can( 'manage_options' ) ) : ?>
 			<div class="agend-shop-cart-test-actions">
 				<p><strong><?php esc_html_e( 'Testing only:', 'agend-apps-shop' ); ?></strong></p>
 				<button class="agend-shop-btn-complete-checkout"><?php esc_html_e( 'Complete Checkout', 'agend-apps-shop' ); ?></button>
 				<button class="agend-shop-btn-cancel-checkout"><?php esc_html_e( 'Cancel Checkout', 'agend-apps-shop' ); ?></button>
 			</div>
+
+			<?php endif; ?>
 
 			<div class="agend-shop-cart-message" aria-live="polite"></div>
 		</div>

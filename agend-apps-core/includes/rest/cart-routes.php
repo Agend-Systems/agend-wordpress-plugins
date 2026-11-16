@@ -119,6 +119,13 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_url',
 						),
+						'guest_buyer' => array(
+							'type'       => 'object',
+							'properties' => array(
+								'name'  => array( 'type' => 'string' ),
+								'email' => array( 'type' => 'string' ),
+							),
+						),
 						'cancelUrl'  => array(
 							'required'          => true,
 							'type'              => 'string',
@@ -269,6 +276,30 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 		$identity = $this->get_identity( $request );
 		$result   = agend_apps_cart_get( $identity['cart_session'], $identity['bearer_token'] );
 
+		if ( ! is_wp_error( $result ) && ! empty( $result['data']['items'] ) ) {
+			$event_names = array();
+			foreach ( $result['data']['items'] as &$item ) {
+				$slug = $item['metadata']['event_slug'] ?? '';
+				if ( 'event_tickets' !== ( $item['product_type'] ?? '' ) || '' === $slug ) {
+					continue;
+				}
+				if ( ! array_key_exists( $slug, $event_names ) ) {
+					$cache_key = 'agend_apps_cart_event_name_' . md5( $slug );
+					$name      = get_transient( $cache_key );
+					if ( false === $name ) {
+						$event = agend_apps_events_get_event( $slug );
+						$name  = is_wp_error( $event ) ? '' : ( $event['data']['name'] ?? '' );
+						set_transient( $cache_key, $name, 10 * MINUTE_IN_SECONDS );
+					}
+					$event_names[ $slug ] = $name;
+				}
+				if ( '' !== $event_names[ $slug ] ) {
+					$item['name'] = $event_names[ $slug ] . ' - ' . $item['name'];
+				}
+			}
+			unset( $item );
+		}
+
 		return $this->prepare_api_response( $result );
 	}
 
@@ -382,7 +413,22 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 			'successUrl' => $request->get_param( 'successUrl' ),
 			'cancelUrl'  => $request->get_param( 'cancelUrl' ),
 		);
-		$result   = agend_apps_cart_checkout( $urls, $identity['cart_session'], $identity['bearer_token'] );
+		$cart_url = get_option( 'agend_apps_shop_cart_page_url', '' ) ?: esc_url_raw( (string) $request->get_header( 'Referer' ) );
+		$cart_url = $cart_url ?: home_url( '/' );
+		if ( empty( $urls['successUrl'] ) ) {
+			$urls['successUrl'] = get_option( 'agend_apps_shop_checkout_success_url', '' ) ?: add_query_arg( 'checkout', 'success', $cart_url );
+		}
+		if ( empty( $urls['cancelUrl'] ) ) {
+			$urls['cancelUrl'] = get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ?: $cart_url;
+		}
+		$buyer = $request->get_param( 'guest_buyer' );
+		if ( '' === $identity['bearer_token'] && is_array( $buyer ) ) {
+			$urls['guest_buyer'] = array(
+				'name'  => sanitize_text_field( $buyer['name'] ?? '' ),
+				'email' => sanitize_email( $buyer['email'] ?? '' ),
+			);
+		}
+		$result = agend_apps_cart_checkout( $urls, $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}

@@ -42,8 +42,43 @@ final class CartViewRenderTest extends TestCase {
 		self::assertSame( $this->expected(), (string) ob_get_clean() );
 	}
 
+	#[Test]
+	public function should_hide_testing_controls_when_the_visitor_is_not_an_admin(): void {
+		$html = agend_apps_records_render_cart_view( array() );
+		self::assertStringNotContainsString( 'Testing only:', $html );
+		self::assertStringNotContainsString( 'agend-shop-btn-complete-checkout', $html );
+		self::assertStringNotContainsString( 'agend-shop-btn-cancel-checkout', $html );
+	}
+
+	#[Test]
+	public function should_show_testing_controls_when_the_visitor_is_an_admin(): void {
+		$GLOBALS['agend_test_current_user_can']['manage_options'] = true;
+		$html = agend_apps_records_render_cart_view( array() );
+		self::assertStringContainsString( 'Testing only:', $html );
+		self::assertStringContainsString( 'agend-shop-btn-complete-checkout', $html );
+		self::assertStringContainsString( 'agend-shop-btn-cancel-checkout', $html );
+	}
+
+	#[Test]
+	public function should_show_required_buyer_fields_when_the_visitor_has_no_member_bearer(): void {
+		$html = agend_apps_records_render_cart_view( array() );
+		self::assertStringContainsString( 'Your name', $html );
+		self::assertStringContainsString( 'Your email', $html );
+		self::assertStringContainsString( 'maxlength="200" required', $html );
+		self::assertStringContainsString( 'type="email" autocomplete="email" required', $html );
+	}
+
+	#[Test]
+	public function should_hide_buyer_fields_when_the_visitor_has_a_member_bearer(): void {
+		\Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		$html = agend_apps_records_render_cart_view( array() );
+		self::assertStringNotContainsString( 'agend-shop-buyer-name', $html );
+		self::assertStringNotContainsString( 'agend-shop-buyer-email', $html );
+	}
+
 	protected function setUp(): void {
 		parent::setUp();
+		$GLOBALS['agend_test_current_user_can']['manage_options'] = false;
 		require_once AGEND_TESTS_ROOT . '/agend-apps-shop/includes/records/render/cart-view.php';
 		// The widgets ask this loader class for the surface gate and for their category.
 		require_once AGEND_TESTS_ROOT . '/agend-apps-shop/includes/class-agend-apps-shop-elementor.php';

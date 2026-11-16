@@ -428,7 +428,8 @@
     var tOpts = { hour: 'numeric', minute: '2-digit' };
     var str = localeDate(startIso, dOpts, tz) + ', ' + localeTime(startIso, tOpts, tz);
     if (endIso) {
-      str += ' – ' + localeTime(endIso, tOpts, tz);
+      var endDate = localeDate(endIso, dOpts, tz);
+      str += (endDate !== localeDate(startIso, dOpts, tz) ? ' - ' + endDate + ', ' : ' – ') + localeTime(endIso, tOpts, tz);
     }
     var label = zoneLabel(startIso, tz);
     if (label) {
@@ -691,6 +692,50 @@
       setSafeHtml(para, event.description);
       about.appendChild(para);
       main.appendChild(about);
+    }
+
+    if (event.speakers && event.speakers.length) {
+      var presenters = el('section', 'agend-ev-detail__section');
+      presenters.appendChild(el('h3', 'agend-ev-detail__section-title', 'Presenters'));
+      event.speakers.forEach(function (speaker) {
+        var presenter = el('div', 'agend-ev-detail__presenter');
+        if (speaker.photo_url && /^https?:\/\//i.test(speaker.photo_url)) {
+          var photo = el('img', 'agend-ev-detail__presenter-photo');
+          photo.src = speaker.photo_url;
+          photo.alt = speaker.name || '';
+          photo.loading = 'lazy';
+          presenter.appendChild(photo);
+        }
+        presenter.appendChild(el('h4', '', speaker.name || ''));
+        if (speaker.title) {
+          presenter.appendChild(el('p', '', speaker.title));
+        }
+        if (speaker.bio) {
+          var bio = el('div', 'agend-ev-detail__body-text');
+          setSafeHtml(bio, speaker.bio);
+          presenter.appendChild(bio);
+        }
+        presenters.appendChild(presenter);
+      });
+      main.appendChild(presenters);
+    }
+
+    if (event.gallery_images && event.gallery_images.length) {
+      var gallery = el('section', 'agend-ev-detail__section');
+      gallery.appendChild(el('h3', 'agend-ev-detail__section-title', 'Gallery'));
+      var images = el('div', 'agend-ev-detail__gallery');
+      event.gallery_images.forEach(function (url) {
+        if (!/^https?:\/\//i.test(url)) {
+          return;
+        }
+        var image = el('img', '');
+        image.src = url;
+        image.alt = event.name || '';
+        image.loading = 'lazy';
+        images.appendChild(image);
+      });
+      gallery.appendChild(images);
+      main.appendChild(gallery);
     }
 
     if (event.sponsors && event.sponsors.length) {
@@ -1299,7 +1344,7 @@
     buyerGrid.appendChild(labelledField('Email', buyerEmail));
     buyerGrid.appendChild(labelledField('Phone', buyerPhone));
     buyerSection.appendChild(buyerGrid);
-    if (isSignedIn) {
+    if (isSignedIn || cfg.cartEnabled) {
       buyerSection.style.display = 'none';
     }
     form.appendChild(buyerSection);
@@ -1686,7 +1731,7 @@
     clearSsrPayParam();
     var mount = mountSsrOverlay(root, detailEl);
     mount.overlay.appendChild(renderDetailSkeleton());
-    apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+    apiGet('/events/' + encodeURIComponent(slug), { include: 'speakers,sponsors,categories' }).then(function (body) {
       var event = unwrapOne(body);
       mount.overlay.innerHTML = '';
       if (!event || !event.slug) {
@@ -1719,7 +1764,7 @@
     if (btn && !btn.disabled) {
       btn.addEventListener('click', function () {
         btn.disabled = true;
-        apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+        apiGet('/events/' + encodeURIComponent(slug), { include: 'speakers,sponsors,categories' }).then(function (body) {
           var event = unwrapOne(body);
           btn.disabled = false;
           if (event && event.slug) {
@@ -1975,7 +2020,7 @@
       if (updateUrl) {
         setUrlParam(slug);
       }
-      apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+      apiGet('/events/' + encodeURIComponent(slug), { include: 'speakers,sponsors,categories' }).then(function (body) {
         var event = unwrapOne(body);
         root.innerHTML = '';
         if (!event || !event.slug) {

@@ -134,6 +134,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var tbodyEl          = wrapper.querySelector( '.agend-shop-cart-items' );
 		var totalAmountEl    = wrapper.querySelector( '.agend-shop-cart-total-amount' );
 		var clearBtn         = wrapper.querySelector( '.agend-shop-btn-clear-cart' );
+		var buyerName        = wrapper.querySelector( '.agend-shop-buyer-name' );
+		var buyerEmail       = wrapper.querySelector( '.agend-shop-buyer-email' );
 		var checkoutBtn      = wrapper.querySelector( '.agend-shop-btn-proceed-checkout' );
 		var completeBtn      = wrapper.querySelector( '.agend-shop-btn-complete-checkout' );
 		var cancelBtn        = wrapper.querySelector( '.agend-shop-btn-cancel-checkout' );
@@ -320,6 +322,17 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			var cart  = ( data && data.cart ) || data || {};
 			var items = ( cart && cart.items ) || [];
+			if ( buyerName && buyerEmail ) {
+				var firstAttendee = items.reduce( function ( found, item ) {
+					return found || getItemAttendees( item ).find( function ( attendee ) {
+						return attendee.beneficiary_name && attendee.beneficiary_email;
+					} );
+				}, null );
+				if ( firstAttendee ) {
+					buyerName.value = buyerName.value || firstAttendee.beneficiary_name;
+					buyerEmail.value = buyerEmail.value || firstAttendee.beneficiary_email;
+				}
+			}
 
 			// Handle terminal statuses.
 			if ( 'complete' === cart.status ) {
@@ -1409,6 +1422,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					// Keep the item's local copy in sync so a re-open shows the saved data.
 					item.metadata = item.metadata || {};
 					item.metadata.attendees = attendees;
+					if ( buyerName && buyerEmail ) {
+						var firstAttendee = attendees.find( function ( attendee ) {
+							return attendee.beneficiary_name && attendee.beneficiary_email;
+						} );
+						if ( firstAttendee ) {
+							buyerName.value = buyerName.value || firstAttendee.beneficiary_name;
+							buyerEmail.value = buyerEmail.value || firstAttendee.beneficiary_email;
+						}
+					}
 					// Refresh each seat's saved/unset badge to reflect what was stored.
 					for ( var b = 0; b < seatEls.length; b++ ) {
 						if ( seatEls[ b ].badge ) {
@@ -1569,6 +1591,21 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		// Proceed to Checkout.
 		if ( checkoutBtn ) {
 			checkoutBtn.addEventListener( 'click', function () {
+				var cartUrl = shopConfig.cartPageUrl || window.location.href;
+				var successUrl = new URL( cartUrl, window.location.href );
+				successUrl.searchParams.set( 'checkout', 'success' );
+				var payload = {
+					successUrl: shopConfig.checkoutSuccessUrl || successUrl.href,
+					cancelUrl: shopConfig.checkoutCancelUrl || cartUrl,
+				};
+				if ( buyerName && buyerEmail ) {
+					buyerName.value = buyerName.value.trim();
+					buyerEmail.value = buyerEmail.value.trim();
+					if ( ! buyerName.reportValidity() || ! buyerEmail.reportValidity() ) {
+						return;
+					}
+					payload.guest_buyer = { name: buyerName.value, email: buyerEmail.value };
+				}
 				checkoutBtn.disabled = true;
 				clearMessage();
 
@@ -1578,10 +1615,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				fetch( restUrl + 'cart/checkout', {
 					method: 'POST',
 					headers: headers,
-					body: JSON.stringify( {
-						successUrl: shopConfig.checkoutSuccessUrl || '',
-						cancelUrl: shopConfig.checkoutCancelUrl || '',
-					} ),
+					body: JSON.stringify( payload ),
 				} )
 					.then( function ( response ) {
 						return response.json().then( function ( data ) {
@@ -1589,10 +1623,16 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						} );
 					} )
 					.then( function ( result ) {
-						if ( 200 === result.status && result.data.data && result.data.data.checkoutUrl ) {
-							window.location.href = result.data.data.checkoutUrl;
+						var checkoutData = result.data.data;
+						var checkoutUrl = checkoutData && ( checkoutData.checkoutUrl || ( checkoutData.groups && checkoutData.groups[ 0 ] && checkoutData.groups[ 0 ].checkoutUrl ) );
+						if ( 200 === result.status && checkoutUrl ) {
+							window.location.href = checkoutUrl;
 						} else {
-							var message = ( result.data.data && result.data.data.message ) ? result.data.data.message : 'An unexpected error occurred. Please try again.';
+							var fields = result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.fields;
+							var messages = fields ? Object.keys( fields ).reduce( function ( all, key ) {
+								return all.concat( fields[ key ] );
+							}, [] ) : [];
+							var message = messages.length ? messages.join( ' ' ) : ( result.data.message || 'An unexpected error occurred. Please try again.' );
 							showMessage( message, 'error' );
 							checkoutBtn.disabled = false;
 						}
