@@ -289,7 +289,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 					if ( false === $name ) {
 						$event = agend_apps_events_get_event( $slug );
 						$name  = is_wp_error( $event ) ? '' : ( $event['data']['name'] ?? '' );
-						set_transient( $cache_key, $name, 10 * MINUTE_IN_SECONDS );
+						set_transient( $cache_key, $name, '' === $name ? MINUTE_IN_SECONDS : 10 * MINUTE_IN_SECONDS );
 					}
 					$event_names[ $slug ] = $name;
 				}

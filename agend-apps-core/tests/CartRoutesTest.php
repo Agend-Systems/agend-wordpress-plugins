@@ -164,5 +164,7 @@ final class CartRoutesTest extends TestCase {
 		self::assertSame( array( 'General Admission', 'VIP', 'Workshop', 'Course', 'Other Ticket' ), array_column( $response->get_data()['data']['items'], 'name' ) );
 		self::assertCount( 3, Agend_Test_WP::$requests );
 		self::assertSame( '', get_transient( 'agend_apps_cart_event_name_' . md5( 'conference' ) ) );
+		self::assertSame( 60, Agend_Test_WP::$transient_ttls['agend_apps_cart_event_name_' . md5( 'conference' )] );
+		self::assertSame( 60, Agend_Test_WP::$transient_ttls['agend_apps_cart_event_name_' . md5( 'workshop' )] );
 	}
 }

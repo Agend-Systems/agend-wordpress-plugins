@@ -257,6 +257,14 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * Loads the cart from the REST API and renders it.
 		 */
 		function loadCart(liveUpdate = false) {
+			if ( ! AgendCartSession.getToken() && 'true' !== wrapper.dataset.memberSignedIn ) {
+				loadingEl.setAttribute( 'hidden', '' );
+				contentEl.setAttribute( 'hidden', '' );
+				lockedNoticeEl.setAttribute( 'hidden', '' );
+				emptyEl.removeAttribute( 'hidden' );
+				clearMessage();
+				return;
+			}
 			if (!liveUpdate) {
 				showLoading();
 			}
@@ -322,6 +330,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			var cart  = ( data && data.cart ) || data || {};
 			var items = ( cart && cart.items ) || [];
+			var isLocked = 'locked' === cart.status;
+			if ( cancelBtn ) {
+				cancelBtn.hidden = ! isLocked;
+				cancelBtn.disabled = ! isLocked;
+			}
 			if ( buyerName && buyerEmail ) {
 				var firstAttendee = items.reduce( function ( found, item ) {
 					return found || getItemAttendees( item ).find( function ( attendee ) {
@@ -354,14 +367,9 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			contentEl.removeAttribute( 'hidden' );
 
-			var isLocked = 'locked' === cart.status;
-
 			if ( isLocked ) {
 				lockedNoticeEl.removeAttribute( 'hidden' );
 				setEditControlsDisabled( true );
-				if ( cancelBtn ) {
-					cancelBtn.disabled = false;
-				}
 			} else {
 				lockedNoticeEl.setAttribute( 'hidden', '' );
 				setEditControlsDisabled( false );
@@ -1678,7 +1686,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} );
 		}
 
-		// Cancel Checkout (test button).
+		// Cancel checkout and unlock the cart for editing.
 		if ( cancelBtn ) {
 			cancelBtn.addEventListener( 'click', function () {
 				cancelBtn.disabled = true;

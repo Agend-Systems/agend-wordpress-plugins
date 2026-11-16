@@ -40,9 +40,10 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 	// markup now also renders inside a Gutenberg block: a site's own custom
 	// CSS may already target these classes from the Elementor era, and
 	// silently dropping them here would be a visual regression on those sites.
+	$is_member = '' !== agend_apps_get_bearer_token();
 	ob_start();
 	?>
-	<div class="agend-apps-shop-cart-view elementor-widget-container">
+	<div class="agend-apps-shop-cart-view elementor-widget-container" data-member-signed-in="<?php echo $is_member ? 'true' : 'false'; ?>">
 		<div class="agend-shop-cart-loading" aria-live="polite"><?php esc_html_e( 'Loading cart&hellip;', 'agend-apps-shop' ); ?></div>
 
 		<div class="agend-shop-cart-empty" hidden>
@@ -74,7 +75,7 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 				</tfoot>
 			</table>
 
-			<?php if ( '' === agend_apps_get_bearer_token() ) : ?>
+			<?php if ( ! $is_member ) : ?>
 				<div class="agend-shop-cart-buyer">
 					<label><?php esc_html_e( 'Your name', 'agend-apps-shop' ); ?>
 						<input class="agend-shop-buyer-name" type="text" autocomplete="name" maxlength="200" required>
@@ -89,6 +90,7 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 				<button class="agend-shop-btn-clear-cart"><?php esc_html_e( 'Clear Cart', 'agend-apps-shop' ); ?></button>
 				<div class="agend-shop-cart-primary-actions">
 					<button class="agend-shop-btn-proceed-checkout elementor-button"><?php esc_html_e( 'Proceed to Checkout', 'agend-apps-shop' ); ?></button>
+					<button class="agend-shop-btn-cancel-checkout" hidden disabled><?php esc_html_e( 'Cancel checkout and edit cart', 'agend-apps-shop' ); ?></button>
 				</div>
 			</div>
 
@@ -96,7 +98,6 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 			<div class="agend-shop-cart-test-actions">
 				<p><strong><?php esc_html_e( 'Testing only:', 'agend-apps-shop' ); ?></strong></p>
 				<button class="agend-shop-btn-complete-checkout"><?php esc_html_e( 'Complete Checkout', 'agend-apps-shop' ); ?></button>
-				<button class="agend-shop-btn-cancel-checkout"><?php esc_html_e( 'Cancel Checkout', 'agend-apps-shop' ); ?></button>
 			</div>
 
 			<?php endif; ?>
