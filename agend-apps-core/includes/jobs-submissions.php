@@ -373,12 +373,15 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 
 		/**
 		 * Whether the site acts for members by their CRM external id: the key
-		 * is known to hold {@see ON_BEHALF_SCOPE}.
+		 * is known to hold {@see ON_BEHALF_SCOPE} by name. The gateway does not
+		 * admit a wildcard (`*`, `jobs.*`) for this scope, so neither does this.
 		 *
 		 * @return bool
 		 */
 		public static function on_behalf(): bool {
-			return class_exists( 'Agend_Apps_Key_Scopes' ) && Agend_Apps_Key_Scopes::known() && Agend_Apps_Key_Scopes::has( self::ON_BEHALF_SCOPE );
+			return class_exists( 'Agend_Apps_Key_Scopes' )
+				&& Agend_Apps_Key_Scopes::known()
+				&& in_array( self::ON_BEHALF_SCOPE, Agend_Apps_Key_Scopes::stored_scopes(), true );
 		}
 
 		/**
@@ -392,7 +395,10 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				return '';
 			}
 
-			return trim( (string) get_user_meta( $user_id, agend_apps_external_id_meta_key(), true ) );
+			$id = trim( (string) get_user_meta( $user_id, agend_apps_external_id_meta_key(), true ) );
+
+			// The gateway refuses a longer header outright.
+			return strlen( $id ) <= 255 ? $id : '';
 		}
 
 		/**
@@ -415,27 +421,6 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 		}
 
 		/**
-		 * Who is submitting, sent with a new job in on-behalf mode so the
-		 * gateway can create the member's CRM contact if it has none.
-		 *
-		 * @param int $user_id WordPress user id.
-		 * @return array{email: string, first_name: string, last_name: string}|null
-		 */
-		public static function submitter( int $user_id ): ?array {
-			$user = get_userdata( $user_id );
-
-			if ( ! $user || '' === (string) $user->user_email ) {
-				return null;
-			}
-
-			return array(
-				'email'      => (string) $user->user_email,
-				'first_name' => (string) get_user_meta( $user_id, 'first_name', true ),
-				'last_name'  => (string) get_user_meta( $user_id, 'last_name', true ),
-			);
-		}
-
-		/**
 		 * Spends a credit and submits the member's job.
 		 *
 		 * @param int   $user_id WordPress user id.
@@ -454,13 +439,6 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 
 			if ( is_wp_error( $credit_ref ) ) {
 				return self::credit_error( $credit_ref );
-			}
-
-			if ( self::on_behalf() ) {
-				$submitter = self::submitter( $user_id );
-				if ( null !== $submitter ) {
-					$fields['submitter'] = $submitter;
-				}
 			}
 
 			return self::settle( $user_id, $credit_ref, agend_apps_jobs_submit( $fields, $credit_ref ) );
@@ -702,6 +680,12 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Submissions' ) ) :
 				'JOB_NOT_EDITABLE'          => array( 'not_editable', 409, __( 'This job can no longer be changed. Please reload the page.', 'agend-apps-core' ) ),
 				'INVALID_STATUS_TRANSITION' => array( 'not_editable', 409, __( 'This job can no longer be changed. Please reload the page.', 'agend-apps-core' ) ),
 			);
+
+			// On behalf, a member with no contact yet is usually one the
+			// Upbeat contact sync has not reached: worth trying again shortly.
+			if ( 'NOT_ACCOUNT_CONTACT' === $code && self::on_behalf() ) {
+				return new WP_Error( 'not_contact', __( 'Your account is still being set up for job posting. Please try again in a few minutes.', 'agend-apps-core' ), array( 'status' => 403 ) );
+			}
 
 			if ( isset( $known[ $code ] ) ) {
 				return new WP_Error( $known[ $code ][0], $known[ $code ][2], array( 'status' => $known[ $code ][1] ) );

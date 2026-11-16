@@ -1129,12 +1129,16 @@ Elementor) shows the member's credits, their submissions with status, and the
   gateway re-checks its own rules) and adds "tag questions", each a dropdown or
   tick boxes over some of the board's tags, for example a salary band.
 - **Identity**: with the default key, each call carries the member's own
-  bearer. When the key also holds `jobs.submissions.on_behalf`, the site acts
-  for the member instead: no bearer, the member's CRM external id (membership
-  number) in `X-Agend-Contact-External-Id`, and on a new job a `submitter`
-  (email and name) so the gateway can create their contact. The member never
-  signs in to Agend or leaves the site. `agend_apps_jobs_me_args()` adds this to
-  every `/v1/jobs/me` call, the sweep's lookup included.
+  bearer. When the key holds `jobs.submissions.on_behalf` by name (the gateway
+  does not admit a wildcard for it), the site acts for the member instead: no
+  bearer, and the member's CRM external id (Upbeat membership number) in
+  `X-Agend-Contact-External-Id`. The gateway finds their contact by that id,
+  which the Upbeat contacts sync stores; no `submitter` is sent, so a member
+  the sync has not reached yet is told to try again shortly rather than given
+  a duplicate contact. The member never signs in to Agend or leaves the site.
+  `agend_apps_jobs_me_args()` adds this to every `/v1/jobs/me` call, the
+  sweep's lookup included. Gateway: agend-dashboard PR #7984 (SPEC-JOBS-20261112
+  US-1.6); the scope is granted to a key by SQL.
 - **My Account > Jobs** (`includes/my-account-jobs.php`, WooCommerce only):
   a "Jobs" item after Orders at `/my-account/my-jobs/` (namespaced: a bare
   `jobs` endpoint would also claim any page path ending in `/jobs/`). It shows the template

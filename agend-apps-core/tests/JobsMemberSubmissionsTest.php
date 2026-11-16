@@ -499,14 +499,34 @@ final class JobsMemberSubmissionsTest extends TestCase {
 		$this->assertSame( 'M100', $request['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ] );
 		$this->assertArrayNotHasKey( 'Authorization', $request['headers'] );
 		$this->assertArrayHasKey( 'Idempotency-Key', $request['headers'] );
-		$this->assertSame(
-			array(
-				'email'      => 'pat@example.org',
-				'first_name' => 'Pat',
-				'last_name'  => 'Lee',
-			),
-			json_decode( (string) $request['body'], true )['submitter']
-		);
+		$this->assertArrayNotHasKey( 'submitter', json_decode( (string) $request['body'], true ), 'the Upbeat sync creates contacts, never the site' );
+	}
+
+	#[Test]
+	public function a_wildcard_key_is_not_on_behalf(): void {
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( '*' ) ) ) );
+
+		$this->assertFalse( Agend_Apps_Jobs_Submissions::on_behalf() );
+	}
+
+	#[Test]
+	public function on_behalf_a_member_with_no_contact_yet_is_asked_to_try_again_and_keeps_the_credit(): void {
+		$this->act_on_behalf();
+		$this->provider->used['cr-1'] = false;
+		Agend_Test_WP::queue_response( 403, $this->gateway_error( 403, 'NOT_ACCOUNT_CONTACT' ) );
+
+		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
+
+		$this->assertStringContainsString( 'try again', $result->get_error_message() );
+		$this->assertFalse( $this->provider->used['cr-1'], 'the credit is given back' );
+	}
+
+	#[Test]
+	public function an_external_id_the_gateway_would_refuse_is_treated_as_none(): void {
+		$this->act_on_behalf();
+		$GLOBALS['agend_test_user_meta'][7]['imk_membership_number'] = str_repeat( '9', 256 );
+
+		$this->assertSame( 'not_connected', Agend_Apps_Jobs_Submissions::precheck( 7 )->get_error_code() );
 	}
 
 	#[Test]
