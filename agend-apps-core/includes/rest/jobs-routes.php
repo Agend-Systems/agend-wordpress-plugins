@@ -17,6 +17,11 @@ require_once __DIR__ . '/../records/jobs-visibility.php';
  * Called from `rest_api_init` via the main plugin bootstrap.
  */
 function agend_apps_register_jobs_routes(): void {
+	// First: `jobs/{slug_or_id}` below would otherwise read `jobs/me` as a slug.
+	if ( class_exists( 'Agend_Apps_Jobs_Me_REST_Controller' ) ) {
+		( new Agend_Apps_Jobs_Me_REST_Controller() )->register_routes();
+	}
+
 	$controller = new Agend_Apps_Jobs_REST_Controller();
 	$controller->register_routes();
 }

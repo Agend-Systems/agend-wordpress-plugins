@@ -919,6 +919,21 @@ function sanitize_text_field( $value ): string {
 	return trim( (string) $value );
 }
 
+if ( ! function_exists( 'sanitize_textarea_field' ) ) {
+	/** Minimal `sanitize_textarea_field()` stand-in: strips tags, keeps line breaks. */
+	function sanitize_textarea_field( $value ): string {
+		return trim( strip_tags( (string) $value ) );
+	}
+}
+
+if ( ! function_exists( 'sanitize_email' ) ) {
+	/** Minimal `sanitize_email()` stand-in: trims, and empties anything without an @. */
+	function sanitize_email( $email ): string {
+		$email = trim( (string) $email );
+		return false === strpos( $email, '@' ) ? '' : $email;
+	}
+}
+
 function esc_url( $url ): string {
 	return htmlspecialchars( (string) $url, ENT_QUOTES );
 }
@@ -1590,6 +1605,18 @@ if ( ! isset( $GLOBALS['agend_test_users'] ) ) {
 	$GLOBALS['agend_test_users'] = array();
 }
 
+if ( ! function_exists( 'get_userdata' ) ) {
+	/** `get_userdata()` stand-in over the `agend_test_users` registry of WP_User instances. */
+	function get_userdata( $user_id ) {
+		foreach ( (array) $GLOBALS['agend_test_users'] as $user ) {
+			if ( $user instanceof WP_User && (int) $user_id === $user->ID ) {
+				return $user;
+			}
+		}
+		return false;
+	}
+}
+
 if ( ! function_exists( 'get_users' ) ) {
 	/**
 	 * User query stub, for the one lookup the plugins make: by an exact user
@@ -1946,6 +1973,12 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 
 		public function get_body(): string {
 			return $this->body;
+		}
+
+		/** The JSON body decoded, or null, as core returns for a non-JSON body. */
+		public function get_json_params() {
+			$decoded = json_decode( $this->body, true );
+			return is_array( $decoded ) ? $decoded : null;
 		}
 	}
 }

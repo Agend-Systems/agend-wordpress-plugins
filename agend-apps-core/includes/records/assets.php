@@ -214,6 +214,21 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// The Member Jobs surface: a member's credits, submissions and job form.
+	wp_register_style(
+		'agend-apps-records-member-jobs',
+		agend_apps_records_asset_url( 'css/member-jobs.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-member-jobs',
+		agend_apps_records_asset_url( 'js/member-jobs.js' ),
+		array(),
+		agend_apps_records_asset_version(),
+		true
+	);
+
 	wp_register_style(
 		'agend-apps-records-events-catalogue',
 		agend_apps_records_asset_url( 'css/events-catalogue.css' ),
