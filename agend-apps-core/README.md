@@ -1129,6 +1129,73 @@ job or the member withdraws it. This site never reads or writes credits itself.
   create contacts under `upbeat-contacts`; the organisation has a job credit
   setting and member job submissions switched on.
 
+## Member job submissions
+
+A signed-in member posts a job to the jobs board from this site, paid for with
+one of their job credits, and staff approve it in Agend before it goes live.
+The **Agend Member Jobs** surface (`member-jobs`; Elementor widget in Agend
+Elementor) shows the member's credits, their submissions with status, and the
+"Post a job" form. Agend decides everything about credits (see "Member job
+credits" above).
+
+- **Routes** (`includes/rest/jobs-me-routes.php`, signed-in user only, cookie
+  nonce; `me` is the signed-in WordPress user): `GET /agend-apps/v1/jobs/me`
+  (`page`), `POST /jobs/me`, `GET /jobs/me/credits`, `GET /jobs/me/{id}`,
+  `PATCH /jobs/me/{id}`, `POST /jobs/me/{id}/withdraw` and
+  `POST /jobs/me/{id}/close` (`filled`). Answers are `{ success, data }` or
+  `{ success: false, code, message, fields? }`; `code` is stable and `message`
+  is this site's own wording, never the gateway's. Registered before the public
+  `jobs/{slug_or_id}` route, which would otherwise read `me` as a slug.
+- **Posting** (`Agend_Apps_Jobs_Submissions::submit()`): checks that cost
+  nothing come first (signed in, the key not known to lack
+  `jobs.submissions.create`, the member has a membership number, a first and
+  last name and an email). Then `POST /v1/jobs/submissions` with the member's
+  contact pair, name and email: Agend finds the contact by the pair, or creates
+  it (never matching by email), and answers `202` with the job as
+  `checking_credit`. The browser then polls `GET /jobs/me/{id}` every 3 seconds
+  for up to 30: `pending` means a credit paid for it and it awaits review,
+  `no_credit` means none was available and nothing was spent, and a check
+  still running is left to finish (the row updates later).
+- **No double posts**: the form sends a `request_id`, and the site sends
+  `wp-<user id>-<request_id>` as the `Idempotency-Key`. The browser keeps the
+  id while the outcome is unknown and starts a new one after a refusal. A
+  timeout, a `5xx`, an unreadable answer or an idempotency `409` is
+  `unconfirmed`: the member is shown their list rather than a second submit.
+- **Statuses** as the member sees them: Agend's `approved` is `published`, or
+  `expired` once its listing period ends; `closed` is `filled` when the member
+  said so. The rest (`checking_credit`, `pending`, `no_credit`, `rejected`,
+  `withdrawn`, `closed`) pass through. The browser never gets `credit_ref`,
+  `account_id` or `contact`.
+- **Withdraw** a pending job and Agend frees its credit; **close** a live one
+  and it does not, because the listing ran. The site forgets its cached credit
+  count after a post, a settled check and a withdrawal.
+- **Fields**: everything `POST /v1/jobs/submissions` takes in `job` except the
+  logo (the gateway only accepts an `https` address the site hosts, and there
+  is no upload yet). The description is typed as plain text and sent as
+  escaped paragraphs. Title, employment type and work arrangement are always
+  required; the widget chooses which other fields are required or hidden
+  (enforced by the form, the gateway re-checks its own rules) and adds "tag
+  questions", each a dropdown or tick boxes over some of the board's tags, for
+  example a salary band.
+- **My Account > Jobs** (`includes/my-account-jobs.php`, WooCommerce only):
+  a "Jobs" item after Orders at `/my-account/my-jobs/` (namespaced: a bare
+  `jobs` endpoint would also claim any page path ending in `/jobs/`). It shows the template
+  chosen in Agend Widgets settings ("My Account Jobs template"), or the Member
+  Jobs surface on its own. Lay the template out with Content Personalisation
+  rules such as "Agend Jobs > Has an unused job credit".
+- **Buying credits**: "Job credit products" in Agend Widgets settings picks up
+  to three WooCommerce products (the CRM credit products, imported by the
+  products extension). Each becomes a Buy button in the widget, linking to
+  `?agend_jobs_buy=<id>`. A signed-out visitor signs in first. WooCommerce's
+  add-to-cart checks run as for any add (the products extension keeps a CRM
+  renewal invoice on its own this way); the product goes in the cart once and
+  checkout opens, or a refusal returns to My Account > Jobs with WooCommerce's
+  notice. Only a configured product is accepted. Buying a product grants the
+  credit in the CRM; Agend counts it from there.
+- **Gateway setup**: see "Member job credits" above. Without
+  `jobs.submissions.browse` and `jobs.submissions.create` the surface draws
+  nothing for a visitor.
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map
