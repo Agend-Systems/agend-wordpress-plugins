@@ -36,9 +36,7 @@
     not_connected: true,
     not_contact: true,
     disabled: true,
-    no_credits: true,
-    no_member: true,
-    busy: true,
+    profile_incomplete: true,
     credits_unavailable: true,
     validation_failed: true,
     rate_limited: true,
@@ -49,6 +47,22 @@
   };
   // Answers that mean the member cannot use the board from here at all.
   var BLOCKING_CODES = { unavailable: true, not_connected: true, not_contact: true, disabled: true, sign_in: true };
+  // After a post, how often and how many times to ask whether Agend found a
+  // credit for the job: every 3 seconds for up to 30 seconds.
+  var POLL_INTERVAL = 3000;
+  var POLL_TRIES = 10;
+
+  /** An id for one attempt to post a job, kept while its outcome is unknown. */
+  function requestId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    var hex = '';
+    for (var i = 0; i < 32; i++) {
+      hex += Math.floor(Math.random() * 16).toString(16);
+    }
+    return hex;
+  }
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -163,7 +177,7 @@
     var now = new Date();
     var later = new Date(now.getTime() + 30 * 86400000);
     return {
-      credits: { available: 2, next_expiry: later.toISOString() },
+      credits: { available: 2 },
       items: [
         { id: 'sample-1', title: 'SMSF Accountant', status: 'pending', submitted_at: now.toISOString() },
         { id: 'sample-2', title: 'Senior Auditor', status: 'published', submitted_at: now.toISOString(), expires_at: later.toISOString() },
@@ -337,9 +351,6 @@
         line.textContent = self.creditsFailed ? m.creditsUnknown : '';
       } else {
         line.appendChild(el('strong', '', format(count === 1 ? m.creditsOne : m.creditsMany, count)));
-        if (self.credits.next_expiry) {
-          line.appendChild(document.createTextNode(' ' + format(m.creditsExpiry, formatDate(self.credits.next_expiry))));
-        }
       }
       bar.appendChild(line);
 
@@ -415,6 +426,9 @@
     if (status === 'rejected' && item.rejection_reason) {
       job.appendChild(el('span', 'agend-member-jobs__sub', m.reason + ' ' + item.rejection_reason));
     }
+    if (status === 'no_credit' || status === 'checking_credit') {
+      job.appendChild(el('span', 'agend-member-jobs__sub', status === 'no_credit' ? m.noCreditNote : m.checkingNote));
+    }
     tr.appendChild(job);
 
     var statusCell = el('td');
@@ -479,7 +493,7 @@
           self.act(item, '/close', { filled: false }, a.closed);
         });
       });
-    } else if ((status === 'rejected' || status === 'withdrawn' || status === 'expired') && (self.creditCount() || 0) > 0) {
+    } else if ((status === 'rejected' || status === 'withdrawn' || status === 'expired' || status === 'no_credit') && (self.creditCount() || 0) > 0) {
       // A fresh submission prefilled from this one: it uses a new credit.
       button(a.again, function () {
         self.say('');
@@ -488,6 +502,60 @@
     }
 
     return tr;
+  };
+
+  /** Reloads the list and moves focus to its status line. */
+  MemberJobs.prototype.reload = function () {
+    var self = this;
+    return self.load().then(function () {
+      var status = self.root.querySelector('[data-agend-mj-status]');
+      if (status) {
+        status.focus();
+      }
+    });
+  };
+
+  /**
+   * Follows a job Agend accepted until its credit check settles, then shows
+   * the list: `pending` when a credit paid for it, `no_credit` when none
+   * did. A check still running after 30 seconds finishes on its own, and the
+   * job's row shows the outcome later.
+   */
+  MemberJobs.prototype.follow = function (accepted) {
+    var self = this;
+    var f = self.m.form;
+    var tries = 0;
+
+    function settle(status) {
+      if (status === 'no_credit') {
+        self.notice = { text: f.noCredit, error: true };
+      } else if (status === 'checking_credit' || !status) {
+        self.notice = { text: f.stillChecking, error: false };
+      } else {
+        self.notice = { text: self.cfg.text.success, error: false };
+      }
+      self.reload();
+    }
+
+    function ask() {
+      tries += 1;
+      request(self.cfg, 'GET', '/' + encodeURIComponent(accepted.id)).then(function (result) {
+        var status = result.ok && result.json.data ? String(result.json.data.status || '') : '';
+        if (status && status !== 'checking_credit') {
+          settle(status);
+        } else if (!result.ok || tries >= POLL_TRIES) {
+          settle('checking_credit');
+        } else {
+          window.setTimeout(ask, POLL_INTERVAL);
+        }
+      });
+    }
+
+    if (accepted.status && accepted.status !== 'checking_credit') {
+      settle(accepted.status);
+      return;
+    }
+    window.setTimeout(ask, POLL_INTERVAL);
   };
 
   MemberJobs.prototype.act = function (item, suffix, body, done) {
@@ -524,6 +592,10 @@
     var root = self.root;
     var uid = 'agend-mj-' + Math.random().toString(36).slice(2, 8);
     var controls = {};
+    // One id per attempt to post this job, sent as its idempotency key: a
+    // retry after an unknown outcome can never post it twice. A refusal
+    // starts a new attempt, so a corrected form is never mistaken for it.
+    var attempt = requestId();
 
     root.textContent = '';
     var back = el('button', 'agend-member-jobs__back', f.back);
@@ -995,40 +1067,42 @@
       submit.disabled = true;
       self.say(editing ? f.saving : f.sending);
 
+      if (!editing) {
+        body.request_id = attempt;
+      }
+
       var send = editing
         ? request(cfg, 'PATCH', '/' + encodeURIComponent(item.id), body)
         : request(cfg, 'POST', '', body);
 
       send.then(function (result) {
+        var json = result.json || {};
+
+        // Posted: Agend is checking for a credit. Keep the form busy and
+        // wait for the outcome.
+        if (!editing && result.ok && json.data && json.data.id) {
+          self.say(f.checking);
+          self.follow(json.data);
+          return;
+        }
+
         formNode.setAttribute('aria-busy', 'false');
         submit.disabled = false;
-        var json = result.json || {};
 
         // A new job whose answer never arrived, or arrived without one of
         // our codes (a proxy timeout, a server error page), may have been
-        // created and paid for. Never offer a second submit: show the list.
+        // created. Never offer a second submit: show the list.
         var unknown = !editing && !result.ok && !OWN_CODES[json.code] && (result.status === 0 || result.status >= 500 || !json.code);
 
         if (result.ok || json.code === 'unconfirmed' || unknown) {
           self.notice = result.ok
             ? { text: editing ? self.m.actions.saved : cfg.text.success, error: false }
             : { text: json.code === 'unconfirmed' ? json.message : f.unconfirmed, error: true };
-          self.load().then(function () {
-            var status = self.root.querySelector('[data-agend-mj-status]');
-            if (status) {
-              status.focus();
-            }
-          });
+          self.reload();
           return;
         }
 
-        if (json.code === 'no_credits') {
-          // The balance changed since the page loaded: back to the list.
-          self.notice = { text: json.message, error: true };
-          self.load();
-          return;
-        }
-
+        attempt = requestId();
         if (json.fields) {
           showErrors(json.fields);
         }

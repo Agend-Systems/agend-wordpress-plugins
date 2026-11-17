@@ -8,15 +8,15 @@
  *   path ending in `/jobs/`, and a jobs board site is likely to have one.
  * - The page shows the Elementor (or block) template chosen in Agend Widgets
  *   settings, so the association can lay it out with Agend Content
- *   Personalisation rules ("Has an unused job credit" from Agend Entitlement
- *   Mirror). With no template chosen it shows the Agend Member Jobs surface
+ *   Personalisation rules ("Agend Jobs > Has an unused job credit", which asks
+ *   Agend). With no template chosen it shows the Agend Member Jobs surface
  *   on its own.
  * - "Buy" buttons for the job credit products chosen in settings go through
  *   `?agend_jobs_buy=<product id>`: the product is put in the cart once and the
  *   member lands on checkout.
  *
- * Everything is inert without WooCommerce, job credits switched on, and an API
- * key that can use member job submissions.
+ * Everything is inert without WooCommerce and an API key that can use member
+ * job submissions.
  *
  * @package Agend_Apps_Core
  */
@@ -67,7 +67,7 @@ const AGEND_APPS_MEMBER_JOBS_BUY_ARG = 'agend_jobs_buy';
  * @return bool
  */
 function agend_apps_my_account_jobs_enabled(): bool {
-	if ( ! class_exists( 'WooCommerce' ) || ! class_exists( 'Agend_Apps_Jobs_Credits' ) || ! Agend_Apps_Jobs_Credits::enabled() ) {
+	if ( ! class_exists( 'WooCommerce' ) || ! class_exists( 'Agend_Apps_Jobs_Submissions' ) || ! Agend_Apps_Jobs_Submissions::available() ) {
 		return false;
 	}
 
@@ -91,9 +91,9 @@ function agend_apps_my_account_jobs_url(): string {
  * Registers the endpoint wherever WooCommerce registers its own (pages, and
  * the site root only when My Account is the front page).
  *
- * Registered whenever WooCommerce is active, not only while job credits are
- * on: otherwise a rules flush while they were off would drop the rule, and
- * switching them back on would leave the page answering 404 until the
+ * Registered whenever WooCommerce is active, not only while the key can post
+ * jobs: otherwise a rules flush while it could not would drop the rule, and
+ * granting the scopes later would leave the page answering 404 until the
  * permalinks were saved. The menu item and content stay gated.
  */
 function agend_apps_my_account_jobs_add_rewrite_endpoint(): void {

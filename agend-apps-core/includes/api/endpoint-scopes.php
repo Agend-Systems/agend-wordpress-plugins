@@ -469,9 +469,21 @@ return array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.listings.browse' ) ),
 	),
+	'GET /jobs/credits' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.browse' ) ),
+	),
 	'GET /jobs/me' => array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.submissions.self_read' ) ),
+	),
+	'GET /jobs/submissions' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.browse' ) ),
+	),
+	'GET /jobs/submissions/{id}' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.browse' ) ),
 	),
 	'GET /jobs/tags' => array(
 		'app'    => 'jobs',
@@ -748,6 +760,10 @@ return array(
 	'PATCH /jobs/me/{id}' => array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.submissions.self_manage' ) ),
+	),
+	'PATCH /jobs/submissions/{id}' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.manage' ) ),
 	),
 	'PATCH /lms/courses/{id}' => array(
 		'app'    => 'lms',
@@ -1108,6 +1124,18 @@ return array(
 	'POST /jobs/me/{id}/withdraw' => array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.submissions.self_manage' ) ),
+	),
+	'POST /jobs/submissions' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.create' ) ),
+	),
+	'POST /jobs/submissions/{id}/close' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.manage' ) ),
+	),
+	'POST /jobs/submissions/{id}/withdraw' => array(
+		'app'    => 'jobs',
+		'scopes' => array( array( 'jobs.submissions.manage' ) ),
 	),
 	'POST /lms/certificates/{id}/generate' => array(
 		'app'    => 'lms',

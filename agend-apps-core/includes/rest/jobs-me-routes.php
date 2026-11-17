@@ -14,14 +14,17 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Exposes, for the signed-in WordPress user only:
  * - `GET   /agend-apps/v1/jobs/me`               : their submissions, newest first (`page`).
- * - `POST  /agend-apps/v1/jobs/me`               : spend a credit and submit a job.
- * - `GET   /agend-apps/v1/jobs/me/credits`       : how many credits they can spend.
+ * - `POST  /agend-apps/v1/jobs/me`               : post a job (202, usually `checking_credit`).
+ * - `GET   /agend-apps/v1/jobs/me/credits`       : how many unused credits Agend counts.
+ * - `GET   /agend-apps/v1/jobs/me/{id}`          : one submission, polled after a post.
  * - `PATCH /agend-apps/v1/jobs/me/{id}`          : edit a pending submission.
- * - `POST  /agend-apps/v1/jobs/me/{id}/withdraw` : withdraw a pending one (credit given back).
+ * - `POST  /agend-apps/v1/jobs/me/{id}/withdraw` : withdraw a pending one (Agend frees the credit).
  * - `POST  /agend-apps/v1/jobs/me/{id}/close`    : take a published one down (`filled`).
  *
- * Identity comes from the WordPress session and the member's gateway bearer;
- * no member or credit is ever named by the browser. Every answer is
+ * `me` is the signed-in WordPress user. The site names them to Agend by their
+ * contact pair, from the WordPress session; the browser never names a member
+ * or a credit. A post carries a `request_id`, which the browser keeps while
+ * the outcome is unknown, so a retry never posts twice. Every answer is
  * `{ success, data }` or `{ success: false, code, message, fields? }`, where
  * `code` is stable for the widget and `message` is the site's own wording.
  *
@@ -91,6 +94,11 @@ class Agend_Apps_Jobs_Me_REST_Controller extends Agend_Apps_REST_Controller {
 			'/' . $this->rest_base . '/' . self::ID_PATTERN,
 			array(
 				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_one' ),
+					'permission_callback' => $permission,
+				),
+				array(
 					'methods'             => 'PATCH',
 					'callback'            => array( $this, 'update' ),
 					'permission_callback' => $permission,
@@ -154,7 +162,7 @@ class Agend_Apps_Jobs_Me_REST_Controller extends Agend_Apps_REST_Controller {
 	}
 
 	/**
-	 * The member's spendable credits.
+	 * The member's unused credits, as Agend counts them.
 	 *
 	 * @return WP_REST_Response
 	 */
@@ -163,26 +171,38 @@ class Agend_Apps_Jobs_Me_REST_Controller extends Agend_Apps_REST_Controller {
 	}
 
 	/**
-	 * Spends a credit and submits a job.
+	 * One submission, polled after a post until its credit check settles.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response
+	 */
+	public function get_one( WP_REST_Request $request ): WP_REST_Response {
+		return $this->answer( Agend_Apps_Jobs_Submissions::get( get_current_user_id(), strtolower( (string) $request->get_param( 'id' ) ) ) );
+	}
+
+	/**
+	 * Posts a job. Agend checks for a credit in the background.
 	 *
 	 * @param WP_REST_Request $request Request.
 	 * @return WP_REST_Response
 	 */
 	public function submit( WP_REST_Request $request ): WP_REST_Response {
-		$clean = Agend_Apps_Jobs_Submissions::sanitize( $this->body( $request ), true );
+		$body  = $this->body( $request );
+		$clean = Agend_Apps_Jobs_Submissions::sanitize( $body, true );
 
 		if ( array() !== $clean['errors'] ) {
 			return $this->invalid( $clean['errors'] );
 		}
 
-		$result = Agend_Apps_Jobs_Submissions::submit( get_current_user_id(), $clean['fields'] );
+		$request_id = isset( $body['request_id'] ) && is_string( $body['request_id'] ) ? $body['request_id'] : '';
+		$result     = Agend_Apps_Jobs_Submissions::submit( get_current_user_id(), $clean['fields'], $request_id );
 
 		return is_wp_error( $result ) ? $this->answer( $result ) : new WP_REST_Response(
 			array(
 				'success' => true,
-				'data'    => Agend_Apps_Jobs_Submissions::public_item( $result ),
+				'data'    => $result,
 			),
-			201
+			202
 		);
 	}
 
@@ -223,13 +243,14 @@ class Agend_Apps_Jobs_Me_REST_Controller extends Agend_Apps_REST_Controller {
 	}
 
 	/**
-	 * A single submission as the route's answer, without its private keys.
+	 * A single submission as the route's answer. The service has already
+	 * removed its private keys.
 	 *
 	 * @param array|WP_Error $result Item, or WP_Error.
 	 * @return WP_REST_Response
 	 */
 	private function item( $result ): WP_REST_Response {
-		return $this->answer( is_wp_error( $result ) ? $result : Agend_Apps_Jobs_Submissions::public_item( $result ) );
+		return $this->answer( $result );
 	}
 
 	/**

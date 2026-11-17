@@ -7,7 +7,7 @@
  * `agend_apps_records_surface_schema( 'member-jobs' )`) and echoes the HTML.
  * The list and the form are drawn by assets/js/member-jobs.js from the config
  * embedded here, and every change goes through the `agend-apps/v1/jobs/me`
- * routes, which decide what happens to the member's credit.
+ * routes. Agend alone decides whether a job is paid for by a credit.
  *
  * @package Agend_Apps_Core
  */
@@ -202,8 +202,6 @@ function agend_apps_records_member_jobs_messages(): array {
 		'creditsOne'     => __( 'You have %d job credit.', 'agend-apps-core' ),
 		/* translators: %d: number of job credits. */
 		'creditsMany'    => __( 'You have %d job credits.', 'agend-apps-core' ),
-		/* translators: %s: a date. */
-		'creditsExpiry'  => __( 'The next one expires on %s.', 'agend-apps-core' ),
 		'creditsUnknown' => __( 'Your job credits could not be checked just now.', 'agend-apps-core' ),
 		'none'           => __( 'You have not posted any jobs yet.', 'agend-apps-core' ),
 		'noCreditsTitle' => __( 'You have no job credits', 'agend-apps-core' ),
@@ -220,14 +218,18 @@ function agend_apps_records_member_jobs_messages(): array {
 		/* translators: %s: a date. */
 		'expiresOn'      => __( 'Listed until %s', 'agend-apps-core' ),
 		'reason'         => __( 'Reason:', 'agend-apps-core' ),
+		'noCreditNote'   => __( 'No job credit was available, so this job was not submitted.', 'agend-apps-core' ),
+		'checkingNote'   => __( 'We are checking your job credit.', 'agend-apps-core' ),
 		'status'         => array(
-			'pending'   => __( 'Awaiting review', 'agend-apps-core' ),
-			'published' => __( 'Live', 'agend-apps-core' ),
-			'expired'   => __( 'Expired', 'agend-apps-core' ),
-			'closed'    => __( 'Closed', 'agend-apps-core' ),
-			'filled'    => __( 'Filled', 'agend-apps-core' ),
-			'rejected'  => __( 'Not approved', 'agend-apps-core' ),
-			'withdrawn' => __( 'Withdrawn', 'agend-apps-core' ),
+			'checking_credit' => __( 'Checking credit', 'agend-apps-core' ),
+			'no_credit'       => __( 'No credit', 'agend-apps-core' ),
+			'pending'         => __( 'Awaiting review', 'agend-apps-core' ),
+			'published'       => __( 'Live', 'agend-apps-core' ),
+			'expired'         => __( 'Expired', 'agend-apps-core' ),
+			'closed'          => __( 'Closed', 'agend-apps-core' ),
+			'filled'          => __( 'Filled', 'agend-apps-core' ),
+			'rejected'        => __( 'Not approved', 'agend-apps-core' ),
+			'withdrawn'       => __( 'Withdrawn', 'agend-apps-core' ),
 		),
 		'actions'        => array(
 			'view'            => __( 'View', 'agend-apps-core' ),
@@ -246,40 +248,43 @@ function agend_apps_records_member_jobs_messages(): array {
 			'saved'           => __( 'Your changes have been saved.', 'agend-apps-core' ),
 		),
 		'form'           => array(
-			'newHeading'   => __( 'Post a job', 'agend-apps-core' ),
-			'editHeading'  => __( 'Edit job', 'agend-apps-core' ),
-			'submit'       => __( 'Submit for review', 'agend-apps-core' ),
-			'submitNote'   => __( 'Submitting uses one job credit. If the job is not approved, or you withdraw it before then, the credit is returned.', 'agend-apps-core' ),
+			'newHeading'      => __( 'Post a job', 'agend-apps-core' ),
+			'editHeading'     => __( 'Edit job', 'agend-apps-core' ),
+			'submit'          => __( 'Submit for review', 'agend-apps-core' ),
+			'submitNote'      => __( 'Submitting uses one job credit. If the job is not approved, or you withdraw it before then, the credit is returned.', 'agend-apps-core' ),
 			/* translators: %d: number of job credits the member has. */
 			'submitNoteCount' => __( 'Uses 1 of your %d job credits. It is returned if the job is not approved, or if you withdraw it before then.', 'agend-apps-core' ),
-			'submitNoteLast' => __( 'Uses your last job credit. It is returned if the job is not approved, or if you withdraw it before then.', 'agend-apps-core' ),
-			'back'         => __( '← Back to my jobs', 'agend-apps-core' ),
-			'save'         => __( 'Save changes', 'agend-apps-core' ),
-			'cancel'       => __( 'Cancel', 'agend-apps-core' ),
-			'sending'      => __( 'Sending…', 'agend-apps-core' ),
-			'saving'       => __( 'Saving…', 'agend-apps-core' ),
-			'choose'       => __( 'Choose…', 'agend-apps-core' ),
-			'optional'     => __( '(optional)', 'agend-apps-core' ),
-			'required'     => __( 'This field is required.', 'agend-apps-core' ),
-			'applyNeeded'  => __( 'Please give an application email or a link.', 'agend-apps-core' ),
-			'email'        => __( 'Please enter a valid email address.', 'agend-apps-core' ),
-			'url'          => __( 'Please enter a full web address, starting with https://.', 'agend-apps-core' ),
-			'number'       => __( 'Please enter a whole number.', 'agend-apps-core' ),
-			'salaryRange'  => __( 'The maximum must not be less than the minimum.', 'agend-apps-core' ),
-			'tooLong'      => __( 'This is too long.', 'agend-apps-core' ),
-			'fix'          => __( 'Please check the highlighted fields and try again.', 'agend-apps-core' ),
-			'session'      => __( 'Your session has expired. Please reload the page and try again.', 'agend-apps-core' ),
-			'failed'       => __( 'Sorry, something went wrong. Please try again later.', 'agend-apps-core' ),
-			'noChanges'    => __( 'Nothing was changed.', 'agend-apps-core' ),
-			'unconfirmed'  => __( 'We could not confirm your job was received. Please check your jobs below in a few minutes before posting it again. If it has not appeared within an hour, contact us and we will return your credit.', 'agend-apps-core' ),
-			'sections'     => array(
+			'submitNoteLast'  => __( 'Uses your last job credit. It is returned if the job is not approved, or if you withdraw it before then.', 'agend-apps-core' ),
+			'back'            => __( '← Back to my jobs', 'agend-apps-core' ),
+			'save'            => __( 'Save changes', 'agend-apps-core' ),
+			'cancel'          => __( 'Cancel', 'agend-apps-core' ),
+			'sending'         => __( 'Sending…', 'agend-apps-core' ),
+			'checking'        => __( 'Sent. Checking your job credit…', 'agend-apps-core' ),
+			'noCredit'        => __( 'You have no unused job credit, so your job was not submitted. Buy a credit, then use Post again.', 'agend-apps-core' ),
+			'stillChecking'   => __( 'Your job was received and we are still checking your job credit. Its status below will update shortly.', 'agend-apps-core' ),
+			'saving'          => __( 'Saving…', 'agend-apps-core' ),
+			'choose'          => __( 'Choose…', 'agend-apps-core' ),
+			'optional'        => __( '(optional)', 'agend-apps-core' ),
+			'required'        => __( 'This field is required.', 'agend-apps-core' ),
+			'applyNeeded'     => __( 'Please give an application email or a link.', 'agend-apps-core' ),
+			'email'           => __( 'Please enter a valid email address.', 'agend-apps-core' ),
+			'url'             => __( 'Please enter a full web address, starting with https://.', 'agend-apps-core' ),
+			'number'          => __( 'Please enter a whole number.', 'agend-apps-core' ),
+			'salaryRange'     => __( 'The maximum must not be less than the minimum.', 'agend-apps-core' ),
+			'tooLong'         => __( 'This is too long.', 'agend-apps-core' ),
+			'fix'             => __( 'Please check the highlighted fields and try again.', 'agend-apps-core' ),
+			'session'         => __( 'Your session has expired. Please reload the page and try again.', 'agend-apps-core' ),
+			'failed'          => __( 'Sorry, something went wrong. Please try again later.', 'agend-apps-core' ),
+			'noChanges'       => __( 'Nothing was changed.', 'agend-apps-core' ),
+			'unconfirmed'     => __( 'We could not confirm your job was received. Please check your jobs below in a minute before posting it again.', 'agend-apps-core' ),
+			'sections'        => array(
 				'role'     => __( 'The role', 'agend-apps-core' ),
 				'employer' => __( 'Employer', 'agend-apps-core' ),
 				'location' => __( 'Location', 'agend-apps-core' ),
 				'salary'   => __( 'Salary', 'agend-apps-core' ),
 				'apply'    => __( 'How to apply', 'agend-apps-core' ),
 			),
-			'labels'       => array(
+			'labels'          => array(
 				'title'                    => __( 'Job title', 'agend-apps-core' ),
 				'reference_number'         => __( 'Reference number', 'agend-apps-core' ),
 				'employment_type'          => __( 'Employment type', 'agend-apps-core' ),
@@ -304,13 +309,13 @@ function agend_apps_records_member_jobs_messages(): array {
 				'contact_name'             => __( 'Contact name', 'agend-apps-core' ),
 				'contact_phone'            => __( 'Contact phone', 'agend-apps-core' ),
 			),
-			'hints'        => array(
+			'hints'           => array(
 				'short_description' => __( 'One or two lines for the job card.', 'agend-apps-core' ),
 				'description'       => __( 'Leave a blank line between paragraphs.', 'agend-apps-core' ),
 				'application_email' => __( 'Applications are sent to this address.', 'agend-apps-core' ),
 				'application_url'   => __( 'Your own application page, if you use one.', 'agend-apps-core' ),
 			),
-			'options'      => array(
+			'options'         => array(
 				'employment_type'  => array(
 					'full-time'  => __( 'Full time', 'agend-apps-core' ),
 					'part-time'  => __( 'Part time', 'agend-apps-core' ),

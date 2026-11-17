@@ -166,171 +166,187 @@ function agend_apps_jobs_get_terms( string $kind ) {
 }
 
 /**
- * Lists the signed-in member's own job submissions, in every status, newest
- * first.
+ * Request args shared by the member job submission routes.
  *
- * Scope: `jobs.submissions.self_read`. Needs the member's bearer token, which
- * the client attaches for the current user. Never cached: a member must see a
- * submission they have just made, edited or withdrawn.
+ * These routes take the site API key alone and name the member by their
+ * contact pair, so the signed-in member's bearer is never attached: a site
+ * acts for many members with one key.
  *
- * @param array $query Optional. `page` and `limit`. Default empty.
- * @return array|WP_Error Decoded response (`data` items and `meta.pagination`), or WP_Error on failure.
- */
-function agend_apps_jobs_get_my_submissions( array $query = array() ) {
-	return agend_apps_api()->request( 'GET', '/jobs/me', agend_apps_jobs_me_args( array( 'query' => $query ) ) );
-}
-
-/**
- * Request args for a `/v1/jobs/me` call, with how the current user is
- * identified to the gateway added.
- *
- * With a key that may act for members ({@see Agend_Apps_Jobs_Submissions::ON_BEHALF_SCOPE}),
- * the member is named by their CRM external id in a header and no bearer is
- * sent, so they never leave the site. Otherwise the member's own bearer is
- * attached as usual.
- *
- * @param array $args Request args.
+ * @param array $args Further request args.
  * @return array
  */
-function agend_apps_jobs_me_args( array $args ): array {
-	$identity = class_exists( 'Agend_Apps_Jobs_Submissions' ) ? Agend_Apps_Jobs_Submissions::identity_args( get_current_user_id() ) : array();
-
-	if ( isset( $identity['headers'] ) ) {
-		$args['headers'] = array_merge( $args['headers'] ?? array(), $identity['headers'] );
-		unset( $identity['headers'] );
-	}
-
-	return array_merge( $args, $identity );
+function agend_apps_jobs_submission_args( array $args = array() ): array {
+	return array_merge( array( 'unattended' => true ), $args );
 }
 
 /**
- * Submits a job for the signed-in member, paid for by a reserved credit.
+ * The contact pair as query args, for the GET routes.
  *
- * Scope: `jobs.submissions.self_manage`. The credit_ref is sent as the
- * request's `Idempotency-Key` as well as in the body: it is unique to one
- * reservation, so a submit that timed out can be retried with the same fields
- * and the gateway returns the first response instead of creating a second
- * job. Retry only with identical fields; different fields under the same key
- * get `409 IDEMPOTENCY_KEY_REUSED`.
- *
- * A `400` or `403` means no job was created, so the caller gives the credit
- * back with {@see Agend_Apps_Jobs_Credits::release()}. A `409`
- * (`CREDIT_REF_IN_USE`, `IDEMPOTENCY_KEY_REUSED` or `IDEMPOTENCY_IN_PROGRESS`)
- * means an earlier attempt with this credit_ref reached the gateway, and a
- * timeout or `5xx` leaves the outcome unknown: in all three, never give the
- * credit back here. Retry a timeout with the same fields, and otherwise leave
- * the reservation for the sweep, which looks it up and settles it.
- * {@see Agend_Apps_Jobs_Submissions::submit()} applies this rule.
- *
- * @param array  $fields     Job fields, as accepted by `POST /v1/jobs/me`.
- * @param string $credit_ref The credit_ref {@see Agend_Apps_Jobs_Credits::reserve()} returned.
- * @return array|WP_Error The submission item, or WP_Error on failure.
+ * @param array $contact `external_source` and `external_id`.
+ * @return array
  */
-function agend_apps_jobs_submit( array $fields, string $credit_ref ) {
-	$fields['credit_ref'] = $credit_ref;
+function agend_apps_jobs_contact_query( array $contact ): array {
+	return array(
+		'external_source' => (string) ( $contact['external_source'] ?? '' ),
+		'external_id'     => (string) ( $contact['external_id'] ?? '' ),
+	);
+}
 
+/**
+ * Lists a member's job submissions, in every status, newest first.
+ *
+ * Scope: `jobs.submissions.browse`. A member the gateway has no contact for
+ * gets an empty list. Never cached: a member must see a submission they have
+ * just made, edited or withdrawn.
+ *
+ * @param array $contact The member's contact pair, `external_source` and `external_id`.
+ * @param array $query   Optional. `page` and `limit`. Default empty.
+ * @return array|WP_Error Decoded response (`data` items and `meta.pagination`), or WP_Error on failure.
+ */
+function agend_apps_jobs_get_submissions( array $contact, array $query = array() ) {
+	return agend_apps_api()->request(
+		'GET',
+		'/jobs/submissions',
+		agend_apps_jobs_submission_args( array( 'query' => array_merge( agend_apps_jobs_contact_query( $contact ), $query ) ) )
+	);
+}
+
+/**
+ * Reads one of a member's job submissions.
+ *
+ * Scope: `jobs.submissions.browse`. The website polls this after a post until
+ * the credit check settles. A job that is not this member's is a `404
+ * JOB_NOT_FOUND`, the same as one that does not exist.
+ *
+ * @param string $id      Submission id.
+ * @param array  $contact The member's contact pair.
+ * @return array|WP_Error Decoded response (`data` item), or WP_Error on failure.
+ */
+function agend_apps_jobs_get_submission( string $id, array $contact ) {
+	return agend_apps_api()->request(
+		'GET',
+		'/jobs/submissions/' . rawurlencode( $id ),
+		agend_apps_jobs_submission_args( array( 'query' => agend_apps_jobs_contact_query( $contact ) ) )
+	);
+}
+
+/**
+ * Counts a member's unused job credits.
+ *
+ * Scope: `jobs.submissions.browse`. Agend reads the member's credits from the
+ * CRM and caches the count briefly. The website uses it only to decide whether
+ * to offer the posting form: Agend checks the credit again when a job is
+ * posted. A `503 CREDIT_COUNT_UNAVAILABLE` means no count could be read yet.
+ *
+ * @param array $contact The member's contact pair.
+ * @return array|WP_Error Decoded response (`data.available`, `data.checked_at`, `data.stale`), or WP_Error on failure.
+ */
+function agend_apps_jobs_get_credits( array $contact ) {
+	return agend_apps_api()->request(
+		'GET',
+		'/jobs/credits',
+		agend_apps_jobs_submission_args( array( 'query' => agend_apps_jobs_contact_query( $contact ) ) )
+	);
+}
+
+/**
+ * Posts a job for a member.
+ *
+ * Scope: `jobs.submissions.create`. Agend finds the member's contact by its
+ * pair, creating it when there is none, and accepts the job as
+ * `checking_credit` (202) while it checks for an unused job credit. Poll
+ * {@see agend_apps_jobs_get_submission()} for the outcome: `pending` when a
+ * credit paid for it, `no_credit` when none did.
+ *
+ * Retrying with the same idempotency key and the same body returns the first
+ * answer instead of posting a second job; a different body under the same key
+ * gets `409 IDEMPOTENCY_KEY_REUSED`.
+ *
+ * @param array  $contact         `external_source`, `external_id`, `first_name`, `last_name` and `email`.
+ * @param array  $job             Job fields.
+ * @param string $idempotency_key Unique to one attempt to post this job.
+ * @return array|WP_Error Decoded response (`data.id`, `data.status`, `data.contact`, `data.contact_created`), or WP_Error on failure.
+ */
+function agend_apps_jobs_create_submission( array $contact, array $job, string $idempotency_key ) {
 	return agend_apps_api()->request(
 		'POST',
-		'/jobs/me',
-		agend_apps_jobs_me_args(
+		'/jobs/submissions',
+		agend_apps_jobs_submission_args(
 			array(
-				'body'    => $fields,
-				'headers' => array( 'Idempotency-Key' => $credit_ref ),
+				'body'    => array(
+					'contact' => $contact,
+					'job'     => $job,
+				),
+				'headers' => array( 'Idempotency-Key' => $idempotency_key ),
 			)
 		)
 	);
 }
 
 /**
- * Finds the signed-in member's submission made with a credit_ref.
+ * Edits a member's pending job submission.
  *
- * A credit_ref can appear twice when a rejected or withdrawn submission's
- * reference was used again, so a live submission is preferred over a refused
- * one.
+ * Scope: `jobs.submissions.manage`. Anything but a `pending` job is a `409
+ * JOB_NOT_EDITABLE`.
  *
- * @param string $credit_ref credit_ref.
- * @param int    $max_pages  Pages of 100 to read at most. Default 20.
- * @return array|null|WP_Error The submission item, null when there is none, or WP_Error on failure.
+ * @param string $id      Submission id.
+ * @param array  $contact The member's contact pair.
+ * @param array  $job     Job fields to change.
+ * @return array|WP_Error Decoded response (`data` item), or WP_Error on failure.
  */
-function agend_apps_jobs_find_my_submission( string $credit_ref, int $max_pages = 20 ) {
-	$match = null;
-
-	for ( $page = 1; $page <= $max_pages; $page++ ) {
-		$response = agend_apps_jobs_get_my_submissions(
+function agend_apps_jobs_update_submission( string $id, array $contact, array $job ) {
+	return agend_apps_api()->request(
+		'PATCH',
+		'/jobs/submissions/' . rawurlencode( $id ),
+		agend_apps_jobs_submission_args(
 			array(
-				'page'  => $page,
-				'limit' => 100,
+				'body' => array(
+					'contact' => agend_apps_jobs_contact_query( $contact ),
+					'job'     => $job,
+				),
 			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-			return $response;
-		}
-
-		if ( ! is_array( $response ) || ! isset( $response['data'] ) || ! is_array( $response['data'] ) ) {
-			return new WP_Error( 'agend_jobs_submissions_invalid', 'The gateway returned an unexpected submissions list.' );
-		}
-
-		foreach ( $response['data'] as $item ) {
-			if ( ! is_array( $item ) || ( $item['credit_ref'] ?? null ) !== $credit_ref ) {
-				continue;
-			}
-
-			if ( ! in_array( (string) ( $item['status'] ?? '' ), array( 'rejected', 'withdrawn' ), true ) ) {
-				return $item;
-			}
-
-			$match = $match ?? $item;
-		}
-
-		$total_pages = (int) ( $response['meta']['pagination']['total_pages'] ?? 1 );
-
-		if ( $page >= $total_pages || array() === $response['data'] ) {
-			return $match;
-		}
-	}
-
-	return new WP_Error( 'agend_jobs_submissions_too_many', 'The member has too many submissions to search.' );
+		)
+	);
 }
 
 /**
- * Edits one of the signed-in member's pending submissions.
+ * Withdraws a member's pending job submission. Agend frees its credit.
  *
- * Scope: `jobs.submissions.self_manage`. Only a `pending` submission can be
- * edited (`409 JOB_NOT_EDITABLE` otherwise); a `null` clears an optional field.
- * Another contact's or organisation's job is the same `404` as a missing one.
+ * Scope: `jobs.submissions.manage`.
  *
- * @param string $job_id The submission's job id.
- * @param array  $fields The fields to change, as accepted by `PATCH /v1/jobs/me/{id}`.
- * @return array|WP_Error The updated submission item, or WP_Error on failure.
+ * @param string $id      Submission id.
+ * @param array  $contact The member's contact pair.
+ * @return array|WP_Error Decoded response (`data` item), or WP_Error on failure.
  */
-function agend_apps_jobs_update_my_submission( string $job_id, array $fields ) {
-	return agend_apps_api()->request( 'PATCH', '/jobs/me/' . rawurlencode( $job_id ), agend_apps_jobs_me_args( array( 'body' => $fields ) ) );
+function agend_apps_jobs_withdraw_submission( string $id, array $contact ) {
+	return agend_apps_api()->request(
+		'POST',
+		'/jobs/submissions/' . rawurlencode( $id ) . '/withdraw',
+		agend_apps_jobs_submission_args( array( 'body' => array( 'contact' => agend_apps_jobs_contact_query( $contact ) ) ) )
+	);
 }
 
 /**
- * Withdraws one of the signed-in member's pending submissions.
+ * Takes a member's live job off the board. The credit stays spent.
  *
- * Scope: `jobs.submissions.self_manage`. Final; frees the submission's
- * credit_ref and sends `jobs.submission.withdrawn`, which gives the credit
- * back. `409 INVALID_STATUS_TRANSITION` when it is no longer pending.
+ * Scope: `jobs.submissions.manage`.
  *
- * @param string $job_id The submission's job id.
- * @return array|WP_Error The withdrawn submission item, or WP_Error on failure.
+ * @param string $id      Submission id.
+ * @param array  $contact The member's contact pair.
+ * @param bool   $filled  Whether the position was filled.
+ * @return array|WP_Error Decoded response (`data` item), or WP_Error on failure.
  */
-function agend_apps_jobs_withdraw_my_submission( string $job_id ) {
-	return agend_apps_api()->request( 'POST', '/jobs/me/' . rawurlencode( $job_id ) . '/withdraw', agend_apps_jobs_me_args( array( 'body' => '{}' ) ) );
-}
-
-/**
- * Takes one of the signed-in member's published jobs off the board.
- *
- * Scope: `jobs.submissions.self_manage`. Gives no credit back: the listing ran.
- *
- * @param string $job_id The submission's job id.
- * @param bool   $filled True when the position was filled, false when it was closed.
- * @return array|WP_Error The closed submission item, or WP_Error on failure.
- */
-function agend_apps_jobs_close_my_submission( string $job_id, bool $filled ) {
-	return agend_apps_api()->request( 'POST', '/jobs/me/' . rawurlencode( $job_id ) . '/close', agend_apps_jobs_me_args( array( 'body' => array( 'filled' => $filled ) ) ) );
+function agend_apps_jobs_close_submission( string $id, array $contact, bool $filled ) {
+	return agend_apps_api()->request(
+		'POST',
+		'/jobs/submissions/' . rawurlencode( $id ) . '/close',
+		agend_apps_jobs_submission_args(
+			array(
+				'body' => array(
+					'contact' => agend_apps_jobs_contact_query( $contact ),
+					'filled'  => $filled,
+				),
+			)
+		)
+	);
 }

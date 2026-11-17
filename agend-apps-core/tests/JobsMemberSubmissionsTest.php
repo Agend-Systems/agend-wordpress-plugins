@@ -8,17 +8,18 @@ declare( strict_types=1 );
 namespace Agend\Tests\AppsCore;
 
 use Agend_Apps_Endpoint_Scopes;
-use Agend_Apps_Jobs_Credit_Provider;
 use Agend_Apps_Jobs_Credits;
 use Agend_Apps_Jobs_Me_REST_Controller;
 use Agend_Apps_Jobs_Submissions;
 use Agend_Apps_Key_Scopes;
+use Agend_Apps_Settings;
 use Agend_Test_WP;
 use Agend\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use WP_Error;
 use WP_REST_Request;
+use WP_User;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-api.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
@@ -32,62 +33,25 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/rest/jobs-me-routes.p
 require_once __DIR__ . '/fixtures/real-cache.php';
 
 /**
- * One credit per ref, for one member, that records every spend and restore.
- */
-final class MemberJobsCreditProvider implements Agend_Apps_Jobs_Credit_Provider {
-
-	/** @var array<string, bool> ref => used */
-	public array $used = array();
-
-	/** @var array<int, string> */
-	public array $calls = array();
-
-	public function get_key(): string {
-		return 'fake';
-	}
-
-	public function is_available(): bool {
-		return true;
-	}
-
-	public function get_available_credits( int $user_id ) {
-		$out = array();
-		foreach ( $this->used as $ref => $used ) {
-			if ( ! $used ) {
-				$out[] = array(
-					'ref'        => $ref,
-					'expires_at' => 'cr-late' === $ref ? '2027-11-01T00:00:00+00:00' : '2027-06-01T00:00:00+00:00',
-				);
-			}
-		}
-		return $out;
-	}
-
-	public function spend( int $user_id, string $ref ) {
-		$this->calls[]      = "spend:$ref";
-		$this->used[ $ref ] = true;
-		return true;
-	}
-
-	public function restore( int $user_id, string $ref ) {
-		$this->calls[]      = "restore:$ref";
-		$this->used[ $ref ] = false;
-		return true;
-	}
-}
-
-/**
- * A member's job goes to the gateway paid for by one credit: the credit is
- * spent only once nothing else can stop the submission, given back whenever
- * the gateway refused it, and left alone whenever the job may exist.
+ * A member's job goes to Agend named by their contact pair, and Agend decides
+ * whether a credit pays for it. The site never spends or returns a credit; it
+ * passes on what Agend says in its own words and forgets its cached count
+ * whenever a credit may have changed hands.
  */
 #[CoversClass( Agend_Apps_Jobs_Submissions::class )]
 #[CoversClass( Agend_Apps_Jobs_Me_REST_Controller::class )]
 final class JobsMemberSubmissionsTest extends TestCase {
 
+	private const USER = 7;
+
 	private const JOB_ID = '11111111-2222-3333-4444-555555555555';
 
-	private MemberJobsCreditProvider $provider;
+	private const REQUEST_ID = '6f1c2d3e-4b5a-4978-8a1b-2c3d4e5f6a7b';
+
+	private const CONTACT = array(
+		'external_source' => 'upbeat-contacts',
+		'external_id'     => 'M1001',
+	);
 
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
@@ -97,27 +61,23 @@ final class JobsMemberSubmissionsTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Agend_Apps_Endpoint_Scopes::set_map( null );
-		Agend_Apps_Jobs_Credits::$lock_poll = 0;
+		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS );
 
-		$this->provider = new MemberJobsCreditProvider();
-		$provider       = $this->provider;
-		add_filter(
-			'agend_apps_jobs_credit_provider',
-			static function () use ( $provider ) {
-				return $provider;
-			}
-		);
-		add_filter(
-			'agend_apps_bearer_token',
-			static function () {
-				return 'member-jwt';
-			}
-		);
-		wp_set_current_user( 7 );
+		$user                        = new WP_User( self::USER );
+		$user->user_email            = 'sam@example.com';
+		$GLOBALS['agend_test_users'] = array( $user );
+		update_user_meta( self::USER, 'imk_membership_number', 'M1001' );
+		update_user_meta( self::USER, 'first_name', 'Sam' );
+		update_user_meta( self::USER, 'last_name', 'Lee' );
+
+		// A member bearer that these calls must never send.
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-jwt' );
+		wp_set_current_user( self::USER );
 	}
 
 	protected function tearDown(): void {
 		Agend_Apps_Endpoint_Scopes::set_map( null );
+		$GLOBALS['agend_test_users'] = array();
 		parent::tearDown();
 	}
 
@@ -129,7 +89,7 @@ final class JobsMemberSubmissionsTest extends TestCase {
 		);
 	}
 
-	private function gateway_error( int $status, string $code, array $details = array() ): array {
+	private function gateway_error( string $code, array $details = array() ): array {
 		return array(
 			'success' => false,
 			'error'   => array(
@@ -140,8 +100,48 @@ final class JobsMemberSubmissionsTest extends TestCase {
 		);
 	}
 
-	private function state( string $ref ): string {
-		return (string) ( Agend_Apps_Jobs_Credits::entry( $ref )['state'] ?? '' );
+	private function accepted( string $status = 'checking_credit' ): void {
+		Agend_Test_WP::queue_response(
+			202,
+			array(
+				'success' => true,
+				'data'    => array(
+					'id'              => self::JOB_ID,
+					'status'          => $status,
+					'contact'         => array(
+						'id'          => '99999999-8888-7777-6666-555555555555',
+						'external_id' => 'M1001',
+					),
+					'contact_created' => true,
+				),
+			)
+		);
+	}
+
+	private function item( array $extra = array() ): array {
+		return array(
+			'success' => true,
+			'data'    => $extra + array(
+				'id'         => self::JOB_ID,
+				'title'      => 'SMSF Accountant',
+				'status'     => 'pending',
+				'credit_ref' => 'ENT098467',
+				'account_id' => 'acct',
+				'contact'    => self::CONTACT + array( 'id' => 'contact-uuid' ),
+			),
+		);
+	}
+
+	private function body( int $index = 0 ): array {
+		return json_decode( (string) Agend_Test_WP::$requests[ $index ]['body'], true );
+	}
+
+	/** Puts a cached count in place, so a test can see it forgotten. */
+	private function cache_count( int $available ): string {
+		$key = Agend_Apps_Jobs_Credits::CACHE_PREFIX . md5( 'upbeat-contacts|M1001' );
+		set_transient( $key, array( 'available' => $available ), 300 );
+
+		return $key;
 	}
 
 	// ------------------------------------------------------------- sanitize --
@@ -166,6 +166,7 @@ final class JobsMemberSubmissionsTest extends TestCase {
 				'category_ids'      => array( 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE' ),
 				'company_logo_url'  => 'https://example.org/logo.png',
 				'credit_ref'        => 'chosen-by-the-browser',
+				'request_id'        => self::REQUEST_ID,
 				'reference_number'  => '',
 			),
 			true
@@ -178,6 +179,7 @@ final class JobsMemberSubmissionsTest extends TestCase {
 		$this->assertFalse( $clean['fields']['show_salary'] );
 		$this->assertSame( array( 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' ), $clean['fields']['category_ids'] );
 		$this->assertArrayNotHasKey( 'credit_ref', $clean['fields'], 'the browser never names a credit' );
+		$this->assertArrayNotHasKey( 'request_id', $clean['fields'], 'the request id is not a job field' );
 		$this->assertArrayNotHasKey( 'company_logo_url', $clean['fields'] );
 		$this->assertArrayNotHasKey( 'reference_number', $clean['fields'], 'an empty optional field is left out of a new job' );
 	}
@@ -188,13 +190,13 @@ final class JobsMemberSubmissionsTest extends TestCase {
 			array_merge(
 				$this->job_fields(),
 				array(
-				'employment_type'   => 'gig',
-				'application_url'   => 'javascript:alert(1)',
-				'application_email' => 'not-an-email',
-				'salary_min'        => '9000',
-				'salary_max'        => '100',
-				'tag_ids'           => array( 'not-a-uuid' ),
-				'title'             => str_repeat( 'x', 201 ),
+					'employment_type'   => 'gig',
+					'application_url'   => 'javascript:alert(1)',
+					'application_email' => 'not-an-email',
+					'salary_min'        => '9000',
+					'salary_max'        => '100',
+					'tag_ids'           => array( 'not-a-uuid' ),
+					'title'             => str_repeat( 'x', 201 ),
 				)
 			),
 			true
@@ -222,419 +224,334 @@ final class JobsMemberSubmissionsTest extends TestCase {
 		$this->assertSame( array( 'title' ), array_keys( $clean['errors'] ) );
 	}
 
-	// --------------------------------------------------------------- submit --
-
-	#[Test]
-	public function a_created_job_spends_the_credit_and_is_attached_to_it(): void {
-		$this->provider->used['cr-1'] = false;
-		Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
-
-		$item = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$this->assertSame( self::JOB_ID, $item['id'] );
-		$this->assertSame( array( 'spend:cr-1' ), $this->provider->calls );
-		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_SUBMITTED, $this->state( 'cr-1' ) );
-
-		$request = Agend_Test_WP::$requests[0];
-		$sent    = json_decode( (string) $request['body'], true );
-		$this->assertSame( $sent['credit_ref'], $request['headers']['Idempotency-Key'] );
-		$this->assertStringStartsWith( 'cr-1#', $sent['credit_ref'] );
-	}
-
-	#[Test]
-	public function a_refused_job_gives_the_credit_back(): void {
-		foreach ( array( 400 => 'VALIDATION_ERROR', 401 => 'MISSING_USER_TOKEN', 403 => 'JOB_SUBMISSIONS_DISABLED', 404 => 'NOT_FOUND', 405 => 'METHOD_NOT_ALLOWED', 429 => 'RATE_LIMITED' ) as $status => $code ) {
-			$this->provider->used  = array( 'cr-1' => false );
-			$this->provider->calls = array();
-			Agend_Test_WP::queue_response( $status, $this->gateway_error( $status, $code ) );
-
-			$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-			$this->assertInstanceOf( WP_Error::class, $result, "$status" );
-			$this->assertSame( array( 'spend:cr-1', 'restore:cr-1' ), $this->provider->calls, "$status gives the credit back" );
-			$this->assertFalse( $this->provider->used['cr-1'], "$status" );
-		}
-	}
-
-	#[Test]
-	public function a_job_that_may_exist_keeps_its_credit(): void {
-		$answers = array(
-			'409' => fn() => Agend_Test_WP::queue_response( 409, $this->gateway_error( 409, 'IDEMPOTENCY_IN_PROGRESS' ) ),
-			'500' => fn() => Agend_Test_WP::queue_response( 500, $this->gateway_error( 500, 'INTERNAL_ERROR' ) ),
-			'timeout' => fn() => Agend_Test_WP::queue_transport_error( 'http_request_failed', 'cURL error 28: Operation timed out' ),
-			'201 without an id' => fn() => Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array() ) ),
-			'202 with an operation id' => fn() => Agend_Test_WP::queue_response( 202, array( 'success' => true, 'data' => array( 'id' => 'op-123' ) ) ),
-			'500 that is not JSON' => fn() => Agend_Test_WP::queue_response( 500, '<html>Bad gateway</html>' ),
-			'2xx that is not an object' => fn() => Agend_Test_WP::queue_response( 200, 'true' ),
-		);
-
-		$n = 0;
-		foreach ( $answers as $label => $queue ) {
-			$label = (string) $label;
-			$ref                         = 'cr-' . ( ++$n );
-			$this->provider->used        = array( $ref => false );
-			$this->provider->calls       = array();
-			$queue();
-
-			$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-			$this->assertSame( 'unconfirmed', $result->get_error_code(), $label );
-			$this->assertSame( 202, $result->get_error_data()['status'], $label );
-			$this->assertSame( array( "spend:$ref" ), $this->provider->calls, "$label never gives the credit back" );
-			$this->assertSame( Agend_Apps_Jobs_Credits::STATE_RESERVED, $this->state( $ref ), "$label is left for the sweep" );
-		}
-	}
-
-	#[Test]
-	public function the_gateways_field_errors_come_back_in_the_sites_words(): void {
-		$this->provider->used['cr-1'] = false;
-		Agend_Test_WP::queue_response( 400, $this->gateway_error( 400, 'VALIDATION_ERROR', array( 'fields' => array( 'application_url' => array( 'Invalid url' ), 'secret' => array( 'x' ) ) ) ) );
-
-		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$this->assertSame( 'validation_failed', $result->get_error_code() );
-		$this->assertSame( array( 'application_url' ), array_keys( $result->get_error_data()['fields'] ) );
-		$this->assertStringNotContainsString( 'Gateway wording', $result->get_error_message() );
-	}
-
-	#[Test]
-	public function nothing_is_spent_when_the_member_has_no_gateway_session(): void {
-		$this->provider->used['cr-1'] = false;
-		add_filter(
-			'agend_apps_bearer_token',
-			static function () {
-				return '';
-			},
-			99
-		);
-
-		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$this->assertSame( 'not_connected', $result->get_error_code() );
-		$this->assertSame( array(), $this->provider->calls );
-		$this->assertSame( array(), Agend_Test_WP::$requests );
-	}
-
-	#[Test]
-	public function nothing_is_spent_when_the_key_lacks_the_scope(): void {
-		$this->provider->used['cr-1'] = false;
-		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'jobs.listings.browse' ) ) ) );
-
-		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$this->assertSame( 'unavailable', $result->get_error_code() );
-		$this->assertSame( array(), $this->provider->calls );
-	}
-
-	#[Test]
-	public function nothing_is_spent_while_the_site_is_rate_limited(): void {
-		$this->provider->used['cr-1'] = false;
-		set_transient( 'agend_apps_rate_limit_remaining', 0, 60 );
-
-		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$this->assertSame( 'rate_limited', $result->get_error_code() );
-		$this->assertSame( array(), $this->provider->calls );
-		$this->assertSame( array(), Agend_Test_WP::$requests );
-	}
-
 	#[Test]
 	public function a_description_longer_than_the_typed_limit_is_refused(): void {
 		$clean = Agend_Apps_Jobs_Submissions::sanitize( $this->job_fields() + array( 'description' => str_repeat( 'a', Agend_Apps_Jobs_Submissions::DESCRIPTION_TEXT_MAX + 1 ) ), true );
 
-		$this->assertSame( array( 'description' ), array_keys( $clean['errors'] ) );
+		$this->assertArrayHasKey( 'description', $clean['errors'] );
 	}
 
-	#[Test]
-	public function closing_a_job_never_touches_its_credit(): void {
-		$this->provider->used['cr-1'] = false;
-		Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
-		Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-		$credit_ref = json_decode( (string) Agend_Test_WP::$requests[0]['body'], true )['credit_ref'];
-
-		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'filled', 'credit_ref' => $credit_ref ) ) );
-		$item = Agend_Apps_Jobs_Submissions::close( 7, self::JOB_ID, true );
-
-		$this->assertSame( 'filled', $item['status'] );
-		$this->assertSame( array( 'filled' => true ), json_decode( (string) Agend_Test_WP::$requests[1]['body'], true ) );
-		$this->assertSame( array( 'spend:cr-1' ), $this->provider->calls );
-		$this->assertSame( Agend_Apps_Jobs_Credits::STATE_SUBMITTED, $this->state( 'cr-1' ) );
-	}
+	// --------------------------------------------------------------- submit --
 
 	#[Test]
-	public function the_browser_never_gets_the_credit_reference(): void {
-		Agend_Test_WP::queue_response(
-			200,
+	public function a_post_names_the_member_by_their_pair_with_their_name_and_email_and_no_bearer(): void {
+		$this->accepted();
+
+		$result = Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID );
+
+		$this->assertSame(
 			array(
-				'success' => true,
-				'data'    => array( array( 'id' => self::JOB_ID, 'status' => 'pending', 'credit_ref' => 'cr-1#0123456789abcdef', 'account_id' => 'acc' ) ),
-				'meta'    => array( 'pagination' => array() ),
-			)
+				'id'     => self::JOB_ID,
+				'status' => 'checking_credit',
+			),
+			$result
 		);
 
-		$item = Agend_Apps_Jobs_Submissions::mine( 7 )['items'][0];
-
-		$this->assertArrayNotHasKey( 'credit_ref', $item );
-		$this->assertArrayNotHasKey( 'account_id', $item );
-		$this->assertSame( 'pending', $item['status'] );
+		$request = Agend_Test_WP::$requests[0];
+		$this->assertStringEndsWith( '/jobs/submissions', $request['url'] );
+		$this->assertArrayNotHasKey( 'Authorization', $request['headers'] );
+		$this->assertSame( 'wp-7-' . self::REQUEST_ID, $request['headers']['Idempotency-Key'] );
+		$this->assertSame(
+			array(
+				'external_source' => 'upbeat-contacts',
+				'external_id'     => 'M1001',
+				'first_name'      => 'Sam',
+				'last_name'       => 'Lee',
+				'email'           => 'sam@example.com',
+			),
+			$this->body()['contact']
+		);
+		$this->assertSame( $this->job_fields(), $this->body()['job'] );
 	}
 
 	#[Test]
-	public function a_member_without_credits_is_told_so_and_nothing_is_sent(): void {
-		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$this->assertSame( 'no_credits', $result->get_error_code() );
-		$this->assertSame( 402, $result->get_error_data()['status'] );
-		$this->assertSame( array(), Agend_Test_WP::$requests );
-	}
-
-	// -------------------------------------------------------- manage, list --
-
-	#[Test]
-	public function withdrawing_gives_the_credit_back_at_once(): void {
-		$this->provider->used['cr-1'] = false;
-		Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
-		Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-		$credit_ref = json_decode( (string) Agend_Test_WP::$requests[0]['body'], true )['credit_ref'];
-
-		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'withdrawn', 'credit_ref' => $credit_ref ) ) );
-		$item = Agend_Apps_Jobs_Submissions::withdraw( 7, self::JOB_ID );
-
-		$this->assertSame( 'withdrawn', $item['status'] );
-		$this->assertStringEndsWith( '/jobs/me/' . self::JOB_ID . '/withdraw', Agend_Test_WP::$requests[1]['url'] );
-		$this->assertSame( array( 'spend:cr-1', 'restore:cr-1' ), $this->provider->calls );
+	public function the_same_request_id_gives_the_same_idempotency_key_and_a_bad_one_a_fresh_key(): void {
+		$this->assertSame( Agend_Apps_Jobs_Submissions::idempotency_key( 7, self::REQUEST_ID ), Agend_Apps_Jobs_Submissions::idempotency_key( 7, self::REQUEST_ID ) );
+		$this->assertNotSame( Agend_Apps_Jobs_Submissions::idempotency_key( 7, self::REQUEST_ID ), Agend_Apps_Jobs_Submissions::idempotency_key( 8, self::REQUEST_ID ), 'scoped to the member' );
+		$this->assertMatchesRegularExpression( '/^wp-7-[0-9a-f-]{36}$/', Agend_Apps_Jobs_Submissions::idempotency_key( 7, 'x y' ) );
 	}
 
 	#[Test]
-	public function a_withdraw_the_gateway_refuses_returns_nothing(): void {
-		Agend_Test_WP::queue_response( 409, $this->gateway_error( 409, 'INVALID_STATUS_TRANSITION' ) );
+	public function a_post_forgets_the_cached_credit_count(): void {
+		$key = $this->cache_count( 1 );
+		$this->accepted();
 
-		$result = Agend_Apps_Jobs_Submissions::withdraw( 7, self::JOB_ID );
+		Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID );
 
-		$this->assertSame( 'not_editable', $result->get_error_code() );
-		$this->assertSame( array(), $this->provider->calls );
+		$this->assertArrayNotHasKey( $key, Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function a_post_that_may_have_landed_is_unconfirmed(): void {
+		foreach ( array( 500, 502, 503 ) as $status ) {
+			Agend_Test_WP::$requests = array();
+			Agend_Test_WP::queue_response( $status, $this->gateway_error( 'INTERNAL_ERROR' ) );
+			$this->assertSame( 'unconfirmed', Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID )->get_error_code(), (string) $status );
+		}
+
+		Agend_Test_WP::queue_transport_error( 'http_request_failed', 'timed out' );
+		$this->assertSame( 'unconfirmed', Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID )->get_error_code() );
+
+		Agend_Test_WP::queue_response( 409, $this->gateway_error( 'IDEMPOTENCY_KEY_REUSED' ) );
+		$this->assertSame( 'unconfirmed', Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID )->get_error_code() );
+
+		Agend_Test_WP::queue_response( 202, array( 'success' => true, 'data' => array( 'status' => 'checking_credit' ) ) );
+		$this->assertSame( 'unconfirmed', Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID )->get_error_code(), 'no job id' );
+	}
+
+	#[Test]
+	public function a_member_without_a_name_or_email_is_asked_to_add_one_and_nothing_is_sent(): void {
+		delete_user_meta( self::USER, 'last_name' );
+		$this->assertSame( 'profile_incomplete', Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID )->get_error_code() );
+
+		update_user_meta( self::USER, 'last_name', 'Lee' );
+		$GLOBALS['agend_test_users'][0]->user_email = 'not-an-email';
+		$this->assertSame( 'profile_incomplete', Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID )->get_error_code() );
+
+		$this->assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function a_member_without_a_membership_number_cannot_post(): void {
+		delete_user_meta( self::USER, 'imk_membership_number' );
+
+		$error = Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID );
+
+		$this->assertSame( 'not_connected', $error->get_error_code() );
+		$this->assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function nothing_is_sent_when_the_key_lacks_the_scope_or_the_site_is_rate_limited(): void {
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'jobs.submissions.browse' ), 'app_ids' => array() ) ) );
+		$this->assertSame( 'unavailable', Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID )->get_error_code() );
+		$this->assertFalse( Agend_Apps_Jobs_Submissions::available() );
+
+		delete_option( Agend_Apps_Key_Scopes::OPTION );
+		set_transient( 'agend_apps_rate_limit_remaining', 0, 60 );
+		$this->assertSame( 'rate_limited', Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID )->get_error_code() );
+
+		$this->assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function the_gateways_field_errors_come_back_in_the_sites_words(): void {
+		Agend_Test_WP::queue_response( 400, $this->gateway_error( 'VALIDATION_ERROR', array( 'fields' => array( 'job.application_url' => array( 'Invalid url' ) ) ) ) );
+
+		$error = Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID );
+
+		$this->assertSame( 'validation_failed', $error->get_error_code() );
+		$this->assertSame( array( 'application_url' => Agend_Apps_Jobs_Submissions::message( 'check' ) ), $error->get_error_data()['fields'] );
 	}
 
 	#[Test]
 	public function gateway_codes_become_stable_codes(): void {
 		$cases = array(
-			'NOT_ACCOUNT_CONTACT'      => 'not_contact',
-			'JOB_SUBMISSIONS_DISABLED' => 'disabled',
-			'INVALID_USER_TOKEN'       => 'not_connected',
-			'JOB_NOT_FOUND'            => 'not_found',
-			'SOMETHING_NEW'            => 'failed',
+			array( 403, 'JOB_SUBMISSIONS_DISABLED', 'disabled' ),
+			array( 403, 'SOURCE_NOT_ALLOWED', 'unavailable' ),
+			array( 403, 'JOB_CREDITS_NOT_CONFIGURED', 'unavailable' ),
+			array( 403, 'INSUFFICIENT_SCOPES', 'unavailable' ),
+			array( 409, 'CONTACT_CONFLICT', 'not_contact' ),
+			array( 429, 'RATE_LIMITED', 'rate_limited' ),
+			array( 401, 'UNAUTHORIZED', 'failed' ),
 		);
 
-		foreach ( $cases as $gateway => $ours ) {
-			$error = new WP_Error(
-				'agend_api_error',
-				'x',
-				array(
-					'status_code' => 403,
-					'body'        => $this->gateway_error( 403, $gateway ),
-				)
-			);
+		foreach ( $cases as $case ) {
+			Agend_Test_WP::queue_response( $case[0], $this->gateway_error( $case[1] ) );
+			$error = Agend_Apps_Jobs_Submissions::submit( self::USER, $this->job_fields(), self::REQUEST_ID );
 
-			$this->assertSame( $ours, Agend_Apps_Jobs_Submissions::gateway_error( $error )->get_error_code(), $gateway );
+			$this->assertSame( $case[2], $error->get_error_code(), $case[1] );
+			$this->assertStringNotContainsString( 'Gateway wording', $error->get_error_message() );
+		}
+	}
+
+	// ---------------------------------------------------- the other routes --
+
+	#[Test]
+	public function one_job_is_read_with_the_pair_and_without_private_keys(): void {
+		Agend_Test_WP::queue_response( 200, $this->item() );
+
+		$item = Agend_Apps_Jobs_Submissions::get( self::USER, self::JOB_ID );
+
+		$this->assertStringContainsString( '/jobs/submissions/' . self::JOB_ID . '?', Agend_Test_WP::$requests[0]['url'] );
+		$this->assertStringContainsString( 'external_id=M1001', Agend_Test_WP::$requests[0]['url'] );
+		$this->assertArrayNotHasKey( 'Authorization', Agend_Test_WP::$requests[0]['headers'] );
+		$this->assertSame( 'pending', $item['status'] );
+		$this->assertArrayNotHasKey( 'credit_ref', $item );
+		$this->assertArrayNotHasKey( 'account_id', $item );
+		$this->assertArrayNotHasKey( 'contact', $item );
+	}
+
+	#[Test]
+	public function a_settled_check_forgets_the_count_and_a_running_one_does_not(): void {
+		$key = $this->cache_count( 1 );
+		Agend_Test_WP::queue_response( 200, $this->item( array( 'status' => 'checking_credit' ) ) );
+		Agend_Apps_Jobs_Submissions::get( self::USER, self::JOB_ID );
+		$this->assertArrayHasKey( $key, Agend_Test_WP::$transients );
+
+		Agend_Test_WP::queue_response( 200, $this->item( array( 'status' => 'no_credit' ) ) );
+		$this->assertSame( 'no_credit', Agend_Apps_Jobs_Submissions::get( self::USER, self::JOB_ID )['status'] );
+		$this->assertArrayNotHasKey( $key, Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function a_job_that_is_not_the_members_is_not_found(): void {
+		Agend_Test_WP::queue_response( 404, $this->gateway_error( 'JOB_NOT_FOUND' ) );
+
+		$this->assertSame( 'not_found', Agend_Apps_Jobs_Submissions::get( self::USER, self::JOB_ID )->get_error_code() );
+	}
+
+	#[Test]
+	public function agends_statuses_are_shown_as_the_member_sees_them(): void {
+		$this->assertSame( 'published', Agend_Apps_Jobs_Submissions::display_status( array( 'status' => 'approved', 'expired' => false ) ) );
+		$this->assertSame( 'expired', Agend_Apps_Jobs_Submissions::display_status( array( 'status' => 'approved', 'expired' => true ) ) );
+		$this->assertSame( 'filled', Agend_Apps_Jobs_Submissions::display_status( array( 'status' => 'closed', 'filled' => true ) ) );
+		$this->assertSame( 'closed', Agend_Apps_Jobs_Submissions::display_status( array( 'status' => 'closed', 'filled' => false ) ) );
+
+		foreach ( array( 'checking_credit', 'pending', 'no_credit', 'rejected', 'withdrawn' ) as $status ) {
+			$this->assertSame( $status, Agend_Apps_Jobs_Submissions::display_status( array( 'status' => $status ) ) );
 		}
 	}
 
 	#[Test]
-	public function the_list_reads_items_and_pagination_from_the_released_shape(): void {
+	public function an_edit_sends_the_pair_and_the_changes(): void {
+		Agend_Test_WP::queue_response( 200, $this->item( array( 'title' => 'Senior Accountant' ) ) );
+
+		$item = Agend_Apps_Jobs_Submissions::update( self::USER, self::JOB_ID, array( 'title' => 'Senior Accountant' ) );
+
+		$this->assertSame( 'PATCH', Agend_Test_WP::$requests[0]['method'] );
+		$this->assertSame(
+			array(
+				'contact' => self::CONTACT,
+				'job'     => array( 'title' => 'Senior Accountant' ),
+			),
+			$this->body()
+		);
+		$this->assertSame( 'Senior Accountant', $item['title'] );
+	}
+
+	#[Test]
+	public function an_edit_of_a_job_no_longer_pending_is_refused(): void {
+		Agend_Test_WP::queue_response( 409, $this->gateway_error( 'JOB_NOT_EDITABLE' ) );
+
+		$this->assertSame( 'not_editable', Agend_Apps_Jobs_Submissions::update( self::USER, self::JOB_ID, array( 'title' => 'x' ) )->get_error_code() );
+	}
+
+	#[Test]
+	public function withdrawing_forgets_the_count_because_agend_frees_the_credit(): void {
+		$key = $this->cache_count( 0 );
+		Agend_Test_WP::queue_response( 200, $this->item( array( 'status' => 'withdrawn' ) ) );
+
+		$item = Agend_Apps_Jobs_Submissions::withdraw( self::USER, self::JOB_ID );
+
+		$this->assertStringEndsWith( '/jobs/submissions/' . self::JOB_ID . '/withdraw', Agend_Test_WP::$requests[0]['url'] );
+		$this->assertSame( array( 'contact' => self::CONTACT ), $this->body() );
+		$this->assertSame( 'withdrawn', $item['status'] );
+		$this->assertArrayNotHasKey( $key, Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function a_refused_withdrawal_keeps_the_count(): void {
+		$key = $this->cache_count( 0 );
+		Agend_Test_WP::queue_response( 409, $this->gateway_error( 'INVALID_STATUS_TRANSITION' ) );
+
+		$this->assertSame( 'not_editable', Agend_Apps_Jobs_Submissions::withdraw( self::USER, self::JOB_ID )->get_error_code() );
+		$this->assertArrayHasKey( $key, Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function closing_sends_filled_and_keeps_the_count(): void {
+		$key = $this->cache_count( 0 );
+		Agend_Test_WP::queue_response( 200, $this->item( array( 'status' => 'closed', 'filled' => true ) ) );
+
+		$item = Agend_Apps_Jobs_Submissions::close( self::USER, self::JOB_ID, true );
+
+		$this->assertSame(
+			array(
+				'contact' => self::CONTACT,
+				'filled'  => true,
+			),
+			$this->body()
+		);
+		$this->assertSame( 'filled', $item['status'] );
+		$this->assertArrayHasKey( $key, Agend_Test_WP::$transients );
+	}
+
+	#[Test]
+	public function the_list_reads_items_and_pagination_and_hides_private_keys(): void {
 		Agend_Test_WP::queue_response(
 			200,
 			array(
 				'success' => true,
-				'data'    => array( array( 'id' => self::JOB_ID, 'status' => 'pending' ) ),
-				'meta'    => array( 'pagination' => array( 'page' => 1, 'has_next' => true ) ),
+				'data'    => array( $this->item( array( 'status' => 'approved', 'expired' => false ) )['data'] ),
+				'meta'    => array( 'pagination' => array( 'page' => 1, 'has_next' => false ) ),
 			)
 		);
 
-		$mine = Agend_Apps_Jobs_Submissions::mine( 7 );
+		$mine = Agend_Apps_Jobs_Submissions::mine( self::USER );
 
-		$this->assertSame( self::JOB_ID, $mine['items'][0]['id'] );
-		$this->assertTrue( $mine['pagination']['has_next'] );
+		$this->assertStringContainsString( 'external_source=upbeat-contacts', Agend_Test_WP::$requests[0]['url'] );
+		$this->assertSame( 'published', $mine['items'][0]['status'] );
+		$this->assertArrayNotHasKey( 'credit_ref', $mine['items'][0] );
+		$this->assertFalse( $mine['pagination']['has_next'] );
 	}
 
 	#[Test]
-	public function the_credit_summary_counts_and_names_the_first_expiry(): void {
-		$this->provider->used = array(
-			'cr-late'  => false,
-			'cr-early' => false,
-		);
+	public function the_credit_summary_is_agends_count(): void {
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'available' => 2, 'checked_at' => '2026-11-17T00:00:00Z', 'stale' => false ) ) );
+		$this->assertSame( array( 'available' => 2 ), Agend_Apps_Jobs_Submissions::credits( self::USER ) );
 
-		$this->assertSame(
-			array(
-				'available'   => 2,
-				'next_expiry' => '2027-06-01T00:00:00+00:00',
-			),
-			Agend_Apps_Jobs_Submissions::credits( 7 )
-		);
-	}
+		delete_transient( Agend_Apps_Jobs_Credits::CACHE_PREFIX . md5( 'upbeat-contacts|M1001' ) );
+		Agend_Test_WP::queue_response( 503, $this->gateway_error( 'CREDIT_COUNT_UNAVAILABLE' ) );
+		$this->assertSame( 'credits_unavailable', Agend_Apps_Jobs_Submissions::credits( self::USER )->get_error_code() );
 
-	// ------------------------------------------------------------ on behalf --
-
-	/** The key may act for members; member 7 has membership number M100. */
-	private function act_on_behalf(): void {
-		Agend_Apps_Key_Scopes::store_from_response(
-			array( 'data' => array( 'scopes' => array( 'jobs.submissions.self_read', 'jobs.submissions.self_manage', Agend_Apps_Jobs_Submissions::ON_BEHALF_SCOPE ) ) )
-		);
-		$GLOBALS['agend_test_user_meta'][7]['imk_membership_number'] = 'M100';
-		$user             = new \WP_User( 7 );
-		$user->user_email = 'pat@example.org';
-		$GLOBALS['agend_test_users'][] = $user;
-		$GLOBALS['agend_test_user_meta'][7]['first_name'] = 'Pat';
-		$GLOBALS['agend_test_user_meta'][7]['last_name']  = 'Lee';
-	}
-
-	#[Test]
-	public function on_behalf_the_member_is_named_by_external_id_and_no_bearer_is_sent(): void {
-		$this->act_on_behalf();
-		$this->provider->used['cr-1'] = false;
-		Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
-
-		Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$request = Agend_Test_WP::$requests[0];
-		$this->assertSame( 'M100', $request['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ] );
-		$this->assertArrayNotHasKey( 'Authorization', $request['headers'] );
-		$this->assertArrayHasKey( 'Idempotency-Key', $request['headers'] );
-		$this->assertArrayNotHasKey( 'submitter', json_decode( (string) $request['body'], true ), 'the Upbeat sync creates contacts, never the site' );
-	}
-
-	#[Test]
-	public function a_wildcard_key_is_not_on_behalf(): void {
-		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( '*' ) ) ) );
-
-		$this->assertFalse( Agend_Apps_Jobs_Submissions::on_behalf() );
-	}
-
-	#[Test]
-	public function on_behalf_a_member_with_no_contact_yet_is_asked_to_try_again_and_keeps_the_credit(): void {
-		$this->act_on_behalf();
-		$this->provider->used['cr-1'] = false;
-		Agend_Test_WP::queue_response( 403, $this->gateway_error( 403, 'NOT_ACCOUNT_CONTACT' ) );
-
-		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$this->assertStringContainsString( 'try again', $result->get_error_message() );
-		$this->assertFalse( $this->provider->used['cr-1'], 'the credit is given back' );
-	}
-
-	#[Test]
-	public function an_external_id_the_gateway_would_refuse_is_treated_as_none(): void {
-		$this->act_on_behalf();
-		$GLOBALS['agend_test_user_meta'][7]['imk_membership_number'] = str_repeat( '9', 256 );
-
-		$this->assertSame( 'not_connected', Agend_Apps_Jobs_Submissions::precheck( 7 )->get_error_code() );
-	}
-
-	#[Test]
-	public function on_behalf_a_member_without_a_membership_number_spends_nothing(): void {
-		$this->act_on_behalf();
-		unset( $GLOBALS['agend_test_user_meta'][7]['imk_membership_number'] );
-		$this->provider->used['cr-1'] = false;
-
-		$this->assertSame( 'not_connected', Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() )->get_error_code() );
-		$this->assertSame( array(), $this->provider->calls );
-	}
-
-	#[Test]
-	public function on_behalf_needs_no_bearer_and_the_list_carries_the_header(): void {
-		$this->act_on_behalf();
-		add_filter(
-			'agend_apps_bearer_token',
-			static function () {
-				return '';
-			},
-			99
-		);
-		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array(), 'meta' => array( 'pagination' => array() ) ) );
-
-		$this->assertSame( array(), Agend_Apps_Jobs_Submissions::mine( 7 )['items'] );
-		$this->assertSame( 'M100', Agend_Test_WP::$requests[0]['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ] );
-	}
-
-	#[Test]
-	public function an_ambiguous_contact_refuses_the_job_and_gives_the_credit_back(): void {
-		$this->act_on_behalf();
-		$this->provider->used['cr-1'] = false;
-		Agend_Test_WP::queue_response( 409, $this->gateway_error( 409, 'AMBIGUOUS_CONTACT' ) );
-
-		$result = Agend_Apps_Jobs_Submissions::submit( 7, $this->job_fields() );
-
-		$this->assertSame( 'not_contact', $result->get_error_code() );
-		$this->assertSame( array( 'spend:cr-1', 'restore:cr-1' ), $this->provider->calls );
-	}
-
-	#[Test]
-	public function on_behalf_every_change_names_the_member(): void {
-		$this->act_on_behalf();
-		foreach ( array( 'update', 'withdraw', 'close' ) as $action ) {
-			Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
-		}
-
-		Agend_Apps_Jobs_Submissions::update( 7, self::JOB_ID, array( 'title' => 'New' ) );
-		Agend_Apps_Jobs_Submissions::withdraw( 7, self::JOB_ID );
-		Agend_Apps_Jobs_Submissions::close( 7, self::JOB_ID, false );
-
-		$this->assertCount( 3, Agend_Test_WP::$requests );
-		foreach ( Agend_Test_WP::$requests as $request ) {
-			$this->assertSame( 'M100', $request['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ], $request['url'] );
-			$this->assertArrayNotHasKey( 'Authorization', $request['headers'] );
-		}
-	}
-
-	#[Test]
-	public function the_sweep_looks_up_as_the_member_who_spent_the_credit(): void {
-		$this->act_on_behalf();
-		wp_set_current_user( 0 );
-		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array(), 'meta' => array( 'pagination' => array( 'total_pages' => 1 ) ) ) );
-
-		$this->assertNull( Agend_Apps_Jobs_Credits::find_submission( 7, 'cr-1#0123456789abcdef' ) );
-		$this->assertSame( 'M100', Agend_Test_WP::$requests[0]['headers'][ Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER ] );
-		$this->assertSame( 0, get_current_user_id(), 'the cron user is restored' );
-	}
-
-	#[Test]
-	public function without_the_on_behalf_scope_the_bearer_is_used_and_no_header_is_sent(): void {
-		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array(), 'meta' => array( 'pagination' => array() ) ) );
-
-		Agend_Apps_Jobs_Submissions::mine( 7 );
-
-		$this->assertArrayNotHasKey( Agend_Apps_Jobs_Submissions::ON_BEHALF_HEADER, Agend_Test_WP::$requests[0]['headers'] );
-		$this->assertSame( 'Bearer member-jwt', Agend_Test_WP::$requests[0]['headers']['Authorization'] );
+		delete_transient( Agend_Apps_Jobs_Credits::CACHE_PREFIX . md5( 'upbeat-contacts|M1001' ) );
+		Agend_Test_WP::queue_response( 403, $this->gateway_error( 'JOB_CREDITS_NOT_CONFIGURED' ) );
+		$this->assertSame( 'unavailable', Agend_Apps_Jobs_Submissions::credits( self::USER )->get_error_code() );
 	}
 
 	// --------------------------------------------------------------- routes --
 
-	#[Test]
-	public function the_route_refuses_bad_fields_before_any_credit_is_spent(): void {
-		$this->provider->used['cr-1'] = false;
-		$request                      = new WP_REST_Request( 'POST', '/agend-apps/v1/jobs/me' );
-		$request->set_body( (string) wp_json_encode( array( 'title' => 'Accountant' ) ) );
+	private function post_request( array $body ): WP_REST_Request {
+		$request = new WP_REST_Request( 'POST', '/agend-apps/v1/jobs/me' );
+		$request->set_body( (string) wp_json_encode( $body ) );
 		$request->set_header( 'content-type', 'application/json' );
 
-		$response = ( new Agend_Apps_Jobs_Me_REST_Controller() )->submit( $request );
+		return $request;
+	}
+
+	#[Test]
+	public function the_route_refuses_bad_fields_before_anything_is_sent(): void {
+		$response = ( new Agend_Apps_Jobs_Me_REST_Controller() )->submit( $this->post_request( array( 'title' => 'Accountant' ) ) );
 
 		$this->assertSame( 400, $response->get_status() );
 		$this->assertSame( 'validation_failed', $response->get_data()['code'] );
 		$this->assertArrayHasKey( 'employment_type', $response->get_data()['fields'] );
-		$this->assertSame( array(), $this->provider->calls );
+		$this->assertCount( 0, Agend_Test_WP::$requests );
 	}
 
 	#[Test]
-	public function the_route_answers_a_created_job_with_201(): void {
-		$this->provider->used['cr-1'] = false;
-		Agend_Test_WP::queue_response( 201, array( 'success' => true, 'data' => array( 'id' => self::JOB_ID, 'status' => 'pending' ) ) );
-		$request = new WP_REST_Request( 'POST', '/agend-apps/v1/jobs/me' );
-		$request->set_body( (string) wp_json_encode( $this->job_fields() ) );
-		$request->set_header( 'content-type', 'application/json' );
+	public function the_route_answers_an_accepted_job_with_202_and_uses_the_request_id(): void {
+		$this->accepted();
 
-		$response = ( new Agend_Apps_Jobs_Me_REST_Controller() )->submit( $request );
+		$response = ( new Agend_Apps_Jobs_Me_REST_Controller() )->submit( $this->post_request( $this->job_fields() + array( 'request_id' => self::REQUEST_ID ) ) );
 
-		$this->assertSame( 201, $response->get_status() );
-		$this->assertTrue( $response->get_data()['success'] );
+		$this->assertSame( 202, $response->get_status() );
+		$this->assertSame( 'checking_credit', $response->get_data()['data']['status'] );
+		$this->assertSame( 'wp-7-' . self::REQUEST_ID, Agend_Test_WP::$requests[0]['headers']['Idempotency-Key'] );
+	}
+
+	#[Test]
+	public function the_route_reads_one_job(): void {
+		Agend_Test_WP::queue_response( 200, $this->item() );
+		$request = new WP_REST_Request( 'GET', '/agend-apps/v1/jobs/me/' . self::JOB_ID );
+		$request->set_param( 'id', strtoupper( self::JOB_ID ) );
+
+		$response = ( new Agend_Apps_Jobs_Me_REST_Controller() )->get_one( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( self::JOB_ID, $response->get_data()['data']['id'] );
+		$this->assertStringContainsString( '/jobs/submissions/' . self::JOB_ID . '?', Agend_Test_WP::$requests[0]['url'] );
 	}
 
 	#[Test]
@@ -642,5 +559,6 @@ final class JobsMemberSubmissionsTest extends TestCase {
 		wp_set_current_user( 0 );
 
 		$this->assertInstanceOf( WP_Error::class, ( new Agend_Apps_Jobs_Me_REST_Controller() )->signed_in() );
+		$this->assertSame( 'sign_in', Agend_Apps_Jobs_Submissions::submit( 0, $this->job_fields(), self::REQUEST_ID )->get_error_code() );
 	}
 }

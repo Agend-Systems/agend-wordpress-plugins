@@ -60,7 +60,7 @@ function agend_apps_records_surface_map(): array {
 		),
 		'member-jobs'               => array(
 			'label'  => __( 'Agend Member Jobs', 'agend-apps-core' ),
-			'scopes' => array( 'jobs.submissions.self_read', 'jobs.submissions.self_manage' ),
+			'scopes' => array( 'jobs.submissions.browse', 'jobs.submissions.create' ),
 		),
 		'memberships-catalogue'     => array(
 			'label'  => __( 'Agend Memberships', 'agend-apps-core' ),

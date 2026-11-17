@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * A thin adapter: the controls come from the core `member-jobs` surface schema
  * and the markup from the core renderer. Credits are spent and returned by
- * Agend Apps Core's `jobs/me` routes, never by this widget.
+ * Agend, never by this widget or this site.
  */
 class Agend_Elementor_Member_Jobs extends \Elementor\Widget_Base {
 

@@ -45,15 +45,17 @@ namespace {
 
 namespace Agend\Tests\Core {
 
-	use Agend_Apps_Jobs_Credit_Provider;
+	use Agend_Apps_Key_Scopes;
 	use Agend\Tests\TestCase;
 	use PHPUnit\Framework\Attributes\Test;
 
+	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
 	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/jobs-credits.php';
+	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/jobs-submissions.php';
 	require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/my-account-jobs.php';
 
 	/**
-	 * My Account > Jobs: offered only with job credits on, placed after
+	 * My Account > Jobs: offered only while the key can post jobs, placed after
 	 * Orders, and its Buy buttons sell only the products chosen in settings.
 	 */
 	final class MyAccountJobsTest extends TestCase {
@@ -61,31 +63,6 @@ namespace Agend\Tests\Core {
 		protected function setUp(): void {
 			parent::setUp();
 			$GLOBALS['agend_test_wc_products'] = array();
-		}
-
-		private function credits_on(): void {
-			add_filter(
-				'agend_apps_jobs_credit_provider',
-				static function () {
-					return new class() implements Agend_Apps_Jobs_Credit_Provider {
-						public function get_key(): string {
-							return 'fake';
-						}
-						public function is_available(): bool {
-							return true;
-						}
-						public function get_available_credits( int $user_id ) {
-							return array();
-						}
-						public function spend( int $user_id, string $ref ) {
-							return true;
-						}
-						public function restore( int $user_id, string $ref ) {
-							return true;
-						}
-					};
-				}
-			);
 		}
 
 		private function product( int $id, string $name, bool $purchasable = true ): void {
@@ -183,7 +160,6 @@ namespace Agend\Tests\Core {
 
 		#[Test]
 		public function woocommerces_add_to_cart_checks_apply_and_a_refusal_goes_back_to_my_jobs(): void {
-			$this->credits_on();
 			$this->sell( 11 );
 			wp_set_current_user( 7 );
 			$cart = $this->cart();
@@ -200,7 +176,6 @@ namespace Agend\Tests\Core {
 
 		#[Test]
 		public function a_failed_add_goes_back_to_my_jobs_not_to_checkout(): void {
-			$this->credits_on();
 			$this->sell( 11 );
 			wp_set_current_user( 7 );
 			$this->cart( array(), true );
@@ -209,7 +184,9 @@ namespace Agend\Tests\Core {
 		}
 
 		#[Test]
-		public function nothing_changes_without_job_credits(): void {
+		public function nothing_changes_when_the_key_cannot_post_jobs(): void {
+			Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'jobs.listings.browse' ), 'app_ids' => array() ) ) );
+
 			$items = array(
 				'dashboard'       => 'Dashboard',
 				'orders'          => 'Orders',
@@ -221,7 +198,6 @@ namespace Agend\Tests\Core {
 
 		#[Test]
 		public function jobs_sits_after_orders(): void {
-			$this->credits_on();
 
 			$menu = agend_apps_my_account_jobs_menu_item(
 				array(
@@ -237,7 +213,6 @@ namespace Agend\Tests\Core {
 
 		#[Test]
 		public function without_orders_jobs_sits_before_log_out(): void {
-			$this->credits_on();
 
 			$menu = agend_apps_my_account_jobs_menu_item(
 				array(

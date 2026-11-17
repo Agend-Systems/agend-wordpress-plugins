@@ -1090,61 +1090,99 @@ secret, an unreachable provider, a non-2xx or malformed answer, a hostname
 mismatch, a missing score, a low score and an action mismatch all refuse the
 submission.
 
+## Member job credits
+
+A member pays for each job they post from this site with a job credit held in
+the association's CRM (in Upbeat, an entitlement record). Agend is the credit
+authority: it checks for an unused credit when a job is posted, records the
+spend, writes it back to the CRM, and frees the credit when staff reject the
+job or the member withdraws it. This site never reads or writes credits itself.
+
+- **Who the member is**: their contact pair, `external_source` plus
+  `external_id`. The source is `upbeat-contacts` unless the
+  `agend_apps_jobs_contact_source` option or filter says otherwise; the id is
+  `agend_apps_user_external_id()`, the membership number on an Upbeat site.
+  Agend matches the pair exactly, never by email.
+- **Client** (`includes/api/jobs.php`): `agend_apps_jobs_get_credits()`,
+  `agend_apps_jobs_get_submissions()`, `agend_apps_jobs_get_submission()`,
+  `agend_apps_jobs_create_submission()`, `agend_apps_jobs_update_submission()`,
+  `agend_apps_jobs_withdraw_submission()` and
+  `agend_apps_jobs_close_submission()`, over `/v1/jobs/credits` and
+  `/v1/jobs/submissions`. They send the site key only, never the member's
+  bearer, because one key acts for every member.
+- **The count** (`Agend_Apps_Jobs_Credits::count()`, `includes/jobs-credits.php`):
+  how many unused credits a member has, cached for five minutes per member
+  because one key carries every member's page views. It is forgotten when the
+  member posts (`forget()`) and when a `jobs.submission.rejected` or
+  `jobs.submission.withdrawn` webhook names the member. A count that cannot be
+  read is an error (never zero) and is remembered for 30 seconds; a site that
+  cannot count at all (`SOURCE_NOT_ALLOWED`, `JOB_CREDITS_NOT_CONFIGURED`,
+  `JOB_SUBMISSIONS_DISABLED`, a missing scope) for five minutes.
+- **Content Personalisation (ESAC)**: the "Agend Jobs > Has an unused job
+  credit" condition passes only for a signed-in member whose count is above
+  zero, so a section offering "Post a job" stays hidden, and its inverse (buy
+  credits) shows, whenever the count is unknown. It is what the site offers,
+  not a guarantee: Agend checks again when the job is posted. Not offered when
+  the key is known to lack `jobs.submissions.browse`.
+- **Gateway setup**: the site key holds `jobs.submissions.browse` (and, to
+  post, `jobs.submissions.create` and `jobs.submissions.manage`); the key may
+  create contacts under `upbeat-contacts`; the organisation has a job credit
+  setting and member job submissions switched on.
+
 ## Member job submissions
 
 A signed-in member posts a job to the jobs board from this site, paid for with
 one of their job credits, and staff approve it in Agend before it goes live.
 The **Agend Member Jobs** surface (`member-jobs`; Elementor widget in Agend
 Elementor) shows the member's credits, their submissions with status, and the
-"Post a job" form.
+"Post a job" form. Agend decides everything about credits (see "Member job
+credits" above).
 
-- **Credits**: `Agend_Apps_Jobs_Credits` (`includes/jobs-credits.php`) over the
-  active `agend_apps_jobs_credit_provider`, for example Agend Entitlement
-  Mirror's Upbeat provider. Job posting needs one.
 - **Routes** (`includes/rest/jobs-me-routes.php`, signed-in user only, cookie
-  nonce): `GET /agend-apps/v1/jobs/me` (`page`), `POST /jobs/me`,
-  `GET /jobs/me/credits`, `PATCH /jobs/me/{id}`, `POST /jobs/me/{id}/withdraw`
-  and `POST /jobs/me/{id}/close` (`filled`). Answers are `{ success, data }` or
+  nonce; `me` is the signed-in WordPress user): `GET /agend-apps/v1/jobs/me`
+  (`page`), `POST /jobs/me`, `GET /jobs/me/credits`, `GET /jobs/me/{id}`,
+  `PATCH /jobs/me/{id}`, `POST /jobs/me/{id}/withdraw` and
+  `POST /jobs/me/{id}/close` (`filled`). Answers are `{ success, data }` or
   `{ success: false, code, message, fields? }`; `code` is stable and `message`
   is this site's own wording, never the gateway's. Registered before the public
   `jobs/{slug_or_id}` route, which would otherwise read `me` as a slug.
-- **The credit rule** (`Agend_Apps_Jobs_Submissions::submit()`): checks that
-  cost nothing come first (signed in, credits on, the key holds
-  `jobs.submissions.self_manage`, the member has a gateway bearer), because a
-  spend and a give-back are two CRM writes. Then a credit is reserved and the
-  job is sent with the `credit_ref` as its `Idempotency-Key`. Created: the job
-  is attached to the reservation. `400`, `401`, `403` or `429`: no job was
-  made, so the credit is given back. `409`, a timeout, a `5xx` or an unreadable
-  answer: the job may exist, so the credit is left reserved and the
-  `jobs.submission.*` webhooks or the sweep settle it; the member is told to
-  check their list (`unconfirmed`, `202`).
-- **Withdraw** gives the credit back straight away as well as through the
-  `jobs.submission.withdrawn` webhook; both are the same idempotent release.
-  **Close** gives nothing back: the listing ran.
-- **Fields**: everything `POST /v1/jobs/me` takes except the logo (the gateway
-  only accepts an `https` address the site hosts, and there is no upload yet).
-  The description is typed as plain text and sent as escaped paragraphs.
-  Title, employment type and work arrangement are always required; the widget
-  chooses which other fields are required or hidden (enforced by the form, the
-  gateway re-checks its own rules) and adds "tag questions", each a dropdown or
-  tick boxes over some of the board's tags, for example a salary band.
-- **Identity**: with the default key, each call carries the member's own
-  bearer. When the key holds `jobs.submissions.on_behalf` by name (the gateway
-  does not admit a wildcard for it), the site acts for the member instead: no
-  bearer, and the member's CRM external id (Upbeat membership number) in
-  `X-Agend-Contact-External-Id`. The gateway finds their contact by that id,
-  which the Upbeat contacts sync stores; no `submitter` is sent, so a member
-  the sync has not reached yet is told to try again shortly rather than given
-  a duplicate contact. The member never signs in to Agend or leaves the site.
-  `agend_apps_jobs_me_args()` adds this to every `/v1/jobs/me` call, the
-  sweep's lookup included. Gateway: agend-dashboard PR #7984 (SPEC-JOBS-20261112
-  US-1.6); the scope is granted to a key by SQL.
+- **Posting** (`Agend_Apps_Jobs_Submissions::submit()`): checks that cost
+  nothing come first (signed in, the key not known to lack
+  `jobs.submissions.create`, the member has a membership number, a first and
+  last name and an email). Then `POST /v1/jobs/submissions` with the member's
+  contact pair, name and email: Agend finds the contact by the pair, or creates
+  it (never matching by email), and answers `202` with the job as
+  `checking_credit`. The browser then polls `GET /jobs/me/{id}` every 3 seconds
+  for up to 30: `pending` means a credit paid for it and it awaits review,
+  `no_credit` means none was available and nothing was spent, and a check
+  still running is left to finish (the row updates later).
+- **No double posts**: the form sends a `request_id`, and the site sends
+  `wp-<user id>-<request_id>` as the `Idempotency-Key`. The browser keeps the
+  id while the outcome is unknown and starts a new one after a refusal. A
+  timeout, a `5xx`, an unreadable answer or an idempotency `409` is
+  `unconfirmed`: the member is shown their list rather than a second submit.
+- **Statuses** as the member sees them: Agend's `approved` is `published`, or
+  `expired` once its listing period ends; `closed` is `filled` when the member
+  said so. The rest (`checking_credit`, `pending`, `no_credit`, `rejected`,
+  `withdrawn`, `closed`) pass through. The browser never gets `credit_ref`,
+  `account_id` or `contact`.
+- **Withdraw** a pending job and Agend frees its credit; **close** a live one
+  and it does not, because the listing ran. The site forgets its cached credit
+  count after a post, a settled check and a withdrawal.
+- **Fields**: everything `POST /v1/jobs/submissions` takes in `job` except the
+  logo (the gateway only accepts an `https` address the site hosts, and there
+  is no upload yet). The description is typed as plain text and sent as
+  escaped paragraphs. Title, employment type and work arrangement are always
+  required; the widget chooses which other fields are required or hidden
+  (enforced by the form, the gateway re-checks its own rules) and adds "tag
+  questions", each a dropdown or tick boxes over some of the board's tags, for
+  example a salary band.
 - **My Account > Jobs** (`includes/my-account-jobs.php`, WooCommerce only):
   a "Jobs" item after Orders at `/my-account/my-jobs/` (namespaced: a bare
   `jobs` endpoint would also claim any page path ending in `/jobs/`). It shows the template
   chosen in Agend Widgets settings ("My Account Jobs template"), or the Member
   Jobs surface on its own. Lay the template out with Content Personalisation
-  rules such as Entitlement Mirror's "Has an unused job credit".
+  rules such as "Agend Jobs > Has an unused job credit".
 - **Buying credits**: "Job credit products" in Agend Widgets settings picks up
   to three WooCommerce products (the CRM credit products, imported by the
   products extension). Each becomes a Buy button in the widget, linking to
@@ -1152,11 +1190,11 @@ Elementor) shows the member's credits, their submissions with status, and the
   add-to-cart checks run as for any add (the products extension keeps a CRM
   renewal invoice on its own this way); the product goes in the cart once and
   checkout opens, or a refusal returns to My Account > Jobs with WooCommerce's
-  notice. Only a configured product is accepted.
-- **Gateway setup**: the organisation's member job submissions switch on, its
-  approver addresses set, and the site's API key holding
-  `jobs.submissions.self_read` and `jobs.submissions.self_manage`. Without the
-  scopes the surface draws nothing for a visitor.
+  notice. Only a configured product is accepted. Buying a product grants the
+  credit in the CRM; Agend counts it from there.
+- **Gateway setup**: see "Member job credits" above. Without
+  `jobs.submissions.browse` and `jobs.submissions.create` the surface draws
+  nothing for a visitor.
 
 ## Directory map
 
