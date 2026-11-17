@@ -1090,6 +1090,45 @@ secret, an unreachable provider, a non-2xx or malformed answer, a hostname
 mismatch, a missing score, a low score and an action mismatch all refuse the
 submission.
 
+## Member job credits
+
+A member pays for each job they post from this site with a job credit held in
+the association's CRM (in Upbeat, an entitlement record). Agend is the credit
+authority: it checks for an unused credit when a job is posted, records the
+spend, writes it back to the CRM, and frees the credit when staff reject the
+job or the member withdraws it. This site never reads or writes credits itself.
+
+- **Who the member is**: their contact pair, `external_source` plus
+  `external_id`. The source is `upbeat-contacts` unless the
+  `agend_apps_jobs_contact_source` option or filter says otherwise; the id is
+  `agend_apps_user_external_id()`, the membership number on an Upbeat site.
+  Agend matches the pair exactly, never by email.
+- **Client** (`includes/api/jobs.php`): `agend_apps_jobs_get_credits()`,
+  `agend_apps_jobs_get_submissions()`, `agend_apps_jobs_get_submission()`,
+  `agend_apps_jobs_create_submission()`, `agend_apps_jobs_update_submission()`,
+  `agend_apps_jobs_withdraw_submission()` and
+  `agend_apps_jobs_close_submission()`, over `/v1/jobs/credits` and
+  `/v1/jobs/submissions`. They send the site key only, never the member's
+  bearer, because one key acts for every member.
+- **The count** (`Agend_Apps_Jobs_Credits::count()`, `includes/jobs-credits.php`):
+  how many unused credits a member has, cached for five minutes per member
+  because one key carries every member's page views. It is forgotten when the
+  member posts (`forget()`) and when a `jobs.submission.rejected` or
+  `jobs.submission.withdrawn` webhook names the member. A count that cannot be
+  read is an error (never zero) and is remembered for 30 seconds; a site that
+  cannot count at all (`SOURCE_NOT_ALLOWED`, `JOB_CREDITS_NOT_CONFIGURED`,
+  `JOB_SUBMISSIONS_DISABLED`, a missing scope) for five minutes.
+- **Content Personalisation (ESAC)**: the "Agend Jobs > Has an unused job
+  credit" condition passes only for a signed-in member whose count is above
+  zero, so a section offering "Post a job" stays hidden, and its inverse (buy
+  credits) shows, whenever the count is unknown. It is what the site offers,
+  not a guarantee: Agend checks again when the job is posted. Not offered when
+  the key is known to lack `jobs.submissions.browse`.
+- **Gateway setup**: the site key holds `jobs.submissions.browse` (and, to
+  post, `jobs.submissions.create` and `jobs.submissions.manage`); the key may
+  create contacts under `upbeat-contacts`; the organisation has a job credit
+  setting and member job submissions switched on.
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map

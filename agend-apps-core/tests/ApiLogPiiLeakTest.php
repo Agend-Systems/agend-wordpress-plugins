@@ -31,6 +31,16 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/logging/class-agend-a
 final class ApiLogPiiLeakTest extends TestCase {
 
 	/**
+	 * Pins the log's hashing key. With a fresh random key per test, the short
+	 * hex digests in `[redacted:...#abc123]` tokens could now and then spell a
+	 * canary such as the four-digit postcode, failing the test at random.
+	 */
+	protected function setUp(): void {
+		parent::setUp();
+		update_option( Agend_Apps_Logger::OPTION_SALT, str_repeat( 'a', 64 ) );
+	}
+
+	/**
 	 * The stored row as one lower-cased, URL-decoded string to search.
 	 *
 	 * Every column is searched except the two the logger generates fresh for
