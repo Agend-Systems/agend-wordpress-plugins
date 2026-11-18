@@ -29,6 +29,10 @@ function agend_apps_register_lms_routes(): void {
  * writes and are only available via server-side PHP functions in
  * `includes/api/lms.php`.
  *
+ * The two verify routes are public and reach the gateway with the site key, so
+ * they sit behind the credential guard (code allow-list, per-visitor limits and
+ * a site-wide ceiling: see `includes/credential-guard.php`).
+ *
  * Exposes:
  * - `GET  /agend-apps/v1/lms/courses`                   — paginated course list.
  * - `GET  /agend-apps/v1/lms/courses/{id}/lessons`      — course lessons.
@@ -470,9 +474,7 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function verify_badge( WP_REST_Request $request ): WP_REST_Response {
-		$token  = $request->get_param( 'token' );
-		$result = agend_apps_lms_verify_badge( $token );
-		return $this->prepare_api_response( $result );
+		return $this->guarded_verify( $request, 'badge', (string) $request->get_param( 'token' ) );
 	}
 
 	/**
@@ -482,9 +484,74 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function verify_certificate( WP_REST_Request $request ): WP_REST_Response {
-		$code   = $request->get_param( 'code' );
-		$result = agend_apps_lms_verify_certificate( $code );
-		return $this->prepare_api_response( $result );
+		return $this->guarded_verify( $request, 'certificate', (string) $request->get_param( 'code' ) );
+	}
+
+	/**
+	 * Runs a public verification lookup behind the credential guard.
+	 *
+	 * Anyone can call these two GET routes, so the order is: the code must be
+	 * a shape the plugin forwards (refused with 400 and nothing counted, so a
+	 * certificate number can never be used to walk the gateway's sequence),
+	 * then the visitor's limits, then the site-wide ceiling, then the call.
+	 * The call goes out with the site key alone (see the wrappers).
+	 *
+	 * There is no captcha: a GET cannot carry a token, so a visitor over the
+	 * limit is simply refused. The throttled and refused answers are never
+	 * cached, because they belong to one visitor.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @param string          $kind    'badge' or 'certificate'.
+	 * @param string          $raw     The code as the visitor sent it.
+	 * @return WP_REST_Response
+	 */
+	private function guarded_verify( WP_REST_Request $request, string $kind, string $raw ): WP_REST_Response {
+		$parsed = agend_apps_credential_parse_code( $raw, $kind );
+
+		if ( null === $parsed ) {
+			return $this->verify_refusal( agend_apps_credential_invalid_code_error() );
+		}
+
+		$gate = agend_apps_credential_throttle( agend_apps_visitor_ip( $request ), time() );
+
+		if ( '' !== $gate['reason'] ) {
+			$refusal = $this->verify_refusal(
+				new WP_Error(
+					'visitor' === $gate['reason'] ? 'agend_apps_credential_rate_limited' : 'agend_apps_credential_busy',
+					__( 'Too many checks. Please try again shortly.', 'agend-apps-core' ),
+					array(
+						'status_code' => 429,
+						'retry_after' => $gate['retry_after'],
+					)
+				)
+			);
+			$refusal->header( 'Retry-After', (string) $gate['retry_after'] );
+
+			return $refusal;
+		}
+
+		$result = 'badge' === $kind
+			? agend_apps_lms_verify_badge( $parsed['code'] )
+			: agend_apps_lms_verify_certificate( $parsed['code'] );
+
+		$response = $this->prepare_api_response( $result );
+		$response->header( 'Cache-Control', 'no-store' );
+
+		return $response;
+	}
+
+	/**
+	 * A refusal of a verification lookup: the error envelope the proxy always
+	 * uses, never cached.
+	 *
+	 * @param WP_Error $error Error carrying `status_code` in its data.
+	 * @return WP_REST_Response
+	 */
+	private function verify_refusal( WP_Error $error ): WP_REST_Response {
+		$response = $this->error_to_response( $error );
+		$response->header( 'Cache-Control', 'no-store' );
+
+		return $response;
 	}
 
 	/**

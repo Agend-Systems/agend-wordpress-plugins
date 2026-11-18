@@ -1090,6 +1090,42 @@ secret, an unreachable provider, a non-2xx or malformed answer, a hostname
 mismatch, a missing score, a low score and an action mismatch all refuse the
 submission.
 
+## Public certificate and badge lookups
+
+`GET /agend-apps/v1/lms/certificates/verify/{code}` and
+`GET /agend-apps/v1/lms/badges/verify/{token}` (and the PHP wrappers
+`agend_apps_lms_verify_certificate()` and `agend_apps_lms_verify_badge()` behind
+them) answer anyone, so every lookup passes the same guard
+(`includes/credential-guard.php`, counters in `includes/public-throttle.php`):
+
+- **Only real code shapes are forwarded.** A `VER-` plus 20 hex verification
+  code, a 32 hex badge share token, or a legacy 8 to 12 character certificate
+  code. Anything else, including every hyphenated certificate number
+  (`CERT-2026-000123`), is refused with 400 `agend_apps_invalid_credential_code`
+  before anything is counted or called, so the gateway's sequential numbers can
+  never be walked through the site. A canonical code typed in the wrong case
+  (`Ver-3fa...`) is corrected before it is sent. The wrappers apply the same
+  check, so a PHP caller is covered too. A site holding another format adds it
+  with the `agend_apps_credential_code_shapes` filter.
+- **Per-visitor limits**: 10 a minute and 60 an hour, keyed on a salted hash of
+  `REMOTE_ADDR` (an IPv6 address counts as its /64). `X-Forwarded-For` is not
+  trusted; a site behind a trusted proxy returns the real address from the
+  `agend_apps_visitor_ip` filter. A visitor with no usable address shares one
+  set of limits with every other such visitor. No address is stored.
+- **A site ceiling** of 20 lookups a minute in total, so a script spread across
+  many addresses cannot spend the key's shared budget. Over it every visitor
+  gets 429 `agend_apps_credential_busy`; a visitor over their own limit gets 429
+  `agend_apps_credential_rate_limited`. Both carry `Retry-After`. Change the
+  numbers with the `agend_apps_credential_check_limits` filter
+  (`visitor_per_minute`, `visitor_per_hour`, `site_per_minute`); a value below 1
+  is ignored, so the throttle cannot be switched off.
+- **Called as a visitor's lookup**: the wrappers set `unattended` (no member
+  token is minted or attached) and `isolated_rate_limit` (a gateway 429 for a
+  lookup does not stop the site's other Agend calls, and the site's own stop
+  state does not stop a lookup). Answers are sent `Cache-Control: no-store`.
+- **No captcha** on the GET routes, because a GET cannot carry a token: a visitor
+  over the limit is refused instead.
+
 ## Member job credits
 
 A member pays for each job they post from this site with a job credit held in

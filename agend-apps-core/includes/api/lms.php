@@ -1034,17 +1034,33 @@ function agend_apps_lms_get_user_progress( string $user_id, array $query = array
  *
  * Scope: `lms.badges.verify`. Public verification endpoint.
  *
+ * Safe to call for a visitor nobody has vetted. The token must be a 32
+ * character badge share token ({@see agend_apps_credential_parse_code()}):
+ * anything else is refused here without a call. The call is made with the site
+ * key alone, never the signed-in member's token, and a gateway refusal for the
+ * rate limit does not stop the site's other calls. Throttling is the caller's
+ * job, because only a request knows the visitor.
+ *
  * @param string $token Badge share token.
  * @return array|WP_Error Decoded verification result on success, or WP_Error on failure.
  */
 function agend_apps_lms_verify_badge( string $token ) {
+	$parsed = agend_apps_credential_parse_code( $token, 'badge' );
+
+	if ( null === $parsed ) {
+		return agend_apps_credential_invalid_code_error();
+	}
+
+	$token = $parsed['code'];
+
 	/**
 	 * Filters the badge-verify request args before the request is sent.
 	 *
-	 * @param array  $args  Request args.
+	 * @param array  $args  Request args. `unattended` and `isolated_rate_limit`
+	 *                      are set: this is a visitor's lookup, not a member's.
 	 * @param string $token Badge share token.
 	 */
-	$args = (array) apply_filters( 'agend_apps_lms_verify_badge_args', array(), $token );
+	$args = (array) apply_filters( 'agend_apps_lms_verify_badge_args', agend_apps_credential_lookup_args(), $token );
 
 	$response = agend_apps_api()->request( 'GET', '/lms/badges/verify/' . rawurlencode( $token ), $args );
 
@@ -1066,17 +1082,35 @@ function agend_apps_lms_verify_badge( string $token ) {
  *
  * Scope: `lms.certificates.verify`. Public verification endpoint.
  *
+ * Safe to call for a visitor nobody has vetted. The code must be a `VER-`
+ * verification code or a legacy 8 to 12 character code
+ * ({@see agend_apps_credential_parse_code()}): a certificate number such as
+ * `CERT-2026-000123` is refused here without a call, because the gateway
+ * would look it up and the numbers run in one global sequence. The call is
+ * made with the site key alone, never the signed-in member's token, and a
+ * gateway refusal for the rate limit does not stop the site's other calls.
+ * Throttling is the caller's job, because only a request knows the visitor.
+ *
  * @param string $code Certificate verification code.
  * @return array|WP_Error Decoded verification result on success, or WP_Error on failure.
  */
 function agend_apps_lms_verify_certificate( string $code ) {
+	$parsed = agend_apps_credential_parse_code( $code, 'certificate' );
+
+	if ( null === $parsed ) {
+		return agend_apps_credential_invalid_code_error();
+	}
+
+	$code = $parsed['code'];
+
 	/**
 	 * Filters the certificate-verify request args before the request is sent.
 	 *
-	 * @param array  $args Request args.
+	 * @param array  $args Request args. `unattended` and `isolated_rate_limit`
+	 *                     are set: this is a visitor's lookup, not a member's.
 	 * @param string $code Certificate verification code.
 	 */
-	$args = (array) apply_filters( 'agend_apps_lms_verify_certificate_args', array(), $code );
+	$args = (array) apply_filters( 'agend_apps_lms_verify_certificate_args', agend_apps_credential_lookup_args(), $code );
 
 	$response = agend_apps_api()->request( 'GET', '/lms/certificates/verify/' . rawurlencode( $code ), $args );
 
