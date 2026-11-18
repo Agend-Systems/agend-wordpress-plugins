@@ -128,6 +128,12 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Credential_Check() );
 		}
 
+		// Needs a core that ships the member-summary surface.
+		if ( function_exists( 'agend_apps_records_render_member_summary' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-member-summary.php';
+			$widgets_manager->register( new Agend_Elementor_Member_Summary() );
+		}
+
 		// The renderer lives in Agend Apps Core, which updates independently:
 		// an older core has no listing enquiry surface to adapt.
 		if ( function_exists( 'agend_apps_records_render_listing_enquiry' ) ) {

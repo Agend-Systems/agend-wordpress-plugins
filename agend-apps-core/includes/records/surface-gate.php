@@ -73,6 +73,10 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Member Jobs', 'agend-apps-core' ),
 			'scopes' => array( 'jobs.submissions.browse', 'jobs.submissions.create' ),
 		),
+		'member-summary'            => array(
+			'label'  => __( 'Agend Member Summary', 'agend-apps-core' ),
+			'scopes' => array( 'crm.contacts.browse' ),
+		),
 		'memberships-catalogue'     => array(
 			'label'  => __( 'Agend Memberships', 'agend-apps-core' ),
 			'scopes' => array( 'crm.tiers.browse' ),
@@ -505,6 +509,7 @@ function agend_apps_records_rest_route_surface( string $route ): string {
 		'#^/jobs(/[^/]+)?$#'                                     => 'jobs-catalogue',
 		'#^/crm/tiers(/|$)#'                                     => 'memberships-catalogue',
 		'#^/account-link(/|$)#'                                  => 'account-link',
+		'#^/member/summary$#'                                    => 'member-summary',
 	);
 
 	foreach ( $patterns as $pattern => $surface ) {

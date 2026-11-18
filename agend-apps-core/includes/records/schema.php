@@ -155,5 +155,6 @@ require_once __DIR__ . '/schema/learning-paths.php';
 require_once __DIR__ . '/schema/credential-check.php';
 require_once __DIR__ . '/schema/jobs-catalogue.php';
 require_once __DIR__ . '/schema/member-jobs.php';
+require_once __DIR__ . '/schema/member-summary.php';
 require_once __DIR__ . '/schema/directory-catalogue.php';
 require_once __DIR__ . '/schema/directory-map.php';

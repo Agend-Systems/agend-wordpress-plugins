@@ -229,6 +229,23 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// The member summary's cards come from the server by script, because they
+	// are the member's own and must never sit in a cached page. The fragment is
+	// passed through DOMPurify before it is placed.
+	wp_register_style(
+		'agend-apps-records-member-summary',
+		agend_apps_records_asset_url( 'css/member-summary.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-member-summary',
+		agend_apps_records_asset_url( 'js/member-summary.js' ),
+		array( 'agend-apps-records-dompurify' ),
+		agend_apps_records_asset_version(),
+		true
+	);
+
 	wp_register_style(
 		'agend-apps-records-events-catalogue',
 		agend_apps_records_asset_url( 'css/events-catalogue.css' ),
