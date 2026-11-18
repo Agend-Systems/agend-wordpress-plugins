@@ -317,6 +317,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-map.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-public.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/auth.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/crm.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/events.php';
