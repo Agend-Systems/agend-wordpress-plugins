@@ -83,6 +83,10 @@
       note.hidden = true;
     }
 
+    // Set when the site cannot match the signed-in user to a member: from then on
+    // the box behaves as the plain form it is, and the visitor search page takes
+    // over.
+    var off = false;
     var timer = null;
     var sequence = 0;
     var controller = null;
@@ -192,6 +196,7 @@
       if (status === 429) {
         say((body && body.message) || messages.busy || messages.error || '', false);
       } else if (status === 403 && body && body.code === 'agend_apps_resources_no_member') {
+        off = true;
         say(messages.notLinked || messages.error || '', true);
       } else if (status === 403) {
         // A visitor on a page that is not offering live search: nothing to show.
@@ -203,6 +208,10 @@
 
     function search(raw, submitted) {
       var query = normalise(raw);
+
+      if (off) {
+        return;
+      }
 
       window.clearTimeout(timer);
 
@@ -284,6 +293,10 @@
     });
 
     form.addEventListener('submit', function (event) {
+      if (off) {
+        // The plain form goes to the public search page.
+        return;
+      }
       event.preventDefault();
       search(input.value, true);
     });
@@ -291,6 +304,9 @@
     var chips = root.querySelectorAll('[data-agend-suggest]');
     for (var i = 0; i < chips.length; i++) {
       chips[i].addEventListener('click', function (event) {
+        if (off) {
+          return;
+        }
         event.preventDefault();
         input.value = this.getAttribute('data-agend-suggest') || '';
         input.focus();
