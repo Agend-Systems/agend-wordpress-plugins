@@ -186,6 +186,8 @@ final class LearningPathsWidgetTest extends TestCase {
 		self::assertSame( 'yes', $controls['inherit_colours']['args']['default'] );
 		self::assertSame( '2', $controls['columns_desktop']['args']['default'] );
 		self::assertSame( 'detail', $controls['course_links']['args']['default'] );
+		self::assertSame( 'auto', $controls['card_layout']['args']['default'] );
+		self::assertSame( array( 'auto', 'stacked' ), array_keys( $controls['card_layout']['args']['options'] ) );
 	}
 
 	#[Test]

@@ -1338,9 +1338,25 @@ works the same in every member sign-in mode.
   instead. A failed read always says so, hidden or not, and is not mistaken for
   an empty list. The surface draws nothing inside a card or detail template,
   where it would be fetched once per card.
+- **Layout and look.** Each path is a card: a header in the heading colour (the
+  difficulty level, title, hours and course count, description) and the courses
+  as a numbered stepper, with a quiet connector between the steps when the path
+  is sequential (the "complete in order" note is kept as text too). A course row
+  is one whole-row link whose text is the course title. "Columns" is the most
+  columns across: a card is never narrower than 20rem, and one path, or fewer
+  paths than columns, takes the full width. A wide card (about 42rem or more,
+  by the card's own width, not the screen's) puts the header beside the steps;
+  "Card layout: Always stacked" keeps the header above them. There is no
+  box-shadow, because the Agend theme sets `box-shadow: none !important`
+  everywhere; the stylesheet also cancels that theme's ID-level `li + li` top
+  margin on its own lists.
 - **Colours.** Heading, body and accent, resolved as the catalogues resolve
   them (`inherit_colours`, the theme palette and the
-  `agend_apps_records_site_palette` filter).
+  `agend_apps_records_site_palette` filter). Every other colour in the
+  stylesheet is derived from those three with `color-mix()` (header, lines,
+  step markers, hover), with plain fallbacks for a browser without it. The
+  header uses the heading colour with white text, so the heading colour must be
+  one that reads on white, as it must for the titles anyway.
 - **Not included.** A path detail page, enrolment and progress (the member
   routes are not part of the public display), and card templates (the template
   system's record types are events, courses and listings).

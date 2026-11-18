@@ -103,15 +103,16 @@ function agend_apps_records_schema_learning_paths(): array {
 				'label'  => __( 'Layout', 'agend-apps-core' ),
 				'fields' => array(
 					array(
-						'name'    => 'columns_desktop',
-						'label'   => __( 'Columns (Desktop)', 'agend-apps-core' ),
-						'type'    => 'select',
-						'options' => array(
+						'name'        => 'columns_desktop',
+						'label'       => __( 'Columns (Desktop)', 'agend-apps-core' ),
+						'type'        => 'select',
+						'options'     => array(
 							'1' => '1',
 							'2' => '2',
 							'3' => '3',
 						),
-						'default' => '2',
+						'default'     => '2',
+						'description' => __( 'The most columns across. One path, or fewer paths than columns, uses the full width, and a narrow area uses fewer columns.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'columns_tablet',
@@ -122,6 +123,17 @@ function agend_apps_records_schema_learning_paths(): array {
 							'2' => '2',
 						),
 						'default' => '2',
+					),
+					array(
+						'name'        => 'card_layout',
+						'label'       => __( 'Card layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'options'     => array(
+							'auto'    => __( 'Automatic', 'agend-apps-core' ),
+							'stacked' => __( 'Always stacked', 'agend-apps-core' ),
+						),
+						'default'     => 'auto',
+						'description' => __( 'Automatic puts a path\'s summary beside its courses when the card is wide, such as one path across the full width. Always stacked keeps the summary above the courses.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'card_radius',
@@ -262,7 +274,7 @@ function agend_apps_records_schema_learning_paths(): array {
 						'label'       => __( 'Highlight / accent colour', 'agend-apps-core' ),
 						'type'        => 'colour',
 						'default'     => '#FF6B55',
-						'description' => __( 'Drives the difficulty badge, the course numbers and the underline on course links.', 'agend-apps-core' ),
+						'description' => __( 'Drives the step numbers and the small mark beside the difficulty level.', 'agend-apps-core' ),
 						'condition'   => array( 'inherit_colours!' => 'yes' ),
 					),
 				),

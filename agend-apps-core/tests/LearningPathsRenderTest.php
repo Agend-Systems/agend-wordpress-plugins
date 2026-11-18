@@ -222,6 +222,21 @@ final class LearningPathsRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_lay_cards_out_automatically_unless_stacked_is_chosen(): void {
+		self::assertSame( 'auto', agend_apps_records_learning_paths_build_config( array() )['layout']['card'] );
+		self::assertSame( 'auto', agend_apps_records_learning_paths_build_config( array( 'card_layout' => 'sideways' ) )['layout']['card'] );
+		self::assertSame( 'stacked', agend_apps_records_learning_paths_build_config( array( 'card_layout' => 'stacked' ) )['layout']['card'] );
+	}
+
+	#[Test]
+	public function should_add_the_stacked_class_only_when_stacked_is_chosen(): void {
+		$this->seedTwoPaths();
+
+		self::assertStringContainsString( '<div class="agend-learning-paths" style=', $this->render( array() ) );
+		self::assertStringContainsString( '<div class="agend-learning-paths agend-learning-paths--stacked" style=', $this->render( array( 'card_layout' => 'stacked' ) ) );
+	}
+
+	#[Test]
 	public function should_fall_back_to_all_paths_for_an_unknown_source(): void {
 		self::assertSame( 'all', agend_apps_records_learning_paths_build_config( array( 'path_source' => 'newest' ) )['source'] );
 	}
@@ -256,7 +271,7 @@ final class LearningPathsRenderTest extends TestCase {
 		self::assertSame( array(), agend_lp_test_calls( 'by_id' ) );
 		self::assertStringContainsString( 'Web Foundations', $html );
 		self::assertStringNotContainsString( 'agend-learning-paths__courses', $html );
-		self::assertStringNotContainsString( 'courses</span>', $html, 'with no course list read there is no count to show' );
+		self::assertStringNotContainsString( 'courses</li>', $html, 'with no course list read there is no count to show' );
 	}
 
 	#[Test]
@@ -333,7 +348,7 @@ final class LearningPathsRenderTest extends TestCase {
 
 		self::assertStringContainsString( '<h2 class="agend-learning-paths__title">Learning paths</h2>', $html );
 		self::assertSame( 2, substr_count( $html, '<article class="agend-learning-paths__card">' ) );
-		self::assertSame( 2, substr_count( $html, '<ol class="agend-learning-paths__courses" role="list">' ) );
+		self::assertSame( 2, substr_count( $html, '<ol class="agend-learning-paths__courses' ) );
 
 		// Handed over as build-a-site (2), html-basics (0), css-basics (1).
 		$positions = $this->positions( $html, array( 'Html Basics', 'Css Basics', 'Build A Site' ) );
@@ -352,16 +367,74 @@ final class LearningPathsRenderTest extends TestCase {
 
 		$html = $this->render( array() );
 
-		self::assertStringContainsString( '<span class="agend-learning-paths__badge">Beginner</span>', $html );
-		self::assertStringContainsString( '18 hours', $html );
-		self::assertStringContainsString( '3 courses', $html );
-		self::assertStringContainsString( '1 course<', $html );
+		self::assertStringContainsString( '<p class="agend-learning-paths__eyebrow">Beginner</p>', $html );
+		self::assertStringContainsString( '<li class="agend-learning-paths__meta-item">18 hours</li>', $html );
+		self::assertStringContainsString( '<li class="agend-learning-paths__meta-item">3 courses</li>', $html );
+		self::assertStringContainsString( '<li class="agend-learning-paths__meta-item">1 course</li>', $html );
 		self::assertStringContainsString( 'Complete the courses in order.', $html );
 		self::assertSame( 1, substr_count( $html, 'Complete the courses in order.' ), 'only the sequential path says so' );
 		self::assertStringContainsString( 'About path p1.', $html );
 		self::assertStringContainsString( '<img class="agend-learning-paths__img" src="https://cdn.example.test/p1.jpg" alt="" loading="lazy" decoding="async">', $html );
 		self::assertSame( 1, substr_count( $html, '<img ' ), 'a path with no image draws no frame for one' );
 		self::assertSame( 1, substr_count( $html, '>Optional</span>' ) );
+	}
+
+	#[Test]
+	public function should_split_each_card_into_a_summary_header_and_the_course_steps(): void {
+		$this->seedTwoPaths();
+
+		$html = $this->render( array() );
+
+		self::assertSame( 2, substr_count( $html, '<div class="agend-learning-paths__head">' ) );
+		self::assertSame( 2, substr_count( $html, '<div class="agend-learning-paths__steps">' ) );
+
+		// The path's own details are in the header, ahead of the steps.
+		$positions = $this->positions( $html, array( '>Web Foundations</h3>', 'About path p1.', 'agend-learning-paths__steps', 'Html Basics' ) );
+
+		self::assertNotContains( -1, $positions );
+
+		$sorted = $positions;
+		sort( $sorted );
+
+		self::assertSame( $sorted, $positions );
+	}
+
+	#[Test]
+	public function should_mark_only_a_sequential_path_as_a_stepper_and_say_so_in_words(): void {
+		$this->seedTwoPaths();
+
+		$html = $this->render( array() );
+
+		self::assertSame( 1, substr_count( $html, 'agend-learning-paths__courses--sequential' ), 'the connector is drawn for the sequential path only' );
+		self::assertSame( 1, substr_count( $html, 'Complete the courses in order.' ), 'the order is stated in text too, not only by the connector' );
+	}
+
+	#[Test]
+	public function should_mark_an_optional_course_in_the_row_and_in_words(): void {
+		$this->seedTwoPaths();
+		$this->setCoursesPage();
+
+		$html = $this->render( array() );
+
+		self::assertSame( 1, substr_count( $html, 'agend-learning-paths__course--optional' ) );
+		self::assertSame( 1, substr_count( $html, '<span class="agend-learning-paths__optional">Optional</span>' ) );
+	}
+
+	#[Test]
+	public function should_keep_the_order_note_in_the_header_when_the_course_list_is_off(): void {
+		$this->seedTwoPaths();
+
+		$html = $this->render( array( 'show_courses' => '' ) );
+
+		self::assertStringNotContainsString( 'agend-learning-paths__steps', $html, 'no courses, no steps block' );
+		self::assertSame( 1, substr_count( $html, 'Complete the courses in order.' ) );
+
+		$head = strpos( $html, 'agend-learning-paths__head-text' );
+		$note = strpos( $html, 'Complete the courses in order.' );
+		$end  = strpos( $html, '</article>' );
+
+		self::assertNotFalse( $head );
+		self::assertTrue( $head < $note && $note < $end );
 	}
 
 	#[Test]
@@ -380,7 +453,7 @@ final class LearningPathsRenderTest extends TestCase {
 		);
 
 		self::assertStringNotContainsString( '<img ', $html );
-		self::assertStringNotContainsString( 'agend-learning-paths__badge', $html );
+		self::assertStringNotContainsString( 'agend-learning-paths__eyebrow', $html );
 		self::assertStringNotContainsString( '18 hours', $html );
 		self::assertStringNotContainsString( 'About path', $html );
 		self::assertStringNotContainsString( 'Complete the courses in order.', $html );
@@ -465,9 +538,33 @@ final class LearningPathsRenderTest extends TestCase {
 
 		$html = $this->render( array() );
 
-		self::assertStringContainsString( '<a class="agend-learning-paths__course-link" href="https://example.test/page-5/course/html-basics/">Html Basics</a>', $html );
+		// The link's text is the course title alone: the step number is drawn by
+		// the stylesheet, outside the link, so it is not part of the link's name.
+		self::assertStringContainsString( '<a class="agend-learning-paths__course-link exclude-agend-theme-link" href="https://example.test/page-5/course/html-basics/">Html Basics</a>', $html );
 		self::assertStringContainsString( 'href="https://example.test/page-5/course/release-pipelines/"', $html );
 		self::assertStringNotContainsString( 'target="_blank"', $html );
+	}
+
+	#[Test]
+	public function should_make_each_linked_row_a_whole_row_target_with_a_decorative_chevron(): void {
+		$this->seedTwoPaths();
+		$this->setCoursesPage();
+
+		$html = $this->render( array() );
+
+		self::assertSame( 4, substr_count( $html, 'agend-learning-paths__course agend-learning-paths__course--link' ), 'every course row is a linked row' );
+		self::assertSame( 4, substr_count( $html, '<svg class="agend-learning-paths__chevron"' ) );
+		self::assertSame( 4, substr_count( $html, 'aria-hidden="true" focusable="false"' ), 'the chevron is hidden from screen readers' );
+	}
+
+	#[Test]
+	public function should_draw_no_chevron_and_no_link_row_without_links(): void {
+		$this->seedTwoPaths();
+
+		$html = $this->render( array() );
+
+		self::assertStringNotContainsString( 'agend-learning-paths__chevron', $html );
+		self::assertStringNotContainsString( 'agend-learning-paths__course--link', $html );
 	}
 
 	#[Test]
@@ -685,6 +782,7 @@ final class LearningPathsRenderTest extends TestCase {
 		self::assertSame( array( 'type' => 'boolean', 'default' => true ), $attributes['show_courses'] );
 		self::assertSame( array( 'type' => 'boolean', 'default' => false ), $attributes['links_new_tab'] );
 		self::assertSame( array( 'type' => 'string', 'default' => 'detail' ), $attributes['course_links'] );
+		self::assertSame( array( 'type' => 'string', 'default' => 'auto' ), $attributes['card_layout'] );
 	}
 
 	#[Test]

@@ -98,6 +98,7 @@ function agend_apps_records_learning_paths_build_config( array $s ): array {
 			'desktop'    => max( 1, min( 3, (int) ( $s['columns_desktop'] ?? 2 ) ) ),
 			'tablet'     => max( 1, min( 2, (int) ( $s['columns_tablet'] ?? 2 ) ) ),
 			'cardRadius' => max( 0, min( 48, (int) ( $s['card_radius'] ?? 10 ) ) ),
+			'card'       => 'stacked' === ( $s['card_layout'] ?? 'auto' ) ? 'stacked' : 'auto',
 		),
 		'card'    => array(
 			'image'         => $on( 'show_image' ),
@@ -430,10 +431,11 @@ function agend_apps_records_render_learning_paths( array $settings ): string {
 
 	$style   = agend_apps_records_learning_paths_inline_style( $config );
 	$heading = $config['heading'];
+	$classes = 'stacked' === $config['layout']['card'] ? 'agend-learning-paths agend-learning-paths--stacked' : 'agend-learning-paths';
 
 	ob_start();
 	?>
-	<div class="agend-learning-paths" style="<?php echo esc_attr( $style ); ?>">
+	<div class="<?php echo esc_attr( $classes ); ?>" style="<?php echo esc_attr( $style ); ?>">
 		<?php if ( ! empty( $heading['show'] ) && ( '' !== $heading['title'] || '' !== $heading['subtitle'] ) ) : ?>
 			<div class="agend-learning-paths__heading">
 				<?php if ( '' !== $heading['title'] ) : ?>
@@ -494,50 +496,70 @@ function agend_apps_records_learning_paths_render_card( array $path, array $conf
 	$image      = $card['image'] ? agend_apps_records_learning_paths_image_url( $path['image'] ) : '';
 	$title      = '' !== $path['title'] ? $path['title'] : $path['slug'];
 
+	$has_courses = $card['courses'] && is_array( $path['courses'] ) && array() !== $path['courses'];
+	$note        = $card['sequence'] && $path['sequential'];
+
 	ob_start();
 	?>
 	<article class="agend-learning-paths__card">
-		<?php if ( '' !== $image ) : ?>
-			<div class="agend-learning-paths__media">
-				<img class="agend-learning-paths__img" src="<?php echo esc_url( $image ); ?>" alt="" loading="lazy" decoding="async">
+		<div class="agend-learning-paths__head">
+			<?php if ( '' !== $image ) : ?>
+				<div class="agend-learning-paths__media">
+					<img class="agend-learning-paths__img" src="<?php echo esc_url( $image ); ?>" alt="" loading="lazy" decoding="async">
+				</div>
+			<?php endif; ?>
+			<div class="agend-learning-paths__head-text">
+				<?php if ( '' !== $difficulty ) : ?>
+					<p class="agend-learning-paths__eyebrow"><?php echo esc_html( $difficulty ); ?></p>
+				<?php endif; ?>
+				<h3 class="agend-learning-paths__name"><?php echo esc_html( $title ); ?></h3>
+				<?php if ( array() !== $meta ) : ?>
+					<ul class="agend-learning-paths__meta" role="list">
+						<?php foreach ( $meta as $item ) : ?>
+							<li class="agend-learning-paths__meta-item"><?php echo esc_html( $item ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
+				<?php if ( '' !== $excerpt ) : ?>
+					<p class="agend-learning-paths__description"><?php echo esc_html( $excerpt ); ?></p>
+				<?php endif; ?>
+				<?php if ( $note && ! $has_courses ) : ?>
+					<p class="agend-learning-paths__sequence"><?php esc_html_e( 'Complete the courses in order.', 'agend-apps-core' ); ?></p>
+				<?php endif; ?>
 			</div>
-		<?php endif; ?>
-		<div class="agend-learning-paths__body">
-			<?php if ( '' !== $difficulty || array() !== $meta ) : ?>
-				<p class="agend-learning-paths__meta">
-					<?php if ( '' !== $difficulty ) : ?>
-						<span class="agend-learning-paths__badge"><?php echo esc_html( $difficulty ); ?></span>
-					<?php endif; ?>
-					<?php foreach ( $meta as $item ) : ?>
-						<span class="agend-learning-paths__meta-item"><?php echo esc_html( $item ); ?></span>
-					<?php endforeach; ?>
-				</p>
-			<?php endif; ?>
-			<h3 class="agend-learning-paths__name"><?php echo esc_html( $title ); ?></h3>
-			<?php if ( '' !== $excerpt ) : ?>
-				<p class="agend-learning-paths__description"><?php echo esc_html( $excerpt ); ?></p>
-			<?php endif; ?>
-			<?php if ( $card['sequence'] && $path['sequential'] ) : ?>
-				<p class="agend-learning-paths__sequence"><?php esc_html_e( 'Complete the courses in order.', 'agend-apps-core' ); ?></p>
-			<?php endif; ?>
-			<?php if ( $card['courses'] && is_array( $path['courses'] ) && array() !== $path['courses'] ) : ?>
-				<ol class="agend-learning-paths__courses" role="list">
+		</div>
+		<?php if ( $has_courses ) : ?>
+			<div class="agend-learning-paths__steps">
+				<?php if ( $note ) : ?>
+					<div class="agend-learning-paths__steps-head">
+						<p class="agend-learning-paths__sequence"><?php esc_html_e( 'Complete the courses in order.', 'agend-apps-core' ); ?></p>
+					</div>
+				<?php endif; ?>
+				<ol class="agend-learning-paths__courses<?php echo $path['sequential'] ? ' agend-learning-paths__courses--sequential' : ''; ?>" role="list">
 					<?php foreach ( $path['courses'] as $course ) : ?>
-						<?php $url = $config['courses']['links'] ? agend_apps_records_learning_paths_course_url( $course['slug'] ) : ''; ?>
-						<li class="agend-learning-paths__course">
+						<?php
+						$url       = $config['courses']['links'] ? agend_apps_records_learning_paths_course_url( $course['slug'] ) : '';
+						$row_class = 'agend-learning-paths__course' . ( '' !== $url ? ' agend-learning-paths__course--link' : '' ) . ( $course['optional'] ? ' agend-learning-paths__course--optional' : '' );
+						?>
+						<li class="<?php echo esc_attr( $row_class ); ?>">
+							<span class="agend-learning-paths__course-main">
+								<?php if ( '' !== $url ) : ?>
+									<a class="agend-learning-paths__course-link exclude-agend-theme-link" href="<?php echo esc_url( $url ); ?>"<?php echo $config['courses']['newTab'] ? ' target="_blank" rel="noopener"' : ''; ?>><?php echo esc_html( $course['title'] ); ?><?php if ( $config['courses']['newTab'] ) : ?><span class="agend-learning-paths__sr"> <?php esc_html_e( '(opens in a new tab)', 'agend-apps-core' ); ?></span><?php endif; ?></a>
+								<?php else : ?>
+									<span class="agend-learning-paths__course-title"><?php echo esc_html( $course['title'] ); ?></span>
+								<?php endif; ?>
+								<?php if ( $course['optional'] ) : ?>
+									<span class="agend-learning-paths__optional"><?php esc_html_e( 'Optional', 'agend-apps-core' ); ?></span>
+								<?php endif; ?>
+							</span>
 							<?php if ( '' !== $url ) : ?>
-								<a class="agend-learning-paths__course-link" href="<?php echo esc_url( $url ); ?>"<?php echo $config['courses']['newTab'] ? ' target="_blank" rel="noopener"' : ''; ?>><?php echo esc_html( $course['title'] ); ?><?php if ( $config['courses']['newTab'] ) : ?><span class="agend-learning-paths__sr"> <?php esc_html_e( '(opens in a new tab)', 'agend-apps-core' ); ?></span><?php endif; ?></a>
-							<?php else : ?>
-								<span class="agend-learning-paths__course-title"><?php echo esc_html( $course['title'] ); ?></span>
-							<?php endif; ?>
-							<?php if ( $course['optional'] ) : ?>
-								<span class="agend-learning-paths__optional"><?php esc_html_e( 'Optional', 'agend-apps-core' ); ?></span>
+								<svg class="agend-learning-paths__chevron" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
 							<?php endif; ?>
 						</li>
 					<?php endforeach; ?>
 				</ol>
-			<?php endif; ?>
-		</div>
+			</div>
+		<?php endif; ?>
 	</article>
 	<?php
 
