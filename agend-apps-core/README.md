@@ -1367,6 +1367,50 @@ works the same in every member sign-in mode.
   routes are not part of the public display), and card templates (the template
   system's record types are events, courses and listings).
 
+## Directory search, filter shortcuts and count
+
+Three surfaces that sit beside a Directory Catalogue instead of inside its
+filter template: `directory-search` (Agend Directory Search),
+`filter-shortcuts` (Agend Filter Shortcuts) and `directory-count` (Agend
+Directory Count). Each has a schema, a renderer in `includes/records/render/`
+and a script and stylesheet registered as `agend-apps-records-<surface>`. They
+are gated on `directory.listings.search`. They ship as Elementor widgets; no
+compiled block exists for them yet, so `AGEND_APPS_RECORDS_BLOCK_SURFACES` does
+not list them.
+
+**On a page with a catalogue** the scripts drive it through
+`window.agendCatalogues.listing.apply( changes )`, where `changes` is
+`{ search, near, lists: { <state key>: [values] }, custom: { <field key>: [values] } }`.
+It writes the state, redraws the filter controls from it (as Clear all does) and
+searches again. Widgets learn of the catalogue from the `agend:directory-ready`
+event and follow it through `agend:directory-results`, so Clear all, a restored
+search link or a filter change shows in the search box and the active tile.
+
+**On a page without one** the search box and the tiles send the visitor to the
+dedicated Directory page (or the widget's own page setting) with a search link
+(`q`, `near`, `radius`, `address`, `cf_<key>`, `category_ids`, `state`, `city`).
+The destination catalogue reads a parameter only when its filter template holds
+a matching filter (Search, Location, the custom field, and so on). A device
+position carried to another page is rounded to two decimals, because the
+address is shareable. Without script the search box is a GET form carrying `q`
+and each tile is a plain link.
+
+Filter Shortcuts "all values" reads the directory facets (or categories) on the
+server. A signed-in visitor's custom field values depend on their entitlements,
+so for them the page leaves those to the browser.
+
+Directory Count reads the total from the pagination meta of a one-listing
+directory search, so it is cached like any search.
+
+## Agend Field text case
+
+The Agend Field `text_case` setting ("Title case for all-capital values")
+changes a text or list value only when it contains no lower case letter:
+`MELBOURNE` becomes `Melbourne`, `Mount Eliza VIC` is left alone. Initialisms
+inside an all-capital value ("NSW") become "Nsw". Cards drawn by the catalogue
+script come from the same server renderer, so there is no client-side copy of
+the rule.
+
 ## Block editor surface
 
 The block editor is the primary target for new surface work. Elementor is
