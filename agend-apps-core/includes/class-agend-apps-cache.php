@@ -157,6 +157,21 @@ class Agend_Apps_Cache {
 			'label'       => 'Single CMS Content',
 			'default_ttl' => 300,
 		),
+		// Resources (Atlas). The collection list is only read for an editor's
+		// picker and for the titles an editor has chosen; searches are stored
+		// per query for visitors only, never for a signed-in member.
+		'atlas_collections'        => array(
+			'label'       => 'Resource Collections',
+			'default_ttl' => 600,
+		),
+		'atlas_search'             => array(
+			'label'       => 'Resource Search (Visitors)',
+			'default_ttl' => 600,
+		),
+		'atlas_ask_budget'         => array(
+			'label'       => 'Resource Ask Allowance',
+			'default_ttl' => 60,
+		),
 		'jobs_list'                => array(
 			'label'       => 'Jobs List',
 			'default_ttl' => 300,
