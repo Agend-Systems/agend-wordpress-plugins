@@ -79,6 +79,18 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Community Popular Posts', 'agend-apps-core' ),
 			'scopes' => array( 'loop.activity.read', 'loop.channels.browse' ),
 		),
+		'resources-collections'     => array(
+			'label'  => __( 'Agend Resources Collections', 'agend-apps-core' ),
+			'scopes' => array( 'atlas.collections.browse' ),
+		),
+		'resources-search'          => array(
+			'label'  => __( 'Agend Resources Search', 'agend-apps-core' ),
+			'scopes' => array( 'atlas.pages.search' ),
+		),
+		'resources-ask'             => array(
+			'label'  => __( 'Agend Resources Ask', 'agend-apps-core' ),
+			'scopes' => array( 'atlas.questions.create' ),
+		),
 		'jobs-catalogue'            => array(
 			'label'  => __( 'Agend Jobs', 'agend-apps-core' ),
 			'scopes' => array( 'jobs.listings.browse' ),
@@ -520,6 +532,9 @@ function agend_apps_records_rest_route_surface( string $route ): string {
 		'#^/lms/credentials(/|$)#'                               => 'credential-check',
 		'#^/lms/certificates/verify/[^/]+$#'                     => 'credential-check',
 		'#^/lms/badges/verify/[^/]+$#'                           => 'credential-check',
+		'#^/resources/collections(/|$)#'                         => 'resources-collections',
+		'#^/resources/search$#'                                  => 'resources-search',
+		'#^/resources/ask$#'                                     => 'resources-ask',
 		'#^/jobs(/[^/]+)?$#'                                     => 'jobs-catalogue',
 		'#^/crm/tiers(/|$)#'                                     => 'memberships-catalogue',
 		'#^/account-link(/|$)#'                                  => 'account-link',

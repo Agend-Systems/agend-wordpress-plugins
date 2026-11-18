@@ -56,6 +56,17 @@ Three widgets (blocks of the same names) show the association's Agend Loop commu
 - Needs the Loop scopes `loop.activity.read` and `loop.channels.browse` (channels needs only the second); without them the widgets draw nothing for visitors.
 - Needs a version of Agend Apps Core that ships the Community surfaces; with an older core the widgets are not registered.
 
+## Agend Resources
+
+Three widgets (blocks of the same names) show the connected account's Atlas library on a page: **Agend Resources Collections**, **Agend Resources Search** and **Agend Resources Ask**. They are the `resources-collections`, `resources-search` and `resources-ask` core surfaces. A page holding them is the same for every viewer, so a full-page cache can keep it; what a signed-in member sees is added after the page loads. See "Resources" in `agend-apps-core/README.md` for how they read, what they publish and what they limit.
+
+- **Collections**: you choose the collections to show, in the order you choose them (the picker lists the first hundred and is only filled while an editor has the widget open). Visitors see each collection's title, description and topics, as small cards with no link, and a note with an optional button (such as "Become a member"). Nothing is shown until you choose at least one. Everyone who visits the page can read what you choose, so the picker says so. Signed-in members also see their own collections, with the pages in each, below your choice or instead of it.
+- **Search**: a plain form that sends visitors to your public search page. It costs nothing and works with no script. Signed-in members see results as they type. "What visitors get" can be switched to results as they type for visitors too; it is off by default, and its description warns that it uses the association's AI search allowance each time someone types. Optional suggested searches sit under the box.
+- **Ask**: a question box for signed-in members only, with an answer, the pages it came from and the small print Atlas returns. Visitors see a sign-in prompt, or nothing if you choose that. While the account is known not to include Ask, the box is hidden from everyone and an editor sees why.
+- **Colours** follow the site (or your own), as the Learning Pathways widget does. One stylesheet serves all three; each has its own script, so a page loads only the one it places.
+- Need the `atlas.collections.browse`, `atlas.pages.search` and `atlas.questions.create` scopes respectively; without one, that widget draws nothing for visitors and a disabled box for an editor.
+- Need Agend Apps Core with the Resources surfaces; with an older core the widgets are not registered.
+
 ## Agend Jobs (Agend Careers)
 
 The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with a filter bar and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.

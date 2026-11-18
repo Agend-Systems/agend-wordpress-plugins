@@ -1506,6 +1506,88 @@ authors in the Agend Elementor README. The pieces here:
   `agend_apps_records_directory_map_directions_url` filter returns another
   https URL template with `{lat}` and `{lng}`.
 
+## Resources
+
+The three **Agend Resources** surfaces (`resources-collections`, `resources-search`
+and `resources-ask`; blocks `agend-apps/resources-*`, Elementor widgets in Agend
+Elementor) put the connected account's Atlas library on a page. They need the
+`atlas.collections.browse`, `atlas.pages.search` and `atlas.questions.create`
+scopes respectively, and draw nothing for a visitor (a disabled box for an
+editor) without them. They share the `agend-apps-records-resources` stylesheet
+and each has its own script, so a page loads only the surfaces it places.
+
+What each one decides, and why:
+
+- **One page for everyone.** Each renderer draws the same markup for a visitor
+  and a signed-in member and makes no gateway call for anything a member sees,
+  so a full-page cache can hold it. A script decides who is signed in
+  (`window.agendApps.loggedIn`, or the `logged-in` body class) and adds the
+  member's part through the routes below.
+- **Collections** publish only what an editor picked by hand. `GET /atlas/collections`
+  carries no visibility (it lists every collection, whoever it is for), so it is
+  read for the editor's picker and to look up the chosen ones, and the item
+  count and dates are dropped before anything is drawn. A card has no link (a
+  collection has no page of its own). A member's own collections come from
+  `GET /atlas/me/collections` through `GET /agend-apps/v1/resources/collections/mine`,
+  which returns the same card markup drawn on the server, `no-store`; their
+  descriptions come from the shared list, matched by id, because the member's
+  list has none. Source documents are not part of v1: nothing can open one.
+- **Search** is a plain GET form to Atlas's public search page
+  (`agend_apps_atlas_public_search_url()`), which runs a keyword search and
+  costs nothing. A signed-in member's script searches through
+  `GET /agend-apps/v1/resources/search` with their own token and view
+  (never cached). Visitors get live results only when the editor chose "Results
+  as they type": a key-only gateway search embeds every query on the
+  association's allowance. The route then answers a visitor only when they send
+  the proof such a page carries (`agend_apps_records_resources_visitor_token()`,
+  derived from the site's own secret and stable, so a cached page keeps working),
+  and a site can switch it off everywhere with the
+  `agend_apps_resources_visitor_search_enabled` filter. A visitor's answers are
+  held per normalised query in the shared cache (`atlas_search`).
+- **Ask** is for signed-in members only, through `POST /atlas/me/ask` (metered to
+  the verified member). An open box would let anyone spend the account's one
+  monthly pool and, once it ran out, take Ask from members too. The route
+  answers `answer`, `refusal`, `degraded` or `not_entitled`; the plan and the
+  reason are never passed on. What the site has learned is kept in the option
+  `agend_apps_atlas_ask_state` (`agend_apps_atlas_ask_state()`): a not-entitled
+  verdict is believed for six hours, an answering one for one hour, an outage
+  says nothing. While it is not entitled the surface draws nothing for visitors
+  and members and a note for an editor, and the route answers `not_entitled`
+  without calling the gateway. `agend_apps_atlas_check_ask()` asks one fixed
+  question as the site, for an admin button that has not been built yet.
+- **Links into Atlas** (`agend_apps_atlas_page_link()`): a page a visitor found
+  links straight to Atlas's public reader (`{atlas}/read/{account}/{page id}`).
+  A page only a member can see links through `agend_apps_account_link_initiate_url_to()`
+  when this site is the identity provider (`wordpress` sign-in mode); on any other
+  mode there is no link (a direct one is a not-found page until Atlas has a
+  session) and the title is listed with one "Sign in to Atlas to read" note. A
+  source document has no reader and is listed without a link.
+- **Where Atlas is.** `agend_apps_atlas_app_url()`: the `agend_apps_atlas_url`
+  option, else the API root with a leading `api.` swapped for `atlas.` (and the
+  local gateway port 3072 for 3066), then the `agend_apps_app_url` filter.
+
+Limits, all before any gateway call, in `includes/resources-throttle.php` (the
+per-address policy of the directory geocode route: `REMOTE_ADDR` only, IPv6 by
+its /64, a salted hash for the transient key; every number is filterable with
+`agend_apps_resources_throttle_limit`):
+
+| Limit | Default |
+| :-- | :-- |
+| Visitor searches per address | 10 a minute |
+| A member's searches or collection loads | 30 a minute |
+| A member's questions | 3 every 10 minutes |
+| Questions for the whole site | 30 a day |
+| Uncached gateway calls from all of these together | 20 a minute |
+
+A refusal is a 429 with `Retry-After` and `Cache-Control: no-store`. Every proxy
+gateway call sets `isolated_rate_limit`, so the gateway's own refusal of one
+visitor does not stop the other widgets on the site. Transients have no atomic
+increment, so a burst can overshoot a limit by the requests in flight; the
+site-wide cap bounds the damage.
+
+Not included: documents, a public collections list (the gateway has no visibility
+filter yet), anonymous Ask, and the admin button for `agend_apps_atlas_check_ask()`.
+
 ## Learning pathways
 
 The **Agend Learning Pathways** surface (`learning-paths`; block

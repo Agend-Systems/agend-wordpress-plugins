@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/resources-collections",
+  "version": "1.0.0",
+  "title": "Agend Resources Collections",
+  "category": "agend",
+  "icon": "portfolio",
+  "description": "Collections you choose from your Agend Atlas library, with each signed-in member's own collections added after the page loads.",
+  "keywords": [
+    "agend",
+    "resources",
+    "collections",
+    "library",
+    "atlas"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "align": [
+      "wide",
+      "full"
+    ]
+  },
+  "editorScript": "file:./index.js",
+  "viewScript": [
+    "agend-apps-records-resources-collections"
+  ],
+  "style": [
+    "agend-apps-records-resources"
+  ],
+  "render": "file:./render.php"
+}

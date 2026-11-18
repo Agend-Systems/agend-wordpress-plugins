@@ -326,6 +326,25 @@ function agend_apps_records_register_assets(): void {
 		agend_apps_records_asset_version()
 	);
 
+	// The Resources surfaces (collections, search, Ask) share one stylesheet.
+	// Each has its own script, so a page loads only the one it places: a site
+	// without Ask never loads the Ask script.
+	wp_register_style(
+		'agend-apps-records-resources',
+		agend_apps_records_asset_url( 'css/resources.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	foreach ( array( 'collections', 'search', 'ask' ) as $agend_resources_surface ) {
+		wp_register_script(
+			'agend-apps-records-resources-' . $agend_resources_surface,
+			agend_apps_records_asset_url( 'js/resources-' . $agend_resources_surface . '.js' ),
+			array(),
+			agend_apps_records_asset_version(),
+			true
+		);
+	}
+
 	wp_register_style(
 		'agend-apps-records-jobs-catalogue',
 		agend_apps_records_asset_url( 'css/jobs-catalogue.css' ),
