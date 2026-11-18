@@ -1096,7 +1096,9 @@ submission.
 `GET /agend-apps/v1/lms/badges/verify/{token}` (and the PHP wrappers
 `agend_apps_lms_verify_certificate()` and `agend_apps_lms_verify_badge()` behind
 them) answer anyone, so every lookup passes the same guard
-(`includes/credential-guard.php`, counters in `includes/public-throttle.php`):
+(`includes/credential-guard.php`, counters in `includes/public-throttle.php`,
+the one throttle every public route shares: the Resources search and Ask use it
+too, for a visitor, a signed-in member and the whole site):
 
 - **Only real code shapes are forwarded.** A `VER-` plus 20 hex verification
   code, a 32 hex badge share token, or a legacy 8 to 12 character certificate
@@ -1309,8 +1311,8 @@ credits" above).
 `agend_apps_member_access_state()` (`includes/member-access-state.php`) answers,
 for the visitor in front of the site, "can this member's own Agend details be
 read right now, and if not, why not". It is the one function any surface that
-shows a signed-in member their own data asks first. The Member Summary uses it;
-the Learning Pathways progress feature is meant to.
+shows a signed-in member their own data asks first. The Member Summary and the
+Resources routes use it; the Learning Pathways progress feature is meant to.
 
 - **Signed in** is `is_user_logged_in()`, in every mode. **Linked** is a
   non-empty `agend_apps_get_bearer_token()`, probed once per request (the
@@ -1318,7 +1320,14 @@ the Learning Pathways progress feature is meant to.
   request's mint). The reason is only worked out when there is no bearer.
 - **Never `window.agendApps.loggedIn`.** It is true only when a stored credential
   session exists, so it is false for every `wordpress` and `sso` member. The
-  server's view is put in the block's config instead.
+  Member Summary never reads a signal in the browser: the server's answer comes
+  back from its route. A surface whose page must stay the same for every viewer
+  and that only needs to know whether to ask the site for a member's own details
+  (the Resources scripts) reads `window.agendApps.signedIn` instead, which the
+  page header sets from `is_user_logged_in()` in every mode, and leaves "is this
+  user a member" to its route, which answers from this resolver. Older scripts
+  that still read `loggedIn` (the Directory enquiry forms, for one) are not
+  changed here and still see `false` for `wordpress` and `sso` members.
 - **Not `agend_apps_account_link_state()`.** It answers `linked` for every
   signed-in user in `credentials` mode without looking for a session, and in
   `wordpress` mode it ignores the recorded link state and calls the SSO status
@@ -1520,9 +1529,18 @@ What each one decides, and why:
 
 - **One page for everyone.** Each renderer draws the same markup for a visitor
   and a signed-in member and makes no gateway call for anything a member sees,
-  so a full-page cache can hold it. A script decides who is signed in
-  (`window.agendApps.loggedIn`, or the `logged-in` body class) and adds the
-  member's part through the routes below.
+  so a full-page cache can hold it. A script decides who is signed in from
+  `window.agendApps.signedIn`, which the page header sets for any signed-in
+  WordPress user in every member sign-in mode (`window.agendApps.loggedIn` is
+  false for every `wordpress` and `sso` member, so it is not used), and adds the
+  member's part through the routes below. Whether that user is a member Atlas
+  knows is the route's answer, from the member access state: a signed-in user
+  with no member gets a 403 `agend_apps_resources_no_member` carrying the access
+  `state`, a plain `title` and `message`, and `retry_after`, so a member whose
+  link is still being made after a first sign-in is told to wait, not to sign in
+  again. Like the nonce beside it, `signedIn` is written for whoever the page is
+  built for, so a page a signed-in user receives is not one a shared cache may
+  serve to others.
 - **Collections** publish only what an editor picked by hand. `GET /atlas/collections`
   carries no visibility (it lists every collection, whoever it is for), so it is
   read for the editor's picker and to look up the chosen ones, and the item
@@ -1562,14 +1580,20 @@ What each one decides, and why:
   mode there is no link (a direct one is a not-found page until Atlas has a
   session) and the title is listed with one "Sign in to Atlas to read" note. A
   source document has no reader and is listed without a link.
-- **Where Atlas is.** `agend_apps_atlas_app_url()`: the `agend_apps_atlas_url`
-  option, else the API root with a leading `api.` swapped for `atlas.` (and the
-  local gateway port 3072 for 3066), then the `agend_apps_app_url` filter.
+- **Where Atlas is.** `agend_apps_atlas_app_url()` is `agend_apps_app_url( 'atlas' )`,
+  the one function that finds every Agend app (see "Where an Agend app lives"): the `agend_apps_atlas_url` option, else the API root with a
+  leading `api.` swapped for `atlas.` (and the local gateway port 3072 for 3066),
+  then the `agend_apps_app_url` filter.
 
-Limits, all before any gateway call, in `includes/resources-throttle.php` (the
-per-address policy of the directory geocode route: `REMOTE_ADDR` only, IPv6 by
-its /64, a salted hash for the transient key; every number is filterable with
-`agend_apps_resources_throttle_limit`):
+Limits, all before any gateway call, in `includes/resources-throttle.php`. The
+counting is the shared public throttle in `includes/public-throttle.php`, the
+same one the credential check uses (`REMOTE_ADDR` only, or the address a site
+behind a trusted proxy returns from `agend_apps_visitor_ip`; IPv6 by its /64; a
+salted hash for the transient key, so no address or user id is stored); the
+Resources file keeps its own numbers, scopes and filter. Every number is
+filterable with `agend_apps_resources_throttle_limit`. A signed-in user who is
+not a member is held to the member limit too, because working out why they are
+not one can ask Agend:
 
 | Limit | Default |
 | :-- | :-- |
@@ -1746,10 +1770,8 @@ publishes and everything else is held to it.
   own sign-in. Both are fixed per channel, so the page stays cacheable. "One page
   I choose" sends every item to one address and "Nowhere" removes the links. The
   closing "Open the community" link goes to the editor's address, else the Loop
-  home. The Loop address is `agend_apps_loop_url` if set, else the API root with
-  `api.` swapped for `loop.` (local port 3072 becomes 3063), through
-  `agend_apps_community_loop_url()` and the `agend_apps_app_url` filter. If
-  `Agend_Apps_Settings::get_app_url()` exists it is used instead.
+  home. The Loop address is `agend_apps_community_loop_url()`, which is
+  `agend_apps_app_url( 'loop' )` (see "Where an Agend app lives").
 - **States.** Nothing to show: the author's message, or nothing (hide), and the
   community link stays. Could not load: always says so, hidden or not. Nothing
   allowed yet: a visitor gets the ordinary empty state; an editor (Elementor
@@ -1759,6 +1781,26 @@ publishes and everything else is held to it.
   `agend_apps_community_scrub_mentions`, `agend_apps_community_call_ceiling`,
   `agend_apps_app_url`.
 
+## Where an Agend app lives
+
+A link that takes a person into Loop or Atlas needs that app's address, which the
+gateway does not report. `agend_apps_app_url( $app )` (`includes/app-urls.php`)
+finds it the same way for every app, and `agend_apps_community_loop_url()` and
+`agend_apps_atlas_app_url()` are one line each over it:
+
+1. The app's option, if it is a web address: `agend_apps_loop_url` or
+   `agend_apps_atlas_url`. A value that is not `http` or `https` is ignored.
+2. Otherwise the address derived from the API root: a leading `api.` becomes
+   `loop.` or `atlas.` (`https://api.agend.com.au` gives `https://loop.agend.com.au`),
+   and the local gateway on port 3072 becomes the app's own port (Loop 3063,
+   Atlas 3066). A host with neither form gives '' rather than a guess. The portal
+   address is not used, because it can be an association's own domain while the
+   apps stay on the platform.
+3. Then the `agend_apps_app_url` filter has the last word, with the address and
+   the app name (`loop` or `atlas`).
+
+A new app is one line in `agend_apps_app_directory()`.
+
 ## Block editor surface
 
 The block editor is the primary target for new surface work. Elementor is
@@ -1766,9 +1808,14 @@ supported at parity, not led.
 
 `includes/records/blocks.php` registers one block per surface, listed in
 `AGEND_APPS_RECORDS_BLOCK_SURFACES` (inserter order): `events-catalogue`,
-`courses-catalogue`, `learning-paths`, `directory-catalogue`,
-`memberships-catalogue`, `member-login`, `header-auth`, `account-link`,
-`export-reports` and `filter`, all namespaced `agend-apps/`. Every block is a thin adapter over the two seams
+`courses-catalogue`, `learning-paths`, `resources-collections`,
+`resources-search`, `resources-ask`, `jobs-catalogue`,
+`community-announcements`, `community-channels`, `community-feed`,
+`directory-catalogue`, `directory-map`, `memberships-catalogue`, `member-login`,
+`header-auth`, `account-link`, `credential-check`, `member-summary`,
+`export-reports` and `filter`, all namespaced `agend-apps/`, followed by the
+record blocks (`record-field`, `record-pills`, `record-image`, `record-link` and
+`record-block`) used inside a card or detail template. Every block is a thin adapter over the two seams
 above: its attributes are derived from the surface schema
 (`agend_apps_records_block_attributes()`), and its render callback is the
 surface's core renderer, fed the attributes converted to Elementor-shaped
