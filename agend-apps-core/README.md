@@ -1196,6 +1196,46 @@ credits" above).
   `jobs.submissions.browse` and `jobs.submissions.create` the surface draws
   nothing for a visitor.
 
+## Loop channel membership condition
+
+"Is in an active Loop channel" shows a menu item, or any other content, only
+to members who have been added to a Loop channel. It suits an association
+piloting Loop with a few invite-only channels: members outside the pilot never
+see a "Community" link to a space they cannot use.
+
+- **If Menu**: on a menu item, Visibility > Show if > "Is in an active Loop
+  channel" (group "Agend Loop").
+- **Content Personalisation (ESAC)**: the "Agend Loop" condition set, for
+  segments and display rules. A segment built on it is also offered to If Menu.
+
+Agend is the authority. The site asks `GET /v1/loop/me/channels` as the
+signed-in member and passes when they belong to at least one channel that is
+not archived. A direct message (every member has one with the help bot) and a
+category heading do not count. The functions are
+`Agend_Apps_Loop_Channel_Membership::status()` (true, false or a `WP_Error`)
+and `in_active_channel()` (any error reads as false).
+
+The answer is cached per member for five minutes. Loop sends no membership
+webhooks, so a member added to or removed from a channel sees the link change
+within that time. A failed read is remembered for 30 seconds, a member who is
+not linked to Agend yet for a minute, and a site that cannot check at all for
+five minutes.
+
+Requirements, without which the condition never passes:
+
+- The site's key holds `loop.channels.browse`. A key known to lack it offers
+  neither condition, so an editor cannot pick a rule that never passes.
+- The member has a bearer token: the key holds `sso.tokens.create` (the SSO
+  Account Link feature), and the member is linked to Agend. On a site using
+  the WordPress SAML IdP that link is made the first time they sign in to an
+  Agend app through it.
+- The member has an external id (on an Upbeat site, a membership number).
+
+Because the condition needs a linked member, a link hidden behind it cannot
+be a member's first way into Loop. Members reach Loop for the first time
+another way (an invitation, a shareable sign-in link, or a page link not
+behind this condition), and are added to channels after that.
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map
