@@ -284,6 +284,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-token-worker.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/class-agend-apps-member-session.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/account-link-state.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/member-access-state.php';
 
 	// Member sign-in mode (SPEC-CORE-20260907 US-4.1): in `sso` mode the
 	// credential login surface does not exist, not merely stand down per
