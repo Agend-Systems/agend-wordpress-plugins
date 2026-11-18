@@ -122,6 +122,12 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Learning_Paths() );
 		}
 
+		// Needs a core that ships the credential-check surface.
+		if ( function_exists( 'agend_apps_records_render_credential_check' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-credential-check.php';
+			$widgets_manager->register( new Agend_Elementor_Credential_Check() );
+		}
+
 		// The renderer lives in Agend Apps Core, which updates independently:
 		// an older core has no listing enquiry surface to adapt.
 		if ( function_exists( 'agend_apps_records_render_listing_enquiry' ) ) {

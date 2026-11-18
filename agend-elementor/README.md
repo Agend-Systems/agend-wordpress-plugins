@@ -31,6 +31,17 @@ The **Agend Learning Pathways** widget (block: **Agend Learning Pathways**) is t
 - Needs the `lms.paths.browse` scope; without it the widget draws nothing for visitors. It needs no sign-in, in any member sign-in mode.
 - Needs Agend Apps Core 1.70.0 or newer; with an older core the widget is not registered.
 
+## Agend Credential Check
+
+The **Agend Credential Check** widget (block: **Agend Credential Check**) is the `credential-check` core surface: a form where a visitor checks a certificate code or a badge link against the Agend learning record. It runs from a script that calls Agend Apps Core's own route. See "Credential check" and "Public certificate and badge lookups" in `agend-apps-core/README.md` for how it reads, throttles and fails.
+
+- **Needs a security check.** Every check passes the captcha set up under Settings > Agend Apps > Form Captcha, and visitors see nothing until one is set up. In the editor the form is still drawn so it can be styled, with a notice saying why visitors would not see it.
+- **Result details**: certificate number, issue date, the course a badge was earned in, CPD points, instructor, topics, badge picture and when it was checked can each be switched off. A certificate never shows a holder name and no result shows an expiry date. A badge earner's name is off by default; turn it on only if learners have agreed to it.
+- **Links with a code.** A printed link or QR code can open the page with `?code=` (the name is a setting; `?agend_code=` also works). "Check straight away" runs the check on load; where the visitor has to tick a box first, the code is filled in and they press the button.
+- **Wording**: every message is editable, including what a found credential does and does not confirm, the tips when nothing matches, and an optional help link.
+- **Scopes**: needs `lms.certificates.verify`; badge codes also need `lms.badges.verify`, and a certificate-only key shows the editor a notice and refuses badge codes with a clear message. It needs no sign-in, in any member sign-in mode.
+- Needs an Agend Apps Core that ships the `credential-check` surface; with an older core the widget is not registered.
+
 ## Agend Jobs (Agend Careers)
 
 The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with a filter bar and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
