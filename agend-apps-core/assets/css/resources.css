@@ -194,6 +194,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: 2.75rem;
   padding: 0.625rem 1.125rem;
   border: 0;
   border-radius: var(--agend-res-inner-radius);
@@ -499,6 +500,11 @@
 .agend-res .agend-resources-search__input::placeholder {
   color: var(--agend-res-muted);
   opacity: 1;
+}
+
+.agend-res .agend-resources-search__input,
+.agend-res .agend-resources-search__input::placeholder {
+  text-overflow: ellipsis;
 }
 
 .agend-resources-search__input::-webkit-search-cancel-button {
