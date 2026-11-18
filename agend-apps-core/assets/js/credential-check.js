@@ -271,7 +271,7 @@
 
       var text = el('div', 'agend-credential-check__card-text');
       text.appendChild(el('p', 'agend-credential-check__kind', isBadge ? t.badge : t.certificate));
-      text.appendChild(el('h3', 'agend-credential-check__title', data.title || t.unknownCourse));
+      text.appendChild(el('h3', 'agend-credential-check__subject', data.title || t.unknownCourse));
 
       var list = el('dl', 'agend-credential-check__rows');
       if (isBadge) {

@@ -307,6 +307,19 @@ final class CredentialCheckRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_keep_the_result_title_off_the_class_the_surface_heading_uses(): void {
+		// One class on two elements let the result title's smaller size win over the
+		// surface heading, so the heading stopped matching every other Agend surface.
+		$css = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/assets/css/credential-check.css' );
+		$js  = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/assets/js/credential-check.js' );
+
+		self::assertSame( 1, substr_count( $css, '.agend-credential-check__title {' ), 'only the surface heading is styled with this class' );
+		self::assertStringNotContainsString( 'agend-credential-check__title', $js );
+		self::assertStringContainsString( "el('h3', 'agend-credential-check__subject'", $js );
+		self::assertStringContainsString( '.agend-credential-check__subject {', $css );
+	}
+
+	#[Test]
 	public function should_escape_everything_an_editor_typed(): void {
 		$html = $this->render(
 			array(
