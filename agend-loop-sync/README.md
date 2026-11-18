@@ -135,6 +135,20 @@ The committee cron follows the setting: it is scheduled while the plugin and
 committee sync are both on, and cleared as soon as either is turned off.
 Sites that already had committee sync on before version 1.4.0 keep it on.
 
+- **New sites without activation.** A site that never ran the activation
+  hook (a multisite subsite after network activation, or a site that received
+  the plugin by deploy) is seeded with the same defaults on its first request,
+  so it also starts with committee sync off. A site that has stored the
+  master switch is never reseeded.
+- **Committee actions are refused while it is off.** Sync committees now,
+  the scan and inspect diagnostics and the hand-over actions return to the
+  settings screen with a notice, even from a page left open from before the
+  switch changed. A refused sync does not replace the last run's time or
+  summary.
+- **A queued hand-over is kept.** Members queued before committee sync was
+  turned off stay listed, with a warning that they are applied when it is
+  turned back on, and can still be cleared.
+
 ### Committee sync
 
 Upbeat lists committee members by name rather than membership number, so the

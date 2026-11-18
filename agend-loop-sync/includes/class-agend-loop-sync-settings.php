@@ -172,8 +172,44 @@ class Agend_Loop_Sync_Settings {
 
 		// Schedule or clear the committee cron as soon as either switch changes,
 		// rather than waiting for the next request's init.
-		add_action( 'update_option_' . self::OPT_ENABLED, array( __CLASS__, 'sync_committee_cron' ), 10, 0 );
-		add_action( 'update_option_' . self::OPT_COMMITTEE_SYNC, array( __CLASS__, 'sync_committee_cron' ), 10, 0 );
+		// add_option_* covers the first save on a site that never stored the
+		// option. Requests that change these options outside the settings
+		// screen (WP-CLI, REST) are caught by the init check.
+		foreach ( array( self::OPT_ENABLED, self::OPT_COMMITTEE_SYNC ) as $switch ) {
+			add_action( 'update_option_' . $switch, array( __CLASS__, 'sync_committee_cron' ), 10, 0 );
+			add_action( 'add_option_' . $switch, array( __CLASS__, 'sync_committee_cron' ), 10, 0 );
+		}
+	}
+
+	/**
+	 * Runs on plugin activation: seeds the defaults, then schedules the
+	 * committee cron only when the plugin and committee sync are both on (never
+	 * on a fresh install, which ships disabled).
+	 *
+	 * @return void
+	 */
+	public static function activate() {
+		self::seed_defaults();
+		self::sync_committee_cron();
+	}
+
+	/**
+	 * Seeds the defaults on a site that has never stored them.
+	 *
+	 * The activation hook seeds only the site it runs on, and not at all when
+	 * the plugin arrives by deploy, as an mu-plugin, or on a multisite subsite
+	 * created after network activation. Without a stored committee setting the
+	 * getter reads it as on, so such a site would start committee sync the
+	 * moment the plugin is enabled. The master switch is stored on every
+	 * activated or saved site, so its absence means the defaults were never
+	 * seeded; existing sites are left untouched.
+	 *
+	 * @return void
+	 */
+	public static function maybe_seed_defaults() {
+		if ( false === get_option( self::OPT_ENABLED, false ) ) {
+			self::seed_defaults();
+		}
 	}
 
 	/**

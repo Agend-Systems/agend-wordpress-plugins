@@ -79,11 +79,7 @@ add_action( 'plugins_loaded', 'agend_loop_sync_bootstrap' );
 function agend_loop_sync_activate() {
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-settings.php';
 
-	Agend_Loop_Sync_Settings::seed_defaults();
-
-	// Schedules the committee cron only when the plugin and committee sync are
-	// both on (never on a fresh install, which ships disabled).
-	Agend_Loop_Sync_Settings::sync_committee_cron();
+	Agend_Loop_Sync_Settings::activate();
 }
 register_activation_hook( __FILE__, 'agend_loop_sync_activate' );
 

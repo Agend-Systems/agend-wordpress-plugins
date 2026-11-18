@@ -108,6 +108,15 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 		</div>
 	<?php endif; ?>
 
+	<?php
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	if ( isset( $_GET['committee_sync'] ) && 'off' === sanitize_text_field( wp_unslash( $_GET['committee_sync'] ) ) ) :
+		?>
+		<div class="notice notice-warning is-dismissible">
+			<p><?php esc_html_e( 'Committee sync is off, so that committee action was not run. Turn committee sync on to use it.', 'agend-loop-sync' ); ?></p>
+		</div>
+	<?php endif; ?>
+
 	<form method="post" action="options.php">
 		<?php settings_fields( Agend_Loop_Sync_Settings::GROUP ); ?>
 
@@ -828,8 +837,17 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 		<?php endif; ?>
 	<?php endif; ?>
 
-	<h3><?php esc_html_e( 'Queued for the next sync', 'agend-loop-sync' ); ?></h3>
+	<?php else : ?>
+	<h2><?php esc_html_e( 'Committee sync', 'agend-loop-sync' ); ?></h2>
+	<p><?php esc_html_e( 'Committee sync is off. Turn it on above to create a private Loop channel for each Upbeat committee, with its own schedule, role mapping, diagnostics and hand-over tools.', 'agend-loop-sync' ); ?></p>
+	<?php endif; ?>
+
 	<?php $als_adopt_queue_all = Agend_Loop_Sync_Settings::get_adopt_queue(); ?>
+	<?php if ( $als_committees_on || array() !== $als_adopt_queue_all ) : ?>
+	<h3><?php esc_html_e( 'Queued for the next sync', 'agend-loop-sync' ); ?></h3>
+	<?php if ( ! $als_committees_on ) : ?>
+		<div class="notice notice-warning inline"><p><?php esc_html_e( 'Committee sync is off. These hand-overs are applied when it is turned back on, unless you clear them.', 'agend-loop-sync' ); ?></p></div>
+	<?php endif; ?>
 	<?php if ( array() === $als_adopt_queue_all ) : ?>
 		<p><?php esc_html_e( 'Nothing is queued.', 'agend-loop-sync' ); ?></p>
 	<?php else : ?>
@@ -879,9 +897,6 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			</tbody>
 		</table>
 	<?php endif; ?>
-	<?php else : ?>
-	<h2><?php esc_html_e( 'Committee sync', 'agend-loop-sync' ); ?></h2>
-	<p><?php esc_html_e( 'Committee sync is off. Turn it on above to create a private Loop channel for each Upbeat committee, with its own schedule, role mapping, diagnostics and hand-over tools.', 'agend-loop-sync' ); ?></p>
 	<?php endif; ?>
 
 	<hr />
