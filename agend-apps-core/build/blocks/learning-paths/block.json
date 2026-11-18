@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/learning-paths",
+  "version": "1.15.2",
+  "title": "Agend Learning Paths",
+  "category": "agend",
+  "icon": "editor-ol",
+  "description": "Learning paths from Agend LMS, each with its courses in order.",
+  "keywords": [
+    "agend",
+    "learning",
+    "paths",
+    "pathways",
+    "courses"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "align": [
+      "wide",
+      "full"
+    ]
+  },
+  "editorScript": "file:./index.js",
+  "style": [
+    "agend-apps-records-learning-paths"
+  ],
+  "render": "file:./render.php"
+}

@@ -268,6 +268,15 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// The learning paths surface is server-rendered end to end: a stylesheet,
+	// no script.
+	wp_register_style(
+		'agend-apps-records-learning-paths',
+		agend_apps_records_asset_url( 'css/learning-paths.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+
 	wp_register_style(
 		'agend-apps-records-jobs-catalogue',
 		agend_apps_records_asset_url( 'css/jobs-catalogue.css' ),

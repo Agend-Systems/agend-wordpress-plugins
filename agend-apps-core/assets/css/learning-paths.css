@@ -1,0 +1,227 @@
+/**
+ * Agend Learning paths widget styles.
+ * Colour/layout tokens are set as CSS custom properties on the container by
+ * the surface's server render. There is no script: the markup is complete.
+ */
+
+.agend-learning-paths {
+  --agend-lp-heading: #1e2a4a;
+  --agend-lp-body: #26304d;
+  --agend-lp-accent: #ff6b55;
+  --agend-lp-card-radius: 10px;
+  --agend-lp-cols-desktop: 2;
+  --agend-lp-cols-tablet: 2;
+  color: var(--agend-lp-body);
+  font-family: var(--agend-lp-font-body, inherit);
+}
+
+.agend-learning-paths h2,
+.agend-learning-paths h3 {
+  font-family: var(--agend-lp-font-heading, inherit);
+}
+
+.agend-learning-paths__heading {
+  margin-bottom: 1.5rem;
+}
+
+.agend-learning-paths__title {
+  color: var(--agend-lp-heading);
+  margin: 0 0 0.25rem;
+}
+
+.agend-learning-paths__subtitle {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.agend-learning-paths__status {
+  padding: 2rem 0;
+  margin: 0;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.agend-learning-paths__status--error {
+  opacity: 1;
+}
+
+.agend-learning-paths__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--agend-lp-cols-desktop), minmax(0, 1fr));
+  gap: 1.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 1024px) {
+  .agend-learning-paths__grid {
+    grid-template-columns: repeat(var(--agend-lp-cols-tablet), minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .agend-learning-paths__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.agend-learning-paths__item {
+  display: flex;
+  margin: 0;
+  padding: 0;
+}
+
+.agend-learning-paths__card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid #eceef4;
+  border-radius: var(--agend-lp-card-radius);
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(30, 42, 74, 0.08);
+}
+
+.agend-learning-paths__media {
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, #1e2a4a, #26304d);
+}
+
+.agend-learning-paths__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agend-learning-paths__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+}
+
+.agend-learning-paths__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.agend-learning-paths__badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  background: var(--agend-lp-accent);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.agend-learning-paths__meta-item {
+  opacity: 0.8;
+}
+
+.agend-learning-paths__name {
+  margin: 0;
+  color: var(--agend-lp-heading);
+  font-size: 1.2rem;
+  line-height: 1.3;
+}
+
+.agend-learning-paths__description {
+  margin: 0;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.agend-learning-paths__sequence {
+  margin: 0;
+  font-size: 0.85rem;
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.agend-learning-paths__courses {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  counter-reset: agend-lp-step;
+  list-style: none;
+}
+
+.agend-learning-paths__course {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+  margin: 0;
+  padding: 0;
+  counter-increment: agend-lp-step;
+}
+
+.agend-learning-paths__course::before {
+  content: counter(agend-lp-step);
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: var(--agend-lp-accent);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Heading colour, not the accent: the accent is often too light for text on white. */
+.agend-learning-paths__course-link {
+  color: var(--agend-lp-heading);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--agend-lp-accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.agend-learning-paths__course-link:hover,
+.agend-learning-paths__course-link:focus {
+  text-decoration-thickness: 3px;
+}
+
+.agend-learning-paths__course-link:focus-visible {
+  outline: 2px solid var(--agend-lp-accent);
+  outline-offset: 2px;
+}
+
+.agend-learning-paths__course-title {
+  font-weight: 600;
+}
+
+.agend-learning-paths__optional {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.agend-learning-paths__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

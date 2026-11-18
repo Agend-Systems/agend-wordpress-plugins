@@ -19,6 +19,17 @@ Jobs follow the same rules at `{page}/job/{slug}/` (`?agend_job=` without pretty
 
 With no page set, behaviour is unchanged: the page hosting the widget acts as its own detail page.
 
+## Agend Learning Paths
+
+The **Agend Learning Paths** widget (block: **Agend Learning Paths**) is the `learning-paths` core surface: the connected account's published learning paths as cards, each with its courses numbered in order. It is drawn on the server and ships no script. See "Learning paths" in `agend-apps-core/README.md` for how it reads, caches and fails.
+
+- **Which paths**: all published paths (newest first, "Number of paths", 1 to 24) or only the ones you pick, shown in the order you pick them. The picker lists the first hundred published paths and is only filled while an editor has the widget open.
+- **Course links** go to the Courses page set under Catalogue Pages (`{page}/course/{slug}/`). With no Courses page set the courses are listed without links. "Open course links in a new tab" is optional.
+- **Card**: image, difficulty badge, estimated hours, course count, description excerpt, a "complete in order" note for sequential paths, and an Optional tag on optional courses. Each can be switched off; switching off the course list also spares one request per path.
+- **Empty state**: your own message, or hide the widget. A failed load always says so.
+- Needs the `lms.paths.browse` scope; without it the widget draws nothing for visitors. It needs no sign-in, in any member sign-in mode.
+- Needs Agend Apps Core 1.69.0 or newer; with an older core the widget is not registered.
+
 ## Agend Jobs (Agend Careers)
 
 The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with a filter bar and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
