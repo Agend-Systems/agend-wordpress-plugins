@@ -116,7 +116,7 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Member_Jobs() );
 		}
 
-		// Needs a core that ships the learning-paths surface (1.69.0).
+		// Needs a core that ships the learning-paths surface (1.70.0).
 		if ( function_exists( 'agend_apps_records_render_learning_paths' ) ) {
 			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-learning-paths.php';
 			$widgets_manager->register( new Agend_Elementor_Learning_Paths() );

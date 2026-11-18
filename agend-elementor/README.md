@@ -29,7 +29,7 @@ The **Agend Learning Pathways** widget (block: **Agend Learning Pathways**) is t
 - **Layout**: Columns (Desktop, Tablet, Mobile) is the most columns across; one pathway, or fewer pathways than columns, uses the full width. A wide card puts the pathway summary beside its courses; "Card layout: Always stacked" keeps the summary above them.
 - **Empty state**: your own message, or hide the widget. A failed load always says so.
 - Needs the `lms.paths.browse` scope; without it the widget draws nothing for visitors. It needs no sign-in, in any member sign-in mode.
-- Needs Agend Apps Core 1.69.0 or newer; with an older core the widget is not registered.
+- Needs Agend Apps Core 1.70.0 or newer; with an older core the widget is not registered.
 
 ## Agend Jobs (Agend Careers)
 
