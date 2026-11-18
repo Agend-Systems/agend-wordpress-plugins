@@ -41,9 +41,11 @@ function agend_apps_records_account_link_build_config( array $s ): array {
 			'button'     => (string) ( $s['button_colour'] ?? '#FF6B55' ),
 			'buttonText' => (string) ( $s['button_text_colour'] ?? '#FFFFFF' ),
 		),
-		'theme'       => array(
-			'inheritFonts'   => 'yes' === ( $s['inherit_fonts'] ?? 'yes' ),
-			'inheritColours' => 'yes' === ( $s['inherit_colours'] ?? 'yes' ),
+		'theme'       => agend_apps_records_site_theme(
+			array(
+				'inheritFonts'   => 'yes' === ( $s['inherit_fonts'] ?? 'yes' ),
+				'inheritColours' => 'yes' === ( $s['inherit_colours'] ?? 'yes' ),
+			)
 		),
 	);
 }

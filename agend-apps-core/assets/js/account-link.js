@@ -66,7 +66,7 @@
   // Applies the connected account's published theme (fonts/colours) to the
   // widget root when inheritance is enabled. Fire-and-forget.
   function applySiteTheme(root, cfg) {
-    if (!cfg.theme || (!cfg.theme.inheritFonts && !cfg.theme.inheritColours)) {
+    if (!cfg.theme || cfg.theme.siteConfig === false || (!cfg.theme.inheritFonts && !cfg.theme.inheritColours)) {
       return;
     }
     apiGet('/sites/config').then(function (body) {

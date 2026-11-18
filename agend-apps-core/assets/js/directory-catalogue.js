@@ -144,7 +144,7 @@
   // widget root when inheritance is enabled. Fire-and-forget: the CSS custom
   // properties update live once the config resolves.
   function applySiteTheme(root, cfg) {
-    if (!cfg.theme || (!cfg.theme.inheritFonts && cfg.theme.colourSource !== 'agend')) {
+    if (!cfg.theme || cfg.theme.siteConfig === false || (!cfg.theme.inheritFonts && cfg.theme.colourSource !== 'agend')) {
       return;
     }
     apiGet('/sites/config', {}).then(function (body) {
