@@ -1367,6 +1367,99 @@ works the same in every member sign-in mode.
   routes are not part of the public display), and card templates (the template
   system's record types are events, courses and listings).
 
+
+## Community (Agend Loop)
+
+Three surfaces show the association's Agend Loop community on the website:
+**Community announcements** (`community-announcements`), **Community channels**
+(`community-channels`) and **Community popular posts** (`community-feed`). Each is
+a block (`agend-apps/community-*`) and an Elementor widget (`agend-community-*`,
+in Agend Elementor), drawn on the server with no script and one shared stylesheet,
+`agend-apps-records-community`. Announcements and popular posts need
+`loop.activity.read` and `loop.channels.browse`; channels needs
+`loop.channels.browse`. The surface gate applies as for every surface.
+
+**Loop "public" is not public to the internet.** A public Loop channel is visible
+to every member of the association. Showing its posts to anonymous visitors is a
+decision the association makes, so the site keeps a list of the channels it
+publishes and everything else is held to it.
+
+- **The allowed list.** Option `agend_apps_community_channels` (channel ids), set
+  under Settings > Agend Apps > Community (administrators only), default empty,
+  which publishes nothing. A widget's "Channels to show" can only choose from it.
+  Public channels and feeds are offered; committees, private channels, direct
+  messages, archived channels and any channel type added later are never listed
+  and are dropped even if their id is saved. An id that no longer resolves is
+  dropped silently.
+- **Read wrappers** are in `includes/api/loop-public.php`, separate from the
+  member reads: `agend_apps_loop_get_channels()`,
+  `agend_apps_loop_get_public_announcements()` and
+  `agend_apps_loop_get_public_activity()`. They fail closed: they return only the
+  allowed channels and their posts (nothing, with no gateway call, while the list
+  is empty), always as an anonymous visitor, so a signed-in member's page is the
+  same markup and carries no token. They return a normalised shape, not the
+  gateway response, and the author id and the post HTML are dropped before
+  anything is stored. Mentions (`@[uuid]` and `@handle`) become "a member".
+  Names written in the prose of a post cannot be found, which is why the allowed
+  list is the consent step and the settings page says so.
+- **What counts as a post.** A titled post has a post type (announcement, update,
+  discussion, question, event or poll). Chat messages and plain feed posts are
+  untitled and never appear unless "Include chat messages" is switched on for the
+  newest-first list. System messages ("Members joined the channel." and the five
+  like it) and posts written by the workflow bot or the shared system user are
+  dropped in every case. Loop messages have no title field: the title is the first
+  heading, else the first sentence, and excerpts are plain text with no markdown,
+  links or web addresses.
+- **Popular** follows Loop's own Trending sidebar rule on the data the gateway
+  gives: a titled post that is featured, or has at least "Replies needed" replies
+  (default 5), featured first, then most replies, then newest. A list is never
+  padded with ordinary posts, so there can be fewer than the count. There are no
+  view counts, so nothing is ranked by activity and the word "trending" is not
+  used. "Newest first" is the other order.
+- **Authors** are off by default. "Show the author" has five modes (none,
+  initials, first name, first name and last initial, full name), applied to the
+  display name from Loop ("ben.thompson" is written "Ben Thompson"; an email
+  address is cut before the @). Profile photos are a separate switch, off, and
+  only offered once an author is shown; a member with no photo gets their
+  initials in a circle. Photo addresses must be http(s) and are sent with
+  `referrerpolicy="no-referrer"`. Whether photo addresses load without a Loop
+  session has not been checked on staging, so treat the switch as unproven until
+  it has.
+- **Caching.** Normalised results are stored per read under the cache keys
+  `loop_channels` (300 s), `loop_public_announcements` and `loop_public_activity`
+  (120 s), editable on the Cache tab, with the allowed list's fingerprint in the
+  key, so taking a channel off the list stops it being served at once. A second
+  copy is kept for 24 hours and served if the gateway fails or the site's ceiling
+  is reached (this is the stale-if-error helper, used by these wrappers only).
+  Loop sends no event when a post is removed, so "Clear community content" next to
+  the allowed list drops both copies. The ceiling is the
+  `agend_apps_community_call_ceiling` filter (default 20 uncached Loop calls a
+  minute, shared by all three surfaces); a refresh of every surface is at most 8
+  calls (the channel list, announcements, and up to
+  `AGEND_APPS_COMMUNITY_MAX_CHANNEL_READS` = 6 channels read one by one so a
+  chatty channel cannot crowd the others out of one 100 post window). The raw
+  response is never stored, and the post paths are kept out of the API log.
+- **Links** go to the channel, never to a post: Loop cannot open one. "The channel
+  in your community" is the platform's pretty sign-in link
+  (`{api root}/sso/{account}/loop-channel/{channel}`) when this site is the
+  identity provider (WordPress sign-in mode), and the channel's own address
+  (`{loop}/home/{account}/loop/{channel}`) in any other mode, where Loop shows its
+  own sign-in. Both are fixed per channel, so the page stays cacheable. "One page
+  I choose" sends every item to one address and "Nowhere" removes the links. The
+  closing "Open the community" link goes to the editor's address, else the Loop
+  home. The Loop address is `agend_apps_loop_url` if set, else the API root with
+  `api.` swapped for `loop.` (local port 3072 becomes 3063), through
+  `agend_apps_community_loop_url()` and the `agend_apps_app_url` filter. If
+  `Agend_Apps_Settings::get_app_url()` exists it is used instead.
+- **States.** Nothing to show: the author's message, or nothing (hide), and the
+  community link stays. Could not load: always says so, hidden or not. Nothing
+  allowed yet: a visitor gets the ordinary empty state; an editor (Elementor
+  canvas, or the block editor's notice) is told where to allow channels.
+- **Filters.** `agend_apps_community_exclude_post` (hide a post; the option
+  `agend_apps_community_hidden_posts` holds ids and has no screen),
+  `agend_apps_community_scrub_mentions`, `agend_apps_community_call_ceiling`,
+  `agend_apps_app_url`.
+
 ## Block editor surface
 
 The block editor is the primary target for new surface work. Elementor is
