@@ -151,6 +151,7 @@ require_once __DIR__ . '/schema/filter.php';
 require_once __DIR__ . '/schema/memberships-catalogue.php';
 require_once __DIR__ . '/schema/export-reports.php';
 require_once __DIR__ . '/schema/courses-catalogue.php';
+require_once __DIR__ . '/schema/learning-paths.php';
 require_once __DIR__ . '/schema/jobs-catalogue.php';
 require_once __DIR__ . '/schema/member-jobs.php';
 require_once __DIR__ . '/schema/directory-catalogue.php';

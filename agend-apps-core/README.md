@@ -1289,6 +1289,84 @@ authors in the Agend Elementor README. The pieces here:
   `agend_apps_records_directory_map_directions_url` filter returns another
   https URL template with `{lat}` and `{lng}`.
 
+## Learning pathways
+
+The **Agend Learning Pathways** surface (`learning-paths`; block
+`agend-apps/learning-paths`, Elementor widget in Agend Elementor) lists the
+connected account's published LMS learning pathways, each with its courses in
+order. The editor-facing name is "Learning Pathways", as in the Agend LMS app;
+the slugs, block name, widget name, functions and CSS classes keep `learning-paths`. It needs the `lms.paths.browse` scope and, like every surface, draws
+nothing for a visitor (and a disabled box for an editor) without it. Paths are
+public catalogue content: nothing about it needs a signed-in visitor, so it
+works the same in every member sign-in mode.
+
+- **Server-rendered, no script.** `agend_apps_records_render_learning_paths()`
+  in `includes/records/render/learning-paths.php` draws the whole list, so the
+  content is in the page for visitors and search engines and the browser makes
+  no request. The only front-end asset is the `agend-apps-records-learning-paths`
+  stylesheet. This differs from the catalogues on purpose: they filter, page and
+  open a detail view in the browser, and this has nothing to do there.
+- **Reads.** "All published paths" is one `agend_apps_lms_get_paths()` call
+  (`limit` is the "Number of pathways" setting, newest first). "Only the pathways I
+  choose" calls neither the list nor a page of it: each chosen id is read for
+  itself through `agend_apps_lms_get_paths_by_id()`, so a path past the first
+  page is found, and they are shown in the order chosen. The course list needs
+  one more read per path (the list does not carry courses); those are sent
+  together and each is cached under the entry `agend_apps_lms_get_path()` uses,
+  so the page waits for the slowest rather than the sum. Switching "Show the
+  course list" off drops those reads.
+- **Anonymous reads.** The surface reads as an anonymous visitor would
+  (`$anonymous = true` on the three wrappers). A path is the same for every
+  viewer, and a read that carries a member's token is never shared (see
+  "Caching and identity"): on a site whose visitors are mostly signed in that
+  would be a live gateway call per path on every page view. The default of both
+  wrappers is unchanged for their existing callers (the REST proxy).
+- **What counts as a path.** A path the gateway marks unpublished is left out,
+  including a chosen one unpublished since it was picked (the gateway answers a
+  single read for any path it owns). A course with no title is left out. A path
+  whose course list could not be read still shows, without one; the surface only
+  says "Unable to load learning pathways." when no path could be read at all.
+- **Course links.** A course links to its page on the Courses page set under
+  Settings > Agend Widgets > Catalogue Pages (`{page}/course/{slug}/`, or the
+  `?agend_course=` form without pretty permalinks), through
+  `Agend_Apps_Records_Pages::detail_url()`, so the `agend_apps_records_detail_url`
+  filter applies. With no Courses page set the courses are listed without
+  links: the page the surface sits on is not a courses catalogue, so it has
+  nowhere to send a visitor. "Open course links in a new tab" adds
+  `target="_blank" rel="noopener"` and a screen reader note.
+- **Empty and failed.** "Message when there are no paths" is the author's
+  wording; "Hide the widget when there are no paths" draws nothing at all
+  instead. A failed read always says so, hidden or not, and is not mistaken for
+  an empty list. The surface draws nothing inside a card or detail template,
+  where it would be fetched once per card.
+- **Layout and look.** Each path is a card: a header in the heading colour (the
+  difficulty level, title, hours and course count, description) and the courses
+  as a numbered stepper, with a quiet connector between the steps when the path
+  is sequential (the "complete in order" note is kept as text too). All markers
+  look the same: an optional course says "Optional" in words only, because solid
+  versus outline markers are kept for done versus not started once member
+  progress is shown. A course row
+  is one whole-row link whose text is the course title. "Columns" is the most
+  columns across: a card is never narrower than 20rem, and one path, or fewer
+  paths than columns, takes the full width. A wide card (about 42rem or more,
+  by the card's own width, not the screen's) puts the header beside the steps;
+  "Card layout: Always stacked" keeps the header above them. "Columns (Mobile)"
+  (1 or 2, default 1, as in the courses catalogue) sets the columns on a phone;
+  two across tightens the card and drops the chevrons. There is no
+  box-shadow, because the Agend theme sets `box-shadow: none !important`
+  everywhere; the stylesheet also cancels that theme's ID-level `li + li` top
+  margin on its own lists.
+- **Colours.** Heading, body and accent, resolved as the catalogues resolve
+  them (`inherit_colours`, the theme palette and the
+  `agend_apps_records_site_palette` filter). Every other colour in the
+  stylesheet is derived from those three with `color-mix()` (header, lines,
+  step markers, hover), with plain fallbacks for a browser without it. The
+  header uses the heading colour with white text, so the heading colour must be
+  one that reads on white, as it must for the titles anyway.
+- **Not included.** A path detail page, enrolment and progress (the member
+  routes are not part of the public display), and card templates (the template
+  system's record types are events, courses and listings).
+
 ## Block editor surface
 
 The block editor is the primary target for new surface work. Elementor is
@@ -1296,9 +1374,9 @@ supported at parity, not led.
 
 `includes/records/blocks.php` registers one block per surface, listed in
 `AGEND_APPS_RECORDS_BLOCK_SURFACES` (inserter order): `events-catalogue`,
-`courses-catalogue`, `directory-catalogue`, `memberships-catalogue`,
-`member-login`, `header-auth`, `account-link`, `export-reports` and `filter`,
-all namespaced `agend-apps/`. Every block is a thin adapter over the two seams
+`courses-catalogue`, `learning-paths`, `directory-catalogue`,
+`memberships-catalogue`, `member-login`, `header-auth`, `account-link`,
+`export-reports` and `filter`, all namespaced `agend-apps/`. Every block is a thin adapter over the two seams
 above: its attributes are derived from the surface schema
 (`agend_apps_records_block_attributes()`), and its render callback is the
 surface's core renderer, fed the attributes converted to Elementor-shaped
