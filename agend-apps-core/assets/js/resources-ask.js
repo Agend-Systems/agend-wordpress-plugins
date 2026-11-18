@@ -28,9 +28,12 @@
     }
   }
 
+  // Whether a WordPress user is signed in, as the site says in its own page
+  // header. This is not window.agendApps.loggedIn, which is false for every
+  // member who signs in with WordPress or SSO. Whether that user is a member
+  // Atlas knows is for the route to say.
   function isSignedIn() {
-    return !!(window.agendApps && window.agendApps.loggedIn) ||
-      !!(document.body && document.body.classList.contains('logged-in'));
+    return !!(window.agendApps && window.agendApps.signedIn === true);
   }
 
   function nonce() {
@@ -326,12 +329,19 @@
 
     function failure(status, body) {
       if (status === 403 && body && body.code === 'agend_apps_resources_no_member') {
-        // Signed in to WordPress, but not as a member Atlas knows.
+        // Signed in to WordPress, but not yet as a member Atlas knows. The site
+        // says why in plain words. Right after a first sign-in the link is still
+        // being made: the box stays, so the member can ask again in a moment.
+        if (body.state === 'connecting') {
+          show(plain(body.message || messages.notLinked || messages.error || '', body.title), false);
+          return;
+        }
+
         panel.hidden = true;
         if (signedOut) {
           signedOut.hidden = false;
         }
-        var note = el('p', 'agend-res__note', messages.notLinked || messages.error || '');
+        var note = el('p', 'agend-res__note', body.message || messages.notLinked || messages.error || '');
         root.appendChild(note);
         return;
       }

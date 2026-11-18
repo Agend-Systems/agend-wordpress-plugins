@@ -10,6 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/../resources-throttle.php';
+require_once __DIR__ . '/../member-access-state.php';
 require_once __DIR__ . '/../records/render/resources-common.php';
 require_once __DIR__ . '/../records/render/resources-collections.php';
 require_once __DIR__ . '/../records/render/resources-search.php';
@@ -266,15 +267,16 @@ class Agend_Apps_Resources_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @param string $message The site's own wording, safe to show.
 	 * @param int    $status  HTTP status.
 	 * @param int    $retry   Seconds until a refused request may be tried again; 0 for none.
+	 * @param array  $extra   More fields for the body, for the few answers that carry a state.
 	 * @return WP_REST_Response
 	 */
-	private function fail( string $code, string $message, int $status, int $retry = 0 ): WP_REST_Response {
+	private function fail( string $code, string $message, int $status, int $retry = 0, array $extra = array() ): WP_REST_Response {
 		$response = new WP_REST_Response(
 			array(
 				'success' => false,
 				'code'    => $code,
 				'message' => $message,
-			),
+			) + $extra,
 			$status
 		);
 
@@ -347,19 +349,52 @@ class Agend_Apps_Resources_REST_Controller extends Agend_Apps_REST_Controller {
 	 * Whether the current WordPress user has a member identity at Agend to act
 	 * as: a signed-in user with no linked member has no token.
 	 *
+	 * Asked through the member access state's held answer, so the token is
+	 * resolved once however many times a request asks (resolving can mint a
+	 * token, and can wait on another request that is minting one). That answer
+	 * is the same in every sign-in mode, `wordpress` included.
+	 *
 	 * @return bool
 	 */
 	private function has_member(): bool {
-		return '' !== agend_apps_get_bearer_token();
+		return agend_apps_member_access_has_bearer( (int) get_current_user_id() );
 	}
 
 	/**
 	 * The refusal for a signed-in user who is not a linked member.
 	 *
+	 * What to tell them comes from the member access state, which knows the
+	 * difference between a member whose link is still being made (right after a
+	 * first sign-in with WordPress), one who needs to check their email, one who
+	 * needs to sign in again and one the site cannot match. The state and a
+	 * plain title and sentence travel in the body; the reason never does.
+	 *
+	 * Working the state out can ask Agend (in `sso` mode, once, for a user who is
+	 * not linked), so a user who keeps asking is held to the member limit first.
+	 *
 	 * @return WP_REST_Response
 	 */
 	private function no_member(): WP_REST_Response {
-		return $this->fail( 'agend_apps_resources_no_member', __( 'We could not find your member details. Sign in again to continue.', 'agend-apps-core' ), 403 );
+		$retry = agend_apps_resources_member_throttle( 'no_member', (int) get_current_user_id(), AGEND_APPS_RESOURCES_MEMBER_SEARCH_LIMIT, AGEND_APPS_RESOURCES_MEMBER_SEARCH_WINDOW );
+
+		if ( $retry > 0 ) {
+			return $this->busy( $retry, __( 'You are doing that quickly. Wait a moment, then try again.', 'agend-apps-core' ) );
+		}
+
+		$access  = agend_apps_member_access_state();
+		$message = agend_apps_member_access_message( $access );
+
+		return $this->fail(
+			'agend_apps_resources_no_member',
+			$message['message'],
+			403,
+			0,
+			array(
+				'state'       => (string) $access['state'],
+				'title'       => $message['title'],
+				'retry_after' => (int) $access['retry_after'],
+			)
+		);
 	}
 
 	/**

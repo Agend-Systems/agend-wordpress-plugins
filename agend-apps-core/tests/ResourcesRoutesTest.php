@@ -31,10 +31,12 @@ final class ResourcesRoutesTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		agend_res_test_reset();
+		agend_apps_member_access_forget();
 		$_SERVER['REMOTE_ADDR'] = '198.51.100.20';
 	}
 
 	protected function tearDown(): void {
+		agend_apps_member_access_forget();
 		unset( $_SERVER['REMOTE_ADDR'] );
 		parent::tearDown();
 	}
@@ -50,6 +52,9 @@ final class ResourcesRoutesTest extends TestCase {
 
 	/** Signs a member in: a WordPress user with a token for Agend. */
 	private function member( int $id = 7 ): void {
+		// The member access state holds each user's bearer answer for the rest of
+		// a request; each scene here is a new request.
+		agend_apps_member_access_forget();
 		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
 		wp_set_current_user( $id );
 	}

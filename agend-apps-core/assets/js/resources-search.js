@@ -30,9 +30,12 @@
     }
   }
 
+  // Whether a WordPress user is signed in, as the site says in its own page
+  // header. This is not window.agendApps.loggedIn, which is false for every
+  // member who signs in with WordPress or SSO. Whether that user is a member
+  // Atlas knows is for the route to say.
   function isSignedIn() {
-    return !!(window.agendApps && window.agendApps.loggedIn) ||
-      !!(document.body && document.body.classList.contains('logged-in'));
+    return !!(window.agendApps && window.agendApps.signedIn === true);
   }
 
   function nonce() {
@@ -196,8 +199,15 @@
       if (status === 429) {
         say((body && body.message) || messages.busy || messages.error || '', false);
       } else if (status === 403 && body && body.code === 'agend_apps_resources_no_member') {
+        if (body.state === 'connecting') {
+          // Right after a first sign-in the link is still being made: say so and
+          // let the next search try again.
+          say(body.message || messages.notLinked || messages.error || '', false);
+          return;
+        }
+
         off = true;
-        say(messages.notLinked || messages.error || '', true);
+        say(body.message || messages.notLinked || messages.error || '', true);
       } else if (status === 403) {
         // A visitor on a page that is not offering live search: nothing to show.
         clear();

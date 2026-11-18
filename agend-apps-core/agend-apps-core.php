@@ -496,13 +496,25 @@ add_action( 'rest_api_init', 'agend_apps_core_register_rest_routes' );
  * Outputs the REST URL and WP nonce as a JS global for frontend consumers.
  *
  * Exposes `window.agendApps.restUrl` and `window.agendApps.nonce` so that
- * JS/Gutenberg blocks in sibling plugins can authenticate REST requests.
+ * JS/Gutenberg blocks in sibling plugins can authenticate REST requests, and
+ * `window.agendApps.signedIn` for a widget that shows a signed-in member
+ * something after the page has loaded.
+ *
+ * Like the nonce, this is written for whoever the page is built for, so a page
+ * a signed-in user receives is not one a shared cache may serve to others.
  */
 function agend_apps_output_config_js() {
 	$config = array(
 		'restUrl'        => rest_url( 'agend-apps/v1/' ),
 		'nonce'          => wp_create_nonce( 'wp_rest' ),
 		'loggedIn'       => false,
+		// Whether a WordPress user is signed in, in every member sign-in mode.
+		// `loggedIn` above is the narrower "a stored credential session exists"
+		// and is false for every `wordpress` and `sso` member, so a widget that
+		// only needs to know whether to ask the site for a member's own details
+		// reads this one. It says nothing about whether the user is linked to a
+		// member: the route that serves the details answers that.
+		'signedIn'       => get_current_user_id() > 0,
 		'memberAuthMode' => Agend_Apps_Settings::get_member_auth_mode(),
 	);
 

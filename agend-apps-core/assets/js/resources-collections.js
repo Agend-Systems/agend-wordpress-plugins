@@ -25,13 +25,14 @@
     }
   }
 
-  // The signed-in signal. A cached page is built for a visitor, so the page
-  // itself cannot say; the browser can: the shared Agend flag when a member
-  // session exists, or the class WordPress puts on the body of a signed-in
-  // user's page.
+  // The signed-in signal. The page body is built the same for every viewer, so
+  // it cannot say; the site's page header can: it sets window.agendApps.signedIn
+  // for a signed-in WordPress user in every member sign-in mode. This is not
+  // window.agendApps.loggedIn, which is false for every member who signs in with
+  // WordPress or SSO. Whether that user is a member Atlas knows is for the route
+  // to say.
   function isSignedIn() {
-    return !!(window.agendApps && window.agendApps.loggedIn) ||
-      !!(document.body && document.body.classList.contains('logged-in'));
+    return !!(window.agendApps && window.agendApps.signedIn === true);
   }
 
   function nonce() {
