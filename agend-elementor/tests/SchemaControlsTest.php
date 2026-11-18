@@ -48,6 +48,38 @@ final class SchemaControlsTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_give_the_url_control_an_array_default_when_the_schema_default_is_a_plain_string(): void {
+		// Elementor merges a URL control's default into an array and throws a
+		// TypeError on a string, which took the whole widget panel and page
+		// render down for every surface that declares `'default' => ''`.
+		$args = Agend_Elementor_Schema_Controls::control_args(
+			array(
+				'name'    => 'help_url',
+				'label'   => 'Help link',
+				'type'    => 'url',
+				'default' => '',
+			)
+		);
+
+		self::assertSame( \Elementor\Controls_Manager::URL, $args['type'] );
+		self::assertSame( array( 'url' => '' ), $args['default'] );
+	}
+
+	#[Test]
+	public function should_keep_an_array_default_on_the_url_control_when_the_schema_gives_one(): void {
+		$args = Agend_Elementor_Schema_Controls::control_args(
+			array(
+				'name'    => 'login_url',
+				'label'   => 'Login page',
+				'type'    => 'url',
+				'default' => array( 'url' => 'https://example.test/login/' ),
+			)
+		);
+
+		self::assertSame( array( 'url' => 'https://example.test/login/' ), $args['default'] );
+	}
+
+	#[Test]
 	public function should_return_an_empty_array_when_given_an_unknown_field_type(): void {
 		$args = Agend_Elementor_Schema_Controls::control_args(
 			array(

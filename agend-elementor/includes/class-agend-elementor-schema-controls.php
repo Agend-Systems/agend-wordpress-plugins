@@ -230,7 +230,10 @@ final class Agend_Elementor_Schema_Controls {
 					$args['show_external'] = $field['show_external'];
 				}
 				if ( array_key_exists( 'default', $field ) ) {
-					$args['default'] = $field['default'];
+					// The block stores a link as a plain string, but Elementor's
+					// URL control merges its default into an array and fatals on
+					// a string, so a plain-string default becomes the array shape.
+					$args['default'] = is_array( $field['default'] ) ? $field['default'] : array( 'url' => (string) $field['default'] );
 				}
 				break;
 
