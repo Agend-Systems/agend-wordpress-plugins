@@ -277,6 +277,29 @@ function agend_apps_records_register_assets(): void {
 		agend_apps_records_asset_version()
 	);
 
+	// The credential check: a form that posts a code and draws the answer. The
+	// captcha client is its own handle so any public form can share it.
+	wp_register_script(
+		'agend-apps-captcha-client',
+		agend_apps_records_asset_url( 'js/captcha-client.js' ),
+		array(),
+		agend_apps_records_asset_version(),
+		true
+	);
+	wp_register_style(
+		'agend-apps-records-credential-check',
+		agend_apps_records_asset_url( 'css/credential-check.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-credential-check',
+		agend_apps_records_asset_url( 'js/credential-check.js' ),
+		array( 'agend-apps-captcha-client' ),
+		agend_apps_records_asset_version(),
+		true
+	);
+
 	wp_register_style(
 		'agend-apps-records-jobs-catalogue',
 		agend_apps_records_asset_url( 'css/jobs-catalogue.css' ),

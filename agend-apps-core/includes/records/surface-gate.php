@@ -58,6 +58,13 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Learning Pathways', 'agend-apps-core' ),
 			'scopes' => array( 'lms.paths.browse' ),
 		),
+		// The certificate scope is the one the surface cannot work without. Badge
+		// codes also need `lms.badges.verify`, which this map cannot express as an
+		// either-or, so that is the optional feature `lms_credential_badges`.
+		'credential-check'          => array(
+			'label'  => __( 'Agend Credential Check', 'agend-apps-core' ),
+			'scopes' => array( 'lms.certificates.verify' ),
+		),
 		'jobs-catalogue'            => array(
 			'label'  => __( 'Agend Jobs', 'agend-apps-core' ),
 			'scopes' => array( 'jobs.listings.browse' ),
@@ -492,6 +499,9 @@ function agend_apps_records_rest_route_surface( string $route ): string {
 		'#^/lms/courses(/[^/]+)?$#'                              => 'courses-catalogue',
 		'#^/cards/courses$#'                                     => 'courses-catalogue',
 		'#^/lms/paths(/[^/]+)?$#'                                => 'learning-paths',
+		'#^/lms/credentials(/|$)#'                               => 'credential-check',
+		'#^/lms/certificates/verify/[^/]+$#'                     => 'credential-check',
+		'#^/lms/badges/verify/[^/]+$#'                           => 'credential-check',
 		'#^/jobs(/[^/]+)?$#'                                     => 'jobs-catalogue',
 		'#^/crm/tiers(/|$)#'                                     => 'memberships-catalogue',
 		'#^/account-link(/|$)#'                                  => 'account-link',
