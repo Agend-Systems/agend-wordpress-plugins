@@ -1326,8 +1326,10 @@ Resources routes use it; the Learning Pathways progress feature is meant to.
   (the Resources scripts) reads `window.agendApps.signedIn` instead, which the
   page header sets from `is_user_logged_in()` in every mode, and leaves "is this
   user a member" to its route, which answers from this resolver. Older scripts
-  that still read `loggedIn` (the Directory enquiry forms, for one) are not
-  changed here and still see `false` for `wordpress` and `sso` members.
+  that still read `loggedIn` (Account Link, the Courses catalogue's enrol button,
+  and the Directory catalogue and detail page) are not changed here and still see
+  `false` for `wordpress` and `sso` members. Header Auth carries its own flag for
+  `wordpress` mode in its widget config.
 - **Not `agend_apps_account_link_state()`.** It answers `linked` for every
   signed-in user in `credentials` mode without looking for a session, and in
   `wordpress` mode it ignores the recorded link state and calls the SSO status
