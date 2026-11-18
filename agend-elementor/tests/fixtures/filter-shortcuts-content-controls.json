@@ -155,7 +155,6 @@
                         "type": "url",
                         "placeholder": "Uses the Directory page set in Agend Apps settings",
                         "show_external": false,
-                        "default": "",
                         "description": "Where a tile goes on a page with no Directory Catalogue, and what its link points to. Leave empty to use the Directory page set in Agend Apps settings."
                     }
                 }

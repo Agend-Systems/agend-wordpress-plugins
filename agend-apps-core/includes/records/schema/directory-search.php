@@ -129,7 +129,6 @@ function agend_apps_records_schema_directory_search(): array {
 						'name'          => 'target_url',
 						'label'         => __( 'Directory page', 'agend-apps-core' ),
 						'type'          => 'url',
-						'default'       => '',
 						'placeholder'   => __( 'Uses the Directory page set in Agend Apps settings', 'agend-apps-core' ),
 						'show_external' => false,
 						'description'   => __( 'Where the search goes on a page with no Directory Catalogue. Leave empty to use the Directory page set in Agend Apps settings. That page\'s catalogue reads the search when its filter template has a matching Search or Location filter.', 'agend-apps-core' ),

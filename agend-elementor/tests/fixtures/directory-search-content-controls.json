@@ -156,7 +156,6 @@
                         "type": "url",
                         "placeholder": "Uses the Directory page set in Agend Apps settings",
                         "show_external": false,
-                        "default": "",
                         "description": "Where the search goes on a page with no Directory Catalogue. Leave empty to use the Directory page set in Agend Apps settings. That page's catalogue reads the search when its filter template has a matching Search or Location filter."
                     }
                 }

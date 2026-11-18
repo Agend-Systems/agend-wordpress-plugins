@@ -132,7 +132,6 @@ function agend_apps_records_schema_filter_shortcuts(): array {
 						'name'          => 'target_url',
 						'label'         => __( 'Directory page', 'agend-apps-core' ),
 						'type'          => 'url',
-						'default'       => '',
 						'placeholder'   => __( 'Uses the Directory page set in Agend Apps settings', 'agend-apps-core' ),
 						'show_external' => false,
 						'description'   => __( 'Where a tile goes on a page with no Directory Catalogue, and what its link points to. Leave empty to use the Directory page set in Agend Apps settings.', 'agend-apps-core' ),
