@@ -100,7 +100,10 @@ class Agend_Loop_Sync_Settings {
 	public static function seed_defaults() {
 		add_option( self::OPT_ENABLED, '0' );
 		add_option( self::OPT_USER_SYNC, '1' );
-		add_option( self::OPT_COMMITTEE_SYNC, '1' );
+		// Committee channels are opt-in: a site may manage channel membership in
+		// Loop and use member sync alone. Only new installs get this; a site
+		// that already has the option keeps its setting.
+		add_option( self::OPT_COMMITTEE_SYNC, '0' );
 		add_option( self::OPT_SCHEDULE, 'daily' );
 		add_option( self::OPT_ROLE_MAP, self::default_role_map() );
 		add_option( self::OPT_FILTER_MODE, 'all' );
@@ -166,6 +169,50 @@ class Agend_Loop_Sync_Settings {
 		// new interval takes effect immediately rather than after the old event
 		// next fires.
 		add_action( 'update_option_' . self::OPT_SCHEDULE, array( __CLASS__, 'reschedule_committee_cron' ), 10, 0 );
+
+		// Schedule or clear the committee cron as soon as either switch changes,
+		// rather than waiting for the next request's init.
+		add_action( 'update_option_' . self::OPT_ENABLED, array( __CLASS__, 'sync_committee_cron' ), 10, 0 );
+		add_action( 'update_option_' . self::OPT_COMMITTEE_SYNC, array( __CLASS__, 'sync_committee_cron' ), 10, 0 );
+	}
+
+	/**
+	 * Whether the committee cron should be scheduled: the plugin and committee
+	 * sync are both on.
+	 *
+	 * @return bool
+	 */
+	public static function committee_cron_wanted(): bool {
+		return self::is_enabled() && self::is_committee_sync_enabled();
+	}
+
+	/**
+	 * Clears the committee WP-Cron event, if scheduled.
+	 *
+	 * @return void
+	 */
+	public static function clear_committee_cron() {
+		if ( ! defined( 'AGEND_LOOP_SYNC_CRON_HOOK' ) ) {
+			return;
+		}
+
+		wp_clear_scheduled_hook( AGEND_LOOP_SYNC_CRON_HOOK );
+	}
+
+	/**
+	 * Keeps the committee cron in step with the settings: scheduled while the
+	 * plugin and committee sync are both on, cleared otherwise. A site using
+	 * member sync alone then never runs a committee sync.
+	 *
+	 * @return void
+	 */
+	public static function sync_committee_cron() {
+		if ( self::committee_cron_wanted() ) {
+			self::ensure_committee_cron();
+			return;
+		}
+
+		self::clear_committee_cron();
 	}
 
 	/**
@@ -179,9 +226,10 @@ class Agend_Loop_Sync_Settings {
 			return;
 		}
 
-		$timestamp = wp_next_scheduled( AGEND_LOOP_SYNC_CRON_HOOK );
-		if ( false !== $timestamp ) {
-			wp_unschedule_event( $timestamp, AGEND_LOOP_SYNC_CRON_HOOK );
+		self::clear_committee_cron();
+
+		if ( ! self::committee_cron_wanted() ) {
+			return;
 		}
 
 		wp_schedule_event( time() + MINUTE_IN_SECONDS, self::get_committee_schedule(), AGEND_LOOP_SYNC_CRON_HOOK );
@@ -197,7 +245,7 @@ class Agend_Loop_Sync_Settings {
 	 * @return void
 	 */
 	public static function ensure_committee_cron() {
-		if ( ! defined( 'AGEND_LOOP_SYNC_CRON_HOOK' ) || ! self::is_enabled() || ! self::is_committee_sync_enabled() ) {
+		if ( ! defined( 'AGEND_LOOP_SYNC_CRON_HOOK' ) || ! self::committee_cron_wanted() ) {
 			return;
 		}
 

@@ -1,9 +1,15 @@
 # Agend Loop Sync
 
 Keeps Agend Loop in step with the membership records behind a WordPress
-site. Members' Loop accounts are refreshed automatically, and every Upbeat
-committee becomes a private Loop channel whose members and moderators
+site. Members' Loop accounts are refreshed automatically. Optionally, every
+Upbeat committee becomes a private Loop channel whose members and moderators
 follow the committee roster.
+
+Committee sync is optional and off on new installs. A site that manages
+channel membership in Loop itself, such as one piloting a few invite-only
+channels, runs member sync alone: no committee cron, no Upbeat committee
+reads and no committee scopes. See
+[Committee sync is optional](#committee-sync-is-optional).
 
 All traffic goes through the Agend gateway (`/v1/loop/integration/*`) using
 the connection configured in Agend Apps Core. The plugin never talks to Loop
@@ -15,8 +21,10 @@ directly and never modifies the membership plugin.
   WordPress role changed, or has their record updated in Upbeat, their Loop
   account is refreshed: their display name is updated and Loop adds them to
   any channels their member role grants.
-- **Committee channels.** Each Upbeat committee is created and kept up to
-  date as a private Loop channel, named after the committee.
+- **Committee channels (optional).** Each Upbeat committee is created and
+  kept up to date as a private Loop channel, named after the committee. Off
+  on new installs; everything below about committees applies only when it is
+  on.
 - **Committee roles become channel roles.** Committee positions such as
   Chair, Secretary or Member map to Loop channel roles (owner, moderator,
   member) through an editable mapping.
@@ -50,10 +58,11 @@ directly and never modifies the membership plugin.
 - WordPress 6.0+ and PHP 7.4+.
 - **Agend Apps Core**, active and connected to the Agend gateway. Provides
   the gateway client and Loop API bindings. The gateway API key needs the
-  `loop.users.sync`, `loop.committees.browse`, `loop.committees.create` and
-  `loop.committees.delete` scopes. Handing members to the sync (optional)
-  also needs `loop.committees.update` and Agend Apps Core 1.42.0 or later
-  (see [Handing members to the sync](#handing-members-to-the-sync)).
+  `loop.users.sync` scope for member sync. With committee sync on, it also
+  needs `loop.committees.browse`, `loop.committees.create` and
+  `loop.committees.delete`. Handing members to the sync (optional) also needs
+  `loop.committees.update` and Agend Apps Core 1.42.0 or later (see
+  [Handing members to the sync](#handing-members-to-the-sync)).
 - **Agend Membership** (`iugo-membership-kiosk`), active. Provides access to
   Upbeat and the `imk_membership_number` user meta used to identify members.
 - Single sign-on from this site into Loop (the Agend SAML IdP). The plugin
@@ -111,6 +120,20 @@ currently act on them.
 A user is synced at most once per request, even when several triggers fire
 together. A failed sync is logged and never blocks the WordPress action that
 triggered it.
+
+### Committee sync is optional
+
+The **Committee sync** setting turns everything committee-related on or off.
+
+- **Off** (the default on new installs): the committee cron is not scheduled,
+  no committee sync runs, nothing is read from Upbeat about committees, and
+  the settings screen shows only the member sync tools. The committee settings
+  stay saved, hidden, so turning committee sync back on restores them.
+- **On**: committees sync on the configured schedule and on demand, as below.
+
+The committee cron follows the setting: it is scheduled while the plugin and
+committee sync are both on, and cleared as soon as either is turned off.
+Sites that already had committee sync on before version 1.4.0 keep it on.
 
 ### Committee sync
 
@@ -409,7 +432,7 @@ the Loop administrator gave and the date it was placed.
 | Enable plugin | Off | Master switch for all syncing. |
 | Dry run | On | Log what would be sent without sending anything. |
 | User sync | On | Member sync triggers and backfill. |
-| Committee sync | On | Scheduled and manual committee syncs. |
+| Committee sync | Off on new installs (sites upgraded from 1.3.x keep their setting) | Scheduled and manual committee syncs. The settings below it, and the committee tools, show only while it is on. |
 | Committee sync schedule | Daily | Hourly, twice daily or daily. |
 | Committee role mapping | See [Role mapping](#role-mapping) | Committee role to channel role, one per line. Lines with a channel role other than owner, moderator or member are dropped on save. |
 | Committee filter | All web-visible committees | See [Choosing which committees sync](#choosing-which-committees-sync). |
@@ -423,7 +446,7 @@ nonce-protected.
 
 | Tool | What it does | Calls Loop? |
 |---|---|---|
-| Sync committees now | Runs a full committee sync immediately. | Yes (unless dry run) |
+| Sync committees now | Runs a full committee sync immediately. Shown only with committee sync on, like the scan, inspect and hand-over tools. | Yes (unless dry run) |
 | Backfill all users | Pushes every member to Loop in batches of 100. | Yes (unless dry run) |
 | Scan members for committees | Lists local members who sit on a committee, with their committees, roles, email and membership number, plus a count of each role name. Up to 200 members are listed. | No |
 | Inspect committee catalogue | Lists every Upbeat committee with its unique ID, web flag, groups and activity count, plus every role name in use. | No |
@@ -456,9 +479,10 @@ settles it or you clear it.
    active, and members can sign in to Loop through SSO.
 2. On **Settings > Loop Sync**, tick **Enable plugin** and leave **Dry run**
    on.
-3. Run **Inspect committee catalogue** and **Scan members for committees**.
+3. If the site uses committee channels, tick **Committee sync**, save, then
+   run **Inspect committee catalogue** and **Scan members for committees**.
    Add every committee role name found to the role mapping, and choose the
-   committee filter.
+   committee filter. Otherwise skip the committee steps below.
 4. Run **Backfill all users** and **Sync committees now**, then check
    **Recent activity** to confirm the payloads look right.
 5. Turn **Dry run** off. Run **Backfill all users**, then **Sync committees
