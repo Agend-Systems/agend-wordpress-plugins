@@ -433,6 +433,11 @@ function agend_apps_core_bootstrap() {
 
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-log-admin.php';
 		new Agend_Apps_Log_Admin();
+
+		// The Community section of the Agend Apps settings page: which Loop
+		// channels the website may show.
+		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-community-admin.php';
+		new Agend_Apps_Community_Admin();
 	}
 }
 add_action( 'plugins_loaded', 'agend_apps_core_bootstrap' );
