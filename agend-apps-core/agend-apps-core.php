@@ -225,6 +225,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/learning-paths.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/jobs-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-jobs.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-summary.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/memberships-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-login.php';
@@ -371,6 +372,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/directory-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/cms-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-me-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/member-summary-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/jobs-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/events-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/lms-routes.php';
@@ -454,6 +456,7 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
+	agend_apps_register_member_summary_routes();
 
 	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
 		agend_apps_register_identity_link_routes();
