@@ -29,6 +29,19 @@
 	padding: 0;
 }
 
+/* Themes space list items (li + li) and add markers inside page content; the
+   tiles are a grid, so neither applies. */
+.agend-fs .agend-fs__grid > .agend-fs__item {
+	margin: 0 !important;
+	padding: 0 !important;
+	list-style: none;
+}
+
+.agend-fs .agend-fs__grid > .agend-fs__item::before,
+.agend-fs .agend-fs__grid > .agend-fs__item::marker {
+	content: none;
+}
+
 .agend-fs .agend-fs__tile {
 	display: flex;
 	flex: 1 1 auto;
