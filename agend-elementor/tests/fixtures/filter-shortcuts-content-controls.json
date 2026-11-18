@@ -1,0 +1,165 @@
+{
+    "sections": [
+        {
+            "id": "section_content",
+            "args": {
+                "label": "Shortcuts",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "filter",
+                    "args": {
+                        "label": "Filter",
+                        "type": "select",
+                        "default": "custom_field",
+                        "options": {
+                            "custom_field": "Custom field",
+                            "category": "Category",
+                            "state": "State",
+                            "city": "City"
+                        },
+                        "description": "Each tile applies one value of this directory filter. On a page with a Directory Catalogue the tile applies it in place and shows the filter control updated; the catalogue's filter template does not need to include the filter."
+                    }
+                },
+                {
+                    "id": "custom_field_key",
+                    "args": {
+                        "label": "Custom field key",
+                        "type": "text",
+                        "default": "",
+                        "description": "The key as configured in Agend, for example profession.",
+                        "condition": {
+                            "filter": "custom_field"
+                        }
+                    }
+                },
+                {
+                    "id": "source",
+                    "args": {
+                        "label": "Tiles come from",
+                        "type": "select",
+                        "default": "manual",
+                        "options": {
+                            "manual": "A list I write",
+                            "all": "All values from the directory"
+                        }
+                    }
+                },
+                {
+                    "id": "items",
+                    "args": {
+                        "label": "Tiles",
+                        "type": "repeater",
+                        "fields": [
+                            {
+                                "label": "Label",
+                                "type": "text",
+                                "label_block": true,
+                                "name": "label"
+                            },
+                            {
+                                "label": "Value",
+                                "type": "text",
+                                "label_block": true,
+                                "description": "Leave empty to use the label.",
+                                "name": "value"
+                            },
+                            {
+                                "label": "Icon",
+                                "type": "icons",
+                                "name": "icon"
+                            }
+                        ],
+                        "title_field": "{{{ label }}}",
+                        "default": [],
+                        "condition": {
+                            "source": "manual"
+                        }
+                    }
+                },
+                {
+                    "id": "top_level_only",
+                    "args": {
+                        "label": "Top-level categories only",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Skips subcategories.",
+                        "condition": {
+                            "filter": "category",
+                            "source": "all"
+                        }
+                    }
+                },
+                {
+                    "id": "columns",
+                    "args": {
+                        "label": "Columns",
+                        "type": "number",
+                        "default": 4,
+                        "min": 1,
+                        "max": 8
+                    }
+                },
+                {
+                    "id": "columns_tablet",
+                    "args": {
+                        "label": "Columns on tablets",
+                        "type": "number",
+                        "default": 2,
+                        "min": 1,
+                        "max": 8
+                    }
+                },
+                {
+                    "id": "columns_mobile",
+                    "args": {
+                        "label": "Columns on phones",
+                        "type": "number",
+                        "default": 2,
+                        "min": 1,
+                        "max": 4
+                    }
+                },
+                {
+                    "id": "show_icons",
+                    "args": {
+                        "label": "Show icons",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "all_icon",
+                    "args": {
+                        "label": "Icon for every tile",
+                        "type": "icons",
+                        "condition": {
+                            "source": "all"
+                        }
+                    }
+                },
+                {
+                    "id": "scroll_to_results",
+                    "args": {
+                        "label": "Scroll to results after a tile is chosen",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Only on a page with a Directory Catalogue."
+                    }
+                },
+                {
+                    "id": "target_url",
+                    "args": {
+                        "label": "Directory page",
+                        "type": "url",
+                        "placeholder": "Uses the Directory page set in Agend Apps settings",
+                        "show_external": false,
+                        "default": "",
+                        "description": "Where a tile goes on a page with no Directory Catalogue, and what its link points to. Leave empty to use the Directory page set in Agend Apps settings."
+                    }
+                }
+            ]
+        }
+    ]
+}

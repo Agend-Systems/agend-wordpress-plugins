@@ -1,0 +1,166 @@
+{
+    "sections": [
+        {
+            "id": "section_content",
+            "args": {
+                "label": "Content",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "search_note",
+                    "args": {
+                        "type": "raw_html",
+                        "raw": "On a page with a Directory Catalogue the search runs in place and fills in from the catalogue's own state, so Clear all empties it too. On any other page it sends the visitor to the directory page."
+                    }
+                },
+                {
+                    "id": "show_keyword",
+                    "args": {
+                        "label": "Show keyword field",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "keyword_label",
+                    "args": {
+                        "label": "Keyword label",
+                        "type": "text",
+                        "default": "Keyword",
+                        "description": "Read by screen readers; not shown.",
+                        "condition": {
+                            "show_keyword": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "keyword_placeholder",
+                    "args": {
+                        "label": "Keyword placeholder",
+                        "type": "text",
+                        "default": "Search by name or keyword",
+                        "condition": {
+                            "show_keyword": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "show_location",
+                    "args": {
+                        "label": "Show location field",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "location_label",
+                    "args": {
+                        "label": "Location label",
+                        "type": "text",
+                        "default": "Location",
+                        "description": "Read by screen readers; not shown.",
+                        "condition": {
+                            "show_location": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "location_placeholder",
+                    "args": {
+                        "label": "Location placeholder",
+                        "type": "text",
+                        "default": "Suburb or postcode",
+                        "condition": {
+                            "show_location": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "button_text",
+                    "args": {
+                        "label": "Button text",
+                        "type": "text",
+                        "default": "Search"
+                    }
+                },
+                {
+                    "id": "show_locate",
+                    "args": {
+                        "label": "Show \"Use my location\" link",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "locate_text",
+                    "args": {
+                        "label": "Use my location text",
+                        "type": "text",
+                        "default": "Use my location",
+                        "condition": {
+                            "show_locate": "yes"
+                        }
+                    }
+                },
+                {
+                    "id": "show_icons",
+                    "args": {
+                        "label": "Show field icons",
+                        "type": "switcher",
+                        "default": "yes"
+                    }
+                },
+                {
+                    "id": "scroll_to_results",
+                    "args": {
+                        "label": "Scroll to results after search",
+                        "type": "switcher",
+                        "default": "yes",
+                        "description": "Only on a page with a Directory Catalogue."
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_destination",
+            "args": {
+                "label": "Place and destination",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "location_region",
+                    "args": {
+                        "label": "Place search region",
+                        "type": "text",
+                        "default": "",
+                        "description": "Added to a typed place before it is looked up, for example a country name, so a suburb that exists in several countries finds the right one."
+                    }
+                },
+                {
+                    "id": "radius",
+                    "args": {
+                        "label": "Search radius (km)",
+                        "type": "number",
+                        "default": 15,
+                        "min": 1,
+                        "max": 1000,
+                        "description": "How far from the place results can be. A catalogue that already holds a place keeps its own radius."
+                    }
+                },
+                {
+                    "id": "target_url",
+                    "args": {
+                        "label": "Directory page",
+                        "type": "url",
+                        "placeholder": "Uses the Directory page set in Agend Apps settings",
+                        "show_external": false,
+                        "default": "",
+                        "description": "Where the search goes on a page with no Directory Catalogue. Leave empty to use the Directory page set in Agend Apps settings. That page's catalogue reads the search when its filter template has a matching Search or Location filter."
+                    }
+                }
+            ]
+        }
+    ]
+}

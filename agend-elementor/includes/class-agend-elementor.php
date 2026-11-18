@@ -122,6 +122,22 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Learning_Paths() );
 		}
 
+		// The directory widgets that sit beside a catalogue. Each renderer
+		// lives in Agend Apps Core, which updates independently, so a widget
+		// registers only when the core it runs against has its surface.
+		if ( function_exists( 'agend_apps_records_render_directory_search' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-directory-search.php';
+			$widgets_manager->register( new Agend_Elementor_Directory_Search() );
+		}
+		if ( function_exists( 'agend_apps_records_render_filter_shortcuts' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-filter-shortcuts.php';
+			$widgets_manager->register( new Agend_Elementor_Filter_Shortcuts() );
+		}
+		if ( function_exists( 'agend_apps_records_render_directory_count' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-directory-count.php';
+			$widgets_manager->register( new Agend_Elementor_Directory_Count() );
+		}
+
 		// The renderer lives in Agend Apps Core, which updates independently:
 		// an older core has no listing enquiry surface to adapt.
 		if ( function_exists( 'agend_apps_records_render_listing_enquiry' ) ) {
