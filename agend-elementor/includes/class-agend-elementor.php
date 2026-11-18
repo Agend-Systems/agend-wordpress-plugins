@@ -122,6 +122,22 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Learning_Paths() );
 		}
 
+		// Each needs a core that ships its Community surface.
+		if ( function_exists( 'agend_apps_records_render_community_announcements' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-community-announcements.php';
+			$widgets_manager->register( new Agend_Elementor_Community_Announcements() );
+		}
+
+		if ( function_exists( 'agend_apps_records_render_community_channels' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-community-channels.php';
+			$widgets_manager->register( new Agend_Elementor_Community_Channels() );
+		}
+
+		if ( function_exists( 'agend_apps_records_render_community_feed' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-community-feed.php';
+			$widgets_manager->register( new Agend_Elementor_Community_Feed() );
+		}
+
 		// The renderer lives in Agend Apps Core, which updates independently:
 		// an older core has no listing enquiry surface to adapt.
 		if ( function_exists( 'agend_apps_records_render_listing_enquiry' ) ) {
