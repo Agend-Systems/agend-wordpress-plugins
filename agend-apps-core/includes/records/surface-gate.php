@@ -58,6 +58,20 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Learning Pathways', 'agend-apps-core' ),
 			'scopes' => array( 'lms.paths.browse' ),
 		),
+		// The Community surfaces also read the channel list, to hold every post to
+		// the channels the site allows, so each needs both scopes.
+		'community-announcements'   => array(
+			'label'  => __( 'Agend Community Announcements', 'agend-apps-core' ),
+			'scopes' => array( 'loop.activity.read', 'loop.channels.browse' ),
+		),
+		'community-channels'        => array(
+			'label'  => __( 'Agend Community Channels', 'agend-apps-core' ),
+			'scopes' => array( 'loop.channels.browse' ),
+		),
+		'community-feed'            => array(
+			'label'  => __( 'Agend Community Popular Posts', 'agend-apps-core' ),
+			'scopes' => array( 'loop.activity.read', 'loop.channels.browse' ),
+		),
 		'jobs-catalogue'            => array(
 			'label'  => __( 'Agend Jobs', 'agend-apps-core' ),
 			'scopes' => array( 'jobs.listings.browse' ),

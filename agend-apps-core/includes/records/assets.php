@@ -277,6 +277,15 @@ function agend_apps_records_register_assets(): void {
 		agend_apps_records_asset_version()
 	);
 
+	// The three Community surfaces share one stylesheet and, like learning
+	// paths, are server-rendered with no script.
+	wp_register_style(
+		'agend-apps-records-community',
+		agend_apps_records_asset_url( 'css/community.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+
 	wp_register_style(
 		'agend-apps-records-jobs-catalogue',
 		agend_apps_records_asset_url( 'css/jobs-catalogue.css' ),

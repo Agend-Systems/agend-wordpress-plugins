@@ -242,6 +242,10 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-map.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/listing-enquiry.php';
+	// The Community surfaces (announcements, channels, popular posts).
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-announcements.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-channels.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-feed.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
