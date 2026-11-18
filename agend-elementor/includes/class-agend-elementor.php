@@ -122,19 +122,19 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Learning_Paths() );
 		}
 
-		// Needs a core that ships the credential-check surface.
+		// Needs a core that ships the credential-check surface (1.71.0).
 		if ( function_exists( 'agend_apps_records_render_credential_check' ) ) {
 			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-credential-check.php';
 			$widgets_manager->register( new Agend_Elementor_Credential_Check() );
 		}
 
-		// Needs a core that ships the member-summary surface.
+		// Needs a core that ships the member-summary surface (1.71.0).
 		if ( function_exists( 'agend_apps_records_render_member_summary' ) ) {
 			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-member-summary.php';
 			$widgets_manager->register( new Agend_Elementor_Member_Summary() );
 		}
 
-		// Each needs a core that ships its Community surface.
+		// Each needs a core that ships its Community surface (1.71.0).
 		if ( function_exists( 'agend_apps_records_render_community_announcements' ) ) {
 			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-community-announcements.php';
 			$widgets_manager->register( new Agend_Elementor_Community_Announcements() );
@@ -150,7 +150,7 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Community_Feed() );
 		}
 
-		// Each needs a core that ships its Resources surface.
+		// Each needs a core that ships its Resources surface (1.71.0).
 		if ( function_exists( 'agend_apps_records_render_resources_collections' ) ) {
 			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-resources-collections.php';
 			$widgets_manager->register( new Agend_Elementor_Resources_Collections() );
