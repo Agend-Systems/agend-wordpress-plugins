@@ -223,6 +223,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/learning-paths.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/credential-check.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/jobs-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-jobs.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
@@ -320,6 +321,11 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/auth.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/crm.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/events.php';
+	// Throttle and code allow-list for the public certificate and badge
+	// lookups; the two LMS verify wrappers and their REST proxies call them.
+	require_once AGEND_APPS_CORE_DIR . 'includes/public-throttle.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/credential-guard.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/credential-check.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/lms.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cms.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/jobs.php';

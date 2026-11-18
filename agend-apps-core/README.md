@@ -1090,6 +1090,114 @@ secret, an unreachable provider, a non-2xx or malformed answer, a hostname
 mismatch, a missing score, a low score and an action mismatch all refuse the
 submission.
 
+## Public certificate and badge lookups
+
+`GET /agend-apps/v1/lms/certificates/verify/{code}` and
+`GET /agend-apps/v1/lms/badges/verify/{token}` (and the PHP wrappers
+`agend_apps_lms_verify_certificate()` and `agend_apps_lms_verify_badge()` behind
+them) answer anyone, so every lookup passes the same guard
+(`includes/credential-guard.php`, counters in `includes/public-throttle.php`):
+
+- **Only real code shapes are forwarded.** A `VER-` plus 20 hex verification
+  code, a 32 hex badge share token, or a legacy 8 to 12 character certificate
+  code. Anything else, including every hyphenated certificate number
+  (`CERT-2026-000123`), is refused with 400 `agend_apps_invalid_credential_code`
+  before anything is counted or called, so the gateway's sequential numbers can
+  never be walked through the site. A canonical code typed in the wrong case
+  (`Ver-3fa...`) is corrected before it is sent. The wrappers apply the same
+  check, so a PHP caller is covered too. A site holding another format adds it
+  with the `agend_apps_credential_code_shapes` filter.
+- **Per-visitor limits**: 10 a minute and 60 an hour, keyed on a salted hash of
+  `REMOTE_ADDR` (an IPv6 address counts as its /64). `X-Forwarded-For` is not
+  trusted; a site behind a trusted proxy returns the real address from the
+  `agend_apps_visitor_ip` filter. A visitor with no usable address shares one
+  set of limits with every other such visitor. No address is stored.
+- **A site ceiling** of 20 lookups a minute in total, so a script spread across
+  many addresses cannot spend the key's shared budget. Over it every visitor
+  gets 429 `agend_apps_credential_busy`; a visitor over their own limit gets 429
+  `agend_apps_credential_rate_limited`. Both carry `Retry-After`. Change the
+  numbers with the `agend_apps_credential_check_limits` filter
+  (`visitor_per_minute`, `visitor_per_hour`, `site_per_minute`); a value below 1
+  is ignored, so the throttle cannot be switched off.
+- **Called as a visitor's lookup**: the wrappers set `unattended` (no member
+  token is minted or attached) and `isolated_rate_limit` (a gateway 429 for a
+  lookup does not stop the site's other Agend calls, and the site's own stop
+  state does not stop a lookup). Answers are sent `Cache-Control: no-store`.
+- **No captcha** on the GET routes, because a GET cannot carry a token: a visitor
+  over the limit is refused instead.
+
+## Credential check
+
+The **Agend Credential Check** surface (`credential-check`; block
+`agend-apps/credential-check`, Elementor widget in Agend Elementor) is a public
+form where a visitor checks a certificate or badge code against the Agend
+learning record: an employer with a printed certificate, a regulator, anyone
+who scans a link. It needs the `lms.certificates.verify` scope (the surface gate)
+and, for badge codes, `lms.badges.verify` too (the optional feature
+`lms_credential_badges`: a certificate-only key refuses a badge code with a
+clear message). It works the same in every member sign-in mode, because every
+call is a visitor's lookup that carries no member token.
+
+- **Route.** The form posts `{ code, captcha_token }` to
+  `POST /agend-apps/v1/lms/credentials/verify` and always gets a JSON `status`:
+  `valid`, `ended`, `not_found`, `invalid` (with a `reason`), `captcha_failed`,
+  `busy` (with `retry_after`, and `Retry-After`) or `unavailable`. Every answer is
+  `Cache-Control: no-store`. The route is public: the captcha and the throttle are
+  the gate, not a nonce, which would fail on a page-cached visit from a scanned
+  QR code for no gain on a read-only check. The two GET proxies under
+  `lms/certificates/verify` and `lms/badges/verify` are kept for existing callers
+  and deprecated in favour of this route, which also checks a captcha and keeps
+  the code out of URLs and logs.
+- **Order of refusal** (`agend_apps_credentials_handle()` in
+  `includes/credential-check.php`): the format of the code (free, never counted),
+  the visitor's limits (counted once a code is well formed, even if the captcha
+  then fails, so farming tokens is throttled too), the captcha (a token is single
+  use, so a mistyped code is refused before one is spent), the site-wide ceiling
+  (spent only on a real lookup), then one gateway call. See "Public certificate
+  and badge lookups" for the limits and the code allow-list.
+- **What a pasted link does.** A link is reduced to its code and never fetched:
+  the `agend_code` or `code` query value, else the segment after `/verify/` or
+  `/badges/`, else the last segment. A pasted internal badge id (a UUID, which the
+  LMS Share button copies and which never resolves) gets its own hint.
+- **Captcha.** Required and fail closed, exactly as the listing enquiry: with no
+  provider set up (and no `AGEND_APPS_CAPTCHA_ALLOW_NONE` development opt-out)
+  `Agend_Apps_Captcha::submissions_open()` is false, visitors see nothing and
+  the route answers `unavailable`. Editors are told why in the block notice and
+  the Elementor canvas. The provider code lives in the shared script
+  `assets/js/captcha-client.js` (handle `agend-apps-captcha-client`); the
+  listing enquiry keeps its own copy until it is moved onto it.
+- **Found means the record exists, and nothing more.** The result is a success
+  only when the answer is a 2xx, `success` is not false, `data.valid` is `true`
+  and the credential names a course or badge. `valid: false` is `not_found`. A
+  transport error, a timeout, a 5xx, a 429, a missing key scope, or any answer of
+  another shape is `unavailable` (or `busy`), never `not_found`: telling someone
+  a real credential does not exist is the worst thing this can do. Every accepted
+  code is exactly one call, so there is no second lookup whose failure could be
+  mistaken for "not found". The wording says the record exists and does not say
+  whether the holder is currently accredited.
+- **What is shown.** A certificate: the course, the certificate number, the issue
+  date, CPD points above zero, the instructor and up to five topics. A badge: its
+  name, picture and colour, the course, the earned date and CPD points, and the
+  earner's name only when the editor turns "Show the name of the person who
+  earned a badge" on (off by default: the association, not the learner, makes a
+  badge public). The page carries a key for that setting; a request without it
+  never gets a name. A certificate never shows a holder name (the platform holds
+  no consented value), no result shows an issuer (the answer carries no account,
+  so the plugin cannot say whose it is) and none shows an expiry. If a future
+  gateway sends `revoked_at`, an `expires_at` in the past or an inactive `status`
+  the result says "No longer valid"; an `expires_at` in the future shows "Valid
+  until". Every string is stripped of tags and capped, a colour must be hex and a
+  picture must be https, and the script draws all of it with `textContent`.
+- **Deep link.** The page address `?code=` (the name is a setting, and
+  `?agend_code=` always works too) fills the box and, when "Check straight away"
+  is on, runs the check on load. The page HTML is the same for every visitor, so
+  a cached page can serve a printed link or QR code. With reCAPTCHA v3 or
+  Turnstile the token is taken in the background; with the v2 checkbox the code is
+  filled in and the visitor presses the button.
+- **Assets.** `agend-apps-records-credential-check` (script and style, both named
+  by the block's `viewScript` and `style`); the script depends on
+  `agend-apps-captcha-client`.
+
 ## Member job credits
 
 A member pays for each job they post from this site with a job credit held in

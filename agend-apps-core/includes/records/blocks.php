@@ -47,6 +47,7 @@ const AGEND_APPS_RECORDS_BLOCK_SURFACES = array(
 	'member-login',
 	'header-auth',
 	'account-link',
+	'credential-check',
 	'export-reports',
 	'filter',
 	'record-field',
