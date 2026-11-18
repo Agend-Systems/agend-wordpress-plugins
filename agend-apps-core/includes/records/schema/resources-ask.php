@@ -133,7 +133,6 @@ function agend_apps_records_schema_resources_ask(): array {
 						'type'          => 'url',
 						'placeholder'   => 'https://',
 						'show_external' => false,
-						'default'       => '',
 						'description'   => __( 'Leave empty to use your site\'s sign-in page, which brings people back to this page afterwards.', 'agend-apps-core' ),
 						'condition'     => array( 'signed_out_behaviour' => 'prompt' ),
 					),

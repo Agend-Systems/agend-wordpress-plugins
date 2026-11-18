@@ -396,6 +396,32 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// The directory widgets that sit outside a catalogue's filter template.
+	// They share the bridge, which finds the page's catalogue and builds the
+	// search links that carry a search to the directory page.
+	wp_register_script(
+		'agend-apps-records-directory-bridge',
+		agend_apps_records_asset_url( 'js/directory-bridge.js' ),
+		array( 'agend-apps-records-search-link' ),
+		agend_apps_records_asset_version(),
+		true
+	);
+	foreach ( array( 'directory-search', 'filter-shortcuts', 'directory-count' ) as $widget ) {
+		wp_register_style(
+			'agend-apps-records-' . $widget,
+			agend_apps_records_asset_url( 'css/' . $widget . '.css' ),
+			array(),
+			agend_apps_records_asset_version()
+		);
+		wp_register_script(
+			'agend-apps-records-' . $widget,
+			agend_apps_records_asset_url( 'js/' . $widget . '.js' ),
+			'directory-count' === $widget ? array() : array( 'agend-apps-records-directory-bridge' ),
+			agend_apps_records_asset_version(),
+			true
+		);
+	}
+
 	wp_register_style(
 		'agend-apps-records-account-link',
 		agend_apps_records_asset_url( 'css/account-link.css' ),

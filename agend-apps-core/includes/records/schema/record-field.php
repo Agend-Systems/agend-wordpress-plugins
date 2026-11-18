@@ -355,6 +355,17 @@ function agend_apps_records_schema_record_field(): array {
 						'description' => __( 'Applies to number fields, for example " lessons" or "%".', 'agend-apps-core' ),
 					),
 					array(
+						'name'        => 'text_case',
+						'label'       => __( 'Text case', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => '',
+						'options'     => array(
+							''            => __( 'As stored', 'agend-apps-core' ),
+							'title_upper' => __( 'Title case for all-capital values', 'agend-apps-core' ),
+						),
+						'description' => __( 'Applies to text and list fields. A value written entirely in capitals, such as a suburb stored as MELBOURNE, shows as Melbourne. A value with any lower case letter is left as stored.', 'agend-apps-core' ),
+					),
+					array(
 						'name'        => 'truncate_chars',
 						'label'       => __( 'Truncate to characters', 'agend-apps-core' ),
 						'type'        => 'number',

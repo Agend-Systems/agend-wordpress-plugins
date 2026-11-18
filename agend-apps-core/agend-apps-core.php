@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-core
  * Description:       Foundational plugin for the Agend Apps ecosystem. Provides the API client, REST proxy endpoints, and admin configuration for all Agend sibling plugins.
- * Version:           1.71.0
+ * Version:           1.73.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-core
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_CORE_VERSION', '1.71.0' );
+define( 'AGEND_APPS_CORE_VERSION', '1.73.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -246,6 +246,9 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/filter.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-map.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-search.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/filter-shortcuts.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-count.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/listing-enquiry.php';
 	// The Community surfaces (announcements, channels, popular posts).
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-announcements.php';

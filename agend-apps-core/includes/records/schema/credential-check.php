@@ -269,7 +269,6 @@ function agend_apps_records_schema_credential_check(): array {
 						'name'        => 'help_url',
 						'label'       => __( 'Help link', 'agend-apps-core' ),
 						'type'        => 'url',
-						'default'     => '',
 						'description' => __( 'Shown under a "no credential found" result, for example your contact page. Leave empty for no link.', 'agend-apps-core' ),
 					),
 					array(

@@ -2478,6 +2478,24 @@ if ( ! function_exists( 'wp_kses_post' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_kses' ) ) {
+	/**
+	 * Minimal stand-in: keeps only the tags the allow list names. Attributes
+	 * are not filtered, so a test that cares about an attribute asserts on the
+	 * allow list itself.
+	 *
+	 * @param string $content Markup.
+	 * @param array  $allowed Allowed tags as WordPress takes them: tag => attributes.
+	 */
+	function wp_kses( $content, $allowed = array() ): string {
+		$tags = '';
+		foreach ( array_keys( (array) $allowed ) as $tag ) {
+			$tags .= '<' . $tag . '>';
+		}
+		return strip_tags( (string) $content, $tags );
+	}
+}
+
 if ( ! function_exists( 'number_format_i18n' ) ) {
 	/**
 	 * Locale-agnostic number formatter, matching the en_AU result.

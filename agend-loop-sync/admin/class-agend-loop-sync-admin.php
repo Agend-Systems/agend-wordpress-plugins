@@ -88,6 +88,7 @@ class Agend_Loop_Sync_Admin {
 		}
 
 		check_admin_referer( 'agend_loop_sync_run_committees' );
+		$this->refuse_when_committees_off();
 
 		// One Upbeat call per member: lift the time limit as the backfill does.
 		if ( function_exists( 'set_time_limit' ) ) {
@@ -124,6 +125,7 @@ class Agend_Loop_Sync_Admin {
 		}
 
 		check_admin_referer( 'agend_loop_sync_scan_members' );
+		$this->refuse_when_committees_off();
 
 		$report = $this->committee_sync->scan_members();
 		set_transient( 'agend_loop_sync_member_scan', $report, 5 * MINUTE_IN_SECONDS );
@@ -153,6 +155,7 @@ class Agend_Loop_Sync_Admin {
 		}
 
 		check_admin_referer( 'agend_loop_sync_inspect_committees' );
+		$this->refuse_when_committees_off();
 
 		$preview = $this->committee_sync->inspect();
 		set_transient( 'agend_loop_sync_inspection', $preview, 5 * MINUTE_IN_SECONDS );
@@ -216,6 +219,7 @@ class Agend_Loop_Sync_Admin {
 		}
 
 		check_admin_referer( 'agend_loop_sync_adopt_load_committees' );
+		$this->refuse_when_committees_off();
 
 		// The committee list is read a few committees at a time.
 		if ( function_exists( 'set_time_limit' ) ) {
@@ -240,6 +244,7 @@ class Agend_Loop_Sync_Admin {
 		}
 
 		check_admin_referer( 'agend_loop_sync_adopt_load_members' );
+		$this->refuse_when_committees_off();
 
 		$unique_id = $this->posted_unique_id();
 
@@ -272,6 +277,7 @@ class Agend_Loop_Sync_Admin {
 		}
 
 		check_admin_referer( 'agend_loop_sync_adopt_queue' );
+		$this->refuse_when_committees_off();
 
 		$unique_id = $this->posted_unique_id();
 		$picker    = get_transient( 'agend_loop_sync_adopt_picker' );
@@ -335,6 +341,32 @@ class Agend_Loop_Sync_Admin {
 		);
 
 		$this->redirect_to_adopt( array( 'adopt' => 'cleared' ) );
+	}
+
+	/**
+	 * Sends the administrator back with a notice, and stops, when committee
+	 * sync is off. Every committee action calls this after its nonce check, so
+	 * a settings page left open from before committee sync was turned off
+	 * cannot read Upbeat committees, run a sync or change the hand-over queue.
+	 * Clearing the queue stays allowed.
+	 *
+	 * @return void
+	 */
+	private function refuse_when_committees_off() {
+		if ( Agend_Loop_Sync_Settings::is_committee_sync_enabled() ) {
+			return;
+		}
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'           => 'agend-loop-sync',
+					'committee_sync' => 'off',
+				),
+				admin_url( 'options-general.php' )
+			)
+		);
+		exit;
 	}
 
 	/**

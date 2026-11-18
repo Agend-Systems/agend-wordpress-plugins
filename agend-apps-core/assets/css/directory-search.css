@@ -1,0 +1,186 @@
+/*
+ * Agend Directory Search.
+ *
+ * Colours the theme tends to fight (the button, the link, the bare inputs)
+ * are read from custom properties and carry !important, so the widget's own
+ * Style controls, which set those properties, still win over a theme's
+ * `button:hover` or `input[type="search"]` rules.
+ */
+.agend-ds,
+.agend-ds *,
+.agend-ds *::before,
+.agend-ds *::after {
+	box-sizing: border-box;
+}
+
+.agend-ds {
+	max-width: 100%;
+}
+
+.agend-ds__form {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 10px;
+	align-items: stretch;
+	margin: 0;
+	padding: 0;
+}
+
+.agend-ds__field {
+	flex: 1 1 var(--agend-ds-basis, 220px);
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	padding: 0 16px;
+	min-height: 52px;
+	min-width: 0;
+	border-radius: 10px;
+	background: #f3f5f8;
+	color: #667085;
+	cursor: text;
+}
+
+.agend-ds__field--keyword {
+	flex-grow: 2;
+}
+
+.agend-ds__field:focus-within {
+	outline: 2px solid #2563eb;
+	outline-offset: 1px;
+}
+
+.agend-ds__icon {
+	display: inline-flex;
+	flex: 0 0 auto;
+	color: #667085;
+}
+
+.agend-ds__svg {
+	display: block;
+}
+
+.agend-ds .agend-ds__input {
+	flex: 1 1 auto;
+	width: 100%;
+	min-width: 0;
+	height: auto !important;
+	margin: 0;
+	padding: 0 !important;
+	border: 0 !important;
+	border-radius: 0 !important;
+	background: transparent !important;
+	box-shadow: none !important;
+	outline: none !important;
+	color: #1b2430;
+	font: inherit;
+	font-size: 16px;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.agend-ds .agend-ds__input::placeholder {
+	color: #667085;
+	opacity: 1;
+}
+
+.agend-ds .agend-ds__input::-webkit-search-cancel-button {
+	-webkit-appearance: none;
+}
+
+/* Read by screen readers only. */
+.agend-ds__label {
+	position: absolute !important;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+.agend-ds .agend-ds__button {
+	flex: 0 0 auto;
+	margin: 0;
+	min-height: 52px;
+	padding: 0 28px;
+	border: 0 !important;
+	border-radius: 10px;
+	background: var(--agend-ds-btn-bg, #1d4ed8) !important;
+	color: var(--agend-ds-btn-text, #fff) !important;
+	box-shadow: none;
+	font: inherit;
+	font-size: 16px;
+	font-weight: 700;
+	line-height: 1.2;
+	text-transform: none;
+	letter-spacing: 0;
+	cursor: pointer;
+}
+
+.agend-ds .agend-ds__button:hover,
+.agend-ds .agend-ds__button:focus-visible {
+	background: var(--agend-ds-btn-bg-hover, #1e40af) !important;
+	color: var(--agend-ds-btn-text-hover, #fff) !important;
+}
+
+.agend-ds .agend-ds__button:focus-visible,
+.agend-ds .agend-ds__locate:focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 2px;
+}
+
+.agend-ds .agend-ds__button:disabled,
+.agend-ds .agend-ds__locate:disabled {
+	opacity: 0.6;
+	cursor: progress;
+}
+
+.agend-ds .agend-ds__locate {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin: 8px 0 0;
+	padding: 4px 0;
+	border: 0 !important;
+	background: none !important;
+	box-shadow: none;
+	color: var(--agend-ds-locate, #1d4ed8) !important;
+	font: inherit;
+	font-size: 15px;
+	font-weight: 500;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	text-transform: none;
+	letter-spacing: 0;
+	cursor: pointer;
+}
+
+.agend-ds .agend-ds__locate .agend-ds__icon {
+	color: inherit;
+}
+
+.agend-ds .agend-ds__locate:hover,
+.agend-ds .agend-ds__locate:focus-visible {
+	color: var(--agend-ds-locate-hover, #1e40af) !important;
+	background: none !important;
+}
+
+.agend-ds__status {
+	margin: 8px 0 0;
+	font-size: 14px;
+}
+
+/* Place search and device location need script, so they stay out of a page
+   that has none. */
+.agend-ds:not(.agend-ds--js) [data-agend-ds-js] {
+	display: none;
+}
+
+@media (max-width: 640px) {
+	.agend-ds__form {
+		flex-direction: column;
+		--agend-ds-basis: auto;
+	}
+}

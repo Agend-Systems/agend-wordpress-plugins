@@ -164,3 +164,6 @@ require_once __DIR__ . '/schema/community-channels.php';
 require_once __DIR__ . '/schema/community-feed.php';
 require_once __DIR__ . '/schema/directory-catalogue.php';
 require_once __DIR__ . '/schema/directory-map.php';
+require_once __DIR__ . '/schema/directory-search.php';
+require_once __DIR__ . '/schema/filter-shortcuts.php';
+require_once __DIR__ . '/schema/directory-count.php';

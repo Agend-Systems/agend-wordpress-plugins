@@ -46,6 +46,22 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Directory', 'agend-apps-core' ),
 			'scopes' => array( 'directory.listings.search' ),
 		),
+		// The widgets that sit beside a Directory Catalogue. The search box and
+		// the shortcuts look the directory up on the visitor's behalf (place
+		// search, values) and the count reads the directory's total, so each
+		// needs the same scope the catalogue's search does.
+		'directory-search'          => array(
+			'label'  => __( 'Agend Directory Search', 'agend-apps-core' ),
+			'scopes' => array( 'directory.listings.search' ),
+		),
+		'filter-shortcuts'          => array(
+			'label'  => __( 'Agend Filter Shortcuts', 'agend-apps-core' ),
+			'scopes' => array( 'directory.listings.search' ),
+		),
+		'directory-count'           => array(
+			'label'  => __( 'Agend Directory Count', 'agend-apps-core' ),
+			'scopes' => array( 'directory.listings.search' ),
+		),
 		'events-catalogue'          => array(
 			'label'  => __( 'Agend Events', 'agend-apps-core' ),
 			'scopes' => array( 'events.events.browse' ),

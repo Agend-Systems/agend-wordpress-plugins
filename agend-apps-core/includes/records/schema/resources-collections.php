@@ -185,7 +185,6 @@ function agend_apps_records_schema_resources_collections(): array {
 						'type'          => 'url',
 						'placeholder'   => 'https://',
 						'show_external' => false,
-						'default'       => '',
 						'description'   => __( 'Where the button goes, such as your join or sign-in page. Leave empty for a note with no button.', 'agend-apps-core' ),
 					),
 				),

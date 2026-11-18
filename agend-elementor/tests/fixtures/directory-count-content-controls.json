@@ -1,0 +1,51 @@
+{
+    "sections": [
+        {
+            "id": "section_content",
+            "args": {
+                "label": "Content",
+                "tab": "content"
+            },
+            "controls": [
+                {
+                    "id": "label",
+                    "args": {
+                        "label": "Label",
+                        "type": "text",
+                        "default": "listings"
+                    }
+                },
+                {
+                    "id": "label_singular",
+                    "args": {
+                        "label": "Label for one",
+                        "type": "text",
+                        "default": "listing",
+                        "description": "Used when the total is exactly 1. Leave empty to use the label above."
+                    }
+                },
+                {
+                    "id": "layout",
+                    "args": {
+                        "label": "Layout",
+                        "type": "select",
+                        "default": "stacked",
+                        "options": {
+                            "stacked": "Number above label",
+                            "inline": "Number beside label"
+                        }
+                    }
+                },
+                {
+                    "id": "follow_catalogue",
+                    "args": {
+                        "label": "Follow the catalogue's filtered total",
+                        "type": "switcher",
+                        "default": "",
+                        "description": "On a page with a Directory Catalogue, the number changes to the count of listings matching the visitor's filters. Off, it always shows the whole directory."
+                    }
+                }
+            ]
+        }
+    ]
+}

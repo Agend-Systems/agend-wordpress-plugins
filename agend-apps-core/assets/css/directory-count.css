@@ -1,0 +1,23 @@
+.agend-dc {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.agend-dc--inline {
+	flex-direction: row;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.4em;
+}
+
+.agend-dc__number {
+	font-size: 28px;
+	font-weight: 700;
+	line-height: 1.1;
+	font-variant-numeric: tabular-nums;
+}
+
+.agend-dc__label {
+	font-size: 14px;
+}
