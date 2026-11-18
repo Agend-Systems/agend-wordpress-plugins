@@ -337,12 +337,16 @@
           return;
         }
 
-        panel.hidden = true;
-        if (signedOut) {
-          signedOut.hidden = false;
+        // Any other reason: asking again cannot help, so the box goes and the
+        // answer area carries the site's own title and words. The "Sign in to
+        // ask" card is not brought back, because this person is signed in and
+        // the card would send them round the same loop.
+        form.hidden = true;
+        var chips = root.querySelector('.agend-resources-ask__suggestions');
+        if (chips) {
+          chips.hidden = true;
         }
-        var note = el('p', 'agend-res__note', body.message || messages.notLinked || messages.error || '');
-        root.appendChild(note);
+        show(plain(body.message || messages.notLinked || messages.error || '', body.title), false);
         return;
       }
 
