@@ -16,6 +16,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/app-urls.php';
+
 /**
  * Option holding the ids of the channels the site publishes. Admin only,
  * default empty, which publishes nothing.
@@ -31,7 +33,8 @@ const AGEND_APPS_COMMUNITY_OPTION_HIDDEN = 'agend_apps_community_hidden_posts';
 
 /**
  * Option holding an explicit address for the Agend Loop app, for an association
- * whose Loop is not on the platform's usual host.
+ * whose Loop is not on the platform's usual host. Read by
+ * {@see agend_apps_app_url()}, which names it in its app directory.
  */
 const AGEND_APPS_COMMUNITY_OPTION_LOOP_URL = 'agend_apps_loop_url';
 
@@ -117,45 +120,17 @@ function agend_apps_community_post_hidden( array $post ): bool {
 /**
  * The address of the Agend Loop app.
  *
- * An explicit `agend_apps_loop_url` option wins. Otherwise it is derived from
- * the API root, the way the platform names its apps: the leading `api.` host
- * becomes `loop.` (api.agend.com.au to loop.agend.com.au), and the local
- * gateway's port 3072 becomes Loop's 3063. The portal address is not used:
- * that can be an association's own domain, while Loop stays on the platform.
+ * Found the way every Agend app is ({@see agend_apps_app_url()}): an explicit
+ * `agend_apps_loop_url` option wins, otherwise the API root's leading `api.`
+ * host becomes `loop.` (api.agend.com.au to loop.agend.com.au) and the local
+ * gateway's port 3072 becomes Loop's 3063, and the `agend_apps_app_url` filter
+ * has the last word. The portal address is not used: that can be an
+ * association's own domain, while Loop stays on the platform.
  *
  * @return string Without a trailing slash; '' when nothing can be worked out.
  */
 function agend_apps_community_loop_url(): string {
-	if ( class_exists( 'Agend_Apps_Settings' ) && method_exists( 'Agend_Apps_Settings', 'get_app_url' ) ) {
-		return (string) Agend_Apps_Settings::get_app_url( 'loop' );
-	}
-
-	$url = rtrim( trim( (string) get_option( AGEND_APPS_COMMUNITY_OPTION_LOOP_URL, '' ) ), '/' );
-
-	if ( '' === $url ) {
-		$root = class_exists( 'Agend_Apps_Settings' ) && method_exists( 'Agend_Apps_Settings', 'get_root_url' )
-			? rtrim( Agend_Apps_Settings::get_root_url(), '/' )
-			: '';
-
-		if ( '' !== $root ) {
-			$url = (string) preg_replace( '#^(https?://)localhost:3072$#', '$1localhost:3063', $root );
-			$url = (string) preg_replace( '#^(https?://)api\.#', '$1loop.', $url );
-
-			// Nothing recognisable to swap: a guess would send visitors somewhere
-			// that is not Loop.
-			if ( $url === $root ) {
-				$url = '';
-			}
-		}
-	}
-
-	/**
-	 * Filters an Agend app's address.
-	 *
-	 * @param string $url The address, '' when unknown.
-	 * @param string $app The app: `loop`.
-	 */
-	return rtrim( (string) apply_filters( 'agend_apps_app_url', $url, 'loop' ), '/' );
+	return agend_apps_app_url( 'loop' );
 }
 
 /**

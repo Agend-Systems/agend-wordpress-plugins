@@ -28,6 +28,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+require_once __DIR__ . '/../app-urls.php';
+
 /**
  * How long a "not entitled" verdict from Ask is believed, in seconds. Atlas
  * answers it before it spends anything, so asking again after this is free for
@@ -59,56 +61,17 @@ const AGEND_APPS_ATLAS_ASK_STATE_OPTION = 'agend_apps_atlas_ask_state';
 /**
  * The root URL of the Atlas app, without a trailing slash.
  *
- * The gateway does not say where Atlas is hosted, so it is worked out from the
- * API root the site is already configured with: the platform keeps each app on
- * its own subdomain of the platform root (`atlas.` beside `api.`, on both the
- * production and staging domains), and on its own port locally. The portal URL
- * is not used, because it can be a white-label host while Atlas stays on the
- * platform.
- *
- * Order: the `agend_apps_atlas_url` option wins, then the derived address, then
- * the `agend_apps_app_url` filter has the last word.
+ * Found the way every Agend app is ({@see agend_apps_app_url()}): the
+ * `agend_apps_atlas_url` option wins, then the address derived from the API
+ * root (`atlas.` beside `api.`, and port 3066 beside the local gateway's 3072),
+ * then the `agend_apps_app_url` filter has the last word. The portal URL is not
+ * used, because it can be a white-label host while Atlas stays on the platform.
  *
  * @return string The Atlas root URL, or '' when there is none to derive (a
  *                custom API host that does not start with `api.`).
  */
 function agend_apps_atlas_app_url(): string {
-	$explicit = trim( (string) get_option( 'agend_apps_atlas_url', '' ) );
-
-	if ( 1 === preg_match( '#^https?://#i', $explicit ) ) {
-		$url = rtrim( $explicit, '/' );
-	} else {
-		$url = agend_apps_atlas_derive_url( class_exists( 'Agend_Apps_Settings' ) ? Agend_Apps_Settings::get_root_url() : '' );
-	}
-
-	/**
-	 * Filters the root URL of an Agend app.
-	 *
-	 * @param string $url The resolved root URL, without a trailing slash.
-	 * @param string $app The app: `atlas`.
-	 */
-	return rtrim( (string) apply_filters( 'agend_apps_app_url', $url, 'atlas' ), '/' );
-}
-
-/**
- * The Atlas root URL that goes with an API root URL.
- *
- * @param string $root The API root URL, as `Agend_Apps_Settings::get_root_url()` gives it.
- * @return string The Atlas root URL, or '' when the API host has no `api.` or local form to swap.
- */
-function agend_apps_atlas_derive_url( string $root ): string {
-	$root = rtrim( $root, '/' );
-
-	// Local development: the gateway and Atlas are two ports on one host.
-	if ( 1 === preg_match( '#^(https?://[^/:]+):3072$#i', $root, $match ) ) {
-		return $match[1] . ':3066';
-	}
-
-	if ( 1 === preg_match( '#^(https?://)api\.(.+)$#i', $root, $match ) ) {
-		return $match[1] . 'atlas.' . $match[2];
-	}
-
-	return '';
+	return agend_apps_app_url( 'atlas' );
 }
 
 /**

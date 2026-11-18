@@ -83,7 +83,7 @@ final class ResourcesAtlasApiTest extends TestCase {
 	#[Test]
 	#[DataProvider( 'apiRoots' )]
 	public function should_work_out_the_atlas_address_from_the_api_root( string $root, string $expected ): void {
-		self::assertSame( $expected, agend_apps_atlas_derive_url( $root ) );
+		self::assertSame( $expected, agend_apps_app_derive_url( 'atlas', $root ) );
 	}
 
 	#[Test]
