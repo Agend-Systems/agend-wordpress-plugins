@@ -231,6 +231,17 @@ default on upgrade, with no activation step.
   call, because each can clear and must not hide a config that exists. A
   found config always replaces a remembered 404, and a 404 never replaces a
   stored config.
+- **A key without the sites app is not asked at all.** A catalogue or the
+  account link that inherits fonts or Agend colours has the browser read the
+  site config on every page load. When the stored key scopes say the key may
+  not (no `sites` app, or no `sites.config.browse`), the surface's `theme`
+  config carries `siteConfig: false` (`agend_apps_records_site_theme()`, using
+  `Agend_Apps_API::key_refuses()`), and the script skips the read instead of
+  sending a request the site would refuse with a 403. The decision reads the
+  stored scopes only: unknown scopes, or the
+  `agend_apps_api_block_unauthorised` filter returning false, leave the config
+  unchanged. A key granted the app is noticed at the next scope refresh, and a
+  cached page keeps the old config until it is regenerated.
 - **No automatic flush.** Nothing clears `sites_config` when the config is
   published or changed in the Agend dashboard, or when the site's API key,
   environment or custom URL changes, because the cache key carries none of

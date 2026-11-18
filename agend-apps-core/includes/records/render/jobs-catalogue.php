@@ -285,9 +285,11 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'perPage' => min( 100, max( 1, (int) ( $s['per_page'] ?? 10 ) ) ),
 		),
 		'colours'    => $colours['colours'],
-		'theme'      => array(
-			'inheritFonts' => $on( 'inherit_fonts' ),
-			'colourSource' => $colours['source'],
+		'theme'      => agend_apps_records_site_theme(
+			array(
+				'inheritFonts' => $on( 'inherit_fonts' ),
+				'colourSource' => $colours['source'],
+			)
 		),
 	);
 }
