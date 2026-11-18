@@ -1,0 +1,796 @@
+/**
+ * Agend Community widget styles: announcements, channels and popular posts.
+ *
+ * One stylesheet for the three surfaces, in the same family as Learning
+ * Pathways. Colour and layout tokens are set as CSS custom properties on the
+ * container by the surface's server render (heading, body and accent come from
+ * the site palette, or the manual colours). Every other colour here is derived
+ * from those three, so the widgets follow whichever association's site they
+ * are on. There is no script: the markup is complete.
+ *
+ * Design notes for the next person:
+ * - Announcements read as a notice board: one bordered list, a date tile on
+ *   the left (the date is the thing people scan for), the headline, then a
+ *   quiet line saying where it was posted. A pinned notice has an accent edge
+ *   and a tinted date tile.
+ * - Channels read as a directory of spaces: a card each, led by the channel's
+ *   first letter in a tinted tile (a letter, not a number, because the
+ *   channels are not a sequence), with the way in as the card's last line.
+ * - Popular posts read as a compact discussion list: the reply count leads each
+ *   row, because it is why the post is here.
+ * - A whole row or card is the link (a stretched pseudo-element on the one
+ *   visible link), as in Learning Pathways. The link's own text is the
+ *   headline, or "Open channel" on a card.
+ * - No box-shadow anywhere: the Agend theme sets `box-shadow: none !important`
+ *   on every element, so depth here comes from borders and tints.
+ * - Specificity is deliberately doubled on links: the theme styles
+ *   `a:not(.btn)` and `.elementor a` and would otherwise win over one class.
+ */
+
+.agend-community {
+  --agend-cm-heading: #1e2a4a;
+  --agend-cm-body: #26304d;
+  --agend-cm-accent: #ff6b55;
+  --agend-cm-card-radius: 10px;
+  --agend-cm-cols-desktop: 3;
+  --agend-cm-cols-tablet: 2;
+  --agend-cm-cols-mobile: 1;
+
+  /* Colours derived from the three above. The plain values are what the
+     default navy and coral give; they only show in a browser without
+     color-mix(). */
+  --agend-cm-muted: #474f68;
+  --agend-cm-line: #dfe2ea;
+  --agend-cm-row-hover: #f3f4f8;
+  --agend-cm-tint: #ffe8e4;
+  --agend-cm-tint-strong: #ffd5ce;
+  --agend-cm-tint-edge: #ffb0a4;
+  --agend-cm-hover-edge: #a5aabb;
+
+  --agend-cm-cols: var(--agend-cm-cols-desktop);
+  --agend-cm-min-card: 15rem;
+  --agend-cm-gap: 1.25rem;
+  --agend-cm-row-radius: min(calc(var(--agend-cm-card-radius) * 0.6), 12px);
+
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  color: var(--agend-cm-body);
+  font-family: var(--agend-cm-font-body, inherit);
+  container-type: inline-size;
+  container-name: agend-cm;
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .agend-community {
+    /* Quiet text comes from the body colour, which a site already keeps
+       readable on white, rather than from the heading colour, which can be a
+       mid tone. */
+    --agend-cm-muted: color-mix(in srgb, var(--agend-cm-body) 85%, #fff);
+    --agend-cm-line: color-mix(in srgb, var(--agend-cm-heading) 14%, #fff);
+    --agend-cm-row-hover: color-mix(in srgb, var(--agend-cm-heading) 5%, #fff);
+    --agend-cm-tint: color-mix(in srgb, var(--agend-cm-accent) 16%, #fff);
+    --agend-cm-tint-strong: color-mix(in srgb, var(--agend-cm-accent) 30%, #fff);
+    --agend-cm-tint-edge: color-mix(in srgb, var(--agend-cm-accent) 55%, #fff);
+    --agend-cm-hover-edge: color-mix(in srgb, var(--agend-cm-heading) 38%, #fff);
+  }
+}
+
+.agend-community *,
+.agend-community *::before,
+.agend-community *::after {
+  box-sizing: border-box;
+}
+
+/* The Agend theme gives every list item after the first a top margin through
+   an ID-level selector (`main#agendtheme-content ... li + li`), which no class
+   selector can outrank. It would push the second row and the second meta item
+   out of line, so it is cancelled here, on this widget's lists only. */
+.agend-community li {
+  margin-top: 0 !important;
+}
+
+@media (max-width: 1024px) {
+  .agend-community {
+    --agend-cm-cols: var(--agend-cm-cols-tablet);
+  }
+}
+
+@media (max-width: 640px) {
+  .agend-community {
+    --agend-cm-cols: var(--agend-cm-cols-mobile);
+    /* Two across on a phone needs cards narrower than the usual minimum. A
+       phone too narrow for that falls back to one column. */
+    --agend-cm-min-card: 9rem;
+    --agend-cm-gap: 1rem;
+  }
+}
+
+.agend-community h2,
+.agend-community h3 {
+  font-family: var(--agend-cm-font-heading, inherit);
+}
+
+/* Heading block ------------------------------------------------------- */
+
+.agend-community__heading {
+  max-width: 46rem;
+  margin: 0 0 1.5rem;
+}
+
+.agend-community__title {
+  margin: 0 0 0.5rem;
+  color: var(--agend-cm-heading);
+  text-wrap: balance;
+}
+
+.agend-community__subtitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* States -------------------------------------------------------------- */
+
+.agend-community__status {
+  margin: 0;
+  padding: 2rem 1.5rem;
+  border: 1px dashed var(--agend-cm-line);
+  border-radius: var(--agend-cm-card-radius);
+  color: var(--agend-cm-muted);
+  text-align: center;
+}
+
+.agend-community__status--error {
+  border-style: solid;
+  color: var(--agend-cm-heading);
+}
+
+/* What an editor sees, and a visitor never does, when no channel is allowed. */
+.agend-community__hint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px dashed var(--agend-cm-tint-edge);
+  border-inline-start: 4px solid var(--agend-cm-accent);
+  border-radius: var(--agend-cm-card-radius);
+  background: var(--agend-cm-tint);
+  color: var(--agend-cm-heading);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.agend-community__hint-title {
+  font-size: 1rem;
+}
+
+/* Shared pieces ------------------------------------------------------- */
+
+/* Where a post was written, whether it is pinned or featured, when, and by
+   whom: one quiet line, divided by hairlines rather than punctuation. */
+.agend-community__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--agend-cm-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.agend-community__meta-item {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+.agend-community__meta-item + .agend-community__meta-item::before {
+  content: "";
+  width: 1px;
+  height: 0.9em;
+  margin: 0 0.625rem;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+/* Pinned and Featured: the word is in the heading colour (the accent is not
+   dark enough to carry text), led by a small accent mark. The mark takes the
+   divider's place. */
+.agend-community__meta .agend-community__flag {
+  color: var(--agend-cm-heading);
+  font-weight: 600;
+}
+
+.agend-community__meta .agend-community__flag::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0 0.4375rem 0 0.625rem;
+  border-radius: 50%;
+  background: var(--agend-cm-accent);
+  opacity: 1;
+}
+
+.agend-community__meta .agend-community__meta-item:first-child.agend-community__flag::before {
+  margin-inline-start: 0;
+}
+
+.agend-community__author {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  min-width: 0;
+}
+
+.agend-community__avatar {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.agend-community__avatar--letters {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--agend-cm-tint-edge);
+  background: var(--agend-cm-tint);
+  color: var(--agend-cm-heading);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.agend-community__chevron {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  color: var(--agend-cm-muted);
+}
+
+.agend-community__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The closing link to the community. */
+.agend-community__cta {
+  margin: 1.25rem 0 0;
+}
+
+.agend-community .agend-community__cta-link,
+.agend-community .agend-community__cta-link:visited,
+.agend-community .agend-community__cta-link:hover,
+.agend-community .agend-community__cta-link:focus,
+.agend-community .agend-community__cta-link:active {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0;
+  border: 0;
+  background: none;
+  color: var(--agend-cm-heading);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-color: var(--agend-cm-tint-edge);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.25em;
+}
+
+.agend-community .agend-community__cta-link:hover {
+  text-decoration-color: var(--agend-cm-heading);
+}
+
+.agend-community .agend-community__cta-link:focus-visible {
+  outline: 2px solid var(--agend-cm-heading);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Right-to-left sites: the chevron points the other way. */
+[dir="rtl"] .agend-community__chevron {
+  transform: scaleX(-1);
+}
+
+/* Lists: announcements and popular posts ------------------------------- */
+
+/* One bordered list, rows divided by hairlines, so a run of notices reads as a
+   single board rather than a stack of separate cards. */
+.agend-community-announcements__list,
+.agend-community-feed__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--agend-cm-line);
+  border-radius: var(--agend-cm-card-radius);
+  background: #fff;
+}
+
+.agend-community-announcements__item,
+.agend-community-feed__item {
+  margin: 0;
+  padding: 0;
+}
+
+.agend-community-announcements__item + .agend-community-announcements__item,
+.agend-community-feed__item + .agend-community-feed__item {
+  border-top: 1px solid var(--agend-cm-line);
+}
+
+.agend-community-announcements__notice,
+.agend-community-feed__post {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1.125rem 1.25rem;
+}
+
+.agend-community-announcements__notice--link:hover,
+.agend-community-feed__post--link:hover {
+  background: var(--agend-cm-row-hover);
+}
+
+.agend-community-announcements__notice--link:hover .agend-community__chevron,
+.agend-community-feed__post--link:hover .agend-community__chevron {
+  color: var(--agend-cm-heading);
+  transform: translateX(2px);
+}
+
+[dir="rtl"] .agend-community-announcements__notice--link:hover .agend-community__chevron,
+[dir="rtl"] .agend-community-feed__post--link:hover .agend-community__chevron {
+  transform: translateX(-2px) scaleX(-1);
+}
+
+.agend-community-announcements__notice > .agend-community__chevron,
+.agend-community-feed__post > .agend-community__chevron {
+  align-self: center;
+}
+
+/* The link's text is the headline; the ::after fills the row, so the whole row
+   is the target and carries the focus ring in the row's own shape. */
+.agend-community .agend-community-announcements__link,
+.agend-community .agend-community-announcements__link:visited,
+.agend-community .agend-community-announcements__link:hover,
+.agend-community .agend-community-announcements__link:focus,
+.agend-community .agend-community-announcements__link:active,
+.agend-community .agend-community-feed__link,
+.agend-community .agend-community-feed__link:visited,
+.agend-community .agend-community-feed__link:hover,
+.agend-community .agend-community-feed__link:focus,
+.agend-community .agend-community-feed__link:active {
+  border: 0;
+  background: none;
+  color: var(--agend-cm-heading);
+  text-decoration: none;
+}
+
+.agend-community .agend-community-announcements__link::after,
+.agend-community .agend-community-feed__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.agend-community .agend-community-announcements__link:focus,
+.agend-community .agend-community-feed__link:focus {
+  outline: none;
+}
+
+.agend-community .agend-community-announcements__link:focus-visible::after,
+.agend-community .agend-community-feed__link:focus-visible::after {
+  outline: 2px solid var(--agend-cm-heading);
+  outline-offset: -3px;
+  border-radius: var(--agend-cm-row-radius);
+}
+
+.agend-community-announcements__notice--link:hover .agend-community-announcements__link,
+.agend-community-feed__post--link:hover .agend-community-feed__link {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+/* Announcements ------------------------------------------------------- */
+
+/* A pinned notice carries an accent edge. Every notice reserves the same edge,
+   transparent when not pinned, so the text lines up down the list. */
+.agend-community-announcements__notice {
+  border-inline-start: 4px solid transparent;
+  padding-inline-start: calc(1.25rem - 4px);
+}
+
+.agend-community-announcements__item--pinned > .agend-community-announcements__notice {
+  border-inline-start-color: var(--agend-cm-accent);
+}
+
+/* The date tile. The day is the large figure. A year only appears for a notice
+   from an earlier year. */
+.agend-community-announcements__date {
+  display: flex;
+  flex: 0 0 3.5rem;
+  flex-direction: column;
+  align-items: center;
+  align-self: flex-start;
+  padding: 0.5rem 0.25rem 0.4375rem;
+  border: 1px solid var(--agend-cm-line);
+  border-radius: var(--agend-cm-row-radius);
+  background: #fff;
+  color: var(--agend-cm-heading);
+  line-height: 1;
+}
+
+.agend-community-announcements__item--pinned .agend-community-announcements__date {
+  border-color: var(--agend-cm-tint-edge);
+  background: var(--agend-cm-tint);
+}
+
+.agend-community-announcements__day {
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.agend-community-announcements__month,
+.agend-community-announcements__year {
+  margin-top: 0.1875rem;
+  color: var(--agend-cm-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.agend-community-announcements__year {
+  margin-top: 0.125rem;
+  font-weight: 400;
+}
+
+.agend-community-announcements__body {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.agend-community-announcements__body .agend-community__meta {
+  margin-bottom: 0.25rem;
+}
+
+.agend-community-announcements__headline {
+  margin: 0;
+  color: var(--agend-cm-heading);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.agend-community-announcements__excerpt {
+  max-width: 62ch;
+  margin: 0.375rem 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.agend-community-announcements__byline {
+  margin: 0.5rem 0 0;
+  color: var(--agend-cm-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* Popular posts ------------------------------------------------------- */
+
+.agend-community-feed__post {
+  align-items: center;
+  padding-block: 0.875rem;
+}
+
+/* The reply count leads the row. */
+.agend-community-feed__replies {
+  display: flex;
+  flex: 0 0 3.5rem;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  padding: 0.4375rem 0.25rem 0.375rem;
+  border: 1px solid var(--agend-cm-tint-edge);
+  border-radius: var(--agend-cm-row-radius);
+  background: var(--agend-cm-tint);
+  color: var(--agend-cm-heading);
+  line-height: 1;
+}
+
+.agend-community-feed__count {
+  font-size: 1.1875rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.agend-community-feed__word {
+  margin-top: 0.1875rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* A post nobody has replied to yet: the tile steps back. */
+.agend-community-feed__replies--none {
+  border-color: var(--agend-cm-line);
+  background: #fff;
+  color: var(--agend-cm-muted);
+}
+
+.agend-community-feed__main {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.agend-community-feed__title {
+  margin: 0;
+  color: var(--agend-cm-heading);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.agend-community-feed__excerpt {
+  margin: 0.25rem 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.agend-community-feed__main .agend-community__meta {
+  margin-top: 0.3125rem;
+}
+
+/* Channels ------------------------------------------------------------ */
+
+/*
+ * "Columns" is the most columns across. A card is never narrower than
+ * --agend-cm-min-card, so a narrow column drops to fewer, and auto-fit lets a
+ * few channels take the whole row instead of leaving a gap beside them.
+ */
+.agend-community-channels__grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      min(100%, max(var(--agend-cm-min-card), calc((100% - (var(--agend-cm-cols) - 1) * var(--agend-cm-gap)) / var(--agend-cm-cols)))),
+      1fr
+    )
+  );
+  gap: var(--agend-cm-gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agend-community-channels__item {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.agend-community-channels__card {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
+  padding: 1.25rem;
+  border: 1px solid var(--agend-cm-line);
+  border-radius: var(--agend-cm-card-radius);
+  background: #fff;
+}
+
+.agend-community-channels__card--link:hover {
+  border-color: var(--agend-cm-hover-edge);
+  background: var(--agend-cm-row-hover);
+}
+
+.agend-community-channels__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+/* The channel's first letter. Not a number: channels are not a sequence. */
+.agend-community-channels__tile {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1.5px solid var(--agend-cm-tint-edge);
+  border-radius: var(--agend-cm-row-radius);
+  background: var(--agend-cm-tint);
+  color: var(--agend-cm-heading);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.agend-community-channels__card--link:hover .agend-community-channels__tile {
+  background: var(--agend-cm-tint-strong);
+}
+
+.agend-community-channels__name {
+  margin: 0;
+  min-width: 0;
+  color: var(--agend-cm-heading);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.agend-community-channels__description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  text-wrap: pretty;
+}
+
+.agend-community-channels__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem 1rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--agend-cm-line);
+}
+
+.agend-community-channels__members {
+  color: var(--agend-cm-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* The way in. Its ::after fills the card, so the whole card is the target. */
+.agend-community .agend-community-channels__open,
+.agend-community .agend-community-channels__open:visited,
+.agend-community .agend-community-channels__open:hover,
+.agend-community .agend-community-channels__open:focus,
+.agend-community .agend-community-channels__open:active {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-inline-start: auto;
+  border: 0;
+  background: none;
+  color: var(--agend-cm-heading);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+.agend-community .agend-community-channels__open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--agend-cm-card-radius);
+}
+
+.agend-community .agend-community-channels__open:focus {
+  outline: none;
+}
+
+.agend-community .agend-community-channels__open:focus-visible::after {
+  outline: 2px solid var(--agend-cm-heading);
+  outline-offset: 2px;
+}
+
+.agend-community-channels__card--link:hover .agend-community-channels__open {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.agend-community-channels__card--link:hover .agend-community__chevron {
+  color: var(--agend-cm-heading);
+  transform: translateX(2px);
+}
+
+[dir="rtl"] .agend-community-channels__card--link:hover .agend-community__chevron {
+  transform: translateX(-2px) scaleX(-1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agend-community-announcements__notice,
+  .agend-community-feed__post,
+  .agend-community-channels__card,
+  .agend-community-channels__tile {
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .agend-community__chevron {
+    transition:
+      transform 0.15s ease,
+      color 0.15s ease;
+  }
+}
+
+/* A narrow area (a phone, or a sidebar): tighter rows, and the notice's
+   chevron gives its room back to the headline. */
+@container agend-cm (max-width: 30rem) {
+  .agend-community-announcements__notice,
+  .agend-community-feed__post {
+    gap: 0.75rem;
+    padding: 1rem 0.875rem;
+  }
+
+  .agend-community-announcements__notice {
+    padding-inline-start: calc(0.875rem - 4px);
+  }
+
+  .agend-community-announcements__date {
+    flex-basis: 3rem;
+  }
+
+  .agend-community-announcements__day {
+    font-size: 1.1875rem;
+  }
+
+  .agend-community-feed__replies {
+    flex-basis: 3rem;
+  }
+
+  .agend-community-announcements__notice > .agend-community__chevron,
+  .agend-community-feed__post > .agend-community__chevron {
+    display: none;
+  }
+
+  .agend-community-channels__card {
+    padding: 1rem;
+  }
+
+  /* The meta line may wrap here, and a hairline must not start a line: the
+     items are spaced by a gap instead. The accent mark stays. */
+  .agend-community__meta {
+    column-gap: 0.875rem;
+  }
+
+  .agend-community__meta-item + .agend-community__meta-item::before {
+    display: none;
+  }
+
+  .agend-community__meta .agend-community__flag::before {
+    display: block;
+    margin-inline: 0 0.4375rem;
+  }
+}

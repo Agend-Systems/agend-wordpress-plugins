@@ -157,6 +157,20 @@ class Agend_Apps_Cache {
 			'label'       => 'Single CMS Content',
 			'default_ttl' => 300,
 		),
+		// The Community surfaces. Loop sends nothing when a post is removed, so
+		// these stay short; the Community settings also have a Clear button.
+		'loop_channels'            => array(
+			'label'       => 'Community Channels',
+			'default_ttl' => 300,
+		),
+		'loop_public_announcements' => array(
+			'label'       => 'Community Announcements',
+			'default_ttl' => 120,
+		),
+		'loop_public_activity'     => array(
+			'label'       => 'Community Posts',
+			'default_ttl' => 120,
+		),
 		'jobs_list'                => array(
 			'label'       => 'Jobs List',
 			'default_ttl' => 300,

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/community-announcements",
+  "version": "1.15.2",
+  "title": "Agend Community Announcements",
+  "category": "agend",
+  "icon": "megaphone",
+  "description": "Announcements from your Agend Loop community, as a notice list.",
+  "keywords": [
+    "agend",
+    "announcements",
+    "notices",
+    "news",
+    "community",
+    "loop"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "align": [
+      "wide",
+      "full"
+    ]
+  },
+  "editorScript": "file:./index.js",
+  "style": [
+    "agend-apps-records-community"
+  ],
+  "render": "file:./render.php"
+}

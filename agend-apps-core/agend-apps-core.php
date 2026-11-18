@@ -244,6 +244,10 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-map.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/listing-enquiry.php';
+	// The Community surfaces (announcements, channels, popular posts).
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-announcements.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-channels.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/community-feed.php';
 
 	// The block editor surface: attributes from the schemas, output from the renderers.
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/blocks.php';
@@ -320,6 +324,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-map.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-public.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/auth.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/crm.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/events.php';
@@ -441,6 +446,11 @@ function agend_apps_core_bootstrap() {
 
 		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-log-admin.php';
 		new Agend_Apps_Log_Admin();
+
+		// The Community section of the Agend Apps settings page: which Loop
+		// channels the website may show.
+		require_once AGEND_APPS_CORE_DIR . 'admin/class-agend-apps-community-admin.php';
+		new Agend_Apps_Community_Admin();
 	}
 }
 add_action( 'plugins_loaded', 'agend_apps_core_bootstrap' );

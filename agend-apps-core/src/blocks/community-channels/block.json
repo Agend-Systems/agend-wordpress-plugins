@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/community-channels",
+	"version": "1.15.2",
+	"title": "Agend Community Channels",
+	"category": "agend",
+	"icon": "groups",
+	"description": "A directory of your Agend Loop community channels, each with a link in.",
+	"keywords": [ "agend", "channels", "spaces", "groups", "community", "loop" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	},
+	"editorScript": "file:./index.js",
+	"style": [ "agend-apps-records-community" ],
+	"render": "file:./render.php"
+}

@@ -42,6 +42,20 @@ The **Agend Credential Check** widget (block: **Agend Credential Check**) is the
 - **Scopes**: needs `lms.certificates.verify`; badge codes also need `lms.badges.verify`, and a certificate-only key shows the editor a notice and refuses badge codes with a clear message. It needs no sign-in, in any member sign-in mode.
 - Needs an Agend Apps Core that ships the `credential-check` surface; with an older core the widget is not registered.
 
+## Agend Community
+
+Three widgets (blocks of the same names) show the association's Agend Loop community: **Agend Community Announcements**, **Agend Community Channels** and **Agend Community Popular Posts**. They are the `community-announcements`, `community-channels` and `community-feed` core surfaces, drawn on the server with no script. See "Community (Agend Loop)" in `agend-apps-core/README.md` for how they read, cache, link and fail.
+
+- **Nothing shows until an administrator allows channels** under Settings > Agend Apps > Community. "Channels to show" can only pick from that list, and empty means all of it. Anyone on the internet can read an allowed channel, so the settings page says so.
+- **Announcements**: announcements only, or every post with a title; optional pinned only and featured only; pinned first; date tile, channel name, Pinned label, excerpt.
+- **Channels**: a card for each channel with its first letter, description, number of members and a link in ("Open channel", or your own words). Feed channels or chat channels; by name or by most members.
+- **Popular posts**: featured posts and posts with at least the number of replies you set, featured first and then most replies, or newest first. It shows fewer posts rather than padding the list.
+- **Authors** are off. Choose initials, first name, first name and last initial, or full name; profile photos are a separate switch, off.
+- **Links** open the post's channel (never the post itself), through the sign-in link when the site signs members in with WordPress. Or one page you choose, or none. A "Open the community" link closes each list.
+- **Empty state**: your own message, or hide the widget. A failed load always says so.
+- Needs the Loop scopes `loop.activity.read` and `loop.channels.browse` (channels needs only the second); without them the widgets draw nothing for visitors.
+- Needs a version of Agend Apps Core that ships the Community surfaces; with an older core the widgets are not registered.
+
 ## Agend Jobs (Agend Careers)
 
 The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with a filter bar and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
