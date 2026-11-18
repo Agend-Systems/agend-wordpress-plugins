@@ -90,6 +90,14 @@ function agend_apps_records_optional_features(): array {
 			'scopes'      => array( 'sso.identities.create' ),
 			'description' => __( 'Links a WordPress member to their Agend identity server-to-server when WordPress is the identity provider.', 'agend-apps-core' ),
 		),
+		'lms_credential_badges'   => array(
+			'label'       => __( 'Credential Check: badges', 'agend-apps-core' ),
+			// The Credential Check surface itself needs only the certificate
+			// scope (see the surface gate). Badge codes also need this one, so a
+			// key without it is a certificate-only check.
+			'scopes'      => array( 'lms.badges.verify' ),
+			'description' => __( 'Lets the Credential Check widget check badge links as well as certificate codes.', 'agend-apps-core' ),
+		),
 	);
 
 	/**

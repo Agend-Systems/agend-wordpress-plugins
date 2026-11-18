@@ -29,9 +29,12 @@ function agend_apps_register_lms_routes(): void {
  * writes and are only available via server-side PHP functions in
  * `includes/api/lms.php`.
  *
- * The two verify routes are public and reach the gateway with the site key, so
- * they sit behind the credential guard (code allow-list, per-visitor limits and
- * a site-wide ceiling: see `includes/credential-guard.php`).
+ * The two GET verify routes are public and reach the gateway with the site key,
+ * so they sit behind the credential guard (code allow-list, per-visitor limits
+ * and a site-wide ceiling: see `includes/credential-guard.php`). They are kept
+ * for themes that already call them and are deprecated in favour of the POST
+ * `credentials/verify` route, which also checks a captcha (a GET cannot carry a
+ * token) and keeps the code out of URLs, logs and shared caches.
  *
  * Exposes:
  * - `GET  /agend-apps/v1/lms/courses`                   — paginated course list.
@@ -42,6 +45,7 @@ function agend_apps_register_lms_routes(): void {
  * - `GET  /agend-apps/v1/lms/discovery`                 — public discovery blocks.
  * - `GET  /agend-apps/v1/lms/badges/verify/{token}`     — verify badge.
  * - `GET  /agend-apps/v1/lms/certificates/verify/{code}` — verify certificate.
+ * - `POST /agend-apps/v1/lms/credentials/verify`: the Credential check form (a code and a captcha token).
  * - `POST /agend-apps/v1/lms/courses/{id}/enroll`       — enroll in course.
  * - `POST /agend-apps/v1/lms/paths/{id}/enroll`         — enroll in path.
  * - `GET  /agend-apps/v1/lms/me/enrollments`            — my enrollments.
@@ -266,6 +270,37 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 							'required'          => true,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
+				),
+			)
+		);
+
+		// POST /lms/credentials/verify (the Credential check form). Public: the
+		// captcha and the throttle are the gate, not a nonce. A nonce would
+		// fail on a page-cached visit from a scanned QR code for no gain, and
+		// the check is read-only.
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/credentials/verify',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'verify_credential' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'code'          => array(
+							'required'          => true,
+							'type'              => 'string',
+							'sanitize_callback' => array( $this, 'sanitize_credential_input' ),
+						),
+						'captcha_token' => array(
+							'type'              => 'string',
+							'sanitize_callback' => array( $this, 'sanitize_credential_input' ),
+						),
+						'holder_key'    => array(
+							'type'              => 'string',
+							'sanitize_callback' => array( $this, 'sanitize_credential_input' ),
 						),
 					),
 				),
@@ -550,6 +585,53 @@ class Agend_Apps_LMS_REST_Controller extends Agend_Apps_REST_Controller {
 	private function verify_refusal( WP_Error $error ): WP_REST_Response {
 		$response = $this->error_to_response( $error );
 		$response->header( 'Cache-Control', 'no-store' );
+
+		return $response;
+	}
+
+	/**
+	 * Keeps what a visitor typed as text: no control characters, and no more
+	 * than a pasted link can need.
+	 *
+	 * Not `sanitize_text_field()`: that drops percent-encoded octets, which
+	 * would damage a pasted link, and the code is validated against a strict
+	 * allow-list afterwards anyway.
+	 *
+	 * @param mixed $value Raw parameter.
+	 * @return string
+	 */
+	public function sanitize_credential_input( $value ): string {
+		return is_string( $value ) ? substr( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', trim( $value ) ), 0, 2000 ) : '';
+	}
+
+	/**
+	 * Checks a certificate or badge code from the Credential check form.
+	 *
+	 * Always answers with a `status` the form can show (see
+	 * {@see agend_apps_credentials_handle()}), never a gateway body, and never
+	 * lets a shared cache keep the answer: it belongs to one code and one
+	 * visitor's throttle.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 * @return WP_REST_Response REST response.
+	 */
+	public function verify_credential( WP_REST_Request $request ): WP_REST_Response {
+		$holder = hash_equals( agend_apps_credentials_holder_key(), (string) $request->get_param( 'holder_key' ) );
+
+		$result = agend_apps_credentials_handle(
+			(string) $request->get_param( 'code' ),
+			(string) $request->get_param( 'captcha_token' ),
+			$holder,
+			agend_apps_visitor_ip( $request ),
+			time()
+		);
+
+		$response = new WP_REST_Response( $result['body'], $result['http'] );
+		$response->header( 'Cache-Control', 'no-store' );
+
+		if ( isset( $result['body']['retry_after'] ) ) {
+			$response->header( 'Retry-After', (string) (int) $result['body']['retry_after'] );
+		}
 
 		return $response;
 	}

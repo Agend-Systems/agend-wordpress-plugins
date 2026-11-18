@@ -324,6 +324,7 @@ function agend_apps_core_bootstrap() {
 	// lookups; the two LMS verify wrappers and their REST proxies call them.
 	require_once AGEND_APPS_CORE_DIR . 'includes/public-throttle.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/credential-guard.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/credential-check.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/lms.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/cms.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/jobs.php';
