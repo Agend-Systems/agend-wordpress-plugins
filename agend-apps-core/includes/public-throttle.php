@@ -5,12 +5,19 @@
  * A route with `permission_callback => __return_true` that reaches the Agend
  * gateway spends the site's API key on behalf of a stranger, and every
  * visitor and every route shares that key's rate limit. This file holds the
- * two counters such a route needs, so each route does not grow its own:
+ * counters such a route needs, so each route does not grow its own. It is the
+ * one throttle every public route uses (the credential check, the Resources
+ * search and Ask):
  *
  * - a per-visitor counter, keyed on a salted hash of the visitor's address,
  *   with one limit per window (for example 10 a minute and 60 an hour);
+ * - a per-member counter, keyed on a salted hash of the WordPress user, for a
+ *   route a signed-in member calls;
  * - a site-wide counter, which caps what one route may spend in total however
  *   many addresses the traffic comes from.
+ *
+ * Each feature keeps its own limits and its own filter names; this file only
+ * counts.
  *
  * Counters are fixed windows kept in transients. A transient has no atomic
  * increment, so two requests in flight can read the same count and a burst may
@@ -209,6 +216,29 @@ function agend_apps_public_throttle_counters( string $scope, string $part, array
 function agend_apps_public_throttle_visitor( string $scope, string $ip, array $limits, int $now ): int {
 	return agend_apps_public_throttle_take(
 		agend_apps_public_throttle_counters( $scope, agend_apps_visitor_bucket( $ip ), $limits ),
+		$now
+	);
+}
+
+/**
+ * Counts one hit against a signed-in WordPress user, and says whether it may
+ * go ahead.
+ *
+ * For a route a member calls with their own session, where counting by address
+ * would hold a whole office behind one NAT to one person's limit. The counter
+ * is keyed on the user id, hashed like every other part, so the stored key does
+ * not name the user. A visitor bucket is always an address or 'unknown' and so
+ * can never be the same counter as a user.
+ *
+ * @param string          $scope   Route family.
+ * @param int             $user_id WordPress user id.
+ * @param array<int, int> $limits  Window length in seconds => hits allowed per member.
+ * @param int             $now     Unix time.
+ * @return int 0 when the member may go ahead, otherwise the seconds to wait.
+ */
+function agend_apps_public_throttle_member( string $scope, int $user_id, array $limits, int $now ): int {
+	return agend_apps_public_throttle_take(
+		agend_apps_public_throttle_counters( $scope, 'user:' . $user_id, $limits ),
 		$now
 	);
 }

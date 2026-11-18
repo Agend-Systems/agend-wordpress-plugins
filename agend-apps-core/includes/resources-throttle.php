@@ -1,6 +1,6 @@
 <?php
 /**
- * Per-visitor and site-wide limits for the Resources proxies.
+ * Per-visitor, per-member and site-wide limits for the Resources proxies.
  *
  * The Resources search and Ask routes call the gateway on behalf of whoever
  * asks. The gateway gives the whole site one request bucket (60 a minute per
@@ -8,13 +8,14 @@
  * take the bucket from the jobs board and the events list. The limits here sit
  * in front of the gateway call and refuse before it is made.
  *
- * The per-address policy is the one the directory geocode route uses
- * (`agend_apps_directory_geocode_throttle()`): `REMOTE_ADDR` only, an IPv6
- * address counted by its /64, an IPv4-mapped address counted as IPv4, the
- * transient key a salted hash of that bucket and never the address, and a fixed
- * window that starts at the first request. This file is its own copy under its
- * own names so it can be reconciled with that helper, and with any other
- * limiter built for the same purpose, in one place.
+ * The counting is not done here. It is the shared public throttle in
+ * `public-throttle.php`, the same one the credential check uses: `REMOTE_ADDR`
+ * only (a site behind a trusted proxy opts in through the `agend_apps_visitor_ip`
+ * filter), an IPv6 address counted by its /64, an IPv4-mapped address counted as
+ * IPv4, a transient key that is a salted hash and never an address or a user
+ * id, and a fixed window that starts at the first request. This file holds what
+ * is Resources's own: the default numbers, the `agend_apps_resources_throttle_limit`
+ * filter, and the three subjects it counts (a visitor, a member, the site).
  *
  * Two concurrent requests can read the same count, so a burst can overshoot a
  * limit by the requests in flight: transients have no atomic increment. The
@@ -26,6 +27,8 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
+require_once __DIR__ . '/public-throttle.php';
 
 /** Searches one visitor address may make through the Resources route per window. */
 const AGEND_APPS_RESOURCES_VISITOR_SEARCH_LIMIT = 10;
@@ -61,83 +64,6 @@ const AGEND_APPS_RESOURCES_SITE_CALL_LIMIT = 20;
 const AGEND_APPS_RESOURCES_SITE_CALL_WINDOW = 60;
 
 /**
- * The address a visitor is counted against.
- *
- * An IPv4 address is its own bucket. An IPv6 address is counted against its
- * /64 network: one connection is usually given a whole /64, so counting each
- * address apart would let one host pick a fresh address for every request. An
- * IPv4-mapped address (`::ffff:203.0.113.7`, as a dual-stack socket reports an
- * IPv4 client) is counted as the IPv4 address it carries; as IPv6 its first 64
- * bits are all zero and every IPv4 visitor would share one bucket.
- *
- * @param string $ip The visitor's `REMOTE_ADDR`.
- * @return string
- */
-function agend_apps_resources_throttle_bucket( string $ip ): string {
-	if ( false !== filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
-		$packed = inet_pton( $ip );
-
-		if ( false !== $packed && str_repeat( "\0", 10 ) . "\xff\xff" === substr( $packed, 0, 12 ) ) {
-			$ipv4 = inet_ntop( substr( $packed, 12 ) );
-
-			if ( false !== $ipv4 ) {
-				return $ipv4;
-			}
-		}
-
-		if ( false !== $packed ) {
-			$network = inet_ntop( substr( $packed, 0, 8 ) . str_repeat( "\0", 8 ) );
-
-			if ( false !== $network ) {
-				return $network . '/64';
-			}
-		}
-	}
-
-	return $ip;
-}
-
-/**
- * Counts one hit against a subject in a scope, and says whether it may go
- * ahead.
- *
- * The window is fixed from the subject's first hit, so one that asks now and
- * then is never refused, and one that used its hits up waits for the window to
- * close rather than for a quiet spell. The transient key holds a salted hash of
- * the subject, so the stored key cannot be turned back into an address or a
- * user id by trying them all.
- *
- * @param string $scope   What is being limited, e.g. `search`. A letters, digits and underscores name.
- * @param string $subject Who is being counted: an address bucket, or a user id.
- * @param int    $max     Hits allowed in the window.
- * @param int    $window  The window, in seconds.
- * @param int    $now     Unix time.
- * @return int 0 when the hit may go ahead, otherwise the seconds until it may.
- */
-function agend_apps_resources_throttle_hit( string $scope, string $subject, int $max, int $window, int $now ): int {
-	$key   = 'agend_apps_rthrottle_' . preg_replace( '/[^a-z0-9_]/', '', strtolower( $scope ) ) . '_' . wp_hash( $subject );
-	$entry = get_transient( $key );
-
-	if ( ! is_array( $entry ) || ! isset( $entry['count'], $entry['reset'] ) || (int) $entry['reset'] <= $now ) {
-		$entry = array(
-			'count' => 0,
-			'reset' => $now + $window,
-		);
-	}
-
-	$remaining = max( 1, (int) $entry['reset'] - $now );
-
-	if ( (int) $entry['count'] >= $max ) {
-		return $remaining;
-	}
-
-	$entry['count'] = (int) $entry['count'] + 1;
-	set_transient( $key, $entry, $remaining );
-
-	return 0;
-}
-
-/**
  * The limit for a scope, which a site can change.
  *
  * @param string $scope   The scope, e.g. `visitor_search`.
@@ -170,9 +96,9 @@ function agend_apps_resources_throttle_limit( string $scope, int $max, int $wind
 /**
  * Counts a visitor's request against their address.
  *
- * Keyed on `REMOTE_ADDR` alone, deliberately and not through any forwarded
- * header: a limit keyed on a header the visitor can set is escaped by varying
- * it, wherever no trusted proxy sets it.
+ * Keyed on the address {@see agend_apps_visitor_ip()} gives, which is
+ * `REMOTE_ADDR` and never a forwarded header unless site code opts in: a limit
+ * keyed on a header the visitor can set is escaped by varying it.
  *
  * @param string   $scope  The scope, e.g. `visitor_search`.
  * @param int      $max    Default hits per window.
@@ -183,9 +109,12 @@ function agend_apps_resources_throttle_limit( string $scope, int $max, int $wind
 function agend_apps_resources_visitor_throttle( string $scope, int $max, int $window, ?int $now = null ): int {
 	list( $max, $window ) = agend_apps_resources_throttle_limit( $scope, $max, $window );
 
-	$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
-
-	return agend_apps_resources_throttle_hit( $scope, agend_apps_resources_throttle_bucket( $ip ), $max, $window, $now ?? time() );
+	return agend_apps_public_throttle_visitor(
+		agend_apps_resources_throttle_scope( $scope ),
+		agend_apps_visitor_ip(),
+		array( $window => $max ),
+		$now ?? time()
+	);
 }
 
 /**
@@ -201,7 +130,12 @@ function agend_apps_resources_visitor_throttle( string $scope, int $max, int $wi
 function agend_apps_resources_member_throttle( string $scope, int $user_id, int $max, int $window, ?int $now = null ): int {
 	list( $max, $window ) = agend_apps_resources_throttle_limit( $scope, $max, $window );
 
-	return agend_apps_resources_throttle_hit( $scope, 'user:' . $user_id, $max, $window, $now ?? time() );
+	return agend_apps_public_throttle_member(
+		agend_apps_resources_throttle_scope( $scope ),
+		$user_id,
+		array( $window => $max ),
+		$now ?? time()
+	);
 }
 
 /**
@@ -216,5 +150,21 @@ function agend_apps_resources_member_throttle( string $scope, int $user_id, int 
 function agend_apps_resources_site_throttle( string $scope, int $max, int $window, ?int $now = null ): int {
 	list( $max, $window ) = agend_apps_resources_throttle_limit( $scope, $max, $window );
 
-	return agend_apps_resources_throttle_hit( $scope, 'site', $max, $window, $now ?? time() );
+	return agend_apps_public_throttle_site(
+		agend_apps_resources_throttle_scope( $scope ),
+		array( $window => $max ),
+		$now ?? time()
+	);
+}
+
+/**
+ * The shared throttle's scope for one of Resources's scopes. Prefixed so a
+ * Resources counter can never be the same counter as another feature's, whatever
+ * either calls its scopes.
+ *
+ * @param string $scope The Resources scope, e.g. `visitor_search`.
+ * @return string
+ */
+function agend_apps_resources_throttle_scope( string $scope ): string {
+	return 'resources:' . $scope;
 }

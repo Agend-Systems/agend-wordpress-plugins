@@ -39,6 +39,11 @@ final class ResourcesRoutesTest extends TestCase {
 		parent::tearDown();
 	}
 
+	/** Drops the cap on all Resources calls together, leaving every other counter. */
+	private function clearSiteCallCounter(): void {
+		unset( Agend_Test_WP::$transients[ agend_apps_public_throttle_key( 'resources:site_calls', '', AGEND_APPS_RESOURCES_SITE_CALL_WINDOW ) ] );
+	}
+
 	private function controller(): Agend_Apps_Resources_REST_Controller {
 		return new Agend_Apps_Resources_REST_Controller();
 	}
@@ -210,7 +215,7 @@ final class ResourcesRoutesTest extends TestCase {
 			agend_res_test_queue_collections( array() );
 			self::assertSame( 200, $this->controller()->my_collections( $this->request( 'GET', $this->mineParams() ) )->get_status(), 'call ' . ( $i + 1 ) );
 			// The site-wide cap is a separate limit; keep it out of this one.
-			Agend_Test_WP::$transients = array_filter( Agend_Test_WP::$transients, static fn( string $k ): bool => false === strpos( $k, 'rthrottle_site_calls' ), ARRAY_FILTER_USE_KEY );
+			$this->clearSiteCallCounter();
 		}
 
 		$before   = count( Agend_Test_WP::$requests );
@@ -316,7 +321,7 @@ final class ResourcesRoutesTest extends TestCase {
 			agend_res_test_queue_data( array() );
 			self::assertSame( 200, $this->controller()->search( $this->request( 'GET', array( 'q' => 'query ' . $i, 'limit' => 6 ) ) )->get_status(), 'search ' . ( $i + 1 ) );
 			// The site-wide cap is a separate limit; keep it out of this one.
-			Agend_Test_WP::$transients = array_filter( Agend_Test_WP::$transients, static fn( string $k ): bool => false === strpos( $k, 'rthrottle_site_calls' ), ARRAY_FILTER_USE_KEY );
+			$this->clearSiteCallCounter();
 		}
 
 		$before   = count( Agend_Test_WP::$requests );
@@ -685,7 +690,7 @@ final class ResourcesRoutesTest extends TestCase {
 			agend_res_test_queue_data( array( 'kind' => 'refusal', 'message' => 'No.', 'disclaimer' => '' ) );
 			// The site-wide cap is a separate limit; keep it out of this one.
 			self::assertSame( 200, $this->ask()->get_status(), 'question ' . ( $i + 1 ) );
-			Agend_Test_WP::$transients = array_filter( Agend_Test_WP::$transients, static fn( string $k ): bool => false === strpos( $k, 'rthrottle_site_calls' ), ARRAY_FILTER_USE_KEY );
+			$this->clearSiteCallCounter();
 		}
 
 		$before   = count( Agend_Test_WP::$requests );
@@ -708,7 +713,7 @@ final class ResourcesRoutesTest extends TestCase {
 			$this->member( 100 + $member );
 			agend_res_test_queue_data( array( 'kind' => 'refusal', 'message' => 'No.', 'disclaimer' => '' ) );
 			self::assertSame( 200, $this->ask()->get_status(), 'question ' . $member );
-			Agend_Test_WP::$transients = array_filter( Agend_Test_WP::$transients, static fn( string $k ): bool => false === strpos( $k, 'rthrottle_site_calls' ), ARRAY_FILTER_USE_KEY );
+			$this->clearSiteCallCounter();
 		}
 
 		$this->member( 200 );

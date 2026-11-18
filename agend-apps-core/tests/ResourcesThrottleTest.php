@@ -13,12 +13,12 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/resources-throttle.php';
-require_once __DIR__ . '/fixtures/wp-hash-stub.php';
 
 /**
  * The limits in front of the Resources proxies: one per visitor address, one
- * per member, and one for the whole site. The per-address policy is the one the
- * directory geocode route uses.
+ * per member, and one for the whole site. The counting is the shared public
+ * throttle (also used by the credential check); these tests keep Resources's
+ * own numbers, filter and scopes honest on top of it.
  */
 final class ResourcesThrottleTest extends TestCase {
 
@@ -38,28 +38,8 @@ final class ResourcesThrottleTest extends TestCase {
 	// Whose hit it is
 	// -----------------------------------------------------------------
 
-	/** @return array<string, array{0: string, 1: string}> */
-	public static function addresses(): array {
-		return array(
-			'ipv4 is its own bucket'          => array( '203.0.113.7', '203.0.113.7' ),
-			'ipv6 is counted by its /64'      => array( '2001:db8:aa:1::ff', '2001:db8:aa:1::/64' ),
-			'another host on the same /64'    => array( '2001:db8:aa:1:abcd:1234:5678:9abc', '2001:db8:aa:1::/64' ),
-			'ipv4 mapped counts as the ipv4'  => array( '::ffff:203.0.113.7', '203.0.113.7' ),
-			'something that is not an ip'     => array( 'not-an-ip', 'not-an-ip' ),
-			'nothing'                         => array( '', '' ),
-		);
-	}
-
-	#[Test]
-	#[DataProvider( 'addresses' )]
-	public function should_count_a_visitor_against_the_right_bucket( string $ip, string $bucket ): void {
-		self::assertSame( $bucket, agend_apps_resources_throttle_bucket( $ip ) );
-	}
-
 	#[Test]
 	public function should_not_let_a_host_escape_by_picking_a_fresh_ipv6_address_each_time(): void {
-		$_SERVER['REMOTE_ADDR'] = '2001:db8:aa:1::1';
-
 		for ( $i = 0; $i < 10; $i++ ) {
 			$_SERVER['REMOTE_ADDR'] = '2001:db8:aa:1::' . dechex( $i + 1 );
 			self::assertSame( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 10, 60, 1000 ) );
@@ -69,6 +49,40 @@ final class ResourcesThrottleTest extends TestCase {
 		self::assertGreaterThan( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 10, 60, 1000 ) );
 	}
 
+	#[Test]
+	public function should_count_an_ipv4_mapped_address_as_the_ipv4_address_it_carries(): void {
+		$_SERVER['REMOTE_ADDR'] = '::ffff:203.0.113.7';
+		self::assertSame( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1000 ) );
+		self::assertGreaterThan( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1000 ) );
+
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.8';
+		self::assertSame( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1000 ), 'a different IPv4 visitor is not the same bucket' );
+	}
+
+	#[Test]
+	public function should_put_every_visitor_with_no_usable_address_in_one_bucket_so_a_missing_address_fails_closed(): void {
+		unset( $_SERVER['REMOTE_ADDR'] );
+		self::assertSame( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1000 ) );
+
+		$_SERVER['REMOTE_ADDR'] = 'not-an-ip';
+		self::assertGreaterThan( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1000 ) );
+	}
+
+	#[Test]
+	public function should_let_a_site_behind_a_trusted_proxy_supply_the_address_through_the_shared_filter(): void {
+		$_SERVER['REMOTE_ADDR'] = '10.0.0.1';
+		add_filter(
+			'agend_apps_visitor_ip',
+			static function (): string {
+				return self::VISITOR;
+			}
+		);
+
+		self::assertSame( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1000 ) );
+		self::assertGreaterThan( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1001 ) );
+		self::assertSame( array( agend_apps_public_throttle_key( 'resources:visitor_search', self::VISITOR, 60 ) ), array_keys( Agend_Test_WP::$transients ) );
+	}
+
 	// -----------------------------------------------------------------
 	// The window
 	// -----------------------------------------------------------------
@@ -76,43 +90,56 @@ final class ResourcesThrottleTest extends TestCase {
 	#[Test]
 	public function should_let_a_subject_through_up_to_the_limit_then_say_how_long_to_wait(): void {
 		for ( $i = 0; $i < 10; $i++ ) {
-			self::assertSame( 0, agend_apps_resources_throttle_hit( 'search', 'a', 10, 60, 1000 + $i ), 'hit ' . ( $i + 1 ) );
+			self::assertSame( 0, agend_apps_resources_site_throttle( 'site_calls', 10, 60, 1000 + $i ), 'hit ' . ( $i + 1 ) );
 		}
 
 		// The window opened at the first hit (1000) and closes 60 seconds on.
-		self::assertSame( 51, agend_apps_resources_throttle_hit( 'search', 'a', 10, 60, 1009 ) );
+		self::assertSame( 51, agend_apps_resources_site_throttle( 'site_calls', 10, 60, 1009 ) );
 	}
 
 	#[Test]
 	public function should_hold_to_a_fixed_window_that_starts_at_the_first_hit(): void {
-		agend_apps_resources_throttle_hit( 'search', 'a', 1, 60, 1000 );
+		agend_apps_resources_site_throttle( 'site_calls', 1, 60, 1000 );
 
-		self::assertSame( 1, agend_apps_resources_throttle_hit( 'search', 'a', 1, 60, 1059 ), 'a second before it closes' );
-		self::assertSame( 0, agend_apps_resources_throttle_hit( 'search', 'a', 1, 60, 1060 ), 'a new window opens' );
+		self::assertSame( 1, agend_apps_resources_site_throttle( 'site_calls', 1, 60, 1059 ), 'a second before it closes' );
+		self::assertSame( 0, agend_apps_resources_site_throttle( 'site_calls', 1, 60, 1060 ), 'a new window opens' );
 	}
 
 	#[Test]
 	public function should_not_refuse_someone_who_searches_now_and_then(): void {
 		for ( $minute = 0; $minute < 5; $minute++ ) {
-			self::assertSame( 0, agend_apps_resources_throttle_hit( 'search', 'a', 2, 60, 1000 + $minute * 61 ) );
+			self::assertSame( 0, agend_apps_resources_site_throttle( 'site_calls', 2, 60, 1000 + $minute * 61 ) );
 		}
 	}
 
 	#[Test]
 	public function should_keep_subjects_and_scopes_apart(): void {
-		agend_apps_resources_throttle_hit( 'search', 'a', 1, 60, 1000 );
+		agend_apps_resources_member_throttle( 'ask_member', 7, 1, 60, 1000 );
 
-		self::assertGreaterThan( 0, agend_apps_resources_throttle_hit( 'search', 'a', 1, 60, 1001 ) );
-		self::assertSame( 0, agend_apps_resources_throttle_hit( 'search', 'b', 1, 60, 1001 ), 'another subject' );
-		self::assertSame( 0, agend_apps_resources_throttle_hit( 'ask', 'a', 1, 60, 1001 ), 'another scope' );
+		self::assertGreaterThan( 0, agend_apps_resources_member_throttle( 'ask_member', 7, 1, 60, 1001 ) );
+		self::assertSame( 0, agend_apps_resources_member_throttle( 'ask_member', 8, 1, 60, 1001 ), 'another subject' );
+		self::assertSame( 0, agend_apps_resources_member_throttle( 'member_search', 7, 1, 60, 1001 ), 'another scope' );
+	}
+
+	#[Test]
+	public function should_never_share_a_counter_with_another_feature_that_uses_the_same_throttle(): void {
+		$_SERVER['REMOTE_ADDR'] = self::VISITOR;
+
+		self::assertSame( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1000 ) );
+
+		// The credential check counts the same address in the same windows, and
+		// is still untouched by the Resources hit.
+		self::assertSame( 0, agend_apps_public_throttle_visitor( 'credential-check', self::VISITOR, array( 60 => 1 ), 1000 ) );
+		self::assertGreaterThan( 0, agend_apps_public_throttle_visitor( 'credential-check', self::VISITOR, array( 60 => 1 ), 1001 ) );
+		self::assertGreaterThan( 0, agend_apps_resources_visitor_throttle( 'visitor_search', 1, 60, 1001 ) );
 	}
 
 	#[Test]
 	public function should_keep_the_transient_for_the_rest_of_the_window_only(): void {
-		agend_apps_resources_throttle_hit( 'search', 'a', 5, 60, 1000 );
+		agend_apps_resources_site_throttle( 'site_calls', 5, 60, 1000 );
 		self::assertSame( array( 60 ), array_values( Agend_Test_WP::$transient_ttls ) );
 
-		agend_apps_resources_throttle_hit( 'search', 'a', 5, 60, 1030 );
+		agend_apps_resources_site_throttle( 'site_calls', 5, 60, 1030 );
 		self::assertSame( array( 30 ), array_values( Agend_Test_WP::$transient_ttls ), 'it ends with the window, not a fresh minute later' );
 	}
 
@@ -128,8 +155,7 @@ final class ResourcesThrottleTest extends TestCase {
 
 		$keys = array_keys( Agend_Test_WP::$transients );
 
-		self::assertCount( 1, $keys );
-		self::assertSame( 'agend_apps_rthrottle_visitor_search_' . wp_hash( self::VISITOR ), $keys[0] );
+		self::assertSame( array( agend_apps_public_throttle_key( 'resources:visitor_search', self::VISITOR, 60 ) ), $keys );
 		self::assertStringNotContainsString( self::VISITOR, $keys[0] );
 	}
 
@@ -139,7 +165,17 @@ final class ResourcesThrottleTest extends TestCase {
 
 		agend_apps_resources_visitor_throttle( 'visitor_search', 10, 60, 1000 );
 
-		self::assertSame( array( 'agend_apps_rthrottle_visitor_search_' . wp_hash( '2001:db8:aa:1::/64' ) ), array_keys( Agend_Test_WP::$transients ) );
+		self::assertSame( array( agend_apps_public_throttle_key( 'resources:visitor_search', '2001:db8:aa:1::/64', 60 ) ), array_keys( Agend_Test_WP::$transients ) );
+	}
+
+	#[Test]
+	public function should_store_a_member_by_a_hash_that_does_not_name_the_user(): void {
+		agend_apps_resources_member_throttle( 'ask_member', 4242, 3, 600, 1000 );
+
+		$keys = array_keys( Agend_Test_WP::$transients );
+
+		self::assertSame( array( agend_apps_public_throttle_key( 'resources:ask_member', 'user:4242', 600 ) ), $keys );
+		self::assertStringNotContainsString( '4242', $keys[0] );
 	}
 
 	// -----------------------------------------------------------------
