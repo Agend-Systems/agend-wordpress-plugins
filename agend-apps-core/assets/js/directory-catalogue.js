@@ -1871,6 +1871,12 @@
       reload: function () { state.page = 1; state.append = false; reloadCatalogue(); },
       hrefFor: function (slug) { return deepLinkUrl(slug); },
       open: function (slug) { openItem(slug); },
+      // The write path for widgets outside the filter template (Agend
+      // Directory Search, Agend Filter Shortcuts): changes, as
+      // { search, near, lists: { <state key>: [values] }, custom: { <field key>: [values] } },
+      // are written to the state, the filter controls are redrawn to show
+      // them, and the catalogue searches again. Absent keys are left alone.
+      apply: function (changes) { applyChanges(changes); },
     };
     window.agendCatalogues.listing = published;
 
@@ -2117,18 +2123,59 @@
         if (!target.contains(serverFilters)) {
           target.appendChild(serverFilters);
         }
-        window.agendFilters.build(serverFilters, {
-          state: state,
-          reload: reloadCatalogue,
-          apiGet: apiGet,
-          setView: setView,
-          preload: cfg.preload,
-          built: dropUnwritten,
-          share: linksOn ? { link: shareLink, hasArea: shareHasArea } : null,
-        });
+        window.agendFilters.build(serverFilters, filterOptions());
         return;
       }
       buildFilterBar(target, cfg, state, reloadCatalogue);
+    }
+
+    function filterOptions() {
+      return {
+        state: state,
+        reload: reloadCatalogue,
+        apiGet: apiGet,
+        setView: setView,
+        preload: cfg.preload,
+        built: dropUnwritten,
+        share: linksOn ? { link: shareLink, hasArea: shareHasArea } : null,
+      };
+    }
+
+    // Controls are built from the state, so a value written from outside the
+    // template shows in them once they are built again, the way Clear does it.
+    function redrawFilters() {
+      if (!hasTemplatedFilters || !window.agendFilters || !window.agendFilters.build) {
+        return;
+      }
+      Array.prototype.forEach.call(serverFilters.querySelectorAll('[data-agend-filter]'), function (shell) {
+        shell.removeAttribute('data-agend-filter-ready');
+      });
+      window.agendFilters.build(serverFilters, filterOptions());
+    }
+
+    function applyChanges(changes) {
+      var next = changes || {};
+      if (typeof next.search === 'string') {
+        state.search = next.search.trim();
+      }
+      if (next.near !== undefined) {
+        state.near = next.near || null;
+        if (state.near) {
+          // A map viewport and a point cannot be searched together.
+          state.bbox = '';
+        }
+      }
+      Object.keys(next.lists || {}).forEach(function (key) {
+        state[key] = (next.lists[key] || []).map(String);
+      });
+      Object.keys(next.custom || {}).forEach(function (field) {
+        state.custom_fields = state.custom_fields || {};
+        state.custom_fields[field] = (next.custom[field] || []).map(String);
+      });
+      state.page = 1;
+      state.append = false;
+      redrawFilters();
+      reloadCatalogue();
     }
 
     // A restored value whose every control hid itself once its values arrived
@@ -2488,6 +2535,9 @@
       showCatalogue(false);
       reloadCatalogue();
     }
+
+    // Last, so a listener that reads or writes the catalogue finds it whole.
+    document.dispatchEvent(new CustomEvent('agend:directory-ready', { detail: { catalogue: published } }));
   }
 
   function initAll() {

@@ -136,6 +136,7 @@ function agend_apps_records_record_field_format_options( array $s ): array {
 		'bool_false'         => $bool_false,
 		'number_suffix'      => (string) ( $s['number_suffix'] ?? '' ),
 		'truncate'           => (int) ( $s['truncate_chars'] ?? 0 ),
+		'text_case'          => 'title_upper' === ( $s['text_case'] ?? '' ) ? 'title_upper' : '',
 		'item_list'          => agend_apps_records_item_list_options( $s ),
 	);
 }
