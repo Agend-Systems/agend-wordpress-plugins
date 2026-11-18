@@ -539,7 +539,7 @@ final class MemberSummaryRenderTest extends TestCase {
 		$membership             = $this->summary()['sections']['membership'];
 		$membership['via_seat'] = true;
 
-		self::assertStringContainsString( 'Included through your organisation&#039;s membership.', $this->body( $this->config(), $this->summary( array( 'membership' => $membership ) ) ) );
+		self::assertMatchesRegularExpression( '/Included through your organisation(&#039;|\')s membership\./', $this->body( $this->config(), $this->summary( array( 'membership' => $membership ) ) ) );
 	}
 
 	#[Test]
@@ -653,7 +653,7 @@ final class MemberSummaryRenderTest extends TestCase {
 		self::assertStringContainsString( 'Upcoming events', $html );
 		self::assertLessThan( strpos( $html, 'Summer mixer' ), strpos( $html, 'Pricing your work, a webinar' ), 'soonest first' );
 		self::assertStringContainsString( '<span class="agend-ms-date__day">3</span><span class="agend-ms-date__month">Dec</span>', $html );
-		self::assertStringContainsString( 'Thursday 3 December, 1:00 am', $html );
+		self::assertStringContainsString( '<span class="agend-ms-sr">3 December 2026, </span>Thursday, 1:00 am', $html );
 		self::assertStringContainsString( 'Registered', $html );
 		self::assertStringContainsString( 'Confirmed', $html );
 		self::assertStringNotContainsString( 'Regional forum', $html, 'the fourth is beyond the limit of three' );

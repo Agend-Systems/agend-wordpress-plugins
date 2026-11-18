@@ -196,34 +196,22 @@
   line-height: 1.5;
 }
 
-.agend-ms-band__side {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding-top: 1.125rem;
-  border-top: 1px solid var(--agend-ms-band-line);
-}
-
-.agend-ms-band__date,
-.agend-ms-band__days {
-  margin: 0;
+/* Renewal and the days to go, under the type. Same line-and-divider as every
+   other meta line, in the band's own light text. */
+.agend-ms-meta.agend-ms-band__meta {
+  margin-top: 0.75rem;
+  color: inherit;
   font-size: 0.9375rem;
-  line-height: 1.45;
 }
 
-.agend-ms-band__date-label {
-  display: block;
-  font-size: 0.8125rem;
-}
-
-.agend-ms-band__date time {
+.agend-ms-band__meta time {
   color: var(--agend-ms-on-band);
-  font-size: 1.125rem;
   font-weight: 600;
 }
 
-.agend-ms-band__action {
-  margin: 0.875rem 0 0;
+.agend-ms-band__side {
+  display: flex;
+  flex: 0 0 auto;
 }
 
 /* Buttons --------------------------------------------------------------- */
@@ -312,7 +300,7 @@
 
 .agend-ms-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--agend-ms-gap);
 }
 
@@ -861,23 +849,55 @@
 @container agend-ms (min-width: 40rem) {
   .agend-ms-band {
     flex-direction: row;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 2rem;
-    padding: 1.75rem 1.75rem 1.875rem;
+    padding: 1.625rem 1.75rem;
   }
 
-  .agend-ms-band__side {
-    flex: 0 0 auto;
-    min-width: 14rem;
-    padding-top: 0;
-    padding-inline-start: 2rem;
+  .agend-ms-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* An odd one out fills the row rather than sit alone at half width. */
+  .agend-ms-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .agend-ms-card--directory {
+    display: grid;
+    grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .agend-ms-card--directory .agend-ms-card__title {
+    padding-block: 0.75rem;
+  }
+
+  .agend-ms-card--directory .agend-ms-card__body {
+    padding-block: 0.5rem;
+  }
+
+  .agend-ms-card--directory .agend-ms-card__foot {
+    min-width: 13rem;
+    padding: 0.25rem 0.5rem;
     border-top: 0;
-    border-inline-start: 1px solid var(--agend-ms-band-line);
+    border-inline-start: 1px solid var(--agend-ms-line);
   }
 
   .agend-ms-notice {
     padding: 1.75rem 1.75rem 1.875rem;
+  }
+}
+
+/* Three cards sit three across when there is room. */
+@container agend-ms (min-width: 62rem) {
+  .agend-ms-grid:has(> :nth-child(3)) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .agend-ms-grid > :last-child:nth-child(odd) {
+    grid-column: auto;
   }
 }
 
@@ -886,6 +906,10 @@
 @container agend-ms (max-width: 26rem) {
   .agend-ms-band {
     padding: 1.125rem 1rem 1.25rem;
+  }
+
+  .agend-ms-band__side .agend-ms-button {
+    flex: 1 1 100%;
   }
 
   .agend-ms-card__title {

@@ -158,6 +158,18 @@ Deferred deliberately, in rough order:
    called directly as the anon role with the same arguments, grants are correct and the column
    tokens are valid. Reported to the API side.
 
+## Agend Member Summary
+
+The **Agend Member Summary** widget (block: **Agend Member Summary**) is the `member-summary` core surface: a signed-in member's own membership band (standing, tier and renewal), CPD points against their target, upcoming events, certificates and badges, and directory listing. See "Member summary" and "Member access state" in `agend-apps-core/README.md` for how it reads, protects the site key and fails.
+
+- **Place it on a page members sign in to.** A visitor who is not signed in sees a sign-in card (or nothing, with "Hide the widget when no one is signed in"). The page itself holds only a heading and a loading state; the member's cards load after the page does and are never stored, so a page cache cannot show one member's details to another.
+- **What to show**: Membership, CPD points, Upcoming events, Certificates and badges, Directory listing, each on its own. A part that is switched off is not loaded at all. "Greet the member by first name" and the list sizes (events and certificates, 1 to 6) are optional.
+- **Links**: Membership page (empty uses the member portal), Join page, Credential check page (each certificate links there with its code), Manage listing page and Contact page. Empty means no link, never a dead button.
+- **Messages**: your wording for no upcoming events, no certificates, no membership found, and details that cannot be loaded. Members are never told why something failed; an administrator sees the reason in a note that says only they see it.
+- **In the editor** the widget draws a labelled example of an imaginary member and calls nothing. It follows the parts you switch on.
+- Needs the `crm.contacts.browse` scope; each part also needs its own (`crm.memberships.browse` for the membership). A part the key lacks is left out for members and listed to administrators. In the `wordpress` and `sso` sign-in modes the key also needs `sso.identities.read` and `sso.tokens.create`, or members cannot be connected.
+- Needs the Agend Apps Core release that ships the surface; with an older core the widget is not registered. Never cached by Elementor's element cache.
+
 ## Directory map and location search
 
 Four pieces, each usable on its own, so a directory can be laid out however its design needs:

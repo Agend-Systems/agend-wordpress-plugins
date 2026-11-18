@@ -520,34 +520,27 @@ function agend_apps_records_member_summary_render_membership( array $part, array
 		'ended'   => __( 'Renew membership', 'agend-apps-core' ),
 	);
 
-	ob_start();
-	?>
-	<section class="agend-ms-band agend-ms-band--<?php echo esc_attr( $part['label'] ); ?>">
-		<div class="agend-ms-band__main">
-			<p class="agend-ms-band__status"><?php echo esc_html( $label ); ?></p>
-			<h3 class="agend-ms-band__tier"><?php echo esc_html( $tier ); ?></h3>
-			<?php if ( $part['via_seat'] ) : ?>
-				<p class="agend-ms-band__note"><?php esc_html_e( 'Included through your organisation\'s membership.', 'agend-apps-core' ); ?></p>
-			<?php endif; ?>
-		</div>
-		<div class="agend-ms-band__side">
-			<?php if ( '' !== $date && isset( $date_lines[ $part['kind'] ] ) ) : ?>
-				<p class="agend-ms-band__date">
-					<span class="agend-ms-band__date-label"><?php echo esc_html( $date_lines[ $part['kind'] ] ); ?></span>
-					<time datetime="<?php echo esc_attr( substr( (string) $part['date'], 0, 10 ) ); ?>"><?php echo esc_html( $date ); ?></time>
-				</p>
-				<?php if ( null !== $part['days'] ) : ?>
-					<p class="agend-ms-band__days"><?php echo esc_html( agend_apps_records_member_summary_days_phrase( (int) $part['days'] ) ); ?></p>
-				<?php endif; ?>
-			<?php endif; ?>
-			<?php if ( '' !== $links['membership'] ) : ?>
-				<p class="agend-ms-band__action"><?php echo agend_apps_records_member_summary_button( $links['membership'], $button_labels[ $part['label'] ] ?? $button_labels['active'], 'on-band' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped by the button. ?></p>
-			<?php endif; ?>
-		</div>
-	</section>
-	<?php
+	$meta = '';
 
-	return (string) ob_get_clean();
+	if ( '' !== $date && isset( $date_lines[ $part['kind'] ] ) ) {
+		$meta .= '<li class="agend-ms-meta__item">' . esc_html( $date_lines[ $part['kind'] ] ) . '&nbsp;<time datetime="' . esc_attr( substr( (string) $part['date'], 0, 10 ) ) . '">' . esc_html( $date ) . '</time></li>';
+
+		if ( null !== $part['days'] ) {
+			$meta .= '<li class="agend-ms-meta__item">' . esc_html( agend_apps_records_member_summary_days_phrase( (int) $part['days'] ) ) . '</li>';
+		}
+	}
+
+	$action = '' !== $links['membership'] ? agend_apps_records_member_summary_button( $links['membership'], $button_labels[ $part['label'] ] ?? $button_labels['active'], 'on-band' ) : '';
+
+	return '<section class="agend-ms-band agend-ms-band--' . esc_attr( $part['label'] ) . '">'
+		. '<div class="agend-ms-band__main">'
+		. '<p class="agend-ms-band__status">' . esc_html( $label ) . '</p>'
+		. '<h3 class="agend-ms-band__tier">' . esc_html( $tier ) . '</h3>'
+		. ( $part['via_seat'] ? '<p class="agend-ms-band__note">' . esc_html__( 'Included through your organisation\'s membership.', 'agend-apps-core' ) . '</p>' : '' )
+		. ( '' !== $meta ? '<ul class="agend-ms-meta agend-ms-band__meta" role="list">' . $meta . '</ul>' : '' )
+		. '</div>'
+		. ( '' !== $action ? '<div class="agend-ms-band__side">' . $action . '</div>' : '' )
+		. '</section>';
 }
 
 /**
@@ -604,6 +597,13 @@ function agend_apps_records_member_summary_render_cpd( array $part, array $links
 		. '<div class="agend-ms-bar" aria-hidden="true"><span class="agend-ms-bar__fill" style="--agend-ms-fill:' . esc_attr( number_format( $fill, 1, '.', '' ) ) . '%"></span></div>'
 		. ( array() !== $meta ? '<ul class="agend-ms-meta" role="list">' . implode( '', $meta ) . '</ul>' : '' );
 
+	$ends = agend_apps_records_member_summary_date( $part['period_end'], 'j F Y' );
+
+	if ( '' !== $ends ) {
+		/* translators: %s: the date the CPD period ends. */
+		$body .= '<p class="agend-ms-quiet">' . esc_html( sprintf( __( 'This period ends on %s.', 'agend-apps-core' ), $ends ) ) . '</p>';
+	}
+
 	if ( '' !== $part['adjustment'] ) {
 		/* translators: %s: the reason the member's target differs from the usual one. */
 		$body .= '<p class="agend-ms-quiet">' . esc_html( sprintf( __( 'Your target is adjusted: %s.', 'agend-apps-core' ), rtrim( $part['adjustment'], '.' ) ) ) . '</p>';
@@ -645,11 +645,14 @@ function agend_apps_records_member_summary_render_events( array $part, array $co
 		$url   = agend_apps_records_member_summary_event_url( $item['slug'] );
 		$day   = agend_apps_records_member_summary_date( $item['date'], 'j' );
 		$month = agend_apps_records_member_summary_date( $item['date'], 'M' );
-		$when  = agend_apps_records_member_summary_date( $item['date'], 'l j F, g:i a' );
+		$when  = agend_apps_records_member_summary_date( $item['date'], 'l, g:i a' );
+		$full  = agend_apps_records_member_summary_date( $item['date'], 'j F Y' );
 		$meta  = '';
 
+		// The date marker is for the eye. The line under the title carries the
+		// time, and the whole date for a screen reader, which skips the marker.
 		if ( '' !== $when ) {
-			$meta .= '<li class="agend-ms-meta__item">' . esc_html( $when ) . '</li>';
+			$meta .= '<li class="agend-ms-meta__item"><span class="agend-ms-sr">' . esc_html( $full ) . ', </span>' . esc_html( $when ) . '</li>';
 		}
 
 		if ( isset( $statuses[ $item['status'] ] ) ) {
@@ -969,13 +972,19 @@ function agend_apps_records_member_summary_render_body( array $config, array $re
 		$grid .= agend_apps_records_member_summary_render_credentials( $sections['credentials'], $config, $links );
 	}
 
+	// The listing is one short row, so it is a strip under the cards rather than
+	// a fourth card with most of its height empty.
+	$strip = '';
+
 	if ( isset( $sections['directory'] ) && 'no_access' !== $sections['directory']['status'] ) {
-		$grid .= agend_apps_records_member_summary_render_directory( $sections['directory'], $links );
+		$strip = agend_apps_records_member_summary_render_directory( $sections['directory'], $links );
 	}
 
 	if ( '' !== $grid ) {
 		$out .= '<div class="agend-ms-grid">' . $grid . '</div>';
 	}
+
+	$out .= $strip;
 
 	if ( $failed ) {
 		$out .= '<p class="agend-ms-actions agend-ms-actions--retry">' . agend_apps_records_member_summary_retry_button( __( 'Try again', 'agend-apps-core' ) ) . '</p>';
@@ -1001,7 +1010,7 @@ function agend_apps_records_member_summary_render_body( array $config, array $re
 			. '</p>';
 	}
 
-	if ( '' === $grid && ! $drawn ) {
+	if ( '' === $grid && '' === $strip && ! $drawn ) {
 		$out .= '<p class="agend-ms-quiet">' . esc_html__( 'There is nothing to show here yet.', 'agend-apps-core' ) . '</p>';
 	}
 
@@ -1056,7 +1065,7 @@ function agend_apps_records_member_summary_example( int $now = 0 ): array {
 				'target'     => 20.0,
 				'pace'       => 'on_track',
 				'days_left'  => 224,
-				'period_end' => '',
+				'period_end' => gmdate( 'Y-m-d', $now + 224 * $day ),
 				'adjustment' => '',
 			),
 			'events'      => array(

@@ -1196,6 +1196,115 @@ credits" above).
   `jobs.submissions.browse` and `jobs.submissions.create` the surface draws
   nothing for a visitor.
 
+## Member access state
+
+`agend_apps_member_access_state()` (`includes/member-access-state.php`) answers,
+for the visitor in front of the site, "can this member's own Agend details be
+read right now, and if not, why not". It is the one function any surface that
+shows a signed-in member their own data asks first. The Member Summary uses it;
+the Learning Pathways progress feature is meant to.
+
+- **Signed in** is `is_user_logged_in()`, in every mode. **Linked** is a
+  non-empty `agend_apps_get_bearer_token()`, probed once per request (the
+  resolver can mint a token and can wait about three seconds on another
+  request's mint). The reason is only worked out when there is no bearer.
+- **Never `window.agendApps.loggedIn`.** It is true only when a stored credential
+  session exists, so it is false for every `wordpress` and `sso` member. The
+  server's view is put in the block's config instead.
+- **Not `agend_apps_account_link_state()`.** It answers `linked` for every
+  signed-in user in `credentials` mode without looking for a session, and in
+  `wordpress` mode it ignores the recorded link state and calls the SSO status
+  endpoint on every render. It is left as it is for the WooCommerce My Account
+  endpoint, which is its one caller, and its docblock says so. The resolver calls
+  it once, in `sso` mode, only when there is no bearer, for the address that
+  starts the link.
+- **States:** `signed_out`, `ready`, `connecting`, `not_linked`,
+  `not_configured`, `no_member_record`, `unavailable`. Each answer also carries
+  `reason` (machine), `action` (what the member can do), `retry_after`,
+  `sign_in_url`, `initiate_url`, `mode`, `signed_in`, `linked` and `detail`.
+- **Reasons by mode, when there is no bearer.** `credentials`: no stored session
+  is `session_missing` (sign out and in again). `sso`: no external id,
+  `missing_scope` (the key lacks `sso.identities.read` and `sso.tokens.create`,
+  which the token worker needs), then one status read, `unlinked` giving
+  `sso_unlinked` and a Connect link. `wordpress`: no external id, `missing_scope`,
+  then the recorded link state (`link_pending`, `link_conflict`,
+  `link_no_contact`, `link_forbidden`, `link_pending_approval`, and `connecting`
+  while it is empty, asserted or errored). The SSO status endpoint is never
+  called in `wordpress` mode.
+- **A read that failed** is classified by `agend_apps_member_access_from_error()`:
+  the client's own scope refusals first (a missing scope on a `/me` route reaches
+  the caller as a 401 after the unattended retry), then 404 as `no_member_record`,
+  401 as `session_expired`, 429 as `busy` with a wait, anything else
+  `gateway_error`.
+- **What a member may be told.** `agend_apps_member_access_message()` gives a
+  title and one plain sentence chosen only from the state and action, never the
+  reason. `detail` is plain text for administrators and is empty unless the
+  viewer can `manage_options`.
+
+## Member summary
+
+The **Agend Member Summary** surface (`member-summary`; block
+`agend-apps/member-summary`, Elementor widget in Agend Elementor) is a personal
+"My membership" card set for a signed-in member: a membership band (standing,
+tier, renewal), CPD against the member's real target, upcoming events,
+certificates and badges, and the directory listing. Each part is switchable. It
+needs the `crm.contacts.browse` scope for the surface itself; each part degrades
+on its own scope (`crm.memberships.browse` for the membership, `crm.tiers.browse`
+for tier names).
+
+- **Never in a cached page.** The page holds a neutral shell (heading, loading
+  state) that is identical for every member, and a script,
+  `assets/js/member-summary.js`. The script POSTs the page's content settings to
+  `agend-apps/v1/member/summary` and places the fragment the server draws, after
+  DOMPurify. The route always answers 200 with a state in the body, `no-store`
+  and `Vary: Cookie`. It is a POST so no shared cache can keep it, and so the
+  settings travel in a body; the route rebuilds its config from them with the
+  same builder the page used and trusts none of it. A visitor who is not signed
+  in gets a sign-in card the server draws, with no script and no call; the route
+  gives the same card to a cached shell that reaches a signed-out visitor.
+- **The cards are drawn in PHP**, by `agend_apps_records_member_summary_render_body()`,
+  so the live fragment, the editor's example and the tests share one set of
+  markup and one place that escapes.
+- **Calls.** `agend_apps_member_summary_fetch()` sends the reads together
+  through `get_cached_many()` with a lifetime of 0, so nothing about the member
+  is stored past the request: connected profile (CPD, events, certificates,
+  badges, directory, first name), entitlements and memberships (standing, tier,
+  renewal, `via_seat`), and tiers read anonymously so one shared copy serves the
+  whole site. That is three calls warm and four cold; one if only the profile
+  parts are on; none for a part switched off or ruled out by the key's scopes.
+- **Protecting the site key.** A member may start six fetches a minute
+  (`agend_apps_member_summary_fetches_per_minute`), and a fetch is held back
+  when the key's last recorded `X-RateLimit-Remaining` is below 15
+  (`agend_apps_member_summary_min_headroom`). A request with no bearer costs
+  nothing and is not counted, so connecting polls are free. The counter holds a
+  number and a time, nothing about the member.
+- **Honest sections.** A part is `ready`, `empty`, `unavailable`, `no_access` or
+  `hidden`; an empty answer is only ever an answer. CPD draws a target only when
+  Agend resolved one (an invented target is never drawn), a failed read is never
+  "0 points", and a null directory block is hidden rather than "you are not
+  listed" because the gateway sends null for a failed read too. An unknown
+  `cpd_resolution` makes the CPD part unavailable. The profile shape is pinned by
+  `tests/fixtures/member-summary-gateway.json`.
+- **Links.** The member's own screens are under the account's portal home
+  (`membership`, `cpd`, `events`, `certificates`, `cpd/badges`), built only when
+  the account is known; an editor's Membership page wins for the membership.
+  Events and the directory listing link to their pages on the site through
+  `Agend_Apps_Records_Pages::detail_url()`. Each certificate links to the
+  editor's Credential check page with `?agend_code=` when one is set. The
+  `agend_apps_member_summary_links` filter changes any of them.
+- **States.** Signed out, loading, connecting (polled at 3, 3, 5, 5, 7 and 7
+  seconds, then one more ask that says it has waited and offers a retry), sign in
+  again, connect my account, check your email, contact us, no membership found,
+  busy and unavailable. Wording for a member never names a scope, mode or
+  reason. Administrators see the reason in a note that says only they see it.
+- **Editor.** The block and the Elementor widget show a clearly labelled example
+  of an imaginary member, from the same markup, with only the parts the editor
+  switched on and no call. Nothing sample-shaped is ever drawn on the front end.
+- **Look.** The Learning Pathways family: borders not shadows, the heading colour
+  as the one deep band, the accent only a small mark, whole-row links with a
+  chevron, container queries for layout, a skeleton that has the cards'
+  proportions. Colours come from the site palette with `color-mix()` tints.
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map
