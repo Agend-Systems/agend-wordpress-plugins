@@ -982,7 +982,9 @@
   margin-bottom: 0;
 }
 
-.agend-resources-ask__title {
+/* Under `.agend-resources-ask__text` the plain paragraph rule above would win
+   over a single class: the title would lose its size and its tight margin. */
+.agend-resources-ask__text .agend-resources-ask__title {
   margin: 0 0 0.375rem;
   color: var(--agend-res-heading);
   font-size: 1.125rem;
