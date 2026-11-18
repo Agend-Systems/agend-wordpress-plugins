@@ -1,6 +1,6 @@
 <?php
 /**
- * Elementor Learning Paths widget for Agend Elementor Widgets.
+ * Elementor Learning Pathways widget for Agend Elementor Widgets.
  *
  * @package Agend_Elementor
  */
@@ -33,7 +33,7 @@ class Agend_Elementor_Learning_Paths extends \Elementor\Widget_Base {
 	 * @return string Widget title.
 	 */
 	public function get_title(): string {
-		return __( 'Agend Learning Paths', 'agend-elementor' );
+		return __( 'Agend Learning Pathways', 'agend-elementor' );
 	}
 
 	/**
@@ -96,7 +96,7 @@ class Agend_Elementor_Learning_Paths extends \Elementor\Widget_Base {
 		// A path list inside a card template would be fetched once per card.
 		if ( Agend_Apps_Records_Record_Context::has() ) {
 			if ( \Elementor\Plugin::$instance->editor->is_edit_mode() ) {
-				echo '<div class="elementor-alert elementor-alert-warning">' . esc_html__( 'A Learning Paths widget cannot be placed inside a card or detail template.', 'agend-elementor' ) . '</div>';
+				echo '<div class="elementor-alert elementor-alert-warning">' . esc_html__( 'A Learning Pathways widget cannot be placed inside a card or detail template.', 'agend-elementor' ) . '</div>';
 			}
 			return;
 		}

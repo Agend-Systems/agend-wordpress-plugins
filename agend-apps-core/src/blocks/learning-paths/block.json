@@ -3,10 +3,10 @@
 	"apiVersion": 3,
 	"name": "agend-apps/learning-paths",
 	"version": "1.15.2",
-	"title": "Agend Learning Paths",
+	"title": "Agend Learning Pathways",
 	"category": "agend",
 	"icon": "editor-ol",
-	"description": "Learning paths from Agend LMS, each with its courses in order.",
+	"description": "Learning pathways from Agend LMS, each with its courses in order.",
 	"keywords": [ "agend", "learning", "paths", "pathways", "courses" ],
 	"textdomain": "agend-apps-core",
 	"supports": {

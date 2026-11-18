@@ -43,7 +43,7 @@ function agend_apps_records_schema_learning_paths(): array {
 				'fields' => array(
 					array(
 						'name'    => 'show_heading',
-						'label'   => __( 'Show heading block', 'agend-apps-core' ),
+						'label'   => __( 'Show heading', 'agend-apps-core' ),
 						'type'    => 'toggle',
 						'default' => true,
 					),
@@ -51,7 +51,7 @@ function agend_apps_records_schema_learning_paths(): array {
 						'name'      => 'heading_text',
 						'label'     => __( 'Heading', 'agend-apps-core' ),
 						'type'      => 'text',
-						'default'   => __( 'Learning paths', 'agend-apps-core' ),
+						'default'   => __( 'Learning pathways', 'agend-apps-core' ),
 						'condition' => array( 'show_heading' => 'yes' ),
 					),
 					array(
@@ -65,35 +65,38 @@ function agend_apps_records_schema_learning_paths(): array {
 			),
 			array(
 				'id'     => 'section_paths',
-				'label'  => __( 'Learning Paths', 'agend-apps-core' ),
+				'label'  => __( 'Learning Pathways', 'agend-apps-core' ),
 				'fields' => array(
 					array(
 						'name'    => 'path_source',
-						'label'   => __( 'Which paths', 'agend-apps-core' ),
+						'label'   => __( 'Which pathways', 'agend-apps-core' ),
 						'type'    => 'select',
 						'options' => array(
-							'all'      => __( 'All published paths', 'agend-apps-core' ),
-							'selected' => __( 'Only the paths I choose', 'agend-apps-core' ),
+							'all'      => __( 'All published pathways', 'agend-apps-core' ),
+							'selected' => __( 'Only the pathways I choose', 'agend-apps-core' ),
 						),
 						'default' => 'all',
 					),
+					// The cap is the bound on the page's gateway calls: each path adds one
+					// read for its course list. Editors are told the number, not the reason.
 					array(
 						'name'        => 'max_paths',
-						'label'       => __( 'Number of paths', 'agend-apps-core' ),
+						'label'       => __( 'Number of pathways', 'agend-apps-core' ),
 						'type'        => 'number',
 						'default'     => 6,
 						'min'         => 1,
 						'max'         => AGEND_APPS_RECORDS_LEARNING_PATHS_MAX,
-						'description' => __( 'Newest first. Each path adds one request to the course list, so the number is capped.', 'agend-apps-core' ),
+						/* translators: %d: the most pathways the widget will show. */
+						'description' => sprintf( __( 'Newest first. Shows up to %d.', 'agend-apps-core' ), AGEND_APPS_RECORDS_LEARNING_PATHS_MAX ),
 						'condition'   => array( 'path_source' => 'all' ),
 					),
 					array(
 						'name'        => 'selected_paths',
-						'label'       => __( 'Paths to show', 'agend-apps-core' ),
+						'label'       => __( 'Pathways to show', 'agend-apps-core' ),
 						'type'        => 'multiselect',
 						'label_block' => true,
 						'options'     => 'agend_apps_records_learning_paths_options',
-						'description' => __( 'Shown in the order you choose them. A path that has since been unpublished or deleted is left out.', 'agend-apps-core' ),
+						'description' => __( 'Shown in the order you choose them. A pathway that has been unpublished or deleted is left out.', 'agend-apps-core' ),
 						'condition'   => array( 'path_source' => 'selected' ),
 					),
 				),
@@ -112,7 +115,7 @@ function agend_apps_records_schema_learning_paths(): array {
 							'3' => '3',
 						),
 						'default'     => '2',
-						'description' => __( 'The most columns across. One path, or fewer paths than columns, uses the full width, and a narrow area uses fewer columns.', 'agend-apps-core' ),
+						'description' => __( 'The most columns across. A single pathway, or fewer pathways than columns, fills the full width. Narrow areas use fewer columns.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'columns_tablet',
@@ -125,6 +128,16 @@ function agend_apps_records_schema_learning_paths(): array {
 						'default' => '2',
 					),
 					array(
+						'name'    => 'columns_mobile',
+						'label'   => __( 'Columns (Mobile)', 'agend-apps-core' ),
+						'type'    => 'select',
+						'options' => array(
+							'1' => '1',
+							'2' => '2',
+						),
+						'default' => '1',
+					),
+					array(
 						'name'        => 'card_layout',
 						'label'       => __( 'Card layout', 'agend-apps-core' ),
 						'type'        => 'select',
@@ -133,7 +146,7 @@ function agend_apps_records_schema_learning_paths(): array {
 							'stacked' => __( 'Always stacked', 'agend-apps-core' ),
 						),
 						'default'     => 'auto',
-						'description' => __( 'Automatic puts a path\'s summary beside its courses when the card is wide, such as one path across the full width. Always stacked keeps the summary above the courses.', 'agend-apps-core' ),
+						'description' => __( 'Automatic puts a pathway\'s summary beside its courses when the card is wide, such as a single pathway across the full width. Always stacked keeps the summary above the courses.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'card_radius',
@@ -147,17 +160,17 @@ function agend_apps_records_schema_learning_paths(): array {
 			),
 			array(
 				'id'     => 'section_card_fields',
-				'label'  => __( 'Path Card', 'agend-apps-core' ),
+				'label'  => __( 'Pathway Card', 'agend-apps-core' ),
 				'fields' => array(
 					array(
 						'name'    => 'show_image',
-						'label'   => __( 'Show path image', 'agend-apps-core' ),
+						'label'   => __( 'Show pathway image', 'agend-apps-core' ),
 						'type'    => 'toggle',
 						'default' => true,
 					),
 					array(
 						'name'    => 'show_difficulty',
-						'label'   => __( 'Show difficulty badge', 'agend-apps-core' ),
+						'label'   => __( 'Show difficulty level', 'agend-apps-core' ),
 						'type'    => 'toggle',
 						'default' => true,
 					),
@@ -187,14 +200,15 @@ function agend_apps_records_schema_learning_paths(): array {
 						'label'       => __( 'Show "complete in order" note', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => true,
-						'description' => __( 'Shown on paths that ask learners to take the courses in sequence.', 'agend-apps-core' ),
+						'description' => __( 'Shown on pathways that ask learners to take the courses in sequence.', 'agend-apps-core' ),
 					),
+					// Off also drops the per-path course read, one gateway call per path.
 					array(
 						'name'        => 'show_courses',
 						'label'       => __( 'Show the course list', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => true,
-						'description' => __( 'The path\'s courses, numbered in order. Off: the card shows the path alone and the page makes one request fewer per path.', 'agend-apps-core' ),
+						'description' => __( 'The pathway\'s courses, numbered in order. Off: each card shows only the pathway\'s details, without its courses.', 'agend-apps-core' ),
 					),
 				),
 			),
@@ -212,7 +226,7 @@ function agend_apps_records_schema_learning_paths(): array {
 							'none'   => __( 'No links', 'agend-apps-core' ),
 						),
 						'default'     => 'detail',
-						'description' => __( 'The course page is on the Courses page set under Settings > Agend Widgets > Catalogue Pages. With none set, courses are listed without links.', 'agend-apps-core' ),
+						'description' => __( 'Links go to the Courses page chosen under Settings > Agend Widgets > Catalogue Pages. If no Courses page is chosen, courses are shown without links.', 'agend-apps-core' ),
 					),
 					array(
 						'name'      => 'links_new_tab',
@@ -229,17 +243,17 @@ function agend_apps_records_schema_learning_paths(): array {
 				'fields' => array(
 					array(
 						'name'        => 'empty_message',
-						'label'       => __( 'Message when there are no paths', 'agend-apps-core' ),
+						'label'       => __( 'Message when there are no pathways', 'agend-apps-core' ),
 						'type'        => 'text',
-						'default'     => __( 'No learning paths are available yet.', 'agend-apps-core' ),
+						'default'     => __( 'No learning pathways are available yet.', 'agend-apps-core' ),
 						'label_block' => true,
 					),
 					array(
 						'name'        => 'hide_when_empty',
-						'label'       => __( 'Hide the widget when there are no paths', 'agend-apps-core' ),
+						'label'       => __( 'Hide the widget when there are no pathways', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => false,
-						'description' => __( 'Visitors then see nothing, not even the heading. A failed load still shows its message.', 'agend-apps-core' ),
+						'description' => __( 'Visitors then see nothing at all, not even the heading. If the pathways cannot be loaded, a message is still shown.', 'agend-apps-core' ),
 					),
 				),
 			),
@@ -274,7 +288,7 @@ function agend_apps_records_schema_learning_paths(): array {
 						'label'       => __( 'Highlight / accent colour', 'agend-apps-core' ),
 						'type'        => 'colour',
 						'default'     => '#FF6B55',
-						'description' => __( 'Drives the step numbers and the small mark beside the difficulty level.', 'agend-apps-core' ),
+						'description' => __( 'Used for the step numbers and the small dot beside the difficulty level.', 'agend-apps-core' ),
 						'condition'   => array( 'inherit_colours!' => 'yes' ),
 					),
 				),

@@ -97,6 +97,7 @@ function agend_apps_records_learning_paths_build_config( array $s ): array {
 		'layout'  => array(
 			'desktop'    => max( 1, min( 3, (int) ( $s['columns_desktop'] ?? 2 ) ) ),
 			'tablet'     => max( 1, min( 2, (int) ( $s['columns_tablet'] ?? 2 ) ) ),
+			'mobile'     => max( 1, min( 2, (int) ( $s['columns_mobile'] ?? 1 ) ) ),
 			'cardRadius' => max( 0, min( 48, (int) ( $s['card_radius'] ?? 10 ) ) ),
 			'card'       => 'stacked' === ( $s['card_layout'] ?? 'auto' ) ? 'stacked' : 'auto',
 		),
@@ -358,13 +359,14 @@ function agend_apps_records_learning_paths_fetch( array $config ): array {
  */
 function agend_apps_records_learning_paths_inline_style( array $config ): string {
 	return sprintf(
-		'--agend-lp-heading:%1$s;--agend-lp-body:%2$s;--agend-lp-accent:%3$s;--agend-lp-card-radius:%4$dpx;--agend-lp-cols-desktop:%5$d;--agend-lp-cols-tablet:%6$d;',
+		'--agend-lp-heading:%1$s;--agend-lp-body:%2$s;--agend-lp-accent:%3$s;--agend-lp-card-radius:%4$dpx;--agend-lp-cols-desktop:%5$d;--agend-lp-cols-tablet:%6$d;--agend-lp-cols-mobile:%7$d;',
 		esc_attr( $config['colours']['heading'] ),
 		esc_attr( $config['colours']['body'] ),
 		esc_attr( $config['colours']['accent'] ),
 		(int) $config['layout']['cardRadius'],
 		(int) $config['layout']['desktop'],
-		(int) $config['layout']['tablet']
+		(int) $config['layout']['tablet'],
+		(int) $config['layout']['mobile']
 	);
 }
 
@@ -450,8 +452,8 @@ function agend_apps_records_render_learning_paths( array $settings ): string {
 			<p class="agend-learning-paths__status<?php echo $read['error'] ? ' agend-learning-paths__status--error' : ''; ?>" role="status">
 				<?php
 				echo $read['error']
-					? esc_html__( 'Unable to load learning paths.', 'agend-apps-core' )
-					: esc_html( '' !== $config['empty']['message'] ? $config['empty']['message'] : __( 'No learning paths are available yet.', 'agend-apps-core' ) );
+					? esc_html__( 'Unable to load learning pathways.', 'agend-apps-core' )
+					: esc_html( '' !== $config['empty']['message'] ? $config['empty']['message'] : __( 'No learning pathways are available yet.', 'agend-apps-core' ) );
 				?>
 			</p>
 		<?php else : ?>

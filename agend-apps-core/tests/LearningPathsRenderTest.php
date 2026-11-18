@@ -144,6 +144,7 @@ final class LearningPathsRenderTest extends TestCase {
 		self::assertSame( 6, $config['max'] );
 		self::assertSame( 2, $config['layout']['desktop'] );
 		self::assertSame( 2, $config['layout']['tablet'] );
+		self::assertSame( 1, $config['layout']['mobile'], 'one column on a phone, as in the courses catalogue' );
 		self::assertTrue( $config['card']['courses'] );
 		self::assertTrue( $config['courses']['links'] );
 		self::assertFalse( $config['courses']['newTab'] );
@@ -157,6 +158,7 @@ final class LearningPathsRenderTest extends TestCase {
 				'max_paths'       => 500,
 				'columns_desktop' => '9',
 				'columns_tablet'  => '0',
+				'columns_mobile'  => '9',
 				'card_radius'     => 99,
 				'excerpt_length'  => 5,
 			)
@@ -165,9 +167,11 @@ final class LearningPathsRenderTest extends TestCase {
 		self::assertSame( AGEND_APPS_RECORDS_LEARNING_PATHS_MAX, $config['max'] );
 		self::assertSame( 3, $config['layout']['desktop'] );
 		self::assertSame( 1, $config['layout']['tablet'] );
+		self::assertSame( 2, $config['layout']['mobile'] );
 		self::assertSame( 48, $config['layout']['cardRadius'] );
 		self::assertSame( 20, $config['card']['excerptLength'] );
 		self::assertSame( 1, agend_apps_records_learning_paths_build_config( array( 'max_paths' => 0 ) )['max'] );
+		self::assertSame( 1, agend_apps_records_learning_paths_build_config( array( 'columns_mobile' => '0' ) )['layout']['mobile'] );
 	}
 
 	#[Test]
@@ -346,7 +350,7 @@ final class LearningPathsRenderTest extends TestCase {
 
 		$html = $this->render( array() );
 
-		self::assertStringContainsString( '<h2 class="agend-learning-paths__title">Learning paths</h2>', $html );
+		self::assertStringContainsString( '<h2 class="agend-learning-paths__title">Learning pathways</h2>', $html );
 		self::assertSame( 2, substr_count( $html, '<article class="agend-learning-paths__card">' ) );
 		self::assertSame( 2, substr_count( $html, '<ol class="agend-learning-paths__courses' ) );
 
@@ -473,11 +477,12 @@ final class LearningPathsRenderTest extends TestCase {
 				'accent_colour'   => '#abcdef',
 				'columns_desktop' => '3',
 				'columns_tablet'  => '1',
+				'columns_mobile'  => '2',
 				'card_radius'     => 4,
 			)
 		);
 
-		self::assertStringContainsString( '--agend-lp-heading:#111111;--agend-lp-body:#222222;--agend-lp-accent:#abcdef;--agend-lp-card-radius:4px;--agend-lp-cols-desktop:3;--agend-lp-cols-tablet:1;', $html );
+		self::assertStringContainsString( '--agend-lp-heading:#111111;--agend-lp-body:#222222;--agend-lp-accent:#abcdef;--agend-lp-card-radius:4px;--agend-lp-cols-desktop:3;--agend-lp-cols-tablet:1;--agend-lp-cols-mobile:2;', $html );
 	}
 
 	#[Test]
@@ -632,9 +637,9 @@ final class LearningPathsRenderTest extends TestCase {
 		$html = $this->render( array() );
 
 		self::assertStringContainsString( 'role="status"', $html );
-		self::assertStringContainsString( 'No learning paths are available yet.', $html );
+		self::assertStringContainsString( 'No learning pathways are available yet.', $html );
 		self::assertStringNotContainsString( '<ul', $html );
-		self::assertStringContainsString( 'Learning paths</h2>', $html, 'the heading stays above the message' );
+		self::assertStringContainsString( 'Learning pathways</h2>', $html, 'the heading stays above the message' );
 	}
 
 	#[Test]
@@ -642,12 +647,12 @@ final class LearningPathsRenderTest extends TestCase {
 		$html = $this->render( array( 'empty_message' => 'Paths are <coming> soon.' ) );
 
 		self::assertStringContainsString( 'Paths are &lt;coming&gt; soon.', $html );
-		self::assertStringNotContainsString( 'No learning paths are available yet.', $html );
+		self::assertStringNotContainsString( 'No learning pathways are available yet.', $html );
 	}
 
 	#[Test]
 	public function should_fall_back_to_the_default_message_when_the_author_left_it_blank(): void {
-		self::assertStringContainsString( 'No learning paths are available yet.', $this->render( array( 'empty_message' => '  ' ) ) );
+		self::assertStringContainsString( 'No learning pathways are available yet.', $this->render( array( 'empty_message' => '  ' ) ) );
 	}
 
 	#[Test]
@@ -675,9 +680,9 @@ final class LearningPathsRenderTest extends TestCase {
 
 		$html = $this->render( array( 'hide_when_empty' => 'yes' ) );
 
-		self::assertStringContainsString( 'Unable to load learning paths.', $html );
+		self::assertStringContainsString( 'Unable to load learning pathways.', $html );
 		self::assertStringContainsString( 'agend-learning-paths__status--error', $html );
-		self::assertStringNotContainsString( 'No learning paths', $html );
+		self::assertStringNotContainsString( 'No learning pathways', $html );
 	}
 
 	#[Test]
@@ -689,7 +694,7 @@ final class LearningPathsRenderTest extends TestCase {
 			)
 		);
 
-		self::assertStringContainsString( 'Unable to load learning paths.', $html );
+		self::assertStringContainsString( 'Unable to load learning pathways.', $html );
 	}
 
 	// -----------------------------------------------------------------
@@ -772,6 +777,82 @@ final class LearningPathsRenderTest extends TestCase {
 	// -----------------------------------------------------------------
 
 	#[Test]
+	public function should_offer_the_same_mobile_columns_control_as_the_courses_catalogue(): void {
+		$field = $this->field( agend_apps_records_surface_schema( 'learning-paths' ), 'columns_mobile' );
+		$other = $this->field( agend_apps_records_surface_schema( 'courses-catalogue' ), 'columns_mobile' );
+
+		self::assertNotNull( $field );
+		self::assertSame( $other, $field, 'same name, label, options and default as the courses catalogue' );
+		self::assertSame( '1', $field['default'] );
+		self::assertSame( array( '1', '2' ), array_map( 'strval', array_keys( $field['options'] ) ) );
+	}
+
+	#[Test]
+	public function should_tell_an_editor_the_cap_in_plain_words(): void {
+		$field = $this->field( agend_apps_records_surface_schema( 'learning-paths' ), 'max_paths' );
+
+		self::assertSame( 'Newest first. Shows up to ' . AGEND_APPS_RECORDS_LEARNING_PATHS_MAX . '.', $field['description'] );
+	}
+
+	#[Test]
+	public function should_word_every_setting_for_an_association_editor(): void {
+		$words = array();
+
+		foreach ( agend_apps_records_surface_schema( 'learning-paths' )['sections'] as $section ) {
+			$words[] = (string) $section['label'];
+
+			foreach ( $section['fields'] as $field ) {
+				$words[] = (string) ( $field['label'] ?? '' );
+				$words[] = (string) ( $field['description'] ?? '' );
+				$words[] = is_string( $field['default'] ?? null ) ? $field['default'] : '';
+
+				if ( isset( $field['options'] ) && is_array( $field['options'] ) ) {
+					$words = array_merge( $words, array_map( 'strval', array_values( $field['options'] ) ) );
+				}
+			}
+		}
+
+		$text = implode( "\n", $words );
+
+		self::assertDoesNotMatchRegularExpression( '/\b(requests?|cach(e|ed|ing)|api|slugs?|ids?|endpoints?|gateway)\b/i', $text, 'no developer-speak in what an editor reads' );
+		self::assertDoesNotMatchRegularExpression( '/\bpaths?\b/i', $text, 'the Agend LMS app calls them pathways' );
+		self::assertStringContainsString( 'Learning Pathways', $text );
+		self::assertStringContainsString( 'Learning pathways', $text, 'the default heading' );
+	}
+
+	#[Test]
+	public function should_call_the_block_learning_pathways_but_keep_its_name(): void {
+		foreach ( array( '/agend-apps-core/src/blocks/learning-paths/block.json', '/agend-apps-core/build/blocks/learning-paths/block.json' ) as $file ) {
+			$block = json_decode( (string) file_get_contents( AGEND_TESTS_ROOT . $file ), true );
+
+			self::assertSame( 'agend-apps/learning-paths', $block['name'], $file );
+			self::assertSame( 'Agend Learning Pathways', $block['title'], $file );
+			self::assertStringContainsString( 'pathways', $block['description'], $file );
+		}
+
+		self::assertStringContainsString( 'Agend Learning Pathways', (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/build/blocks/learning-paths/index.js' ), 'the built editor script carries the new label' );
+	}
+
+	/**
+	 * One field of a surface schema, by name.
+	 *
+	 * @param array  $schema Surface schema.
+	 * @param string $name   Setting name.
+	 * @return array|null
+	 */
+	private function field( array $schema, string $name ): ?array {
+		foreach ( $schema['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				if ( $name === $field['name'] ) {
+					return $field;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	#[Test]
 	public function should_derive_the_block_attributes_from_the_schema(): void {
 		$attributes = agend_apps_records_block_attributes( agend_apps_records_surface_schema( 'learning-paths' ) );
 
@@ -783,6 +864,7 @@ final class LearningPathsRenderTest extends TestCase {
 		self::assertSame( array( 'type' => 'boolean', 'default' => false ), $attributes['links_new_tab'] );
 		self::assertSame( array( 'type' => 'string', 'default' => 'detail' ), $attributes['course_links'] );
 		self::assertSame( array( 'type' => 'string', 'default' => 'auto' ), $attributes['card_layout'] );
+		self::assertSame( array( 'type' => 'string', 'default' => '1' ), $attributes['columns_mobile'] );
 	}
 
 	#[Test]

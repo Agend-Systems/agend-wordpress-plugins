@@ -9,13 +9,13 @@ registerBlockType( metadata.name, {
 	edit: createSurfaceEdit( {
 		surface: 'learning-paths',
 		icon: 'editor-ol',
-		label: __( 'Agend Learning Paths', 'agend-apps-core' ),
+		label: __( 'Agend Learning Pathways', 'agend-apps-core' ),
 		instructions: ( attributes ) =>
 			'selected' === attributes.path_source
-				? __( 'The learning paths you chose, each with its courses in order. Renders on the published page.', 'agend-apps-core' )
+				? __( 'The learning pathways you chose, each with its courses in order. Renders on the published page.', 'agend-apps-core' )
 				: sprintf(
 						/* translators: %d: number of paths shown. */
-						__( 'Up to %d learning paths, each with its courses in order. Renders on the published page.', 'agend-apps-core' ),
+						__( 'Up to %d learning pathways, each with its courses in order. Renders on the published page.', 'agend-apps-core' ),
 						attributes.max_paths || 6
 				  ),
 	} ),

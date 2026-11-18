@@ -33,7 +33,7 @@ trait Learning_Paths_Widget_Test_Methods {
 }
 
 /**
- * The Agend Learning Paths widget: a thin adapter over the core surface, so
+ * The Agend Learning Pathways widget: a thin adapter over the core surface, so
  * what is pinned here is the seam: its controls are the schema's, its output is
  * the core renderer's, and it stands down for a key that cannot use the
  * surface.
@@ -116,7 +116,7 @@ final class LearningPathsWidgetTest extends TestCase {
 		$widget = $this->widget();
 
 		self::assertSame( 'agend-learning-paths', $widget->get_name() );
-		self::assertSame( 'Agend Learning Paths', $widget->get_title() );
+		self::assertSame( 'Agend Learning Pathways', $widget->get_title() );
 		self::assertSame( array( 'agend-apps' ), $widget->get_categories() );
 		self::assertContains( 'pathways', $widget->get_keywords() );
 	}
@@ -187,6 +187,7 @@ final class LearningPathsWidgetTest extends TestCase {
 		self::assertSame( '2', $controls['columns_desktop']['args']['default'] );
 		self::assertSame( 'detail', $controls['course_links']['args']['default'] );
 		self::assertSame( 'auto', $controls['card_layout']['args']['default'] );
+		self::assertSame( '1', $controls['columns_mobile']['args']['default'] );
 		self::assertSame( array( 'auto', 'stacked' ), array_keys( $controls['card_layout']['args']['options'] ) );
 	}
 

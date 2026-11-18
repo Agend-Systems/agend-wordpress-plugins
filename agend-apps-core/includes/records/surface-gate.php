@@ -55,7 +55,7 @@ function agend_apps_records_surface_map(): array {
 			'scopes' => array( 'lms.courses.browse' ),
 		),
 		'learning-paths'            => array(
-			'label'  => __( 'Agend Learning Paths', 'agend-apps-core' ),
+			'label'  => __( 'Agend Learning Pathways', 'agend-apps-core' ),
 			'scopes' => array( 'lms.paths.browse' ),
 		),
 		'jobs-catalogue'            => array(

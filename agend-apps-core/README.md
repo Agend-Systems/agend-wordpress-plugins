@@ -1289,12 +1289,13 @@ authors in the Agend Elementor README. The pieces here:
   `agend_apps_records_directory_map_directions_url` filter returns another
   https URL template with `{lat}` and `{lng}`.
 
-## Learning paths
+## Learning pathways
 
-The **Agend Learning Paths** surface (`learning-paths`; block
+The **Agend Learning Pathways** surface (`learning-paths`; block
 `agend-apps/learning-paths`, Elementor widget in Agend Elementor) lists the
-connected account's published LMS learning paths, each with its courses in
-order. It needs the `lms.paths.browse` scope and, like every surface, draws
+connected account's published LMS learning pathways, each with its courses in
+order. The editor-facing name is "Learning Pathways", as in the Agend LMS app;
+the slugs, block name, widget name, functions and CSS classes keep `learning-paths`. It needs the `lms.paths.browse` scope and, like every surface, draws
 nothing for a visitor (and a disabled box for an editor) without it. Paths are
 public catalogue content: nothing about it needs a signed-in visitor, so it
 works the same in every member sign-in mode.
@@ -1306,7 +1307,7 @@ works the same in every member sign-in mode.
   stylesheet. This differs from the catalogues on purpose: they filter, page and
   open a detail view in the browser, and this has nothing to do there.
 - **Reads.** "All published paths" is one `agend_apps_lms_get_paths()` call
-  (`limit` is the "Number of paths" setting, newest first). "Only the paths I
+  (`limit` is the "Number of pathways" setting, newest first). "Only the pathways I
   choose" calls neither the list nor a page of it: each chosen id is read for
   itself through `agend_apps_lms_get_paths_by_id()`, so a path past the first
   page is found, and they are shown in the order chosen. The course list needs
@@ -1324,7 +1325,7 @@ works the same in every member sign-in mode.
   including a chosen one unpublished since it was picked (the gateway answers a
   single read for any path it owns). A course with no title is left out. A path
   whose course list could not be read still shows, without one; the surface only
-  says "Unable to load learning paths." when no path could be read at all.
+  says "Unable to load learning pathways." when no path could be read at all.
 - **Course links.** A course links to its page on the Courses page set under
   Settings > Agend Widgets > Catalogue Pages (`{page}/course/{slug}/`, or the
   `?agend_course=` form without pretty permalinks), through
@@ -1341,12 +1342,17 @@ works the same in every member sign-in mode.
 - **Layout and look.** Each path is a card: a header in the heading colour (the
   difficulty level, title, hours and course count, description) and the courses
   as a numbered stepper, with a quiet connector between the steps when the path
-  is sequential (the "complete in order" note is kept as text too). A course row
+  is sequential (the "complete in order" note is kept as text too). All markers
+  look the same: an optional course says "Optional" in words only, because solid
+  versus outline markers are kept for done versus not started once member
+  progress is shown. A course row
   is one whole-row link whose text is the course title. "Columns" is the most
   columns across: a card is never narrower than 20rem, and one path, or fewer
   paths than columns, takes the full width. A wide card (about 42rem or more,
   by the card's own width, not the screen's) puts the header beside the steps;
-  "Card layout: Always stacked" keeps the header above them. There is no
+  "Card layout: Always stacked" keeps the header above them. "Columns (Mobile)"
+  (1 or 2, default 1, as in the courses catalogue) sets the columns on a phone;
+  two across tightens the card and drops the chevrons. There is no
   box-shadow, because the Agend theme sets `box-shadow: none !important`
   everywhere; the stylesheet also cancels that theme's ID-level `li + li` top
   margin on its own lists.

@@ -31,6 +31,7 @@
   --agend-lp-card-radius: 10px;
   --agend-lp-cols-desktop: 2;
   --agend-lp-cols-tablet: 2;
+  --agend-lp-cols-mobile: 1;
 
   /* Colours derived from the three above. The plain values are what the
      default navy and coral give; they only show in a browser without
@@ -41,7 +42,6 @@
   --agend-lp-marker-bg: #ffe8e4;
   --agend-lp-marker-bg-hover: #ffd5ce;
   --agend-lp-marker-edge: #ffb0a4;
-  --agend-lp-optional-edge: #8a90a3;
   --agend-lp-on-band: #fff;
   --agend-lp-on-band-soft: #f6f7fa;
 
@@ -68,7 +68,6 @@
     --agend-lp-marker-bg: color-mix(in srgb, var(--agend-lp-accent) 16%, #fff);
     --agend-lp-marker-bg-hover: color-mix(in srgb, var(--agend-lp-accent) 30%, #fff);
     --agend-lp-marker-edge: color-mix(in srgb, var(--agend-lp-accent) 55%, #fff);
-    --agend-lp-optional-edge: color-mix(in srgb, var(--agend-lp-heading) 55%, #fff);
     /* Nearly white with a breath of the heading colour: on a header dark
        enough for the site's heading text to read on white, this reads on it. */
     --agend-lp-on-band-soft: color-mix(in srgb, #fff 92%, var(--agend-lp-heading));
@@ -98,7 +97,10 @@
 
 @media (max-width: 640px) {
   .agend-learning-paths {
-    --agend-lp-cols: 1;
+    --agend-lp-cols: var(--agend-lp-cols-mobile);
+    /* Two across on a phone needs cards narrower than the usual minimum. A
+       phone too narrow for that falls back to one column. */
+    --agend-lp-min-card: 9rem;
     --agend-lp-gap: 1.25rem;
   }
 }
@@ -356,12 +358,9 @@
   line-height: 1;
 }
 
-/* Optional: a dashed ring and no fill, as well as the word. */
-.agend-learning-paths__course--optional::before {
-  border-style: dashed;
-  border-color: var(--agend-lp-optional-edge);
-  background: transparent;
-}
+/* Every step marker looks the same, optional or not: the word "Optional" says
+   it. Solid versus outline markers are kept free to mean done versus not
+   started once member progress is shown. */
 
 /* The connector between the steps of a sequential path. A border, not a
    background, so it survives forced-colours mode. It runs from just under one
@@ -480,6 +479,57 @@
     transition:
       transform 0.15s ease,
       color 0.15s ease;
+  }
+}
+
+/* A very narrow card (two across on a phone): tighter padding and no chevron,
+   so the course titles keep their room. */
+@container agend-lp (max-width: 17rem) {
+  .agend-learning-paths__head-text {
+    padding: 1rem 0.875rem 1.125rem;
+  }
+
+  .agend-learning-paths__steps {
+    padding: 0.5rem 0.25rem 0.625rem;
+  }
+
+  /* The meta items may wrap here, and a divider must not start a line. */
+  .agend-learning-paths__meta {
+    column-gap: 0.875rem;
+  }
+
+  .agend-learning-paths__meta-item + .agend-learning-paths__meta-item::before {
+    display: none;
+  }
+
+  .agend-learning-paths__steps-head {
+    padding-inline: 0.5rem;
+  }
+
+  .agend-learning-paths__course,
+  .agend-learning-paths__course--link {
+    grid-template-columns: 1.75rem minmax(0, 1fr);
+    column-gap: 0.625rem;
+    padding-inline: 0.5rem;
+  }
+
+  .agend-learning-paths__course::before {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.75rem;
+  }
+
+  .agend-learning-paths__course-main {
+    padding-block: 0.1875rem;
+  }
+
+  .agend-learning-paths__chevron {
+    display: none;
+  }
+
+  .agend-learning-paths__courses--sequential > .agend-learning-paths__course:not(:last-child)::after {
+    top: calc(var(--agend-lp-row-pad) + 2rem);
+    inset-inline-start: calc(0.5rem + 0.875rem - 1px);
   }
 }
 
