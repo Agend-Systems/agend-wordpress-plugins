@@ -288,14 +288,26 @@
   font-size: 1rem;
   font-weight: 600;
   line-height: 1.4;
-  text-decoration: underline;
-  text-decoration-color: var(--agend-cm-tint-edge);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 0.25em;
+  /* No underline at rest, as the other links of this family: the bold label and
+     the chevron say it is a link, and the underline appears on hover. The theme
+     underlines links with a coral rule; the reset above and the opt-out class on
+     the markup keep that off. */
+  text-decoration: none;
 }
 
 .agend-community .agend-community__cta-link:hover {
-  text-decoration-color: var(--agend-cm-heading);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.agend-community__cta-link:hover .agend-community__chevron {
+  color: var(--agend-cm-heading);
+  transform: translateX(2px);
+}
+
+[dir="rtl"] .agend-community__cta-link:hover .agend-community__chevron {
+  transform: translateX(-2px) scaleX(-1);
 }
 
 .agend-community .agend-community__cta-link:focus-visible {
@@ -746,8 +758,7 @@
   }
 }
 
-/* A narrow area (a phone, or a sidebar): tighter rows, and the notice's
-   chevron gives its room back to the headline. */
+/* A narrow area (a phone, or a sidebar): tighter rows. */
 @container agend-cm (max-width: 30rem) {
   .agend-community-announcements__notice,
   .agend-community-feed__post {
@@ -771,11 +782,6 @@
     flex-basis: 3rem;
   }
 
-  .agend-community-announcements__notice > .agend-community__chevron,
-  .agend-community-feed__post > .agend-community__chevron {
-    display: none;
-  }
-
   .agend-community-channels__card {
     padding: 1rem;
   }
@@ -793,5 +799,14 @@
   .agend-community__meta .agend-community__flag::before {
     display: block;
     margin-inline: 0 0.4375rem;
+  }
+}
+
+/* Narrower than a phone column: the row's chevron gives its room back to the
+   headline. Wider, it stays, as it does on a learning pathway's course rows. */
+@container agend-cm (max-width: 20rem) {
+  .agend-community-announcements__notice > .agend-community__chevron,
+  .agend-community-feed__post > .agend-community__chevron {
+    display: none;
   }
 }
