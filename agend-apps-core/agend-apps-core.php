@@ -223,6 +223,9 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/events-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/courses-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/learning-paths.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/resources-collections.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/resources-search.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/resources-ask.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/jobs-catalogue.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/member-jobs.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/records/render/directory-catalogue.php';
@@ -327,6 +330,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/jobs-submissions.php';
 	Agend_Apps_Jobs_Credits::register();
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sites.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/atlas.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/sso.php';
 
 	// "Connect this site" (the IdP SP registration + gateway connection
@@ -376,6 +380,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/crm-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/sites-routes.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/rest/account-link-routes.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/rest/resources-routes.php';
 
 	// Identity-link routes only exist in `wordpress` sign-in mode: the
 	// callback they register (agend_apps_saml_link_issue_url()) lives in
@@ -453,6 +458,7 @@ function agend_apps_core_register_rest_routes() {
 	agend_apps_register_crm_routes();
 	agend_apps_register_sites_routes();
 	agend_apps_register_account_link_routes();
+	agend_apps_register_resources_routes();
 
 	if ( Agend_Apps_Settings::wordpress_idp_enabled() ) {
 		agend_apps_register_identity_link_routes();
