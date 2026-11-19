@@ -111,7 +111,18 @@ final class MemberSummaryTest extends TestCase {
 		}
 	}
 
+	/**
+	 * The five parts the profile and the membership reads serve: what every full
+	 * view had before the courses and reading lists were added.
+	 */
 	private function everything(): array {
+		return array( 'sections' => array( 'membership', 'cpd', 'events', 'credentials', 'directory' ), 'greeting' => true );
+	}
+
+	/**
+	 * Every part there is, the reading lists included.
+	 */
+	private function everyPart(): array {
 		return array( 'sections' => agend_apps_member_summary_sections(), 'greeting' => true );
 	}
 
@@ -144,8 +155,30 @@ final class MemberSummaryTest extends TestCase {
 		$plan = agend_apps_member_summary_plan( $this->everything() );
 
 		self::assertSame( array( 'profile', 'entitlements', 'memberships', 'tiers' ), $plan['reads'] );
-		self::assertSame( agend_apps_member_summary_sections(), $plan['sections'] );
+		self::assertSame( array( 'membership', 'cpd', 'events', 'credentials', 'directory' ), $plan['sections'] );
 		self::assertSame( array(), $plan['no_access'] );
+	}
+
+	#[Test]
+	public function should_plan_one_more_read_for_each_of_the_courses_and_the_reading_lists(): void {
+		$plan = agend_apps_member_summary_plan( $this->everyPart() );
+
+		self::assertSame( array( 'profile', 'entitlements', 'memberships', 'tiers', 'enrollments', 'collections' ), $plan['reads'], 'six reads is the most a view can cost' );
+		self::assertSame( agend_apps_member_summary_sections(), $plan['sections'] );
+
+		self::assertSame( array( 'enrollments' ), agend_apps_member_summary_plan( array( 'sections' => array( 'courses' ), 'greeting' => false ) )['reads'] );
+		self::assertSame( array( 'collections' ), agend_apps_member_summary_plan( array( 'sections' => array( 'reading' ), 'greeting' => false ) )['reads'] );
+	}
+
+	#[Test]
+	public function should_rule_out_courses_and_reading_lists_for_a_key_without_their_permissions(): void {
+		$this->know( array( 'crm.contacts.browse', 'crm.memberships.browse', 'crm.tiers.browse' ) );
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'crm.contacts.browse', 'crm.memberships.browse', 'crm.tiers.browse' ), 'app_ids' => array( 'crm' ) ) ) );
+
+		$plan = agend_apps_member_summary_plan( $this->everyPart() );
+
+		self::assertSame( array( 'courses', 'reading' ), $plan['no_access'] );
+		self::assertSame( array( 'profile', 'entitlements', 'memberships', 'tiers' ), $plan['reads'], 'no read is made for a part the key lacks' );
 	}
 
 	#[Test]
@@ -177,7 +210,7 @@ final class MemberSummaryTest extends TestCase {
 
 	#[Test]
 	public function should_never_plan_a_part_it_does_not_know(): void {
-		$plan = agend_apps_member_summary_plan( array( 'sections' => array( 'community', 'courses', '../x', 'cpd' ), 'greeting' => false ) );
+		$plan = agend_apps_member_summary_plan( array( 'sections' => array( 'community', 'forum', '../x', 'cpd' ), 'greeting' => false ) );
 
 		self::assertSame( array( 'cpd' ), $plan['sections'] );
 		self::assertSame( array( 'profile' ), $plan['reads'] );
@@ -251,7 +284,7 @@ final class MemberSummaryTest extends TestCase {
 
 		$cpd = agend_apps_member_summary_cpd( $lms );
 
-		self::assertSame( array( 'status' => 'ready', 'form' => 'total', 'earned' => 14.5, 'why' => 'not_set' ), $cpd );
+		self::assertSame( array( 'status' => 'ready', 'form' => 'total', 'earned' => 14.5, 'why' => 'not_set', 'completed' => 3 ), $cpd );
 		self::assertArrayNotHasKey( 'target', $cpd, 'no target is ever invented' );
 	}
 
@@ -701,6 +734,183 @@ final class MemberSummaryTest extends TestCase {
 		self::assertSame( '', agend_apps_member_summary_first_name( null ) );
 	}
 
+	// -----------------------------------------------------------------
+	// The member's name and role, for the welcome band
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_take_initials_and_the_role_line_from_the_contact(): void {
+		$contact = agend_apps_member_summary_contact( $this->profile() );
+
+		self::assertSame( 'Priya', $contact['first_name'] );
+		self::assertSame( 'PR', $contact['initials'] );
+		self::assertSame( 'Practice lead', $contact['title'] );
+		self::assertSame( 'Raman Studio', $contact['company'], 'the free-text company when no company record is linked' );
+	}
+
+	#[Test]
+	public function should_prefer_the_linked_company_and_take_one_initial_when_there_is_no_surname(): void {
+		$profile                                   = $this->profile();
+		$profile['contact']['primary_company_name'] = 'Raman &amp; Co';
+		$profile['contact']['last_name']            = '';
+
+		$contact = agend_apps_member_summary_contact( $profile );
+
+		self::assertSame( 'P', $contact['initials'] );
+		self::assertSame( 'Raman &amp; Co', $contact['company'] );
+	}
+
+	#[Test]
+	public function should_take_initials_from_a_name_that_is_not_ascii_and_none_without_a_first_name(): void {
+		$profile                                = $this->profile();
+		$profile['contact']['first_name']       = 'élodie';
+		$profile['contact']['last_name']        = 'østergaard';
+
+		self::assertSame( 'ÉØ', agend_apps_member_summary_contact( $profile )['initials'] );
+		self::assertSame( '', agend_apps_member_summary_contact( null )['initials'] );
+		self::assertSame( array( 'first_name' => '', 'initials' => '', 'title' => '', 'company' => '' ), agend_apps_member_summary_contact( array( 'contact' => array( 'last_name' => 'Raman' ) ) ), 'a surname alone is not enough to draw initials from' );
+	}
+
+	#[Test]
+	public function should_strip_markup_from_the_role_line(): void {
+		$profile                           = $this->profile();
+		$profile['contact']['job_title']   = '<img src=x onerror=alert(1)>Lead';
+
+		self::assertSame( 'Lead', agend_apps_member_summary_contact( $profile )['title'] );
+	}
+
+	// -----------------------------------------------------------------
+	// Courses in progress
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_list_courses_in_progress_most_recently_opened_first_with_their_percentage(): void {
+		$part = agend_apps_member_summary_courses( $this->gateway()['enrollments'], 3 );
+
+		self::assertSame( 'ready', $part['status'] );
+		self::assertSame( array( 'Contracts for studios', 'Pricing your work', 'Accessible forms' ), array_column( $part['items'], 'title' ) );
+		self::assertSame( 4, $part['total'], 'the rest are counted, so the tile can say "and 1 more"' );
+		self::assertSame( 35.0, $part['items'][0]['percent'] );
+		self::assertSame( 72.4, $part['items'][1]['percent'] );
+		self::assertSame( 3, $part['items'][0]['done'] );
+		self::assertSame( 9, $part['items'][0]['lessons'] );
+		self::assertSame( 'contracts-for-studios', $part['items'][0]['slug'] );
+	}
+
+	#[Test]
+	public function should_leave_a_finished_course_out_of_courses_in_progress(): void {
+		$response                         = $this->gateway()['enrollments'];
+		$response['data'][0]['completed'] = true;
+
+		$titles = array_column( agend_apps_member_summary_courses( $response, 6 )['items'], 'title' );
+
+		self::assertNotContains( 'Pricing your work', $titles );
+		self::assertCount( 3, $titles );
+	}
+
+	#[Test]
+	public function should_keep_a_course_with_no_percentage_and_never_turn_it_into_zero(): void {
+		$response                                    = $this->gateway()['enrollments'];
+		$response['data'][0]['progress_percentage'] = null;
+		$response['data'][1]['progress_percentage'] = 'soon';
+
+		$items = agend_apps_member_summary_courses( $response, 6 )['items'];
+		$by    = array_column( $items, 'percent', 'title' );
+
+		self::assertNull( $by['Pricing your work'] );
+		self::assertNull( $by['Contracts for studios'] );
+		self::assertSame( 0.0, $by['Accessible forms'], 'a real zero is still zero' );
+	}
+
+	#[Test]
+	public function should_hold_a_percentage_between_zero_and_a_hundred(): void {
+		$response                                    = $this->gateway()['enrollments'];
+		$response['data'][0]['progress_percentage'] = 140;
+		$response['data'][1]['progress_percentage'] = -5;
+
+		$by = array_column( agend_apps_member_summary_courses( $response, 6 )['items'], 'percent', 'title' );
+
+		self::assertSame( 100.0, $by['Pricing your work'] );
+		self::assertSame( 0.0, $by['Contracts for studios'] );
+	}
+
+	#[Test]
+	public function should_say_none_when_agend_answered_and_the_member_has_no_course_in_progress(): void {
+		self::assertSame( 'empty', agend_apps_member_summary_courses( array( 'success' => true, 'data' => array() ), 3 )['status'] );
+	}
+
+	#[Test]
+	public function should_call_a_failed_enrolments_read_unavailable_never_none(): void {
+		self::assertSame( 'unavailable', agend_apps_member_summary_courses( new WP_Error( 'agend_apps_api_error', 'Down.' ), 3 )['status'] );
+		self::assertSame( 'unavailable', agend_apps_member_summary_courses( null, 3 )['status'] );
+		self::assertSame( 'no_access', agend_apps_member_summary_courses( new WP_Error( 'agend_apps_scope_missing', 'No.' ), 3 )['status'] );
+	}
+
+	#[Test]
+	public function should_drop_a_course_with_no_title_and_strip_markup_from_one_with(): void {
+		$response                                  = $this->gateway()['enrollments'];
+		$response['data'][0]['course']['title']    = '';
+		$response['data'][1]['course']['title']    = '<script>alert(1)</script>Contracts';
+		$response['data'][2]['course']             = null;
+
+		$titles = array_column( agend_apps_member_summary_courses( $response, 6 )['items'], 'title' );
+
+		self::assertSame( array( 'Contracts', 'Running a studio' ), $titles );
+	}
+
+	#[Test]
+	public function should_never_return_fewer_than_one_course_when_asked_for_none(): void {
+		self::assertCount( 1, agend_apps_member_summary_courses( $this->gateway()['enrollments'], 0 )['items'] );
+	}
+
+	#[Test]
+	public function should_not_draw_lesson_counts_that_do_not_add_up(): void {
+		$response                                       = $this->gateway()['enrollments'];
+		$response['data'][0]['course']['lessons_count'] = 0;
+
+		$by = array_column( agend_apps_member_summary_courses( $response, 6 )['items'], 'lessons', 'title' );
+
+		self::assertNull( $by['Pricing your work'], 'a course with no lesson count has none to show' );
+	}
+
+	// -----------------------------------------------------------------
+	// Reading lists
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_list_reading_lists_with_their_page_counts_and_cap_them(): void {
+		$part = agend_apps_member_summary_reading( $this->gateway()['collections'], 4 );
+
+		self::assertSame( 'ready', $part['status'] );
+		self::assertSame( array( 'New member starter pack', 'Running a studio', 'Pricing and proposals', 'Accessibility basics' ), array_column( $part['items'], 'title' ) );
+		self::assertSame( array( 5, 6, 3, 4 ), array_column( $part['items'], 'pages' ) );
+		self::assertSame( 5, $part['total'] );
+	}
+
+	#[Test]
+	public function should_say_none_when_agend_answered_and_there_are_no_reading_lists(): void {
+		self::assertSame( 'empty', agend_apps_member_summary_reading( array( 'success' => true, 'data' => array() ), 4 )['status'] );
+	}
+
+	#[Test]
+	public function should_call_a_failed_reading_lists_read_unavailable_never_none(): void {
+		self::assertSame( 'unavailable', agend_apps_member_summary_reading( new WP_Error( 'agend_apps_api_error', 'Down.' ), 4 )['status'] );
+		self::assertSame( 'no_access', agend_apps_member_summary_reading( new WP_Error( 'agend_apps_app_not_allowed', 'No.' ), 4 )['status'] );
+	}
+
+	#[Test]
+	public function should_count_zero_pages_for_a_list_whose_pages_are_missing_and_drop_one_with_no_title(): void {
+		$response                         = $this->gateway()['collections'];
+		$response['data'][0]['items']     = null;
+		$response['data'][1]['title']     = '';
+
+		$part = agend_apps_member_summary_reading( $response, 6 );
+
+		self::assertSame( 0, $part['items'][0]['pages'] );
+		self::assertNotContains( '', array_column( $part['items'], 'title' ) );
+		self::assertSame( 4, $part['total'] );
+	}
+
 	#[Test]
 	public function should_read_the_pinned_profile_shape_the_gateway_has_today(): void {
 		$profile = $this->profile();
@@ -756,6 +966,105 @@ final class MemberSummaryTest extends TestCase {
 			$this->paths(),
 			'three member reads and one catalogue read, once each'
 		);
+	}
+
+	#[Test]
+	public function should_make_six_calls_at_most_for_a_view_with_every_part_on(): void {
+		$this->withBearer();
+		$this->queueFull();
+		Agend_Test_WP::queue_response( 200, $this->gateway()['enrollments'] );
+		Agend_Test_WP::queue_response( 200, $this->gateway()['collections'] );
+
+		$result = agend_apps_member_summary_fetch( $this->everyPart(), $this->ready(), array( 'events' => 3, 'certificates' => 3, 'courses' => 3, 'reading' => 4 ) );
+
+		self::assertSame(
+			array( '/v1/crm/me/connected-profile', '/v1/crm/me/entitlements', '/v1/crm/me/memberships', '/v1/crm/tiers', '/v1/lms/me/enrollments', '/v1/atlas/me/collections' ),
+			$this->paths(),
+			'one call per read, whatever the number of parts, courses or lists'
+		);
+		self::assertSame( 'ready', $result['access']['state'] );
+		self::assertSame( 'ready', $result['sections']['courses']['status'] );
+		self::assertCount( 3, $result['sections']['courses']['items'] );
+		self::assertSame( 'ready', $result['sections']['reading']['status'] );
+		self::assertCount( 4, $result['sections']['reading']['items'] );
+		self::assertSame( 'PR', $result['contact']['initials'] );
+	}
+
+	#[Test]
+	public function should_ask_only_for_courses_in_progress_in_one_page_and_never_call_for_a_part_that_is_off(): void {
+		$this->withBearer();
+		Agend_Test_WP::queue_response( 200, $this->gateway()['enrollments'] );
+
+		agend_apps_member_summary_fetch( array( 'sections' => array( 'courses' ), 'greeting' => false ), $this->ready() );
+
+		self::assertSame( array( '/v1/lms/me/enrollments' ), $this->paths() );
+		parse_str( (string) wp_parse_url( Agend_Test_WP::$requests[0]['url'], PHP_URL_QUERY ), $query );
+		self::assertSame( 'active', $query['status'] );
+		self::assertSame( '12', $query['limit'], 'a fixed page: more courses never mean more calls' );
+		self::assertSame( 'Bearer member-token', $this->authorisationOf( 0 ) );
+	}
+
+	#[Test]
+	public function should_mark_only_the_courses_unavailable_when_the_enrolments_read_failed(): void {
+		$this->withBearer();
+		Agend_Test_WP::queue_response( 200, $this->gateway()['profile'] );
+		Agend_Test_WP::queue_response( 200, $this->gateway()['entitlements'] );
+		Agend_Test_WP::queue_response( 200, $this->gateway()['memberships'] );
+		Agend_Test_WP::queue_response( 200, $this->gateway()['tiers'] );
+		Agend_Test_WP::queue_response( 500, $this->error( 500, 'SERVER_ERROR' ) );
+
+		$result = agend_apps_member_summary_fetch( array( 'sections' => array( 'membership', 'cpd', 'courses' ), 'greeting' => true ), $this->ready() );
+
+		self::assertSame( 'ready', $result['access']['state'] );
+		self::assertSame( 'unavailable', $result['sections']['courses']['status'], 'a failed read is never drawn as no courses' );
+		self::assertSame( 'ready', $result['sections']['cpd']['status'] );
+		self::assertSame( 'ready', $result['sections']['membership']['status'] );
+	}
+
+	#[Test]
+	public function should_read_a_not_found_enrolments_read_as_no_member_record(): void {
+		$this->withBearer();
+		Agend_Test_WP::queue_response( 404, $this->error( 404, 'CONTACT_NOT_FOUND' ) );
+
+		$result = agend_apps_member_summary_fetch( array( 'sections' => array( 'courses' ), 'greeting' => false ), $this->ready() );
+
+		self::assertSame( 'no_member_record', $result['access']['state'], 'the same answer as every other me read' );
+	}
+
+	#[Test]
+	public function should_keep_the_summary_ready_when_only_the_reading_lists_read_failed(): void {
+		$this->withBearer();
+		Agend_Test_WP::queue_response( 404, $this->error( 404, 'NOT_FOUND' ) );
+
+		$result = agend_apps_member_summary_fetch( array( 'sections' => array( 'reading' ), 'greeting' => false ), $this->ready() );
+
+		self::assertSame( 'ready', $result['access']['state'], 'a refusal from the library says nothing about the member record' );
+		self::assertSame( 'unavailable', $result['sections']['reading']['status'] );
+	}
+
+	#[Test]
+	public function should_skip_the_courses_and_reading_calls_for_a_key_that_lacks_their_permissions(): void {
+		Agend_Apps_Key_Scopes::store_from_response( array( 'data' => array( 'scopes' => array( 'crm.contacts.browse' ), 'app_ids' => array( 'crm' ) ) ) );
+		$this->withBearer();
+		Agend_Test_WP::queue_response( 200, $this->gateway()['profile'] );
+
+		$result = agend_apps_member_summary_fetch( array( 'sections' => array( 'cpd', 'courses', 'reading' ), 'greeting' => false ), $this->ready() );
+
+		self::assertSame( array( '/v1/crm/me/connected-profile' ), $this->paths() );
+		self::assertSame( 'no_access', $result['sections']['courses']['status'] );
+		self::assertSame( 'no_access', $result['sections']['reading']['status'] );
+		self::assertSame( 'ready', $result['access']['state'] );
+	}
+
+	#[Test]
+	public function should_stay_inside_the_per_member_cap_however_many_parts_are_on(): void {
+		$this->withBearer();
+
+		for ( $i = 0; $i < 6; $i++ ) {
+			self::assertNull( agend_apps_member_summary_guard( 42, self::NOW ), 'fetch ' . ( $i + 1 ) );
+		}
+
+		self::assertSame( 'member', agend_apps_member_summary_guard( 42, self::NOW )['why'], 'the seventh fetch in a minute waits, so at most 36 calls a minute per member' );
 	}
 
 	#[Test]

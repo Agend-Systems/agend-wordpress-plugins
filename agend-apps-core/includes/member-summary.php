@@ -965,6 +965,12 @@ function agend_apps_member_summary_fetch( array $want, array $access, array $lim
 			case 'directory':
 				$sections[ $section ] = $from_profile( static fn(): array => agend_apps_member_summary_directory( $dir ) );
 				break;
+			case 'courses':
+				$sections[ $section ] = agend_apps_member_summary_courses( $results['enrollments'] ?? null, (int) ( $limits['courses'] ?? 3 ) );
+				break;
+			case 'reading':
+				$sections[ $section ] = agend_apps_member_summary_reading( $results['collections'] ?? null, (int) ( $limits['reading'] ?? 4 ) );
+				break;
 		}
 	}
 
