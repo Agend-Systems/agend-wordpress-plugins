@@ -134,6 +134,55 @@ function agend_apps_current_user_external_id(): string {
 }
 
 /**
+ * The contact source this site's members come from, as the gateway's
+ * contact-pair routes name it (`external_source`).
+ *
+ * The source is a property of the site, not of a feature, so the Jobs and
+ * Loop routes share it. The option and filter keep their original Jobs names.
+ *
+ * @return string Contact source, `upbeat-contacts` unless the option or filter says otherwise.
+ */
+function agend_apps_contact_source(): string {
+	$source = trim( (string) get_option( 'agend_apps_jobs_contact_source', '' ) );
+
+	if ( '' === $source ) {
+		$source = 'upbeat-contacts';
+	}
+
+	/**
+	 * Filters the contact source a site's members are named by.
+	 *
+	 * @param string $source Contact source, such as `upbeat-contacts`.
+	 */
+	return trim( (string) apply_filters( 'agend_apps_jobs_contact_source', $source ) );
+}
+
+/**
+ * A member's contact pair, or null when they have no external id.
+ *
+ * @param int $user_id WordPress user id.
+ * @return array{external_source: string, external_id: string}|null
+ */
+function agend_apps_user_contact( int $user_id ): ?array {
+	if ( $user_id <= 0 ) {
+		return null;
+	}
+
+	$source = agend_apps_contact_source();
+	$id     = trim( agend_apps_user_external_id( $user_id ) );
+
+	// The gateway refuses longer values.
+	if ( '' === $source || '' === $id || strlen( $source ) > 100 || strlen( $id ) > 200 ) {
+		return null;
+	}
+
+	return array(
+		'external_source' => $source,
+		'external_id'     => $id,
+	);
+}
+
+/**
  * Mints and stores a GUID external id for a WordPress user, if and only if
  * none already resolves.
  *

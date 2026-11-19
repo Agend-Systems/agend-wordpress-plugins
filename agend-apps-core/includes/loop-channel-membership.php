@@ -9,11 +9,11 @@
  * few invite-only groups: members outside the pilot never see a link to a
  * community they cannot use.
  *
- * Agend is the authority. The site asks the gateway which channels the
- * signed-in member belongs to (`GET /v1/loop/me/channels`, as the member, so
- * it needs the member's bearer token from {@see Agend_Apps_Token_Worker}) and
- * counts a channel as active when it is not archived and is a real channel
- * rather than a direct message or a category heading.
+ * Agend is the authority. The site asks with its own key, naming the member
+ * by contact pair (`GET /v1/loop/integration/members/channels`), and Agend
+ * answers whether they belong to a channel that is neither archived nor a
+ * direct message. The member's bearer is never sent, so a member who has
+ * never signed in through this site's SSO is answered too.
  *
  * The answer is cached per member for a few minutes, because a menu condition
  * is checked on every page that shows the menu. Loop sends no membership
@@ -37,7 +37,7 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		/**
 		 * The scope the check needs.
 		 */
-		const SCOPE = 'loop.channels.browse';
+		const SCOPE = 'loop.memberships.read';
 
 		/**
 		 * ESAC condition set id.
@@ -55,15 +55,8 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		const IF_MENU_CONDITION = 'agend-loop-in-active-channel';
 
 		/**
-		 * Channel types that do not count as being in a Loop channel: a direct
-		 * message (every member has one with the help bot) and a category
-		 * heading.
-		 */
-		const NON_CHANNEL_TYPES = array( 'dm', 'category' );
-
-		/**
 		 * Transient prefix for cached answers, followed by the user id and a
-		 * hash of their external id.
+		 * hash of their contact pair.
 		 */
 		const CACHE_PREFIX = 'agend_apps_loop_channels_';
 
@@ -79,28 +72,16 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		const FAILURE_TTL = 30;
 
 		/**
-		 * How long a member without an Agend identity link is remembered as
-		 * such. Short, so a member who has just signed in to Loop for the first
-		 * time sees the link soon after.
-		 */
-		const UNLINKED_TTL = MINUTE_IN_SECONDS;
-
-		/**
 		 * How long an answer that the site cannot check at all is remembered:
-		 * the key lacks the scope or has no access to Loop.
+		 * the key lacks the scope, has no access to Loop, or may not name
+		 * members from this site's contact source.
 		 */
 		const REFUSED_TTL = 5 * MINUTE_IN_SECONDS;
 
 		/**
 		 * Gateway codes meaning the site cannot check channel membership at all.
 		 */
-		const REFUSED_CODES = array( 'INSUFFICIENT_SCOPES', 'APP_NOT_ALLOWED' );
-
-		/**
-		 * Gateway codes meaning the request carried no usable member identity:
-		 * the member is not linked to Agend, or not part of the organisation.
-		 */
-		const UNLINKED_CODES = array( 'MISSING_USER_TOKEN', 'INVALID_USER_TOKEN', 'NOT_ACCOUNT_MEMBER' );
+		const REFUSED_CODES = array( 'INSUFFICIENT_SCOPES', 'APP_NOT_ALLOWED', 'SOURCE_NOT_ALLOWED' );
 
 		/**
 		 * Registers the ESAC and If Menu conditions.
@@ -126,24 +107,22 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		/**
 		 * Whether the signed-in member belongs to an active Loop channel.
 		 *
+		 * A member Agend cannot match to a user yet (`resolved: false`, usually
+		 * one who has never signed in to Agend) is a plain no.
+		 *
 		 * Errors:
 		 * - `agend_loop_no_member`: signed out, or no external id.
-		 * - `agend_loop_not_linked`: the member has no Agend identity link yet
-		 *   (they have never signed in to Agend), so Agend cannot say.
 		 * - `agend_loop_not_available`: the site cannot check (a missing scope,
-		 *   or the key has no access to Loop).
+		 *   no access to Loop, or the contact source is not allowed).
 		 * - `agend_loop_unavailable`: the answer could not be read just now.
-		 *
-		 * Only the current user can be checked: the gateway answers for the
-		 * member whose bearer token the request carries.
 		 *
 		 * @return bool|WP_Error
 		 */
 		public static function status() {
-			$user_id     = get_current_user_id();
-			$external_id = $user_id > 0 && function_exists( 'agend_apps_user_external_id' ) ? trim( agend_apps_user_external_id( $user_id ) ) : '';
+			$user_id = get_current_user_id();
+			$contact = agend_apps_user_contact( $user_id );
 
-			if ( '' === $external_id ) {
+			if ( null === $contact ) {
 				return new WP_Error( 'agend_loop_no_member', __( 'Sign in with your member account to use the community.', 'agend-apps-core' ) );
 			}
 
@@ -151,20 +130,14 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 				return self::error( 'not_available' );
 			}
 
-			$key    = self::cache_key( $user_id, $external_id );
+			$key    = self::cache_key( $user_id, $contact );
 			$cached = get_transient( $key );
 
 			if ( is_array( $cached ) ) {
 				return self::from_cache( $cached );
 			}
 
-			// Without a bearer the gateway cannot know who is asking, so do not
-			// ask: the member has not signed in to Agend through this site yet.
-			if ( ! function_exists( 'agend_apps_get_bearer_token' ) || '' === agend_apps_get_bearer_token() ) {
-				return self::remember( $key, array( 'error' => 'not_linked' ), self::UNLINKED_TTL );
-			}
-
-			$response = agend_apps_loop_get_my_channels();
+			$response = agend_apps_loop_get_member_channels( $contact );
 
 			if ( is_wp_error( $response ) ) {
 				$code = self::gateway_code( $response );
@@ -173,20 +146,16 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 					return self::remember( $key, array( 'error' => 'not_available' ), self::REFUSED_TTL );
 				}
 
-				if ( in_array( $code, self::UNLINKED_CODES, true ) ) {
-					return self::remember( $key, array( 'error' => 'not_linked' ), self::UNLINKED_TTL );
-				}
-
 				return self::remember( $key, array( 'error' => 'unavailable' ), self::FAILURE_TTL );
 			}
 
-			$channels = $response['data'] ?? null;
+			$active = $response['data']['in_active_channel'] ?? null;
 
-			if ( ! is_array( $channels ) ) {
+			if ( ! is_bool( $active ) ) {
 				return self::remember( $key, array( 'error' => 'unavailable' ), self::FAILURE_TTL );
 			}
 
-			return self::remember( $key, array( 'active' => self::has_active_channel( $channels ) ), self::CACHE_TTL );
+			return self::remember( $key, array( 'active' => $active ), self::CACHE_TTL );
 		}
 
 		/**
@@ -197,28 +166,6 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		 */
 		public static function in_active_channel(): bool {
 			return true === self::status();
-		}
-
-		/**
-		 * Whether a list of channels from the gateway holds an active one.
-		 *
-		 * @param array $channels Channels as `GET /v1/loop/me/channels` returns them.
-		 * @return bool
-		 */
-		public static function has_active_channel( array $channels ): bool {
-			foreach ( $channels as $channel ) {
-				if ( ! is_array( $channel ) || ! empty( $channel['is_archived'] ) ) {
-					continue;
-				}
-
-				$type = isset( $channel['channel_type'] ) && is_string( $channel['channel_type'] ) ? $channel['channel_type'] : '';
-
-				if ( '' !== $type && ! in_array( $type, self::NON_CHANNEL_TYPES, true ) ) {
-					return true;
-				}
-			}
-
-			return false;
 		}
 
 		/**
@@ -249,8 +196,8 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		/**
 		 * Checks an Agend Loop ESAC condition for the current visitor.
 		 *
-		 * A visitor who is signed out, not yet linked to Agend, or whose
-		 * channels cannot be read just now, does not pass.
+		 * A visitor who is signed out, not in an active channel, or whose
+		 * answer cannot be read just now, does not pass.
 		 *
 		 * @param mixed  $check     The result so far.
 		 * @param string $condition Condition id within the set.
@@ -307,12 +254,12 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		/**
 		 * The transient an answer is cached under.
 		 *
-		 * @param int    $user_id     WordPress user id.
-		 * @param string $external_id The member's external id.
+		 * @param int   $user_id WordPress user id.
+		 * @param array $contact The member's contact pair.
 		 * @return string
 		 */
-		private static function cache_key( int $user_id, string $external_id ): string {
-			return self::CACHE_PREFIX . $user_id . '_' . md5( $external_id );
+		private static function cache_key( int $user_id, array $contact ): string {
+			return self::CACHE_PREFIX . $user_id . '_' . md5( $contact['external_source'] . '|' . $contact['external_id'] );
 		}
 
 		/**
@@ -342,7 +289,7 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 
 			$error = (string) ( $entry['error'] ?? '' );
 
-			return self::error( in_array( $error, array( 'not_linked', 'not_available' ), true ) ? $error : 'unavailable' );
+			return self::error( 'not_available' === $error ? $error : 'unavailable' );
 		}
 
 		/**
@@ -366,18 +313,15 @@ if ( ! class_exists( 'Agend_Apps_Loop_Channel_Membership' ) ) :
 		/**
 		 * One of the check's errors.
 		 *
-		 * @param string $kind `not_linked`, `not_available` or `unavailable`.
+		 * @param string $kind `not_available` or `unavailable`.
 		 * @return WP_Error
 		 */
 		private static function error( string $kind ): WP_Error {
-			switch ( $kind ) {
-				case 'not_linked':
-					return new WP_Error( 'agend_loop_not_linked', __( 'Your member account is not linked to Agend yet.', 'agend-apps-core' ) );
-				case 'not_available':
-					return new WP_Error( 'agend_loop_not_available', __( 'The community is not available on this site.', 'agend-apps-core' ) );
-				default:
-					return new WP_Error( 'agend_loop_unavailable', __( 'We could not check your community channels just now. Please try again in a minute.', 'agend-apps-core' ) );
+			if ( 'not_available' === $kind ) {
+				return new WP_Error( 'agend_loop_not_available', __( 'The community is not available on this site.', 'agend-apps-core' ) );
 			}
+
+			return new WP_Error( 'agend_loop_unavailable', __( 'We could not check your community channels just now. Please try again in a minute.', 'agend-apps-core' ) );
 		}
 	}
 

@@ -36,7 +36,8 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 	final class Agend_Apps_Jobs_Credits {
 
 		/**
-		 * Option holding the contact source this site's members come from.
+		 * Option holding the contact source this site's members come from,
+		 * read by {@see agend_apps_contact_source()} for every feature.
 		 */
 		const SOURCE_OPTION = 'agend_apps_jobs_contact_source';
 
@@ -95,23 +96,13 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		}
 
 		/**
-		 * The contact source this site's members come from.
+		 * The contact source this site's members come from. Shared with Loop:
+		 * see {@see agend_apps_contact_source()}.
 		 *
 		 * @return string
 		 */
 		public static function source(): string {
-			$source = trim( (string) get_option( self::SOURCE_OPTION, '' ) );
-
-			if ( '' === $source ) {
-				$source = self::DEFAULT_SOURCE;
-			}
-
-			/**
-			 * Filters the contact source a site's members are named by.
-			 *
-			 * @param string $source Contact source, such as `upbeat-contacts`.
-			 */
-			return trim( (string) apply_filters( 'agend_apps_jobs_contact_source', $source ) );
+			return agend_apps_contact_source();
 		}
 
 		/**
@@ -121,22 +112,7 @@ if ( ! class_exists( 'Agend_Apps_Jobs_Credits' ) ) :
 		 * @return array{external_source: string, external_id: string}|null
 		 */
 		public static function contact( int $user_id ): ?array {
-			if ( $user_id <= 0 || ! function_exists( 'agend_apps_user_external_id' ) ) {
-				return null;
-			}
-
-			$source = self::source();
-			$id     = trim( agend_apps_user_external_id( $user_id ) );
-
-			// The gateway refuses longer values.
-			if ( '' === $source || '' === $id || strlen( $source ) > 100 || strlen( $id ) > 200 ) {
-				return null;
-			}
-
-			return array(
-				'external_source' => $source,
-				'external_id'     => $id,
-			);
+			return agend_apps_user_contact( $user_id );
 		}
 
 		/**

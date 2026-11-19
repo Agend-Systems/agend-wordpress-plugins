@@ -320,7 +320,7 @@ function agend_apps_core_bootstrap() {
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-map.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/directory-export-reports.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-integration.php';
-	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop.php';
+	require_once AGEND_APPS_CORE_DIR . 'includes/api/loop-memberships.php';
 	require_once AGEND_APPS_CORE_DIR . 'includes/loop-channel-membership.php';
 	Agend_Apps_Loop_Channel_Membership::register();
 	require_once AGEND_APPS_CORE_DIR . 'includes/api/auth.php';

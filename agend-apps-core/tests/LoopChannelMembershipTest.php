@@ -19,12 +19,13 @@ require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-api.
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-key-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/class-agend-apps-endpoint-scopes.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/identity.php';
-require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/loop.php';
+require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/api/loop-memberships.php';
 require_once AGEND_TESTS_ROOT . '/agend-apps-core/includes/loop-channel-membership.php';
 
 /**
- * Agend says which Loop channels a member belongs to; the site only caches
- * the answer and offers it to ESAC rules and If Menu.
+ * Agend says whether a member, named by contact pair, belongs to an active
+ * Loop channel; the site only caches the answer and offers it to ESAC rules
+ * and If Menu.
  */
 #[CoversClass( Agend_Apps_Loop_Channel_Membership::class )]
 final class LoopChannelMembershipTest extends TestCase {
@@ -36,6 +37,7 @@ final class LoopChannelMembershipTest extends TestCase {
 		update_option( 'agend_apps_member_auth_mode', Agend_Apps_Settings::MEMBER_AUTH_CREDENTIALS );
 		update_user_meta( self::USER, 'imk_membership_number', 'M1001' );
 		$GLOBALS['agend_test_current_user_id'] = self::USER;
+		// A member bearer is available, so the tests prove it is never sent.
 		add_filter( 'agend_apps_bearer_token', static fn() => 'member-token' );
 	}
 
@@ -44,24 +46,16 @@ final class LoopChannelMembershipTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function channels_response( array $channels ): void {
+	private function answer( bool $in_active_channel, bool $resolved = true ): void {
 		Agend_Test_WP::queue_response(
 			200,
 			array(
 				'success' => true,
-				'data'    => $channels,
+				'data'    => array(
+					'in_active_channel' => $in_active_channel,
+					'resolved'          => $resolved,
+				),
 			)
-		);
-	}
-
-	private function channel( string $type, bool $archived = false ): array {
-		return array(
-			'id'           => 'c-' . $type,
-			'name'         => $type,
-			'slug'         => $type,
-			'channel_type' => $type,
-			'is_archived'  => $archived,
-			'role'         => 'member',
 		);
 	}
 
@@ -84,39 +78,66 @@ final class LoopChannelMembershipTest extends TestCase {
 
 	#[Test]
 	public function a_member_in_an_active_channel_passes_and_the_answer_is_cached(): void {
-		$this->channels_response( array( $this->channel( 'channel' ) ) );
+		$this->answer( true );
 
 		$this->assertTrue( Agend_Apps_Loop_Channel_Membership::status() );
 		$this->assertTrue( Agend_Apps_Loop_Channel_Membership::in_active_channel() );
 
 		$this->assertCount( 1, Agend_Test_WP::$requests );
-		$this->assertStringContainsString( '/loop/me/channels', Agend_Test_WP::$requests[0]['url'] );
-		$this->assertSame( 'Bearer member-token', Agend_Test_WP::$requests[0]['headers']['Authorization'] ?? '' );
 		$this->assertContains( Agend_Apps_Loop_Channel_Membership::CACHE_TTL, Agend_Test_WP::$transient_ttls );
 	}
 
 	#[Test]
-	public function posts_committee_and_space_channels_count_as_active(): void {
-		foreach ( array( 'feed', 'committee', 'space' ) as $type ) {
-			$this->assertTrue( Agend_Apps_Loop_Channel_Membership::has_active_channel( array( $this->channel( $type ) ) ), $type );
-		}
+	public function the_site_asks_with_its_own_key_naming_the_member_by_contact_pair(): void {
+		$this->answer( true );
+
+		Agend_Apps_Loop_Channel_Membership::status();
+
+		$request = Agend_Test_WP::$requests[0];
+		$this->assertStringContainsString( '/loop/integration/members/channels?', $request['url'] );
+		$this->assertStringContainsString( 'external_source=upbeat-contacts', $request['url'] );
+		$this->assertStringContainsString( 'external_id=M1001', $request['url'] );
+		$this->assertStringNotContainsString( '/loop/me/', $request['url'] );
+		$this->assertArrayNotHasKey( 'Authorization', $request['headers'] );
 	}
 
 	#[Test]
-	public function direct_messages_categories_and_archived_channels_do_not_count(): void {
-		$this->channels_response(
-			array(
-				$this->channel( 'dm' ),
-				$this->channel( 'category' ),
-				$this->channel( 'channel', true ),
-				array( 'channel_type' => '' ),
-				'not a channel',
-			)
-		);
+	public function a_filter_cannot_put_the_member_bearer_back(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_loop_get_member_channels_args', array( 'unattended' => false, 'query' => array( 'external_source' => 'upbeat-contacts', 'external_id' => 'M1001' ) ) );
+		$this->answer( true );
+
+		Agend_Apps_Loop_Channel_Membership::status();
+
+		$this->assertArrayNotHasKey( 'Authorization', Agend_Test_WP::$requests[0]['headers'] );
+	}
+
+	#[Test]
+	public function a_member_in_no_active_channel_does_not_pass(): void {
+		$this->answer( false );
 
 		$this->assertFalse( Agend_Apps_Loop_Channel_Membership::status() );
 		$this->assertFalse( Agend_Apps_Loop_Channel_Membership::in_active_channel() );
 		$this->assertCount( 1, Agend_Test_WP::$requests );
+		$this->assertContains( Agend_Apps_Loop_Channel_Membership::CACHE_TTL, Agend_Test_WP::$transient_ttls );
+	}
+
+	#[Test]
+	public function a_member_agend_cannot_match_yet_is_a_plain_no(): void {
+		$this->answer( false, false );
+
+		$this->assertFalse( Agend_Apps_Loop_Channel_Membership::status() );
+		$this->assertFalse( Agend_Apps_Loop_Channel_Membership::status() );
+		$this->assertCount( 1, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function the_site_contact_source_names_the_member(): void {
+		update_option( 'agend_apps_jobs_contact_source', 'other-crm' );
+		$this->answer( true );
+
+		Agend_Apps_Loop_Channel_Membership::status();
+
+		$this->assertStringContainsString( 'external_source=other-crm', Agend_Test_WP::$requests[0]['url'] );
 	}
 
 	#[Test]
@@ -131,38 +152,22 @@ final class LoopChannelMembershipTest extends TestCase {
 	}
 
 	#[Test]
-	public function a_member_with_no_agend_token_is_not_linked_and_is_not_asked_about(): void {
-		add_filter( 'agend_apps_bearer_token', static fn() => '' );
-
-		$this->assertSame( 'agend_loop_not_linked', Agend_Apps_Loop_Channel_Membership::status()->get_error_code() );
-		$this->assertCount( 0, Agend_Test_WP::$requests );
-		$this->assertContains( Agend_Apps_Loop_Channel_Membership::UNLINKED_TTL, Agend_Test_WP::$transient_ttls );
-	}
-
-	#[Test]
-	public function a_member_agend_does_not_recognise_is_not_linked(): void {
-		// The client retries a rejected bearer once without it.
-		$this->error_response( 401, 'INVALID_USER_TOKEN' );
-		$this->error_response( 401, 'MISSING_USER_TOKEN' );
-
-		$this->assertSame( 'agend_loop_not_linked', Agend_Apps_Loop_Channel_Membership::status()->get_error_code() );
-		$this->assertSame( 'agend_loop_not_linked', Agend_Apps_Loop_Channel_Membership::status()->get_error_code() );
-		$this->assertCount( 2, Agend_Test_WP::$requests );
-	}
-
-	#[Test]
 	public function a_site_that_cannot_check_is_told_so_and_remembers_it(): void {
-		$this->error_response( 403, 'APP_NOT_ALLOWED' );
-		$this->error_response( 403, 'APP_NOT_ALLOWED' );
+		foreach ( array( 'SOURCE_NOT_ALLOWED', 'INSUFFICIENT_SCOPES', 'APP_NOT_ALLOWED' ) as $i => $code ) {
+			update_user_meta( self::USER, 'imk_membership_number', 'M10' . $i );
+			$this->error_response( 403, $code );
 
-		$this->assertSame( 'agend_loop_not_available', Agend_Apps_Loop_Channel_Membership::status()->get_error_code() );
-		$this->assertSame( 'agend_loop_not_available', Agend_Apps_Loop_Channel_Membership::status()->get_error_code() );
+			$this->assertSame( 'agend_loop_not_available', Agend_Apps_Loop_Channel_Membership::status()->get_error_code(), $code );
+			$this->assertSame( 'agend_loop_not_available', Agend_Apps_Loop_Channel_Membership::status()->get_error_code(), $code );
+		}
+
+		$this->assertCount( 3, Agend_Test_WP::$requests );
 		$this->assertContains( Agend_Apps_Loop_Channel_Membership::REFUSED_TTL, Agend_Test_WP::$transient_ttls );
 	}
 
 	#[Test]
 	public function an_answer_that_cannot_be_read_is_an_error_remembered_briefly(): void {
-		$this->error_response( 500, 'INTERNAL_ERROR' );
+		$this->error_response( 500, 'DATABASE_ERROR' );
 
 		$this->assertSame( 'agend_loop_unavailable', Agend_Apps_Loop_Channel_Membership::status()->get_error_code() );
 		$this->assertSame( 'agend_loop_unavailable', Agend_Apps_Loop_Channel_Membership::status()->get_error_code() );
@@ -171,22 +176,27 @@ final class LoopChannelMembershipTest extends TestCase {
 	}
 
 	#[Test]
-	public function an_answer_without_a_list_is_not_read_as_no_channels(): void {
-		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => 'none' ) );
+	public function an_answer_without_a_flag_is_not_read_as_no(): void {
+		Agend_Test_WP::queue_response( 200, array( 'success' => true, 'data' => array( 'resolved' => true ) ) );
 
 		$this->assertSame( 'agend_loop_unavailable', Agend_Apps_Loop_Channel_Membership::status()->get_error_code() );
 	}
 
 	#[Test]
-	public function the_answer_is_cached_per_member(): void {
-		$this->channels_response( array( $this->channel( 'channel' ) ) );
-		$this->channels_response( array() );
+	public function the_answer_is_cached_per_contact_pair(): void {
+		$this->answer( true );
+		$this->answer( false );
+		$this->answer( true );
 
 		$this->assertTrue( Agend_Apps_Loop_Channel_Membership::status() );
 
 		update_user_meta( self::USER, 'imk_membership_number', 'M2002' );
 		$this->assertFalse( Agend_Apps_Loop_Channel_Membership::status() );
-		$this->assertCount( 2, Agend_Test_WP::$requests );
+
+		update_option( 'agend_apps_jobs_contact_source', 'other-crm' );
+		$this->assertTrue( Agend_Apps_Loop_Channel_Membership::status() );
+
+		$this->assertCount( 3, Agend_Test_WP::$requests );
 	}
 
 	#[Test]
@@ -205,7 +215,7 @@ final class LoopChannelMembershipTest extends TestCase {
 		$this->assertArrayHasKey( 'other', $sets );
 		$this->assertArrayHasKey( 'in_active_channel', $sets['agend_loop']['conditions'] );
 
-		$this->channels_response( array( $this->channel( 'channel' ) ) );
+		$this->answer( true );
 		$this->assertTrue( Agend_Apps_Loop_Channel_Membership::esac_check( true, 'in_active_channel' ) );
 
 		// An earlier filter's fail stands, and other conditions pass through.
@@ -223,7 +233,7 @@ final class LoopChannelMembershipTest extends TestCase {
 		$this->assertSame( 'Agend Loop', $conditions[1]['group'] );
 		$this->assertIsCallable( $conditions[1]['condition'] );
 
-		$this->channels_response( array( $this->channel( 'dm' ) ) );
+		$this->answer( false );
 		$this->assertFalse( call_user_func( $conditions[1]['condition'], (object) array( 'ID' => 1 ) ) );
 	}
 
