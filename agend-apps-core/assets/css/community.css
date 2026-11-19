@@ -365,7 +365,7 @@
 }
 
 .agend-community-announcements__item + .agend-community-announcements__item,
-.agend-community-feed__item + .agend-community-feed__item {
+.agend-community-feed__list > .agend-community-feed__item + .agend-community-feed__item {
   border-top: 1px solid var(--agend-cm-line);
 }
 
@@ -737,7 +737,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem 1rem;
-  margin-top: auto;
+  /* !important for the same reason as the list items above: the theme gives a
+	div that follows a paragraph a top margin through an ID-level selector
+	(`main#agendtheme-content ... p + div`), which would beat the auto margin
+	that pins this footer to the bottom of the card. */
+  margin-top: auto !important;
   padding-top: 0.875rem;
   border-top: 1px solid var(--agend-cm-line);
 }

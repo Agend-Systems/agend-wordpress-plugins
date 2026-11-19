@@ -1270,6 +1270,21 @@ final class CommunityRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_pin_the_card_footer_against_the_theme_and_keep_list_dividers_off_the_cards(): void {
+		$css = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/assets/css/community.css' );
+
+		// The theme gives a div after a paragraph a top margin through an ID-level
+		// selector, which would stop the footer sitting at the bottom of its card.
+		self::assertMatchesRegularExpression( '#\.agend-community-feed__foot \{[^}]*margin-top: auto !important;#s', $css );
+		// The hairline between list rows must not draw across the cards.
+		self::assertStringContainsString( '.agend-community-feed__list > .agend-community-feed__item + .agend-community-feed__item', $css );
+		self::assertStringNotContainsString( ",\n.agend-community-feed__item + .agend-community-feed__item {", $css );
+		// Three across, two on a tablet, one on a phone, from the same variables the other widgets use.
+		self::assertStringContainsString( '.agend-community-feed__grid {', $css );
+		self::assertStringContainsString( 'var(--agend-cm-cols)', $css );
+	}
+
+	#[Test]
 	public function should_register_the_shared_stylesheet_and_no_script(): void {
 		$assets = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/includes/records/assets.php' );
 
