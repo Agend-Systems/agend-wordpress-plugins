@@ -244,6 +244,103 @@ final class ResourcesCollectionsRenderTest extends TestCase {
 		self::assertStringNotContainsString( 'agend-resources-collections__topics', $html );
 	}
 
+	// -----------------------------------------------------------------
+	// The card foot: Members only, and the number of pages
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_label_every_card_members_only_by_default_with_no_page_count(): void {
+		$config = agend_apps_records_resources_collections_build_config( array() );
+
+		self::assertTrue( $config['card']['membersOnly'] );
+		self::assertFalse( $config['card']['pageCount'] );
+
+		$html = $this->render( $this->seed() );
+
+		self::assertSame( 2, substr_count( $html, '<span class="agend-resources-collections__members-only">' ) );
+		self::assertSame( 2, substr_count( $html, '<div class="agend-resources-collections__foot">' ) );
+		self::assertMatchesRegularExpression( '#<span class="agend-resources-collections__members-only"><svg class="agend-resources-collections__lock"[^>]*stroke="currentColor"[^>]*aria-hidden="true"[^>]*>.*?</svg><span>Members only</span></span>#s', $html );
+		self::assertStringNotContainsString( 'agend-resources-collections__count', $html );
+		self::assertStringNotContainsString( '4721', $html );
+		self::assertStringNotContainsString( '4,721', $html );
+	}
+
+	#[Test]
+	public function should_leave_the_foot_out_altogether_when_both_labels_are_off(): void {
+		$html = $this->render( $this->seed() + array( 'show_members_only' => '' ) );
+
+		self::assertStringNotContainsString( 'members-only', $html );
+		self::assertStringNotContainsString( 'agend-resources-collections__foot', $html );
+		self::assertStringNotContainsString( 'Members only', $html );
+		self::assertStringContainsString( 'Members can open these collections after signing in.', $html, 'the note under the grid is separate' );
+	}
+
+	#[Test]
+	public function should_show_the_number_of_pages_only_when_asked_and_say_one_page_in_the_singular(): void {
+		agend_res_test_queue_collections(
+			array(
+				agend_res_test_collection( self::A, array( 'title' => 'Starter', 'item_count' => 5 ) ),
+				agend_res_test_collection( self::B, array( 'title' => 'Single', 'item_count' => 1 ) ),
+				agend_res_test_collection( self::C, array( 'title' => 'Empty', 'item_count' => 0 ) ),
+			)
+		);
+
+		$html = $this->render( array( 'collection_ids' => array( self::A, self::B, self::C ), 'show_page_count' => 'yes' ) );
+
+		self::assertStringContainsString( '<span class="agend-resources-collections__count">5 pages</span>', $html );
+		self::assertStringContainsString( '<span class="agend-resources-collections__count">1 page</span>', $html );
+		self::assertSame( 2, substr_count( $html, 'agend-resources-collections__count' ), 'a collection with no pages has nothing to count' );
+	}
+
+	#[Test]
+	public function should_read_the_item_count_only_when_the_setting_is_on(): void {
+		$row = agend_res_test_collection( self::A, array( 'item_count' => '12' ) );
+
+		self::assertNull( agend_apps_records_resources_collections_normalise( $row )['count'], 'dropped by default' );
+		self::assertSame( 12, agend_apps_records_resources_collections_normalise( $row, true )['count'] );
+		self::assertNull( agend_apps_records_resources_collections_normalise( agend_res_test_collection( self::A, array( 'item_count' => 'lots' ) ), true )['count'] );
+		self::assertNull( agend_apps_records_resources_collections_normalise( array( 'id' => self::A, 'title' => 'No count' ), true )['count'], 'the read may not return one' );
+		self::assertSame( 0, agend_apps_records_resources_collections_normalise( agend_res_test_collection( self::A, array( 'item_count' => -4 ) ), true )['count'] );
+	}
+
+	#[Test]
+	public function should_keep_the_dates_out_of_the_page_whatever_the_foot_shows(): void {
+		$html = $this->render( $this->seed() + array( 'show_page_count' => 'yes' ) );
+
+		self::assertStringContainsString( '4,721 pages', $html );
+
+		foreach ( array( '2026-03-05', '2026-06-01', 'created_at' ) as $private ) {
+			self::assertStringNotContainsString( $private, $html, $private );
+		}
+	}
+
+	#[Test]
+	public function should_hold_the_card_in_two_blocks_so_the_foot_stays_at_the_bottom(): void {
+		$html = $this->render( $this->seed() );
+
+		self::assertMatchesRegularExpression( '#<article class="agend-resources-collections__card"><div class="agend-resources-collections__body"><span class="agend-resources-collections__icon".*?</div><div class="agend-resources-collections__foot">#s', $html );
+
+		$css = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/assets/css/resources.css' );
+
+		self::assertStringContainsString( 'min-height: calc(min(1, var(--agend-res-cols) - 1) * 2.5em)', $css, 'room for two title lines when cards sit side by side' );
+		self::assertMatchesRegularExpression( '#\.agend-resources-collections__card:not\(\.agend-resources-collections__card--member\) > \.agend-resources-collections__body \{\s*flex: 1 1 auto;#', $css );
+		self::assertMatchesRegularExpression( '#\.agend-resources-collections__foot \{[^}]*margin-top: 1\.25rem;#', $css );
+	}
+
+	#[Test]
+	public function should_not_put_the_foot_on_a_members_own_card(): void {
+		$drawn = agend_apps_records_resources_collections_member_html(
+			array( array( 'id' => self::A, 'title' => 'Mine', 'item_count' => 9, 'items' => array( array( 'page_id' => 'p1', 'title' => 'First page' ) ) ) ),
+			array(),
+			array( 'card' => array( 'description' => true, 'excerptLength' => 140, 'topics' => true ), 'pages' => 4, 'level' => 'h3' )
+		);
+
+		self::assertStringContainsString( 'agend-resources-collections__card--member', $drawn['html'] );
+		self::assertStringContainsString( 'agend-resources-collections__body', $drawn['html'] );
+		self::assertStringNotContainsString( 'agend-resources-collections__foot', $drawn['html'] );
+		self::assertStringNotContainsString( 'Members only', $drawn['html'], 'they can already open it' );
+	}
+
 	#[Test]
 	public function should_carry_the_layout_and_colours_as_css_variables(): void {
 		$html = $this->render( $this->seed() + array( 'columns_desktop' => '2', 'columns_tablet' => '1', 'columns_mobile' => '2', 'card_radius' => 4 ) );

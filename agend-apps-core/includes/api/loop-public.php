@@ -116,16 +116,23 @@ function agend_apps_community_normalise_channel( $row ): ?array {
  * shown: a system message, a bot's post, a post with no words, or one with no
  * channel.
  *
+ * A system message (who joined, a pinned notice) is dropped always. A post
+ * written by the workflow bot or the shared system user is dropped unless the
+ * caller asks for automated posts, and then it carries `automated` true so a
+ * surface can tell it apart. The default is to drop, so nothing that calls this
+ * without thinking about bots ever publishes one.
+ *
  * Kept: a title and a short plain-text excerpt (mentions scrubbed), the counts
  * and flags, the channel, and the author's display name and avatar address,
  * which a surface shows only when the site chose to. Dropped: the author's id
  * and the post's HTML.
  *
- * @param mixed $row A post from `/loop/public/activity` (`type`) or
- *                   `/loop/public/announcements` (`post_type`).
- * @return array{id: string, kind: string, titled: bool, title: string, excerpt: string, replies: int, pinned: bool, featured: bool, created_at: string, channel: array{id: string, slug: string, name: string}, author: array{name: string, avatar: string}}|null
+ * @param mixed $row               A post from `/loop/public/activity` (`type`) or
+ *                                 `/loop/public/announcements` (`post_type`).
+ * @param bool  $include_automated Keep a bot's or the system user's post, marked `automated`.
+ * @return array{id: string, kind: string, titled: bool, title: string, excerpt: string, replies: int, pinned: bool, featured: bool, automated: bool, created_at: string, channel: array{id: string, slug: string, name: string}, author: array{name: string, avatar: string}}|null
  */
-function agend_apps_community_normalise_post( $row ): ?array {
+function agend_apps_community_normalise_post( $row, bool $include_automated = false ): ?array {
 	if ( ! is_array( $row ) ) {
 		return null;
 	}
@@ -143,14 +150,18 @@ function agend_apps_community_normalise_post( $row ): ?array {
 		return null;
 	}
 
-	// The workflow bot and API bots write as these. They never carry a post
-	// type, but a workflow-authored post could, so the rule holds for every
-	// kind of post.
-	if ( AGEND_APPS_COMMUNITY_SYSTEM_USER === ( is_scalar( $author['id'] ?? null ) ? (string) $author['id'] : '' ) || AGEND_APPS_COMMUNITY_BOT_NAME === $author_name ) {
+	// The system messages come first and are never let through: they say who
+	// joined or left, which is about members, not news.
+	if ( in_array( trim( $content ), AGEND_APPS_COMMUNITY_SYSTEM_TEXT, true ) ) {
 		return null;
 	}
 
-	if ( in_array( trim( $content ), AGEND_APPS_COMMUNITY_SYSTEM_TEXT, true ) ) {
+	// The workflow bot and API bots write as these. They rarely carry a post
+	// type, but a workflow-authored post could, so the rule holds for every
+	// kind of post. A site may choose to publish them.
+	$automated = AGEND_APPS_COMMUNITY_SYSTEM_USER === ( is_scalar( $author['id'] ?? null ) ? (string) $author['id'] : '' ) || AGEND_APPS_COMMUNITY_BOT_NAME === $author_name;
+
+	if ( $automated && ! $include_automated ) {
 		return null;
 	}
 
@@ -187,6 +198,7 @@ function agend_apps_community_normalise_post( $row ): ?array {
 		'replies'    => is_numeric( $row['reply_count'] ?? null ) ? max( 0, (int) $row['reply_count'] ) : 0,
 		'pinned'     => ! empty( $row['is_pinned'] ),
 		'featured'   => ! empty( $row['is_featured'] ),
+		'automated'  => $automated,
 		'created_at' => false !== strtotime( $created ) ? $created : '',
 		'channel'    => array(
 			'id'   => $channel_id,
@@ -481,17 +493,26 @@ function agend_apps_community_admin_channel_choices() {
  * Keeps the posts of the channels in $by_id, labelled with the channel's
  * current name and slug, and not on the hide list.
  *
- * @param array $posts The normalised posts.
- * @param array $by_id Channels keyed by id.
+ * An automated post leaves only when the caller asked for them, even if a
+ * stored copy somehow holds one: the stored copies are kept apart per mode, and
+ * this is the second lock on the same door.
+ *
+ * @param array $posts             The normalised posts.
+ * @param array $by_id             Channels keyed by id.
+ * @param bool  $include_automated Whether automated posts may leave.
  * @return array
  */
-function agend_apps_community_keep_posts( array $posts, array $by_id ): array {
+function agend_apps_community_keep_posts( array $posts, array $by_id, bool $include_automated = false ): array {
 	$kept = array();
 
 	foreach ( $posts as $post ) {
 		$channel_id = is_array( $post ) ? (string) ( $post['channel']['id'] ?? '' ) : '';
 
 		if ( '' === $channel_id || ! isset( $by_id[ $channel_id ] ) || agend_apps_community_post_hidden( $post ) ) {
+			continue;
+		}
+
+		if ( ! $include_automated && ! empty( $post['automated'] ) ) {
 			continue;
 		}
 
@@ -514,10 +535,18 @@ function agend_apps_community_keep_posts( array $posts, array $by_id ): array {
  * and accepts no filter, so the choosing is done here. Because pinned posts come
  * first, they are always in the window it returns.
  *
+ * @param array $args {
+ *     Optional.
+ *
+ *     @type bool $include_automated Also return posts written by the workflow bot
+ *                                   or the shared system user. System messages
+ *                                   stay out whatever this says. Default false.
+ * }
  * @return array<int, array>|WP_Error Normalised posts {@see agend_apps_community_normalise_post()}.
  */
-function agend_apps_loop_get_public_announcements() {
-	$channels = agend_apps_loop_get_channels();
+function agend_apps_loop_get_public_announcements( array $args = array() ) {
+	$automated = ! empty( $args['include_automated'] );
+	$channels  = agend_apps_loop_get_channels();
 
 	if ( is_wp_error( $channels ) ) {
 		return $channels;
@@ -535,8 +564,11 @@ function agend_apps_loop_get_public_announcements() {
 				'key'       => 'loop_public_announcements',
 				'path'      => '/loop/public/announcements',
 				'query'     => array( 'limit' => 100 ),
-				'params'    => array(),
-				'normalise' => static function ( $response ) use ( $by_id ) {
+				// The two modes are kept apart: the default copy never holds an
+				// automated post. The key is unchanged for the default mode, so
+				// copies stored before this existed stay valid.
+				'params'    => $automated ? array( 'automated' => 1 ) : array(),
+				'normalise' => static function ( $response ) use ( $by_id, $automated ) {
 					$rows = is_array( $response ) && is_array( $response['data']['announcements'] ?? null ) ? $response['data']['announcements'] : null;
 
 					if ( null === $rows ) {
@@ -546,7 +578,7 @@ function agend_apps_loop_get_public_announcements() {
 					$posts = array();
 
 					foreach ( $rows as $row ) {
-						$post = agend_apps_community_normalise_post( $row );
+						$post = agend_apps_community_normalise_post( $row, $automated );
 
 						// Chat is not an announcement: only titled posts are kept.
 						if ( null !== $post && $post['titled'] && isset( $by_id[ $post['channel']['id'] ] ) ) {
@@ -564,7 +596,7 @@ function agend_apps_loop_get_public_announcements() {
 		return $read;
 	}
 
-	return agend_apps_community_keep_posts( $read, $by_id );
+	return agend_apps_community_keep_posts( $read, $by_id, $automated );
 }
 
 /**
@@ -581,6 +613,10 @@ function agend_apps_loop_get_public_announcements() {
  *     @type string[] $channel_ids Allowed channels to read; empty for all.
  *                                 An id that is not allowed is ignored.
  *     @type int      $limit       Posts per channel, 1 to 100. Default 50.
+ *     @type bool     $include_automated Also return posts written by the workflow
+ *                                   bot or the shared system user. System
+ *                                   messages stay out whatever this says.
+ *                                   Default false.
  * }
  * @return array<int, array>|WP_Error Normalised posts, titled or not.
  */
@@ -591,9 +627,10 @@ function agend_apps_loop_get_public_activity( array $args = array() ) {
 		return $channels;
 	}
 
-	$wanted = agend_apps_community_clean_ids( $args['channel_ids'] ?? array() );
-	$limit  = max( 1, min( 100, (int) ( $args['limit'] ?? 50 ) ) );
-	$chosen = array();
+	$wanted    = agend_apps_community_clean_ids( $args['channel_ids'] ?? array() );
+	$limit     = max( 1, min( 100, (int) ( $args['limit'] ?? 50 ) ) );
+	$automated = ! empty( $args['include_automated'] );
+	$chosen    = array();
 
 	foreach ( $channels as $channel ) {
 		if ( array() === $wanted || in_array( $channel['id'], $wanted, true ) ) {
@@ -617,12 +654,13 @@ function agend_apps_loop_get_public_activity( array $args = array() ) {
 				'limit'        => $limit,
 				'channel_slug' => $channel['slug'],
 			),
+			// The two modes are kept apart, as for the announcements.
 			'params'    => array(
 				'channel' => $id,
 				'slug'    => $channel['slug'],
 				'limit'   => $limit,
-			),
-			'normalise' => static function ( $response ) use ( $id ) {
+			) + ( $automated ? array( 'automated' => 1 ) : array() ),
+			'normalise' => static function ( $response ) use ( $id, $automated ) {
 				$rows = is_array( $response ) && is_array( $response['data']['activity'] ?? null ) ? $response['data']['activity'] : null;
 
 				if ( null === $rows ) {
@@ -632,7 +670,7 @@ function agend_apps_loop_get_public_activity( array $args = array() ) {
 				$posts = array();
 
 				foreach ( $rows as $row ) {
-					$post = agend_apps_community_normalise_post( $row );
+					$post = agend_apps_community_normalise_post( $row, $automated );
 
 					// Only this channel's posts: the read was for one.
 					if ( null !== $post && $post['channel']['id'] === $id ) {
@@ -657,7 +695,7 @@ function agend_apps_loop_get_public_activity( array $args = array() ) {
 			continue;
 		}
 
-		$posts = array_merge( $posts, agend_apps_community_keep_posts( $result, array( $id => $chosen[ $id ] ) ) );
+		$posts = array_merge( $posts, agend_apps_community_keep_posts( $result, array( $id => $chosen[ $id ] ), $automated ) );
 	}
 
 	// A channel that could not be read leaves a gap; only when none could be

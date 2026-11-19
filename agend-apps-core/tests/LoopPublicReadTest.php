@@ -275,6 +275,47 @@ final class LoopPublicReadTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_keep_a_bots_post_marked_as_automated_only_when_asked_and_never_a_system_message(): void {
+		$channel = agend_cm_test_channel( 'news', array( 'channel_type' => 'feed' ) );
+
+		$by_bot = agend_cm_test_post( 'bot', $channel, "## Event published\n\nText." );
+		$by_bot['author']['display_name'] = 'Agend Workflows Bot';
+		$by_system = agend_cm_test_post( 'sys', $channel, "## From the system\n\nText." );
+		$by_system['author']['id'] = '00000000-0000-0000-0000-000000000001';
+		$joined = agend_cm_test_post( 'joined', $channel, 'Members joined the channel.' );
+		$joined['author']['id'] = '00000000-0000-0000-0000-000000000001';
+		$member = agend_cm_test_post( 'member', $channel, "## Real\n\nText." );
+
+		self::assertNull( agend_apps_community_normalise_post( $by_bot ), 'dropped by default' );
+		self::assertNull( agend_apps_community_normalise_post( $by_system ) );
+		self::assertTrue( agend_apps_community_normalise_post( $by_bot, true )['automated'] );
+		self::assertTrue( agend_apps_community_normalise_post( $by_system, true )['automated'] );
+		self::assertFalse( agend_apps_community_normalise_post( $member )['automated'] );
+		self::assertFalse( agend_apps_community_normalise_post( $member, true )['automated'] );
+		self::assertNull( agend_apps_community_normalise_post( $joined, true ), 'a system message never goes through' );
+	}
+
+	#[Test]
+	public function should_read_automated_posts_separately_so_neither_mode_serves_the_other(): void {
+		$news = agend_cm_test_channel( 'news', array( 'channel_type' => 'feed' ) );
+		agend_cm_test_allow( array( $news ) );
+		agend_cm_test_queue_channels( array( $news ) );
+
+		$by_bot = agend_cm_test_post( 'bot', $news, "## Event published\n\nText." );
+		$by_bot['author']['display_name'] = 'Agend Workflows Bot';
+		$posts = array( $by_bot, agend_cm_test_post( 'real', $news, "## Real news\n\nBody." ) );
+
+		agend_cm_test_queue_announcements( $posts );
+		self::assertSame( array( 'real' ), array_column( agend_apps_loop_get_public_announcements(), 'id' ) );
+
+		agend_cm_test_queue_announcements( $posts );
+		self::assertEqualsCanonicalizing( array( 'bot', 'real' ), array_column( agend_apps_loop_get_public_announcements( array( 'include_automated' => true ) ), 'id' ) );
+
+		agend_cm_test_queue_announcements( $posts );
+		self::assertSame( array( 'real' ), array_column( agend_apps_loop_get_public_announcements(), 'id' ), 'the stored copy of the other mode is not used' );
+	}
+
+	#[Test]
 	public function should_call_a_channel_by_its_current_name_not_the_one_on_the_post(): void {
 		$news = agend_cm_test_channel( 'news', array( 'channel_type' => 'feed', 'name' => 'Member News' ) );
 		agend_cm_test_allow( array( $news ) );

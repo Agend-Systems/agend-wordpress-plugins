@@ -75,6 +75,26 @@ function agend_apps_records_community_field_channels( string $extra = '' ): arra
 }
 
 /**
+ * The switch that lets posts written by the workflow bot or the shared system
+ * user through.
+ *
+ * Off by default: a site publishes only what members wrote unless the editor
+ * says otherwise. System messages (who joined or left, a pinned notice) are
+ * never shown whatever this says, so the help text does not promise them.
+ *
+ * @return array
+ */
+function agend_apps_records_community_field_automated(): array {
+	return array(
+		'name'        => 'include_automated',
+		'label'       => __( 'Include automated posts', 'agend-apps-core' ),
+		'type'        => 'toggle',
+		'default'     => false,
+		'description' => __( 'Posts created automatically, such as a notice when an event is published. Messages about who joined or left a channel are never shown.', 'agend-apps-core' ),
+	);
+}
+
+/**
  * The author section: how much of a member's name to publish.
  *
  * @return array

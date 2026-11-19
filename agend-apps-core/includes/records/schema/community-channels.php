@@ -128,6 +128,17 @@ function agend_apps_records_schema_community_channels(): array {
 				'label'  => __( 'Channel Card', 'agend-apps-core' ),
 				'fields' => array(
 					array(
+						'name'        => 'tile_style',
+						'label'       => __( 'Tile', 'agend-apps-core' ),
+						'type'        => 'select',
+						'options'     => array(
+							'icon'   => __( 'Icon', 'agend-apps-core' ),
+							'letter' => __( 'First letter', 'agend-apps-core' ),
+						),
+						'default'     => 'icon',
+						'description' => __( 'The small square beside each channel name. The icon is a hash sign for chat channels and stacked layers for feed channels. Or show the first letter of the name instead.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'show_description',
 						'label'   => __( 'Show the description', 'agend-apps-core' ),
 						'type'    => 'toggle',

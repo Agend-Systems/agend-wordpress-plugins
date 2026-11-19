@@ -180,7 +180,7 @@ final class CommunityRenderTest extends TestCase {
 	 * @return string[] The headline texts, in order.
 	 */
 	private function headlines( string $html ): array {
-		preg_match_all( '#<h3 class="agend-community-(?:announcements__headline|feed__title)">(.*?)</h3>#s', $html, $match );
+		preg_match_all( '#<h3 class="agend-community-(?:announcements__headline|feed__headline|feed__title)">(.*?)</h3>#s', $html, $match );
 
 		return array_map(
 			static fn( string $h ): string => trim( html_entity_decode( (string) preg_replace( '#<span class="agend-community__sr">.*?</span>#s', '', strip_tags( $h, '<span>' ) ) ) ),
@@ -563,7 +563,6 @@ final class CommunityRenderTest extends TestCase {
 
 		self::assertStringContainsString( 'agend-community--channels', $html );
 		self::assertStringContainsString( '<h2 class="agend-community__title">Community channels</h2>', $html );
-		self::assertStringContainsString( '<span class="agend-community-channels__tile" aria-hidden="true">G</span>', $html );
 		self::assertStringContainsString( '<h3 class="agend-community-channels__name">General</h3>', $html );
 		self::assertStringContainsString( 'Chat &amp; share.', $html );
 		self::assertStringContainsString( '1 member<', $html );
@@ -766,7 +765,7 @@ final class CommunityRenderTest extends TestCase {
 			)
 		);
 
-		$html = $this->feed();
+		$html = $this->feed( array( 'layout' => 'list' ) );
 
 		self::assertStringContainsString( '<span class="agend-community-feed__count">12</span><span class="agend-community-feed__word">replies</span>', $html );
 		self::assertStringContainsString( '<span class="agend-community-feed__count">1</span><span class="agend-community-feed__word">reply</span>', $html );
@@ -822,6 +821,324 @@ final class CommunityRenderTest extends TestCase {
 	#[Test]
 	public function should_hold_popular_posts_to_both_loop_scopes(): void {
 		self::assertSame( array( 'loop.activity.read', 'loop.channels.browse' ), agend_apps_records_surface_requirements( 'community-feed' )['scopes'] );
+	}
+
+	// -----------------------------------------------------------------
+	// Popular posts: cards and list
+	// -----------------------------------------------------------------
+
+	private function featuredPost( array $news ): array {
+		return agend_cm_test_post( 'p1', $news, "## Busy thread\n\nWhat members said about the new conference programme.", array( 'reply_count' => 12, 'is_featured' => true, 'created_at' => gmdate( 'c', time() - 3 * DAY_IN_SECONDS ) ), 'discussion' );
+	}
+
+	#[Test]
+	public function should_draw_popular_posts_as_cards_by_default(): void {
+		$news = $this->news();
+		$this->seedFeed( array( $news ), array( $this->featuredPost( $news ) ) );
+
+		$html = $this->feed();
+
+		self::assertStringContainsString( '<ul class="agend-community-feed__grid" role="list">', $html );
+		self::assertStringNotContainsString( 'agend-community-feed__list', $html );
+		self::assertStringContainsString( '<article class="agend-community-feed__card agend-community-feed__card--link">', $html );
+		self::assertMatchesRegularExpression( '#<span class="agend-community-feed__tag">.*?<span>Member News</span></span>#s', $html, 'the channel label' );
+		self::assertStringContainsString( 'agend-community-feed__tag agend-community-feed__tag--flag">Featured<', $html );
+		self::assertMatchesRegularExpression( '#<h3 class="agend-community-feed__headline"><a class="agend-community-feed__link exclude-agend-theme-link" href="[^"]+loop-channel/news">Busy thread#', $html );
+		self::assertStringContainsString( '<p class="agend-community-feed__excerpt">What members said about the new conference programme.</p>', $html, 'cards show the excerpt by default' );
+		self::assertMatchesRegularExpression( '#<div class="agend-community-feed__foot"><div class="agend-community-feed__who"><time class="agend-community__time"[^>]*>3 days ago</time></div><p class="agend-community-feed__replies">.*?<span>12 replies</span></p></div>#s', $html, 'date on the left, replies on the right' );
+		self::assertStringContainsString( '--agend-cm-cols-desktop:3;--agend-cm-cols-tablet:2;--agend-cm-cols-mobile:1;', $html );
+		self::assertSame( 1, substr_count( $html, '<a class="agend-community-feed__link' ), 'one link per card: the whole card is the target' );
+	}
+
+	#[Test]
+	public function should_say_when_a_card_has_no_replies_and_leave_the_footer_out_when_it_has_nothing_to_say(): void {
+		$news = $this->news();
+		$post = agend_cm_test_post( 'p1', $news, "## Quiet\n\nx", array( 'is_featured' => true ), 'discussion' );
+		$this->seedFeed( array( $news ), array( $post ) );
+
+		self::assertStringContainsString( 'agend-community-feed__replies agend-community-feed__replies--none"', $this->feed() );
+		self::assertStringContainsString( '<span>No replies yet</span>', $this->feed() );
+
+		$this->resetSite();
+		$this->seedFeed( array( $news ), array( $post ) );
+
+		$bare = $this->feed( array( 'show_reply_count' => '', 'show_date' => '', 'show_channel' => '', 'show_featured_badge' => '', 'show_excerpt' => '' ) );
+
+		self::assertStringNotContainsString( 'agend-community-feed__foot', $bare );
+		self::assertStringNotContainsString( 'agend-community-feed__tags', $bare );
+		self::assertStringNotContainsString( 'agend-community-feed__excerpt', $bare );
+		self::assertStringContainsString( 'Quiet', $bare );
+	}
+
+	#[Test]
+	public function should_keep_the_list_layout_when_asked_and_leave_the_columns_out_of_it(): void {
+		$news = $this->news();
+		$this->seedFeed( array( $news ), array( $this->featuredPost( $news ) ) );
+
+		$html = $this->feed( array( 'layout' => 'list' ) );
+
+		self::assertStringContainsString( '<ul class="agend-community-feed__list" role="list">', $html );
+		self::assertStringNotContainsString( 'agend-community-feed__grid', $html );
+		self::assertStringNotContainsString( 'agend-community-feed__card', $html );
+		self::assertStringNotContainsString( '--agend-cm-cols-desktop', $html );
+	}
+
+	#[Test]
+	public function should_default_to_cards_in_three_two_and_one_columns_and_keep_the_columns_in_bounds(): void {
+		$config = agend_apps_records_community_feed_build_config( array() );
+
+		self::assertSame( array( 'mode' => 'cards', 'desktop' => 3, 'tablet' => 2, 'mobile' => 1 ), $config['layout'] );
+
+		$wild = agend_apps_records_community_feed_build_config( array( 'layout' => 'masonry', 'columns_desktop' => '9', 'columns_tablet' => '0', 'columns_mobile' => '7' ) );
+
+		self::assertSame( array( 'mode' => 'cards', 'desktop' => 4, 'tablet' => 1, 'mobile' => 2 ), $wild['layout'] );
+		self::assertSame( 'list', agend_apps_records_community_feed_build_config( array( 'layout' => 'list' ) )['layout']['mode'] );
+	}
+
+	#[Test]
+	public function should_offer_the_columns_only_for_cards_with_the_same_choices_as_the_other_widgets(): void {
+		$fields = array();
+
+		foreach ( agend_apps_records_surface_schema( 'community-feed' )['sections'] as $section ) {
+			foreach ( $section['fields'] as $field ) {
+				$fields[ $field['name'] ] = $field;
+			}
+		}
+
+		self::assertSame( array( 'cards', 'list' ), array_keys( $fields['layout']['options'] ) );
+		self::assertSame( 'cards', $fields['layout']['default'] );
+		self::assertSame( array( '1', '2', '3', '4' ), array_map( 'strval', array_keys( $fields['columns_desktop']['options'] ) ) );
+		self::assertSame( '3', $fields['columns_desktop']['default'] );
+		self::assertSame( '2', $fields['columns_tablet']['default'] );
+		self::assertSame( '1', $fields['columns_mobile']['default'] );
+
+		foreach ( array( 'columns_desktop', 'columns_tablet', 'columns_mobile' ) as $name ) {
+			self::assertSame( array( 'layout' => 'cards' ), $fields[ $name ]['condition'], $name );
+		}
+	}
+
+	// -----------------------------------------------------------------
+	// Authors in the new shapes
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_show_no_author_circle_in_a_card_by_default_and_the_date_stands_alone(): void {
+		$news = $this->news();
+		$this->seedFeed( array( $news ), array( $this->featuredPost( $news ) ) );
+
+		$html = $this->feed();
+
+		self::assertStringNotContainsString( 'agend-community__author', $html );
+		self::assertStringNotContainsString( 'Ben', $html );
+		self::assertStringNotContainsString( '<img', $html );
+		self::assertStringContainsString( '<div class="agend-community-feed__who"><time', $html );
+	}
+
+	#[Test]
+	public function should_lead_a_card_author_with_their_initials_and_put_the_date_under_the_name(): void {
+		$news = $this->news();
+		$this->seedFeed( array( $news ), array( $this->featuredPost( $news ) ) );
+
+		$html = $this->feed( array( 'author_display' => 'first_name_initial' ) );
+
+		self::assertMatchesRegularExpression( '#<span class="agend-community__author"><span class="agend-community__avatar agend-community__avatar--letters" aria-hidden="true">BT</span><span class="agend-community__author-text"><span class="agend-community__author-name">Ben T\.</span><time class="agend-community__time"#', $html );
+		self::assertStringNotContainsString( '<img', $html, 'initials are not a photo' );
+		self::assertStringNotContainsString( 'Ben Thompson', $html );
+	}
+
+	#[Test]
+	public function should_lead_a_card_author_with_their_photo_only_when_photos_are_on(): void {
+		$news = $this->news();
+		$post = $this->featuredPost( $news );
+		$this->seedFeed( array( $news ), array( $post ) );
+
+		$with = $this->feed( array( 'author_display' => 'first_name', 'show_avatar' => 'yes' ) );
+
+		self::assertStringContainsString( '<img class="agend-community__avatar" src="https://avatars.example.test/ben.png"', $with );
+		self::assertStringNotContainsString( 'avatar--letters', $with, 'a photo takes the circle' );
+	}
+
+	#[Test]
+	public function should_not_draw_a_second_circle_when_the_name_is_only_initials(): void {
+		$news = $this->news();
+		$this->seedFeed( array( $news ), array( $this->featuredPost( $news ) ) );
+
+		$html = $this->feed( array( 'author_display' => 'initials' ) );
+
+		self::assertStringContainsString( '>BT<', $html );
+		self::assertSame( 0, substr_count( $html, 'avatar--letters' ) );
+	}
+
+	#[Test]
+	public function should_draw_an_announcement_byline_with_a_circle_and_the_name_under_the_text(): void {
+		$news = $this->news();
+		$this->seedAnnouncements( array( $news ), array( agend_cm_test_post( 'x', $news, "## Notice\n\nBody." ) ) );
+
+		$html = $this->announcements( array( 'author_display' => 'full' ) );
+
+		self::assertMatchesRegularExpression( '#<p class="agend-community-announcements__excerpt">Body\.</p><p class="agend-community-announcements__byline"><span class="agend-community__author"><span class="agend-community__avatar agend-community__avatar--letters" aria-hidden="true">BT</span><span class="agend-community__author-name">Ben Thompson</span></span></p>#', $html );
+	}
+
+	#[Test]
+	public function should_keep_the_author_defaults_cautious_in_every_new_shape(): void {
+		$news = $this->news();
+		$this->seedAnnouncements( array( $news ), array( agend_cm_test_post( 'x', $news, "## Notice\n\nBody." ) ) );
+
+		$config = agend_apps_records_community_feed_build_config( array() );
+
+		self::assertSame( 'none', $config['author']['mode'] );
+		self::assertFalse( $config['author']['avatar'] );
+		self::assertStringNotContainsString( 'agend-community-announcements__byline', $this->announcements() );
+	}
+
+	// -----------------------------------------------------------------
+	// Automated posts
+	// -----------------------------------------------------------------
+
+	/** @return array[] A bot's post, the system's, a join message and a member's post, all in one channel. */
+	private function mixedAnnouncements( array $news ): array {
+		$bot = agend_cm_test_post( 'bot', $news, "## Event published\n\nWorkshop on Friday." );
+		$bot['author']['display_name'] = 'Agend Workflows Bot';
+		$system = agend_cm_test_post( 'sys', $news, "## From the system user\n\nText." );
+		$system['author']['id'] = '00000000-0000-0000-0000-000000000001';
+		$joined = agend_cm_test_post( 'joined', $news, 'Members joined the channel.' );
+		$joined['author']['id'] = '00000000-0000-0000-0000-000000000001';
+
+		return array( $bot, $system, $joined, agend_cm_test_post( 'real', $news, "## Real news\n\nBody." ) );
+	}
+
+	#[Test]
+	public function should_leave_automated_posts_out_unless_asked(): void {
+		$news = $this->news();
+		$this->seedAnnouncements( array( $news ), $this->mixedAnnouncements( $news ) );
+
+		self::assertSame( array( 'Real news' ), $this->headlines( $this->announcements() ) );
+		self::assertFalse( agend_apps_records_community_announcements_build_config( array() )['source']['automated'] );
+	}
+
+	#[Test]
+	public function should_let_automated_posts_through_when_asked_but_never_a_system_message(): void {
+		$news = $this->news();
+		$this->seedAnnouncements( array( $news ), $this->mixedAnnouncements( $news ) );
+
+		$headlines = $this->headlines( $this->announcements( array( 'include_automated' => 'yes' ) ) );
+
+		self::assertEqualsCanonicalizing( array( 'Event published', 'From the system user', 'Real news' ), $headlines );
+		self::assertStringNotContainsString( 'Members joined', implode( '', $headlines ) );
+	}
+
+	#[Test]
+	public function should_keep_each_mode_apart_so_one_never_serves_the_other(): void {
+		$news  = $this->news();
+		$posts = $this->mixedAnnouncements( $news );
+		$this->seedAnnouncements( array( $news ), $posts );
+
+		self::assertSame( array( 'Real news' ), $this->headlines( $this->announcements() ) );
+
+		// The other mode is a different stored copy, so it reads again.
+		agend_cm_test_queue_announcements( $posts );
+		self::assertContains( 'Event published', $this->headlines( $this->announcements( array( 'include_automated' => 'yes' ) ) ) );
+
+		// And back: the first mode's copy never held the automated post.
+		agend_cm_test_queue_announcements( $posts );
+		self::assertSame( array( 'Real news' ), $this->headlines( $this->announcements() ) );
+	}
+
+	#[Test]
+	public function should_let_automated_posts_into_popular_posts_only_when_asked_and_only_if_they_qualify(): void {
+		$news = $this->news();
+		$bot  = agend_cm_test_post( 'bot', $news, "## Event published\n\nWorkshop.", array( 'reply_count' => 8 ), 'update' );
+		$bot['author']['display_name'] = 'Agend Workflows Bot';
+		$chatty = agend_cm_test_post( 'chatty', $news, 'A bot saying hello.', array( 'reply_count' => 9 ), '' );
+		$chatty['author']['display_name'] = 'Agend Workflows Bot';
+		$joined = agend_cm_test_post( 'joined', $news, 'Members joined the channel.', array( 'reply_count' => 9 ), 'update' );
+		$real   = agend_cm_test_post( 'real', $news, "## Real thread\n\nx", array( 'reply_count' => 6 ), 'discussion' );
+
+		$this->seedFeed( array( $news ), array( $bot, $chatty, $joined, $real ) );
+		self::assertSame( array( 'Real thread' ), $this->headlines( $this->feed() ) );
+
+		$this->resetSite();
+		$this->seedFeed( array( $news ), array( $bot, $chatty, $joined, $real ) );
+
+		// Popular ranks by replies, so the bot's titled post leads; its chat
+		// message is still chat and the join message is still a system message.
+		self::assertSame( array( 'Event published', 'Real thread' ), $this->headlines( $this->feed( array( 'include_automated' => 'yes' ) ) ) );
+	}
+
+	#[Test]
+	public function should_word_the_automated_posts_setting_plainly_and_leave_it_off_for_both_surfaces(): void {
+		foreach ( array( 'community-announcements', 'community-feed' ) as $surface ) {
+			$field = null;
+
+			foreach ( agend_apps_records_surface_schema( $surface )['sections'] as $section ) {
+				foreach ( $section['fields'] as $candidate ) {
+					if ( 'include_automated' === $candidate['name'] ) {
+						$field = $candidate;
+					}
+				}
+			}
+
+			self::assertNotNull( $field, $surface );
+			self::assertSame( 'Include automated posts', $field['label'] );
+			self::assertFalse( $field['default'] );
+			self::assertStringContainsString( 'Posts created automatically, such as a notice when an event is published.', $field['description'] );
+		}
+
+		$channels = array_merge( ...array_column( agend_apps_records_surface_schema( 'community-channels' )['sections'], 'fields' ) );
+		self::assertNotContains( 'include_automated', array_column( $channels, 'name' ), 'channels have no posts' );
+	}
+
+	// -----------------------------------------------------------------
+	// Channel tiles
+	// -----------------------------------------------------------------
+
+	#[Test]
+	public function should_lead_each_channel_with_an_icon_for_its_kind_by_default(): void {
+		$this->seedChannels( array( $this->news(), agend_cm_test_channel( 'general' ) ) );
+
+		$html = $this->channels();
+
+		self::assertMatchesRegularExpression( '#<span class="agend-community-channels__tile agend-community-channels__tile--icon" aria-hidden="true"><svg class="agend-community__icon agend-community__icon--hash"[^>]*stroke="currentColor"[^>]*aria-hidden="true"#', $html, 'a chat channel: a hash' );
+		self::assertMatchesRegularExpression( '#<span class="agend-community-channels__tile agend-community-channels__tile--icon" aria-hidden="true"><svg class="agend-community__icon agend-community__icon--layers"#', $html, 'a feed channel: stacked layers' );
+		self::assertStringNotContainsString( 'tile" aria-hidden="true">G<', $html );
+	}
+
+	#[Test]
+	public function should_draw_the_icons_in_the_text_colour_with_the_same_line_as_the_chevron(): void {
+		foreach ( array( 'hash', 'layers', 'reply' ) as $name ) {
+			$svg = agend_apps_records_community_icon( $name, 16, 1.75 );
+
+			self::assertStringContainsString( 'stroke="currentColor"', $svg, $name );
+			self::assertStringContainsString( 'stroke-width="2.63"', $svg, 'drawn on 24 units so a 16px icon shows a 1.75px line, as the chevron does' );
+			self::assertStringContainsString( 'stroke-linecap="round" stroke-linejoin="round"', $svg, $name );
+			self::assertStringNotContainsString( 'fill="#', $svg, $name );
+		}
+
+		self::assertSame( '', agend_apps_records_community_icon( 'unknown' ) );
+	}
+
+	#[Test]
+	public function should_keep_the_first_letter_tile_when_chosen(): void {
+		$this->seedChannels( array( $this->news(), agend_cm_test_channel( 'general' ) ) );
+
+		$html = $this->channels( array( 'tile_style' => 'letter' ) );
+
+		self::assertStringContainsString( '<span class="agend-community-channels__tile" aria-hidden="true">G</span>', $html );
+		self::assertStringContainsString( '<span class="agend-community-channels__tile" aria-hidden="true">M</span>', $html );
+		self::assertStringNotContainsString( 'agend-community__icon', $html );
+	}
+
+	#[Test]
+	public function should_default_the_tile_to_an_icon_and_fall_back_to_it_for_an_unknown_choice(): void {
+		self::assertSame( 'icon', agend_apps_records_community_channels_build_config( array() )['card']['tile'] );
+		self::assertSame( 'icon', agend_apps_records_community_channels_build_config( array( 'tile_style' => 'photo' ) )['card']['tile'] );
+		self::assertSame( 'letter', agend_apps_records_community_channels_build_config( array( 'tile_style' => 'letter' ) )['card']['tile'] );
+
+		$field = array_values( array_filter( array_merge( ...array_column( agend_apps_records_surface_schema( 'community-channels' )['sections'], 'fields' ) ), static fn( array $f ): bool => 'tile_style' === $f['name'] ) )[0] ?? null;
+
+		self::assertNotNull( $field );
+		self::assertSame( 'Tile', $field['label'] );
+		self::assertSame( array( 'icon' => 'Icon', 'letter' => 'First letter' ), $field['options'] );
 	}
 
 	// -----------------------------------------------------------------
@@ -950,6 +1267,21 @@ final class CommunityRenderTest extends TestCase {
 		self::assertStringContainsString( '@container agend-cm', $css );
 		self::assertStringContainsString( 'margin-top: 0 !important', $css, 'cancels the theme\'s ID-level li + li margin' );
 		self::assertStringNotContainsString( "\u{2014}", $css );
+	}
+
+	#[Test]
+	public function should_pin_the_card_footer_against_the_theme_and_keep_list_dividers_off_the_cards(): void {
+		$css = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-core/assets/css/community.css' );
+
+		// The theme gives a div after a paragraph a top margin through an ID-level
+		// selector, which would stop the footer sitting at the bottom of its card.
+		self::assertMatchesRegularExpression( '#\.agend-community-feed__foot \{[^}]*margin-top: auto !important;#s', $css );
+		// The hairline between list rows must not draw across the cards.
+		self::assertStringContainsString( '.agend-community-feed__list > .agend-community-feed__item + .agend-community-feed__item', $css );
+		self::assertStringNotContainsString( ",\n.agend-community-feed__item + .agend-community-feed__item {", $css );
+		// Three across, two on a tablet, one on a phone, from the same variables the other widgets use.
+		self::assertStringContainsString( '.agend-community-feed__grid {', $css );
+		self::assertStringContainsString( 'var(--agend-cm-cols)', $css );
 	}
 
 	#[Test]

@@ -73,6 +73,7 @@ function agend_apps_records_schema_community_feed(): array {
 						'description' => __( 'Chat messages are short and informal. Leave this off unless the channel is mostly chat and you want it shown.', 'agend-apps-core' ),
 						'condition'   => array( 'order' => 'recent' ),
 					),
+					agend_apps_records_community_field_automated(),
 					array(
 						'name'        => 'count',
 						'label'       => __( 'Number of posts', 'agend-apps-core' ),
@@ -98,6 +99,54 @@ function agend_apps_records_schema_community_feed(): array {
 				'id'     => 'section_layout',
 				'label'  => __( 'Layout', 'agend-apps-core' ),
 				'fields' => array(
+					array(
+						'name'        => 'layout',
+						'label'       => __( 'Layout', 'agend-apps-core' ),
+						'type'        => 'select',
+						'options'     => array(
+							'cards' => __( 'Cards', 'agend-apps-core' ),
+							'list'  => __( 'List', 'agend-apps-core' ),
+						),
+						'default'     => 'cards',
+						'description' => __( 'Cards show each post in its own box, side by side. A list shows one post per row.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'columns_desktop',
+						'label'       => __( 'Columns (Desktop)', 'agend-apps-core' ),
+						'type'        => 'select',
+						'options'     => array(
+							'1' => '1',
+							'2' => '2',
+							'3' => '3',
+							'4' => '4',
+						),
+						'default'     => '3',
+						'description' => __( 'The most columns across. Narrow areas use fewer columns.', 'agend-apps-core' ),
+						'condition'   => array( 'layout' => 'cards' ),
+					),
+					array(
+						'name'      => 'columns_tablet',
+						'label'     => __( 'Columns (Tablet)', 'agend-apps-core' ),
+						'type'      => 'select',
+						'options'   => array(
+							'1' => '1',
+							'2' => '2',
+							'3' => '3',
+						),
+						'default'   => '2',
+						'condition' => array( 'layout' => 'cards' ),
+					),
+					array(
+						'name'      => 'columns_mobile',
+						'label'     => __( 'Columns (Mobile)', 'agend-apps-core' ),
+						'type'      => 'select',
+						'options'   => array(
+							'1' => '1',
+							'2' => '2',
+						),
+						'default'   => '1',
+						'condition' => array( 'layout' => 'cards' ),
+					),
 					array(
 						'name'    => 'card_radius',
 						'label'   => __( 'Corner Radius (px)', 'agend-apps-core' ),
@@ -140,7 +189,7 @@ function agend_apps_records_schema_community_feed(): array {
 						'name'    => 'show_excerpt',
 						'label'   => __( 'Show an excerpt', 'agend-apps-core' ),
 						'type'    => 'toggle',
-						'default' => false,
+						'default' => true,
 					),
 					array(
 						'name'      => 'excerpt_length',
