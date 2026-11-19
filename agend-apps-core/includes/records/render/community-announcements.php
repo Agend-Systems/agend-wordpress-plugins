@@ -32,6 +32,7 @@ function agend_apps_records_community_announcements_build_config( array $s ): ar
 
 	$config['source'] = array(
 		'posts'        => 'titled' === ( $s['post_source'] ?? 'announcements' ) ? 'titled' : 'announcements',
+		'automated'    => $on( 'include_automated', '' ),
 		'pinnedOnly'   => $on( 'pinned_only', '' ),
 		'featuredOnly' => $on( 'featured_only', '' ),
 		'pinnedFirst'  => $on( 'pinned_first' ),
@@ -106,7 +107,7 @@ function agend_apps_records_community_announcements_fetch( array $config ): arra
 		);
 	}
 
-	$posts = agend_apps_loop_get_public_announcements();
+	$posts = agend_apps_loop_get_public_announcements( array( 'include_automated' => $config['source']['automated'] ) );
 
 	if ( is_wp_error( $posts ) ) {
 		return array(

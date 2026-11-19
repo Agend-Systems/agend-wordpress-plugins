@@ -52,6 +52,7 @@ function agend_apps_records_schema_community_announcements(): array {
 						'default'     => 'announcements',
 						'description' => __( 'Announcements are posts marked as an announcement in your community. Every post with a title also includes updates, discussions, questions and events. Chat messages are never shown.', 'agend-apps-core' ),
 					),
+					agend_apps_records_community_field_automated(),
 					array(
 						'name'    => 'pinned_only',
 						'label'   => __( 'Only pinned posts', 'agend-apps-core' ),
