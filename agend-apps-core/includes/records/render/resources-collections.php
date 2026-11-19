@@ -10,9 +10,9 @@
  * holds only what an editor chose to publish: the collections the editor
  * picked by hand, with their title, description and topics. The shared
  * collection list carries no visibility (it has every collection, whoever it is
- * meant for), so it is never printed whole, and nothing here counts the pages
- * inside a collection, which would give away how much a members-only
- * collection holds.
+ * meant for), so it is never printed whole. The number of pages inside a
+ * collection is read only when the editor switches it on: it would give away
+ * how much a members-only collection holds, so it is dropped otherwise.
  *
  * A signed-in member's own collections are not in the page. A small script
  * asks the site for them after the page loads (the member's view must never
@@ -64,6 +64,11 @@ function agend_apps_records_resources_collections_build_config( array $s ): arra
 			'description'   => $on( 'show_description' ),
 			'excerptLength' => max( 20, min( 400, (int) ( $s['excerpt_length'] ?? 140 ) ) ),
 			'topics'        => $on( 'show_topics' ),
+			// Every collection here can only be opened by a signed-in member, so
+			// the label is true of all of them and is on unless an editor turns
+			// it off.
+			'membersOnly'   => $on( 'show_members_only' ),
+			'pageCount'     => $on( 'show_page_count', '' ),
 		),
 		'visitor'  => array(
 			'note'     => $text( 'visitor_note', '' ),
@@ -86,18 +91,22 @@ function agend_apps_records_resources_collections_build_config( array $s ): arra
 /**
  * One collection as the renderer draws it, from the gateway's collection row.
  *
- * Only the fields that are published on purpose are kept: the item count and
- * the dates are dropped here, so no later change to a card can print them.
+ * Only the fields that are published on purpose are kept. The dates are always
+ * dropped, so no later change to a card can print them. The item count is kept
+ * only when the caller says the editor chose to show it; otherwise `count` is
+ * null and the number never leaves this function.
  *
- * @param array $row A collection, from the list or a member's list.
- * @return array{id: string, title: string, description: string, topics: string[]}
+ * @param array $row        A collection, from the list or a member's list.
+ * @param bool  $with_count Whether to keep the number of pages.
+ * @return array{id: string, title: string, description: string, topics: string[], count: int|null}
  */
-function agend_apps_records_resources_collections_normalise( array $row ): array {
+function agend_apps_records_resources_collections_normalise( array $row, bool $with_count = false ): array {
 	return array(
 		'id'          => (string) ( $row['id'] ?? '' ),
 		'title'       => trim( wp_strip_all_tags( is_scalar( $row['title'] ?? null ) ? (string) $row['title'] : '' ) ),
 		'description' => is_scalar( $row['description'] ?? null ) ? (string) $row['description'] : '',
 		'topics'      => agend_apps_records_resources_topic_names( $row['topics'] ?? array() ),
+		'count'       => $with_count && is_numeric( $row['item_count'] ?? null ) ? max( 0, (int) $row['item_count'] ) : null,
 	);
 }
 
@@ -140,7 +149,7 @@ function agend_apps_records_resources_collections_fetch( array $config ): array 
 	$by_id = array();
 
 	foreach ( $list['items'] as $row ) {
-		$collection = agend_apps_records_resources_collections_normalise( $row );
+		$collection = agend_apps_records_resources_collections_normalise( $row, $config['card']['pageCount'] );
 
 		if ( '' !== $collection['id'] && '' !== $collection['title'] ) {
 			$by_id[ $collection['id'] ] = $collection;
@@ -182,8 +191,9 @@ function agend_apps_records_resources_collections_render_topics( array $topics )
 }
 
 /**
- * The top of a card: the icon, the title and the description. Shared by a
- * visitor's card and a member's.
+ * The top of a card: the icon, the title and the description, in one block so
+ * the footer of a visitor's card can sit at the bottom whatever the block holds.
+ * Shared by a visitor's card and a member's.
  *
  * @param array  $c       A normalised collection.
  * @param array  $card    The `card` config.
@@ -193,7 +203,8 @@ function agend_apps_records_resources_collections_render_topics( array $topics )
 function agend_apps_records_resources_collections_render_card_head( array $c, array $card, string $level ): string {
 	$excerpt = $card['description'] ? agend_apps_records_resources_excerpt( $c['description'], $card['excerptLength'] ) : '';
 
-	$html  = '<span class="agend-resources-collections__icon" aria-hidden="true">' . agend_apps_records_resources_icon( 'stack' ) . '</span>';
+	$html  = '<div class="agend-resources-collections__body">';
+	$html .= '<span class="agend-resources-collections__icon" aria-hidden="true">' . agend_apps_records_resources_icon( 'stack' ) . '</span>';
 	$html .= '<' . $level . ' class="agend-resources-collections__name">' . esc_html( $c['title'] ) . '</' . $level . '>';
 
 	if ( '' !== $excerpt ) {
@@ -204,7 +215,48 @@ function agend_apps_records_resources_collections_render_card_head( array $c, ar
 		$html .= agend_apps_records_resources_collections_render_topics( $c['topics'] );
 	}
 
-	return $html;
+	return $html . '</div>';
+}
+
+/**
+ * The padlock of the Members only label, drawn in the label's colour. Same pen
+ * as the other icons of this family.
+ *
+ * @return string SVG markup.
+ */
+function agend_apps_records_resources_collections_lock_icon(): string {
+	return '<svg class="agend-resources-collections__lock" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+}
+
+/**
+ * The foot of a visitor's card: how many pages the collection holds, when the
+ * editor chose to say, and a Members only label.
+ *
+ * A collection with no pages has nothing to count, so no number is shown for it.
+ *
+ * @param array $c    A normalised collection.
+ * @param array $card The `card` config.
+ * @return string Escaped HTML, '' when there is nothing to put in it.
+ */
+function agend_apps_records_resources_collections_render_foot( array $c, array $card ): string {
+	$count = '';
+	$label = '';
+
+	if ( $card['pageCount'] && null !== $c['count'] && $c['count'] > 0 ) {
+		$count = '<span class="agend-resources-collections__count">' . esc_html(
+			sprintf(
+				/* translators: %s: number of pages in a collection. */
+				_n( '%s page', '%s pages', $c['count'], 'agend-apps-core' ),
+				number_format_i18n( $c['count'] )
+			)
+		) . '</span>';
+	}
+
+	if ( $card['membersOnly'] ) {
+		$label = '<span class="agend-resources-collections__members-only">' . agend_apps_records_resources_collections_lock_icon() . '<span>' . esc_html__( 'Members only', 'agend-apps-core' ) . '</span></span>';
+	}
+
+	return '' === $count . $label ? '' : '<div class="agend-resources-collections__foot">' . $count . $label . '</div>';
 }
 
 /**
@@ -218,6 +270,7 @@ function agend_apps_records_resources_collections_render_card_head( array $c, ar
 function agend_apps_records_resources_collections_render_card( array $c, array $config ): string {
 	return '<article class="agend-resources-collections__card">'
 		. agend_apps_records_resources_collections_render_card_head( $c, $config['card'], 'h3' )
+		. agend_apps_records_resources_collections_render_foot( $c, $config['card'] )
 		. '</article>';
 }
 

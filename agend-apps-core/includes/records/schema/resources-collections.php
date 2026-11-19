@@ -158,6 +158,20 @@ function agend_apps_records_schema_resources_collections(): array {
 						'type'    => 'toggle',
 						'default' => true,
 					),
+					array(
+						'name'        => 'show_members_only',
+						'label'       => __( 'Show a Members only label', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'A small lock label at the bottom of each card. Collections can only be opened by signed-in members, so this tells visitors before they try.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'show_page_count',
+						'label'       => __( 'Show the number of pages', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'Says how many pages each collection holds. Anyone who visits your website can read it, so leave it off if you would rather not show how much a members-only collection contains.', 'agend-apps-core' ),
+					),
 				),
 			),
 			array(

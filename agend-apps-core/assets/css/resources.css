@@ -254,6 +254,18 @@
   background: #fff;
 }
 
+/* The icon, title, description and topics are one block. On a visitor's card it
+   takes the spare height of a stretched card, so the footer below it sits at
+   the bottom and the footers of a row line up. */
+.agend-resources-collections__body {
+  align-self: stretch;
+  min-width: 0;
+}
+
+.agend-resources-collections__card:not(.agend-resources-collections__card--member) > .agend-resources-collections__body {
+  flex: 1 1 auto;
+}
+
 .agend-resources-collections__icon {
   display: flex;
   align-items: center;
@@ -274,6 +286,10 @@
 
 .agend-resources-collections__name {
   margin: 0;
+  /* Room for two lines whenever cards sit side by side, so a title that wraps
+     does not push its description lower than its neighbour's. With one column
+     (the variable is 1) the sum is 0 and nothing is reserved. */
+  min-height: calc(min(1, var(--agend-res-cols) - 1) * 2.5em);
   color: var(--agend-res-heading);
   font-size: clamp(1.125rem, 1.05rem + 0.35vw, 1.3125rem);
   font-weight: 600;
@@ -306,6 +322,49 @@
   color: var(--agend-res-muted);
   font-size: 0.8125rem;
   line-height: 1.4;
+}
+
+/* The foot of a visitor's card: the page count on the left when it is shown, the
+   Members only label on the right. */
+.agend-resources-collections__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: stretch;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--agend-res-line);
+}
+
+.agend-resources-collections__count {
+  color: var(--agend-res-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+/* A label, not a button: tinted like the card's icon, so it reads as part of
+   the card and not as something to press. */
+.agend-resources-collections__members-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-inline-start: auto;
+  padding: 0.25rem 0.75rem 0.25rem 0.625rem;
+  border: 1px solid var(--agend-res-edge);
+  border-radius: 999px;
+  background: var(--agend-res-tint);
+  color: var(--agend-res-heading);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.agend-resources-collections__lock {
+  flex: 0 0 auto;
+  width: 0.9375rem;
+  height: 0.9375rem;
 }
 
 /* The visitor's note and button, under the grid. */
@@ -1252,5 +1311,11 @@
 
   .agend-resources-collections__card {
     padding: 1.125rem 1.125rem 1.25rem;
+  }
+
+  /* A narrow area is one column, or cards too small to match: nothing to line
+     up with, so no room is kept for a second title line. */
+  .agend-resources-collections__name {
+    min-height: 0;
   }
 }
