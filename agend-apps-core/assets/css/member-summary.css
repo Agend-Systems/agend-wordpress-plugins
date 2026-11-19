@@ -7,20 +7,23 @@
  * those three, so the widget follows whichever association's site it is on.
  *
  * Design notes for the next person:
- * - It is the same family as Learning Pathways: borders rather than shadows, the
- *   heading colour as the one deep band, the accent only ever a small mark,
- *   whole-row links with a chevron, and a card that holds its shape from a phone
- *   to a wide column because it answers to its own width (container query).
- * - One thing is bold: the membership band across the top, in the heading
- *   colour. It is where "am I a member, and until when" is answered, so it is
- *   the first and the largest thing. Everything under it is quiet, bordered
- *   cards.
- * - Nothing here is a sequence, so nothing is numbered. The dated rows carry
- *   their date as the marker, because the date is what a member scans for.
- * - The CPD bar is drawn in the heading colour. The accent is too light on white
- *   to carry the meaning of a bar on its own (under 3:1), so it stays a mark.
- * - Cards load into the shell by script, so the loading state is a skeleton that
- *   has the cards' own proportions and the page does not jump when they arrive.
+ * - Same family as Learning Pathways: borders rather than shadows, the heading
+ *   colour as the one deep surface, the accent only ever a small mark or a tint,
+ *   whole-row links with a chevron, and a layout that answers to its own width
+ *   (container query), so it holds in a narrow column as well as a wide page.
+ * - Two things are bold, and only two. The welcome band across the top is the
+ *   heading colour: who the member is, which membership they hold and whether it
+ *   is active, answered first and largest. The CPD ring is the one picture.
+ *   Everything else is quiet, bordered tiles of one height per row.
+ * - A tile is an icon chip, a name, its content and one quiet link at the foot.
+ *   The chip is the accent as a tint with the heading colour as the line, never
+ *   the accent as a line: the accent is too light on white to carry meaning on
+ *   its own (under 3:1), so it stays a mark and the words carry the meaning.
+ * - The grid is 3, 2 or 1 columns by the container's width. A last tile left on
+ *   its own in a row grows to fill it, so the rows are always even.
+ * - Nothing here is a sequence, so nothing is numbered.
+ * - Tiles load into the shell by script, so the loading state is a skeleton with
+ *   the tiles' own proportions and the page does not jump when they arrive.
  * - No box-shadow anywhere: the Agend theme sets `box-shadow: none !important`
  *   on every element, so depth here comes from borders and the band colour.
  * - Specificity is deliberately doubled on links and buttons: the theme styles
@@ -45,9 +48,12 @@
   --agend-ms-on-band: #fff;
   --agend-ms-on-band-soft: #f6f7fa;
   --agend-ms-band-line: #4a5472;
+  --agend-ms-band-tint: #2e3a5c;
+  --agend-ms-band-lift: #38446a;
 
   --agend-ms-gap: 1.25rem;
   --agend-ms-row-radius: min(calc(var(--agend-ms-card-radius) * 0.6), 12px);
+  --agend-ms-chip-radius: min(calc(var(--agend-ms-card-radius) * 1.1), 14px);
 
   box-sizing: border-box;
   max-width: 100%;
@@ -71,6 +77,8 @@
        for the site's heading text to read on white, this reads on it. */
     --agend-ms-on-band-soft: color-mix(in srgb, #fff 92%, var(--agend-ms-heading));
     --agend-ms-band-line: color-mix(in srgb, #fff 28%, var(--agend-ms-heading));
+    --agend-ms-band-tint: color-mix(in srgb, #fff 11%, var(--agend-ms-heading));
+    --agend-ms-band-lift: color-mix(in srgb, #fff 17%, var(--agend-ms-heading));
   }
 }
 
@@ -83,7 +91,7 @@
 /* The Agend theme gives every list item after the first a top margin through an
    ID-level selector (`main#agendtheme-content ... li + li`), which no class
    selector can outrank. It would push the second row, the second meta item and
-   the second badge out of line, so it is cancelled here, on this widget's lists
+   the second pill out of line, so it is cancelled here, on this widget's lists
    only. */
 .agend-member-summary li {
   margin-top: 0 !important;
@@ -94,7 +102,7 @@
   font-family: var(--agend-ms-font-heading, inherit);
 }
 
-/* Heading and greeting ------------------------------------------------- */
+/* Heading --------------------------------------------------------------- */
 
 .agend-member-summary__heading {
   max-width: 46rem;
@@ -111,12 +119,6 @@
   margin-top: var(--agend-ms-gap);
 }
 
-.agend-ms-greeting {
-  margin: 0;
-  font-size: 1.0625rem;
-  line-height: 1.5;
-}
-
 .agend-ms-quiet {
   margin: 0;
   color: var(--agend-ms-muted);
@@ -125,45 +127,157 @@
   text-wrap: pretty;
 }
 
+.agend-ms-quiet + .agend-ms-quiet {
+  margin-top: 0.375rem;
+}
+
 .agend-ms-lead {
   margin: 0 0 0.375rem;
   color: var(--agend-ms-heading);
-  font-size: 1rem;
+  font-size: 1.0625rem;
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.35;
+  text-wrap: balance;
 }
 
-/* The membership band -------------------------------------------------- */
+.agend-ms-icon {
+  display: block;
+  flex: 0 0 auto;
+}
 
-.agend-ms-band {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  padding: 1.375rem 1.25rem 1.5rem;
+/* The welcome band ------------------------------------------------------- */
+
+.agend-ms-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem 1.125rem;
+  padding: 1.25rem;
   border: 1px solid var(--agend-ms-heading);
   border-radius: var(--agend-ms-card-radius);
   background: var(--agend-ms-heading);
   color: var(--agend-ms-on-band-soft);
 }
 
-.agend-ms-band__main {
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .agend-ms-hero {
+    /* A slow lift towards one corner, so the band is a surface and not a slab.
+       The text sits on the darker end, where contrast is the same as the plain
+       colour. */
+    background: linear-gradient(120deg, var(--agend-ms-heading) 45%, color-mix(in srgb, #fff 9%, var(--agend-ms-heading)));
+  }
+}
+
+.agend-ms-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border: 1.5px solid var(--agend-ms-band-line);
+  border-radius: calc(var(--agend-ms-chip-radius) * 1.4);
+  background: var(--agend-ms-band-tint);
+  color: var(--agend-ms-on-band);
+}
+
+.agend-ms-avatar__letters {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.agend-ms-hero__main {
   min-width: 0;
 }
 
-/* The standing. The accent is a small mark beside it rather than the text
-   colour, so it reads on any heading colour. */
-.agend-ms-band__status {
+.agend-ms-hero__title {
+  margin: 0;
+  color: var(--agend-ms-on-band);
+  font-size: clamp(1.5rem, 1.2rem + 1.4cqi, 2.125rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.agend-ms-hero__role {
+  margin: 0.375rem 0 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.agend-ms-hero__note {
+  margin: 0.375rem 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+/* Renewal and the days to go, under the name. */
+.agend-ms-meta.agend-ms-hero__meta {
+  margin-top: 0.5rem;
+  color: inherit;
+  font-size: 0.9375rem;
+}
+
+.agend-ms-hero__meta time {
+  color: var(--agend-ms-on-band);
+  font-weight: 600;
+}
+
+.agend-ms-hero__side {
   display: flex;
+  flex-direction: column;
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  gap: 0.875rem;
+}
+
+.agend-ms-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  margin: 0;
+}
+
+/* Pills: the tier, and whether it is active. The standing is told by the word
+   and the shape of the mark, never by colour alone. */
+.agend-ms-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agend-ms-hero__main .agend-ms-pills {
+  margin-top: 0.875rem;
+}
+
+.agend-ms-pill {
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0 0 0.5rem;
+  margin: 0;
+  padding: 0.3125rem 0.8125rem;
+  border: 1px solid var(--agend-ms-band-line);
+  border-radius: 999px;
+  color: var(--agend-ms-on-band);
   font-size: 0.875rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
   line-height: 1.3;
 }
 
-.agend-ms-band__status::before {
+.agend-ms-pill--status {
+  border-color: var(--agend-ms-on-band);
+  background: var(--agend-ms-on-band);
+  color: var(--agend-ms-heading);
+}
+
+.agend-ms-pill--status::before {
   content: "";
   flex: 0 0 auto;
   width: 0.5rem;
@@ -172,49 +286,70 @@
   background: var(--agend-ms-accent);
 }
 
-/* A membership that is not active has no bright mark: an outline, so the state
-   is told by the word and the shape and never by colour alone. */
-.agend-ms-band--pending .agend-ms-band__status::before,
-.agend-ms-band--ended .agend-ms-band__status::before {
+/* Not active: an outline instead of a filled pill and mark. */
+.agend-ms-pill--pending,
+.agend-ms-pill--ended {
+  border-color: var(--agend-ms-band-line);
   background: transparent;
+  color: var(--agend-ms-on-band);
+}
+
+.agend-ms-pill--pending::before,
+.agend-ms-pill--ended::before {
   border: 1.5px solid var(--agend-ms-accent);
+  background: transparent;
 }
 
-.agend-ms-band__tier {
-  margin: 0;
-  color: var(--agend-ms-on-band);
-  font-size: clamp(1.5rem, 1.25rem + 1vw, 2rem);
-  font-weight: 600;
-  line-height: 1.15;
-  overflow-wrap: anywhere;
-  text-wrap: balance;
+.agend-ms-pill--soft {
+  border-color: transparent;
+  background: var(--agend-ms-band-tint);
+  color: var(--agend-ms-on-band-soft);
 }
 
-.agend-ms-band__note {
-  margin: 0.5rem 0 0;
-  font-size: 0.9375rem;
-  line-height: 1.5;
-}
-
-/* Renewal and the days to go, under the type. Same line-and-divider as every
-   other meta line, in the band's own light text. */
-.agend-ms-meta.agend-ms-band__meta {
-  margin-top: 0.75rem;
-  color: inherit;
-  font-size: 0.9375rem;
-}
-
-.agend-ms-band__meta time {
-  color: var(--agend-ms-on-band);
-  font-weight: 600;
-}
-
-.agend-ms-band__side {
+.agend-ms-pill__icon {
   display: flex;
-  flex: 0 0 auto;
+  color: var(--agend-ms-on-band);
 }
 
-/* Buttons --------------------------------------------------------------- */
+@container agend-ms (min-width: 40rem) {
+  .agend-ms-hero {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 1rem 1.5rem;
+    padding: 1.5rem 1.75rem;
+  }
+
+  .agend-ms-avatar {
+    width: 4.25rem;
+    height: 4.25rem;
+  }
+
+  .agend-ms-avatar__letters {
+    font-size: 1.5rem;
+  }
+
+  .agend-ms-hero__side {
+    grid-column: auto;
+    align-items: flex-end;
+    justify-content: center;
+    align-self: stretch;
+  }
+
+  .agend-ms-hero__side .agend-ms-pills {
+    justify-content: flex-end;
+  }
+
+  .agend-ms-hero__actions {
+    justify-content: flex-end;
+  }
+}
+
+/* The invitation for a visitor who is not signed in has the band's shape, with
+   the sign-in button where "Manage membership" goes. */
+.agend-ms-hero--invite .agend-ms-pills {
+  margin-top: 1rem;
+}
+
+/* Buttons ---------------------------------------------------------------- */
 
 .agend-member-summary .agend-ms-button,
 .agend-member-summary .agend-ms-button:visited,
@@ -241,7 +376,7 @@
 }
 
 .agend-member-summary .agend-ms-button:hover {
-  background: color-mix(in srgb, var(--agend-ms-heading) 88%, #fff);
+  background: var(--agend-ms-band-lift);
 }
 
 .agend-member-summary .agend-ms-button--quiet,
@@ -272,6 +407,20 @@
   background: var(--agend-ms-on-band-soft);
 }
 
+.agend-member-summary .agend-ms-button--on-band-quiet,
+.agend-member-summary .agend-ms-button--on-band-quiet:visited,
+.agend-member-summary .agend-ms-button--on-band-quiet:hover,
+.agend-member-summary .agend-ms-button--on-band-quiet:focus,
+.agend-member-summary .agend-ms-button--on-band-quiet:active {
+  border-color: var(--agend-ms-band-line);
+  background: transparent;
+  color: var(--agend-ms-on-band);
+}
+
+.agend-member-summary .agend-ms-button--on-band-quiet:hover {
+  background: var(--agend-ms-band-tint);
+}
+
 .agend-member-summary .agend-ms-button:focus {
   outline: none;
 }
@@ -281,7 +430,7 @@
   outline-offset: 2px;
 }
 
-.agend-member-summary .agend-ms-band .agend-ms-button:focus-visible {
+.agend-member-summary .agend-ms-hero .agend-ms-button:focus-visible {
   outline-color: var(--agend-ms-on-band);
 }
 
@@ -296,12 +445,42 @@
   margin-top: var(--agend-ms-gap);
 }
 
-/* The cards -------------------------------------------------------------- */
+/* The grid of tiles ------------------------------------------------------- */
 
 .agend-ms-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--agend-ms-gap);
+}
+
+.agend-ms-hero + .agend-ms-grid,
+.agend-ms-hero + .agend-ms-actions {
+  margin-top: var(--agend-ms-gap);
+}
+
+@container agend-ms (min-width: 38rem) and (max-width: 61.999rem) {
+  .agend-ms-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* An odd one out at the end fills its row. */
+  .agend-ms-grid > .agend-ms-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@container agend-ms (min-width: 62rem) {
+  .agend-ms-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .agend-ms-grid > .agend-ms-card:last-child:nth-child(3n + 1) {
+    grid-column: 1 / -1;
+  }
+
+  .agend-ms-grid > .agend-ms-card:last-child:nth-child(3n + 2) {
+    grid-column: span 2;
+  }
 }
 
 .agend-ms-card {
@@ -313,30 +492,44 @@
   background: #fff;
 }
 
+.agend-ms-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.125rem 1.25rem 0;
+}
+
+.agend-ms-chip {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--agend-ms-chip-radius);
+  background: var(--agend-ms-mark-bg);
+  color: var(--agend-ms-heading);
+}
+
 .agend-ms-card__title {
   margin: 0;
-  padding: 1.125rem 1.25rem 0;
   color: var(--agend-ms-heading);
   font-size: 1.0625rem;
   font-weight: 600;
   line-height: 1.3;
+  text-wrap: balance;
 }
 
 .agend-ms-card__body {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 0.75rem 1.25rem 1.125rem;
+  padding: 1rem 1.25rem 1.25rem;
 }
 
-.agend-ms-card__foot {
-  padding: 0.25rem 0.5rem 0.5rem;
-  border-top: 1px solid var(--agend-ms-line);
-}
-
-/* A card with a list gives the rows the card's edge to edge room, so the whole
+/* A tile with a list gives the rows the tile's edge to edge room, so the whole
    row reads as the target. */
 .agend-ms-card__body:has(> .agend-ms-list) {
-  padding-inline: 0.5rem;
+  padding: 0.75rem 0.5rem;
 }
 
 .agend-ms-card__body:has(> .agend-ms-list) > .agend-ms-quiet,
@@ -344,7 +537,139 @@
   padding-inline: 0.75rem;
 }
 
+.agend-ms-card__foot {
+  display: flex;
+  align-items: center;
+  min-height: 3.25rem;
+  padding: 0 1.25rem;
+  border-top: 1px solid var(--agend-ms-line);
+}
+
+/* The quiet link at the foot of a tile. */
+.agend-member-summary .agend-ms-more,
+.agend-member-summary .agend-ms-more:visited,
+.agend-member-summary .agend-ms-more:hover,
+.agend-member-summary .agend-ms-more:focus,
+.agend-member-summary .agend-ms-more:active {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: var(--agend-ms-heading);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+.agend-member-summary .agend-ms-more:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.agend-member-summary .agend-ms-more:focus {
+  outline: none;
+}
+
+.agend-member-summary .agend-ms-more:focus-visible {
+  outline: 2px solid var(--agend-ms-heading);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.agend-ms-more .agend-ms-chevron {
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agend-ms-chevron {
+    transition: transform 0.15s ease-out;
+  }
+
+  .agend-ms-more:hover .agend-ms-chevron {
+    transform: translateX(3px);
+  }
+}
+
 /* CPD ----------------------------------------------------------------- */
+
+.agend-ms-cpd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.25rem;
+}
+
+.agend-ms-cpd__text {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.agend-ms-ring {
+  position: relative;
+  flex: 0 0 auto;
+  width: 7rem;
+  height: 7rem;
+}
+
+.agend-ms-ring__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.agend-ms-ring__track {
+  stroke: var(--agend-ms-track);
+}
+
+.agend-ms-ring__fill {
+  stroke: var(--agend-ms-heading);
+}
+
+.agend-ms-ring__text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.75rem;
+  text-align: center;
+}
+
+.agend-ms-ring__value {
+  color: var(--agend-ms-heading);
+  font-size: 1.875rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.agend-ms-ring__of {
+  margin-top: 0.1875rem;
+  color: var(--agend-ms-muted);
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+@media (forced-colors: active) {
+  .agend-ms-ring__track {
+    stroke: GrayText;
+  }
+
+  .agend-ms-ring__fill {
+    stroke: Highlight;
+  }
+}
+
+.agend-ms-card--cpd .agend-ms-cpd ~ .agend-ms-quiet:first-of-type {
+  margin-top: 1rem;
+}
 
 .agend-ms-figure {
   display: flex;
@@ -358,7 +683,7 @@
 .agend-ms-figure__value {
   font-size: clamp(2rem, 1.6rem + 1.5vw, 2.5rem);
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.1;
 }
 
@@ -367,9 +692,10 @@
   font-size: 1rem;
 }
 
+/* Bars: a course's progress. */
 .agend-ms-bar {
+  display: block;
   height: 0.5rem;
-  margin: 0 0 0.75rem;
   overflow: hidden;
   border-radius: 999px;
   background: var(--agend-ms-track);
@@ -430,7 +756,6 @@
   font-weight: 600;
 }
 
-
 .agend-ms-meta__item--pace::before {
   content: "";
   flex: 0 0 auto;
@@ -440,10 +765,6 @@
   border-radius: 50%;
   background: var(--agend-ms-accent);
   opacity: 1;
-}
-
-.agend-ms-card--cpd .agend-ms-quiet {
-  margin-top: 0.75rem;
 }
 
 /* Rows ---------------------------------------------------------------- */
@@ -477,6 +798,18 @@
 
 .agend-ms-row--plain.agend-ms-row--link {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* A row with a quiet figure on its right, such as a page count. */
+.agend-ms-row:has(> .agend-ms-row__aside) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.agend-ms-row__aside {
+  color: var(--agend-ms-muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .agend-ms-row__main {
@@ -543,7 +876,12 @@
 
 .agend-ms-row--link:hover .agend-ms-chevron {
   color: var(--agend-ms-heading);
-  transform: translateX(2px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agend-ms-row--link:hover .agend-ms-chevron {
+    transform: translateX(2px);
+  }
 }
 
 /* The date of an event: the marker, because the date is what is scanned for. */
@@ -554,26 +892,62 @@
   justify-content: center;
   width: 3rem;
   height: 3rem;
-  border: 1.5px solid var(--agend-ms-mark-edge);
   border-radius: var(--agend-ms-row-radius);
   background: var(--agend-ms-mark-bg);
   color: var(--agend-ms-heading);
-  font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
 .agend-ms-date__day {
-  font-size: 1.125rem;
+  font-size: 1.1875rem;
+  font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
 
 .agend-ms-date__month {
   margin-top: 0.125rem;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
-/* Badges --------------------------------------------------------------- */
+/* Courses --------------------------------------------------------------- */
+
+.agend-ms-course {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.75rem 0.75rem 0.8125rem;
+  border-radius: var(--agend-ms-row-radius);
+}
+
+.agend-ms-course.agend-ms-row--link {
+  display: flex;
+}
+
+.agend-ms-course__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.agend-ms-course__pct {
+  flex: 0 0 auto;
+  color: var(--agend-ms-heading);
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.agend-ms-course__lessons {
+  font-size: 0.8125rem;
+}
+
+/* Certificates and badges ---------------------------------------------- */
 
 .agend-ms-badges {
   display: flex;
@@ -586,8 +960,6 @@
 
 .agend-ms-list + .agend-ms-badges {
   margin-top: 0.625rem;
-  padding: 0.75rem 0.75rem 0;
-  border-top: 1px solid var(--agend-ms-line);
 }
 
 .agend-ms-badge {
@@ -604,7 +976,6 @@
   line-height: 1.3;
 }
 
-/* The badge's own colour, when it has one, is its mark. */
 .agend-ms-badge__dot {
   flex: 0 0 auto;
   width: 0.625rem;
@@ -613,125 +984,89 @@
   background: var(--agend-ms-badge, var(--agend-ms-accent));
 }
 
-/* Directory listing ------------------------------------------------------ */
+/* Directory listing ----------------------------------------------------- */
 
 .agend-ms-listing {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 3.25rem minmax(0, 1fr);
+  column-gap: 1rem;
   padding-inline: 0;
 }
 
 .agend-ms-listing.agend-ms-row--link {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.agend-ms-listing:has(.agend-ms-listing__logo) {
-  grid-template-columns: 3rem minmax(0, 1fr);
-}
-
-.agend-ms-listing.agend-ms-row--link:has(.agend-ms-listing__logo) {
-  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  grid-template-columns: 3.25rem minmax(0, 1fr) auto;
 }
 
 .agend-ms-listing__logo {
-  display: block;
-  width: 3rem;
-  height: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
   border: 1px solid var(--agend-ms-line);
-  border-radius: var(--agend-ms-row-radius);
+  border-radius: var(--agend-ms-chip-radius);
   background: #fff;
   object-fit: contain;
 }
 
-/* Card footers: whole-row links, like the course rows. -------------------- */
-
-.agend-member-summary .agend-ms-more,
-.agend-member-summary .agend-ms-more:visited,
-.agend-member-summary .agend-ms-more:hover,
-.agend-member-summary .agend-ms-more:focus,
-.agend-member-summary .agend-ms-more:active {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  min-height: 2.75rem;
-  margin: 0;
-  padding: 0.6875rem 0.75rem;
-  border: 0;
-  border-radius: var(--agend-ms-row-radius);
-  background: none;
-  color: var(--agend-ms-heading);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  line-height: 1.35;
-  text-decoration: none;
+.agend-ms-listing__logo--letter {
+  border-color: transparent;
+  background: var(--agend-ms-heading);
+  color: var(--agend-ms-on-band);
+  font-size: 1.25rem;
+  font-weight: 700;
 }
 
-.agend-member-summary .agend-ms-more:hover {
-  background: var(--agend-ms-row-hover);
-}
-
-.agend-member-summary .agend-ms-more:hover span {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.2em;
-}
-
-.agend-member-summary .agend-ms-more:hover .agend-ms-chevron {
-  color: var(--agend-ms-heading);
-  transform: translateX(2px);
-}
-
-.agend-member-summary .agend-ms-more:focus {
-  outline: none;
-}
-
-.agend-member-summary .agend-ms-more:focus-visible {
-  outline: 2px solid var(--agend-ms-heading);
-  outline-offset: -2px;
-}
-
-/* Notices: signed out, connecting, not linked, unavailable ---------------- */
+/* Notices (every state that is not the view itself) ----------------------- */
 
 .agend-ms-notice {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 0.875rem;
-  padding: 1.375rem 1.25rem 1.5rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem;
   border: 1px solid var(--agend-ms-line);
   border-radius: var(--agend-ms-card-radius);
   background: #fff;
 }
 
-/* The same small mark the band's standing carries, so the states read as one
-   family. It is a ring while something is still happening or needs doing, and
-   solid once it is only information. */
 .agend-ms-notice__mark {
-  width: 0.625rem;
-  height: 0.625rem;
-  margin-top: 0.4375rem;
-  border: 2px solid var(--agend-ms-accent);
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--agend-ms-chip-radius);
+  background: var(--agend-ms-mark-bg);
+}
+
+.agend-ms-notice__mark::before {
+  content: "";
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 2px solid var(--agend-ms-heading);
   border-radius: 50%;
 }
 
-.agend-ms-notice--connecting .agend-ms-notice__mark {
-  background: var(--agend-ms-accent);
+.agend-ms-notice--connecting .agend-ms-notice__mark::before {
+  border-color: var(--agend-ms-heading) var(--agend-ms-heading) transparent transparent;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .agend-ms-notice--connecting .agend-ms-notice__mark {
-    animation: agend-ms-pulse 1.4s ease-in-out infinite;
+  .agend-ms-notice--connecting .agend-ms-notice__mark::before {
+    animation: agend-ms-spin 1s linear infinite;
   }
 }
 
-@keyframes agend-ms-pulse {
-  50% {
-    opacity: 0.35;
+@keyframes agend-ms-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
 .agend-ms-notice__text {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 40rem;
 }
 
 .agend-ms-notice__title {
@@ -745,16 +1080,16 @@
 
 .agend-ms-notice__message {
   margin: 0.375rem 0 0;
+  color: var(--agend-ms-muted);
   font-size: 1rem;
-  line-height: 1.55;
+  line-height: 1.5;
   text-wrap: pretty;
 }
 
 .agend-ms-notice .agend-ms-actions {
-  margin-top: 1rem;
+  margin-top: 0.875rem;
 }
 
-/* A note for the people who run the site. Never drawn for a member. */
 .agend-ms-admin {
   margin: 0.875rem 0 0;
   padding: 0.625rem 0.875rem;
@@ -769,39 +1104,42 @@
   color: var(--agend-ms-heading);
 }
 
-/* Loading: the cards' own proportions, so nothing jumps when they arrive. */
+/* Loading: the band and tiles, with the proportions they will have. ---------- */
+
 .agend-ms-loading {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
   gap: var(--agend-ms-gap);
 }
 
 .agend-ms-loading__band,
 .agend-ms-loading__card {
   display: block;
-  border: 1px solid var(--agend-ms-line);
   border-radius: var(--agend-ms-card-radius);
-  background: var(--agend-ms-row-hover);
+  background: var(--agend-ms-track);
 }
 
 .agend-ms-loading__band {
-  grid-column: 1 / -1;
-  height: 8.5rem;
+  height: 7.5rem;
 }
 
 .agend-ms-loading__card {
-  height: 11rem;
+  height: 13rem;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .agend-ms-loading__band,
   .agend-ms-loading__card {
-    animation: agend-ms-pulse 1.6s ease-in-out infinite;
+    animation: agend-ms-pulse 1.4s ease-in-out infinite;
   }
 }
 
-/* The editor's example ------------------------------------------------------ */
+@keyframes agend-ms-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
 
+/* The editor's example label. */
 .agend-ms-example-label {
   margin: 0 0 var(--agend-ms-gap);
   padding: 0.5rem 0.875rem;
@@ -811,132 +1149,6 @@
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.4;
-}
-
-/* The links in an example go nowhere. */
-.agend-member-summary--example a,
-.agend-member-summary--example button {
-  pointer-events: none;
-}
-
-/* Motion that answers a hover, only where motion is welcome. ---------------- */
-
-@media (prefers-reduced-motion: no-preference) {
-  .agend-ms-row,
-  .agend-member-summary .agend-ms-more,
-  .agend-member-summary .agend-ms-button {
-    transition: background-color 0.15s ease;
-  }
-
-  .agend-ms-chevron {
-    transition:
-      transform 0.15s ease,
-      color 0.15s ease;
-  }
-}
-
-/* Right-to-left sites: the chevron points the other way. */
-[dir="rtl"] .agend-ms-chevron {
-  transform: scaleX(-1);
-}
-
-[dir="rtl"] .agend-ms-row--link:hover .agend-ms-chevron,
-[dir="rtl"] .agend-member-summary .agend-ms-more:hover .agend-ms-chevron {
-  transform: translateX(-2px) scaleX(-1);
-}
-
-/* A wide column ----------------------------------------------------------- */
-
-@container agend-ms (min-width: 40rem) {
-  .agend-ms-band {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 2rem;
-    padding: 1.625rem 1.75rem;
-  }
-
-  .agend-ms-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  /* An odd one out fills the row rather than sit alone at half width. */
-  .agend-ms-grid > :last-child:nth-child(odd) {
-    grid-column: 1 / -1;
-  }
-
-  .agend-ms-card--directory {
-    display: grid;
-    grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr) auto;
-    align-items: center;
-  }
-
-  .agend-ms-card--directory .agend-ms-card__title {
-    padding-block: 0.75rem;
-  }
-
-  .agend-ms-card--directory .agend-ms-card__body {
-    padding-block: 0.5rem;
-  }
-
-  .agend-ms-card--directory .agend-ms-card__foot {
-    min-width: 13rem;
-    padding: 0.25rem 0.5rem;
-    border-top: 0;
-    border-inline-start: 1px solid var(--agend-ms-line);
-  }
-
-  .agend-ms-notice {
-    padding: 1.75rem 1.75rem 1.875rem;
-  }
-}
-
-/* Three cards sit three across when there is room. */
-@container agend-ms (min-width: 62rem) {
-  .agend-ms-grid:has(> :nth-child(3)) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .agend-ms-grid > :last-child:nth-child(odd) {
-    grid-column: auto;
-  }
-}
-
-/* A phone: tighter padding, and the cards go one to a row. ------------------ */
-
-@container agend-ms (max-width: 26rem) {
-  .agend-ms-band {
-    padding: 1.125rem 1rem 1.25rem;
-  }
-
-  .agend-ms-band__side .agend-ms-button {
-    flex: 1 1 100%;
-  }
-
-  .agend-ms-card__title {
-    padding-inline: 1rem;
-  }
-
-  .agend-ms-card__body {
-    padding-inline: 1rem;
-  }
-
-  .agend-ms-card__body:has(> .agend-ms-list) {
-    padding-inline: 0.375rem;
-  }
-
-  .agend-ms-row {
-    column-gap: 0.75rem;
-    padding-inline: 0.625rem;
-  }
-
-  .agend-ms-notice {
-    padding-inline: 1rem;
-  }
-
-  .agend-ms-actions .agend-ms-button {
-    flex: 1 1 100%;
-  }
 }
 
 .agend-ms-sr {
@@ -949,4 +1161,23 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* A narrow column: the notice's mark steps above its words, and the tiles give
+   their content a little more room. */
+@container agend-ms (max-width: 26rem) {
+  .agend-ms-notice {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .agend-ms-card__body:has(> .agend-ms-list) {
+    padding-inline: 0.25rem;
+  }
+
+  .agend-ms-card__head,
+  .agend-ms-card__foot,
+  .agend-ms-card__body {
+    padding-inline: 1rem;
+  }
 }

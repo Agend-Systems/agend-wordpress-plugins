@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * The most events, or certificates, the surface will list.
+ * The most events, certificates, or courses, the surface will list.
  *
  * Declared here with the settings that expose it; the renderer holds a saved
  * value to the same limit.
@@ -58,7 +58,7 @@ function agend_apps_records_schema_member_summary(): array {
 						'label'       => __( 'Greet the member by first name', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => true,
-						'description' => __( 'For example, "Hello, Priya." Only shown when we have a first name.', 'agend-apps-core' ),
+						'description' => __( 'The welcome line and the initials in the top band, for example "Welcome back, Priya." Only shown when we have a first name. Their job title and organisation show beneath it when we have them.', 'agend-apps-core' ),
 					),
 				),
 			),
@@ -77,7 +77,7 @@ function agend_apps_records_schema_member_summary(): array {
 						'label'       => __( 'Membership', 'agend-apps-core' ),
 						'type'        => 'toggle',
 						'default'     => true,
-						'description' => __( 'The membership type, whether it is active, and when it renews.', 'agend-apps-core' ),
+						'description' => __( 'In the top band: the membership type, whether it is active, and when it renews.', 'agend-apps-core' ),
 					),
 					array(
 						'name'        => 'show_cpd',
@@ -94,6 +94,13 @@ function agend_apps_records_schema_member_summary(): array {
 						'description' => __( 'Events the member is registered for.', 'agend-apps-core' ),
 					),
 					array(
+						'name'        => 'show_courses',
+						'label'       => __( 'Courses in progress', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'Courses the member has started, with how far through each one they are.', 'agend-apps-core' ),
+					),
+					array(
 						'name'        => 'show_credentials',
 						'label'       => __( 'Certificates and badges', 'agend-apps-core' ),
 						'type'        => 'toggle',
@@ -105,6 +112,13 @@ function agend_apps_records_schema_member_summary(): array {
 						'type'        => 'toggle',
 						'default'     => true,
 						'description' => __( 'The member\'s listing in your directory. Hidden for members who have none.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'show_reading',
+						'label'       => __( 'Reading lists', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => false,
+						'description' => __( 'The reading lists from your resources library that the member can open. Off by default, because it needs the resources library to be set up.', 'agend-apps-core' ),
 					),
 				),
 			),
@@ -121,6 +135,16 @@ function agend_apps_records_schema_member_summary(): array {
 						'max'         => AGEND_APPS_RECORDS_MEMBER_SUMMARY_MAX_ITEMS,
 						'description' => __( 'The soonest first.', 'agend-apps-core' ),
 						'condition'   => array( 'show_events' => 'yes' ),
+					),
+					array(
+						'name'        => 'max_courses',
+						'label'       => __( 'Courses to list', 'agend-apps-core' ),
+						'type'        => 'number',
+						'default'     => 3,
+						'min'         => 1,
+						'max'         => AGEND_APPS_RECORDS_MEMBER_SUMMARY_MAX_ITEMS,
+						'description' => __( 'The ones opened most recently first.', 'agend-apps-core' ),
+						'condition'   => array( 'show_courses' => 'yes' ),
 					),
 					array(
 						'name'        => 'max_certificates',
@@ -149,6 +173,20 @@ function agend_apps_records_schema_member_summary(): array {
 						'label'       => __( 'Join page', 'agend-apps-core' ),
 						'type'        => 'url',
 						'description' => __( 'Shown to people who are signed in but have no membership. Leave empty for no link.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'courses_url',
+						'label'       => __( 'Courses page', 'agend-apps-core' ),
+						'type'        => 'url',
+						'description' => __( 'Where members go to find and continue courses. Leave empty to use the Courses page set for your site.', 'agend-apps-core' ),
+						'condition'   => array( 'show_courses' => 'yes' ),
+					),
+					array(
+						'name'        => 'resources_url',
+						'label'       => __( 'Resources page', 'agend-apps-core' ),
+						'type'        => 'url',
+						'description' => __( 'Where the reading lists link to. Leave empty to use your resources library.', 'agend-apps-core' ),
+						'condition'   => array( 'show_reading' => 'yes' ),
 					),
 					array(
 						'name'        => 'credential_check_url',
@@ -209,12 +247,28 @@ function agend_apps_records_schema_member_summary(): array {
 						'condition'   => array( 'show_events' => 'yes' ),
 					),
 					array(
+						'name'        => 'empty_courses_message',
+						'label'       => __( 'When there are no courses in progress', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => __( 'You have no courses in progress.', 'agend-apps-core' ),
+						'label_block' => true,
+						'condition'   => array( 'show_courses' => 'yes' ),
+					),
+					array(
 						'name'        => 'empty_credentials_message',
 						'label'       => __( 'When there are no certificates or badges', 'agend-apps-core' ),
 						'type'        => 'text',
 						'default'     => __( 'Certificates and badges you earn will appear here.', 'agend-apps-core' ),
 						'label_block' => true,
 						'condition'   => array( 'show_credentials' => 'yes' ),
+					),
+					array(
+						'name'        => 'empty_reading_message',
+						'label'       => __( 'When there are no reading lists', 'agend-apps-core' ),
+						'type'        => 'text',
+						'default'     => __( 'There are no reading lists for you yet.', 'agend-apps-core' ),
+						'label_block' => true,
+						'condition'   => array( 'show_reading' => 'yes' ),
 					),
 					array(
 						'name'        => 'no_record_message',

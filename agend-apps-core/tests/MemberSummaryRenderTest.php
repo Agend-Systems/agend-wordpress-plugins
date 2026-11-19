@@ -143,13 +143,15 @@ final class MemberSummaryRenderTest extends TestCase {
 			'membership'  => agend_apps_member_summary_membership( $g['entitlements'], $g['memberships'], $g['tiers'], 1794960000 ),
 			'cpd'         => agend_apps_member_summary_cpd( $profile['lms'] ),
 			'events'      => agend_apps_member_summary_events( $profile['events'], 3 ),
+			'courses'     => agend_apps_member_summary_courses( $g['enrollments'], 3 ),
 			'credentials' => agend_apps_member_summary_credentials( $profile['lms'], 3 ),
 			'directory'   => agend_apps_member_summary_directory( $profile['directory'] ),
+			'reading'     => agend_apps_member_summary_reading( $g['collections'], 4 ),
 		);
 
 		return array(
 			'access'   => $this->ready(),
-			'contact'  => array( 'first_name' => 'Priya' ),
+			'contact'  => agend_apps_member_summary_contact( $profile ),
 			'sections' => array_replace( $sections, $replace ),
 			'reads'    => array(),
 		);
@@ -176,24 +178,36 @@ final class MemberSummaryRenderTest extends TestCase {
 	// -----------------------------------------------------------------
 
 	#[Test]
-	public function should_show_every_part_with_three_items_a_list_by_default(): void {
+	public function should_show_every_part_but_the_reading_lists_with_three_items_a_list_by_default(): void {
 		$config = $this->config();
 
-		self::assertSame( array( 'membership' => true, 'cpd' => true, 'events' => true, 'credentials' => true, 'directory' => true ), $config['sections'] );
+		self::assertSame( array( 'membership' => true, 'cpd' => true, 'events' => true, 'courses' => true, 'credentials' => true, 'directory' => true, 'reading' => false ), $config['sections'] );
 		self::assertTrue( $config['greeting'] );
-		self::assertSame( array( 'events' => 3, 'certificates' => 3 ), $config['limits'] );
+		self::assertSame( array( 'events' => 3, 'courses' => 3, 'certificates' => 3, 'reading' => 4 ), $config['limits'] );
 		self::assertFalse( $config['hideWhenSignedOut'] );
 		self::assertSame( 'My membership', $config['heading']['title'] );
 		self::assertSame( 10, $config['cardRadius'] );
 	}
 
 	#[Test]
+	public function should_show_the_reading_lists_only_when_the_editor_turns_them_on(): void {
+		self::assertTrue( $this->config( array( 'show_reading' => 'yes' ) )['sections']['reading'] );
+		self::assertFalse( agend_apps_records_member_summary_content_config( array() )['sections']['reading'], 'a page saved before the setting existed does not gain a part that needs the library' );
+	}
+
+	#[Test]
+	public function should_hold_the_courses_to_a_few(): void {
+		self::assertSame( 6, $this->config( array( 'max_courses' => 40 ) )['limits']['courses'] );
+		self::assertSame( 1, $this->config( array( 'max_courses' => 0 ) )['limits']['courses'] );
+	}
+
+	#[Test]
 	public function should_switch_each_part_off_on_its_own(): void {
-		foreach ( array( 'membership', 'cpd', 'events', 'credentials', 'directory' ) as $part ) {
+		foreach ( array( 'membership', 'cpd', 'events', 'courses', 'credentials', 'directory' ) as $part ) {
 			$config = $this->config( array( 'show_' . $part => '' ) );
 
 			foreach ( $config['sections'] as $name => $on ) {
-				self::assertSame( $name !== $part, $on, $part . ' off: ' . $name );
+				self::assertSame( 'reading' !== $name && $name !== $part, $on, $part . ' off: ' . $name );
 			}
 		}
 	}
@@ -457,9 +471,20 @@ final class MemberSummaryRenderTest extends TestCase {
 
 		self::assertStringContainsString( 'Example for editing only. Members see their own details here.', $html );
 		self::assertStringContainsString( 'agend-member-summary--example', $html );
-		self::assertStringContainsString( 'Hello, Alex.', $html );
+		self::assertStringContainsString( 'Welcome back, Priya', $html );
+		self::assertStringContainsString( 'agend-ms-card--courses', $html );
+		self::assertStringContainsString( 'role="progressbar"', $html );
+		self::assertStringNotContainsString( 'agend-ms-card--reading', $html, 'the reading lists are off by default, so the example leaves them out too' );
 		self::assertStringNotContainsString( 'data-agend-member-summary-config', $html, 'no script runs on an example' );
 		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_show_the_reading_lists_in_the_example_once_they_are_switched_on(): void {
+		$html = agend_apps_records_render_member_summary( $this->settings( array( 'show_reading' => 'yes' ) ), array( 'preview' => true ) );
+
+		self::assertStringContainsString( 'agend-ms-card--reading', $html );
+		self::assertStringContainsString( 'New member starter pack', $html );
 	}
 
 	#[Test]
@@ -500,26 +525,97 @@ final class MemberSummaryRenderTest extends TestCase {
 
 	#[Test]
 	public function should_greet_the_member_by_first_name_unless_it_is_off_or_unknown(): void {
-		self::assertStringContainsString( '<p class="agend-ms-greeting">Hello, Priya.</p>', $this->body( $this->config(), $this->summary() ) );
-		self::assertStringNotContainsString( 'Hello,', $this->body( $this->config( array( 'show_greeting' => '' ) ), $this->summary() ) );
+		$greeted = $this->body( $this->config(), $this->summary() );
+
+		self::assertStringContainsString( '<h3 class="agend-ms-hero__title">Welcome back, Priya</h3>', $greeted );
+		self::assertStringContainsString( '<span class="agend-ms-avatar__letters">PR</span>', $greeted, 'initials from the first and last name' );
+		self::assertStringContainsString( '<p class="agend-ms-hero__role">Practice lead, Raman Studio</p>', $greeted );
+
+		$off = $this->body( $this->config( array( 'show_greeting' => '' ) ), $this->summary() );
+
+		self::assertStringNotContainsString( 'Welcome back', $off );
+		self::assertStringNotContainsString( 'Priya', $off, 'neither the name nor the role is drawn when the greeting is off' );
+		self::assertStringNotContainsString( 'agend-ms-avatar__letters', $off );
+		self::assertStringContainsString( '<h3 class="agend-ms-hero__title">Your membership</h3>', $off, 'the membership still has its band' );
 
 		$nameless            = $this->summary();
 		$nameless['contact'] = array( 'first_name' => '' );
 
-		self::assertStringNotContainsString( 'Hello,', $this->body( $this->config(), $nameless ) );
+		$html = $this->body( $this->config(), $nameless );
+
+		self::assertStringNotContainsString( 'Welcome back', $html );
+		self::assertStringContainsString( 'Your membership', $html );
+		self::assertStringContainsString( 'agend-ms-icon', $html, 'a person outline stands in for initials' );
 	}
 
 	#[Test]
-	public function should_lead_with_the_membership_band(): void {
+	public function should_draw_no_band_when_there_is_neither_a_greeting_nor_a_membership_to_put_in_it(): void {
+		$html = $this->body( $this->config( array( 'show_membership' => '', 'show_greeting' => '' ) ), $this->summary( array( 'membership' => array( 'status' => 'no_access' ) ) ) );
+
+		self::assertStringNotContainsString( 'agend-ms-hero', $html );
+		self::assertStringContainsString( 'agend-ms-grid', $html );
+	}
+
+	#[Test]
+	public function should_draw_the_greeting_band_alone_when_the_membership_is_off(): void {
+		$summary             = $this->summary();
+		unset( $summary['sections']['membership'] );
+
+		$html = $this->body( $this->config( array( 'show_membership' => '' ) ), $summary );
+
+		self::assertStringContainsString( 'Welcome back, Priya', $html );
+		self::assertStringNotContainsString( 'agend-ms-pill', $html );
+		self::assertStringNotContainsString( 'Manage membership', $html );
+	}
+
+	#[Test]
+	public function should_lead_with_the_welcome_band_and_say_the_tier_and_standing_as_pills(): void {
 		$html = $this->body( $this->config(), $this->summary() );
 
-		self::assertStringContainsString( 'agend-ms-band agend-ms-band--active', $html );
-		self::assertStringContainsString( '<p class="agend-ms-band__status">Active</p>', $html );
-		self::assertStringContainsString( '<h3 class="agend-ms-band__tier">Professional</h3>', $html );
+		self::assertStringContainsString( 'agend-ms-hero agend-ms-hero--active', $html );
+		self::assertStringContainsString( '<li class="agend-ms-pill agend-ms-pill--tier">Professional</li>', $html );
+		self::assertStringContainsString( '<li class="agend-ms-pill agend-ms-pill--status agend-ms-pill--active">Active</li>', $html );
 		self::assertStringContainsString( 'Renews on', $html );
 		self::assertStringContainsString( '<time datetime="2027-03-01">1 March 2027</time>', $html );
 		self::assertStringContainsString( 'in 103 days', $html );
-		self::assertLessThan( strpos( $html, 'agend-ms-grid' ), strpos( $html, 'agend-ms-band' ), 'the band is above the cards' );
+		self::assertLessThan( strpos( $html, 'agend-ms-grid' ), strpos( $html, 'agend-ms-hero' ), 'the band is above the tiles' );
+	}
+
+	#[Test]
+	public function should_link_manage_membership_from_the_band_when_there_is_somewhere_to_go(): void {
+		$with    = $this->body( $this->config( array( 'membership_url' => 'https://site.test/m/' ) ), $this->summary() );
+		$without = $this->body( $this->config(), $this->summary() );
+
+		self::assertStringContainsString( 'href="https://site.test/m/">Manage membership</a>', $with );
+		self::assertStringNotContainsString( 'Manage membership', $without, 'no link is drawn to nowhere' );
+	}
+
+	#[Test]
+	public function should_say_a_membership_that_could_not_be_read_in_the_band_never_as_no_membership(): void {
+		$html = $this->body( $this->config(), $this->summary( array( 'membership' => array( 'status' => 'unavailable' ) ) ) );
+
+		self::assertStringContainsString( 'We could not load your membership just now.', $html );
+		self::assertStringNotContainsString( 'There is no membership on this account.', $html );
+		self::assertStringNotContainsString( 'agend-ms-pill', $html );
+		self::assertStringContainsString( 'data-agend-ms-retry', $html );
+	}
+
+	#[Test]
+	public function should_offer_joining_from_the_band_when_there_is_no_membership(): void {
+		$html = $this->body( $this->config( array( 'join_url' => 'https://site.test/join/', 'support_url' => 'https://site.test/contact/' ) ), $this->summary( array( 'membership' => array( 'status' => 'empty' ) ) ) );
+
+		self::assertStringContainsString( 'There is no membership on this account.', $html );
+		self::assertStringContainsString( 'href="https://site.test/join/">Join</a>', $html );
+		self::assertStringContainsString( 'href="https://site.test/contact/">Contact us</a>', $html );
+		self::assertStringNotContainsString( 'agend-ms-pill--status', $html );
+	}
+
+	#[Test]
+	public function should_say_so_in_the_band_when_the_membership_is_held_through_an_organisation(): void {
+		$membership             = $this->summary()['sections']['membership'];
+		$membership['via_seat'] = true;
+
+		self::assertStringContainsString( 'Included through your organisation\'s membership.', $this->body( $this->config(), $this->summary( array( 'membership' => $membership ) ) ) );
 	}
 
 	#[Test]
@@ -543,13 +639,14 @@ final class MemberSummaryRenderTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_name_a_membership_with_no_known_tier_membership_never_member(): void {
+	public function should_draw_no_tier_pill_for_a_membership_with_no_known_tier_and_never_call_it_member(): void {
 		$membership         = $this->summary()['sections']['membership'];
 		$membership['tier'] = '';
 
 		$html = $this->body( $this->config(), $this->summary( array( 'membership' => $membership ) ) );
 
-		self::assertStringContainsString( '<h3 class="agend-ms-band__tier">Membership</h3>', $html );
+		self::assertStringNotContainsString( 'agend-ms-pill--tier', $html );
+		self::assertStringContainsString( 'agend-ms-pill--status', $html );
 		self::assertStringNotContainsString( '>Member<', $html );
 	}
 
@@ -562,10 +659,10 @@ final class MemberSummaryRenderTest extends TestCase {
 		$pending_html = $this->body( $this->config( array( 'membership_url' => 'https://site.test/m/' ) ), $this->summary( array( 'membership' => $pending ) ) );
 		$ended_html   = $this->body( $this->config( array( 'membership_url' => 'https://site.test/m/' ) ), $this->summary( array( 'membership' => $ended ) ) );
 
-		self::assertStringContainsString( 'agend-ms-band--pending', $pending_html );
-		self::assertStringContainsString( '>Pending</p>', $pending_html );
+		self::assertStringContainsString( 'agend-ms-hero--pending', $pending_html );
+		self::assertStringContainsString( 'agend-ms-pill--pending">Pending</li>', $pending_html );
 		self::assertStringContainsString( 'View membership', $pending_html );
-		self::assertStringContainsString( '>Ended</p>', $ended_html );
+		self::assertStringContainsString( 'agend-ms-pill--ended">Ended</li>', $ended_html );
 		self::assertStringContainsString( 'Ended on', $ended_html );
 		self::assertStringContainsString( '9 days ago', $ended_html );
 		self::assertStringContainsString( 'Renew membership', $ended_html );
@@ -581,20 +678,73 @@ final class MemberSummaryRenderTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_show_cpd_against_the_target_with_the_pace_and_the_time_left(): void {
+	public function should_show_cpd_as_a_ring_against_the_target_with_the_pace_and_the_time_left(): void {
 		$html = $this->body( $this->config(), $this->summary() );
 
-		self::assertStringContainsString( '<span class="agend-ms-figure__value">14.5</span>', $html );
+		self::assertStringContainsString( '<span class="agend-ms-ring__value">14.5</span>', $html );
 		self::assertStringContainsString( 'of 16 points', $html );
 		self::assertStringContainsString( '--agend-ms-fill:90.6%', $html );
+		self::assertStringContainsString( '1.5 points to your target', $html );
 		self::assertStringContainsString( 'agend-ms-meta__item--pace">On track', $html );
 		self::assertStringContainsString( '224 days left', $html );
 		self::assertStringContainsString( 'Your target is adjusted: Joined part way through the year.', $html );
+		self::assertStringContainsString( '3 courses completed', $html );
 	}
 
 	#[Test]
-	public function should_hide_the_bar_from_assistive_technology_because_the_figure_says_it(): void {
-		self::assertStringContainsString( '<div class="agend-ms-bar" aria-hidden="true">', $this->body( $this->config(), $this->summary() ) );
+	public function should_draw_the_ring_to_the_share_of_the_target_earned(): void {
+		$html = $this->body( $this->config(), $this->summary() );
+
+		// 90.6 per cent of a circle of circumference 326.73.
+		self::assertMatchesRegularExpression( '/stroke-dasharray="296\.1\d 326\.73"/', $html );
+	}
+
+	#[Test]
+	public function should_say_the_ring_in_words_for_a_screen_reader_and_hide_the_picture(): void {
+		$html = $this->body( $this->config(), $this->summary() );
+
+		self::assertStringContainsString( '<svg class="agend-ms-ring__svg"', $html );
+		self::assertMatchesRegularExpression( '/<svg class="agend-ms-ring__svg"[^>]*aria-hidden="true"/', $html );
+		self::assertStringContainsString( '<span class="agend-ms-ring__text" aria-hidden="true">', $html, 'the figures in the ring are the picture' );
+		self::assertStringContainsString( '<p class="agend-ms-sr">14.5 of 16 points earned.</p>', $html, 'the sentence is what is read out' );
+	}
+
+	#[Test]
+	public function should_stop_the_ring_at_full_and_say_so_when_the_target_is_reached(): void {
+		$cpd           = $this->summary()['sections']['cpd'];
+		$cpd['earned'] = 20.0;
+		$cpd['pace']   = 'met';
+
+		$html = $this->body( $this->config(), $this->summary( array( 'cpd' => $cpd ) ) );
+
+		self::assertStringContainsString( '--agend-ms-fill:100.0%', $html );
+		self::assertStringContainsString( 'You have reached your target', $html );
+		self::assertStringNotContainsString( 'points to your target', $html );
+		self::assertMatchesRegularExpression( '/stroke-dasharray="326\.73 326\.73"/', $html );
+	}
+
+	#[Test]
+	public function should_draw_no_ring_and_no_target_when_agend_gave_none(): void {
+		$cpd = agend_apps_member_summary_cpd( array( 'cpd_resolution' => 'not_configured', 'total_cpd_points' => 14.5, 'cpd' => null ) );
+
+		$html = $this->body( $this->config(), $this->summary( array( 'cpd' => $cpd ) ) );
+
+		self::assertStringNotContainsString( 'agend-ms-ring', $html, 'a ring is a share of a target, and there is none' );
+		self::assertStringContainsString( '<span class="agend-ms-figure__value">14.5</span>', $html );
+		self::assertStringContainsString( 'No CPD target has been set for you.', $html );
+		self::assertStringNotContainsString( 'points to your target', $html );
+	}
+
+	#[Test]
+	public function should_give_each_course_a_named_progress_bar_with_its_percentage(): void {
+		$html = $this->body( $this->config(), $this->summary() );
+
+		self::assertStringContainsString( 'role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="35" aria-label="Progress in Contracts for studios"', $html );
+		self::assertStringContainsString( '--agend-ms-fill:35.0%', $html );
+		self::assertStringContainsString( '<span class="agend-ms-course__pct">35%</span>', $html );
+		self::assertStringContainsString( '<span class="agend-ms-course__pct">72%</span>', $html, '72.4 is read as 72' );
+		self::assertStringContainsString( '3 of 9 lessons', $html );
+		self::assertStringContainsString( 'and 1 more.', $html );
 	}
 
 	#[Test]
@@ -628,7 +778,7 @@ final class MemberSummaryRenderTest extends TestCase {
 		self::assertStringContainsString( '>14.5</span>', $html );
 		self::assertStringContainsString( 'points earned', $html );
 		self::assertStringContainsString( 'No CPD target has been set for you.', $html );
-		self::assertStringNotContainsString( 'agend-ms-bar', $html, 'no bar without a target' );
+		self::assertStringNotContainsString( 'agend-ms-ring', $html, 'no ring without a target' );
 		self::assertStringContainsString( 'No CPD target applies to you.', $this->body( $this->config(), $this->summary( array( 'cpd' => $n_a ) ) ) );
 	}
 
@@ -783,17 +933,154 @@ final class MemberSummaryRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_link_each_course_to_its_page_and_continue_learning_to_the_courses_page(): void {
+		$GLOBALS['agend_test_posts'][7] = array( 'ID' => 7, 'post_type' => 'page', 'post_status' => 'publish' );
+		update_option( AGEND_APPS_RECORDS_COURSES_PAGE_OPTION, 7 );
+
+		$html = $this->body( $this->config(), $this->summary() );
+
+		self::assertMatchesRegularExpression( '#<a class="agend-ms-row__link exclude-agend-theme-link" href="[^"]*contracts-for-studios[^"]*">Contracts for studios</a>#', $html );
+		self::assertMatchesRegularExpression( '#<a class="agend-ms-more exclude-agend-theme-link" href="[^"]+"><span>Continue learning</span>#', $html );
+	}
+
+	#[Test]
+	public function should_use_the_editors_courses_page_over_the_sites_courses_page(): void {
+		$html = $this->body( $this->config( array( 'courses_url' => 'https://site.test/learn/' ) ), $this->summary() );
+
+		self::assertStringContainsString( 'href="https://site.test/learn/"><span>Continue learning</span>', $html );
+	}
+
+	#[Test]
+	public function should_list_courses_by_name_without_a_link_or_a_continue_link_when_there_is_no_page_for_them(): void {
+		$html = $this->body( $this->config(), $this->summary() );
+
+		self::assertStringContainsString( '<span class="agend-ms-row__title">Contracts for studios</span>', $html );
+		self::assertStringNotContainsString( 'Continue learning', $html, 'no link is drawn to nowhere' );
+	}
+
+	#[Test]
+	public function should_draw_a_course_with_no_percentage_without_a_bar_or_a_number(): void {
+		$courses                                     = agend_apps_member_summary_courses( array( 'success' => true, 'data' => array( $this->gateway()['enrollments']['data'][0] ) ), 3 );
+		$courses['items'][0]['percent']              = null;
+
+		$html = $this->body( $this->config(), $this->summary( array( 'courses' => $courses ) ) );
+
+		self::assertStringContainsString( 'Pricing your work', $html );
+		self::assertStringNotContainsString( 'role="progressbar"', $html );
+		self::assertStringNotContainsString( 'agend-ms-course__pct', $html );
+	}
+
+	#[Test]
+	public function should_say_so_in_the_editors_words_when_there_are_no_courses_in_progress(): void {
+		$empty = array( 'status' => 'empty', 'items' => array(), 'total' => 0 );
+
+		self::assertStringContainsString( 'You have no courses in progress.', $this->body( $this->config(), $this->summary( array( 'courses' => $empty ) ) ) );
+		self::assertStringContainsString( 'Nothing started yet.', $this->body( $this->config( array( 'empty_courses_message' => 'Nothing started yet.' ) ), $this->summary( array( 'courses' => $empty ) ) ) );
+	}
+
+	#[Test]
+	public function should_escape_a_course_title_from_agend(): void {
+		$courses                           = $this->summary()['sections']['courses'];
+		$courses['items'][0]['title']      = '"><img src=x onerror=alert(7)>';
+
+		$html = $this->body( $this->config(), $this->summary( array( 'courses' => $courses ) ) );
+
+		self::assertStringNotContainsString( '<img src=x', $html );
+		self::assertStringContainsString( '&quot;&gt;&lt;img src=x onerror=alert(7)&gt;', $html );
+	}
+
+	#[Test]
+	public function should_list_reading_lists_with_their_page_counts_and_link_to_the_library(): void {
+		$config = $this->config( array( 'show_reading' => 'yes', 'resources_url' => 'https://site.test/resources/' ) );
+		$html   = $this->body( $config, $this->summary() );
+
+		self::assertStringContainsString( 'agend-ms-card--reading', $html );
+		self::assertStringContainsString( 'New member starter pack', $html );
+		self::assertStringContainsString( '<span class="agend-ms-row__aside">5 pages</span>', $html );
+		self::assertStringContainsString( 'and 1 more.', $html, 'five lists, four shown' );
+		self::assertStringContainsString( 'href="https://site.test/resources/"><span>Browse resources</span>', $html );
+	}
+
+	#[Test]
+	public function should_say_none_for_reading_lists_in_the_editors_words_and_never_for_a_failure(): void {
+		$empty = array( 'status' => 'empty', 'items' => array(), 'total' => 0 );
+
+		self::assertStringContainsString( 'There are no reading lists for you yet.', $this->body( $this->config(), $this->summary( array( 'reading' => $empty ) ) ) );
+
+		$failed = $this->body( $this->config(), $this->summary( array( 'reading' => array( 'status' => 'unavailable' ) ) ) );
+
+		self::assertStringContainsString( 'We could not load this just now.', $failed );
+		self::assertStringNotContainsString( 'no reading lists', $failed );
+	}
+
+	#[Test]
+	public function should_draw_the_tiles_in_one_order_with_one_quiet_link_at_most_at_the_foot_of_each(): void {
+		$config = $this->config(
+			array(
+				'show_reading'         => 'yes',
+				'credential_check_url' => 'https://site.test/check/',
+				'courses_url'          => 'https://site.test/learn/',
+				'resources_url'        => 'https://site.test/resources/',
+				'my_listing_url'       => 'https://site.test/my-listing/',
+			)
+		);
+		$html   = $this->body( $config, $this->summary() );
+
+		$order = array( 'agend-ms-card--cpd', 'agend-ms-card--events', 'agend-ms-card--courses', 'agend-ms-card--credentials', 'agend-ms-card--directory', 'agend-ms-card--reading' );
+		$last  = -1;
+
+		foreach ( $order as $class ) {
+			$at = strpos( $html, $class );
+
+			self::assertNotFalse( $at, $class );
+			self::assertGreaterThan( $last, $at, $class . ' is out of place' );
+			$last = $at;
+		}
+
+		foreach ( preg_split( '#(?=<section class="agend-ms-card )#', $html ) as $tile ) {
+			if ( 0 !== strpos( $tile, '<section class="agend-ms-card ' ) ) {
+				continue;
+			}
+
+			self::assertLessThanOrEqual( 1, substr_count( $tile, 'agend-ms-card__foot' ), 'one foot per tile' );
+			self::assertLessThanOrEqual( 1, substr_count( explode( 'agend-ms-card__foot', $tile . 'agend-ms-card__foot' )[1] ?? '', 'class="agend-ms-more' ), 'one quiet link in the foot' );
+		}
+	}
+
+	#[Test]
+	public function should_give_every_tile_an_icon_and_a_name(): void {
+		$html = $this->body( $this->config( array( 'show_reading' => 'yes' ) ), $this->summary() );
+
+		self::assertSame( 6, substr_count( $html, 'class="agend-ms-chip"' ) );
+		self::assertMatchesRegularExpression( '#<h3 class="agend-ms-card__title">Courses in progress</h3>#', $html );
+		self::assertDoesNotMatchRegularExpression( '#<svg class="agend-ms-icon"(?![^>]*aria-hidden="true")#', $html, 'icons are decoration' );
+	}
+
+	#[Test]
+	public function should_leave_the_courses_and_reading_lists_out_for_a_key_that_lacks_them(): void {
+		$html = $this->body(
+			$this->config( array( 'show_reading' => 'yes' ) ),
+			$this->summary( array( 'courses' => array( 'status' => 'no_access' ), 'reading' => array( 'status' => 'no_access' ) ) )
+		);
+
+		self::assertStringNotContainsString( 'agend-ms-card--courses', $html );
+		self::assertStringNotContainsString( 'agend-ms-card--reading', $html );
+		self::assertStringContainsString( 'agend-ms-card--cpd', $html, 'the other tiles are still there' );
+	}
+
+	#[Test]
 	public function should_say_a_part_could_not_load_and_offer_one_retry_for_all_of_them(): void {
 		$html = $this->body(
 			$this->config(),
-			$this->summary( array( 'cpd' => array( 'status' => 'unavailable' ), 'events' => array( 'status' => 'unavailable' ) ) )
+			$this->summary( array( 'cpd' => array( 'status' => 'unavailable' ), 'events' => array( 'status' => 'unavailable' ), 'courses' => array( 'status' => 'unavailable' ) ) )
 		);
 
-		self::assertSame( 2, substr_count( $html, 'We could not load this just now.' ) );
+		self::assertSame( 3, substr_count( $html, 'We could not load this just now.' ) );
 		self::assertSame( 1, substr_count( $html, 'data-agend-ms-retry' ), 'one button serves every tile' );
-		self::assertStringContainsString( 'agend-ms-band', $html, 'the parts that did load are still there' );
+		self::assertStringContainsString( 'agend-ms-hero', $html, 'the parts that did load are still there' );
 		self::assertStringNotContainsString( 'No CPD points', $html, 'a failure is never drawn as nothing' );
 		self::assertStringNotContainsString( 'not registered for any', $html );
+		self::assertStringNotContainsString( 'no courses in progress', $html );
 	}
 
 	#[Test]
@@ -823,6 +1110,7 @@ final class MemberSummaryRenderTest extends TestCase {
 	public function should_say_so_when_every_part_is_switched_off_rather_than_draw_a_blank(): void {
 		$summary             = $this->summary();
 		$summary['sections'] = array();
+		$summary['contact']  = array( 'first_name' => '' );
 
 		self::assertStringContainsString( 'There is nothing to show here yet.', $this->body( $this->config(), $summary ) );
 	}
@@ -1103,17 +1391,34 @@ final class MemberSummaryRenderTest extends TestCase {
 	public function should_send_the_cards_of_a_signed_in_member_in_one_pass(): void {
 		$this->signIn();
 		$this->withBearer();
-		foreach ( array( 'profile', 'entitlements', 'memberships', 'tiers' ) as $name ) {
+		foreach ( array( 'profile', 'entitlements', 'memberships', 'tiers', 'enrollments' ) as $name ) {
 			Agend_Test_WP::queue_response( 200, $this->gateway()[ $name ] );
 		}
 
 		$answer = $this->post( array( 'settings' => $this->pageSettings( array( 'credential_check_url' => 'https://site.test/check/' ) ) ) );
 
 		self::assertSame( 'ready', $answer['data']['state'] );
-		self::assertStringContainsString( 'Hello, Priya.', $answer['data']['html'] );
+		self::assertStringContainsString( 'Welcome back, Priya', $answer['data']['html'] );
 		self::assertStringContainsString( 'Professional', $answer['data']['html'] );
+		self::assertStringContainsString( 'Contracts for studios', $answer['data']['html'] );
 		self::assertStringContainsString( 'agend_code=VER-3fa91c0b7d2e4a65b8c1', $answer['data']['html'] );
-		self::assertCount( 4, Agend_Test_WP::$requests );
+		self::assertCount( 5, Agend_Test_WP::$requests, 'the reading lists are off, so five calls and not six' );
+	}
+
+	#[Test]
+	public function should_make_six_calls_and_no_more_for_a_view_with_every_part_on(): void {
+		$this->signIn();
+		$this->withBearer();
+		foreach ( array( 'profile', 'entitlements', 'memberships', 'tiers', 'enrollments', 'collections' ) as $name ) {
+			Agend_Test_WP::queue_response( 200, $this->gateway()[ $name ] );
+		}
+
+		$answer = $this->post( array( 'settings' => $this->pageSettings( array( 'show_reading' => 'yes' ) ) ) );
+
+		self::assertSame( 'ready', $answer['data']['state'] );
+		self::assertStringContainsString( 'agend-ms-card--reading', $answer['data']['html'] );
+		self::assertStringContainsString( 'Pricing and proposals', $answer['data']['html'] );
+		self::assertCount( 6, Agend_Test_WP::$requests );
 	}
 
 	#[Test]
@@ -1122,10 +1427,11 @@ final class MemberSummaryRenderTest extends TestCase {
 		$this->withBearer();
 		Agend_Test_WP::queue_response( 200, $this->gateway()['profile'] );
 
-		$answer = $this->post( array( 'settings' => $this->pageSettings( array( 'show_membership' => '' ) ) ) );
+		$answer = $this->post( array( 'settings' => $this->pageSettings( array( 'show_membership' => '', 'show_courses' => '' ) ) ) );
 
-		self::assertCount( 1, Agend_Test_WP::$requests, 'membership off: one call, not three' );
-		self::assertStringNotContainsString( 'agend-ms-band', $answer['data']['html'] );
+		self::assertCount( 1, Agend_Test_WP::$requests, 'membership and courses off: one call, not five' );
+		self::assertStringNotContainsString( 'agend-ms-pill', $answer['data']['html'] );
+		self::assertStringNotContainsString( 'agend-ms-card--courses', $answer['data']['html'] );
 		self::assertStringContainsString( 'CPD points', $answer['data']['html'] );
 	}
 
