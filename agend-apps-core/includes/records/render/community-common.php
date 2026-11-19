@@ -175,6 +175,45 @@ function agend_apps_records_community_chevron(): string {
 }
 
 /**
+ * A small inline icon, drawn in the surrounding text colour.
+ *
+ * Same family as the chevron above: round caps and joins, and the same visible
+ * line weight (the chevron is 1.75px at 16px). The weight is given as it should
+ * look on screen and scaled to the 24 unit drawing, so a 14px icon and a 20px
+ * icon read as the same pen.
+ *
+ * - `hash`: a chat channel.
+ * - `layers`: a feed channel, and the same stack the resource collections use.
+ * - `reply`: a speech bubble, for a reply count.
+ *
+ * @param string $name   One of the names above.
+ * @param int    $size   Width and height in px.
+ * @param float  $stroke Line weight in px as it looks on screen.
+ * @return string SVG markup, '' for a name that is not drawn.
+ */
+function agend_apps_records_community_icon( string $name, int $size = 20, float $stroke = 1.75 ): string {
+	$paths = array(
+		'hash'   => '<path d="M9.5 4 8 20M16 4l-1.5 16M4.5 9h15.5M4 15h15.5"/>',
+		'layers' => '<path d="M12 3 3 7.5l9 4.5 9-4.5L12 3Z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/>',
+		'reply'  => '<path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4.5 4v-4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>',
+	);
+
+	if ( ! isset( $paths[ $name ] ) ) {
+		return '';
+	}
+
+	$size = max( 8, $size );
+
+	return sprintf(
+		'<svg class="agend-community__icon agend-community__icon--%1$s" width="%2$d" height="%2$d" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="%3$s" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">%4$s</svg>',
+		esc_attr( $name ),
+		$size,
+		esc_attr( (string) round( $stroke * 24 / $size, 2 ) ),
+		$paths[ $name ]
+	);
+}
+
+/**
  * The attributes a link needs when it opens in a new tab.
  *
  * @param bool $new_tab Whether it does.
@@ -243,14 +282,19 @@ function agend_apps_records_community_editor_hint_html(): string {
 
 /**
  * The author's byline for one post, in the form the site chose: initials, a
- * first name, a name and initial, or the full name, with a photo only when the
- * site switched photos on.
+ * first name, a name and initial, or the full name.
  *
- * @param array $author The post's author {@see agend_apps_community_normalise_post()}.
- * @param array $config The surface config.
+ * A circle leads the name: the member's photo when the site switched photos on
+ * and the member has one, otherwise their initials. The initials are already
+ * part of the name the site chose to publish, so they add nothing the name does
+ * not, and when the name is itself only initials no second circle is drawn.
+ *
+ * @param array  $author The post's author {@see agend_apps_community_normalise_post()}.
+ * @param array  $config The surface config.
+ * @param string $sub    Optional markup, already escaped, set under the name (a card's date).
  * @return string Escaped markup, '' when authors are not shown.
  */
-function agend_apps_records_community_author_html( array $author, array $config ): string {
+function agend_apps_records_community_author_html( array $author, array $config, string $sub = '' ): string {
 	$mode  = $config['author']['mode'];
 	$label = agend_apps_community_author_label( (string) ( $author['name'] ?? '' ), $mode );
 
@@ -259,18 +303,21 @@ function agend_apps_records_community_author_html( array $author, array $config 
 	}
 
 	$circle = '';
+	$url    = $config['author']['avatar'] ? (string) ( $author['avatar'] ?? '' ) : '';
 
-	if ( $config['author']['avatar'] ) {
-		$url = (string) ( $author['avatar'] ?? '' );
-
-		if ( '' !== $url ) {
-			$circle = '<img class="agend-community__avatar" src="' . esc_url( $url ) . '" alt="" width="24" height="24" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
-		} elseif ( 'initials' !== $mode ) {
-			$circle = '<span class="agend-community__avatar agend-community__avatar--letters" aria-hidden="true">' . esc_html( agend_apps_community_initials( agend_apps_community_pretty_name( (string) ( $author['name'] ?? '' ) ) ) ) . '</span>';
-		}
+	if ( '' !== $url ) {
+		$circle = '<img class="agend-community__avatar" src="' . esc_url( $url ) . '" alt="" width="24" height="24" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
+	} elseif ( 'initials' !== $mode ) {
+		$circle = '<span class="agend-community__avatar agend-community__avatar--letters" aria-hidden="true">' . esc_html( agend_apps_community_initials( agend_apps_community_pretty_name( (string) ( $author['name'] ?? '' ) ) ) ) . '</span>';
 	}
 
-	return '<span class="agend-community__author">' . $circle . '<span class="agend-community__author-name">' . esc_html( $label ) . '</span></span>';
+	$name = '<span class="agend-community__author-name">' . esc_html( $label ) . '</span>';
+
+	if ( '' !== $sub ) {
+		$name = '<span class="agend-community__author-text">' . $name . $sub . '</span>';
+	}
+
+	return '<span class="agend-community__author">' . $circle . $name . '</span>';
 }
 
 /**
