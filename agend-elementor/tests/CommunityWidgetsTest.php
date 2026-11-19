@@ -100,17 +100,21 @@ final class CommunityWidgetsTest extends TestCase {
 	}
 
 	private function widget( string $class, array $settings = array() ): object {
-		return match ( $class ) {
-			'Agend_Elementor_Community_Announcements' => new class( array(), null, $settings ) extends \Agend_Elementor_Community_Announcements {
-				use Community_Widget_Test_Methods;
-			},
-			'Agend_Elementor_Community_Channels' => new class( array(), null, $settings ) extends \Agend_Elementor_Community_Channels {
-				use Community_Widget_Test_Methods;
-			},
-			default => new class( array(), null, $settings ) extends \Agend_Elementor_Community_Feed {
-				use Community_Widget_Test_Methods;
-			},
-		};
+		// A switch, not match: the syntax check runs on PHP 7.4.
+		switch ( $class ) {
+			case 'Agend_Elementor_Community_Announcements':
+				return new class( array(), null, $settings ) extends \Agend_Elementor_Community_Announcements {
+					use Community_Widget_Test_Methods;
+				};
+			case 'Agend_Elementor_Community_Channels':
+				return new class( array(), null, $settings ) extends \Agend_Elementor_Community_Channels {
+					use Community_Widget_Test_Methods;
+				};
+			default:
+				return new class( array(), null, $settings ) extends \Agend_Elementor_Community_Feed {
+					use Community_Widget_Test_Methods;
+				};
+		}
 	}
 
 	private function know( array $scopes ): void {
