@@ -46,6 +46,7 @@ function agend_apps_records_community_channels_build_config( array $s ): array {
 	$config['card']   = array(
 		'description' => $on( 'show_description' ),
 		'members'     => $on( 'show_members' ),
+		'tile'        => 'letter' === ( $s['tile_style'] ?? 'icon' ) ? 'letter' : 'icon',
 	);
 
 	return $config;
@@ -164,6 +165,33 @@ function agend_apps_records_render_community_channels( array $settings, array $o
 }
 
 /**
+ * The small tile that leads a channel card: an icon for the kind of channel, or
+ * the first letter of its name.
+ *
+ * Loop gives a channel no icon of its own, so the icon says what kind of space
+ * it is: a hash sign for a chat channel, stacked layers for a feed channel (the
+ * kind that holds posts with titles). Decoration only, so it is hidden from a
+ * screen reader: the name beside it says everything.
+ *
+ * @param array  $channel A normalised channel.
+ * @param string $style   `icon` or `letter`.
+ * @return string Escaped markup.
+ */
+function agend_apps_records_community_channels_tile_html( array $channel, string $style ): string {
+	if ( 'letter' !== $style ) {
+		$icon = agend_apps_records_community_icon( 'feed' === $channel['kind'] ? 'layers' : 'hash', 20 );
+
+		if ( '' !== $icon ) {
+			return '<span class="agend-community-channels__tile agend-community-channels__tile--icon" aria-hidden="true">' . $icon . '</span>';
+		}
+	}
+
+	$letter = function_exists( 'mb_strtoupper' ) ? mb_strtoupper( mb_substr( $channel['name'], 0, 1 ) ) : strtoupper( substr( $channel['name'], 0, 1 ) );
+
+	return '<span class="agend-community-channels__tile" aria-hidden="true">' . esc_html( $letter ) . '</span>';
+}
+
+/**
  * One channel's card.
  *
  * @param array $channel A normalised channel.
@@ -175,11 +203,10 @@ function agend_apps_records_community_channels_render_card( array $channel, arra
 	$url     = agend_apps_records_community_item_url( $config, $channel['slug'] );
 	$new_tab = $config['links']['newTab'];
 	$label   = '' !== $config['links']['cardLabel'] ? $config['links']['cardLabel'] : __( 'Open channel', 'agend-apps-core' );
-	$letter  = function_exists( 'mb_strtoupper' ) ? mb_strtoupper( mb_substr( $channel['name'], 0, 1 ) ) : strtoupper( substr( $channel['name'], 0, 1 ) );
 
 	$html  = '<article class="agend-community-channels__card' . ( '' !== $url ? ' agend-community-channels__card--link' : '' ) . '">';
 	$html .= '<div class="agend-community-channels__head">';
-	$html .= '<span class="agend-community-channels__tile" aria-hidden="true">' . esc_html( $letter ) . '</span>';
+	$html .= agend_apps_records_community_channels_tile_html( $channel, $card['tile'] );
 	$html .= '<h3 class="agend-community-channels__name">' . esc_html( $channel['name'] ) . '</h3>';
 	$html .= '</div>';
 
