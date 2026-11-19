@@ -767,6 +767,31 @@ final class WpIdpSamlLinkToplevelTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_not_hold_directory_pages_for_the_link_when_the_site_shares_directory_reads(): void {
+		$member = $this->signedInMember();
+		$this->directoryPage();
+		update_option( \AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION, '1' );
+		$seen = array();
+		add_filter(
+			'agend_apps_saml_link_prerender_required',
+			static function ( bool $required, array $context ) use ( &$seen ): bool {
+				$seen[] = array( $required, $context['kind'] );
+				return $required;
+			},
+			10,
+			2
+		);
+
+		$this->assertSame( '', \agend_apps_saml_link_prerender_target() );
+
+		Agend_Test_WP::$query_vars['agend_dir_listing'] = 'acme';
+		$this->assertSame( '', \agend_apps_saml_link_prerender_target() );
+
+		$this->assertSame( array( array( false, 'directory_page' ), array( false, 'listing_detail' ) ), $seen );
+		$this->assertSame( 0, \agend_apps_wp_idp_link_state( $member )['attempts'] );
+	}
+
+	#[Test]
 	public function should_ignore_any_page_that_is_not_the_directory(): void {
 		$this->signedInMember();
 		$this->directoryPage();

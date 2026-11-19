@@ -784,14 +784,19 @@ function agend_apps_saml_link_prerender_target(): string {
 	 * an unlinked, signed-in member through the SAML round trip first.
 	 *
 	 * Defaults to true for the dedicated directory page and a directory
-	 * listing detail. Every other guard (signed-in, GET, main query, not a
+	 * listing detail, unless the site shares directory reads
+	 * ({@see agend_apps_directory_reads_shared()}): those pages then fetch
+	 * nothing with the member's bearer, so holding them for the link gains
+	 * nothing. Every other guard (signed-in, GET, main query, not a
 	 * round-trip request, eligibility, the loop guard) still applies to a page
 	 * that opts in.
 	 *
 	 * @param bool  $required Whether this request is a member content page.
 	 * @param array $context  {kind: string, url: string, page_id: int, listing_slug: string}.
 	 */
-	if ( ! apply_filters( 'agend_apps_saml_link_prerender_required', '' !== $context['kind'], $context ) ) {
+	$required = '' !== $context['kind'] && ! ( function_exists( 'agend_apps_directory_reads_shared' ) && agend_apps_directory_reads_shared() );
+
+	if ( ! apply_filters( 'agend_apps_saml_link_prerender_required', $required, $context ) ) {
 		return '';
 	}
 
