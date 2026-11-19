@@ -11,8 +11,8 @@
  * Design notes for the next person:
  * - Announcements read as a notice board: one bordered list, a date tile on
  *   the left (the date is the thing people scan for), the headline, then a
- *   quiet line saying where it was posted. A pinned notice has an accent edge
- *   and a tinted date tile.
+ *   quiet line saying where it was posted. A pinned notice has the word
+ *   "Pinned" and a tinted date tile.
  * - Channels read as a directory of spaces: a card each, led by the channel's
  *   first letter in a tinted tile (a letter, not a number, because the
  *   channels are not a sequence), with the way in as the card's last line.
@@ -424,16 +424,8 @@
 
 /* Announcements ------------------------------------------------------- */
 
-/* A pinned notice carries an accent edge. Every notice reserves the same edge,
-   transparent when not pinned, so the text lines up down the list. */
-.agend-community-announcements__notice {
-  border-inline-start: 4px solid transparent;
-  padding-inline-start: calc(1.25rem - 4px);
-}
-
-.agend-community-announcements__item--pinned > .agend-community-announcements__notice {
-  border-inline-start-color: var(--agend-cm-accent);
-}
+/* A pinned notice is marked by the word "Pinned" and a tinted date tile, not
+   by an edge colour, so the list keeps one card treatment throughout. */
 
 /* The date tile. The day is the large figure. A year only appears for a notice
    from an earlier year. */
@@ -466,7 +458,7 @@
 .agend-community-announcements__year {
   margin-top: 0.1875rem;
   color: var(--agend-cm-muted);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -540,7 +532,7 @@
 
 .agend-community-feed__word {
   margin-top: 0.1875rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
 }
 
