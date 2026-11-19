@@ -149,9 +149,11 @@ function agend_apps_records_directory_catalogue_build_config( array $s ): array 
 			'perPage' => (int) ( $s['per_page'] ?? 12 ),
 		),
 		'colours'    => $colours['colours'],
-		'theme'      => array(
-			'inheritFonts' => 'yes' === ( $s['inherit_fonts'] ?? 'yes' ),
-			'colourSource' => $colours['source'],
+		'theme'      => agend_apps_records_site_theme(
+			array(
+				'inheritFonts' => 'yes' === ( $s['inherit_fonts'] ?? 'yes' ),
+				'colourSource' => $colours['source'],
+			)
 		),
 	);
 

@@ -231,6 +231,17 @@ default on upgrade, with no activation step.
   call, because each can clear and must not hide a config that exists. A
   found config always replaces a remembered 404, and a 404 never replaces a
   stored config.
+- **A key without the sites app is not asked at all.** A catalogue or the
+  account link that inherits fonts or Agend colours has the browser read the
+  site config on every page load. When the stored key scopes say the key may
+  not (no `sites` app, or no `sites.config.browse`), the surface's `theme`
+  config carries `siteConfig: false` (`agend_apps_records_site_theme()`, using
+  `Agend_Apps_API::key_refuses()`), and the script skips the read instead of
+  sending a request the site would refuse with a 403. The decision reads the
+  stored scopes only: unknown scopes, or the
+  `agend_apps_api_block_unauthorised` filter returning false, leave the config
+  unchanged. A key granted the app is noticed at the next scope refresh, and a
+  cached page keeps the old config until it is regenerated.
 - **No automatic flush.** Nothing clears `sites_config` when the config is
   published or changed in the Agend dashboard, or when the site's API key,
   environment or custom URL changes, because the cache key carries none of
@@ -1329,6 +1340,128 @@ authors in the Agend Elementor README. The pieces here:
   `agend_apps_records_directory_map_directions_url` filter returns another
   https URL template with `{lat}` and `{lng}`.
 
+## Learning pathways
+
+The **Agend Learning Pathways** surface (`learning-paths`; block
+`agend-apps/learning-paths`, Elementor widget in Agend Elementor) lists the
+connected account's published LMS learning pathways, each with its courses in
+order. The editor-facing name is "Learning Pathways", as in the Agend LMS app;
+the slugs, block name, widget name, functions and CSS classes keep `learning-paths`. It needs the `lms.paths.browse` scope and, like every surface, draws
+nothing for a visitor (and a disabled box for an editor) without it. Paths are
+public catalogue content: nothing about it needs a signed-in visitor, so it
+works the same in every member sign-in mode.
+
+- **Server-rendered, no script.** `agend_apps_records_render_learning_paths()`
+  in `includes/records/render/learning-paths.php` draws the whole list, so the
+  content is in the page for visitors and search engines and the browser makes
+  no request. The only front-end asset is the `agend-apps-records-learning-paths`
+  stylesheet. This differs from the catalogues on purpose: they filter, page and
+  open a detail view in the browser, and this has nothing to do there.
+- **Reads.** "All published paths" is one `agend_apps_lms_get_paths()` call
+  (`limit` is the "Number of pathways" setting, newest first). "Only the pathways I
+  choose" calls neither the list nor a page of it: each chosen id is read for
+  itself through `agend_apps_lms_get_paths_by_id()`, so a path past the first
+  page is found, and they are shown in the order chosen. The course list needs
+  one more read per path (the list does not carry courses); those are sent
+  together and each is cached under the entry `agend_apps_lms_get_path()` uses,
+  so the page waits for the slowest rather than the sum. Switching "Show the
+  course list" off drops those reads.
+- **Anonymous reads.** The surface reads as an anonymous visitor would
+  (`$anonymous = true` on the three wrappers). A path is the same for every
+  viewer, and a read that carries a member's token is never shared (see
+  "Caching and identity"): on a site whose visitors are mostly signed in that
+  would be a live gateway call per path on every page view. The default of both
+  wrappers is unchanged for their existing callers (the REST proxy).
+- **What counts as a path.** A path the gateway marks unpublished is left out,
+  including a chosen one unpublished since it was picked (the gateway answers a
+  single read for any path it owns). A course with no title is left out. A path
+  whose course list could not be read still shows, without one; the surface only
+  says "Unable to load learning pathways." when no path could be read at all.
+- **Course links.** A course links to its page on the Courses page set under
+  Settings > Agend Widgets > Catalogue Pages (`{page}/course/{slug}/`, or the
+  `?agend_course=` form without pretty permalinks), through
+  `Agend_Apps_Records_Pages::detail_url()`, so the `agend_apps_records_detail_url`
+  filter applies. With no Courses page set the courses are listed without
+  links: the page the surface sits on is not a courses catalogue, so it has
+  nowhere to send a visitor. "Open course links in a new tab" adds
+  `target="_blank" rel="noopener"` and a screen reader note.
+- **Empty and failed.** "Message when there are no paths" is the author's
+  wording; "Hide the widget when there are no paths" draws nothing at all
+  instead. A failed read always says so, hidden or not, and is not mistaken for
+  an empty list. The surface draws nothing inside a card or detail template,
+  where it would be fetched once per card.
+- **Layout and look.** Each path is a card: a header in the heading colour (the
+  difficulty level, title, hours and course count, description) and the courses
+  as a numbered stepper, with a quiet connector between the steps when the path
+  is sequential (the "complete in order" note is kept as text too). All markers
+  look the same: an optional course says "Optional" in words only, because solid
+  versus outline markers are kept for done versus not started once member
+  progress is shown. A course row
+  is one whole-row link whose text is the course title. "Columns" is the most
+  columns across: a card is never narrower than 20rem, and one path, or fewer
+  paths than columns, takes the full width. A wide card (about 42rem or more,
+  by the card's own width, not the screen's) puts the header beside the steps;
+  "Card layout: Always stacked" keeps the header above them. "Columns (Mobile)"
+  (1 or 2, default 1, as in the courses catalogue) sets the columns on a phone;
+  two across tightens the card and drops the chevrons. There is no
+  box-shadow, because the Agend theme sets `box-shadow: none !important`
+  everywhere; the stylesheet also cancels that theme's ID-level `li + li` top
+  margin on its own lists.
+- **Colours.** Heading, body and accent, resolved as the catalogues resolve
+  them (`inherit_colours`, the theme palette and the
+  `agend_apps_records_site_palette` filter). Every other colour in the
+  stylesheet is derived from those three with `color-mix()` (header, lines,
+  step markers, hover), with plain fallbacks for a browser without it. The
+  header uses the heading colour with white text, so the heading colour must be
+  one that reads on white, as it must for the titles anyway.
+- **Not included.** A path detail page, enrolment and progress (the member
+  routes are not part of the public display), and card templates (the template
+  system's record types are events, courses and listings).
+
+## Directory search, filter shortcuts and count
+
+Three surfaces that sit beside a Directory Catalogue instead of inside its
+filter template: `directory-search` (Agend Directory Search),
+`filter-shortcuts` (Agend Filter Shortcuts) and `directory-count` (Agend
+Directory Count). Each has a schema, a renderer in `includes/records/render/`
+and a script and stylesheet registered as `agend-apps-records-<surface>`. They
+are gated on `directory.listings.search`. They ship as Elementor widgets; no
+compiled block exists for them yet, so `AGEND_APPS_RECORDS_BLOCK_SURFACES` does
+not list them.
+
+**On a page with a catalogue** the scripts drive it through
+`window.agendCatalogues.listing.apply( changes )`, where `changes` is
+`{ search, near, lists: { <state key>: [values] }, custom: { <field key>: [values] } }`.
+It writes the state, redraws the filter controls from it (as Clear all does) and
+searches again. Widgets learn of the catalogue from the `agend:directory-ready`
+event and follow it through `agend:directory-results`, so Clear all, a restored
+search link or a filter change shows in the search box and the active tile.
+
+**On a page without one** the search box and the tiles send the visitor to the
+dedicated Directory page (or the widget's own page setting) with a search link
+(`q`, `near`, `radius`, `address`, `cf_<key>`, `category_ids`, `state`, `city`).
+The destination catalogue reads a parameter only when its filter template holds
+a matching filter (Search, Location, the custom field, and so on). A device
+position carried to another page is rounded to two decimals, because the
+address is shareable. Without script the search box is a GET form carrying `q`
+and each tile is a plain link.
+
+Filter Shortcuts "all values" reads the directory facets (or categories) on the
+server. A signed-in visitor's custom field values depend on their entitlements,
+so for them the page leaves those to the browser.
+
+Directory Count reads the total from the pagination meta of a one-listing
+directory search, so it is cached like any search.
+
+## Agend Field text case
+
+The Agend Field `text_case` setting ("Title case for all-capital values")
+changes a text or list value only when it contains no lower case letter:
+`MELBOURNE` becomes `Melbourne`, `Mount Eliza VIC` is left alone. Initialisms
+inside an all-capital value ("NSW") become "Nsw". Cards drawn by the catalogue
+script come from the same server renderer, so there is no client-side copy of
+the rule.
+
 ## Block editor surface
 
 The block editor is the primary target for new surface work. Elementor is
@@ -1336,9 +1469,9 @@ supported at parity, not led.
 
 `includes/records/blocks.php` registers one block per surface, listed in
 `AGEND_APPS_RECORDS_BLOCK_SURFACES` (inserter order): `events-catalogue`,
-`courses-catalogue`, `directory-catalogue`, `memberships-catalogue`,
-`member-login`, `header-auth`, `account-link`, `export-reports` and `filter`,
-all namespaced `agend-apps/`. Every block is a thin adapter over the two seams
+`courses-catalogue`, `learning-paths`, `directory-catalogue`,
+`memberships-catalogue`, `member-login`, `header-auth`, `account-link`,
+`export-reports` and `filter`, all namespaced `agend-apps/`. Every block is a thin adapter over the two seams
 above: its attributes are derived from the surface schema
 (`agend_apps_records_block_attributes()`), and its render callback is the
 surface's core renderer, fed the attributes converted to Elementor-shaped

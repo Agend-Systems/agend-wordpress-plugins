@@ -641,6 +641,68 @@ class Agend_Apps_API {
 	 * @return array{code: string, message: string, missing: string[], app: string}|null Null to send.
 	 */
 	private function unauthorised_call( string $method, string $path, bool $recheck = true ): ?array {
+		$stored = self::stored_refusal( $method, $path );
+
+		if ( null === $stored ) {
+			return null;
+		}
+
+		[ $endpoint, $verdict ] = $stored;
+
+		$age = time() - Agend_Apps_Key_Scopes::fetched_at();
+
+		if ( $recheck && $age >= Agend_Apps_Key_Scopes::RECHECK_AFTER && false === get_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT ) ) {
+			// Set first, so a failing gateway is not asked again for five
+			// minutes either.
+			set_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT, 1, Agend_Apps_Key_Scopes::RECHECK_AFTER );
+			Agend_Apps_Key_Scopes::refresh();
+
+			if ( ! Agend_Apps_Key_Scopes::known() ) {
+				return null;
+			}
+
+			$verdict = self::key_verdict( $endpoint );
+
+			if ( null === $verdict ) {
+				return null;
+			}
+		}
+
+		return $verdict;
+	}
+
+	/**
+	 * Whether a call would be refused locally on the stored scopes as they
+	 * stand, with no refresh and no recheck.
+	 *
+	 * For a page render deciding whether to have the browser make a call at
+	 * all, so a page does not send a request on every load only to be told it
+	 * is not allowed. The request guard ({@see unauthorised_call()}) stays the
+	 * authority whenever a call is actually made, and is the one that rechecks
+	 * stale scopes, so a key granted the app since is noticed there.
+	 *
+	 * @param string $method HTTP method.
+	 * @param string $path   Relative gateway path, e.g. `/sites/config`.
+	 * @return bool True only when the stored key is known not to be allowed.
+	 */
+	public static function key_refuses( string $method, string $path ): bool {
+		return null !== self::stored_refusal( $method, $path );
+	}
+
+	/**
+	 * The refusal the stored scopes give a call, before any recheck.
+	 *
+	 * Null unless every one of these holds: the key's scopes are known for
+	 * the configured key, no scope refresh is in flight, the path is not
+	 * `/health` (the refresh itself), the endpoint is in the generated map,
+	 * the key lacks the endpoint's app or a required scope, and the
+	 * `agend_apps_api_block_unauthorised` filter agrees.
+	 *
+	 * @param string $method HTTP method.
+	 * @param string $path   Relative path, as filtered.
+	 * @return array{0: array, 1: array{code: string, message: string, missing: string[], app: string}}|null The endpoint map entry and the verdict, or null to send.
+	 */
+	private static function stored_refusal( string $method, string $path ): ?array {
 		if ( ! class_exists( 'Agend_Apps_Key_Scopes' ) || ! class_exists( 'Agend_Apps_Endpoint_Scopes' ) ) {
 			return null;
 		}
@@ -681,26 +743,7 @@ class Agend_Apps_API {
 			return null;
 		}
 
-		$age = time() - Agend_Apps_Key_Scopes::fetched_at();
-
-		if ( $recheck && $age >= Agend_Apps_Key_Scopes::RECHECK_AFTER && false === get_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT ) ) {
-			// Set first, so a failing gateway is not asked again for five
-			// minutes either.
-			set_transient( Agend_Apps_Key_Scopes::RECHECK_TRANSIENT, 1, Agend_Apps_Key_Scopes::RECHECK_AFTER );
-			Agend_Apps_Key_Scopes::refresh();
-
-			if ( ! Agend_Apps_Key_Scopes::known() ) {
-				return null;
-			}
-
-			$verdict = self::key_verdict( $endpoint );
-
-			if ( null === $verdict ) {
-				return null;
-			}
-		}
-
-		return $verdict;
+		return array( $endpoint, $verdict );
 	}
 
 	/**

@@ -1,0 +1,576 @@
+/**
+ * Agend Learning paths widget styles.
+ *
+ * Colour and layout tokens are set as CSS custom properties on the container by
+ * the surface's server render (heading, body and accent come from the site
+ * palette, or the manual colours). Every other colour here is derived from
+ * those three, so the widget follows whichever association's site it is on.
+ * There is no script: the markup is complete.
+ *
+ * Design notes for the next person:
+ * - A path is a card: a header in the heading colour (level, title, hours,
+ *   description) and the course steps as the focus. When a card is wide, for
+ *   example one path across the full width, the header sits beside the steps;
+ *   otherwise it sits above them. That switch follows the card's own width
+ *   (container query), not the screen's, so it also holds in a narrow column.
+ * - The courses are a stepper. When the path is sequential a quiet vertical
+ *   connector joins the numbered markers; the "complete in order" text is kept
+ *   as well, so the order is never only a line.
+ * - A whole course row is the link (a stretched pseudo-element), but the link's
+ *   own text is just the course title.
+ * - No box-shadow anywhere: the Agend theme sets `box-shadow: none !important`
+ *   on every element, so depth here comes from borders and the header colour.
+ * - Specificity is deliberately doubled on the course link: the theme styles
+ *   `a:not(.btn)` and `.elementor a` and would otherwise win over one class.
+ */
+
+.agend-learning-paths {
+  --agend-lp-heading: #1e2a4a;
+  --agend-lp-body: #26304d;
+  --agend-lp-accent: #ff6b55;
+  --agend-lp-card-radius: 10px;
+  --agend-lp-cols-desktop: 2;
+  --agend-lp-cols-tablet: 2;
+  --agend-lp-cols-mobile: 1;
+
+  /* Colours derived from the three above. The plain values are what the
+     default navy and coral give; they only show in a browser without
+     color-mix(). */
+  --agend-lp-muted: #474f68;
+  --agend-lp-line: #dfe2ea;
+  --agend-lp-row-hover: #f3f4f8;
+  --agend-lp-marker-bg: #ffe8e4;
+  --agend-lp-marker-bg-hover: #ffd5ce;
+  --agend-lp-marker-edge: #ffb0a4;
+  --agend-lp-on-band: #fff;
+  --agend-lp-on-band-soft: #f6f7fa;
+
+  /* Layout: the most columns across, the least width one card gets, the gap. */
+  --agend-lp-cols: var(--agend-lp-cols-desktop);
+  --agend-lp-min-card: 20rem;
+  --agend-lp-gap: 1.5rem;
+  --agend-lp-row-pad: 0.8125rem;
+  --agend-lp-row-radius: min(calc(var(--agend-lp-card-radius) * 0.6), 12px);
+
+  box-sizing: border-box;
+  max-width: 100%;
+  color: var(--agend-lp-body);
+  font-family: var(--agend-lp-font-body, inherit);
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .agend-learning-paths {
+    /* Quiet text comes from the body colour, which a site already keeps readable
+       on white, rather than from the heading colour, which can be a mid tone. */
+    --agend-lp-muted: color-mix(in srgb, var(--agend-lp-body) 85%, #fff);
+    --agend-lp-line: color-mix(in srgb, var(--agend-lp-heading) 14%, #fff);
+    --agend-lp-row-hover: color-mix(in srgb, var(--agend-lp-heading) 5%, #fff);
+    --agend-lp-marker-bg: color-mix(in srgb, var(--agend-lp-accent) 16%, #fff);
+    --agend-lp-marker-bg-hover: color-mix(in srgb, var(--agend-lp-accent) 30%, #fff);
+    --agend-lp-marker-edge: color-mix(in srgb, var(--agend-lp-accent) 55%, #fff);
+    /* Nearly white with a breath of the heading colour: on a header dark
+       enough for the site's heading text to read on white, this reads on it. */
+    --agend-lp-on-band-soft: color-mix(in srgb, #fff 92%, var(--agend-lp-heading));
+  }
+}
+
+.agend-learning-paths *,
+.agend-learning-paths *::before,
+.agend-learning-paths *::after {
+  box-sizing: border-box;
+}
+
+/* The Agend theme gives every list item after the first a top margin through an
+   ID-level selector (`main#agendtheme-content ... li + li`), which no class
+   selector can outrank. It would push the second card, the second course row
+   and the second meta item out of line, so it is cancelled here, on this
+   widget's lists only. */
+.agend-learning-paths li {
+  margin-top: 0 !important;
+}
+
+@media (max-width: 1024px) {
+  .agend-learning-paths {
+    --agend-lp-cols: var(--agend-lp-cols-tablet);
+  }
+}
+
+@media (max-width: 640px) {
+  .agend-learning-paths {
+    --agend-lp-cols: var(--agend-lp-cols-mobile);
+    /* Two across on a phone needs cards narrower than the usual minimum. A
+       phone too narrow for that falls back to one column. */
+    --agend-lp-min-card: 9rem;
+    --agend-lp-gap: 1.25rem;
+  }
+}
+
+.agend-learning-paths h2,
+.agend-learning-paths h3 {
+  font-family: var(--agend-lp-font-heading, inherit);
+}
+
+/* Heading block ------------------------------------------------------- */
+
+.agend-learning-paths__heading {
+  max-width: 46rem;
+  margin: 0 0 1.75rem;
+}
+
+.agend-learning-paths__title {
+  margin: 0 0 0.5rem;
+  color: var(--agend-lp-heading);
+  text-wrap: balance;
+}
+
+.agend-learning-paths__subtitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.agend-learning-paths__status {
+  margin: 0;
+  padding: 2rem 1.5rem;
+  border: 1px dashed var(--agend-lp-line);
+  border-radius: var(--agend-lp-card-radius);
+  color: var(--agend-lp-muted);
+  text-align: center;
+}
+
+.agend-learning-paths__status--error {
+  border-style: solid;
+  color: var(--agend-lp-heading);
+}
+
+/* Grid ---------------------------------------------------------------- */
+
+/*
+ * "Columns" is the most columns across. A card is never narrower than
+ * --agend-lp-min-card, so a narrow column drops to fewer, and auto-fit lets a
+ * single path (or fewer paths than columns) take the whole row instead of
+ * leaving a gap beside it.
+ */
+.agend-learning-paths__grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(
+      min(100%, max(var(--agend-lp-min-card), calc((100% - (var(--agend-lp-cols) - 1) * var(--agend-lp-gap)) / var(--agend-lp-cols)))),
+      1fr
+    )
+  );
+  gap: var(--agend-lp-gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agend-learning-paths__item {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  container-type: inline-size;
+  container-name: agend-lp;
+}
+
+/* Card ---------------------------------------------------------------- */
+
+.agend-learning-paths__card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--agend-lp-line);
+  border-radius: var(--agend-lp-card-radius);
+  background: #fff;
+}
+
+/* Header: the path summary, on the heading colour. */
+.agend-learning-paths__head {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--agend-lp-heading);
+  color: var(--agend-lp-on-band-soft);
+}
+
+.agend-learning-paths__media {
+  max-height: 15rem;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.agend-learning-paths__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agend-learning-paths__head-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 1.375rem 1.25rem 1.5rem;
+}
+
+/* The level. The accent is a small mark beside it rather than the text colour,
+   so it reads on any heading colour. */
+.agend-learning-paths__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+}
+
+.agend-learning-paths__eyebrow::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--agend-lp-accent);
+}
+
+.agend-learning-paths__name {
+  margin: 0;
+  color: var(--agend-lp-on-band);
+  font-size: clamp(1.25rem, 1.1rem + 0.7vw, 1.5rem);
+  font-weight: 600;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.agend-learning-paths__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0.625rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.agend-learning-paths__meta-item {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+.agend-learning-paths__meta-item + .agend-learning-paths__meta-item::before {
+  content: "";
+  width: 1px;
+  height: 0.9em;
+  margin: 0 0.75rem;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.agend-learning-paths__description {
+  max-width: 62ch;
+  margin: 0.875rem 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+/* Steps: the courses, the focus of the card. */
+.agend-learning-paths__steps {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.75rem 0.5rem 0.875rem;
+}
+
+.agend-learning-paths__steps-head {
+  padding: 0.375rem 0.75rem 0.25rem;
+}
+
+/* Quiet on purpose: the stepper carries the order, this says it in words. */
+.agend-learning-paths__sequence {
+  margin: 0;
+  color: var(--agend-lp-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* Where the course list is switched off the note moves into the header, so it
+   is not lost. */
+.agend-learning-paths__head-text .agend-learning-paths__sequence {
+  margin-top: 0.75rem;
+  color: var(--agend-lp-on-band-soft);
+}
+
+.agend-learning-paths__courses {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: agend-lp-step;
+}
+
+.agend-learning-paths__course {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  align-items: start;
+  column-gap: 0.875rem;
+  margin: 0;
+  padding: var(--agend-lp-row-pad) 0.75rem;
+  border-radius: var(--agend-lp-row-radius);
+  counter-increment: agend-lp-step;
+  line-height: 1.4;
+}
+
+.agend-learning-paths__course--link {
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  cursor: pointer;
+}
+
+/* The step marker. Generated content with an empty text alternative: the list
+   is an <ol>, so the position is already announced. */
+.agend-learning-paths__course::before {
+  content: counter(agend-lp-step);
+  content: counter(agend-lp-step) / "";
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1.5px solid var(--agend-lp-marker-edge);
+  border-radius: 50%;
+  background: var(--agend-lp-marker-bg);
+  color: var(--agend-lp-heading);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Every step marker looks the same, optional or not: the word "Optional" says
+   it. Solid versus outline markers are kept free to mean done versus not
+   started once member progress is shown. */
+
+/* The connector between the steps of a sequential path. A border, not a
+   background, so it survives forced-colours mode. It runs from just under one
+   marker to just above the next. */
+.agend-learning-paths__courses--sequential > .agend-learning-paths__course:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: calc(var(--agend-lp-row-pad) + 2.25rem);
+  bottom: calc(0.25rem - var(--agend-lp-row-pad));
+  inset-inline-start: calc(0.75rem + 1rem - 1px);
+  width: 0;
+  border-left: 2px solid var(--agend-lp-line);
+}
+
+.agend-learning-paths__course-main {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.625rem;
+  min-width: 0;
+  /* Centres the first line on the 2rem marker. */
+  padding-block: 0.3125rem;
+}
+
+.agend-learning-paths__course-title,
+.agend-learning-paths .agend-learning-paths__course-link {
+  color: var(--agend-lp-heading);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.agend-learning-paths .agend-learning-paths__course-link,
+.agend-learning-paths .agend-learning-paths__course-link:visited,
+.agend-learning-paths .agend-learning-paths__course-link:hover,
+.agend-learning-paths .agend-learning-paths__course-link:focus,
+.agend-learning-paths .agend-learning-paths__course-link:active {
+  border: 0;
+  background: none;
+  color: var(--agend-lp-heading);
+  text-decoration: none;
+}
+
+/* The whole row is the target: this fills the <li>, the positioned ancestor.
+   It also carries the focus ring, so the ring has the row's shape. */
+.agend-learning-paths .agend-learning-paths__course-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--agend-lp-row-radius);
+}
+
+.agend-learning-paths .agend-learning-paths__course-link:focus {
+  outline: none;
+}
+
+.agend-learning-paths .agend-learning-paths__course-link:focus-visible::after {
+  outline: 2px solid var(--agend-lp-heading);
+  outline-offset: 1px;
+}
+
+.agend-learning-paths__optional {
+  color: var(--agend-lp-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.agend-learning-paths__chevron {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: center;
+  width: 1rem;
+  height: 1rem;
+  color: var(--agend-lp-muted);
+}
+
+.agend-learning-paths__course--link:hover {
+  background: var(--agend-lp-row-hover);
+}
+
+.agend-learning-paths__course--link:hover::before {
+  background: var(--agend-lp-marker-bg-hover);
+}
+
+.agend-learning-paths__course--link:hover .agend-learning-paths__chevron {
+  color: var(--agend-lp-heading);
+  transform: translateX(2px);
+}
+
+.agend-learning-paths__course--link:hover .agend-learning-paths__course-link {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+/* Right-to-left sites: the chevron points the other way. */
+[dir="rtl"] .agend-learning-paths__chevron {
+  transform: scaleX(-1);
+}
+
+[dir="rtl"] .agend-learning-paths__course--link:hover .agend-learning-paths__chevron {
+  transform: translateX(-2px) scaleX(-1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agend-learning-paths__course,
+  .agend-learning-paths__course::before {
+    transition: background-color 0.15s ease;
+  }
+
+  .agend-learning-paths__chevron {
+    transition:
+      transform 0.15s ease,
+      color 0.15s ease;
+  }
+}
+
+/* A very narrow card (two across on a phone): tighter padding and no chevron,
+   so the course titles keep their room. */
+@container agend-lp (max-width: 17rem) {
+  .agend-learning-paths__head-text {
+    padding: 1rem 0.875rem 1.125rem;
+  }
+
+  .agend-learning-paths__steps {
+    padding: 0.5rem 0.25rem 0.625rem;
+  }
+
+  /* The meta items may wrap here, and a divider must not start a line. */
+  .agend-learning-paths__meta {
+    column-gap: 0.875rem;
+  }
+
+  .agend-learning-paths__meta-item + .agend-learning-paths__meta-item::before {
+    display: none;
+  }
+
+  .agend-learning-paths__steps-head {
+    padding-inline: 0.5rem;
+  }
+
+  .agend-learning-paths__course,
+  .agend-learning-paths__course--link {
+    grid-template-columns: 1.75rem minmax(0, 1fr);
+    column-gap: 0.625rem;
+    padding-inline: 0.5rem;
+  }
+
+  .agend-learning-paths__course::before {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.75rem;
+  }
+
+  .agend-learning-paths__course-main {
+    padding-block: 0.1875rem;
+  }
+
+  .agend-learning-paths__chevron {
+    display: none;
+  }
+
+  .agend-learning-paths__courses--sequential > .agend-learning-paths__course:not(:last-child)::after {
+    top: calc(var(--agend-lp-row-pad) + 2rem);
+    inset-inline-start: calc(0.5rem + 0.875rem - 1px);
+  }
+}
+
+/* A wide card: more room to breathe, whichever way it is laid out. */
+@container agend-lp (min-width: 42rem) {
+  .agend-learning-paths__head-text {
+    padding: 1.75rem 1.75rem 1.875rem;
+  }
+
+  .agend-learning-paths__steps {
+    padding: 1rem 1rem 1.25rem;
+  }
+
+  /* ...and, unless the layout setting says "Always stacked", the summary sits
+     beside the steps, the full height of the card. */
+  .agend-learning-paths:not(.agend-learning-paths--stacked) .agend-learning-paths__card {
+    flex-direction: row;
+  }
+
+  .agend-learning-paths:not(.agend-learning-paths--stacked) .agend-learning-paths__head {
+    flex: 0 0 clamp(17rem, 38%, 25rem);
+  }
+
+  .agend-learning-paths:not(.agend-learning-paths--stacked) .agend-learning-paths__media {
+    max-height: none;
+  }
+
+  .agend-learning-paths:not(.agend-learning-paths--stacked) .agend-learning-paths__steps {
+    flex: 1 1 0;
+    padding: 1.25rem 1.25rem 1.375rem;
+  }
+}
+
+.agend-learning-paths__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

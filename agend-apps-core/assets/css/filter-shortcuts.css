@@ -1,0 +1,144 @@
+/*
+ * Agend Filter Shortcuts.
+ *
+ * A theme often paints a content link, and its hover and focus states, in an
+ * accent colour with !important. The tile colours are therefore read from
+ * custom properties and carry !important themselves, so a tile stays readable
+ * in every state and the widget's Style controls, which set the properties,
+ * still decide the look.
+ */
+.agend-fs,
+.agend-fs *,
+.agend-fs *::before,
+.agend-fs *::after {
+	box-sizing: border-box;
+}
+
+.agend-fs__grid {
+	display: grid;
+	grid-template-columns: repeat(var(--agend-fs-cols, 4), minmax(0, 1fr));
+	gap: 16px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.agend-fs__item {
+	display: flex;
+	margin: 0;
+	padding: 0;
+}
+
+/* Themes space list items (li + li) and add markers inside page content; the
+   tiles are a grid, so neither applies. */
+.agend-fs .agend-fs__grid > .agend-fs__item {
+	margin: 0 !important;
+	padding: 0 !important;
+	list-style: none;
+}
+
+.agend-fs .agend-fs__grid > .agend-fs__item::before,
+.agend-fs .agend-fs__grid > .agend-fs__item::marker {
+	content: none;
+}
+
+.agend-fs .agend-fs__tile {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+	padding: 20px;
+	border-style: solid !important;
+	border-width: var(--agend-fs-border-width, 1px) !important;
+	border-color: var(--agend-fs-border, #d9e0e8) !important;
+	border-radius: 14px;
+	background: var(--agend-fs-bg, #fff) !important;
+	background-image: none !important;
+	color: var(--agend-fs-text, #1b2430) !important;
+	font-size: 16px;
+	font-weight: 500;
+	line-height: 1.3;
+	text-decoration: none !important;
+	transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+
+.agend-fs .agend-fs__tile:hover,
+.agend-fs .agend-fs__tile:focus {
+	border-color: var(--agend-fs-border-hover, #2563eb) !important;
+	background: var(--agend-fs-bg-hover, #eef4fb) !important;
+	color: var(--agend-fs-text-hover, #1b2430) !important;
+	text-decoration: none !important;
+}
+
+.agend-fs .agend-fs__tile:focus-visible {
+	outline: 2px solid var(--agend-fs-focus, #2563eb);
+	outline-offset: 2px;
+}
+
+.agend-fs .agend-fs__tile.is-active,
+.agend-fs .agend-fs__tile[aria-current="true"] {
+	border-color: var(--agend-fs-border-active, #2563eb) !important;
+	background: var(--agend-fs-bg-active, #eef4fb) !important;
+	color: var(--agend-fs-text-active, #1b2430) !important;
+}
+
+.agend-fs__icon {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: var(--agend-fs-icon-box, 40px);
+	height: var(--agend-fs-icon-box, 40px);
+	border-radius: 10px;
+	background: var(--agend-fs-icon-bg, #eef4fb);
+	color: var(--agend-fs-icon, #2563eb);
+	font-size: 20px;
+	line-height: 1;
+}
+
+.agend-fs__icon svg {
+	width: 1em;
+	height: 1em;
+	fill: currentColor;
+}
+
+.agend-fs .agend-fs__tile:hover .agend-fs__icon,
+.agend-fs .agend-fs__tile:focus .agend-fs__icon {
+	background: var(--agend-fs-icon-bg-hover, #fff);
+}
+
+.agend-fs__label {
+	overflow-wrap: anywhere;
+}
+
+.agend-fs--empty {
+	padding: 16px;
+	border: 1px dashed #a7aaad;
+	border-radius: 6px;
+	color: #646970;
+	font-size: 13px;
+}
+
+@media (max-width: 1024px) {
+	.agend-fs__grid {
+		grid-template-columns: repeat(var(--agend-fs-cols-tablet, 2), minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 767px) {
+	.agend-fs__grid {
+		grid-template-columns: repeat(var(--agend-fs-cols-mobile, 2), minmax(0, 1fr));
+		gap: 10px;
+	}
+
+	.agend-fs .agend-fs__tile {
+		padding: 14px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.agend-fs .agend-fs__tile {
+		transition: none;
+	}
+}

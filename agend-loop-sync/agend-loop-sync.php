@@ -3,8 +3,8 @@
  * Plugin Name:       Agend Loop Sync
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-loop-sync
- * Description:       Syncs WordPress users, roles, and Upbeat committees into Agend Loop channels via the Agend gateway. Users sync on login/role change; committees sync on a schedule or on demand.
- * Version:           1.3.0
+ * Description:       Syncs WordPress members into Agend Loop via the Agend gateway, on sign-in, profile and role changes. Optionally keeps a private Loop channel for each Upbeat committee, on a schedule or on demand.
+ * Version:           1.4.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-loop-sync
@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_LOOP_SYNC_VERSION', '1.3.0' );
+define( 'AGEND_LOOP_SYNC_VERSION', '1.4.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -79,12 +79,7 @@ add_action( 'plugins_loaded', 'agend_loop_sync_bootstrap' );
 function agend_loop_sync_activate() {
 	require_once AGEND_LOOP_SYNC_DIR . 'includes/class-agend-loop-sync-settings.php';
 
-	Agend_Loop_Sync_Settings::seed_defaults();
-
-	$schedule = Agend_Loop_Sync_Settings::get_committee_schedule();
-	if ( ! wp_next_scheduled( AGEND_LOOP_SYNC_CRON_HOOK ) ) {
-		wp_schedule_event( time() + HOUR_IN_SECONDS, $schedule, AGEND_LOOP_SYNC_CRON_HOOK );
-	}
+	Agend_Loop_Sync_Settings::activate();
 }
 register_activation_hook( __FILE__, 'agend_loop_sync_activate' );
 

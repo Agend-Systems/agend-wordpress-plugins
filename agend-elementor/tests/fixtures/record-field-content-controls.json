@@ -569,6 +569,19 @@
                     }
                 },
                 {
+                    "id": "text_case",
+                    "args": {
+                        "label": "Text case",
+                        "type": "select",
+                        "default": "",
+                        "options": {
+                            "": "As stored",
+                            "title_upper": "Title case for all-capital values"
+                        },
+                        "description": "Applies to text and list fields. A value written entirely in capitals, such as a suburb stored as MELBOURNE, shows as Melbourne. A value with any lower case letter is left as stored."
+                    }
+                },
+                {
                     "id": "truncate_chars",
                     "args": {
                         "label": "Truncate to characters",

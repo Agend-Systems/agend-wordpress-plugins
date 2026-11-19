@@ -23,6 +23,7 @@ $als_allowlist_text = implode( "\n", Agend_Loop_Sync_Settings::get_filter_allowl
 $als_mode           = Agend_Loop_Sync_Settings::get_filter_mode();
 $als_schedule       = Agend_Loop_Sync_Settings::get_committee_schedule();
 $als_last_sync      = (int) get_option( Agend_Loop_Sync_Settings::OPT_LAST_SYNC, 0 );
+$als_committees_on  = Agend_Loop_Sync_Settings::is_committee_sync_enabled();
 
 $als_last_summary = get_option( Agend_Loop_Sync_Settings::OPT_LAST_SUMMARY, array() );
 $als_last_summary = is_array( $als_last_summary ) ? $als_last_summary : array();
@@ -107,10 +108,20 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 		</div>
 	<?php endif; ?>
 
+	<?php
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	if ( isset( $_GET['committee_sync'] ) && 'off' === sanitize_text_field( wp_unslash( $_GET['committee_sync'] ) ) ) :
+		?>
+		<div class="notice notice-warning is-dismissible">
+			<p><?php esc_html_e( 'Committee sync is off, so that committee action was not run. Turn committee sync on to use it.', 'agend-loop-sync' ); ?></p>
+		</div>
+	<?php endif; ?>
+
 	<form method="post" action="options.php">
 		<?php settings_fields( Agend_Loop_Sync_Settings::GROUP ); ?>
 
 		<table class="form-table" role="presentation">
+		<tbody>
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Enable plugin', 'agend-loop-sync' ); ?></th>
 				<td>
@@ -142,11 +153,14 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 				<th scope="row"><?php esc_html_e( 'Committee sync', 'agend-loop-sync' ); ?></th>
 				<td>
 					<label>
-						<input type="checkbox" name="<?php echo esc_attr( Agend_Loop_Sync_Settings::OPT_COMMITTEE_SYNC ); ?>" value="1" <?php checked( Agend_Loop_Sync_Settings::is_committee_sync_enabled() ); ?> />
-						<?php esc_html_e( 'Sync committees to Loop channels on a schedule and on demand.', 'agend-loop-sync' ); ?>
+						<input type="checkbox" id="als-committee-sync" name="<?php echo esc_attr( Agend_Loop_Sync_Settings::OPT_COMMITTEE_SYNC ); ?>" value="1" <?php checked( $als_committees_on ); ?> />
+						<?php esc_html_e( 'Create a private Loop channel for each Upbeat committee and keep its members in step with the committee roster, on a schedule and on demand.', 'agend-loop-sync' ); ?>
 					</label>
+					<p class="description"><?php esc_html_e( 'Optional. Leave off when channel membership is managed in Loop. Member sync works without it.', 'agend-loop-sync' ); ?></p>
 				</td>
 			</tr>
+		</tbody>
+		<tbody id="als-committee-settings"<?php echo $als_committees_on ? '' : ' hidden'; ?>>
 			<tr>
 				<th scope="row">
 					<label for="als-schedule"><?php esc_html_e( 'Committee sync schedule', 'agend-loop-sync' ); ?></label>
@@ -203,13 +217,62 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 					<p class="description"><?php esc_html_e( 'One committee name per line. Used when the filter is set to "allow-list".', 'agend-loop-sync' ); ?></p>
 				</td>
 			</tr>
+		</tbody>
 		</table>
+		<script>
+			( function () {
+				var toggle = document.getElementById( 'als-committee-sync' );
+				var rows = document.getElementById( 'als-committee-settings' );
+				if ( toggle && rows ) {
+					toggle.addEventListener( 'change', function () {
+						rows.hidden = ! toggle.checked;
+					} );
+				}
+			}() );
+		</script>
 
 		<?php submit_button(); ?>
 	</form>
 
 	<hr />
 
+	<h2><?php esc_html_e( 'Member sync', 'agend-loop-sync' ); ?></h2>
+	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+		<input type="hidden" name="action" value="agend_loop_sync_backfill_users" />
+		<?php wp_nonce_field( 'agend_loop_sync_backfill_users' ); ?>
+		<?php submit_button( __( 'Backfill all users', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
+	</form>
+	<p class="description">
+		<?php esc_html_e( 'Backfill refreshes every local member with a membership number in Loop in one pass (batches of 100), updating display names and role-based channels. It does not create Loop accounts, so members who have not yet signed in to Loop through SSO are counted as failed. Honours dry run.', 'agend-loop-sync' ); ?>
+	</p>
+
+	<?php
+	$als_backfill = get_transient( 'agend_loop_sync_user_backfill' );
+	if ( is_array( $als_backfill ) ) :
+		?>
+		<div class="notice notice-info inline">
+			<p>
+				<?php
+				printf(
+					/* translators: 1: total members, 2: sent, 3: succeeded, 4: failed, 5: batches. */
+					esc_html__( 'User backfill: %1$d members, %2$d sent, %3$d succeeded, %4$d failed, in %5$d batch(es).', 'agend-loop-sync' ),
+					(int) ( $als_backfill['total'] ?? 0 ),
+					(int) ( $als_backfill['sent'] ?? 0 ),
+					(int) ( $als_backfill['succeeded'] ?? 0 ),
+					(int) ( $als_backfill['failed'] ?? 0 ),
+					(int) ( $als_backfill['batches'] ?? 0 )
+				);
+				?>
+				<?php if ( ! empty( $als_backfill['dry_run'] ) ) : ?>
+					<em><?php esc_html_e( '(dry run: nothing was sent)', 'agend-loop-sync' ); ?></em>
+				<?php endif; ?>
+			</p>
+		</div>
+	<?php endif; ?>
+
+	<hr />
+
+	<?php if ( $als_committees_on ) : ?>
 	<h2><?php esc_html_e( 'Manual committee sync', 'agend-loop-sync' ); ?></h2>
 	<p><?php esc_html_e( 'Committees are synced per member: each local user with a membership number is asked for their committee activities, which are aggregated into committee rosters. With dry run enabled, payloads are only logged.', 'agend-loop-sync' ); ?></p>
 	<?php if ( $als_last_sync > 0 ) : ?>
@@ -393,40 +456,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 			<?php wp_nonce_field( 'agend_loop_sync_run_committees' ); ?>
 			<?php submit_button( __( 'Sync committees now', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
 		</form>
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-			<input type="hidden" name="action" value="agend_loop_sync_backfill_users" />
-			<?php wp_nonce_field( 'agend_loop_sync_backfill_users' ); ?>
-			<?php submit_button( __( 'Backfill all users', 'agend-loop-sync' ), 'secondary', 'submit', false ); ?>
-		</form>
 	</p>
-	<p class="description">
-		<?php esc_html_e( 'Backfill refreshes every local member with a membership number in Loop in one pass (batches of 100), updating display names and role-based channels. It does not create Loop accounts, so members who have not yet signed in to Loop through SSO are counted as failed. Honours dry run.', 'agend-loop-sync' ); ?>
-	</p>
-
-	<?php
-	$als_backfill = get_transient( 'agend_loop_sync_user_backfill' );
-	if ( is_array( $als_backfill ) ) :
-		?>
-		<div class="notice notice-info inline">
-			<p>
-				<?php
-				printf(
-					/* translators: 1: total members, 2: sent, 3: succeeded, 4: failed, 5: batches. */
-					esc_html__( 'User backfill: %1$d members, %2$d sent, %3$d succeeded, %4$d failed, in %5$d batch(es).', 'agend-loop-sync' ),
-					(int) ( $als_backfill['total'] ?? 0 ),
-					(int) ( $als_backfill['sent'] ?? 0 ),
-					(int) ( $als_backfill['succeeded'] ?? 0 ),
-					(int) ( $als_backfill['failed'] ?? 0 ),
-					(int) ( $als_backfill['batches'] ?? 0 )
-				);
-				?>
-				<?php if ( ! empty( $als_backfill['dry_run'] ) ) : ?>
-					<em><?php esc_html_e( '(dry run: nothing was sent)', 'agend-loop-sync' ); ?></em>
-				<?php endif; ?>
-			</p>
-		</div>
-	<?php endif; ?>
-
 	<p style="margin-top:16px;">
 		<strong><?php esc_html_e( 'Diagnostics (read-only, no gateway calls):', 'agend-loop-sync' ); ?></strong>
 	</p>
@@ -807,8 +837,17 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 		<?php endif; ?>
 	<?php endif; ?>
 
-	<h3><?php esc_html_e( 'Queued for the next sync', 'agend-loop-sync' ); ?></h3>
+	<?php else : ?>
+	<h2><?php esc_html_e( 'Committee sync', 'agend-loop-sync' ); ?></h2>
+	<p><?php esc_html_e( 'Committee sync is off. Turn it on above to create a private Loop channel for each Upbeat committee, with its own schedule, role mapping, diagnostics and hand-over tools.', 'agend-loop-sync' ); ?></p>
+	<?php endif; ?>
+
 	<?php $als_adopt_queue_all = Agend_Loop_Sync_Settings::get_adopt_queue(); ?>
+	<?php if ( $als_committees_on || array() !== $als_adopt_queue_all ) : ?>
+	<h3><?php esc_html_e( 'Queued for the next sync', 'agend-loop-sync' ); ?></h3>
+	<?php if ( ! $als_committees_on ) : ?>
+		<div class="notice notice-warning inline"><p><?php esc_html_e( 'Committee sync is off. These hand-overs are applied when it is turned back on, unless you clear them.', 'agend-loop-sync' ); ?></p></div>
+	<?php endif; ?>
 	<?php if ( array() === $als_adopt_queue_all ) : ?>
 		<p><?php esc_html_e( 'Nothing is queued.', 'agend-loop-sync' ); ?></p>
 	<?php else : ?>
@@ -857,6 +896,7 @@ $als_is_stale = $als_last_sync > 0 && ( time() - $als_last_sync ) > ( 2 * $als_e
 				<?php endforeach; ?>
 			</tbody>
 		</table>
+	<?php endif; ?>
 	<?php endif; ?>
 
 	<hr />

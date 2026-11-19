@@ -1304,6 +1304,8 @@ function agend_apps_records_field_options( ?array $kinds = null ): array {
  * (0 = all), `price_prefix`, `price_free_label` (default 'Free'),
  * `bool_true` / `bool_false` (default 'Yes' / ''), `number_suffix`,
  * `truncate` (characters, 0 = off; applies to text and stripped html),
+ * `text_case` ('title_upper' puts a text or list value written entirely in
+ * capitals in title case; '' leaves it alone),
  * `item_list` (display options for the item_list kind, as
  * agend_apps_records_item_list_options() returns them).
  *
@@ -1362,6 +1364,12 @@ function agend_apps_records_format_field( $value, string $kind, array $opts = ar
 
 		case 'list':
 			$items     = is_array( $value ) ? array_values( array_filter( array_map( 'strval', array_filter( $value, 'is_scalar' ) ) ) ) : array( (string) $value );
+			$items     = array_map(
+				static function ( string $item ) use ( $opts ): string {
+					return agend_apps_records_apply_text_case( $item, $opts );
+				},
+				$items
+			);
 			$max       = isset( $opts['list_max'] ) ? (int) $opts['list_max'] : 0;
 			$separator = esc_html( (string) ( $opts['list_separator'] ?? ', ' ) );
 			if ( 'bullets' === ( $opts['list_display'] ?? '' ) ) {
@@ -1402,11 +1410,65 @@ function agend_apps_records_format_field( $value, string $kind, array $opts = ar
 		case 'text':
 		default:
 			$text = is_scalar( $value ) ? (string) $value : '';
+			if ( 'phone' !== $kind ) {
+				$text = agend_apps_records_apply_text_case( $text, $opts );
+			}
 			if ( $truncate > 0 ) {
 				$text = agend_apps_records_truncate_text( $text, $truncate );
 			}
 			return esc_html( $text );
 	}
+}
+
+/**
+ * A value written entirely in capitals, in title case; any other value as it
+ * was given.
+ *
+ * Source systems often store names in capitals ("NORTH CURL CURL"). Only a
+ * value with no lower case letter is changed, so "McDonald" or "Mount Eliza
+ * VIC" is never rewritten. A letter after an apostrophe is capitalised only
+ * when the apostrophe follows a single letter ("O'BRIEN" becomes "O'Brien",
+ * "ST KILDA'S" becomes "St Kilda's"). Initialisms inside a capitals value
+ * ("NSW") become "Nsw", because nothing tells them from words.
+ *
+ * @param string $text The text.
+ * @return string
+ */
+function agend_apps_records_title_case_if_upper( string $text ): string {
+	$lower = mb_strtolower( $text, 'UTF-8' );
+	if ( $text !== mb_strtoupper( $text, 'UTF-8' ) || $text === $lower ) {
+		return $text;
+	}
+
+	$words = preg_replace_callback(
+		'/[\p{L}\p{N}]+(?:[\x{2019}\'][\p{L}\p{N}]+)*/u',
+		static function ( array $found ): string {
+			$word = mb_strtolower( $found[0], 'UTF-8' );
+			$word = mb_strtoupper( mb_substr( $word, 0, 1, 'UTF-8' ), 'UTF-8' ) . mb_substr( $word, 1, null, 'UTF-8' );
+
+			return (string) preg_replace_callback(
+				'/^(\p{L}[\x{2019}\'])(\p{L})/u',
+				static function ( array $initial ): string {
+					return $initial[1] . mb_strtoupper( $initial[2], 'UTF-8' );
+				},
+				$word
+			);
+		},
+		$text
+	);
+
+	return is_string( $words ) ? $words : $text;
+}
+
+/**
+ * Applies the Text case option to a text value before it is escaped.
+ *
+ * @param string $text The value.
+ * @param array  $opts Formatting options (`text_case`).
+ * @return string
+ */
+function agend_apps_records_apply_text_case( string $text, array $opts ): string {
+	return 'title_upper' === ( $opts['text_case'] ?? '' ) ? agend_apps_records_title_case_if_upper( $text ) : $text;
 }
 
 /**

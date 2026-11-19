@@ -239,3 +239,25 @@ function agend_apps_records_resolve_colours( array $settings, array $roles ): ar
 		'source'  => 'custom',
 	);
 }
+
+/**
+ * A surface's theme config, marked `siteConfig: false` when the stored API
+ * key is known not to be allowed to read the site config.
+ *
+ * A surface that inherits fonts or Agend colours has the browser read
+ * `/sites/config` on every page load. When the key lacks the `sites` app or
+ * its scope, WordPress refuses that read without sending it, so the page
+ * would make a request on every load only to be told no. The scripts skip
+ * the read when they see the flag; the flag is absent otherwise, so a config
+ * the key may read is unchanged.
+ *
+ * @param array<string, mixed> $theme The surface's `theme` config.
+ * @return array<string, mixed>
+ */
+function agend_apps_records_site_theme( array $theme ): array {
+	if ( method_exists( 'Agend_Apps_API', 'key_refuses' ) && Agend_Apps_API::key_refuses( 'GET', '/sites/config' ) ) {
+		$theme['siteConfig'] = false;
+	}
+
+	return $theme;
+}

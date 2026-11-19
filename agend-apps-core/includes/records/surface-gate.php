@@ -46,6 +46,22 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Directory', 'agend-apps-core' ),
 			'scopes' => array( 'directory.listings.search' ),
 		),
+		// The widgets that sit beside a Directory Catalogue. The search box and
+		// the shortcuts look the directory up on the visitor's behalf (place
+		// search, values) and the count reads the directory's total, so each
+		// needs the same scope the catalogue's search does.
+		'directory-search'          => array(
+			'label'  => __( 'Agend Directory Search', 'agend-apps-core' ),
+			'scopes' => array( 'directory.listings.search' ),
+		),
+		'filter-shortcuts'          => array(
+			'label'  => __( 'Agend Filter Shortcuts', 'agend-apps-core' ),
+			'scopes' => array( 'directory.listings.search' ),
+		),
+		'directory-count'           => array(
+			'label'  => __( 'Agend Directory Count', 'agend-apps-core' ),
+			'scopes' => array( 'directory.listings.search' ),
+		),
 		'events-catalogue'          => array(
 			'label'  => __( 'Agend Events', 'agend-apps-core' ),
 			'scopes' => array( 'events.events.browse' ),
@@ -53,6 +69,10 @@ function agend_apps_records_surface_map(): array {
 		'courses-catalogue'         => array(
 			'label'  => __( 'Agend Courses', 'agend-apps-core' ),
 			'scopes' => array( 'lms.courses.browse' ),
+		),
+		'learning-paths'            => array(
+			'label'  => __( 'Agend Learning Pathways', 'agend-apps-core' ),
+			'scopes' => array( 'lms.paths.browse' ),
 		),
 		'jobs-catalogue'            => array(
 			'label'  => __( 'Agend Jobs', 'agend-apps-core' ),
@@ -487,6 +507,7 @@ function agend_apps_records_rest_route_surface( string $route ): string {
 		'#^/cards/events$#'                                      => 'events-catalogue',
 		'#^/lms/courses(/[^/]+)?$#'                              => 'courses-catalogue',
 		'#^/cards/courses$#'                                     => 'courses-catalogue',
+		'#^/lms/paths(/[^/]+)?$#'                                => 'learning-paths',
 		'#^/jobs(/[^/]+)?$#'                                     => 'jobs-catalogue',
 		'#^/crm/tiers(/|$)#'                                     => 'memberships-catalogue',
 		'#^/account-link(/|$)#'                                  => 'account-link',
