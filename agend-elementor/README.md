@@ -40,7 +40,7 @@ The **Agend Credential Check** widget (block: **Agend Credential Check**) is the
 - **Links with a code.** A printed link or QR code can open the page with `?code=` (the name is a setting; `?agend_code=` also works). "Check straight away" runs the check on load; where the visitor has to tick a box first, the code is filled in and they press the button.
 - **Wording**: every message is editable, including what a found credential does and does not confirm, the tips when nothing matches, and an optional help link.
 - **Scopes**: needs `lms.certificates.verify`; badge codes also need `lms.badges.verify`, and a certificate-only key shows the editor a notice and refuses badge codes with a clear message. It needs no sign-in, in any member sign-in mode.
-- Needs Agend Apps Core 1.73.0 or newer; with an older core the widget is not registered.
+- Needs Agend Apps Core 1.75.0 or newer; with an older core the widget is not registered.
 
 ## Agend Community
 
@@ -54,7 +54,7 @@ Three widgets (blocks of the same names) show the association's Agend Loop commu
 - **Links** open the post's channel (never the post itself), through the sign-in link when the site signs members in with WordPress. Or one page you choose, or none. A "Open the community" link closes each list.
 - **Empty state**: your own message, or hide the widget. A failed load always says so.
 - Needs the Loop scopes `loop.activity.read` and `loop.channels.browse` (channels needs only the second); without them the widgets draw nothing for visitors.
-- Need Agend Apps Core 1.73.0 or newer; with an older core the widgets are not registered.
+- Need Agend Apps Core 1.75.0 or newer; with an older core the widgets are not registered.
 
 ## Agend Resources
 
@@ -65,7 +65,7 @@ Three widgets (blocks of the same names) show the connected account's Atlas libr
 - **Ask**: a question box for signed-in members only, with an answer, the pages it came from and the small print Atlas returns. Visitors see a sign-in prompt, or nothing if you choose that. While the account is known not to include Ask, the box is hidden from everyone and an editor sees why.
 - **Colours** follow the site (or your own), as the Learning Pathways widget does. One stylesheet serves all three; each has its own script, so a page loads only the one it places.
 - Need the `atlas.collections.browse`, `atlas.pages.search` and `atlas.questions.create` scopes respectively; without one, that widget draws nothing for visitors and a disabled box for an editor.
-- Need Agend Apps Core 1.73.0 or newer; with an older core the widgets are not registered.
+- Need Agend Apps Core 1.75.0 or newer; with an older core the widgets are not registered.
 
 ## Agend Jobs (Agend Careers)
 
@@ -204,7 +204,7 @@ The **Agend Member Summary** widget (block: **Agend Member Summary**) is the `me
 - **Messages**: your wording for no upcoming events, no certificates, no membership found, and details that cannot be loaded. Members are never told why something failed; an administrator sees the reason in a note that says only they see it.
 - **In the editor** the widget draws a labelled example of an imaginary member and calls nothing. It follows the parts you switch on.
 - Needs the `crm.contacts.browse` scope; each part also needs its own (`crm.memberships.browse` for the membership). A part the key lacks is left out for members and listed to administrators. In the `wordpress` and `sso` sign-in modes the key also needs `sso.identities.read` and `sso.tokens.create`, or members cannot be connected.
-- Needs Agend Apps Core 1.73.0 or newer; with an older core the widget is not registered. Never cached by Elementor's element cache.
+- Needs Agend Apps Core 1.75.0 or newer; with an older core the widget is not registered. Never cached by Elementor's element cache.
 
 ## Directory map and location search
 

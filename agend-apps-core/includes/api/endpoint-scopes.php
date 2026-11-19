@@ -473,10 +473,6 @@ return array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.submissions.browse' ) ),
 	),
-	'GET /jobs/me' => array(
-		'app'    => 'jobs',
-		'scopes' => array( array( 'jobs.submissions.self_read' ) ),
-	),
 	'GET /jobs/submissions' => array(
 		'app'    => 'jobs',
 		'scopes' => array( array( 'jobs.submissions.browse' ) ),
@@ -604,6 +600,10 @@ return array(
 	'GET /loop/integration/committees/{uniqueId}/members' => array(
 		'app'    => 'loop',
 		'scopes' => array( array( 'loop.committees.update' ) ),
+	),
+	'GET /loop/integration/members/channels' => array(
+		'app'    => 'loop',
+		'scopes' => array( array( 'loop.memberships.read' ) ),
 	),
 	'GET /loop/me/channels' => array(
 		'app'    => 'loop',
@@ -756,10 +756,6 @@ return array(
 	'PATCH /events/{slug}/tickets/{id}' => array(
 		'app'    => 'events',
 		'scopes' => array( array( 'events.tickets.update' ) ),
-	),
-	'PATCH /jobs/me/{id}' => array(
-		'app'    => 'jobs',
-		'scopes' => array( array( 'jobs.submissions.self_manage' ) ),
 	),
 	'PATCH /jobs/submissions/{id}' => array(
 		'app'    => 'jobs',
@@ -1112,18 +1108,6 @@ return array(
 	'POST /events/{slug}/waitlist' => array(
 		'app'    => 'events',
 		'scopes' => array( array( 'events.waitlist.create' ) ),
-	),
-	'POST /jobs/me' => array(
-		'app'    => 'jobs',
-		'scopes' => array( array( 'jobs.submissions.self_manage' ) ),
-	),
-	'POST /jobs/me/{id}/close' => array(
-		'app'    => 'jobs',
-		'scopes' => array( array( 'jobs.submissions.self_manage' ) ),
-	),
-	'POST /jobs/me/{id}/withdraw' => array(
-		'app'    => 'jobs',
-		'scopes' => array( array( 'jobs.submissions.self_manage' ) ),
 	),
 	'POST /jobs/submissions' => array(
 		'app'    => 'jobs',
