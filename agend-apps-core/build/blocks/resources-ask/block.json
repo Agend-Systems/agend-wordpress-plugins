@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/resources-ask",
+  "version": "1.0.0",
+  "title": "Agend Resources Ask",
+  "category": "agend",
+  "icon": "format-chat",
+  "description": "A question box that answers from your Agend Atlas library, with the pages each answer came from. For signed-in members only.",
+  "keywords": [
+    "agend",
+    "resources",
+    "ask",
+    "question",
+    "answer",
+    "ai",
+    "atlas"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "align": [
+      "wide",
+      "full"
+    ]
+  },
+  "editorScript": "file:./index.js",
+  "viewScript": [
+    "agend-apps-records-resources-ask"
+  ],
+  "style": [
+    "agend-apps-records-resources"
+  ],
+  "render": "file:./render.php"
+}

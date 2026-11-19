@@ -1101,6 +1101,116 @@ secret, an unreachable provider, a non-2xx or malformed answer, a hostname
 mismatch, a missing score, a low score and an action mismatch all refuse the
 submission.
 
+## Public certificate and badge lookups
+
+`GET /agend-apps/v1/lms/certificates/verify/{code}` and
+`GET /agend-apps/v1/lms/badges/verify/{token}` (and the PHP wrappers
+`agend_apps_lms_verify_certificate()` and `agend_apps_lms_verify_badge()` behind
+them) answer anyone, so every lookup passes the same guard
+(`includes/credential-guard.php`, counters in `includes/public-throttle.php`,
+the one throttle every public route shares: the Resources search and Ask use it
+too, for a visitor, a signed-in member and the whole site):
+
+- **Only real code shapes are forwarded.** A `VER-` plus 20 hex verification
+  code, a 32 hex badge share token, or a legacy 8 to 12 character certificate
+  code. Anything else, including every hyphenated certificate number
+  (`CERT-2026-000123`), is refused with 400 `agend_apps_invalid_credential_code`
+  before anything is counted or called, so the gateway's sequential numbers can
+  never be walked through the site. A canonical code typed in the wrong case
+  (`Ver-3fa...`) is corrected before it is sent. The wrappers apply the same
+  check, so a PHP caller is covered too. A site holding another format adds it
+  with the `agend_apps_credential_code_shapes` filter.
+- **Per-visitor limits**: 10 a minute and 60 an hour, keyed on a salted hash of
+  `REMOTE_ADDR` (an IPv6 address counts as its /64). `X-Forwarded-For` is not
+  trusted; a site behind a trusted proxy returns the real address from the
+  `agend_apps_visitor_ip` filter. A visitor with no usable address shares one
+  set of limits with every other such visitor. No address is stored.
+- **A site ceiling** of 20 lookups a minute in total, so a script spread across
+  many addresses cannot spend the key's shared budget. Over it every visitor
+  gets 429 `agend_apps_credential_busy`; a visitor over their own limit gets 429
+  `agend_apps_credential_rate_limited`. Both carry `Retry-After`. Change the
+  numbers with the `agend_apps_credential_check_limits` filter
+  (`visitor_per_minute`, `visitor_per_hour`, `site_per_minute`); a value below 1
+  is ignored, so the throttle cannot be switched off.
+- **Called as a visitor's lookup**: the wrappers set `unattended` (no member
+  token is minted or attached) and `isolated_rate_limit` (a gateway 429 for a
+  lookup does not stop the site's other Agend calls, and the site's own stop
+  state does not stop a lookup). Answers are sent `Cache-Control: no-store`.
+- **No captcha** on the GET routes, because a GET cannot carry a token: a visitor
+  over the limit is refused instead.
+
+## Credential check
+
+The **Agend Credential Check** surface (`credential-check`; block
+`agend-apps/credential-check`, Elementor widget in Agend Elementor) is a public
+form where a visitor checks a certificate or badge code against the Agend
+learning record: an employer with a printed certificate, a regulator, anyone
+who scans a link. It needs the `lms.certificates.verify` scope (the surface gate)
+and, for badge codes, `lms.badges.verify` too (the optional feature
+`lms_credential_badges`: a certificate-only key refuses a badge code with a
+clear message). It works the same in every member sign-in mode, because every
+call is a visitor's lookup that carries no member token.
+
+- **Route.** The form posts `{ code, captcha_token }` to
+  `POST /agend-apps/v1/lms/credentials/verify` and always gets a JSON `status`:
+  `valid`, `ended`, `not_found`, `invalid` (with a `reason`), `captcha_failed`,
+  `busy` (with `retry_after`, and `Retry-After`) or `unavailable`. Every answer is
+  `Cache-Control: no-store`. The route is public: the captcha and the throttle are
+  the gate, not a nonce, which would fail on a page-cached visit from a scanned
+  QR code for no gain on a read-only check. The two GET proxies under
+  `lms/certificates/verify` and `lms/badges/verify` are kept for existing callers
+  and deprecated in favour of this route, which also checks a captcha and keeps
+  the code out of URLs and logs.
+- **Order of refusal** (`agend_apps_credentials_handle()` in
+  `includes/credential-check.php`): the format of the code (free, never counted),
+  the visitor's limits (counted once a code is well formed, even if the captcha
+  then fails, so farming tokens is throttled too), the captcha (a token is single
+  use, so a mistyped code is refused before one is spent), the site-wide ceiling
+  (spent only on a real lookup), then one gateway call. See "Public certificate
+  and badge lookups" for the limits and the code allow-list.
+- **What a pasted link does.** A link is reduced to its code and never fetched:
+  the `agend_code` or `code` query value, else the segment after `/verify/` or
+  `/badges/`, else the last segment. A pasted internal badge id (a UUID, which the
+  LMS Share button copies and which never resolves) gets its own hint.
+- **Captcha.** Required and fail closed, exactly as the listing enquiry: with no
+  provider set up (and no `AGEND_APPS_CAPTCHA_ALLOW_NONE` development opt-out)
+  `Agend_Apps_Captcha::submissions_open()` is false, visitors see nothing and
+  the route answers `unavailable`. Editors are told why in the block notice and
+  the Elementor canvas. The provider code lives in the shared script
+  `assets/js/captcha-client.js` (handle `agend-apps-captcha-client`); the
+  listing enquiry keeps its own copy until it is moved onto it.
+- **Found means the record exists, and nothing more.** The result is a success
+  only when the answer is a 2xx, `success` is not false, `data.valid` is `true`
+  and the credential names a course or badge. `valid: false` is `not_found`. A
+  transport error, a timeout, a 5xx, a 429, a missing key scope, or any answer of
+  another shape is `unavailable` (or `busy`), never `not_found`: telling someone
+  a real credential does not exist is the worst thing this can do. Every accepted
+  code is exactly one call, so there is no second lookup whose failure could be
+  mistaken for "not found". The wording says the record exists and does not say
+  whether the holder is currently accredited.
+- **What is shown.** A certificate: the course, the certificate number, the issue
+  date, CPD points above zero, the instructor and up to five topics. A badge: its
+  name, picture and colour, the course, the earned date and CPD points, and the
+  earner's name only when the editor turns "Show the name of the person who
+  earned a badge" on (off by default: the association, not the learner, makes a
+  badge public). The page carries a key for that setting; a request without it
+  never gets a name. A certificate never shows a holder name (the platform holds
+  no consented value), no result shows an issuer (the answer carries no account,
+  so the plugin cannot say whose it is) and none shows an expiry. If a future
+  gateway sends `revoked_at`, an `expires_at` in the past or an inactive `status`
+  the result says "No longer valid"; an `expires_at` in the future shows "Valid
+  until". Every string is stripped of tags and capped, a colour must be hex and a
+  picture must be https, and the script draws all of it with `textContent`.
+- **Deep link.** The page address `?code=` (the name is a setting, and
+  `?agend_code=` always works too) fills the box and, when "Check straight away"
+  is on, runs the check on load. The page HTML is the same for every visitor, so
+  a cached page can serve a printed link or QR code. With reCAPTCHA v3 or
+  Turnstile the token is taken in the background; with the v2 checkbox the code is
+  filled in and the visitor presses the button.
+- **Assets.** `agend-apps-records-credential-check` (script and style, both named
+  by the block's `viewScript` and `style`); the script depends on
+  `agend-apps-captcha-client`.
+
 ## Member job credits
 
 A member pays for each job they post from this site with a job credit held in
@@ -1206,6 +1316,124 @@ credits" above).
 - **Gateway setup**: see "Member job credits" above. Without
   `jobs.submissions.browse` and `jobs.submissions.create` the surface draws
   nothing for a visitor.
+
+## Member access state
+
+`agend_apps_member_access_state()` (`includes/member-access-state.php`) answers,
+for the visitor in front of the site, "can this member's own Agend details be
+read right now, and if not, why not". It is the one function any surface that
+shows a signed-in member their own data asks first. The Member Summary and the
+Resources routes use it; the Learning Pathways progress feature is meant to.
+
+- **Signed in** is `is_user_logged_in()`, in every mode. **Linked** is a
+  non-empty `agend_apps_get_bearer_token()`, probed once per request (the
+  resolver can mint a token and can wait about three seconds on another
+  request's mint). The reason is only worked out when there is no bearer.
+- **Never `window.agendApps.loggedIn`.** It is true only when a stored credential
+  session exists, so it is false for every `wordpress` and `sso` member. The
+  Member Summary never reads a signal in the browser: the server's answer comes
+  back from its route. A surface whose page must stay the same for every viewer
+  and that only needs to know whether to ask the site for a member's own details
+  (the Resources scripts) reads `window.agendApps.signedIn` instead, which the
+  page header sets from `is_user_logged_in()` in every mode, and leaves "is this
+  user a member" to its route, which answers from this resolver. Older scripts
+  that still read `loggedIn` (Account Link, the Courses catalogue's enrol button,
+  and the Directory catalogue and detail page) are not changed here and still see
+  `false` for `wordpress` and `sso` members. Header Auth carries its own flag for
+  `wordpress` mode in its widget config.
+- **Not `agend_apps_account_link_state()`.** It answers `linked` for every
+  signed-in user in `credentials` mode without looking for a session, and in
+  `wordpress` mode it ignores the recorded link state and calls the SSO status
+  endpoint on every render. It is left as it is for the WooCommerce My Account
+  endpoint, which is its one caller, and its docblock says so. The resolver calls
+  it once, in `sso` mode, only when there is no bearer, for the address that
+  starts the link.
+- **States:** `signed_out`, `ready`, `connecting`, `not_linked`,
+  `not_configured`, `no_member_record`, `unavailable`. Each answer also carries
+  `reason` (machine), `action` (what the member can do), `retry_after`,
+  `sign_in_url`, `initiate_url`, `mode`, `signed_in`, `linked` and `detail`.
+- **Reasons by mode, when there is no bearer.** `credentials`: no stored session
+  is `session_missing` (sign out and in again). `sso`: no external id,
+  `missing_scope` (the key lacks `sso.identities.read` and `sso.tokens.create`,
+  which the token worker needs), then one status read, `unlinked` giving
+  `sso_unlinked` and a Connect link. `wordpress`: no external id, `missing_scope`,
+  then the recorded link state (`link_pending`, `link_conflict`,
+  `link_no_contact`, `link_forbidden`, `link_pending_approval`, and `connecting`
+  while it is empty, asserted or errored). The SSO status endpoint is never
+  called in `wordpress` mode.
+- **A read that failed** is classified by `agend_apps_member_access_from_error()`:
+  the client's own scope refusals first (a missing scope on a `/me` route reaches
+  the caller as a 401 after the unattended retry), then 404 as `no_member_record`,
+  401 as `session_expired`, 429 as `busy` with a wait, anything else
+  `gateway_error`.
+- **What a member may be told.** `agend_apps_member_access_message()` gives a
+  title and one plain sentence chosen only from the state and action, never the
+  reason. `detail` is plain text for administrators and is empty unless the
+  viewer can `manage_options`.
+
+## Member summary
+
+The **Agend Member Summary** surface (`member-summary`; block
+`agend-apps/member-summary`, Elementor widget in Agend Elementor) is a personal
+"My membership" card set for a signed-in member: a membership band (standing,
+tier, renewal), CPD against the member's real target, upcoming events,
+certificates and badges, and the directory listing. Each part is switchable. It
+needs the `crm.contacts.browse` scope for the surface itself; each part degrades
+on its own scope (`crm.memberships.browse` for the membership, `crm.tiers.browse`
+for tier names).
+
+- **Never in a cached page.** The page holds a neutral shell (heading, loading
+  state) that is identical for every member, and a script,
+  `assets/js/member-summary.js`. The script POSTs the page's content settings to
+  `agend-apps/v1/member/summary` and places the fragment the server draws, after
+  DOMPurify. The route always answers 200 with a state in the body, `no-store`
+  and `Vary: Cookie`. It is a POST so no shared cache can keep it, and so the
+  settings travel in a body; the route rebuilds its config from them with the
+  same builder the page used and trusts none of it. A visitor who is not signed
+  in gets a sign-in card the server draws, with no script and no call; the route
+  gives the same card to a cached shell that reaches a signed-out visitor.
+- **The cards are drawn in PHP**, by `agend_apps_records_member_summary_render_body()`,
+  so the live fragment, the editor's example and the tests share one set of
+  markup and one place that escapes.
+- **Calls.** `agend_apps_member_summary_fetch()` sends the reads together
+  through `get_cached_many()` with a lifetime of 0, so nothing about the member
+  is stored past the request: connected profile (CPD, events, certificates,
+  badges, directory, first name), entitlements and memberships (standing, tier,
+  renewal, `via_seat`), and tiers read anonymously so one shared copy serves the
+  whole site. That is three calls warm and four cold; one if only the profile
+  parts are on; none for a part switched off or ruled out by the key's scopes.
+- **Protecting the site key.** A member may start six fetches a minute
+  (`agend_apps_member_summary_fetches_per_minute`), and a fetch is held back
+  when the key's last recorded `X-RateLimit-Remaining` is below 15
+  (`agend_apps_member_summary_min_headroom`). A request with no bearer costs
+  nothing and is not counted, so connecting polls are free. The counter holds a
+  number and a time, nothing about the member.
+- **Honest sections.** A part is `ready`, `empty`, `unavailable`, `no_access` or
+  `hidden`; an empty answer is only ever an answer. CPD draws a target only when
+  Agend resolved one (an invented target is never drawn), a failed read is never
+  "0 points", and a null directory block is hidden rather than "you are not
+  listed" because the gateway sends null for a failed read too. An unknown
+  `cpd_resolution` makes the CPD part unavailable. The profile shape is pinned by
+  `tests/fixtures/member-summary-gateway.json`.
+- **Links.** The member's own screens are under the account's portal home
+  (`membership`, `cpd`, `events`, `certificates`, `cpd/badges`), built only when
+  the account is known; an editor's Membership page wins for the membership.
+  Events and the directory listing link to their pages on the site through
+  `Agend_Apps_Records_Pages::detail_url()`. Each certificate links to the
+  editor's Credential check page with `?agend_code=` when one is set. The
+  `agend_apps_member_summary_links` filter changes any of them.
+- **States.** Signed out, loading, connecting (polled at 3, 3, 5, 5, 7 and 7
+  seconds, then one more ask that says it has waited and offers a retry), sign in
+  again, connect my account, check your email, contact us, no membership found,
+  busy and unavailable. Wording for a member never names a scope, mode or
+  reason. Administrators see the reason in a note that says only they see it.
+- **Editor.** The block and the Elementor widget show a clearly labelled example
+  of an imaginary member, from the same markup, with only the parts the editor
+  switched on and no call. Nothing sample-shaped is ever drawn on the front end.
+- **Look.** The Learning Pathways family: borders not shadows, the heading colour
+  as the one deep band, the accent only a small mark, whole-row links with a
+  chevron, container queries for layout, a skeleton that has the cards'
+  proportions. Colours come from the site palette with `color-mix()` tints.
 
 ## Loop channel membership condition
 
@@ -1343,6 +1571,103 @@ authors in the Agend Elementor README. The pieces here:
   `agend_apps_records_directory_map_directions_url` filter returns another
   https URL template with `{lat}` and `{lng}`.
 
+## Resources
+
+The three **Agend Resources** surfaces (`resources-collections`, `resources-search`
+and `resources-ask`; blocks `agend-apps/resources-*`, Elementor widgets in Agend
+Elementor) put the connected account's Atlas library on a page. They need the
+`atlas.collections.browse`, `atlas.pages.search` and `atlas.questions.create`
+scopes respectively, and draw nothing for a visitor (a disabled box for an
+editor) without them. They share the `agend-apps-records-resources` stylesheet
+and each has its own script, so a page loads only the surfaces it places.
+
+What each one decides, and why:
+
+- **One page for everyone.** Each renderer draws the same markup for a visitor
+  and a signed-in member and makes no gateway call for anything a member sees,
+  so a full-page cache can hold it. A script decides who is signed in from
+  `window.agendApps.signedIn`, which the page header sets for any signed-in
+  WordPress user in every member sign-in mode (`window.agendApps.loggedIn` is
+  false for every `wordpress` and `sso` member, so it is not used), and adds the
+  member's part through the routes below. Whether that user is a member Atlas
+  knows is the route's answer, from the member access state: a signed-in user
+  with no member gets a 403 `agend_apps_resources_no_member` carrying the access
+  `state`, a plain `title` and `message`, and `retry_after`, so a member whose
+  link is still being made after a first sign-in is told to wait, not to sign in
+  again. Like the nonce beside it, `signedIn` is written for whoever the page is
+  built for, so a page a signed-in user receives is not one a shared cache may
+  serve to others.
+- **Collections** publish only what an editor picked by hand. `GET /atlas/collections`
+  carries no visibility (it lists every collection, whoever it is for), so it is
+  read for the editor's picker and to look up the chosen ones, and the item
+  count and dates are dropped before anything is drawn. A card has no link (a
+  collection has no page of its own). A member's own collections come from
+  `GET /atlas/me/collections` through `GET /agend-apps/v1/resources/collections/mine`,
+  which returns the same card markup drawn on the server, `no-store`; their
+  descriptions come from the shared list, matched by id, because the member's
+  list has none. Source documents are not part of v1: nothing can open one.
+- **Search** is a plain GET form to Atlas's public search page
+  (`agend_apps_atlas_public_search_url()`), which runs a keyword search and
+  costs nothing. A signed-in member's script searches through
+  `GET /agend-apps/v1/resources/search` with their own token and view
+  (never cached). Visitors get live results only when the editor chose "Results
+  as they type": a key-only gateway search embeds every query on the
+  association's allowance. The route then answers a visitor only when they send
+  the proof such a page carries (`agend_apps_records_resources_visitor_token()`,
+  derived from the site's own secret and stable, so a cached page keeps working),
+  and a site can switch it off everywhere with the
+  `agend_apps_resources_visitor_search_enabled` filter. A visitor's answers are
+  held per normalised query in the shared cache (`atlas_search`).
+- **Ask** is for signed-in members only, through `POST /atlas/me/ask` (metered to
+  the verified member). An open box would let anyone spend the account's one
+  monthly pool and, once it ran out, take Ask from members too. The route
+  answers `answer`, `refusal`, `degraded` or `not_entitled`; the plan and the
+  reason are never passed on. What the site has learned is kept in the option
+  `agend_apps_atlas_ask_state` (`agend_apps_atlas_ask_state()`): a not-entitled
+  verdict is believed for six hours, an answering one for one hour, an outage
+  says nothing. While it is not entitled the surface draws nothing for visitors
+  and members and a note for an editor, and the route answers `not_entitled`
+  without calling the gateway. `agend_apps_atlas_check_ask()` asks one fixed
+  question as the site, for an admin button that has not been built yet.
+- **Links into Atlas** (`agend_apps_atlas_page_link()`): a page a visitor found
+  links straight to Atlas's public reader (`{atlas}/read/{account}/{page id}`).
+  A page only a member can see links through `agend_apps_account_link_initiate_url_to()`
+  when this site is the identity provider (`wordpress` sign-in mode); on any other
+  mode there is no link (a direct one is a not-found page until Atlas has a
+  session) and the title is listed with one "Sign in to Atlas to read" note. A
+  source document has no reader and is listed without a link.
+- **Where Atlas is.** `agend_apps_atlas_app_url()` is `agend_apps_app_url( 'atlas' )`,
+  the one function that finds every Agend app (see "Where an Agend app lives"): the `agend_apps_atlas_url` option, else the API root with a
+  leading `api.` swapped for `atlas.` (and the local gateway port 3072 for 3066),
+  then the `agend_apps_app_url` filter.
+
+Limits, all before any gateway call, in `includes/resources-throttle.php`. The
+counting is the shared public throttle in `includes/public-throttle.php`, the
+same one the credential check uses (`REMOTE_ADDR` only, or the address a site
+behind a trusted proxy returns from `agend_apps_visitor_ip`; IPv6 by its /64; a
+salted hash for the transient key, so no address or user id is stored); the
+Resources file keeps its own numbers, scopes and filter. Every number is
+filterable with `agend_apps_resources_throttle_limit`. A signed-in user who is
+not a member is held to the member limit too, because working out why they are
+not one can ask Agend:
+
+| Limit | Default |
+| :-- | :-- |
+| Visitor searches per address | 10 a minute |
+| A member's searches or collection loads | 30 a minute |
+| A member's questions | 3 every 10 minutes |
+| Questions for the whole site | 30 a day |
+| Uncached gateway calls from all of these together | 20 a minute |
+
+A refusal is a 429 with `Retry-After` and `Cache-Control: no-store`. Every proxy
+gateway call sets `isolated_rate_limit`, so the gateway's own refusal of one
+visitor does not stop the other widgets on the site. Transients have no atomic
+increment, so a burst can overshoot a limit by the requests in flight; the
+site-wide cap bounds the damage.
+
+Not included: documents, a public collections list (the gateway has no visibility
+filter yet), anonymous Ask, and the admin button for `agend_apps_atlas_check_ask()`.
+
 ## Learning pathways
 
 The **Agend Learning Pathways** surface (`learning-paths`; block
@@ -1421,6 +1746,116 @@ works the same in every member sign-in mode.
   routes are not part of the public display), and card templates (the template
   system's record types are events, courses and listings).
 
+## Community (Agend Loop)
+
+Three surfaces show the association's Agend Loop community on the website:
+**Community announcements** (`community-announcements`), **Community channels**
+(`community-channels`) and **Community popular posts** (`community-feed`). Each is
+a block (`agend-apps/community-*`) and an Elementor widget (`agend-community-*`,
+in Agend Elementor), drawn on the server with no script and one shared stylesheet,
+`agend-apps-records-community`. Announcements and popular posts need
+`loop.activity.read` and `loop.channels.browse`; channels needs
+`loop.channels.browse`. The surface gate applies as for every surface.
+
+**Loop "public" is not public to the internet.** A public Loop channel is visible
+to every member of the association. Showing its posts to anonymous visitors is a
+decision the association makes, so the site keeps a list of the channels it
+publishes and everything else is held to it.
+
+- **The allowed list.** Option `agend_apps_community_channels` (channel ids), set
+  under Settings > Agend Apps > Community (administrators only), default empty,
+  which publishes nothing. A widget's "Channels to show" can only choose from it.
+  Public channels and feeds are offered; committees, private channels, direct
+  messages, archived channels and any channel type added later are never listed
+  and are dropped even if their id is saved. An id that no longer resolves is
+  dropped silently.
+- **Read wrappers** are in `includes/api/loop-public.php`, separate from the
+  member reads: `agend_apps_loop_get_channels()`,
+  `agend_apps_loop_get_public_announcements()` and
+  `agend_apps_loop_get_public_activity()`. They fail closed: they return only the
+  allowed channels and their posts (nothing, with no gateway call, while the list
+  is empty), always as an anonymous visitor, so a signed-in member's page is the
+  same markup and carries no token. They return a normalised shape, not the
+  gateway response, and the author id and the post HTML are dropped before
+  anything is stored. Mentions (`@[uuid]` and `@handle`) become "a member".
+  Names written in the prose of a post cannot be found, which is why the allowed
+  list is the consent step and the settings page says so.
+- **What counts as a post.** A titled post has a post type (announcement, update,
+  discussion, question, event or poll). Chat messages and plain feed posts are
+  untitled and never appear unless "Include chat messages" is switched on for the
+  newest-first list. System messages ("Members joined the channel." and the five
+  like it) and posts written by the workflow bot or the shared system user are
+  dropped in every case. Loop messages have no title field: the title is the first
+  heading, else the first sentence, and excerpts are plain text with no markdown,
+  links or web addresses.
+- **Popular** follows Loop's own Trending sidebar rule on the data the gateway
+  gives: a titled post that is featured, or has at least "Replies needed" replies
+  (default 5), featured first, then most replies, then newest. A list is never
+  padded with ordinary posts, so there can be fewer than the count. There are no
+  view counts, so nothing is ranked by activity and the word "trending" is not
+  used. "Newest first" is the other order.
+- **Authors** are off by default. "Show the author" has five modes (none,
+  initials, first name, first name and last initial, full name), applied to the
+  display name from Loop ("ben.thompson" is written "Ben Thompson"; an email
+  address is cut before the @). Profile photos are a separate switch, off, and
+  only offered once an author is shown; a member with no photo gets their
+  initials in a circle. Photo addresses must be http(s) and are sent with
+  `referrerpolicy="no-referrer"`. Whether photo addresses load without a Loop
+  session has not been checked on staging, so treat the switch as unproven until
+  it has.
+- **Caching.** Normalised results are stored per read under the cache keys
+  `loop_channels` (300 s), `loop_public_announcements` and `loop_public_activity`
+  (120 s), editable on the Cache tab, with the allowed list's fingerprint in the
+  key, so taking a channel off the list stops it being served at once. A second
+  copy is kept for 24 hours and served if the gateway fails or the site's ceiling
+  is reached (this is the stale-if-error helper, used by these wrappers only).
+  Loop sends no event when a post is removed, so "Clear community content" next to
+  the allowed list drops both copies. The ceiling is the
+  `agend_apps_community_call_ceiling` filter (default 20 uncached Loop calls a
+  minute, shared by all three surfaces); a refresh of every surface is at most 8
+  calls (the channel list, announcements, and up to
+  `AGEND_APPS_COMMUNITY_MAX_CHANNEL_READS` = 6 channels read one by one so a
+  chatty channel cannot crowd the others out of one 100 post window). The raw
+  response is never stored, and the post paths are kept out of the API log.
+- **Links** go to the channel, never to a post: Loop cannot open one. "The channel
+  in your community" is the platform's pretty sign-in link
+  (`{api root}/sso/{account}/loop-channel/{channel}`) when this site is the
+  identity provider (WordPress sign-in mode), and the channel's own address
+  (`{loop}/home/{account}/loop/{channel}`) in any other mode, where Loop shows its
+  own sign-in. Both are fixed per channel, so the page stays cacheable. "One page
+  I choose" sends every item to one address and "Nowhere" removes the links. The
+  closing "Open the community" link goes to the editor's address, else the Loop
+  home. The Loop address is `agend_apps_community_loop_url()`, which is
+  `agend_apps_app_url( 'loop' )` (see "Where an Agend app lives").
+- **States.** Nothing to show: the author's message, or nothing (hide), and the
+  community link stays. Could not load: always says so, hidden or not. Nothing
+  allowed yet: a visitor gets the ordinary empty state; an editor (Elementor
+  canvas, or the block editor's notice) is told where to allow channels.
+- **Filters.** `agend_apps_community_exclude_post` (hide a post; the option
+  `agend_apps_community_hidden_posts` holds ids and has no screen),
+  `agend_apps_community_scrub_mentions`, `agend_apps_community_call_ceiling`,
+  `agend_apps_app_url`.
+
+## Where an Agend app lives
+
+A link that takes a person into Loop or Atlas needs that app's address, which the
+gateway does not report. `agend_apps_app_url( $app )` (`includes/app-urls.php`)
+finds it the same way for every app, and `agend_apps_community_loop_url()` and
+`agend_apps_atlas_app_url()` are one line each over it:
+
+1. The app's option, if it is a web address: `agend_apps_loop_url` or
+   `agend_apps_atlas_url`. A value that is not `http` or `https` is ignored.
+2. Otherwise the address derived from the API root: a leading `api.` becomes
+   `loop.` or `atlas.` (`https://api.agend.com.au` gives `https://loop.agend.com.au`),
+   and the local gateway on port 3072 becomes the app's own port (Loop 3063,
+   Atlas 3066). A host with neither form gives '' rather than a guess. The portal
+   address is not used, because it can be an association's own domain while the
+   apps stay on the platform.
+3. Then the `agend_apps_app_url` filter has the last word, with the address and
+   the app name (`loop` or `atlas`).
+
+A new app is one line in `agend_apps_app_directory()`.
+
 ## Directory search, filter shortcuts and count
 
 Three surfaces that sit beside a Directory Catalogue instead of inside its
@@ -1472,9 +1907,14 @@ supported at parity, not led.
 
 `includes/records/blocks.php` registers one block per surface, listed in
 `AGEND_APPS_RECORDS_BLOCK_SURFACES` (inserter order): `events-catalogue`,
-`courses-catalogue`, `learning-paths`, `directory-catalogue`,
-`memberships-catalogue`, `member-login`, `header-auth`, `account-link`,
-`export-reports` and `filter`, all namespaced `agend-apps/`. Every block is a thin adapter over the two seams
+`courses-catalogue`, `learning-paths`, `resources-collections`,
+`resources-search`, `resources-ask`, `jobs-catalogue`,
+`community-announcements`, `community-channels`, `community-feed`,
+`directory-catalogue`, `directory-map`, `memberships-catalogue`, `member-login`,
+`header-auth`, `account-link`, `credential-check`, `member-summary`,
+`export-reports` and `filter`, all namespaced `agend-apps/`, followed by the
+record blocks (`record-field`, `record-pills`, `record-image`, `record-link` and
+`record-block`) used inside a card or detail template. Every block is a thin adapter over the two seams
 above: its attributes are derived from the surface schema
 (`agend_apps_records_block_attributes()`), and its render callback is the
 surface's core renderer, fed the attributes converted to Elementor-shaped

@@ -1,0 +1,1321 @@
+/**
+ * Agend Resources widgets: collections, search and Ask.
+ *
+ * Colour and layout tokens are set as CSS custom properties on each widget's
+ * container by its server render (heading, body and accent come from the site
+ * palette, or the manual colours). Every other colour here is derived from
+ * those three, so the widgets follow whichever association's site they are on,
+ * and sit in the same family as the Learning Pathways widget: bordered cards
+ * and rows, whole-row links with a chevron, the heading colour for emphasis and
+ * focus, and the accent kept for small marks.
+ *
+ * Design notes for the next person:
+ * - Search is the one confident thing here: a tall single field with its button
+ *   inside it, in the heading colour. Everything else is quiet.
+ * - Collections are plain cards. A collection has no page of its own, so a
+ *   visitor's card is not a link and gets no hover state; a member's card lists
+ *   the pages inside it as whole-row links.
+ * - Ask is a calm panel: a question box, then an answer card that reads like a
+ *   short document, with the sources as numbered rows beneath it. The numbers
+ *   are real: they match the markers in the answer text.
+ * - No box-shadow anywhere: the Agend theme sets `box-shadow: none !important`
+ *   on every element, so depth here comes from borders and tints.
+ * - Specificity is deliberately doubled on links and buttons: the theme styles
+ *   `a:not(.btn)` and `.elementor a` and would otherwise win over one class.
+ */
+
+.agend-res {
+  --agend-res-heading: #1e2a4a;
+  --agend-res-body: #26304d;
+  --agend-res-accent: #ff6b55;
+  --agend-res-radius: 10px;
+  --agend-res-cols-desktop: 3;
+  --agend-res-cols-tablet: 2;
+  --agend-res-cols-mobile: 1;
+
+  /* Colours derived from the three above. The plain values are what the
+     default navy and coral give; they only show in a browser without
+     color-mix(). */
+  --agend-res-muted: #474f68;
+  --agend-res-line: #dfe2ea;
+  --agend-res-line-strong: #a5abbb;
+  --agend-res-row-hover: #f3f4f8;
+  --agend-res-panel: #f7f8fa;
+  --agend-res-tint: #ffe8e4;
+  --agend-res-tint-hover: #ffd5ce;
+  --agend-res-edge: #ffb0a4;
+  --agend-res-mark: #ffd9d2;
+  --agend-res-on-heading: #fff;
+  --agend-res-heading-hover: #3b4766;
+
+  --agend-res-cols: var(--agend-res-cols-desktop);
+  --agend-res-min-card: 15rem;
+  --agend-res-gap: 1.5rem;
+  --agend-res-inner-radius: max(calc(var(--agend-res-radius) - 3px), 2px);
+  --agend-res-row-radius: min(calc(var(--agend-res-radius) * 0.6), 12px);
+
+  box-sizing: border-box;
+  max-width: 100%;
+  color: var(--agend-res-body);
+  font-family: var(--agend-res-font-body, inherit);
+  container-type: inline-size;
+  container-name: agend-res;
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .agend-res {
+    --agend-res-muted: color-mix(in srgb, var(--agend-res-body) 85%, #fff);
+    --agend-res-line: color-mix(in srgb, var(--agend-res-heading) 14%, #fff);
+    --agend-res-line-strong: color-mix(in srgb, var(--agend-res-heading) 38%, #fff);
+    --agend-res-row-hover: color-mix(in srgb, var(--agend-res-heading) 5%, #fff);
+    --agend-res-panel: color-mix(in srgb, var(--agend-res-heading) 4%, #fff);
+    --agend-res-tint: color-mix(in srgb, var(--agend-res-accent) 16%, #fff);
+    --agend-res-tint-hover: color-mix(in srgb, var(--agend-res-accent) 30%, #fff);
+    --agend-res-edge: color-mix(in srgb, var(--agend-res-accent) 55%, #fff);
+    --agend-res-mark: color-mix(in srgb, var(--agend-res-accent) 28%, #fff);
+    --agend-res-heading-hover: color-mix(in srgb, var(--agend-res-heading) 86%, #fff);
+  }
+}
+
+.agend-res *,
+.agend-res *::before,
+.agend-res *::after {
+  box-sizing: border-box;
+}
+
+.agend-res[hidden],
+.agend-res [hidden] {
+  display: none !important;
+}
+
+/* The Agend theme gives every list item after the first a top margin through an
+   ID-level selector (`main#agendtheme-content ... li + li`), which no class
+   selector can outrank. It would push the second card, the second result and
+   the second source out of line, so it is cancelled here, on these widgets'
+   lists only. */
+.agend-res li {
+  margin-top: 0 !important;
+}
+
+/* Zero specificity, so each list's own class still sets its spacing. */
+:where(.agend-res ul, .agend-res ol) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 1024px) {
+  .agend-res {
+    --agend-res-cols: var(--agend-res-cols-tablet);
+  }
+}
+
+@media (max-width: 640px) {
+  .agend-res {
+    --agend-res-cols: var(--agend-res-cols-mobile);
+    /* Two across on a phone needs cards narrower than the usual minimum. A
+       phone too narrow for that falls back to one column. */
+    --agend-res-min-card: 9rem;
+    --agend-res-gap: 1.25rem;
+  }
+}
+
+.agend-res h2,
+.agend-res h3,
+.agend-res h4 {
+  font-family: var(--agend-res-font-heading, inherit);
+}
+
+.agend-res__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.agend-res__icon {
+  display: block;
+  flex: 0 0 auto;
+}
+
+/* Heading block ------------------------------------------------------- */
+
+.agend-res__heading {
+  max-width: 46rem;
+  margin: 0 0 1.5rem;
+}
+
+.agend-res__title {
+  margin: 0 0 0.5rem;
+  color: var(--agend-res-heading);
+  text-wrap: balance;
+}
+
+.agend-res__subtitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* Notes, buttons ------------------------------------------------------ */
+
+.agend-res__note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 1.25rem 0 0;
+  color: var(--agend-res-muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.agend-res__editor-note {
+  margin: 0 0 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px dashed var(--agend-res-line-strong);
+  border-radius: var(--agend-res-radius);
+  color: var(--agend-res-muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.agend-res .agend-res__button,
+.agend-res .agend-res__button:visited,
+.agend-res .agend-res__button:hover,
+.agend-res .agend-res__button:focus,
+.agend-res .agend-res__button:active {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.625rem 1.125rem;
+  border: 0;
+  border-radius: var(--agend-res-inner-radius);
+  background: var(--agend-res-heading);
+  color: var(--agend-res-on-heading);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+.agend-res .agend-res__button:hover {
+  background: var(--agend-res-heading-hover);
+}
+
+.agend-res .agend-res__button:focus-visible {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 2px;
+}
+
+/* Collections --------------------------------------------------------- */
+
+/*
+ * "Columns" is the most columns across. A card is never narrower than
+ * --agend-res-min-card, so a narrow column drops to fewer. auto-fill, not
+ * auto-fit: one or two collections keep the width of a card in a full row
+ * instead of stretching across it.
+ */
+.agend-resources-collections__grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(
+      min(100%, max(var(--agend-res-min-card), calc((100% - (var(--agend-res-cols) - 1) * var(--agend-res-gap)) / var(--agend-res-cols)))),
+      1fr
+    )
+  );
+  gap: var(--agend-res-gap);
+}
+
+.agend-resources-collections__item {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.agend-resources-collections__card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+  padding: 1.375rem 1.375rem 1.5rem;
+  border: 1px solid var(--agend-res-line);
+  border-radius: var(--agend-res-radius);
+  background: #fff;
+}
+
+/* The icon, title, description and topics are one block. On a visitor's card it
+   takes the spare height of a stretched card, so the footer below it sits at
+   the bottom and the footers of a row line up. */
+.agend-resources-collections__body {
+  align-self: stretch;
+  min-width: 0;
+}
+
+.agend-resources-collections__card:not(.agend-resources-collections__card--member) > .agend-resources-collections__body {
+  flex: 1 1 auto;
+}
+
+.agend-resources-collections__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: 0 0 1rem;
+  border: 1.5px solid var(--agend-res-edge);
+  border-radius: var(--agend-res-row-radius);
+  background: var(--agend-res-tint);
+  color: var(--agend-res-heading);
+}
+
+.agend-resources-collections__icon .agend-res__icon {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.agend-resources-collections__name {
+  margin: 0;
+  /* Room for two lines whenever cards sit side by side, so a title that wraps
+     does not push its description lower than its neighbour's. With one column
+     (the variable is 1) the sum is 0 and nothing is reserved. */
+  min-height: calc(min(1, var(--agend-res-cols) - 1) * 2.5em);
+  color: var(--agend-res-heading);
+  font-size: clamp(1.125rem, 1.05rem + 0.35vw, 1.3125rem);
+  font-weight: 600;
+  line-height: 1.25;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.agend-resources-collections__description {
+  margin: 0.5rem 0 0;
+  color: var(--agend-res-body);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.agend-resources-collections__topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 1rem 0 0;
+}
+
+.agend-resources-collections__topic {
+  margin: 0;
+  padding: 0.1875rem 0.6875rem;
+  border: 1px solid var(--agend-res-line);
+  border-radius: 999px;
+  background: var(--agend-res-panel);
+  color: var(--agend-res-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* The foot of a visitor's card: the page count on the left when it is shown, the
+   Members only label on the right. */
+.agend-resources-collections__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: stretch;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--agend-res-line);
+}
+
+.agend-resources-collections__count {
+  color: var(--agend-res-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+/* A label, not a button: tinted like the card's icon, so it reads as part of
+   the card and not as something to press. */
+.agend-resources-collections__members-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-inline-start: auto;
+  padding: 0.25rem 0.75rem 0.25rem 0.625rem;
+  border: 1px solid var(--agend-res-edge);
+  border-radius: 999px;
+  background: var(--agend-res-tint);
+  color: var(--agend-res-heading);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.agend-resources-collections__lock {
+  flex: 0 0 auto;
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+/* The visitor's note and button, under the grid. */
+.agend-resources-collections__visitor {
+  margin-top: 1.5rem;
+}
+
+/* A member's collections sit after the chosen ones, or in their place. */
+.agend-resources-collections__public + .agend-resources-collections__mine {
+  margin-top: 2.5rem;
+}
+
+.agend-resources-collections__mine-title {
+  margin: 0 0 1.25rem;
+  font-size: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+  line-height: 1.25;
+}
+
+/* A member's pages: whole-row links, as the course rows of a learning pathway. */
+.agend-resources-collections__pages {
+  align-self: stretch;
+  margin: 1.125rem -0.5rem 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--agend-res-line);
+}
+
+.agend-resources-collections__page {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.75rem;
+  margin: 0;
+  padding: 0.6875rem 0.5rem;
+  border-radius: var(--agend-res-row-radius);
+  line-height: 1.4;
+}
+
+.agend-resources-collections__page-main {
+  min-width: 0;
+}
+
+.agend-resources-collections__page-title,
+.agend-res .agend-resources-collections__page-link {
+  color: var(--agend-res-heading);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.agend-resources-collections__page-title {
+  font-weight: 500;
+}
+
+.agend-res .agend-resources-collections__page-link,
+.agend-res .agend-resources-collections__page-link:visited,
+.agend-res .agend-resources-collections__page-link:hover,
+.agend-res .agend-resources-collections__page-link:focus,
+.agend-res .agend-resources-collections__page-link:active {
+  border: 0;
+  background: none;
+  color: var(--agend-res-heading);
+  text-decoration: none;
+}
+
+/* The whole row is the target: this fills the <li>, the positioned ancestor.
+   It also carries the focus ring, so the ring has the row's shape. */
+.agend-res .agend-resources-collections__page-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--agend-res-row-radius);
+}
+
+.agend-res .agend-resources-collections__page-link:focus {
+  outline: none;
+}
+
+.agend-res .agend-resources-collections__page-link:focus-visible::after {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 1px;
+}
+
+.agend-resources-collections__page--link:hover {
+  background: var(--agend-res-row-hover);
+}
+
+.agend-resources-collections__page--link:hover .agend-res__icon--chevron {
+  color: var(--agend-res-heading);
+  transform: translateX(2px);
+}
+
+.agend-resources-collections__page--link:hover .agend-resources-collections__page-link {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.agend-resources-collections__page .agend-res__icon--chevron {
+  width: 1rem;
+  height: 1rem;
+  color: var(--agend-res-muted);
+}
+
+.agend-resources-collections__more {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  align-self: stretch;
+  color: var(--agend-res-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* The member's collections arrive after the page has loaded. A quiet fade is
+   the one non-user motion here, and only when motion is welcome. */
+@media (prefers-reduced-motion: no-preference) {
+  .agend-resources-collections__mine-body[data-loaded] {
+    animation: agend-res-arrive 0.25s ease-out;
+  }
+}
+
+@keyframes agend-res-arrive {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* Search -------------------------------------------------------------- */
+
+.agend-resources-search__form {
+  margin: 0;
+  max-width: 46rem;
+}
+
+/* One tall field with its button inside it. The ring is drawn on the field,
+   not the input, so it hugs the whole control. */
+.agend-resources-search__field {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 3.75rem;
+  padding: 0.25rem 0.25rem 0.25rem 1.125rem;
+  border: 2px solid var(--agend-res-heading);
+  border-radius: var(--agend-res-radius);
+  background: #fff;
+}
+
+.agend-resources-search__field:focus-within {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 3px;
+}
+
+.agend-resources-search__icon {
+  display: flex;
+  flex: 0 0 auto;
+  margin-right: 0.625rem;
+  color: var(--agend-res-heading);
+}
+
+.agend-resources-search__icon .agend-res__icon {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+/* The input carries no border or outline of its own: the field draws both. The
+   doubled selector outranks the theme's input styles. */
+.agend-res .agend-resources-search__input,
+.agend-res .agend-resources-search__input:focus {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 3rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  color: var(--agend-res-heading);
+  font: inherit;
+  /* 16px or more, or iOS zooms the page on focus. */
+  font-size: 1.0625rem;
+  line-height: 1.3;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.agend-res .agend-resources-search__input::placeholder {
+  color: var(--agend-res-muted);
+  opacity: 1;
+}
+
+.agend-res .agend-resources-search__input,
+.agend-res .agend-resources-search__input::placeholder {
+  text-overflow: ellipsis;
+}
+
+.agend-resources-search__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.agend-res .agend-resources-search__button {
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin: 0;
+  padding: 0 1.5rem;
+  border: 0;
+  border-radius: var(--agend-res-inner-radius);
+  background: var(--agend-res-heading);
+  color: var(--agend-res-on-heading);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.agend-res .agend-resources-search__button:hover {
+  background: var(--agend-res-heading-hover);
+  color: var(--agend-res-on-heading);
+}
+
+.agend-res .agend-resources-search__button:focus-visible {
+  outline: 2px solid var(--agend-res-on-heading);
+  outline-offset: -4px;
+}
+
+.agend-resources-search__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-width: 46rem;
+  margin: 0.875rem 0 0;
+}
+
+.agend-resources-search__suggestion {
+  margin: 0;
+}
+
+.agend-res .agend-resources-search__chip,
+.agend-res .agend-resources-search__chip:visited,
+.agend-res .agend-resources-search__chip:hover,
+.agend-res .agend-resources-search__chip:focus,
+.agend-res .agend-resources-search__chip:active {
+  display: inline-block;
+  padding: 0.375rem 0.9375rem;
+  border: 1px solid var(--agend-res-line-strong);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--agend-res-heading);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+.agend-res .agend-resources-search__chip:hover {
+  background: var(--agend-res-row-hover);
+}
+
+.agend-res .agend-resources-search__chip:focus-visible {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 2px;
+}
+
+.agend-resources-search .agend-res__note {
+  max-width: 46rem;
+}
+
+/* Results: one bordered list, rows divided by hairlines. */
+.agend-resources-search__results {
+  max-width: 46rem;
+  margin-top: 0.875rem;
+  border: 1px solid var(--agend-res-line);
+  border-radius: var(--agend-res-radius);
+  background: #fff;
+  overflow: hidden;
+}
+
+.agend-resources-search__list > li:not(:first-child) {
+  border-top: 1px solid var(--agend-res-line);
+}
+
+.agend-resources-search__result {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.75rem;
+  margin: 0;
+  padding: 0.9375rem 1.125rem;
+  line-height: 1.4;
+}
+
+.agend-resources-search__result-main {
+  min-width: 0;
+}
+
+.agend-resources-search__result-title,
+.agend-res .agend-resources-search__result-link {
+  color: var(--agend-res-heading);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.agend-resources-search__result-title {
+  display: block;
+}
+
+.agend-res .agend-resources-search__result-link,
+.agend-res .agend-resources-search__result-link:visited,
+.agend-res .agend-resources-search__result-link:hover,
+.agend-res .agend-resources-search__result-link:focus,
+.agend-res .agend-resources-search__result-link:active {
+  display: block;
+  border: 0;
+  background: none;
+  color: var(--agend-res-heading);
+  text-decoration: none;
+}
+
+.agend-res .agend-resources-search__result-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.agend-res .agend-resources-search__result-link:focus {
+  outline: none;
+}
+
+.agend-res .agend-resources-search__result-link:focus-visible::after {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: -3px;
+  border-radius: var(--agend-res-row-radius);
+}
+
+.agend-resources-search__result--link:hover {
+  background: var(--agend-res-row-hover);
+}
+
+.agend-resources-search__result--link:hover .agend-resources-search__result-link {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.agend-resources-search__result--link:hover .agend-res__icon--chevron {
+  color: var(--agend-res-heading);
+  transform: translateX(2px);
+}
+
+.agend-resources-search__excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin: 0.25rem 0 0;
+  overflow: hidden;
+  color: var(--agend-res-muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+/* One note under the list when pages are listed without links. */
+.agend-resources-search__sign-in {
+  margin: 0;
+  padding: 0.75rem 1.125rem;
+  border-top: 1px solid var(--agend-res-line);
+  color: var(--agend-res-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.agend-resources-search__excerpt mark {
+  padding: 0 0.1em;
+  border-radius: 2px;
+  background: var(--agend-res-mark);
+  color: inherit;
+}
+
+.agend-resources-search__result .agend-res__icon--chevron {
+  width: 1rem;
+  height: 1rem;
+  color: var(--agend-res-muted);
+}
+
+.agend-resources-search__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0.75rem 1.125rem;
+  border-top: 1px solid var(--agend-res-line);
+  background: var(--agend-res-panel);
+  font-size: 0.875rem;
+}
+
+.agend-res .agend-resources-search__all,
+.agend-res .agend-resources-search__all:visited,
+.agend-res .agend-resources-search__all:hover,
+.agend-res .agend-resources-search__all:focus,
+.agend-res .agend-resources-search__all:active {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--agend-res-heading);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.agend-res .agend-resources-search__all:focus-visible {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 2px;
+}
+
+.agend-resources-search__all .agend-res__icon--chevron {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* One line in the results box: searching, nothing found, an error. */
+.agend-resources-search__status {
+  margin: 0;
+  padding: 1.125rem 1.125rem;
+  color: var(--agend-res-muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.agend-resources-search__status--error {
+  color: var(--agend-res-heading);
+}
+
+/* Loading: two quiet bars where the first results will be. */
+.agend-resources-search__skeleton {
+  display: grid;
+  gap: 0.625rem;
+  padding: 1.125rem;
+}
+
+.agend-resources-search__bar,
+.agend-resources-ask__bar {
+  display: block;
+  height: 0.75rem;
+  border-radius: 999px;
+  background: var(--agend-res-line);
+}
+
+.agend-resources-search__bar:first-child,
+.agend-resources-ask__bar:first-child {
+  width: 42%;
+}
+
+.agend-resources-search__bar:last-child,
+.agend-resources-ask__bar:last-child {
+  width: 78%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agend-resources-search__bar,
+  .agend-resources-ask__bar {
+    animation: agend-res-pulse 1.4s ease-in-out infinite;
+  }
+
+  .agend-resources-search__bar:last-child,
+  .agend-resources-ask__bar:last-child {
+    animation-delay: 0.2s;
+  }
+}
+
+@keyframes agend-res-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Ask ----------------------------------------------------------------- */
+
+.agend-resources-ask__signed-out,
+.agend-resources-ask__panel {
+  max-width: 46rem;
+}
+
+.agend-resources-ask__signed-out {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid var(--agend-res-line);
+  border-radius: var(--agend-res-radius);
+  background: var(--agend-res-panel);
+}
+
+.agend-resources-ask__signed-out-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1.5px solid var(--agend-res-edge);
+  border-radius: var(--agend-res-row-radius);
+  background: var(--agend-res-tint);
+  color: var(--agend-res-heading);
+}
+
+.agend-resources-ask__signed-out-icon .agend-res__icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.agend-resources-ask__signed-out-text {
+  flex: 1 1 14rem;
+  margin: 0;
+  color: var(--agend-res-heading);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+/* The question box: a quiet tinted panel holding a white field. */
+.agend-resources-ask__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--agend-res-line);
+  border-radius: var(--agend-res-radius);
+  background: var(--agend-res-panel);
+}
+
+.agend-res .agend-resources-ask__input,
+.agend-res .agend-resources-ask__input:focus {
+  display: block;
+  width: 100%;
+  min-height: 3.5rem;
+  margin: 0;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--agend-res-line-strong);
+  border-radius: var(--agend-res-inner-radius);
+  background: #fff;
+  color: var(--agend-res-heading);
+  font: inherit;
+  font-size: 1.0625rem;
+  line-height: 1.45;
+  resize: vertical;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.agend-res .agend-resources-ask__input:focus {
+  border-color: var(--agend-res-heading);
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 1px;
+}
+
+.agend-res .agend-resources-ask__input::placeholder {
+  color: var(--agend-res-muted);
+  opacity: 1;
+}
+
+.agend-res .agend-resources-ask__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3.5rem;
+  margin: 0;
+  padding: 0 1.5rem;
+  border: 0;
+  border-radius: var(--agend-res-inner-radius);
+  background: var(--agend-res-heading);
+  color: var(--agend-res-on-heading);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.agend-res .agend-resources-ask__button:hover {
+  background: var(--agend-res-heading-hover);
+  color: var(--agend-res-on-heading);
+}
+
+.agend-res .agend-resources-ask__button:focus-visible {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 2px;
+}
+
+.agend-res .agend-resources-ask__button[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.agend-resources-ask__button .agend-res__icon {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.agend-resources-ask__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.875rem 0 0;
+}
+
+.agend-resources-ask__suggestion {
+  margin: 0;
+}
+
+.agend-res .agend-resources-ask__chip {
+  max-width: 100%;
+  margin: 0;
+  padding: 0.4375rem 0.9375rem;
+  border: 1px solid var(--agend-res-line-strong);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--agend-res-heading);
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agend-res .agend-resources-ask__chip:hover {
+  background: var(--agend-res-row-hover);
+  color: var(--agend-res-heading);
+}
+
+.agend-res .agend-resources-ask__chip:focus-visible {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 2px;
+}
+
+/* The answer reads like a short document: a card, the question, the text, the
+   sources, then the small print. */
+.agend-resources-ask__answer {
+  margin-top: 1.25rem;
+  padding: 1.375rem 1.5rem 1.25rem;
+  border: 1px solid var(--agend-res-line);
+  border-radius: var(--agend-res-radius);
+  background: #fff;
+}
+
+.agend-resources-ask__question {
+  margin: 0 0 0.875rem;
+  color: var(--agend-res-muted);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.agend-resources-ask__text p {
+  max-width: 62ch;
+  margin: 0 0 0.875rem;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.agend-resources-ask__text p:last-child {
+  margin-bottom: 0;
+}
+
+/* Under `.agend-resources-ask__text` the plain paragraph rule above would win
+   over a single class: the title would lose its size and its tight margin. */
+.agend-resources-ask__text .agend-resources-ask__title {
+  margin: 0 0 0.375rem;
+  color: var(--agend-res-heading);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* A marker in the text and a marker in the source list are the same small
+   numbered circle, so the eye can match them. */
+.agend-resources-ask__marker,
+.agend-resources-ask__source-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--agend-res-edge);
+  border-radius: 50%;
+  background: var(--agend-res-tint);
+  color: var(--agend-res-heading);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.agend-resources-ask__marker {
+  width: 1.1875rem;
+  height: 1.1875rem;
+  margin: 0 0.125rem;
+  font-size: 0.6875rem;
+  vertical-align: 0.15em;
+}
+
+.agend-resources-ask__confidence {
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--agend-res-edge);
+  border-radius: var(--agend-res-row-radius);
+  background: var(--agend-res-tint);
+  color: var(--agend-res-heading);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.agend-resources-ask__sources {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--agend-res-line);
+}
+
+.agend-resources-ask__sources-title {
+  margin: 0 0 0.375rem;
+  color: var(--agend-res-heading);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.agend-resources-ask__source {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.75rem;
+  margin: 0 -0.5rem;
+  padding: 0.5625rem 0.5rem;
+  border-radius: var(--agend-res-row-radius);
+  line-height: 1.4;
+}
+
+.agend-resources-ask__source-marker {
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: 0.75rem;
+}
+
+.agend-resources-ask__source-main {
+  min-width: 0;
+}
+
+.agend-resources-ask__source-title,
+.agend-res .agend-resources-ask__source-link {
+  color: var(--agend-res-heading);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.agend-resources-ask__source-title {
+  font-weight: 500;
+}
+
+.agend-res .agend-resources-ask__source-link,
+.agend-res .agend-resources-ask__source-link:visited,
+.agend-res .agend-resources-ask__source-link:hover,
+.agend-res .agend-resources-ask__source-link:focus,
+.agend-res .agend-resources-ask__source-link:active {
+  border: 0;
+  background: none;
+  color: var(--agend-res-heading);
+  text-decoration: none;
+}
+
+.agend-res .agend-resources-ask__source-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--agend-res-row-radius);
+}
+
+.agend-res .agend-resources-ask__source-link:focus {
+  outline: none;
+}
+
+.agend-res .agend-resources-ask__source-link:focus-visible::after {
+  outline: 2px solid var(--agend-res-heading);
+  outline-offset: 1px;
+}
+
+.agend-resources-ask__source--link:hover {
+  background: var(--agend-res-row-hover);
+}
+
+.agend-resources-ask__source--link:hover .agend-res__icon--chevron {
+  color: var(--agend-res-heading);
+  transform: translateX(2px);
+}
+
+.agend-resources-ask__source--link:hover .agend-resources-ask__source-link {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.agend-resources-ask__source .agend-res__icon--chevron {
+  width: 1rem;
+  height: 1rem;
+  color: var(--agend-res-muted);
+}
+
+.agend-resources-ask__small {
+  margin: 0.75rem 0 0;
+  color: var(--agend-res-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.agend-resources-ask__disclaimer {
+  margin: 1rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--agend-res-line);
+  color: var(--agend-res-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.agend-resources-ask__contact {
+  margin: 0.875rem 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.agend-res .agend-resources-ask__contact a,
+.agend-res .agend-resources-ask__contact a:visited,
+.agend-res .agend-resources-ask__contact a:hover,
+.agend-res .agend-resources-ask__contact a:focus {
+  color: var(--agend-res-heading);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.agend-resources-ask__thinking {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.agend-resources-ask__thinking p {
+  margin: 0;
+  color: var(--agend-res-muted);
+  font-size: 0.9375rem;
+}
+
+.agend-resources-ask__thinking .agend-resources-ask__skeleton {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.agend-resources-ask__answer--error .agend-resources-ask__text p {
+  color: var(--agend-res-heading);
+}
+
+/* The matches a degraded answer offers are the same rows a search shows. */
+.agend-resources-ask__matches {
+  margin-top: 1rem;
+}
+
+.agend-resources-ask__matches .agend-resources-search__result {
+  margin: 0 -0.5rem;
+  padding: 0.75rem 0.5rem;
+  border-radius: var(--agend-res-row-radius);
+}
+
+/* Right-to-left sites: the chevron points the other way. */
+[dir="rtl"] .agend-res__icon--chevron {
+  transform: scaleX(-1);
+}
+
+[dir="rtl"] .agend-resources-collections__page--link:hover .agend-res__icon--chevron,
+[dir="rtl"] .agend-resources-search__result--link:hover .agend-res__icon--chevron,
+[dir="rtl"] .agend-resources-ask__source--link:hover .agend-res__icon--chevron {
+  transform: translateX(-2px) scaleX(-1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agend-resources-collections__page,
+  .agend-resources-search__result,
+  .agend-resources-ask__source {
+    transition: background-color 0.15s ease;
+  }
+
+  .agend-res__icon--chevron {
+    transition:
+      transform 0.15s ease,
+      color 0.15s ease;
+  }
+}
+
+/* A narrow area (the search button and the ask button stack, the answer card
+   tightens). Follows the widget's own width, not the screen's, so it also holds
+   in a narrow column of a wide page. */
+@container agend-res (max-width: 30rem) {
+  .agend-resources-search__field {
+    padding-left: 0.875rem;
+  }
+
+  .agend-resources-search__icon {
+    margin-right: 0.5rem;
+  }
+
+  .agend-res .agend-resources-search__button {
+    padding: 0 1rem;
+  }
+
+  .agend-resources-search__result {
+    padding: 0.875rem 0.875rem;
+  }
+
+  .agend-resources-search__foot,
+  .agend-resources-search__sign-in,
+  .agend-resources-search__status {
+    padding-inline: 0.875rem;
+  }
+
+  .agend-resources-ask__form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agend-res .agend-resources-ask__button {
+    width: 100%;
+  }
+
+  .agend-resources-ask__answer {
+    padding: 1.125rem 1rem 1rem;
+  }
+
+  .agend-resources-collections__card {
+    padding: 1.125rem 1.125rem 1.25rem;
+  }
+
+  /* A narrow area is one column, or cards too small to match: nothing to line
+     up with, so no room is kept for a second title line. */
+  .agend-resources-collections__name {
+    min-height: 0;
+  }
+}

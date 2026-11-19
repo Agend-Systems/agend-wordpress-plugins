@@ -122,6 +122,50 @@ class Agend_Elementor {
 			$widgets_manager->register( new Agend_Elementor_Learning_Paths() );
 		}
 
+		// Needs a core that ships the credential-check surface (1.75.0).
+		if ( function_exists( 'agend_apps_records_render_credential_check' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-credential-check.php';
+			$widgets_manager->register( new Agend_Elementor_Credential_Check() );
+		}
+
+		// Needs a core that ships the member-summary surface (1.75.0).
+		if ( function_exists( 'agend_apps_records_render_member_summary' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-member-summary.php';
+			$widgets_manager->register( new Agend_Elementor_Member_Summary() );
+		}
+
+		// Each needs a core that ships its Community surface (1.75.0).
+		if ( function_exists( 'agend_apps_records_render_community_announcements' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-community-announcements.php';
+			$widgets_manager->register( new Agend_Elementor_Community_Announcements() );
+		}
+
+		if ( function_exists( 'agend_apps_records_render_community_channels' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-community-channels.php';
+			$widgets_manager->register( new Agend_Elementor_Community_Channels() );
+		}
+
+		if ( function_exists( 'agend_apps_records_render_community_feed' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-community-feed.php';
+			$widgets_manager->register( new Agend_Elementor_Community_Feed() );
+		}
+
+		// Each needs a core that ships its Resources surface (1.75.0).
+		if ( function_exists( 'agend_apps_records_render_resources_collections' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-resources-collections.php';
+			$widgets_manager->register( new Agend_Elementor_Resources_Collections() );
+		}
+
+		if ( function_exists( 'agend_apps_records_render_resources_search' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-resources-search.php';
+			$widgets_manager->register( new Agend_Elementor_Resources_Search() );
+		}
+
+		if ( function_exists( 'agend_apps_records_render_resources_ask' ) ) {
+			require_once AGEND_ELEMENTOR_DIR . 'includes/widgets/class-agend-elementor-resources-ask.php';
+			$widgets_manager->register( new Agend_Elementor_Resources_Ask() );
+		}
+
 		// The directory widgets that sit beside a catalogue. Each renderer
 		// lives in Agend Apps Core, which updates independently, so a widget
 		// registers only when the core it runs against has its surface.

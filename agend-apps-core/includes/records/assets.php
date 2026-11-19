@@ -229,6 +229,23 @@ function agend_apps_records_register_assets(): void {
 		true
 	);
 
+	// The member summary's cards come from the server by script, because they
+	// are the member's own and must never sit in a cached page. The fragment is
+	// passed through DOMPurify before it is placed.
+	wp_register_style(
+		'agend-apps-records-member-summary',
+		agend_apps_records_asset_url( 'css/member-summary.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-member-summary',
+		agend_apps_records_asset_url( 'js/member-summary.js' ),
+		array( 'agend-apps-records-dompurify' ),
+		agend_apps_records_asset_version(),
+		true
+	);
+
 	wp_register_style(
 		'agend-apps-records-events-catalogue',
 		agend_apps_records_asset_url( 'css/events-catalogue.css' ),
@@ -276,6 +293,57 @@ function agend_apps_records_register_assets(): void {
 		array(),
 		agend_apps_records_asset_version()
 	);
+
+	// The credential check: a form that posts a code and draws the answer. The
+	// captcha client is its own handle so any public form can share it.
+	wp_register_script(
+		'agend-apps-captcha-client',
+		agend_apps_records_asset_url( 'js/captcha-client.js' ),
+		array(),
+		agend_apps_records_asset_version(),
+		true
+	);
+	wp_register_style(
+		'agend-apps-records-credential-check',
+		agend_apps_records_asset_url( 'css/credential-check.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	wp_register_script(
+		'agend-apps-records-credential-check',
+		agend_apps_records_asset_url( 'js/credential-check.js' ),
+		array( 'agend-apps-captcha-client' ),
+		agend_apps_records_asset_version(),
+		true
+	);
+
+	// The three Community surfaces share one stylesheet and, like learning
+	// paths, are server-rendered with no script.
+	wp_register_style(
+		'agend-apps-records-community',
+		agend_apps_records_asset_url( 'css/community.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+
+	// The Resources surfaces (collections, search, Ask) share one stylesheet.
+	// Each has its own script, so a page loads only the one it places: a site
+	// without Ask never loads the Ask script.
+	wp_register_style(
+		'agend-apps-records-resources',
+		agend_apps_records_asset_url( 'css/resources.css' ),
+		array(),
+		agend_apps_records_asset_version()
+	);
+	foreach ( array( 'collections', 'search', 'ask' ) as $agend_resources_surface ) {
+		wp_register_script(
+			'agend-apps-records-resources-' . $agend_resources_surface,
+			agend_apps_records_asset_url( 'js/resources-' . $agend_resources_surface . '.js' ),
+			array(),
+			agend_apps_records_asset_version(),
+			true
+		);
+	}
 
 	wp_register_style(
 		'agend-apps-records-jobs-catalogue',

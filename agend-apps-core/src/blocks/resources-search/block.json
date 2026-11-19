@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "agend-apps/resources-search",
+	"version": "1.0.0",
+	"title": "Agend Resources Search",
+	"category": "agend",
+	"icon": "search",
+	"description": "A search box for your Agend Atlas library. Visitors are sent to your public search page; signed-in members see results as they type.",
+	"keywords": [ "agend", "resources", "search", "library", "atlas" ],
+	"textdomain": "agend-apps-core",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	},
+	"editorScript": "file:./index.js",
+	"viewScript": [ "agend-apps-records-resources-search" ],
+	"style": [ "agend-apps-records-resources" ],
+	"render": "file:./render.php"
+}

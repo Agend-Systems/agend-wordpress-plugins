@@ -74,6 +74,39 @@ function agend_apps_records_surface_map(): array {
 			'label'  => __( 'Agend Learning Pathways', 'agend-apps-core' ),
 			'scopes' => array( 'lms.paths.browse' ),
 		),
+		// The certificate scope is the one the surface cannot work without. Badge
+		// codes also need `lms.badges.verify`, which this map cannot express as an
+		// either-or, so that is the optional feature `lms_credential_badges`.
+		'credential-check'          => array(
+			'label'  => __( 'Agend Credential Check', 'agend-apps-core' ),
+			'scopes' => array( 'lms.certificates.verify' ),
+		),
+		// The Community surfaces also read the channel list, to hold every post to
+		// the channels the site allows, so each needs both scopes.
+		'community-announcements'   => array(
+			'label'  => __( 'Agend Community Announcements', 'agend-apps-core' ),
+			'scopes' => array( 'loop.activity.read', 'loop.channels.browse' ),
+		),
+		'community-channels'        => array(
+			'label'  => __( 'Agend Community Channels', 'agend-apps-core' ),
+			'scopes' => array( 'loop.channels.browse' ),
+		),
+		'community-feed'            => array(
+			'label'  => __( 'Agend Community Popular Posts', 'agend-apps-core' ),
+			'scopes' => array( 'loop.activity.read', 'loop.channels.browse' ),
+		),
+		'resources-collections'     => array(
+			'label'  => __( 'Agend Resources Collections', 'agend-apps-core' ),
+			'scopes' => array( 'atlas.collections.browse' ),
+		),
+		'resources-search'          => array(
+			'label'  => __( 'Agend Resources Search', 'agend-apps-core' ),
+			'scopes' => array( 'atlas.pages.search' ),
+		),
+		'resources-ask'             => array(
+			'label'  => __( 'Agend Resources Ask', 'agend-apps-core' ),
+			'scopes' => array( 'atlas.questions.create' ),
+		),
 		'jobs-catalogue'            => array(
 			'label'  => __( 'Agend Jobs', 'agend-apps-core' ),
 			'scopes' => array( 'jobs.listings.browse' ),
@@ -81,6 +114,10 @@ function agend_apps_records_surface_map(): array {
 		'member-jobs'               => array(
 			'label'  => __( 'Agend Member Jobs', 'agend-apps-core' ),
 			'scopes' => array( 'jobs.submissions.browse', 'jobs.submissions.create' ),
+		),
+		'member-summary'            => array(
+			'label'  => __( 'Agend Member Summary', 'agend-apps-core' ),
+			'scopes' => array( 'crm.contacts.browse' ),
 		),
 		'memberships-catalogue'     => array(
 			'label'  => __( 'Agend Memberships', 'agend-apps-core' ),
@@ -508,9 +545,16 @@ function agend_apps_records_rest_route_surface( string $route ): string {
 		'#^/lms/courses(/[^/]+)?$#'                              => 'courses-catalogue',
 		'#^/cards/courses$#'                                     => 'courses-catalogue',
 		'#^/lms/paths(/[^/]+)?$#'                                => 'learning-paths',
+		'#^/lms/credentials(/|$)#'                               => 'credential-check',
+		'#^/lms/certificates/verify/[^/]+$#'                     => 'credential-check',
+		'#^/lms/badges/verify/[^/]+$#'                           => 'credential-check',
+		'#^/resources/collections(/|$)#'                         => 'resources-collections',
+		'#^/resources/search$#'                                  => 'resources-search',
+		'#^/resources/ask$#'                                     => 'resources-ask',
 		'#^/jobs(/[^/]+)?$#'                                     => 'jobs-catalogue',
 		'#^/crm/tiers(/|$)#'                                     => 'memberships-catalogue',
 		'#^/account-link(/|$)#'                                  => 'account-link',
+		'#^/member/summary$#'                                    => 'member-summary',
 	);
 
 	foreach ( $patterns as $pattern => $surface ) {

@@ -31,6 +31,42 @@ The **Agend Learning Pathways** widget (block: **Agend Learning Pathways**) is t
 - Needs the `lms.paths.browse` scope; without it the widget draws nothing for visitors. It needs no sign-in, in any member sign-in mode.
 - Needs Agend Apps Core 1.70.0 or newer; with an older core the widget is not registered.
 
+## Agend Credential Check
+
+The **Agend Credential Check** widget (block: **Agend Credential Check**) is the `credential-check` core surface: a form where a visitor checks a certificate code or a badge link against the Agend learning record. It runs from a script that calls Agend Apps Core's own route. See "Credential check" and "Public certificate and badge lookups" in `agend-apps-core/README.md` for how it reads, throttles and fails.
+
+- **Needs a security check.** Every check passes the captcha set up under Settings > Agend Apps > Form Captcha, and visitors see nothing until one is set up. In the editor the form is still drawn so it can be styled, with a notice saying why visitors would not see it.
+- **Result details**: certificate number, issue date, the course a badge was earned in, CPD points, instructor, topics, badge picture and when it was checked can each be switched off. A certificate never shows a holder name and no result shows an expiry date. A badge earner's name is off by default; turn it on only if learners have agreed to it.
+- **Links with a code.** A printed link or QR code can open the page with `?code=` (the name is a setting; `?agend_code=` also works). "Check straight away" runs the check on load; where the visitor has to tick a box first, the code is filled in and they press the button.
+- **Wording**: every message is editable, including what a found credential does and does not confirm, the tips when nothing matches, and an optional help link.
+- **Scopes**: needs `lms.certificates.verify`; badge codes also need `lms.badges.verify`, and a certificate-only key shows the editor a notice and refuses badge codes with a clear message. It needs no sign-in, in any member sign-in mode.
+- Needs Agend Apps Core 1.75.0 or newer; with an older core the widget is not registered.
+
+## Agend Community
+
+Three widgets (blocks of the same names) show the association's Agend Loop community: **Agend Community Announcements**, **Agend Community Channels** and **Agend Community Popular Posts**. They are the `community-announcements`, `community-channels` and `community-feed` core surfaces, drawn on the server with no script. See "Community (Agend Loop)" in `agend-apps-core/README.md` for how they read, cache, link and fail.
+
+- **Nothing shows until an administrator allows channels** under Settings > Agend Apps > Community. "Channels to show" can only pick from that list, and empty means all of it. Anyone on the internet can read an allowed channel, so the settings page says so.
+- **Announcements**: announcements only, or every post with a title; optional pinned only and featured only; pinned first; date tile, channel name, Pinned label, excerpt.
+- **Channels**: a card for each channel with its first letter, description, number of members and a link in ("Open channel", or your own words). Feed channels or chat channels; by name or by most members.
+- **Popular posts**: featured posts and posts with at least the number of replies you set, featured first and then most replies, or newest first. It shows fewer posts rather than padding the list.
+- **Authors** are off. Choose initials, first name, first name and last initial, or full name; profile photos are a separate switch, off.
+- **Links** open the post's channel (never the post itself), through the sign-in link when the site signs members in with WordPress. Or one page you choose, or none. A "Open the community" link closes each list.
+- **Empty state**: your own message, or hide the widget. A failed load always says so.
+- Needs the Loop scopes `loop.activity.read` and `loop.channels.browse` (channels needs only the second); without them the widgets draw nothing for visitors.
+- Need Agend Apps Core 1.75.0 or newer; with an older core the widgets are not registered.
+
+## Agend Resources
+
+Three widgets (blocks of the same names) show the connected account's Atlas library on a page: **Agend Resources Collections**, **Agend Resources Search** and **Agend Resources Ask**. They are the `resources-collections`, `resources-search` and `resources-ask` core surfaces. A page holding them is the same for every viewer, so a full-page cache can keep it; what a signed-in member sees is added after the page loads. See "Resources" in `agend-apps-core/README.md` for how they read, what they publish and what they limit.
+
+- **Collections**: you choose the collections to show, in the order you choose them (the picker lists the first hundred and is only filled while an editor has the widget open). Visitors see each collection's title, description and topics, as small cards with no link, and a note with an optional button (such as "Become a member"). Nothing is shown until you choose at least one. Everyone who visits the page can read what you choose, so the picker says so. Signed-in members also see their own collections, with the pages in each, below your choice or instead of it.
+- **Search**: a plain form that sends visitors to your public search page. It costs nothing and works with no script. Signed-in members see results as they type. "What visitors get" can be switched to results as they type for visitors too; it is off by default, and its description warns that it uses the association's AI search allowance each time someone types. Optional suggested searches sit under the box.
+- **Ask**: a question box for signed-in members only, with an answer, the pages it came from and the small print Atlas returns. Visitors see a sign-in prompt, or nothing if you choose that. While the account is known not to include Ask, the box is hidden from everyone and an editor sees why.
+- **Colours** follow the site (or your own), as the Learning Pathways widget does. One stylesheet serves all three; each has its own script, so a page loads only the one it places.
+- Need the `atlas.collections.browse`, `atlas.pages.search` and `atlas.questions.create` scopes respectively; without one, that widget draws nothing for visitors and a disabled box for an editor.
+- Need Agend Apps Core 1.75.0 or newer; with an older core the widgets are not registered.
+
 ## Agend Jobs (Agend Careers)
 
 The **Agend Jobs** widget (block: **Agend Jobs Board**) is the `jobs-catalogue` core surface: a list or grid of published jobs from the gateway's public `/v1/jobs` endpoints, with a filter bar and a job detail view whose apply button opens the listing's application link, or its application email when "Offer apply by email" is on. Applications are always made off-site.
@@ -157,6 +193,18 @@ Deferred deliberately, in rough order:
    file is ever produced. Isolated to the gateway route: the underlying RPC returns rows when
    called directly as the anon role with the same arguments, grants are correct and the column
    tokens are valid. Reported to the API side.
+
+## Agend Member Summary
+
+The **Agend Member Summary** widget (block: **Agend Member Summary**) is the `member-summary` core surface: a signed-in member's own membership band (standing, tier and renewal), CPD points against their target, upcoming events, certificates and badges, and directory listing. See "Member summary" and "Member access state" in `agend-apps-core/README.md` for how it reads, protects the site key and fails.
+
+- **Place it on a page members sign in to.** A visitor who is not signed in sees a sign-in card (or nothing, with "Hide the widget when no one is signed in"). The page itself holds only a heading and a loading state; the member's cards load after the page does and are never stored, so a page cache cannot show one member's details to another.
+- **What to show**: Membership, CPD points, Upcoming events, Certificates and badges, Directory listing, each on its own. A part that is switched off is not loaded at all. "Greet the member by first name" and the list sizes (events and certificates, 1 to 6) are optional.
+- **Links**: Membership page (empty uses the member portal), Join page, Credential check page (each certificate links there with its code), Manage listing page and Contact page. Empty means no link, never a dead button.
+- **Messages**: your wording for no upcoming events, no certificates, no membership found, and details that cannot be loaded. Members are never told why something failed; an administrator sees the reason in a note that says only they see it.
+- **In the editor** the widget draws a labelled example of an imaginary member and calls nothing. It follows the parts you switch on.
+- Needs the `crm.contacts.browse` scope; each part also needs its own (`crm.memberships.browse` for the membership). A part the key lacks is left out for members and listed to administrators. In the `wordpress` and `sso` sign-in modes the key also needs `sso.identities.read` and `sso.tokens.create`, or members cannot be connected.
+- Needs Agend Apps Core 1.75.0 or newer; with an older core the widget is not registered. Never cached by Elementor's element cache.
 
 ## Directory map and location search
 

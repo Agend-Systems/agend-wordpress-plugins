@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "agend-apps/community-feed",
+  "version": "1.15.2",
+  "title": "Agend Community Popular Posts",
+  "category": "agend",
+  "icon": "format-chat",
+  "description": "The posts your members are joining in, from your Agend Loop community.",
+  "keywords": [
+    "agend",
+    "popular",
+    "posts",
+    "discussions",
+    "community",
+    "loop"
+  ],
+  "textdomain": "agend-apps-core",
+  "supports": {
+    "html": false,
+    "align": [
+      "wide",
+      "full"
+    ]
+  },
+  "editorScript": "file:./index.js",
+  "style": [
+    "agend-apps-records-community"
+  ],
+  "render": "file:./render.php"
+}
