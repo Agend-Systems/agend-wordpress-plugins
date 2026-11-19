@@ -20,11 +20,14 @@
  * section, and the shape this was written against is pinned by a fixture in the
  * tests.
  *
- * Cheap. A load costs three to four reads (one if only the profile parts are
- * on), sent together; a part that is switched off is never read. Nothing about
- * the member is stored: the reads are held for this request only. A per-member
- * cap and a check of what is left of the site key's minute stand in front of
- * the fetch.
+ * Cheap. A load costs at most six reads, sent together: the profile (one read
+ * serves the CPD, events, certificates, directory and greeting parts), the two
+ * membership reads and the tier names, then one each for the courses and the
+ * reading lists. A part that is switched off is never read, and the tier names
+ * come from a copy the whole site shares once one exists. Nothing about the
+ * member is stored: the reads are held for this request only. A per-member cap
+ * and a check of what is left of the site key's minute stand in front of the
+ * fetch.
  *
  * @package Agend_Apps_Core
  */
@@ -36,11 +39,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * The parts of the summary, in the order they are drawn.
  *
+ * The membership is the band across the top; the others are tiles.
+ *
  * @return string[]
  */
 function agend_apps_member_summary_sections(): array {
-	return array( 'membership', 'cpd', 'events', 'credentials', 'directory' );
+	return array( 'membership', 'cpd', 'events', 'courses', 'credentials', 'directory', 'reading' );
 }
+
+/**
+ * The most courses, or reading lists, the summary will list.
+ *
+ * @var int
+ */
+const AGEND_APPS_MEMBER_SUMMARY_COURSE_READ_LIMIT = 12;
 
 /**
  * The key permissions each part needs, all with the member's own token.
@@ -56,6 +68,8 @@ function agend_apps_member_summary_scopes(): array {
 		'events'      => array( 'crm.contacts.browse' ),
 		'credentials' => array( 'crm.contacts.browse' ),
 		'directory'   => array( 'crm.contacts.browse' ),
+		'courses'     => array( 'lms.enrollments.browse' ),
+		'reading'     => array( 'atlas.collections.browse' ),
 		'greeting'    => array( 'crm.contacts.browse' ),
 	);
 }
@@ -103,7 +117,8 @@ function agend_apps_member_summary_holds( array $scopes ): bool {
  *     @type bool     $greeting Whether the member's first name is wanted.
  * }
  * @return array{reads: string[], sections: string[], no_access: string[], greeting: bool}
- *         `reads` are among `profile`, `entitlements`, `memberships`, `tiers`.
+ *         `reads` are among `profile`, `entitlements`, `memberships`, `tiers`,
+ *         `enrollments`, `collections`.
  */
 function agend_apps_member_summary_plan( array $want ): array {
 	$scopes   = agend_apps_member_summary_scopes();
@@ -136,6 +151,14 @@ function agend_apps_member_summary_plan( array $want ): array {
 		if ( agend_apps_member_summary_holds( array( 'crm.tiers.browse' ) ) ) {
 			$reads[] = 'tiers';
 		}
+	}
+
+	if ( in_array( 'courses', $allowed, true ) ) {
+		$reads[] = 'enrollments';
+	}
+
+	if ( in_array( 'reading', $allowed, true ) ) {
+		$reads[] = 'collections';
 	}
 
 	return array(
@@ -216,6 +239,18 @@ function agend_apps_member_summary_number( $value ): ?float {
 }
 
 /**
+ * A whole count from a value that should be one, or null when it is not.
+ *
+ * @param mixed $value Anything.
+ * @return int|null
+ */
+function agend_apps_member_summary_count( $value ): ?int {
+	$number = agend_apps_member_summary_number( $value );
+
+	return null !== $number && $number >= 0 ? (int) $number : null;
+}
+
+/**
  * The rows of a list read: a plain list of arrays, whether the answer put them
  * in `data` or sent them bare.
  *
@@ -242,6 +277,52 @@ function agend_apps_member_summary_first_name( ?array $profile ): string {
 	$contact = is_array( $profile['contact'] ?? null ) ? $profile['contact'] : array();
 
 	return agend_apps_member_summary_text( $contact['first_name'] ?? '', 60 );
+}
+
+/**
+ * Up to two initials from a first and last name, upper case, or '' when there is
+ * no first name to take one from.
+ *
+ * @param string $first First name.
+ * @param string $last  Last name.
+ * @return string
+ */
+function agend_apps_member_summary_initials( string $first, string $last ): string {
+	$take = static function ( string $name ): string {
+		$letter = function_exists( 'mb_substr' ) ? mb_substr( $name, 0, 1 ) : substr( $name, 0, 1 );
+
+		return function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $letter ) : strtoupper( $letter );
+	};
+
+	return '' === $first ? '' : $take( $first ) . ( '' !== $last ? $take( $last ) : '' );
+}
+
+/**
+ * Who the member is, for the welcome band: first name, initials, and the role
+ * line (job title and organisation) when the contact record has them.
+ *
+ * Every field is optional. The member's own name and role are shown to the member
+ * only, in the answer to their own request.
+ *
+ * @param array|null $profile The profile payload.
+ * @return array{first_name: string, initials: string, title: string, company: string}
+ */
+function agend_apps_member_summary_contact( ?array $profile ): array {
+	$contact = is_array( $profile['contact'] ?? null ) ? $profile['contact'] : array();
+	$first   = agend_apps_member_summary_first_name( $profile );
+	$last    = agend_apps_member_summary_text( $contact['last_name'] ?? '', 60 );
+	$company = agend_apps_member_summary_text( $contact['primary_company_name'] ?? '', 120 );
+
+	if ( '' === $company ) {
+		$company = agend_apps_member_summary_text( $contact['company'] ?? '', 120 );
+	}
+
+	return array(
+		'first_name' => $first,
+		'initials'   => agend_apps_member_summary_initials( $first, $last ),
+		'title'      => agend_apps_member_summary_text( $contact['job_title'] ?? '', 120 ),
+		'company'    => $company,
+	);
 }
 
 /**
@@ -286,17 +367,19 @@ function agend_apps_member_summary_cpd( ?array $lms ): array {
 			'days_left'  => null !== $days && $days >= 0 ? $days : null,
 			'period_end' => agend_apps_member_summary_text( $cpd['period_end'] ?? '', 40 ),
 			'adjustment' => $adjust,
+			'completed'  => agend_apps_member_summary_count( $lms['courses_completed'] ?? null ),
 		);
 	}
 
 	$total = max( 0.0, $total ?? ( null !== $cpd ? (float) ( agend_apps_member_summary_number( $cpd['earned'] ?? null ) ?? 0 ) : 0.0 ) );
 
 	return array(
-		'status' => $total > 0 ? 'ready' : 'empty',
-		'form'   => 'total',
-		'earned' => $total,
+		'status'    => $total > 0 ? 'ready' : 'empty',
+		'form'      => 'total',
+		'earned'    => $total,
 		// Why there is no target, so the card can say so plainly.
-		'why'    => 'not_applicable' === $resolution ? 'not_applicable' : 'not_set',
+		'why'       => 'not_applicable' === $resolution ? 'not_applicable' : 'not_set',
+		'completed' => agend_apps_member_summary_count( $lms['courses_completed'] ?? null ),
 	);
 }
 
@@ -478,6 +561,117 @@ function agend_apps_member_summary_directory( ?array $directory ): array {
 		'verified' => ! empty( $directory['is_verified'] ),
 		// Only an https address is ever loaded into a page.
 		'logo'     => 1 === preg_match( '#^https://#i', $logo ) ? esc_url_raw( $logo ) : '',
+	);
+}
+
+/**
+ * The courses in progress part, from the member's active enrolments.
+ *
+ * Only what Agend answered is drawn: a percentage that is missing is not drawn as
+ * a bar (and is never turned into 0), a completed enrolment is not "in progress"
+ * and is left out, and a read that failed is `unavailable`, never "no courses".
+ * The most recently opened come first, because that is what a member resumes.
+ *
+ * @param mixed $response The enrolments read's result.
+ * @param int   $max      Most courses listed.
+ * @return array
+ */
+function agend_apps_member_summary_courses( $response, int $max ): array {
+	$rows = agend_apps_member_summary_rows( $response );
+
+	if ( null === $rows ) {
+		return array( 'status' => agend_apps_member_summary_failure( $response ) );
+	}
+
+	$items = array();
+
+	foreach ( $rows as $row ) {
+		$course = is_array( $row['course'] ?? null ) ? $row['course'] : array();
+		$title  = agend_apps_member_summary_text( $course['title'] ?? '' );
+
+		if ( '' === $title || ! empty( $row['completed'] ) ) {
+			continue;
+		}
+
+		$percent = agend_apps_member_summary_number( $row['progress_percentage'] ?? null );
+		$done    = agend_apps_member_summary_count( $row['lessons_completed'] ?? null );
+		$lessons = agend_apps_member_summary_count( $course['lessons_count'] ?? null );
+		$opened  = agend_apps_member_summary_text( $row['last_accessed_at'] ?? '', 40 );
+
+		$items[] = array(
+			'title'   => $title,
+			'slug'    => sanitize_title( agend_apps_member_summary_text( $course['slug'] ?? '', 200 ) ),
+			'percent' => null === $percent ? null : max( 0.0, min( 100.0, $percent ) ),
+			'done'    => $done,
+			'lessons' => null !== $lessons && $lessons > 0 ? $lessons : null,
+			'time'    => '' !== $opened && false !== strtotime( $opened ) ? (int) strtotime( $opened ) : 0,
+		);
+	}
+
+	usort(
+		$items,
+		static function ( array $a, array $b ): int {
+			return $b['time'] <=> $a['time'];
+		}
+	);
+
+	$meta  = is_array( $response ) && is_array( $response['meta']['pagination'] ?? null ) ? $response['meta']['pagination'] : array();
+	$total = max( count( $items ), (int) ( agend_apps_member_summary_count( $meta['total'] ?? null ) ?? 0 ) );
+
+	$items = array_map(
+		static function ( array $item ): array {
+			unset( $item['time'] );
+
+			return $item;
+		},
+		array_slice( $items, 0, max( 1, $max ) )
+	);
+
+	return array(
+		'status' => array() === $items ? 'empty' : 'ready',
+		'items'  => $items,
+		'total'  => $total,
+	);
+}
+
+/**
+ * The reading lists part, from the member's own Atlas collections.
+ *
+ * Each list is its title and how many pages are in it. A list with no title is
+ * left out. A read that failed is `unavailable`, never "no lists".
+ *
+ * @param mixed $response The collections read's result.
+ * @param int   $max      Most lists shown.
+ * @return array
+ */
+function agend_apps_member_summary_reading( $response, int $max ): array {
+	$rows = agend_apps_member_summary_rows( $response );
+
+	if ( null === $rows ) {
+		return array( 'status' => agend_apps_member_summary_failure( $response ) );
+	}
+
+	$lists = array();
+
+	foreach ( $rows as $row ) {
+		$title = agend_apps_member_summary_text( $row['title'] ?? '' );
+
+		if ( '' === $title ) {
+			continue;
+		}
+
+		$lists[] = array(
+			'title' => $title,
+			'pages' => is_array( $row['items'] ?? null ) ? count( array_filter( $row['items'], 'is_array' ) ) : 0,
+		);
+	}
+
+	$total = count( $lists );
+
+	return array(
+		'status' => 0 === $total ? 'empty' : 'ready',
+		'items'  => array_slice( $lists, 0, max( 1, $max ) ),
+		'total'  => $total,
 	);
 }
 
@@ -672,6 +866,31 @@ function agend_apps_member_summary_reads( array $names ): array {
 		$reads['tiers']['args']['anonymous'] = true;
 	}
 
+	if ( in_array( 'enrollments', $names, true ) ) {
+		$query = array(
+			'status' => 'active',
+			'limit'  => AGEND_APPS_MEMBER_SUMMARY_COURSE_READ_LIMIT,
+		);
+
+		$reads['enrollments'] = array(
+			'path'      => '/lms/me/enrollments',
+			'args'      => (array) apply_filters( 'agend_apps_lms_get_my_enrollments_args', array( 'query' => $query ), $query ),
+			'cache_key' => 'member_summary_enrollments',
+			'ttl'       => 0,
+		);
+	}
+
+	if ( in_array( 'collections', $names, true ) ) {
+		// Atlas answers a member's own view; the wrapper keeps an Atlas outage
+		// from counting against the rest of the site's calls, and so do we.
+		$reads['collections'] = array(
+			'path'      => '/atlas/me/collections',
+			'args'      => (array) apply_filters( 'agend_apps_atlas_get_my_collections_args', array( 'isolated_rate_limit' => true ) ),
+			'cache_key' => 'member_summary_collections',
+			'ttl'       => 0,
+		);
+	}
+
 	return $reads;
 }
 
@@ -697,8 +916,10 @@ function agend_apps_member_summary_reads( array $names ): array {
  * @param array $limits {
  *     @type int $events       Most events listed.
  *     @type int $certificates Most certificates listed.
+ *     @type int $courses      Most courses listed.
+ *     @type int $reading      Most reading lists listed.
  * }
- * @return array{access: array, contact: array{first_name: string}, sections: array<string, array>, reads: string[]}
+ * @return array{access: array, contact: array{first_name: string, initials: string, title: string, company: string}, sections: array<string, array>, reads: string[]}
  */
 function agend_apps_member_summary_fetch( array $want, array $access, array $limits = array() ): array {
 	$plan    = agend_apps_member_summary_plan( $want );
@@ -744,27 +965,34 @@ function agend_apps_member_summary_fetch( array $want, array $access, array $lim
 			case 'directory':
 				$sections[ $section ] = $from_profile( static fn(): array => agend_apps_member_summary_directory( $dir ) );
 				break;
+			case 'courses':
+				$sections[ $section ] = agend_apps_member_summary_courses( $results['enrollments'] ?? null, (int) ( $limits['courses'] ?? 3 ) );
+				break;
+			case 'reading':
+				$sections[ $section ] = agend_apps_member_summary_reading( $results['collections'] ?? null, (int) ( $limits['reading'] ?? 4 ) );
+				break;
 		}
 	}
 
 	$out = array(
 		'access'   => $access,
-		'contact'  => array( 'first_name' => $plan['greeting'] ? agend_apps_member_summary_first_name( $profile ) : '' ),
+		'contact'  => $plan['greeting'] ? agend_apps_member_summary_contact( $profile ) : agend_apps_member_summary_contact( null ),
 		'sections' => $sections,
 		'reads'    => array_keys( $reads ),
 	);
 
 	// Failures of the member's own reads (the tiers are public and say nothing
-	// about the member).
+	// about the member; the reading lists are Atlas's and a refusal there says
+	// nothing about whether Agend knows the member).
 	$failed = array();
 
-	foreach ( array( 'profile', 'entitlements', 'memberships' ) as $name ) {
+	foreach ( array( 'profile', 'entitlements', 'memberships', 'enrollments' ) as $name ) {
 		if ( array_key_exists( $name, $results ) && is_wp_error( $results[ $name ] ) ) {
 			$failed[ $name ] = agend_apps_member_access_from_error( $results[ $name ], $access );
 		}
 	}
 
-	$attempted = count( array_intersect( array( 'profile', 'entitlements', 'memberships' ), array_keys( $reads ) ) );
+	$attempted = count( array_intersect( array( 'profile', 'entitlements', 'memberships', 'enrollments' ), array_keys( $reads ) ) );
 
 	// Nothing was read at all: every part wanted something the key lacks.
 	if ( 0 === $attempted && array() !== $plan['no_access'] ) {
@@ -832,7 +1060,7 @@ function agend_apps_member_summary_guard( int $user_id, int $now = 0 ): ?array {
 	/**
 	 * Filters the most fetches a member may start in one minute.
 	 *
-	 * @param int $max Default 6, about 18 reads.
+	 * @param int $max Default 6; a full view is at most six reads, so about 36.
 	 */
 	$max = max( 1, (int) apply_filters( 'agend_apps_member_summary_fetches_per_minute', 6 ) );
 

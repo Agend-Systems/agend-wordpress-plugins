@@ -64,12 +64,17 @@ function agend_apps_records_member_summary_content_keys(): array {
 		'show_membership',
 		'show_cpd',
 		'show_events',
+		'show_courses',
 		'show_credentials',
 		'show_directory',
+		'show_reading',
 		'max_events',
+		'max_courses',
 		'max_certificates',
 		'membership_url',
 		'join_url',
+		'courses_url',
+		'resources_url',
 		'credential_check_url',
 		'my_listing_url',
 		'support_url',
@@ -77,6 +82,8 @@ function agend_apps_records_member_summary_content_keys(): array {
 		'sign_in_label',
 		'hide_when_signed_out',
 		'empty_events_message',
+		'empty_courses_message',
+		'empty_reading_message',
 		'empty_credentials_message',
 		'no_record_message',
 		'unavailable_message',
@@ -149,16 +156,24 @@ function agend_apps_records_member_summary_content_config( array $s ): array {
 			'membership'  => $on( 'show_membership' ),
 			'cpd'         => $on( 'show_cpd' ),
 			'events'      => $on( 'show_events' ),
+			'courses'     => $on( 'show_courses' ),
 			'credentials' => $on( 'show_credentials' ),
 			'directory'   => $on( 'show_directory' ),
+			// Off unless the editor turns it on: it needs the resources library.
+			'reading'     => $on( 'show_reading', '' ),
 		),
 		'limits'          => array(
 			'events'       => $max( 'max_events' ),
+			'courses'      => $max( 'max_courses' ),
 			'certificates' => $max( 'max_certificates' ),
+			// Not a setting: a handful of lists is a glance, the library is the place to browse.
+			'reading'      => 4,
 		),
 		'links'           => array(
 			'membership'       => $url( 'membership_url' ),
 			'join'             => $url( 'join_url' ),
+			'courses'          => $url( 'courses_url' ),
+			'resources'        => $url( 'resources_url' ),
 			'credential_check' => $url( 'credential_check_url' ),
 			'my_listing'       => $url( 'my_listing_url' ),
 			'support'          => $url( 'support_url' ),
@@ -167,6 +182,8 @@ function agend_apps_records_member_summary_content_config( array $s ): array {
 			'signed_out'  => $text( 'signed_out_message', __( 'Your membership, CPD points, events and certificates appear here once you sign in.', 'agend-apps-core' ) ),
 			'sign_in'     => $text( 'sign_in_label', __( 'Sign in', 'agend-apps-core' ) ),
 			'no_events'   => $text( 'empty_events_message', __( 'You are not registered for any upcoming events.', 'agend-apps-core' ) ),
+			'no_courses'  => $text( 'empty_courses_message', __( 'You have no courses in progress.', 'agend-apps-core' ) ),
+			'no_reading'  => $text( 'empty_reading_message', __( 'There are no reading lists for you yet.', 'agend-apps-core' ) ),
 			'no_credentials' => $text( 'empty_credentials_message', __( 'Certificates and badges you earn will appear here.', 'agend-apps-core' ) ),
 			'no_record'   => $text( 'no_record_message', '' ),
 			'unavailable' => $text( 'unavailable_message', '' ),
@@ -280,6 +297,8 @@ function agend_apps_records_member_summary_links( array $config ): array {
 		'certificates'     => $screens['certificates'],
 		'badges'           => $screens['badges'],
 		'join'             => $config['links']['join'],
+		'courses'          => '' !== $config['links']['courses'] ? $config['links']['courses'] : agend_apps_records_member_summary_courses_page_url(),
+		'resources'        => '' !== $config['links']['resources'] ? $config['links']['resources'] : agend_apps_records_member_summary_resources_url(),
 		'credential_check' => $config['links']['credential_check'],
 		'my_listing'       => $config['links']['my_listing'],
 		'support'          => $config['links']['support'],
@@ -306,6 +325,40 @@ function agend_apps_records_member_summary_event_url( string $slug ): string {
 	}
 
 	return Agend_Apps_Records_Pages::detail_url( 'event', $slug );
+}
+
+/**
+ * The address of a course's page on this site, or '' when no Courses page is set.
+ *
+ * @param string $slug The course's slug.
+ * @return string
+ */
+function agend_apps_records_member_summary_course_url( string $slug ): string {
+	if ( '' === $slug || ! class_exists( 'Agend_Apps_Records_Pages' ) || 0 === Agend_Apps_Records_Pages::page_id( 'course' ) ) {
+		return '';
+	}
+
+	return Agend_Apps_Records_Pages::detail_url( 'course', $slug );
+}
+
+/**
+ * The site's own Courses page, where "Continue learning" goes unless the editor
+ * chose another page, or '' when none is set.
+ *
+ * @return string
+ */
+function agend_apps_records_member_summary_courses_page_url(): string {
+	return class_exists( 'Agend_Apps_Records_Pages' ) ? Agend_Apps_Records_Pages::page_url( 'course' ) : '';
+}
+
+/**
+ * Where "Browse resources" goes unless the editor chose a page: the public
+ * resources library, when the site is connected to one, else nowhere.
+ *
+ * @return string
+ */
+function agend_apps_records_member_summary_resources_url(): string {
+	return function_exists( 'agend_apps_atlas_public_search_url' ) ? agend_apps_atlas_public_search_url() : '';
 }
 
 /**
@@ -406,11 +459,38 @@ function agend_apps_records_member_summary_chevron(): string {
 }
 
 /**
+ * A small line icon, drawn in the text colour. Decorative: the words beside it
+ * always say the same thing.
+ *
+ * @param string $name Icon name; an unknown name draws nothing.
+ * @param string $size Pixel size, square.
+ * @return string
+ */
+function agend_apps_records_member_summary_icon( string $name, string $size = '20' ): string {
+	$paths = array(
+		'cpd'         => '<path d="M4 16.5a8 8 0 1 1 16 0"/><path d="m12 16.5 3.6-5"/><circle cx="12" cy="16.5" r="1.1"/>',
+		'events'      => '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+		'courses'     => '<path d="M3 6.5c3-1.3 6-1.3 9 .5 3-1.8 6-1.8 9-.5V19c-3-1.3-6-1.3-9 .5-3-1.8-6-1.8-9-.5z"/><path d="M12 7v12.5"/>',
+		'credentials' => '<circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.5 7 21l5-2.5 5 2.5-1.5-7.5"/>',
+		'directory'   => '<rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2c.7-1.6 2-2.4 3.2-2.4s2.5.8 3.2 2.4M14.5 10h4M14.5 13.5h3"/>',
+		'reading'     => '<path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4-7 4V4.5a1 1 0 0 1 1-1z"/>',
+		'membership'  => '<path d="M12 3.5 14.6 9l5.9.7-4.4 4 1.2 5.8L12 16.6 6.7 19.5l1.2-5.8-4.4-4L9.4 9z"/>',
+		'person'      => '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c.9-4 4-6 7.5-6s6.6 2 7.5 6"/>',
+	);
+
+	if ( ! isset( $paths[ $name ] ) ) {
+		return '';
+	}
+
+	return '<svg class="agend-ms-icon" width="' . esc_attr( $size ) . '" height="' . esc_attr( $size ) . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' . $paths[ $name ] . '</svg>';
+}
+
+/**
  * A button-looking link.
  *
  * @param string $href    Address.
  * @param string $label   Text.
- * @param string $variant '' for the main button, `quiet` for a second one, `on-band` for one on the membership band.
+ * @param string $variant '' for the main button, `quiet` for a second one, `on-band` for one on the welcome band.
  * @return string
  */
 function agend_apps_records_member_summary_button( string $href, string $label, string $variant = '' ): string {
@@ -428,20 +508,46 @@ function agend_apps_records_member_summary_retry_button( string $label ): string
 }
 
 /**
- * A card: a heading, a body, and optionally a row of links at its foot.
+ * The names of the tiles, as a member reads them. One place, so the card heads,
+ * the sign-in invitation and the administrators' notes say the same thing.
  *
- * @param string $key    Part name, for the stylesheet.
+ * @return array<string, string>
+ */
+function agend_apps_records_member_summary_part_names(): array {
+	return array(
+		'membership'  => __( 'Membership', 'agend-apps-core' ),
+		'cpd'         => __( 'CPD points', 'agend-apps-core' ),
+		'events'      => __( 'Upcoming events', 'agend-apps-core' ),
+		'courses'     => __( 'Courses in progress', 'agend-apps-core' ),
+		'credentials' => __( 'Certificates and badges', 'agend-apps-core' ),
+		'directory'   => __( 'Directory listing', 'agend-apps-core' ),
+		'reading'     => __( 'Reading lists', 'agend-apps-core' ),
+	);
+}
+
+/**
+ * A tile: an icon and a name, a body, and one quiet link at its foot.
+ *
+ * The foot is drawn only when there is a link to put in it. Every tile in a row
+ * is as tall as the tallest, and the foot sits at the bottom of each, so the
+ * links line up whatever the tiles hold.
+ *
+ * @param string $key    Part name, for the stylesheet and the icon.
  * @param string $title  Heading.
  * @param string $body   Markup, already escaped.
  * @param string $footer Markup, already escaped.
  * @return string
  */
 function agend_apps_records_member_summary_card( string $key, string $title, string $body, string $footer = '' ): string {
-	return '<section class="agend-ms-card agend-ms-card--' . esc_attr( $key ) . '"><h3 class="agend-ms-card__title">' . esc_html( $title ) . '</h3><div class="agend-ms-card__body">' . $body . '</div>' . ( '' !== $footer ? '<div class="agend-ms-card__foot">' . $footer . '</div>' : '' ) . '</section>';
+	return '<section class="agend-ms-card agend-ms-card--' . esc_attr( $key ) . '">'
+		. '<div class="agend-ms-card__head"><span class="agend-ms-chip">' . agend_apps_records_member_summary_icon( $key ) . '</span><h3 class="agend-ms-card__title">' . esc_html( $title ) . '</h3></div>'
+		. '<div class="agend-ms-card__body">' . $body . '</div>'
+		. ( '' !== $footer ? '<div class="agend-ms-card__foot">' . $footer . '</div>' : '' )
+		. '</section>';
 }
 
 /**
- * A whole-row link at the foot of a card.
+ * The quiet link at the foot of a tile.
  *
  * @param string $href  Address; nothing is drawn when empty.
  * @param string $label Text.
@@ -464,87 +570,156 @@ function agend_apps_records_member_summary_tile_unavailable(): string {
 	return '<p class="agend-ms-quiet">' . esc_html__( 'We could not load this just now.', 'agend-apps-core' ) . '</p>';
 }
 
+/**
+ * A name as a whole-row link or plain text.
+ *
+ * @param string $title Text.
+ * @param string $url   Address, '' for plain text.
+ * @return string
+ */
+function agend_apps_records_member_summary_row_title( string $title, string $url ): string {
+	return '' !== $url
+		? '<a class="agend-ms-row__link exclude-agend-theme-link" href="' . esc_url( $url ) . '">' . esc_html( $title ) . '</a>'
+		: '<span class="agend-ms-row__title">' . esc_html( $title ) . '</span>';
+}
+
 // ---------------------------------------------------------------------------
-// The parts
+// The welcome band
 // ---------------------------------------------------------------------------
 
 /**
- * The membership: a band across the top, or a card when there is none.
+ * The avatar: the member's initials, or a person when there is no name to take
+ * them from.
  *
- * @param array $part   The membership part.
- * @param array $config The render config.
- * @param array $links  Where the cards link to.
+ * @param string $initials Up to two letters.
  * @return string
  */
-function agend_apps_records_member_summary_render_membership( array $part, array $config, array $links ): string {
-	if ( 'unavailable' === $part['status'] ) {
-		return agend_apps_records_member_summary_card( 'membership', __( 'Membership', 'agend-apps-core' ), agend_apps_records_member_summary_tile_unavailable() );
-	}
-
-	if ( 'empty' === $part['status'] ) {
-		$actions = '';
-
-		if ( '' !== $links['join'] ) {
-			$actions .= agend_apps_records_member_summary_button( $links['join'], __( 'Join', 'agend-apps-core' ) );
-		}
-
-		if ( '' !== $links['support'] ) {
-			$actions .= agend_apps_records_member_summary_button( $links['support'], __( 'Contact us', 'agend-apps-core' ), '' !== $links['join'] ? 'quiet' : '' );
-		}
-
-		$body = '<p class="agend-ms-lead">' . esc_html__( 'There is no membership on this account.', 'agend-apps-core' ) . '</p>'
-			. '<p class="agend-ms-quiet">' . esc_html__( 'If you think this is wrong, get in touch and we will look into it.', 'agend-apps-core' ) . '</p>'
-			. ( '' !== $actions ? '<p class="agend-ms-actions">' . $actions . '</p>' : '' );
-
-		return agend_apps_records_member_summary_card( 'membership', __( 'Membership', 'agend-apps-core' ), $body );
-	}
-
-	$labels = array(
-		'active'  => __( 'Active', 'agend-apps-core' ),
-		'pending' => __( 'Pending', 'agend-apps-core' ),
-		'ended'   => __( 'Ended', 'agend-apps-core' ),
-	);
-	$label  = $labels[ $part['label'] ] ?? $labels['active'];
-	$tier   = '' !== $part['tier'] ? $part['tier'] : __( 'Membership', 'agend-apps-core' );
-
-	$date_lines = array(
-		'renews'  => __( 'Renews on', 'agend-apps-core' ),
-		'expires' => __( 'Expires on', 'agend-apps-core' ),
-		'ended'   => __( 'Ended on', 'agend-apps-core' ),
-	);
-	$date       = agend_apps_records_member_summary_date( $part['date'], 'j F Y' );
-
-	$button_labels = array(
-		'active'  => __( 'Manage membership', 'agend-apps-core' ),
-		'pending' => __( 'View membership', 'agend-apps-core' ),
-		'ended'   => __( 'Renew membership', 'agend-apps-core' ),
-	);
-
-	$meta = '';
-
-	if ( '' !== $date && isset( $date_lines[ $part['kind'] ] ) ) {
-		$meta .= '<li class="agend-ms-meta__item">' . esc_html( $date_lines[ $part['kind'] ] ) . '&nbsp;<time datetime="' . esc_attr( substr( (string) $part['date'], 0, 10 ) ) . '">' . esc_html( $date ) . '</time></li>';
-
-		if ( null !== $part['days'] ) {
-			$meta .= '<li class="agend-ms-meta__item">' . esc_html( agend_apps_records_member_summary_days_phrase( (int) $part['days'] ) ) . '</li>';
-		}
-	}
-
-	$action = '' !== $links['membership'] ? agend_apps_records_member_summary_button( $links['membership'], $button_labels[ $part['label'] ] ?? $button_labels['active'], 'on-band' ) : '';
-
-	return '<section class="agend-ms-band agend-ms-band--' . esc_attr( $part['label'] ) . '">'
-		. '<div class="agend-ms-band__main">'
-		. '<p class="agend-ms-band__status">' . esc_html( $label ) . '</p>'
-		. '<h3 class="agend-ms-band__tier">' . esc_html( $tier ) . '</h3>'
-		. ( $part['via_seat'] ? '<p class="agend-ms-band__note">' . esc_html__( 'Included through your organisation\'s membership.', 'agend-apps-core' ) . '</p>' : '' )
-		. ( '' !== $meta ? '<ul class="agend-ms-meta agend-ms-band__meta" role="list">' . $meta . '</ul>' : '' )
-		. '</div>'
-		. ( '' !== $action ? '<div class="agend-ms-band__side">' . $action . '</div>' : '' )
-		. '</section>';
+function agend_apps_records_member_summary_avatar( string $initials ): string {
+	return '<span class="agend-ms-avatar" aria-hidden="true">' . ( '' !== $initials ? '<span class="agend-ms-avatar__letters">' . esc_html( $initials ) . '</span>' : agend_apps_records_member_summary_icon( 'person', '26' ) ) . '</span>';
 }
 
 /**
- * The CPD points card.
+ * The welcome band across the top of a signed-in member's view.
+ *
+ * The greeting and the initials come from the contact, the pills, renewal line
+ * and "Manage membership" link from the membership part. Either may be missing
+ * (switched off, or not known) and the band is drawn from what is there; with
+ * neither it is not drawn at all. A membership that could not be read says so
+ * here and is never drawn as "no membership".
+ *
+ * @param array $config  The render config.
+ * @param array $contact The contact: `first_name`, `initials`, `title`, `company`.
+ * @param array $part    The membership part, or an empty array when it is off.
+ * @param array $links   Where the cards link to.
+ * @return string
+ */
+function agend_apps_records_member_summary_render_hero( array $config, array $contact, array $part, array $links ): string {
+	$first = (string) ( $contact['first_name'] ?? '' );
+	$named = $config['greeting'] && '' !== $first;
+	$shows = array() !== $part && 'no_access' !== ( $part['status'] ?? '' );
+
+	if ( ! $named && ! $shows ) {
+		return '';
+	}
+
+	/* translators: %s: the member's first name. */
+	$title = $named ? sprintf( __( 'Welcome back, %s', 'agend-apps-core' ), $first ) : __( 'Your membership', 'agend-apps-core' );
+
+	$role = '';
+
+	if ( $named ) {
+		$role = implode( ', ', array_filter( array( (string) ( $contact['title'] ?? '' ), (string) ( $contact['company'] ?? '' ) ), 'strlen' ) );
+	}
+
+	$pills  = '';
+	$meta   = '';
+	$note   = '';
+	$action = '';
+	$state  = '';
+
+	if ( $shows && 'ready' === $part['status'] ) {
+		$labels = array(
+			'active'  => __( 'Active', 'agend-apps-core' ),
+			'pending' => __( 'Pending', 'agend-apps-core' ),
+			'ended'   => __( 'Ended', 'agend-apps-core' ),
+		);
+		$state  = (string) $part['label'];
+
+		if ( '' !== $part['tier'] ) {
+			$pills .= '<li class="agend-ms-pill agend-ms-pill--tier">' . esc_html( $part['tier'] ) . '</li>';
+		}
+
+		$pills .= '<li class="agend-ms-pill agend-ms-pill--status agend-ms-pill--' . esc_attr( $state ) . '">' . esc_html( $labels[ $state ] ?? $labels['active'] ) . '</li>';
+
+		$date_lines = array(
+			'renews'  => __( 'Renews on', 'agend-apps-core' ),
+			'expires' => __( 'Expires on', 'agend-apps-core' ),
+			'ended'   => __( 'Ended on', 'agend-apps-core' ),
+		);
+		$date       = agend_apps_records_member_summary_date( $part['date'], 'j F Y' );
+
+		if ( '' !== $date && isset( $date_lines[ $part['kind'] ] ) ) {
+			$meta .= '<li class="agend-ms-meta__item">' . esc_html( $date_lines[ $part['kind'] ] ) . '&nbsp;<time datetime="' . esc_attr( substr( (string) $part['date'], 0, 10 ) ) . '">' . esc_html( $date ) . '</time></li>';
+
+			if ( null !== $part['days'] ) {
+				$meta .= '<li class="agend-ms-meta__item">' . esc_html( agend_apps_records_member_summary_days_phrase( (int) $part['days'] ) ) . '</li>';
+			}
+		}
+
+		if ( $part['via_seat'] ) {
+			$note = '<p class="agend-ms-hero__note">' . esc_html__( 'Included through your organisation\'s membership.', 'agend-apps-core' ) . '</p>';
+		}
+
+		$button_labels = array(
+			'active'  => __( 'Manage membership', 'agend-apps-core' ),
+			'pending' => __( 'View membership', 'agend-apps-core' ),
+			'ended'   => __( 'Renew membership', 'agend-apps-core' ),
+		);
+
+		if ( '' !== $links['membership'] ) {
+			$action = agend_apps_records_member_summary_button( $links['membership'], $button_labels[ $state ] ?? $button_labels['active'], 'on-band' );
+		}
+	} elseif ( $shows && 'empty' === $part['status'] ) {
+		$state = 'none';
+		$note  = '<p class="agend-ms-hero__note">' . esc_html__( 'There is no membership on this account.', 'agend-apps-core' ) . ' ' . esc_html__( 'If you think this is wrong, get in touch and we will look into it.', 'agend-apps-core' ) . '</p>';
+
+		if ( '' !== $links['join'] ) {
+			$action .= agend_apps_records_member_summary_button( $links['join'], __( 'Join', 'agend-apps-core' ), 'on-band' );
+		}
+
+		if ( '' !== $links['support'] ) {
+			$action .= agend_apps_records_member_summary_button( $links['support'], __( 'Contact us', 'agend-apps-core' ), 'on-band-quiet' );
+		}
+	} elseif ( $shows ) {
+		$state = 'unavailable';
+		$note  = '<p class="agend-ms-hero__note">' . esc_html__( 'We could not load your membership just now.', 'agend-apps-core' ) . '</p>';
+	}
+
+	return '<header class="agend-ms-hero' . ( '' !== $state ? ' agend-ms-hero--' . esc_attr( $state ) : '' ) . '">'
+		. agend_apps_records_member_summary_avatar( $named ? (string) ( $contact['initials'] ?? '' ) : '' )
+		. '<div class="agend-ms-hero__main">'
+		. '<h3 class="agend-ms-hero__title">' . esc_html( $title ) . '</h3>'
+		. ( '' !== $role ? '<p class="agend-ms-hero__role">' . esc_html( $role ) . '</p>' : '' )
+		. ( '' !== $meta ? '<ul class="agend-ms-meta agend-ms-hero__meta" role="list">' . $meta . '</ul>' : '' )
+		. $note
+		. '</div>'
+		. ( '' !== $pills || '' !== $action ? '<div class="agend-ms-hero__side">' . ( '' !== $pills ? '<ul class="agend-ms-pills" role="list">' . $pills . '</ul>' : '' ) . ( '' !== $action ? '<p class="agend-ms-hero__actions">' . $action . '</p>' : '' ) . '</div>' : '' )
+		. '</header>';
+}
+
+// ---------------------------------------------------------------------------
+// The tiles
+// ---------------------------------------------------------------------------
+
+/**
+ * The CPD points tile.
+ *
+ * With a target Agend resolved, a ring: how far round it is says how far the
+ * member is to their own target, and the words say the same, because the ring is
+ * a picture of them and a screen reader is read the sentence instead. Without a
+ * target the member's points are shown on their own and the tile says why there
+ * is no ring. A target is never invented: the ring exists only where Agend gave
+ * one.
  *
  * @param array $part  The CPD part.
  * @param array $links Where the cards link to.
@@ -562,10 +737,15 @@ function agend_apps_records_member_summary_render_cpd( array $part, array $links
 		return agend_apps_records_member_summary_card( 'cpd', $title, '<p class="agend-ms-quiet">' . esc_html__( 'No CPD points are recorded for you yet.', 'agend-apps-core' ) . '</p>', $footer );
 	}
 
+	$completed = null !== ( $part['completed'] ?? null ) && (int) $part['completed'] > 0
+		/* translators: %s: number of courses the member has completed. */
+		? '<p class="agend-ms-quiet">' . esc_html( sprintf( _n( '%s course completed', '%s courses completed', (int) $part['completed'], 'agend-apps-core' ), number_format_i18n( (int) $part['completed'] ) ) ) . '</p>'
+		: '';
+
 	if ( 'total' === $part['form'] ) {
 		$why  = 'not_applicable' === ( $part['why'] ?? '' ) ? __( 'No CPD target applies to you.', 'agend-apps-core' ) : __( 'No CPD target has been set for you.', 'agend-apps-core' );
 		$body = '<p class="agend-ms-figure"><span class="agend-ms-figure__value">' . esc_html( agend_apps_records_member_summary_points( (float) $part['earned'] ) ) . '</span> <span class="agend-ms-figure__unit">' . esc_html__( 'points earned', 'agend-apps-core' ) . '</span></p>'
-			. '<p class="agend-ms-quiet">' . esc_html( $why ) . '</p>';
+			. '<p class="agend-ms-quiet">' . esc_html( $why ) . '</p>' . $completed;
 
 		return agend_apps_records_member_summary_card( 'cpd', $title, $body, $footer );
 	}
@@ -573,6 +753,8 @@ function agend_apps_records_member_summary_render_cpd( array $part, array $links
 	$earned = (float) $part['earned'];
 	$target = (float) $part['target'];
 	$fill   = max( 0.0, min( 100.0, $target > 0 ? $earned / $target * 100 : 0.0 ) );
+	$circ   = 326.73; // The circumference of the ring's circle (radius 52).
+	$to_go  = max( 0.0, $target - $earned );
 
 	$paces = array(
 		'met'      => __( 'Target met', 'agend-apps-core' ),
@@ -591,11 +773,31 @@ function agend_apps_records_member_summary_render_cpd( array $part, array $links
 		$meta[] = '<li class="agend-ms-meta__item">' . esc_html( sprintf( _n( '%s day left', '%s days left', (int) $part['days_left'], 'agend-apps-core' ), number_format_i18n( (int) $part['days_left'] ) ) ) . '</li>';
 	}
 
-	$body = '<p class="agend-ms-figure"><span class="agend-ms-figure__value">' . esc_html( agend_apps_records_member_summary_points( $earned ) ) . '</span> <span class="agend-ms-figure__unit">'
+	/* translators: 1: points earned, 2: the member's CPD target. */
+	$sentence = sprintf( __( '%1$s of %2$s points earned.', 'agend-apps-core' ), agend_apps_records_member_summary_points( $earned ), agend_apps_records_member_summary_points( $target ) );
+
+	if ( $to_go > 0 ) {
+		/* translators: %s: points still to earn to reach the target. */
+		$lead = sprintf( __( '%s points to your target', 'agend-apps-core' ), agend_apps_records_member_summary_points( $to_go ) );
+	} else {
+		$lead = __( 'You have reached your target', 'agend-apps-core' );
+	}
+
+	$ring = '<div class="agend-ms-ring" style="--agend-ms-fill:' . esc_attr( number_format( $fill, 1, '.', '' ) ) . '%">'
+		. '<svg class="agend-ms-ring__svg" viewBox="0 0 120 120" width="112" height="112" aria-hidden="true" focusable="false">'
+		. '<circle class="agend-ms-ring__track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/>'
+		. '<circle class="agend-ms-ring__fill" cx="60" cy="60" r="52" fill="none" stroke-width="10" stroke-linecap="round" stroke-dasharray="' . esc_attr( number_format( $circ * $fill / 100, 2, '.', '' ) ) . ' ' . esc_attr( number_format( $circ, 2, '.', '' ) ) . '" transform="rotate(-90 60 60)"/>'
+		. '</svg>'
+		. '<span class="agend-ms-ring__text" aria-hidden="true"><span class="agend-ms-ring__value">' . esc_html( agend_apps_records_member_summary_points( $earned ) ) . '</span>'
 		/* translators: %s: the member's CPD target. */
-		. esc_html( sprintf( __( 'of %s points', 'agend-apps-core' ), agend_apps_records_member_summary_points( $target ) ) ) . '</span></p>'
-		. '<div class="agend-ms-bar" aria-hidden="true"><span class="agend-ms-bar__fill" style="--agend-ms-fill:' . esc_attr( number_format( $fill, 1, '.', '' ) ) . '%"></span></div>'
+		. '<span class="agend-ms-ring__of">' . esc_html( sprintf( __( 'of %s points', 'agend-apps-core' ), agend_apps_records_member_summary_points( $target ) ) ) . '</span></span>'
+		. '</div>';
+
+	$side = '<p class="agend-ms-lead">' . esc_html( $lead ) . '</p>'
 		. ( array() !== $meta ? '<ul class="agend-ms-meta" role="list">' . implode( '', $meta ) . '</ul>' : '' );
+
+	$body = '<div class="agend-ms-cpd">' . $ring . '<div class="agend-ms-cpd__text">' . $side . '</div></div>'
+		. '<p class="agend-ms-sr">' . esc_html( $sentence ) . '</p>';
 
 	$ends = agend_apps_records_member_summary_date( $part['period_end'], 'j F Y' );
 
@@ -609,11 +811,13 @@ function agend_apps_records_member_summary_render_cpd( array $part, array $links
 		$body .= '<p class="agend-ms-quiet">' . esc_html( sprintf( __( 'Your target is adjusted: %s.', 'agend-apps-core' ), rtrim( $part['adjustment'], '.' ) ) ) . '</p>';
 	}
 
+	$body .= $completed;
+
 	return agend_apps_records_member_summary_card( 'cpd', $title, $body, $footer );
 }
 
 /**
- * The upcoming events card.
+ * The upcoming events tile.
  *
  * @param array $part   The events part.
  * @param array $config The render config.
@@ -662,7 +866,7 @@ function agend_apps_records_member_summary_render_events( array $part, array $co
 		$rows .= '<li class="agend-ms-row' . ( '' !== $url ? ' agend-ms-row--link' : '' ) . '">'
 			. '<span class="agend-ms-date" aria-hidden="true">' . ( '' !== $day ? '<span class="agend-ms-date__day">' . esc_html( $day ) . '</span><span class="agend-ms-date__month">' . esc_html( $month ) . '</span>' : '' ) . '</span>'
 			. '<span class="agend-ms-row__main">'
-			. ( '' !== $url ? '<a class="agend-ms-row__link exclude-agend-theme-link" href="' . esc_url( $url ) . '">' . esc_html( $item['title'] ) . '</a>' : '<span class="agend-ms-row__title">' . esc_html( $item['title'] ) . '</span>' )
+			. agend_apps_records_member_summary_row_title( $item['title'], $url )
 			. ( '' !== $meta ? '<ul class="agend-ms-meta" role="list">' . $meta . '</ul>' : '' )
 			. '</span>'
 			. ( '' !== $url ? agend_apps_records_member_summary_chevron() : '' )
@@ -680,7 +884,67 @@ function agend_apps_records_member_summary_render_events( array $part, array $co
 }
 
 /**
- * The certificates and badges card.
+ * The courses in progress tile: each course with a bar and a percentage.
+ *
+ * The bar is drawn only for a course Agend gave a percentage for. One without is
+ * listed by name, with no bar and no number, never as 0.
+ *
+ * @param array $part   The courses part.
+ * @param array $config The render config.
+ * @param array $links  Where the cards link to.
+ * @return string
+ */
+function agend_apps_records_member_summary_render_courses( array $part, array $config, array $links ): string {
+	$title  = __( 'Courses in progress', 'agend-apps-core' );
+	$footer = agend_apps_records_member_summary_more( $links['courses'], __( 'Continue learning', 'agend-apps-core' ) );
+
+	if ( 'unavailable' === $part['status'] ) {
+		return agend_apps_records_member_summary_card( 'courses', $title, agend_apps_records_member_summary_tile_unavailable(), $footer );
+	}
+
+	if ( 'empty' === $part['status'] ) {
+		$body = '<p class="agend-ms-quiet">' . esc_html( '' !== $config['copy']['no_courses'] ? $config['copy']['no_courses'] : __( 'You have no courses in progress.', 'agend-apps-core' ) ) . '</p>';
+
+		return agend_apps_records_member_summary_card( 'courses', $title, $body, $footer );
+	}
+
+	$rows = '';
+
+	foreach ( $part['items'] as $item ) {
+		$url     = agend_apps_records_member_summary_course_url( $item['slug'] );
+		$percent = $item['percent'];
+		$shown   = null === $percent ? '' : agend_apps_records_member_summary_points( (float) round( $percent ) );
+		$bar     = '';
+		$meta    = '';
+
+		if ( null !== $percent ) {
+			$bar = '<span class="agend-ms-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' . esc_attr( $shown ) . '" aria-label="' . esc_attr( sprintf( /* translators: %s: course title. */ __( 'Progress in %s', 'agend-apps-core' ), $item['title'] ) ) . '"><span class="agend-ms-bar__fill" style="--agend-ms-fill:' . esc_attr( number_format( $percent, 1, '.', '' ) ) . '%"></span></span>';
+		}
+
+		if ( null !== $item['done'] && null !== $item['lessons'] && $item['done'] <= $item['lessons'] ) {
+			/* translators: 1: lessons completed, 2: lessons in the course. */
+			$meta = '<span class="agend-ms-quiet agend-ms-course__lessons">' . esc_html( sprintf( __( '%1$s of %2$s lessons', 'agend-apps-core' ), number_format_i18n( (int) $item['done'] ), number_format_i18n( (int) $item['lessons'] ) ) ) . '</span>';
+		}
+
+		$rows .= '<li class="agend-ms-course' . ( '' !== $url ? ' agend-ms-row--link' : '' ) . '">'
+			. '<span class="agend-ms-course__top">' . agend_apps_records_member_summary_row_title( $item['title'], $url )
+			. ( '' !== $shown ? '<span class="agend-ms-course__pct">' . esc_html( $shown ) . '%</span>' : '' ) . '</span>'
+			. $bar . $meta
+			. '</li>';
+	}
+
+	$more = '';
+
+	if ( (int) $part['total'] > count( $part['items'] ) ) {
+		/* translators: %s: number of further courses. */
+		$more = '<p class="agend-ms-quiet">' . esc_html( sprintf( _n( 'and %s more.', 'and %s more.', (int) $part['total'] - count( $part['items'] ), 'agend-apps-core' ), number_format_i18n( (int) $part['total'] - count( $part['items'] ) ) ) ) . '</p>';
+	}
+
+	return agend_apps_records_member_summary_card( 'courses', $title, '<ul class="agend-ms-list agend-ms-list--courses" role="list">' . $rows . '</ul>' . $more, $footer );
+}
+
+/**
+ * The certificates and badges tile.
  *
  * @param array $part   The credentials part.
  * @param array $config The render config.
@@ -722,7 +986,7 @@ function agend_apps_records_member_summary_render_credentials( array $part, arra
 
 			$rows .= '<li class="agend-ms-row' . ( '' !== $url ? ' agend-ms-row--link' : '' ) . ' agend-ms-row--plain">'
 				. '<span class="agend-ms-row__main">'
-				. ( '' !== $url ? '<a class="agend-ms-row__link exclude-agend-theme-link" href="' . esc_url( $url ) . '">' . esc_html( $certificate['title'] ) . '</a>' : '<span class="agend-ms-row__title">' . esc_html( $certificate['title'] ) . '</span>' )
+				. agend_apps_records_member_summary_row_title( $certificate['title'], $url )
 				. ( '' !== $meta ? '<ul class="agend-ms-meta" role="list">' . $meta . '</ul>' : '' )
 				. '</span>'
 				. ( '' !== $url ? agend_apps_records_member_summary_chevron() : '' )
@@ -743,25 +1007,20 @@ function agend_apps_records_member_summary_render_credentials( array $part, arra
 		$body .= '<ul class="agend-ms-badges" role="list" aria-label="' . esc_attr__( 'Badges', 'agend-apps-core' ) . '">' . $chips . '</ul>';
 	}
 
-	$footer = '';
-
-	if ( array() !== $part['certificates'] ) {
-		$footer .= agend_apps_records_member_summary_more( $links['certificates'], __( 'View all your certificates', 'agend-apps-core' ) );
-	}
-
-	if ( array() !== $part['badges'] ) {
-		$footer .= agend_apps_records_member_summary_more( $links['badges'], __( 'View all your badges', 'agend-apps-core' ) );
-	}
+	// One quiet link: the certificates when there are some, else the badges.
+	$footer = array() !== $part['certificates']
+		? agend_apps_records_member_summary_more( $links['certificates'], __( 'View all your certificates', 'agend-apps-core' ) )
+		: agend_apps_records_member_summary_more( $links['badges'], __( 'View all your badges', 'agend-apps-core' ) );
 
 	return agend_apps_records_member_summary_card( 'credentials', $title, $body, $footer );
 }
 
 /**
- * The directory listing card.
+ * The directory listing tile.
  *
  * Drawn only for a member the profile says has a listing, or, when the editor
  * set a Manage listing link, as an invitation to use it. The profile carries no
- * listing both for a member with none and for a failed read, so the card never
+ * listing both for a member with none and for a failed read, so the tile never
  * says "you are not listed".
  *
  * @param array $part  The directory part.
@@ -784,19 +1043,67 @@ function agend_apps_records_member_summary_render_directory( array $part, array 
 		return agend_apps_records_member_summary_card( 'directory', $title, '<p class="agend-ms-quiet">' . esc_html__( 'Add or update your listing in the directory.', 'agend-apps-core' ) . '</p>', $manage );
 	}
 
-	$url  = agend_apps_records_member_summary_listing_url( $part['slug'] );
-	$logo = '' !== $part['logo'] ? '<img class="agend-ms-listing__logo" src="' . esc_url( $part['logo'] ) . '" alt="" width="48" height="48" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '';
-	$name = '' !== $url ? '<a class="agend-ms-row__link exclude-agend-theme-link" href="' . esc_url( $url ) . '">' . esc_html( $part['name'] ) . '</a>' : '<span class="agend-ms-row__title">' . esc_html( $part['name'] ) . '</span>';
+	$url = agend_apps_records_member_summary_listing_url( $part['slug'] );
+
+	if ( '' !== $part['logo'] ) {
+		$mark = '<img class="agend-ms-listing__logo" src="' . esc_url( $part['logo'] ) . '" alt="" width="52" height="52" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
+	} else {
+		$letter = function_exists( 'mb_substr' ) ? mb_strtoupper( mb_substr( $part['name'], 0, 1 ) ) : strtoupper( substr( $part['name'], 0, 1 ) );
+		$mark   = '<span class="agend-ms-listing__logo agend-ms-listing__logo--letter" aria-hidden="true">' . esc_html( $letter ) . '</span>';
+	}
 
 	$body = '<div class="agend-ms-row agend-ms-listing' . ( '' !== $url ? ' agend-ms-row--link' : '' ) . '">'
-		. $logo
-		. '<span class="agend-ms-row__main">' . $name
-		. ( $part['verified'] ? '<ul class="agend-ms-meta" role="list"><li class="agend-ms-meta__item">' . esc_html__( 'Verified listing', 'agend-apps-core' ) . '</li></ul>' : '' )
+		. $mark
+		. '<span class="agend-ms-row__main">' . agend_apps_records_member_summary_row_title( $part['name'], $url )
+		. '<ul class="agend-ms-meta" role="list"><li class="agend-ms-meta__item">' . esc_html( $part['verified'] ? __( 'Verified listing', 'agend-apps-core' ) : __( 'In the directory', 'agend-apps-core' ) ) . '</li></ul>'
 		. '</span>'
 		. ( '' !== $url ? agend_apps_records_member_summary_chevron() : '' )
 		. '</div>';
 
-	return agend_apps_records_member_summary_card( 'directory', $title, $body, $manage );
+	// The editor's manage link when there is one, else the listing itself.
+	$footer = '' !== $manage ? $manage : agend_apps_records_member_summary_more( $url, __( 'View your listing', 'agend-apps-core' ) );
+
+	return agend_apps_records_member_summary_card( 'directory', $title, $body, $footer );
+}
+
+/**
+ * The reading lists tile: each list and how many pages are in it.
+ *
+ * @param array $part   The reading part.
+ * @param array $config The render config.
+ * @param array $links  Where the cards link to.
+ * @return string
+ */
+function agend_apps_records_member_summary_render_reading( array $part, array $config, array $links ): string {
+	$title  = __( 'Reading lists', 'agend-apps-core' );
+	$footer = agend_apps_records_member_summary_more( $links['resources'], __( 'Browse resources', 'agend-apps-core' ) );
+
+	if ( 'unavailable' === $part['status'] ) {
+		return agend_apps_records_member_summary_card( 'reading', $title, agend_apps_records_member_summary_tile_unavailable(), $footer );
+	}
+
+	if ( 'empty' === $part['status'] ) {
+		$body = '<p class="agend-ms-quiet">' . esc_html( '' !== $config['copy']['no_reading'] ? $config['copy']['no_reading'] : __( 'There are no reading lists for you yet.', 'agend-apps-core' ) ) . '</p>';
+
+		return agend_apps_records_member_summary_card( 'reading', $title, $body, $footer );
+	}
+
+	$rows = '';
+
+	foreach ( $part['items'] as $item ) {
+		$rows .= '<li class="agend-ms-row agend-ms-row--plain"><span class="agend-ms-row__main"><span class="agend-ms-row__title">' . esc_html( $item['title'] ) . '</span></span>'
+			/* translators: %s: number of pages in a reading list. */
+			. '<span class="agend-ms-row__aside">' . esc_html( sprintf( _n( '%s page', '%s pages', (int) $item['pages'], 'agend-apps-core' ), number_format_i18n( (int) $item['pages'] ) ) ) . '</span></li>';
+	}
+
+	$more = '';
+
+	if ( (int) $part['total'] > count( $part['items'] ) ) {
+		/* translators: %s: number of further reading lists. */
+		$more = '<p class="agend-ms-quiet">' . esc_html( sprintf( _n( 'and %s more.', 'and %s more.', (int) $part['total'] - count( $part['items'] ), 'agend-apps-core' ), number_format_i18n( (int) $part['total'] - count( $part['items'] ) ) ) ) . '</p>';
+	}
+
+	return agend_apps_records_member_summary_card( 'reading', $title, '<ul class="agend-ms-list" role="list">' . $rows . '</ul>' . $more, $footer );
 }
 
 // ---------------------------------------------------------------------------
@@ -894,29 +1201,46 @@ function agend_apps_records_member_summary_render_notice( array $config, array $
 }
 
 /**
- * What a visitor who is not signed in sees: a sign-in card.
+ * What a visitor who is not signed in sees: an invitation.
+ *
+ * It is the welcome band a member gets, in a plain state: the person's outline in
+ * place of initials, what signing in gives them, and one button. Under it are the
+ * names of the tiles the editor has switched on, so a visitor sees what they will
+ * find. Nothing about any member, and nothing made up, is drawn.
  *
  * @param array  $config  The render config.
  * @param string $sign_in Where signing in leads, back to this page.
  * @return string
  */
 function agend_apps_records_member_summary_render_signed_out( array $config, string $sign_in ): string {
-	return '<div class="agend-ms-notice agend-ms-notice--signed-out" data-agend-ms-state="signed_out">'
-		. '<span class="agend-ms-notice__mark" aria-hidden="true"></span>'
-		. '<div class="agend-ms-notice__text">'
-		. '<h3 class="agend-ms-notice__title">' . esc_html__( 'Sign in to see your membership', 'agend-apps-core' ) . '</h3>'
-		. ( '' !== $config['copy']['signed_out'] ? '<p class="agend-ms-notice__message">' . esc_html( $config['copy']['signed_out'] ) . '</p>' : '' )
-		. '<p class="agend-ms-actions">' . agend_apps_records_member_summary_button( $sign_in, '' !== $config['copy']['sign_in'] ? $config['copy']['sign_in'] : __( 'Sign in', 'agend-apps-core' ) ) . '</p>'
-		. '</div></div>';
+	$names = agend_apps_records_member_summary_part_names();
+	$chips = '';
+
+	foreach ( $names as $key => $name ) {
+		if ( ! empty( $config['sections'][ $key ] ) ) {
+			$chips .= '<li class="agend-ms-pill agend-ms-pill--soft"><span class="agend-ms-pill__icon">' . agend_apps_records_member_summary_icon( $key, '16' ) . '</span>' . esc_html( $name ) . '</li>';
+		}
+	}
+
+	return '<div class="agend-ms-hero agend-ms-hero--invite agend-ms-notice--signed-out" data-agend-ms-state="signed_out">'
+		. agend_apps_records_member_summary_avatar( '' )
+		. '<div class="agend-ms-hero__main">'
+		. '<h3 class="agend-ms-hero__title">' . esc_html__( 'Sign in to see your membership', 'agend-apps-core' ) . '</h3>'
+		. ( '' !== $config['copy']['signed_out'] ? '<p class="agend-ms-hero__role">' . esc_html( $config['copy']['signed_out'] ) . '</p>' : '' )
+		. ( '' !== $chips ? '<ul class="agend-ms-pills agend-ms-pills--soft" role="list" aria-label="' . esc_attr__( 'What you will find here', 'agend-apps-core' ) . '">' . $chips . '</ul>' : '' )
+		. '</div>'
+		. '<div class="agend-ms-hero__side"><p class="agend-ms-hero__actions">' . agend_apps_records_member_summary_button( $sign_in, '' !== $config['copy']['sign_in'] ? $config['copy']['sign_in'] : __( 'Sign in', 'agend-apps-core' ), 'on-band' ) . '</p></div>'
+		. '</div>';
 }
 
 /**
- * The cards for a member whose access is ready, or the notice for one whose is
+ * The view for a member whose access is ready, or the notice for one whose is
  * not. This is the fragment the route sends.
  *
- * Parts the key does not allow are left out; a part that failed says so in its
- * own card, and one "Try again" serves them all. An administrator is told which
- * parts were left out and why, in a note members do not get.
+ * The welcome band first, then the tiles in one even grid. Parts the key does
+ * not allow are left out; a part that failed says so in its own tile, and one
+ * "Try again" serves them all. An administrator is told which parts were left
+ * out and why, in a note members do not get.
  *
  * @param array $config The render config.
  * @param array $result The summary: `access`, `contact`, `sections`
@@ -931,6 +1255,7 @@ function agend_apps_records_member_summary_render_body( array $config, array $re
 
 	$links    = agend_apps_records_member_summary_links( $config );
 	$sections = $result['sections'];
+	$contact  = (array) ( $result['contact'] ?? array() );
 	$out      = '';
 	$grid     = '';
 	$failed   = false;
@@ -946,58 +1271,48 @@ function agend_apps_records_member_summary_render_body( array $config, array $re
 		}
 	}
 
-	$first_name = (string) ( $result['contact']['first_name'] ?? '' );
+	$hero = agend_apps_records_member_summary_render_hero( $config, $contact, (array) ( $sections['membership'] ?? array() ), $links );
+	$out .= $hero;
 
-	if ( $config['greeting'] && '' !== $first_name ) {
-		/* translators: %s: the member's first name. */
-		$out .= '<p class="agend-ms-greeting">' . esc_html( sprintf( __( 'Hello, %s.', 'agend-apps-core' ), $first_name ) ) . '</p>';
-	}
+	// One loop, in the order the parts are drawn, so a part is never drawn twice
+	// or out of place.
+	foreach ( agend_apps_member_summary_sections() as $name ) {
+		if ( ! isset( $sections[ $name ] ) || 'no_access' === $sections[ $name ]['status'] ) {
+			continue;
+		}
 
-	$drawn = false;
-
-	if ( isset( $sections['membership'] ) && 'no_access' !== $sections['membership']['status'] ) {
-		$out  .= agend_apps_records_member_summary_render_membership( $sections['membership'], $config, $links );
-		$drawn = true;
-	}
-
-	if ( isset( $sections['cpd'] ) && 'no_access' !== $sections['cpd']['status'] ) {
-		$grid .= agend_apps_records_member_summary_render_cpd( $sections['cpd'], $links );
-	}
-
-	if ( isset( $sections['events'] ) && 'no_access' !== $sections['events']['status'] ) {
-		$grid .= agend_apps_records_member_summary_render_events( $sections['events'], $config, $links );
-	}
-
-	if ( isset( $sections['credentials'] ) && 'no_access' !== $sections['credentials']['status'] ) {
-		$grid .= agend_apps_records_member_summary_render_credentials( $sections['credentials'], $config, $links );
-	}
-
-	// The listing is one short row, so it is a strip under the cards rather than
-	// a fourth card with most of its height empty.
-	$strip = '';
-
-	if ( isset( $sections['directory'] ) && 'no_access' !== $sections['directory']['status'] ) {
-		$strip = agend_apps_records_member_summary_render_directory( $sections['directory'], $links );
+		switch ( $name ) {
+			case 'cpd':
+				$grid .= agend_apps_records_member_summary_render_cpd( $sections[ $name ], $links );
+				break;
+			case 'events':
+				$grid .= agend_apps_records_member_summary_render_events( $sections[ $name ], $config, $links );
+				break;
+			case 'courses':
+				$grid .= agend_apps_records_member_summary_render_courses( $sections[ $name ], $config, $links );
+				break;
+			case 'credentials':
+				$grid .= agend_apps_records_member_summary_render_credentials( $sections[ $name ], $config, $links );
+				break;
+			case 'directory':
+				$grid .= agend_apps_records_member_summary_render_directory( $sections[ $name ], $links );
+				break;
+			case 'reading':
+				$grid .= agend_apps_records_member_summary_render_reading( $sections[ $name ], $config, $links );
+				break;
+		}
 	}
 
 	if ( '' !== $grid ) {
 		$out .= '<div class="agend-ms-grid">' . $grid . '</div>';
 	}
 
-	$out .= $strip;
-
 	if ( $failed ) {
 		$out .= '<p class="agend-ms-actions agend-ms-actions--retry">' . agend_apps_records_member_summary_retry_button( __( 'Try again', 'agend-apps-core' ) ) . '</p>';
 	}
 
 	if ( array() !== $hidden && function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) {
-		$names = array(
-			'membership'  => __( 'Membership', 'agend-apps-core' ),
-			'cpd'         => __( 'CPD points', 'agend-apps-core' ),
-			'events'      => __( 'Upcoming events', 'agend-apps-core' ),
-			'credentials' => __( 'Certificates and badges', 'agend-apps-core' ),
-			'directory'   => __( 'Directory listing', 'agend-apps-core' ),
-		);
+		$names = agend_apps_records_member_summary_part_names();
 
 		$out .= '<p class="agend-ms-admin"><strong>' . esc_html__( 'Only administrators see this note.', 'agend-apps-core' ) . '</strong> '
 			. esc_html(
@@ -1010,7 +1325,7 @@ function agend_apps_records_member_summary_render_body( array $config, array $re
 			. '</p>';
 	}
 
-	if ( '' === $grid && '' === $strip && ! $drawn ) {
+	if ( '' === $grid && '' === $hero ) {
 		$out .= '<p class="agend-ms-quiet">' . esc_html__( 'There is nothing to show here yet.', 'agend-apps-core' ) . '</p>';
 	}
 
@@ -1047,7 +1362,12 @@ function agend_apps_records_member_summary_example( int $now = 0 ): array {
 			'initiate_url' => '',
 			'detail'       => '',
 		),
-		'contact'  => array( 'first_name' => 'Alex' ),
+		'contact'  => array(
+			'first_name' => 'Priya',
+			'initials'   => 'PR',
+			'title'      => __( 'Practice lead', 'agend-apps-core' ),
+			'company'    => __( 'Example Studio', 'agend-apps-core' ),
+		),
 		'sections' => array(
 			'membership'  => array(
 				'status'   => 'ready',
@@ -1067,6 +1387,7 @@ function agend_apps_records_member_summary_example( int $now = 0 ): array {
 				'days_left'  => 224,
 				'period_end' => gmdate( 'Y-m-d', $now + 224 * $day ),
 				'adjustment' => '',
+				'completed'  => 3,
 			),
 			'events'      => array(
 				'status' => 'ready',
@@ -1082,6 +1403,26 @@ function agend_apps_records_member_summary_example( int $now = 0 ): array {
 						'slug'   => '',
 						'date'   => gmdate( 'Y-m-d\T03:30:00\Z', $now + 40 * $day ),
 						'status' => 'registered',
+					),
+				),
+				'total'  => 2,
+			),
+			'courses'     => array(
+				'status' => 'ready',
+				'items'  => array(
+					array(
+						'title'   => __( 'Pricing your work', 'agend-apps-core' ),
+						'slug'    => '',
+						'percent' => 72.0,
+						'done'    => 6,
+						'lessons' => 8,
+					),
+					array(
+						'title'   => __( 'Contracts for studios', 'agend-apps-core' ),
+						'slug'    => '',
+						'percent' => 35.0,
+						'done'    => 3,
+						'lessons' => 9,
 					),
 				),
 				'total'  => 2,
@@ -1123,6 +1464,20 @@ function agend_apps_records_member_summary_example( int $now = 0 ): array {
 				'slug'     => '',
 				'verified' => true,
 				'logo'     => '',
+			),
+			'reading'     => array(
+				'status' => 'ready',
+				'items'  => array(
+					array(
+						'title' => __( 'New member starter pack', 'agend-apps-core' ),
+						'pages' => 5,
+					),
+					array(
+						'title' => __( 'Running a studio', 'agend-apps-core' ),
+						'pages' => 6,
+					),
+				),
+				'total'  => 2,
 			),
 		),
 		'reads'    => array(),
@@ -1235,7 +1590,7 @@ function agend_apps_records_render_member_summary( array $settings, array $opts 
 	return '<div class="agend-member-summary" style="' . esc_attr( $style ) . '" data-agend-member-summary-config="' . esc_attr( (string) wp_json_encode( $client ) ) . '">' . $heading
 		. '<div class="agend-member-summary__body" aria-live="polite" aria-busy="true" data-agend-ms-body>'
 		. '<div class="agend-ms-loading" role="status"><span class="agend-ms-sr">' . esc_html__( 'Loading your membership', 'agend-apps-core' ) . '</span>'
-		. '<span class="agend-ms-loading__band" aria-hidden="true"></span><span class="agend-ms-loading__card" aria-hidden="true"></span><span class="agend-ms-loading__card" aria-hidden="true"></span></div>'
+		. '<span class="agend-ms-loading__band" aria-hidden="true"></span><span class="agend-ms-grid" aria-hidden="true"><span class="agend-ms-loading__card agend-ms-card"></span><span class="agend-ms-loading__card agend-ms-card"></span><span class="agend-ms-loading__card agend-ms-card"></span></span></div>'
 		. '</div>'
 		. '<noscript><p class="agend-ms-quiet">' . esc_html__( 'This page needs JavaScript to show your membership.', 'agend-apps-core' ) . '</p></noscript>'
 		. '</div>';
@@ -1261,15 +1616,13 @@ function agend_apps_records_member_summary_block_notices( array $notices, string
 	);
 
 	$left_out = array();
-	$names    = array(
-		'membership'  => __( 'Membership', 'agend-apps-core' ),
-		'cpd'         => __( 'CPD points', 'agend-apps-core' ),
-		'events'      => __( 'Upcoming events', 'agend-apps-core' ),
-		'credentials' => __( 'Certificates and badges', 'agend-apps-core' ),
-		'directory'   => __( 'Directory listing', 'agend-apps-core' ),
-	);
+	$names    = agend_apps_records_member_summary_part_names();
 
-	foreach ( agend_apps_member_summary_plan( array( 'sections' => agend_apps_member_summary_sections() ) )['no_access'] as $name ) {
+	// The reading lists are off until an editor turns them on, so a key that
+	// lacks them is not worth a warning about a part no one asked for.
+	$checked = array_values( array_diff( agend_apps_member_summary_sections(), array( 'reading' ) ) );
+
+	foreach ( agend_apps_member_summary_plan( array( 'sections' => $checked ) )['no_access'] as $name ) {
 		$left_out[] = $names[ $name ] ?? $name;
 	}
 
