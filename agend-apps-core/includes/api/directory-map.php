@@ -88,6 +88,10 @@ function agend_apps_directory_get_markers( string $search_query, array $filters 
 		$filters
 	);
 
+	if ( function_exists( 'agend_apps_directory_reads_shared' ) && agend_apps_directory_reads_shared() ) {
+		$args['anonymous'] = true;
+	}
+
 	$cache_key = Agend_Apps_Cache::build_key( 'directory_markers', $query );
 	$ttl       = Agend_Apps_Settings::get_cache_ttl( 'directory_markers' );
 

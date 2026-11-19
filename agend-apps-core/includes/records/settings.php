@@ -40,6 +40,13 @@ const AGEND_APPS_RECORDS_SHOW_ACHIEVEMENTS_OPTION = 'agend_elementor_show_achiev
 const AGEND_APPS_RECORDS_MAP_TILES_KEY_OPTION = 'agend_apps_map_carto_key';
 
 /**
+ * Option name storing the "members see the same directory" toggle ('1' or '').
+ *
+ * @var string
+ */
+const AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION = 'agend_apps_directory_shared_reads';
+
+/**
  * Option name storing the configured Events catalogue/detail page id (0 = unset).
  *
  * @var string
@@ -132,6 +139,30 @@ function agend_apps_records_ssr_detail_enabled(): bool {
 	// A site's existing add_filter() on the pre-rename hook name still applies
 	// for one release.
 	return (bool) apply_filters_deprecated( 'agend_elementor_ssr_detail_enabled', array( $enabled ), '1.8.0', 'agend_apps_records_ssr_detail_enabled' );
+}
+
+/**
+ * Whether a signed-in member's directory reads are the shared, anonymous ones.
+ *
+ * Off by default: a member's token goes with every directory read, because
+ * the account may show some fields only to members, and those responses are
+ * never shared. A site whose directory shows members nothing extra turns this
+ * on, so search, facets, map pins, the listings list and a listing's detail
+ * are sent without the token and served from the cache every visitor shares.
+ * If a field is later made members-only, members see it as hidden too; the
+ * public never sees more. Writes and `/me` reads still carry the token.
+ *
+ * @return bool True when directory reads are shared.
+ */
+function agend_apps_directory_reads_shared(): bool {
+	$enabled = '1' === get_option( AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION, '' );
+
+	/**
+	 * Filters whether a signed-in member's directory reads are shared.
+	 *
+	 * @param bool $enabled Whether the toggle is on.
+	 */
+	return (bool) apply_filters( 'agend_apps_directory_reads_shared', $enabled );
 }
 
 /**
@@ -348,6 +379,52 @@ function agend_apps_records_settings_init(): void {
 		'agend-elementor',
 		'agend_apps_section_maps'
 	);
+
+	register_setting(
+		'agend_elementor_settings',
+		AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION,
+		array(
+			'type'              => 'string',
+			'sanitize_callback' => 'agend_apps_records_sanitize_checkbox',
+			'default'           => '',
+		)
+	);
+
+	add_settings_section(
+		'agend_apps_section_directory',
+		__( 'Directory', 'agend-apps-core' ),
+		'__return_null',
+		'agend-elementor'
+	);
+
+	add_settings_field(
+		AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION,
+		__( 'Members see the same directory', 'agend-apps-core' ),
+		'agend_apps_records_settings_field_directory_shared_reads',
+		'agend-elementor',
+		'agend_apps_section_directory'
+	);
+}
+
+/**
+ * Renders the "members see the same directory" checkbox field.
+ */
+function agend_apps_records_settings_field_directory_shared_reads(): void {
+	$value = get_option( AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION, '' );
+	?>
+	<label>
+		<input type="checkbox" name="<?php echo esc_attr( AGEND_APPS_RECORDS_DIRECTORY_SHARED_READS_OPTION ); ?>" value="1" <?php checked( '1', $value ); ?> />
+		<?php esc_html_e( 'Show signed-in members the same directory as everyone else', 'agend-apps-core' ); ?>
+	</label>
+	<p class="description">
+		<?php
+		esc_html_e(
+			'Turn this on only when no directory field is set to show to members alone. Search, filters, map pins and listing pages then load from the cache every visitor shares, which is much faster for signed-in members. If a field is later made members-only, members will see it hidden as well, until this is turned off.',
+			'agend-apps-core'
+		);
+		?>
+	</p>
+	<?php
 }
 add_action( 'admin_init', 'agend_apps_records_settings_init' );
 

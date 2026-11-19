@@ -119,7 +119,8 @@ default):
   unlinked member's request for the dedicated directory page or a listing
   detail is redirected through the round trip on `wp` priority 3, before the
   priority 4 sign-in gate and the priority 5 server-rendered detail swap fetch
-  anything, and returned to the same URL. Filter
+  anything, and returned to the same URL. A site that shares directory reads
+  skips this, because those pages fetch nothing with the member's token. Filter
   `agend_apps_saml_link_prerender_required` (`$required`, `$context`) to add
   other member content pages.
 
@@ -161,6 +162,20 @@ too. Directory categories and the site config always use it, and so do facet
 requests that name at least one facet and no `custom.<key>` facet; a custom
 facet, or no facet named, depends on the member's grants. Use it for nothing
 that varies by viewer.
+
+**A site can share every directory read.** The account can set a directory
+field to show to members only, so by default a signed-in member's search,
+facets, map pins, listings list and listing detail carry their token and are
+never stored. A site whose directory shows members nothing extra ticks
+"Members see the same directory" under Settings > Agend Widgets > Directory
+(option `agend_apps_directory_shared_reads`, filter
+`agend_apps_directory_reads_shared`). Those reads are then anonymous for
+everyone and served from the shared entries, custom facets included, so a
+member's filter change costs the same as a visitor's. If a field is later made
+members-only, members see it hidden too; the public never sees more. The
+pre-render SAML link (see "Linking members in `wordpress` sign-in mode") stops holding directory
+pages, because they no longer fetch anything with the member's token. Listing
+reviews, a member's own listing (`/me`) and every write still send the token.
 
 **`get_cached()` stores only a successful response.** Every error, a 404
 included, is returned and forgotten, so the next call asks the gateway again.
