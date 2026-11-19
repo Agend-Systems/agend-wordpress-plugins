@@ -1207,6 +1207,49 @@ credits" above).
   `jobs.submissions.browse` and `jobs.submissions.create` the surface draws
   nothing for a visitor.
 
+## Loop channel membership condition
+
+"Is in an active Loop channel" shows a menu item, or any other content, only
+to members who have been added to a Loop channel. It suits an association
+piloting Loop with a few invite-only channels: members outside the pilot never
+see a "Community" link to a space they cannot use.
+
+- **If Menu**: on a menu item, Visibility > Show if > "Is in an active Loop
+  channel" (group "Agend Loop").
+- **Content Personalisation (ESAC)**: the "Agend Loop" condition set, for
+  segments and display rules. A segment built on it is also offered to If Menu.
+
+Agend is the authority. The site asks
+`GET /v1/loop/integration/members/channels` with its own key, naming the
+member by contact pair (`external_source` and `external_id`), and passes when
+Agend says they belong to at least one channel that is neither archived nor a
+direct message. The member's bearer is never sent, so it does not matter
+whether they have ever signed in through this site's SSO. The functions are
+`Agend_Apps_Loop_Channel_Membership::status()` (true, false or a `WP_Error`)
+and `in_active_channel()` (any error reads as false).
+
+The answer is cached per member and contact pair for five minutes. Loop sends
+no membership webhooks, so a member added to or removed from a channel sees
+the link change within that time. A failed read is remembered for 30 seconds,
+and a site that cannot check at all for five minutes.
+
+Requirements, without which the condition never passes:
+
+- The site's key holds `loop.memberships.read` and has `loop` in its apps. A
+  key known to lack the scope offers neither condition, so an editor cannot
+  pick a rule that never passes.
+- The key's allowed contact sources list this site's contact source. That is
+  the `agend_apps_jobs_contact_source` option or filter, `upbeat-contacts`
+  unless set; Jobs and Loop share it. Otherwise Agend answers
+  `SOURCE_NOT_ALLOWED` and the condition never passes.
+- The member has an external id (on an Upbeat site, a membership number).
+
+A member Agend cannot match to a user yet, usually one who has never signed
+in to any Agend app, is answered "no" until they sign in and staff add them
+to a channel. Agend matches them through the contact holding the pair, or,
+for `upbeat-contacts`, through a sign-in on an SSO connection that treats the
+NameID as the Upbeat member number. Never by email.
+
 ## Directory map
 
 The location search, the Nearest sort, the List / Map switch and the Agend Map
