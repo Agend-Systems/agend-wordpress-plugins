@@ -198,7 +198,8 @@
       if (!tiers || !tiers.length) {
         if (status) {
           status.style.display = '';
-          status.textContent = 'No membership tiers available.';
+          status.classList.remove('agend-visually-hidden');
+          status.textContent = 'No membership tiers are available.';
         }
         return;
       }
@@ -934,6 +935,14 @@
      * Initialises the widget: fetch tiers and fields, render.
      */
     function init() {
+      // Checkout returns must be shown even if tiers or custom fields cannot load.
+      var urlState = currentState();
+      if (urlState === SUCCESS_MARKER) {
+        showCheckoutConfirmation();
+      } else if (urlState === CANCEL_MARKER) {
+        showCheckoutCancelled();
+      }
+
       // Server-side tier-type filter (SPEC-CORE-20260722): omit for both,
       // otherwise pass individual|corporate so the gateway returns only that type.
       var tiersQuery = cfg.membershipType ? { tierType: cfg.membershipType } : {};
@@ -947,26 +956,14 @@
           renderMyMembershipStatus(result.items);
         }
 
+        renderTiers(result.items);
         if (!result.items.length) {
-          if (status) {
-            status.style.display = '';
-            status.textContent = 'No membership tiers are available.';
-          }
           return;
         }
-
-        renderTiers(result.items);
 
         apiGet('/crm/fields', { entityType: 'contact' }).then(function (fieldsBody) {
           var fieldsResult = unwrapList(fieldsBody);
           state.fields = fieldsResult.items || [];
-
-          var urlState = currentState();
-          if (urlState === SUCCESS_MARKER) {
-            showCheckoutConfirmation();
-          } else if (urlState === CANCEL_MARKER) {
-            showCheckoutCancelled();
-          }
         }).catch(function () {
           // Fallback: no custom fields.
           state.fields = [];
