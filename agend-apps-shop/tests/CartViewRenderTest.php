@@ -94,12 +94,27 @@ final class CartViewRenderTest extends TestCase {
 		update_option( 'agend_apps_shop_guest_checkout', 'allow' );
 		$html = agend_apps_records_render_cart_view( array() );
 		self::assertStringContainsString( 'agend-shop-btn-proceed-checkout', $html );
-		self::assertStringNotContainsString( 'agend-shop-cart-signin', $html );
+		self::assertStringNotContainsString( 'Sign in to check out', $html );
 		self::assertStringContainsString( 'data-member-signed-in="false"', $html );
 		self::assertStringContainsString( 'Your name', $html );
 		self::assertStringContainsString( 'Your email', $html );
 		self::assertStringContainsString( 'maxlength="200" required', $html );
 		self::assertStringContainsString( 'type="email" autocomplete="email" required', $html );
+	}
+
+	#[Test]
+	public function should_keep_a_hidden_event_sign_in_prompt_that_returns_to_the_cart_when_guests_may_check_out(): void {
+		update_option( 'agend_apps_shop_guest_checkout', 'allow' );
+		$_SERVER['REQUEST_URI'] = '/cart/';
+		try {
+			$html = agend_apps_records_render_cart_view( array() );
+		} finally {
+			unset( $_SERVER['REQUEST_URI'] );
+		}
+		self::assertStringContainsString( '<div class="agend-shop-cart-signin agend-shop-cart-event-signin" hidden>', $html );
+		self::assertStringContainsString( 'Sign in to register for this event. Your cart will be kept.', $html );
+		self::assertStringContainsString( 'class="agend-shop-cart-signin-link elementor-button" href="' . esc_url( wp_login_url( home_url( '/cart/' ) ) ) . '"', $html );
+		self::assertStringContainsString( '>Sign in to register</a>', $html );
 	}
 
 	#[Test]

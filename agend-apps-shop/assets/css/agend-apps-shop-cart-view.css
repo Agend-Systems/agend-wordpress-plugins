@@ -642,6 +642,9 @@
 	border-radius: var( --agend-shop-radius );
 	background: var( --agend-shop-muted );
 }
+.agend-apps-shop-cart-view .agend-shop-cart-signin[hidden],
+.agend-apps-shop-cart-view .agend-shop-cart-buyer[hidden],
+.agend-apps-shop-cart-view .agend-shop-btn-proceed-checkout[hidden],
 .agend-apps-shop-cart-view .agend-shop-cart-payment[hidden],
 .agend-apps-shop-cart-view .agend-shop-invoice-details[hidden],
 .agend-apps-shop-cart-view .agend-shop-invoice-confirmation[hidden] { display: none !important; }

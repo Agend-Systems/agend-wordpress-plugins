@@ -232,10 +232,36 @@ final class CartRoutesTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_refuse_checkout_options_to_a_guest_without_calling_the_gateway(): void {
+	public function should_refuse_checkout_options_to_a_guest_without_calling_the_gateway_when_sign_in_is_required(): void {
+		delete_option( 'agend_apps_shop_guest_checkout' );
 		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() );
 		self::assertSame( 401, $response->get_status() );
 		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_refuse_checkout_options_to_a_guest_without_a_cart(): void {
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( new WP_REST_Request( 'GET', '/agend-apps/v1/cart/checkout-options' ) );
+		self::assertSame( 401, $response->get_status() );
+		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_tell_an_allowed_guest_only_whether_the_organisation_takes_guest_event_registrations(): void {
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'invoice' => $this->invoiceOption(), 'membershipInstalments' => null, 'guestEventCheckout' => false ) ) );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() );
+		self::assertSame( 200, $response->get_status() );
+		self::assertSame( array( 'data' => array( 'guestEventCheckout' => false ) ), $response->get_data() );
+		self::assertSame( 'guest-session', Agend_Test_WP::$requests[0]['headers']['X-Cart-Session'] );
+		self::assertArrayNotHasKey( 'Authorization', Agend_Test_WP::$requests[0]['headers'] );
+	}
+
+	#[Test]
+	public function should_leave_the_guest_event_answer_out_when_the_gateway_does_not_give_one(): void {
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'invoice' => $this->invoiceOption(), 'membershipInstalments' => null ) ) );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() );
+		self::assertSame( 200, $response->get_status() );
+		self::assertSame( array( 'data' => array() ), $response->get_data() );
 	}
 
 	#[Test]
