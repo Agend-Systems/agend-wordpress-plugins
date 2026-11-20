@@ -144,6 +144,27 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var confirmYesBtn    = wrapper.querySelector( '.agend-shop-btn-confirm-yes' );
 		var confirmNoBtn     = wrapper.querySelector( '.agend-shop-btn-confirm-no' );
 
+		var signedIn = 'true' === wrapper.dataset.memberSignedIn;
+		var eventTicketsOnly = false;
+		function updateCheckoutLabel( amount, currency ) {
+			if ( checkoutBtn && Number.isFinite( Number( amount ) ) && currency ) {
+				checkoutBtn.textContent = Number( amount ) === 0 && eventTicketsOnly
+					? 'Confirm free booking'
+					: 'Proceed to Checkout — ' + formatCurrency( Number( amount ), currency );
+			}
+		}
+		function safeContinueUrl( value ) {
+			if ( ! value ) return null;
+			try {
+				var url = new URL( value, window.location.href );
+				if ( url.origin === window.location.origin && /^https?:$/.test( url.protocol ) ) return url.href;
+			} catch ( e ) { /* Use the next fallback. */ }
+			return null;
+		}
+		var continueUrl = safeContinueUrl( new URL( window.location.href ).searchParams.get( 'continue' ) || '' )
+			|| safeContinueUrl( shopConfig.continueShoppingUrl || '' ) || new URL( '/', window.location.href ).href;
+		wrapper.querySelectorAll( '.agend-shop-keep-browsing' ).forEach( function ( link ) { link.href = continueUrl; } );
+
 		// Callback invoked when the shared confirmation modal is confirmed.
 		var pendingConfirm   = null;
 
@@ -335,17 +356,6 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				cancelBtn.hidden = ! isLocked;
 				cancelBtn.disabled = ! isLocked;
 			}
-			if ( buyerName && buyerEmail ) {
-				var firstAttendee = items.reduce( function ( found, item ) {
-					return found || getItemAttendees( item ).find( function ( attendee ) {
-						return attendee.beneficiary_name && attendee.beneficiary_email;
-					} );
-				}, null );
-				if ( firstAttendee ) {
-					buyerName.value = buyerName.value || firstAttendee.beneficiary_name;
-					buyerEmail.value = buyerEmail.value || firstAttendee.beneficiary_email;
-				}
-			}
 
 			// Handle terminal statuses.
 			if ( 'complete' === cart.status ) {
@@ -390,6 +400,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			if ( totalAmountEl ) {
 				totalAmountEl.textContent = formatCurrency( cart.total_amount, cart.currency );
 			}
+			eventTicketsOnly = cart.items.length > 0 && cart.items.every( function ( item ) { return 'event_tickets' === item.product_type; } );
+			updateCheckoutLabel( cart.total_amount, cart.currency );
 		}
 
 		/**
@@ -416,6 +428,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			var totalAmount = ( undefined !== totals.newTotalAmount ) ? totals.newTotalAmount : totals.newTotalAmmount;
 			if ( totalAmountEl && undefined !== totalAmount ) {
 				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
+				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
 
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
@@ -442,6 +455,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			var tdName = document.createElement( 'td' );
 			tdName.dataset.label = 'Item';
 			tdName.textContent = item.name;
+			if ( isEventTicketWithEvent( item ) ) {
+				var summary = document.createElement( 'div' );
+				summary.className = 'agend-shop-attendee-summary';
+				summary.textContent = attendeeSummary( item );
+				tdName.appendChild( summary );
+			}
 
 			// Unit price cell.
 			var tdUnit = document.createElement( 'td' );
@@ -498,7 +517,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				attendeesBtn.className = 'agend-shop-btn-attendees';
 				attendeesBtn.dataset.itemId = item.id;
 				attendeesBtn.setAttribute( 'aria-expanded', 'false' );
-				attendeesBtn.textContent = 'Attendees';
+				attendeesBtn.textContent = 'Change attendees';
 				tdActions.appendChild( attendeesBtn );
 			}
 
@@ -615,6 +634,21 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			return ( item && item.metadata && Array.isArray( item.metadata.attendees ) )
 				? item.metadata.attendees
 				: [];
+		}
+
+		function attendeeSummary( item ) {
+			var attendees = getItemAttendees( item );
+			return Array.from( { length: item.quantity }, function ( _, index ) {
+				var attendee = attendees[ index ] || {};
+				if ( 'self' === attendee.beneficiary_type ) return 'You';
+				if ( 'named' === attendee.beneficiary_type && attendee.beneficiary_name ) return attendee.beneficiary_name;
+				return signedIn ? 'Defaults to you' : 'Defaults to buyer';
+			} ).join( ', ' );
+		}
+		function refreshAttendeeSummary( item ) {
+			var row = Array.from( tbodyEl.querySelectorAll( 'tr[data--item-id]' ) ).find( function ( el ) { return el.getAttribute( 'data--item-id' ) === String( item.id ); } );
+			var summary = row && row.querySelector( '.agend-shop-attendee-summary' );
+			if ( summary ) summary.textContent = attendeeSummary( item );
 		}
 
 		/**
@@ -735,7 +769,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			if ( ! attendee ) {
 				return false;
 			}
-			if ( 'named' === attendee.beneficiary_type ) {
+			if ( 'named' === attendee.beneficiary_type || 'self' === attendee.beneficiary_type ) {
 				return true;
 			}
 			return !! ( attendee.custom_fields && Object.keys( attendee.custom_fields ).length );
@@ -795,6 +829,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			var totalAmount = ( undefined !== totals.newTotalAmount ) ? totals.newTotalAmount : totals.newTotalAmmount;
 			if ( totalAmountEl && undefined !== totalAmount ) {
 				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
+				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
 				detail: { count: totals.newTotalCount, amount: totalAmount },
@@ -935,6 +970,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			putItemQuantity( item, quantity )
 				.then( function ( data ) {
 					item.quantity = quantity;
+					refreshAttendeeSummary( item );
 					applyRowTotals( item, quantity, data );
 					var editor = getOpenEditor( item.id );
 					if ( editor ) {
@@ -1065,6 +1101,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					item.quantity = newQty;
 					item.metadata = item.metadata || {};
 					item.metadata.attendees = retained;
+					refreshAttendeeSummary( item );
 					applyRowTotals( item, newQty, data );
 					var editor = getOpenEditor( item.id );
 					if ( editor ) {
@@ -1097,7 +1134,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			var intro = document.createElement( 'p' );
 			intro.className = 'agend-shop-attendee-panel__intro';
-			intro.textContent = 'Assign attendees for each ticket. Leave a seat blank to assign it to yourself.';
+			intro.textContent = 'Choose who each ticket is for and save the attendee details. Unassigned tickets default to the buyer.';
 			body.appendChild( intro );
 
 			var seatsContainer = document.createElement( 'div' );
@@ -1234,19 +1271,47 @@ document.addEventListener( 'DOMContentLoaded', function () {
 
 			wrap.appendChild( header );
 
+			var choice = null;
+			if ( signedIn ) {
+				choice = document.createElement( 'select' );
+				choice.className = 'agend-shop-attendee-beneficiary';
+				[ [ '', 'Choose an attendee' ], [ 'self', 'This ticket is for me' ], [ 'named', 'Someone else' ] ].forEach( function ( option ) {
+					var el = document.createElement( 'option' ); el.value = option[ 0 ]; el.textContent = option[ 1 ]; choice.appendChild( el );
+				} );
+				choice.value = attendee.beneficiary_type === 'self' ? 'self' : ( attendee.beneficiary_type === 'named' ? 'named' : '' );
+				wrap.appendChild( labelled( 'Ticket holder', choice ) );
+			}
+
 			var nameInput = document.createElement( 'input' );
 			nameInput.type = 'text';
 			nameInput.className = 'agend-shop-attendee-name';
 			nameInput.placeholder = 'Full name';
 			nameInput.value = attendee.beneficiary_name || '';
-			wrap.appendChild( labelled( 'Name', nameInput ) );
+			var nameLabel = labelled( 'Name', nameInput );
+			wrap.appendChild( nameLabel );
 
 			var emailInput = document.createElement( 'input' );
 			emailInput.type = 'email';
 			emailInput.className = 'agend-shop-attendee-email';
 			emailInput.placeholder = 'Email';
 			emailInput.value = attendee.beneficiary_email || '';
-			wrap.appendChild( labelled( 'Email', emailInput ) );
+			var emailLabel = labelled( 'Email', emailInput );
+			wrap.appendChild( emailLabel );
+			if ( choice ) {
+				var profileNote = document.createElement( 'p' );
+				profileNote.textContent = 'We’ll use your member details for this ticket.';
+				wrap.appendChild( profileNote );
+				var syncChoice = function () {
+					nameLabel.hidden = emailLabel.hidden = choice.value !== 'named';
+					profileNote.hidden = choice.value !== 'self';
+				};
+				choice.addEventListener( 'change', syncChoice ); syncChoice();
+			} else if ( buyerName && buyerEmail ) {
+				var useBuyer = document.createElement( 'button' );
+				useBuyer.type = 'button'; useBuyer.className = 'agend-shop-use-for-buyer'; useBuyer.textContent = 'Use for buyer';
+				useBuyer.addEventListener( 'click', function () { buyerName.value = nameInput.value; buyerEmail.value = emailInput.value; } );
+				wrap.appendChild( useBuyer );
+			}
 
 			var customValues = ( attendee && attendee.custom_fields ) || {};
 			var fieldRefs = [];
@@ -1264,6 +1329,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					el: wrap,
 					legend: legend,
 					nameInput: nameInput,
+					choice: choice,
 					emailInput: emailInput,
 					fieldRefs: fieldRefs,
 					badge: badge,
@@ -1369,11 +1435,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} );
 
 			var attendee;
-			if ( name ) {
+			if ( refs.choice && 'self' === refs.choice.value ) {
+				attendee = { beneficiary_type: 'self' };
+			} else if ( name ) {
 				if ( ! email ) {
 					return { attendee: null, error: 'Enter an email for ' + name + ', or clear the name.' };
 				}
 				attendee = { beneficiary_type: 'named', beneficiary_name: name, beneficiary_email: email };
+			} else if ( refs.choice && refs.choice.value === 'named' ) {
+				return { attendee: null, error: 'Enter a name and email for this attendee.' };
 			} else {
 				attendee = { beneficiary_type: 'unnamed' };
 			}
@@ -1430,15 +1500,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					// Keep the item's local copy in sync so a re-open shows the saved data.
 					item.metadata = item.metadata || {};
 					item.metadata.attendees = attendees;
-					if ( buyerName && buyerEmail ) {
-						var firstAttendee = attendees.find( function ( attendee ) {
-							return attendee.beneficiary_name && attendee.beneficiary_email;
-						} );
-						if ( firstAttendee ) {
-							buyerName.value = buyerName.value || firstAttendee.beneficiary_name;
-							buyerEmail.value = buyerEmail.value || firstAttendee.beneficiary_email;
-						}
-					}
+					refreshAttendeeSummary( item );
+
 					// Refresh each seat's saved/unset badge to reflect what was stored.
 					for ( var b = 0; b < seatEls.length; b++ ) {
 						if ( seatEls[ b ].badge ) {

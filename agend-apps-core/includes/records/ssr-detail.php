@@ -1141,7 +1141,8 @@ function agend_apps_records_ssr_events_config( array $item, string $slug, WP_Pos
 		// Cart mode: mirror the client catalogue so the hydrated "Register
 		// Now" flow adds tickets to the shop cart when the shop is active.
 		'cartEnabled' => agend_apps_records_shop_cart_enabled(),
-		'cartPageUrl' => agend_apps_records_shop_cart_page_url(),
+		'cartPageUrl'       => agend_apps_records_shop_cart_page_url(),
+		'checkoutSignInUrl' => agend_apps_records_events_checkout_signin_url(),
 	);
 }
 

@@ -18,6 +18,24 @@
     return (window.agendApps && window.agendApps.nonce) || '';
   }
 
+  function returnAfterSignIn() {
+    try {
+      if (new URL(window.location.href).searchParams.get('agend_event_signin') === '1') {
+        var state = JSON.parse(sessionStorage.getItem('agend_event_checkout_selection'));
+        if (state && state.expires > Date.now()) {
+          var url = new URL(state.target);
+          if (url.origin === window.location.origin && !url.username && !url.password && url.searchParams.has('agend_resume_booking')) {
+            window.location.replace(url.href);
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      // Usual post-sign-in behavior when there is no saved ticket selection.
+    }
+    window.location.reload();
+  }
+
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) {
@@ -234,9 +252,7 @@
         password: password.value,
       }).then(function (r) {
         if (r.status === 200 && r.ok) {
-          // The sign-in rotated the WordPress session; reload so the fresh
-          // nonce and the member's server-rendered widgets take effect.
-          window.location.reload();
+          returnAfterSignIn();
           return;
         }
         var data = unwrap(r.data);
@@ -318,7 +334,7 @@
       }).then(function (r) {
         code.value = '';
         if (r.ok) {
-          window.location.reload();
+          returnAfterSignIn();
           return;
         }
         error.textContent = unwrap(r.data).message || cfg.messages.error;

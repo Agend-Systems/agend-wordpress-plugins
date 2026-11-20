@@ -600,3 +600,34 @@
 .agend-apps-shop-cart-view .agend-shop-btn-remove-seat:hover {
 	background: rgba(220, 38, 38, 0.08);
 }
+
+/* Shared cart attendee and recovery controls. */
+.agend-apps-shop-cart-view .agend-shop-attendee-summary {
+  margin-top: .35em;
+  color: var(--agend-shop-body, #334155);
+  font-size: .875em;
+  font-weight: 400;
+}
+.agend-apps-shop-cart-view .agend-shop-keep-browsing,
+.agend-apps-shop-cart-view .agend-shop-use-for-buyer {
+  color: var(--agend-shop-heading, #0b2540);
+  text-decoration: underline;
+  text-underline-offset: .15em;
+}
+.agend-apps-shop-cart-view .agend-shop-use-for-buyer {
+  display: inline-block;
+  justify-self: start;
+  min-block-size: 44px;
+  border: 0;
+  padding: .5em 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.agend-apps-shop-cart-view .agend-shop-attendee-field[hidden],
+.agend-apps-shop-cart-view .agend-shop-attendee-panel[hidden] { display: none !important; }
+.agend-apps-shop-cart-view .agend-shop-cart-actions { gap: 1rem; flex-wrap: wrap; }
+.agend-apps-shop-cart-view :is(.agend-shop-keep-browsing, .agend-shop-use-for-buyer, .agend-shop-attendee-beneficiary):focus-visible {
+  outline: 3px solid var(--agend-shop-heading, #0b2540);
+  outline-offset: 2px;
+}

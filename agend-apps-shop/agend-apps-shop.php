@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-shop
  * Description:       Extends Agend Apps Core with Elementor cart widgets for end-user checkout flows.
- * Version:           1.3.0
+ * Version:           1.4.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-shop
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_SHOP_VERSION', '1.3.0' );
+define( 'AGEND_APPS_SHOP_VERSION', '1.4.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -53,6 +53,8 @@ function agend_apps_shop_bootstrap(): void {
 		return;
 	}
 
+	require_once AGEND_APPS_SHOP_DIR . 'includes/booking-confirmation.php';
+	agend_apps_shop_register_booking_confirmation();
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/schema.php';
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/render.php';
 	require_once AGEND_APPS_SHOP_DIR . 'includes/records/blocks.php';
@@ -153,6 +155,7 @@ function agend_apps_shop_register_assets(): void {
 	);
 
 	$localized = array(
+		'continueShoppingUrl' => esc_url( get_option( 'agend_apps_shop_continue_shopping_url', '' ) ),
 		'cartPageUrl'        => esc_url( get_option( 'agend_apps_shop_cart_page_url', '' ) ),
 		'checkoutSuccessUrl' => esc_url( get_option( 'agend_apps_shop_checkout_success_url', '' ) ),
 		'checkoutCancelUrl'  => esc_url( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),

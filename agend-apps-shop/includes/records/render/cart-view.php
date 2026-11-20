@@ -48,6 +48,7 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 
 		<div class="agend-shop-cart-empty" hidden>
 			<p><?php esc_html_e( 'Your cart is empty.', 'agend-apps-shop' ); ?></p>
+			<a class="agend-shop-keep-browsing" href="<?php echo esc_url( home_url( '/' ) ); ?>"><?php esc_html_e( 'Keep browsing', 'agend-apps-shop' ); ?></a>
 		</div>
 
 		<div class="agend-shop-cart-locked-notice" hidden>
@@ -87,6 +88,7 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 			<?php endif; ?>
 
 			<div class="agend-shop-cart-actions">
+				<a class="agend-shop-keep-browsing" href="<?php echo esc_url( home_url( '/' ) ); ?>"><?php esc_html_e( 'Keep browsing', 'agend-apps-shop' ); ?></a>
 				<button class="agend-shop-btn-clear-cart"><?php esc_html_e( 'Clear Cart', 'agend-apps-shop' ); ?></button>
 				<div class="agend-shop-cart-primary-actions">
 					<button class="agend-shop-btn-proceed-checkout elementor-button"><?php esc_html_e( 'Proceed to Checkout', 'agend-apps-shop' ); ?></button>

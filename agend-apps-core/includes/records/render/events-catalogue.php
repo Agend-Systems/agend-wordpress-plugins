@@ -100,6 +100,13 @@ function agend_apps_records_events_catalogue_build_config( array $s ): array {
 	);
 }
 
+function agend_apps_records_events_checkout_signin_url(): string {
+	if ( ! class_exists( 'Agend_Apps_Settings' ) || ! Agend_Apps_Settings::credential_login_enabled() ) {
+		return '';
+	}
+	return esc_url_raw( (string) get_option( 'agend_apps_checkout_signin_url', '' ) );
+}
+
 /**
  * Renders the surface container on the front end, returned as HTML.
  *
@@ -152,6 +159,10 @@ function agend_apps_records_render_events_catalogue( array $settings ): string {
 	// link on the confirmation screen.
 	$config['cartEnabled'] = agend_apps_records_shop_cart_enabled();
 	$config['cartPageUrl'] = agend_apps_records_shop_cart_page_url();
+	$checkout_signin_url = agend_apps_records_events_checkout_signin_url();
+	if ( '' !== $checkout_signin_url ) {
+		$config['checkoutSignInUrl'] = $checkout_signin_url;
+	}
 
 	$style   = agend_apps_records_events_catalogue_inline_style( $config );
 	$columns = max( 1, (int) $config['layout']['desktop'] );
