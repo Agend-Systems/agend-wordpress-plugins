@@ -55,6 +55,10 @@ Both return the decoded gateway payload or a `WP_Error`. Always branch on
 
 `agend_apps_crm_get_me()` is member-scoped and needs a bearer.
 `agend_apps_crm_get_tiers()` is the public tier catalogue and does not.
+It returns every tier, including tiers the organisation hides from its
+website, because members can hold one. Pass `isPubliclyListed => 'true'` to
+get only listed tiers. The `/agend-apps/v1/crm/tiers` REST route always sends
+it, so the website catalogue never shows a hidden tier.
 
 ### `agend_apps_crm_get_entitlement_types()`
 
