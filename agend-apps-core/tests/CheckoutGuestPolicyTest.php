@@ -43,9 +43,6 @@ final class CheckoutGuestPolicyTest extends TestCase {
 
 	public static function routes(): array {
 		return array(
-			'paid event registration' => array( Agend_Apps_Events_REST_Controller::class, 'register', '/events/conference/register', array( 'ticket_type_id' => 'paid-ticket', 'quantity' => 1 ) ),
-			'free event registration' => array( Agend_Apps_Events_REST_Controller::class, 'register', '/events/conference/register', array( 'ticket_type_id' => 'free-ticket', 'quantity' => 1 ) ),
-			'pending event payment'   => array( Agend_Apps_Events_REST_Controller::class, 'pay_registrations', '/events/registrations/pay', array( 'registration_ids' => array( 'registration-1' ) ) ),
 			'cart completion'         => array( Agend_Apps_Cart_REST_Controller::class, 'checkout_complete', '/cart/checkout/complete', array() ),
 		);
 	}
@@ -112,11 +109,16 @@ final class CheckoutGuestPolicyTest extends TestCase {
 	}
 
 	#[Test]
-	public function should_apply_the_shared_guest_policy_filter_to_event_registration(): void {
-		Agend_Test_WP::set_filter( 'agend_apps_cart_guest_checkout_allowed', true );
-		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'id' => 'registration-1' ) ) );
-		$response = ( new Agend_Apps_Events_REST_Controller() )->register( $this->request( '/events/conference/register', array() ) );
-		self::assertSame( 200, $response->get_status() );
-		self::assertCount( 1, Agend_Test_WP::$requests );
+	public function should_leave_guest_event_registration_to_the_organisations_agend_setting(): void {
+		// The gateway enforces the organisation's guest event checkout setting
+		// on this route, so the Shop setting must not block it: a site without
+		// Agend Apps Shop has no way to change that setting.
+		update_option( 'agend_apps_shop_guest_checkout', 'require' );
+		foreach ( array( array( 'register', '/events/conference/register' ), array( 'pay_registrations', '/events/registrations/pay' ) ) as $call ) {
+			Agend_Test_WP::queue_response( 200, array( 'data' => array( 'id' => 'result-1' ) ) );
+			$response = ( new Agend_Apps_Events_REST_Controller() )->{$call[0]}( $this->request( $call[1], array( 'ticket_type_id' => 'free-ticket', 'quantity' => 1 ) ) );
+			self::assertSame( 200, $response->get_status() );
+		}
+		self::assertCount( 2, Agend_Test_WP::$requests );
 	}
 }

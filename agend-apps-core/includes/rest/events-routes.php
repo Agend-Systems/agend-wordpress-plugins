@@ -571,9 +571,9 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function register( WP_REST_Request $request ): WP_REST_Response {
-		if ( '' === agend_apps_get_bearer_token() && ! self::guest_checkout_allowed() ) {
-			return $this->checkout_sign_in_required();
-		}
+		// Guest registration on this route is decided by the organisation's
+		// "allow guest event checkout" setting in Agend, which the gateway
+		// enforces. The Shop guest checkout setting governs the cart only.
 		$slug         = $request->get_param( 'slug' );
 		$registration = $request->get_json_params();
 		$result       = agend_apps_events_register( $slug, $registration );
@@ -600,9 +600,6 @@ class Agend_Apps_Events_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @return WP_REST_Response REST response.
 	 */
 	public function pay_registrations( WP_REST_Request $request ): WP_REST_Response {
-		if ( '' === agend_apps_get_bearer_token() && ! self::guest_checkout_allowed() ) {
-			return $this->checkout_sign_in_required();
-		}
 		$payload = $request->get_json_params();
 		$result  = agend_apps_events_pay_registration( is_array( $payload ) ? $payload : array() );
 		return $this->prepare_api_response( $result );
