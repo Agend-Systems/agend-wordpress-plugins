@@ -1275,7 +1275,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			if ( signedIn ) {
 				choice = document.createElement( 'select' );
 				choice.className = 'agend-shop-attendee-beneficiary';
-				[ [ '', 'Choose an attendee' ], [ 'self', 'This ticket is for me' ], [ 'named', 'Someone else' ] ].forEach( function ( option ) {
+				[ [ '', 'Default to buyer' ], [ 'self', 'This ticket is for me' ], [ 'named', 'Someone else' ] ].forEach( function ( option ) {
 					var el = document.createElement( 'option' ); el.value = option[ 0 ]; el.textContent = option[ 1 ]; choice.appendChild( el );
 				} );
 				choice.value = attendee.beneficiary_type === 'self' ? 'self' : ( attendee.beneficiary_type === 'named' ? 'named' : '' );
@@ -1434,18 +1434,15 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				}
 			} );
 
-			var attendee;
-			if ( refs.choice && 'self' === refs.choice.value ) {
+			var attendee = { beneficiary_type: 'unnamed' };
+			var choice = refs.choice ? refs.choice.value : ( name || email ? 'named' : '' );
+			if ( 'self' === choice ) {
 				attendee = { beneficiary_type: 'self' };
-			} else if ( name ) {
-				if ( ! email ) {
-					return { attendee: null, error: 'Enter an email for ' + name + ', or clear the name.' };
+			} else if ( 'named' === choice ) {
+				if ( ! name || ! email || ! refs.emailInput.validity.valid ) {
+					return { attendee: null, error: 'Enter a name and valid email for this attendee.' };
 				}
 				attendee = { beneficiary_type: 'named', beneficiary_name: name, beneficiary_email: email };
-			} else if ( refs.choice && refs.choice.value === 'named' ) {
-				return { attendee: null, error: 'Enter a name and email for this attendee.' };
-			} else {
-				attendee = { beneficiary_type: 'unnamed' };
 			}
 			if ( Object.keys( customFields ).length ) {
 				attendee.custom_fields = customFields;

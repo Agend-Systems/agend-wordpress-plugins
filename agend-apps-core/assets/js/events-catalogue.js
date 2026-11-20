@@ -1370,6 +1370,9 @@
 
     var ticketsSection = el('div', 'agend-ev-reg__tickets');
     form.appendChild(ticketsSection);
+    if (cfg.cartEnabled) {
+      form.insertBefore(el('p', 'agend-ev-reg__attendee-note', 'Leave attendee details blank to assign a ticket to the buyer.'), ticketsSection);
+    }
 
     // Signed-in member: identity and price group are resolved server-side
     // from the bearer (SPEC-CORE-20260722 US-2.3), so lines are priced at the
@@ -1404,6 +1407,7 @@
     form.appendChild(summary);
 
     var errorBox = el('div', 'agend-ev-reg__error');
+    errorBox.setAttribute('role', 'alert');
     errorBox.style.display = 'none';
     form.appendChild(errorBox);
 
@@ -1451,7 +1455,7 @@
       container.innerHTML = '';
       for (var i = 0; i < line.qty; i++) {
         var name = textInput('text', 'Attendee name');
-        var email = textInput('email', 'Attendee email (optional)');
+        var email = textInput('email', cfg.cartEnabled ? 'name@example.com' : 'Attendee email (optional)');
         line.attendeeRows[i] = line.attendeeRows[i] || {};
         (function (slot, nameInput, emailInput) {
           nameInput.value = slot.name || '';
@@ -1462,7 +1466,7 @@
         var rowWrap = el('div', 'agend-ev-reg__attendee');
         rowWrap.appendChild(el('span', 'agend-ev-reg__attendee-idx', 'Attendee ' + (i + 1)));
         rowWrap.appendChild(labelledField('Attendee name', name));
-        rowWrap.appendChild(labelledField('Attendee email (optional)', email));
+        rowWrap.appendChild(labelledField(cfg.cartEnabled ? 'Attendee email' : 'Attendee email (optional)', email));
         container.appendChild(rowWrap);
       }
       line.attendeeRows.length = line.qty;
@@ -1573,6 +1577,18 @@
         var cartSelected = Object.keys(lines).filter(function (id) { return lines[id].qty > 0; });
         if (!cartSelected.length) {
           showError('Select at least one ticket.');
+          return;
+        }
+        var incomplete = Array.prototype.find.call(form.querySelectorAll('.agend-ev-reg__attendee'), function (row) {
+          var name = row.querySelector('input[type="text"]');
+          var email = row.querySelector('input[type="email"]');
+          return (name.value.trim() || email.value.trim()) &&
+            (!name.value.trim() || !email.value.trim() || !email.validity.valid);
+        });
+        if (incomplete) {
+          showError('Enter a name and valid email for each named attendee, or leave both fields blank to assign the ticket to the buyer.');
+          var missingName = incomplete.querySelector('input[type="text"]');
+          (missingName.value.trim() ? incomplete.querySelector('input[type="email"]') : missingName).focus();
           return;
         }
         submit.disabled = true;

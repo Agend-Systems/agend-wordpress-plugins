@@ -111,3 +111,17 @@ test('member self-assignment saves the beneficiary and preserves other attendee 
   choice.dispatchEvent(new window.Event('change'));
   assert.equal(dom.querySelector('.agend-shop-attendee-name').value, 'Alex');
 });
+
+
+test('choosing the default ticket holder ignores hidden named-attendee inputs', async (t) => {
+  const { window, dom, getSaved } = await setup(t, { member: true, attendees: [namedAttendee] });
+  dom.querySelector('.agend-shop-btn-attendees').click();
+  await tick();
+  const choice = dom.querySelector('.agend-shop-attendee-beneficiary');
+  choice.value = '';
+  choice.dispatchEvent(new window.Event('change'));
+  dom.querySelector('.agend-shop-btn-attendees-save').click();
+  await tick();
+  assert.deepEqual(getSaved().attendees, [{ beneficiary_type: 'unnamed' }]);
+  assert.equal(dom.querySelector('.agend-shop-attendee-summary').textContent, 'Defaults to you');
+});

@@ -83,6 +83,24 @@ class Agend_Apps_Shop_Admin {
 
 		register_setting(
 			self::OPTION_GROUP,
+			'agend_apps_shop_continue_shopping_url',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'esc_url_raw',
+				'default'           => '',
+			)
+		);
+
+		add_settings_field(
+			'agend_apps_shop_continue_shopping_url',
+			__( 'Keep browsing URL', 'agend-apps-shop' ),
+			array( $this, 'render_continue_shopping_url_field' ),
+			self::PAGE_SLUG,
+			'agend_apps_shop_urls_section'
+		);
+
+		register_setting(
+			self::OPTION_GROUP,
 			'agend_apps_shop_checkout_success_url',
 			array(
 				'type'              => 'string',
@@ -162,6 +180,16 @@ class Agend_Apps_Shop_Admin {
 			esc_attr( $value )
 		);
 		echo '<p class="description">' . esc_html__( 'Page users are sent to from the cart header icon and after a cancelled checkout.', 'agend-apps-shop' ) . '</p>';
+	}
+
+	/** Renders the optional browse destination for visitors who open the cart directly. */
+	public function render_continue_shopping_url_field(): void {
+		$value = get_option( 'agend_apps_shop_continue_shopping_url', '' );
+		printf(
+			'<input type="url" id="agend_apps_shop_continue_shopping_url" name="agend_apps_shop_continue_shopping_url" value="%s" class="regular-text" />',
+			esc_attr( $value )
+		);
+		echo '<p class="description">' . esc_html__( 'Enter a page on this site for the Keep browsing link. Visitors who added event tickets can return to their event listing.', 'agend-apps-shop' ) . '</p>';
 	}
 
 	/**
