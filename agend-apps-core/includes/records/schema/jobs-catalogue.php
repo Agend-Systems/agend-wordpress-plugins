@@ -144,6 +144,17 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 				'label'  => __( 'Card Fields', 'agend-apps-core' ),
 				'fields' => array(
 					array(
+						'name'        => 'card_style',
+						'label'       => __( 'Card design', 'agend-apps-core' ),
+						'type'        => 'select',
+						'default'     => 'standard',
+						'options'     => array(
+							'standard' => __( 'Standard', 'agend-apps-core' ),
+							'board'    => __( 'Jobs board: initials tile, icon details and a category footer', 'agend-apps-core' ),
+						),
+						'description' => __( 'The jobs board design matches the hosted Agend jobs board: each card shows the employer\'s initials, the location, job type and salary on icon rows, the summary, then the category and how long ago the job was posted. The filter sidebar becomes a "Filters" panel to match.', 'agend-apps-core' ),
+					),
+					array(
 						'name'    => 'show_logo',
 						'label'   => __( 'Show employer logo', 'agend-apps-core' ),
 						'type'    => 'toggle',
@@ -398,8 +409,17 @@ function agend_apps_records_schema_jobs_catalogue(): array {
 						'options'     => array(
 							'standard' => __( 'Standard', 'agend-apps-core' ),
 							'header'   => __( 'Header panel: coloured title panel, facts strip and an apply box', 'agend-apps-core' ),
+							'cards'    => __( 'Jobs board: title card, role card and a sidebar of apply, job details and employer', 'agend-apps-core' ),
 						),
-						'description' => __( 'The header layout puts the job title in a coloured panel (set its colour under Style, Colours), with location, salary, job type and closing date in a strip beneath it.', 'agend-apps-core' ),
+						'description' => __( 'The header layout puts the job title in a coloured panel (set its colour under Style, Colours), with location, salary, job type and closing date in a strip beneath it. The jobs board layout matches the hosted Agend jobs board, with similar jobs underneath.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'show_similar_jobs',
+						'label'       => __( 'Show similar jobs', 'agend-apps-core' ),
+						'type'        => 'toggle',
+						'default'     => true,
+						'description' => __( 'Up to three other open jobs under the job: ones in the same category first, then the newest.', 'agend-apps-core' ),
+						'condition'   => array( 'detail_layout' => 'cards' ),
 					),
 					array(
 						'name'    => 'apply_label',
