@@ -119,6 +119,9 @@ final class Agend_Test_WP {
 	/** @var mixed Value the next agend_apps_crm_get_tiers() call returns. */
 	public static $tiers_response = array();
 
+	/** @var array<int, array> Query each agend_apps_crm_get_tiers() call received, in call order. */
+	public static array $tiers_queries = array();
+
 	/** @var array<int, array{timestamp: int, hook: string, args: array<int, mixed>}> WP-Cron events scheduled via wp_schedule_single_event(). */
 	public static array $scheduled_events = array();
 
@@ -251,6 +254,7 @@ final class Agend_Test_WP {
 		self::$auth_cookie_users = array();
 		self::$auth_cookie_remembers = array();
 		self::$tiers_response    = array();
+		self::$tiers_queries     = array();
 		self::$scheduled_events  = array();
 		self::$canned_responses  = array();
 		self::$redirects         = array();
@@ -995,13 +999,33 @@ function add_query_arg( ...$args ) {
 	return $url . $sep . implode( '&', $query );
 }
 
+if ( ! function_exists( 'remove_query_arg' ) ) {
+	/** Removes one query key from a URL; enough for the single-key calls under test. */
+	function remove_query_arg( $key, $url = '' ) {
+		$stripped = (string) preg_replace( '/([?&])' . preg_quote( (string) $key, '/' ) . '=[^&#]*(&|$)/', '$1', (string) $url );
+		return rtrim( $stripped, '?&' );
+	}
+}
+
+if ( ! function_exists( 'wp_lostpassword_url' ) ) {
+	function wp_lostpassword_url( string $redirect = '' ): string {
+		return home_url( '/wp-login.php?action=lostpassword' );
+	}
+}
+
+if ( ! function_exists( 'wp_specialchars_decode' ) ) {
+	function wp_specialchars_decode( $text, $quote_style = ENT_NOQUOTES ): string {
+		return htmlspecialchars_decode( (string) $text, $quote_style );
+	}
+}
+
 function home_url( $path = '' ): string {
 	return 'https://example.test' . $path;
 }
 
 if ( ! function_exists( 'site_url' ) ) {
-	function site_url( $path = '' ): string {
-		return 'https://example.test' . $path;
+	function site_url( $path = '', $scheme = null ): string {
+		return 'https://example.test' . ( '' !== $path && '/' !== $path[0] ? '/' : '' ) . $path;
 	}
 }
 
@@ -1246,6 +1270,17 @@ if ( ! class_exists( 'WP_Error' ) ) {
 			return $this->code;
 		}
 
+		/** @var string[] */
+		private array $extra_codes = array();
+
+		public function add( string $code, string $message = '', $data = '' ): void {
+			$this->extra_codes[] = $code;
+		}
+
+		public function get_error_codes(): array {
+			return array_merge( '' === $this->code ? array() : array( $this->code ), $this->extra_codes );
+		}
+
 		public function get_error_message(): string {
 			return $this->message;
 		}
@@ -1275,6 +1310,9 @@ if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
 if ( ! function_exists( 'get_bloginfo' ) ) {
 	/** Fixed 'version' value; the updater's tests only assert the User-Agent is well-formed. */
 	function get_bloginfo( string $show = '' ): string {
+		if ( 'name' === $show ) {
+			return (string) ( $GLOBALS['agend_test_blogname'] ?? 'Example Site' );
+		}
 		return 'version' === $show ? '6.8' : '';
 	}
 }

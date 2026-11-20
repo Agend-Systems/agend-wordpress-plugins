@@ -34,7 +34,8 @@ function agend_apps_records_schema_member_login(): array {
 						'name'    => 'intro_text',
 						'label'   => __( 'Intro text', 'agend-apps-core' ),
 						'type'    => 'textarea',
-						'default' => __( 'Sign in with your Agend member account.', 'agend-apps-core' ),
+						'default' => __( 'Sign in with your member email and password.', 'agend-apps-core' ),
+						'description' => __( 'When members sign in with their site (WordPress) account, leaving this at the default shows "Sign in with your [site name] email and password." instead.', 'agend-apps-core' ),
 					),
 					array(
 						'name'    => 'submit_label',
@@ -60,7 +61,14 @@ function agend_apps_records_schema_member_login(): array {
 						'name'    => 'signed_in_message',
 						'label'   => __( 'Signed-in message', 'agend-apps-core' ),
 						'type'    => 'textarea',
-						'default' => __( 'You are signed in to your Agend account.', 'agend-apps-core' ),
+						'default' => __( 'You are signed in.', 'agend-apps-core' ),
+					),
+					array(
+						'name'        => 'verification_sent_message',
+						'label'       => __( 'Email check message', 'agend-apps-core' ),
+						'type'        => 'textarea',
+						'default'     => __( 'Check your email to finish signing in. Click the link in the email to confirm it is you, then come back here and sign in again. If it hasn\'t arrived in a few minutes, use Resend below. You only need to do this once.', 'agend-apps-core' ),
+						'description' => __( 'Shown when a member must confirm their email address before they can sign in, usually on their first sign-in.', 'agend-apps-core' ),
 					),
 					array(
 						'name'        => 'portal_button_label',
