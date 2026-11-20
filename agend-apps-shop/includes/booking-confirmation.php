@@ -23,8 +23,8 @@ function agend_apps_shop_register_booking_confirmation(): void {
 	add_filter( 'agend_apps_cart_checkout_args', static function ( array $args ) use ( &$reference ): array {
 		$reference = '';
 		$configured = (string) get_option( 'agend_apps_shop_checkout_success_url', '' );
-		$target = $args['body']['successUrl'] ?? '';
-		if ( '' === $configured || $configured !== $target || ! agend_apps_shop_is_local_booking_url( $target ) ) {
+		$target = esc_url_raw( $args['body']['successUrl'] ?? '' );
+		if ( '' === $configured || agend_apps_shop_booking_url_parts( $configured ) !== agend_apps_shop_booking_url_parts( $target ) || ! agend_apps_shop_is_local_booking_url( $target ) ) {
 			return $args;
 		}
 
@@ -68,6 +68,22 @@ function agend_apps_shop_register_booking_confirmation(): void {
 	} );
 
 	add_shortcode( 'agend_booking_confirmation', 'agend_apps_shop_render_booking_confirmation' );
+}
+
+/** Normalise the URL path without changing query values or their encoding. */
+function agend_apps_shop_booking_url_parts( string $url ): array {
+	$parts = wp_parse_url( esc_url_raw( $url ) );
+	if ( ! is_array( $parts ) ) {
+		return array();
+	}
+	$parts['path'] = untrailingslashit( $parts['path'] ?? '' );
+	foreach ( array( 'scheme', 'host' ) as $key ) {
+		if ( isset( $parts[ $key ] ) ) {
+			$parts[ $key ] = strtolower( $parts[ $key ] );
+		}
+	}
+	ksort( $parts );
+	return $parts;
 }
 
 function agend_apps_shop_is_local_booking_url( string $url ): bool {
@@ -141,7 +157,7 @@ function agend_apps_shop_render_booking_confirmation( $attributes = array() ): s
 /** @param array<string,mixed> $receipt Verified Agend checkout receipt. */
 function agend_apps_shop_render_confirmed_booking( array $receipt, bool $is_free, string $events_url, string $support ): string {
 	$events = array_values( array_filter( (array) ( $receipt['events'] ?? array() ), 'is_array' ) );
-	$is_booking = $is_free || count( $events ) > 0;
+	$is_booking = count( $events ) > 0;
 	$order_status = $is_booking ? __( 'Booking confirmed', 'agend-apps-shop' ) : __( 'Order confirmed', 'agend-apps-shop' );
 	$title = $is_booking ? __( 'Thank you for registering', 'agend-apps-shop' ) : __( 'Thank you for your order', 'agend-apps-shop' );
 	if ( 1 === count( $events ) && ! empty( $events[0]['name'] ) ) {
@@ -149,7 +165,9 @@ function agend_apps_shop_render_confirmed_booking( array $receipt, bool $is_free
 	}
 	$detail = __( 'Your payment was received.', 'agend-apps-shop' );
 	if ( $is_free ) {
-		$detail = __( 'Your place is booked. No payment was required.', 'agend-apps-shop' );
+		$detail = $is_booking
+			? __( 'Your place is booked. No payment was required.', 'agend-apps-shop' )
+			: __( 'No payment was required.', 'agend-apps-shop' );
 	} elseif ( $is_booking ) {
 		$detail = __( 'Your payment was received and your place is booked.', 'agend-apps-shop' );
 	}

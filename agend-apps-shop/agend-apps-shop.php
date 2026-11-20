@@ -155,10 +155,10 @@ function agend_apps_shop_register_assets(): void {
 	);
 
 	$localized = array(
-		'continueShoppingUrl' => esc_url( get_option( 'agend_apps_shop_continue_shopping_url', '' ) ),
-		'cartPageUrl'        => esc_url( get_option( 'agend_apps_shop_cart_page_url', '' ) ),
-		'checkoutSuccessUrl' => esc_url( get_option( 'agend_apps_shop_checkout_success_url', '' ) ),
-		'checkoutCancelUrl'  => esc_url( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),
+		'continueShoppingUrl' => esc_url_raw( get_option( 'agend_apps_shop_continue_shopping_url', '' ) ),
+		'cartPageUrl'        => esc_url_raw( get_option( 'agend_apps_shop_cart_page_url', '' ) ),
+		'checkoutSuccessUrl' => esc_url_raw( get_option( 'agend_apps_shop_checkout_success_url', '' ) ),
+		'checkoutCancelUrl'  => esc_url_raw( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),
 	);
 	// wp_localize_script() only needs the handle registered, not enqueued: the
 	// data is attached now and printed alongside the script if and when it is
