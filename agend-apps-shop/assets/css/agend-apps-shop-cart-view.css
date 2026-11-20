@@ -600,3 +600,114 @@
 .agend-apps-shop-cart-view .agend-shop-btn-remove-seat:hover {
 	background: rgba(220, 38, 38, 0.08);
 }
+
+/* Shared cart attendee and recovery controls. */
+.agend-apps-shop-cart-view .agend-shop-attendee-summary {
+  margin-top: .35em;
+  color: var(--agend-shop-body, #334155);
+  font-size: .875em;
+  font-weight: 400;
+}
+.agend-apps-shop-cart-view .agend-shop-keep-browsing,
+.agend-apps-shop-cart-view .agend-shop-use-for-buyer {
+  color: var(--agend-shop-heading, #0b2540);
+  text-decoration: underline;
+  text-underline-offset: .15em;
+}
+.agend-apps-shop-cart-view .agend-shop-use-for-buyer {
+  display: inline-block;
+  justify-self: start;
+  min-block-size: 44px;
+  border: 0;
+  padding: .5em 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.agend-apps-shop-cart-view .agend-shop-attendee-field[hidden],
+.agend-apps-shop-cart-view .agend-shop-attendee-panel[hidden] { display: none !important; }
+.agend-apps-shop-cart-view .agend-shop-cart-actions { gap: 1rem; flex-wrap: wrap; }
+.agend-apps-shop-cart-view :is(.agend-shop-keep-browsing, .agend-shop-use-for-buyer, .agend-shop-attendee-beneficiary):focus-visible {
+  outline: 3px solid var(--agend-shop-heading, #0b2540);
+  outline-offset: 2px;
+}
+
+/* -- Sign-in prompt, payment choice and invoice confirmation --------------- */
+
+.agend-apps-shop-cart-view .agend-shop-cart-signin,
+.agend-apps-shop-cart-view .agend-shop-cart-payment {
+	margin: 0 0 1.5rem;
+	padding: 1rem 1.25rem;
+	border: 1px solid var( --agend-shop-border );
+	border-radius: var( --agend-shop-radius );
+	background: var( --agend-shop-muted );
+}
+.agend-apps-shop-cart-view .agend-shop-cart-payment[hidden],
+.agend-apps-shop-cart-view .agend-shop-invoice-details[hidden],
+.agend-apps-shop-cart-view .agend-shop-invoice-confirmation[hidden] { display: none !important; }
+.agend-apps-shop-cart-view .agend-shop-cart-signin p { margin: 0 0 0.75rem; }
+.agend-apps-shop-cart-view .agend-shop-cart-signin-link,
+.agend-apps-shop-cart-view .agend-shop-cart-signin-link.elementor-button {
+	display: inline-block;
+	background: var( --agend-shop-button );
+	color: var( --agend-shop-button-text );
+	border-radius: 8px;
+	padding: 0.75rem 1.4rem;
+	font-weight: 700;
+	text-decoration: none;
+}
+.agend-apps-shop-cart-view .agend-shop-payment-choice {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+.agend-apps-shop-cart-view .agend-shop-payment-choice legend {
+	margin-bottom: 0.5rem;
+	font-weight: 700;
+	color: var( --agend-shop-heading );
+}
+.agend-apps-shop-cart-view .agend-shop-payment-choice label {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-block-size: 44px;
+	cursor: pointer;
+}
+.agend-apps-shop-cart-view .agend-shop-invoice-details { margin-top: 0.75rem; }
+.agend-apps-shop-cart-view .agend-shop-invoice-field {
+	display: grid;
+	gap: 0.35rem;
+	margin-bottom: 0.75rem;
+	font-weight: 600;
+}
+.agend-apps-shop-cart-view .agend-shop-invoice-field :is(input, select) {
+	max-width: 24rem;
+	padding: 0.55rem 0.7rem;
+	border: 1px solid var( --agend-shop-border-strong );
+	border-radius: 8px;
+	font: inherit;
+	font-weight: 400;
+}
+.agend-apps-shop-cart-view .agend-shop-invoice-instructions { white-space: pre-line; }
+.agend-apps-shop-cart-view .agend-shop-invoice-confirmation {
+	padding: 1.25rem 1.5rem;
+	border: 1px solid var( --agend-shop-border );
+	border-radius: var( --agend-shop-radius );
+}
+.agend-apps-shop-cart-view .agend-shop-invoice-summary {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0.35rem 1.25rem;
+	margin: 1rem 0;
+}
+.agend-apps-shop-cart-view .agend-shop-invoice-summary dt { font-weight: 600; }
+.agend-apps-shop-cart-view .agend-shop-invoice-summary dd { margin: 0; }
+.agend-apps-shop-cart-view .agend-shop-invoice-confirmation__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+}
+.agend-apps-shop-cart-view .agend-shop-invoice-link {
+	color: var( --agend-shop-heading );
+	font-weight: 600;
+}

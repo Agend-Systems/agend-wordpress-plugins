@@ -457,7 +457,7 @@ function agend_apps_records_ssr_resolve_listing( string $slug, WP_Post $host ): 
  *         null when the event does not exist.
  */
 function agend_apps_records_ssr_resolve_event( string $slug, WP_Post $host ): ?array {
-	$response = agend_apps_events_get_event( $slug, array( 'include' => 'sponsors,categories' ) );
+	$response = agend_apps_events_get_event( $slug, array( 'include' => 'speakers,sponsors,categories' ) );
 	$item     = ( ! is_wp_error( $response ) && ! empty( $response['data'] ) && is_array( $response['data'] ) )
 		? $response['data']
 		: null;
@@ -1141,7 +1141,8 @@ function agend_apps_records_ssr_events_config( array $item, string $slug, WP_Pos
 		// Cart mode: mirror the client catalogue so the hydrated "Register
 		// Now" flow adds tickets to the shop cart when the shop is active.
 		'cartEnabled' => agend_apps_records_shop_cart_enabled(),
-		'cartPageUrl' => agend_apps_records_shop_cart_page_url(),
+		'cartPageUrl'       => agend_apps_records_shop_cart_page_url(),
+		'checkoutSignInUrl' => agend_apps_records_events_checkout_signin_url(),
 	);
 }
 
@@ -1273,6 +1274,37 @@ function agend_apps_records_render_events_detail( array $item, string $slug, WP_
 						<section class="agend-ev-detail__section">
 							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'About This Event', 'agend-apps-core' ); ?></h2>
 							<div class="agend-ev-detail__body-text"><?php echo wp_kses_post( $item['description'] ); ?></div>
+						</section>
+					<?php endif; ?>
+
+					<?php if ( ! empty( $item['speakers'] ) && is_array( $item['speakers'] ) ) : ?>
+						<section class="agend-ev-detail__section">
+							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'Presenters', 'agend-apps-core' ); ?></h2>
+							<?php foreach ( $item['speakers'] as $speaker ) : ?>
+								<div class="agend-ev-detail__presenter">
+									<?php if ( ! empty( $speaker['photo_url'] ) ) : ?>
+										<img class="agend-ev-detail__presenter-photo" src="<?php echo esc_url( $speaker['photo_url'] ); ?>" alt="<?php echo esc_attr( $speaker['name'] ?? '' ); ?>" loading="lazy" />
+									<?php endif; ?>
+									<h3><?php echo esc_html( $speaker['name'] ?? '' ); ?></h3>
+									<?php if ( ! empty( $speaker['title'] ) ) : ?>
+										<p><?php echo esc_html( $speaker['title'] ); ?></p>
+									<?php endif; ?>
+									<?php if ( ! empty( $speaker['bio'] ) ) : ?>
+										<div class="agend-ev-detail__body-text"><?php echo wp_kses_post( $speaker['bio'] ); ?></div>
+									<?php endif; ?>
+								</div>
+							<?php endforeach; ?>
+						</section>
+					<?php endif; ?>
+
+					<?php if ( ! empty( $item['gallery_images'] ) && is_array( $item['gallery_images'] ) ) : ?>
+						<section class="agend-ev-detail__section">
+							<h2 class="agend-ev-detail__section-title"><?php esc_html_e( 'Gallery', 'agend-apps-core' ); ?></h2>
+							<div class="agend-ev-detail__gallery">
+								<?php foreach ( $item['gallery_images'] as $image ) : ?>
+									<img src="<?php echo esc_url( $image ); ?>" alt="<?php echo esc_attr( $name ); ?>" loading="lazy" />
+								<?php endforeach; ?>
+							</div>
 						</section>
 					<?php endif; ?>
 

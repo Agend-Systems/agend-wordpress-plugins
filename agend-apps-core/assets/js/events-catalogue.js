@@ -428,7 +428,8 @@
     var tOpts = { hour: 'numeric', minute: '2-digit' };
     var str = localeDate(startIso, dOpts, tz) + ', ' + localeTime(startIso, tOpts, tz);
     if (endIso) {
-      str += ' – ' + localeTime(endIso, tOpts, tz);
+      var endDate = localeDate(endIso, dOpts, tz);
+      str += (endDate !== localeDate(startIso, dOpts, tz) ? ' - ' + endDate + ', ' : ' – ') + localeTime(endIso, tOpts, tz);
     }
     var label = zoneLabel(startIso, tz);
     if (label) {
@@ -693,6 +694,50 @@
       main.appendChild(about);
     }
 
+    if (event.speakers && event.speakers.length) {
+      var presenters = el('section', 'agend-ev-detail__section');
+      presenters.appendChild(el('h3', 'agend-ev-detail__section-title', 'Presenters'));
+      event.speakers.forEach(function (speaker) {
+        var presenter = el('div', 'agend-ev-detail__presenter');
+        if (speaker.photo_url && /^https?:\/\//i.test(speaker.photo_url)) {
+          var photo = el('img', 'agend-ev-detail__presenter-photo');
+          photo.src = speaker.photo_url;
+          photo.alt = speaker.name || '';
+          photo.loading = 'lazy';
+          presenter.appendChild(photo);
+        }
+        presenter.appendChild(el('h4', '', speaker.name || ''));
+        if (speaker.title) {
+          presenter.appendChild(el('p', '', speaker.title));
+        }
+        if (speaker.bio) {
+          var bio = el('div', 'agend-ev-detail__body-text');
+          setSafeHtml(bio, speaker.bio);
+          presenter.appendChild(bio);
+        }
+        presenters.appendChild(presenter);
+      });
+      main.appendChild(presenters);
+    }
+
+    if (event.gallery_images && event.gallery_images.length) {
+      var gallery = el('section', 'agend-ev-detail__section');
+      gallery.appendChild(el('h3', 'agend-ev-detail__section-title', 'Gallery'));
+      var images = el('div', 'agend-ev-detail__gallery');
+      event.gallery_images.forEach(function (url) {
+        if (!/^https?:\/\//i.test(url)) {
+          return;
+        }
+        var image = el('img', '');
+        image.src = url;
+        image.alt = event.name || '';
+        image.loading = 'lazy';
+        images.appendChild(image);
+      });
+      gallery.appendChild(images);
+      main.appendChild(gallery);
+    }
+
     if (event.sponsors && event.sponsors.length) {
       var sponsors = el('section', 'agend-ev-detail__section');
       sponsors.appendChild(el('h3', 'agend-ev-detail__section-title', 'Sponsors'));
@@ -745,9 +790,9 @@
     reg.appendChild(calendar);
     var group = viewerGroup(event);
     if (group === 'member' || group === 'corporate') {
-      reg.appendChild(el('p', 'agend-ev-detail__note', 'Member pricing applies to your registration.'));
+      reg.appendChild(el('p', 'agend-ev-detail__note', 'Your member or organisation rate is shown where available. Final pricing is confirmed at checkout.'));
     } else {
-      reg.appendChild(el('p', 'agend-ev-detail__note', 'Not a member? Join for discounted pricing.'));
+      reg.appendChild(el('p', 'agend-ev-detail__note', 'The non-member rate is shown where available. Final pricing is confirmed at checkout.'));
     }
     side.appendChild(reg);
 
@@ -1257,6 +1302,52 @@
     return input;
   }
 
+  function checkoutSignInState(slug) {
+    var current = new URL(window.location.href);
+    if (current.searchParams.get('agend_resume_booking') !== slug) return null;
+    try {
+      var saved = JSON.parse(sessionStorage.getItem('agend_event_checkout_selection'));
+      if (saved && saved.target === current.href && saved.expires > Date.now()) return saved;
+    } catch (error) {
+      // Ticket selection works even when storage is unavailable.
+    }
+    return null;
+  }
+
+  function eventCheckoutSignIn(cfg, slug, lines) {
+    if (!cfg.checkoutSignInUrl) return null;
+    var destination;
+    try {
+      destination = new URL(cfg.checkoutSignInUrl, window.location.href);
+    } catch (error) {
+      return null;
+    }
+    if (destination.origin !== window.location.origin || destination.username || destination.password) return null;
+    destination.searchParams.set('agend_event_signin', '1');
+    var link = el('a', 'agend-ev-reg__signin', 'Sign in for member pricing');
+    link.href = destination.href;
+    link.addEventListener('click', function (event) {
+      var target = new URL(window.location.href);
+      target.searchParams.set('agend_resume_booking', slug);
+      var quantities = Object.keys(lines).reduce(function (selected, id) {
+        if (lines[id].qty > 0) selected[id] = lines[id].qty;
+        return selected;
+      }, {});
+      try {
+        sessionStorage.setItem('agend_event_checkout_selection', JSON.stringify({
+          target: target.href,
+          expires: Date.now() + 30 * 60 * 1000,
+          quantities: quantities,
+        }));
+      } catch (error) {
+        // Restricted storage still permits sign-in.
+      }
+      event.preventDefault();
+      window.location.assign(link.href);
+    });
+    return link;
+  }
+
   // Registration screen (US-EVT.9): ticket quantity selection, per-seat
   // attendee details, guest buyer capture, order summary, then register +
   // (for paid tickets) hand off to the checkout session (US-EVT.10).
@@ -1279,12 +1370,20 @@
 
     var ticketsSection = el('div', 'agend-ev-reg__tickets');
     form.appendChild(ticketsSection);
+    if (cfg.cartEnabled) {
+      form.insertBefore(el('p', 'agend-ev-reg__attendee-note', 'Leave attendee details blank to assign a ticket to the buyer.'), ticketsSection);
+    }
 
     // Signed-in member: identity and price group are resolved server-side
     // from the bearer (SPEC-CORE-20260722 US-2.3), so lines are priced at the
     // member's rate and the guest buyer capture is skipped.
     var group = viewerGroup(event) || 'non_member';
     var isSignedIn = !!viewerGroup(event);
+    var rateMessage = group === 'member' || group === 'corporate'
+      ? 'Your member or organisation rate is shown where available. Final pricing is confirmed at checkout.'
+      : 'The non-member rate is shown where available. Final pricing is confirmed at checkout.';
+    var rateNote = el('p', 'agend-ev-reg__rate-note', rateMessage);
+    form.insertBefore(rateNote, ticketsSection);
 
     // Buyer (guest) details.
     var buyerSection = el('div', 'agend-ev-reg__section');
@@ -1299,7 +1398,7 @@
     buyerGrid.appendChild(labelledField('Email', buyerEmail));
     buyerGrid.appendChild(labelledField('Phone', buyerPhone));
     buyerSection.appendChild(buyerGrid);
-    if (isSignedIn) {
+    if (isSignedIn || cfg.cartEnabled) {
       buyerSection.style.display = 'none';
     }
     form.appendChild(buyerSection);
@@ -1308,6 +1407,7 @@
     form.appendChild(summary);
 
     var errorBox = el('div', 'agend-ev-reg__error');
+    errorBox.setAttribute('role', 'alert');
     errorBox.style.display = 'none';
     form.appendChild(errorBox);
 
@@ -1316,6 +1416,9 @@
 
     // ticketId -> { entry, qty, price, attendeeRows: [{name,email}] }
     var lines = {};
+    var resume = checkoutSignInState(event.slug);
+    var signIn = !isSignedIn && (cfg.onDetailPage || cfg.ssrDetail)
+      ? eventCheckoutSignIn(cfg, event.slug, lines) : null;
 
     function total() {
       return Object.keys(lines).reduce(function (sum, id) {
@@ -1352,7 +1455,7 @@
       container.innerHTML = '';
       for (var i = 0; i < line.qty; i++) {
         var name = textInput('text', 'Attendee name');
-        var email = textInput('email', 'Attendee email (optional)');
+        var email = textInput('email', cfg.cartEnabled ? 'name@example.com' : 'Attendee email (optional)');
         line.attendeeRows[i] = line.attendeeRows[i] || {};
         (function (slot, nameInput, emailInput) {
           nameInput.value = slot.name || '';
@@ -1362,8 +1465,8 @@
         })(line.attendeeRows[i], name, email);
         var rowWrap = el('div', 'agend-ev-reg__attendee');
         rowWrap.appendChild(el('span', 'agend-ev-reg__attendee-idx', 'Attendee ' + (i + 1)));
-        rowWrap.appendChild(name);
-        rowWrap.appendChild(email);
+        rowWrap.appendChild(labelledField('Attendee name', name));
+        rowWrap.appendChild(labelledField(cfg.cartEnabled ? 'Attendee email' : 'Attendee email (optional)', email));
         container.appendChild(rowWrap);
       }
       line.attendeeRows.length = line.qty;
@@ -1379,12 +1482,30 @@
         form.style.display = 'none';
         return;
       }
+      var freeForEveryone = items.every(function (entry) {
+        if ((entry.pricingTiers || []).length) {
+          var member = ticketTierValue(entry, 'member_price');
+          var guest = ticketTierValue(entry, 'non_member_price');
+          var corporate = ticketTierValue(entry, 'corporate_price');
+          return member === 0 && guest === 0 && (corporate === 0 || corporate === undefined);
+        }
+        var ticket = entry.ticket || entry;
+        var price = ticket.price == null ? ticket.base_price : ticket.price;
+        return price != null && String(price).trim() !== '' && Number(price) === 0;
+      });
+      if (freeForEveryone) {
+        rateNote.textContent = 'Free for members and non-members.';
+      } else if (signIn) {
+        form.insertBefore(signIn, ticketsSection);
+      }
       items.forEach(function (entry) {
         var ticket = entry.ticket || entry;
         var price = ticketTierPrice(entry, group);
         var cap = entry.capacityRemaining;
         var max = typeof cap === 'number' && cap >= 0 ? Math.min(cap, 20) : 20;
-        var line = { entry: { ticket: ticket, pricingTiers: entry.pricingTiers }, qty: 0, price: price, attendeeRows: [] };
+        var savedQty = resume && resume.quantities && resume.quantities[ticket.id];
+        var qty = Number.isInteger(savedQty) && savedQty > 0 ? Math.min(savedQty, max) : 0;
+        var line = { entry: { ticket: ticket, pricingTiers: entry.pricingTiers }, qty: qty, price: price, attendeeRows: [] };
         lines[ticket.id] = line;
 
         var row = el('div', 'agend-ev-reg__ticket');
@@ -1398,7 +1519,7 @@
 
         var stepper = el('div', 'agend-ev-reg__stepper');
         var minus = el('button', 'agend-ev-reg__step', '−');
-        var qtyLabel = el('span', 'agend-ev-reg__qty', '0');
+        var qtyLabel = el('span', 'agend-ev-reg__qty', String(line.qty));
         var plus = el('button', 'agend-ev-reg__step', '+');
         var attendees = el('div', 'agend-ev-reg__attendees');
 
@@ -1424,7 +1545,14 @@
         row.appendChild(stepper);
         ticketsSection.appendChild(row);
         ticketsSection.appendChild(attendees);
+        if (line.qty) buildAttendeeRows(line, attendees);
       });
+      if (resume) {
+        sessionStorage.removeItem('agend_event_checkout_selection');
+        var current = new URL(window.location.href);
+        current.searchParams.delete('agend_resume_booking');
+        window.history.replaceState(window.history.state, '', current.href);
+      }
       refreshSummary();
     }).catch(function () {
       status.style.display = '';
@@ -1451,6 +1579,18 @@
           showError('Select at least one ticket.');
           return;
         }
+        var incomplete = Array.prototype.find.call(form.querySelectorAll('.agend-ev-reg__attendee'), function (row) {
+          var name = row.querySelector('input[type="text"]');
+          var email = row.querySelector('input[type="email"]');
+          return (name.value.trim() || email.value.trim()) &&
+            (!name.value.trim() || !email.value.trim() || !email.validity.valid);
+        });
+        if (incomplete) {
+          showError('Enter a name and valid email for each named attendee, or leave both fields blank to assign the ticket to the buyer.');
+          var missingName = incomplete.querySelector('input[type="text"]');
+          (missingName.value.trim() ? incomplete.querySelector('input[type="email"]') : missingName).focus();
+          return;
+        }
         submit.disabled = true;
         submit.textContent = 'Adding…';
         // Add lines sequentially so a single guest cart session token (returned
@@ -1464,7 +1604,9 @@
         });
         addChain.then(function () {
           document.dispatchEvent(new CustomEvent('agend:cart:updated'));
-          if (typeof onSuccess === 'function') {
+          if (cfg.cartPageUrl) {
+            window.location.assign(cartDestination(cfg));
+          } else if (typeof onSuccess === 'function') {
             onSuccess(event, 'cart');
           }
         }).catch(function (err) {
@@ -1580,6 +1722,22 @@
     return wrap;
   }
 
+  function cartDestination(cfg) {
+    try {
+      var destination = new URL(cfg.cartPageUrl, window.location.href);
+      var listingPath = cfg.detailBase || cfg.basePath;
+      if (listingPath) {
+        var listing = new URL(listingPath, window.location.href);
+        if (listing.origin === window.location.origin && /^https?:$/.test(listing.protocol)) {
+          destination.searchParams.set('continue', listing.href);
+        }
+      }
+      return destination.href;
+    } catch (e) {
+      return cfg.cartPageUrl;
+    }
+  }
+
   // Post-flow confirmation. `mode` is 'cart' when tickets were added to the
   // shop cart (US: shop integration), otherwise a completed registration.
   function renderConfirmation(event, cfg, onBackToEvent, onBackToEvents, mode) {
@@ -1594,7 +1752,7 @@
     var actions = el('div', 'agend-ev-reg__confirm-actions');
     if (isCart && cfg.cartPageUrl) {
       var cartLink = el('a', 'agend-ev-detail__cta', 'View Cart');
-      cartLink.href = cfg.cartPageUrl;
+      cartLink.href = cartDestination(cfg);
       actions.appendChild(cartLink);
       var browseBtn = el('button', 'agend-ev-reg__link', 'Keep browsing events');
       browseBtn.addEventListener('click', onBackToEvents);
@@ -1686,7 +1844,7 @@
     clearSsrPayParam();
     var mount = mountSsrOverlay(root, detailEl);
     mount.overlay.appendChild(renderDetailSkeleton());
-    apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+    apiGet('/events/' + encodeURIComponent(slug), { include: 'speakers,sponsors,categories' }).then(function (body) {
       var event = unwrapOne(body);
       mount.overlay.innerHTML = '';
       if (!event || !event.slug) {
@@ -1719,7 +1877,7 @@
     if (btn && !btn.disabled) {
       btn.addEventListener('click', function () {
         btn.disabled = true;
-        apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+        apiGet('/events/' + encodeURIComponent(slug), { include: 'speakers,sponsors,categories' }).then(function (body) {
           var event = unwrapOne(body);
           btn.disabled = false;
           if (event && event.slug) {
@@ -1732,6 +1890,9 @@
     }
     // Show the confirmation screen on return from a paid registration. Only
     // the URL-binding instance reads the payment-return param (Decision 2.6).
+    if (bindsUrl && btn && !btn.disabled && checkoutSignInState(slug)) {
+      btn.click();
+    }
     if (bindsUrl && ssrPayState() === 'success') {
       openSsrConfirmation(root, detailEl, slug, cfg);
     }
@@ -1975,7 +2136,7 @@
       if (updateUrl) {
         setUrlParam(slug);
       }
-      apiGet('/events/' + encodeURIComponent(slug), { include: 'sponsors,categories' }).then(function (body) {
+      apiGet('/events/' + encodeURIComponent(slug), { include: 'speakers,sponsors,categories' }).then(function (body) {
         var event = unwrapOne(body);
         root.innerHTML = '';
         if (!event || !event.slug) {
@@ -1989,6 +2150,10 @@
             function () { clearPayParam(); showDetail(slug, false); },
             function () { clearPayParam(); showCatalogue(true); }
           ));
+          return;
+        }
+        if (bindsUrl && checkoutSignInState(slug)) {
+          showRegistration(event);
           return;
         }
         root.appendChild(renderDetail(event, cfg, function () { showCatalogue(true); }, function (ev) { showRegistration(ev); }));

@@ -492,6 +492,60 @@
   height: auto;
 }
 
+.agend-ev-detail__presenter {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  column-gap: 1.25rem;
+  align-items: start;
+  margin-bottom: 1.75rem;
+}
+
+.agend-ev-detail__presenter > :not(.agend-ev-detail__presenter-photo) {
+  grid-column: 2;
+}
+
+.agend-ev-detail__presenter h3 {
+  margin: 0 0 0.25rem;
+}
+
+.agend-ev-detail__presenter p {
+  margin: 0 0 0.5rem;
+}
+
+.agend-ev-detail__presenter-photo {
+  grid-row: 1 / span 3;
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+@media (max-width: 600px) {
+  .agend-ev-detail__presenter {
+    grid-template-columns: 1fr;
+  }
+
+  .agend-ev-detail__presenter > :not(.agend-ev-detail__presenter-photo) {
+    grid-column: 1;
+  }
+
+  .agend-ev-detail__presenter-photo {
+    grid-row: auto;
+    margin-bottom: 0.75rem;
+  }
+}
+
+.agend-ev-detail__gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.agend-ev-detail__gallery img {
+  width: 100%;
+  height: auto;
+}
+
 .agend-ev-detail__sponsors {
   display: flex;
   flex-wrap: wrap;

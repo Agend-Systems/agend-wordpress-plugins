@@ -376,10 +376,9 @@
           success_url: urls.successUrl,
           cancel_url: urls.cancelUrl,
         }).then(function (body) {
-          if (!body || body.success === false) {
-            var msg = body && body.error && body.error.message
-              ? body.error.message
-              : 'Failed to create checkout session.';
+          if (!body || body.success === false || body.code) {
+            var apiError = body && body.data && body.data.body && body.data.body.error;
+            var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to create checkout session.';
             alert('Error: ' + msg);
             submitBtn.disabled = false;
             submitBtn.textContent = btnLabel;
@@ -691,10 +690,8 @@
 
       // Create contact.
       apiPost('/crm/contacts', contactData).then(function (body) {
-        if (!body || body.success === false) {
-          var msg = body && body.error && body.error.message
-            ? body.error.message
-            : 'Failed to submit application.';
+        if (!body || body.success === false || body.code) {
+          var msg = (body && (body.message || (body.error && body.error.message))) || 'Failed to submit application.';
           alert('Error: ' + msg);
           return;
         }
@@ -762,10 +759,9 @@
         success_url: urls.successUrl,
         cancel_url: urls.cancelUrl,
       }).then(function (body) {
-        if (!body || body.success === false) {
-          var msg = body && body.error && body.error.message
-            ? body.error.message
-            : 'Failed to create checkout session.';
+        if (!body || body.success === false || body.code) {
+          var apiError = body && body.data && body.data.body && body.data.body.error;
+          var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to create checkout session.';
           alert('Error: ' + msg);
           return;
         }
@@ -899,10 +895,9 @@
             success_url: urls.successUrl,
             cancel_url: urls.cancelUrl,
           }).then(function (body) {
-            if (!body || body.success === false) {
-              var msg = body && body.error && body.error.message
-                ? body.error.message
-                : 'Failed to start payment.';
+            if (!body || body.success === false || body.code) {
+              var apiError = body && body.data && body.data.body && body.data.body.error;
+              var msg = (apiError && apiError.message) || (body && (body.message || (body.error && body.error.message))) || 'Failed to start payment.';
               alert('Error: ' + msg);
               payBtn.disabled = false;
               payBtn.textContent = 'Pay Now';

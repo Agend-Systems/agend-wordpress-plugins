@@ -458,6 +458,9 @@ class Agend_Apps_CRM_REST_Controller extends Agend_Apps_REST_Controller {
 		if ( ! is_array( $body ) ) {
 			$body = array();
 		}
+		if ( array() === ( $body['custom_fields'] ?? null ) ) {
+			unset( $body['custom_fields'] );
+		}
 		$result = agend_apps_crm_create_contact( $body );
 		return $this->prepare_api_response( $result );
 	}

@@ -230,9 +230,9 @@ function agend_apps_records_fragment_event_registration( array $item, string $sl
 						</button>
 						<a class="agend-ev-detail__calendar" href="<?php echo esc_url( $ical_url ); ?>"><?php esc_html_e( 'Add to Calendar', 'agend-apps-core' ); ?></a>
 						<?php if ( $is_member ) : ?>
-							<p class="agend-ev-detail__note"><?php esc_html_e( 'Member pricing applies to your registration.', 'agend-apps-core' ); ?></p>
+							<p class="agend-ev-detail__note"><?php esc_html_e( 'Your member or organisation rate is shown where available. Final pricing is confirmed at checkout.', 'agend-apps-core' ); ?></p>
 						<?php else : ?>
-							<p class="agend-ev-detail__note"><?php esc_html_e( 'Not a member? Join for discounted pricing.', 'agend-apps-core' ); ?></p>
+							<p class="agend-ev-detail__note"><?php esc_html_e( 'The non-member rate is shown where available. Final pricing is confirmed at checkout.', 'agend-apps-core' ); ?></p>
 						<?php endif; ?>
 					</div>
 

@@ -206,6 +206,26 @@ class Agend_Apps_Identity_Admin {
 			'agend_apps_identity_section'
 		);
 
+		register_setting(
+			self::OPTION_GROUP,
+			'agend_apps_checkout_signin_url',
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => 'esc_url_raw',
+				'default'           => '',
+			)
+		);
+
+		if ( Agend_Apps_Settings::credential_login_enabled() ) {
+			add_settings_field(
+				'agend_apps_checkout_signin_url',
+				__( 'Event checkout sign-in page', 'agend-apps-core' ),
+				array( $this, 'render_checkout_signin_url_field' ),
+				self::PAGE_SLUG,
+				'agend_apps_identity_section'
+			);
+		}
+
 		// Member reset URL: previously had no admin UI at all (settable only
 		// by filter or a direct option write). It only ever applies to
 		// `credentials` mode, so the field is registered unconditionally
@@ -655,6 +675,17 @@ class Agend_Apps_Identity_Admin {
 		);
 		echo '<p class="description">';
 		esc_html_e( 'User-meta key holding each member\'s Agend external id (the SAML NameID your IdP asserts). Defaults to the Upbeat membership number.', 'agend-apps-core' );
+		echo '</p>';
+	}
+
+	/** Prints the optional sign-in page for returning event buyers. */
+	public function render_checkout_signin_url_field(): void {
+		printf(
+			'<input type="url" id="agend_apps_checkout_signin_url" name="agend_apps_checkout_signin_url" value="%s" class="regular-text" />',
+			esc_attr( get_option( 'agend_apps_checkout_signin_url', '' ) )
+		);
+		echo '<p class="description">';
+		esc_html_e( 'Optional. Choose a page on this site containing the Agend Member Login block or widget. Buyers can sign in there and return to their ticket selection.', 'agend-apps-core' );
 		echo '</p>';
 	}
 

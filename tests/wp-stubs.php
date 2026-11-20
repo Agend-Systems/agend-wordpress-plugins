@@ -931,9 +931,9 @@ if ( ! function_exists( 'sanitize_textarea_field' ) ) {
 }
 
 if ( ! function_exists( 'sanitize_email' ) ) {
-	/** Minimal `sanitize_email()` stand-in: trims, and empties anything without an @. */
+	/** Minimal `sanitize_email()` stand-in: removes invalid characters and requires an @. */
 	function sanitize_email( $email ): string {
-		$email = trim( (string) $email );
+		$email = filter_var( (string) $email, FILTER_SANITIZE_EMAIL );
 		return false === strpos( $email, '@' ) ? '' : $email;
 	}
 }
