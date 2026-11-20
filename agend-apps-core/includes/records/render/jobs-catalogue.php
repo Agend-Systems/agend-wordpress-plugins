@@ -204,7 +204,8 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 	// The two opt-in presentations. Anything but the exact opt-in value keeps
 	// the board's long-standing look.
 	$filter_layout = 'sidebar' === ( $s['filter_layout'] ?? 'bar' ) ? 'sidebar' : 'bar';
-	$detail_layout = 'header' === ( $s['detail_layout'] ?? 'standard' ) ? 'header' : 'standard';
+	$detail_layout = in_array( $s['detail_layout'] ?? 'standard', array( 'header', 'cards' ), true ) ? (string) $s['detail_layout'] : 'standard';
+	$card_style    = 'board' === ( $s['card_style'] ?? 'standard' ) ? 'board' : 'standard';
 
 	// The job page header panel's colour: its own setting, else the heading
 	// colour (left blank here so the stylesheet follows the live heading
@@ -235,6 +236,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'cardRadius' => (int) ( $s['card_radius'] ?? 10 ),
 		),
 		'card'       => array(
+			'style'           => $card_style,
 			'logo'            => $on( 'show_logo' ),
 			'company'         => $on( 'show_company' ),
 			'location'        => $on( 'show_location' ),
@@ -275,6 +277,7 @@ function agend_apps_records_jobs_catalogue_build_config( array $s ): array {
 			'emailApply'   => $on( 'allow_email_apply' ),
 			'companyPanel' => $on( 'show_company_panel' ),
 			'layout'       => $detail_layout,
+			'similar'      => 'cards' === $detail_layout && $on( 'show_similar_jobs' ),
 		),
 		'signIn'     => array(
 			'text'   => '' !== trim( (string) ( $s['signin_text'] ?? '' ) ) ? (string) $s['signin_text'] : __( 'Sign in as a member to see the full job details.', 'agend-apps-core' ),
@@ -336,6 +339,12 @@ function agend_apps_records_jobs_catalogue_layout_classes( array $config ): stri
 	}
 	if ( 'header' === ( $config['detail']['layout'] ?? 'standard' ) ) {
 		$classes .= ' agend-jobs-catalogue--detail-header';
+	}
+	if ( 'cards' === ( $config['detail']['layout'] ?? 'standard' ) ) {
+		$classes .= ' agend-jobs-catalogue--detail-cards';
+	}
+	if ( 'board' === ( $config['card']['style'] ?? 'standard' ) ) {
+		$classes .= ' agend-jobs-catalogue--cards-board';
 	}
 	return $classes;
 }

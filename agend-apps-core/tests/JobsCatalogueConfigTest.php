@@ -413,6 +413,43 @@ final class JobsCatalogueConfigTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_switch_the_jobs_board_designs_on_from_their_settings(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'card_style'    => 'board',
+				'detail_layout' => 'cards',
+			)
+		);
+
+		self::assertSame( 'board', $config['card']['style'] );
+		self::assertSame( 'cards', $config['detail']['layout'] );
+		self::assertTrue( $config['detail']['similar'] );
+		self::assertSame( '', $config['colours']['jobHeader'] );
+		self::assertSame(
+			' agend-jobs-catalogue--detail-cards agend-jobs-catalogue--cards-board',
+			agend_apps_records_jobs_catalogue_layout_classes( $config )
+		);
+
+		$no_similar = agend_apps_records_jobs_catalogue_build_config(
+			array(
+				'detail_layout'     => 'cards',
+				'show_similar_jobs' => '',
+			)
+		);
+		self::assertFalse( $no_similar['detail']['similar'] );
+	}
+
+	#[Test]
+	public function should_keep_the_standard_designs_by_default(): void {
+		$config = agend_apps_records_jobs_catalogue_build_config( array( 'card_style' => 'tiles' ) );
+
+		self::assertSame( 'standard', $config['card']['style'] );
+		self::assertSame( 'standard', $config['detail']['layout'] );
+		self::assertFalse( $config['detail']['similar'] );
+		self::assertSame( '', agend_apps_records_jobs_catalogue_layout_classes( $config ) );
+	}
+
+	#[Test]
 	public function should_ignore_a_layout_value_it_does_not_know(): void {
 		$config = agend_apps_records_jobs_catalogue_build_config(
 			array(
@@ -469,7 +506,10 @@ final class JobsCatalogueConfigTest extends TestCase {
 		self::assertSame( 'bar', $fields['filter_layout']['default'] );
 		self::assertSame( array( 'bar', 'sidebar' ), array_keys( $fields['filter_layout']['options'] ) );
 		self::assertSame( 'standard', $fields['detail_layout']['default'] );
-		self::assertSame( array( 'standard', 'header' ), array_keys( $fields['detail_layout']['options'] ) );
+		self::assertSame( array( 'standard', 'header', 'cards' ), array_keys( $fields['detail_layout']['options'] ) );
+		self::assertSame( 'standard', $fields['card_style']['default'] );
+		self::assertSame( array( 'standard', 'board' ), array_keys( $fields['card_style']['options'] ) );
+		self::assertSame( array( 'detail_layout' => 'cards' ), $fields['show_similar_jobs']['condition'] );
 		self::assertSame( '', $fields['job_header_colour']['default'] );
 		self::assertSame( 'colour', $fields['job_header_colour']['type'] );
 		self::assertSame( array( 'detail_layout' => 'header' ), $fields['job_header_colour']['condition'] );
