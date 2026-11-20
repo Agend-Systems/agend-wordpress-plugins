@@ -115,6 +115,23 @@ final class MemberLoginRenderTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_pass_the_email_check_message_to_the_form_when_the_setting_is_set(): void {
+		$config = agend_apps_records_member_login_build_config(
+			array( 'verification_sent_message' => 'Confirm your email, then sign in again.' ),
+			array( 'source' => 'agend' )
+		);
+
+		self::assertSame( 'Confirm your email, then sign in again.', $config['messages']['verificationSent'] );
+	}
+
+	#[Test]
+	public function should_leave_the_email_check_message_empty_when_the_setting_is_cleared(): void {
+		$config = agend_apps_records_member_login_build_config( array( 'verification_sent_message' => '' ), array( 'source' => 'agend' ) );
+
+		self::assertSame( '', $config['messages']['verificationSent'] );
+	}
+
+	#[Test]
 	public function should_still_render_nothing_in_sso_mode(): void {
 		update_option( 'agend_apps_member_auth_mode', 'sso' );
 

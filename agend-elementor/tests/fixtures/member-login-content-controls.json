@@ -20,7 +20,7 @@
                     "args": {
                         "label": "Intro text",
                         "type": "textarea",
-                        "default": "Sign in with your Agend member account."
+                        "default": "Sign in with your member email and password."
                     }
                 },
                 {
@@ -54,7 +54,16 @@
                     "args": {
                         "label": "Signed-in message",
                         "type": "textarea",
-                        "default": "You are signed in to your Agend account."
+                        "default": "You are signed in."
+                    }
+                },
+                {
+                    "id": "verification_sent_message",
+                    "args": {
+                        "label": "Email check message",
+                        "type": "textarea",
+                        "default": "Check your email to finish signing in. Click the link in the email to confirm it is you, then come back here and sign in again. If it hasn't arrived in a few minutes, use Resend below. You only need to do this once.",
+                        "description": "Shown when a member must confirm their email address before they can sign in, usually on their first sign-in."
                     }
                 },
                 {
