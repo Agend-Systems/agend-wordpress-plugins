@@ -257,6 +257,34 @@ final class CartRoutesTest extends TestCase {
 	}
 
 	#[Test]
+	public function should_show_a_guest_only_the_status_when_the_gateway_refuses_or_answers_badly(): void {
+		$leak = array(
+			'error' => array(
+				'code'    => 'FORBIDDEN',
+				'message' => 'Buyer member@example.test may not invoice.',
+				'details' => array( 'paymentInstructions' => 'Pay by EFT to BSB 000-000.' ),
+			),
+		);
+		Agend_Test_WP::queue_response( 403, $leak );
+		$refused = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() );
+		self::assertSame( 403, $refused->get_status() );
+		self::assertSame(
+			array(
+				'code'    => 'agend_apps_checkout_options_unavailable',
+				'message' => 'Checkout options are not available right now.',
+				'data'    => array( 'status_code' => 403 ),
+			),
+			$refused->get_data()
+		);
+
+		Agend_Test_WP::queue_response( 200, '<html>member@example.test</html>' );
+		$malformed = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() );
+		self::assertGreaterThanOrEqual( 400, $malformed->get_status() );
+		self::assertStringNotContainsString( 'member@example.test', (string) wp_json_encode( $malformed->get_data() ) );
+		self::assertSame( 'agend_apps_checkout_options_unavailable', $malformed->get_data()['code'] );
+	}
+
+	#[Test]
 	public function should_leave_the_guest_event_answer_out_when_the_gateway_does_not_give_one(): void {
 		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'invoice' => $this->invoiceOption(), 'membershipInstalments' => null ) ) );
 		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() );

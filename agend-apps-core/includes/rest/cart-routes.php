@@ -604,8 +604,9 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 *
 	 * Refused without a gateway call unless the site allows guest checkout and
 	 * the guest holds a cart. Nothing else from the gateway answer is passed
-	 * on, and `guestEventCheckout` is left out when the gateway does not say,
-	 * so the cart only asks for sign-in on an explicit `false`.
+	 * on, a gateway error included, and `guestEventCheckout` is left out when
+	 * the gateway does not say, so the cart only asks for sign-in on an
+	 * explicit `false`.
 	 *
 	 * @param string $cart_session Guest cart session token.
 	 * @return WP_REST_Response REST response.
@@ -617,7 +618,17 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 
 		$result = agend_apps_cart_checkout_options( $cart_session );
 		if ( is_wp_error( $result ) ) {
-			return $this->prepare_api_response( $result );
+			// Status only: the gateway's error body is never shown to a guest.
+			$data   = $result->get_error_data();
+			$status = is_array( $data ) && isset( $data['status_code'] ) && is_int( $data['status_code'] ) ? $data['status_code'] : 502;
+			return new WP_REST_Response(
+				array(
+					'code'    => 'agend_apps_checkout_options_unavailable',
+					'message' => __( 'Checkout options are not available right now.', 'agend-apps-core' ),
+					'data'    => array( 'status_code' => $status ),
+				),
+				$status
+			);
 		}
 
 		$options = array();
