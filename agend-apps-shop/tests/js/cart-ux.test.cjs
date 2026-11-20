@@ -10,6 +10,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function setup(t, {
   member = false, query = '', amount = 2000, attendees = [], browseUrl = 'https://shop.example/events/',
   signIn = false, payOnInvoice = '1', invoice = null, invoiceReply = null, portalHomeUrl = '',
+  quantity = 1, productType = 'event_tickets', mutationStatus = 200,
 } = {}) {
   let buyer = member ? '<div class="agend-shop-cart-payment" hidden></div>' : '<input class="agend-shop-buyer-name"><input class="agend-shop-buyer-email">';
   if (signIn) {
@@ -47,8 +48,8 @@ async function setup(t, {
     name: 'Event',
     unit_amount: amount,
     currency: 'AUD',
-    quantity: 1,
-    product_type: 'event_tickets',
+    quantity,
+    product_type: productType,
     metadata: { event_slug: 'event', attendees },
   };
   window.agendApps = { restUrl: 'https://shop.example/api/' };
@@ -58,7 +59,8 @@ async function setup(t, {
     calls.push({ url, options });
     let payload = { data: { items: [item], total_amount: amount, currency: 'AUD' } };
     if (url.endsWith('/cart/checkout-options')) {
-      return { ok: true, status: 200, json: async () => ({ data: { invoice, membershipInstalments: null } }) };
+      const option = typeof invoice === 'function' ? await invoice() : invoice;
+      return { ok: true, status: 200, json: async () => ({ data: { invoice: option, membershipInstalments: null } }) };
     }
     if (url.endsWith('/cart/checkout/invoice')) {
       const reply = typeof invoiceReply === 'function' ? invoiceReply(JSON.parse(options.body)) : invoiceReply;
@@ -69,7 +71,12 @@ async function setup(t, {
       payload = {};
     } else if (url.endsWith('/attendee-fields')) {
       payload = { data: [{ field_key: 'meal', name: 'Meal', field_type: 'text' }] };
+    } else if (url.endsWith('/cart/item/update')) {
+      if (mutationStatus !== 200) return { ok: false, status: mutationStatus, json: async () => ({ message: 'Update refused' }) };
+      item.quantity = JSON.parse(options.body).quantity;
+      payload = { data: item, meta: { totals: { newTotalAmount: amount * item.quantity, currency: 'AUD', newTotalCount: item.quantity } } };
     } else if (url.endsWith('/cart/items/attendees')) {
+      if (mutationStatus !== 200) return { ok: false, status: mutationStatus, json: async () => ({ message: 'Update refused' }) };
       saved = JSON.parse(options.body);
       payload = { success: true };
     }
@@ -357,4 +364,182 @@ test('a signed-out visitor who must sign in gets no buyer fields and returns to 
   const saved = JSON.parse(window.sessionStorage.getItem('agend_cart_signin_return'));
   assert.equal(saved.target, 'https://shop.example/cart/?continue=%2Fevents%2F');
   assert.ok(saved.expires > Date.now());
+});
+
+
+test('a single approved company is shown by name and automatically invoiced', async (t) => {
+  const companyId = '11111111-1111-4111-8111-111111111111';
+  const { window, dom, calls } = await setup(t, {
+    member: true,
+    invoice: invoiceOption({ purchaseOrderRequired: false, approvedCompanyIds: [companyId], approvedCompanies: [{ id: companyId, name: 'Acme School' }] }),
+    invoiceReply: accepted,
+  });
+  await chooseInvoice(window, dom);
+  assert.equal(dom.querySelector('select.agend-shop-invoice-company'), null);
+  assert.equal(dom.querySelector('.agend-shop-invoice-company-name').textContent, 'Company to invoice: Acme School');
+  dom.querySelector('.agend-shop-btn-proceed-checkout').click();
+  await tick();
+  assert.equal(JSON.parse(invoiceCalls(calls)[0].options.body).companyId, companyId);
+});
+
+test('a single approved company without enriched names still supplies its ID', async (t) => {
+  const companyId = '11111111-1111-4111-8111-111111111111';
+  const { window, dom, calls } = await setup(t, {
+    member: true, invoice: invoiceOption({ purchaseOrderRequired: false, approvedCompanyIds: [companyId] }), invoiceReply: accepted,
+  });
+  await chooseInvoice(window, dom);
+  assert.equal(dom.querySelector('.agend-shop-invoice-company-name').textContent, 'Company to invoice: Company 1');
+  dom.querySelector('.agend-shop-btn-proceed-checkout').click();
+  await tick();
+  assert.equal(JSON.parse(invoiceCalls(calls)[0].options.body).companyId, companyId);
+});
+
+const optionsCalls = (calls) => calls.filter((call) => call.url.endsWith('/cart/checkout-options'));
+const refreshPayment = async () => { await new Promise((resolve) => setTimeout(resolve, 250)); await tick(); };
+const capacityRefusal = () => invoiceOption({ available: false, reason: 'ticket_capacity_unavailable', reasonMessage: 'Not enough places.' });
+
+test('ticket quantity changes refresh a stale invoice refusal without replacing attendee inputs', async (t) => {
+  let option = capacityRefusal();
+  const { window, dom, calls } = await setup(t, { member: true, invoice: () => option, quantity: 2 });
+  dom.querySelector('.agend-shop-btn-attendees').click();
+  await tick();
+  // The decrement removes the first unset seat; edit the seat being retained.
+  const input = dom.querySelectorAll('.agend-shop-attendee-name')[1];
+  input.value = 'Unsaved name';
+  option = invoiceOption();
+  dom.querySelector('.agend-shop-qty-decrement').click();
+  await tick();
+  await refreshPayment();
+  assert.equal(optionsCalls(calls).length, 2);
+  assert.equal(dom.querySelector('.agend-shop-invoice-unavailable'), null);
+  assert.ok(dom.querySelector('.agend-shop-payment-method[value="invoice"]'));
+  assert.equal(dom.querySelector('.agend-shop-attendee-name'), input);
+  assert.equal(input.value, 'Unsaved name');
+  assert.equal(dom.querySelector('.agend-shop-payment-method[value="card"]').checked, true);
+});
+
+test('successful attendee saves and ticket increases debounce refreshes and retain invoice entries', async (t) => {
+  const companies = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+  const { window, dom, calls } = await setup(t, { member: true, invoice: invoiceOption({ approvedCompanyIds: companies }) });
+  await chooseInvoice(window, dom);
+  const po = dom.querySelector('.agend-shop-invoice-po');
+  po.value = 'PO-retained';
+  po.dispatchEvent(new window.Event('input'));
+  const company = dom.querySelector('.agend-shop-invoice-company');
+  company.value = companies[1];
+  company.dispatchEvent(new window.Event('change'));
+  dom.querySelector('.agend-shop-btn-attendees').click();
+  await tick();
+  const input = dom.querySelector('.agend-shop-attendee-name');
+  dom.querySelector('.agend-shop-btn-attendees-save').click();
+  await tick();
+  dom.querySelector('.agend-shop-qty-increment').click();
+  await tick();
+  input.value = 'Still editing';
+  assert.equal(optionsCalls(calls).length, 1, 'refresh waits for the mutation burst');
+  await refreshPayment();
+  assert.equal(optionsCalls(calls).length, 2, 'one refresh for both mutations');
+  assert.equal(dom.querySelector('.agend-shop-attendee-name'), input);
+  assert.equal(input.value, 'Still editing');
+  assert.equal(dom.querySelector('.agend-shop-invoice-po').value, 'PO-retained');
+  assert.equal(dom.querySelector('.agend-shop-invoice-company').value, companies[1]);
+  assert.equal(dom.querySelector('.agend-shop-payment-method[value="invoice"]').checked, true);
+  assert.match(dom.querySelector('.agend-shop-btn-proceed-checkout').textContent, /40\.00/);
+});
+
+test('attendee saves alone refresh invoice availability', async (t) => {
+  let option = capacityRefusal();
+  const { dom, calls } = await setup(t, { member: true, invoice: () => option });
+  dom.querySelector('.agend-shop-btn-attendees').click();
+  await tick();
+  option = invoiceOption();
+  dom.querySelector('.agend-shop-btn-attendees-save').click();
+  await tick();
+  await refreshPayment();
+  assert.equal(optionsCalls(calls).length, 2);
+  assert.ok(dom.querySelector('.agend-shop-payment-method[value="invoice"]'));
+});
+
+test('non-event quantity changes also refresh payment options and their total', async (t) => {
+  let option = capacityRefusal();
+  const { dom, calls } = await setup(t, { member: true, productType: 'courses', invoice: () => option });
+  option = invoiceOption();
+  dom.querySelector('.agend-shop-qty-increment').click();
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  await refreshPayment();
+  assert.equal(optionsCalls(calls).length, 2);
+  assert.ok(dom.querySelector('.agend-shop-payment-method[value="invoice"]'));
+  assert.match(dom.querySelector('.agend-shop-btn-proceed-checkout').textContent, /40\.00/);
+});
+
+test('failed quantity and attendee mutations do not refresh checkout options', async (t) => {
+  const { dom, calls } = await setup(t, { member: true, invoice: invoiceOption(), mutationStatus: 400 });
+  dom.querySelector('.agend-shop-qty-increment').click();
+  await tick();
+  dom.querySelector('.agend-shop-btn-attendees').click();
+  await tick();
+  dom.querySelector('.agend-shop-btn-attendees-save').click();
+  await tick();
+  await refreshPayment();
+  assert.equal(optionsCalls(calls).length, 1);
+});
+
+
+test('invoice entries survive a temporary refusal and an obsolete company is not submitted', async (t) => {
+  const companies = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+  let option = invoiceOption({ approvedCompanyIds: companies });
+  const { window, dom, calls } = await setup(t, { member: true, invoice: () => option, invoiceReply: accepted });
+  await chooseInvoice(window, dom);
+  dom.querySelector('.agend-shop-invoice-po').value = 'PO-kept';
+  dom.querySelector('.agend-shop-invoice-company').value = companies[1];
+  option = capacityRefusal();
+  dom.querySelector('.agend-shop-qty-increment').click();
+  await tick();
+  await refreshPayment();
+  assert.ok(dom.querySelector('.agend-shop-invoice-unavailable'));
+  option = invoiceOption({ approvedCompanyIds: companies });
+  dom.querySelector('.agend-shop-qty-increment').click();
+  await tick();
+  await refreshPayment();
+  assert.equal(dom.querySelector('.agend-shop-invoice-po').value, 'PO-kept');
+  assert.equal(dom.querySelector('.agend-shop-invoice-company').value, companies[1]);
+
+  option = invoiceOption();
+  dom.querySelector('.agend-shop-qty-increment').click();
+  await tick();
+  await refreshPayment();
+  await chooseInvoice(window, dom);
+  dom.querySelector('.agend-shop-btn-proceed-checkout').click();
+  await tick();
+  const body = JSON.parse(invoiceCalls(calls)[0].options.body);
+  assert.equal(body.companyId, undefined);
+  assert.equal(body.purchaseOrderNumber, 'PO-kept');
+});
+
+test('an older checkout-options reply cannot overwrite a changed cart', async (t) => {
+  let resolveOld;
+  let count = 0;
+  const { dom, calls } = await setup(t, {
+    member: true,
+    invoice: () => ++count === 1 ? new Promise((resolve) => { resolveOld = resolve; }) : invoiceOption(),
+  });
+  dom.querySelector('.agend-shop-qty-increment').click();
+  await tick();
+  resolveOld(capacityRefusal());
+  await tick();
+  assert.equal(dom.querySelector('.agend-shop-invoice-unavailable'), null, 'the old response is ignored even during the debounce');
+  await refreshPayment();
+  assert.equal(optionsCalls(calls).length, 2);
+  assert.ok(dom.querySelector('.agend-shop-payment-method[value="invoice"]'));
+});
+
+test('an allowed guest still checks out by card with buyer details', async (t) => {
+  const { dom, calls } = await setup(t);
+  dom.querySelector('.agend-shop-buyer-name').value = 'Guest Buyer';
+  dom.querySelector('.agend-shop-buyer-email').value = 'guest@example.test';
+  dom.querySelector('.agend-shop-btn-proceed-checkout').click();
+  await tick();
+  const call = calls.find((entry) => entry.url.endsWith('/cart/checkout'));
+  assert.deepEqual(JSON.parse(call.options.body).guest_buyer, { name: 'Guest Buyer', email: 'guest@example.test' });
+  assert.equal(optionsCalls(calls).length, 0);
 });

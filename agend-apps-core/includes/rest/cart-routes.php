@@ -64,26 +64,6 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	const PURCHASE_ORDER_MAX_LENGTH = 100;
 
 	/**
-	 * Whether a visitor without a member session may check out as a guest.
-	 *
-	 * Reads the Agend Apps Shop "Guest checkout" setting. Anything other than
-	 * an explicit `allow` requires sign-in, so a site that never saved the
-	 * setting keeps checkout for signed-in members only.
-	 *
-	 * @return bool
-	 */
-	public static function guest_checkout_allowed(): bool {
-		$allowed = 'allow' === get_option( 'agend_apps_shop_guest_checkout', 'require' );
-
-		/**
-		 * Filters whether guests may check out from the cart.
-		 *
-		 * @param bool $allowed True when the shop setting allows guest checkout.
-		 */
-		return (bool) apply_filters( 'agend_apps_cart_guest_checkout_allowed', $allowed );
-	}
-
-	/**
 	 * Whether the site offers Pay on Invoice (subject to the organisation's
 	 * invoice policy). On unless the Agend Apps Shop setting is switched off.
 	 *
@@ -509,7 +489,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	public function checkout_cart( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
 		if ( '' === $identity['bearer_token'] && ! self::guest_checkout_allowed() ) {
-			return $this->sign_in_required();
+			return $this->checkout_sign_in_required();
 		}
 		$urls     = array(
 			'successUrl' => $request->get_param( 'successUrl' ),
@@ -544,6 +524,9 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function checkout_complete( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
+		if ( '' === $identity['bearer_token'] && ! self::guest_checkout_allowed() ) {
+			return $this->checkout_sign_in_required();
+		}
 		$result   = agend_apps_cart_checkout_complete( $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
@@ -564,22 +547,6 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	}
 
 	/**
-	 * The refusal sent when a route needs a signed-in member.
-	 *
-	 * @return WP_REST_Response 401 response.
-	 */
-	private function sign_in_required(): WP_REST_Response {
-		return new WP_REST_Response(
-			array(
-				'code'    => 'agend_apps_sign_in_required',
-				'message' => __( 'Sign in to check out.', 'agend-apps-core' ),
-				'data'    => array( 'status_code' => 401 ),
-			),
-			401
-		);
-	}
-
-	/**
 	 * Returns the payment options for the current cart.
 	 *
 	 * Member only: a guest is refused before any gateway call. With Pay on
@@ -596,7 +563,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	public function checkout_options( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
 		if ( '' === $identity['bearer_token'] ) {
-			return $this->sign_in_required();
+			return $this->checkout_sign_in_required();
 		}
 
 		$result = agend_apps_cart_checkout_options( $identity['cart_session'], $identity['bearer_token'] );
@@ -675,7 +642,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	public function checkout_invoice( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
 		if ( '' === $identity['bearer_token'] ) {
-			return $this->sign_in_required();
+			return $this->checkout_sign_in_required();
 		}
 		if ( ! self::invoice_checkout_enabled() ) {
 			return new WP_REST_Response(

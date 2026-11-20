@@ -165,6 +165,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var cartTotal        = null;
 		var cartCurrency     = '';
 		var optionsRequest   = 0;
+		var optionsTimer     = null;
+		var cartLocked       = false;
 		function updateCheckoutLabel( amount, currency ) {
 			if ( Number.isFinite( Number( amount ) ) && currency ) {
 				cartTotal    = Number( amount );
@@ -388,6 +390,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			var cart  = ( data && data.cart ) || data || {};
 			var items = ( cart && cart.items ) || [];
 			var isLocked = 'locked' === cart.status;
+			cartLocked = isLocked;
+			// Invalidate options for the previous cart, including empty/terminal carts.
+			clearTimeout( optionsTimer );
+			++optionsRequest;
 			if ( cancelBtn ) {
 				cancelBtn.hidden = ! isLocked;
 				cancelBtn.disabled = ! isLocked;
@@ -471,6 +477,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
 
+			scheduleCheckoutOptions();
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
 				detail: {
 					count: totals.newTotalCount,
@@ -871,6 +878,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
 				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
+			scheduleCheckoutOptions();
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
 				detail: { count: totals.newTotalCount, amount: totalAmount },
 			} ) );
@@ -1133,6 +1141,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 							throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
 						} );
 					}
+					scheduleCheckoutOptions();
 					// Reduce the quantity; the retained attendees are already the
 					// leading N so the update's truncation is a no-op.
 					return putItemQuantity( item, newQty );
@@ -1538,6 +1547,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					item.metadata = item.metadata || {};
 					item.metadata.attendees = attendees;
 					refreshAttendeeSummary( item );
+					scheduleCheckoutOptions();
 
 					// Refresh each seat's saved/unset badge to reflect what was stored.
 					for ( var b = 0; b < seatEls.length; b++ ) {
@@ -1768,6 +1778,21 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
+		 * Refreshes only payment options after a successful cart mutation. Multiple
+		 * writes (such as attendee removal followed by quantity) share one refresh;
+		 * the open attendee editor is never re-rendered by this request.
+		 */
+		function scheduleCheckoutOptions() {
+			invoiceKey = null;
+			++optionsRequest;
+			clearTimeout( optionsTimer );
+			if ( ! invoiceOffered() || orderPlaced ) return;
+			optionsTimer = setTimeout( function () {
+				loadCheckoutOptions( cartLocked || 0 === cartTotal );
+			}, 150 );
+		}
+
+		/**
 		 * Fetches the payment options for the cart and shows the payment
 		 * choice when Pay on Invoice is available. Card stays the only way to
 		 * pay when it is not, or when the options cannot be loaded.
@@ -1775,6 +1800,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {boolean} skip True when there is nothing to choose (a locked or free cart).
 		 */
 		function loadCheckoutOptions( skip ) {
+			clearTimeout( optionsTimer );
 			if ( ! invoiceOffered() ) {
 				return;
 			}
@@ -1791,12 +1817,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					return response.ok ? response.json() : null;
 				} )
 				.then( function ( body ) {
-					if ( request === optionsRequest ) {
+					if ( request === optionsRequest && ! orderPlaced ) {
 						renderPaymentChoice( body && body.data ? body.data.invoice : null );
 					}
 				} )
 				.catch( function () {
-					if ( request === optionsRequest ) {
+					if ( request === optionsRequest && ! orderPlaced ) {
 						renderPaymentChoice( null );
 					}
 				} );
@@ -1823,6 +1849,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * @param {Object|null} invoice Invoice option from checkout-options, or null.
 		 */
 		function renderPaymentChoice( invoice ) {
+			// Read the live entries before replacing just this payment section.
+			var currentPo = paymentEl.querySelector( '.agend-shop-invoice-po' );
+			var currentCompany = paymentEl.querySelector( '.agend-shop-invoice-company' );
+			if ( currentPo ) invoiceEntries.po = currentPo.value;
+			if ( currentCompany ) invoiceEntries.companyId = currentCompany.value;
 			invoiceOption = invoice && invoice.available ? invoice : null;
 			paymentEl.innerHTML = '';
 
@@ -1892,12 +1923,18 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				companies.forEach( function ( company, index ) {
 					select.appendChild( new Option( company.name || 'Company ' + ( index + 1 ), company.id ) );
 				} );
+				if ( ! companies.some( function ( company ) { return company.id === invoiceEntries.companyId; } ) ) {
+					invoiceEntries.companyId = '';
+				}
 				select.value = invoiceEntries.companyId;
 				select.addEventListener( 'change', function () {
 					invoiceEntries.companyId = select.value;
 				} );
 				companyLabel.appendChild( select );
 				details.appendChild( companyLabel );
+			} else if ( 1 === companies.length ) {
+				invoiceEntries.companyId = companies[ 0 ].id;
+				details.appendChild( textEl( 'p', 'agend-shop-invoice-company-name', 'Company to invoice: ' + ( companies[ 0 ].name || 'Company 1' ) ) );
 			} else {
 				invoiceEntries.companyId = '';
 			}
@@ -1944,7 +1981,12 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			invoiceKey = invoiceKey || newInvoiceKey();
 			var payload = { paymentMethod: 'invoice', idempotencyKey: invoiceKey };
 			if ( po && po.value ) payload.purchaseOrderNumber = po.value;
-			if ( company && company.value ) payload.companyId = company.value;
+			var companies = invoiceCompanies( invoiceOption );
+			if ( 1 === companies.length ) {
+				payload.companyId = companies[ 0 ].id;
+			} else if ( company && company.value ) {
+				payload.companyId = company.value;
+			}
 
 			checkoutBtn.disabled = true;
 			clearMessage();
