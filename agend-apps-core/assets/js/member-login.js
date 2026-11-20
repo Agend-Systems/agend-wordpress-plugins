@@ -20,6 +20,19 @@
 
   function returnAfterSignIn() {
     try {
+      // The cart's sign-in prompt: back to the cart page, whose guest cart the
+      // sign-in has already moved onto the member.
+      if (new URL(window.location.href).searchParams.get('agend_cart_signin') === '1') {
+        var cart = JSON.parse(sessionStorage.getItem('agend_cart_signin_return'));
+        sessionStorage.removeItem('agend_cart_signin_return');
+        if (cart && cart.expires > Date.now()) {
+          var cartUrl = new URL(cart.target);
+          if (cartUrl.origin === window.location.origin && !cartUrl.username && !cartUrl.password) {
+            window.location.replace(cartUrl.href);
+            return;
+          }
+        }
+      }
       if (new URL(window.location.href).searchParams.get('agend_event_signin') === '1') {
         var state = JSON.parse(sessionStorage.getItem('agend_event_checkout_selection'));
         if (state && state.expires > Date.now()) {

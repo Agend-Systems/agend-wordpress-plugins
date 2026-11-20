@@ -27,6 +27,9 @@ final class CartRoutesTest extends TestCase {
 		}
 		// phpcs:ignore Squiz.PHP.Eval.Discouraged
 		eval( $match[0] );
+		// The guest checkout cases below predate the Guest checkout setting
+		// and run with guests allowed; the refusal cases clear it.
+		update_option( 'agend_apps_shop_guest_checkout', 'allow' );
 	}
 
 	private function checkoutRequest(): WP_REST_Request {
@@ -166,5 +169,223 @@ final class CartRoutesTest extends TestCase {
 		self::assertSame( '', get_transient( 'agend_apps_cart_event_name_' . md5( 'conference' ) ) );
 		self::assertSame( 60, Agend_Test_WP::$transient_ttls['agend_apps_cart_event_name_' . md5( 'conference' )] );
 		self::assertSame( 60, Agend_Test_WP::$transient_ttls['agend_apps_cart_event_name_' . md5( 'workshop' )] );
+	}
+
+	#[Test]
+	public function should_refuse_guest_checkout_without_calling_the_gateway_when_sign_in_is_required(): void {
+		delete_option( 'agend_apps_shop_guest_checkout' );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_cart( $this->checkoutRequest() );
+		self::assertSame( 401, $response->get_status() );
+		self::assertSame( 'agend_apps_sign_in_required', $response->get_data()['code'] );
+		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_refuse_a_guest_buyer_when_the_setting_requires_sign_in(): void {
+		update_option( 'agend_apps_shop_guest_checkout', 'require' );
+		$request = $this->checkoutRequest();
+		$request->set_param( 'guest_buyer', array( 'name' => 'Alex', 'email' => 'alex@example.test' ) );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_cart( $request );
+		self::assertSame( 401, $response->get_status() );
+		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_refuse_guests_when_the_setting_holds_an_unknown_value(): void {
+		update_option( 'agend_apps_shop_guest_checkout', 'yes' );
+		self::assertFalse( Agend_Apps_Cart_REST_Controller::guest_checkout_allowed() );
+	}
+
+	#[Test]
+	public function should_let_a_member_check_out_when_sign_in_is_required(): void {
+		delete_option( 'agend_apps_shop_guest_checkout' );
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		$body = $this->checkoutBody( $this->checkoutRequest() );
+		self::assertSame( 'https://shop.test/thanks', $body['successUrl'] );
+		self::assertSame( 'Bearer member-token', Agend_Test_WP::$requests[0]['headers']['Authorization'] );
+	}
+
+	private function invoiceOption( array $overrides = array() ): array {
+		return array_merge(
+			array(
+				'available'             => true,
+				'reason'                => null,
+				'reasonMessage'         => null,
+				'purchaseOrderRequired' => true,
+				'termsDays'             => 30,
+				'paymentInstructions'   => 'Pay by EFT to BSB 000-000.',
+				'releasePolicies'       => array( 'event_tickets' => 'payment_confirmed' ),
+				'unsupportedProductTypes' => array(),
+				'approvedCompanyIds'    => array(),
+				'dueAt'                 => '2026-12-20T13:00:00+00:00',
+				'dueLocalDate'          => '2026-12-21',
+				'timezone'              => 'Australia/Sydney',
+			),
+			$overrides
+		);
+	}
+
+	private function optionsRequest(): WP_REST_Request {
+		$request = new WP_REST_Request( 'GET', '/agend-apps/v1/cart/checkout-options' );
+		$request->set_header( 'X-Cart-Session', 'guest-session' );
+		return $request;
+	}
+
+	#[Test]
+	public function should_refuse_checkout_options_to_a_guest_without_calling_the_gateway(): void {
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() );
+		self::assertSame( 401, $response->get_status() );
+		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_pass_the_invoice_option_through_for_a_member(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'invoice' => $this->invoiceOption(), 'membershipInstalments' => null ) ) );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() );
+		self::assertSame( 200, $response->get_status() );
+		self::assertSame( $this->invoiceOption(), $response->get_data()['data']['invoice'] );
+		self::assertSame( 'GET', Agend_Test_WP::$requests[0]['method'] );
+		self::assertStringEndsWith( '/cart/checkout-options', Agend_Test_WP::$requests[0]['url'] );
+		self::assertSame( 'Bearer member-token', Agend_Test_WP::$requests[0]['headers']['Authorization'] );
+	}
+
+	#[Test]
+	public function should_mark_invoice_unavailable_when_pay_on_invoice_is_switched_off(): void {
+		update_option( 'agend_apps_shop_pay_on_invoice', '0' );
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'invoice' => $this->invoiceOption(), 'membershipInstalments' => null ) ) );
+		$invoice = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() )->get_data()['data']['invoice'];
+		self::assertFalse( $invoice['available'] );
+		self::assertSame( 'invoice_disabled', $invoice['reason'] );
+		self::assertNull( $invoice['paymentInstructions'] );
+	}
+
+	#[Test]
+	public function should_name_each_company_when_the_buyer_may_invoice_several(): void {
+		$ids = array( '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222' );
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'invoice' => $this->invoiceOption( array( 'approvedCompanyIds' => $ids ) ) ) ) );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'id' => $ids[0], 'name' => 'Acme School' ) ) );
+		Agend_Test_WP::queue_response( 404, array( 'error' => array( 'message' => 'Not found' ) ) );
+		$invoice = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() )->get_data()['data']['invoice'];
+		self::assertSame(
+			array(
+				array( 'id' => $ids[0], 'name' => 'Acme School' ),
+				array( 'id' => $ids[1], 'name' => '' ),
+			),
+			$invoice['approvedCompanies']
+		);
+		self::assertStringEndsWith( '/crm/companies/' . $ids[0], Agend_Test_WP::$requests[1]['url'] );
+		self::assertArrayNotHasKey( 'Authorization', Agend_Test_WP::$requests[1]['headers'] );
+	}
+
+	#[Test]
+	public function should_leave_a_single_company_unnamed(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::queue_response( 200, array( 'data' => array( 'invoice' => $this->invoiceOption( array( 'approvedCompanyIds' => array( '11111111-1111-4111-8111-111111111111' ) ) ) ) ) );
+		$invoice = ( new Agend_Apps_Cart_REST_Controller() )->checkout_options( $this->optionsRequest() )->get_data()['data']['invoice'];
+		self::assertArrayNotHasKey( 'approvedCompanies', $invoice );
+		self::assertCount( 1, Agend_Test_WP::$requests );
+	}
+
+	private function invoiceRequest( array $params = array() ): WP_REST_Request {
+		$request = new WP_REST_Request( 'POST', '/agend-apps/v1/cart/checkout/invoice' );
+		$request->set_header( 'X-Cart-Session', 'guest-session' );
+		foreach ( array_merge( array( 'idempotencyKey' => 'wp-cart-key-1' ), $params ) as $key => $value ) {
+			$request->set_param( $key, $value );
+		}
+		return $request;
+	}
+
+	private function acceptance(): array {
+		return array(
+			'orderId'             => '33333333-3333-4333-8333-333333333333',
+			'orderNumber'         => 'ORD-1001',
+			'invoiceOrderId'      => '44444444-4444-4444-8444-444444444444',
+			'totalCents'          => 12000,
+			'currency'            => 'AUD',
+			'dueAt'               => '2026-12-20T13:00:00+00:00',
+			'dueLocalDate'        => '2026-12-21',
+			'timezone'            => 'Australia/Sydney',
+			'purchaseOrderNumber' => 'PO-77',
+			'paymentInstructions' => 'Pay by EFT.',
+			'lines'               => array(),
+		);
+	}
+
+	#[Test]
+	public function should_refuse_invoice_checkout_to_a_guest_without_calling_the_gateway(): void {
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_invoice( $this->invoiceRequest() );
+		self::assertSame( 401, $response->get_status() );
+		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_refuse_invoice_checkout_when_pay_on_invoice_is_switched_off(): void {
+		update_option( 'agend_apps_shop_pay_on_invoice', '0' );
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_invoice( $this->invoiceRequest() );
+		self::assertSame( 403, $response->get_status() );
+		self::assertSame( 'agend_apps_invoice_disabled', $response->get_data()['code'] );
+		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_send_the_invoice_order_with_its_purchase_order_and_company(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::queue_response( 200, array( 'data' => $this->acceptance() ) );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_invoice(
+			$this->invoiceRequest(
+				array(
+					'purchaseOrderNumber' => '  PO-77 ',
+					'companyId'           => '11111111-1111-4111-8111-11111111111A',
+					'paymentMethod'       => 'card',
+				)
+			)
+		);
+		self::assertSame( 200, $response->get_status() );
+		self::assertSame( 'ORD-1001', $response->get_data()['data']['orderNumber'] );
+		self::assertSame( 'POST', Agend_Test_WP::$requests[0]['method'] );
+		self::assertStringEndsWith( '/cart/checkout/invoice', Agend_Test_WP::$requests[0]['url'] );
+		self::assertSame( 'Bearer member-token', Agend_Test_WP::$requests[0]['headers']['Authorization'] );
+		self::assertSame(
+			array(
+				'paymentMethod'       => 'invoice',
+				'idempotencyKey'      => 'wp-cart-key-1',
+				'purchaseOrderNumber' => 'PO-77',
+				'companyId'           => '11111111-1111-4111-8111-11111111111a',
+			),
+			json_decode( Agend_Test_WP::$requests[0]['body'], true )
+		);
+	}
+
+	#[Test]
+	public function should_omit_an_empty_purchase_order_and_an_invalid_company(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::queue_response( 200, array( 'data' => $this->acceptance() ) );
+		( new Agend_Apps_Cart_REST_Controller() )->checkout_invoice( $this->invoiceRequest( array( 'purchaseOrderNumber' => '   ', 'companyId' => 'not-a-company' ) ) );
+		self::assertSame(
+			array( 'paymentMethod' => 'invoice', 'idempotencyKey' => 'wp-cart-key-1' ),
+			json_decode( Agend_Test_WP::$requests[0]['body'], true )
+		);
+	}
+
+	#[Test]
+	public function should_refuse_a_purchase_order_number_over_the_platform_limit(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_invoice( $this->invoiceRequest( array( 'purchaseOrderNumber' => str_repeat( 'P', 101 ) ) ) );
+		self::assertSame( 400, $response->get_status() );
+		self::assertSame( 'agend_apps_invalid_purchase_order', $response->get_data()['code'] );
+		self::assertCount( 0, Agend_Test_WP::$requests );
+	}
+
+	#[Test]
+	public function should_pass_the_platform_refusal_through_when_a_purchase_order_is_required(): void {
+		Agend_Test_WP::set_filter( 'agend_apps_bearer_token', 'member-token' );
+		Agend_Test_WP::queue_response( 400, array( 'error' => array( 'code' => 'INVALID_PURCHASE_ORDER', 'message' => 'Enter a purchase order number to order on invoice' ) ) );
+		$response = ( new Agend_Apps_Cart_REST_Controller() )->checkout_invoice( $this->invoiceRequest() );
+		self::assertSame( 400, $response->get_status() );
+		self::assertSame( 'Enter a purchase order number to order on invoice', $response->get_data()['message'] );
 	}
 }

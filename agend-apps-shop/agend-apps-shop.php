@@ -4,7 +4,7 @@
  * Plugin URI:        https://agend.com.au
  * Update URI:        https://agend-systems.github.io/agend-wordpress-plugins/agend-apps-shop
  * Description:       Extends Agend Apps Core with Elementor cart widgets for end-user checkout flows.
- * Version:           1.4.0
+ * Version:           1.5.0
  * Author:            Agend
  * Author URI:        https://agend.com.au
  * Text Domain:       agend-apps-shop
@@ -25,7 +25,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * @var string
  */
-define( 'AGEND_APPS_SHOP_VERSION', '1.4.0' );
+define( 'AGEND_APPS_SHOP_VERSION', '1.5.0' );
 
 /**
  * Absolute path to the plugin directory, with trailing slash.
@@ -40,6 +40,8 @@ define( 'AGEND_APPS_SHOP_DIR', plugin_dir_path( __FILE__ ) );
  * @var string
  */
 define( 'AGEND_APPS_SHOP_URL', plugin_dir_url( __FILE__ ) );
+
+require_once AGEND_APPS_SHOP_DIR . 'includes/checkout-settings.php';
 
 /**
  * Checks that required plugins are active and loads the plugin's components.
@@ -159,6 +161,9 @@ function agend_apps_shop_register_assets(): void {
 		'cartPageUrl'        => esc_url_raw( get_option( 'agend_apps_shop_cart_page_url', '' ) ),
 		'checkoutSuccessUrl' => esc_url_raw( get_option( 'agend_apps_shop_checkout_success_url', '' ) ),
 		'checkoutCancelUrl'  => esc_url_raw( get_option( 'agend_apps_shop_checkout_cancel_url', '' ) ),
+		'guestCheckout'      => agend_apps_shop_guest_checkout_allowed(),
+		'payOnInvoice'       => agend_apps_shop_pay_on_invoice_enabled(),
+		'portalHomeUrl'      => agend_apps_shop_portal_home_url(),
 	);
 	// wp_localize_script() only needs the handle registered, not enqueued: the
 	// data is attached now and printed alongside the script if and when it is
@@ -177,5 +182,7 @@ function agend_apps_shop_activate(): void {
 	add_option( 'agend_apps_shop_cart_page_url', '' );
 	add_option( 'agend_apps_shop_checkout_success_url', '' );
 	add_option( 'agend_apps_shop_checkout_cancel_url', '' );
+	add_option( 'agend_apps_shop_guest_checkout', 'require' );
+	add_option( 'agend_apps_shop_pay_on_invoice', '1' );
 }
 register_activation_hook( __FILE__, 'agend_apps_shop_activate' );

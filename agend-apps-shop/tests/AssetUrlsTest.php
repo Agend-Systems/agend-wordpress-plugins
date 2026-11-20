@@ -20,6 +20,9 @@ function wp_localize_script( $handle, $name, $data ): void {
 final class AssetUrlsTest extends TestCase {
 	#[Test]
 	public function should_preserve_query_separators_in_every_localized_shop_url(): void {
+		// The localized data also carries the checkout settings, read through
+		// these helpers.
+		require_once AGEND_TESTS_ROOT . '/agend-apps-shop/includes/checkout-settings.php';
 		$source = (string) file_get_contents( AGEND_TESTS_ROOT . '/agend-apps-shop/agend-apps-shop.php' );
 		self::assertSame( 1, preg_match( '/^function agend_apps_shop_register_assets\(.*?^}/ms', $source, $match ) );
 		if ( ! function_exists( __NAMESPACE__ . '\\agend_apps_shop_register_assets' ) ) {
@@ -42,7 +45,7 @@ final class AssetUrlsTest extends TestCase {
 		$GLOBALS['agend_test_shop_localized'] = array();
 		agend_apps_shop_register_assets();
 		foreach ( array( 'agend-apps-shop-cart-view', 'agend-apps-shop-cart-header' ) as $handle ) {
-			self::assertSame( $expected, $GLOBALS['agend_test_shop_localized'][ $handle ]['agendAppsShop'] );
+			self::assertSame( $expected, array_intersect_key( $GLOBALS['agend_test_shop_localized'][ $handle ]['agendAppsShop'], $expected ) );
 		}
 	}
 }

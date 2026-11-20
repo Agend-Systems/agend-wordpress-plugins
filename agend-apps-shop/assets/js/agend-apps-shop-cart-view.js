@@ -3,7 +3,11 @@
  *
  * Loads and renders the full cart. Handles quantity updates, item removal,
  * cart clearing (with confirmation), checkout initiation, and the testing
- * complete/cancel checkout flows.
+ * complete/cancel checkout flows. For a signed-in member it also offers Pay on
+ * Invoice when the shop setting and the organisation's invoice policy allow
+ * it, and shows the placed order. For a signed-out visitor on a site that
+ * requires sign-in, it keeps the cart and remembers the way back after
+ * sign-in.
  *
  * Depends on agend-apps-shop-cart-session.js (AgendCartSession global).
  * Reads checkout URLs from window.agendAppsShop (localised by PHP).
@@ -143,11 +147,36 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var confirmModal     = wrapper.querySelector( '.agend-shop-confirm-modal' );
 		var confirmYesBtn    = wrapper.querySelector( '.agend-shop-btn-confirm-yes' );
 		var confirmNoBtn     = wrapper.querySelector( '.agend-shop-btn-confirm-no' );
+		var paymentEl        = wrapper.querySelector( '.agend-shop-cart-payment' );
+		var confirmationEl   = wrapper.querySelector( '.agend-shop-invoice-confirmation' );
+		var signInLink       = wrapper.querySelector( '.agend-shop-cart-signin-link' );
 
 		var signedIn = 'true' === wrapper.dataset.memberSignedIn;
 		var eventTicketsOnly = false;
+		var hasEventTickets  = false;
+		// Pay on Invoice state: the platform's invoice option for this cart,
+		// the buyer's choice, their entries (kept across re-renders) and the
+		// idempotency key of the current attempt.
+		var invoiceOption    = null;
+		var paymentMethod    = 'card';
+		var invoiceEntries   = { po: '', companyId: '' };
+		var invoiceKey       = null;
+		var orderPlaced      = false;
+		var cartTotal        = null;
+		var cartCurrency     = '';
+		var optionsRequest   = 0;
+		var optionsTimer     = null;
+		var cartLocked       = false;
 		function updateCheckoutLabel( amount, currency ) {
+			if ( Number.isFinite( Number( amount ) ) && currency ) {
+				cartTotal    = Number( amount );
+				cartCurrency = currency;
+			}
 			if ( checkoutBtn && Number.isFinite( Number( amount ) ) && currency ) {
+				if ( 'invoice' === paymentMethod ) {
+					checkoutBtn.textContent = 'Place order on invoice — ' + formatCurrency( Number( amount ), currency );
+					return;
+				}
 				checkoutBtn.textContent = Number( amount ) === 0 && eventTicketsOnly
 					? 'Confirm free booking'
 					: 'Proceed to Checkout — ' + formatCurrency( Number( amount ), currency );
@@ -282,6 +311,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		 * Loads the cart from the REST API and renders it.
 		 */
 		function loadCart(liveUpdate = false) {
+			// After an order on invoice the confirmation stays on screen; the
+			// now-empty cart is not shown over it.
+			if ( orderPlaced ) {
+				return;
+			}
 			if ( ! AgendCartSession.getToken() && 'true' !== wrapper.dataset.memberSignedIn ) {
 				loadingEl.setAttribute( 'hidden', '' );
 				contentEl.setAttribute( 'hidden', '' );
@@ -356,6 +390,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			var cart  = ( data && data.cart ) || data || {};
 			var items = ( cart && cart.items ) || [];
 			var isLocked = 'locked' === cart.status;
+			cartLocked = isLocked;
+			// Invalidate options for the previous cart, including empty/terminal carts.
+			clearTimeout( optionsTimer );
+			++optionsRequest;
 			if ( cancelBtn ) {
 				cancelBtn.hidden = ! isLocked;
 				cancelBtn.disabled = ! isLocked;
@@ -405,7 +443,11 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				totalAmountEl.textContent = formatCurrency( cart.total_amount, cart.currency );
 			}
 			eventTicketsOnly = cart.items.length > 0 && cart.items.every( function ( item ) { return 'event_tickets' === item.product_type; } );
+			hasEventTickets  = cart.items.some( function ( item ) { return 'event_tickets' === item.product_type; } );
+			// A changed cart is a new attempt.
+			invoiceKey = null;
 			updateCheckoutLabel( cart.total_amount, cart.currency );
+			loadCheckoutOptions( isLocked || 0 === Number( cart.total_amount ) );
 		}
 
 		/**
@@ -435,6 +477,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
 
+			scheduleCheckoutOptions();
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
 				detail: {
 					count: totals.newTotalCount,
@@ -835,6 +878,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 				totalAmountEl.textContent = formatCurrency( totalAmount, totals.currency || item.currency );
 				updateCheckoutLabel( totalAmount, totals.currency || item.currency );
 			}
+			scheduleCheckoutOptions();
 			document.dispatchEvent( new CustomEvent( 'agend:cart:updated:total', {
 				detail: { count: totals.newTotalCount, amount: totalAmount },
 			} ) );
@@ -1097,6 +1141,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 							throw new Error( ( data && data.message ) || 'Unable to update tickets.' );
 						} );
 					}
+					scheduleCheckoutOptions();
 					// Reduce the quantity; the retained attendees are already the
 					// leading N so the update's truncation is a no-op.
 					return putItemQuantity( item, newQty );
@@ -1502,6 +1547,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 					item.metadata = item.metadata || {};
 					item.metadata.attendees = attendees;
 					refreshAttendeeSummary( item );
+					scheduleCheckoutOptions();
 
 					// Refresh each seat's saved/unset badge to reflect what was stored.
 					for ( var b = 0; b < seatEls.length; b++ ) {
@@ -1660,9 +1706,407 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			} );
 		}
 
+		/**
+		 * Builds a text element.
+		 *
+		 * @param {string} tag       Tag name.
+		 * @param {string} className Class name.
+		 * @param {string} text      Text content.
+		 * @return {HTMLElement} The element.
+		 */
+		function textEl( tag, className, text ) {
+			var node = document.createElement( tag );
+			if ( className ) node.className = className;
+			if ( undefined !== text && null !== text ) node.textContent = String( text );
+			return node;
+		}
+
+		/**
+		 * Formats a `YYYY-MM-DD` calendar date for display, without shifting
+		 * it through the visitor's timezone.
+		 *
+		 * @param {string} value Calendar date.
+		 * @return {string} Formatted date, or '' when unusable.
+		 */
+		function formatLocalDate( value ) {
+			var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec( value || '' );
+			if ( ! match ) return '';
+			var date = new Date( Date.UTC( Number( match[ 1 ] ), Number( match[ 2 ] ) - 1, Number( match[ 3 ] ) ) );
+			try {
+				return date.toLocaleDateString( undefined, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' } );
+			} catch ( e ) {
+				return value;
+			}
+		}
+
+		/**
+		 * A fresh idempotency key for one Pay on Invoice attempt.
+		 *
+		 * @return {string} Key.
+		 */
+		function newInvoiceKey() {
+			if ( window.crypto && 'function' === typeof window.crypto.randomUUID ) {
+				return 'wp-cart-' + window.crypto.randomUUID();
+			}
+			return 'wp-cart-' + Date.now().toString( 36 ) + '-' + Math.random().toString( 36 ).slice( 2 );
+		}
+
+		/**
+		 * The error text to show for a failed cart request: field messages
+		 * from the platform first, then its message.
+		 *
+		 * @param {Object} body Response body.
+		 * @return {string} Message.
+		 */
+		function errorMessage( body ) {
+			var fields = body && body.data && body.data.body && body.data.body.error && body.data.body.error.details && body.data.body.error.details.fields;
+			var messages = fields ? Object.keys( fields ).reduce( function ( all, key ) {
+				return all.concat( fields[ key ] );
+			}, [] ) : [];
+			return messages.length ? messages.join( ' ' ) : ( ( body && body.message ) || 'An unexpected error occurred. Please try again.' );
+		}
+
+		/**
+		 * Whether Pay on Invoice is on for this site. The WordPress route
+		 * enforces the same setting.
+		 *
+		 * @return {boolean}
+		 */
+		function invoiceOffered() {
+			var value = shopConfig.payOnInvoice;
+			return signedIn && !! paymentEl && !! value && '0' !== value;
+		}
+
+		/**
+		 * Refreshes only payment options after a successful cart mutation. Multiple
+		 * writes (such as attendee removal followed by quantity) share one refresh;
+		 * the open attendee editor is never re-rendered by this request.
+		 */
+		function scheduleCheckoutOptions() {
+			invoiceKey = null;
+			++optionsRequest;
+			clearTimeout( optionsTimer );
+			if ( ! invoiceOffered() || orderPlaced ) return;
+			optionsTimer = setTimeout( function () {
+				loadCheckoutOptions( cartLocked || 0 === cartTotal );
+			}, 150 );
+		}
+
+		/**
+		 * Fetches the payment options for the cart and shows the payment
+		 * choice when Pay on Invoice is available. Card stays the only way to
+		 * pay when it is not, or when the options cannot be loaded.
+		 *
+		 * @param {boolean} skip True when there is nothing to choose (a locked or free cart).
+		 */
+		function loadCheckoutOptions( skip ) {
+			clearTimeout( optionsTimer );
+			if ( ! invoiceOffered() ) {
+				return;
+			}
+			var request = ++optionsRequest;
+			if ( skip ) {
+				renderPaymentChoice( null );
+				return;
+			}
+			fetch( restUrl + 'cart/checkout-options', {
+				method: 'GET',
+				headers: AgendCartSession.getHeaders(),
+			} )
+				.then( function ( response ) {
+					return response.ok ? response.json() : null;
+				} )
+				.then( function ( body ) {
+					if ( request === optionsRequest && ! orderPlaced ) {
+						renderPaymentChoice( body && body.data ? body.data.invoice : null );
+					}
+				} )
+				.catch( function () {
+					if ( request === optionsRequest && ! orderPlaced ) {
+						renderPaymentChoice( null );
+					}
+				} );
+		}
+
+		/**
+		 * The companies the buyer may invoice, with names where known.
+		 *
+		 * @param {Object} invoice Invoice option.
+		 * @return {Array<{id: string, name: string}>}
+		 */
+		function invoiceCompanies( invoice ) {
+			if ( Array.isArray( invoice.approvedCompanies ) ) {
+				return invoice.approvedCompanies;
+			}
+			return ( invoice.approvedCompanyIds || [] ).map( function ( id ) {
+				return { id: id, name: '' };
+			} );
+		}
+
+		/**
+		 * Renders the card / Pay on Invoice choice and the invoice details.
+		 *
+		 * @param {Object|null} invoice Invoice option from checkout-options, or null.
+		 */
+		function renderPaymentChoice( invoice ) {
+			// Read the live entries before replacing just this payment section.
+			var currentPo = paymentEl.querySelector( '.agend-shop-invoice-po' );
+			var currentCompany = paymentEl.querySelector( '.agend-shop-invoice-company' );
+			if ( currentPo ) invoiceEntries.po = currentPo.value;
+			if ( currentCompany ) invoiceEntries.companyId = currentCompany.value;
+			invoiceOption = invoice && invoice.available ? invoice : null;
+			paymentEl.innerHTML = '';
+
+			var helpfulReasons = [ 'ticket_capacity_unavailable', 'ticket_reservation_window_closed', 'event_unavailable', 'invoice_unavailable' ];
+			if ( ! invoiceOption ) {
+				paymentMethod = 'card';
+				if ( invoice && invoice.reasonMessage && -1 !== helpfulReasons.indexOf( invoice.reason ) ) {
+					paymentEl.appendChild( textEl( 'p', 'agend-shop-invoice-unavailable', 'Pay on Invoice is not available for this order. ' + invoice.reasonMessage ) );
+					paymentEl.hidden = false;
+				} else {
+					paymentEl.hidden = true;
+				}
+				updateCheckoutLabel( cartTotal, cartCurrency );
+				return;
+			}
+
+			var fieldset = document.createElement( 'fieldset' );
+			fieldset.className = 'agend-shop-payment-choice';
+			fieldset.appendChild( textEl( 'legend', '', 'How would you like to pay?' ) );
+			[ [ 'card', 'Pay now by card' ], [ 'invoice', 'Pay on Invoice' ] ].forEach( function ( option ) {
+				var label = document.createElement( 'label' );
+				var radio = document.createElement( 'input' );
+				radio.type = 'radio';
+				radio.name = 'agend-shop-payment-method';
+				radio.className = 'agend-shop-payment-method';
+				radio.value = option[ 0 ];
+				radio.checked = option[ 0 ] === paymentMethod;
+				radio.addEventListener( 'change', function () {
+					if ( radio.checked ) {
+						paymentMethod = radio.value;
+						details.hidden = 'invoice' !== paymentMethod;
+						clearMessage();
+						updateCheckoutLabel( cartTotal, cartCurrency );
+					}
+				} );
+				label.appendChild( radio );
+				label.appendChild( document.createTextNode( ' ' + option[ 1 ] ) );
+				fieldset.appendChild( label );
+			} );
+			paymentEl.appendChild( fieldset );
+
+			var details = document.createElement( 'div' );
+			details.className = 'agend-shop-invoice-details';
+			details.hidden = 'invoice' !== paymentMethod;
+
+			var poLabel = textEl( 'label', 'agend-shop-invoice-field', invoiceOption.purchaseOrderRequired ? 'Purchase order number (required)' : 'Purchase order number (optional)' );
+			var po = document.createElement( 'input' );
+			po.type = 'text';
+			po.className = 'agend-shop-invoice-po';
+			po.maxLength = 100;
+			po.autocomplete = 'off';
+			po.required = !! invoiceOption.purchaseOrderRequired;
+			po.value = invoiceEntries.po;
+			po.addEventListener( 'input', function () {
+				invoiceEntries.po = po.value;
+			} );
+			poLabel.appendChild( po );
+			details.appendChild( poLabel );
+
+			var companies = invoiceCompanies( invoiceOption );
+			if ( companies.length > 1 ) {
+				var companyLabel = textEl( 'label', 'agend-shop-invoice-field', 'Company to invoice' );
+				var select = document.createElement( 'select' );
+				select.className = 'agend-shop-invoice-company';
+				select.required = true;
+				select.appendChild( new Option( 'Choose a company', '' ) );
+				companies.forEach( function ( company, index ) {
+					select.appendChild( new Option( company.name || 'Company ' + ( index + 1 ), company.id ) );
+				} );
+				if ( ! companies.some( function ( company ) { return company.id === invoiceEntries.companyId; } ) ) {
+					invoiceEntries.companyId = '';
+				}
+				select.value = invoiceEntries.companyId;
+				select.addEventListener( 'change', function () {
+					invoiceEntries.companyId = select.value;
+				} );
+				companyLabel.appendChild( select );
+				details.appendChild( companyLabel );
+			} else if ( 1 === companies.length ) {
+				invoiceEntries.companyId = companies[ 0 ].id;
+				details.appendChild( textEl( 'p', 'agend-shop-invoice-company-name', 'Company to invoice: ' + ( companies[ 0 ].name || 'Company 1' ) ) );
+			} else {
+				invoiceEntries.companyId = '';
+			}
+
+			var due = formatLocalDate( invoiceOption.dueLocalDate );
+			var terms = '';
+			if ( Number.isFinite( Number( invoiceOption.termsDays ) ) && null !== invoiceOption.termsDays ) {
+				terms = 'Payment terms: ' + Number( invoiceOption.termsDays ) + ' days' + ( due ? ', due ' + due : '' ) + '.';
+			} else if ( due ) {
+				terms = 'Payment is due ' + due + '.';
+			}
+			if ( terms ) {
+				details.appendChild( textEl( 'p', 'agend-shop-invoice-terms', terms ) );
+			}
+			if ( invoiceOption.paymentInstructions ) {
+				details.appendChild( textEl( 'p', 'agend-shop-invoice-instructions', invoiceOption.paymentInstructions ) );
+			}
+			var holdsTickets = true === invoiceOption.hasReservedTickets
+				|| ( hasEventTickets && invoiceOption.releasePolicies && 'payment_confirmed' === invoiceOption.releasePolicies.event_tickets );
+			if ( holdsTickets ) {
+				details.appendChild( textEl( 'p', 'agend-shop-invoice-tickets', 'Your event tickets are held for you until the invoice is paid.' ) );
+			}
+			paymentEl.appendChild( details );
+			paymentEl.hidden = false;
+			updateCheckoutLabel( cartTotal, cartCurrency );
+		}
+
+		/**
+		 * Places the cart as an order on invoice, then shows the confirmation.
+		 * The idempotency key is kept when the outcome is unknown (a network
+		 * failure or a server error), so a retry cannot raise a second order,
+		 * and replaced after a refusal.
+		 */
+		function submitInvoice() {
+			var po      = paymentEl.querySelector( '.agend-shop-invoice-po' );
+			var company = paymentEl.querySelector( '.agend-shop-invoice-company' );
+			if ( po ) {
+				po.value = po.value.trim();
+				invoiceEntries.po = po.value;
+				if ( ! po.reportValidity() ) return;
+			}
+			if ( company && ! company.reportValidity() ) return;
+
+			invoiceKey = invoiceKey || newInvoiceKey();
+			var payload = { paymentMethod: 'invoice', idempotencyKey: invoiceKey };
+			if ( po && po.value ) payload.purchaseOrderNumber = po.value;
+			var companies = invoiceCompanies( invoiceOption );
+			if ( 1 === companies.length ) {
+				payload.companyId = companies[ 0 ].id;
+			} else if ( company && company.value ) {
+				payload.companyId = company.value;
+			}
+
+			checkoutBtn.disabled = true;
+			clearMessage();
+			var headers = AgendCartSession.getHeaders();
+			headers[ 'Content-Type' ] = 'application/json';
+
+			fetch( restUrl + 'cart/checkout/invoice', {
+				method: 'POST',
+				headers: headers,
+				body: JSON.stringify( payload ),
+			} )
+				.then( function ( response ) {
+					return response.json().then( function ( data ) {
+						return { status: response.status, data: data };
+					} );
+				} )
+				.then( function ( result ) {
+					var order = result.data && result.data.data;
+					if ( 200 === result.status && order && order.orderId ) {
+						showInvoiceConfirmation( order );
+						return;
+					}
+					if ( result.status >= 400 && result.status < 500 ) {
+						invoiceKey = null;
+					}
+					showMessage( errorMessage( result.data ), 'error' );
+					checkoutBtn.disabled = false;
+				} )
+				.catch( function () {
+					showMessage( 'An unexpected error occurred. Please try again.', 'error' );
+					checkoutBtn.disabled = false;
+				} );
+		}
+
+		/**
+		 * Replaces the cart with the placed order: reference, amount, due date,
+		 * purchase order number, how to pay, and the invoice in the member
+		 * portal when the site knows its address.
+		 *
+		 * @param {Object} order Invoice acceptance response.
+		 */
+		function showInvoiceConfirmation( order ) {
+			orderPlaced = true;
+			contentEl.setAttribute( 'hidden', '' );
+			lockedNoticeEl.setAttribute( 'hidden', '' );
+			emptyEl.setAttribute( 'hidden', '' );
+			if ( ! confirmationEl ) {
+				return;
+			}
+			confirmationEl.innerHTML = '';
+			confirmationEl.appendChild( textEl( 'h2', 'agend-shop-invoice-confirmation__title', 'Order placed' ) );
+			confirmationEl.appendChild( textEl( 'p', '', 'Your order is placed and awaiting payment.' ) );
+
+			var list = document.createElement( 'dl' );
+			list.className = 'agend-shop-invoice-summary';
+			var due = formatLocalDate( order.dueLocalDate );
+			[
+				[ 'Order reference', order.orderNumber ],
+				[ 'Amount', Number.isFinite( Number( order.totalCents ) ) && order.currency ? formatCurrency( Number( order.totalCents ), order.currency ) : '' ],
+				[ 'Payment due', due ],
+				[ 'Purchase order number', order.purchaseOrderNumber ],
+			].forEach( function ( row ) {
+				if ( ! row[ 1 ] ) return;
+				list.appendChild( textEl( 'dt', '', row[ 0 ] ) );
+				list.appendChild( textEl( 'dd', '', row[ 1 ] ) );
+			} );
+			confirmationEl.appendChild( list );
+
+			if ( order.paymentInstructions ) {
+				confirmationEl.appendChild( textEl( 'h3', '', 'How to pay' ) );
+				confirmationEl.appendChild( textEl( 'p', 'agend-shop-invoice-instructions', order.paymentInstructions ) );
+			}
+			var holdsTickets = ( order.lines || [] ).some( function ( line ) {
+				return 'event_tickets' === line.productType && 'payment_confirmed' === line.releasePolicy;
+			} );
+			if ( holdsTickets ) {
+				confirmationEl.appendChild( textEl( 'p', 'agend-shop-invoice-tickets', 'Your event tickets are held for you until the invoice is paid.' ) );
+			}
+
+			var actions = textEl( 'p', 'agend-shop-invoice-confirmation__actions' );
+			var portal  = shopConfig.portalHomeUrl ? String( shopConfig.portalHomeUrl ).replace( /\/$/, '' ) : '';
+			if ( portal && /^[0-9a-f-]{36}$/i.test( order.orderId ) ) {
+				var invoiceLink = textEl( 'a', 'agend-shop-invoice-link', 'View your invoice' );
+				invoiceLink.href = portal + '/invoices/' + encodeURIComponent( order.orderId );
+				actions.appendChild( invoiceLink );
+			}
+			var browse = textEl( 'a', 'agend-shop-keep-browsing', 'Keep browsing' );
+			browse.href = continueUrl || ( wrapper.querySelector( '.agend-shop-keep-browsing' ) || {} ).href || '/';
+			actions.appendChild( browse );
+			confirmationEl.appendChild( actions );
+
+			confirmationEl.removeAttribute( 'hidden' );
+			confirmationEl.focus();
+			document.dispatchEvent( new CustomEvent( 'agend:cart:updated' ) );
+		}
+
+		// Remember the way back to this cart for the member login page.
+		if ( signInLink ) {
+			signInLink.addEventListener( 'click', function () {
+				if ( -1 === signInLink.href.indexOf( 'agend_cart_signin=1' ) ) {
+					return;
+				}
+				try {
+					window.sessionStorage.setItem( 'agend_cart_signin_return', JSON.stringify( {
+						target: window.location.href,
+						expires: Date.now() + 30 * 60 * 1000,
+					} ) );
+				} catch ( e ) {
+					// Restricted storage still permits sign-in.
+				}
+			} );
+		}
+
 		// Proceed to Checkout.
 		if ( checkoutBtn ) {
 			checkoutBtn.addEventListener( 'click', function () {
+				if ( 'invoice' === paymentMethod && invoiceOption ) {
+					submitInvoice();
+					return;
+				}
 				var cartUrl = shopConfig.cartPageUrl || window.location.href;
 				var successUrl = new URL( cartUrl, window.location.href );
 				successUrl.searchParams.set( 'checkout', 'success' );
@@ -1700,12 +2144,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						if ( 200 === result.status && checkoutUrl ) {
 							window.location.href = checkoutUrl;
 						} else {
-							var fields = result.data.data && result.data.data.body && result.data.data.body.error && result.data.data.body.error.details && result.data.data.body.error.details.fields;
-							var messages = fields ? Object.keys( fields ).reduce( function ( all, key ) {
-								return all.concat( fields[ key ] );
-							}, [] ) : [];
-							var message = messages.length ? messages.join( ' ' ) : ( result.data.message || 'An unexpected error occurred. Please try again.' );
-							showMessage( message, 'error' );
+							showMessage( errorMessage( result.data ), 'error' );
 							checkoutBtn.disabled = false;
 						}
 					} )
