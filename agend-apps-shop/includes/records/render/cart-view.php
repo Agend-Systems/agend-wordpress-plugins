@@ -43,10 +43,19 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 	$is_member     = '' !== agend_apps_get_bearer_token();
 	$guest_allowed = function_exists( 'agend_apps_shop_guest_checkout_allowed' ) && agend_apps_shop_guest_checkout_allowed();
 	$sign_in_url   = '';
-	if ( ! $is_member && ! $guest_allowed ) {
+	// Shown by the cart script in place of the buyer fields when guests may
+	// check out here but the organisation takes event registrations from
+	// signed-in buyers only.
+	$event_sign_in_url = '';
+	if ( ! $is_member ) {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- passed to home_url(), which builds and escapes the return path.
-		$return_url  = home_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '/' );
-		$sign_in_url = function_exists( 'agend_apps_shop_cart_sign_in_url' ) ? agend_apps_shop_cart_sign_in_url( $return_url ) : wp_login_url( $return_url );
+		$return_url = home_url( isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '/' );
+		$cart_login = function_exists( 'agend_apps_shop_cart_sign_in_url' ) ? agend_apps_shop_cart_sign_in_url( $return_url ) : wp_login_url( $return_url );
+		if ( $guest_allowed ) {
+			$event_sign_in_url = $cart_login;
+		} else {
+			$sign_in_url = $cart_login;
+		}
 	}
 	ob_start();
 	?>
@@ -96,6 +105,10 @@ function agend_apps_records_render_cart_view( array $settings ): string {
 					<label><?php esc_html_e( 'Your email', 'agend-apps-shop' ); ?>
 						<input class="agend-shop-buyer-email" type="email" autocomplete="email" required>
 					</label>
+				</div>
+				<div class="agend-shop-cart-signin agend-shop-cart-event-signin" hidden>
+					<p><?php esc_html_e( 'Sign in to register for this event. Your cart will be kept.', 'agend-apps-shop' ); ?></p>
+					<a class="agend-shop-cart-signin-link elementor-button" href="<?php echo esc_url( $event_sign_in_url ); ?>"><?php esc_html_e( 'Sign in to register', 'agend-apps-shop' ); ?></a>
 				</div>
 			<?php else : ?>
 				<div class="agend-shop-cart-payment" hidden></div>

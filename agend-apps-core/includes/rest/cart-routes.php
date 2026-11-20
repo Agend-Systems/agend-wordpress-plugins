@@ -36,7 +36,7 @@ function agend_apps_register_cart_routes(): void {
  * - `DELETE /agend-apps/v1/cart/items/{id}` — remove item.
  * - `DELETE /agend-apps/v1/cart`            — clear cart.
  * - `POST   /agend-apps/v1/cart/transfer`   — merge a guest cart onto a member.
- * - `GET    /agend-apps/v1/cart/checkout-options` — payment options (member only).
+ * - `GET    /agend-apps/v1/cart/checkout-options` — payment options (a guest reads `guestEventCheckout` only).
  * - `POST   /agend-apps/v1/cart/checkout/invoice` — place the order on invoice (member only).
  *
  * Checkout policy follows two Agend Apps Shop settings, read here so the
@@ -549,7 +549,9 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	/**
 	 * Returns the payment options for the current cart.
 	 *
-	 * Member only: a guest is refused before any gateway call. With Pay on
+	 * A guest is refused before any gateway call, unless the site allows
+	 * guest checkout: they are then told only whether the organisation takes
+	 * guest event registrations (`guestEventCheckout`). For a member, with Pay on
 	 * Invoice switched off in the shop settings the gateway answer is passed
 	 * through with the invoice option marked unavailable
 	 * (`reason: invoice_disabled`), so the cart shows card payment only. When
@@ -563,7 +565,7 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	public function checkout_options( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
 		if ( '' === $identity['bearer_token'] ) {
-			return $this->checkout_sign_in_required();
+			return $this->guest_checkout_options( $identity['cart_session'] );
 		}
 
 		$result = agend_apps_cart_checkout_options( $identity['cart_session'], $identity['bearer_token'] );
@@ -594,6 +596,47 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 		unset( $invoice );
 
 		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * The one checkout option a guest may read: whether the organisation
+	 * takes event registrations from buyers who are not signed in.
+	 *
+	 * Refused without a gateway call unless the site allows guest checkout and
+	 * the guest holds a cart. Nothing else from the gateway answer is passed
+	 * on, a gateway error included, and `guestEventCheckout` is left out when
+	 * the gateway does not say, so the cart only asks for sign-in on an
+	 * explicit `false`.
+	 *
+	 * @param string $cart_session Guest cart session token.
+	 * @return WP_REST_Response REST response.
+	 */
+	private function guest_checkout_options( string $cart_session ): WP_REST_Response {
+		if ( '' === $cart_session || ! self::guest_checkout_allowed() ) {
+			return $this->checkout_sign_in_required();
+		}
+
+		$result = agend_apps_cart_checkout_options( $cart_session );
+		if ( is_wp_error( $result ) ) {
+			// Status only: the gateway's error body is never shown to a guest.
+			$data   = $result->get_error_data();
+			$status = is_array( $data ) && isset( $data['status_code'] ) && is_int( $data['status_code'] ) ? $data['status_code'] : 502;
+			return new WP_REST_Response(
+				array(
+					'code'    => 'agend_apps_checkout_options_unavailable',
+					'message' => __( 'Checkout options are not available right now.', 'agend-apps-core' ),
+					'data'    => array( 'status_code' => $status ),
+				),
+				$status
+			);
+		}
+
+		$options = array();
+		if ( isset( $result['data']['guestEventCheckout'] ) && is_bool( $result['data']['guestEventCheckout'] ) ) {
+			$options['guestEventCheckout'] = $result['data']['guestEventCheckout'];
+		}
+
+		return $this->prepare_api_response( array( 'data' => $options ) );
 	}
 
 	/**

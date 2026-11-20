@@ -150,6 +150,8 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var paymentEl        = wrapper.querySelector( '.agend-shop-cart-payment' );
 		var confirmationEl   = wrapper.querySelector( '.agend-shop-invoice-confirmation' );
 		var signInLink       = wrapper.querySelector( '.agend-shop-cart-signin-link' );
+		var buyerEl          = wrapper.querySelector( '.agend-shop-cart-buyer' );
+		var eventSignInEl    = wrapper.querySelector( '.agend-shop-cart-event-signin' );
 
 		var signedIn = 'true' === wrapper.dataset.memberSignedIn;
 		var eventTicketsOnly = false;
@@ -167,6 +169,10 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		var optionsRequest   = 0;
 		var optionsTimer     = null;
 		var cartLocked       = false;
+		// True once the organisation has said it takes event registrations from
+		// signed-in buyers only.
+		var eventSignInRequired = false;
+		var eventPolicyRequest  = 0;
 		function updateCheckoutLabel( amount, currency ) {
 			if ( Number.isFinite( Number( amount ) ) && currency ) {
 				cartTotal    = Number( amount );
@@ -448,6 +454,7 @@ document.addEventListener( 'DOMContentLoaded', function () {
 			invoiceKey = null;
 			updateCheckoutLabel( cart.total_amount, cart.currency );
 			loadCheckoutOptions( isLocked || 0 === Number( cart.total_amount ) );
+			loadGuestEventPolicy();
 		}
 
 		/**
@@ -1793,6 +1800,67 @@ document.addEventListener( 'DOMContentLoaded', function () {
 		}
 
 		/**
+		 * Swaps the guest buyer fields and checkout button for the sign-in
+		 * prompt while the cart holds event tickets the organisation only
+		 * sells to signed-in buyers, and back again once it does not.
+		 */
+		function renderEventSignIn() {
+			if ( ! eventSignInEl ) {
+				return;
+			}
+			var show = eventSignInRequired && hasEventTickets && ! cartLocked;
+			eventSignInEl.hidden = ! show;
+			if ( buyerEl ) {
+				buyerEl.hidden = show;
+			}
+			if ( checkoutBtn ) {
+				checkoutBtn.hidden = show;
+			}
+		}
+
+		/**
+		 * For a guest holding event tickets, asks whether the organisation
+		 * takes guest event registrations, so sign-in is offered before the
+		 * buyer fills in their details. Only an explicit `false` asks for
+		 * sign-in; checkout still answers for anything this cannot learn.
+		 */
+		function loadGuestEventPolicy() {
+			var request = ++eventPolicyRequest;
+			renderEventSignIn();
+			if ( signedIn || ! eventSignInEl || eventSignInRequired || ! hasEventTickets || cartLocked ) {
+				return;
+			}
+			fetch( restUrl + 'cart/checkout-options', {
+				method: 'GET',
+				headers: AgendCartSession.getHeaders(),
+			} )
+				.then( function ( response ) {
+					return response.ok ? response.json() : null;
+				} )
+				.then( function ( body ) {
+					if ( request === eventPolicyRequest && body && body.data && false === body.data.guestEventCheckout ) {
+						eventSignInRequired = true;
+						renderEventSignIn();
+					}
+				} )
+				.catch( function () {
+					// Checkout still asks for sign-in if the organisation requires it.
+				} );
+		}
+
+		/**
+		 * Whether a refused checkout is the organisation asking a guest to
+		 * sign in before registering for an event.
+		 *
+		 * @param {Object} result Checkout reply: `{ status, data }`.
+		 * @return {boolean}
+		 */
+		function isEventSignInRefusal( result ) {
+			var error = result.data && result.data.data && result.data.data.body && result.data.data.body.error;
+			return 403 === result.status && !! error && !! error.details && 'guest_event_sign_in_required' === error.details.reason;
+		}
+
+		/**
 		 * Fetches the payment options for the cart and shows the payment
 		 * choice when Pay on Invoice is available. Card stays the only way to
 		 * pay when it is not, or when the options cannot be loaded.
@@ -2143,6 +2211,14 @@ document.addEventListener( 'DOMContentLoaded', function () {
 						var checkoutUrl = checkoutData && ( checkoutData.checkoutUrl || ( checkoutData.groups && checkoutData.groups[ 0 ] && checkoutData.groups[ 0 ].checkoutUrl ) );
 						if ( 200 === result.status && checkoutUrl ) {
 							window.location.href = checkoutUrl;
+						} else if ( eventSignInEl && isEventSignInRefusal( result ) ) {
+							// The cart is untouched: offer sign-in in place of an error.
+							eventSignInRequired = true;
+							renderEventSignIn();
+							checkoutBtn.disabled = false;
+							if ( signInLink ) {
+								signInLink.focus();
+							}
 						} else {
 							showMessage( errorMessage( result.data ), 'error' );
 							checkoutBtn.disabled = false;

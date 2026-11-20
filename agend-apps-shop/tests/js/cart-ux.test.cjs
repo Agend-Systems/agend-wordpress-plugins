@@ -11,8 +11,12 @@ async function setup(t, {
   member = false, query = '', amount = 2000, attendees = [], browseUrl = 'https://shop.example/events/',
   signIn = false, payOnInvoice = '1', invoice = null, invoiceReply = null, portalHomeUrl = '',
   quantity = 1, productType = 'event_tickets', mutationStatus = 200,
+  eventSignIn = false, guestEventCheckout, checkoutReply = null,
 } = {}) {
   let buyer = member ? '<div class="agend-shop-cart-payment" hidden></div>' : '<input class="agend-shop-buyer-name"><input class="agend-shop-buyer-email">';
+  if (eventSignIn) {
+    buyer = `<div class="agend-shop-cart-buyer">${buyer}</div><div class="agend-shop-cart-signin agend-shop-cart-event-signin" hidden><a class="agend-shop-cart-signin-link" href="https://shop.example/login/?agend_cart_signin=1">Sign in to register</a></div>`;
+  }
   if (signIn) {
     buyer = '<div class="agend-shop-cart-signin"><a class="agend-shop-cart-signin-link" href="https://shop.example/login/?agend_cart_signin=1">Sign in to check out</a></div>';
   }
@@ -60,7 +64,13 @@ async function setup(t, {
     let payload = { data: { items: [item], total_amount: amount, currency: 'AUD' } };
     if (url.endsWith('/cart/checkout-options')) {
       const option = typeof invoice === 'function' ? await invoice() : invoice;
+      if (!member) {
+        return { ok: true, status: 200, json: async () => ({ data: guestEventCheckout === undefined ? {} : { guestEventCheckout } }) };
+      }
       return { ok: true, status: 200, json: async () => ({ data: { invoice: option, membershipInstalments: null } }) };
+    }
+    if (checkoutReply && url.endsWith('/cart/checkout')) {
+      return { ok: checkoutReply.status === 200, status: checkoutReply.status, json: async () => checkoutReply.body };
     }
     if (url.endsWith('/cart/checkout/invoice')) {
       const reply = typeof invoiceReply === 'function' ? invoiceReply(JSON.parse(options.body)) : invoiceReply;
@@ -366,6 +376,76 @@ test('a signed-out visitor who must sign in gets no buyer fields and returns to 
   assert.ok(saved.expires > Date.now());
 });
 
+const eventSignInRefusal = {
+  status: 403,
+  body: {
+    code: 'agend_apps_api_error',
+    message: 'Sign in to register for events. This organisation does not accept guest event registrations.',
+    data: { status_code: 403, body: { error: { code: 'FORBIDDEN', details: { reason: 'guest_event_sign_in_required' } } } },
+  },
+};
+
+test('a guest with event tickets is asked to sign in up front when the organisation takes no guest event registrations', async (t) => {
+  const { window, dom } = await setup(t, { eventSignIn: true, guestEventCheckout: false });
+  await tick();
+  assert.equal(dom.querySelector('.agend-shop-cart-event-signin').hidden, false);
+  assert.equal(dom.querySelector('.agend-shop-cart-buyer').hidden, true);
+  assert.equal(dom.querySelector('.agend-shop-btn-proceed-checkout').hidden, true);
+  assert.equal(dom.querySelector('.agend-shop-cart-content').hidden, false, 'the cart and its tickets still show');
+  const link = dom.querySelector('.agend-shop-cart-signin-link');
+  link.addEventListener('click', (event) => event.preventDefault());
+  link.click();
+  assert.equal(JSON.parse(window.sessionStorage.getItem('agend_cart_signin_return')).target, 'https://shop.example/cart/');
+});
+
+test('a guest keeps the buyer fields when the organisation takes guest event registrations or does not say', async (t) => {
+  for (const guestEventCheckout of [true, undefined]) {
+    const { dom } = await setup(t, { eventSignIn: true, guestEventCheckout });
+    await tick();
+    assert.equal(dom.querySelector('.agend-shop-cart-event-signin').hidden, true);
+    assert.equal(dom.querySelector('.agend-shop-cart-buyer').hidden, false);
+    assert.equal(dom.querySelector('.agend-shop-btn-proceed-checkout').hidden, false);
+  }
+});
+
+test('a guest cart without event tickets never asks about guest event registrations', async (t) => {
+  const { dom, calls } = await setup(t, { eventSignIn: true, guestEventCheckout: false, productType: 'digital_products' });
+  await tick();
+  assert.equal(optionsCalls(calls).length, 0);
+  assert.equal(dom.querySelector('.agend-shop-cart-event-signin').hidden, true);
+  assert.equal(dom.querySelector('.agend-shop-btn-proceed-checkout').hidden, false);
+});
+
+test('a checkout refused for guest event sign-in shows the sign-in prompt, never the error', async (t) => {
+  const { dom, calls } = await setup(t, { eventSignIn: true, checkoutReply: eventSignInRefusal });
+  await tick();
+  dom.querySelector('.agend-shop-buyer-name').value = 'Alex Guest';
+  dom.querySelector('.agend-shop-buyer-email').value = 'alex@example.test';
+  dom.querySelector('.agend-shop-btn-proceed-checkout').click();
+  await tick();
+  await tick();
+  assert.equal(calls.some((call) => call.url.endsWith('/cart/checkout')), true);
+  assert.equal(dom.querySelector('.agend-shop-cart-message').textContent, '');
+  assert.equal(dom.querySelector('.agend-shop-cart-event-signin').hidden, false);
+  assert.equal(dom.querySelector('.agend-shop-cart-buyer').hidden, true);
+  assert.equal(dom.querySelector('.agend-shop-btn-proceed-checkout').hidden, true);
+  assert.equal(dom.activeElement, dom.querySelector('.agend-shop-cart-signin-link'));
+});
+
+test('any other refused guest checkout still shows its message', async (t) => {
+  const { dom } = await setup(t, {
+    eventSignIn: true,
+    checkoutReply: { status: 403, body: { message: 'Online payment is not available.', data: { status_code: 403, body: { error: { code: 'SANDBOX_PAYMENT_NOT_PERMITTED' } } } } },
+  });
+  await tick();
+  dom.querySelector('.agend-shop-buyer-name').value = 'Alex Guest';
+  dom.querySelector('.agend-shop-buyer-email').value = 'alex@example.test';
+  dom.querySelector('.agend-shop-btn-proceed-checkout').click();
+  await tick();
+  await tick();
+  assert.equal(dom.querySelector('.agend-shop-cart-message').textContent, 'Online payment is not available.');
+  assert.equal(dom.querySelector('.agend-shop-cart-event-signin').hidden, true);
+});
 
 test('a single approved company is shown by name and automatically invoiced', async (t) => {
   const companyId = '11111111-1111-4111-8111-111111111111';
