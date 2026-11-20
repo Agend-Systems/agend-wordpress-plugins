@@ -916,7 +916,7 @@
 /* Category labels: a pale tint with darker text, not an outline. */
 .agend-jobs-catalogue--filters-sidebar .agend-jobs-pill--category,
 .agend-jobs-catalogue--detail-header .agend-jobs-pill--category,
-.agend-jobs-catalogue--detail-cards .agend-jobs-pill--category,
+.agend-jobs-detail--cards .agend-jobs-pill--category,
 .agend-jobs-catalogue--cards-board .agend-jobs-pill--category {
   background: var(--agend-jobs-tint);
   border-color: transparent;
@@ -927,7 +927,7 @@
    its white tile. */
 .agend-jobs-catalogue--filters-sidebar .agend-jobs-logo.is-placeholder,
 .agend-jobs-catalogue--detail-header .agend-jobs-logo.is-placeholder,
-.agend-jobs-catalogue--detail-cards .agend-jobs-logo.is-placeholder,
+.agend-jobs-detail--cards .agend-jobs-logo.is-placeholder,
 .agend-jobs-catalogue--cards-board .agend-jobs-logo.is-placeholder {
   background: var(--agend-jobs-tint);
   border-color: transparent;
@@ -1652,6 +1652,19 @@
 
 /* -- Jobs board designs: shared ------------------------------------------- */
 
+/* Text for screen readers only, such as "(opens in a new tab)". */
+.agend-jobs-catalogue .agend-jobs-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* A line icon drawn in the text colour, sized to the text beside it. */
 .agend-jobs-icon {
   flex: none;
@@ -1673,7 +1686,7 @@
   gap: 1rem;
   align-items: flex-start;
   padding: 1.15rem 1.25rem;
-  border-radius: 12px;
+  border-radius: var(--agend-jobs-card-radius);
   box-shadow: none;
 }
 
@@ -1933,8 +1946,12 @@
   font-size: 1.05rem;
 }
 
-.agend-jobs-catalogue .agend-jobs-dc__share {
+.agend-jobs-dc__share-wrap {
   position: relative;
+  flex: none;
+}
+
+.agend-jobs-catalogue .agend-jobs-dc__share {
   flex: none;
   display: grid;
   place-items: center;
@@ -1988,18 +2005,20 @@
   margin: 0;
 }
 
-.agend-jobs-catalogue--detail-cards .agend-jobs-dc__head .agend-jobs-card__pills {
+.agend-jobs-catalogue .agend-jobs-dc__head .agend-jobs-card__pills {
   margin: 0;
 }
 
-.agend-jobs-catalogue--detail-cards .agend-jobs-pill {
+/* Scoped to the job page's own markup, so a board with this job page and the
+   standard cards keeps its list pills as they were. */
+.agend-jobs-catalogue .agend-jobs-detail--cards .agend-jobs-pill {
   padding: 0.2rem 0.7rem;
   border: 1px solid var(--agend-jobs-border);
   background: var(--agend-jobs-pill-bg);
   font-weight: 500;
 }
 
-.agend-jobs-catalogue--detail-cards .agend-jobs-pill--category {
+.agend-jobs-catalogue .agend-jobs-detail--cards .agend-jobs-pill--category {
   background: var(--agend-jobs-tint);
   border-color: transparent;
   color: var(--agend-jobs-tint-ink);

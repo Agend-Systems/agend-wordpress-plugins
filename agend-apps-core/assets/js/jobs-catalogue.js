@@ -121,9 +121,13 @@
     if (!html) {
       return '';
     }
-    var tmp = document.createElement('div');
+    // Parsed in a document of its own, never the live page: there an
+    // <img onerror> in a job description would load and run while the text
+    // is read out of it.
+    var doc = document.implementation.createHTMLDocument('');
+    var tmp = doc.createElement('div');
     tmp.innerHTML = html;
-    return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
+    return (tmp.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
   // Allowlist mirrors the other catalogues (and the WP proxy's wp_kses_post)
@@ -456,14 +460,16 @@
     var words = String(job.company_name || job.title || '?')
       .replace(/\([^)]*\)/g, ' ')
       .split(/\s+/)
-      .filter(function (word) { return /[A-Za-z0-9]/.test(word); });
-    // One word in two parts ("FundDesk") takes both capitals.
-    var capitals = words.length === 1 ? words[0].replace(/[^A-Z]/g, '') : '';
+      .filter(function (word) { return /[\p{L}\p{N}]/u.test(word); });
+    // One word in two parts ("FundDesk") takes both capitals. Letters are
+    // matched as Unicode, so "École Santé" is ÉS, and Array.from keeps a
+    // character outside the basic plane whole.
+    var capitals = words.length === 1 ? Array.from(words[0].replace(/[^\p{Lu}]/gu, '')) : [];
     if (capitals.length >= 2) {
-      return capitals.slice(0, 2);
+      return capitals.slice(0, 2).join('');
     }
     var letters = words.slice(0, 2).map(function (word) {
-      return word.replace(/[^A-Za-z0-9]/g, '').charAt(0).toUpperCase();
+      return (Array.from(word.replace(/[^\p{L}\p{N}]/gu, ''))[0] || '').toUpperCase();
     }).join('');
     return letters || '?';
   }
@@ -477,15 +483,17 @@
     return box;
   }
 
-  // "Sydney, NSW, Australia (Hybrid)": the work arrangement joins the place
-  // unless the job is remote, which stands alone.
-  function boardLocation(job) {
-    var place = locationLabel(job);
-    var arrangement = WORK_ARRANGEMENT_LABELS[job.location_type] || '';
-    if (job.location_type === 'remote') {
-      return place ? place + ' (Remote)' : 'Remote';
+  // "Sydney, NSW, Australia (Hybrid)": the work arrangement in brackets after
+  // the place (on site is left out, being what a place already says). With no
+  // place, or the place hidden, the arrangement stands alone. Either part can
+  // be turned off.
+  function boardLocation(job, showPlace, showArrangement) {
+    var place = showPlace === false ? '' : locationLabel(job);
+    var arrangement = showArrangement === false ? '' : WORK_ARRANGEMENT_LABELS[job.location_type] || '';
+    if (!place) {
+      return arrangement;
     }
-    if (place && arrangement && job.location_type !== 'on-site') {
+    if (arrangement && job.location_type !== 'on-site') {
       return place + ' (' + arrangement + ')';
     }
     return place;
@@ -568,15 +576,15 @@
     main.appendChild(head);
 
     var facts = el('ul', 'agend-jobs-bcard__facts');
-    var place = c.location ? (c.workArrangement ? boardLocation(job) : locationLabel(job)) : '';
-    if (!place && c.workArrangement && job.location_type === 'remote') {
-      place = 'Remote';
-    }
+    var place = boardLocation(job, c.location, c.workArrangement);
     var distance = distanceLabel(job);
-    var type = c.employmentType ? EMPLOYMENT_TYPE_LABELS[job.employment_type] || '' : '';
-    if (type && c.experience && experienceLabel(job.experience_level)) {
-      type += ', ' + experienceLabel(job.experience_level).toLowerCase();
-    }
+    // "Full time, senior"; either part alone when the other is hidden or
+    // missing, the experience then keeping its capital.
+    var type = [
+      c.employmentType ? EMPLOYMENT_TYPE_LABELS[job.employment_type] || '' : '',
+      c.experience ? experienceLabel(job.experience_level) : '',
+    ].filter(function (part) { return part; }).join(', ');
+    type = type.replace(/, (.)/, function (match, first) { return ', ' + first.toLowerCase(); });
     [
       iconLine('li', null, 'location', [place, distance].filter(function (part) { return part; }).join(' · ')),
       iconLine('li', null, 'briefcase', type),
@@ -1047,11 +1055,18 @@
     if (!job.expires_at || isClosed(job)) {
       return '';
     }
-    var time = new Date(job.expires_at).getTime();
-    if (isNaN(time)) {
+    var closes = new Date(job.expires_at);
+    if (isNaN(closes.getTime())) {
       return '';
     }
-    var days = Math.ceil((time - Date.now()) / 86400000);
+    // Calendar days in the visitor's time zone, the same days the date beside
+    // it is written in: a job closing at 5 pm today is "today", not
+    // "tomorrow". Date.UTC keeps a daylight saving change out of the count.
+    var now = new Date();
+    var days = Math.round(
+      (Date.UTC(closes.getFullYear(), closes.getMonth(), closes.getDate()) -
+        Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000
+    );
     if (days <= 0) {
       return 'today';
     }
@@ -1074,8 +1089,15 @@
     return row;
   }
 
-  // Shares the job with the device's share sheet, or copies its link.
+  // Shares the job with the device's share sheet, or copies its link. Null
+  // where the browser can do neither (a page not served over HTTPS), so the
+  // page never shows a button that does nothing.
   function shareButton(job, url) {
+    var canCopy = !!(navigator.clipboard && navigator.clipboard.writeText);
+    if (!navigator.share && !canCopy) {
+      return null;
+    }
+    var wrap = el('div', 'agend-jobs-dc__share-wrap');
     var button = el('button', 'agend-jobs-dc__share');
     button.type = 'button';
     button.setAttribute('aria-label', 'Share this job');
@@ -1096,23 +1118,47 @@
     lines.setAttribute('d', 'm8.6 13.5 6.8 4M15.4 6.5l-6.8 4');
     svg.appendChild(lines);
     button.appendChild(svg);
+    wrap.appendChild(button);
+    // The confirmation sits beside the button, not inside it, so a screen
+    // reader announces it.
     var said = el('span', 'agend-jobs-dc__share-said');
     said.setAttribute('role', 'status');
-    button.appendChild(said);
+    wrap.appendChild(said);
+    var clearSaid = null;
+
+    function say(text) {
+      clearTimeout(clearSaid);
+      said.textContent = text;
+      clearSaid = setTimeout(function () { said.textContent = ''; }, 2500);
+    }
+
+    function copy() {
+      if (!canCopy) {
+        say('Sharing is not available here');
+        return;
+      }
+      navigator.clipboard.writeText(url).then(function () {
+        say('Link copied');
+      }).catch(function () {
+        say('The link could not be copied');
+      });
+    }
+
     button.addEventListener('click', function () {
       var title = job.title + (job.company_name ? ' at ' + job.company_name : '');
       if (navigator.share) {
-        navigator.share({ title: title, url: url }).catch(function () {});
+        // A visitor closing the share sheet is not a failure; anything else
+        // falls back to copying the link.
+        navigator.share({ title: title, url: url }).catch(function (err) {
+          if (!err || err.name !== 'AbortError') {
+            copy();
+          }
+        });
         return;
       }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(function () {
-          said.textContent = 'Link copied';
-          setTimeout(function () { said.textContent = ''; }, 2500);
-        }).catch(function () {});
-      }
+      copy();
     });
-    return button;
+    return wrap;
   }
 
   // A small card linking to another job, for "Similar jobs".
@@ -1151,7 +1197,13 @@
         }
       });
     }
-    var base = { limit: wanted + 1, sortBy: 'published_at', sortOrder: 'desc' };
+    // A featured-only board suggests only featured jobs.
+    var base = {
+      limit: wanted + 1,
+      sortBy: 'published_at',
+      sortOrder: 'desc',
+      featuredOnly: cfg.listing.featuredOnly ? 'true' : '',
+    };
     var category = cfg.listing.category || ((job.categories || [])[0] || {}).slug || '';
     var first = category
       ? apiGet('/jobs', Object.assign({}, base, { category: [category] })).then(take)
@@ -1208,8 +1260,9 @@
       titles.appendChild(el('p', 'agend-jobs-dc__company', job.company_name));
     }
     titleRow.appendChild(titles);
-    if (links && links.href) {
-      titleRow.appendChild(shareButton(job, links.href(job.slug)));
+    var share = links && links.href ? shareButton(job, links.href(job.slug)) : null;
+    if (share) {
+      titleRow.appendChild(share);
     }
     headText.appendChild(titleRow);
     var meta = el('ul', 'agend-jobs-dc__meta');
@@ -1278,6 +1331,7 @@
       var button = apply.querySelector('.agend-jobs-button');
       if (button && button.target === '_blank') {
         button.insertBefore(icon('external'), button.firstChild);
+        button.appendChild(el('span', 'agend-jobs-sr', ' (opens in a new tab)'));
       }
     }
     if (apply.childNodes.length) {
