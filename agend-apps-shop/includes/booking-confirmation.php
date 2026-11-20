@@ -119,7 +119,7 @@ function agend_apps_shop_render_booking_confirmation( $attributes = array() ): s
 		? '<p><a href="' . esc_url( $attributes['support_url'] ) . '">' . esc_html__( 'Contact the event organiser', 'agend-apps-shop' ) . '</a></p>'
 		: '';
 
-	if ( $is_free || 'confirmed' === $status ) {
+	if ( 'confirmed' === $status || ( $is_free && '' === $status ) ) {
 		$receipt = is_array( $result['receipt'] ?? null ) ? $result['receipt'] : array();
 		return agend_apps_shop_render_confirmed_booking( $receipt, $is_free, $attributes['events_url'], $support );
 	}
@@ -141,20 +141,26 @@ function agend_apps_shop_render_booking_confirmation( $attributes = array() ): s
 /** @param array<string,mixed> $receipt Verified Agend checkout receipt. */
 function agend_apps_shop_render_confirmed_booking( array $receipt, bool $is_free, string $events_url, string $support ): string {
 	$events = array_values( array_filter( (array) ( $receipt['events'] ?? array() ), 'is_array' ) );
-	$title  = 1 === count( $events ) && ! empty( $events[0]['name'] )
-		? $events[0]['name']
-		: __( 'Thank you for registering', 'agend-apps-shop' );
-	$detail = $is_free
-		? __( 'Your place is booked. No payment was required.', 'agend-apps-shop' )
-		: __( 'Your payment was received and your place is booked.', 'agend-apps-shop' );
+	$is_booking = $is_free || count( $events ) > 0;
+	$order_status = $is_booking ? __( 'Booking confirmed', 'agend-apps-shop' ) : __( 'Order confirmed', 'agend-apps-shop' );
+	$title = $is_booking ? __( 'Thank you for registering', 'agend-apps-shop' ) : __( 'Thank you for your order', 'agend-apps-shop' );
+	if ( 1 === count( $events ) && ! empty( $events[0]['name'] ) ) {
+		$title = $events[0]['name'];
+	}
+	$detail = __( 'Your payment was received.', 'agend-apps-shop' );
+	if ( $is_free ) {
+		$detail = __( 'Your place is booked. No payment was required.', 'agend-apps-shop' );
+	} elseif ( $is_booking ) {
+		$detail = __( 'Your payment was received and your place is booked.', 'agend-apps-shop' );
+	}
 	$html = '<section class="agend-booking-receipt agend-booking-receipt--confirmed">'
-		. '<p class="agend-booking-receipt__status">' . esc_html__( 'Booking confirmed', 'agend-apps-shop' ) . '</p>'
+		. '<p class="agend-booking-receipt__status">' . esc_html( $order_status ) . '</p>'
 		. '<h1>' . esc_html( $title ) . '</h1><p>' . esc_html( $detail ) . '</p>';
 
-	if ( isset( $receipt['orderNumber'], $receipt['totalCents'], $receipt['currency'] ) ) {
-		$amount = sprintf( '%s %s', $receipt['currency'], number_format_i18n( (int) $receipt['totalCents'] / 100, 2 ) );
+	if ( isset( $receipt['order_number'], $receipt['total_cents'], $receipt['currency'] ) ) {
+		$amount = sprintf( '%s %s', $receipt['currency'], number_format_i18n( (int) $receipt['total_cents'] / 100, 2 ) );
 		$html .= '<dl class="agend-booking-receipt__summary"><dt>' . esc_html__( 'Order reference', 'agend-apps-shop' )
-			. '</dt><dd>' . esc_html( $receipt['orderNumber'] ) . '</dd><dt>' . esc_html__( 'Amount paid', 'agend-apps-shop' )
+			. '</dt><dd>' . esc_html( $receipt['order_number'] ) . '</dd><dt>' . esc_html__( 'Amount paid', 'agend-apps-shop' )
 			. '</dt><dd>' . esc_html( $amount ) . '</dd></dl>';
 	}
 
@@ -179,13 +185,13 @@ function agend_apps_shop_render_booking_event( array $event, bool $show_name ): 
 		$html .= '<h2>' . esc_html( $name ) . '</h2>';
 	}
 	try {
-		if ( is_string( $event['startDate'] ?? null ) && '' !== $event['startDate'] ) {
+		if ( is_string( $event['start_date'] ?? null ) && '' !== $event['start_date'] ) {
 			$tz = new DateTimeZone( (string) ( $event['timezone'] ?? 'UTC' ) );
-			$start = new DateTimeImmutable( $event['startDate'] );
+			$start = new DateTimeImmutable( $event['start_date'] );
 			$format = get_option( 'date_format' ) . ', ' . get_option( 'time_format' ) . ' T';
 			$date = wp_date( $format, $start->getTimestamp(), $tz );
-			if ( is_string( $event['endDate'] ?? null ) && '' !== $event['endDate'] ) {
-				$end = new DateTimeImmutable( $event['endDate'] );
+			if ( is_string( $event['end_date'] ?? null ) && '' !== $event['end_date'] ) {
+				$end = new DateTimeImmutable( $event['end_date'] );
 				if ( $start->setTimezone( $tz )->format( 'Y-m-d' ) === $end->setTimezone( $tz )->format( 'Y-m-d' ) ) {
 					$date = wp_date( get_option( 'date_format' ) . ', ' . get_option( 'time_format' ), $start->getTimestamp(), $tz )
 						. ' – ' . wp_date( get_option( 'time_format' ) . ' T', $end->getTimestamp(), $tz );
@@ -198,8 +204,8 @@ function agend_apps_shop_render_booking_event( array $event, bool $show_name ): 
 	} catch ( Exception $error ) {
 		// A missing or malformed date must not hide the verified receipt.
 	}
-	if ( ! empty( $event['venueName'] ) ) {
-		$html .= '<p>' . esc_html( $event['venueName'] ) . '</p>';
+	if ( ! empty( $event['venue_name'] ) ) {
+		$html .= '<p>' . esc_html( $event['venue_name'] ) . '</p>';
 	}
 	$attendees = array_filter( (array) ( $event['attendees'] ?? array() ), 'is_string' );
 	if ( $attendees ) {
