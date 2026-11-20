@@ -200,8 +200,17 @@
   margin-top: 0;
 }
 
-/* The map data's credit, kept small and quiet: the OpenStreetMap (and CARTO)
-   attribution is a licence requirement, so it is restyled, never hidden. */
+/* The map data's credits (tiles, then Amazon Location Service for the pins),
+   kept small and quiet: they are licence requirements, so they are restyled,
+   never hidden. The bottom-right corner stops short of the scale bar's
+   largest extent (a 200px line plus its 5px margin, with a gap), so on a
+   narrow map the credits wrap rather than run under it. Below about 340px
+   wide, the 40% floor keeps the credits legible at the cost of a possible
+   overlap with a full-length scale. */
+.agend-directory-map .leaflet-bottom.leaflet-right {
+  max-width: max(40%, calc(100% - 220px));
+}
+
 .agend-directory-map .leaflet-control-attribution {
   padding: 1px 6px;
   border-top-left-radius: 4px;

@@ -19,6 +19,96 @@ function agend_apps_register_directory_routes(): void {
 	$controller->register_routes();
 }
 
+/** Place searches one visitor address may make through the geocode route per window. */
+const AGEND_APPS_DIRECTORY_GEOCODE_PER_IP_LIMIT = 10;
+
+/** The geocode route's per-address window, in seconds. */
+const AGEND_APPS_DIRECTORY_GEOCODE_PER_IP_WINDOW = 60;
+
+/**
+ * The address a visitor's place searches are counted against.
+ *
+ * An IPv4 address is its own bucket. An IPv6 address is counted against its
+ * /64 network: one connection is usually given a whole /64, so counting each
+ * address apart would let a single host pick a fresh address for every
+ * request and never reach the limit.
+ *
+ * An IPv4-mapped address (`::ffff:203.0.113.7`, as a dual-stack socket
+ * reports an IPv4 client) is counted against the IPv4 address it carries.
+ * Its first 64 bits are zero, so as IPv6 every IPv4 visitor would share one
+ * bucket.
+ *
+ * @param string $ip The visitor's `REMOTE_ADDR`.
+ * @return string
+ */
+function agend_apps_directory_geocode_bucket( string $ip ): string {
+	if ( false !== filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+		$packed = inet_pton( $ip );
+		if ( false !== $packed && str_repeat( "\0", 10 ) . "\xff\xff" === substr( $packed, 0, 12 ) ) {
+			$ipv4 = inet_ntop( substr( $packed, 12 ) );
+			if ( false !== $ipv4 ) {
+				return $ipv4;
+			}
+		}
+		if ( false !== $packed ) {
+			$network = inet_ntop( substr( $packed, 0, 8 ) . str_repeat( "\0", 8 ) );
+			if ( false !== $network ) {
+				return $network . '/64';
+			}
+		}
+	}
+
+	return $ip;
+}
+
+/**
+ * Counts one place search against a visitor address, and says whether it may
+ * go ahead.
+ *
+ * The window is fixed from the address's first search, so a visitor searching
+ * now and then is never refused, and an address that used up its searches
+ * waits for that window to close rather than for a quiet minute. Every request
+ * counts, cached places included, so the route cannot be used to probe the
+ * cache unbounded.
+ *
+ * The address is first reduced to its bucket
+ * (agend_apps_directory_geocode_bucket(): an IPv6 address to its /64, an
+ * IPv4-mapped address to its IPv4 address). The
+ * transient key holds wp_hash() of that bucket, never the address: the hash
+ * is salted with the site's own keys, so the stored key cannot be turned back
+ * into an address by trying every IPv4 address.
+ *
+ * Two concurrent requests can read the same count, so a burst can overshoot
+ * the limit by the requests in flight. Transients offer no atomic increment.
+ *
+ * @param string $ip  The visitor's `REMOTE_ADDR`.
+ * @param int    $now Unix time.
+ * @return int 0 when the search may go ahead, otherwise the seconds until the
+ *             address may search again.
+ */
+function agend_apps_directory_geocode_throttle( string $ip, int $now ): int {
+	$key   = 'agend_apps_geocode_ip_' . wp_hash( agend_apps_directory_geocode_bucket( $ip ) );
+	$entry = get_transient( $key );
+
+	if ( ! is_array( $entry ) || ! isset( $entry['count'], $entry['reset'] ) || (int) $entry['reset'] <= $now ) {
+		$entry = array(
+			'count' => 0,
+			'reset' => $now + AGEND_APPS_DIRECTORY_GEOCODE_PER_IP_WINDOW,
+		);
+	}
+
+	$remaining = max( 1, (int) $entry['reset'] - $now );
+
+	if ( (int) $entry['count'] >= AGEND_APPS_DIRECTORY_GEOCODE_PER_IP_LIMIT ) {
+		return $remaining;
+	}
+
+	$entry['count'] = (int) $entry['count'] + 1;
+	set_transient( $key, $entry, $remaining );
+
+	return 0;
+}
+
 /**
  * REST controller for directory endpoints.
  *
@@ -1161,10 +1251,40 @@ class Agend_Apps_Directory_REST_Controller extends Agend_Apps_REST_Controller {
 	/**
 	 * Resolves an address, suburb or postcode to a point.
 	 *
+	 * The route is open to anyone, so an address over its place search limit
+	 * is refused here, before the gateway is called, and cannot spend the
+	 * site's key or the place search budget the gateway shares between sites.
+	 * The refusal is the error envelope the Location filter reads, with
+	 * `data.status_code` 429, which it already shows as busy.
+	 *
+	 * Keyed on `REMOTE_ADDR` alone, as the login limits are, and deliberately
+	 * not through the `agend_apps_visitor_ip` filter: a limit keyed on a
+	 * forwarded header is escaped by varying the header wherever no trusted
+	 * proxy sets it.
+	 *
 	 * @param WP_REST_Request $request Current request.
 	 * @return WP_REST_Response REST response.
 	 */
 	public function geocode( WP_REST_Request $request ): WP_REST_Response {
+		$ip    = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$retry = agend_apps_directory_geocode_throttle( $ip, time() );
+
+		if ( $retry > 0 ) {
+			$response = $this->error_to_response(
+				new WP_Error(
+					'agend_apps_geocode_rate_limited',
+					__( 'Place search is busy. Please try again in a moment.', 'agend-apps-core' ),
+					array( 'status_code' => 429 )
+				)
+			);
+			$response->header( 'Retry-After', (string) $retry );
+			// The refusal belongs to one address; a shared cache must not
+			// replay it to other visitors searching the same place.
+			$response->header( 'Cache-Control', 'no-store' );
+
+			return $response;
+		}
+
 		return $this->prepare_api_response( agend_apps_directory_geocode( (string) $request->get_param( 'q' ) ) );
 	}
 
