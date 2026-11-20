@@ -539,3 +539,109 @@ function agend_apps_cart_transfer( string $cart_session, string $bearer_token ) 
 	 */
 	return apply_filters( 'agend_apps_cart_transfer_response', $response, $cart_session, $bearer_token );
 }
+
+/**
+ * Retrieves the checkout options for the current cart.
+ *
+ * Returns `{ invoice: {...}, membershipInstalments }`. The invoice option
+ * says whether the organisation's invoice policy lets this buyer pay on
+ * invoice, and on what terms (purchase order requirement, payment terms,
+ * payment instructions, approved companies). A guest always receives
+ * `available: false` with reason `authentication_required`. Not cached: the
+ * answer follows the live cart and policy.
+ *
+ * Scope: `cart.items.browse`.
+ *
+ * @param string $cart_session Cart session token forwarded as `X-Cart-Session`.
+ * @param string $bearer_token Optional. Supabase bearer token forwarded as `Authorization: Bearer`. Default empty string.
+ * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
+ */
+function agend_apps_cart_checkout_options( string $cart_session, string $bearer_token = '' ) {
+	/**
+	 * Filters the cart checkout-options request args before the request is sent.
+	 *
+	 * @param array  $args         Request args.
+	 * @param string $cart_session Cart session token.
+	 * @param string $bearer_token Supabase bearer token, or empty string.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_cart_checkout_options_args',
+		array(
+			'cart_session' => $cart_session,
+			'bearer_token' => $bearer_token,
+		),
+		$cart_session,
+		$bearer_token
+	);
+
+	$response = agend_apps_api()->request( 'GET', '/cart/checkout-options', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	/**
+	 * Filters the decoded cart checkout-options response before it is returned.
+	 *
+	 * @param array  $response     Decoded response body.
+	 * @param string $cart_session Cart session token.
+	 * @param string $bearer_token Supabase bearer token, or empty string.
+	 */
+	return apply_filters( 'agend_apps_cart_checkout_options_response', $response, $cart_session, $bearer_token );
+}
+
+/**
+ * Places the current cart as an order on invoice.
+ *
+ * The gateway requires a signed-in buyer, raises the order and invoice, and
+ * holds event tickets until the invoice is paid when the organisation's
+ * policy says so. The same `idempotencyKey` replays an accepted order
+ * instead of raising a second one. The cart cache is busted after a
+ * successful call.
+ *
+ * Scope: `cart.checkout.create`.
+ *
+ * @param array  $payload      Body: `paymentMethod` ("invoice"), `idempotencyKey`, and optionally
+ *                             `purchaseOrderNumber`, `companyId`, `discountCode`.
+ * @param string $cart_session Cart session token forwarded as `X-Cart-Session`.
+ * @param string $bearer_token Supabase bearer token forwarded as `Authorization: Bearer`.
+ * @return array|WP_Error Decoded response array on success, or WP_Error on failure.
+ */
+function agend_apps_cart_checkout_invoice( array $payload, string $cart_session, string $bearer_token ) {
+	/**
+	 * Filters the cart invoice checkout request args before the request is sent.
+	 *
+	 * @param array  $args         Request args.
+	 * @param array  $payload      Invoice checkout payload.
+	 * @param string $cart_session Cart session token.
+	 * @param string $bearer_token Supabase bearer token.
+	 */
+	$args = (array) apply_filters(
+		'agend_apps_cart_checkout_invoice_args',
+		array(
+			'body'         => $payload,
+			'cart_session' => $cart_session,
+			'bearer_token' => $bearer_token,
+		),
+		$payload,
+		$cart_session,
+		$bearer_token
+	);
+
+	$response = agend_apps_api()->request( 'POST', '/cart/checkout/invoice', $args );
+
+	if ( is_wp_error( $response ) ) {
+		return $response;
+	}
+
+	delete_transient( 'agend_apps_' . agend_apps_cart_cache_key( $bearer_token, $cart_session ) );
+
+	/**
+	 * Filters the decoded cart invoice checkout response before it is returned.
+	 *
+	 * @param array  $response     Decoded response body.
+	 * @param string $cart_session Cart session token.
+	 * @param string $bearer_token Supabase bearer token.
+	 */
+	return apply_filters( 'agend_apps_cart_checkout_invoice_response', $response, $cart_session, $bearer_token );
+}

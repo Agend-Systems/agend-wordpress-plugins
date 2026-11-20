@@ -36,6 +36,15 @@ function agend_apps_register_cart_routes(): void {
  * - `DELETE /agend-apps/v1/cart/items/{id}` — remove item.
  * - `DELETE /agend-apps/v1/cart`            — clear cart.
  * - `POST   /agend-apps/v1/cart/transfer`   — merge a guest cart onto a member.
+ * - `GET    /agend-apps/v1/cart/checkout-options` — payment options (member only).
+ * - `POST   /agend-apps/v1/cart/checkout/invoice` — place the order on invoice (member only).
+ *
+ * Checkout policy follows two Agend Apps Shop settings, read here so the
+ * rule holds whatever calls the route: `agend_apps_shop_guest_checkout`
+ * (`require`, the default, refuses checkout without a member bearer; `allow`
+ * lets a guest pay with a name and email) and `agend_apps_shop_pay_on_invoice`
+ * (`1`, the default, offers Pay on Invoice when the organisation's invoice
+ * policy allows it; `0` hides and refuses it).
  */
 class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 
@@ -45,6 +54,31 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 * @var string
 	 */
 	protected $rest_base = 'cart';
+
+	/**
+	 * Longest purchase order number the gateway accepts
+	 * (`PURCHASE_ORDER_NUMBER_MAX_LENGTH`).
+	 *
+	 * @var int
+	 */
+	const PURCHASE_ORDER_MAX_LENGTH = 100;
+
+	/**
+	 * Whether the site offers Pay on Invoice (subject to the organisation's
+	 * invoice policy). On unless the Agend Apps Shop setting is switched off.
+	 *
+	 * @return bool
+	 */
+	public static function invoice_checkout_enabled(): bool {
+		$enabled = '0' !== (string) get_option( 'agend_apps_shop_pay_on_invoice', '1' );
+
+		/**
+		 * Filters whether the cart offers Pay on Invoice.
+		 *
+		 * @param bool $enabled True when the shop setting offers Pay on Invoice.
+		 */
+		return (bool) apply_filters( 'agend_apps_cart_invoice_checkout_enabled', $enabled );
+	}
 
 	/**
 	 * Registers the REST routes for this controller.
@@ -130,6 +164,51 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 							'required'          => true,
 							'type'              => 'string',
 							'sanitize_callback' => 'sanitize_url',
+						),
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/checkout-options',
+			array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'checkout_options' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+				),
+			)
+		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/checkout/invoice',
+			array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'checkout_invoice' ),
+					'permission_callback' => array( $this, 'nonce_check' ),
+					'args'                => array(
+						'idempotencyKey'      => array(
+							'required'          => true,
+							'type'              => 'string',
+							'minLength'         => 1,
+							'maxLength'         => 200,
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'purchaseOrderNumber' => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'companyId'           => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+						'discountCode'        => array(
+							'type'              => 'string',
+							'sanitize_callback' => 'sanitize_text_field',
 						),
 					),
 				),
@@ -409,6 +488,9 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function checkout_cart( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
+		if ( '' === $identity['bearer_token'] && ! self::guest_checkout_allowed() ) {
+			return $this->checkout_sign_in_required();
+		}
 		$urls     = array(
 			'successUrl' => $request->get_param( 'successUrl' ),
 			'cancelUrl'  => $request->get_param( 'cancelUrl' ),
@@ -442,6 +524,9 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	 */
 	public function checkout_complete( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
+		if ( '' === $identity['bearer_token'] && ! self::guest_checkout_allowed() ) {
+			return $this->checkout_sign_in_required();
+		}
 		$result   = agend_apps_cart_checkout_complete( $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
@@ -457,6 +542,152 @@ class Agend_Apps_Cart_REST_Controller extends Agend_Apps_REST_Controller {
 	public function checkout_cancel( WP_REST_Request $request ): WP_REST_Response {
 		$identity = $this->get_identity( $request );
 		$result   = agend_apps_cart_checkout_cancel( $identity['cart_session'], $identity['bearer_token'] );
+
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Returns the payment options for the current cart.
+	 *
+	 * Member only: a guest is refused before any gateway call. With Pay on
+	 * Invoice switched off in the shop settings the gateway answer is passed
+	 * through with the invoice option marked unavailable
+	 * (`reason: invoice_disabled`), so the cart shows card payment only. When
+	 * the buyer may invoice more than one company, `approvedCompanies` lists
+	 * each id with its name for the company choice.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 *
+	 * @return WP_REST_Response REST response.
+	 */
+	public function checkout_options( WP_REST_Request $request ): WP_REST_Response {
+		$identity = $this->get_identity( $request );
+		if ( '' === $identity['bearer_token'] ) {
+			return $this->checkout_sign_in_required();
+		}
+
+		$result = agend_apps_cart_checkout_options( $identity['cart_session'], $identity['bearer_token'] );
+		if ( is_wp_error( $result ) || ! isset( $result['data']['invoice'] ) || ! is_array( $result['data']['invoice'] ) ) {
+			return $this->prepare_api_response( $result );
+		}
+
+		$invoice = &$result['data']['invoice'];
+		if ( ! self::invoice_checkout_enabled() ) {
+			$invoice['available']           = false;
+			$invoice['reason']              = 'invoice_disabled';
+			$invoice['reasonMessage']       = null;
+			$invoice['paymentInstructions'] = null;
+		}
+
+		$company_ids = array_values( array_filter( (array) ( $invoice['approvedCompanyIds'] ?? array() ), 'is_string' ) );
+		if ( ! empty( $invoice['available'] ) && count( $company_ids ) > 1 ) {
+			$invoice['approvedCompanies'] = array_map(
+				function ( string $id ): array {
+					return array(
+						'id'   => $id,
+						'name' => $this->company_name( $id ),
+					);
+				},
+				$company_ids
+			);
+		}
+		unset( $invoice );
+
+		return $this->prepare_api_response( $result );
+	}
+
+	/**
+	 * Looks up a company's name for the invoice company choice.
+	 *
+	 * Sent with the site's key only (never the member's token), cached for ten
+	 * minutes, and an empty string when the lookup fails, in which case the
+	 * cart labels the option generically.
+	 *
+	 * @param string $company_id Company id from `approvedCompanyIds`.
+	 * @return string Company name, or empty string.
+	 */
+	private function company_name( string $company_id ): string {
+		$cache_key = 'agend_apps_cart_company_name_' . md5( $company_id );
+		$name      = get_transient( $cache_key );
+		if ( false !== $name ) {
+			return (string) $name;
+		}
+
+		$response = agend_apps_api()->request(
+			'GET',
+			'/crm/companies/' . rawurlencode( $company_id ),
+			array(
+				'unattended'    => true,
+				'scope_recheck' => false,
+			)
+		);
+		$name     = is_wp_error( $response ) ? '' : sanitize_text_field( (string) ( $response['data']['name'] ?? '' ) );
+		set_transient( $cache_key, $name, '' === $name ? MINUTE_IN_SECONDS : 10 * MINUTE_IN_SECONDS );
+
+		return $name;
+	}
+
+	/**
+	 * Places the current cart as an order on invoice.
+	 *
+	 * Member only, and refused when Pay on Invoice is switched off in the shop
+	 * settings. The gateway still applies the organisation's invoice policy
+	 * (eligibility, a required purchase order number) and its errors are
+	 * passed through for the cart to show.
+	 *
+	 * @param WP_REST_Request $request Current request.
+	 *
+	 * @return WP_REST_Response REST response.
+	 */
+	public function checkout_invoice( WP_REST_Request $request ): WP_REST_Response {
+		$identity = $this->get_identity( $request );
+		if ( '' === $identity['bearer_token'] ) {
+			return $this->checkout_sign_in_required();
+		}
+		if ( ! self::invoice_checkout_enabled() ) {
+			return new WP_REST_Response(
+				array(
+					'code'    => 'agend_apps_invoice_disabled',
+					'message' => __( 'Pay on Invoice is not available on this site.', 'agend-apps-core' ),
+					'data'    => array( 'status_code' => 403 ),
+				),
+				403
+			);
+		}
+
+		$payload = array(
+			'paymentMethod'  => 'invoice',
+			'idempotencyKey' => trim( (string) $request->get_param( 'idempotencyKey' ) ),
+		);
+
+		$po = trim( (string) $request->get_param( 'purchaseOrderNumber' ) );
+		if ( '' !== $po ) {
+			$length = function_exists( 'mb_strlen' ) ? mb_strlen( $po ) : strlen( $po );
+			if ( $length > self::PURCHASE_ORDER_MAX_LENGTH ) {
+				return new WP_REST_Response(
+					array(
+						'code'    => 'agend_apps_invalid_purchase_order',
+						/* translators: %d: maximum number of characters. */
+						'message' => sprintf( __( 'The purchase order number must be %d characters or fewer.', 'agend-apps-core' ), self::PURCHASE_ORDER_MAX_LENGTH ),
+						'data'    => array( 'status_code' => 400 ),
+					),
+					400
+				);
+			}
+			$payload['purchaseOrderNumber'] = $po;
+		}
+
+		$company_id = strtolower( trim( (string) $request->get_param( 'companyId' ) ) );
+		if ( 1 === preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $company_id ) ) {
+			$payload['companyId'] = $company_id;
+		}
+
+		$discount = trim( (string) $request->get_param( 'discountCode' ) );
+		if ( '' !== $discount ) {
+			$payload['discountCode'] = $discount;
+		}
+
+		$result = agend_apps_cart_checkout_invoice( $payload, $identity['cart_session'], $identity['bearer_token'] );
 
 		return $this->prepare_api_response( $result );
 	}
