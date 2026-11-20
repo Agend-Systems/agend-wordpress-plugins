@@ -204,6 +204,17 @@ function agend_apps_records_fragment_event_sponsors( array $item ): string {
  */
 function agend_apps_records_fragment_event_registration( array $item, string $slug, array $extra = array() ): string {
 	$sold_out = ! empty( $item['sold_out'] );
+	$now      = time();
+	$opens    = strtotime( (string) ( $item['purchase_start_at'] ?? '' ) );
+	$closes   = strtotime( (string) ( $item['purchase_end_at'] ?? '' ) );
+	$unavailable = '';
+	if ( false !== $closes && $closes <= $now ) {
+		$unavailable = __( 'Registration closed', 'agend-apps-core' );
+	} elseif ( false !== $opens && $opens > $now ) {
+		$unavailable = __( 'Registration not open yet', 'agend-apps-core' );
+	} elseif ( $sold_out ) {
+		$unavailable = __( 'Sold Out', 'agend-apps-core' );
+	}
 	$ical_url = rest_url( 'agend-apps/v1/events/' . rawurlencode( $slug ) . '/ical' );
 
 	ob_start();
@@ -218,14 +229,12 @@ function agend_apps_records_fragment_event_registration( array $item, string $sl
 						$viewer_group   = isset( $item['viewer_price_group'] ) ? (string) $item['viewer_price_group'] : '';
 						$is_member      = ( 'member' === $viewer_group || 'corporate' === $viewer_group );
 						$is_registered  = ! empty( $item['my_registration'] );
-						$register_label = $sold_out
-							? __( 'Sold Out', 'agend-apps-core' )
-							: ( $is_registered ? __( 'Register Another Attendee', 'agend-apps-core' ) : __( 'Register Now', 'agend-apps-core' ) );
+						$register_label = $unavailable ?: ( $is_registered ? __( 'Register Another Attendee', 'agend-apps-core' ) : __( 'Register Now', 'agend-apps-core' ) );
 						?>
 						<?php if ( $is_registered ) : ?>
 							<div class="agend-ev-detail__registered"><?php esc_html_e( '✓ You’re registered for this event', 'agend-apps-core' ); ?></div>
 						<?php endif; ?>
-						<button type="button" class="agend-ev-detail__cta" data-agend-event-slug="<?php echo esc_attr( $slug ); ?>"<?php echo $sold_out ? ' disabled' : ''; ?>>
+						<button type="button" class="agend-ev-detail__cta" data-agend-event-slug="<?php echo esc_attr( $slug ); ?>"<?php echo '' !== $unavailable ? ' disabled' : ''; ?>>
 							<?php echo esc_html( $register_label ); ?>
 						</button>
 						<a class="agend-ev-detail__calendar" href="<?php echo esc_url( $ical_url ); ?>"><?php esc_html_e( 'Add to Calendar', 'agend-apps-core' ); ?></a>
